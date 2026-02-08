@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { classifyCodexStderrLine } from "./codexAppServerManager";
+import {
+  classifyCodexStderrLine,
+  normalizeCodexModelSlug,
+} from "./codexAppServerManager";
 
 describe("classifyCodexStderrLine", () => {
   it("ignores empty lines", () => {
@@ -32,5 +35,23 @@ describe("classifyCodexStderrLine", () => {
     expect(classifyCodexStderrLine(line)).toEqual({
       message: line,
     });
+  });
+});
+
+describe("normalizeCodexModelSlug", () => {
+  it("maps 5.3 aliases to gpt-5.3-codex", () => {
+    expect(normalizeCodexModelSlug("5.3")).toBe("gpt-5.3-codex");
+    expect(normalizeCodexModelSlug("gpt-5.3")).toBe("gpt-5.3-codex");
+  });
+
+  it("prefers codex id when model differs", () => {
+    expect(normalizeCodexModelSlug("gpt-5.3", "gpt-5.3-codex")).toBe(
+      "gpt-5.3-codex",
+    );
+  });
+
+  it("keeps non-aliased models as-is", () => {
+    expect(normalizeCodexModelSlug("gpt-5.2-codex")).toBe("gpt-5.2-codex");
+    expect(normalizeCodexModelSlug("gpt-5.2")).toBe("gpt-5.2");
   });
 });

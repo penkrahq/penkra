@@ -9,6 +9,7 @@ import {
 } from "react";
 
 import type { ProviderEvent, ProviderSession } from "@acme/contracts";
+import { DEFAULT_MODEL, resolveModelSlug } from "./model-logic";
 import { applyEventToMessages, evolveSession } from "./session-logic";
 import type { Project, Thread } from "./types";
 
@@ -40,7 +41,9 @@ export interface AppState {
   diffOpen: boolean;
 }
 
-const PERSISTED_STATE_KEY = "codething:renderer-state:v1";
+const PERSISTED_STATE_KEY = "codething:renderer-state:v2";
+const LEGACY_PERSISTED_STATE_KEY = "codething:renderer-state:v1";
+const LEGACY_DEFAULT_MODEL = "gpt-5.2-codex";
 
 const initialState: AppState = {
   projects: [],
@@ -86,7 +89,8 @@ function sanitizeProjects(input: unknown): Project[] {
       const id = asString(project.id);
       const name = asString(project.name);
       const cwd = asString(project.cwd);
-      const model = asString(project.model);
+      const rawModel = asString(project.model);
+      const model = resolveModelSlug(rawModel);
       const expanded = project.expanded;
       if (!id || !name || !cwd || !model || !isBoolean(expanded)) return null;
 
@@ -99,6 +103,10 @@ function sanitizeProjects(input: unknown): Project[] {
       } satisfies Project;
     })
     .filter((project): project is Project => project !== null);
+}
+
+function migrateLegacyDefaultModel(model: string): string {
+  return model === LEGACY_DEFAULT_MODEL ? DEFAULT_MODEL : model;
 }
 
 function sanitizeMessages(input: unknown): Thread["messages"] {
@@ -149,7 +157,8 @@ function sanitizeThreads(input: unknown): AppState["threads"] {
       const id = asString(thread.id);
       const projectId = asString(thread.projectId);
       const title = asString(thread.title);
-      const model = asString(thread.model);
+      const rawModel = asString(thread.model);
+      const model = resolveModelSlug(rawModel);
       const createdAt = asString(thread.createdAt);
       if (!id || !projectId || !title || !model || !createdAt) return null;
 
@@ -173,17 +182,30 @@ function readPersistedState(): AppState {
   if (typeof window === "undefined") return initialState;
 
   try {
-    const raw = window.localStorage.getItem(PERSISTED_STATE_KEY);
+    const rawCurrent = window.localStorage.getItem(PERSISTED_STATE_KEY);
+    const rawLegacy = window.localStorage.getItem(LEGACY_PERSISTED_STATE_KEY);
+    const raw = rawCurrent ?? rawLegacy;
     if (!raw) return initialState;
+    const isLegacyPayload = !rawCurrent && Boolean(rawLegacy);
 
     const parsed = asObject(JSON.parse(raw));
     if (!parsed) return initialState;
 
-    const projects = sanitizeProjects(parsed.projects);
+    const projects = sanitizeProjects(parsed.projects).map((project) => ({
+      ...project,
+      model: isLegacyPayload
+        ? migrateLegacyDefaultModel(project.model)
+        : project.model,
+    }));
     const projectIds = new Set(projects.map((project) => project.id));
-    const threads = sanitizeThreads(parsed.threads).filter((thread) =>
-      projectIds.has(thread.projectId),
-    );
+    const threads = sanitizeThreads(parsed.threads)
+      .map((thread) => ({
+        ...thread,
+        model: isLegacyPayload
+          ? migrateLegacyDefaultModel(thread.model)
+          : thread.model,
+      }))
+      .filter((thread) => projectIds.has(thread.projectId));
     const activeThreadId = asString(parsed.activeThreadId);
     const hasActiveThread = Boolean(
       activeThreadId && threads.some((thread) => thread.id === activeThreadId),
@@ -227,6 +249,7 @@ function persistState(state: AppState): void {
       PERSISTED_STATE_KEY,
       JSON.stringify(toPersistedState(state)),
     );
+    window.localStorage.removeItem(LEGACY_PERSISTED_STATE_KEY);
   } catch {
     // Ignore quota/storage errors to avoid breaking chat UX.
   }
@@ -252,7 +275,16 @@ function findThreadBySessionId(
 function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
     case "ADD_PROJECT":
-      return { ...state, projects: [...state.projects, action.project] };
+      return {
+        ...state,
+        projects: [
+          ...state.projects,
+          {
+            ...action.project,
+            model: resolveModelSlug(action.project.model),
+          },
+        ],
+      };
 
     case "TOGGLE_PROJECT":
       return {
@@ -265,7 +297,13 @@ function reducer(state: AppState, action: Action): AppState {
     case "ADD_THREAD":
       return {
         ...state,
-        threads: [...state.threads, action.thread],
+        threads: [
+          ...state.threads,
+          {
+            ...action.thread,
+            model: resolveModelSlug(action.thread.model),
+          },
+        ],
         activeThreadId: action.thread.id,
       };
 
@@ -349,7 +387,7 @@ function reducer(state: AppState, action: Action): AppState {
         ...state,
         threads: updateThread(state.threads, action.threadId, (t) => ({
           ...t,
-          model: action.model,
+          model: resolveModelSlug(action.model),
         })),
       };
 

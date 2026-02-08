@@ -41,8 +41,6 @@ const nativeApi: NativeApi = {
     stopSession: (input) =>
       ipcRenderer.invoke(IPC_CHANNELS.providerSessionStop, input),
     listSessions: () => ipcRenderer.invoke(IPC_CHANNELS.providerSessionList),
-    listModels: (input) =>
-      ipcRenderer.invoke(IPC_CHANNELS.providerModelList, input),
     onEvent: (callback) => {
       const listener = (_event: Electron.IpcRendererEvent, payload: unknown) =>
         callback(payload as Parameters<typeof callback>[0]);

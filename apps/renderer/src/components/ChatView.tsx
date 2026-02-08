@@ -1,4 +1,3 @@
-import type { ProviderModel } from "@acme/contracts";
 import {
   type FormEvent,
   type KeyboardEvent,
@@ -8,10 +7,40 @@ import {
   useState,
 } from "react";
 
-import { derivePhase, formatTimestamp, readNativeApi } from "../session-logic";
+import {
+  derivePhase,
+  deriveWorkLogEntries,
+  formatElapsed,
+  formatTimestamp,
+  readNativeApi,
+} from "../session-logic";
+import {
+  DEFAULT_MODEL,
+  DEFAULT_REASONING,
+  MODEL_OPTIONS,
+  REASONING_OPTIONS,
+  resolveModelSlug,
+} from "../model-logic";
 import { useStore } from "../store";
 
-const DEFAULT_MODEL = "gpt-5.2-codex";
+function formatMessageMeta(createdAt: string, duration: string | null): string {
+  if (!duration) return formatTimestamp(createdAt);
+  return `${formatTimestamp(createdAt)} • ${duration}`;
+}
+
+function statusLabel(phase: string): string {
+  if (phase === "running") return "Thinking / working";
+  if (phase === "connecting") return "Connecting";
+  if (phase === "ready") return "Ready";
+  return "Disconnected";
+}
+
+function workToneClass(tone: "thinking" | "tool" | "info" | "error"): string {
+  if (tone === "thinking") return "text-sky-100";
+  if (tone === "tool") return "text-emerald-100";
+  if (tone === "error") return "text-rose-100";
+  return "text-[#d8d8d8]";
+}
 
 export default function ChatView() {
   const { state, dispatch } = useStore();
@@ -20,9 +49,10 @@ export default function ChatView() {
   const [isSending, setIsSending] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [isModelMenuOpen, setIsModelMenuOpen] = useState(false);
-  const [isLoadingModels, setIsLoadingModels] = useState(false);
-  const [modelLoadError, setModelLoadError] = useState<string | null>(null);
-  const [availableModels, setAvailableModels] = useState<ProviderModel[]>([]);
+  const [selectedEffort, setSelectedEffort] = useState<string>(
+    DEFAULT_REASONING,
+  );
+  const [nowTick, setNowTick] = useState(() => Date.now());
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const modelMenuRef = useRef<HTMLDivElement>(null);
@@ -31,31 +61,42 @@ export default function ChatView() {
   const activeProject = state.projects.find(
     (p) => p.id === activeThread?.projectId,
   );
-  const selectedModel =
-    activeThread?.model || activeProject?.model || DEFAULT_MODEL;
+  const selectedModel = resolveModelSlug(
+    activeThread?.model ?? activeProject?.model ?? DEFAULT_MODEL,
+  );
   const phase = derivePhase(activeThread?.session ?? null);
-  const modelOptions = useMemo(() => {
-    const deduped = new Map<string, ProviderModel>();
-    for (const model of availableModels) {
-      deduped.set(model.model, model);
+  const isWorking = phase === "running" || isSending || isConnecting;
+  const activeTurnId = activeThread?.session?.activeTurnId;
+  const nowIso = new Date(nowTick).toISOString();
+  const modelOptions = MODEL_OPTIONS;
+  const workLogEntries = useMemo(
+    () => deriveWorkLogEntries(activeThread?.events ?? [], activeTurnId),
+    [activeThread?.events, activeTurnId],
+  );
+  const assistantCompletionByItemId = useMemo(() => {
+    const map = new Map<string, string>();
+    const ordered = [...(activeThread?.events ?? [])].reverse();
+    for (const event of ordered) {
+      if (event.method !== "item/completed") continue;
+      if (!event.itemId) continue;
+      map.set(event.itemId, event.createdAt);
     }
-    if (!deduped.has(selectedModel)) {
-      deduped.set(selectedModel, {
-        id: selectedModel,
-        model: selectedModel,
-        displayName: selectedModel,
-        description: "Current model for this thread.",
-      });
-    }
-    return Array.from(deduped.values());
-  }, [availableModels, selectedModel]);
+    return map;
+  }, [activeThread?.events]);
+  const recentWorkLogEntries = workLogEntries.slice(-12);
 
   // Auto-scroll on new messages
   const messageCount = activeThread?.messages.length ?? 0;
+  const workLogCount = recentWorkLogEntries.length;
   // biome-ignore lint/correctness/useExhaustiveDependencies: trigger on message count change
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messageCount]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: auto-scroll while active work-log events stream in
+  useEffect(() => {
+    if (phase !== "running") return;
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [phase, workLogCount]);
 
   // Auto-resize textarea
   // biome-ignore lint/correctness/useExhaustiveDependencies: trigger on prompt change
@@ -65,6 +106,16 @@ export default function ChatView() {
     ta.style.height = "auto";
     ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
   }, [prompt]);
+
+  useEffect(() => {
+    if (phase !== "running") return;
+    const timer = window.setInterval(() => {
+      setNowTick(Date.now());
+    }, 250);
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [phase]);
 
   useEffect(() => {
     if (!isModelMenuOpen) return;
@@ -84,48 +135,6 @@ export default function ChatView() {
       window.removeEventListener("mousedown", handleClickOutside);
     };
   }, [isModelMenuOpen]);
-
-  useEffect(() => {
-    if (!api || !state.activeThreadId) return;
-
-    let cancelled = false;
-
-    const loadModels = async () => {
-      setIsLoadingModels(true);
-      setModelLoadError(null);
-      try {
-        const models = await api.providers.listModels(
-          activeProject?.cwd ? { cwd: activeProject.cwd } : undefined,
-        );
-        if (cancelled) return;
-
-        const sorted = [...models].sort((a, b) => {
-          if ((a.isDefault ?? false) && !(b.isDefault ?? false)) return -1;
-          if ((b.isDefault ?? false) && !(a.isDefault ?? false)) return 1;
-          return a.displayName.localeCompare(b.displayName);
-        });
-        setAvailableModels(sorted);
-      } catch (err) {
-        if (cancelled) return;
-        setAvailableModels([]);
-        setModelLoadError(
-          err instanceof Error
-            ? err.message
-            : "Could not load available models from Codex.",
-        );
-      } finally {
-        if (!cancelled) {
-          setIsLoadingModels(false);
-        }
-      }
-    };
-
-    void loadModels();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [api, activeProject?.cwd, state.activeThreadId]);
 
   const ensureSession = async (): Promise<string | null> => {
     if (!api || !activeThread || !activeProject) return null;
@@ -197,6 +206,7 @@ export default function ChatView() {
         sessionId,
         input: trimmed,
         model: selectedModel || undefined,
+        effort: selectedEffort || undefined,
       });
     } catch (err) {
       dispatch({
@@ -222,7 +232,7 @@ export default function ChatView() {
     dispatch({
       type: "SET_THREAD_MODEL",
       threadId: activeThread.id,
-      model,
+      model: resolveModelSlug(model),
     });
     setIsModelMenuOpen(false);
   };
@@ -266,19 +276,38 @@ export default function ChatView() {
         </div>
         <div className="flex items-center gap-3">
           {/* Status indicator */}
-          <div className="flex items-center gap-1.5">
-            <div
-              className={`h-2 w-2 rounded-full ${
-                phase === "running"
-                  ? "animate-pulse bg-emerald-400"
+          <div
+            className={`inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-[10px] ${
+              phase === "running"
+                ? "border-sky-400/35 bg-sky-500/[0.08] text-sky-100"
+                : phase === "connecting"
+                  ? "border-amber-400/35 bg-amber-500/[0.08] text-amber-100"
                   : phase === "ready"
-                    ? "bg-emerald-400"
+                    ? "border-emerald-400/35 bg-emerald-500/[0.08] text-emerald-100"
+                    : "border-white/[0.08] bg-white/[0.04] text-[#a0a0a0]/70"
+            }`}
+          >
+            <span className="relative inline-flex h-2.5 w-2.5">
+              {(phase === "running" || phase === "connecting") && (
+                <span
+                  className={`absolute inline-flex h-full w-full animate-ping rounded-full ${
+                    phase === "running" ? "bg-sky-300/70" : "bg-amber-300/70"
+                  }`}
+                />
+              )}
+              <span
+                className={`relative inline-flex h-2.5 w-2.5 rounded-full ${
+                  phase === "running"
+                    ? "bg-sky-200"
                     : phase === "connecting"
-                      ? "animate-pulse bg-amber-400"
-                      : "bg-[#a0a0a0]/30"
-              }`}
-            />
-            <span className="text-[10px] text-[#a0a0a0]/50">{phase}</span>
+                      ? "bg-amber-200"
+                      : phase === "ready"
+                        ? "bg-emerald-200"
+                        : "bg-[#a0a0a0]/40"
+                }`}
+              />
+            </span>
+            <span>{statusLabel(phase)}</span>
           </div>
           {/* Diff toggle */}
           <button
@@ -304,7 +333,7 @@ export default function ChatView() {
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-5 py-4">
-        {activeThread.messages.length === 0 ? (
+        {activeThread.messages.length === 0 && !isWorking ? (
           <div className="flex h-full items-center justify-center">
             <p className="text-sm text-[#a0a0a0]/30">
               Send a message to start the conversation.
@@ -312,6 +341,53 @@ export default function ChatView() {
           </div>
         ) : (
           <div className="mx-auto max-w-3xl space-y-4">
+            {isWorking && (
+              <div className="rounded-2xl border border-sky-400/20 bg-sky-500/[0.06] px-3 py-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="inline-flex items-center gap-2 text-xs text-sky-100">
+                    <span className="relative inline-flex h-2.5 w-2.5">
+                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-sky-300/70" />
+                      <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-sky-200" />
+                    </span>
+                    <span>Model is working</span>
+                  </div>
+                  <span className="text-[10px] text-sky-100/70">
+                    {recentWorkLogEntries.length} event
+                    {recentWorkLogEntries.length === 1 ? "" : "s"}
+                  </span>
+                </div>
+                {recentWorkLogEntries.length === 0 ? (
+                  <p className="pt-2 text-[11px] text-sky-100/70">
+                    Waiting for tool/preamble updates...
+                  </p>
+                ) : (
+                  <div className="mt-2 max-h-48 space-y-1.5 overflow-y-auto pr-1">
+                    {recentWorkLogEntries.map((entry) => (
+                      <div
+                        key={entry.id}
+                        className="rounded-lg border border-white/[0.08] bg-black/20 px-2 py-1.5"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <p
+                            className={`text-[11px] ${workToneClass(entry.tone)}`}
+                          >
+                            {entry.label}
+                          </p>
+                          <span className="shrink-0 text-[10px] text-[#a0a0a0]/60">
+                            {formatTimestamp(entry.createdAt)}
+                          </span>
+                        </div>
+                        {entry.detail && (
+                          <p className="pt-0.5 font-mono text-[11px] text-[#d0d0d0]/75">
+                            {entry.detail}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
             {activeThread.messages.map((msg) => (
               <div key={msg.id}>
                 {msg.role === "user" ? (
@@ -331,17 +407,28 @@ export default function ChatView() {
                       {msg.text || (msg.streaming ? "" : "(empty response)")}
                     </pre>
                     {msg.streaming && (
-                      <span className="inline-flex gap-1 pt-1">
-                        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-white/50" />
-                        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-white/50 [animation-delay:150ms]" />
-                        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-white/50 [animation-delay:300ms]" />
-                      </span>
+                      <div className="pt-1.5">
+                        <span className="inline-flex items-center gap-2 rounded-full border border-sky-400/25 bg-sky-500/[0.08] px-2 py-0.5 text-[10px] text-sky-100/90">
+                          <span className="inline-flex gap-1">
+                            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-sky-100/80" />
+                            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-sky-100/80 [animation-delay:150ms]" />
+                            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-sky-100/80 [animation-delay:300ms]" />
+                          </span>
+                          <span>Thinking</span>
+                        </span>
+                      </div>
                     )}
-                    {!msg.streaming && (
-                      <p className="mt-1.5 text-[10px] text-[#a0a0a0]/30">
-                        {formatTimestamp(msg.createdAt)}
-                      </p>
-                    )}
+                    <p className="mt-1.5 text-[10px] text-[#a0a0a0]/30">
+                      {formatMessageMeta(
+                        msg.createdAt,
+                        msg.streaming
+                          ? formatElapsed(msg.createdAt, nowIso)
+                          : formatElapsed(
+                              msg.createdAt,
+                              assistantCompletionByItemId.get(msg.id),
+                            ),
+                      )}
+                    </p>
                   </div>
                 )}
               </div>
@@ -373,70 +460,71 @@ export default function ChatView() {
               disabled={isSending || isConnecting}
             />
             <div className="mt-2 flex items-center justify-between gap-2">
-              <div className="relative" ref={modelMenuRef}>
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-2 rounded-full border border-white/[0.1] bg-white/[0.04] px-3 py-1.5 text-xs text-[#d8d8d8] transition-colors duration-150 hover:bg-white/[0.08]"
-                  onClick={() => setIsModelMenuOpen((open) => !open)}
-                >
-                  <span className="max-w-[180px] truncate">
-                    {selectedModel}
-                  </span>
-                  <span className="text-[10px] text-[#a0a0a0]/70">▼</span>
-                </button>
-                {isModelMenuOpen && (
-                  <div className="absolute bottom-full left-0 z-20 mb-2 w-[340px] rounded-2xl border border-white/[0.1] bg-[#1b1b1d]/95 p-2 shadow-[0_16px_40px_rgba(0,0,0,0.55)] backdrop-blur">
-                    <p className="px-2 py-1 text-[11px] text-[#a0a0a0]/70">
-                      Select model
-                    </p>
-                    <div className="max-h-72 overflow-y-auto">
-                      {modelOptions.map((model) => {
-                        const isSelected = model.model === selectedModel;
-                        return (
-                          <button
-                            key={model.id}
-                            type="button"
-                            className={`mb-0.5 flex w-full items-start justify-between gap-2 rounded-xl px-2 py-2 text-left transition-colors duration-150 ${
-                              isSelected
-                                ? "bg-white/[0.08] text-white"
-                                : "text-[#d4d4d4] hover:bg-white/[0.05]"
-                            }`}
-                            onClick={() => onModelSelect(model.model)}
-                          >
-                            <span className="min-w-0">
-                              <span className="block truncate text-sm">
-                                {model.displayName}
-                              </span>
-                              {model.description && (
-                                <span className="block pt-0.5 text-[10px] text-[#a0a0a0]/65">
-                                  {model.description}
-                                </span>
-                              )}
-                            </span>
-                            <span
-                              className={`pt-0.5 text-sm ${
-                                isSelected ? "text-white" : "text-transparent"
+              <div className="flex items-center gap-2">
+                <div className="relative" ref={modelMenuRef}>
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-2 rounded-full border border-white/[0.1] bg-white/[0.04] px-3 py-1.5 text-xs text-[#d8d8d8] transition-colors duration-150 hover:bg-white/[0.08]"
+                    onClick={() => setIsModelMenuOpen((open) => !open)}
+                  >
+                    <span className="max-w-[180px] truncate font-mono">
+                      {selectedModel}
+                    </span>
+                    <span className="text-[10px] text-[#a0a0a0]/70">▼</span>
+                  </button>
+                  {isModelMenuOpen && (
+                    <div className="absolute bottom-full left-0 z-20 mb-2 w-[320px] rounded-2xl border border-white/[0.1] bg-[#1b1b1d]/95 p-2 shadow-[0_16px_40px_rgba(0,0,0,0.55)] backdrop-blur">
+                      <p className="px-2 py-1 text-[11px] text-[#a0a0a0]/70">
+                        Select model
+                      </p>
+                      <div className="max-h-72 overflow-y-auto">
+                        {modelOptions.map((model) => {
+                          const isSelected = model === selectedModel;
+                          return (
+                            <button
+                              key={model}
+                              type="button"
+                              className={`mb-0.5 flex w-full items-center justify-between gap-2 rounded-xl px-2 py-2 text-left font-mono text-sm transition-colors duration-150 ${
+                                isSelected
+                                  ? "bg-white/[0.08] text-white"
+                                  : "text-[#d4d4d4] hover:bg-white/[0.05]"
                               }`}
+                              onClick={() => onModelSelect(model)}
                             >
-                              ✓
-                            </span>
-                          </button>
-                        );
-                      })}
+                              <span className="truncate">{model}</span>
+                              <span
+                                className={`pt-0.5 text-sm ${
+                                  isSelected ? "text-white" : "text-transparent"
+                                }`}
+                              >
+                                ✓
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
-                    {isLoadingModels && (
-                      <p className="px-2 pt-2 text-[10px] text-[#a0a0a0]/60">
-                        Refreshing available models...
-                      </p>
-                    )}
-                    {modelLoadError && (
-                      <p className="px-2 pt-2 text-[10px] text-amber-200/80">
-                        Could not load full model list from Codex:{" "}
-                        {modelLoadError}
-                      </p>
-                    )}
-                  </div>
-                )}
+                  )}
+                </div>
+                <label
+                  className="inline-flex items-center gap-2 rounded-full border border-white/[0.1] bg-white/[0.04] px-3 py-1.5 text-xs text-[#d8d8d8]"
+                  htmlFor="reasoning-effort"
+                >
+                  <span>Reasoning</span>
+                  <select
+                    id="reasoning-effort"
+                    className="bg-transparent font-mono text-xs text-[#d8d8d8] outline-none"
+                    value={selectedEffort}
+                    onChange={(event) => setSelectedEffort(event.target.value)}
+                  >
+                    {REASONING_OPTIONS.map((effort) => (
+                      <option key={effort} value={effort} className="bg-[#1b1b1d]">
+                        {effort}
+                        {effort === DEFAULT_REASONING ? " (default)" : ""}
+                      </option>
+                    ))}
+                  </select>
+                </label>
               </div>
               {activeProject && (
                 <span className="text-[10px] text-[#a0a0a0]/35">

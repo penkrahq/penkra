@@ -1,8 +1,7 @@
 import { useState } from "react";
+import { DEFAULT_MODEL, MODEL_OPTIONS, resolveModelSlug } from "../model-logic";
 import { useStore } from "../store";
 import type { Project } from "../types";
-
-const DEFAULT_MODEL = "gpt-5.2-codex";
 
 function formatRelativeTime(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
@@ -24,11 +23,12 @@ export default function Sidebar() {
     const cwd = newCwd.trim();
     if (!cwd) return;
     const name = cwd.split("/").filter(Boolean).pop() ?? "project";
+    const normalizedModel = resolveModelSlug(newModel);
     const project: Project = {
       id: crypto.randomUUID(),
       name,
       cwd,
-      model: newModel.trim() || DEFAULT_MODEL,
+      model: normalizedModel,
       expanded: true,
     };
     dispatch({ type: "ADD_PROJECT", project });
@@ -186,16 +186,21 @@ export default function Sidebar() {
               if (e.key === "Escape") setAddingProject(false);
             }}
           />
-          <input
+          <select
             className="mb-2 w-full rounded-md border border-white/[0.1] bg-white/[0.04] px-2 py-1.5 font-mono text-xs text-[#e0e0e0] placeholder:text-[#a0a0a0]/30 focus:border-white/30 focus:outline-none"
-            placeholder={`model (default: ${DEFAULT_MODEL})`}
             value={newModel}
             onChange={(e) => setNewModel(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter") handleAddProject();
               if (e.key === "Escape") setAddingProject(false);
             }}
-          />
+          >
+            {MODEL_OPTIONS.map((model) => (
+              <option key={model} value={model} className="bg-[#141414]">
+                {model}
+              </option>
+            ))}
+          </select>
           <div className="flex gap-2">
             <button
               type="button"

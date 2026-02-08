@@ -5,7 +5,6 @@ import readline from "node:readline";
 
 import type {
   ProviderEvent,
-  ProviderModel,
   ProviderSendTurnInput,
   ProviderSession,
   ProviderSessionStartInput,
@@ -60,6 +59,34 @@ const BENIGN_ERROR_LOG_SNIPPETS = [
   "state db missing rollout path for thread",
   "state db record_discrepancy: find_thread_path_by_id_str_in_subdir, falling_back",
 ];
+const MODEL_SLUG_ALIASES: Record<string, string> = {
+  "5.3": "gpt-5.3-codex",
+  "gpt-5.3": "gpt-5.3-codex",
+};
+
+export function normalizeCodexModelSlug(
+  model: string | undefined | null,
+  preferredId?: string,
+): string | undefined {
+  if (typeof model !== "string") {
+    return undefined;
+  }
+
+  const trimmed = model.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+
+  if (
+    preferredId &&
+    preferredId.endsWith("-codex") &&
+    preferredId !== trimmed
+  ) {
+    return preferredId;
+  }
+
+  return MODEL_SLUG_ALIASES[trimmed] ?? trimmed;
+}
 
 export function classifyCodexStderrLine(
   rawLine: string,
@@ -104,7 +131,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       sessionId,
       provider: "codex",
       status: "connecting",
-      model: input.model,
+      model: normalizeCodexModelSlug(input.model),
       cwd: input.cwd,
       createdAt: now,
       updatedAt: now,
@@ -150,7 +177,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       this.writeMessage(context, { method: "initialized" });
 
       const threadStart = await this.sendRequest(context, "thread/start", {
-        model: input.model ?? null,
+        model: null,
         cwd: input.cwd ?? null,
         approvalPolicy: input.approvalPolicy,
         sandbox: input.sandboxMode,
@@ -202,6 +229,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       threadId: string;
       input: Array<{ type: "text"; text: string; text_elements: [] }>;
       model?: string;
+      effort?: string;
     } = {
       threadId: context.session.threadId,
       input: [
@@ -212,8 +240,12 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         },
       ],
     };
-    if (input.model) {
-      turnStartParams.model = input.model;
+    const normalizedModel = normalizeCodexModelSlug(input.model);
+    if (normalizedModel) {
+      turnStartParams.model = normalizedModel;
+    }
+    if (input.effort) {
+      turnStartParams.effort = input.effort;
     }
 
     const response = await this.sendRequest(
@@ -237,177 +269,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       threadId: context.session.threadId,
       turnId,
     };
-  }
-
-  async listModels(cwd?: string): Promise<ProviderModel[]> {
-    const child = spawn("codex", ["app-server"], {
-      cwd,
-      env: process.env,
-      stdio: ["pipe", "pipe", "pipe"],
-    });
-    const output = readline.createInterface({ input: child.stdout });
-    const pending = new Map<PendingRequestKey, PendingRequest>();
-    let nextRequestId = 1;
-    let exited = false;
-    let exitError: Error | null = null;
-
-    const cleanup = () => {
-      for (const request of pending.values()) {
-        clearTimeout(request.timeout);
-      }
-      pending.clear();
-      output.close();
-      if (!child.killed) {
-        child.kill();
-      }
-    };
-
-    const writeMessage = (message: unknown) => {
-      if (!child.stdin.writable) {
-        throw new Error("Cannot write to codex app-server stdin.");
-      }
-      child.stdin.write(`${JSON.stringify(message)}\n`);
-    };
-
-    const sendRequest = async <TResponse>(
-      method: string,
-      params: unknown,
-      timeoutMs = 20_000,
-    ): Promise<TResponse> => {
-      if (exited) {
-        throw (
-          exitError ??
-          new Error("codex app-server exited before request could be sent.")
-        );
-      }
-
-      const id = nextRequestId;
-      nextRequestId += 1;
-
-      const result = await new Promise<unknown>((resolve, reject) => {
-        const timeout = setTimeout(() => {
-          pending.delete(String(id));
-          reject(new Error(`Timed out waiting for ${method}.`));
-        }, timeoutMs);
-
-        pending.set(String(id), {
-          timeout,
-          resolve,
-          reject,
-          method,
-        });
-        writeMessage({ id, method, params });
-      });
-
-      return result as TResponse;
-    };
-
-    output.on("line", (line) => {
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(line);
-      } catch {
-        return;
-      }
-
-      if (this.isResponse(parsed)) {
-        const key = String(parsed.id);
-        const request = pending.get(key);
-        if (!request) {
-          return;
-        }
-
-        clearTimeout(request.timeout);
-        pending.delete(key);
-
-        if (parsed.error?.message) {
-          request.reject(
-            new Error(
-              `${request.method} failed: ${String(parsed.error.message)}`,
-            ),
-          );
-          return;
-        }
-
-        request.resolve(parsed.result);
-        return;
-      }
-
-      if (this.isServerRequest(parsed)) {
-        writeMessage({
-          id: parsed.id,
-          error: {
-            code: -32601,
-            message: `Unsupported server request: ${parsed.method}`,
-          },
-        });
-      }
-    });
-
-    child.on("error", (error) => {
-      exited = true;
-      exitError = error;
-      for (const request of pending.values()) {
-        clearTimeout(request.timeout);
-        request.reject(error);
-      }
-      pending.clear();
-    });
-
-    child.on("exit", (code, signal) => {
-      exited = true;
-      if (!exitError && code !== 0) {
-        exitError = new Error(
-          `codex app-server exited (code=${code ?? "null"}, signal=${signal ?? "null"}).`,
-        );
-      }
-      for (const request of pending.values()) {
-        clearTimeout(request.timeout);
-        request.reject(
-          exitError ??
-            new Error("codex app-server exited before request completed."),
-        );
-      }
-      pending.clear();
-    });
-
-    try {
-      await sendRequest("initialize", {
-        clientInfo: {
-          name: "codething_desktop",
-          title: "CodeThing Desktop",
-          version: "0.1.0",
-        },
-        capabilities: {
-          experimentalApi: false,
-        },
-      });
-
-      writeMessage({ method: "initialized" });
-
-      const deduped = new Map<string, ProviderModel>();
-      let cursor: string | null = null;
-
-      while (true) {
-        const response = await sendRequest<unknown>("model/list", {
-          cursor,
-          limit: 100,
-        });
-        const parsed = this.parseModelListResponse(response);
-        for (const model of parsed.models) {
-          deduped.set(model.model, model);
-        }
-
-        if (!parsed.nextCursor) {
-          break;
-        }
-        cursor = parsed.nextCursor;
-      }
-
-      return Array.from(deduped.values());
-    } finally {
-      cleanup();
-    }
   }
 
   async interruptTurn(sessionId: string, turnId?: string): Promise<void> {
@@ -805,66 +666,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       ...updates,
       updatedAt: new Date().toISOString(),
     };
-  }
-
-  private parseModelListResponse(response: unknown): {
-    models: ProviderModel[];
-    nextCursor: string | null;
-  } {
-    const object = this.readObject(response);
-    if (!object) {
-      throw new Error("model/list response was not an object.");
-    }
-
-    const data = object.data;
-    if (!Array.isArray(data)) {
-      throw new Error("model/list response missing data array.");
-    }
-
-    const models: ProviderModel[] = [];
-    for (const entry of data) {
-      const item = this.readObject(entry);
-      if (!item) {
-        continue;
-      }
-
-      const model = this.readString(item, "model");
-      if (!model) {
-        continue;
-      }
-
-      const id = this.readString(item, "id") ?? model;
-      const displayName = this.readString(item, "displayName") ?? model;
-      const description = this.readString(item, "description");
-      const isDefault =
-        typeof item.isDefault === "boolean" ? item.isDefault : undefined;
-      const rawUpgrade = item.upgrade;
-      const upgrade =
-        typeof rawUpgrade === "string"
-          ? rawUpgrade
-          : rawUpgrade === null
-            ? null
-            : undefined;
-
-      models.push({
-        id,
-        model,
-        displayName,
-        ...(description ? { description } : {}),
-        ...(isDefault === undefined ? {} : { isDefault }),
-        ...(upgrade === undefined ? {} : { upgrade }),
-      });
-    }
-
-    const rawCursor = object.nextCursor;
-    const nextCursor =
-      typeof rawCursor === "string"
-        ? rawCursor
-        : rawCursor === null || rawCursor === undefined
-          ? null
-          : null;
-
-    return { models, nextCursor };
   }
 
   private isServerRequest(value: unknown): value is JsonRpcRequest {

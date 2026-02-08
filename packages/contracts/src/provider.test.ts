@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import {
   providerEventSchema,
-  providerListModelsInputSchema,
   providerSendTurnInputSchema,
   providerSessionStartInputSchema,
 } from "./provider";
@@ -17,21 +16,16 @@ describe("providerSessionStartInputSchema", () => {
 });
 
 describe("providerSendTurnInputSchema", () => {
-  it("trims input text and optional model", () => {
+  it("trims input text and optional model/effort", () => {
     const parsed = providerSendTurnInputSchema.parse({
       sessionId: "sess_1",
       input: "  summarize this repo  ",
       model: "  gpt-5.2-codex  ",
+      effort: "  high  ",
     });
     expect(parsed.input).toBe("summarize this repo");
     expect(parsed.model).toBe("gpt-5.2-codex");
-  });
-});
-
-describe("providerListModelsInputSchema", () => {
-  it("defaults provider to codex", () => {
-    const parsed = providerListModelsInputSchema.parse({});
-    expect(parsed.provider).toBe("codex");
+    expect(parsed.effort).toBe("high");
   });
 });
 
