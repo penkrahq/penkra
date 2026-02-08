@@ -127,10 +127,11 @@ export default function ChatView() {
     };
   }, [api, activeProject?.cwd, state.activeThreadId]);
 
-  const ensureSession = async (): Promise<boolean> => {
-    if (!api || !activeThread || !activeProject) return false;
-    if (activeThread.session && activeThread.session.status !== "closed")
-      return true;
+  const ensureSession = async (): Promise<string | null> => {
+    if (!api || !activeThread || !activeProject) return null;
+    if (activeThread.session && activeThread.session.status !== "closed") {
+      return activeThread.session.sessionId;
+    }
 
     setIsConnecting(true);
     try {
@@ -144,14 +145,14 @@ export default function ChatView() {
         threadId: activeThread.id,
         session,
       });
-      return true;
+      return session.sessionId;
     } catch (err) {
       dispatch({
         type: "SET_ERROR",
         threadId: activeThread.id,
         error: err instanceof Error ? err.message : "Failed to connect.",
       });
-      return false;
+      return null;
     } finally {
       setIsConnecting(false);
     }
@@ -187,13 +188,7 @@ export default function ChatView() {
     });
     setPrompt("");
 
-    const connected = await ensureSession();
-    if (!connected) return;
-
-    // Re-read thread to get session after potential connection
-    const updatedThread = state.threads.find((t) => t.id === activeThread.id);
-    const sessionId =
-      updatedThread?.session?.sessionId ?? activeThread.session?.sessionId;
+    const sessionId = await ensureSession();
     if (!sessionId) return;
 
     setIsSending(true);

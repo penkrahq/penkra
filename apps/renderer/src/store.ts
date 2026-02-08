@@ -4,6 +4,7 @@ import {
   createContext,
   createElement,
   useContext,
+  useEffect,
   useReducer,
 } from "react";
 
@@ -39,6 +40,8 @@ export interface AppState {
   diffOpen: boolean;
 }
 
+const PERSISTED_STATE_KEY = "codething:renderer-state:v1";
+
 const initialState: AppState = {
   projects: [],
   threads: [],
@@ -47,6 +50,187 @@ const initialState: AppState = {
 };
 
 // ── Helpers ──────────────────────────────────────────────────────────
+
+interface PersistedStateV1 {
+  projects: Project[];
+  threads: Array<
+    Pick<
+      Thread,
+      "id" | "projectId" | "title" | "model" | "messages" | "createdAt"
+    >
+  >;
+  activeThreadId: string | null;
+}
+
+function asObject(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object") return null;
+  return value as Record<string, unknown>;
+}
+
+function asString(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
+}
+
+function isBoolean(value: unknown): value is boolean {
+  return typeof value === "boolean";
+}
+
+function sanitizeProjects(input: unknown): Project[] {
+  if (!Array.isArray(input)) return [];
+
+  return input
+    .map((raw) => {
+      const project = asObject(raw);
+      if (!project) return null;
+
+      const id = asString(project.id);
+      const name = asString(project.name);
+      const cwd = asString(project.cwd);
+      const model = asString(project.model);
+      const expanded = project.expanded;
+      if (!id || !name || !cwd || !model || !isBoolean(expanded)) return null;
+
+      return {
+        id,
+        name,
+        cwd,
+        model,
+        expanded,
+      } satisfies Project;
+    })
+    .filter((project): project is Project => project !== null);
+}
+
+function sanitizeMessages(input: unknown): Thread["messages"] {
+  if (!Array.isArray(input)) return [];
+
+  return input
+    .map((raw) => {
+      const message = asObject(raw);
+      if (!message) return null;
+
+      const id = asString(message.id);
+      const role = message.role;
+      const text = asString(message.text);
+      const createdAt = asString(message.createdAt);
+      const streaming = message.streaming;
+      if (
+        !id ||
+        (role !== "user" && role !== "assistant") ||
+        text === null ||
+        !createdAt ||
+        !isBoolean(streaming)
+      ) {
+        return null;
+      }
+
+      const hydratedMessage: Thread["messages"][number] = {
+        id,
+        role,
+        text,
+        createdAt,
+        streaming: false,
+      };
+      return hydratedMessage;
+    })
+    .filter(
+      (message): message is Thread["messages"][number] => message !== null,
+    );
+}
+
+function sanitizeThreads(input: unknown): AppState["threads"] {
+  if (!Array.isArray(input)) return [];
+
+  return input
+    .map((raw) => {
+      const thread = asObject(raw);
+      if (!thread) return null;
+
+      const id = asString(thread.id);
+      const projectId = asString(thread.projectId);
+      const title = asString(thread.title);
+      const model = asString(thread.model);
+      const createdAt = asString(thread.createdAt);
+      if (!id || !projectId || !title || !model || !createdAt) return null;
+
+      const hydratedThread: Thread = {
+        id,
+        projectId,
+        title,
+        model,
+        session: null,
+        messages: sanitizeMessages(thread.messages),
+        events: [],
+        error: null,
+        createdAt,
+      };
+      return hydratedThread;
+    })
+    .filter((thread): thread is Thread => thread !== null);
+}
+
+function readPersistedState(): AppState {
+  if (typeof window === "undefined") return initialState;
+
+  try {
+    const raw = window.localStorage.getItem(PERSISTED_STATE_KEY);
+    if (!raw) return initialState;
+
+    const parsed = asObject(JSON.parse(raw));
+    if (!parsed) return initialState;
+
+    const projects = sanitizeProjects(parsed.projects);
+    const projectIds = new Set(projects.map((project) => project.id));
+    const threads = sanitizeThreads(parsed.threads).filter((thread) =>
+      projectIds.has(thread.projectId),
+    );
+    const activeThreadId = asString(parsed.activeThreadId);
+    const hasActiveThread = Boolean(
+      activeThreadId && threads.some((thread) => thread.id === activeThreadId),
+    );
+
+    return {
+      projects,
+      threads,
+      activeThreadId: hasActiveThread
+        ? activeThreadId
+        : threads[0]?.id
+          ? threads[0].id
+          : null,
+      diffOpen: false,
+    };
+  } catch {
+    return initialState;
+  }
+}
+
+function toPersistedState(state: AppState): PersistedStateV1 {
+  return {
+    projects: state.projects,
+    threads: state.threads.map((thread) => ({
+      id: thread.id,
+      projectId: thread.projectId,
+      title: thread.title,
+      model: thread.model,
+      messages: thread.messages,
+      createdAt: thread.createdAt,
+    })),
+    activeThreadId: state.activeThreadId,
+  };
+}
+
+function persistState(state: AppState): void {
+  if (typeof window === "undefined") return;
+
+  try {
+    window.localStorage.setItem(
+      PERSISTED_STATE_KEY,
+      JSON.stringify(toPersistedState(state)),
+    );
+  } catch {
+    // Ignore quota/storage errors to avoid breaking chat UX.
+  }
+}
 
 function updateThread(
   threads: Thread[],
@@ -119,7 +303,6 @@ function reducer(state: AppState, action: Action): AppState {
         threads: updateThread(state.threads, action.threadId, (t) => ({
           ...t,
           session: action.session,
-          messages: [],
           events: [],
           error: null,
         })),
@@ -183,7 +366,12 @@ const StoreContext = createContext<{
 }>({ state: initialState, dispatch: () => {} });
 
 export function StoreProvider({ children }: { children: ReactNode }) {
-  const [state, dispatch] = useReducer(reducer, initialState);
+  const [state, dispatch] = useReducer(reducer, undefined, readPersistedState);
+
+  useEffect(() => {
+    persistState(state);
+  }, [state]);
+
   return createElement(
     StoreContext.Provider,
     { value: { state, dispatch } },
