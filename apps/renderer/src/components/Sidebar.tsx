@@ -2,6 +2,8 @@ import { useState } from "react";
 import { useStore } from "../store";
 import type { Project } from "../types";
 
+const DEFAULT_MODEL = "gpt-5.2-codex";
+
 function formatRelativeTime(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
   const minutes = Math.floor(diff / 60_000);
@@ -16,7 +18,7 @@ export default function Sidebar() {
   const { state, dispatch } = useStore();
   const [addingProject, setAddingProject] = useState(false);
   const [newCwd, setNewCwd] = useState("");
-  const [newModel, setNewModel] = useState("gpt-5.1-codex");
+  const [newModel, setNewModel] = useState(DEFAULT_MODEL);
 
   const handleAddProject = () => {
     const cwd = newCwd.trim();
@@ -26,12 +28,12 @@ export default function Sidebar() {
       id: crypto.randomUUID(),
       name,
       cwd,
-      model: newModel.trim() || "gpt-5.1-codex",
+      model: newModel.trim() || DEFAULT_MODEL,
       expanded: true,
     };
     dispatch({ type: "ADD_PROJECT", project });
     setNewCwd("");
-    setNewModel("gpt-5.1-codex");
+    setNewModel(DEFAULT_MODEL);
     setAddingProject(false);
   };
 
@@ -42,6 +44,9 @@ export default function Sidebar() {
         id: crypto.randomUUID(),
         projectId,
         title: "New thread",
+        model:
+          state.projects.find((p) => p.id === projectId)?.model ??
+          DEFAULT_MODEL,
         session: null,
         messages: [],
         events: [],
@@ -183,7 +188,7 @@ export default function Sidebar() {
           />
           <input
             className="mb-2 w-full rounded-md border border-white/[0.1] bg-white/[0.04] px-2 py-1.5 font-mono text-xs text-[#e0e0e0] placeholder:text-[#a0a0a0]/30 focus:border-white/30 focus:outline-none"
-            placeholder="model (default: gpt-5.1-codex)"
+            placeholder={`model (default: ${DEFAULT_MODEL})`}
             value={newModel}
             onChange={(e) => setNewModel(e.target.value)}
             onKeyDown={(e) => {

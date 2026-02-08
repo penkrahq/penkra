@@ -47,6 +47,7 @@ export const providerSessionStartInputSchema = z.object({
 export const providerSendTurnInputSchema = z.object({
   sessionId: z.string().min(1),
   input: z.string().trim().min(1).max(120_000),
+  model: z.string().trim().min(1).optional(),
 });
 
 export const providerTurnStartResultSchema = z.object({
@@ -61,6 +62,20 @@ export const providerInterruptTurnInputSchema = z.object({
 
 export const providerStopSessionInputSchema = z.object({
   sessionId: z.string().min(1),
+});
+
+export const providerModelSchema = z.object({
+  id: z.string().min(1),
+  model: z.string().min(1),
+  displayName: z.string().min(1),
+  description: z.string().min(1).optional(),
+  isDefault: z.boolean().optional(),
+  upgrade: z.string().min(1).nullable().optional(),
+});
+
+export const providerListModelsInputSchema = z.object({
+  provider: providerKindSchema.default("codex"),
+  cwd: z.string().min(1).optional(),
 });
 
 export const providerEventKindSchema = z.enum([
@@ -104,6 +119,10 @@ export type ProviderInterruptTurnInput = z.input<
 >;
 export type ProviderStopSessionInput = z.input<
   typeof providerStopSessionInputSchema
+>;
+export type ProviderModel = z.infer<typeof providerModelSchema>;
+export type ProviderListModelsInput = z.input<
+  typeof providerListModelsInputSchema
 >;
 export type ProviderEventKind = z.infer<typeof providerEventKindSchema>;
 export type ProviderEvent = z.infer<typeof providerEventSchema>;

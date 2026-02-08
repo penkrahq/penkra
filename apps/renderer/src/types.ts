@@ -22,6 +22,7 @@ export interface Thread {
   id: string;
   projectId: string;
   title: string;
+  model: string;
   session: ProviderSession | null;
   messages: ChatMessage[];
   events: ProviderEvent[];

@@ -3,12 +3,15 @@ import { EventEmitter } from "node:events";
 import {
   type ProviderEvent,
   type ProviderInterruptTurnInput,
+  type ProviderListModelsInput,
+  type ProviderModel,
   type ProviderSendTurnInput,
   type ProviderSession,
   type ProviderSessionStartInput,
   type ProviderStopSessionInput,
   type ProviderTurnStartResult,
   providerInterruptTurnInputSchema,
+  providerListModelsInputSchema,
   providerSendTurnInputSchema,
   providerSessionStartInputSchema,
   providerStopSessionInputSchema,
@@ -61,6 +64,17 @@ export class ProviderManager extends EventEmitter<ProviderManagerEvents> {
 
   listSessions(): ProviderSession[] {
     return this.codex.listSessions();
+  }
+
+  async listModels(
+    raw: ProviderListModelsInput = {},
+  ): Promise<ProviderModel[]> {
+    const input = providerListModelsInputSchema.parse(raw);
+    if (input.provider !== "codex") {
+      throw new Error(`Provider '${input.provider}' is not implemented yet.`);
+    }
+
+    return this.codex.listModels(input.cwd);
   }
 
   stopAll(): void {

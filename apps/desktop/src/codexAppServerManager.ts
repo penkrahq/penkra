@@ -5,6 +5,7 @@ import readline from "node:readline";
 
 import type {
   ProviderEvent,
+  ProviderModel,
   ProviderSendTurnInput,
   ProviderSession,
   ProviderSessionStartInput,
@@ -197,7 +198,11 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       throw new Error("Session is missing a thread id.");
     }
 
-    const response = await this.sendRequest(context, "turn/start", {
+    const turnStartParams: {
+      threadId: string;
+      input: Array<{ type: "text"; text: string; text_elements: [] }>;
+      model?: string;
+    } = {
       threadId: context.session.threadId,
       input: [
         {
@@ -206,7 +211,16 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
           text_elements: [],
         },
       ],
-    });
+    };
+    if (input.model) {
+      turnStartParams.model = input.model;
+    }
+
+    const response = await this.sendRequest(
+      context,
+      "turn/start",
+      turnStartParams,
+    );
 
     const turn = this.readObject(this.readObject(response), "turn");
     const turnId = this.readString(turn, "id");
@@ -223,6 +237,177 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       threadId: context.session.threadId,
       turnId,
     };
+  }
+
+  async listModels(cwd?: string): Promise<ProviderModel[]> {
+    const child = spawn("codex", ["app-server"], {
+      cwd,
+      env: process.env,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    const output = readline.createInterface({ input: child.stdout });
+    const pending = new Map<PendingRequestKey, PendingRequest>();
+    let nextRequestId = 1;
+    let exited = false;
+    let exitError: Error | null = null;
+
+    const cleanup = () => {
+      for (const request of pending.values()) {
+        clearTimeout(request.timeout);
+      }
+      pending.clear();
+      output.close();
+      if (!child.killed) {
+        child.kill();
+      }
+    };
+
+    const writeMessage = (message: unknown) => {
+      if (!child.stdin.writable) {
+        throw new Error("Cannot write to codex app-server stdin.");
+      }
+      child.stdin.write(`${JSON.stringify(message)}\n`);
+    };
+
+    const sendRequest = async <TResponse>(
+      method: string,
+      params: unknown,
+      timeoutMs = 20_000,
+    ): Promise<TResponse> => {
+      if (exited) {
+        throw (
+          exitError ??
+          new Error("codex app-server exited before request could be sent.")
+        );
+      }
+
+      const id = nextRequestId;
+      nextRequestId += 1;
+
+      const result = await new Promise<unknown>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          pending.delete(String(id));
+          reject(new Error(`Timed out waiting for ${method}.`));
+        }, timeoutMs);
+
+        pending.set(String(id), {
+          timeout,
+          resolve,
+          reject,
+          method,
+        });
+        writeMessage({ id, method, params });
+      });
+
+      return result as TResponse;
+    };
+
+    output.on("line", (line) => {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(line);
+      } catch {
+        return;
+      }
+
+      if (this.isResponse(parsed)) {
+        const key = String(parsed.id);
+        const request = pending.get(key);
+        if (!request) {
+          return;
+        }
+
+        clearTimeout(request.timeout);
+        pending.delete(key);
+
+        if (parsed.error?.message) {
+          request.reject(
+            new Error(
+              `${request.method} failed: ${String(parsed.error.message)}`,
+            ),
+          );
+          return;
+        }
+
+        request.resolve(parsed.result);
+        return;
+      }
+
+      if (this.isServerRequest(parsed)) {
+        writeMessage({
+          id: parsed.id,
+          error: {
+            code: -32601,
+            message: `Unsupported server request: ${parsed.method}`,
+          },
+        });
+      }
+    });
+
+    child.on("error", (error) => {
+      exited = true;
+      exitError = error;
+      for (const request of pending.values()) {
+        clearTimeout(request.timeout);
+        request.reject(error);
+      }
+      pending.clear();
+    });
+
+    child.on("exit", (code, signal) => {
+      exited = true;
+      if (!exitError && code !== 0) {
+        exitError = new Error(
+          `codex app-server exited (code=${code ?? "null"}, signal=${signal ?? "null"}).`,
+        );
+      }
+      for (const request of pending.values()) {
+        clearTimeout(request.timeout);
+        request.reject(
+          exitError ??
+            new Error("codex app-server exited before request completed."),
+        );
+      }
+      pending.clear();
+    });
+
+    try {
+      await sendRequest("initialize", {
+        clientInfo: {
+          name: "codething_desktop",
+          title: "CodeThing Desktop",
+          version: "0.1.0",
+        },
+        capabilities: {
+          experimentalApi: false,
+        },
+      });
+
+      writeMessage({ method: "initialized" });
+
+      const deduped = new Map<string, ProviderModel>();
+      let cursor: string | null = null;
+
+      while (true) {
+        const response = await sendRequest<unknown>("model/list", {
+          cursor,
+          limit: 100,
+        });
+        const parsed = this.parseModelListResponse(response);
+        for (const model of parsed.models) {
+          deduped.set(model.model, model);
+        }
+
+        if (!parsed.nextCursor) {
+          break;
+        }
+        cursor = parsed.nextCursor;
+      }
+
+      return Array.from(deduped.values());
+    } finally {
+      cleanup();
+    }
   }
 
   async interruptTurn(sessionId: string, turnId?: string): Promise<void> {
@@ -620,6 +805,66 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       ...updates,
       updatedAt: new Date().toISOString(),
     };
+  }
+
+  private parseModelListResponse(response: unknown): {
+    models: ProviderModel[];
+    nextCursor: string | null;
+  } {
+    const object = this.readObject(response);
+    if (!object) {
+      throw new Error("model/list response was not an object.");
+    }
+
+    const data = object.data;
+    if (!Array.isArray(data)) {
+      throw new Error("model/list response missing data array.");
+    }
+
+    const models: ProviderModel[] = [];
+    for (const entry of data) {
+      const item = this.readObject(entry);
+      if (!item) {
+        continue;
+      }
+
+      const model = this.readString(item, "model");
+      if (!model) {
+        continue;
+      }
+
+      const id = this.readString(item, "id") ?? model;
+      const displayName = this.readString(item, "displayName") ?? model;
+      const description = this.readString(item, "description");
+      const isDefault =
+        typeof item.isDefault === "boolean" ? item.isDefault : undefined;
+      const rawUpgrade = item.upgrade;
+      const upgrade =
+        typeof rawUpgrade === "string"
+          ? rawUpgrade
+          : rawUpgrade === null
+            ? null
+            : undefined;
+
+      models.push({
+        id,
+        model,
+        displayName,
+        ...(description ? { description } : {}),
+        ...(isDefault === undefined ? {} : { isDefault }),
+        ...(upgrade === undefined ? {} : { upgrade }),
+      });
+    }
+
+    const rawCursor = object.nextCursor;
+    const nextCursor =
+      typeof rawCursor === "string"
+        ? rawCursor
+        : rawCursor === null || rawCursor === undefined
+          ? null
+          : null;
+
+    return { models, nextCursor };
   }
 
   private isServerRequest(value: unknown): value is JsonRpcRequest {

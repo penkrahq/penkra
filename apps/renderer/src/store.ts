@@ -27,7 +27,8 @@ type Action =
   | { type: "UPDATE_SESSION"; threadId: string; session: ProviderSession }
   | { type: "PUSH_USER_MESSAGE"; threadId: string; id: string; text: string }
   | { type: "SET_ERROR"; threadId: string; error: string | null }
-  | { type: "SET_THREAD_TITLE"; threadId: string; title: string };
+  | { type: "SET_THREAD_TITLE"; threadId: string; title: string }
+  | { type: "SET_THREAD_MODEL"; threadId: string; model: string };
 
 // ── State ────────────────────────────────────────────────────────────
 
@@ -157,6 +158,15 @@ function reducer(state: AppState, action: Action): AppState {
         threads: updateThread(state.threads, action.threadId, (t) => ({
           ...t,
           title: action.title,
+        })),
+      };
+
+    case "SET_THREAD_MODEL":
+      return {
+        ...state,
+        threads: updateThread(state.threads, action.threadId, (t) => ({
+          ...t,
+          model: action.model,
         })),
       };
 

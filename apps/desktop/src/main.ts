@@ -139,6 +139,15 @@ function registerIpcHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.providerSessionList, async () => {
     return providerManager.listSessions();
   });
+
+  ipcMain.handle(
+    IPC_CHANNELS.providerModelList,
+    async (_event, payload: unknown) => {
+      return providerManager.listModels(
+        payload as Parameters<typeof providerManager.listModels>[0],
+      );
+    },
+  );
 }
 
 async function runTerminalCommand(
