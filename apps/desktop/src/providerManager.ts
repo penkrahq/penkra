@@ -30,10 +30,9 @@ export class ProviderManager extends EventEmitter<ProviderManagerEvents> {
 
     const logsDir = path.resolve(process.cwd(), ".logs");
     fs.mkdirSync(logsDir, { recursive: true });
-    this.logStream = fs.createWriteStream(
-      path.join(logsDir, "events.txt"),
-      { flags: "a" },
-    );
+    this.logStream = fs.createWriteStream(path.join(logsDir, "events.txt"), {
+      flags: "a",
+    });
 
     this.codex.on("event", (event) => {
       this.logStream.write(`${JSON.stringify(event)}\n`);

@@ -77,11 +77,7 @@ export function normalizeCodexModelSlug(
     return undefined;
   }
 
-  if (
-    preferredId &&
-    preferredId.endsWith("-codex") &&
-    preferredId !== trimmed
-  ) {
+  if (preferredId?.endsWith("-codex") && preferredId !== trimmed) {
     return preferredId;
   }
 

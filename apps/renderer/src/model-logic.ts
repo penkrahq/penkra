@@ -14,7 +14,9 @@ const MODEL_SLUG_ALIASES: Record<string, string> = {
   "gpt-5.3": "gpt-5.3-codex",
 };
 
-export function normalizeModelSlug(model: string | null | undefined): string | null {
+export function normalizeModelSlug(
+  model: string | null | undefined,
+): string | null {
   if (typeof model !== "string") {
     return null;
   }

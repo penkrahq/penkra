@@ -12,9 +12,14 @@ import {
   agentConfigSchema,
   agentSessionIdSchema,
   newTodoInputSchema,
+  providerInterruptTurnInputSchema,
+  providerSendTurnInputSchema,
+  providerSessionStartInputSchema,
+  providerStopSessionInputSchema,
   terminalCommandInputSchema,
   todoIdSchema,
 } from "@acme/contracts";
+import { withParsedArgs, withParsedPayload } from "./ipcHelpers";
 import { ProcessManager } from "./processManager";
 import { ProviderManager } from "./providerManager";
 import { TodoStore } from "./todoStore";
@@ -24,6 +29,16 @@ const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
 let todoStore: TodoStore;
 const processManager = new ProcessManager();
 const providerManager = new ProviderManager();
+const agentWriteArgsParser = {
+  parse(args: unknown[]): [string, string] {
+    const [sessionId, data] = args;
+    if (typeof data !== "string") {
+      throw new Error("agent:write data must be a string");
+    }
+
+    return [agentSessionIdSchema.parse(sessionId), data];
+  },
+};
 
 function createWindow(): BrowserWindow {
   const window = new BrowserWindow({
@@ -66,17 +81,26 @@ function registerIpcHandlers(): void {
     return todoStore.list();
   });
 
-  ipcMain.handle(IPC_CHANNELS.todosAdd, async (_event, payload: unknown) => {
-    return todoStore.add(newTodoInputSchema.parse(payload));
-  });
+  ipcMain.handle(
+    IPC_CHANNELS.todosAdd,
+    withParsedPayload(newTodoInputSchema, async (_event, payload) => {
+      return todoStore.add(payload);
+    }),
+  );
 
-  ipcMain.handle(IPC_CHANNELS.todosToggle, async (_event, id: unknown) => {
-    return todoStore.toggle(todoIdSchema.parse(id));
-  });
+  ipcMain.handle(
+    IPC_CHANNELS.todosToggle,
+    withParsedPayload(todoIdSchema, async (_event, id) => {
+      return todoStore.toggle(id);
+    }),
+  );
 
-  ipcMain.handle(IPC_CHANNELS.todosRemove, async (_event, id: unknown) => {
-    return todoStore.remove(todoIdSchema.parse(id));
-  });
+  ipcMain.handle(
+    IPC_CHANNELS.todosRemove,
+    withParsedPayload(todoIdSchema, async (_event, id) => {
+      return todoStore.remove(id);
+    }),
+  );
 
   ipcMain.handle(IPC_CHANNELS.dialogPickFolder, async () => {
     const owner =
@@ -94,61 +118,71 @@ function registerIpcHandlers(): void {
   });
 
   // Terminal handlers
-  ipcMain.handle(IPC_CHANNELS.terminalRun, async (_event, payload: unknown) => {
-    return runTerminalCommand(terminalCommandInputSchema.parse(payload));
-  });
+  ipcMain.handle(
+    IPC_CHANNELS.terminalRun,
+    withParsedPayload(terminalCommandInputSchema, async (_event, payload) => {
+      return runTerminalCommand(payload);
+    }),
+  );
 
   // Agent handlers
-  ipcMain.handle(IPC_CHANNELS.agentSpawn, async (_event, config: unknown) => {
-    return processManager.spawn(agentConfigSchema.parse(config));
-  });
+  ipcMain.handle(
+    IPC_CHANNELS.agentSpawn,
+    withParsedPayload(agentConfigSchema, async (_event, config) => {
+      return processManager.spawn(config);
+    }),
+  );
 
-  ipcMain.handle(IPC_CHANNELS.agentKill, async (_event, sessionId: unknown) => {
-    processManager.kill(agentSessionIdSchema.parse(sessionId));
-  });
+  ipcMain.handle(
+    IPC_CHANNELS.agentKill,
+    withParsedPayload(agentSessionIdSchema, async (_event, sessionId) => {
+      processManager.kill(sessionId);
+    }),
+  );
 
   ipcMain.handle(
     IPC_CHANNELS.agentWrite,
-    async (_event, sessionId: unknown, data: unknown) => {
-      processManager.write(agentSessionIdSchema.parse(sessionId), String(data));
-    },
+    withParsedArgs(agentWriteArgsParser, async (_event, sessionId, data) => {
+      processManager.write(sessionId, data);
+    }),
   );
 
   // Provider handlers
   ipcMain.handle(
     IPC_CHANNELS.providerSessionStart,
-    async (_event, payload: unknown) => {
-      return providerManager.startSession(
-        payload as Parameters<typeof providerManager.startSession>[0],
-      );
-    },
+    withParsedPayload(
+      providerSessionStartInputSchema,
+      async (_event, payload) => {
+        return providerManager.startSession(payload);
+      },
+    ),
   );
 
   ipcMain.handle(
     IPC_CHANNELS.providerTurnStart,
-    async (_event, payload: unknown) => {
-      return providerManager.sendTurn(
-        payload as Parameters<typeof providerManager.sendTurn>[0],
-      );
-    },
+    withParsedPayload(providerSendTurnInputSchema, async (_event, payload) => {
+      return providerManager.sendTurn(payload);
+    }),
   );
 
   ipcMain.handle(
     IPC_CHANNELS.providerTurnInterrupt,
-    async (_event, payload: unknown) => {
-      await providerManager.interruptTurn(
-        payload as Parameters<typeof providerManager.interruptTurn>[0],
-      );
-    },
+    withParsedPayload(
+      providerInterruptTurnInputSchema,
+      async (_event, payload) => {
+        await providerManager.interruptTurn(payload);
+      },
+    ),
   );
 
   ipcMain.handle(
     IPC_CHANNELS.providerSessionStop,
-    async (_event, payload: unknown) => {
-      providerManager.stopSession(
-        payload as Parameters<typeof providerManager.stopSession>[0],
-      );
-    },
+    withParsedPayload(
+      providerStopSessionInputSchema,
+      async (_event, payload) => {
+        providerManager.stopSession(payload);
+      },
+    ),
   );
 
   ipcMain.handle(IPC_CHANNELS.providerSessionList, async () => {
