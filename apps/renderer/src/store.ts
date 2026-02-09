@@ -217,7 +217,7 @@ function reducer(state: AppState, action: Action): AppState {
             event,
             activeAssistantItemRef,
           ),
-          events: [event, ...t.events].slice(0, 200),
+          events: [event, ...t.events],
           error:
             event.kind === "error" && event.message ? event.message : t.error,
           ...updateTurnFields(t, event),

@@ -86,14 +86,20 @@ export type TimelineEntry =
       entry: WorkLogEntry;
     };
 
-function truncateLine(value: string, limit = 140): string {
-  if (value.length <= limit) return value;
-  return `${value.slice(0, limit - 1)}…`;
+function normalizeDetail(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
 }
 
 function normalizeItemType(raw: string | undefined): string {
   if (!raw) return "item";
-  return raw.replace(/[_-]/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
+  return raw
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[._/-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
 }
 
 function shouldDropItemType(type: string): boolean {
@@ -108,23 +114,30 @@ function shouldDropItemType(type: string): boolean {
   return type === "work" || type.startsWith("work ");
 }
 
+function shouldShowItemLifecycle(type: string): boolean {
+  return (
+    type.includes("tool") ||
+    type.includes("command") ||
+    type.includes("file change")
+  );
+}
+
 function shouldDropMethod(method: string): boolean {
-  return /(^|\/)(preamble|work)(\/|$)/i.test(method);
+  return /(^|\/)(preamble|work|reasoning|thought)(\/|$)/i.test(method);
 }
 
 function itemTypeMeta(type: string): {
   label: string;
   tone: WorkLogEntry["tone"];
 } {
-  if (
-    type.includes("tool") ||
-    type.includes("command") ||
-    type.includes("file change")
-  ) {
-    return { label: "Tool call", tone: "tool" };
+  if (type.includes("command")) {
+    return { label: "Command run", tone: "tool" };
   }
-  if (type.includes("agent message")) {
-    return { label: "Drafting response", tone: "thinking" };
+  if (type.includes("file change")) {
+    return { label: "File change", tone: "tool" };
+  }
+  if (type.includes("tool")) {
+    return { label: "Tool call", tone: "tool" };
   }
   return { label: "Work item", tone: "info" };
 }
@@ -144,9 +157,8 @@ function extractDetail(
   ];
 
   for (const candidate of candidates) {
-    if (candidate && candidate.trim().length > 0) {
-      return truncateLine(candidate.trim());
-    }
+    const detail = normalizeDetail(candidate);
+    if (detail) return detail;
   }
   return undefined;
 }
@@ -156,6 +168,9 @@ function entryFromItemLifecycle(event: ProviderEvent): WorkLogEntry | null {
   const item = asObject(payload?.item);
   const normalizedType = normalizeItemType(asString(item?.type));
   if (shouldDropItemType(normalizedType) || shouldDropMethod(event.method)) {
+    return null;
+  }
+  if (!shouldShowItemLifecycle(normalizedType)) {
     return null;
   }
 
@@ -234,6 +249,7 @@ function entryFromNotification(
     const status = asString(turn?.status);
     const turnError = asObject(turn?.error);
     const turnErrorMessage = asString(turnError?.message);
+    const turnErrorDetail = normalizeDetail(turnErrorMessage);
     const eventAt = Date.parse(event.createdAt);
     const durationMs =
       Number.isNaN(turnStartedAt) ||
@@ -251,7 +267,7 @@ function entryFromNotification(
           : durationMs !== undefined
             ? `Turn complete in ${formatDuration(durationMs)}`
             : "Turn complete",
-      ...(turnErrorMessage ? { detail: truncateLine(turnErrorMessage) } : {}),
+      ...(turnErrorDetail ? { detail: turnErrorDetail } : {}),
       tone: status === "failed" ? "error" : "info",
     };
   }
@@ -259,21 +275,7 @@ function entryFromNotification(
   const lifecycleEntry = entryFromItemLifecycle(event);
   if (lifecycleEntry) return lifecycleEntry;
 
-  if (event.method.startsWith("item/")) {
-    const payload = asObject(event.payload);
-    const item = asObject(payload?.item);
-    const normalizedType = normalizeItemType(asString(item?.type));
-    if (shouldDropItemType(normalizedType)) {
-      return null;
-    }
-
-    return {
-      id: event.id,
-      createdAt: event.createdAt,
-      label: `Event: ${event.method.replace(/^item\//, "")}`,
-      tone: "info",
-    };
-  }
+  if (event.method.startsWith("item/")) return null;
 
   return null;
 }
@@ -281,12 +283,13 @@ function entryFromNotification(
 function entryFromError(event: ProviderEvent): WorkLogEntry | null {
   if (event.kind !== "error") return null;
   if (shouldDropMethod(event.method)) return null;
+  const detail = normalizeDetail(event.message);
 
   return {
     id: event.id,
     createdAt: event.createdAt,
     label: "Runtime error",
-    ...(event.message ? { detail: truncateLine(event.message) } : {}),
+    ...(detail ? { detail } : {}),
     tone: "error",
   };
 }

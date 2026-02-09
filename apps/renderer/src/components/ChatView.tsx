@@ -32,13 +32,6 @@ function formatMessageMeta(createdAt: string, duration: string | null): string {
   return `${formatTimestamp(createdAt)} • ${duration}`;
 }
 
-function statusLabel(phase: string): string {
-  if (phase === "running") return "Thinking / working";
-  if (phase === "connecting") return "Connecting";
-  if (phase === "ready") return "Ready";
-  return "Disconnected";
-}
-
 function workToneClass(tone: "thinking" | "tool" | "info" | "error"): string {
   if (tone === "error") return "text-rose-300/50";
   if (tone === "tool") return "text-[#8a8a8a]";
@@ -69,13 +62,11 @@ export default function ChatView() {
   );
   const phase = derivePhase(activeThread?.session ?? null);
   const isWorking = phase === "running" || isSending || isConnecting;
-  const workLogTurnId =
-    activeThread?.latestTurnId ?? activeThread?.session?.activeTurnId;
   const nowIso = new Date(nowTick).toISOString();
   const modelOptions = MODEL_OPTIONS;
   const workLogEntries = useMemo(
-    () => deriveWorkLogEntries(activeThread?.events ?? [], workLogTurnId),
-    [activeThread?.events, workLogTurnId],
+    () => deriveWorkLogEntries(activeThread?.events ?? [], undefined),
+    [activeThread?.events],
   );
   const assistantCompletionByItemId = useMemo(() => {
     const map = new Map<string, string>();
@@ -320,47 +311,8 @@ export default function ChatView() {
           <h2 className="text-sm font-medium text-[#e0e0e0]">
             {activeThread.title}
           </h2>
-          {activeProject && (
-            <span className="rounded-full bg-white/[0.06] px-2 py-0.5 text-[10px] text-[#a0a0a0]/50">
-              {activeProject.name}
-            </span>
-          )}
         </div>
         <div className="flex items-center gap-3">
-          {/* Status indicator */}
-          <div
-            className={`inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-[10px] ${
-              phase === "running"
-                ? "border-sky-400/35 bg-sky-500/[0.08] text-sky-100"
-                : phase === "connecting"
-                  ? "border-amber-400/35 bg-amber-500/[0.08] text-amber-100"
-                  : phase === "ready"
-                    ? "border-emerald-400/35 bg-emerald-500/[0.08] text-emerald-100"
-                    : "border-white/[0.08] bg-white/[0.04] text-[#a0a0a0]/70"
-            }`}
-          >
-            <span className="relative inline-flex h-2.5 w-2.5">
-              {(phase === "running" || phase === "connecting") && (
-                <span
-                  className={`absolute inline-flex h-full w-full animate-ping rounded-full ${
-                    phase === "running" ? "bg-sky-300/70" : "bg-amber-300/70"
-                  }`}
-                />
-              )}
-              <span
-                className={`relative inline-flex h-2.5 w-2.5 rounded-full ${
-                  phase === "running"
-                    ? "bg-sky-200"
-                    : phase === "connecting"
-                      ? "bg-amber-200"
-                      : phase === "ready"
-                        ? "bg-emerald-200"
-                        : "bg-[#a0a0a0]/40"
-                }`}
-              />
-            </span>
-            <span>{statusLabel(phase)}</span>
-          </div>
           {/* Diff toggle */}
           <button
             type="button"
@@ -418,7 +370,10 @@ export default function ChatView() {
                       {timelineEntry.entry.detail ? (
                         <>
                           {timelineEntry.entry.label}
-                          <span className="ml-1.5 font-mono text-[11px] opacity-60">
+                          <span
+                            className="ml-1.5 inline-block max-w-[70ch] truncate align-bottom font-mono text-[11px] opacity-60"
+                            title={timelineEntry.entry.detail}
+                          >
                             {timelineEntry.entry.detail}
                           </span>
                         </>
@@ -634,11 +589,6 @@ export default function ChatView() {
 
               {/* Right side: send / stop button */}
               <div className="flex items-center gap-2">
-                {activeProject && (
-                  <span className="text-[11px] text-[#a0a0a0]/25">
-                    {activeProject.name}
-                  </span>
-                )}
                 {phase === "running" ? (
                   <button
                     type="button"
