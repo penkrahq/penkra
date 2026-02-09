@@ -3,9 +3,10 @@ fixPath();
 
 import { spawn } from "node:child_process";
 import path from "node:path";
-import { BrowserWindow, app, dialog, ipcMain, session } from "electron";
+import { BrowserWindow, app, dialog, ipcMain, session, shell } from "electron";
 
 import {
+  EDITORS,
   IPC_CHANNELS,
   type TerminalCommandInput,
   type TerminalCommandResult,
@@ -124,6 +125,29 @@ function registerIpcHandlers(): void {
     withParsedPayload(terminalCommandInputSchema, async (_event, payload) => {
       return runTerminalCommand(payload);
     }),
+  );
+
+  // Shell handlers
+  ipcMain.handle(
+    IPC_CHANNELS.shellOpenInEditor,
+    async (_event, cwd: string, editor: string) => {
+      if (!cwd) throw new Error("cwd is required");
+      const editorDef = EDITORS.find((e) => e.id === editor);
+      if (!editorDef) throw new Error(`Unknown editor: ${editor}`);
+      if (!editorDef.command) {
+        const error = await shell.openPath(cwd);
+        if (error) throw new Error(error);
+        return;
+      }
+      const child = spawn(editorDef.command, [cwd], {
+        detached: true,
+        stdio: "ignore",
+      });
+      child.on("error", () => {
+        /* ignore spawn failures for detached editors */
+      });
+      child.unref();
+    },
   );
 
   // Agent handlers

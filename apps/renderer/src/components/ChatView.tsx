@@ -9,6 +9,7 @@ import {
   useState,
 } from "react";
 
+import { EDITORS, type EditorId } from "@acme/contracts";
 import {
   DEFAULT_MODEL,
   DEFAULT_REASONING,
@@ -32,6 +33,18 @@ function formatMessageMeta(createdAt: string, duration: string | null): string {
   if (!duration) return formatTimestamp(createdAt);
   return `${formatTimestamp(createdAt)} • ${duration}`;
 }
+
+const FILE_MANAGER_LABEL = navigator.platform.includes("Mac")
+  ? "Finder"
+  : navigator.platform.includes("Win")
+    ? "Explorer"
+    : "Files";
+
+function editorLabel(editor: (typeof EDITORS)[number]): string {
+  return editor.command ? editor.label : FILE_MANAGER_LABEL;
+}
+
+const LAST_EDITOR_KEY = "codething:last-editor";
 
 function workToneClass(tone: "thinking" | "tool" | "info" | "error"): string {
   if (tone === "error") return "text-rose-300/50";
@@ -111,6 +124,13 @@ export default function ChatView() {
   const [isSending, setIsSending] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [isModelMenuOpen, setIsModelMenuOpen] = useState(false);
+  const [isEditorMenuOpen, setIsEditorMenuOpen] = useState(false);
+  const [lastEditor, setLastEditor] = useState<EditorId>(() => {
+    const stored = localStorage.getItem(LAST_EDITOR_KEY);
+    return EDITORS.some((e) => e.id === stored)
+      ? (stored as EditorId)
+      : EDITORS[0].id;
+  });
   const [selectedEffort, setSelectedEffort] =
     useState<string>(DEFAULT_REASONING);
   const [isSwitchingRuntimeMode, setIsSwitchingRuntimeMode] = useState(false);
@@ -121,6 +141,7 @@ export default function ChatView() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const modelMenuRef = useRef<HTMLDivElement>(null);
+  const editorMenuRef = useRef<HTMLDivElement>(null);
 
   const activeThread = state.threads.find((t) => t.id === state.activeThreadId);
   const activeProject = state.projects.find(
@@ -291,6 +312,47 @@ export default function ChatView() {
     };
   }, [isModelMenuOpen]);
 
+  useEffect(() => {
+    if (!isEditorMenuOpen) return;
+
+    const handleClickOutside = (event: MouseEvent) => {
+      if (!editorMenuRef.current) return;
+      if (
+        event.target instanceof Node &&
+        !editorMenuRef.current.contains(event.target)
+      ) {
+        setIsEditorMenuOpen(false);
+      }
+    };
+
+    window.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      window.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [isEditorMenuOpen]);
+
+  // Cmd+O / Ctrl+O to open in last-used editor
+  useEffect(() => {
+    const handler = (e: globalThis.KeyboardEvent) => {
+      if (e.key === "o" && (e.metaKey || e.ctrlKey) && !e.shiftKey) {
+        if (api && activeProject) {
+          e.preventDefault();
+          void api.shell.openInEditor(activeProject.cwd, lastEditor);
+        }
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [api, activeProject, lastEditor]);
+
+  const openInEditor = (editorId: EditorId) => {
+    if (!api || !activeProject) return;
+    void api.shell.openInEditor(activeProject.cwd, editorId);
+    setLastEditor(editorId);
+    localStorage.setItem(LAST_EDITOR_KEY, editorId);
+    setIsEditorMenuOpen(false);
+  };
+
   const ensureSession = async (): Promise<string | null> => {
     if (!api || !activeThread || !activeProject) return null;
     if (activeThread.session && activeThread.session.status !== "closed") {
@@ -458,6 +520,39 @@ export default function ChatView() {
           </h2>
         </div>
         <div className="flex items-center gap-3">
+          {/* Open in editor */}
+          {activeProject && (
+            <div className="relative" ref={editorMenuRef}>
+              <button
+                type="button"
+                className="rounded-md px-2 py-1 text-[10px] text-[#a0a0a0]/40 transition-colors duration-150 hover:text-[#a0a0a0]/60"
+                onClick={() => setIsEditorMenuOpen((v) => !v)}
+              >
+                Open in&hellip;
+              </button>
+              {isEditorMenuOpen && (
+                <div className="absolute right-0 top-full z-50 mt-1 min-w-[120px] rounded-md border border-white/[0.08] bg-[#1b1b1d] py-1 shadow-xl">
+                  {EDITORS.map((editor) => (
+                    <button
+                      key={editor.id}
+                      type="button"
+                      className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[11px] text-[#e0e0e0] hover:bg-white/[0.06]"
+                      onClick={() => openInEditor(editor.id)}
+                    >
+                      {editorLabel(editor)}
+                      {editor.id === lastEditor && (
+                        <kbd className="ml-auto text-[9px] text-[#a0a0a0]/40">
+                          {navigator.platform.includes("Mac")
+                            ? "\u2318O"
+                            : "Ctrl+O"}
+                        </kbd>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           {/* Diff toggle */}
           <button
             type="button"

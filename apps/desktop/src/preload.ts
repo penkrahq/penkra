@@ -54,6 +54,10 @@ const nativeApi: NativeApi = {
         ipcRenderer.removeListener(IPC_CHANNELS.providerEvent, listener);
     },
   },
+  shell: {
+    openInEditor: (cwd: string, editor: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.shellOpenInEditor, cwd, editor),
+  },
 };
 
 contextBridge.exposeInMainWorld("nativeApi", nativeApi);
