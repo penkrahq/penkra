@@ -45,9 +45,13 @@ export const PenkraRegistryLive = Layer.effect(
     const reconcileRegistry = coalesceRegistryReconciliations(() =>
       reconcilePenkraRegistry({ config, engine }),
     );
-    const socket = new PenkraSocketClient(config, (snapshot) => {
-      void Effect.runPromise(PubSub.publish(snapshots, snapshot));
-    }, reconcileRegistry);
+    const socket = new PenkraSocketClient(
+      config,
+      (snapshot) => {
+        void Effect.runPromise(PubSub.publish(snapshots, snapshot));
+      },
+      reconcileRegistry,
+    );
     const reconcile = Effect.tryPromise({
       try: reconcileRegistry,
       catch: toError,

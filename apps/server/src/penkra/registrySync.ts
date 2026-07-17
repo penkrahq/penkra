@@ -16,9 +16,7 @@ export type RegistrySyncResult = {
   archivedClients: string[];
 };
 
-export function coalesceRegistryReconciliations<T>(
-  reconcile: () => Promise<T>,
-): () => Promise<T> {
+export function coalesceRegistryReconciliations<T>(reconcile: () => Promise<T>): () => Promise<T> {
   let running: Promise<T> | null = null;
   let rerunRequested = false;
 
