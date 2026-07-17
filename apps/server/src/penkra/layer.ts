@@ -50,7 +50,9 @@ export const PenkraRegistryLive = Layer.effect(
       (snapshot) => {
         void Effect.runPromise(PubSub.publish(snapshots, snapshot));
       },
-      reconcileRegistry,
+      async () => {
+        await reconcileRegistry();
+      },
     );
     const reconcile = Effect.tryPromise({
       try: reconcileRegistry,
