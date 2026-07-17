@@ -21,6 +21,7 @@ import {
   type OrchestrationEvent,
   type OrchestrationShellStreamItem,
   type OrchestrationThreadStreamItem,
+  type PenkraSnapshot,
   type ProjectDevServerEvent,
   type ServerProviderStatusesUpdatedPayload,
   type ServerLifecycleStreamEvent,
@@ -72,6 +73,7 @@ function omitNullUserInputAnswers(
 const terminalEventListeners = new Set<(payload: TerminalEvent) => void>();
 const projectDevServerEventListeners = new Set<(payload: ProjectDevServerEvent) => void>();
 const automationEventListeners = new Set<(payload: AutomationStreamEvent) => void>();
+const penkraSnapshotListeners = new Set<(payload: PenkraSnapshot) => void>();
 const orchestrationDomainEventListeners = new Set<(payload: OrchestrationEvent) => void>();
 const orchestrationShellEventListeners = new Set<(payload: OrchestrationShellStreamItem) => void>();
 const orchestrationThreadEventListeners = new Set<
@@ -414,6 +416,15 @@ export function createWsNativeApi(): NativeApi {
       }
     }
   });
+  transport.subscribe(WS_CHANNELS.penkraSnapshot, (message) => {
+    for (const listener of penkraSnapshotListeners) {
+      try {
+        listener(message.data);
+      } catch {
+        // Swallow listener errors
+      }
+    }
+  });
   transport.subscribe(ORCHESTRATION_WS_CHANNELS.domainEvent, (message) => {
     const payload = message.data;
     for (const listener of orchestrationDomainEventListeners) {
@@ -445,6 +456,17 @@ export function createWsNativeApi(): NativeApi {
     }
   });
   const api: NativeApi = {
+    penkra: {
+      getSnapshot: () => transport.request(WS_METHODS.penkraGetSnapshot),
+      createClient: (input) => transport.request(WS_METHODS.penkraCreateClient, input),
+      createTodo: (input) => transport.request(WS_METHODS.penkraCreateTodo, input),
+      updateTodo: (input) => transport.request(WS_METHODS.penkraUpdateTodo, input),
+      reconcile: () => transport.request(WS_METHODS.penkraReconcile),
+      onSnapshot: (listener) => {
+        penkraSnapshotListeners.add(listener);
+        return () => penkraSnapshotListeners.delete(listener);
+      },
+    },
     dialogs: {
       pickFolder: async () => {
         if (!window.desktopBridge) return null;
@@ -942,6 +964,7 @@ export function resetWsNativeApiForTest(): void {
   terminalEventListeners.clear();
   projectDevServerEventListeners.clear();
   automationEventListeners.clear();
+  penkraSnapshotListeners.clear();
   orchestrationDomainEventListeners.clear();
   orchestrationShellEventListeners.clear();
   orchestrationThreadEventListeners.clear();
@@ -960,6 +983,7 @@ if (import.meta.hot) {
     gitActionProgressListeners.clear();
     terminalEventListeners.clear();
     projectDevServerEventListeners.clear();
+    penkraSnapshotListeners.clear();
     orchestrationDomainEventListeners.clear();
     orchestrationShellEventListeners.clear();
     orchestrationThreadEventListeners.clear();

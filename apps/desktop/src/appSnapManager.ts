@@ -923,7 +923,7 @@ export class DesktopAppSnapManager {
       );
       this.#emitCaptureError(
         "pending-capture-overflow",
-        `Synara could retain only the latest ${MAX_PENDING_CAPTURES} AppSnaps while the composer was unavailable. The oldest capture was discarded.`,
+        `Penkra could retain only the latest ${MAX_PENDING_CAPTURES} AppSnaps while the composer was unavailable. The oldest capture was discarded.`,
         discardedRecord.capture.capturedAt,
         false,
       );

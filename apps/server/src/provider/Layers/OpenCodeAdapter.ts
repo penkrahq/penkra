@@ -3686,7 +3686,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                           : {}),
                         ...(initialAgent ? { agent: initialAgent } : {}),
                         permission: buildOpenCodePermissionRules(input.runtimeMode),
-                        title: `Synara ${input.threadId}`,
+                        title: `Penkra ${input.threadId}`,
                       };
                       return client.session.create(
                         sessionCreateInput as unknown as Parameters<

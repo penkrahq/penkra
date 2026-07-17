@@ -92,6 +92,7 @@ import {
 import { projectSearchEntriesQueryOptions } from "~/lib/projectReactQuery";
 import { serverConfigQueryOptions, serverQueryKeys } from "~/lib/serverReactQuery";
 import { useRefreshProviderStatusesNow } from "~/hooks/useProviderStatusRefresh";
+import { penkraSnapshotQueryOptions } from "~/penkra/reactQuery";
 import { SINGLE_CHAT_PANE_SCOPE_ID } from "~/lib/chatPaneScope";
 import {
   composerMentionPathNeedsQuoting,
@@ -3313,6 +3314,11 @@ export default function ChatView({
         composerSkillCwd !== null,
     }),
   );
+  const isPenkraClientProject = activeProject?.id.startsWith("penkra-client-") ?? false;
+  const penkraSnapshotQuery = useQuery({
+    ...penkraSnapshotQueryOptions(),
+    enabled: isPenkraClientProject && isSkillTrigger,
+  });
   const providerPluginsQuery = useQuery(
     providerPluginsQueryOptions({
       provider: selectedProvider,
@@ -3380,6 +3386,7 @@ export default function ChatView({
     [providerNativeCommands],
   );
   const providerSkills = providerSkillsQuery.data?.skills ?? EMPTY_PROVIDER_SKILLS;
+  const penkraSkills = isPenkraClientProject ? (penkraSnapshotQuery.data?.skills ?? []) : [];
   const selectedModelCaps = useMemo(
     () => getModelCapabilities(selectedProvider, selectedModel),
     [selectedModel, selectedProvider],
@@ -3455,6 +3462,7 @@ export default function ChatView({
     providerPlugins,
     providerNativeCommands,
     providerSkills,
+    penkraSkills,
     workspaceEntries,
     searchableModelOptions,
     supportsFastSlashCommand,
@@ -5157,7 +5165,7 @@ export default function ChatView({
         toastManager.add({
           type: "warning",
           title: "Select a unique phrase to mark it.",
-          description: "Try including a few more words so Synara can find the exact place.",
+          description: "Try including a few more words so Penkra can find the exact place.",
         });
         return;
       }
@@ -6664,7 +6672,7 @@ export default function ChatView({
                 type: "warning",
                 title: "Thread note not added",
                 description:
-                  "The automation was created, but Synara could not add the activity note.",
+                  "The automation was created, but Penkra could not add the activity note.",
               });
             }
           })();
@@ -6683,7 +6691,7 @@ export default function ChatView({
           type: "error",
           title: "Could not create automation",
           description:
-            error instanceof Error ? error.message : "Synara could not save the automation.",
+            error instanceof Error ? error.message : "Penkra could not save the automation.",
         });
         return false;
       } finally {
@@ -6751,7 +6759,7 @@ export default function ChatView({
           toastManager.add({
             type: "error",
             title: "Could not create chat",
-            description: "Synara could not promote this draft before saving the automation.",
+            description: "Penkra could not promote this draft before saving the automation.",
           });
           return null;
         }
@@ -6774,7 +6782,7 @@ export default function ChatView({
           description:
             error instanceof Error
               ? error.message
-              : "Synara could not promote this draft before saving the automation.",
+              : "Penkra could not promote this draft before saving the automation.",
         });
         return null;
       }
@@ -9588,6 +9596,14 @@ export default function ChatView({
         });
         return;
       }
+      if (item.type === "penkra-skill") {
+        applyComposerTriggerReplacement({
+          snapshot,
+          trigger,
+          base: `$${item.skill.name} `,
+        });
+        return;
+      }
       if (item.type === "plugin") {
         applyComposerTriggerReplacement({
           snapshot,
@@ -9673,7 +9689,9 @@ export default function ChatView({
       (providerComposerCapabilitiesQuery.isLoading ||
         providerComposerCapabilitiesQuery.isFetching ||
         providerSkillsQuery.isLoading ||
-        providerSkillsQuery.isFetching));
+        providerSkillsQuery.isFetching ||
+        penkraSnapshotQuery.isLoading ||
+        penkraSnapshotQuery.isFetching));
 
   const onPromptChange = useCallback(
     (
@@ -11070,7 +11088,7 @@ export default function ChatView({
                       CHAT_COLUMN_FRAME_CLASS_NAME,
                     )}
                   >
-                    <SynaraLogo aria-label="Synara logo" className="size-10" />
+                    <SynaraLogo aria-label="Penkra logo" className="size-10" />
                     <h2
                       data-testid="empty-landing-heading"
                       className="text-[26px] font-normal leading-[1.15] tracking-[-0.015em] text-foreground/95 sm:text-[30px]"

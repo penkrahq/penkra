@@ -1,0 +1,193 @@
+import { readFile } from "node:fs/promises";
+
+import {
+  PenkraClientSummary,
+  PenkraCreateClientResult as PenkraCreateClientResultSchema,
+  PenkraProgramWarning,
+  PenkraSkillSummary,
+  PenkraTodoSummary as PenkraTodoSummarySchema,
+  type PenkraCreateClientResult,
+  PenkraCreateClientInput,
+  PenkraCreateTodoInput,
+  PenkraSnapshot,
+  PenkraTodoSummary,
+  PenkraUpdateTodoInput,
+} from "@synara/contracts";
+import { Schema } from "effect";
+
+export type PenkraClientRecord = {
+  id: string;
+  displayName: string;
+  status: "active" | "suspended" | "archived";
+};
+
+type PenkraRemoteSnapshot = Pick<
+  PenkraSnapshot,
+  "generatedAt" | "clients" | "todos" | "programWarnings" | "skills"
+>;
+
+const ClientRecordSchema = Schema.Struct({
+  id: Schema.String,
+  displayName: Schema.String,
+  status: Schema.Literals(["active", "suspended", "archived"]),
+});
+const ClientPageSchema = Schema.Struct({
+  clients: Schema.Array(ClientRecordSchema),
+  pageInfo: Schema.Struct({ nextCursor: Schema.NullOr(Schema.String) }),
+});
+const TokenResponseSchema = Schema.Struct({ token: Schema.String });
+const RemoteSnapshotSchema = Schema.Struct({
+  generatedAt: Schema.String,
+  clients: Schema.Array(PenkraClientSummary),
+  todos: Schema.Array(PenkraTodoSummarySchema),
+  programWarnings: Schema.Array(PenkraProgramWarning),
+  skills: Schema.optional(Schema.Array(PenkraSkillSummary)).pipe(
+    Schema.withDecodingDefault(() => []),
+  ),
+});
+const decodeClientPage = Schema.decodeUnknownSync(ClientPageSchema);
+const decodeTokenResponse = Schema.decodeUnknownSync(TokenResponseSchema);
+const decodeRemoteSnapshot = Schema.decodeUnknownSync(RemoteSnapshotSchema);
+const decodeCreateClient = Schema.decodeUnknownSync(PenkraCreateClientResultSchema);
+const decodeTodo = Schema.decodeUnknownSync(PenkraTodoSummarySchema);
+
+export class PenkraApiError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = "PenkraApiError";
+  }
+}
+
+type HqConfig = {
+  endpoint: string;
+  scope: "hq";
+  token: string;
+};
+
+export class PenkraBackendClient {
+  constructor(
+    private readonly endpoint: string,
+    private readonly token: string,
+  ) {}
+
+  socketConnection(): { endpoint: string; token: string } {
+    return { endpoint: this.endpoint, token: this.token };
+  }
+
+  static async fromHqConfig(path: string): Promise<PenkraBackendClient | null> {
+    let text: string;
+    try {
+      text = await readFile(path, "utf8");
+    } catch (error) {
+      if (isNodeError(error, "ENOENT")) return null;
+      throw error;
+    }
+    const value = JSON.parse(text) as Partial<HqConfig>;
+    if (
+      value.scope !== "hq" ||
+      typeof value.endpoint !== "string" ||
+      !value.endpoint.startsWith("http") ||
+      typeof value.token !== "string" ||
+      !value.token.startsWith("pk_hq_")
+    ) {
+      throw new Error(`Invalid Penkra HQ config at ${path}`);
+    }
+    return new PenkraBackendClient(value.endpoint.replace(/\/$/, ""), value.token);
+  }
+
+  async listClients(): Promise<PenkraClientRecord[]> {
+    const clients: PenkraClientRecord[] = [];
+    let cursor: string | null = null;
+    do {
+      const params = new URLSearchParams({ limit: "200" });
+      if (cursor) params.set("cursor", cursor);
+      const page = await this.request(`/api/clients?${params.toString()}`, decodeClientPage);
+      clients.push(...page.clients);
+      cursor = page.pageInfo.nextCursor;
+    } while (cursor);
+    return clients;
+  }
+
+  async reissueClientToken(clientId: string): Promise<string> {
+    const response = await this.request(
+      `/api/clients/${encodeURIComponent(clientId)}/reissue-token`,
+      decodeTokenResponse,
+      { method: "POST", body: "{}" },
+    );
+    return response.token;
+  }
+
+  getSnapshot(): Promise<PenkraRemoteSnapshot> {
+    return this.request("/api/app/snapshot", decodeRemoteSnapshot);
+  }
+
+  createClient(input: PenkraCreateClientInput): Promise<PenkraCreateClientResult> {
+    const { idempotencyKey, ...body } = input;
+    return this.request("/api/clients", decodeCreateClient, {
+      method: "POST",
+      headers: { "idempotency-key": idempotencyKey },
+      body: JSON.stringify(body),
+    });
+  }
+
+  async createTodo(input: PenkraCreateTodoInput): Promise<string> {
+    const { idempotencyKey, ...fields } = input;
+    const todo = await this.request("/api/todos", decodeTodo, {
+      method: "POST",
+      headers: { "idempotency-key": idempotencyKey },
+      body: JSON.stringify({
+        ...fields,
+        source: "operator",
+        kind: input.kind ?? "general",
+        payload: input.payload ?? {},
+        auto: false,
+      }),
+    });
+    return todo.id;
+  }
+
+  async updateTodo(input: PenkraUpdateTodoInput): Promise<string> {
+    const { todoId, ...body } = input;
+    const todo = await this.request(`/api/todos/${encodeURIComponent(todoId)}`, decodeTodo, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    });
+    return todo.id;
+  }
+
+  private async request<T>(
+    path: string,
+    decode: (payload: unknown) => T,
+    init: RequestInit = {},
+  ): Promise<T> {
+    const response = await fetch(`${this.endpoint}${path}`, {
+      ...init,
+      headers: {
+        authorization: `Bearer ${this.token}`,
+        accept: "application/json",
+        ...(init.body ? { "content-type": "application/json" } : {}),
+        ...init.headers,
+      },
+    });
+    const payload = (await response.json()) as unknown;
+    if (!response.ok) {
+      const message =
+        isRecord(payload) && typeof payload.message === "string"
+          ? payload.message
+          : `Penkra API returned HTTP ${response.status}`;
+      throw new PenkraApiError(response.status, message);
+    }
+    return decode(payload);
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function isNodeError(error: unknown, code: string): error is NodeJS.ErrnoException {
+  return error instanceof Error && "code" in error && error.code === code;
+}

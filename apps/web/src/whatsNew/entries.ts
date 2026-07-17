@@ -20,7 +20,7 @@
 
 import type { WhatsNewEntry } from "./logic";
 
-export const WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
+export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
   {
     version: "0.5.5",
     date: "Jul 17",
@@ -2504,6 +2504,55 @@ export const WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
           "A full changelog lives under Settings → Release history, grouped by version in a collapsible accordion.",
         details:
           "Revisit any past release at any time. The same notes as the post-update dialog, nothing to hunt for.",
+      },
+    ],
+  },
+];
+
+export const WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
+  {
+    version: "0.5.5",
+    date: "Jul 17",
+    features: [
+      {
+        id: "penkra-client-workspaces",
+        title: "Client workspaces are ready",
+        description:
+          "Create a client from HQ and Penkra materializes its isolated folder, configuration, and agent workspace.",
+        details:
+          "Each client receives a dedicated project with server-scoped credentials, startup reconciliation, and the context agents need to work without exposing another client's data.",
+      },
+      {
+        id: "penkra-todos-programs",
+        title: "Todos stay visible",
+        description:
+          "Client badges, quick add, blocked work, partner handoffs, and due work now stay available beside every project.",
+        details:
+          "Programs advance through ordered work while health warnings surface broken chains before a client obligation is missed.",
+      },
+      {
+        id: "penkra-skills",
+        title: "Penkra skills work in chat",
+        description:
+          "Use the existing skill picker to invoke server-backed Penkra workflows with any supported agent harness.",
+        details:
+          "Business setup, document intake, Ghana registration, and partner dispatch skills load from the authoritative backend instead of stale local copies.",
+      },
+      {
+        id: "penkra-cli",
+        title: "The Penkra CLI ships with the app",
+        description:
+          "Agents and terminals can use the bundled penkra command for scoped data, objects, todos, programs, partners, dispatch, and providers.",
+        details:
+          "Penkra refreshes the platform-matched CLI on launch and keeps the client token out of provider process environments.",
+      },
+      {
+        id: "penkra-private-operations",
+        title: "Private operations are built in",
+        description:
+          "Auditing, encrypted object storage, backups, provider credentials, and private update feeds are integrated into the Penkra backend.",
+        details:
+          "Production activation still depends on the configured database, AWS controls, deployment secrets, and signed release identity.",
       },
     ],
   },

@@ -36,7 +36,7 @@ import {
 import { PinStatusIcon, pinActionLabel } from "~/lib/pin";
 import { ensureNativeApi } from "~/nativeApi";
 import { autoAnimate } from "@formkit/auto-animate";
-import { FiGitBranch, FiPlus } from "react-icons/fi";
+import { FiGitBranch, FiPlus, FiUserPlus } from "react-icons/fi";
 import { IoIosGitCompare } from "react-icons/io";
 import { GoRepoForked } from "react-icons/go";
 import { HiOutlineArchiveBox } from "react-icons/hi2";
@@ -83,6 +83,7 @@ import {
   ThreadId,
   type GitStatusResult,
   type ProjectDiscoveredScriptTarget,
+  type PenkraTodoSummary,
   type ResolvedKeybindingsConfig,
   type ServerLocalServerProcess,
 } from "@synara/contracts";
@@ -213,6 +214,14 @@ import { useThreadHandoff } from "../hooks/useThreadHandoff";
 import { useFeedbackDialogStore } from "../feedbackDialogStore";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
 import { useProjectRunStore, type ProjectRunState } from "../projectRunStore";
+import { PenkraCreateClientDialog } from "../penkra/PenkraCreateClientDialog";
+import { PenkraTodoPanel } from "../penkra/PenkraTodoPanel";
+import {
+  composePenkraTodoPrompt,
+  penkraProjectId,
+  resolvePenkraTodoProvider,
+} from "../penkra/invoke";
+import { penkraQueryKeys, penkraSnapshotQueryOptions } from "../penkra/reactQuery";
 import {
   selectPrimaryProjectRunCommand,
   upsertProjectRunCommandScripts,
@@ -1477,6 +1486,48 @@ export default function Sidebar() {
   const { handleNewChat } = useHandleNewChat();
   const { handleNewStudioChat } = useHandleNewStudioChat();
   const { createThreadHandoff } = useThreadHandoff();
+  const penkraSnapshotQuery = useQuery(penkraSnapshotQueryOptions());
+  const penkraSnapshot = penkraSnapshotQuery.data ?? null;
+  useEffect(
+    () =>
+      ensureNativeApi().penkra.onSnapshot((snapshot) => {
+        queryClient.setQueryData(penkraQueryKeys.snapshot, snapshot);
+      }),
+    [queryClient],
+  );
+  const [penkraTodoClientId, setPenkraTodoClientId] = useState<string | null>(null);
+  const [penkraCreateClientOpen, setPenkraCreateClientOpen] = useState(false);
+  const penkraClientByProjectId = useMemo(
+    () =>
+      new Map(
+        (penkraSnapshot?.clients ?? []).map((client) => [penkraProjectId(client.id), client]),
+      ),
+    [penkraSnapshot?.clients],
+  );
+  const selectedPenkraClient = useMemo(
+    () => penkraSnapshot?.clients.find((client) => client.id === penkraTodoClientId) ?? null,
+    [penkraSnapshot?.clients, penkraTodoClientId],
+  );
+  const invokePenkraTodo = useCallback(
+    async (todo: PenkraTodoSummary) => {
+      const projectId = ProjectId.makeUnsafe(penkraProjectId(todo.clientId));
+      const provider = resolvePenkraTodoProvider(todo);
+      await ensureNativeApi().penkra.updateTodo({ todoId: todo.id, operatorTouched: true });
+      await queryClient.invalidateQueries({ queryKey: penkraQueryKeys.snapshot });
+      const threadId = await handleNewThread(projectId, {
+        fresh: true,
+        envMode: appSettings.defaultThreadEnvMode,
+        ...(provider ? { provider } : {}),
+      });
+      if (!threadId) throw new Error("Could not create the Penkra work thread");
+      const composerStore = useComposerDraftStore.getState();
+      composerStore.setPrompt(threadId, composePenkraTodoPrompt(todo));
+      const model = todo.model ?? todo.defaultModel;
+      if (provider && model) composerStore.setModelSelection(threadId, { provider, model });
+      setPenkraTodoClientId(null);
+    },
+    [appSettings.defaultThreadEnvMode, handleNewThread, queryClient],
+  );
   const routeThreadId = useParams({
     strict: false,
     select: (params) => (params.threadId ? ThreadId.makeUnsafe(params.threadId) : null),
@@ -5764,6 +5815,7 @@ export default function Sidebar() {
       ? "opacity-0"
       : sidebarHoverRevealHideClassName("project-header");
     const projectRun = projectRunsByProjectId[project.id] ?? null;
+    const penkraClient = penkraClientByProjectId.get(project.id) ?? null;
     const projectRunServer = projectRunServerByProjectId.get(project.id) ?? null;
     // A project reads as "running" when Synara tracks a run for it or when a
     // local server (possibly started outside Synara) is attributed by cwd.
@@ -5860,6 +5912,31 @@ export default function Sidebar() {
                 </span>
               ) : null}
             </SidebarMenuButton>
+            {penkraClient && penkraClient.badge.count > 0 ? (
+              <button
+                type="button"
+                aria-label={`Open ${penkraClient.displayName} todos`}
+                title={`${penkraClient.badge.count} ${pluralize(penkraClient.badge.count, "todo", "todos")} need attention`}
+                className={cn(
+                  "absolute right-2 top-1/2 z-20 inline-flex h-5 min-w-5 -translate-y-1/2 items-center justify-center rounded-md px-1 text-[10px] font-semibold tabular-nums text-white transition-opacity group-hover/project-header:pointer-events-none group-hover/project-header:opacity-0 hover:!pointer-events-auto hover:!opacity-100 focus-visible:!pointer-events-auto focus-visible:!opacity-100 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
+                  penkraClient.badge.blocked
+                    ? "bg-red-600"
+                    : penkraClient.badge.urgent
+                      ? "bg-amber-600"
+                      : penkraClient.badge.withPartner
+                        ? "bg-sky-600"
+                        : "bg-foreground/65",
+                )}
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setPenkraTodoClientId(penkraClient.id);
+                }}
+              >
+                {penkraClient.badge.count}
+              </button>
+            ) : null}
             <button
               type="button"
               aria-label={pinActionLabel(project.name, isProjectPinned)}
@@ -6431,9 +6508,9 @@ export default function Sidebar() {
       },
       {
         id: "feedback",
-        label: "Feedback Synara",
-        description: "Send feedback or report an issue to the Synara team.",
-        keywords: ["feedback", "bug", "issue", "problem", "report", "support", "synara"],
+        label: "Feedback Penkra",
+        description: "Send feedback or report an issue to the Penkra team.",
+        keywords: ["feedback", "bug", "issue", "problem", "report", "support", "penkra"],
       },
       {
         id: "settings",
@@ -6474,7 +6551,7 @@ export default function Sidebar() {
             toastManager.add({
               type: "info",
               title: "Preparing update",
-              description: `Synara is preparing version ${nextState.availableVersion ?? "available"} in the background.`,
+              description: `Penkra is preparing version ${nextState.availableVersion ?? "available"} in the background.`,
             });
             return;
           }
@@ -6483,7 +6560,7 @@ export default function Sidebar() {
             toastManager.add({
               type: "info",
               title: "Preparing update",
-              description: "Synara is downloading the update in the background.",
+              description: "Penkra is downloading the update in the background.",
             });
             return;
           }
@@ -6501,7 +6578,7 @@ export default function Sidebar() {
             toastManager.add({
               type: "info",
               title: "You're up to date",
-              description: `Synara ${nextState.currentVersion} is already the newest version.`,
+              description: `Penkra ${nextState.currentVersion} is already the newest version.`,
             });
             return;
           }
@@ -7037,6 +7114,25 @@ export default function Sidebar() {
                               : "Expand all projects"
                           }
                           tooltipSide="bottom"
+                        />
+                      ) : null}
+                      {penkraSnapshot && penkraSnapshot.status !== "ready" ? (
+                        <span
+                          className={cn(
+                            "size-2 rounded-full",
+                            penkraSnapshot.status === "offline" ? "bg-red-500" : "bg-amber-500",
+                          )}
+                          aria-label={penkraSnapshot.message ?? "Penkra unavailable"}
+                          title={penkraSnapshot.message ?? "Penkra unavailable"}
+                        />
+                      ) : null}
+                      {penkraSnapshot?.status === "ready" ? (
+                        <SidebarIconButton
+                          icon={FiUserPlus}
+                          label="Add client"
+                          tooltip="Add client"
+                          tooltipSide="bottom"
+                          onClick={() => setPenkraCreateClientOpen(true)}
                         />
                       ) : null}
                       <ProjectSortMenu
@@ -7637,6 +7733,22 @@ export default function Sidebar() {
             renameProjectDialogProject.localName,
           );
         }}
+      />
+
+      <PenkraTodoPanel
+        open={penkraTodoClientId !== null}
+        onOpenChange={(open) => {
+          if (!open) setPenkraTodoClientId(null);
+        }}
+        client={selectedPenkraClient}
+        todos={penkraSnapshot?.todos ?? []}
+        warnings={penkraSnapshot?.programWarnings ?? []}
+        onInvoke={invokePenkraTodo}
+      />
+
+      <PenkraCreateClientDialog
+        open={penkraCreateClientOpen}
+        onOpenChange={setPenkraCreateClientOpen}
       />
 
       {searchPaletteOpen ? (

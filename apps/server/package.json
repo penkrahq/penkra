@@ -36,6 +36,7 @@
     "effect": "catalog:",
     "node-pty": "^1.1.0",
     "open": "^10.1.0",
+    "socket.io-client": "^4.8.3",
     "tree-kill": "^1.2.2",
     "ws": "^8.18.0"
   },
@@ -49,6 +50,7 @@
     "@types/node": "catalog:",
     "@types/ws": "^8.5.13",
     "effect-acp": "workspace:*",
+    "socket.io": "^4.8.3",
     "tsdown": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"

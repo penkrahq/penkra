@@ -71,6 +71,7 @@ import { shouldRejectUntrustedRequestOrigin } from "./trustedOrigins";
 import { bufferLiveUiStream, type LiveUiStreamDropReport } from "./wsStreamBackpressure";
 import { PullRequestService } from "./pullRequests/Services/PullRequestService";
 import { resolveGitHubRepository } from "./pullRequests/repositoryResolution";
+import { PenkraRegistry } from "./penkra/layer";
 
 const MAX_DIAGNOSTIC_CHILD_PROCESSES = 80;
 const MAX_DIAGNOSTIC_ARGS_CHARS = 500;
@@ -252,6 +253,7 @@ export const makeWsRpcLayer = () =>
       const open = yield* Open;
       const orchestrationEngine = yield* OrchestrationEngineService;
       const path = yield* Path.Path;
+      const penkraRegistry = yield* PenkraRegistry;
       const pullRequests = yield* PullRequestService;
       const profileStatsQuery = yield* ProfileStatsQuery;
       const projectionReadModelQuery = yield* ProjectionSnapshotQuery;
@@ -534,6 +536,16 @@ export const makeWsRpcLayer = () =>
         effect.pipe(Effect.mapError((cause) => toWsRpcError(cause, fallbackMessage)));
 
       return WsRpcGroup.of({
+        [WS_METHODS.penkraGetSnapshot]: () => penkraRegistry.getSnapshot,
+        [WS_METHODS.penkraCreateClient]: (input) =>
+          rpcEffect(penkraRegistry.createClient(input), "Failed to create Penkra client"),
+        [WS_METHODS.penkraCreateTodo]: (input) =>
+          rpcEffect(penkraRegistry.createTodo(input), "Failed to create Penkra todo"),
+        [WS_METHODS.penkraUpdateTodo]: (input) =>
+          rpcEffect(penkraRegistry.updateTodo(input), "Failed to update Penkra todo"),
+        [WS_METHODS.penkraReconcile]: () =>
+          rpcEffect(penkraRegistry.reconcile, "Failed to reconcile Penkra registry"),
+        [WS_METHODS.subscribePenkraSnapshots]: () => penkraRegistry.streamSnapshots,
         [ORCHESTRATION_WS_METHODS.dispatchCommand]: (command) =>
           rpcEffect(
             Effect.gen(function* () {

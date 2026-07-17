@@ -96,7 +96,9 @@ export function resolveDefaultChatWorkspaceRoot(input: {
   const homeDir = input.homeDir.trim();
   const platform = input.platform ?? process.platform;
   const pathApi = platform === "win32" ? pathWin32 : pathPosix;
-  return pathApi.join(homeDir, "Documents", "Synara");
+  return process.env.PENKRA_ROOT?.trim()
+    ? pathApi.join(process.env.PENKRA_ROOT.trim(), ".scratch")
+    : pathApi.join(homeDir, "Documents", "Synara");
 }
 
 export function resolveDefaultStudioWorkspaceRoot(input: {

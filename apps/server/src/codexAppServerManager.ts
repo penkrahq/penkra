@@ -50,6 +50,7 @@ import {
 } from "./provider/codexCliVersion";
 import { isNonFatalCodexErrorMessage } from "./codexErrorClassification.ts";
 import { buildCodexProcessEnv } from "./codexProcessEnv.ts";
+import { withPenkraProviderEnv } from "./penkra/providerEnv.ts";
 import { ensureIsolatedScratchWorkspace } from "./scratchWorkspaces.ts";
 import { createLogger } from "./logger";
 import { transcribeVoiceWithChatGptSession } from "./voiceTranscription.ts";
@@ -604,7 +605,7 @@ export function buildCodexInitializeParams() {
   return {
     clientInfo: {
       name: "synara_desktop",
-      title: "Synara Desktop",
+      title: "Penkra Desktop",
       version: "0.1.0",
     },
     capabilities: {
@@ -814,9 +815,12 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       const child = spawnCodexAppServer({
         binaryPath: codexBinaryPath,
         cwd: resolvedCwd,
-        env: buildCodexProcessEnv({
-          ...(codexHomePath ? { homePath: codexHomePath } : {}),
-        }),
+        env: withPenkraProviderEnv(
+          buildCodexProcessEnv({
+            ...(codexHomePath ? { homePath: codexHomePath } : {}),
+          }),
+          { threadId, workspace: resolvedCwd },
+        ),
       });
       const output = readline.createInterface({ input: child.stdout });
 
@@ -1436,9 +1440,12 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       const child = spawnCodexAppServer({
         binaryPath: codexBinaryPath,
         cwd: resolvedCwd,
-        env: buildCodexProcessEnv({
-          ...(codexHomePath ? { homePath: codexHomePath } : {}),
-        }),
+        env: withPenkraProviderEnv(
+          buildCodexProcessEnv({
+            ...(codexHomePath ? { homePath: codexHomePath } : {}),
+          }),
+          { threadId, workspace: resolvedCwd },
+        ),
       });
       const output = readline.createInterface({ input: child.stdout });
 

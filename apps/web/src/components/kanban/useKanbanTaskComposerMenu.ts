@@ -9,6 +9,7 @@ import type {
   ProviderInteractionMode,
   ProviderKind,
   ProviderMentionReference,
+  ProjectId,
   ProviderSkillReference,
   ProviderStartOptions,
   ThreadId,
@@ -53,6 +54,7 @@ interface UseKanbanTaskComposerMenuInput {
   >;
   readonly selectedRuntimeAgents: readonly ProviderAgentDescriptor[];
   readonly selectedProjectCwd: string | null;
+  readonly selectedProjectId: ProjectId | null;
   readonly serverCwd: string | null;
   readonly serverHomeDir: string | null;
   readonly providerOptionsForDispatch: ProviderStartOptions | undefined;
@@ -79,6 +81,7 @@ export function useKanbanTaskComposerMenu(input: UseKanbanTaskComposerMenuInput)
     modelOptionsByProvider,
     selectedRuntimeAgents,
     selectedProjectCwd,
+    selectedProjectId,
     serverCwd,
     serverHomeDir,
     providerOptionsForDispatch,
@@ -114,6 +117,7 @@ export function useKanbanTaskComposerMenu(input: UseKanbanTaskComposerMenuInput)
     modelOptionsByProvider,
     selectedRuntimeAgents,
     selectedProjectCwd,
+    selectedProjectId,
     serverCwd,
     serverHomeDir,
     scratchThreadId,

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { WHATS_NEW_ENTRIES } from "./entries";
 import {
   compareVersions,
   parseVersion,
@@ -19,6 +20,15 @@ const entry = (version: string, overrides?: Partial<WhatsNewEntry>): WhatsNewEnt
     },
   ],
   ...overrides,
+});
+
+describe("Penkra release notes", () => {
+  it("exports only Penkra-branded user-facing copy", () => {
+    const renderedCopy = JSON.stringify(WHATS_NEW_ENTRIES);
+
+    expect(renderedCopy).toContain("Penkra");
+    expect(renderedCopy).not.toContain("Synara");
+  });
 });
 
 describe("parseVersion", () => {

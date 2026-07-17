@@ -1,7 +1,7 @@
 // FILE: feedback.ts
 // Purpose: Owns feedback categories, privacy-safe diagnostics, and delivery.
 // Layer: Web feature logic
-// Depends on: The public trysynara feedback endpoint.
+// Depends on: An explicitly configured Penkra feedback endpoint.
 
 import { APP_VERSION } from "./branding";
 
@@ -13,7 +13,7 @@ export const FEEDBACK_CATEGORIES = [
   { value: "bug", label: "Bug", lead: "I ran into a bug" },
   { value: "session", label: "Session", lead: "I hit a session problem" },
   { value: "ui", label: "UI", lead: "Something looked wrong" },
-  { value: "performance", label: "Performance", lead: "Synara felt slow" },
+  { value: "performance", label: "Performance", lead: "Penkra felt slow" },
   { value: "idea", label: "Idea", lead: "I have an idea" },
   { value: "other", label: "Other", lead: "I have some feedback" },
 ] as const;
@@ -55,7 +55,6 @@ export interface FeedbackSubmission {
   diagnostics: FeedbackDiagnostics;
 }
 
-const DEFAULT_FEEDBACK_ENDPOINT = "https://www.trysynara.com/api/feedback";
 const FEEDBACK_REQUEST_TIMEOUT_MS = 20_000;
 
 function formatStateFlags(diagnostics: FeedbackThreadContext): string {
@@ -109,7 +108,7 @@ export function formatFeedbackSummary(input: {
     .filter((row): row is [string, string] => row[1] !== null && row[1] !== "")
     .map(([label, value]) => `${label}: ${value}`);
 
-  return [`${lead} in Synara ${diagnostics.appVersion}${usageContext}.`, "", ...detailLines].join(
+  return [`${lead} in Penkra ${diagnostics.appVersion}${usageContext}.`, "", ...detailLines].join(
     "\n",
   );
 }
@@ -146,22 +145,28 @@ export function buildFeedbackSubmission(input: {
   };
 }
 
-function feedbackEndpoint(): string {
-  return import.meta.env.VITE_FEEDBACK_ENDPOINT?.trim() || DEFAULT_FEEDBACK_ENDPOINT;
+function feedbackEndpoint(): string | null {
+  return import.meta.env.VITE_FEEDBACK_ENDPOINT?.trim() || null;
 }
 
 export async function submitFeedback(
   submission: FeedbackSubmission,
   fetchImplementation: typeof fetch = fetch,
 ): Promise<void> {
+  const endpoint = feedbackEndpoint();
+  if (!endpoint) {
+    throw new Error(
+      "Feedback delivery is not configured. Please report this issue through Penkra HQ.",
+    );
+  }
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), FEEDBACK_REQUEST_TIMEOUT_MS);
   try {
-    const response = await fetchImplementation(feedbackEndpoint(), {
+    const response = await fetchImplementation(endpoint, {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-synara-feedback": "1",
+        "x-penkra-feedback": "1",
       },
       body: JSON.stringify(submission),
       signal: controller.signal,

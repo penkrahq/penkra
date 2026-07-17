@@ -265,7 +265,7 @@ export class BrowserUsePipeServer {
       case "getInfo":
         const sessionId = asString(asObject(params)?.session_id);
         return {
-          name: "Synara In-app Browser",
+          name: "Penkra In-app Browser",
           version: "0.1.0",
           type: "iab",
           ...(sessionId ? { metadata: { codexSessionId: sessionId } } : {}),
@@ -372,7 +372,7 @@ export class BrowserUsePipeServer {
   }> {
     const snapshot = await this.waitForActiveBrowserHostState();
     if (!snapshot) {
-      throw new Error("No active Synara browser pane available");
+      throw new Error("No active Penkra browser pane available");
     }
     const nextState = this.browserManager.newTab({
       threadId: snapshot.threadId,

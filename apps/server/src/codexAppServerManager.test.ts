@@ -837,7 +837,7 @@ describe("startSession", () => {
     expect(buildCodexInitializeParams()).toEqual({
       clientInfo: {
         name: "synara_desktop",
-        title: "Synara Desktop",
+        title: "Penkra Desktop",
         version: "0.1.0",
       },
       capabilities: {
@@ -875,7 +875,7 @@ describe("startSession", () => {
       )
       .mockImplementation(() => {
         throw new Error(
-          "Codex CLI v0.36.0 is too old for Synara. Upgrade to v0.37.0 or newer and restart Synara.",
+          "Codex CLI v0.36.0 is too old for Penkra. Upgrade to v0.37.0 or newer and restart Penkra.",
         );
       });
 
@@ -887,7 +887,7 @@ describe("startSession", () => {
           runtimeMode: "full-access",
         }),
       ).rejects.toThrow(
-        "Codex CLI v0.36.0 is too old for Synara. Upgrade to v0.37.0 or newer and restart Synara.",
+        "Codex CLI v0.36.0 is too old for Penkra. Upgrade to v0.37.0 or newer and restart Penkra.",
       );
       expect(versionCheck).toHaveBeenCalledTimes(1);
       expect(events).toEqual([
@@ -895,7 +895,7 @@ describe("startSession", () => {
           method: "session/startFailed",
           kind: "error",
           message:
-            "Codex CLI v0.36.0 is too old for Synara. Upgrade to v0.37.0 or newer and restart Synara.",
+            "Codex CLI v0.36.0 is too old for Penkra. Upgrade to v0.37.0 or newer and restart Penkra.",
         },
       ]);
     } finally {

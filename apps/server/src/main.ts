@@ -36,6 +36,7 @@ import { AnalyticsServiceLayerLive } from "./telemetry/Layers/AnalyticsService";
 import { AnalyticsService } from "./telemetry/Services/AnalyticsService";
 import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine";
 import { startThreadRetentionJob } from "./threadRetention";
+import { PenkraRegistry } from "./penkra/layer";
 
 export class StartupError extends Data.TaggedError("StartupError")<{
   readonly message: string;
@@ -292,10 +293,22 @@ const makeServerProgram = (input: CliInput) =>
 
     const orchestrationEngine = yield* OrchestrationEngineService;
     const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
+    const penkraRegistry = yield* PenkraRegistry;
     // Start the retention loop after the server is live so startup can serve
     // existing history first, then hide inactive threads from the app in the background.
     yield* startThreadRetentionJob(orchestrationEngine, projectionSnapshotQuery);
     yield* Effect.forkChild(recordStartupHeartbeat);
+    yield* Effect.forkChild(
+      penkraRegistry.reconcile.pipe(
+        Effect.tap((result) => Effect.logInfo("Penkra registry sync completed", result)),
+        Effect.catch((cause) =>
+          Effect.logWarning("Penkra registry sync unavailable", {
+            cause,
+            hint: "Chats remain available; registry sync retries on the next app launch.",
+          }),
+        ),
+      ),
+    );
     // Optional Claude OAuth keepalive. Disabled by default because it touches
     // Claude Code auth data in the background; users can opt in with
     // SYNARA_CLAUDE_KEEPALIVE=1.
@@ -321,7 +334,7 @@ const makeServerProgram = (input: CliInput) =>
         ? `http://${formatHostForUrl(config.host)}:${config.port}`
         : localUrl;
     const { authToken, devUrl, ...safeConfig } = config;
-    yield* Effect.logInfo("Synara running", {
+    yield* Effect.logInfo("Penkra running", {
       ...safeConfig,
       devUrl: devUrl?.toString(),
       authEnabled: Boolean(authToken),
@@ -359,7 +372,7 @@ const hostFlag = Flag.string("host").pipe(
   Flag.optional,
 );
 const synaraHomeFlag = Flag.string("home-dir").pipe(
-  Flag.withDescription("Base directory for all Synara data (equivalent to SYNARA_HOME)."),
+  Flag.withDescription("Base directory for all Penkra data (equivalent to SYNARA_HOME)."),
   Flag.optional,
 );
 const devUrlFlag = Flag.string("dev-url").pipe(
@@ -408,6 +421,6 @@ export const synaraCli = Command.make("synara", {
   logProviderEvents: logProviderEventsFlag,
   logWebSocketEvents: logWebSocketEventsFlag,
 }).pipe(
-  Command.withDescription("Run the Synara server."),
+  Command.withDescription("Run the Penkra server."),
   Command.withHandler((input) => Effect.scoped(makeServerProgram(input))),
 );

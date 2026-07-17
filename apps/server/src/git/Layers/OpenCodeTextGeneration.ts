@@ -380,7 +380,7 @@ const makeOpenCodeCompatibleTextGeneration = (config: OpenCodeCompatibleTextGene
               cliSpec: config.cliSpec,
             });
             const sessionCreateInput = {
-              title: `Synara ${input.operation}`,
+              title: `Penkra ${input.operation}`,
               model: {
                 providerID: providerId,
                 id: modelId,

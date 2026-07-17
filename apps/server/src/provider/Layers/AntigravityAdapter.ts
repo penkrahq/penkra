@@ -29,6 +29,7 @@ import {
 } from "../Services/AntigravityAdapter.ts";
 import type { ProviderThreadSnapshot } from "../Services/ProviderAdapter.ts";
 import { appendFileAttachmentsPromptBlock } from "../attachmentProjection.ts";
+import { withPenkraProviderEnv } from "../../penkra/providerEnv.ts";
 
 const PROVIDER = "antigravity" as const;
 const DEFAULT_MODEL = "Gemini 3.5 Flash";
@@ -256,7 +257,7 @@ async function ensureCapturePlugin(binaryPath: string): Promise<void> {
       {
         $schema: "https://antigravity.google/schemas/v1/plugin.json",
         name: "synara-capture",
-        description: "Streams Antigravity CLI lifecycle events to Synara when requested.",
+        description: "Streams Antigravity CLI lifecycle events to Penkra when requested.",
       },
       null,
       2,
@@ -672,7 +673,7 @@ const makeAntigravityAdapter = Effect.gen(function* () {
           new ProviderAdapterRequestError({
             provider: PROVIDER,
             method: "plugin/install",
-            detail: messageFromCause(cause, "Failed to install the Synara capture hook."),
+            detail: messageFromCause(cause, "Failed to install the Penkra capture hook."),
             cause,
           }),
       });
@@ -840,7 +841,10 @@ const makeAntigravityAdapter = Effect.gen(function* () {
       const child = spawn(context.binaryPath, args, {
         cwd: context.session.cwd ?? serverConfig.cwd,
         env: {
-          ...process.env,
+          ...withPenkraProviderEnv(process.env, {
+            threadId: input.threadId,
+            workspace: context.session.cwd ?? serverConfig.cwd,
+          }),
           SYNARA_ANTIGRAVITY_EVENTS: eventFile,
           SYNARA_ANTIGRAVITY_HOOK_DECISION: "allow",
         },

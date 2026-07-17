@@ -105,6 +105,16 @@ describe("groupCommandItems", () => {
         label: "check-code",
         description: "Review recent code changes",
       },
+      {
+        id: "penkra-skill:business-setup",
+        type: "penkra-skill",
+        skill: {
+          name: "business-setup",
+          description: "Register a business",
+        },
+        label: "business-setup",
+        description: "Register a business",
+      },
     ];
 
     expect(groupCommandItems(items, "slash-command", true)).toEqual([
@@ -121,7 +131,7 @@ describe("groupCommandItems", () => {
       {
         id: "skills",
         label: "Skills",
-        items: [items[2]],
+        items: [items[2], items[3]],
       },
     ]);
   });

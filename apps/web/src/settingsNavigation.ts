@@ -52,7 +52,7 @@ export const SETTINGS_NAV_GROUPS: ReadonlyArray<{
   label: string;
 }> = [
   { id: "app", label: "App" },
-  { id: "synara", label: "Synara" },
+  { id: "synara", label: "Penkra" },
 ] as const;
 
 export const SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
@@ -108,7 +108,7 @@ export const SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
     id: "shortcuts",
     group: "app",
     label: "Keyboard Shortcuts",
-    description: "Every keyboard shortcut available in Synara, grouped by context.",
+    description: "Every keyboard shortcut available in Penkra, grouped by context.",
     icon: "shortcut",
     eyebrow: "Key bindings",
   },
@@ -116,7 +116,7 @@ export const SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
     id: "worktrees",
     group: "app",
     label: "Worktrees",
-    description: "Review and clean up the worktrees created by Synara.",
+    description: "Review and clean up the worktrees created by Penkra.",
     icon: "branch-simple",
     eyebrow: "Workspace management",
   },

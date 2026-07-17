@@ -56,7 +56,7 @@ describe("createDesktopPlatformBuildConfig", () => {
     const win = createDesktopPlatformBuildConfig({
       platform: "win",
       target: "nsis",
-      windowsAzureSignOptions: { publisherName: "Synara" },
+      windowsAzureSignOptions: { publisherName: "Penkra" },
     });
 
     assert.equal(linux.mac, undefined);
@@ -64,12 +64,12 @@ describe("createDesktopPlatformBuildConfig", () => {
     assert.deepStrictEqual(linux.asarUnpack, ["node_modules/node-pty/**"]);
     assert.deepStrictEqual(linux.linux, {
       target: ["AppImage"],
-      executableName: "synara",
+      executableName: "penkra",
       icon: "icon.png",
       category: "Development",
       desktop: {
         entry: {
-          StartupWMClass: "synara",
+          StartupWMClass: "penkra",
         },
       },
     });
@@ -77,14 +77,14 @@ describe("createDesktopPlatformBuildConfig", () => {
     assert.equal(win.mac, undefined);
     assert.equal(win.extraFiles, undefined);
     assert.deepStrictEqual(win.asarUnpack, ["node_modules/node-pty/**"]);
-    assert.equal(WINDOWS_INSTALLER_GUID, "368107a8-afe6-5db5-ab3b-d4f331684868");
+    assert.equal(WINDOWS_INSTALLER_GUID, "BE0EA921-E16E-482E-BEF8-A806CD303114");
     assert.deepStrictEqual(win.nsis, {
       guid: WINDOWS_INSTALLER_GUID,
     });
     assert.deepStrictEqual(win.win, {
       target: ["nsis"],
       icon: "icon.ico",
-      azureSignOptions: { publisherName: "Synara" },
+      azureSignOptions: { publisherName: "Penkra" },
     });
   });
 

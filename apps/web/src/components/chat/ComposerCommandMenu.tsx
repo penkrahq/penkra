@@ -6,6 +6,7 @@ import {
   type ProviderKind,
   type ProviderPluginDescriptor,
   type ProviderSkillDescriptor,
+  type PenkraSkillSummary,
 } from "@synara/contracts";
 import { memo, useEffect, useMemo, useRef, type ReactNode } from "react";
 import { type ComposerTriggerKind } from "../../composer-logic";
@@ -84,7 +85,7 @@ function commandMenuTitle(
     case "subagents":
       return "Subagents";
     case "feedback":
-      return "Feedback Synara";
+      return "Feedback Penkra";
     default:
       return humanizeProviderCommandName(item.command);
   }
@@ -105,6 +106,10 @@ function commandMenuTrailingMeta(item: ComposerCommandItem): string | null {
 
   if (item.type === "skill") {
     return formatSkillScope(item.skill.scope);
+  }
+
+  if (item.type === "penkra-skill") {
+    return "Penkra";
   }
 
   if (item.type === "model") {
@@ -133,7 +138,12 @@ function commandMenuSecondaryText(item: ComposerCommandItem): string | null {
     return item.description;
   }
 
-  if (item.type === "plugin" || item.type === "skill" || item.type === "local-root") {
+  if (
+    item.type === "plugin" ||
+    item.type === "skill" ||
+    item.type === "penkra-skill" ||
+    item.type === "local-root"
+  ) {
     return item.description;
   }
 
@@ -210,6 +220,13 @@ export type ComposerCommandItem =
     }
   | {
       id: string;
+      type: "penkra-skill";
+      skill: PenkraSkillSummary;
+      label: string;
+      description: string;
+    }
+  | {
+      id: string;
       type: "agent";
       provider: ProviderKind;
       alias: string;
@@ -266,12 +283,13 @@ export function groupCommandItems(
 
   const builtInItems = items.filter((item) => item.type === "slash-command");
   const providerItems = items.filter((item) => item.type === "provider-native-command");
-  const skillItems = items.filter((item) => item.type === "skill");
+  const skillItems = items.filter((item) => item.type === "skill" || item.type === "penkra-skill");
   const otherItems = items.filter(
     (item) =>
       item.type !== "slash-command" &&
       item.type !== "provider-native-command" &&
-      item.type !== "skill",
+      item.type !== "skill" &&
+      item.type !== "penkra-skill",
   );
 
   const groups: ComposerCommandGroupModel[] = [];
@@ -476,6 +494,7 @@ function commandMenuItemGlyph(item: ComposerCommandItem, theme: "light" | "dark"
     case "plugin":
       return <PluginIcon className={cls} />;
     case "skill":
+    case "penkra-skill":
       return <SkillCubeIcon className={cls} />;
     default:
       return null;

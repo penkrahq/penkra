@@ -5,7 +5,7 @@
 // Depends on: apps/desktop package metadata, electron-builder, and GitHub release config.
 
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { chmodSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
 import rootPackageJson from "../package.json" with { type: "json" };
@@ -498,29 +498,15 @@ function resolveDesktopRuntimeDependencies(
   return resolveCatalogDependencies(runtimeDependencies, catalog, "apps/desktop");
 }
 
-function resolveGitHubPublishConfig():
-  | {
-      readonly provider: "github";
-      readonly owner: string;
-      readonly repo: string;
-      readonly releaseType: "release";
-    }
-  | undefined {
-  const rawRepo =
-    process.env.SYNARA_DESKTOP_UPDATE_REPOSITORY?.trim() ||
-    process.env.GITHUB_REPOSITORY?.trim() ||
-    "";
-  if (!rawRepo) return undefined;
-
-  const [owner, repo, ...rest] = rawRepo.split("/");
-  if (!owner || !repo || rest.length > 0) return undefined;
-
-  return {
-    provider: "github",
-    owner,
-    repo,
-    releaseType: "release",
-  };
+function resolvePenkraUpdateUrl(
+  platform: typeof BuildPlatform.Type,
+  mockUpdates: boolean,
+  mockUpdateServerPort: string | undefined,
+): string | undefined {
+  if (mockUpdates) return `http://localhost:${mockUpdateServerPort ?? 8788}`;
+  const configured = process.env.PENKRA_UPDATE_URL?.trim();
+  if (configured) return configured.replace(/\/$/, "");
+  return platform === "mac" ? "https://api.penkra.com/updates/mac" : undefined;
 }
 
 const verifyStagedNodePty = Effect.fn("verifyStagedNodePty")(function* (
@@ -553,19 +539,18 @@ const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   const buildConfig: Record<string, unknown> = {
     appId: SYNARA_PRODUCTION_BUNDLE_ID,
     productName,
-    artifactName: "Synara-${version}-${arch}.${ext}",
+    artifactName: "Penkra-${version}-${arch}.${ext}",
+    extraResources: [{ from: "penkra-cli", to: "penkra-cli" }],
     directories: {
       buildResources: "apps/desktop/resources",
     },
   };
-  const publishConfig = resolveGitHubPublishConfig();
-  if (publishConfig) {
-    buildConfig.publish = [publishConfig];
-  } else if (mockUpdates) {
+  const updateUrl = resolvePenkraUpdateUrl(platform, mockUpdates, mockUpdateServerPort);
+  if (updateUrl) {
     buildConfig.publish = [
       {
         provider: "generic",
-        url: `http://localhost:${mockUpdateServerPort ?? 3000}`,
+        url: updateUrl,
       },
     ];
   }
@@ -714,6 +699,13 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
 
   const stageAppDir = path.join(stageRoot, "app");
   const stageResourcesDir = path.join(stageAppDir, "apps/desktop/resources");
+  const cliExecutableName = options.platform === "win" ? "penkra.exe" : "penkra";
+  const configuredCliBinary = process.env.PENKRA_CLI_BINARY?.trim();
+  const cliBinarySource = configuredCliBinary
+    ? path.resolve(configuredCliBinary)
+    : path.resolve(repoRoot, "../backend/apps/cli/dist", cliExecutableName);
+  const stagedCliDirectory = path.join(stageAppDir, "penkra-cli");
+  const stagedCliBinary = path.join(stagedCliDirectory, cliExecutableName);
   const distDirs = {
     desktopDist: path.join(repoRoot, "apps/desktop/dist-electron"),
     desktopResources: path.join(repoRoot, "apps/desktop/resources"),
@@ -746,6 +738,11 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
       message: `Missing bundled server client at ${bundledClientEntry}. Run 'bun run build:desktop' first.`,
     });
   }
+  if (!(yield* fs.exists(cliBinarySource))) {
+    return yield* new BuildScriptError({
+      message: `Missing Penkra CLI binary at ${cliBinarySource}. Build @penkra/cli for ${options.platform}/${options.arch} or set PENKRA_CLI_BINARY.`,
+    });
+  }
 
   yield* validateBundledClientAssets(path.dirname(bundledClientEntry));
 
@@ -756,6 +753,9 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   yield* fs.copy(distDirs.desktopDist, path.join(stageAppDir, "apps/desktop/dist-electron"));
   yield* fs.copy(distDirs.desktopResources, stageResourcesDir);
   yield* fs.copy(distDirs.serverDist, path.join(stageAppDir, "apps/server/dist"));
+  yield* fs.makeDirectory(stagedCliDirectory, { recursive: true });
+  yield* fs.copyFile(cliBinarySource, stagedCliBinary);
+  if (options.platform !== "win") chmodSync(stagedCliBinary, 0o755);
 
   yield* assertPlatformBuildResources(options.platform, stageResourcesDir, options.verbose);
 
@@ -772,13 +772,13 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     buildVersion: appVersion,
     synaraCommitHash: commitHash,
     private: true,
-    description: "Synara desktop build",
+    description: "Penkra desktop build",
     author: "Emanuele Di Pietro",
     main: "apps/desktop/dist-electron/main.js",
     build: yield* createBuildConfig(
       options.platform,
       options.target,
-      desktopPackageJson.productName ?? "Synara",
+      desktopPackageJson.productName ?? "Penkra",
       options.signed,
       options.mockUpdates,
       options.mockUpdateServerPort,
@@ -959,7 +959,7 @@ const buildDesktopArtifactCli = Command.make("build-desktop-artifact", {
     Flag.optional,
   ),
 }).pipe(
-  Command.withDescription("Build a desktop artifact for Synara."),
+  Command.withDescription("Build a desktop artifact for Penkra."),
   Command.withHandler((input) => Effect.flatMap(resolveBuildOptions(input), buildDesktopArtifact)),
 );
 

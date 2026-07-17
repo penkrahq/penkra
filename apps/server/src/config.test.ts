@@ -21,6 +21,7 @@ import {
 
 const tempDirs = new Set<string>();
 const originalSynaraStaticDir = process.env.SYNARA_STATIC_DIR;
+const originalPenkraRoot = process.env.PENKRA_ROOT;
 
 function makeTempDir(prefix = "synara-config-test-"): string {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -37,6 +38,11 @@ afterEach(() => {
     delete process.env.SYNARA_STATIC_DIR;
   } else {
     process.env.SYNARA_STATIC_DIR = originalSynaraStaticDir;
+  }
+  if (originalPenkraRoot === undefined) {
+    delete process.env.PENKRA_ROOT;
+  } else {
+    process.env.PENKRA_ROOT = originalPenkraRoot;
   }
 });
 
@@ -61,6 +67,16 @@ const runResolveCanonicalWorkspaceRoots = (input: {
   Effect.runPromise(resolveCanonicalWorkspaceRoots(input).pipe(Effect.provide(NodeServices.layer)));
 
 describe("resolveDefaultChatWorkspaceRoot", () => {
+  it("places Penkra scratch chats inside the selected root", () => {
+    process.env.PENKRA_ROOT = "/Users/tester/Penkra";
+    expect(resolveDefaultChatWorkspaceRoot({ homeDir: "/Users/tester", platform: "darwin" })).toBe(
+      "/Users/tester/Penkra/.scratch",
+    );
+    expect(
+      resolveDefaultStudioWorkspaceRoot({ homeDir: "/Users/tester", platform: "darwin" }),
+    ).toBe("/Users/tester/Penkra/.scratch/Studio");
+  });
+
   it("places the managed chat workspace under Documents/Synara on macOS and Linux", () => {
     expect(
       resolveDefaultChatWorkspaceRoot({

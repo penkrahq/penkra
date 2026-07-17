@@ -57,6 +57,23 @@ function basenameOfPath(value: string | null | undefined): string | null {
   return basename.length > 0 ? basename : null;
 }
 
+export function projectPickerProjectLabels(project: {
+  id: string;
+  name: string;
+  localName?: string | null;
+  cwd: string;
+}): { primaryLabel: string | null; secondaryLabel: string | null } {
+  const folderName = basenameOfPath(project.cwd) ?? project.name;
+  if (project.id.startsWith("penkra-client-") || project.id === "penkra-hq") {
+    return { primaryLabel: project.name.trim() || folderName, secondaryLabel: null };
+  }
+  const localName = project.localName?.trim() ?? "";
+  return {
+    primaryLabel: localName || folderName,
+    secondaryLabel: localName && localName !== folderName ? folderName : null,
+  };
+}
+
 function directorySearchHaystack(entry: ProjectDirectoryEntry): string {
   return [entry.name, entry.path].join(" ").toLowerCase();
 }
@@ -108,15 +125,17 @@ export const ProjectPicker = memo(function ProjectPicker({
     const nextOptions: ActiveFolderOption[] = [];
 
     for (const project of projects.filter((project) => project.kind === "project")) {
-      const folderName = basenameOfPath(project.cwd) ?? project.folderName ?? project.name;
-      if (!folderName || folderName.startsWith(".") || seen.has(project.cwd)) {
+      const labels = projectPickerProjectLabels(project);
+      if (!labels.primaryLabel || labels.primaryLabel.startsWith(".") || seen.has(project.cwd)) {
         continue;
       }
       seen.add(project.cwd);
-      const primaryLabel = project.localName?.trim() || folderName;
-      const secondaryLabel =
-        project.localName?.trim() && project.localName.trim() !== folderName ? folderName : null;
-      nextOptions.push({ projectId: project.id, cwd: project.cwd, primaryLabel, secondaryLabel });
+      nextOptions.push({
+        projectId: project.id,
+        cwd: project.cwd,
+        primaryLabel: labels.primaryLabel,
+        secondaryLabel: labels.secondaryLabel,
+      });
     }
 
     if (!isProjectSelectionMode) {

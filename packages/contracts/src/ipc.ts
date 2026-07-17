@@ -84,6 +84,15 @@ import type {
   PullRequestsListResult,
 } from "./pullRequests";
 import type {
+  PenkraCreateClientInput,
+  PenkraCreateClientResult,
+  PenkraCreateTodoInput,
+  PenkraMutationResult,
+  PenkraReconcileResult,
+  PenkraSnapshot,
+  PenkraUpdateTodoInput,
+} from "./penkra";
+import type {
   ProjectCreateLocalFilePreviewGrantInput,
   ProjectCreateLocalFilePreviewGrantResult,
   ProjectDevServerEvent,
@@ -487,6 +496,14 @@ export interface DesktopBridge {
 }
 
 export interface NativeApi {
+  penkra: {
+    getSnapshot: () => Promise<PenkraSnapshot>;
+    createClient: (input: PenkraCreateClientInput) => Promise<PenkraCreateClientResult>;
+    createTodo: (input: PenkraCreateTodoInput) => Promise<PenkraMutationResult>;
+    updateTodo: (input: PenkraUpdateTodoInput) => Promise<PenkraMutationResult>;
+    reconcile: () => Promise<PenkraReconcileResult>;
+    onSnapshot: (listener: (snapshot: PenkraSnapshot) => void) => () => void;
+  };
   dialogs: {
     pickFolder: () => Promise<string | null>;
     saveFile?: (input: {

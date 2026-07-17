@@ -25,6 +25,8 @@ import * as EffectAcpErrors from "effect-acp/errors";
 import * as EffectAcpSchema from "effect-acp/schema";
 import type * as EffectAcpProtocol from "effect-acp/protocol";
 
+import { withPenkraProviderEnv } from "../../penkra/providerEnv.ts";
+
 import {
   collectSessionConfigOptionValues,
   extractModelConfigId,
@@ -55,6 +57,7 @@ export interface AcpSpawnInput {
 export interface AcpSessionRuntimeOptions {
   readonly spawn: AcpSpawnInput;
   readonly cwd: string;
+  readonly penkraThreadId?: string;
   readonly resumeSessionId?: string;
   readonly clientCapabilities?: EffectAcpSchema.InitializeRequest["clientCapabilities"];
   readonly clientInfo: {
@@ -259,7 +262,13 @@ const makeAcpSessionRuntime = (
         ),
       );
 
-    const env = options.spawn.env ? { ...process.env, ...options.spawn.env } : process.env;
+    const baseEnv = options.spawn.env ? { ...process.env, ...options.spawn.env } : process.env;
+    const env = options.penkraThreadId
+      ? withPenkraProviderEnv(baseEnv, {
+          threadId: options.penkraThreadId,
+          workspace: options.cwd,
+        })
+      : baseEnv;
     const prepared = prepareWindowsSafeProcess(options.spawn.command, options.spawn.args, {
       cwd: options.spawn.cwd,
       env,

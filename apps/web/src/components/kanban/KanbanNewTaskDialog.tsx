@@ -262,6 +262,7 @@ export function KanbanNewTaskDialog({
     modelOptionsByProvider,
     selectedRuntimeAgents,
     selectedProjectCwd: selectedProject?.cwd ?? null,
+    selectedProjectId,
     serverCwd: serverConfigQuery.data?.cwd ?? null,
     serverHomeDir: serverConfigQuery.data?.homeDir ?? null,
     providerOptionsForDispatch,

@@ -5,6 +5,7 @@
 
 import type {
   ProjectEntry,
+  ProjectId,
   ProviderAgentDescriptor,
   ProviderKind,
   ProviderMentionReference,
@@ -33,6 +34,7 @@ import {
   supportsSkillDiscovery,
 } from "~/lib/providerDiscoveryReactQuery";
 import { projectSearchEntriesQueryOptions } from "~/lib/projectReactQuery";
+import { penkraSnapshotQueryOptions } from "~/penkra/reactQuery";
 import { isMacPlatform } from "~/lib/utils";
 import { compareProvidersByOrder } from "~/providerOrdering";
 import { AVAILABLE_PROVIDER_OPTIONS } from "../chat/ProviderModelPicker";
@@ -70,6 +72,7 @@ interface UseKanbanTaskComposerDiscoveryInput {
   >;
   readonly selectedRuntimeAgents: readonly ProviderAgentDescriptor[];
   readonly selectedProjectCwd: string | null;
+  readonly selectedProjectId: ProjectId | null;
   readonly serverCwd: string | null;
   readonly serverHomeDir: string | null;
   readonly scratchThreadId: ThreadId;
@@ -92,6 +95,7 @@ export function useKanbanTaskComposerDiscovery(input: UseKanbanTaskComposerDisco
     modelOptionsByProvider,
     selectedRuntimeAgents,
     selectedProjectCwd,
+    selectedProjectId,
     serverCwd,
     serverHomeDir,
     scratchThreadId,
@@ -211,6 +215,12 @@ export function useKanbanTaskComposerDiscovery(input: UseKanbanTaskComposerDisco
   const providerNativeCommands =
     providerCommandsQuery.data?.commands ?? EMPTY_PROVIDER_NATIVE_COMMANDS;
   const providerSkills = providerSkillsQuery.data?.skills ?? EMPTY_PROVIDER_SKILLS;
+  const isPenkraClientProject = selectedProjectId?.startsWith("penkra-client-") ?? false;
+  const penkraSnapshotQuery = useQuery({
+    ...penkraSnapshotQueryOptions(),
+    enabled: isPenkraClientProject && isSkillTrigger,
+  });
+  const penkraSkills = isPenkraClientProject ? (penkraSnapshotQuery.data?.skills ?? []) : [];
   const hiddenProviderSet = useMemo(
     () => new Set<ProviderKind>(hiddenProviders),
     [hiddenProviders],
@@ -258,6 +268,7 @@ export function useKanbanTaskComposerDiscovery(input: UseKanbanTaskComposerDisco
     providerPlugins,
     providerNativeCommands,
     providerSkills,
+    penkraSkills,
     workspaceEntries,
     searchableModelOptions,
     supportsFastSlashCommand: false,
@@ -293,7 +304,9 @@ export function useKanbanTaskComposerDiscovery(input: UseKanbanTaskComposerDisco
       (providerComposerCapabilitiesQuery.isLoading ||
         providerComposerCapabilitiesQuery.isFetching ||
         providerSkillsQuery.isLoading ||
-        providerSkillsQuery.isFetching));
+        providerSkillsQuery.isFetching ||
+        penkraSnapshotQuery.isLoading ||
+        penkraSnapshotQuery.isFetching));
 
   return {
     mentionTriggerQuery,

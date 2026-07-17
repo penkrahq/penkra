@@ -56,13 +56,13 @@ function writeMacManifestFixtures(targetRoot: string): { arm64Path: string; x64P
     arm64Path,
     `version: 9.9.9-smoke.0
 files:
-  - url: Synara-9.9.9-smoke.0-arm64.zip
+  - url: Penkra-9.9.9-smoke.0-arm64.zip
     sha512: arm64zip
     size: 125621344
-  - url: Synara-9.9.9-smoke.0-arm64.dmg
+  - url: Penkra-9.9.9-smoke.0-arm64.dmg
     sha512: arm64dmg
     size: 131754935
-path: Synara-9.9.9-smoke.0-arm64.zip
+path: Penkra-9.9.9-smoke.0-arm64.zip
 sha512: arm64zip
 releaseDate: '2026-03-08T10:32:14.587Z'
 `,
@@ -72,13 +72,13 @@ releaseDate: '2026-03-08T10:32:14.587Z'
     x64Path,
     `version: 9.9.9-smoke.0
 files:
-  - url: Synara-9.9.9-smoke.0-x64.zip
+  - url: Penkra-9.9.9-smoke.0-x64.zip
     sha512: x64zip
     size: 132000112
-  - url: Synara-9.9.9-smoke.0-x64.dmg
+  - url: Penkra-9.9.9-smoke.0-x64.dmg
     sha512: x64dmg
     size: 138148807
-path: Synara-9.9.9-smoke.0-x64.zip
+path: Penkra-9.9.9-smoke.0-x64.zip
 sha512: x64zip
 releaseDate: '2026-03-08T10:36:07.540Z'
 `,
@@ -110,10 +110,10 @@ function verifyCanonicalIdentity(): void {
   ) {
     throw new Error("Expected the CLI to expose only the synara binary.");
   }
-  if (SYNARA_PRODUCTION_BUNDLE_ID !== "com.emanueledipietro.synara") {
+  if (SYNARA_PRODUCTION_BUNDLE_ID !== "com.penkra.app") {
     throw new Error(`Unexpected production bundle ID: ${SYNARA_PRODUCTION_BUNDLE_ID}.`);
   }
-  if (SYNARA_DESKTOP_UPDATE_CHANNEL !== "synara") {
+  if (SYNARA_DESKTOP_UPDATE_CHANNEL !== "latest") {
     throw new Error(`Unexpected desktop update channel: ${SYNARA_DESKTOP_UPDATE_CHANNEL}.`);
   }
 
@@ -124,7 +124,7 @@ function verifyCanonicalIdentity(): void {
     !resolvedPolicy.makeLatest ||
     resolvedPolicy.mirrorToStableChannel
   ) {
-    throw new Error("Expected stable clean Synara releases to publish on GitHub Latest.");
+    throw new Error("Expected stable clean Penkra releases to publish on GitHub Latest.");
   }
 }
 
@@ -244,12 +244,12 @@ try {
   const mergedManifest = readFileSync(arm64Path, "utf8");
   assertContains(
     mergedManifest,
-    "Synara-9.9.9-smoke.0-arm64.zip",
+    "Penkra-9.9.9-smoke.0-arm64.zip",
     "Merged manifest is missing the arm64 asset.",
   );
   assertContains(
     mergedManifest,
-    "Synara-9.9.9-smoke.0-x64.zip",
+    "Penkra-9.9.9-smoke.0-x64.zip",
     "Merged manifest is missing the x64 asset.",
   );
 

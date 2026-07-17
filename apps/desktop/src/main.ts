@@ -45,6 +45,7 @@ import { autoUpdater, BaseUpdater, CancellationToken } from "electron-updater";
 import type { ContextMenuItem } from "@synara/contracts";
 import { getMacTrafficLightPosition } from "@synara/shared/desktopChrome";
 import {
+  LEGACY_SYNARA_DESKTOP_SCHEME,
   SYNARA_DESKTOP_ENTRY_URL,
   SYNARA_DESKTOP_SCHEME,
   SYNARA_DESKTOP_UPDATE_CHANNEL,
@@ -148,9 +149,14 @@ import {
 import {
   repairBrowserProfileFromBridgeManifest,
   resolveDesktopAppDataBase,
-  resolveDesktopUserDataPath,
 } from "./desktopUserDataProfile";
 import { isBrokenPipeError } from "./desktopProcessErrors";
+import {
+  readPenkraRootPointer,
+  resolvePenkraRootPointerPath,
+  writePenkraRootPointer,
+} from "./penkraRoot";
+import { authenticateAndStorePenkraHq, PENKRA_HQ_AUTH_CHANNEL } from "./penkraHqAuth";
 import {
   readDesktopWindowState,
   resolveVisibleWindowBounds,
@@ -160,9 +166,12 @@ import {
   acknowledgeSynaraStorageSnapshot,
   readSynaraStorageSnapshot,
   resolveSynaraStorageSnapshotPath,
+  saveSynaraStorageSnapshot,
   STORAGE_MIGRATION_IPC_CHANNELS,
 } from "./desktopStorageMigration";
 import { DesktopAppSnapManager } from "./appSnapManager";
+import { bakedPenkraUpdateToken, penkraUpdateRequestHeaders } from "./penkraUpdateConfig";
+import { installBundledPenkraCli } from "./penkraCliLink";
 import {
   registerAppSnapIpcHandlers,
   sendAppSnapCaptured,
@@ -201,13 +210,38 @@ const UPDATE_DOWNLOAD_CHANNEL = "desktop:update-download";
 const UPDATE_INSTALL_CHANNEL = "desktop:update-install";
 const NOTIFICATIONS_IS_SUPPORTED_CHANNEL = "desktop:notifications-is-supported";
 const NOTIFICATIONS_SHOW_CHANNEL = "desktop:notifications-show";
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+const penkraAppDataBase = resolveDesktopAppDataBase();
+const penkraRootPointerPath = resolvePenkraRootPointerPath(penkraAppDataBase);
+const persistedPenkraRoot = readPenkraRootPointer(penkraRootPointerPath);
+const needsPenkraRootPicker = hasSingleInstanceLock && persistedPenkraRoot === null;
+const PENKRA_ROOT = persistedPenkraRoot ?? Path.join(OS.homedir(), "Penkra");
+const PENKRA_PICKER_USER_DATA = Path.join(penkraAppDataBase, "Penkra", "picker-userdata");
+const PENKRA_HQ_CONFIG_PATH = Path.join(PENKRA_ROOT, "hq", ".penkra", "config.json");
+const PENKRA_API_URL = (process.env.PENKRA_API_URL?.trim() || "https://api.penkra.com").replace(
+  /\/$/,
+  "",
+);
+process.env.PENKRA_ROOT = PENKRA_ROOT;
+process.env.SYNARA_HOME = Path.join(PENKRA_ROOT, ".penkra");
+const PENKRA_CLI_BIN_DIR = Path.join(PENKRA_ROOT, ".penkra", "bin");
+const inheritedPathEntries = (process.env.PATH ?? "").split(Path.delimiter).filter(Boolean);
+process.env.PATH = [
+  PENKRA_CLI_BIN_DIR,
+  ...inheritedPathEntries.filter((entry) => Path.resolve(entry) !== PENKRA_CLI_BIN_DIR),
+].join(Path.delimiter);
 const BASE_DIR = process.env.SYNARA_HOME?.trim() || Path.join(OS.homedir(), ".synara");
 const STATE_DIR = Path.join(BASE_DIR, "userdata");
 const DESKTOP_WINDOW_STATE_PATH = Path.join(STATE_DIR, "desktop-window-state.json");
 const DESKTOP_SCHEME = SYNARA_DESKTOP_SCHEME;
+const LEGACY_STORAGE_EXPORT_PATH = "/__penkra_storage_export__.html";
+const LEGACY_STORAGE_MIGRATION_MARKER_PATH = Path.join(
+  STATE_DIR,
+  "penkra-origin-migration-v1.complete",
+);
 const ROOT_DIR = Path.resolve(__dirname, "../../..");
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
-const APP_DISPLAY_NAME = isDevelopment ? "Synara (Dev)" : "Synara";
+const APP_DISPLAY_NAME = isDevelopment ? "Penkra (Dev)" : "Penkra";
 const APP_USER_MODEL_ID = synaraBundleId(isDevelopment);
 const COMMIT_HASH_PATTERN = /^[0-9a-f]{7,40}$/i;
 const COMMIT_HASH_DISPLAY_LENGTH = 12;
@@ -215,7 +249,6 @@ const LOG_DIR = Path.join(STATE_DIR, "logs");
 const LOG_FILE_MAX_BYTES = 10 * 1024 * 1024;
 const LOG_FILE_MAX_FILES = 10;
 const APP_RUN_ID = Crypto.randomBytes(6).toString("hex");
-const hasSingleInstanceLock = app.requestSingleInstanceLock();
 const AUTO_UPDATE_STARTUP_DELAY_MS = 15_000;
 const AUTO_UPDATE_POLL_INTERVAL_MS = 4 * 60 * 60 * 1000;
 const AUTO_UPDATE_FOREGROUND_RECHECK_MIN_INTERVAL_MS = 5 * 60 * 1000;
@@ -240,12 +273,13 @@ const BROWSER_PERF_SAMPLE_INTERVAL_MS = 5_000;
 const DESKTOP_MENU_ZOOM_FACTOR_STEP = 1.1;
 const DESKTOP_MENU_MIN_ZOOM_FACTOR = 0.25;
 const DESKTOP_MENU_MAX_ZOOM_FACTOR = 5;
-const SYNARA_BROWSER_LABEL = "Synara browser";
+const SYNARA_BROWSER_LABEL = "Penkra browser";
 const browserPerfLoggingEnabled = process.env.SYNARA_BROWSER_PERF === "1";
 
 type DesktopUpdateErrorContext = DesktopUpdateState["errorContext"];
 
 let mainWindow: BrowserWindow | null = null;
+let penkraHqAuthShown = false;
 let backendProcess: ChildProcess.ChildProcess | null = null;
 let backendPort = 0;
 let backendAuthToken = "";
@@ -789,6 +823,13 @@ protocol.registerSchemesAsPrivileged([
       corsEnabled: true,
     },
   },
+  {
+    scheme: LEGACY_SYNARA_DESKTOP_SCHEME,
+    privileges: {
+      standard: true,
+      secure: true,
+    },
+  },
 ]);
 
 function resolveAppRoot(): string {
@@ -1065,7 +1106,7 @@ function handleFatalStartupError(stage: string, error: unknown): void {
   console.error(`[desktop] fatal startup error (${stage})`, error);
   if (!isQuitting) {
     isQuitting = true;
-    dialog.showErrorBox("Synara failed to start", `Stage: ${stage}\n${message}${detail}`);
+    dialog.showErrorBox("Penkra failed to start", `Stage: ${stage}\n${message}${detail}`);
   }
   stopBackend();
   restoreStdIoCapture?.();
@@ -1095,9 +1136,27 @@ function registerDesktopProtocol(): void {
   const staticRootResolved = Path.resolve(staticRoot);
   const staticRootPrefix = `${staticRootResolved}${Path.sep}`;
   const fallbackIndex = Path.join(staticRootResolved, "index.html");
+  const legacyStorageExportFile = Path.join(
+    app.getPath("userData"),
+    "penkra-origin-migration-export.html",
+  );
+  FS.writeFileSync(legacyStorageExportFile, '<!doctype html><meta charset="utf-8">\n', {
+    mode: 0o600,
+  });
 
-  protocol.registerFileProtocol(DESKTOP_SCHEME, (request, callback) => {
+  const handleDesktopProtocol: Parameters<typeof protocol.registerFileProtocol>[1] = (
+    request,
+    callback,
+  ) => {
     try {
+      const parsedUrl = new URL(request.url);
+      if (
+        parsedUrl.protocol === `${LEGACY_SYNARA_DESKTOP_SCHEME}:` &&
+        parsedUrl.pathname === LEGACY_STORAGE_EXPORT_PATH
+      ) {
+        callback({ path: legacyStorageExportFile });
+        return;
+      }
       const candidate = resolveDesktopStaticPath(staticRootResolved, request.url);
       const resolvedCandidate = Path.resolve(candidate);
       const isInRoot =
@@ -1117,9 +1176,54 @@ function registerDesktopProtocol(): void {
     } catch {
       callback({ path: fallbackIndex });
     }
-  });
+  };
+
+  protocol.registerFileProtocol(DESKTOP_SCHEME, handleDesktopProtocol);
+  protocol.registerFileProtocol(LEGACY_SYNARA_DESKTOP_SCHEME, handleDesktopProtocol);
 
   desktopProtocolRegistered = true;
+}
+
+async function migrateLegacyDesktopStorage(): Promise<void> {
+  if (isDevelopment || FS.existsSync(LEGACY_STORAGE_MIGRATION_MARKER_PATH)) return;
+
+  const migrationWindow = new BrowserWindow({
+    show: false,
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+  try {
+    await migrationWindow.loadURL(
+      `${LEGACY_SYNARA_DESKTOP_SCHEME}://app${LEGACY_STORAGE_EXPORT_PATH}`,
+    );
+    const snapshot = (await migrationWindow.webContents.executeJavaScript(`(() => {
+      const entries = {};
+      for (let index = 0; index < localStorage.length; index += 1) {
+        const key = localStorage.key(index);
+        if (!key || (!key.startsWith("synara:") && !key.startsWith("synara."))) continue;
+        const value = localStorage.getItem(key);
+        if (value !== null) entries[key] = value;
+      }
+      return { version: 1, exportedAt: new Date().toISOString(), entries };
+    })()`)) as unknown;
+    const entries =
+      typeof snapshot === "object" && snapshot !== null && "entries" in snapshot
+        ? Object.keys((snapshot as { entries?: object }).entries ?? {})
+        : [];
+    if (entries.length === 0) {
+      FS.writeFileSync(LEGACY_STORAGE_MIGRATION_MARKER_PATH, "complete\n", { mode: 0o600 });
+      return;
+    }
+    const snapshotPath = resolveSynaraStorageSnapshotPath(app.getPath("userData"));
+    if (!(await saveSynaraStorageSnapshot(snapshotPath, snapshot))) {
+      throw new Error("Legacy renderer storage did not pass snapshot validation.");
+    }
+  } finally {
+    if (!migrationWindow.isDestroyed()) migrationWindow.destroy();
+  }
 }
 
 function dispatchMenuAction(action: string): void {
@@ -1220,14 +1324,14 @@ async function checkForUpdatesFromMenu(): Promise<void> {
     void dialog.showMessageBox({
       type: "info",
       title: "You're up to date!",
-      message: `Synara ${updateState.currentVersion} is currently the newest version available.`,
+      message: `Penkra ${updateState.currentVersion} is currently the newest version available.`,
       buttons: ["OK"],
     });
   } else if (updateState.status === "downloading" || updateState.status === "available") {
     void dialog.showMessageBox({
       type: "info",
       title: "Update found",
-      message: "Synara is preparing the update in the background.",
+      message: "Penkra is preparing the update in the background.",
       buttons: ["OK"],
     });
   } else if (updateState.status === "downloaded") {
@@ -1568,23 +1672,23 @@ function showDesktopNotification(input: {
  * Resolve the Electron userData directory path.
  *
  * Electron derives the default userData path from `productName` in
- * package.json. We override it to a clean lowercase Synara name.
+ * package.json. Penkra keeps this under the operator-selected workspace root.
  */
 function resolveUserDataPath(): string {
-  const appDataBase = resolveDesktopAppDataBase();
-  return resolveDesktopUserDataPath({ appDataBase, isDevelopment });
+  if (needsPenkraRootPicker) return PENKRA_PICKER_USER_DATA;
+  return Path.join(PENKRA_ROOT, ".penkra", "electron");
 }
 
 function repairBrowserProfileBeforeElectronReady(userDataPath: string): void {
   const browserProfileRepair = repairBrowserProfileFromBridgeManifest(userDataPath);
   if (browserProfileRepair.status === "repaired") {
-    console.info("[desktop] Completed Synara browser profile bridge repair", {
+    console.info("[desktop] Completed Penkra browser profile bridge repair", {
       sourcePath: browserProfileRepair.sourcePath,
       targetPath: browserProfileRepair.targetPath,
       copiedEntries: browserProfileRepair.copiedEntries,
     });
   } else if (browserProfileRepair.status === "repair-failed") {
-    console.warn("[desktop] Failed to complete Synara browser profile bridge repair", {
+    console.warn("[desktop] Failed to complete Penkra browser profile bridge repair", {
       sourcePath: browserProfileRepair.sourcePath,
       targetPath: browserProfileRepair.targetPath,
       error: browserProfileRepair.error,
@@ -1740,11 +1844,11 @@ function restartAfterStartupBundleSwap(error: BundleChangedDuringStartupError): 
   void dialog
     .showMessageBox({
       type: "warning",
-      title: "Synara needs to restart",
-      message: "Synara changed while it was opening.",
+      title: "Penkra needs to restart",
+      message: "Penkra changed while it was opening.",
       detail:
-        "The current process cannot safely read the replaced application bundle. Restart Synara to finish opening with one consistent version.",
-      buttons: ["Restart Synara"],
+        "The current process cannot safely read the replaced application bundle. Restart Penkra to finish opening with one consistent version.",
+      buttons: ["Restart Penkra"],
       defaultId: 0,
     })
     .catch(() => undefined)
@@ -1796,8 +1900,8 @@ function startBundleSwapWatcher(): void {
     void dialog
       .showMessageBox({
         type: "warning",
-        title: "Synara was replaced on disk",
-        message: "The installed Synara app changed while it was running.",
+        title: "Penkra was replaced on disk",
+        message: "The installed Penkra app changed while it was running.",
         detail:
           "The interface keeps running from a safeguarded copy, but parts of the app loaded later can still read the replaced file. Restart now to pick up the new version safely.",
         buttons: ["Restart Now", "Later"],
@@ -1964,7 +2068,7 @@ function processInstallMarkerOnStartup(): void {
   }
 
   automaticUpdateActivitySuppressed = true;
-  const message = `Synara restarted, but update ${marker.toVersion} was not installed. Try again.`;
+  const message = `Penkra restarted, but update ${marker.toVersion} was not installed. Try again.`;
   setUpdateState(
     reduceDesktopUpdateStateOnInstallRestartFailure(
       updateState,
@@ -2385,8 +2489,8 @@ function configureAutoUpdater(): void {
 
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = false;
-  // The dedicated channel keeps the permanent compatibility release on the
-  // default feed while Synara versions advance independently.
+  autoUpdater.requestHeaders = penkraUpdateRequestHeaders(bakedPenkraUpdateToken());
+  // Penkra's generic feed uses electron-updater's standard latest manifests.
   autoUpdater.channel = SYNARA_DESKTOP_UPDATE_CHANNEL;
   autoUpdater.allowPrerelease = DESKTOP_UPDATE_ALLOW_PRERELEASE;
   autoUpdater.allowDowngrade = false;
@@ -2811,6 +2915,7 @@ function registerIpcHandlers(): void {
   ipcMain.removeHandler(STORAGE_MIGRATION_IPC_CHANNELS.acknowledge);
   ipcMain.handle(STORAGE_MIGRATION_IPC_CHANNELS.acknowledge, async () => {
     await acknowledgeSynaraStorageSnapshot(storageSnapshotPath);
+    FS.writeFileSync(LEGACY_STORAGE_MIGRATION_MARKER_PATH, "complete\n", { mode: 0o600 });
   });
 
   ipcMain.removeAllListeners(DESKTOP_WS_URL_CHANNEL);
@@ -3114,7 +3219,7 @@ function registerIpcHandlers(): void {
   registerDesktopVoiceTranscriptionHandler();
   startBrowserPerformanceLogging();
   void ensureBrowserUsePipeServer().catch((error) => {
-    console.warn("[Synara browser] Failed to start browser-use native pipe", error);
+    console.warn("[Penkra browser] Failed to start browser-use native pipe", error);
   });
 
   registerBrowserIpcHandlers(ipcMain, browserManager);
@@ -3268,6 +3373,7 @@ function createWindow(): BrowserWindow {
     }
     window.show();
     emitDesktopWindowState(window);
+    void showPenkraHqAuthIfNeeded(window);
   });
 
   window.on("maximize", () => emitDesktopWindowState(window));
@@ -3301,6 +3407,128 @@ function createWindow(): BrowserWindow {
   });
 
   return window;
+}
+
+async function showPenkraHqAuthIfNeeded(parent: BrowserWindow): Promise<void> {
+  if (penkraHqAuthShown || FS.existsSync(PENKRA_HQ_CONFIG_PATH) || parent.isDestroyed()) return;
+  penkraHqAuthShown = true;
+  const authWindow = new BrowserWindow({
+    parent,
+    modal: true,
+    width: 440,
+    height: 360,
+    minWidth: 400,
+    minHeight: 340,
+    maximizable: false,
+    minimizable: false,
+    resizable: false,
+    show: false,
+    autoHideMenuBar: true,
+    title: "Connect Penkra HQ",
+    backgroundColor: nativeTheme.shouldUseDarkColors ? "#171717" : "#f7f7f5",
+    webPreferences: {
+      preload: Path.join(__dirname, "penkraHqAuthPreload.js"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+  ipcMain.removeHandler(PENKRA_HQ_AUTH_CHANNEL);
+  ipcMain.handle(PENKRA_HQ_AUTH_CHANNEL, async (event, password: unknown) => {
+    if (event.sender !== authWindow.webContents || typeof password !== "string") {
+      return { ok: false, message: "Authentication failed." };
+    }
+    const result = await authenticateAndStorePenkraHq({
+      endpoint: PENKRA_API_URL,
+      password,
+      configPath: PENKRA_HQ_CONFIG_PATH,
+    });
+    if (result.ok) {
+      setTimeout(() => {
+        app.relaunch();
+        app.exit(0);
+      }, 350);
+    }
+    return result;
+  });
+  authWindow.once("ready-to-show", () => authWindow.show());
+  authWindow.once("closed", () => ipcMain.removeHandler(PENKRA_HQ_AUTH_CHANNEL));
+  await authWindow.loadURL(
+    `data:text/html;charset=utf-8,${encodeURIComponent(penkraHqAuthHtml())}`,
+  );
+}
+
+function penkraHqAuthHtml(): string {
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+  <title>Connect Penkra HQ</title>
+  <style>
+    :root { color-scheme: light dark; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: light-dark(#f7f7f5, #171717); color: light-dark(#181817, #f3f3f1); }
+    main { min-height: 100vh; display: flex; flex-direction: column; justify-content: center; padding: 32px; }
+    h1 { margin: 0 0 8px; font-size: 24px; font-weight: 650; letter-spacing: 0; }
+    p { margin: 0 0 24px; color: light-dark(#62625e, #aaa9a4); font-size: 14px; line-height: 1.45; }
+    label { display: block; margin-bottom: 7px; font-size: 13px; font-weight: 600; }
+    input { width: 100%; height: 40px; padding: 0 11px; border: 1px solid light-dark(#c9c9c4, #494946); border-radius: 6px; background: light-dark(#fff, #232322); color: inherit; font-size: 15px; outline: none; }
+    input:focus { border-color: #18794e; box-shadow: 0 0 0 2px color-mix(in srgb, #18794e 24%, transparent); }
+    #error { min-height: 20px; margin: 8px 0 4px; color: light-dark(#b42318, #ff8a80); font-size: 13px; }
+    footer { display: flex; justify-content: flex-end; gap: 8px; }
+    button { height: 36px; padding: 0 14px; border: 1px solid light-dark(#c9c9c4, #494946); border-radius: 6px; font: inherit; font-size: 14px; cursor: pointer; }
+    #cancel { background: transparent; color: inherit; }
+    #submit { border-color: #18794e; background: #18794e; color: #fff; font-weight: 600; }
+    button:disabled { cursor: default; opacity: .55; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Connect Penkra HQ</h1>
+    <p>Enter the master password to connect this workspace.</p>
+    <form>
+      <label for="password">Master password</label>
+      <input id="password" type="password" autocomplete="current-password" autofocus required maxlength="1024">
+      <div id="error" role="alert"></div>
+      <footer>
+        <button id="cancel" type="button">Not now</button>
+        <button id="submit" type="submit">Connect</button>
+      </footer>
+    </form>
+  </main>
+  <script>
+    const form = document.querySelector('form');
+    const input = document.querySelector('#password');
+    const error = document.querySelector('#error');
+    const submit = document.querySelector('#submit');
+    document.querySelector('#cancel').addEventListener('click', () => window.close());
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      error.textContent = '';
+      submit.disabled = true;
+      input.disabled = true;
+      try {
+        const result = await window.penkraHqAuth.submit(input.value);
+        if (!result.ok) {
+          error.textContent = result.message;
+          submit.disabled = false;
+          input.disabled = false;
+          input.focus();
+          input.select();
+        } else {
+          submit.textContent = 'Connected';
+        }
+      } catch {
+        error.textContent = 'Authentication failed.';
+        submit.disabled = false;
+        input.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>`;
 }
 
 function configureMediaPermissions(): void {
@@ -3350,6 +3578,7 @@ function configureMediaPermissions(): void {
 // Chromium session data uses a filesystem-friendly directory name.
 // Must be called synchronously at the top level — before `app.whenReady()`.
 const userDataPath = resolveUserDataPath();
+FS.mkdirSync(userDataPath, { recursive: true, mode: 0o700 });
 if (hasSingleInstanceLock) {
   repairBrowserProfileBeforeElectronReady(userDataPath);
 }
@@ -3437,6 +3666,29 @@ if (hasSingleInstanceLock) {
   app
     .whenReady()
     .then(() => {
+      if (needsPenkraRootPicker) {
+        const defaultRoot = Path.join(OS.homedir(), "Penkra");
+        FS.mkdirSync(defaultRoot, { recursive: true, mode: 0o700 });
+        const selected = dialog.showOpenDialogSync({
+          title: "Choose your Penkra workspace",
+          defaultPath: defaultRoot,
+          properties: ["openDirectory", "createDirectory"],
+        });
+        const selectedRoot = selected?.[0];
+        if (!selectedRoot) {
+          app.quit();
+          return;
+        }
+        const root = Path.resolve(selectedRoot);
+        FS.mkdirSync(root, { recursive: true, mode: 0o700 });
+        writePenkraRootPointer(penkraRootPointerPath, root);
+        app.relaunch();
+        app.exit(0);
+        return;
+      }
+      if (FS.existsSync(PENKRA_PICKER_USER_DATA)) {
+        FS.rmSync(PENKRA_PICKER_USER_DATA, { recursive: true, force: true });
+      }
       writeDesktopLogHeader("app ready");
       configureAppIdentity();
       applyLegacyMacDockIcon();
@@ -3455,9 +3707,26 @@ if (hasSingleInstanceLock) {
       }
       startBundleSwapWatcher();
       configureAutoUpdater();
-      void bootstrap().catch((error) => {
-        handleFatalStartupError("bootstrap", error);
-      });
+      void migrateLegacyDesktopStorage()
+        .catch((error) => {
+          console.warn("[desktop] Failed to migrate legacy renderer storage", error);
+        })
+        .then(async () => {
+          if (!app.isPackaged) return;
+          const result = await installBundledPenkraCli({
+            resourcesPath: process.resourcesPath,
+            penkraRoot: PENKRA_ROOT,
+            platform: process.platform,
+          });
+          console.info("[desktop] Penkra CLI install result", result);
+        })
+        .catch((error) => {
+          console.warn("[desktop] Failed to install bundled Penkra CLI", error);
+        })
+        .then(() => bootstrap())
+        .catch((error) => {
+          handleFatalStartupError("bootstrap", error);
+        });
 
       app.on("browser-window-blur", () => {
         markDesktopAppBackgrounded();

@@ -133,7 +133,7 @@ const MESSAGE_ROLE_HEADING: Record<string, string> = {
 
 // One chunk for the header, then one chunk per message; nothing accumulates.
 function* transcriptMarkdownChunks(thread: OrchestrationThread): Generator<string> {
-  yield `# ${thread.title}\n\n> Exported from Synara.\n`;
+  yield `# ${thread.title}\n\n> Exported from Penkra.\n`;
   for (const message of thread.messages) {
     const heading = MESSAGE_ROLE_HEADING[message.role] ?? "Message";
     yield `\n## ${heading} \`${message.createdAt}\`\n\n${message.text}\n`;

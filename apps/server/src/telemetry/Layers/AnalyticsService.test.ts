@@ -45,10 +45,10 @@ it.layer(NodeServices.layer)("AnalyticsService test", (it) => {
       const telemetryLayer = AnalyticsServiceLayerLive.pipe(Layer.provideMerge(serverConfigLayer));
       const configLayer = ConfigProvider.layer(
         ConfigProvider.fromUnknown({
-          SYNARA_TELEMETRY_ENABLED: true,
-          SYNARA_POSTHOG_KEY: "phc_test_key",
-          SYNARA_POSTHOG_HOST: "",
-          SYNARA_TELEMETRY_FLUSH_BATCH_SIZE: 20,
+          PENKRA_TELEMETRY_ENABLED: true,
+          PENKRA_POSTHOG_KEY: "phc_test_key",
+          PENKRA_POSTHOG_HOST: "http://localhost",
+          PENKRA_TELEMETRY_FLUSH_BATCH_SIZE: 20,
         }),
       );
       const batchServerLayer = HttpServer.serve(
@@ -92,7 +92,9 @@ it.layer(NodeServices.layer)("AnalyticsService test", (it) => {
       );
       assert.equal(batchRequests.length, 3);
       assert.equal(
-        batchRequests.every((request) => request.path === "/batch/" || request.path === "/batch"),
+        batchRequests.every(
+          (request) => request.path.endsWith("/batch/") || request.path.endsWith("/batch"),
+        ),
         true,
       );
       const deliveredIndexes = batchRequests.flatMap((request) =>

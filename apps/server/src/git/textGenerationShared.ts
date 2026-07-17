@@ -340,7 +340,7 @@ export function buildThreadRecapPrompt(input: {
 }) {
   return {
     prompt: [
-      "You are writing a compact live recap for Synara's chat side panel.",
+      "You are writing a compact live recap for Penkra's chat side panel.",
       "Return a JSON object with key: recap.",
       "Respond with only the JSON object, no prose and no code fences.",
       "Goal:",
@@ -383,14 +383,14 @@ export function buildAutomationIntentPrompt(input: {
   const defaultMode = input.defaultMode ?? "heartbeat";
   return {
     prompt: [
-      "You extract structured Synara automation creation intents.",
+      "You extract structured Penkra automation creation intents.",
       "Return a JSON object matching the requested schema.",
       "Respond with only the JSON object, no prose and no code fences.",
       "",
       "Context:",
       "- The user already invoked /automation or @automation in the chat composer.",
       "- Still set isAutomation=false if the text is only asking a question about automations or does not request a scheduled task.",
-      "- Synara automations run a saved prompt on a schedule.",
+      "- Penkra automations run a saved prompt on a schedule.",
       `- Current timestamp for relative timers: ${input.nowIso}.`,
       "",
       "Required output fields:",
@@ -462,7 +462,7 @@ export function buildAutomationCompletionEvaluationPrompt(input: {
 }) {
   return {
     prompt: [
-      "You evaluate whether a completed Synara heartbeat automation should stop.",
+      "You evaluate whether a completed Penkra heartbeat automation should stop.",
       "Return a JSON object with keys: stopMatched, confidence, reason.",
       "Respond with only the JSON object, no prose and no code fences.",
       "",

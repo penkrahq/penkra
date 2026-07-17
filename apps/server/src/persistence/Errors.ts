@@ -71,7 +71,7 @@ export class MigrationLineageError extends Schema.TaggedErrorClass<MigrationLine
   override get message(): string {
     return (
       `Migration tracker does not match any known lineage: migration ${this.firstDivergedId} ` +
-      `is recorded as "${this.recordedName}" but Synara expects "${this.expectedName}". ` +
+      `is recorded as "${this.recordedName}" but Penkra expects "${this.expectedName}". ` +
       `Refusing to run migrations against an unrecognized database.`
     );
   }

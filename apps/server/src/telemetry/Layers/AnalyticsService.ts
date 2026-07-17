@@ -22,15 +22,11 @@ interface BufferedAnalyticsEvent {
 }
 
 const TelemetryEnvConfig = Config.all({
-  posthogKey: Config.string("SYNARA_POSTHOG_KEY").pipe(
-    Config.withDefault("phc_XOWci4oZP4VvLiEyrFqkFjP4CZn55mjYYBMREK5Wd6m"),
-  ),
-  posthogHost: Config.string("SYNARA_POSTHOG_HOST").pipe(
-    Config.withDefault("https://us.i.posthog.com"),
-  ),
-  enabled: Config.boolean("SYNARA_TELEMETRY_ENABLED").pipe(Config.withDefault(true)),
-  flushBatchSize: Config.number("SYNARA_TELEMETRY_FLUSH_BATCH_SIZE").pipe(Config.withDefault(20)),
-  maxBufferedEvents: Config.number("SYNARA_TELEMETRY_MAX_BUFFERED_EVENTS").pipe(
+  posthogKey: Config.string("PENKRA_POSTHOG_KEY").pipe(Config.withDefault("")),
+  posthogHost: Config.string("PENKRA_POSTHOG_HOST").pipe(Config.withDefault("")),
+  enabled: Config.boolean("PENKRA_TELEMETRY_ENABLED").pipe(Config.withDefault(false)),
+  flushBatchSize: Config.number("PENKRA_TELEMETRY_FLUSH_BATCH_SIZE").pipe(Config.withDefault(20)),
+  maxBufferedEvents: Config.number("PENKRA_TELEMETRY_MAX_BUFFERED_EVENTS").pipe(
     Config.withDefault(1_000),
   ),
 });
@@ -42,6 +38,10 @@ const makeAnalyticsService = Effect.gen(function* () {
   const identifier = yield* getTelemetryIdentifier;
   const bufferRef = yield* Ref.make<ReadonlyArray<BufferedAnalyticsEvent>>([]);
   const clientType = serverConfig.mode === "desktop" ? "desktop-app" : "cli-web-client";
+  const telemetryEnabled =
+    telemetryConfig.enabled &&
+    telemetryConfig.posthogKey.length > 0 &&
+    telemetryConfig.posthogHost.length > 0;
 
   const enqueueBufferedEvent = (event: string, properties?: Readonly<Record<string, unknown>>) =>
     Effect.flatMap(DateTime.now, (now) =>
@@ -72,7 +72,7 @@ const makeAnalyticsService = Effect.gen(function* () {
 
   const sendBatch = (events: ReadonlyArray<BufferedAnalyticsEvent>) =>
     Effect.gen(function* () {
-      if (!telemetryConfig.enabled || !identifier) return;
+      if (!telemetryEnabled || !identifier) return;
 
       const payload = {
         api_key: telemetryConfig.posthogKey,
@@ -125,7 +125,7 @@ const makeAnalyticsService = Effect.gen(function* () {
   }).pipe(Effect.catch((cause) => Effect.logError("Failed to flush telemetry", { cause })));
 
   const record: AnalyticsServiceShape["record"] = Effect.fnUntraced(function* (event, properties) {
-    if (!telemetryConfig.enabled || !identifier) return;
+    if (!telemetryEnabled || !identifier) return;
 
     const enqueueResult = yield* enqueueBufferedEvent(event, properties);
     if (enqueueResult.dropped) {

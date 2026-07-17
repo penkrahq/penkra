@@ -1,11 +1,17 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildFeedbackSubmission,
   FEEDBACK_CATEGORIES,
   formatFeedbackSummary,
+  submitFeedback,
   type FeedbackDiagnostics,
   type FeedbackThreadContext,
 } from "./feedback";
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
+});
 
 const CONTEXT: FeedbackThreadContext = {
   provider: "codex",
@@ -27,7 +33,7 @@ const DIAGNOSTICS: FeedbackDiagnostics = {
   ...CONTEXT,
   appVersion: "0.5.1",
   submittedAt: "2026-07-15T18:00:00.000Z",
-  userAgent: "Synara test agent",
+  userAgent: "Penkra test agent",
   platform: "MacIntel",
   language: "en-US",
   viewport: "1440x900",
@@ -42,7 +48,7 @@ describe("formatFeedbackSummary", () => {
 
     expect(summary).toBe(
       [
-        "I ran into a bug in Synara 0.5.1, using codex with gpt-5.6-sol.",
+        "I ran into a bug in Penkra 0.5.1, using codex with gpt-5.6-sol.",
         "",
         "Report type: Bug",
         "App version: 0.5.1",
@@ -58,7 +64,7 @@ describe("formatFeedbackSummary", () => {
         "At submission: the thread was in an error state, the agent was waiting for input.",
         "Platform: MacIntel, viewport 1440x900",
         "Language: en-US",
-        "User agent: Synara test agent",
+        "User agent: Penkra test agent",
         "Submitted at: 2026-07-15T18:00:00.000Z",
       ].join("\n"),
     );
@@ -80,7 +86,7 @@ describe("formatFeedbackSummary", () => {
     });
 
     expect(summary).toContain(
-      "I have some feedback in Synara 0.5.1, using codex with gpt-5.6-sol.",
+      "I have some feedback in Penkra 0.5.1, using codex with gpt-5.6-sol.",
     );
     expect(summary).toContain("Report type: Unspecified");
     expect(summary).toContain("At submission: nothing pending.");
@@ -94,7 +100,7 @@ describe("formatFeedbackSummary", () => {
     ({ value, label, lead }) => {
       const summary = formatFeedbackSummary({ category: value, diagnostics: DIAGNOSTICS });
 
-      expect(summary.startsWith(`${lead} in Synara 0.5.1`)).toBe(true);
+      expect(summary.startsWith(`${lead} in Penkra 0.5.1`)).toBe(true);
       expect(summary).toContain(`Report type: ${label}`);
     },
   );
@@ -115,7 +121,7 @@ describe("formatFeedbackSummary", () => {
       },
     });
 
-    expect(summary).toContain("I have some feedback in Synara 0.5.1 outside an active chat.");
+    expect(summary).toContain("I have some feedback in Penkra 0.5.1 outside an active chat.");
     expect(summary).not.toContain("Provider:");
     expect(summary).not.toContain("Model:");
   });
@@ -128,7 +134,7 @@ describe("buildFeedbackSubmission", () => {
       details: "  The composer stopped responding.  ",
       context: CONTEXT,
       now: new Date("2026-07-15T18:00:00.000Z"),
-      userAgent: "Synara test agent",
+      userAgent: "Penkra test agent",
       platform: "MacIntel",
       language: "en-US",
       viewport: { width: 1_440, height: 900 },
@@ -141,7 +147,7 @@ describe("buildFeedbackSubmission", () => {
         provider: "codex",
         model: "gpt-5.6-sol",
         submittedAt: "2026-07-15T18:00:00.000Z",
-        userAgent: "Synara test agent",
+        userAgent: "Penkra test agent",
         platform: "MacIntel",
         language: "en-US",
         viewport: "1440x900",
@@ -159,5 +165,52 @@ describe("buildFeedbackSubmission", () => {
     expect(submission.diagnostics).not.toHaveProperty("threadTitle");
     expect(submission.diagnostics).not.toHaveProperty("messages");
     expect(submission.diagnostics).not.toHaveProperty("logs");
+  });
+});
+
+describe("submitFeedback", () => {
+  const submission = buildFeedbackSubmission({
+    category: "bug",
+    details: "The composer stopped responding.",
+    context: CONTEXT,
+    now: new Date("2026-07-15T18:00:00.000Z"),
+    userAgent: "Penkra test agent",
+    platform: "MacIntel",
+    language: "en-US",
+    viewport: { width: 1_440, height: 900 },
+  });
+
+  it("fails closed without a Penkra-owned delivery endpoint", async () => {
+    vi.stubEnv("VITE_FEEDBACK_ENDPOINT", "");
+    const fetchImplementation = vi.fn<typeof fetch>();
+
+    await expect(submitFeedback(submission, fetchImplementation)).rejects.toThrow(
+      "Feedback delivery is not configured",
+    );
+    expect(fetchImplementation).not.toHaveBeenCalled();
+  });
+
+  it("uses the configured endpoint and Penkra request marker", async () => {
+    vi.stubEnv("VITE_FEEDBACK_ENDPOINT", "https://feedback.penkra.test/report");
+    vi.stubGlobal("window", {
+      setTimeout: globalThis.setTimeout,
+      clearTimeout: globalThis.clearTimeout,
+    });
+    const fetchImplementation = vi.fn<typeof fetch>(
+      async () => new Response(null, { status: 204 }),
+    );
+
+    await submitFeedback(submission, fetchImplementation);
+
+    expect(fetchImplementation).toHaveBeenCalledWith(
+      "https://feedback.penkra.test/report",
+      expect.objectContaining({
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-penkra-feedback": "1",
+        },
+      }),
+    );
   });
 });
