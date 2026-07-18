@@ -210,11 +210,10 @@ const UPDATE_DOWNLOAD_CHANNEL = "desktop:update-download";
 const UPDATE_INSTALL_CHANNEL = "desktop:update-install";
 const NOTIFICATIONS_IS_SUPPORTED_CHANNEL = "desktop:notifications-is-supported";
 const NOTIFICATIONS_SHOW_CHANNEL = "desktop:notifications-show";
-const hasSingleInstanceLock = app.requestSingleInstanceLock();
 const penkraAppDataBase = resolveDesktopAppDataBase();
 const penkraRootPointerPath = resolvePenkraRootPointerPath(penkraAppDataBase);
 const persistedPenkraRoot = readPenkraRootPointer(penkraRootPointerPath);
-const needsPenkraRootPicker = hasSingleInstanceLock && persistedPenkraRoot === null;
+const needsPenkraRootPicker = persistedPenkraRoot === null;
 const PENKRA_ROOT = persistedPenkraRoot ?? Path.join(OS.homedir(), "Penkra");
 const PENKRA_PICKER_USER_DATA = Path.join(penkraAppDataBase, "Penkra", "picker-userdata");
 const PENKRA_HQ_CONFIG_PATH = Path.join(PENKRA_ROOT, "hq", ".penkra", "config.json");
@@ -3579,10 +3578,11 @@ function configureMediaPermissions(): void {
 // Must be called synchronously at the top level — before `app.whenReady()`.
 const userDataPath = resolveUserDataPath();
 FS.mkdirSync(userDataPath, { recursive: true, mode: 0o700 });
+app.setPath("userData", userDataPath);
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
 if (hasSingleInstanceLock) {
   repairBrowserProfileBeforeElectronReady(userDataPath);
 }
-app.setPath("userData", userDataPath);
 
 configureAppIdentity();
 

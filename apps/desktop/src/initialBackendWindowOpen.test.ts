@@ -2,6 +2,7 @@
 // Purpose: Locks desktop startup behavior so packaged windows appear before backend readiness.
 
 import { describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
 
 import {
   openInitialBackendWindow,
@@ -90,5 +91,16 @@ describe("openInitialBackendWindow", () => {
 
     expect(options.createWindow).not.toHaveBeenCalled();
     expect(options.waitForBackendWindowReady).not.toHaveBeenCalled();
+  });
+});
+
+describe("desktop single-instance startup order", () => {
+  it("sets the Penkra userData path before requesting the instance lock", () => {
+    const source = readFileSync(new URL("./main.ts", import.meta.url), "utf8");
+    const setUserDataIndex = source.indexOf('app.setPath("userData", userDataPath)');
+    const requestLockIndex = source.indexOf("app.requestSingleInstanceLock()");
+
+    expect(setUserDataIndex).toBeGreaterThan(-1);
+    expect(requestLockIndex).toBeGreaterThan(setUserDataIndex);
   });
 });
