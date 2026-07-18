@@ -87,4 +87,27 @@ describe("PenkraBackendClient", () => {
       { name: "document-intake", description: "Store client documents durably" },
     ]);
   });
+
+  it("accepts the base todo returned by a mutation without snapshot-only routing fields", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              id: "todo-1",
+              clientId: "client-1",
+              status: "open",
+              kind: "general",
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          ),
+      ),
+    );
+    const client = new PenkraBackendClient("https://api.penkra.com", "pk_hq_example");
+
+    const todoId = await client.updateTodo({ todoId: "todo-1", operatorTouched: true });
+
+    assert.equal(todoId, "todo-1");
+  });
 });

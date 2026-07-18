@@ -36,6 +36,7 @@ const ClientPageSchema = Schema.Struct({
   pageInfo: Schema.Struct({ nextCursor: Schema.NullOr(Schema.String) }),
 });
 const TokenResponseSchema = Schema.Struct({ token: Schema.String });
+const TodoMutationResponseSchema = Schema.Struct({ id: Schema.String });
 const RemoteSnapshotSchema = Schema.Struct({
   generatedAt: Schema.String,
   clients: Schema.Array(PenkraClientSummary),
@@ -49,7 +50,7 @@ const decodeClientPage = Schema.decodeUnknownSync(ClientPageSchema);
 const decodeTokenResponse = Schema.decodeUnknownSync(TokenResponseSchema);
 const decodeRemoteSnapshot = Schema.decodeUnknownSync(RemoteSnapshotSchema);
 const decodeCreateClient = Schema.decodeUnknownSync(PenkraCreateClientResultSchema);
-const decodeTodo = Schema.decodeUnknownSync(PenkraTodoSummarySchema);
+const decodeTodoMutation = Schema.decodeUnknownSync(TodoMutationResponseSchema);
 
 export class PenkraApiError extends Error {
   constructor(
@@ -135,7 +136,7 @@ export class PenkraBackendClient {
 
   async createTodo(input: PenkraCreateTodoInput): Promise<string> {
     const { idempotencyKey, ...fields } = input;
-    const todo = await this.request("/api/todos", decodeTodo, {
+    const todo = await this.request("/api/todos", decodeTodoMutation, {
       method: "POST",
       headers: { "idempotency-key": idempotencyKey },
       body: JSON.stringify({
@@ -151,10 +152,14 @@ export class PenkraBackendClient {
 
   async updateTodo(input: PenkraUpdateTodoInput): Promise<string> {
     const { todoId, ...body } = input;
-    const todo = await this.request(`/api/todos/${encodeURIComponent(todoId)}`, decodeTodo, {
-      method: "PATCH",
-      body: JSON.stringify(body),
-    });
+    const todo = await this.request(
+      `/api/todos/${encodeURIComponent(todoId)}`,
+      decodeTodoMutation,
+      {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      },
+    );
     return todo.id;
   }
 
