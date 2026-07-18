@@ -13,7 +13,7 @@ import {
 } from "./dev-runner.ts";
 
 it.layer(NodeServices.layer)("dev-runner", (it) => {
-  it("allows every generated runtime setting through Turbo", () => {
+  it("allows every generated runtime and release setting through Turbo", () => {
     const turboConfig = JSON.parse(
       readFileSync(new URL("../turbo.json", import.meta.url), "utf8"),
     ) as { globalEnv?: ReadonlyArray<string> };
@@ -30,6 +30,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
       "SYNARA_AUTO_BOOTSTRAP_PROJECT_FROM_CWD",
       "VITE_WS_URL",
       "VITE_DEV_SERVER_URL",
+      "PENKRA_UPDATE_TOKEN",
     ]) {
       assert.ok(globalEnv.has(name), `${name} must be declared in turbo.json globalEnv`);
     }
