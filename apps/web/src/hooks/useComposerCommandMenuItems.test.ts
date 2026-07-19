@@ -15,8 +15,8 @@ describe("buildSkillCommandItems", () => {
     const items = buildSkillCommandItems(
       [providerSkill],
       [
-        { name: "document-intake", description: "Store client documents durably" },
-        { name: "business-setup", description: "Register a business" },
+        { scope: "client", name: "document-intake", description: "Store client documents durably" },
+        { scope: "client", name: "business-setup", description: "Register a business" },
       ],
       "document",
     );
@@ -28,6 +28,7 @@ describe("buildSkillCommandItems", () => {
         skill: {
           name: "document-intake",
           description: "Store client documents durably",
+          scope: "client",
         },
         label: "document-intake",
         description: "Store client documents durably",
@@ -38,11 +39,20 @@ describe("buildSkillCommandItems", () => {
   it("keeps provider-local skills when Penkra has no record with that name", () => {
     const items = buildSkillCommandItems(
       [{ ...providerSkill, name: "check-code" }],
-      [{ name: "business-setup", description: "Register a business" }],
+      [{ scope: "client", name: "business-setup", description: "Register a business" }],
       "check",
     );
 
     expect(items).toHaveLength(1);
     expect(items[0]?.type).toBe("skill");
+  });
+
+  it("puts an HQ skill above a file-style provider result for an @ query", () => {
+    const items = buildSkillCommandItems(
+      [{ ...providerSkill, name: "db-migration", path: "/workspace/db-migration.md" }],
+      [{ scope: "hq", name: "db-migration", description: "Apply safe database migrations" }],
+      "db-mig",
+    );
+    expect(items[0]).toMatchObject({ type: "penkra-skill", label: "db-migration" });
   });
 });

@@ -5,6 +5,7 @@
 // Depends on: provider runtime item metadata already truncated by server ingestion
 
 import type { ToolLifecycleItemType } from "@synara/contracts";
+import { extractToolRawOutputText } from "@synara/shared/toolOutputSummary";
 
 type WorkLogRequestKind = "command" | "file-read" | "file-change";
 
@@ -91,7 +92,7 @@ function asRawOutputRecord(value: unknown): Record<string, unknown> | null {
   if (record) {
     return record;
   }
-  const output = firstOutputText(value);
+  const output = extractToolRawOutputText(value);
   return output !== undefined ? { output } : null;
 }
 

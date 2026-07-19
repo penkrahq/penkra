@@ -1,7 +1,7 @@
 // FILE: toolOutputSummary.ts
 // Purpose: Produces compact display summaries from provider tool rawOutput payloads.
 // Layer: Shared runtime utility
-// Exports: summarizeToolRawOutput, countTextLines
+// Exports: summarizeToolRawOutput, extractToolRawOutputText, countTextLines
 
 import { pluralize } from "./text";
 
@@ -16,19 +16,44 @@ export function countTextLines(content: string): number {
   return content.replace(/\r?\n$/, "").split(/\r?\n/).length;
 }
 
-export function summarizeToolRawOutput(rawOutput: unknown): string | undefined {
+/**
+ * Extracts the complete human-readable text carried by a provider tool result.
+ * ACP providers commonly encode terminal output as an array of content parts,
+ * while older integrations use a string or a record field.
+ */
+export function extractToolRawOutputText(rawOutput: unknown): string | undefined {
+  if (typeof rawOutput === "string") {
+    return rawOutput.trim().length > 0 ? rawOutput : undefined;
+  }
+  if (Array.isArray(rawOutput)) {
+    const parts = rawOutput
+      .map(extractToolRawOutputText)
+      .filter((part): part is string => part !== undefined);
+    return parts.length > 0 ? parts.join("\n") : undefined;
+  }
   if (!isRecord(rawOutput)) {
     return undefined;
   }
-  const totalFiles = rawOutput.totalFiles;
+  for (const key of ["text", "stdout", "output", "content"] as const) {
+    const text = extractToolRawOutputText(rawOutput[key]);
+    if (text) {
+      return text;
+    }
+  }
+  return undefined;
+}
+
+export function summarizeToolRawOutput(rawOutput: unknown): string | undefined {
+  const record = isRecord(rawOutput) ? rawOutput : undefined;
+  const totalFiles = record?.totalFiles;
   if (typeof totalFiles === "number" && Number.isInteger(totalFiles) && totalFiles >= 0) {
-    const suffix = rawOutput.truncated === true ? " (truncated)" : "";
+    const suffix = record?.truncated === true ? " (truncated)" : "";
     return `${totalFiles} ${pluralize(totalFiles, "file")} found${suffix}`;
   }
-  if (typeof rawOutput.content === "string") {
-    const lineCount = countTextLines(rawOutput.content);
+  if (typeof record?.content === "string") {
+    const lineCount = countTextLines(record.content);
     return `Read ${lineCount} ${pluralize(lineCount, "line")}`;
   }
-  const stdout = typeof rawOutput.stdout === "string" ? rawOutput.stdout.trim() : "";
-  return stdout ? (stdout.split(/\r?\n/, 1)[0]?.trim() ?? undefined) : undefined;
+  const text = extractToolRawOutputText(rawOutput)?.trim();
+  return text ? (text.split(/\r?\n/, 1)[0]?.trim() ?? undefined) : undefined;
 }

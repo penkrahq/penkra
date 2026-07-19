@@ -9,6 +9,36 @@ afterEach(() => {
 });
 
 describe("PenkraBackendClient", () => {
+  it("enumerates the uniform items envelope across client pages", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            items: [{ id: "client-1", displayName: "Ama", status: "active" }],
+            pageInfo: { nextCursor: "client-1" },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            items: [{ id: "client-2", displayName: "Kojo", status: "suspended" }],
+            pageInfo: { nextCursor: null },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new PenkraBackendClient("https://api.penkra.com", "pk_hq_example");
+    assert.deepEqual(await client.listClients(), [
+      { id: "client-1", displayName: "Ama", status: "active" },
+      { id: "client-2", displayName: "Kojo", status: "suspended" },
+    ]);
+  });
+
   it("keeps create idempotency keys in headers and out of request bodies", async () => {
     let captured: { url: string; init: RequestInit } | null = null;
     const fetchMock = vi.fn(async (input: string | URL | Request, init: RequestInit = {}) => {
@@ -70,6 +100,7 @@ describe("PenkraBackendClient", () => {
               programWarnings: [],
               skills: [
                 {
+                  scope: "client",
                   name: "document-intake",
                   description: "Store client documents durably",
                 },
@@ -84,7 +115,7 @@ describe("PenkraBackendClient", () => {
     const snapshot = await client.getSnapshot();
 
     assert.deepEqual(snapshot.skills, [
-      { name: "document-intake", description: "Store client documents durably" },
+      { scope: "client", name: "document-intake", description: "Store client documents durably" },
     ]);
   });
 

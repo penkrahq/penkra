@@ -77,6 +77,7 @@ export const PenkraProgramWarning = Schema.Struct({
 export type PenkraProgramWarning = typeof PenkraProgramWarning.Type;
 
 export const PenkraSkillSummary = Schema.Struct({
+  scope: Schema.Literals(["client", "hq"]),
   name: TrimmedNonEmptyString,
   description: TrimmedNonEmptyString,
 });

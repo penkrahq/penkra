@@ -250,18 +250,26 @@ export function groupCommandItems(
   groupSlashCommandSections: boolean,
 ): ComposerCommandGroupModel[] {
   if (triggerKind === "mention") {
+    const skillItems = items.filter(
+      (item) => item.type === "skill" || item.type === "penkra-skill",
+    );
     const pluginItems = items.filter((item) => item.type === "plugin");
     const localItems = items.filter((item) => item.type === "local-root" || item.type === "path");
     const agentItems = items.filter((item) => item.type === "agent");
     const otherItems = items.filter(
       (item) =>
         item.type !== "plugin" &&
+        item.type !== "skill" &&
+        item.type !== "penkra-skill" &&
         item.type !== "local-root" &&
         item.type !== "path" &&
         item.type !== "agent",
     );
 
     const groups: ComposerCommandGroupModel[] = [];
+    if (skillItems.length > 0) {
+      groups.push({ id: "skills", label: "Skills", items: skillItems });
+    }
     if (pluginItems.length > 0) {
       groups.push({ id: "plugins", label: "Plugins", items: pluginItems });
     }

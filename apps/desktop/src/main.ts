@@ -153,6 +153,7 @@ import {
 import { isBrokenPipeError } from "./desktopProcessErrors";
 import {
   readPenkraRootPointer,
+  resolvePenkraRuntime,
   resolvePenkraRootPointerPath,
   writePenkraRootPointer,
 } from "./penkraRoot";
@@ -210,18 +211,22 @@ const UPDATE_DOWNLOAD_CHANNEL = "desktop:update-download";
 const UPDATE_INSTALL_CHANNEL = "desktop:update-install";
 const NOTIFICATIONS_IS_SUPPORTED_CHANNEL = "desktop:notifications-is-supported";
 const NOTIFICATIONS_SHOW_CHANNEL = "desktop:notifications-show";
+const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
 const penkraAppDataBase = resolveDesktopAppDataBase();
 const penkraRootPointerPath = resolvePenkraRootPointerPath(penkraAppDataBase);
-const persistedPenkraRoot = readPenkraRootPointer(penkraRootPointerPath);
-const needsPenkraRootPicker = persistedPenkraRoot === null;
-const PENKRA_ROOT = persistedPenkraRoot ?? Path.join(OS.homedir(), "Penkra");
+const penkraRuntime = resolvePenkraRuntime({
+  isDevelopment,
+  configuredRoot: process.env.PENKRA_ROOT,
+  configuredApiUrl: process.env.PENKRA_API_URL,
+  persistedProductionRoot: isDevelopment ? null : readPenkraRootPointer(penkraRootPointerPath),
+});
+const needsPenkraRootPicker = penkraRuntime.needsRootPicker;
+const PENKRA_ROOT = penkraRuntime.root;
 const PENKRA_PICKER_USER_DATA = Path.join(penkraAppDataBase, "Penkra", "picker-userdata");
 const PENKRA_HQ_CONFIG_PATH = Path.join(PENKRA_ROOT, "hq", ".penkra", "config.json");
-const PENKRA_API_URL = (process.env.PENKRA_API_URL?.trim() || "https://api.penkra.com").replace(
-  /\/$/,
-  "",
-);
+const PENKRA_API_URL = penkraRuntime.apiUrl;
 process.env.PENKRA_ROOT = PENKRA_ROOT;
+process.env.PENKRA_API_URL = PENKRA_API_URL;
 process.env.SYNARA_HOME = Path.join(PENKRA_ROOT, ".penkra");
 const PENKRA_CLI_BIN_DIR = Path.join(PENKRA_ROOT, ".penkra", "bin");
 const inheritedPathEntries = (process.env.PATH ?? "").split(Path.delimiter).filter(Boolean);
@@ -239,7 +244,6 @@ const LEGACY_STORAGE_MIGRATION_MARKER_PATH = Path.join(
   "penkra-origin-migration-v1.complete",
 );
 const ROOT_DIR = Path.resolve(__dirname, "../../..");
-const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
 const APP_DISPLAY_NAME = isDevelopment ? "Penkra (Dev)" : "Penkra";
 const APP_USER_MODEL_ID = synaraBundleId(isDevelopment);
 const COMMIT_HASH_PATTERN = /^[0-9a-f]{7,40}$/i;

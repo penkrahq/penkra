@@ -28,6 +28,7 @@ describe("Penkra workspace scaffolding", () => {
         status: "active",
       },
       token: "pk_client_example",
+      instructions: "# Client instructions\n",
     });
     const configPath = path.join(workspace, ".penkra", "config.json");
     const parsed = JSON.parse(await readFile(configPath, "utf8"));
@@ -38,14 +39,16 @@ describe("Penkra workspace scaffolding", () => {
     assert.equal(await hasClientConfig(workspace, parsed.clientId), true);
   });
 
-  it("refreshes HQ guidance and migration skills without touching its token", async () => {
+  it("materializes identical HQ guidance for Codex and Claude without mtime churn", async () => {
     const root = await temporaryRoot();
-    const workspace = await scaffoldHq(root);
-    assert.match(await readFile(path.join(workspace, "AGENTS.md"), "utf8"), /Penkra HQ/);
-    assert.match(
-      await readFile(path.join(workspace, "skills", "db-migration.md"), "utf8"),
-      /force RLS/,
-    );
+    const workspace = await scaffoldHq(root, "# Penkra HQ\n");
+    const agentsPath = path.join(workspace, "AGENTS.md");
+    const claudePath = path.join(workspace, "CLAUDE.md");
+    assert.equal(await readFile(agentsPath, "utf8"), "# Penkra HQ\n");
+    assert.equal(await readFile(claudePath, "utf8"), "# Penkra HQ\n");
+    const before = (await stat(agentsPath)).mtimeMs;
+    await scaffoldHq(root, "# Penkra HQ\n");
+    assert.equal((await stat(agentsPath)).mtimeMs, before);
   });
 });
 
@@ -76,6 +79,7 @@ describe("Penkra runtime configuration", () => {
         status: "active",
       },
       token: "pk_client_provider",
+      instructions: "# Client instructions\n",
     });
     const env = withPenkraProviderEnv(
       {

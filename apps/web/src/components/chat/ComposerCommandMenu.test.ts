@@ -109,6 +109,7 @@ describe("groupCommandItems", () => {
         id: "penkra-skill:business-setup",
         type: "penkra-skill",
         skill: {
+          scope: "client",
           name: "business-setup",
           description: "Register a business",
         },

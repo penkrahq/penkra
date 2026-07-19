@@ -7,6 +7,7 @@ import {
   readPenkraRootPointer,
   resolvePenkraRoot,
   resolvePenkraRootPointerPath,
+  resolvePenkraRuntime,
 } from "./penkraRoot";
 
 const temporaryDirectories: string[] = [];
@@ -18,6 +19,65 @@ afterEach(() => {
 });
 
 describe("Penkra root pointer", () => {
+  it("keeps development on a local root and API without a production picker", () => {
+    const base = temporaryDirectory();
+    expect(
+      resolvePenkraRuntime({
+        isDevelopment: true,
+        homeDir: base,
+        persistedProductionRoot: Path.join(base, "production"),
+      }),
+    ).toEqual({
+      root: Path.join(base, "Penkra_Dev"),
+      apiUrl: "http://127.0.0.1:3012",
+      needsRootPicker: false,
+    });
+  });
+
+  it("allows explicit development overrides without changing production defaults", () => {
+    const base = temporaryDirectory();
+    const configuredRoot = Path.join(base, "custom-dev");
+    expect(
+      resolvePenkraRuntime({
+        isDevelopment: true,
+        homeDir: base,
+        configuredRoot,
+        configuredApiUrl: "http://localhost:4100/",
+      }),
+    ).toEqual({
+      root: configuredRoot,
+      apiUrl: "http://localhost:4100",
+      needsRootPicker: false,
+    });
+    expect(
+      resolvePenkraRuntime({
+        isDevelopment: false,
+        homeDir: base,
+        configuredRoot,
+      }),
+    ).toEqual({
+      root: Path.join(base, "Penkra"),
+      apiUrl: "https://api.penkra.com",
+      needsRootPicker: true,
+    });
+  });
+
+  it("reuses the persisted production root", () => {
+    const base = temporaryDirectory();
+    const root = Path.join(base, "production");
+    expect(
+      resolvePenkraRuntime({
+        isDevelopment: false,
+        homeDir: base,
+        persistedProductionRoot: root,
+      }),
+    ).toEqual({
+      root,
+      apiUrl: "https://api.penkra.com",
+      needsRootPicker: false,
+    });
+  });
+
   it("persists the selected root and reuses it without another picker", () => {
     const base = temporaryDirectory();
     const selected = Path.join(base, "work");

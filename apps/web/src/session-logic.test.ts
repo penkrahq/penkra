@@ -1410,6 +1410,37 @@ describe("deriveWorkLogEntries", () => {
     });
   });
 
+  it("keeps full command output details when ACP rawOutput is an array of text parts", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "command-tool-array-output",
+        kind: "tool.completed",
+        summary: "Ran command",
+        payload: {
+          itemType: "command_execution",
+          title: "Ran command",
+          data: {
+            item: { command: "penkra client --help" },
+            rawOutput: [
+              { type: "input_text", text: "Script completed\nWall time 0.1s" },
+              { type: "input_text", text: "Usage: penkra client [options]" },
+            ],
+          },
+        },
+      }),
+    ];
+
+    const [entry] = deriveWorkLogEntries(activities, undefined);
+    expect(entry?.detail).toBe("Script completed");
+    expect(entry?.toolDetails).toMatchObject({
+      kind: "command",
+      command: "penkra client --help",
+      output: {
+        output: "Script completed\nWall time 0.1s\nUsage: penkra client [options]",
+      },
+    });
+  });
+
   it("merges command detail payloads across started and completed lifecycle rows", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({

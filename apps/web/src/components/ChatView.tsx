@@ -3255,7 +3255,7 @@ export default function ChatView({
     composerCommandPicker === null &&
     isMentionTrigger &&
     isLocalFolderMentionQuery(mentionTriggerQuery);
-  const isSkillTrigger = composerTriggerKind === "skill";
+  const isSkillTrigger = composerTriggerKind === "skill" || composerTriggerKind === "mention";
   const [debouncedPathQuery, composerPathQueryDebouncer] = useDebouncedValue(
     mentionTriggerQuery,
     { wait: COMPOSER_PATH_QUERY_DEBOUNCE_MS },
@@ -3314,10 +3314,15 @@ export default function ChatView({
         composerSkillCwd !== null,
     }),
   );
-  const isPenkraClientProject = activeProject?.id.startsWith("penkra-client-") ?? false;
+  const penkraSkillScope =
+    activeProject?.id === "penkra-hq"
+      ? "hq"
+      : activeProject?.id.startsWith("penkra-client-")
+        ? "client"
+        : null;
   const penkraSnapshotQuery = useQuery({
     ...penkraSnapshotQueryOptions(),
-    enabled: isPenkraClientProject && isSkillTrigger,
+    enabled: penkraSkillScope !== null && isSkillTrigger,
   });
   const providerPluginsQuery = useQuery(
     providerPluginsQueryOptions({
@@ -3386,7 +3391,9 @@ export default function ChatView({
     [providerNativeCommands],
   );
   const providerSkills = providerSkillsQuery.data?.skills ?? EMPTY_PROVIDER_SKILLS;
-  const penkraSkills = isPenkraClientProject ? (penkraSnapshotQuery.data?.skills ?? []) : [];
+  const penkraSkills = penkraSkillScope
+    ? (penkraSnapshotQuery.data?.skills ?? []).filter((skill) => skill.scope === penkraSkillScope)
+    : [];
   const selectedModelCaps = useMemo(
     () => getModelCapabilities(selectedProvider, selectedModel),
     [selectedModel, selectedProvider],

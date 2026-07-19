@@ -122,6 +122,7 @@ export function useComposerCommandMenuItems(input: {
     // Keep trigger-specific discovery outside ChatView so the view mostly orchestrates state.
     if (composerTrigger.kind === "mention") {
       const query = normalizeProviderDiscoveryText(composerTrigger.query);
+      const skillItems = buildSkillCommandItems(providerSkills, penkraSkills, query);
 
       const agentItems: ComposerCommandItem[] = (() => {
         // Use dynamic agents when available, fallback to static
@@ -188,7 +189,7 @@ export function useComposerCommandMenuItems(input: {
       }));
       // Keep mention suggestions ordered by primary intent: plugins first,
       // then local context, then subagent delegation targets.
-      return [...pluginItems, ...localRootItems, ...pathItems, ...agentItems];
+      return [...skillItems, ...pluginItems, ...localRootItems, ...pathItems, ...agentItems];
     }
 
     if (composerTrigger.kind === "slash-command") {

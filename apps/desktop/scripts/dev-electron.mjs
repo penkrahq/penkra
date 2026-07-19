@@ -120,25 +120,6 @@ function cleanupStaleComputerUseApps() {
   }
 }
 
-function warnIfAlphaAppRunning() {
-  if (process.platform === "win32") {
-    return;
-  }
-
-  const result = spawnSync("pgrep", ["-fal", "/Applications/Penkra\\.app/Contents/MacOS/Penkra"], {
-    encoding: "utf8",
-  });
-  const output = typeof result.stdout === "string" ? result.stdout.trim() : "";
-  if (!output) {
-    return;
-  }
-
-  console.error(
-    "[desktop-dev] Penkra is still running. Close it before testing voice in Penkra (Dev), or you may be looking at the wrong app/runtime.",
-  );
-  console.error(output);
-}
-
 function startApp() {
   if (shuttingDown || currentApp !== null) {
     return;
@@ -293,7 +274,6 @@ async function shutdown(exitCode) {
 startWatchers();
 cleanupStaleDevApps();
 cleanupStaleComputerUseApps();
-warnIfAlphaAppRunning();
 startApp();
 
 process.once("SIGINT", () => {

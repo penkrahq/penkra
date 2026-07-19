@@ -115,7 +115,7 @@ export function useKanbanTaskComposerDiscovery(input: UseKanbanTaskComposerDisco
   const isMentionTrigger = composerTriggerKind === "mention";
   const isLocalFolderBrowserOpen =
     isMentionTrigger && isLocalFolderMentionQuery(mentionTriggerQuery);
-  const isSkillTrigger = composerTriggerKind === "skill";
+  const isSkillTrigger = composerTriggerKind === "skill" || composerTriggerKind === "mention";
   const [debouncedPathQuery, composerPathQueryDebouncer] = useDebouncedValue(
     mentionTriggerQuery,
     { wait: COMPOSER_PATH_QUERY_DEBOUNCE_MS },
@@ -215,12 +215,19 @@ export function useKanbanTaskComposerDiscovery(input: UseKanbanTaskComposerDisco
   const providerNativeCommands =
     providerCommandsQuery.data?.commands ?? EMPTY_PROVIDER_NATIVE_COMMANDS;
   const providerSkills = providerSkillsQuery.data?.skills ?? EMPTY_PROVIDER_SKILLS;
-  const isPenkraClientProject = selectedProjectId?.startsWith("penkra-client-") ?? false;
+  const penkraSkillScope =
+    selectedProjectId === "penkra-hq"
+      ? "hq"
+      : selectedProjectId?.startsWith("penkra-client-")
+        ? "client"
+        : null;
   const penkraSnapshotQuery = useQuery({
     ...penkraSnapshotQueryOptions(),
-    enabled: isPenkraClientProject && isSkillTrigger,
+    enabled: penkraSkillScope !== null && isSkillTrigger,
   });
-  const penkraSkills = isPenkraClientProject ? (penkraSnapshotQuery.data?.skills ?? []) : [];
+  const penkraSkills = penkraSkillScope
+    ? (penkraSnapshotQuery.data?.skills ?? []).filter((skill) => skill.scope === penkraSkillScope)
+    : [];
   const hiddenProviderSet = useMemo(
     () => new Set<ProviderKind>(hiddenProviders),
     [hiddenProviders],

@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { countTextLines, summarizeToolRawOutput } from "./toolOutputSummary";
+import {
+  countTextLines,
+  extractToolRawOutputText,
+  summarizeToolRawOutput,
+} from "./toolOutputSummary";
 
 describe("toolOutputSummary", () => {
   it("summarizes Cursor search totals", () => {
@@ -18,5 +22,16 @@ describe("toolOutputSummary", () => {
   it("uses the first stdout line as a fallback", () => {
     expect(summarizeToolRawOutput({ stdout: "done\nextra" })).toBe("done");
     expect(summarizeToolRawOutput({ rawInput: {} })).toBeUndefined();
+  });
+
+  it("concatenates ACP array-shaped text output without dropping later parts", () => {
+    const rawOutput = [
+      { type: "input_text", text: "Script completed\nWall time 0.1s" },
+      { type: "input_text", text: "Usage: penkra client [options]" },
+    ];
+    expect(extractToolRawOutputText(rawOutput)).toBe(
+      "Script completed\nWall time 0.1s\nUsage: penkra client [options]",
+    );
+    expect(summarizeToolRawOutput(rawOutput)).toBe("Script completed");
   });
 });

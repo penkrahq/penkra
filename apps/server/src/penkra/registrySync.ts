@@ -49,7 +49,11 @@ export async function reconcilePenkraRegistry(input: {
   const backend = await PenkraBackendClient.fromHqConfig(input.config.hqConfigPath);
   if (!backend) return emptyResult("needs-hq-auth");
 
-  const hqWorkspace = await scaffoldHq(input.config.root);
+  const [hqInstructions, clientInstructions] = await Promise.all([
+    backend.getInstructionDocument("hq"),
+    backend.getInstructionDocument("client"),
+  ]);
+  const hqWorkspace = await scaffoldHq(input.config.root, hqInstructions.body);
   await ensureProject(input.engine, {
     id: "penkra-hq",
     title: "Penkra HQ",
@@ -69,6 +73,7 @@ export async function reconcilePenkraRegistry(input: {
       endpoint: input.config.endpoint,
       client,
       token,
+      instructions: clientInstructions.body,
     });
     await ensureProject(input.engine, {
       id: `penkra-client-${client.id}`,

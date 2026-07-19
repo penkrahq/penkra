@@ -53,7 +53,7 @@ export class PenkraSocketClient {
     });
     socket.on("connect", () => void this.refresh().catch(() => undefined));
     socket.on("penkra:changed", (change: { entity?: unknown }) => {
-      if (change.entity === "client") {
+      if (change.entity === "client" || change.entity === "instruction") {
         void this.reconcileRegistry().catch(() => undefined);
       }
       void this.refresh().catch(() => undefined);

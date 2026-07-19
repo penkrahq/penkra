@@ -32,11 +32,17 @@ const ClientRecordSchema = Schema.Struct({
   status: Schema.Literals(["active", "suspended", "archived"]),
 });
 const ClientPageSchema = Schema.Struct({
-  clients: Schema.Array(ClientRecordSchema),
+  items: Schema.Array(ClientRecordSchema),
   pageInfo: Schema.Struct({ nextCursor: Schema.NullOr(Schema.String) }),
 });
 const TokenResponseSchema = Schema.Struct({ token: Schema.String });
 const TodoMutationResponseSchema = Schema.Struct({ id: Schema.String });
+const InstructionDocumentSchema = Schema.Struct({
+  scope: Schema.Literals(["hq", "client"]),
+  body: Schema.String,
+  revision: Schema.String,
+  updatedAt: Schema.NullOr(Schema.String),
+});
 const RemoteSnapshotSchema = Schema.Struct({
   generatedAt: Schema.String,
   clients: Schema.Array(PenkraClientSummary),
@@ -51,6 +57,7 @@ const decodeTokenResponse = Schema.decodeUnknownSync(TokenResponseSchema);
 const decodeRemoteSnapshot = Schema.decodeUnknownSync(RemoteSnapshotSchema);
 const decodeCreateClient = Schema.decodeUnknownSync(PenkraCreateClientResultSchema);
 const decodeTodoMutation = Schema.decodeUnknownSync(TodoMutationResponseSchema);
+const decodeInstructionDocument = Schema.decodeUnknownSync(InstructionDocumentSchema);
 
 export class PenkraApiError extends Error {
   constructor(
@@ -106,7 +113,7 @@ export class PenkraBackendClient {
       const params = new URLSearchParams({ limit: "200" });
       if (cursor) params.set("cursor", cursor);
       const page = await this.request(`/api/clients?${params.toString()}`, decodeClientPage);
-      clients.push(...page.clients);
+      clients.push(...page.items);
       cursor = page.pageInfo.nextCursor;
     } while (cursor);
     return clients;
@@ -123,6 +130,10 @@ export class PenkraBackendClient {
 
   getSnapshot(): Promise<PenkraRemoteSnapshot> {
     return this.request("/api/app/snapshot", decodeRemoteSnapshot);
+  }
+
+  getInstructionDocument(scope: "hq" | "client"): Promise<{ body: string; revision: string }> {
+    return this.request(`/api/instructions/${scope}`, decodeInstructionDocument);
   }
 
   createClient(input: PenkraCreateClientInput): Promise<PenkraCreateClientResult> {

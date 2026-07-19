@@ -4,12 +4,49 @@ import * as Path from "node:path";
 
 const POINTER_DIRECTORY_NAME = "Penkra";
 const POINTER_FILE_NAME = "root.json";
+// Development is a separate local product surface, not another view of production data.
+const DEVELOPMENT_ROOT_DIRECTORY_NAME = "Penkra_Dev";
+const DEVELOPMENT_API_URL = "http://127.0.0.1:3012";
+const PRODUCTION_API_URL = "https://api.penkra.com";
 
 export type PenkraRootResolution = {
   readonly root: string;
   readonly pointerPath: string;
   readonly created: boolean;
 };
+
+export type PenkraRuntimeResolution = {
+  readonly root: string;
+  readonly apiUrl: string;
+  readonly needsRootPicker: boolean;
+};
+
+export function resolvePenkraRuntime(input: {
+  readonly isDevelopment: boolean;
+  readonly homeDir?: string;
+  readonly configuredRoot?: string | undefined;
+  readonly configuredApiUrl?: string | undefined;
+  readonly persistedProductionRoot?: string | null;
+}): PenkraRuntimeResolution {
+  const homeDir = input.homeDir ?? OS.homedir();
+  const configuredRoot = input.configuredRoot?.trim();
+  const configuredApiUrl = input.configuredApiUrl?.trim();
+
+  if (input.isDevelopment) {
+    return {
+      root: Path.resolve(configuredRoot || Path.join(homeDir, DEVELOPMENT_ROOT_DIRECTORY_NAME)),
+      apiUrl: (configuredApiUrl || DEVELOPMENT_API_URL).replace(/\/$/, ""),
+      needsRootPicker: false,
+    };
+  }
+
+  const persistedRoot = input.persistedProductionRoot ?? null;
+  return {
+    root: persistedRoot ? Path.resolve(persistedRoot) : Path.join(homeDir, POINTER_DIRECTORY_NAME),
+    apiUrl: (configuredApiUrl || PRODUCTION_API_URL).replace(/\/$/, ""),
+    needsRootPicker: persistedRoot === null,
+  };
+}
 
 export function resolvePenkraRoot(input: {
   readonly appDataBase: string;
