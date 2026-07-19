@@ -506,7 +506,9 @@ function resolvePenkraUpdateUrl(
   if (mockUpdates) return `http://localhost:${mockUpdateServerPort ?? 8788}`;
   const configured = process.env.PENKRA_UPDATE_URL?.trim();
   if (configured) return configured.replace(/\/$/, "");
-  return platform === "mac" ? "https://api.penkra.com/updates/mac" : undefined;
+  return platform === "mac"
+    ? "https://api.penkra.com/updates/mac"
+    : "https://github.com/penkrahq/penkra-app/releases/latest/download";
 }
 
 const verifyStagedNodePty = Effect.fn("verifyStagedNodePty")(function* (
