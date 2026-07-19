@@ -168,13 +168,6 @@ jobs:
           ref: ${{ needs.preflight.outputs.ref }}
           fetch-depth: 0
 
-      - name: Checkout Penkra backend CLI source
-        uses: actions/checkout@v6
-        with:
-          repository: penkrahq/backend
-          path: penkra-backend
-          token: ${{ secrets.PENKRA_BACKEND_TOKEN }}
-
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
@@ -184,20 +177,6 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version-file: package.json
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 11.7.0
-
-      - name: Build Penkra CLI binary
-        shell: bash
-        working-directory: penkra-backend
-        run: |
-          pnpm install --frozen-lockfile
-          pnpm --filter @penkra/contracts build
-          pnpm --filter @penkra/cli build:binary
-          node -e 'const { existsSync } = require("node:fs"); const { join } = require("node:path"); const name = process.platform === "win32" ? "penkra.exe" : "penkra"; const binary = join(process.cwd(), "apps", "cli", "dist", name); if (!existsSync(binary)) throw new Error(`Missing built CLI at ${binary}`); require("node:fs").appendFileSync(process.env.GITHUB_ENV, `PENKRA_CLI_BINARY=${binary}\n`);'
 
       - name: Install dependencies
         # Preflight already runs the full lifecycle-script install plus lint,

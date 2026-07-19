@@ -499,14 +499,14 @@ function resolveDesktopRuntimeDependencies(
 }
 
 function resolvePenkraUpdateUrl(
-  _platform: typeof BuildPlatform.Type,
+  platform: typeof BuildPlatform.Type,
   mockUpdates: boolean,
   mockUpdateServerPort: string | undefined,
 ): string | undefined {
   if (mockUpdates) return `http://localhost:${mockUpdateServerPort ?? 8788}`;
   const configured = process.env.PENKRA_UPDATE_URL?.trim();
   if (configured) return configured.replace(/\/$/, "");
-  return "https://github.com/penkrahq/penkra-app/releases/latest/download";
+  return platform === "mac" ? "https://api.penkra.com/updates/mac" : undefined;
 }
 
 const verifyStagedNodePty = Effect.fn("verifyStagedNodePty")(function* (
