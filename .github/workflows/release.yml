@@ -195,6 +195,7 @@ jobs:
         working-directory: penkra-backend
         run: |
           pnpm install --frozen-lockfile
+          pnpm --filter @penkra/contracts build
           pnpm --filter @penkra/cli build:binary
           node -e 'const { existsSync } = require("node:fs"); const { join } = require("node:path"); const name = process.platform === "win32" ? "penkra.exe" : "penkra"; const binary = join(process.cwd(), "apps", "cli", "dist", name); if (!existsSync(binary)) throw new Error(`Missing built CLI at ${binary}`); require("node:fs").appendFileSync(process.env.GITHUB_ENV, `PENKRA_CLI_BINARY=${binary}\n`);'
 
