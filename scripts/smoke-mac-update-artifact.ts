@@ -21,6 +21,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
+import { gunzipSync } from "node:zlib";
 
 import desktopPackageJson from "../apps/desktop/package.json" with { type: "json" };
 import {
@@ -35,7 +36,8 @@ interface SmokeResult {
   readonly zipSize: number;
   readonly manifestHeadContentLength: number;
   readonly zipHeadContentLength: number;
-  readonly zipBlockmapRemoved: boolean;
+  readonly zipBlockmapSize: number;
+  readonly unusedClaudePlatformBinaryAbsent: boolean;
   readonly cleanedUp: boolean;
 }
 
@@ -56,7 +58,7 @@ Options:
   --keep-output             Keep the generated temporary output directory.
   --port <port>             Local HEAD-only smoke server port. Defaults to 58147.
   --skip-build              Use existing dist files while packaging. Default.
-  --target <target>         electron-builder target. Defaults to dmg.
+  --target <target>         electron-builder target. Defaults to zip.
   --verbose                 Stream build command output.
   --help                    Show this help.
 `);
@@ -100,6 +102,17 @@ function computeSha512Base64(filePath: string): Promise<string> {
     stream.on("data", (chunk) => hash.update(chunk));
     stream.on("end", () => resolveHash(hash.digest("base64")));
   });
+}
+
+function listZipEntries(zipPath: string): string[] {
+  const result = spawnSync("unzip", ["-Z", "-1", zipPath], {
+    encoding: "utf8",
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  if (result.status !== 0) {
+    throw new Error(`Could not list update ZIP: ${result.stderr || result.stdout}`);
+  }
+  return result.stdout.split(/\r?\n/).filter(Boolean);
 }
 
 function runBuildArtifactCommand(options: {
@@ -220,7 +233,7 @@ async function smokeMacUpdateArtifact(): Promise<SmokeResult> {
       "keep-output": { type: "boolean", default: false },
       port: { type: "string", default: "58147" },
       "skip-build": { type: "boolean", default: true },
-      target: { type: "string", default: "dmg" },
+      target: { type: "string", default: "zip" },
       verbose: { type: "boolean", default: false },
     },
   });
@@ -231,7 +244,7 @@ async function smokeMacUpdateArtifact(): Promise<SmokeResult> {
     typeof values["build-version"] === "string"
       ? values["build-version"]
       : desktopPackageJson.version;
-  const target = typeof values.target === "string" ? values.target : "dmg";
+  const target = typeof values.target === "string" ? values.target : "zip";
   const skipBuild = values.build === true ? false : values["skip-build"] !== false;
   const verbose = values.verbose === true;
   const keepOutput = values["keep-output"] === true;
@@ -269,13 +282,33 @@ async function smokeMacUpdateArtifact(): Promise<SmokeResult> {
     });
 
     const zipBlockmapPath = `${zipPath}.blockmap`;
-    if (existsSync(zipBlockmapPath)) {
-      throw new Error(
-        `macOS update zip blockmap should have been removed: ${basename(zipBlockmapPath)}`,
-      );
+    if (!existsSync(zipBlockmapPath)) {
+      throw new Error(`macOS update zip blockmap is missing: ${basename(zipBlockmapPath)}`);
+    }
+    const zipBlockmapSize = statSync(zipBlockmapPath).size;
+    if (zipBlockmapSize === 0) {
+      throw new Error(`macOS update zip blockmap is empty: ${basename(zipBlockmapPath)}`);
+    }
+    const blockmap = JSON.parse(gunzipSync(readFileSync(zipBlockmapPath)).toString("utf8")) as {
+      version?: unknown;
+      files?: unknown;
+    };
+    if (blockmap.version !== "2" || !Array.isArray(blockmap.files) || blockmap.files.length === 0) {
+      throw new Error(`macOS update zip blockmap is invalid: ${basename(zipBlockmapPath)}`);
     }
 
-    server = await listenHeadOnlyServer(artifactDir, new Set([manifestName, zipFileName]), port);
+    const unusedClaudePlatformBinaryAbsent = !listZipEntries(zipPath).some((entry) =>
+      entry.includes("claude-agent-sdk-darwin-arm64"),
+    );
+    if (!unusedClaudePlatformBinaryAbsent) {
+      throw new Error("The update ZIP contains the unused Claude platform binary.");
+    }
+
+    server = await listenHeadOnlyServer(
+      artifactDir,
+      new Set([manifestName, zipFileName, basename(zipBlockmapPath)]),
+      port,
+    );
     const manifestHeadContentLength = await fetchHeadContentLength(
       `http://127.0.0.1:${port}/${encodeURIComponent(manifestName)}`,
     );
@@ -296,7 +329,8 @@ async function smokeMacUpdateArtifact(): Promise<SmokeResult> {
       zipSize,
       manifestHeadContentLength,
       zipHeadContentLength,
-      zipBlockmapRemoved: true,
+      zipBlockmapSize,
+      unusedClaudePlatformBinaryAbsent,
       cleanedUp,
     };
   } finally {

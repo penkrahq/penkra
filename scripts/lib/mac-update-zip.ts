@@ -125,8 +125,9 @@ export function updateMacUpdateManifestZipEntry(
       return [`    size: ${metadata.size}`];
     }
 
-    // Drop the repacked zip's stale blockMapSize: finalize removes the matching
-    // .zip.blockmap after repack, so the manifest must not keep advertising it.
+    // macOS differential updates use a separate .zip.blockmap sidecar. An
+    // embedded blockMapSize belongs to other target types and would describe
+    // bytes that no longer exist after the native macOS repack.
     if (inTargetFile && line.match(/^    blockMapSize:\s*\d+$/)) {
       return [];
     }

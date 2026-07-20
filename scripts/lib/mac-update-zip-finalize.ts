@@ -4,9 +4,7 @@
 // Exports: finalizeMacUpdateZip for build scripts and smoke checks.
 
 import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
 import {
-  createReadStream,
   existsSync,
   mkdtempSync,
   readdirSync,
@@ -17,6 +15,8 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
+
+import { buildBlockMap } from "app-builder-lib/out/targets/blockmap/blockmap.js";
 
 import {
   buildMacUpdateZipSymlinkEntries,
@@ -39,7 +39,8 @@ export interface FinalizedMacUpdateZip {
   readonly sha512: string;
   readonly size: number;
   readonly updatedManifestPaths: ReadonlyArray<string>;
-  readonly removedZipBlockmapPath: string | null;
+  readonly blockmapPath: string;
+  readonly blockmapSize: number;
 }
 
 function readDirectoryEntries(path: string): string[] {
@@ -132,16 +133,6 @@ function verifyMacAppSignature(appBundlePath: string, requireSignature: boolean)
   runTextCommand("codesign", ["--verify", "--deep", "--strict", "--verbose=4", appBundlePath]);
 }
 
-function computeSha512Base64(filePath: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const hash = createHash("sha512");
-    const stream = createReadStream(filePath);
-    stream.on("error", reject);
-    stream.on("data", (chunk) => hash.update(chunk));
-    stream.on("end", () => resolve(hash.digest("base64")));
-  });
-}
-
 // Recreates the update zip with macOS-native metadata, then validates the same
 // extracted app shape Squirrel.Mac will hand to ShipIt during installation.
 export async function finalizeMacUpdateZip(
@@ -186,32 +177,37 @@ export async function finalizeMacUpdateZip(
   if (!zipStat.isFile()) {
     throw new Error(`Repacked macOS update zip was not created at ${zipPath}`);
   }
-  const sha512 = await computeSha512Base64(zipPath);
+  // electron-builder created its sidecar from the pre-ditto archive. Rebuild
+  // it only after the final ZIP bytes and signature have been verified so
+  // differential clients can never receive metadata for a different payload.
+  const blockmapPath = `${zipPath}.blockmap`;
+  rmSync(blockmapPath, { force: true });
+  const blockmapMetadata = await buildBlockMap(zipPath, "gzip", blockmapPath);
+  const blockmapStat = statSync(blockmapPath);
+  if (!blockmapStat.isFile() || blockmapStat.size === 0) {
+    throw new Error(`Final macOS update blockmap was not created at ${blockmapPath}`);
+  }
+  const finalZipSize = blockmapMetadata.size ?? zipStat.size;
 
   const updatedManifestPaths: string[] = [];
   for (const manifestName of resolveMacUpdateManifestFileNames(distEntries)) {
     const manifestPath = join(options.stageDistDir, manifestName);
     const manifest = readFileSync(manifestPath, "utf8");
     const nextManifest = updateMacUpdateManifestZipEntry(manifest, zipFileName, {
-      sha512,
-      size: zipStat.size,
+      sha512: blockmapMetadata.sha512,
+      size: finalZipSize,
     });
     writeFileSync(manifestPath, nextManifest);
     updatedManifestPaths.push(manifestPath);
   }
 
-  const staleZipBlockmapPath = `${zipPath}.blockmap`;
-  const removedZipBlockmapPath = existsSync(staleZipBlockmapPath) ? staleZipBlockmapPath : null;
-  if (removedZipBlockmapPath) {
-    rmSync(removedZipBlockmapPath, { force: true });
-  }
-
   return {
     zipPath,
     zipFileName,
-    sha512,
-    size: zipStat.size,
+    sha512: blockmapMetadata.sha512,
+    size: finalZipSize,
     updatedManifestPaths,
-    removedZipBlockmapPath,
+    blockmapPath,
+    blockmapSize: blockmapStat.size,
   };
 }

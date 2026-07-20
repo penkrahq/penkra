@@ -86,6 +86,7 @@ import { syncShellEnvironment } from "./syncShellEnvironment";
 import {
   type DownloadProgressSample,
   getAutoUpdateDisabledReason,
+  getDownloadFinalizationTimeoutMessage,
   getDownloadStallTimeoutMessage,
   hasDownloadProgressAdvanced,
   isExpectedStalledDownloadCancellationError,
@@ -258,6 +259,7 @@ const AUTO_UPDATE_FOREGROUND_RECHECK_MIN_INTERVAL_MS = 5 * 60 * 1000;
 const AUTO_UPDATE_FOREGROUND_RECHECK_MIN_BACKGROUND_MS = 30 * 1000;
 const AUTO_UPDATE_CHECK_TIMEOUT_MS = 45 * 1000;
 const AUTO_UPDATE_DOWNLOAD_STALL_TIMEOUT_MS = 60 * 1000;
+const AUTO_UPDATE_DOWNLOAD_FINALIZATION_TIMEOUT_MS = 30 * 1000;
 // Upper bound on how long we wait for electron-updater to release a cancelled
 // download before allowing a retry, so a wedged updater promise can't block updates.
 const AUTO_UPDATE_DOWNLOAD_SETTLE_TIMEOUT_MS = 20 * 1000;
@@ -1706,7 +1708,7 @@ function configureAppIdentity(): void {
     applicationName: APP_DISPLAY_NAME,
     applicationVersion: app.getVersion(),
     version: commitHash ?? "unknown",
-    copyright: `© ${new Date().getFullYear()} Emanuele Di Pietro`,
+    copyright: `© ${new Date().getFullYear()} Emmanuel Gyekye Atta-Penkra`,
   });
 
   if (process.platform === "win32") {
@@ -2186,7 +2188,11 @@ function consumeStalledDownloadCancellationSuppression(): void {
 }
 
 // Bounds a silent updater download while allowing slow downloads that keep making progress.
-function armUpdateDownloadStallTimer(reason: string): void {
+function armUpdateDownloadStallTimer(
+  reason: string,
+  timeoutMs = AUTO_UPDATE_DOWNLOAD_STALL_TIMEOUT_MS,
+  message = getDownloadStallTimeoutMessage(timeoutMs),
+): void {
   clearUpdateDownloadStallTimer();
   updateDownloadStallTimer = setTimeout(() => {
     updateDownloadStallTimer = null;
@@ -2194,12 +2200,12 @@ function armUpdateDownloadStallTimer(reason: string): void {
       return;
     }
 
-    const error = new Error(getDownloadStallTimeoutMessage(AUTO_UPDATE_DOWNLOAD_STALL_TIMEOUT_MS));
+    const error = new Error(message);
     console.error(`[desktop-updater] ${error.message} (${reason}).`);
     armStalledDownloadCancellationSuppression();
     rejectUpdateDownloadStall?.(error);
     updateDownloadCancellationToken?.cancel();
-  }, AUTO_UPDATE_DOWNLOAD_STALL_TIMEOUT_MS);
+  }, timeoutMs);
   updateDownloadStallTimer.unref();
 }
 
@@ -2213,7 +2219,19 @@ function updateDownloadStallTimerOnProgress(progress: DownloadProgressSample): v
   lastUpdateDownloadProgressSample = {
     percent: progress.percent ?? null,
     transferred: progress.transferred ?? null,
+    total: progress.total ?? null,
   };
+  const transferComplete =
+    (progress.total ?? 0) > 0 &&
+    (progress.transferred ?? 0) >= (progress.total ?? Number.POSITIVE_INFINITY);
+  if (transferComplete || (progress.percent ?? 0) >= 100) {
+    armUpdateDownloadStallTimer(
+      "download transfer complete; waiting for updater finalization",
+      AUTO_UPDATE_DOWNLOAD_FINALIZATION_TIMEOUT_MS,
+      getDownloadFinalizationTimeoutMessage(AUTO_UPDATE_DOWNLOAD_FINALIZATION_TIMEOUT_MS),
+    );
+    return;
+  }
   armUpdateDownloadStallTimer(`download progress ${Math.floor(progress.percent ?? 0)}%`);
 }
 
@@ -2499,10 +2517,10 @@ function configureAutoUpdater(): void {
   autoUpdater.allowDowngrade = false;
   // Match electron-updater's native GitHub provider path; the packaged
   // app-update.yml owns the production feed, and generic feeds stay mock-only.
-  // macOS release builds repack and validate the Squirrel update zip, then omit
-  // the stale zip blockmap so ShipIt always installs the exact signed payload.
-  autoUpdater.disableDifferentialDownload =
-    process.platform === "darwin" || isArm64HostRunningIntelBuild(desktopRuntimeInfo);
+  // Native-architecture releases publish a blockmap generated from the final,
+  // verified Squirrel ZIP. Only an Intel build switching to arm64 under Rosetta
+  // must bypass differential reuse of the old architecture's archive.
+  autoUpdater.disableDifferentialDownload = isArm64HostRunningIntelBuild(desktopRuntimeInfo);
   // electron-updater has no working idle timeout on macOS (its socket timeout is
   // wired to a `socket` event Electron's net.request never emits) and never
   // resumes from a byte offset, so a stalled CDN transfer hangs for minutes

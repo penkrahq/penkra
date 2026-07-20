@@ -4,6 +4,7 @@ import type { DesktopUpdateState } from "@synara/contracts";
 import {
   getCanRetryAfterDownloadFailure,
   getAutoUpdateDisabledReason,
+  getDownloadFinalizationTimeoutMessage,
   getDownloadStallTimeoutMessage,
   hasDownloadProgressAdvanced,
   isExpectedStalledDownloadCancellationError,
@@ -35,6 +36,14 @@ describe("getDownloadStallTimeoutMessage", () => {
   it("formats the no-progress timeout in seconds", () => {
     expect(getDownloadStallTimeoutMessage(90_000)).toBe(
       "Download stalled after 90 seconds without progress. Try again.",
+    );
+  });
+});
+
+describe("getDownloadFinalizationTimeoutMessage", () => {
+  it("explains a completed transfer that never becomes installable", () => {
+    expect(getDownloadFinalizationTimeoutMessage(30_000)).toBe(
+      "The update finished transferring but was not prepared for installation within 30 seconds. Try downloading it again.",
     );
   });
 });

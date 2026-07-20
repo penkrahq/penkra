@@ -20,11 +20,12 @@ assert.equal(release.platform, "mac");
 assert.equal(release.arch, "arm64");
 assert.equal(release.channel, "production-s3");
 assert.match(workflow, /environment: production-desktop/);
-assert.match(workflow, /--platform mac --target dmg --arch arm64/);
+assert.match(workflow, /--platform mac --target zip --arch arm64/);
 assert.doesNotMatch(workflow, /releases\/latest|macos-15-intel|AppImage|nsis/);
 assert.match(workflow, /PENKRA_CLI_BINARY/);
 assert.match(workflow, /PENKRA_UPDATE_TOKEN/);
 assert.match(publisher, /isStrictlyNewer/);
+assert.match(publisher, /\.zip\.blockmap/);
 assert.ok(
   publisher.indexOf('files.filter((name) => name !== "latest-mac.yml")') <
     publisher.indexOf("const manifestUpload"),

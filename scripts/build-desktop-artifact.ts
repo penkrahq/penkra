@@ -22,6 +22,7 @@ import {
 import { SYNARA_PRODUCTION_BUNDLE_ID } from "@synara/shared/desktopIdentity";
 import { parseBooleanEnvValue } from "./lib/env-bool.ts";
 import { finalizeMacUpdateZip } from "./lib/mac-update-zip-finalize.ts";
+import { resolveUnusedClaudePlatformPackageName } from "./lib/desktop-staged-runtime.ts";
 import { resolveCatalogDependencies } from "./lib/resolve-catalog.ts";
 
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
@@ -773,7 +774,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     synaraCommitHash: commitHash,
     private: true,
     description: "Penkra desktop build",
-    author: "Emanuele Di Pietro",
+    author: "Emmanuel Gyekye Atta-Penkra",
     main: "apps/desktop/dist-electron/main.js",
     build: yield* createBuildConfig(
       options.platform,
@@ -808,6 +809,28 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
       shell: process.platform === "win32",
     })`bun install --production`,
   );
+
+  // Penkra always supplies pathToClaudeCodeExecutable and intentionally uses
+  // the user's installed Claude CLI. The SDK's optional platform package is a
+  // complete second Claude binary (~240 MB unpacked) and must not ship too.
+  const unusedClaudePlatformPackageName = resolveUnusedClaudePlatformPackageName(
+    options.platform,
+    options.arch,
+  );
+  const stagedClaudePlatformPackage = unusedClaudePlatformPackageName
+    ? path.join(stageAppDir, "node_modules", "@anthropic-ai", unusedClaudePlatformPackageName)
+    : null;
+  if (stagedClaudePlatformPackage && (yield* fs.exists(stagedClaudePlatformPackage))) {
+    yield* fs.remove(stagedClaudePlatformPackage, { recursive: true });
+    yield* Effect.log(
+      `[desktop-artifact] Removed unused staged Claude platform binary (${path.basename(stagedClaudePlatformPackage)}).`,
+    );
+  }
+  if (stagedClaudePlatformPackage && (yield* fs.exists(stagedClaudePlatformPackage))) {
+    return yield* new BuildScriptError({
+      message: `Unused Claude platform binary remained in the staged app: ${stagedClaudePlatformPackage}`,
+    });
+  }
 
   if (options.platform === "linux") {
     yield* verifyStagedNodePty(stageAppDir, options.verbose);
@@ -875,11 +898,9 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
           cause,
         }),
     });
-    if (finalizedZip.removedZipBlockmapPath) {
-      yield* Effect.log(
-        `[desktop-artifact] Removed stale macOS zip blockmap (${path.basename(finalizedZip.removedZipBlockmapPath)}).`,
-      );
-    }
+    yield* Effect.log(
+      `[desktop-artifact] Rebuilt final macOS zip blockmap (${path.basename(finalizedZip.blockmapPath)}, ${finalizedZip.blockmapSize} bytes).`,
+    );
   }
 
   const stageEntries = yield* fs.readDirectory(stageDistDir);

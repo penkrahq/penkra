@@ -107,7 +107,7 @@ jobs:
             echo "Building with the configured signing identity; notarization is not configured"
           fi
           bun run dist:desktop:artifact -- \
-            --platform mac --target dmg --arch arm64 \
+            --platform mac --target zip --arch arm64 \
             --build-version "${{ steps.release.outputs.version }}" --signed --verbose
 
       - name: Verify updater artifact

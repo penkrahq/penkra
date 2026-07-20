@@ -3,11 +3,16 @@ import type { DesktopUpdateState } from "@synara/contracts";
 export type DownloadProgressSample = {
   readonly percent?: number | null;
   readonly transferred?: number | null;
+  readonly total?: number | null;
 };
 
 export function getDownloadStallTimeoutMessage(timeoutMs: number): string {
   const timeoutSeconds = Math.max(1, Math.round(timeoutMs / 1000));
   return `Download stalled after ${timeoutSeconds} seconds without progress. Try again.`;
+}
+
+export function getDownloadFinalizationTimeoutMessage(timeoutMs: number): string {
+  return `The update finished transferring but was not prepared for installation within ${Math.round(timeoutMs / 1000)} seconds. Try downloading it again.`;
 }
 
 export function isExpectedStalledDownloadCancellationError(args: {

@@ -12,8 +12,14 @@ export async function publishLocal(source, destination) {
     .filter((entry) => entry.isFile() && isMacUpdateArtifact(entry.name))
     .map((entry) => entry.name)
     .sort();
-  if (!entries.includes("latest-mac.yml") || !entries.some((name) => name.endsWith(".zip"))) {
-    throw new Error("Release directory must contain latest-mac.yml and a macOS update ZIP");
+  if (
+    !entries.includes("latest-mac.yml") ||
+    !entries.some((name) => name.endsWith(".zip")) ||
+    !entries.some((name) => name.endsWith(".zip.blockmap"))
+  ) {
+    throw new Error(
+      "Release directory must contain latest-mac.yml, a macOS update ZIP, and its blockmap",
+    );
   }
   await rm(destination, { recursive: true, force: true });
   await mkdir(destination, { recursive: true });
