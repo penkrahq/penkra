@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Standardized skill discovery on `$`: the `@` picker now shows files, agents, and plugins only in chat and Kanban composers.
+
 ## 0.5.5 - 2026-07-17
 
 ### Added
