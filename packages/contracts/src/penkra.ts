@@ -38,6 +38,7 @@ export const PenkraClientSummary = Schema.Struct({
   id: TrimmedNonEmptyString,
   displayName: TrimmedNonEmptyString,
   status: PenkraClientStatus,
+  instructions: Schema.NullOr(Schema.String),
   badge: PenkraBadge,
 });
 export type PenkraClientSummary = typeof PenkraClientSummary.Type;
@@ -100,7 +101,7 @@ const OptionalContactFields = {
   primaryPhone: Schema.optional(Schema.String),
   email: Schema.optional(Schema.String),
   country: Schema.optional(Schema.String),
-  notes: Schema.optional(Schema.String),
+  instructions: Schema.optional(Schema.String),
 } as const;
 
 export const PenkraCreateClientInput = Schema.Struct({
@@ -116,6 +117,12 @@ export const PenkraCreateClientResult = Schema.Struct({
   status: PenkraClientStatus,
 });
 export type PenkraCreateClientResult = typeof PenkraCreateClientResult.Type;
+
+export const PenkraUpdateClientInput = Schema.Struct({
+  clientId: TrimmedNonEmptyString,
+  instructions: Schema.NullOr(Schema.String),
+});
+export type PenkraUpdateClientInput = typeof PenkraUpdateClientInput.Type;
 
 export const PenkraCreateTodoInput = Schema.Struct({
   clientId: TrimmedNonEmptyString,

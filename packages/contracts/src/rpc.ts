@@ -96,6 +96,7 @@ import {
   PenkraMutationResult,
   PenkraReconcileResult,
   PenkraSnapshot,
+  PenkraUpdateClientInput,
   PenkraUpdateTodoInput,
 } from "./penkra";
 import {
@@ -890,6 +891,12 @@ export const WsPenkraCreateClientRpc = Rpc.make(WS_METHODS.penkraCreateClient, {
   error: WsRpcError,
 });
 
+export const WsPenkraUpdateClientRpc = Rpc.make(WS_METHODS.penkraUpdateClient, {
+  payload: PenkraUpdateClientInput,
+  success: PenkraCreateClientResult,
+  error: WsRpcError,
+});
+
 export const WsPenkraCreateTodoRpc = Rpc.make(WS_METHODS.penkraCreateTodo, {
   payload: PenkraCreateTodoInput,
   success: PenkraMutationResult,
@@ -918,6 +925,7 @@ export const WsSubscribePenkraSnapshotsRpc = Rpc.make(WS_METHODS.subscribePenkra
 export const WsRpcGroup = RpcGroup.make(
   WsPenkraGetSnapshotRpc,
   WsPenkraCreateClientRpc,
+  WsPenkraUpdateClientRpc,
   WsPenkraCreateTodoRpc,
   WsPenkraUpdateTodoRpc,
   WsPenkraReconcileRpc,

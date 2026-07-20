@@ -5,6 +5,7 @@ import type {
   PenkraMutationResult,
   PenkraSnapshot,
   PenkraUpdateTodoInput,
+  PenkraUpdateClientInput,
 } from "@synara/contracts";
 import { Effect, Layer, PubSub, ServiceMap, Stream } from "effect";
 
@@ -25,6 +26,9 @@ export class PenkraRegistry extends ServiceMap.Service<
     readonly getSnapshot: Effect.Effect<PenkraSnapshot>;
     readonly createClient: (
       input: PenkraCreateClientInput,
+    ) => Effect.Effect<PenkraCreateClientResult, Error>;
+    readonly updateClient: (
+      input: PenkraUpdateClientInput,
     ) => Effect.Effect<PenkraCreateClientResult, Error>;
     readonly createTodo: (
       input: PenkraCreateTodoInput,
@@ -84,6 +88,16 @@ export const PenkraRegistryLive = Layer.effect(
           try: async () => {
             const backend = await requireBackend();
             const client = await backend.createClient(input);
+            await reconcileRegistry();
+            return client;
+          },
+          catch: toError,
+        }),
+      updateClient: (input) =>
+        Effect.tryPromise({
+          try: async () => {
+            const backend = await requireBackend();
+            const client = await backend.updateClient(input);
             await reconcileRegistry();
             return client;
           },

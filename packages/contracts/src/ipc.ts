@@ -86,6 +86,7 @@ import type {
 import type {
   PenkraCreateClientInput,
   PenkraCreateClientResult,
+  PenkraUpdateClientInput,
   PenkraCreateTodoInput,
   PenkraMutationResult,
   PenkraReconcileResult,
@@ -499,6 +500,7 @@ export interface NativeApi {
   penkra: {
     getSnapshot: () => Promise<PenkraSnapshot>;
     createClient: (input: PenkraCreateClientInput) => Promise<PenkraCreateClientResult>;
+    updateClient: (input: PenkraUpdateClientInput) => Promise<PenkraCreateClientResult>;
     createTodo: (input: PenkraCreateTodoInput) => Promise<PenkraMutationResult>;
     updateTodo: (input: PenkraUpdateTodoInput) => Promise<PenkraMutationResult>;
     reconcile: () => Promise<PenkraReconcileResult>;

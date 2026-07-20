@@ -539,6 +539,8 @@ export const makeWsRpcLayer = () =>
         [WS_METHODS.penkraGetSnapshot]: () => penkraRegistry.getSnapshot,
         [WS_METHODS.penkraCreateClient]: (input) =>
           rpcEffect(penkraRegistry.createClient(input), "Failed to create Penkra client"),
+        [WS_METHODS.penkraUpdateClient]: (input) =>
+          rpcEffect(penkraRegistry.updateClient(input), "Failed to update Penkra client"),
         [WS_METHODS.penkraCreateTodo]: (input) =>
           rpcEffect(penkraRegistry.createTodo(input), "Failed to create Penkra todo"),
         [WS_METHODS.penkraUpdateTodo]: (input) =>

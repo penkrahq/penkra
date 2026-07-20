@@ -10,8 +10,8 @@ import {
   PenkraCreateClientInput,
   PenkraCreateTodoInput,
   PenkraSnapshot,
-  PenkraTodoSummary,
   PenkraUpdateTodoInput,
+  PenkraUpdateClientInput,
 } from "@synara/contracts";
 import { Schema } from "effect";
 
@@ -19,6 +19,7 @@ export type PenkraClientRecord = {
   id: string;
   displayName: string;
   status: "active" | "suspended" | "archived";
+  instructions: string | null;
 };
 
 type PenkraRemoteSnapshot = Pick<
@@ -30,6 +31,7 @@ const ClientRecordSchema = Schema.Struct({
   id: Schema.String,
   displayName: Schema.String,
   status: Schema.Literals(["active", "suspended", "archived"]),
+  instructions: Schema.NullOr(Schema.String),
 });
 const ClientPageSchema = Schema.Struct({
   items: Schema.Array(ClientRecordSchema),
@@ -142,6 +144,13 @@ export class PenkraBackendClient {
       method: "POST",
       headers: { "idempotency-key": idempotencyKey },
       body: JSON.stringify(body),
+    });
+  }
+
+  updateClient(input: PenkraUpdateClientInput): Promise<PenkraCreateClientResult> {
+    return this.request(`/api/clients/${encodeURIComponent(input.clientId)}`, decodeCreateClient, {
+      method: "PATCH",
+      body: JSON.stringify({ instructions: input.instructions }),
     });
   }
 

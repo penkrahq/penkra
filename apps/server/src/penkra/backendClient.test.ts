@@ -15,7 +15,14 @@ describe("PenkraBackendClient", () => {
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
-            items: [{ id: "client-1", displayName: "Ama", status: "active" }],
+            items: [
+              {
+                id: "client-1",
+                displayName: "Ama",
+                status: "active",
+                instructions: "Use formal salutations.",
+              },
+            ],
             pageInfo: { nextCursor: "client-1" },
           }),
           { status: 200, headers: { "content-type": "application/json" } },
@@ -24,7 +31,14 @@ describe("PenkraBackendClient", () => {
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
-            items: [{ id: "client-2", displayName: "Kojo", status: "suspended" }],
+            items: [
+              {
+                id: "client-2",
+                displayName: "Kojo",
+                status: "suspended",
+                instructions: null,
+              },
+            ],
             pageInfo: { nextCursor: null },
           }),
           { status: 200, headers: { "content-type": "application/json" } },
@@ -34,8 +48,13 @@ describe("PenkraBackendClient", () => {
 
     const client = new PenkraBackendClient("https://api.penkra.com", "pk_hq_example");
     assert.deepEqual(await client.listClients(), [
-      { id: "client-1", displayName: "Ama", status: "active" },
-      { id: "client-2", displayName: "Kojo", status: "suspended" },
+      {
+        id: "client-1",
+        displayName: "Ama",
+        status: "active",
+        instructions: "Use formal salutations.",
+      },
+      { id: "client-2", displayName: "Kojo", status: "suspended", instructions: null },
     ]);
   });
 
@@ -51,7 +70,11 @@ describe("PenkraBackendClient", () => {
     vi.stubGlobal("fetch", fetchMock);
     const client = new PenkraBackendClient("https://api.penkra.com", "pk_hq_example");
 
-    await client.createClient({ displayName: "Ama", idempotencyKey: "request-123" });
+    await client.createClient({
+      displayName: "Ama",
+      instructions: "Use formal salutations.",
+      idempotencyKey: "request-123",
+    });
 
     assert.ok(captured);
     const request = captured as { url: string; init: RequestInit };
@@ -60,8 +83,34 @@ describe("PenkraBackendClient", () => {
       (request.init.headers as Record<string, string>)["idempotency-key"],
       "request-123",
     );
-    assert.deepEqual(JSON.parse(String(request.init.body)), { displayName: "Ama" });
+    assert.deepEqual(JSON.parse(String(request.init.body)), {
+      displayName: "Ama",
+      instructions: "Use formal salutations.",
+    });
     assert.doesNotMatch(String(request.init.body), /request-123/);
+  });
+
+  it("updates and clears only the selected client's instructions", async () => {
+    let captured: { url: string; init: RequestInit } | null = null;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request, init: RequestInit = {}) => {
+        captured = { url: String(input), init };
+        return new Response(
+          JSON.stringify({ id: "client-1", displayName: "Ama", status: "active" }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }),
+    );
+    const client = new PenkraBackendClient("https://api.penkra.com", "pk_hq_example");
+
+    await client.updateClient({ clientId: "client-1", instructions: null });
+
+    assert.ok(captured);
+    const request = captured as { url: string; init: RequestInit };
+    assert.equal(request.url, "https://api.penkra.com/api/clients/client-1");
+    assert.equal(request.init.method, "PATCH");
+    assert.deepEqual(JSON.parse(String(request.init.body)), { instructions: null });
   });
 
   it("surfaces status-aware API errors without exposing tokens", async () => {

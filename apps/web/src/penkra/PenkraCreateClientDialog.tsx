@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from "../components/ui/dialog";
 import { Input } from "../components/ui/input";
+import { Textarea } from "../components/ui/textarea";
 import { toastManager } from "../components/ui/toast";
 import { createPenkraClient, penkraQueryKeys } from "./reactQuery";
 
@@ -26,6 +27,7 @@ export function PenkraCreateClientDialog({
   const [displayName, setDisplayName] = useState("");
   const [email, setEmail] = useState("");
   const [country, setCountry] = useState("");
+  const [instructions, setInstructions] = useState("");
   const mutation = useMutation({
     mutationFn: createPenkraClient,
     onSuccess: async (client) => {
@@ -34,6 +36,7 @@ export function PenkraCreateClientDialog({
       setDisplayName("");
       setEmail("");
       setCountry("");
+      setInstructions("");
       onOpenChange(false);
     },
   });
@@ -45,6 +48,7 @@ export function PenkraCreateClientDialog({
       displayName: name,
       ...(email.trim() ? { email: email.trim() } : {}),
       ...(country.trim() ? { country: country.trim().toUpperCase() } : {}),
+      ...(instructions.trim() ? { instructions: instructions.trim() } : {}),
       idempotencyKey: crypto.randomUUID(),
     });
   };
@@ -77,6 +81,12 @@ export function PenkraCreateClientDialog({
             maxLength={2}
             value={country}
             onChange={(event) => setCountry(event.target.value)}
+          />
+          <Textarea
+            placeholder="Client-specific instructions (optional)"
+            value={instructions}
+            onChange={(event) => setInstructions(event.target.value)}
+            rows={4}
           />
           {mutation.error ? (
             <p className="text-sm text-destructive">{mutation.error.message}</p>

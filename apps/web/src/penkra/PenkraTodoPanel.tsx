@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type {
   PenkraClientSummary,
   PenkraProgramWarning,
@@ -9,6 +9,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2Icon, PlayIcon, TriangleAlertIcon } from "../lib/icons";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
+import { Textarea } from "../components/ui/textarea";
 import {
   Sheet,
   SheetDescription,
@@ -19,7 +20,12 @@ import {
   SheetTitle,
 } from "../components/ui/sheet";
 import { cn } from "../lib/utils";
-import { createPenkraTodo, penkraQueryKeys, updatePenkraTodo } from "./reactQuery";
+import {
+  createPenkraTodo,
+  penkraQueryKeys,
+  updatePenkraClient,
+  updatePenkraTodo,
+} from "./reactQuery";
 
 export function PenkraTodoPanel({
   open,
@@ -41,6 +47,7 @@ export function PenkraTodoPanel({
   const [selectedHumanTodo, setSelectedHumanTodo] = useState<PenkraTodoSummary | null>(null);
   const [invokingTodoId, setInvokingTodoId] = useState<string | null>(null);
   const [invokeError, setInvokeError] = useState<string | null>(null);
+  const [instructions, setInstructions] = useState("");
   const clientTodos = useMemo(
     () => (client ? todos.filter((todo) => todo.clientId === client.id) : []),
     [client, todos],
@@ -52,6 +59,11 @@ export function PenkraTodoPanel({
   const refresh = () => queryClient.invalidateQueries({ queryKey: penkraQueryKeys.snapshot });
   const createMutation = useMutation({ mutationFn: createPenkraTodo, onSuccess: refresh });
   const updateMutation = useMutation({ mutationFn: updatePenkraTodo, onSuccess: refresh });
+  const updateClientMutation = useMutation({
+    mutationFn: updatePenkraClient,
+    onSuccess: refresh,
+  });
+  useEffect(() => setInstructions(client?.instructions ?? ""), [client]);
 
   const quickAdd = () => {
     if (!client || !title.trim() || createMutation.isPending) return;
@@ -80,6 +92,43 @@ export function PenkraTodoPanel({
           </SheetDescription>
         </SheetHeader>
         <SheetPanel className="space-y-5 px-5 py-4">
+          {client ? (
+            <div className="space-y-2">
+              <label className="text-sm font-medium" htmlFor="penkra-client-instructions">
+                Client-specific instructions
+              </label>
+              <Textarea
+                id="penkra-client-instructions"
+                value={instructions}
+                maxLength={10_000}
+                rows={4}
+                onChange={(event) => setInstructions(event.target.value)}
+              />
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-xs text-muted-foreground">
+                  Applied only to this client workspace after you save.
+                </p>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={
+                    updateClientMutation.isPending || instructions === (client.instructions ?? "")
+                  }
+                  onClick={() =>
+                    updateClientMutation.mutate({
+                      clientId: client.id,
+                      instructions: instructions.trim() || null,
+                    })
+                  }
+                >
+                  {updateClientMutation.isPending ? "Saving" : "Save instructions"}
+                </Button>
+              </div>
+              {updateClientMutation.error ? (
+                <p className="text-sm text-destructive">{updateClientMutation.error.message}</p>
+              ) : null}
+            </div>
+          ) : null}
           {clientWarnings.length > 0 ? (
             <div className="border-l-2 border-amber-500 bg-amber-500/8 px-3 py-2 text-sm">
               <div className="flex items-center gap-2 font-medium text-amber-700 dark:text-amber-300">

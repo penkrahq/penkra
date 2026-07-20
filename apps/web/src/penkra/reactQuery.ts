@@ -2,6 +2,7 @@ import type {
   PenkraCreateClientInput,
   PenkraCreateTodoInput,
   PenkraUpdateTodoInput,
+  PenkraUpdateClientInput,
 } from "@synara/contracts";
 import { queryOptions } from "@tanstack/react-query";
 
@@ -25,6 +26,9 @@ export const penkraSnapshotQueryOptions = () =>
 
 export const createPenkraClient = (input: PenkraCreateClientInput) =>
   ensureNativeApi().penkra.createClient(input);
+
+export const updatePenkraClient = (input: PenkraUpdateClientInput) =>
+  ensureNativeApi().penkra.updateClient(input);
 
 export const createPenkraTodo = (input: PenkraCreateTodoInput) =>
   ensureNativeApi().penkra.createTodo(input);

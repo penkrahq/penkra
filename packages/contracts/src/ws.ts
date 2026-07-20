@@ -111,6 +111,7 @@ import {
 import { ProviderCompactThreadInput } from "./provider";
 import {
   PenkraCreateClientInput,
+  PenkraUpdateClientInput,
   PenkraCreateTodoInput,
   PenkraSnapshot,
   PenkraUpdateTodoInput,
@@ -222,6 +223,7 @@ export const WS_METHODS = {
   // Penkra domain methods
   penkraGetSnapshot: "penkra.getSnapshot",
   penkraCreateClient: "penkra.createClient",
+  penkraUpdateClient: "penkra.updateClient",
   penkraCreateTodo: "penkra.createTodo",
   penkraUpdateTodo: "penkra.updateTodo",
   penkraReconcile: "penkra.reconcile",
@@ -413,6 +415,7 @@ const WebSocketRequestBody = Schema.Union([
   // Penkra domain methods
   tagRequestBody(WS_METHODS.penkraGetSnapshot, Schema.Struct({})),
   tagRequestBody(WS_METHODS.penkraCreateClient, PenkraCreateClientInput),
+  tagRequestBody(WS_METHODS.penkraUpdateClient, PenkraUpdateClientInput),
   tagRequestBody(WS_METHODS.penkraCreateTodo, PenkraCreateTodoInput),
   tagRequestBody(WS_METHODS.penkraUpdateTodo, PenkraUpdateTodoInput),
   tagRequestBody(WS_METHODS.penkraReconcile, Schema.Struct({})),

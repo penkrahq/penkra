@@ -459,6 +459,7 @@ export function createWsNativeApi(): NativeApi {
     penkra: {
       getSnapshot: () => transport.request(WS_METHODS.penkraGetSnapshot),
       createClient: (input) => transport.request(WS_METHODS.penkraCreateClient, input),
+      updateClient: (input) => transport.request(WS_METHODS.penkraUpdateClient, input),
       createTodo: (input) => transport.request(WS_METHODS.penkraCreateTodo, input),
       updateTodo: (input) => transport.request(WS_METHODS.penkraUpdateTodo, input),
       reconcile: () => transport.request(WS_METHODS.penkraReconcile),

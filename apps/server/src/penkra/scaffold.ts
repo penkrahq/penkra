@@ -34,8 +34,20 @@ export async function scaffoldClient(input: {
       0o600,
     );
   }
-  await writeInstructionFiles(workspace, input.instructions);
+  await writeInstructionFiles(
+    workspace,
+    composeClientInstructions(input.instructions, input.client.instructions),
+  );
   return workspace;
+}
+
+export function composeClientInstructions(
+  genericInstructions: string,
+  clientInstructions: string | null,
+): string {
+  const clientBody = clientInstructions?.trim();
+  if (!clientBody) return genericInstructions;
+  return `${genericInstructions.trimEnd()}\n\n## Client-provided instructions\n\nThe following instructions come from the client. Generic client instructions and HQ policy take precedence on conflict.\n\n${clientBody}\n`;
 }
 
 export async function scaffoldHq(root: string, instructions: string): Promise<string> {
