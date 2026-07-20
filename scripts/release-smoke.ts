@@ -11,6 +11,7 @@ const release = JSON.parse(await readFile("scripts/penkra-release.json", "utf8")
 };
 const workflow = await readFile(".github/workflows/release.yml", "utf8");
 const publisher = await readFile("scripts/penkra-publish.mjs", "utf8");
+const buildArtifact = await readFile("scripts/build-desktop-artifact.ts", "utf8");
 const notes = await readFile(`docs/releases/${release.version}.md`, "utf8");
 
 assert.match(release.version, /^\d+\.\d+\.\d+$/);
@@ -26,6 +27,7 @@ assert.match(workflow, /PENKRA_CLI_BINARY/);
 assert.match(workflow, /PENKRA_UPDATE_TOKEN/);
 assert.match(publisher, /isStrictlyNewer/);
 assert.match(publisher, /\.zip\.blockmap/);
+assert.match(buildArtifact, /useMultipleRangeRequest:\s*false/);
 assert.ok(
   publisher.indexOf('files.filter((name) => name !== "latest-mac.yml")') <
     publisher.indexOf("const manifestUpload"),

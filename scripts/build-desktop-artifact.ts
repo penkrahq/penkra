@@ -552,6 +552,10 @@ const createBuildConfig = Effect.fn("createBuildConfig")(function* (
       {
         provider: "generic",
         url: updateUrl,
+        // api.penkra.com authenticates and redirects artifacts to S3. S3
+        // supports ordinary byte ranges, but not the multipart multi-range
+        // response electron-updater otherwise assumes for a generic URL.
+        useMultipleRangeRequest: false,
       },
     ];
   }
