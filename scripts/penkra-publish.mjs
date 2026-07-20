@@ -31,7 +31,7 @@ if (manifestVersion !== release.version) {
 }
 const liveResponse = await fetch(endpoint, {
   redirect: "follow",
-  headers: { authorization: `Bearer ${token}`, accept: "text/yaml" },
+  headers: { "X-Penkra-Update-Token": token, accept: "text/yaml" },
 });
 if (!liveResponse.ok) throw new Error(`Live update manifest returned HTTP ${liveResponse.status}`);
 const liveManifest = await liveResponse.text();
