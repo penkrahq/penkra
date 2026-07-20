@@ -6321,17 +6321,19 @@ export default function Sidebar() {
     }
 
     let disposed = false;
-    let receivedSubscriptionUpdate = false;
     const unsubscribe = bridge.onUpdateState((nextState) => {
       if (disposed) return;
-      receivedSubscriptionUpdate = true;
       setDesktopUpdateState(nextState);
     });
 
     void bridge
       .getUpdateState()
       .then((nextState) => {
-        if (disposed || receivedSubscriptionUpdate) return;
+        // Always reconcile with the authoritative main-process snapshot. A
+        // queued progress event can otherwise arrive immediately after this
+        // subscription is attached and permanently suppress a later
+        // "downloaded" snapshot, leaving the button stuck at an old percent.
+        if (disposed) return;
         setDesktopUpdateState(nextState);
       })
       .catch(() => undefined);
