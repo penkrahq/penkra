@@ -116,7 +116,6 @@ import {
 import {
   PendingUpdateCacheClearQueue,
   resolveElectronUpdaterCacheDirName,
-  resolveElectronUpdaterLegacyZipPath,
   resolveElectronUpdaterPendingCacheDir,
 } from "./updatePendingCache";
 import {
@@ -1995,21 +1994,6 @@ function getPendingUpdateCacheDir(): string | null {
   return resolveElectronUpdaterPendingCacheDir(getUpdaterCachePathArgs());
 }
 
-function clearLegacyUpdaterZipAfterVerifiedInstall(): void {
-  const legacyZipPath = resolveElectronUpdaterLegacyZipPath(getUpdaterCachePathArgs());
-  if (!legacyZipPath) {
-    return;
-  }
-  try {
-    FS.rmSync(legacyZipPath, { force: true });
-    console.info("[desktop-updater] Cleared legacy top-level update.zip after verified install.");
-  } catch (error) {
-    console.warn(
-      `[desktop-updater] Failed to clear legacy top-level update.zip: ${formatErrorMessage(error)}`,
-    );
-  }
-}
-
 function quarantineInstallMarker(reason: string): void {
   console.warn(`[desktop-updater] Discarding update install marker (${reason}).`);
   try {
@@ -2046,7 +2030,9 @@ function processInstallMarkerOnStartup(): void {
         `[desktop-updater] Failed to clear successful update install marker: ${formatErrorMessage(error)}`,
       );
     }
-    clearLegacyUpdaterZipAfterVerifiedInstall();
+    // electron-updater intentionally keeps the verified archive at the cache
+    // root as update.zip. Preserve it: macOS differential downloads use it as
+    // the byte source for the next release.
     return;
   }
   if (outcome === "stale" || outcome === "invalid") {

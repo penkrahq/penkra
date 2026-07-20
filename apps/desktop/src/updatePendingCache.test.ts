@@ -8,7 +8,6 @@ import {
   PendingUpdateCacheClearQueue,
   resolveElectronUpdaterCacheDir,
   resolveElectronUpdaterCacheDirName,
-  resolveElectronUpdaterLegacyZipPath,
   resolveElectronUpdaterPendingCacheDir,
 } from "./updatePendingCache";
 
@@ -88,17 +87,14 @@ describe("resolveElectronUpdaterPendingCacheDir", () => {
 });
 
 describe("resolveElectronUpdaterCacheDir", () => {
-  it("exposes the shared cache root and legacy top-level zip path", () => {
-    const args = {
-      cacheDirName: "Synara-updater",
-      platform: "darwin" as const,
-      homeDir: "/Users/test",
-    };
-
-    expect(resolveElectronUpdaterCacheDir(args)).toBe("/Users/test/Library/Caches/Synara-updater");
-    expect(resolveElectronUpdaterLegacyZipPath(args)).toBe(
-      "/Users/test/Library/Caches/Synara-updater/update.zip",
-    );
+  it("exposes the shared cache root", () => {
+    expect(
+      resolveElectronUpdaterCacheDir({
+        cacheDirName: "Synara-updater",
+        platform: "darwin",
+        homeDir: "/Users/test",
+      }),
+    ).toBe("/Users/test/Library/Caches/Synara-updater");
   });
 });
 
