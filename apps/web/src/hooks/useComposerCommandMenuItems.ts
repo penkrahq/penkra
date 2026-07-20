@@ -79,6 +79,78 @@ export function buildSkillCommandItems(
   return [...penkraItems, ...localItems];
 }
 
+export function buildMentionCommandItems(input: {
+  provider: ProviderKind;
+  providerPlugins: readonly ComposerPluginSuggestion[];
+  workspaceEntries: readonly ProjectEntry[];
+  dynamicAgents: readonly { name: string; displayName: string; description?: string }[];
+  query: string;
+}): ComposerCommandItem[] {
+  const { provider, providerPlugins, workspaceEntries, dynamicAgents } = input;
+  const query = normalizeProviderDiscoveryText(input.query);
+  const agentItems: ComposerCommandItem[] = (() => {
+    if (dynamicAgents.length > 0) {
+      return rankProviderDiscoveryItems(dynamicAgents, query, ({ name, displayName }) => [
+        { value: name },
+        { value: displayName },
+      ]).map(({ name, displayName }) => ({
+        id: `agent:${provider}:${name}`,
+        type: "agent" as const,
+        provider,
+        alias: name,
+        color: "violet" as const,
+        label: `@${name}`,
+        description: displayName,
+      }));
+    }
+    return rankProviderDiscoveryItems(
+      getAgentMentionAutocompleteAliases(provider),
+      query,
+      ({ alias, displayName }) => [{ value: alias }, { value: displayName }],
+    ).map(({ alias, displayName, color }) => ({
+      id: `agent:${provider}:${alias}`,
+      type: "agent" as const,
+      provider,
+      alias,
+      color,
+      label: `@${alias}`,
+      description: displayName,
+    }));
+  })();
+  const pluginItems = rankProviderDiscoveryItems(
+    providerPlugins.filter(({ plugin }) => isInstalledProviderPlugin(plugin)),
+    query,
+    ({ plugin }) => buildPluginSearchFields(plugin),
+  ).map(({ plugin, mention }) => ({
+    id: `plugin:${plugin.id}`,
+    type: "plugin" as const,
+    plugin,
+    mention,
+    label: plugin.interface?.displayName ?? plugin.name,
+    description: plugin.interface?.shortDescription ?? plugin.source.path,
+  }));
+  const localRootItems =
+    matchesLocalFolderMentionShortcut(input.query) && input.query !== "/"
+      ? [
+          {
+            id: "local-root",
+            type: "local-root" as const,
+            label: `@${LOCAL_FOLDER_MENTION_NAME}`,
+            description: "Browse folders on this computer",
+          },
+        ]
+      : [];
+  const pathItems = workspaceEntries.map((entry) => ({
+    id: `path:${entry.kind}:${entry.path}`,
+    type: "path" as const,
+    path: entry.path,
+    pathKind: entry.kind,
+    label: basenameOfPath(entry.path),
+    description: entry.parentPath ?? "",
+  }));
+  return [...pluginItems, ...localRootItems, ...pathItems, ...agentItems];
+}
+
 export function useComposerCommandMenuItems(input: {
   composerTrigger: ComposerTrigger | null;
   provider: ProviderKind;
@@ -121,75 +193,15 @@ export function useComposerCommandMenuItems(input: {
 
     // Keep trigger-specific discovery outside ChatView so the view mostly orchestrates state.
     if (composerTrigger.kind === "mention") {
-      const query = normalizeProviderDiscoveryText(composerTrigger.query);
-      const skillItems = buildSkillCommandItems(providerSkills, penkraSkills, query);
-
-      const agentItems: ComposerCommandItem[] = (() => {
-        // Use dynamic agents when available, fallback to static
-        if (dynamicAgents.length > 0) {
-          return rankProviderDiscoveryItems(dynamicAgents, query, ({ name, displayName }) => [
-            { value: name },
-            { value: displayName },
-          ]).map(({ name, displayName }) => ({
-            id: `agent:${provider}:${name}`,
-            type: "agent" as const,
-            provider,
-            alias: name,
-            color: "violet" as const,
-            label: `@${name}`,
-            description: displayName,
-          }));
-        }
-        // Static fallback
-        return rankProviderDiscoveryItems(
-          getAgentMentionAutocompleteAliases(provider),
-          query,
-          ({ alias, displayName }) => [{ value: alias }, { value: displayName }],
-        ).map(({ alias, displayName, color }) => ({
-          id: `agent:${provider}:${alias}`,
-          type: "agent" as const,
-          provider,
-          alias,
-          color,
-          label: `@${alias}`,
-          description: displayName,
-        }));
-      })();
-
-      const pluginItems = rankProviderDiscoveryItems(
-        providerPlugins.filter(({ plugin }) => isInstalledProviderPlugin(plugin)),
-        query,
-        ({ plugin }) => buildPluginSearchFields(plugin),
-      ).map(({ plugin, mention }) => ({
-        id: `plugin:${plugin.id}`,
-        type: "plugin" as const,
-        plugin,
-        mention,
-        label: plugin.interface?.displayName ?? plugin.name,
-        description: plugin.interface?.shortDescription ?? plugin.source.path,
-      }));
-      const localRootItems =
-        matchesLocalFolderMentionShortcut(composerTrigger.query) && composerTrigger.query !== "/"
-          ? [
-              {
-                id: "local-root",
-                type: "local-root" as const,
-                label: `@${LOCAL_FOLDER_MENTION_NAME}`,
-                description: "Browse folders on this computer",
-              },
-            ]
-          : [];
-      const pathItems = workspaceEntries.map((entry) => ({
-        id: `path:${entry.kind}:${entry.path}`,
-        type: "path" as const,
-        path: entry.path,
-        pathKind: entry.kind,
-        label: basenameOfPath(entry.path),
-        description: entry.parentPath ?? "",
-      }));
       // Keep mention suggestions ordered by primary intent: plugins first,
       // then local context, then subagent delegation targets.
-      return [...skillItems, ...pluginItems, ...localRootItems, ...pathItems, ...agentItems];
+      return buildMentionCommandItems({
+        provider,
+        providerPlugins,
+        workspaceEntries,
+        dynamicAgents,
+        query: composerTrigger.query,
+      });
     }
 
     if (composerTrigger.kind === "slash-command") {

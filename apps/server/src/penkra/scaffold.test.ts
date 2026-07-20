@@ -50,6 +50,17 @@ describe("Penkra workspace scaffolding", () => {
     await scaffoldHq(root, "# Penkra HQ\n");
     assert.equal((await stat(agentsPath)).mtimeMs, before);
   });
+
+  it("refuses to create blank instruction materializations", async () => {
+    const root = await temporaryRoot();
+    await assert.rejects(scaffoldHq(root, ""), /Refusing to scaffold blank Penkra instructions/);
+    await assert.rejects(readFile(path.join(root, "hq", "AGENTS.md"), "utf8"), {
+      code: "ENOENT",
+    });
+    await assert.rejects(readFile(path.join(root, "hq", "CLAUDE.md"), "utf8"), {
+      code: "ENOENT",
+    });
+  });
 });
 
 describe("Penkra runtime configuration", () => {

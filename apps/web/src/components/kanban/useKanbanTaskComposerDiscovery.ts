@@ -20,7 +20,7 @@ import { useDebouncedValue } from "@tanstack/react-pacer";
 import { useMemo } from "react";
 
 import type { ComposerCommandItem } from "~/components/chat/ComposerCommandMenu";
-import type { ComposerTrigger } from "~/composer-logic";
+import { isComposerSkillTrigger, type ComposerTrigger } from "~/composer-logic";
 import { useComposerCommandMenuItems } from "~/hooks/useComposerCommandMenuItems";
 import { getLocalFolderBrowseRootPath, isLocalFolderMentionQuery } from "~/lib/localFolderMentions";
 import { resolveProviderDiscoveryCwd } from "~/lib/providerDiscovery";
@@ -115,7 +115,7 @@ export function useKanbanTaskComposerDiscovery(input: UseKanbanTaskComposerDisco
   const isMentionTrigger = composerTriggerKind === "mention";
   const isLocalFolderBrowserOpen =
     isMentionTrigger && isLocalFolderMentionQuery(mentionTriggerQuery);
-  const isSkillTrigger = composerTriggerKind === "skill" || composerTriggerKind === "mention";
+  const isSkillTrigger = isComposerSkillTrigger(composerTriggerKind);
   const [debouncedPathQuery, composerPathQueryDebouncer] = useDebouncedValue(
     mentionTriggerQuery,
     { wait: COMPOSER_PATH_QUERY_DEBOUNCE_MS },

@@ -196,6 +196,7 @@ import {
   collapseExpandedComposerCursor,
   detectComposerTrigger,
   expandCollapsedComposerCursor,
+  isComposerSkillTrigger,
   replaceTextRange,
   stripComposerTriggerText,
 } from "../composer-logic";
@@ -3255,7 +3256,7 @@ export default function ChatView({
     composerCommandPicker === null &&
     isMentionTrigger &&
     isLocalFolderMentionQuery(mentionTriggerQuery);
-  const isSkillTrigger = composerTriggerKind === "skill" || composerTriggerKind === "mention";
+  const isSkillTrigger = isComposerSkillTrigger(composerTriggerKind);
   const [debouncedPathQuery, composerPathQueryDebouncer] = useDebouncedValue(
     mentionTriggerQuery,
     { wait: COMPOSER_PATH_QUERY_DEBOUNCE_MS },

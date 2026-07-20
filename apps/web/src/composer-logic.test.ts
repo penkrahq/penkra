@@ -6,11 +6,21 @@ import {
   detectComposerTrigger,
   expandCollapsedComposerCursor,
   isCollapsedCursorAdjacentToInlineToken,
+  isComposerSkillTrigger,
   parseStandaloneComposerSlashCommand,
   replaceTextRange,
   stripComposerTriggerText,
 } from "./composer-logic";
 import { INLINE_TERMINAL_CONTEXT_PLACEHOLDER } from "./lib/terminalContext";
+
+describe("isComposerSkillTrigger", () => {
+  it("fetches skill catalogs only for the $ lane", () => {
+    expect(isComposerSkillTrigger("skill")).toBe(true);
+    expect(isComposerSkillTrigger("mention")).toBe(false);
+    expect(isComposerSkillTrigger("slash-command")).toBe(false);
+    expect(isComposerSkillTrigger(null)).toBe(false);
+  });
+});
 
 describe("detectComposerTrigger", () => {
   it("detects @mention trigger at cursor", () => {

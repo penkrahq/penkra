@@ -15,6 +15,10 @@ export interface ComposerTrigger {
   rangeEnd: number;
 }
 
+export function isComposerSkillTrigger(kind: ComposerTriggerKind | null): boolean {
+  return kind === "skill";
+}
+
 export function stripComposerTriggerText(text: string, trigger: ComposerTrigger | null): string {
   if (!trigger) {
     return text;

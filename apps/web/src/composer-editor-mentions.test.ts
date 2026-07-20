@@ -130,6 +130,15 @@ describe("splitPromptIntoComposerSegments", () => {
     ]);
   });
 
+  it("keeps currency amounts as text instead of skill chips", () => {
+    expect(splitPromptIntoComposerSegments("Charge $100 today")).toEqual([
+      { type: "text", text: "Charge $100 today" },
+    ]);
+    expect(splitPromptIntoDisplaySegments("Charge a $5 fee")).toEqual([
+      { type: "text", text: "Charge a $5 fee" },
+    ]);
+  });
+
   it("converts completed slash skill tokens once a trailing delimiter exists", () => {
     expect(splitPromptIntoComposerSegments("Use /check-code please")).toEqual([
       { type: "text", text: "Use " },

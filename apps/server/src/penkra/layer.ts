@@ -53,6 +53,16 @@ export const PenkraRegistryLive = Layer.effect(
       async () => {
         await reconcileRegistry();
       },
+      (failure) => {
+        Effect.runFork(
+          Effect.logWarning("Penkra registry reconciliation failed", {
+            phase: failure.phase,
+            entity: failure.entity,
+            id: failure.id,
+            cause: failure.error,
+          }),
+        );
+      },
     );
     const reconcile = Effect.tryPromise({
       try: reconcileRegistry,

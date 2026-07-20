@@ -47,6 +47,9 @@ export async function scaffoldHq(root: string, instructions: string): Promise<st
 }
 
 async function writeInstructionFiles(workspace: string, instructions: string): Promise<void> {
+  if (instructions.trim().length === 0) {
+    throw new Error(`Refusing to scaffold blank Penkra instructions in ${workspace}`);
+  }
   for (const name of INSTRUCTION_FILE_NAMES) {
     await writeAtomicIfChanged(path.join(workspace, name), instructions, 0o600);
   }

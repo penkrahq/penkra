@@ -15,8 +15,12 @@ export const penkraSnapshotQueryOptions = () =>
   queryOptions({
     queryKey: penkraQueryKeys.snapshot,
     queryFn: () => ensureNativeApi().penkra.getSnapshot(),
-    staleTime: 10_000,
-    refetchInterval: 30_000,
+    // The desktop server owns the backend socket and pushes every subsequent snapshot.
+    // This query is the one-time bootstrap only; focus/reconnect polling would duplicate
+    // that stream without repairing local workspace projections.
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
 
 export const createPenkraClient = (input: PenkraCreateClientInput) =>

@@ -45,14 +45,15 @@ describe("PenkraSocketClient", () => {
       generatedAt: "r1",
     });
     await waitFor(() => published.some((snapshot) => snapshot.status === "ready"));
+    await waitFor(() => registryReconciliations === 1);
 
     revision = 2;
     socketServer!.emit("penkra:changed", { entity: "todo", id: "todo-1" });
     await waitFor(() => published.some((snapshot) => snapshot.generatedAt === "r2"));
-    expect(registryReconciliations).toBe(0);
+    expect(registryReconciliations).toBe(1);
 
     socketServer!.emit("penkra:changed", { entity: "client", id: "client-1" });
-    await waitFor(() => registryReconciliations === 1);
+    await waitFor(() => registryReconciliations === 2);
 
     socketServer!.close();
     socketServer = null;
@@ -62,7 +63,120 @@ describe("PenkraSocketClient", () => {
     revision = 3;
     await startBackend(port, () => remoteSnapshot(revision));
     await waitFor(() => published.some((snapshot) => snapshot.generatedAt === "r3"), 5_000);
+    await waitFor(() => registryReconciliations === 3, 5_000);
     expect(published.at(-1)).toEqual({ status: "ready", generatedAt: "r3" });
+    client.close();
+  });
+
+  it("reports reconciliation failures without losing remote snapshot updates", async () => {
+    root = await mkdtemp(path.join(tmpdir(), "penkra-socket-"));
+    const configPath = path.join(root, "hq", ".penkra", "config.json");
+    await mkdir(path.dirname(configPath), { recursive: true });
+    let revision = 1;
+    const port = await startBackend(0, () => remoteSnapshot(revision));
+    const endpoint = `http://127.0.0.1:${port}`;
+    await writeFile(configPath, JSON.stringify({ endpoint, scope: "hq", token: "pk_hq_test" }));
+    const published: Array<{ status: string; generatedAt: string | null }> = [];
+    const failures: Array<{ phase: string; entity: string | null; id: string | null }> = [];
+    const client = new PenkraSocketClient(
+      { root, endpoint, hqConfigPath: configPath },
+      (snapshot) => published.push({ status: snapshot.status, generatedAt: snapshot.generatedAt }),
+      async () => {
+        throw new Error("disk unavailable");
+      },
+      (failure) => failures.push({ phase: failure.phase, entity: failure.entity, id: failure.id }),
+    );
+
+    await expect(client.getSnapshot()).resolves.toMatchObject({ generatedAt: "r1" });
+    await waitFor(() => failures.some((failure) => failure.phase === "connect"));
+
+    revision = 2;
+    socketServer!.emit("penkra:changed", { entity: "client", id: "client-1" });
+    await waitFor(() => published.some((snapshot) => snapshot.generatedAt === "r2"));
+    await waitFor(() =>
+      failures.some(
+        (failure) =>
+          failure.phase === "change" && failure.entity === "client" && failure.id === "client-1",
+      ),
+    );
+    client.close();
+  });
+
+  it("reconciles relevant changes before publishing their refreshed snapshot", async () => {
+    root = await mkdtemp(path.join(tmpdir(), "penkra-socket-"));
+    const configPath = path.join(root, "hq", ".penkra", "config.json");
+    await mkdir(path.dirname(configPath), { recursive: true });
+    let revision = 1;
+    const port = await startBackend(0, () => remoteSnapshot(revision));
+    const endpoint = `http://127.0.0.1:${port}`;
+    await writeFile(configPath, JSON.stringify({ endpoint, scope: "hq", token: "pk_hq_test" }));
+    const published: Array<{ status: string; generatedAt: string | null }> = [];
+    let reconciliation = 0;
+    let releaseChange!: () => void;
+    const blockedChange = new Promise<void>((resolve) => {
+      releaseChange = resolve;
+    });
+    const client = new PenkraSocketClient(
+      { root, endpoint, hqConfigPath: configPath },
+      (snapshot) => published.push({ status: snapshot.status, generatedAt: snapshot.generatedAt }),
+      async () => {
+        reconciliation += 1;
+        if (reconciliation === 2) await blockedChange;
+      },
+    );
+
+    await expect(client.getSnapshot()).resolves.toMatchObject({ generatedAt: "r1" });
+    await waitFor(() => reconciliation === 1);
+    revision = 2;
+    socketServer!.emit("penkra:changed", { entity: "client", id: "client-1" });
+    await waitFor(() => reconciliation === 2);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(published.some((snapshot) => snapshot.generatedAt === "r2")).toBe(false);
+
+    releaseChange();
+    await waitFor(() => published.some((snapshot) => snapshot.generatedAt === "r2"));
+    client.close();
+  });
+
+  it("runs one trailing refresh when changes overlap an in-flight snapshot", async () => {
+    root = await mkdtemp(path.join(tmpdir(), "penkra-socket-"));
+    const configPath = path.join(root, "hq", ".penkra", "config.json");
+    await mkdir(path.dirname(configPath), { recursive: true });
+    let revision = 1;
+    let blockSnapshot = false;
+    let blockedSnapshotStarted = false;
+    let releaseSnapshot!: () => void;
+    const blockedSnapshot = new Promise<void>((resolve) => {
+      releaseSnapshot = resolve;
+    });
+    const port = await startBackend(0, async () => {
+      const capturedRevision = revision;
+      if (blockSnapshot) {
+        blockSnapshot = false;
+        blockedSnapshotStarted = true;
+        await blockedSnapshot;
+      }
+      return remoteSnapshot(capturedRevision);
+    });
+    const endpoint = `http://127.0.0.1:${port}`;
+    await writeFile(configPath, JSON.stringify({ endpoint, scope: "hq", token: "pk_hq_test" }));
+    const published: Array<{ status: string; generatedAt: string | null }> = [];
+    const client = new PenkraSocketClient(
+      { root, endpoint, hqConfigPath: configPath },
+      (snapshot) => published.push({ status: snapshot.status, generatedAt: snapshot.generatedAt }),
+    );
+
+    await expect(client.getSnapshot()).resolves.toMatchObject({ generatedAt: "r1" });
+    await waitFor(() => published.some((snapshot) => snapshot.generatedAt === "r1"));
+    revision = 2;
+    blockSnapshot = true;
+    socketServer!.emit("penkra:changed", { entity: "todo", id: "todo-1" });
+    await waitFor(() => blockedSnapshotStarted);
+    revision = 3;
+    socketServer!.emit("penkra:changed", { entity: "todo", id: "todo-2" });
+    releaseSnapshot();
+
+    await waitFor(() => published.some((snapshot) => snapshot.generatedAt === "r3"));
     client.close();
   });
 
@@ -103,8 +217,11 @@ describe("PenkraSocketClient", () => {
   });
 });
 
-async function startBackend(port: number, snapshot: () => object): Promise<number> {
-  httpServer = createServer((request, response) => {
+async function startBackend(
+  port: number,
+  snapshot: () => object | Promise<object>,
+): Promise<number> {
+  httpServer = createServer(async (request, response) => {
     if (
       request.url !== "/api/app/snapshot" ||
       request.headers.authorization !== "Bearer pk_hq_test"
@@ -114,7 +231,7 @@ async function startBackend(port: number, snapshot: () => object): Promise<numbe
       return;
     }
     response.writeHead(200, { "content-type": "application/json" });
-    response.end(JSON.stringify(snapshot()));
+    response.end(JSON.stringify(await snapshot()));
   });
   socketServer = new SocketServer(httpServer, {
     path: "/api/socket.io",
