@@ -309,9 +309,6 @@ export function setDockOpenInState(
   state: RightDockThreadState,
   open: boolean,
 ): RightDockThreadState {
-  if (open && state.panes.length === 0) {
-    return state;
-  }
   if (state.open === open) {
     return state;
   }

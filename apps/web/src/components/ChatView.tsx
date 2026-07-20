@@ -4436,6 +4436,9 @@ export default function ChatView({
     (store) => selectRightDockState(threadId)(store).panes.length > 0,
   );
   const setRightDockOpen = useRightDockStore((store) => store.setDockOpen);
+  const openRightDock = useCallback(() => {
+    setRightDockOpen(threadId, true);
+  }, [setRightDockOpen, threadId]);
   const toggleRightDock = useCallback(() => {
     setRightDockOpen(threadId, !rightDockOpen);
   }, [rightDockOpen, setRightDockOpen, threadId]);
@@ -10961,9 +10964,10 @@ export default function ChatView({
           gitCwd={threadWorkspaceCwd}
           diffTotals={repoDiffTotals}
           showGitActions={showGitActions && !isEditorRail}
-          showDiffToggle={!isEditorRail}
+          showDiffToggle={false}
           diffOpen={resolvedDiffOpen}
           diffDisabledReason={diffDisabledReason}
+          onOpenRightDock={!isEditorRail && !rightDockOpen ? openRightDock : null}
           environment={isEditorRail ? null : environmentHeaderState}
           surfaceMode={surfaceMode}
           chatLayoutAction={

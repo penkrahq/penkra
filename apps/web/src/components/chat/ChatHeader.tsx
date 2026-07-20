@@ -103,6 +103,7 @@ interface ChatHeaderProps {
   showDiffToggle?: boolean;
   diffOpen: boolean;
   diffDisabledReason?: string | null;
+  onOpenRightDock?: (() => void) | null;
   surfaceMode?: "single" | "split";
   isSidechat?: boolean;
   // When provided, the header collapses the
@@ -504,6 +505,7 @@ export const ChatHeader = memo(function ChatHeader({
   showDiffToggle = true,
   diffOpen,
   diffDisabledReason = null,
+  onOpenRightDock = null,
   surfaceMode = "single",
   isSidechat = false,
   environment = null,
@@ -567,10 +569,8 @@ export const ChatHeader = memo(function ChatHeader({
     );
   };
 
-  // The right-side diff toggle (the "open the diff on the right" affordance). It stays in
-  // the header in both layouts — beside the Environment button when that is enabled, and
-  // inside the legacy cluster otherwise — so the familiar right-sidebar control is always a
-  // single click away. Declared once here to avoid duplicating the markup across branches.
+  // Diff remains available inside the right dock's Add panel menu. The header owns only the
+  // dock's closed state; once open, the dock's identical control owns collapse.
   const diffToggleControl = showDiffToggle ? (
     <Tooltip>
       <TooltipTrigger
@@ -610,6 +610,18 @@ export const ChatHeader = memo(function ChatHeader({
               ? `Toggle diff panel (${diffToggleShortcutLabel})`
               : "Toggle diff panel"}
       </TooltipPopup>
+    </Tooltip>
+  ) : null;
+  const rightDockOpenControl = onOpenRightDock ? (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <ChatHeaderIconButton type="button" label="Show panel" onClick={onOpenRightDock}>
+            <PanelRightCloseIcon className="size-4" />
+          </ChatHeaderIconButton>
+        }
+      />
+      <TooltipPopup side="bottom">Show panel</TooltipPopup>
     </Tooltip>
   ) : null;
 
@@ -826,13 +838,12 @@ export const ChatHeader = memo(function ChatHeader({
           </Tooltip>
         ) : null}
 
-        {/* Environment: one button consolidating Open-in-editor and git actions into the
-            Environment panel. The right-side diff toggle stays beside it so the familiar
-            "open the diff on the right" control is preserved. Falls back to the legacy split
-            controls when no environment is resolved. */}
+        {/* Environment consolidates Open-in-editor and git actions. The adjacent panel control
+            opens the right dock and disappears while the dock owns its visible collapse action. */}
         {environment ? (
           <>
             <EnvironmentToggle environment={environment} />
+            {rightDockOpenControl}
             {diffToggleControl}
           </>
         ) : (
@@ -854,6 +865,7 @@ export const ChatHeader = memo(function ChatHeader({
                 hideQuickActionLabel={compact}
               />
             ) : null}
+            {rightDockOpenControl}
             {diffToggleControl}
           </>
         )}

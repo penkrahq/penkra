@@ -8,8 +8,19 @@ import {
   openPaneInState,
   sanitizeRightDockStateByThreadId,
   sanitizeRightDockThreadState,
+  setDockOpenInState,
   updatePaneInState,
 } from "./rightDockStore.logic";
+
+describe("setDockOpenInState", () => {
+  it("opens an empty dock so its Add panel menu is reachable", () => {
+    expect(setDockOpenInState(createDefaultRightDockState(), true)).toEqual({
+      open: true,
+      panes: [],
+      activePaneId: null,
+    });
+  });
+});
 
 describe("RIGHT_DOCK_PANE_KINDS (single source of truth)", () => {
   it("lists every supported kind", () => {
