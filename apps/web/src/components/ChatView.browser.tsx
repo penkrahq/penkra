@@ -1020,6 +1020,12 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
   if (tag === WS_METHODS.serverGetConfig) {
     return fixture.serverConfig;
   }
+  if (tag === WS_METHODS.projectsListDevServers) {
+    return { servers: [] };
+  }
+  if (tag === WS_METHODS.automationList) {
+    return { definitions: [], runs: [] };
+  }
   if (tag === WS_METHODS.gitListBranches) {
     const cwd = typeof body.cwd === "string" ? body.cwd : null;
     const branchName = cwd ? (fixture.gitBranchByCwd[cwd] ?? "main") : "main";
@@ -1225,7 +1231,10 @@ const worker = setupWorker(
         method === WS_METHODS.subscribeServerProviderStatuses ||
         method === WS_METHODS.subscribeServerSettings ||
         method === WS_METHODS.subscribeTerminalEvents ||
-        method === WS_METHODS.subscribeOrchestrationDomainEvents
+        method === WS_METHODS.subscribeOrchestrationDomainEvents ||
+        method === WS_METHODS.subscribeProjectDevServerEvents ||
+        method === WS_METHODS.subscribeAutomationEvents ||
+        method === WS_METHODS.subscribePenkraSnapshots
       ) {
         return;
       }
@@ -1613,6 +1622,40 @@ async function measureChatLayout(host: HTMLElement): Promise<ChatLayoutMeasureme
   };
 }
 
+async function waitForMountedChatReady(options: {
+  host: HTMLElement;
+  snapshot: OrchestrationReadModel;
+  routeThreadId: ThreadId;
+}): Promise<void> {
+  const expectedThread = options.snapshot.threads.find(
+    (thread) => thread.id === options.routeThreadId,
+  );
+
+  await vi.waitFor(
+    () => {
+      expect(
+        options.host.querySelector("[data-chat-composer-form='true']"),
+        "Chat composer did not mount.",
+      ).toBeTruthy();
+      expect(
+        wsRequests.some((request) => request._tag === WS_METHODS.serverGetConfig),
+        "Browser RPC configuration did not load.",
+      ).toBe(true);
+
+      if (!expectedThread) return;
+      const state = useStore.getState();
+      expect(state.threadIds?.includes(expectedThread.id)).toBe(true);
+      const hydratedMessageIds = state.messageIdsByThreadId?.[expectedThread.id] ?? [];
+      expect(
+        expectedThread.messages.every((message) => hydratedMessageIds.includes(message.id)),
+        "Active thread detail did not hydrate.",
+      ).toBe(true);
+    },
+    { timeout: 20_000, interval: 16 },
+  );
+  await waitForLayout();
+}
+
 async function mountChatView(options: {
   viewport: ViewportSpec;
   snapshot: OrchestrationReadModel;
@@ -1633,9 +1676,10 @@ async function mountChatView(options: {
   host.style.overflow = "hidden";
   document.body.append(host);
 
+  const initialEntry = options.initialEntry ?? `/${THREAD_ID}`;
   const router = getRouter(
     createMemoryHistory({
-      initialEntries: [options.initialEntry ?? `/${THREAD_ID}`],
+      initialEntries: [initialEntry],
     }),
   );
 
@@ -1643,11 +1687,24 @@ async function mountChatView(options: {
     container: host,
   });
 
-  await waitForLayout();
-
-  const cleanup = async () => {
+  try {
+    await waitForMountedChatReady({
+      host,
+      snapshot: options.snapshot,
+      routeThreadId: ThreadId.makeUnsafe(initialEntry.slice(1)),
+    });
+  } catch (cause) {
     await screen.unmount();
-    host.remove();
+    if (host.isConnected) host.remove();
+    throw cause;
+  }
+
+  let cleanedUp = false;
+  const cleanup = async () => {
+    if (cleanedUp) return;
+    cleanedUp = true;
+    await screen.unmount();
+    if (host.isConnected) host.remove();
   };
 
   return {
@@ -5092,7 +5149,12 @@ describe("ChatView timeline estimator parity (full app)", () => {
             document.querySelector("[data-settled-turn-collapse-transition='true']"),
           ).toBeNull();
           expect(document.body.textContent).not.toContain("Tool 1");
-          expect(document.body.textContent).not.toContain("Tool 6");
+          const settledTrigger = Array.from(
+            document.querySelectorAll<HTMLButtonElement>("button"),
+          ).find((element) => element.textContent?.includes("Worked for"));
+          if (settledTrigger) {
+            expect(settledTrigger.getAttribute("aria-expanded")).toBe("false");
+          }
         },
         { timeout: 8_000, interval: 16 },
       );

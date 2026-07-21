@@ -48,9 +48,10 @@ interface TestFixture {
 }
 
 let fixture: TestFixture;
-let wsClient: EffectRpcWebSocketClient | null = null;
 let shellStreamRequestId: string | null = null;
+let shellStreamClient: EffectRpcWebSocketClient | null = null;
 const threadStreamRequestIdByThreadId = new Map<ThreadId, string>();
+const threadStreamClientByThreadId = new Map<ThreadId, EffectRpcWebSocketClient>();
 let delayNextThreadSnapshot = false;
 let subscribeShellRequestCount = 0;
 const subscribeThreadRequestCountById = new Map<ThreadId, number>();
@@ -191,6 +192,12 @@ function resolveWsRpc(tag: string, body?: unknown): unknown {
   if (tag === WS_METHODS.serverGetConfig) {
     return fixture.serverConfig;
   }
+  if (tag === WS_METHODS.projectsListDevServers) {
+    return { servers: [] };
+  }
+  if (tag === WS_METHODS.automationList) {
+    return { definitions: [], runs: [] };
+  }
   if (tag === WS_METHODS.gitListBranches) {
     return {
       isRepo: true,
@@ -217,7 +224,6 @@ function resolveWsRpc(tag: string, body?: unknown): unknown {
 
 const worker = setupWorker(
   wsLink.addEventListener("connection", ({ client }) => {
-    wsClient = client;
     client.addEventListener("message", (event) => {
       if (typeof event.data !== "string") {
         return;
@@ -232,6 +238,7 @@ const worker = setupWorker(
       if (method === ORCHESTRATION_WS_METHODS.subscribeShell) {
         subscribeShellRequestCount += 1;
         shellStreamRequestId = request.id;
+        shellStreamClient = client;
         sendEffectRpcChunk(client, request.id, {
           kind: "snapshot",
           snapshot: createShellSnapshotFromReadModel(fixture.snapshot),
@@ -256,7 +263,10 @@ const worker = setupWorker(
         method === WS_METHODS.subscribeServerProviderStatuses ||
         method === WS_METHODS.subscribeServerSettings ||
         method === WS_METHODS.subscribeTerminalEvents ||
-        method === WS_METHODS.subscribeOrchestrationDomainEvents
+        method === WS_METHODS.subscribeOrchestrationDomainEvents ||
+        method === WS_METHODS.subscribeProjectDevServerEvents ||
+        method === WS_METHODS.subscribeAutomationEvents ||
+        method === WS_METHODS.subscribePenkraSnapshots
       ) {
         return;
       }
@@ -268,6 +278,7 @@ const worker = setupWorker(
         );
         subscribeThreadRequests.push(threadId);
         threadStreamRequestIdByThreadId.set(threadId, request.id);
+        threadStreamClientByThreadId.set(threadId, client);
         if (delayNextThreadSnapshot) {
           delayNextThreadSnapshot = false;
           return;
@@ -309,51 +320,64 @@ async function mountApp(options?: {
   const router = getRouter(createMemoryHistory({ initialEntries: [`/${routeThreadId}`] }));
   const screen = await render(<RouterProvider router={router} />, { container: host });
 
-  await vi.waitFor(
-    () => {
-      if (options?.waitForThreadId === null) {
-        expect(useStore.getState().threadsHydrated).toBe(true);
-        return;
-      }
-      const expectedThreadId = options?.waitForThreadId ?? THREAD_ID;
-      expect(useStore.getState().threads.some((thread) => thread.id === expectedThreadId)).toBe(
-        true,
-      );
-    },
-    { timeout: 8_000, interval: 16 },
-  );
+  try {
+    await vi.waitFor(
+      () => {
+        if (options?.waitForThreadId === null) {
+          expect(useStore.getState().threadsHydrated).toBe(true);
+          return;
+        }
+        const expectedThreadId = options?.waitForThreadId ?? THREAD_ID;
+        const state = useStore.getState();
+        expect(state.threadIds?.includes(expectedThreadId)).toBe(true);
+        expect(threadStreamRequestIdByThreadId.has(expectedThreadId)).toBe(true);
+        const expectedThread = findThreadDetailFromFixtureSnapshot(expectedThreadId);
+        if (!expectedThread) return;
+        const hydratedMessageIds = state.messageIdsByThreadId?.[expectedThreadId] ?? [];
+        expect(
+          expectedThread.messages.every((message) => hydratedMessageIds.includes(message.id)),
+        ).toBe(true);
+      },
+      { timeout: 20_000, interval: 16 },
+    );
+  } catch (cause) {
+    await screen.unmount();
+    if (host.isConnected) host.remove();
+    throw cause;
+  }
+
+  let cleanedUp = false;
 
   return {
     cleanup: async () => {
+      if (cleanedUp) return;
+      cleanedUp = true;
       await screen.unmount();
-      host.remove();
+      if (host.isConnected) host.remove();
     },
   };
 }
 
 function sendThreadEventPush(event: OrchestrationEvent) {
-  if (!wsClient) {
-    throw new Error("WebSocket client not connected");
-  }
-  const requestId = threadStreamRequestIdByThreadId.get(event.aggregateId as ThreadId);
-  if (!requestId) {
+  const threadId = event.aggregateId as ThreadId;
+  const requestId = threadStreamRequestIdByThreadId.get(threadId);
+  const client = threadStreamClientByThreadId.get(threadId);
+  if (!requestId || !client) {
     throw new Error(`Thread stream is not connected for ${event.aggregateId}`);
   }
-  sendEffectRpcChunk(wsClient, requestId, {
+  sendEffectRpcChunk(client, requestId, {
     kind: "event",
     event,
   });
 }
 
 function sendThreadSnapshotPush(threadId: ThreadId, snapshotSequence: number) {
-  if (!wsClient) {
-    throw new Error("WebSocket client not connected");
-  }
   const requestId = threadStreamRequestIdByThreadId.get(threadId);
-  if (!requestId) {
+  const client = threadStreamClientByThreadId.get(threadId);
+  if (!requestId || !client) {
     throw new Error(`Thread stream is not connected for ${threadId}`);
   }
-  sendEffectRpcChunk(wsClient, requestId, {
+  sendEffectRpcChunk(client, requestId, {
     kind: "snapshot",
     snapshot: {
       snapshotSequence,
@@ -363,13 +387,10 @@ function sendThreadSnapshotPush(threadId: ThreadId, snapshotSequence: number) {
 }
 
 function sendShellEventPush(event: OrchestrationShellStreamEvent) {
-  if (!wsClient) {
-    throw new Error("WebSocket client not connected");
-  }
-  if (!shellStreamRequestId) {
+  if (!shellStreamRequestId || !shellStreamClient) {
     throw new Error("Shell stream is not connected");
   }
-  sendEffectRpcChunk(wsClient, shellStreamRequestId, event);
+  sendEffectRpcChunk(shellStreamClient, shellStreamRequestId, event);
 }
 
 describe("EventRouter scoped orchestration sync", () => {
@@ -391,7 +412,9 @@ describe("EventRouter scoped orchestration sync", () => {
     fixture = buildFixture();
     document.body.innerHTML = "";
     shellStreamRequestId = null;
+    shellStreamClient = null;
     threadStreamRequestIdByThreadId.clear();
+    threadStreamClientByThreadId.clear();
     delayNextThreadSnapshot = false;
     localStorage.clear();
     useComposerDraftStore.setState({
