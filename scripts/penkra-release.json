@@ -1,7 +1,7 @@
 {
-  "version": "0.1.6",
+  "version": "0.1.7",
   "backendRepository": "penkrahq/backend",
-  "backendRef": "f678c02",
+  "backendRef": "94e36d9",
   "platform": "mac",
   "arch": "arm64",
   "channel": "production-s3"
