@@ -36,7 +36,7 @@ describe("PenkraBackendClient", () => {
                 id: "client-2",
                 displayName: "Kojo",
                 status: "suspended",
-                instructions: null,
+                instructions: "",
               },
             ],
             pageInfo: { nextCursor: null },
@@ -54,7 +54,7 @@ describe("PenkraBackendClient", () => {
         status: "active",
         instructions: "Use formal salutations.",
       },
-      { id: "client-2", displayName: "Kojo", status: "suspended", instructions: null },
+      { id: "client-2", displayName: "Kojo", status: "suspended", instructions: "" },
     ]);
   });
 
@@ -104,13 +104,13 @@ describe("PenkraBackendClient", () => {
     );
     const client = new PenkraBackendClient("https://api.penkra.com", "pk_hq_example");
 
-    await client.updateClient({ clientId: "client-1", instructions: null });
+    await client.updateClient({ clientId: "client-1", instructions: "" });
 
     assert.ok(captured);
     const request = captured as { url: string; init: RequestInit };
     assert.equal(request.url, "https://api.penkra.com/api/clients/client-1");
     assert.equal(request.init.method, "PATCH");
-    assert.deepEqual(JSON.parse(String(request.init.body)), { instructions: null });
+    assert.deepEqual(JSON.parse(String(request.init.body)), { instructions: "" });
   });
 
   it("surfaces status-aware API errors without exposing tokens", async () => {

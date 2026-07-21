@@ -26,7 +26,7 @@ describe("Penkra workspace scaffolding", () => {
         id: "11111111-1111-4111-8111-111111111111",
         displayName: "Example Client",
         status: "active",
-        instructions: null,
+        instructions: "",
       },
       token: "pk_client_example",
       instructions: "# Client instructions\n",
@@ -64,7 +64,7 @@ describe("Penkra workspace scaffolding", () => {
 
   it("leaves generic instructions unchanged when client-provided instructions are blank", () => {
     assert.equal(composeClientInstructions("# Generic\n", "  \n"), "# Generic\n");
-    assert.equal(composeClientInstructions("# Generic\n", null), "# Generic\n");
+    assert.equal(composeClientInstructions("# Generic\n", ""), "# Generic\n");
   });
 
   it("materializes identical HQ guidance for Codex and Claude without mtime churn", async () => {
@@ -79,15 +79,11 @@ describe("Penkra workspace scaffolding", () => {
     assert.equal((await stat(agentsPath)).mtimeMs, before);
   });
 
-  it("refuses to create blank instruction materializations", async () => {
+  it("materializes blank instruction documents byte-identically", async () => {
     const root = await temporaryRoot();
-    await assert.rejects(scaffoldHq(root, ""), /Refusing to scaffold blank Penkra instructions/);
-    await assert.rejects(readFile(path.join(root, "hq", "AGENTS.md"), "utf8"), {
-      code: "ENOENT",
-    });
-    await assert.rejects(readFile(path.join(root, "hq", "CLAUDE.md"), "utf8"), {
-      code: "ENOENT",
-    });
+    const workspace = await scaffoldHq(root, "");
+    assert.equal(await readFile(path.join(workspace, "AGENTS.md"), "utf8"), "");
+    assert.equal(await readFile(path.join(workspace, "CLAUDE.md"), "utf8"), "");
   });
 });
 
@@ -116,7 +112,7 @@ describe("Penkra runtime configuration", () => {
         id: "22222222-2222-4222-8222-222222222222",
         displayName: "Provider Client",
         status: "active",
-        instructions: null,
+        instructions: "",
       },
       token: "pk_client_provider",
       instructions: "# Client instructions\n",

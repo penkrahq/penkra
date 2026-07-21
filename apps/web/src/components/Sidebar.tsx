@@ -10,6 +10,7 @@ import {
   ClockIcon,
   CopyIcon,
   ExternalLinkIcon,
+  FileIcon,
   FolderIcon,
   FolderOpenIcon,
   KanbanIcon,
@@ -216,6 +217,10 @@ import { selectThreadTerminalState, useTerminalStateStore } from "../terminalSta
 import { useProjectRunStore, type ProjectRunState } from "../projectRunStore";
 import { PenkraCreateClientDialog } from "../penkra/PenkraCreateClientDialog";
 import { PenkraTodoPanel } from "../penkra/PenkraTodoPanel";
+import {
+  PenkraInstructionsDialog,
+  type PenkraInstructionsTarget,
+} from "../penkra/PenkraInstructionsDialog";
 import {
   composePenkraTodoPrompt,
   penkraProjectId,
@@ -1492,10 +1497,13 @@ export default function Sidebar() {
     () =>
       ensureNativeApi().penkra.onSnapshot((snapshot) => {
         queryClient.setQueryData(penkraQueryKeys.snapshot, snapshot);
+        void queryClient.invalidateQueries({ queryKey: penkraQueryKeys.instructions });
       }),
     [queryClient],
   );
   const [penkraTodoClientId, setPenkraTodoClientId] = useState<string | null>(null);
+  const [penkraInstructionsTarget, setPenkraInstructionsTarget] =
+    useState<PenkraInstructionsTarget | null>(null);
   const [penkraCreateClientOpen, setPenkraCreateClientOpen] = useState(false);
   const penkraClientByProjectId = useMemo(
     () =>
@@ -5978,26 +5986,48 @@ export default function Sidebar() {
                   });
                 }}
               />
-              <SidebarIconButton
-                icon={TerminalIcon}
-                label={`Create new terminal thread in ${project.name}`}
-                tooltip={
-                  newTerminalThreadShortcutLabel
-                    ? `New terminal thread (${newTerminalThreadShortcutLabel})`
-                    : "New terminal thread"
-                }
-                tooltipSide="top"
-                onClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  void handleNewThread(project.id, {
-                    envMode: resolveSidebarNewThreadEnvMode({
-                      defaultEnvMode: appSettings.defaultThreadEnvMode,
-                    }),
-                    entryPoint: "terminal",
-                  });
-                }}
-              />
+              {project.id === "penkra-hq" || penkraClient ? (
+                <SidebarIconButton
+                  icon={FileIcon}
+                  label={`View instructions for ${project.name}`}
+                  tooltip="Instructions"
+                  tooltipSide="top"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setPenkraInstructionsTarget(
+                      penkraClient
+                        ? {
+                            kind: "client",
+                            clientId: penkraClient.id,
+                            displayName: penkraClient.displayName,
+                          }
+                        : { kind: "hq" },
+                    );
+                  }}
+                />
+              ) : (
+                <SidebarIconButton
+                  icon={TerminalIcon}
+                  label={`Create new terminal thread in ${project.name}`}
+                  tooltip={
+                    newTerminalThreadShortcutLabel
+                      ? `New terminal thread (${newTerminalThreadShortcutLabel})`
+                      : "New terminal thread"
+                  }
+                  tooltipSide="top"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    void handleNewThread(project.id, {
+                      envMode: resolveSidebarNewThreadEnvMode({
+                        defaultEnvMode: appSettings.defaultThreadEnvMode,
+                      }),
+                      entryPoint: "terminal",
+                    });
+                  }}
+                />
+              )}
               <SidebarIconButton
                 icon={NewThreadIcon}
                 label={`Create new thread in ${project.name}`}
@@ -7751,6 +7781,13 @@ export default function Sidebar() {
       <PenkraCreateClientDialog
         open={penkraCreateClientOpen}
         onOpenChange={setPenkraCreateClientOpen}
+      />
+
+      <PenkraInstructionsDialog
+        target={penkraInstructionsTarget}
+        onOpenChange={(open) => {
+          if (!open) setPenkraInstructionsTarget(null);
+        }}
       />
 
       {searchPaletteOpen ? (

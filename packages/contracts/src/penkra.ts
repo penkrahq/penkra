@@ -38,7 +38,7 @@ export const PenkraClientSummary = Schema.Struct({
   id: TrimmedNonEmptyString,
   displayName: TrimmedNonEmptyString,
   status: PenkraClientStatus,
-  instructions: Schema.NullOr(Schema.String),
+  hasInstructions: Schema.Boolean,
   badge: PenkraBadge,
 });
 export type PenkraClientSummary = typeof PenkraClientSummary.Type;
@@ -120,9 +120,27 @@ export type PenkraCreateClientResult = typeof PenkraCreateClientResult.Type;
 
 export const PenkraUpdateClientInput = Schema.Struct({
   clientId: TrimmedNonEmptyString,
-  instructions: Schema.NullOr(Schema.String),
+  instructions: Schema.String,
 });
 export type PenkraUpdateClientInput = typeof PenkraUpdateClientInput.Type;
+
+export const PenkraInstructionScope = Schema.Literals(["hq", "client", "client-specific"]);
+export type PenkraInstructionScope = typeof PenkraInstructionScope.Type;
+
+export const PenkraGetInstructionsInput = Schema.Struct({
+  scope: PenkraInstructionScope,
+  clientId: Schema.optional(TrimmedNonEmptyString),
+});
+export type PenkraGetInstructionsInput = typeof PenkraGetInstructionsInput.Type;
+
+export const PenkraInstructionDocument = Schema.Struct({
+  scope: PenkraInstructionScope,
+  clientId: Schema.NullOr(TrimmedNonEmptyString),
+  body: Schema.String,
+  revision: Schema.NullOr(Schema.String),
+  updatedAt: Schema.NullOr(Schema.String),
+});
+export type PenkraInstructionDocument = typeof PenkraInstructionDocument.Type;
 
 export const PenkraCreateTodoInput = Schema.Struct({
   clientId: TrimmedNonEmptyString,

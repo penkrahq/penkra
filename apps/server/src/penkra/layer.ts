@@ -2,6 +2,8 @@ import type {
   PenkraCreateClientInput,
   PenkraCreateClientResult,
   PenkraCreateTodoInput,
+  PenkraGetInstructionsInput,
+  PenkraInstructionDocument,
   PenkraMutationResult,
   PenkraSnapshot,
   PenkraUpdateTodoInput,
@@ -24,6 +26,9 @@ export class PenkraRegistry extends ServiceMap.Service<
   {
     readonly reconcile: Effect.Effect<RegistrySyncResult, Error>;
     readonly getSnapshot: Effect.Effect<PenkraSnapshot>;
+    readonly getInstructions: (
+      input: PenkraGetInstructionsInput,
+    ) => Effect.Effect<PenkraInstructionDocument, Error>;
     readonly createClient: (
       input: PenkraCreateClientInput,
     ) => Effect.Effect<PenkraCreateClientResult, Error>;
@@ -83,6 +88,11 @@ export const PenkraRegistryLive = Layer.effect(
     return {
       reconcile,
       getSnapshot: Effect.promise(() => socket.getSnapshot()),
+      getInstructions: (input) =>
+        Effect.tryPromise({
+          try: async () => (await requireBackend()).getInstructions(input),
+          catch: toError,
+        }),
       createClient: (input) =>
         Effect.tryPromise({
           try: async () => {

@@ -1,6 +1,7 @@
 import type {
   PenkraCreateClientInput,
   PenkraCreateTodoInput,
+  PenkraGetInstructionsInput,
   PenkraUpdateTodoInput,
   PenkraUpdateClientInput,
 } from "@synara/contracts";
@@ -10,7 +11,17 @@ import { ensureNativeApi } from "../nativeApi";
 
 export const penkraQueryKeys = {
   snapshot: ["penkra", "snapshot"] as const,
+  instructions: ["penkra", "instructions"] as const,
+  instruction: (input: PenkraGetInstructionsInput) =>
+    [...penkraQueryKeys.instructions, input.scope, input.clientId ?? null] as const,
 };
+
+export const penkraInstructionsQueryOptions = (input: PenkraGetInstructionsInput) =>
+  queryOptions({
+    queryKey: penkraQueryKeys.instruction(input),
+    queryFn: () => ensureNativeApi().penkra.getInstructions(input),
+    staleTime: Infinity,
+  });
 
 export const penkraSnapshotQueryOptions = () =>
   queryOptions({

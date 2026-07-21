@@ -86,6 +86,8 @@ import type {
 import type {
   PenkraCreateClientInput,
   PenkraCreateClientResult,
+  PenkraGetInstructionsInput,
+  PenkraInstructionDocument,
   PenkraUpdateClientInput,
   PenkraCreateTodoInput,
   PenkraMutationResult,
@@ -499,6 +501,7 @@ export interface DesktopBridge {
 export interface NativeApi {
   penkra: {
     getSnapshot: () => Promise<PenkraSnapshot>;
+    getInstructions: (input: PenkraGetInstructionsInput) => Promise<PenkraInstructionDocument>;
     createClient: (input: PenkraCreateClientInput) => Promise<PenkraCreateClientResult>;
     updateClient: (input: PenkraUpdateClientInput) => Promise<PenkraCreateClientResult>;
     createTodo: (input: PenkraCreateTodoInput) => Promise<PenkraMutationResult>;

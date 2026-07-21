@@ -4,7 +4,7 @@ import type {
   PenkraProgramWarning,
   PenkraTodoSummary,
 } from "@synara/contracts";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { CheckCircle2Icon, PlayIcon, TriangleAlertIcon } from "../lib/icons";
 import { Button } from "../components/ui/button";
@@ -22,6 +22,7 @@ import {
 import { cn } from "../lib/utils";
 import {
   createPenkraTodo,
+  penkraInstructionsQueryOptions,
   penkraQueryKeys,
   updatePenkraClient,
   updatePenkraTodo,
@@ -48,6 +49,13 @@ export function PenkraTodoPanel({
   const [invokingTodoId, setInvokingTodoId] = useState<string | null>(null);
   const [invokeError, setInvokeError] = useState<string | null>(null);
   const [instructions, setInstructions] = useState("");
+  const instructionsQuery = useQuery({
+    ...penkraInstructionsQueryOptions({
+      scope: "client-specific",
+      clientId: client?.id ?? "unselected",
+    }),
+    enabled: open && client !== null,
+  });
   const clientTodos = useMemo(
     () => (client ? todos.filter((todo) => todo.clientId === client.id) : []),
     [client, todos],
@@ -56,14 +64,22 @@ export function PenkraTodoPanel({
     () => (client ? warnings.filter((warning) => warning.clientId === client.id) : []),
     [client, warnings],
   );
-  const refresh = () => queryClient.invalidateQueries({ queryKey: penkraQueryKeys.snapshot });
+  const refresh = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: penkraQueryKeys.snapshot }),
+      queryClient.invalidateQueries({ queryKey: penkraQueryKeys.instructions }),
+    ]);
+  };
   const createMutation = useMutation({ mutationFn: createPenkraTodo, onSuccess: refresh });
   const updateMutation = useMutation({ mutationFn: updatePenkraTodo, onSuccess: refresh });
   const updateClientMutation = useMutation({
     mutationFn: updatePenkraClient,
     onSuccess: refresh,
   });
-  useEffect(() => setInstructions(client?.instructions ?? ""), [client]);
+  useEffect(() => setInstructions(""), [client?.id]);
+  useEffect(() => {
+    if (instructionsQuery.data) setInstructions(instructionsQuery.data.body);
+  }, [instructionsQuery.data]);
 
   const quickAdd = () => {
     if (!client || !title.trim() || createMutation.isPending) return;
@@ -100,7 +116,6 @@ export function PenkraTodoPanel({
               <Textarea
                 id="penkra-client-instructions"
                 value={instructions}
-                maxLength={10_000}
                 rows={4}
                 onChange={(event) => setInstructions(event.target.value)}
               />
@@ -112,12 +127,14 @@ export function PenkraTodoPanel({
                   size="sm"
                   variant="outline"
                   disabled={
-                    updateClientMutation.isPending || instructions === (client.instructions ?? "")
+                    updateClientMutation.isPending ||
+                    instructionsQuery.isPending ||
+                    instructions === (instructionsQuery.data?.body ?? "")
                   }
                   onClick={() =>
                     updateClientMutation.mutate({
                       clientId: client.id,
-                      instructions: instructions.trim() || null,
+                      instructions,
                     })
                   }
                 >

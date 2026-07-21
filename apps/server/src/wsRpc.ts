@@ -537,6 +537,8 @@ export const makeWsRpcLayer = () =>
 
       return WsRpcGroup.of({
         [WS_METHODS.penkraGetSnapshot]: () => penkraRegistry.getSnapshot,
+        [WS_METHODS.penkraGetInstructions]: (input) =>
+          rpcEffect(penkraRegistry.getInstructions(input), "Failed to load Penkra instructions"),
         [WS_METHODS.penkraCreateClient]: (input) =>
           rpcEffect(penkraRegistry.createClient(input), "Failed to create Penkra client"),
         [WS_METHODS.penkraUpdateClient]: (input) =>

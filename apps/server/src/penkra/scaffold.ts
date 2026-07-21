@@ -43,9 +43,9 @@ export async function scaffoldClient(input: {
 
 export function composeClientInstructions(
   genericInstructions: string,
-  clientInstructions: string | null,
+  clientInstructions: string,
 ): string {
-  const clientBody = clientInstructions?.trim();
+  const clientBody = clientInstructions.trim();
   if (!clientBody) return genericInstructions;
   return `${genericInstructions.trimEnd()}\n\n## Client-provided instructions\n\nThe following instructions come from the client. Generic client instructions and HQ policy take precedence on conflict.\n\n${clientBody}\n`;
 }
@@ -59,9 +59,6 @@ export async function scaffoldHq(root: string, instructions: string): Promise<st
 }
 
 async function writeInstructionFiles(workspace: string, instructions: string): Promise<void> {
-  if (instructions.trim().length === 0) {
-    throw new Error(`Refusing to scaffold blank Penkra instructions in ${workspace}`);
-  }
   for (const name of INSTRUCTION_FILE_NAMES) {
     await writeAtomicIfChanged(path.join(workspace, name), instructions, 0o600);
   }

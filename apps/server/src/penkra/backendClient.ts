@@ -9,6 +9,8 @@ import {
   type PenkraCreateClientResult,
   PenkraCreateClientInput,
   PenkraCreateTodoInput,
+  type PenkraGetInstructionsInput,
+  type PenkraInstructionDocument,
   PenkraSnapshot,
   PenkraUpdateTodoInput,
   PenkraUpdateClientInput,
@@ -19,7 +21,7 @@ export type PenkraClientRecord = {
   id: string;
   displayName: string;
   status: "active" | "suspended" | "archived";
-  instructions: string | null;
+  instructions: string;
 };
 
 type PenkraRemoteSnapshot = Pick<
@@ -31,7 +33,7 @@ const ClientRecordSchema = Schema.Struct({
   id: Schema.String,
   displayName: Schema.String,
   status: Schema.Literals(["active", "suspended", "archived"]),
-  instructions: Schema.NullOr(Schema.String),
+  instructions: Schema.String,
 });
 const ClientPageSchema = Schema.Struct({
   items: Schema.Array(ClientRecordSchema),
@@ -60,6 +62,7 @@ const decodeRemoteSnapshot = Schema.decodeUnknownSync(RemoteSnapshotSchema);
 const decodeCreateClient = Schema.decodeUnknownSync(PenkraCreateClientResultSchema);
 const decodeTodoMutation = Schema.decodeUnknownSync(TodoMutationResponseSchema);
 const decodeInstructionDocument = Schema.decodeUnknownSync(InstructionDocumentSchema);
+const decodeClientRecord = Schema.decodeUnknownSync(ClientRecordSchema);
 
 export class PenkraApiError extends Error {
   constructor(
@@ -130,12 +133,34 @@ export class PenkraBackendClient {
     return response.token;
   }
 
+  getClient(clientId: string): Promise<PenkraClientRecord> {
+    return this.request(`/api/clients/${encodeURIComponent(clientId)}`, decodeClientRecord);
+  }
+
   getSnapshot(): Promise<PenkraRemoteSnapshot> {
     return this.request("/api/app/snapshot", decodeRemoteSnapshot);
   }
 
-  getInstructionDocument(scope: "hq" | "client"): Promise<{ body: string; revision: string }> {
+  getInstructionDocument(
+    scope: "hq" | "client",
+  ): Promise<{ body: string; revision: string; updatedAt: string | null }> {
     return this.request(`/api/instructions/${scope}`, decodeInstructionDocument);
+  }
+
+  async getInstructions(input: PenkraGetInstructionsInput): Promise<PenkraInstructionDocument> {
+    if (input.scope === "client-specific") {
+      if (!input.clientId) throw new Error("clientId is required for client-specific instructions");
+      const client = await this.getClient(input.clientId);
+      return {
+        scope: input.scope,
+        clientId: client.id,
+        body: client.instructions,
+        revision: null,
+        updatedAt: null,
+      };
+    }
+    const document = await this.getInstructionDocument(input.scope);
+    return { scope: input.scope, clientId: null, ...document };
   }
 
   createClient(input: PenkraCreateClientInput): Promise<PenkraCreateClientResult> {

@@ -113,6 +113,7 @@ import {
   PenkraCreateClientInput,
   PenkraUpdateClientInput,
   PenkraCreateTodoInput,
+  PenkraGetInstructionsInput,
   PenkraSnapshot,
   PenkraUpdateTodoInput,
 } from "./penkra";
@@ -222,6 +223,7 @@ export const WS_METHODS = {
 
   // Penkra domain methods
   penkraGetSnapshot: "penkra.getSnapshot",
+  penkraGetInstructions: "penkra.getInstructions",
   penkraCreateClient: "penkra.createClient",
   penkraUpdateClient: "penkra.updateClient",
   penkraCreateTodo: "penkra.createTodo",
