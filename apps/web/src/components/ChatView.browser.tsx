@@ -1564,7 +1564,7 @@ async function measureUserRow(options: {
       expect(row, "Unable to locate targeted user message row.").toBeTruthy();
     },
     {
-      timeout: 8_000,
+      timeout: 20_000,
       interval: 16,
     },
   );

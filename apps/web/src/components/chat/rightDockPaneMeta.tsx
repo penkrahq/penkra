@@ -35,6 +35,7 @@ export const RIGHT_DOCK_PANE_META: Record<RightDockPaneKind, RightDockPaneMeta> 
   diff: { label: "Diff", Icon: DiffIcon },
   explorer: { label: "Explorer", Icon: FoldersIcon },
   file: { label: "File", Icon: FileIcon },
+  instructions: { label: "Instructions", Icon: FileIcon },
   terminal: { label: "Terminal", Icon: TerminalIcon },
   sidechat: { label: "Side", Icon: MessageCircleIcon },
   git: { label: "Git", Icon: GitCommitIcon },
@@ -61,7 +62,7 @@ export function getRightDockPaneMeta(kind: RightDockPaneKind): RightDockPaneMeta
 // clicking a file reference in chat, while the add menu offers the richer
 // "explorer" pane (file tree + search + viewer) in its place.
 export const RIGHT_DOCK_ADD_MENU_KINDS: readonly RightDockPaneKind[] = RIGHT_DOCK_PANE_KINDS.filter(
-  (kind) => kind !== "file" && kind !== "pullRequest",
+  (kind) => kind !== "file" && kind !== "instructions" && kind !== "pullRequest",
 );
 
 // Resolves a tab label, preferring caller-provided per-pane overrides (e.g. the

@@ -37,6 +37,11 @@ if (values.help) {
 if (process.platform !== "darwin" || process.arch !== "arm64") {
   throw new Error("The Penkra production release command requires a macOS arm64 host.");
 }
+if (!process.env.PENKRA_UPDATE_TOKEN?.trim()) {
+  throw new Error(
+    "PENKRA_UPDATE_TOKEN is required so the packaged app can authenticate future updates.",
+  );
+}
 
 function run(label, command, args, options = {}) {
   const startedAt = Date.now();

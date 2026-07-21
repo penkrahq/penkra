@@ -215,12 +215,9 @@ import { useThreadHandoff } from "../hooks/useThreadHandoff";
 import { useFeedbackDialogStore } from "../feedbackDialogStore";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
 import { useProjectRunStore, type ProjectRunState } from "../projectRunStore";
+import { useRightDockStore } from "../rightDockStore";
 import { PenkraCreateClientDialog } from "../penkra/PenkraCreateClientDialog";
 import { PenkraTodoPanel } from "../penkra/PenkraTodoPanel";
-import {
-  PenkraInstructionsDialog,
-  type PenkraInstructionsTarget,
-} from "../penkra/PenkraInstructionsDialog";
 import {
   composePenkraTodoPrompt,
   penkraProjectId,
@@ -1502,8 +1499,6 @@ export default function Sidebar() {
     [queryClient],
   );
   const [penkraTodoClientId, setPenkraTodoClientId] = useState<string | null>(null);
-  const [penkraInstructionsTarget, setPenkraInstructionsTarget] =
-    useState<PenkraInstructionsTarget | null>(null);
   const [penkraCreateClientOpen, setPenkraCreateClientOpen] = useState(false);
   const penkraClientByProjectId = useMemo(
     () =>
@@ -1540,6 +1535,7 @@ export default function Sidebar() {
     strict: false,
     select: (params) => (params.threadId ? ThreadId.makeUnsafe(params.threadId) : null),
   });
+  const openRightDockPane = useRightDockStore((store) => store.openPane);
   const routeWorkspaceId = useParams({
     strict: false,
     select: (params) => (typeof params.workspaceId === "string" ? params.workspaceId : null),
@@ -2196,6 +2192,59 @@ export default function Sidebar() {
       });
     },
     [appSettings.sidebarThreadSortOrder, navigate, sidebarThreads],
+  );
+
+  const openPenkraInstructions = useCallback(
+    (
+      projectId: ProjectId,
+      target: { scope: "hq"; clientId: null } | { scope: "client-specific"; clientId: string },
+    ) => {
+      const hostThreadId =
+        routeThreadId ??
+        sortThreadsForSidebar(
+          sidebarThreads.filter((thread) => thread.projectId === projectId),
+          appSettings.sidebarThreadSortOrder,
+        )[0]?.id ??
+        null;
+      if (!hostThreadId) {
+        toastManager.add({
+          type: "warning",
+          title: "Open a chat first",
+          description: "The instructions viewer uses the existing chat side panel.",
+        });
+        return;
+      }
+
+      const records =
+        target.scope === "hq"
+          ? ([
+              { scope: "hq" as const, clientId: null },
+              { scope: "client" as const, clientId: null },
+            ] as const)
+          : ([target] as const);
+      for (const record of records) {
+        openRightDockPane(hostThreadId, {
+          kind: "instructions",
+          instructionsScope: record.scope,
+          instructionsClientId: record.clientId,
+        });
+      }
+      if (hostThreadId !== routeThreadId || routeSearch.splitViewId) {
+        void navigate({
+          to: "/$threadId",
+          params: { threadId: hostThreadId },
+          search: {},
+        });
+      }
+    },
+    [
+      appSettings.sidebarThreadSortOrder,
+      navigate,
+      openRightDockPane,
+      routeSearch.splitViewId,
+      routeThreadId,
+      sidebarThreads,
+    ],
   );
 
   const openOrCreateProjectThreadFromSnapshot = useCallback(
@@ -5995,14 +6044,11 @@ export default function Sidebar() {
                   onClick={(event) => {
                     event.preventDefault();
                     event.stopPropagation();
-                    setPenkraInstructionsTarget(
+                    openPenkraInstructions(
+                      project.id,
                       penkraClient
-                        ? {
-                            kind: "client",
-                            clientId: penkraClient.id,
-                            displayName: penkraClient.displayName,
-                          }
-                        : { kind: "hq" },
+                        ? { scope: "client-specific", clientId: penkraClient.id }
+                        : { scope: "hq", clientId: null },
                     );
                   }}
                 />
@@ -7781,13 +7827,6 @@ export default function Sidebar() {
       <PenkraCreateClientDialog
         open={penkraCreateClientOpen}
         onOpenChange={setPenkraCreateClientOpen}
-      />
-
-      <PenkraInstructionsDialog
-        target={penkraInstructionsTarget}
-        onOpenChange={(open) => {
-          if (!open) setPenkraInstructionsTarget(null);
-        }}
       />
 
       {searchPaletteOpen ? (
