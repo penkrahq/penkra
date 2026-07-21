@@ -98,7 +98,6 @@ import {
 } from "../providerUpdates";
 import {
   getGitInvalidationThreadIdForEvent,
-  getProjectFileInvalidationThreadIdForEvent,
   getStudioOutputInvalidationThreadIdForEvent,
   resolveGitInvalidationCwdForThreadId,
   shouldInvalidateGitQueriesForEvent,
@@ -882,7 +881,6 @@ function EventRouter() {
     let needsProviderInvalidation = false;
     let needsBroadGitInvalidation = false;
     let pendingGitInvalidationThreadIds = new Set<ThreadId>();
-    let pendingProjectFileInvalidationThreadIds = new Set<ThreadId>();
     let pendingStudioOutputInvalidationThreadIds = new Set<ThreadId>();
     let pendingDomainEvents: OrchestrationEvent[] = [];
     const immediatelyFlushedAssistantMessageIds = new Set<string>();
@@ -1061,28 +1059,7 @@ function EventRouter() {
       }
       if (needsProviderInvalidation) {
         needsProviderInvalidation = false;
-        pendingProjectFileInvalidationThreadIds = new Set();
         void queryClient.invalidateQueries({ queryKey: providerQueryKeys.all });
-        // Invalidate workspace entry queries so the @-mention file picker
-        // reflects files created, deleted, or restored during this turn.
-        void queryClient.invalidateQueries({ queryKey: projectQueryKeys.all });
-      } else if (pendingProjectFileInvalidationThreadIds.size > 0) {
-        // Mid-turn file-change activities: refresh the editor file tree and
-        // open file preview for just the affected workspaces.
-        const currentState = useStore.getState();
-        const fileChangeCwds = new Set<string>();
-        for (const threadId of pendingProjectFileInvalidationThreadIds) {
-          const cwd = resolveGitInvalidationCwdForThreadId(currentState, threadId);
-          if (cwd) {
-            fileChangeCwds.add(cwd);
-          }
-        }
-        pendingProjectFileInvalidationThreadIds = new Set();
-        if (fileChangeCwds.size > 0) {
-          void invalidateProjectFileQueriesForCwds(queryClient, fileChangeCwds);
-        } else {
-          void queryClient.invalidateQueries({ queryKey: projectQueryKeys.all });
-        }
       }
       if (pendingStudioOutputInvalidationThreadIds.size > 0) {
         // File-change activities cover non-Git Studio chats; finalized checkpoints cover Git.
@@ -1122,10 +1099,6 @@ function EventRouter() {
       pendingDomainEvents.push(event);
       if (shouldInvalidateProviderQueriesForEvent(event)) {
         needsProviderInvalidation = true;
-      }
-      const projectFileThreadId = getProjectFileInvalidationThreadIdForEvent(event);
-      if (projectFileThreadId) {
-        pendingProjectFileInvalidationThreadIds.add(projectFileThreadId);
       }
       const studioOutputThreadId = getStudioOutputInvalidationThreadIdForEvent(event);
       if (studioOutputThreadId) {
@@ -1296,6 +1269,20 @@ function EventRouter() {
         store.removeRun(event.projectId);
       }
       invalidateLocalServers();
+    });
+    const unsubWorkspaceChange = api.projects.onWorkspaceChange((event) => {
+      if (event.lostSync) {
+        void queryClient.invalidateQueries({ queryKey: projectQueryKeys.all });
+        void invalidateGitQueries(queryClient);
+        return;
+      }
+      const cwds = new Set([event.cwd]);
+      if (event.filesChanged) {
+        void invalidateProjectFileQueriesForCwds(queryClient, cwds);
+      }
+      if (event.gitChanged) {
+        void invalidateGitQueriesForCwds(queryClient, cwds);
+      }
     });
     // The channel's initial snapshot may have arrived before this listener was
     // registered, so seed from the authoritative registry on mount.
@@ -1471,6 +1458,7 @@ function EventRouter() {
       unsubThreadEvent();
       unsubTerminalEvent();
       unsubDevServerEvent();
+      unsubWorkspaceChange();
       unsubWelcome();
       unsubServerConfigUpdated();
       unsubProviderStatusesUpdated();

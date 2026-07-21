@@ -93,8 +93,6 @@ import {
   PenkraCreateClientInput,
   PenkraCreateClientResult,
   PenkraCreateTodoInput,
-  PenkraGetInstructionsInput,
-  PenkraInstructionDocument,
   PenkraMutationResult,
   PenkraReconcileResult,
   PenkraSnapshot,
@@ -140,6 +138,7 @@ import {
   ProjectStopDevServerResult,
   ProjectWriteFileInput,
   ProjectWriteFileResult,
+  ProjectWorkspaceChangeEvent,
 } from "./project";
 import {
   ServerConfig,
@@ -364,6 +363,16 @@ export const WsSubscribeProjectDevServerEventsRpc = Rpc.make(
   {
     payload: Schema.Struct({}),
     success: ProjectDevServerEvent,
+    error: WsRpcError,
+    stream: true,
+  },
+);
+
+export const WsSubscribeProjectWorkspaceChangesRpc = Rpc.make(
+  WS_METHODS.subscribeProjectWorkspaceChanges,
+  {
+    payload: Schema.Struct({}),
+    success: ProjectWorkspaceChangeEvent,
     error: WsRpcError,
     stream: true,
   },
@@ -887,12 +896,6 @@ export const WsPenkraGetSnapshotRpc = Rpc.make(WS_METHODS.penkraGetSnapshot, {
   error: WsRpcError,
 });
 
-export const WsPenkraGetInstructionsRpc = Rpc.make(WS_METHODS.penkraGetInstructions, {
-  payload: PenkraGetInstructionsInput,
-  success: PenkraInstructionDocument,
-  error: WsRpcError,
-});
-
 export const WsPenkraCreateClientRpc = Rpc.make(WS_METHODS.penkraCreateClient, {
   payload: PenkraCreateClientInput,
   success: PenkraCreateClientResult,
@@ -932,7 +935,6 @@ export const WsSubscribePenkraSnapshotsRpc = Rpc.make(WS_METHODS.subscribePenkra
 
 export const WsRpcGroup = RpcGroup.make(
   WsPenkraGetSnapshotRpc,
-  WsPenkraGetInstructionsRpc,
   WsPenkraCreateClientRpc,
   WsPenkraUpdateClientRpc,
   WsPenkraCreateTodoRpc,
@@ -963,6 +965,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectsStopDevServerRpc,
   WsProjectsListDevServersRpc,
   WsSubscribeProjectDevServerEventsRpc,
+  WsSubscribeProjectWorkspaceChangesRpc,
   WsStudioListThreadOutputsRpc,
   WsFilesystemBrowseRpc,
   WsShellOpenInEditorRpc,

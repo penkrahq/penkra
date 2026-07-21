@@ -60,6 +60,10 @@ describe("Penkra workspace scaffolding", () => {
       "Use the client's approved terminology.\n";
     assert.equal(await readFile(path.join(workspace, "AGENTS.md"), "utf8"), expected);
     assert.equal(await readFile(path.join(workspace, "CLAUDE.md"), "utf8"), expected);
+    assert.equal(
+      await readFile(path.join(workspace, "client.md"), "utf8"),
+      "Use the client's approved terminology.",
+    );
   });
 
   it("leaves generic instructions unchanged when client-provided instructions are blank", () => {
@@ -69,21 +73,25 @@ describe("Penkra workspace scaffolding", () => {
 
   it("materializes identical HQ guidance for Codex and Claude without mtime churn", async () => {
     const root = await temporaryRoot();
-    const workspace = await scaffoldHq(root, "# Penkra HQ\n");
+    const workspace = await scaffoldHq(root, "# Penkra HQ\n", "# Generic client\n");
     const agentsPath = path.join(workspace, "AGENTS.md");
     const claudePath = path.join(workspace, "CLAUDE.md");
     assert.equal(await readFile(agentsPath, "utf8"), "# Penkra HQ\n");
     assert.equal(await readFile(claudePath, "utf8"), "# Penkra HQ\n");
+    assert.equal(await readFile(path.join(workspace, "hq.md"), "utf8"), "# Penkra HQ\n");
+    assert.equal(await readFile(path.join(workspace, "client.md"), "utf8"), "# Generic client\n");
     const before = (await stat(agentsPath)).mtimeMs;
-    await scaffoldHq(root, "# Penkra HQ\n");
+    await scaffoldHq(root, "# Penkra HQ\n", "# Generic client\n");
     assert.equal((await stat(agentsPath)).mtimeMs, before);
   });
 
   it("materializes blank instruction documents byte-identically", async () => {
     const root = await temporaryRoot();
-    const workspace = await scaffoldHq(root, "");
+    const workspace = await scaffoldHq(root, "", "");
     assert.equal(await readFile(path.join(workspace, "AGENTS.md"), "utf8"), "");
     assert.equal(await readFile(path.join(workspace, "CLAUDE.md"), "utf8"), "");
+    assert.equal(await readFile(path.join(workspace, "hq.md"), "utf8"), "");
+    assert.equal(await readFile(path.join(workspace, "client.md"), "utf8"), "");
   });
 });
 

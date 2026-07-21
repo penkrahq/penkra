@@ -14,7 +14,6 @@ export const RIGHT_DOCK_PANE_KINDS = [
   "diff",
   "explorer",
   "file",
-  "instructions",
   "terminal",
   "sidechat",
   "git",
@@ -36,9 +35,6 @@ export interface RightDockPane {
   diffFilePath: string | null;
   // file panes preview one workspace-relative file.
   filePath: string | null;
-  // instructions panes identify a remote Penkra record; bodies stay in the query cache.
-  instructionsScope?: "hq" | "client" | "client-specific" | null;
-  instructionsClientId?: string | null;
   pullRequestProjectId: ProjectId | null;
   pullRequestRepository: string | null;
   pullRequestNumber: number | null;
@@ -53,11 +49,7 @@ export interface RightDockThreadState {
 
 // Kinds that allow multiple concurrent panes per host thread: sidechat opens
 // one pane per embedded thread, file opens one tab per previewed file.
-const MULTI_INSTANCE_PANE_KINDS: ReadonlySet<RightDockPaneKind> = new Set([
-  "sidechat",
-  "file",
-  "instructions",
-]);
+const MULTI_INSTANCE_PANE_KINDS: ReadonlySet<RightDockPaneKind> = new Set(["sidechat", "file"]);
 
 // Kinds that can only ever have one instance per host thread, derived as
 // "every kind that is not multi-instance" so the two sets can never drift.
@@ -100,14 +92,6 @@ function sanitizePersistedPane(value: unknown): RightDockPane | null {
     diffTurnId: typeof candidate.diffTurnId === "string" ? (candidate.diffTurnId as TurnId) : null,
     diffFilePath: typeof candidate.diffFilePath === "string" ? candidate.diffFilePath : null,
     filePath: typeof candidate.filePath === "string" ? candidate.filePath : null,
-    instructionsScope:
-      candidate.instructionsScope === "hq" ||
-      candidate.instructionsScope === "client" ||
-      candidate.instructionsScope === "client-specific"
-        ? candidate.instructionsScope
-        : null,
-    instructionsClientId:
-      typeof candidate.instructionsClientId === "string" ? candidate.instructionsClientId : null,
     pullRequestProjectId:
       typeof candidate.pullRequestProjectId === "string"
         ? (candidate.pullRequestProjectId as ProjectId)
@@ -166,8 +150,6 @@ export interface OpenPaneInput {
   diffTurnId?: TurnId | null;
   diffFilePath?: string | null;
   filePath?: string | null;
-  instructionsScope?: "hq" | "client" | "client-specific" | null;
-  instructionsClientId?: string | null;
   pullRequestProjectId?: ProjectId | null;
   pullRequestRepository?: string | null;
   pullRequestNumber?: number | null;
@@ -182,8 +164,6 @@ function createPane(input: OpenPaneInput): RightDockPane {
     diffTurnId: input.diffTurnId ?? null,
     diffFilePath: input.diffFilePath ?? null,
     filePath: input.filePath ?? null,
-    instructionsScope: input.instructionsScope ?? null,
-    instructionsClientId: input.instructionsClientId ?? null,
     pullRequestProjectId: input.pullRequestProjectId ?? null,
     pullRequestRepository: input.pullRequestRepository ?? null,
     pullRequestNumber: input.pullRequestNumber ?? null,
@@ -235,16 +215,6 @@ function findMatchingMultiInstancePane(
   if (input.kind === "file") {
     const filePath = input.filePath ?? null;
     return state.panes.find((pane) => pane.kind === "file" && pane.filePath === filePath);
-  }
-  if (input.kind === "instructions") {
-    const scope = input.instructionsScope ?? null;
-    const clientId = input.instructionsClientId ?? null;
-    return state.panes.find(
-      (pane) =>
-        pane.kind === "instructions" &&
-        (pane.instructionsScope ?? null) === scope &&
-        (pane.instructionsClientId ?? null) === clientId,
-    );
   }
   return undefined;
 }

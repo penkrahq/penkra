@@ -5,6 +5,8 @@ import path from "node:path";
 import type { PenkraClientRecord } from "./backendClient";
 
 const INSTRUCTION_FILE_NAMES = ["AGENTS.md", "CLAUDE.md"] as const;
+export const CLIENT_INSTRUCTION_VIEW_FILE = "client.md";
+export const HQ_INSTRUCTION_VIEW_FILE = "hq.md";
 
 export async function scaffoldClient(input: {
   root: string;
@@ -38,6 +40,11 @@ export async function scaffoldClient(input: {
     workspace,
     composeClientInstructions(input.instructions, input.client.instructions),
   );
+  await writeAtomicIfChanged(
+    path.join(workspace, CLIENT_INSTRUCTION_VIEW_FILE),
+    input.client.instructions,
+    0o600,
+  );
   return workspace;
 }
 
@@ -50,10 +57,20 @@ export function composeClientInstructions(
   return `${genericInstructions.trimEnd()}\n\n## Client-provided instructions\n\nThe following instructions come from the client. Generic client instructions and HQ policy take precedence on conflict.\n\n${clientBody}\n`;
 }
 
-export async function scaffoldHq(root: string, instructions: string): Promise<string> {
+export async function scaffoldHq(
+  root: string,
+  hqInstructions: string,
+  clientInstructions: string,
+): Promise<string> {
   const workspace = path.join(root, "hq");
   await mkdir(workspace, { recursive: true, mode: 0o700 });
-  await writeInstructionFiles(workspace, instructions);
+  await writeInstructionFiles(workspace, hqInstructions);
+  await writeAtomicIfChanged(path.join(workspace, HQ_INSTRUCTION_VIEW_FILE), hqInstructions, 0o600);
+  await writeAtomicIfChanged(
+    path.join(workspace, CLIENT_INSTRUCTION_VIEW_FILE),
+    clientInstructions,
+    0o600,
+  );
   await rm(path.join(workspace, "skills"), { recursive: true, force: true });
   return workspace;
 }

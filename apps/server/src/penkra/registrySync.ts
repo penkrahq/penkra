@@ -1,4 +1,4 @@
-import { readFile, readdir } from "node:fs/promises";
+import { readFile, readdir, rm } from "node:fs/promises";
 import path from "node:path";
 
 import { CommandId, ProjectId, type OrchestrationProject } from "@synara/contracts";
@@ -7,7 +7,13 @@ import { Effect } from "effect";
 import type { OrchestrationEngineShape } from "../orchestration/Services/OrchestrationEngine";
 import { PenkraBackendClient, type PenkraClientRecord } from "./backendClient";
 import type { PenkraRuntimeConfig } from "./config";
-import { hasClientConfig, scaffoldClient, scaffoldHq } from "./scaffold";
+import {
+  CLIENT_INSTRUCTION_VIEW_FILE,
+  HQ_INSTRUCTION_VIEW_FILE,
+  hasClientConfig,
+  scaffoldClient,
+  scaffoldHq,
+} from "./scaffold";
 
 export type RegistrySyncResult = {
   status: "disabled" | "needs-hq-auth" | "reconciled";
@@ -53,7 +59,11 @@ export async function reconcilePenkraRegistry(input: {
     backend.getInstructionDocument("hq"),
     backend.getInstructionDocument("client"),
   ]);
-  const hqWorkspace = await scaffoldHq(input.config.root, hqInstructions.body);
+  const hqWorkspace = await scaffoldHq(
+    input.config.root,
+    hqInstructions.body,
+    clientInstructions.body,
+  );
   await ensureProject(input.engine, {
     id: "penkra-hq",
     title: "Penkra HQ",
@@ -84,6 +94,8 @@ export async function reconcilePenkraRegistry(input: {
     });
   }
 
+  await cleanupInstructionViewFiles(input.config.root, clients);
+
   return {
     status: "reconciled",
     clients: activeClients.length,
@@ -92,6 +104,27 @@ export async function reconcilePenkraRegistry(input: {
       .filter((client) => client.status === "archived")
       .map((client) => client.id),
   };
+}
+
+/**
+ * Removes only view files whose ownership is known exactly. Client directories,
+ * unknown folders, and agent-facing AGENTS.md/CLAUDE.md files are never removed.
+ */
+export async function cleanupInstructionViewFiles(
+  root: string,
+  clients: readonly PenkraClientRecord[],
+): Promise<void> {
+  const stalePaths = [
+    // Early local projections placed global documents at the registry root.
+    path.join(root, HQ_INSTRUCTION_VIEW_FILE),
+    path.join(root, CLIENT_INSTRUCTION_VIEW_FILE),
+    // Archived workspaces remain available for recovery, but their derived view
+    // must not present stale remote state as current.
+    ...clients
+      .filter((client) => client.status === "archived")
+      .map((client) => path.join(root, client.id, CLIENT_INSTRUCTION_VIEW_FILE)),
+  ];
+  await Promise.all(stalePaths.map((filePath) => rm(filePath, { force: true })));
 }
 
 async function ensureProject(

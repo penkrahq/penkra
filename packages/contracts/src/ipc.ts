@@ -86,8 +86,6 @@ import type {
 import type {
   PenkraCreateClientInput,
   PenkraCreateClientResult,
-  PenkraGetInstructionsInput,
-  PenkraInstructionDocument,
   PenkraUpdateClientInput,
   PenkraCreateTodoInput,
   PenkraMutationResult,
@@ -115,6 +113,7 @@ import type {
   ProjectStopDevServerInput,
   ProjectStopDevServerResult,
   ProjectWriteFileInput,
+  ProjectWorkspaceChangeEvent,
   ProjectWriteFileResult,
 } from "./project";
 import type { FilesystemBrowseInput, FilesystemBrowseResult } from "./filesystem";
@@ -501,7 +500,6 @@ export interface DesktopBridge {
 export interface NativeApi {
   penkra: {
     getSnapshot: () => Promise<PenkraSnapshot>;
-    getInstructions: (input: PenkraGetInstructionsInput) => Promise<PenkraInstructionDocument>;
     createClient: (input: PenkraCreateClientInput) => Promise<PenkraCreateClientResult>;
     updateClient: (input: PenkraUpdateClientInput) => Promise<PenkraCreateClientResult>;
     createTodo: (input: PenkraCreateTodoInput) => Promise<PenkraMutationResult>;
@@ -544,6 +542,7 @@ export interface NativeApi {
     stopDevServer: (input: ProjectStopDevServerInput) => Promise<ProjectStopDevServerResult>;
     listDevServers: () => Promise<ProjectListDevServersResult>;
     onDevServerEvent: (callback: (event: ProjectDevServerEvent) => void) => () => void;
+    onWorkspaceChange: (callback: (event: ProjectWorkspaceChangeEvent) => void) => () => void;
   };
   filesystem: {
     browse: (input: FilesystemBrowseInput) => Promise<FilesystemBrowseResult>;

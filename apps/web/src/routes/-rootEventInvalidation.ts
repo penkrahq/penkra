@@ -24,10 +24,6 @@ export function shouldInvalidateProviderQueriesForEvent(event: OrchestrationEven
 }
 
 export function shouldInvalidateGitQueriesForEvent(event: OrchestrationEvent): boolean {
-  if (FILE_CHANGE_EVENT_TYPES.has(event.type)) {
-    return true;
-  }
-
   if (event.type !== "thread.meta-updated") {
     return false;
   }
@@ -50,9 +46,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 // earliest signal that workspace files were touched. Invalidating the project
 // file queries on them lets the editor file tree and open file preview refresh
 // mid-turn instead of waiting for the turn diff to complete.
-export function getProjectFileInvalidationThreadIdForEvent(
-  event: OrchestrationEvent,
-): ThreadId | null {
+function getFileChangeActivityThreadId(event: OrchestrationEvent): ThreadId | null {
   if (event.type !== "thread.activity-appended") {
     return null;
   }
@@ -79,7 +73,7 @@ export function getStudioOutputInvalidationThreadIdForEvent(
       return event.payload.threadId;
     }
     return event.payload.activity.kind === "tool.completed"
-      ? getProjectFileInvalidationThreadIdForEvent(event)
+      ? getFileChangeActivityThreadId(event)
       : null;
   }
   if (!FILE_CHANGE_EVENT_TYPES.has(event.type)) {

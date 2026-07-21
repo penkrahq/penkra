@@ -72,6 +72,7 @@ import { bufferLiveUiStream, type LiveUiStreamDropReport } from "./wsStreamBackp
 import { PullRequestService } from "./pullRequests/Services/PullRequestService";
 import { resolveGitHubRepository } from "./pullRequests/repositoryResolution";
 import { PenkraRegistry } from "./penkra/layer";
+import { WorkspaceWatcher } from "./workspaceWatcher";
 
 const MAX_DIAGNOSTIC_CHILD_PROCESSES = 80;
 const MAX_DIAGNOSTIC_ARGS_CHARS = 500;
@@ -269,6 +270,7 @@ export const makeWsRpcLayer = () =>
       const textGeneration = yield* TextGeneration;
       const workspaceEntries = yield* WorkspaceEntries;
       const workspaceFileSystem = yield* WorkspaceFileSystem;
+      const workspaceWatcher = yield* WorkspaceWatcher;
 
       const isGlobalGitHubCliError = (error: unknown): error is GitHubCliError =>
         error instanceof GitHubCliError &&
@@ -537,8 +539,6 @@ export const makeWsRpcLayer = () =>
 
       return WsRpcGroup.of({
         [WS_METHODS.penkraGetSnapshot]: () => penkraRegistry.getSnapshot,
-        [WS_METHODS.penkraGetInstructions]: (input) =>
-          rpcEffect(penkraRegistry.getInstructions(input), "Failed to load Penkra instructions"),
         [WS_METHODS.penkraCreateClient]: (input) =>
           rpcEffect(penkraRegistry.createClient(input), "Failed to create Penkra client"),
         [WS_METHODS.penkraUpdateClient]: (input) =>
@@ -711,6 +711,10 @@ export const makeWsRpcLayer = () =>
               onDroppedEvents: failLiveUiStreamForSnapshotResync,
             }),
           ),
+        [WS_METHODS.subscribeProjectWorkspaceChanges]: () =>
+          bufferLiveUiStream(workspaceWatcher.stream, {
+            label: "projects.workspace-changes",
+          }),
         [WS_METHODS.studioListThreadOutputs]: (input) =>
           rpcEffect(
             Effect.gen(function* () {

@@ -23,6 +23,7 @@ import {
   type OrchestrationThreadStreamItem,
   type PenkraSnapshot,
   type ProjectDevServerEvent,
+  type ProjectWorkspaceChangeEvent,
   type ServerProviderStatusesUpdatedPayload,
   type ServerLifecycleStreamEvent,
   type ServerSettingsUpdatedPayload,
@@ -72,6 +73,7 @@ function omitNullUserInputAnswers(
 }
 const terminalEventListeners = new Set<(payload: TerminalEvent) => void>();
 const projectDevServerEventListeners = new Set<(payload: ProjectDevServerEvent) => void>();
+const projectWorkspaceChangeListeners = new Set<(payload: ProjectWorkspaceChangeEvent) => void>();
 const automationEventListeners = new Set<(payload: AutomationStreamEvent) => void>();
 const penkraSnapshotListeners = new Set<(payload: PenkraSnapshot) => void>();
 const orchestrationDomainEventListeners = new Set<(payload: OrchestrationEvent) => void>();
@@ -406,6 +408,15 @@ export function createWsNativeApi(): NativeApi {
       }
     }
   });
+  transport.subscribe(WS_CHANNELS.projectWorkspaceChange, (message) => {
+    for (const listener of projectWorkspaceChangeListeners) {
+      try {
+        listener(message.data);
+      } catch {
+        // Swallow listener errors
+      }
+    }
+  });
   transport.subscribe(WS_CHANNELS.automationEvent, (message) => {
     const payload = message.data;
     for (const listener of automationEventListeners) {
@@ -458,7 +469,6 @@ export function createWsNativeApi(): NativeApi {
   const api: NativeApi = {
     penkra: {
       getSnapshot: () => transport.request(WS_METHODS.penkraGetSnapshot),
-      getInstructions: (input) => transport.request(WS_METHODS.penkraGetInstructions, input),
       createClient: (input) => transport.request(WS_METHODS.penkraCreateClient, input),
       updateClient: (input) => transport.request(WS_METHODS.penkraUpdateClient, input),
       createTodo: (input) => transport.request(WS_METHODS.penkraCreateTodo, input),
@@ -526,6 +536,12 @@ export function createWsNativeApi(): NativeApi {
         projectDevServerEventListeners.add(callback);
         return () => {
           projectDevServerEventListeners.delete(callback);
+        };
+      },
+      onWorkspaceChange: (callback) => {
+        projectWorkspaceChangeListeners.add(callback);
+        return () => {
+          projectWorkspaceChangeListeners.delete(callback);
         };
       },
     },
@@ -965,6 +981,7 @@ export function resetWsNativeApiForTest(): void {
   gitActionProgressListeners.clear();
   terminalEventListeners.clear();
   projectDevServerEventListeners.clear();
+  projectWorkspaceChangeListeners.clear();
   automationEventListeners.clear();
   penkraSnapshotListeners.clear();
   orchestrationDomainEventListeners.clear();
@@ -985,6 +1002,8 @@ if (import.meta.hot) {
     gitActionProgressListeners.clear();
     terminalEventListeners.clear();
     projectDevServerEventListeners.clear();
+    projectWorkspaceChangeListeners.clear();
+    automationEventListeners.clear();
     penkraSnapshotListeners.clear();
     orchestrationDomainEventListeners.clear();
     orchestrationShellEventListeners.clear();

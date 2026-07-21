@@ -79,6 +79,7 @@ import {
   ProjectSearchLocalEntriesInput,
   ProjectStopDevServerInput,
   ProjectWriteFileInput,
+  ProjectWorkspaceChangeEvent,
 } from "./project";
 import { StudioListThreadOutputsInput } from "./studio";
 import { FilesystemBrowseInput } from "./filesystem";
@@ -113,7 +114,6 @@ import {
   PenkraCreateClientInput,
   PenkraUpdateClientInput,
   PenkraCreateTodoInput,
-  PenkraGetInstructionsInput,
   PenkraSnapshot,
   PenkraUpdateTodoInput,
 } from "./penkra";
@@ -144,6 +144,7 @@ export const WS_METHODS = {
   projectsStopDevServer: "projects.stopDevServer",
   projectsListDevServers: "projects.listDevServers",
   subscribeProjectDevServerEvents: "projects.subscribeDevServerEvents",
+  subscribeProjectWorkspaceChanges: "projects.subscribeWorkspaceChanges",
 
   // Studio methods
   studioListThreadOutputs: "studio.listThreadOutputs",
@@ -223,7 +224,6 @@ export const WS_METHODS = {
 
   // Penkra domain methods
   penkraGetSnapshot: "penkra.getSnapshot",
-  penkraGetInstructions: "penkra.getInstructions",
   penkraCreateClient: "penkra.createClient",
   penkraUpdateClient: "penkra.updateClient",
   penkraCreateTodo: "penkra.createTodo",
@@ -267,6 +267,7 @@ export const WS_CHANNELS = {
   gitActionProgress: "git.actionProgress",
   terminalEvent: "terminal.event",
   projectDevServerEvent: "project.devServerEvent",
+  projectWorkspaceChange: "project.workspaceChange",
   serverWelcome: "server.welcome",
   serverMaintenanceUpdated: "server.maintenanceUpdated",
   serverConfigUpdated: "server.configUpdated",
@@ -319,6 +320,7 @@ const WebSocketRequestBody = Schema.Union([
   tagRequestBody(WS_METHODS.projectsStopDevServer, ProjectStopDevServerInput),
   tagRequestBody(WS_METHODS.projectsListDevServers, Schema.Struct({})),
   tagRequestBody(WS_METHODS.subscribeProjectDevServerEvents, Schema.Struct({})),
+  tagRequestBody(WS_METHODS.subscribeProjectWorkspaceChanges, Schema.Struct({})),
 
   // Filesystem browse
   // Studio
@@ -466,6 +468,7 @@ export interface WsPushPayloadByChannel {
   readonly [WS_CHANNELS.gitActionProgress]: typeof GitActionProgressEvent.Type;
   readonly [WS_CHANNELS.terminalEvent]: typeof TerminalEvent.Type;
   readonly [WS_CHANNELS.projectDevServerEvent]: typeof ProjectDevServerEvent.Type;
+  readonly [WS_CHANNELS.projectWorkspaceChange]: typeof ProjectWorkspaceChangeEvent.Type;
   readonly [ORCHESTRATION_WS_CHANNELS.domainEvent]: OrchestrationEvent;
   readonly [ORCHESTRATION_WS_CHANNELS.shellEvent]: OrchestrationShellStreamItem;
   readonly [ORCHESTRATION_WS_CHANNELS.threadEvent]: OrchestrationThreadStreamItem;
@@ -516,6 +519,10 @@ export const WsPushProjectDevServerEvent = makeWsPushSchema(
   WS_CHANNELS.projectDevServerEvent,
   ProjectDevServerEvent,
 );
+export const WsPushProjectWorkspaceChange = makeWsPushSchema(
+  WS_CHANNELS.projectWorkspaceChange,
+  ProjectWorkspaceChangeEvent,
+);
 export const WsPushOrchestrationDomainEvent = makeWsPushSchema(
   ORCHESTRATION_WS_CHANNELS.domainEvent,
   OrchestrationEvent,
@@ -540,6 +547,7 @@ export const WsPushChannelSchema = Schema.Literals([
   WS_CHANNELS.automationEvent,
   WS_CHANNELS.terminalEvent,
   WS_CHANNELS.projectDevServerEvent,
+  WS_CHANNELS.projectWorkspaceChange,
   ORCHESTRATION_WS_CHANNELS.domainEvent,
   ORCHESTRATION_WS_CHANNELS.shellEvent,
   ORCHESTRATION_WS_CHANNELS.threadEvent,
@@ -557,6 +565,7 @@ export const WsPush = Schema.Union([
   WsPushGitActionProgress,
   WsPushTerminalEvent,
   WsPushProjectDevServerEvent,
+  WsPushProjectWorkspaceChange,
   WsPushOrchestrationDomainEvent,
   WsPushOrchestrationShellEvent,
   WsPushOrchestrationThreadEvent,

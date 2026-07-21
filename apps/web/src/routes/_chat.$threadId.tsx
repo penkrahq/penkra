@@ -185,11 +185,6 @@ const DockFilePane = lazy(() =>
     default: module.DockFilePane,
   })),
 );
-const PenkraInstructionsPane = lazy(() =>
-  import("../penkra/PenkraInstructionsPane").then((module) => ({
-    default: module.PenkraInstructionsPane,
-  })),
-);
 // Pre-measure approximation of the dock's 50/50 split (half the viewport minus
 // half a 16rem left sidebar). RightDock measures the actual shell on open and
 // pins the width to exactly half; this only covers the first paint before that
@@ -1928,13 +1923,7 @@ function SingleChatSurface(props: {
     const hasNumberedPullRequestPane = dockState.panes.some(
       (pane) => pane.kind === "pullRequest" && pane.pullRequestNumber !== null,
     );
-    const hasInstructionsPane = dockState.panes.some((pane) => pane.kind === "instructions");
-    if (
-      !hasSidechatPane &&
-      !hasNamedFilePane &&
-      !hasNumberedPullRequestPane &&
-      !hasInstructionsPane
-    ) {
+    if (!hasSidechatPane && !hasNamedFilePane && !hasNumberedPullRequestPane) {
       return undefined;
     }
     const titleByThreadId = hasSidechatPane
@@ -1948,13 +1937,6 @@ function SingleChatSurface(props: {
         overrides[pane.id] = basenameOfPath(pane.filePath);
       } else if (pane.kind === "pullRequest" && pane.pullRequestNumber !== null) {
         overrides[pane.id] = pullRequestPaneTabLabel(pane.pullRequestNumber);
-      } else if (pane.kind === "instructions") {
-        overrides[pane.id] =
-          pane.instructionsScope === "hq"
-            ? "hq.md"
-            : pane.instructionsScope === "client"
-              ? "client.md"
-              : "Instructions";
       }
     }
     return overrides;
@@ -2123,15 +2105,6 @@ function SingleChatSurface(props: {
                 onReferenceInChat={handleReferenceInChat}
                 onAskWhyInChat={handleAskWhyInChat}
                 onCommentInChat={handleCommentInChat}
-              />
-            </Suspense>
-          );
-        case "instructions":
-          return (
-            <Suspense fallback={<PanelStateMessage>Loading instructions...</PanelStateMessage>}>
-              <PenkraInstructionsPane
-                scope={pane.instructionsScope ?? null}
-                clientId={pane.instructionsClientId ?? null}
               />
             </Suspense>
           );

@@ -29,7 +29,6 @@ describe("RIGHT_DOCK_PANE_KINDS (single source of truth)", () => {
       "diff",
       "explorer",
       "file",
-      "instructions",
       "terminal",
       "sidechat",
       "git",
@@ -39,9 +38,7 @@ describe("RIGHT_DOCK_PANE_KINDS (single source of truth)", () => {
 
   it("derives singletons as every kind except the multi-instance ones", () => {
     for (const kind of RIGHT_DOCK_PANE_KINDS) {
-      expect(SINGLETON_PANE_KINDS.has(kind)).toBe(
-        kind !== "sidechat" && kind !== "file" && kind !== "instructions",
-      );
+      expect(SINGLETON_PANE_KINDS.has(kind)).toBe(kind !== "sidechat" && kind !== "file");
     }
   });
 });
@@ -53,7 +50,6 @@ describe("isRightDockPaneKind", () => {
       "diff",
       "explorer",
       "file",
-      "instructions",
       "terminal",
       "sidechat",
       "git",
@@ -65,36 +61,15 @@ describe("isRightDockPaneKind", () => {
 
   it("rejects unknown or malformed kinds", () => {
     expect(isRightDockPaneKind("plan")).toBe(false);
+    expect(isRightDockPaneKind("instructions")).toBe(false);
     expect(isRightDockPaneKind(undefined)).toBe(false);
     expect(isRightDockPaneKind(null)).toBe(false);
     expect(isRightDockPaneKind(42)).toBe(false);
   });
 });
 
-describe("instructions pane", () => {
-  it("opens one pane per remote authorship and refocuses an existing target", () => {
-    const first = openPaneInState(createDefaultRightDockState(), {
-      paneId: "instructions-1",
-      kind: "instructions",
-      instructionsScope: "hq",
-    });
-    const second = openPaneInState(first, {
-      paneId: "instructions-2",
-      kind: "instructions",
-      instructionsScope: "client",
-    });
-    const reopened = openPaneInState(second, {
-      paneId: "instructions-3",
-      kind: "instructions",
-      instructionsScope: "hq",
-    });
-
-    expect(reopened.panes).toHaveLength(2);
-    expect(reopened.activePaneId).toBe("instructions-1");
-    expect(reopened.panes.map((pane) => pane.instructionsScope)).toEqual(["hq", "client"]);
-  });
-
-  it("sanitizes persisted target metadata without persisting instruction bodies", () => {
+describe("removed pane kinds", () => {
+  it("drops stale persisted instruction panes", () => {
     const state = sanitizeRightDockThreadState({
       open: true,
       activePaneId: "instructions-1",
@@ -108,10 +83,7 @@ describe("instructions pane", () => {
         },
       ],
     });
-
-    expect(state.panes[0]?.instructionsScope).toBe("client-specific");
-    expect(state.panes[0]?.instructionsClientId).toBe("client-1");
-    expect(state.panes[0]).not.toHaveProperty("body");
+    expect(state).toEqual(createDefaultRightDockState());
   });
 });
 

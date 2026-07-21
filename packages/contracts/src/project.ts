@@ -165,6 +165,17 @@ export const ProjectCreateLocalFilePreviewGrantResult = Schema.Struct({
 });
 export type ProjectCreateLocalFilePreviewGrantResult =
   typeof ProjectCreateLocalFilePreviewGrantResult.Type;
+
+// Coalesced server-side filesystem notification. The watcher reports which
+// cache families are affected without exposing absolute changed-file paths to
+// every connected renderer.
+export const ProjectWorkspaceChangeEvent = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  filesChanged: Schema.Boolean,
+  gitChanged: Schema.Boolean,
+  lostSync: Schema.Boolean,
+});
+export type ProjectWorkspaceChangeEvent = typeof ProjectWorkspaceChangeEvent.Type;
 // ── Dev Server Process Manager ───────────────────────────────────────
 //
 // Dev servers are first-class background processes owned by the server and

@@ -60,6 +60,11 @@ const ProductionWindowsIconSource = Effect.zipWith(
 const NodePtySmokeScript = Effect.zipWith(RepoRoot, Effect.service(Path.Path), (repoRoot, path) =>
   path.join(repoRoot, "scripts/node-pty-smoke.mjs"),
 );
+const ParcelWatcherSmokeScript = Effect.zipWith(
+  RepoRoot,
+  Effect.service(Path.Path),
+  (repoRoot, path) => path.join(repoRoot, "scripts/parcel-watcher-smoke.mjs"),
+);
 const AppSnapHelperBuildScript = Effect.zipWith(
   RepoRoot,
   Effect.service(Path.Path),
@@ -529,6 +534,25 @@ const verifyStagedNodePty = Effect.fn("verifyStagedNodePty")(function* (
   );
 });
 
+const verifyStagedParcelWatcher = Effect.fn("verifyStagedParcelWatcher")(function* (
+  stageAppDir: string,
+  verbose: boolean,
+) {
+  const smokeScript = yield* ParcelWatcherSmokeScript;
+  yield* Effect.log("[desktop-artifact] Verifying staged native filesystem watcher...");
+  yield* runCommand(
+    ChildProcess.make({
+      cwd: stageAppDir,
+      env: {
+        ...process.env,
+        SYNARA_PARCEL_WATCHER_SMOKE_REQUIRE_ROOT: stageAppDir,
+      },
+      ...commandOutputOptions(verbose),
+      shell: process.platform === "win32",
+    })`node ${smokeScript}`,
+  );
+});
+
 const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   platform: typeof BuildPlatform.Type,
   target: string,
@@ -839,6 +863,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   if (options.platform === "linux") {
     yield* verifyStagedNodePty(stageAppDir, options.verbose);
   }
+  yield* verifyStagedParcelWatcher(stageAppDir, options.verbose);
 
   const buildEnv: NodeJS.ProcessEnv = {
     ...process.env,

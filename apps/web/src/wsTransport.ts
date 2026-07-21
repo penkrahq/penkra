@@ -17,6 +17,7 @@ import {
   type OrchestrationThreadStreamItem,
   type PenkraSnapshot,
   type ProjectDevServerEvent,
+  type ProjectWorkspaceChangeEvent,
   type ServerConfigStreamEvent,
   type ServerLifecycleStreamEvent,
   type ServerProviderStatusesUpdatedPayload,
@@ -464,6 +465,15 @@ export class WsTransport {
             (event: ProjectDevServerEvent) => this.emit(WS_CHANNELS.projectDevServerEvent, event),
             restartChannel,
           );
+        } else if (channel === WS_CHANNELS.projectWorkspaceChange) {
+          this.startStream(
+            session,
+            "project.workspaceChanges",
+            client[WS_METHODS.subscribeProjectWorkspaceChanges]({}),
+            (event: ProjectWorkspaceChangeEvent) =>
+              this.emit(WS_CHANNELS.projectWorkspaceChange, event),
+            restartChannel,
+          );
         } else if (channel === WS_CHANNELS.penkraSnapshot) {
           this.startStream(
             session,
@@ -507,6 +517,8 @@ export class WsTransport {
     else if (channel === WS_CHANNELS.serverSettingsUpdated) this.stopStream("server.settings");
     else if (channel === WS_CHANNELS.terminalEvent) this.stopStream("terminal.events");
     else if (channel === WS_CHANNELS.projectDevServerEvent) this.stopStream("project.devServers");
+    else if (channel === WS_CHANNELS.projectWorkspaceChange)
+      this.stopStream("project.workspaceChanges");
     else if (channel === WS_CHANNELS.penkraSnapshot) this.stopStream("penkra.snapshots");
     else if (channel === WS_CHANNELS.automationEvent) this.stopStream("automation.events");
     else if (channel === ORCHESTRATION_WS_CHANNELS.domainEvent)

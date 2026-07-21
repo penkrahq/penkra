@@ -1494,7 +1494,6 @@ export default function Sidebar() {
     () =>
       ensureNativeApi().penkra.onSnapshot((snapshot) => {
         queryClient.setQueryData(penkraQueryKeys.snapshot, snapshot);
-        void queryClient.invalidateQueries({ queryKey: penkraQueryKeys.instructions });
       }),
     [queryClient],
   );
@@ -1510,6 +1509,14 @@ export default function Sidebar() {
   const selectedPenkraClient = useMemo(
     () => penkraSnapshot?.clients.find((client) => client.id === penkraTodoClientId) ?? null,
     [penkraSnapshot?.clients, penkraTodoClientId],
+  );
+  const selectedPenkraWorkspaceRoot = useMemo(
+    () =>
+      selectedPenkraClient
+        ? (projects.find((project) => project.id === penkraProjectId(selectedPenkraClient.id))
+            ?.cwd ?? null)
+        : null,
+    [projects, selectedPenkraClient],
   );
   const invokePenkraTodo = useCallback(
     async (todo: PenkraTodoSummary) => {
@@ -2195,10 +2202,7 @@ export default function Sidebar() {
   );
 
   const openPenkraInstructions = useCallback(
-    (
-      projectId: ProjectId,
-      target: { scope: "hq"; clientId: null } | { scope: "client-specific"; clientId: string },
-    ) => {
+    (projectId: ProjectId, scope: "hq" | "client") => {
       const hostThreadId =
         routeThreadId ??
         sortThreadsForSidebar(
@@ -2215,18 +2219,12 @@ export default function Sidebar() {
         return;
       }
 
-      const records =
-        target.scope === "hq"
-          ? ([
-              { scope: "hq" as const, clientId: null },
-              { scope: "client" as const, clientId: null },
-            ] as const)
-          : ([target] as const);
-      for (const record of records) {
+      const filePaths =
+        scope === "hq" ? (["hq.md", "client.md"] as const) : (["client.md"] as const);
+      for (const filePath of filePaths) {
         openRightDockPane(hostThreadId, {
-          kind: "instructions",
-          instructionsScope: record.scope,
-          instructionsClientId: record.clientId,
+          kind: "file",
+          filePath,
         });
       }
       if (hostThreadId !== routeThreadId || routeSearch.splitViewId) {
@@ -6044,12 +6042,7 @@ export default function Sidebar() {
                   onClick={(event) => {
                     event.preventDefault();
                     event.stopPropagation();
-                    openPenkraInstructions(
-                      project.id,
-                      penkraClient
-                        ? { scope: "client-specific", clientId: penkraClient.id }
-                        : { scope: "hq", clientId: null },
-                    );
+                    openPenkraInstructions(project.id, penkraClient ? "client" : "hq");
                   }}
                 />
               ) : (
@@ -7819,6 +7812,7 @@ export default function Sidebar() {
           if (!open) setPenkraTodoClientId(null);
         }}
         client={selectedPenkraClient}
+        workspaceRoot={selectedPenkraWorkspaceRoot}
         todos={penkraSnapshot?.todos ?? []}
         warnings={penkraSnapshot?.programWarnings ?? []}
         onInvoke={invokePenkraTodo}

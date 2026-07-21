@@ -250,6 +250,7 @@ const worker = setupWorker(
         method === WS_METHODS.subscribeTerminalEvents ||
         method === WS_METHODS.subscribeOrchestrationDomainEvents ||
         method === WS_METHODS.subscribeProjectDevServerEvents ||
+        method === WS_METHODS.subscribeProjectWorkspaceChanges ||
         method === WS_METHODS.subscribeAutomationEvents ||
         method === WS_METHODS.subscribePenkraSnapshots
       ) {

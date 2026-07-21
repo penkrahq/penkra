@@ -9,6 +9,7 @@ import {
   MAC_INHERITED_ENTITLEMENTS_PATH,
   MICROPHONE_USAGE_DESCRIPTION,
   NODE_PTY_ASAR_UNPACK_GLOBS,
+  PARCEL_WATCHER_ASAR_UNPACK_GLOBS,
   validateDesktopNativeBuildHost,
   WINDOWS_INSTALLER_GUID,
 } from "./lib/desktop-platform-build-config.ts";
@@ -25,7 +26,10 @@ describe("createDesktopPlatformBuildConfig", () => {
 
     assert.deepStrictEqual(mac.target, ["dmg", "zip"]);
     assert.equal(mac.icon, "icon.icns");
-    assert.deepStrictEqual(config.asarUnpack, ["node_modules/node-pty/**"]);
+    assert.deepStrictEqual(config.asarUnpack, [
+      ...NODE_PTY_ASAR_UNPACK_GLOBS,
+      ...PARCEL_WATCHER_ASAR_UNPACK_GLOBS,
+    ]);
     assert.equal(mac.hardenedRuntime, true);
     assert.equal(mac.entitlements, MAC_ENTITLEMENTS_PATH);
     assert.equal(mac.entitlementsInherit, MAC_INHERITED_ENTITLEMENTS_PATH);
@@ -61,7 +65,10 @@ describe("createDesktopPlatformBuildConfig", () => {
 
     assert.equal(linux.mac, undefined);
     assert.equal(linux.extraFiles, undefined);
-    assert.deepStrictEqual(linux.asarUnpack, ["node_modules/node-pty/**"]);
+    assert.deepStrictEqual(linux.asarUnpack, [
+      ...NODE_PTY_ASAR_UNPACK_GLOBS,
+      ...PARCEL_WATCHER_ASAR_UNPACK_GLOBS,
+    ]);
     assert.deepStrictEqual(linux.linux, {
       target: ["AppImage"],
       executableName: "penkra",
@@ -76,7 +83,10 @@ describe("createDesktopPlatformBuildConfig", () => {
 
     assert.equal(win.mac, undefined);
     assert.equal(win.extraFiles, undefined);
-    assert.deepStrictEqual(win.asarUnpack, ["node_modules/node-pty/**"]);
+    assert.deepStrictEqual(win.asarUnpack, [
+      ...NODE_PTY_ASAR_UNPACK_GLOBS,
+      ...PARCEL_WATCHER_ASAR_UNPACK_GLOBS,
+    ]);
     assert.equal(WINDOWS_INSTALLER_GUID, "BE0EA921-E16E-482E-BEF8-A806CD303114");
     assert.deepStrictEqual(win.nsis, {
       guid: WINDOWS_INSTALLER_GUID,
@@ -112,14 +122,17 @@ describe("createDesktopPlatformBuildConfig", () => {
     });
   });
 
-  it("keeps node-pty unpacked from ASAR in generated build config", () => {
+  it("keeps native modules unpacked from ASAR in generated build config", () => {
     const config = createDesktopPlatformBuildConfig({
       platform: "linux",
       target: "AppImage",
     });
 
     assert.deepStrictEqual([...NODE_PTY_ASAR_UNPACK_GLOBS], ["node_modules/node-pty/**"]);
-    assert.deepStrictEqual(config.asarUnpack, [...NODE_PTY_ASAR_UNPACK_GLOBS]);
+    assert.deepStrictEqual(config.asarUnpack, [
+      ...NODE_PTY_ASAR_UNPACK_GLOBS,
+      ...PARCEL_WATCHER_ASAR_UNPACK_GLOBS,
+    ]);
   });
 
   it("blocks unsupported or non-matching Linux native build hosts", () => {

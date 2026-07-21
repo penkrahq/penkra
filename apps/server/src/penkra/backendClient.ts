@@ -9,8 +9,6 @@ import {
   type PenkraCreateClientResult,
   PenkraCreateClientInput,
   PenkraCreateTodoInput,
-  type PenkraGetInstructionsInput,
-  type PenkraInstructionDocument,
   PenkraSnapshot,
   PenkraUpdateTodoInput,
   PenkraUpdateClientInput,
@@ -145,22 +143,6 @@ export class PenkraBackendClient {
     scope: "hq" | "client",
   ): Promise<{ body: string; revision: string; updatedAt: string | null }> {
     return this.request(`/api/instructions/${scope}`, decodeInstructionDocument);
-  }
-
-  async getInstructions(input: PenkraGetInstructionsInput): Promise<PenkraInstructionDocument> {
-    if (input.scope === "client-specific") {
-      if (!input.clientId) throw new Error("clientId is required for client-specific instructions");
-      const client = await this.getClient(input.clientId);
-      return {
-        scope: input.scope,
-        clientId: client.id,
-        body: client.instructions,
-        revision: null,
-        updatedAt: null,
-      };
-    }
-    const document = await this.getInstructionDocument(input.scope);
-    return { scope: input.scope, clientId: null, ...document };
   }
 
   createClient(input: PenkraCreateClientInput): Promise<PenkraCreateClientResult> {

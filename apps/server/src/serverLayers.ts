@@ -39,6 +39,7 @@ import { ProjectPullRequestPinsLive } from "./persistence/Layers/ProjectPullRequ
 import { ProjectionTurnRepositoryLive } from "./persistence/Layers/ProjectionTurns";
 import { PullRequestServiceLive } from "./pullRequests/Layers/PullRequestService";
 import { PenkraRegistryLive } from "./penkra/layer";
+import { WorkspaceWatcherLive } from "./workspaceWatcher";
 
 export { makeServerProviderLayer } from "./provider/runtimeLayer";
 
@@ -130,6 +131,7 @@ export function makeServerRuntimeServicesLayer() {
     Layer.provideMerge(OrchestrationLayerLive),
   );
   const penkraRegistryLayer = PenkraRegistryLive.pipe(Layer.provideMerge(runtimeServicesLayer));
+  const workspaceWatcherLayer = WorkspaceWatcherLive.pipe(Layer.provideMerge(runtimeServicesLayer));
 
   return Layer.mergeAll(
     automationServiceLayer,
@@ -154,5 +156,6 @@ export function makeServerRuntimeServicesLayer() {
     WorkspaceLayerLive,
     ProjectFaviconResolverLive,
     penkraRegistryLayer,
+    workspaceWatcherLayer,
   ).pipe(Layer.provideMerge(NodeServices.layer));
 }

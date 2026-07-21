@@ -9,14 +9,11 @@ describe("RIGHT_DOCK_ADD_MENU_KINDS", () => {
     // opened by clicking a file reference in chat, not from the add menu.
     expect(RIGHT_DOCK_ADD_MENU_KINDS).toContain("explorer");
     expect(RIGHT_DOCK_ADD_MENU_KINDS).not.toContain("file");
-    expect(RIGHT_DOCK_ADD_MENU_KINDS).not.toContain("instructions");
   });
 
   it("keeps the canonical kind order minus context-only panes", () => {
     expect([...RIGHT_DOCK_ADD_MENU_KINDS]).toEqual(
-      RIGHT_DOCK_PANE_KINDS.filter(
-        (kind) => kind !== "file" && kind !== "instructions" && kind !== "pullRequest",
-      ),
+      RIGHT_DOCK_PANE_KINDS.filter((kind) => kind !== "file" && kind !== "pullRequest"),
     );
   });
 
