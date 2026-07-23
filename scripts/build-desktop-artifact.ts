@@ -534,6 +534,36 @@ const verifyStagedNodePty = Effect.fn("verifyStagedNodePty")(function* (
   );
 });
 
+const prepareStagedNodePty = Effect.fn("prepareStagedNodePty")(function* (
+  stageAppDir: string,
+  platform: typeof BuildPlatform.Type,
+  arch: typeof BuildArch.Type,
+) {
+  if (platform === "win") return;
+
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const platformName = platform === "mac" ? "darwin" : "linux";
+  const architectures = arch === "universal" ? ["arm64", "x64"] : [arch];
+
+  for (const architecture of architectures) {
+    const helperPath = path.join(
+      stageAppDir,
+      "node_modules",
+      "node-pty",
+      "prebuilds",
+      `${platformName}-${architecture}`,
+      "spawn-helper",
+    );
+    if (!(yield* fs.exists(helperPath))) {
+      return yield* new BuildScriptError({
+        message: `Missing staged node-pty spawn helper at ${helperPath}.`,
+      });
+    }
+    chmodSync(helperPath, 0o755);
+  }
+});
+
 const verifyStagedParcelWatcher = Effect.fn("verifyStagedParcelWatcher")(function* (
   stageAppDir: string,
   verbose: boolean,
@@ -860,7 +890,8 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     });
   }
 
-  if (options.platform === "linux") {
+  if (options.platform !== "win") {
+    yield* prepareStagedNodePty(stageAppDir, options.platform, options.arch);
     yield* verifyStagedNodePty(stageAppDir, options.verbose);
   }
   yield* verifyStagedParcelWatcher(stageAppDir, options.verbose);

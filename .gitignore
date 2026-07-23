@@ -12,6 +12,7 @@ packages/*/dist
 build/
 .logs/
 release/
+release-[0-9]*/
 release-*-candidate/
 .synara
 /.synara/electron-dev

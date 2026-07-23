@@ -40,7 +40,7 @@ interface CachedPowerShellAppxLookup {
   readonly expiresAt: number;
 }
 
-const POWERSHELL_APPX_LOOKUP_TIMEOUT_MS = 1_500;
+const POWERSHELL_APPX_LOOKUP_TIMEOUT_MS = 5_000;
 const POWERSHELL_APPX_LOOKUP_CACHE_TTL_MS = 300_000;
 const powershellAppxLookupCache = new Map<string, CachedPowerShellAppxLookup>();
 

@@ -247,12 +247,13 @@ function createSnapshotForTargetUser(options: {
   targetMessageId: MessageId;
   targetText: string;
   targetAttachmentCount?: number;
+  targetMessageIndex?: number;
   sessionStatus?: OrchestrationSessionStatus;
 }): OrchestrationReadModel {
   const messages: Array<OrchestrationReadModel["threads"][number]["messages"][number]> = [];
 
   for (let index = 0; index < 22; index += 1) {
-    const isTarget = index === 3;
+    const isTarget = index === (options.targetMessageIndex ?? 3);
     const userId = `msg-user-${index}` as MessageId;
     const assistantId = `msg-assistant-${index}` as MessageId;
     const attachments =
@@ -1558,8 +1559,11 @@ async function measureUserRow(options: {
   let row: HTMLElement | null = null;
   await vi.waitFor(
     async () => {
-      scrollContainer.scrollTop = 0;
-      scrollContainer.dispatchEvent(new Event("scroll"));
+      row = host.querySelector<HTMLElement>(rowSelector);
+      if (!row) {
+        scrollContainer.scrollTop = 0;
+        scrollContainer.dispatchEvent(new Event("scroll"));
+      }
       await waitForLayout();
       row = host.querySelector<HTMLElement>(rowSelector);
       expect(row, "Unable to locate targeted user message row.").toBeTruthy();
@@ -1571,8 +1575,6 @@ async function measureUserRow(options: {
   );
 
   await waitForImagesToLoad(row!);
-  scrollContainer.scrollTop = 0;
-  scrollContainer.dispatchEvent(new Event("scroll"));
   await nextFrame();
 
   let timelineWidthMeasuredPx = 0;
@@ -1580,8 +1582,6 @@ async function measureUserRow(options: {
   let renderedInVirtualizedRegion = false;
   await vi.waitFor(
     async () => {
-      scrollContainer.scrollTop = 0;
-      scrollContainer.dispatchEvent(new Event("scroll"));
       await nextFrame();
       const measuredRow = host.querySelector<HTMLElement>(rowSelector);
       expect(measuredRow, "Unable to measure targeted user row height.").toBeTruthy();
@@ -1893,38 +1893,40 @@ describe("ChatView timeline estimator parity (full app)", () => {
     // still wrapping onto materially more lines on mobile.
     const userText = "x".repeat(320);
     const targetMessageId = "msg-user-target-wrap" as MessageId;
-    const snapshot = createSnapshotForTargetUser({
-      targetMessageId,
-      targetText: userText,
-    });
-    const desktopMeasurement = await measureUserRowAtViewport({
+    const mounted = await mountChatView({
       viewport: { ...TEXT_VIEWPORT_MATRIX[0], width: 1_400 },
-      snapshot,
-      targetMessageId,
-    });
-    const mobileMeasurement = await measureUserRowAtViewport({
-      viewport: TEXT_VIEWPORT_MATRIX[2],
-      snapshot,
-      targetMessageId,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId,
+        targetText: userText,
+        targetMessageIndex: 21,
+      }),
     });
 
-    const estimatedDesktopPx = estimateTimelineMessageHeight(
-      { role: "user", text: userText, attachments: [] },
-      { timelineWidthPx: desktopMeasurement.timelineWidthMeasuredPx },
-    );
-    const estimatedMobilePx = estimateTimelineMessageHeight(
-      { role: "user", text: userText, attachments: [] },
-      { timelineWidthPx: mobileMeasurement.timelineWidthMeasuredPx },
-    );
+    try {
+      const desktopMeasurement = await mounted.measureUserRow(targetMessageId);
+      await mounted.setViewport(TEXT_VIEWPORT_MATRIX[2]);
+      const mobileMeasurement = await mounted.measureUserRow(targetMessageId);
 
-    const measuredDeltaPx =
-      mobileMeasurement.measuredRowHeightPx - desktopMeasurement.measuredRowHeightPx;
-    const estimatedDeltaPx = estimatedMobilePx - estimatedDesktopPx;
-    expect(measuredDeltaPx).toBeGreaterThan(0);
-    expect(estimatedDeltaPx).toBeGreaterThan(0);
-    const ratio = estimatedDeltaPx / measuredDeltaPx;
-    expect(ratio).toBeGreaterThan(0.65);
-    expect(ratio).toBeLessThan(1.35);
+      const estimatedDesktopPx = estimateTimelineMessageHeight(
+        { role: "user", text: userText, attachments: [] },
+        { timelineWidthPx: desktopMeasurement.timelineWidthMeasuredPx },
+      );
+      const estimatedMobilePx = estimateTimelineMessageHeight(
+        { role: "user", text: userText, attachments: [] },
+        { timelineWidthPx: mobileMeasurement.timelineWidthMeasuredPx },
+      );
+
+      const measuredDeltaPx =
+        mobileMeasurement.measuredRowHeightPx - desktopMeasurement.measuredRowHeightPx;
+      const estimatedDeltaPx = estimatedMobilePx - estimatedDesktopPx;
+      expect(measuredDeltaPx).toBeGreaterThan(0);
+      expect(estimatedDeltaPx).toBeGreaterThan(0);
+      const ratio = estimatedDeltaPx / measuredDeltaPx;
+      expect(ratio).toBeGreaterThan(0.65);
+      expect(ratio).toBeLessThan(1.35);
+    } finally {
+      await mounted.cleanup();
+    }
   });
 
   it("collapses header actions into overflow before they can overlap the thread title", async () => {

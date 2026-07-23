@@ -5,6 +5,7 @@
     "dist",
     "dist-electron",
     "node_modules",
+    "release-[0-9]*/",
     "bun.lock",
     "*.tsbuildinfo",
     "**/routeTree.gen.ts",
