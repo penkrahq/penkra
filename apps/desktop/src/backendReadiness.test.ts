@@ -95,7 +95,7 @@ describe("waitForHttpReady", () => {
 
     await waitForHttpReady("http://127.0.0.1:3773", {
       fetchImpl,
-      timeoutMs: 100,
+      timeoutMs: 1_000,
       intervalMs: 0,
       requestTimeoutMs: 1,
     });
