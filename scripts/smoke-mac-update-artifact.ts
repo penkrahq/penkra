@@ -37,6 +37,7 @@ interface SmokeResult {
   readonly manifestHeadContentLength: number;
   readonly zipHeadContentLength: number;
   readonly zipBlockmapSize: number;
+  readonly bundledPenkraCliPresent: boolean;
   readonly unusedClaudePlatformBinaryAbsent: boolean;
   readonly cleanedUp: boolean;
 }
@@ -297,7 +298,15 @@ async function smokeMacUpdateArtifact(): Promise<SmokeResult> {
       throw new Error(`macOS update zip blockmap is invalid: ${basename(zipBlockmapPath)}`);
     }
 
-    const unusedClaudePlatformBinaryAbsent = !listZipEntries(zipPath).some((entry) =>
+    const zipEntries = listZipEntries(zipPath);
+    const bundledPenkraCliPresent = zipEntries.some((entry) =>
+      entry.endsWith("/Contents/Resources/penkra-cli/penkra"),
+    );
+    if (!bundledPenkraCliPresent) {
+      throw new Error("The update ZIP does not contain the pinned Penkra CLI.");
+    }
+
+    const unusedClaudePlatformBinaryAbsent = !zipEntries.some((entry) =>
       entry.includes("claude-agent-sdk-darwin-arm64"),
     );
     if (!unusedClaudePlatformBinaryAbsent) {
@@ -330,6 +339,7 @@ async function smokeMacUpdateArtifact(): Promise<SmokeResult> {
       manifestHeadContentLength,
       zipHeadContentLength,
       zipBlockmapSize,
+      bundledPenkraCliPresent,
       unusedClaudePlatformBinaryAbsent,
       cleanedUp,
     };

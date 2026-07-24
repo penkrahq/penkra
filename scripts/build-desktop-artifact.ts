@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 // FILE: build-desktop-artifact.ts
-// Purpose: Stages and builds packaged desktop artifacts plus updater metadata for GitHub releases.
+// Purpose: Stages and builds packaged desktop artifacts plus Penkra updater metadata.
 // Layer: Release/build script
-// Depends on: apps/desktop package metadata, electron-builder, and GitHub release config.
+// Depends on: apps/desktop package metadata, the pinned Penkra CLI, and electron-builder.
 
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { chmodSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 
@@ -24,6 +24,7 @@ import { SYNARA_PRODUCTION_BUNDLE_ID } from "@synara/shared/desktopIdentity";
 import { parseBooleanEnvValue } from "./lib/env-bool.ts";
 import { finalizeSignedMacDmg } from "./lib/mac-dmg-finalize.ts";
 import { finalizeMacUpdateZip } from "./lib/mac-update-zip-finalize.ts";
+import { resolveUnusedClaudePlatformPackageName } from "./lib/desktop-staged-runtime.ts";
 import {
   RELEASE_LOCKFILE_PATH,
   RELEASE_PATCHES_PATH,
@@ -425,29 +426,13 @@ function resolveDesktopRuntimeDependencies(
   return resolveCatalogDependencies(runtimeDependencies, catalog, "apps/desktop");
 }
 
-function resolveGitHubPublishConfig():
-  | {
-      readonly provider: "github";
-      readonly owner: string;
-      readonly repo: string;
-      readonly releaseType: "release";
-    }
-  | undefined {
-  const rawRepo =
-    process.env.SYNARA_DESKTOP_UPDATE_REPOSITORY?.trim() ||
-    process.env.GITHUB_REPOSITORY?.trim() ||
-    "";
-  if (!rawRepo) return undefined;
-
-  const [owner, repo, ...rest] = rawRepo.split("/");
-  if (!owner || !repo || rest.length > 0) return undefined;
-
-  return {
-    provider: "github",
-    owner,
-    repo,
-    releaseType: "release",
-  };
+function resolvePenkraUpdateUrl(
+  mockUpdates: boolean,
+  mockUpdateServerPort: string | undefined,
+): string {
+  if (mockUpdates) return `http://localhost:${mockUpdateServerPort ?? 3000}`;
+  const configured = process.env.PENKRA_UPDATE_URL?.trim();
+  return configured ? configured.replace(/\/$/, "") : "https://api.penkra.com/updates/mac";
 }
 
 interface PatchFileExpectation {
@@ -570,22 +555,22 @@ const createBuildConfig = Effect.fn("createBuildConfig")(function* (
     appId: SYNARA_PRODUCTION_BUNDLE_ID,
     productName,
     artifactName: "Penkra-${version}-${arch}.${ext}",
+    extraResources: [{ from: "penkra-cli", to: "penkra-cli" }],
     directories: {
       buildResources: "apps/desktop/resources",
     },
     forceCodeSigning: signed,
   };
-  const publishConfig = resolveGitHubPublishConfig();
-  if (publishConfig) {
-    buildConfig.publish = [publishConfig];
-  } else if (mockUpdates) {
-    buildConfig.publish = [
-      {
-        provider: "generic",
-        url: `http://localhost:${mockUpdateServerPort ?? 3000}`,
-      },
-    ];
-  }
+  buildConfig.publish = [
+    {
+      provider: "generic",
+      url: resolvePenkraUpdateUrl(mockUpdates, mockUpdateServerPort),
+      // Penkra authenticates its generic feed and redirects artifacts to S3.
+      // S3 supports ordinary byte ranges, but not the multipart multi-range
+      // response electron-updater otherwise assumes for a generic URL.
+      useMultipleRangeRequest: false,
+    },
+  ];
 
   const platformBuildConfigInput = {
     platform,
@@ -769,6 +754,15 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
 
   const stageAppDir = path.join(stageRoot, "app");
   const stageResourcesDir = path.join(stageAppDir, "apps/desktop/resources");
+  const configuredCliBinary = process.env.PENKRA_CLI_BINARY?.trim();
+  if (!configuredCliBinary) {
+    return yield* new BuildScriptError({
+      message: "PENKRA_CLI_BINARY must point to the pinned backend CLI binary.",
+    });
+  }
+  const cliBinarySource = path.resolve(configuredCliBinary);
+  const stagedCliDirectory = path.join(stageAppDir, "penkra-cli");
+  const stagedCliBinary = path.join(stagedCliDirectory, "penkra");
   const distDirs = {
     desktopDist: path.join(repoRoot, "apps/desktop/dist-electron"),
     desktopResources: path.join(repoRoot, "apps/desktop/resources"),
@@ -799,6 +793,11 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
       message: `Missing bundled server client at ${bundledClientEntry}. Run 'bun run build:desktop' first.`,
     });
   }
+  if (!(yield* fs.exists(cliBinarySource))) {
+    return yield* new BuildScriptError({
+      message: `Pinned Penkra CLI binary does not exist: ${cliBinarySource}`,
+    });
+  }
 
   yield* validateBundledClientAssets(path.dirname(bundledClientEntry));
 
@@ -809,6 +808,9 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   yield* fs.copy(distDirs.desktopDist, path.join(stageAppDir, "apps/desktop/dist-electron"));
   yield* fs.copy(distDirs.desktopResources, stageResourcesDir);
   yield* fs.copy(distDirs.serverDist, path.join(stageAppDir, "apps/server/dist"));
+  yield* fs.makeDirectory(stagedCliDirectory, { recursive: true });
+  yield* fs.copyFile(cliBinarySource, stagedCliBinary);
+  chmodSync(stagedCliBinary, 0o755);
 
   yield* assertPlatformBuildResources(options.platform, stageResourcesDir, options.verbose);
 
@@ -851,6 +853,27 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   };
 
   yield* installFrozenStageDependencies(repoRoot, stageAppDir, options.verbose);
+
+  // Penkra invokes the user's installed Claude CLI. The SDK's optional platform
+  // package is a complete second Claude binary and must not ship in the app.
+  const unusedClaudePlatformPackageName = resolveUnusedClaudePlatformPackageName(
+    options.platform,
+    options.arch,
+  );
+  const stagedClaudePlatformPackage = unusedClaudePlatformPackageName
+    ? path.join(stageAppDir, "node_modules", "@anthropic-ai", unusedClaudePlatformPackageName)
+    : null;
+  if (stagedClaudePlatformPackage && (yield* fs.exists(stagedClaudePlatformPackage))) {
+    yield* fs.remove(stagedClaudePlatformPackage, { recursive: true });
+    yield* Effect.log(
+      `[desktop-artifact] Removed unused staged Claude platform binary (${path.basename(stagedClaudePlatformPackage)}).`,
+    );
+  }
+  if (stagedClaudePlatformPackage && (yield* fs.exists(stagedClaudePlatformPackage))) {
+    return yield* new BuildScriptError({
+      message: `Unused Claude platform binary remained in the staged app: ${stagedClaudePlatformPackage}`,
+    });
+  }
 
   const stagePackageJsonString = yield* encodeJsonString(stagePackageJson);
   yield* fs.writeFileString(path.join(stageAppDir, "package.json"), `${stagePackageJsonString}\n`);

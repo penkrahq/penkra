@@ -1233,7 +1233,9 @@ const worker = setupWorker(
         method === WS_METHODS.subscribeServerSettings ||
         method === WS_METHODS.subscribeTerminalEvents ||
         method === WS_METHODS.subscribeOrchestrationDomainEvents ||
-        method === WS_METHODS.subscribeProjectDevServerEvents
+        method === WS_METHODS.subscribeProjectDevServerEvents ||
+        method === WS_METHODS.subscribeProjectWorkspaceChanges ||
+        method === WS_METHODS.subscribePenkraSnapshots
       ) {
         return;
       }
@@ -4099,7 +4101,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
             ? (request.command as Record<string, unknown>)
             : null,
         )
-        .find(Boolean);
+        .findLast(Boolean);
 
     try {
       await page.getByRole("button", { name: "Add project", exact: true }).click();

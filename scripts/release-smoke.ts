@@ -123,6 +123,34 @@ function verifyCanonicalIdentity(): void {
 
 function verifyReleaseWorkflowSafety(): void {
   const workflow = readFileSync(resolve(repoRoot, ".github/workflows/release.yml"), "utf8");
+  const ciWorkflow = readFileSync(resolve(repoRoot, ".github/workflows/ci.yml"), "utf8");
+  const publisher = readFileSync(resolve(repoRoot, "scripts/penkra-publish.mjs"), "utf8");
+  const localRelease = readFileSync(resolve(repoRoot, "scripts/penkra-release-local.mjs"), "utf8");
+  const release = JSON.parse(
+    readFileSync(resolve(repoRoot, "scripts/penkra-release.json"), "utf8"),
+  ) as {
+    version: string;
+    backendRepository: string;
+    backendRef: string;
+    platform: string;
+    arch: string;
+  };
+  const notes = readFileSync(resolve(repoRoot, `docs/releases/${release.version}.md`), "utf8");
+
+  if (!/^\d+\.\d+\.\d+$/.test(release.version)) throw new Error("Invalid Penkra release version.");
+  if (release.backendRepository !== "penkrahq/backend") {
+    throw new Error("Expected the Penkra backend repository.");
+  }
+  if (!/^[0-9a-f]{7,40}$/.test(release.backendRef)) {
+    throw new Error("Expected an exact backend revision.");
+  }
+  if (release.platform !== "mac" || release.arch !== "arm64") {
+    throw new Error("Expected the production release to be macOS arm64 only.");
+  }
+  assertContains(notes, `Penkra ${release.version}`, "Expected versioned Penkra release notes.");
+  assertNotContains(ciWorkflow, "push:", "CI must not run on pushes.");
+  assertNotContains(ciWorkflow, "pull_request:", "CI must not run on pull requests.");
+  assertNotContains(workflow, "push:", "Desktop releases must not run on pushes or tags.");
   assertContains(
     workflow,
     "workflow_dispatch:\n    inputs:\n      publish:",
@@ -164,12 +192,24 @@ function verifyReleaseWorkflowSafety(): void {
     "bun run release:publish:s3 -- release",
     "Expected explicit publication to use Penkra's private S3 publisher.",
   );
+  assertContains(localRelease, "PENKRA_CLI_BINARY", "Expected the local release to pin the CLI.");
+  assertContains(
+    localRelease,
+    "scripts/penkra-publish.mjs",
+    "Expected the local release to use the private S3 publisher.",
+  );
+  assertContains(publisher, "isStrictlyNewer", "Expected monotonic release publication.");
+  assertContains(publisher, ".zip.blockmap", "Expected differential blockmap publication.");
+  if (publisher.indexOf("const manifestUpload") <= publisher.indexOf("for (const file")) {
+    throw new Error("Versioned artifacts must upload before latest-mac.yml.");
+  }
   assertNotContains(workflow, "windows-", "The production release must not retain a Windows lane.");
   assertNotContains(workflow, "ubuntu-", "The production release must not retain a Linux lane.");
 }
 
 function verifyDesktopStageLockAuthority(): void {
   const buildScript = readFileSync(resolve(repoRoot, "scripts/build-desktop-artifact.ts"), "utf8");
+  const desktopMain = readFileSync(resolve(repoRoot, "apps/desktop/src/main.ts"), "utf8");
   const gitAttributes = readFileSync(resolve(repoRoot, ".gitattributes"), "utf8");
   assertContains(
     gitAttributes,
@@ -225,6 +265,31 @@ function verifyDesktopStageLockAuthority(): void {
     buildScript,
     "electron-builder.cmd",
     "Desktop packaging must not depend on a Windows bin shim that Bun may hoist elsewhere.",
+  );
+  assertContains(
+    buildScript,
+    '"https://api.penkra.com/updates/mac"',
+    "Expected the packaged app to use Penkra's private update feed.",
+  );
+  assertContains(
+    buildScript,
+    "useMultipleRangeRequest: false",
+    "Expected ordinary byte ranges through the authenticated S3 redirect.",
+  );
+  assertContains(
+    buildScript,
+    'extraResources: [{ from: "penkra-cli", to: "penkra-cli" }]',
+    "Expected the pinned Penkra CLI in the packaged app.",
+  );
+  assertContains(
+    buildScript,
+    "resolveUnusedClaudePlatformPackageName",
+    "Expected the unused Claude platform binary to be removed.",
+  );
+  assertContains(
+    desktopMain,
+    "autoUpdater.disableDifferentialDownload = isArm64HostRunningIntelBuild(desktopRuntimeInfo);",
+    "Expected native arm64 macOS updates to keep differential downloads enabled.",
   );
   assertContains(
     buildScript,

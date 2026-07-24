@@ -2594,12 +2594,10 @@ function configureAutoUpdater(): void {
   autoUpdater.channel = SYNARA_DESKTOP_UPDATE_CHANNEL;
   autoUpdater.allowPrerelease = DESKTOP_UPDATE_ALLOW_PRERELEASE;
   autoUpdater.allowDowngrade = false;
-  // Match electron-updater's native GitHub provider path; the packaged
-  // app-update.yml owns the production feed, and generic feeds stay mock-only.
-  // macOS release builds repack and validate the Squirrel update zip, then omit
-  // the stale zip blockmap so ShipIt always installs the exact signed payload.
-  autoUpdater.disableDifferentialDownload =
-    process.platform === "darwin" || isArm64HostRunningIntelBuild(desktopRuntimeInfo);
+  // Native-architecture releases publish a blockmap regenerated from the final,
+  // verified Squirrel ZIP. Only an Intel build switching to arm64 under Rosetta
+  // must bypass differential reuse of the old architecture's archive.
+  autoUpdater.disableDifferentialDownload = isArm64HostRunningIntelBuild(desktopRuntimeInfo);
   // electron-updater has no working idle timeout on macOS (its socket timeout is
   // wired to a `socket` event Electron's net.request never emits) and never
   // resumes from a byte offset, so a stalled CDN transfer hangs for minutes
