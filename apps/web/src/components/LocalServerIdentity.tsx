@@ -32,7 +32,7 @@ interface LocalServerIdentityToneTokens {
 const IDENTITY_TONE: Record<LocalServerIdentityTone, LocalServerIdentityToneTokens> = {
   menu: {
     primary:
-      "text-[length:var(--app-font-size-ui,12px)] font-medium text-[var(--color-text-foreground)]",
+      "text-[length:var(--app-font-size-ui,12px)] font-normal text-[var(--color-text-foreground)]",
     meta: "text-[length:var(--app-font-size-ui-xs,10px)] text-muted-foreground/65",
     address: "tabular-nums",
     separator: "text-muted-foreground/30",
@@ -50,7 +50,7 @@ const IDENTITY_TONE: Record<LocalServerIdentityTone, LocalServerIdentityToneToke
 /**
  * Name + "address · folder" identity column for a detected local dev server.
  * The folder (cwd basename) disambiguates servers whose live page titles collide
- * — e.g. two apps both titled "Synara" started from different directories.
+ * — e.g. two apps both titled "Penkra" started from different directories.
  */
 export function LocalServerIdentity({
   server,

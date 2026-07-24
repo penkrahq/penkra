@@ -18,8 +18,6 @@ import {
   TextGeneration,
 } from "../Services/TextGeneration.ts";
 import {
-  buildAutomationIntentPrompt,
-  buildAutomationCompletionEvaluationPrompt,
   buildBranchNamePrompt,
   buildCommitMessagePrompt,
   buildDiffSummaryPrompt,
@@ -382,53 +380,6 @@ const makeCursorTextGeneration = Effect.gen(function* () {
     };
   });
 
-  const generateAutomationIntent: TextGenerationShape["generateAutomationIntent"] = Effect.fn(
-    "CursorTextGeneration.generateAutomationIntent",
-  )(function* (input) {
-    const modelSelection = resolveCursorModelSelection(input);
-    if (!modelSelection) {
-      return yield* new TextGenerationError({
-        operation: "generateAutomationIntent",
-        detail: "Invalid Cursor model selection.",
-      });
-    }
-
-    const { prompt, outputSchemaJson } = buildAutomationIntentPrompt({
-      message: input.message,
-      ...(input.defaultMode ? { defaultMode: input.defaultMode } : {}),
-      nowIso: input.nowIso,
-    });
-    return yield* runCursorJson({
-      operation: "generateAutomationIntent",
-      cwd: input.cwd,
-      prompt,
-      outputSchemaJson,
-      modelSelection,
-      ...(input.providerOptions ? { providerOptions: input.providerOptions } : {}),
-    });
-  });
-
-  const evaluateAutomationCompletion: TextGenerationShape["evaluateAutomationCompletion"] =
-    Effect.fn("CursorTextGeneration.evaluateAutomationCompletion")(function* (input) {
-      const modelSelection = resolveCursorModelSelection(input);
-      if (!modelSelection) {
-        return yield* new TextGenerationError({
-          operation: "evaluateAutomationCompletion",
-          detail: "Invalid Cursor model selection.",
-        });
-      }
-
-      const { prompt, outputSchemaJson } = buildAutomationCompletionEvaluationPrompt(input);
-      return yield* runCursorJson({
-        operation: "evaluateAutomationCompletion",
-        cwd: input.cwd,
-        prompt,
-        outputSchemaJson,
-        modelSelection,
-        ...(input.providerOptions ? { providerOptions: input.providerOptions } : {}),
-      });
-    });
-
   return {
     generateCommitMessage,
     generatePrContent,
@@ -436,8 +387,6 @@ const makeCursorTextGeneration = Effect.gen(function* () {
     generateBranchName,
     generateThreadTitle,
     generateThreadRecap,
-    generateAutomationIntent,
-    evaluateAutomationCompletion,
   } satisfies TextGenerationShape;
 });
 

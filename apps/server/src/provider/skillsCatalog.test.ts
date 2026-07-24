@@ -69,13 +69,13 @@ disable-model-invocation: true
 });
 
 describe("discoverSkillsCatalog", () => {
-  it("creates the Synara skills folder on first discovery", async () => {
+  it("creates the Penkra skills folder on first discovery", async () => {
     await discoverSkillsCatalog({ homeDir, synaraBaseDir });
     await expect(access(path.join(synaraBaseDir, "skills"))).resolves.toBeUndefined();
   });
 
   it("aggregates skills from synara and provider home folders with origin scopes", async () => {
-    await writeSkill(path.join(synaraBaseDir, "skills", "portable"), "portable", "Synara skill");
+    await writeSkill(path.join(synaraBaseDir, "skills", "portable"), "portable", "Penkra skill");
     await writeSkill(path.join(homeDir, ".codex", "skills", "codex-only"), "codex-only", "Codex");
     await writeSkill(
       path.join(homeDir, ".claude", "skills", "claude-only"),
@@ -143,8 +143,8 @@ describe("discoverSkillsCatalog", () => {
     expect(settingsCatalog.map((skill) => skill.scope).sort()).toEqual(["claude", "codex"]);
   });
 
-  it("prefers the provider-native copy and falls back to Synara for that provider", async () => {
-    await writeSkill(path.join(synaraBaseDir, "skills", "shared"), "shared", "Synara copy");
+  it("prefers the provider-native copy and falls back to Penkra for that provider", async () => {
+    await writeSkill(path.join(synaraBaseDir, "skills", "shared"), "shared", "Penkra copy");
     await writeSkill(path.join(homeDir, ".codex", "skills", "shared"), "shared", "Codex copy");
     await writeSkill(path.join(synaraBaseDir, "skills", "only-synara"), "only-synara", "Fallback");
 
@@ -154,7 +154,7 @@ describe("discoverSkillsCatalog", () => {
     expect(codexShared?.path).toContain(path.join(".codex", "skills"));
     expect(codexView.some((skill) => skill.name === "only-synara")).toBe(true);
 
-    // A provider without its own copy resolves the Synara fallback.
+    // A provider without its own copy resolves the Penkra fallback.
     const claudeView = await discoverSkillsCatalog({
       homeDir,
       synaraBaseDir,
@@ -164,8 +164,8 @@ describe("discoverSkillsCatalog", () => {
     expect(claudeShared?.scope).toBe("synara");
   });
 
-  it("uses documented provider alias roots before Synara fallbacks", async () => {
-    await writeSkill(path.join(synaraBaseDir, "skills", "shared"), "shared", "Synara copy");
+  it("uses documented provider alias roots before Penkra fallbacks", async () => {
+    await writeSkill(path.join(synaraBaseDir, "skills", "shared"), "shared", "Penkra copy");
     await writeSkill(path.join(homeDir, ".agents", "skills", "shared"), "shared", "Agents alias");
     const antigravityView = await discoverSkillsCatalog({
       homeDir,
@@ -177,7 +177,7 @@ describe("discoverSkillsCatalog", () => {
   });
 
   it("uses provider-native roots before shared aliases for Grok and Pi", async () => {
-    await writeSkill(path.join(synaraBaseDir, "skills", "shared"), "shared", "Synara copy");
+    await writeSkill(path.join(synaraBaseDir, "skills", "shared"), "shared", "Penkra copy");
     await writeSkill(path.join(homeDir, ".agents", "skills", "shared"), "shared", "Agents alias");
     await writeSkill(path.join(homeDir, ".grok", "skills", "shared"), "shared", "Grok copy");
     await writeSkill(path.join(homeDir, ".pi", "agent", "skills", "shared"), "shared", "Pi copy");
@@ -253,7 +253,7 @@ description: Direct Pi markdown skill
     const cwd = path.join(homeDir, "projects", "app");
     await mkdir(cwd, { recursive: true });
     await writeSkill(path.join(homeDir, ".codex", "skills", "from-codex"), "from-codex", "Codex");
-    await writeSkill(path.join(synaraBaseDir, "skills", "portable"), "portable", "Synara");
+    await writeSkill(path.join(synaraBaseDir, "skills", "portable"), "portable", "Penkra");
 
     const skills = await discoverSkillsCatalog({ cwd, homeDir, synaraBaseDir });
 

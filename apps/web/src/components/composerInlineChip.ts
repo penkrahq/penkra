@@ -16,7 +16,7 @@ import {
 // ── Shared spacing ────────────────────────────────────────────────────
 // One gap token for block sides (vs plain text) and icon→label inside the block.
 export const COMPOSER_INLINE_CHIP_SIDE_GAP_CLASS_NAME = "mx-0.5";
-export const COMPOSER_INLINE_CHIP_ICON_LABEL_GAP_CLASS_NAME = "mr-0.5";
+export const COMPOSER_INLINE_CHIP_ICON_LABEL_GAP_CLASS_NAME = "mr-1";
 
 // ── Shared base ───────────────────────────────────────────────────────
 // Plain inline flow (not inline-flex) so parsed tokens share the same line box /
@@ -158,9 +158,6 @@ export const COMPOSER_INLINE_CHIP_ICON_CLASS_NAME = "size-3.5 shrink-0 opacity-8
 
 export const COMPOSER_ATTACHMENT_CHIP_CLASS_NAME =
   "inline-flex min-w-0 max-w-full items-center gap-0.5 rounded-full border border-[color:var(--color-border)] bg-[var(--composer-surface)] p-px text-[11px] font-medium text-[var(--color-text-foreground)]";
-
-export const COMPOSER_INLINE_CHIP_DISMISS_BUTTON_CLASS_NAME =
-  "ml-0.5 inline-flex size-3.5 shrink-0 cursor-pointer items-center justify-center rounded-sm text-muted-foreground/72 transition-colors hover:bg-foreground/6 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
 
 // ── Skill helpers ─────────────────────────────────────────────────────
 /** Central icon basename shared by every skill token (editor + timeline). */

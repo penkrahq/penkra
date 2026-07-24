@@ -13,11 +13,66 @@ const layer = it.layer(
 );
 
 layer("OrchestrationEventStore", (it) => {
+  it.effect("reads stable newest-first pages from one thread stream", () =>
+    Effect.gen(function* () {
+      const eventStore = yield* OrchestrationEventStore;
+      const now = "2026-07-20T12:00:00.000Z";
+      const threadId = ThreadId.makeUnsafe("thread-diagnostic-page");
+      const first = yield* eventStore.append({
+        type: "thread.archived",
+        eventId: EventId.makeUnsafe("evt-thread-diagnostic-first"),
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt: now,
+        commandId: null,
+        causationEventId: null,
+        correlationId: null,
+        metadata: {},
+        payload: { threadId, archivedAt: now, updatedAt: now },
+      });
+      const second = yield* eventStore.append({
+        type: "thread.unarchived",
+        eventId: EventId.makeUnsafe("evt-thread-diagnostic-second"),
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt: now,
+        commandId: null,
+        causationEventId: null,
+        correlationId: null,
+        metadata: {},
+        payload: { threadId, updatedAt: now },
+      });
+
+      assert.equal(yield* eventStore.getThreadHighWaterSequence(threadId), second.sequence);
+      const latest = yield* eventStore.readThreadEvents({
+        threadId,
+        throughSequenceInclusive: second.sequence,
+        limit: 1,
+      });
+      assert.deepEqual(
+        latest.map((event) => event.sequence),
+        [second.sequence],
+      );
+      const older = yield* eventStore.readThreadEvents({
+        threadId,
+        throughSequenceInclusive: second.sequence,
+        beforeSequenceExclusive: second.sequence,
+        limit: 10,
+        eventTypes: ["thread.archived"],
+      });
+      assert.deepEqual(
+        older.map((event) => event.sequence),
+        [first.sequence],
+      );
+    }),
+  );
+
   it.effect("stores json columns as strings and replays decoded events", () =>
     Effect.gen(function* () {
       const eventStore = yield* OrchestrationEventStore;
       const sql = yield* SqlClient.SqlClient;
       const now = new Date().toISOString();
+      const startSequence = yield* eventStore.getHighWaterSequence();
 
       const appended = yield* eventStore.append({
         type: "project.created",
@@ -55,17 +110,18 @@ layer("OrchestrationEventStore", (it) => {
       assert.equal(storedRows.length, 1);
       assert.equal(typeof storedRows[0]?.payloadJson, "string");
       assert.equal(typeof storedRows[0]?.metadataJson, "string");
+      assert.equal(JSON.parse(storedRows[0]!.metadataJson).persistedEventSchemaVersion, 1);
 
-      const replayed = yield* Stream.runCollect(eventStore.readFromSequence(0, 10)).pipe(
-        Effect.map((chunk) => Array.from(chunk)),
-      );
+      const replayed = yield* Stream.runCollect(
+        eventStore.readFromSequence(startSequence, 10),
+      ).pipe(Effect.map((chunk) => Array.from(chunk)));
       assert.equal(replayed.length, 1);
       assert.equal(replayed[0]?.type, "project.created");
       assert.equal(replayed[0]?.metadata.adapterKey, "codex");
     }),
   );
 
-  it.effect("normalizes imported Synara model-selection shapes during replay", () =>
+  it.effect("normalizes imported Penkra model-selection shapes during replay", () =>
     Effect.gen(function* () {
       const eventStore = yield* OrchestrationEventStore;
       const sql = yield* SqlClient.SqlClient;
@@ -221,6 +277,7 @@ layer("OrchestrationEventStore", (it) => {
       const eventStore = yield* OrchestrationEventStore;
       const sql = yield* SqlClient.SqlClient;
       const now = new Date().toISOString();
+      const startSequence = yield* eventStore.getHighWaterSequence();
 
       yield* sql`
         INSERT INTO orchestration_events (
@@ -254,15 +311,75 @@ layer("OrchestrationEventStore", (it) => {
       `;
 
       const replayResult = yield* Effect.result(
-        Stream.runCollect(eventStore.readFromSequence(0, 10)),
+        Stream.runCollect(eventStore.readFromSequence(startSequence, 10)),
       );
       assert.equal(replayResult._tag, "Failure");
       if (replayResult._tag === "Failure") {
         assert.ok(Schema.is(PersistenceDecodeError)(replayResult.failure));
+        assert.match(
+          replayResult.failure.operation,
+          /OrchestrationEventStore\.readFromSequence:rowToEvent\(sequence=\d+, type=project\.created\)/,
+        );
+      }
+    }),
+  );
+
+  it.effect("rejects future event schema versions with exact row diagnostics", () =>
+    Effect.gen(function* () {
+      const eventStore = yield* OrchestrationEventStore;
+      const sql = yield* SqlClient.SqlClient;
+      const now = new Date().toISOString();
+      const startSequence = yield* eventStore.getHighWaterSequence();
+
+      yield* sql`
+        INSERT INTO orchestration_events (
+          event_id,
+          aggregate_kind,
+          stream_id,
+          stream_version,
+          event_type,
+          occurred_at,
+          command_id,
+          causation_event_id,
+          correlation_id,
+          actor_kind,
+          payload_json,
+          metadata_json
+        )
+        VALUES (
+          ${EventId.makeUnsafe("evt-store-future-schema")},
+          ${"project"},
+          ${ProjectId.makeUnsafe("project-future-schema")},
+          ${0},
+          ${"project.created"},
+          ${now},
+          ${CommandId.makeUnsafe("cmd-store-future-schema")},
+          ${null},
+          ${null},
+          ${"server"},
+          ${JSON.stringify({
+            projectId: "project-future-schema",
+            title: "Future schema",
+            workspaceRoot: "/tmp/project-future-schema",
+            defaultModelSelection: null,
+            scripts: [],
+            createdAt: now,
+            updatedAt: now,
+          })},
+          ${JSON.stringify({ persistedEventSchemaVersion: 2 })}
+        )
+      `;
+
+      const replayResult = yield* Effect.result(
+        Stream.runCollect(eventStore.readFromSequence(startSequence, 10)),
+      );
+      assert.equal(replayResult._tag, "Failure");
+      if (replayResult._tag === "Failure") {
+        assert.ok(Schema.is(PersistenceDecodeError)(replayResult.failure));
+        assert.match(replayResult.failure.operation, /sequence=\d+, type=project\.created/);
         assert.ok(
-          replayResult.failure.operation.includes(
-            "OrchestrationEventStore.readFromSequence:decodeRows",
-          ),
+          replayResult.failure.issue.includes("Unsupported persisted event schema version 2"),
+          replayResult.failure.issue,
         );
       }
     }),

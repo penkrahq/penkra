@@ -140,7 +140,7 @@ const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
 const THEME_SHARE_PREFIX = "codex-theme-v1:";
 const CONTRAST_CURVE_BELOW_BASELINE = 0.7;
 const CONTRAST_CURVE_ABOVE_BASELINE = 2;
-// Keep Codex's original curve anchors even though Synara presets start at zero.
+// Keep Codex's original curve anchors even though Penkra presets start at zero.
 // This makes the new default render exactly like manually moving the old slider to zero.
 const CONTRAST_CURVE_BASELINE: Record<ThemeVariant, number> = {
   dark: 60,
@@ -286,10 +286,6 @@ export function isThemeMode(value: unknown): value is ThemeMode {
 
 export function isThemeVariant(value: unknown): value is ThemeVariant {
   return value === "light" || value === "dark";
-}
-
-export function getThemeSharePrefix(): string {
-  return THEME_SHARE_PREFIX;
 }
 
 export function getAvailableCodeThemes(variant: ThemeVariant): readonly CodeThemeOption[] {
@@ -711,7 +707,6 @@ export function buildThemeCssVariables(
   // --app-shell-background / --background). Sourcing the sidebar from the primary
   // surface keeps its pure color matching Codex in both light and dark.
   const sidebarSurface = readCodexVariable("--color-background-surface");
-  const sidebarRaisedSurface = readCodexVariable("--color-background-elevated-primary");
   const settingsSurface = readCodexVariable("--color-background-surface");
   const composerSurface =
     variant === "dark"

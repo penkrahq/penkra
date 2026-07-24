@@ -2,21 +2,24 @@
 import "../index.css";
 
 import {
-  AutomationId,
-  type AutomationCreateInput,
-  type AutomationDefinition,
+  CheckpointRef,
   EventId,
   MessageId,
   ORCHESTRATION_WS_METHODS,
   type OrchestrationReadModel,
   type ProjectId,
   type ServerConfig,
+  SpaceId,
   ThreadId,
   TurnId,
   type WsWelcomePayload,
   WS_METHODS,
   OrchestrationSessionStatus,
 } from "@synara/contracts";
+import {
+  ATTACHMENT_CANCEL_ROUTE_PATH,
+  ATTACHMENT_UPLOAD_ROUTE_PATH,
+} from "@synara/shared/binaryTransfer";
 import { RouterProvider, createMemoryHistory } from "@tanstack/react-router";
 import { HttpResponse, http, ws } from "msw";
 import { setupWorker } from "msw/browser";
@@ -29,6 +32,7 @@ import {
   AUTO_SCROLL_BOTTOM_THRESHOLD_PX,
   getScrollContainerDistanceFromBottom,
 } from "../chat-scroll";
+import { useLatestProjectStore } from "../latestProjectStore";
 import {
   INLINE_TERMINAL_CONTEXT_PLACEHOLDER,
   type TerminalContextDraft,
@@ -40,6 +44,7 @@ import { resetHomeChatProjectPrewarmStateForTests } from "../lib/chatProjects";
 import { resetStudioProjectPrewarmStateForTests } from "../lib/studioProjects";
 import { getRouter } from "../router";
 import { useSplitViewStore } from "../splitViewStore";
+import { useSpacesUiStore } from "../spacesUiStore";
 import { useStore } from "../store";
 import {
   createShellSnapshotFromReadModel,
@@ -48,10 +53,14 @@ import {
   sendEffectRpcChunk,
   sendEffectRpcExit,
 } from "../test/effectRpcWebSocketMock";
+import { createBrowserTestServerConfig, createFullscreenTestHost } from "../test/browserHarness";
 import { useTemporaryThreadStore } from "../temporaryThreadStore";
 import { useTerminalStateStore } from "../terminalStateStore";
 import { resetRetainedThreadDetailSubscriptionsForTests } from "../threadDetailSubscriptionRetention";
 import { resetWsNativeApiForTest } from "../wsNativeApi";
+// Pre-transform the compiler-heavy component outside the first case's timeout.
+// The router's auto-split route otherwise requests this module on first mount.
+import "./ChatView";
 import { estimateTimelineMessageHeight } from "./timelineHeight";
 
 const THREAD_ID = "thread-browser-test" as ThreadId;
@@ -67,6 +76,7 @@ const NOW_ISO = "2026-03-04T12:00:00.000Z";
 const BASE_TIME_MS = Date.parse(NOW_ISO);
 const ATTACHMENT_SVG = "<svg xmlns='http://www.w3.org/2000/svg' width='120' height='300'></svg>";
 let attachmentResponseDelayMs = 0;
+let attachmentUploadSequence = 0;
 
 interface WsRequestEnvelope {
   id: string;
@@ -142,23 +152,7 @@ function isoAt(offsetSeconds: number): string {
 }
 
 function createBaseServerConfig(): ServerConfig {
-  return {
-    cwd: "/repo/project",
-    worktreesDir: "/repo/.codex/worktrees",
-    keybindingsConfigPath: "/repo/project/.synara-keybindings.json",
-    keybindings: [],
-    issues: [],
-    providers: [
-      {
-        provider: "codex",
-        status: "ready",
-        available: true,
-        authStatus: "authenticated",
-        checkedAt: NOW_ISO,
-      },
-    ],
-    availableEditors: [],
-  };
+  return createBrowserTestServerConfig(NOW_ISO);
 }
 
 function createUserMessage(options: {
@@ -247,13 +241,12 @@ function createSnapshotForTargetUser(options: {
   targetMessageId: MessageId;
   targetText: string;
   targetAttachmentCount?: number;
-  targetMessageIndex?: number;
   sessionStatus?: OrchestrationSessionStatus;
 }): OrchestrationReadModel {
   const messages: Array<OrchestrationReadModel["threads"][number]["messages"][number]> = [];
 
   for (let index = 0; index < 22; index += 1) {
-    const isTarget = index === (options.targetMessageIndex ?? 3);
+    const isTarget = index === 3;
     const userId = `msg-user-${index}` as MessageId;
     const assistantId = `msg-assistant-${index}` as MessageId;
     const attachments =
@@ -286,6 +279,7 @@ function createSnapshotForTargetUser(options: {
 
   return {
     snapshotSequence: 1,
+    spaces: [],
     projects: [
       {
         id: PROJECT_ID,
@@ -443,16 +437,6 @@ function buildFixture(snapshot: OrchestrationReadModel): TestFixture {
   };
 }
 
-function getThreadDetailFromFixtureSnapshot(
-  threadId: ThreadId,
-): OrchestrationReadModel["threads"][number] {
-  const thread = fixture.snapshot.threads.find((entry) => entry.id === threadId);
-  if (!thread) {
-    throw new Error(`Missing thread fixture for ${threadId}`);
-  }
-  return thread;
-}
-
 function findThreadDetailFromFixtureSnapshot(
   threadId: ThreadId,
 ): OrchestrationReadModel["threads"][number] | null {
@@ -502,45 +486,6 @@ function addThreadToSnapshot(
       },
     ],
   };
-}
-
-function createAutomationDefinitionFromCreateRequest(
-  body: WsRequestEnvelope["body"],
-): AutomationDefinition {
-  const input = body as unknown as AutomationCreateInput;
-  const definition: AutomationDefinition = {
-    id: AutomationId.makeUnsafe(`automation-${wsRequests.length}`),
-    projectId: input.projectId,
-    sourceThreadId: input.sourceThreadId ?? null,
-    name: input.name,
-    prompt: input.prompt,
-    schedule: input.schedule,
-    enabled: input.enabled ?? true,
-    nextRunAt: null,
-    modelSelection: input.modelSelection,
-    runtimeMode: input.runtimeMode ?? "approval-required",
-    interactionMode: input.interactionMode ?? "default",
-    worktreeMode: input.worktreeMode ?? "auto",
-    mode: input.mode ?? "standalone",
-    targetThreadId: input.targetThreadId ?? null,
-    maxIterations: input.maxIterations ?? null,
-    stopOnError: input.stopOnError ?? true,
-    completionPolicy: input.completionPolicy ?? { type: "none" },
-    completionPolicyVersion: 1,
-    completionPolicyUpdatedAt: NOW_ISO,
-    minimumIntervalSeconds: input.minimumIntervalSeconds ?? 60,
-    maxRuntimeSeconds: input.maxRuntimeSeconds ?? 3_600,
-    retryPolicy: input.retryPolicy ?? { type: "none" },
-    misfirePolicy: input.misfirePolicy ?? "coalesce",
-    acknowledgedRisks: input.acknowledgedRisks ?? [],
-    iterationCount: 0,
-    createdAt: NOW_ISO,
-    updatedAt: NOW_ISO,
-    archivedAt: null,
-  };
-  return input.providerOptions === undefined
-    ? definition
-    : { ...definition, providerOptions: input.providerOptions };
 }
 
 function createDraftOnlySnapshot(): OrchestrationReadModel {
@@ -600,6 +545,16 @@ function withHomeChatProject(snapshot: OrchestrationReadModel): OrchestrationRea
   };
 }
 
+function withActiveHomeChatThread(snapshot: OrchestrationReadModel): OrchestrationReadModel {
+  const snapshotWithHomeProject = withHomeChatProject(snapshot);
+  return {
+    ...snapshotWithHomeProject,
+    threads: snapshotWithHomeProject.threads.map((thread) =>
+      thread.id === THREAD_ID ? { ...thread, projectId: HOME_PROJECT_ID } : thread,
+    ),
+  };
+}
+
 function withStudioProject(snapshot: OrchestrationReadModel): OrchestrationReadModel {
   return {
     ...snapshot,
@@ -609,7 +564,7 @@ function withStudioProject(snapshot: OrchestrationReadModel): OrchestrationReadM
         id: STUDIO_PROJECT_ID,
         kind: "studio",
         title: "Studio",
-        workspaceRoot: "/Users/tester/Documents/Synara/Studio",
+        workspaceRoot: "/Users/tester/Documents/Penkra/Studio",
         defaultModelSelection: {
           provider: "codex",
           model: "gpt-5",
@@ -761,6 +716,46 @@ function createSnapshotWithActiveInlinePlan(): OrchestrationReadModel {
                 }
               : null,
             updatedAt: isoAt(1_003),
+          }
+        : thread,
+    ),
+  };
+}
+
+function createSnapshotWithTallComposerStack(): OrchestrationReadModel {
+  const snapshot = createSnapshotWithActiveInlinePlan();
+  const activeTurnId = TurnId.makeUnsafe("turn-inline-plan");
+
+  return {
+    ...snapshot,
+    threads: snapshot.threads.map((thread) =>
+      thread.id === THREAD_ID
+        ? {
+            ...thread,
+            checkpoints: [
+              {
+                turnId: activeTurnId,
+                checkpointTurnCount: 1,
+                checkpointRef: CheckpointRef.makeUnsafe("checkpoint-inline-plan"),
+                status: "ready",
+                files: [
+                  {
+                    path: "apps/web/src/components/ChatView.tsx",
+                    kind: "modified",
+                    additions: 12,
+                    deletions: 4,
+                  },
+                  {
+                    path: "apps/web/src/components/ChatView.browser.tsx",
+                    kind: "modified",
+                    additions: 36,
+                    deletions: 0,
+                  },
+                ],
+                assistantMessageId: null,
+                completedAt: isoAt(1_004),
+              },
+            ],
           }
         : thread,
     ),
@@ -1015,17 +1010,11 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
     }
     return { sequence: fixture.snapshot.snapshotSequence + 1 };
   }
-  if (tag === WS_METHODS.automationCreate) {
-    return createAutomationDefinitionFromCreateRequest(body);
-  }
   if (tag === WS_METHODS.serverGetConfig) {
     return fixture.serverConfig;
   }
   if (tag === WS_METHODS.projectsListDevServers) {
     return { servers: [] };
-  }
-  if (tag === WS_METHODS.automationList) {
-    return { definitions: [], runs: [] };
   }
   if (tag === WS_METHODS.gitListBranches) {
     const cwd = typeof body.cwd === "string" ? body.cwd : null;
@@ -1074,6 +1063,15 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
       },
     };
   }
+  if (tag === WS_METHODS.gitCreateDetachedWorktree) {
+    return {
+      worktree: {
+        path: "/repo/.codex/worktrees/generated/synara",
+        ref: "0123456789abcdef0123456789abcdef01234567",
+        branch: null,
+      },
+    };
+  }
   if (tag === WS_METHODS.projectsSearchEntries) {
     return {
       entries: [],
@@ -1112,14 +1110,16 @@ function installDeterministicSendNativeApi(): () => void {
       ...wsNativeApi,
       git: {
         ...wsNativeApi.git,
-        createWorktree: async (input: Parameters<typeof wsNativeApi.git.createWorktree>[0]) => {
+        createDetachedWorktree: async (
+          input: Parameters<typeof wsNativeApi.git.createDetachedWorktree>[0],
+        ) => {
           const request: WsRequestEnvelope["body"] = {
-            _tag: WS_METHODS.gitCreateWorktree,
+            _tag: WS_METHODS.gitCreateDetachedWorktree,
             ...input,
           };
           wsRequests.push(request);
           return resolveWsRpc(request) as Awaited<
-            ReturnType<typeof wsNativeApi.git.createWorktree>
+            ReturnType<typeof wsNativeApi.git.createDetachedWorktree>
           >;
         },
       },
@@ -1233,16 +1233,31 @@ const worker = setupWorker(
         method === WS_METHODS.subscribeServerSettings ||
         method === WS_METHODS.subscribeTerminalEvents ||
         method === WS_METHODS.subscribeOrchestrationDomainEvents ||
-        method === WS_METHODS.subscribeProjectDevServerEvents ||
-        method === WS_METHODS.subscribeProjectWorkspaceChanges ||
-        method === WS_METHODS.subscribeAutomationEvents ||
-        method === WS_METHODS.subscribePenkraSnapshots
+        method === WS_METHODS.subscribeProjectDevServerEvents
       ) {
         return;
       }
       sendEffectRpcExit(client, parsed.request.id, resolveWsRpc(requestBody));
     });
   }),
+  http.post(`*${ATTACHMENT_UPLOAD_ROUTE_PATH}`, async ({ request }) => {
+    const url = new URL(request.url);
+    const bytes = await request.arrayBuffer();
+    attachmentUploadSequence += 1;
+    return HttpResponse.json(
+      {
+        type: url.searchParams.get("type") ?? "file",
+        id: `att_v2_${String(attachmentUploadSequence).padStart(32, "0")}`,
+        name: url.searchParams.get("name") ?? "attachment.bin",
+        mimeType: url.searchParams.get("mimeType") ?? "application/octet-stream",
+        sizeBytes: bytes.byteLength,
+      },
+      { status: 201 },
+    );
+  }),
+  http.post(`*${ATTACHMENT_CANCEL_ROUTE_PATH}`, () =>
+    HttpResponse.json({ cancelled: true }, { status: 200 }),
+  ),
   http.get("*/attachments/:attachmentId", async () => {
     if (attachmentResponseDelayMs > 0) {
       await new Promise<void>((resolve) => {
@@ -1559,22 +1574,21 @@ async function measureUserRow(options: {
   let row: HTMLElement | null = null;
   await vi.waitFor(
     async () => {
-      row = host.querySelector<HTMLElement>(rowSelector);
-      if (!row) {
-        scrollContainer.scrollTop = 0;
-        scrollContainer.dispatchEvent(new Event("scroll"));
-      }
+      scrollContainer.scrollTop = 0;
+      scrollContainer.dispatchEvent(new Event("scroll"));
       await waitForLayout();
       row = host.querySelector<HTMLElement>(rowSelector);
       expect(row, "Unable to locate targeted user message row.").toBeTruthy();
     },
     {
-      timeout: 20_000,
+      timeout: 8_000,
       interval: 16,
     },
   );
 
   await waitForImagesToLoad(row!);
+  scrollContainer.scrollTop = 0;
+  scrollContainer.dispatchEvent(new Event("scroll"));
   await nextFrame();
 
   let timelineWidthMeasuredPx = 0;
@@ -1582,6 +1596,8 @@ async function measureUserRow(options: {
   let renderedInVirtualizedRegion = false;
   await vi.waitFor(
     async () => {
+      scrollContainer.scrollTop = 0;
+      scrollContainer.dispatchEvent(new Event("scroll"));
       await nextFrame();
       const measuredRow = host.querySelector<HTMLElement>(rowSelector);
       expect(measuredRow, "Unable to measure targeted user row height.").toBeTruthy();
@@ -1646,9 +1662,9 @@ async function waitForMountedChatReady(options: {
       if (!expectedThread) return;
       const state = useStore.getState();
       expect(state.threadIds?.includes(expectedThread.id)).toBe(true);
-      const hydratedMessageIds = state.messageIdsByThreadId?.[expectedThread.id] ?? [];
+      const hydratedMessageIdSet = new Set(state.messageIdsByThreadId?.[expectedThread.id] ?? []);
       expect(
-        expectedThread.messages.every((message) => hydratedMessageIds.includes(message.id)),
+        expectedThread.messages.every((message) => hydratedMessageIdSet.has(message.id)),
         "Active thread detail did not hydrate.",
       ).toBe(true);
     },
@@ -1668,16 +1684,10 @@ async function mountChatView(options: {
   await setViewport(options.viewport);
   await waitForProductionStyles();
 
-  const host = document.createElement("div");
-  host.style.position = "fixed";
-  host.style.inset = "0";
-  host.style.width = "100vw";
-  host.style.height = "100vh";
-  host.style.display = "grid";
-  host.style.overflow = "hidden";
-  document.body.append(host);
+  const host = createFullscreenTestHost();
 
   const initialEntry = options.initialEntry ?? `/${THREAD_ID}`;
+
   const router = getRouter(
     createMemoryHistory({
       initialEntries: [initialEntry],
@@ -1756,17 +1766,20 @@ describe("ChatView timeline estimator parity (full app)", () => {
   });
 
   afterAll(async () => {
+    await resetWsNativeApiForTest();
     await worker.stop();
   });
 
   beforeEach(async () => {
-    resetWsNativeApiForTest();
+    await resetWsNativeApiForTest();
     resetRetainedThreadDetailSubscriptionsForTests();
     await resetHomeChatProjectPrewarmStateForTests();
     await resetStudioProjectPrewarmStateForTests();
     await setViewport(DEFAULT_VIEWPORT);
     attachmentResponseDelayMs = 0;
+    attachmentUploadSequence = 0;
     localStorage.clear();
+    useLatestProjectStore.setState({ latestProjectId: null });
     document.body.innerHTML = "";
     wsRequests.length = 0;
     useComposerDraftStore.setState({
@@ -1778,7 +1791,18 @@ describe("ChatView timeline estimator parity (full app)", () => {
     });
     useStore.setState({
       projects: [],
-      threads: [],
+      threadIds: [],
+      threadShellById: {},
+      threadSessionById: {},
+      threadTurnStateById: {},
+      messageIdsByThreadId: {},
+      messageByThreadId: {},
+      activityIdsByThreadId: {},
+      activityByThreadId: {},
+      proposedPlanIdsByThreadId: {},
+      proposedPlanByThreadId: {},
+      turnDiffIdsByThreadId: {},
+      turnDiffSummaryByThreadId: {},
       sidebarThreadSummaryById: {},
       threadsHydrated: false,
     });
@@ -1798,12 +1822,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
     await resetHomeChatProjectPrewarmStateForTests();
     await resetStudioProjectPrewarmStateForTests();
     resetRetainedThreadDetailSubscriptionsForTests();
-    resetWsNativeApiForTest();
     document.body.innerHTML = "";
   });
 
   it.each(TEXT_VIEWPORT_MATRIX)(
-    "keeps long user message estimate close at the $name viewport",
+    "[geometry:linux] keeps long user message estimate close at the $name viewport",
     async (viewport) => {
       const userText = "x".repeat(3_200);
       const targetMessageId = `msg-user-target-long-${viewport.name}` as MessageId;
@@ -1835,7 +1858,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     },
   );
 
-  it("keeps collapsed height parity while resizing an existing ChatView", async () => {
+  it("[geometry:linux] tracks wrapping parity while resizing an existing ChatView across the viewport matrix", async () => {
     const userText = "x".repeat(3_200);
     const targetMessageId = "msg-user-target-resize" as MessageId;
     const mounted = await mountChatView({
@@ -1888,48 +1911,46 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("tracks additional rendered wrapping when ChatView width narrows between desktop and mobile viewports", async () => {
+  it("[geometry:linux] tracks additional rendered wrapping when ChatView width narrows between desktop and mobile viewports", async () => {
     // Short enough to remain below the 12-line collapse at both widths, while
     // still wrapping onto materially more lines on mobile.
     const userText = "x".repeat(320);
     const targetMessageId = "msg-user-target-wrap" as MessageId;
-    const mounted = await mountChatView({
+    const snapshot = createSnapshotForTargetUser({
+      targetMessageId,
+      targetText: userText,
+    });
+    const desktopMeasurement = await measureUserRowAtViewport({
       viewport: { ...TEXT_VIEWPORT_MATRIX[0], width: 1_400 },
-      snapshot: createSnapshotForTargetUser({
-        targetMessageId,
-        targetText: userText,
-        targetMessageIndex: 21,
-      }),
+      snapshot,
+      targetMessageId,
+    });
+    const mobileMeasurement = await measureUserRowAtViewport({
+      viewport: TEXT_VIEWPORT_MATRIX[2],
+      snapshot,
+      targetMessageId,
     });
 
-    try {
-      const desktopMeasurement = await mounted.measureUserRow(targetMessageId);
-      await mounted.setViewport(TEXT_VIEWPORT_MATRIX[2]);
-      const mobileMeasurement = await mounted.measureUserRow(targetMessageId);
+    const estimatedDesktopPx = estimateTimelineMessageHeight(
+      { role: "user", text: userText, attachments: [] },
+      { timelineWidthPx: desktopMeasurement.timelineWidthMeasuredPx },
+    );
+    const estimatedMobilePx = estimateTimelineMessageHeight(
+      { role: "user", text: userText, attachments: [] },
+      { timelineWidthPx: mobileMeasurement.timelineWidthMeasuredPx },
+    );
 
-      const estimatedDesktopPx = estimateTimelineMessageHeight(
-        { role: "user", text: userText, attachments: [] },
-        { timelineWidthPx: desktopMeasurement.timelineWidthMeasuredPx },
-      );
-      const estimatedMobilePx = estimateTimelineMessageHeight(
-        { role: "user", text: userText, attachments: [] },
-        { timelineWidthPx: mobileMeasurement.timelineWidthMeasuredPx },
-      );
-
-      const measuredDeltaPx =
-        mobileMeasurement.measuredRowHeightPx - desktopMeasurement.measuredRowHeightPx;
-      const estimatedDeltaPx = estimatedMobilePx - estimatedDesktopPx;
-      expect(measuredDeltaPx).toBeGreaterThan(0);
-      expect(estimatedDeltaPx).toBeGreaterThan(0);
-      const ratio = estimatedDeltaPx / measuredDeltaPx;
-      expect(ratio).toBeGreaterThan(0.65);
-      expect(ratio).toBeLessThan(1.35);
-    } finally {
-      await mounted.cleanup();
-    }
+    const measuredDeltaPx =
+      mobileMeasurement.measuredRowHeightPx - desktopMeasurement.measuredRowHeightPx;
+    const estimatedDeltaPx = estimatedMobilePx - estimatedDesktopPx;
+    expect(measuredDeltaPx).toBeGreaterThan(0);
+    expect(estimatedDeltaPx).toBeGreaterThan(0);
+    const ratio = estimatedDeltaPx / measuredDeltaPx;
+    expect(ratio).toBeGreaterThan(0.65);
+    expect(ratio).toBeLessThan(1.35);
   });
 
-  it("collapses header actions into overflow before they can overlap the thread title", async () => {
+  it("[geometry:linux] collapses header actions into overflow before they can overlap the thread title", async () => {
     const longTitle =
       'remove "ago" from the sidebar while the diff panel stays open on smaller viewports';
     const headerOverflowSnapshot = (() => {
@@ -2010,7 +2031,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("keeps the composer visible while a long assistant response forces a viewport relayout", async () => {
+  it("[geometry:linux] keeps the composer visible while a long assistant response forces a viewport relayout", async () => {
     const mounted = await mountChatView({
       viewport: TEXT_VIEWPORT_MATRIX[0],
       snapshot: createSnapshotWithLongAssistantResponse(),
@@ -2069,6 +2090,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
   });
 
   it("smoothly re-sticks to the bottom after sending an optimistic user message", async () => {
+    const restoreNativeApi = installDeterministicSendNativeApi();
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
       snapshot: createSnapshotForTargetUser({
@@ -2136,321 +2158,199 @@ describe("ChatView timeline estimator parity (full app)", () => {
         patchedScrollContainer.scrollTo = originalScrollTo;
       }
       await mounted.cleanup();
+      restoreNativeApi();
     }
   });
 
-  it("sends unmarked automation questions as normal chat messages", async () => {
+  it("auto-follows real transcript changes without re-sticking for non-message activity", async () => {
+    let currentSnapshot = createSnapshotForTargetUser({
+      targetMessageId: "msg-user-auto-follow-wiring" as MessageId,
+      targetText: "auto-follow wiring target",
+    });
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
-      snapshot: createSnapshotForTargetUser({
-        targetMessageId: "msg-user-automation-question" as MessageId,
-        targetText: "automation question target",
-      }),
+      snapshot: currentSnapshot,
     });
+    let patchedScrollContainer: HTMLElement | null = null;
+    let originalScrollTo: HTMLElement["scrollTo"] | null = null;
+
+    const syncActiveThread = (
+      update: (
+        thread: OrchestrationReadModel["threads"][number],
+      ) => OrchestrationReadModel["threads"][number],
+    ) => {
+      currentSnapshot = {
+        ...currentSnapshot,
+        snapshotSequence: currentSnapshot.snapshotSequence + 1,
+        threads: currentSnapshot.threads.map((thread) =>
+          thread.id === THREAD_ID ? update(thread) : thread,
+        ),
+        updatedAt: isoAt(currentSnapshot.snapshotSequence + 1_200),
+      };
+      fixture = { ...fixture, snapshot: currentSnapshot };
+      useStore.getState().syncServerReadModel(currentSnapshot);
+    };
 
     try {
-      const prompt = "how do automations work every day?";
-      useComposerDraftStore.getState().setPrompt(THREAD_ID, prompt);
-      const composerEditor = await waitForComposerEditor();
-      await vi.waitFor(
-        () => {
-          expect(composerEditor.textContent ?? "").toContain(prompt);
-        },
-        { timeout: 8_000, interval: 16 },
+      const scrollContainer = await waitForElement(
+        () => document.querySelector<HTMLElement>("[data-chat-scroll-container='true']"),
+        "Unable to find message scroll container.",
       );
-
-      wsRequests.length = 0;
-      const sendButton = await waitForSendButton();
-      expect(sendButton.disabled).toBe(false);
-      sendButton.click();
-
-      await vi.waitFor(
-        () => {
-          const turnStartRequest = wsRequests.find((request) => {
-            const command = readDispatchedCommand(request);
-            return command?.type === "thread.turn.start";
-          });
-          expect(turnStartRequest).toBeTruthy();
-        },
-        { timeout: 8_000, interval: 16 },
-      );
-
-      expect(wsRequests.some((request) => request._tag === WS_METHODS.automationCreate)).toBe(
-        false,
-      );
-    } finally {
-      await mounted.cleanup();
-    }
-  });
-
-  it("creates composer automations as heartbeat runs on the current chat", async () => {
-    const mounted = await mountChatView({
-      viewport: DEFAULT_VIEWPORT,
-      snapshot: createSnapshotForTargetUser({
-        targetMessageId: "msg-user-current-chat-automation" as MessageId,
-        targetText: "current chat automation target",
-      }),
-    });
-
-    try {
-      useComposerDraftStore
-        .getState()
-        .setPrompt(THREAD_ID, "/automation say hi every 15 seconds 3 times total");
-      const composerEditor = await waitForComposerEditor();
-      await vi.waitFor(
-        () => {
-          expect(composerEditor.textContent ?? "").toContain("say hi every 15 seconds");
-        },
-        { timeout: 8_000, interval: 16 },
-      );
-
-      wsRequests.length = 0;
-      const sendButton = await waitForSendButton();
-      expect(sendButton.disabled).toBe(false);
-      sendButton.click();
-
-      await vi.waitFor(
-        () => {
-          const automationCreateRequest = wsRequests.find(
-            (request) => request._tag === WS_METHODS.automationCreate,
-          );
-          expect(automationCreateRequest).toMatchObject({
-            _tag: WS_METHODS.automationCreate,
-            mode: "heartbeat",
-            targetThreadId: THREAD_ID,
-            sourceThreadId: THREAD_ID,
-            worktreeMode: "auto",
-            maxIterations: 3,
-            prompt: "say hi",
-            schedule: { type: "interval", everySeconds: 15 },
-          });
-        },
-        { timeout: 8_000, interval: 16 },
-      );
+      scrollContainer.scrollTop = scrollContainer.scrollHeight;
+      scrollContainer.dispatchEvent(new Event("scroll"));
       await waitForLayout();
 
-      expect(hasDispatchedCommandType("thread.create")).toBe(false);
-      expect(hasDispatchedCommandType("thread.turn.start")).toBe(false);
-      expect(wsRequests.some((request) => request._tag === WS_METHODS.gitCreateWorktree)).toBe(
-        false,
-      );
-    } finally {
-      await mounted.cleanup();
-    }
-  });
-
-  it("creates polite composer automation requests as heartbeat runs", async () => {
-    const mounted = await mountChatView({
-      viewport: DEFAULT_VIEWPORT,
-      snapshot: createSnapshotForTargetUser({
-        targetMessageId: "msg-user-polite-chat-automation" as MessageId,
-        targetText: "polite current chat automation target",
-      }),
-    });
-
-    try {
-      useComposerDraftStore
-        .getState()
-        .setPrompt(THREAD_ID, "could you say hi every 15 seconds for 3 times");
-      const composerEditor = await waitForComposerEditor();
-      await vi.waitFor(
-        () => {
-          expect(composerEditor.textContent ?? "").toContain("could you say hi");
-        },
-        { timeout: 8_000, interval: 16 },
-      );
-
-      wsRequests.length = 0;
-      const sendButton = await waitForSendButton();
-      expect(sendButton.disabled).toBe(false);
-      sendButton.click();
-
-      await vi.waitFor(
-        () => {
-          const automationCreateRequest = wsRequests.find(
-            (request) => request._tag === WS_METHODS.automationCreate,
-          );
-          expect(automationCreateRequest).toMatchObject({
-            _tag: WS_METHODS.automationCreate,
-            mode: "heartbeat",
-            targetThreadId: THREAD_ID,
-            sourceThreadId: THREAD_ID,
-            worktreeMode: "auto",
-            maxIterations: 3,
-            prompt: "say hi",
-            schedule: { type: "interval", everySeconds: 15 },
-          });
-        },
-        { timeout: 8_000, interval: 16 },
-      );
+      const scrollToCalls: ScrollToOptions[] = [];
+      patchedScrollContainer = scrollContainer;
+      originalScrollTo = scrollContainer.scrollTo;
+      scrollContainer.scrollTo = ((options?: ScrollToOptions | number, y?: number) => {
+        const normalized: ScrollToOptions =
+          typeof options === "object" && options !== null
+            ? options
+            : {
+                ...(typeof options === "number" ? { left: options } : {}),
+                ...(typeof y === "number" ? { top: y } : {}),
+              };
+        scrollToCalls.push(normalized);
+        if (typeof normalized.left === "number") scrollContainer.scrollLeft = normalized.left;
+        if (typeof normalized.top === "number") scrollContainer.scrollTop = normalized.top;
+        scrollContainer.dispatchEvent(new Event("scroll"));
+      }) as typeof scrollContainer.scrollTo;
+      // Let mount-time tail/image expansion retries (max 260ms) settle before
+      // isolating scrolls caused by the state transitions below.
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 300));
       await waitForLayout();
+      scrollToCalls.length = 0;
 
-      expect(hasDispatchedCommandType("thread.create")).toBe(false);
-      expect(hasDispatchedCommandType("thread.turn.start")).toBe(false);
-      expect(wsRequests.some((request) => request._tag === WS_METHODS.gitCreateWorktree)).toBe(
-        false,
-      );
-    } finally {
-      await mounted.cleanup();
-    }
-  });
+      // Buffering/connecting state changes generic turn chrome, but does not add a
+      // transcript message and therefore must not re-stick the transcript.
+      syncActiveThread((thread) => ({
+        ...thread,
+        session: thread.session
+          ? {
+              ...thread.session,
+              status: "starting",
+              updatedAt: isoAt(1_201),
+            }
+          : null,
+        updatedAt: isoAt(1_201),
+      }));
+      await waitForLayout();
+      expect(scrollToCalls).toHaveLength(0);
 
-  it("promotes draft chats before creating composer heartbeat automations", async () => {
-    useComposerDraftStore.setState({
-      draftThreadsByThreadId: {
-        [THREAD_ID]: {
-          projectId: PROJECT_ID,
-          createdAt: NOW_ISO,
-          runtimeMode: "full-access",
-          interactionMode: "default",
-          entryPoint: "chat",
-          branch: "feature/draft-automation",
-          worktreePath: "/repo/worktrees/draft-automation",
-          envMode: "worktree",
+      const activeTurnId = TurnId.makeUnsafe("turn-auto-follow-wiring");
+      syncActiveThread((thread) => ({
+        ...thread,
+        latestTurn: {
+          turnId: activeTurnId,
+          state: "running",
+          requestedAt: isoAt(1_202),
+          startedAt: isoAt(1_203),
+          completedAt: null,
+          assistantMessageId: null,
         },
-      },
-      projectDraftThreadIdByProjectId: {
-        [PROJECT_ID]: THREAD_ID,
-      },
-    });
-    useComposerDraftStore.getState().setModelSelection(THREAD_ID, {
-      provider: "codex",
-      model: "gpt-5.4",
-      options: {
-        reasoningEffort: "low",
-      },
-    });
-
-    const mounted = await mountChatView({
-      viewport: DEFAULT_VIEWPORT,
-      snapshot: createDraftOnlySnapshot(),
-    });
-
-    try {
-      useComposerDraftStore
-        .getState()
-        .setPrompt(THREAD_ID, "/automation say hi every 15 seconds for 3 times");
-      const composerEditor = await waitForComposerEditor();
-      await vi.waitFor(
-        () => {
-          expect(composerEditor.textContent ?? "").toContain("say hi every 15 seconds");
-        },
-        { timeout: 8_000, interval: 16 },
-      );
-
-      wsRequests.length = 0;
-      const sendButton = await waitForSendButton();
-      expect(sendButton.disabled).toBe(false);
-      await sendButton.click();
-
-      await vi.waitFor(
-        () => {
-          const createThreadIndex = wsRequests.findIndex((request) => {
-            const command = readDispatchedCommand(request);
-            return command?.type === "thread.create" && command.threadId === THREAD_ID;
-          });
-          const automationCreateIndex = wsRequests.findIndex(
-            (request) => request._tag === WS_METHODS.automationCreate,
-          );
-          expect(createThreadIndex).toBeGreaterThanOrEqual(0);
-          expect(automationCreateIndex).toBeGreaterThan(createThreadIndex);
-
-          const createThreadCommand = readDispatchedCommand(wsRequests[createThreadIndex]!);
-          expect(createThreadCommand).toMatchObject({
-            type: "thread.create",
-            threadId: THREAD_ID,
-            envMode: "worktree",
-            branch: "feature/draft-automation",
-            worktreePath: "/repo/worktrees/draft-automation",
-            associatedWorktreePath: "/repo/worktrees/draft-automation",
-            associatedWorktreeBranch: "feature/draft-automation",
-            associatedWorktreeRef: "feature/draft-automation",
-            modelSelection: {
-              provider: "codex",
-              model: "gpt-5.4",
-              options: {
-                reasoningEffort: "low",
-              },
+        session: thread.session
+          ? {
+              ...thread.session,
+              status: "running",
+              activeTurnId,
+              updatedAt: isoAt(1_204),
+            }
+          : null,
+        activities: [
+          ...thread.activities,
+          {
+            id: EventId.makeUnsafe("activity-auto-follow-approval"),
+            createdAt: isoAt(1_204),
+            kind: "approval.requested",
+            summary: "Command approval requested",
+            tone: "approval",
+            turnId: activeTurnId,
+            payload: {
+              requestId: "request-auto-follow",
+              requestKind: "command",
+              detail: "inspect the unchanged transcript tail",
             },
-            runtimeMode: "full-access",
-            interactionMode: "default",
-          });
-
-          expect(wsRequests[automationCreateIndex]).toMatchObject({
-            _tag: WS_METHODS.automationCreate,
-            mode: "heartbeat",
-            targetThreadId: THREAD_ID,
-            sourceThreadId: THREAD_ID,
-            worktreeMode: "auto",
-            maxIterations: 3,
-            prompt: "say hi",
-            schedule: { type: "interval", everySeconds: 15 },
-          });
-        },
-        { timeout: 8_000, interval: 16 },
-      );
+          },
+        ],
+        updatedAt: isoAt(1_204),
+      }));
       await waitForLayout();
+      expect(scrollToCalls).toHaveLength(0);
 
-      expect(hasDispatchedCommandType("thread.turn.start")).toBe(false);
-      expect(wsRequests.some((request) => request._tag === WS_METHODS.gitCreateWorktree)).toBe(
-        false,
-      );
+      syncActiveThread((thread) => ({
+        ...thread,
+        activities: [
+          ...thread.activities,
+          {
+            id: EventId.makeUnsafe("activity-auto-follow-tool"),
+            createdAt: isoAt(1_205),
+            kind: "tool.completed",
+            summary: "scroll-only tool activity",
+            tone: "tool",
+            turnId: activeTurnId,
+            payload: {
+              itemType: "dynamic_tool_call",
+              toolName: "inspect-scroll-tail",
+            },
+          },
+        ],
+        updatedAt: isoAt(1_205),
+      }));
+      await waitForLayout();
+      expect(scrollToCalls).toHaveLength(0);
+
+      scrollContainer.scrollTop = scrollContainer.scrollHeight;
+      scrollContainer.dispatchEvent(new Event("scroll"));
+      scrollToCalls.length = 0;
+      const liveAssistantMessage = {
+        ...createAssistantMessage({
+          id: MessageId.makeUnsafe("msg-assistant-auto-follow-live"),
+          text: "A real live assistant tail",
+          offsetSeconds: 1_206,
+        }),
+        turnId: activeTurnId,
+        streaming: true,
+      };
+      syncActiveThread((thread) => ({
+        ...thread,
+        messages: [...thread.messages, liveAssistantMessage],
+        updatedAt: isoAt(1_206),
+      }));
+      await vi.waitFor(() => expect(scrollToCalls.length).toBeGreaterThan(0), {
+        timeout: 4_000,
+        interval: 16,
+      });
+
+      scrollToCalls.length = 0;
+      syncActiveThread((thread) => ({
+        ...thread,
+        messages: thread.messages.map((message) =>
+          message.id === liveAssistantMessage.id
+            ? {
+                ...message,
+                streaming: false,
+                completedAt: isoAt(1_207),
+                updatedAt: isoAt(1_207),
+              }
+            : message,
+        ),
+        updatedAt: isoAt(1_207),
+      }));
+      await vi.waitFor(() => expect(scrollToCalls.length).toBeGreaterThan(0), {
+        timeout: 4_000,
+        interval: 16,
+      });
     } finally {
-      await mounted.cleanup();
-    }
-  });
-
-  it("does not promote draft chats until a reviewed automation is submitted", async () => {
-    useComposerDraftStore.setState({
-      draftThreadsByThreadId: {
-        [THREAD_ID]: {
-          projectId: PROJECT_ID,
-          createdAt: NOW_ISO,
-          runtimeMode: "full-access",
-          interactionMode: "default",
-          entryPoint: "chat",
-          branch: null,
-          worktreePath: null,
-          envMode: "local",
-        },
-      },
-      projectDraftThreadIdByProjectId: {
-        [PROJECT_ID]: THREAD_ID,
-      },
-    });
-
-    const mounted = await mountChatView({
-      viewport: DEFAULT_VIEWPORT,
-      snapshot: createDraftOnlySnapshot(),
-    });
-
-    try {
-      useComposerDraftStore.getState().setPrompt(THREAD_ID, "/automation say hi every 15 seconds");
-      const composerEditor = await waitForComposerEditor();
-      await vi.waitFor(
-        () => {
-          expect(composerEditor.textContent ?? "").toContain("say hi every 15 seconds");
-        },
-        { timeout: 8_000, interval: 16 },
-      );
-
-      wsRequests.length = 0;
-      const sendButton = await waitForSendButton();
-      expect(sendButton.disabled).toBe(false);
-      await sendButton.click();
-
-      await expect.element(page.getByText("Fast recurring loop")).toBeInTheDocument();
-      expect(hasDispatchedCommandType("thread.create")).toBe(false);
-      expect(wsRequests.some((request) => request._tag === WS_METHODS.automationCreate)).toBe(
-        false,
-      );
-    } finally {
+      if (patchedScrollContainer && originalScrollTo) {
+        patchedScrollContainer.scrollTo = originalScrollTo;
+      }
       await mounted.cleanup();
     }
   });
 
   it.each(ATTACHMENT_VIEWPORT_MATRIX)(
-    "keeps user attachment estimate close at the $name viewport",
+    "[geometry:linux] keeps user attachment estimate close at the $name viewport",
     async (viewport) => {
       const targetMessageId = `msg-user-target-attachments-${viewport.name}` as MessageId;
       const userText = "message with image attachments";
@@ -3334,6 +3234,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
   });
 
   it("auto-dispatches a queued turn without wiping the live composer draft", async () => {
+    const restoreNativeApi = installDeterministicSendNativeApi();
     const queuedPrompt = "queued prompt that should auto-send";
     const draftBeingTyped = "draft the user is still typing";
 
@@ -3407,10 +3308,12 @@ describe("ChatView timeline estimator parity (full app)", () => {
       );
     } finally {
       await mounted.cleanup();
+      restoreNativeApi();
     }
   });
 
   it("auto-dispatches a queued chat turn as a chat message even while a plan follow-up is pending", async () => {
+    const restoreNativeApi = installDeterministicSendNativeApi();
     const queuedPrompt = "queued chat turn that must stay a chat message";
     const queuedImage = createComposerImage({
       id: "queued-plan-image-1",
@@ -3426,6 +3329,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     });
 
     try {
+      await waitForComposerEditor();
       // Make the live composer's interaction mode explicitly "plan" so the
       // plan-follow-up branch in onSend is live. The queued chat turn below
       // carries its own "default" mode and an image attachment, both of which the
@@ -3496,6 +3400,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       );
     } finally {
       await mounted.cleanup();
+      restoreNativeApi();
     }
   });
 
@@ -3545,6 +3450,143 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
       // The empty thread view and composer should still be visible.
       await expect.element(page.getByTestId("composer-editor")).toBeInTheDocument();
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("uses the latest ordinary project from Home when the global New thread button is clicked", async () => {
+    useLatestProjectStore.setState({ latestProjectId: PROJECT_ID });
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: withActiveHomeChatThread(
+        createSnapshotForTargetUser({
+          targetMessageId: "msg-user-global-new-thread-latest-project" as MessageId,
+          targetText: "global new thread latest project",
+        }),
+      ),
+    });
+
+    try {
+      const newThreadButton = page.getByRole("button", { name: "New thread", exact: true });
+      await expect.element(newThreadButton).toBeInTheDocument();
+      await newThreadButton.click();
+
+      const newThreadPath = await waitForURL(
+        mounted.router,
+        (path) => UUID_ROUTE_RE.test(path),
+        "Global New thread should create a draft in the latest ordinary project.",
+      );
+      const newThreadId = newThreadPath.slice(1) as ThreadId;
+      expect(useComposerDraftStore.getState().getDraftThread(newThreadId)?.projectId).toBe(
+        PROJECT_ID,
+      );
+      await expect.element(page.getByText("Type path", { exact: true })).not.toBeInTheDocument();
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("uses the latest ordinary project from Home for the command-palette New thread action", async () => {
+    useLatestProjectStore.setState({ latestProjectId: PROJECT_ID });
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: withActiveHomeChatThread(
+        createSnapshotForTargetUser({
+          targetMessageId: "msg-user-palette-new-thread-latest-project" as MessageId,
+          targetText: "palette new thread latest project",
+        }),
+      ),
+    });
+
+    try {
+      const searchButton = await waitForElement(
+        () =>
+          Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((button) =>
+            button.textContent?.trim().startsWith("Search"),
+          ) ?? null,
+        "Unable to find the global Search button.",
+      );
+      searchButton.click();
+      const paletteNewThreadAction = await waitForElement(
+        () =>
+          Array.from(document.querySelectorAll<HTMLElement>('[data-slot="command-item"]')).find(
+            (item) => item.textContent?.trim().startsWith("New thread"),
+          ) ?? null,
+        "Unable to find the command-palette New thread action.",
+      );
+      paletteNewThreadAction.click();
+
+      const newThreadPath = await waitForURL(
+        mounted.router,
+        (path) => UUID_ROUTE_RE.test(path),
+        "Command-palette New thread should create a draft in the latest ordinary project.",
+      );
+      const newThreadId = newThreadPath.slice(1) as ThreadId;
+      expect(useComposerDraftStore.getState().getDraftThread(newThreadId)?.projectId).toBe(
+        PROJECT_ID,
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("opens Add project when the global New thread action has no usable project target", async () => {
+    useLatestProjectStore.setState({ latestProjectId: PROJECT_ID });
+    const snapshot = withActiveHomeChatThread(
+      createSnapshotForTargetUser({
+        targetMessageId: "msg-user-global-new-thread-no-project" as MessageId,
+        targetText: "global new thread no project",
+      }),
+    );
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: {
+        ...snapshot,
+        projects: snapshot.projects.filter((project) => project.kind !== "project"),
+      },
+    });
+
+    try {
+      const initialPath = mounted.router.state.location.pathname;
+      const newThreadButton = page.getByRole("button", { name: "New thread", exact: true });
+      await expect.element(newThreadButton).toBeInTheDocument();
+      await newThreadButton.click();
+
+      await expect
+        .element(page.getByRole("heading", { name: "Create project" }))
+        .toBeInTheDocument();
+      expect(mounted.router.state.location.pathname).toBe(initialPath);
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("does not open Add project before project hydration completes", async () => {
+    useLatestProjectStore.setState({ latestProjectId: PROJECT_ID });
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: withActiveHomeChatThread(
+        createSnapshotForTargetUser({
+          targetMessageId: "msg-user-global-new-thread-before-hydration" as MessageId,
+          targetText: "global new thread before hydration",
+        }),
+      ),
+    });
+
+    try {
+      useStore.setState({ projects: [], threadsHydrated: false });
+      await waitForLayout();
+      const initialPath = mounted.router.state.location.pathname;
+      const newThreadButton = page.getByRole("button", { name: "New thread", exact: true });
+      await expect.element(newThreadButton).toBeInTheDocument();
+      await newThreadButton.click();
+      await waitForLayout();
+
+      await expect
+        .element(page.getByRole("heading", { name: "Create project" }))
+        .not.toBeInTheDocument();
+      expect(mounted.router.state.location.pathname).toBe(initialPath);
     } finally {
       await mounted.cleanup();
     }
@@ -3670,8 +3712,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
         nextFixture.welcome = {
           ...nextFixture.welcome,
           homeDir: "/Users/tester",
-          chatWorkspaceRoot: "/Users/tester/Documents/Synara",
-          studioWorkspaceRoot: "/Users/tester/Documents/Synara/Studio",
+          chatWorkspaceRoot: "/Users/tester/Documents/Penkra",
+          studioWorkspaceRoot: "/Users/tester/Documents/Penkra/Studio",
         };
       },
     });
@@ -3742,7 +3784,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
         nextFixture.welcome = {
           ...nextFixture.welcome,
           homeDir: "/Users/tester",
-          chatWorkspaceRoot: "/Users/tester/Documents/Synara",
+          chatWorkspaceRoot: "/Users/tester/Documents/Penkra",
         };
       },
     });
@@ -3807,7 +3849,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
         nextFixture.welcome = {
           ...nextFixture.welcome,
           homeDir: "/Users/tester",
-          chatWorkspaceRoot: "/Users/tester/Documents/Synara",
+          chatWorkspaceRoot: "/Users/tester/Documents/Penkra",
         };
         nextFixture.gitBranchByCwd = {
           "/Users/tester": "home-main",
@@ -3987,6 +4029,219 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
+  it("creates a project from the sidebar Create Project dialog and shows it in the sidebar", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-create-project-dialog-test" as MessageId,
+        targetText: "create project dialog test",
+      }),
+    });
+
+    try {
+      await page.getByRole("button", { name: "Add project", exact: true }).click();
+      await expect
+        .element(page.getByRole("heading", { name: "Create project" }))
+        .toBeInTheDocument();
+
+      await page.getByLabelText("Project folder path").fill("/repo/new-project");
+      await page.getByRole("button", { name: "Create project", exact: true }).click();
+
+      await vi.waitFor(
+        () => {
+          const projectCreateRequest = wsRequests.find(
+            (request) =>
+              request._tag === ORCHESTRATION_WS_METHODS.dispatchCommand &&
+              "command" in request &&
+              request.command &&
+              typeof request.command === "object" &&
+              "type" in request.command &&
+              request.command.type === "project.create" &&
+              "workspaceRoot" in request.command &&
+              request.command.workspaceRoot === "/repo/new-project",
+          );
+          expect(projectCreateRequest).toBeDefined();
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      // The dialog closes on success and the sidebar picks the project up from
+      // the refreshed shell snapshot.
+      await expect
+        .element(page.getByRole("heading", { name: "Create project" }))
+        .not.toBeInTheDocument();
+      await expect
+        .element(page.getByText("new-project", { exact: true }).first())
+        .toBeInTheDocument();
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("creates a Space inline from the Create Project dialog and files the project into it", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-create-project-inline-space" as MessageId,
+        targetText: "create project inline space",
+      }),
+    });
+
+    const findDispatchedCommand = (type: string) =>
+      wsRequests
+        .map((request) =>
+          request._tag === ORCHESTRATION_WS_METHODS.dispatchCommand &&
+          "command" in request &&
+          request.command &&
+          typeof request.command === "object" &&
+          "type" in request.command &&
+          request.command.type === type
+            ? (request.command as Record<string, unknown>)
+            : null,
+        )
+        .find(Boolean);
+
+    try {
+      await page.getByRole("button", { name: "Add project", exact: true }).click();
+      await expect
+        .element(page.getByRole("heading", { name: "Create project" }))
+        .toBeInTheDocument();
+
+      await page.getByRole("button", { name: "New space", exact: true }).click();
+      await expect.element(page.getByRole("heading", { name: "New space" })).toBeInTheDocument();
+      await page.getByLabelText("Name").fill("Focus");
+      await page.getByRole("button", { name: "Create space", exact: true }).click();
+
+      // The nested editor closes, the space.create command is dispatched, and
+      // the fresh space is preselected as the project's destination.
+      await expect
+        .element(page.getByRole("heading", { name: "New space" }))
+        .not.toBeInTheDocument();
+      let createdSpaceId: unknown;
+      await vi.waitFor(
+        () => {
+          const spaceCreateCommand = findDispatchedCommand("space.create");
+          expect(spaceCreateCommand).toBeDefined();
+          expect(spaceCreateCommand?.name).toBe("Focus");
+          createdSpaceId = spaceCreateCommand?.spaceId;
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+      await expect.element(page.getByText("Focus", { exact: true }).first()).toBeInTheDocument();
+
+      await page.getByLabelText("Project folder path").fill("/repo/spaced-project");
+      await page.getByRole("button", { name: "Create project", exact: true }).click();
+
+      await vi.waitFor(
+        () => {
+          const projectCreateCommand = findDispatchedCommand("project.create");
+          expect(projectCreateCommand).toBeDefined();
+          expect(projectCreateCommand?.workspaceRoot).toBe("/repo/spaced-project");
+          expect(projectCreateCommand?.spaceId).toBe(createdSpaceId);
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("rolls back the provisional Space when project creation fails", async () => {
+    const currentSpaceId = SpaceId.makeUnsafe("space-current");
+    const destinationSpaceId = SpaceId.makeUnsafe("space-destination");
+    const baseSnapshot = createSnapshotForTargetUser({
+      targetMessageId: "msg-user-create-project-space-rollback" as MessageId,
+      targetText: "create project space rollback",
+    });
+    useSpacesUiStore.getState().setActiveSpaceId(currentSpaceId);
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: {
+        ...baseSnapshot,
+        spaces: [
+          {
+            id: currentSpaceId,
+            name: "Current",
+            icon: "bag",
+            sortOrder: 0,
+            createdAt: NOW_ISO,
+            updatedAt: NOW_ISO,
+            deletedAt: null,
+          },
+          {
+            id: destinationSpaceId,
+            name: "Destination",
+            icon: "target",
+            sortOrder: 1,
+            createdAt: NOW_ISO,
+            updatedAt: NOW_ISO,
+            deletedAt: null,
+          },
+        ],
+        projects: baseSnapshot.projects.map((project) => ({
+          ...project,
+          spaceId: currentSpaceId,
+        })),
+      },
+    });
+    const previousNativeApi = window.nativeApi;
+    const wsNativeApi = readNativeApi();
+    expect(wsNativeApi).toBeDefined();
+    Object.defineProperty(window, "nativeApi", {
+      configurable: true,
+      value: {
+        ...wsNativeApi,
+        orchestration: {
+          ...wsNativeApi?.orchestration,
+          dispatchCommand: vi.fn(async () => {
+            throw new Error("Project creation failed for test.");
+          }),
+        },
+      },
+    });
+
+    try {
+      await page.getByRole("button", { name: "Add project", exact: true }).click();
+      await page.getByLabelText("Project folder path").fill("/repo/failing-project");
+      const spaceTrigger = await waitForElement(
+        () =>
+          document.querySelector<HTMLButtonElement>(
+            '[data-slot="dialog-popup"] [data-slot="select-trigger"]',
+          ),
+        "Unable to find the Create Project Space selector.",
+      );
+      spaceTrigger.click();
+      const destinationOption = await waitForElement(
+        () =>
+          Array.from(document.querySelectorAll<HTMLElement>('[data-slot="select-item"]')).find(
+            (item) => item.textContent?.trim() === "Destination",
+          ) ?? null,
+        "Unable to find the destination Space option.",
+      );
+      destinationOption.click();
+      await page.getByRole("button", { name: "Create project", exact: true }).click();
+
+      await expect
+        .element(page.getByRole("alert"))
+        .toHaveTextContent("Project creation failed for test.");
+      expect(useSpacesUiStore.getState().activeSpaceId).toBe(currentSpaceId);
+      await expect
+        .element(page.getByRole("heading", { name: "Create project" }))
+        .toBeInTheDocument();
+    } finally {
+      useSpacesUiStore.getState().setActiveSpaceId(null);
+      if (previousNativeApi) {
+        Object.defineProperty(window, "nativeApi", {
+          configurable: true,
+          value: previousNativeApi,
+        });
+      } else {
+        Reflect.deleteProperty(window, "nativeApi");
+      }
+      await mounted.cleanup();
+    }
+  });
+
   it("snapshots sticky codex settings into a new draft thread", async () => {
     useComposerDraftStore.setState({
       stickyModelSelectionByProvider: {
@@ -4091,7 +4346,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("creates a temporary branch-backed worktree on first send in New worktree mode", async () => {
+  it("creates a detached worktree on first send in New worktree mode", async () => {
     const restoreNativeApi = installDeterministicSendNativeApi();
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
@@ -4156,18 +4411,12 @@ describe("ChatView timeline estimator parity (full app)", () => {
         () => {
           const createWorktreeRequest = wsRequests.find(
             (request) =>
-              request._tag === WS_METHODS.gitCreateWorktree &&
+              request._tag === WS_METHODS.gitCreateDetachedWorktree &&
               request.cwd === "/repo/project" &&
-              request.branch === "main" &&
-              typeof request.newBranch === "string",
+              request.ref === "main" &&
+              request.copyChangesFrom === "/repo/project",
           );
           expect(createWorktreeRequest).toBeTruthy();
-          expect(createWorktreeRequest?.newBranch).toMatch(/^synara\/[0-9a-f]{8}$/);
-
-          const detachedRequest = wsRequests.find(
-            (request) => request._tag === WS_METHODS.gitCreateDetachedWorktree,
-          );
-          expect(detachedRequest).toBeUndefined();
 
           const createThreadRequest = wsRequests.find(
             (request) =>
@@ -4182,8 +4431,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
           expect(createThreadRequest).toBeTruthy();
           expect(createThreadRequest?.command).toMatchObject({
             envMode: "worktree",
-            branch: createWorktreeRequest?.newBranch,
-            worktreePath: `/repo/.codex/worktrees/project/${String(createWorktreeRequest?.newBranch).replaceAll("/", "-")}`,
+            branch: null,
+            worktreePath: "/repo/.codex/worktrees/generated/synara",
+            associatedWorktreePath: "/repo/.codex/worktrees/generated/synara",
+            associatedWorktreeBranch: null,
+            associatedWorktreeRef: "0123456789abcdef0123456789abcdef01234567",
           });
         },
         { timeout: 8_000, interval: 16 },
@@ -4278,10 +4530,9 @@ describe("ChatView timeline estimator parity (full app)", () => {
         () => {
           const request = wsRequests.find(
             (candidate) =>
-              candidate._tag === WS_METHODS.gitCreateWorktree &&
+              candidate._tag === WS_METHODS.gitCreateDetachedWorktree &&
               candidate.cwd === "/repo/project" &&
-              candidate.branch === "main" &&
-              typeof candidate.newBranch === "string",
+              candidate.ref === "main",
           );
           expect(
             request,
@@ -4297,7 +4548,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
               .slice(-40)
               .join(", ")}`,
           ).toBeTruthy();
-          if (!request || request._tag !== WS_METHODS.gitCreateWorktree) {
+          if (!request || request._tag !== WS_METHODS.gitCreateDetachedWorktree) {
             throw new Error("Expected create worktree request.");
           }
           return request;
@@ -4305,9 +4556,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
         { timeout: 10_000, interval: 16 },
       );
       const createWorktreeIndex = wsRequests.indexOf(createWorktreeRequest);
-      const worktreePath = `/repo/.codex/worktrees/project/${String(
-        createWorktreeRequest.newBranch,
-      ).replaceAll("/", "-")}`;
+      const worktreePath = "/repo/.codex/worktrees/generated/synara";
 
       const terminalOpenRequest = await vi.waitFor(
         () => {
@@ -4595,6 +4844,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
   });
 
   it("promotes terminal-first shortcut threads so they render as terminal rows", async () => {
+    const restoreNativeApi = installDeterministicSendNativeApi();
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
       snapshot: createSnapshotForTargetUser({
@@ -4670,10 +4920,12 @@ describe("ChatView timeline estimator parity (full app)", () => {
       );
     } finally {
       await mounted.cleanup();
+      restoreNativeApi();
     }
   });
 
   it("promotes a stored terminal draft using its saved context and model selection", async () => {
+    const restoreNativeApi = installDeterministicSendNativeApi();
     const draftThreadId = ThreadId.makeUnsafe("thread-terminal-draft-reuse");
     useComposerDraftStore.setState({
       draftsByThreadId: {
@@ -4798,6 +5050,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       );
     } finally {
       await mounted.cleanup();
+      restoreNativeApi();
     }
   });
 
@@ -4966,6 +5219,164 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
+  it("keeps the final transcript row clear of a tall composer panel stack", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotWithTallComposerStack(),
+    });
+
+    const maxFixedClearancePx = 128;
+
+    try {
+      await vi.waitFor(
+        () => {
+          expect(document.body.textContent).toContain("2 files changed");
+          expect(document.body.textContent).toContain("1 out of 3 tasks completed");
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      const scrollContainer = await waitForElement(
+        () => document.querySelector<HTMLElement>("[data-chat-scroll-container='true']"),
+        "Unable to find message scroll container.",
+      );
+      scrollContainer.scrollTop = scrollContainer.scrollHeight;
+      scrollContainer.dispatchEvent(new Event("scroll"));
+      await waitForLayout();
+
+      const readStackLayout = () => {
+        const renderedRows = Array.from(
+          document.querySelectorAll<HTMLElement>("[data-timeline-row-kind]"),
+        );
+        const finalTranscriptRow = renderedRows.reduce<HTMLElement | null>((latest, row) => {
+          if (!latest) return row;
+          return row.getBoundingClientRect().bottom > latest.getBoundingClientRect().bottom
+            ? row
+            : latest;
+        }, null);
+        const taskListCard = document.querySelector<HTMLElement>(
+          '[data-testid="active-task-list-card"]',
+        );
+        const stackedPanels = taskListCard?.parentElement ?? null;
+
+        expect(
+          finalTranscriptRow,
+          "Unable to find the final rendered transcript row.",
+        ).toBeTruthy();
+        expect(taskListCard, "Unable to find the active task-list card.").toBeTruthy();
+        expect(stackedPanels, "Unable to find the stacked composer-panel wrapper.").toBeTruthy();
+
+        const finalRowRect = finalTranscriptRow!.getBoundingClientRect();
+        const taskCardRect = taskListCard!.getBoundingClientRect();
+        const stackRect = stackedPanels!.getBoundingClientRect();
+        return {
+          gapPx: stackRect.top - finalRowRect.bottom,
+          stackHeightPx: stackRect.height,
+          taskCardHeightPx: taskCardRect.height,
+          distanceFromBottomPx: getScrollContainerDistanceFromBottom(scrollContainer),
+        };
+      };
+
+      const waitForBoundedGap = async (phase: string) => {
+        let measured = readStackLayout();
+        await vi.waitFor(
+          () => {
+            measured = readStackLayout();
+            expect(
+              measured.distanceFromBottomPx,
+              `${phase}: transcript must stay at the end`,
+            ).toBeLessThanOrEqual(AUTO_SCROLL_BOTTOM_THRESHOLD_PX);
+            expect(
+              measured.gapPx,
+              `${phase}: final row must not be obscured`,
+            ).toBeGreaterThanOrEqual(-1);
+            expect(
+              measured.gapPx,
+              `${phase}: gap must stay within fixed clearance`,
+            ).toBeLessThanOrEqual(maxFixedClearancePx);
+          },
+          { timeout: 4_000, interval: 16 },
+        );
+        return measured;
+      };
+
+      const expanded = await waitForBoundedGap("expanded");
+      expect(expanded.stackHeightPx).toBeGreaterThan(maxFixedClearancePx);
+
+      const collapseButton = await waitForElement(
+        () =>
+          document.querySelector<HTMLButtonElement>('button[aria-label="Collapse task banner"]'),
+        "Unable to find the task-banner collapse button.",
+      );
+      collapseButton.click();
+      await vi.waitFor(() => {
+        expect(
+          document.querySelector<HTMLButtonElement>('button[aria-label="Expand task banner"]'),
+        ).not.toBeNull();
+      });
+      const collapsed = await waitForBoundedGap("collapsed");
+      expect(collapsed.taskCardHeightPx).toBeLessThan(expanded.taskCardHeightPx - 20);
+      expect(Math.abs(collapsed.gapPx - expanded.gapPx)).toBeLessThanOrEqual(8);
+
+      const expandButton = await waitForElement(
+        () => document.querySelector<HTMLButtonElement>('button[aria-label="Expand task banner"]'),
+        "Unable to find the task-banner expand button.",
+      );
+      expandButton.click();
+      await vi.waitFor(() => {
+        expect(
+          document.querySelector<HTMLButtonElement>('button[aria-label="Collapse task banner"]'),
+        ).not.toBeNull();
+      });
+      const reexpanded = await waitForBoundedGap("re-expanded");
+      expect(reexpanded.taskCardHeightPx).toBeGreaterThan(collapsed.taskCardHeightPx + 20);
+      expect(Math.abs(reexpanded.gapPx - expanded.gapPx)).toBeLessThanOrEqual(8);
+
+      const finalCollapseButton = await waitForElement(
+        () =>
+          document.querySelector<HTMLButtonElement>('button[aria-label="Collapse task banner"]'),
+        "Unable to find the task-banner collapse button before the away-from-end check.",
+      );
+      finalCollapseButton.click();
+      const finalExpandButton = await waitForElement(
+        () => document.querySelector<HTMLButtonElement>('button[aria-label="Expand task banner"]'),
+        "Unable to find the task-banner expand button before the away-from-end check.",
+      );
+      await vi.waitFor(() => {
+        expect(readStackLayout().taskCardHeightPx).toBeLessThan(expanded.taskCardHeightPx - 20);
+      });
+
+      scrollContainer.scrollTop = 0;
+      scrollContainer.dispatchEvent(new Event("scroll"));
+      await vi.waitFor(() => {
+        expect(getScrollContainerDistanceFromBottom(scrollContainer)).toBeGreaterThan(
+          AUTO_SCROLL_BOTTOM_THRESHOLD_PX,
+        );
+      });
+      const scrollTopBeforeExpansion = scrollContainer.scrollTop;
+
+      finalExpandButton.click();
+      await vi.waitFor(
+        () => {
+          const awayFromEnd = readStackLayout();
+          expect(awayFromEnd.taskCardHeightPx).toBeGreaterThan(expanded.taskCardHeightPx - 2);
+        },
+        { timeout: 4_000, interval: 16 },
+      );
+      await waitForLayout();
+      expect(readStackLayout().distanceFromBottomPx).toBeGreaterThan(
+        AUTO_SCROLL_BOTTOM_THRESHOLD_PX,
+      );
+      await waitForLayout();
+      expect(readStackLayout().distanceFromBottomPx).toBeGreaterThan(
+        AUTO_SCROLL_BOTTOM_THRESHOLD_PX,
+      );
+      expect(Math.abs(scrollContainer.scrollTop - scrollTopBeforeExpansion)).toBeLessThanOrEqual(1);
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
   it("shows the skinny inline plan card for active turn plans", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
@@ -5097,16 +5508,22 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("keeps the live inline-tool layout through the first settled paint, then relaxes after the grace delay", async () => {
+  it("collapses a settled leading tool run mid-turn, then folds into Worked for after the grace delay", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
       snapshot: createSnapshotWithInlineToolOverflow({ active: true }),
     });
 
     try {
+      // The tools already gave way to the assistant's narration block, so even
+      // while the turn is live the run compacts behind its summary row.
       await vi.waitFor(
         () => {
-          expect(document.body.textContent).toContain("Tool 6");
+          const summaryTrigger = Array.from(
+            document.querySelectorAll<HTMLButtonElement>("button[aria-expanded]"),
+          ).find((element) => element.textContent?.includes("Used 6 tools"));
+          expect(summaryTrigger).not.toBeUndefined();
+          expect(summaryTrigger!.getAttribute("aria-expanded")).toBe("false");
           expect(document.body.textContent).not.toContain("Tool 1");
         },
         { timeout: 8_000, interval: 16 },
@@ -5116,8 +5533,9 @@ describe("ChatView timeline estimator parity (full app)", () => {
         .getState()
         .syncServerReadModel(createSnapshotWithInlineToolOverflow({ active: false }));
 
-      expect(document.body.textContent).toContain("Tool 6");
-      expect(document.body.textContent).not.toContain("Tool 1");
+      // The first settled paint keeps the live layout: no "Worked for" fold yet.
+      expect(document.querySelector("[data-settled-turn-collapse-transition='true']")).toBeNull();
+      expect(document.body.textContent).toContain("Used 6 tools");
 
       await new Promise<void>((resolve) => {
         window.setTimeout(() => resolve(), 260);
@@ -5135,7 +5553,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
           expect(transitionClone).not.toBeNull();
           expect(transitionClone?.hasAttribute("inert")).toBe(true);
           expect(transitionClone?.querySelector("[aria-hidden='true'][inert]")).not.toBeNull();
-          expect(document.body.textContent).toContain("Tool 6");
+          expect(transitionClone?.textContent).toContain("Used 6 tools");
         },
         { timeout: 8_000, interval: 16 },
       );

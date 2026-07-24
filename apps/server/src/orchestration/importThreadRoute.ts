@@ -1,5 +1,5 @@
 // FILE: importThreadRoute.ts
-// Purpose: Imports provider-native sessions and binds them to Synara thread projections.
+// Purpose: Imports provider-native sessions and binds them to Penkra thread projections.
 // Layer: Orchestration command handler
 // Exports: makeImportThreadHandler.
 

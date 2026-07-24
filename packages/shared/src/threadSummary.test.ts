@@ -9,7 +9,21 @@ import {
 } from "@synara/contracts";
 import { describe, expect, it } from "vitest";
 
-import { deriveThreadSummaryMetadata } from "./threadSummary";
+import { approvalRequestKindFromRequestType, deriveThreadSummaryMetadata } from "./threadSummary";
+
+describe("approvalRequestKindFromRequestType", () => {
+  it.each([
+    ["command_execution_approval", "command"],
+    ["exec_command_approval", "command"],
+    ["file_read_approval", "file-read"],
+    ["file_change_approval", "file-change"],
+    ["apply_patch_approval", "file-change"],
+    ["unknown", null],
+    [null, null],
+  ] as const)("maps %s to %s", (requestType, expected) => {
+    expect(approvalRequestKindFromRequestType(requestType)).toBe(expected);
+  });
+});
 
 describe("deriveThreadSummaryMetadata", () => {
   it("derives sidebar summary metadata from thread state", () => {
@@ -180,6 +194,111 @@ describe("deriveThreadSummaryMetadata", () => {
       hasPendingApprovals: false,
       hasPendingUserInput: false,
       hasActionableProposedPlan: false,
+    });
+  });
+
+  it("keeps replacement requests open when an older runtime generation resolves", () => {
+    const question = {
+      id: "question-1",
+      header: "Confirm",
+      question: "Continue?",
+      options: [{ label: "Yes", description: "Continue." }],
+    };
+    const activities: OrchestrationThreadActivity[] = [
+      {
+        id: EventId.makeUnsafe("approval-a"),
+        tone: "approval",
+        kind: "approval.requested",
+        summary: "Approval requested",
+        payload: {
+          requestId: "reused-approval",
+          requestKind: "command",
+          lifecycleGeneration: "generation-a",
+        },
+        sequence: 1,
+        turnId: TurnId.makeUnsafe("turn-1"),
+        createdAt: "2026-02-27T00:01:00.000Z",
+      },
+      {
+        id: EventId.makeUnsafe("approval-b"),
+        tone: "approval",
+        kind: "approval.requested",
+        summary: "Approval requested",
+        payload: {
+          requestId: "reused-approval",
+          requestKind: "command",
+          lifecycleGeneration: "generation-b",
+        },
+        sequence: 2,
+        turnId: TurnId.makeUnsafe("turn-1"),
+        createdAt: "2026-02-27T00:02:00.000Z",
+      },
+      {
+        id: EventId.makeUnsafe("approval-a-resolved"),
+        tone: "info",
+        kind: "approval.resolved",
+        summary: "Approval resolved",
+        payload: {
+          requestId: "reused-approval",
+          lifecycleGeneration: "generation-a",
+        },
+        sequence: 3,
+        turnId: TurnId.makeUnsafe("turn-1"),
+        createdAt: "2026-02-27T00:03:00.000Z",
+      },
+      {
+        id: EventId.makeUnsafe("input-a"),
+        tone: "info",
+        kind: "user-input.requested",
+        summary: "Questions requested",
+        payload: {
+          requestId: "reused-input",
+          lifecycleGeneration: "generation-a",
+          questions: [question],
+        },
+        sequence: 4,
+        turnId: TurnId.makeUnsafe("turn-1"),
+        createdAt: "2026-02-27T00:04:00.000Z",
+      },
+      {
+        id: EventId.makeUnsafe("input-b"),
+        tone: "info",
+        kind: "user-input.requested",
+        summary: "Questions requested",
+        payload: {
+          requestId: "reused-input",
+          lifecycleGeneration: "generation-b",
+          questions: [question],
+        },
+        sequence: 5,
+        turnId: TurnId.makeUnsafe("turn-1"),
+        createdAt: "2026-02-27T00:05:00.000Z",
+      },
+      {
+        id: EventId.makeUnsafe("input-a-resolved"),
+        tone: "info",
+        kind: "user-input.resolved",
+        summary: "User input resolved",
+        payload: {
+          requestId: "reused-input",
+          lifecycleGeneration: "generation-a",
+        },
+        sequence: 6,
+        turnId: TurnId.makeUnsafe("turn-1"),
+        createdAt: "2026-02-27T00:06:00.000Z",
+      },
+    ];
+
+    expect(
+      deriveThreadSummaryMetadata({
+        messages: [],
+        activities,
+        proposedPlans: [],
+        latestTurn: null,
+      }),
+    ).toMatchObject({
+      hasPendingApprovals: true,
+      hasPendingUserInput: true,
     });
   });
 

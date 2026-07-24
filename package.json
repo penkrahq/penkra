@@ -18,7 +18,7 @@
       "@types/node": "^24.10.13",
       "tsdown": "^0.20.3",
       "typescript": "^5.7.3",
-      "vitest": "^4.0.0"
+      "vitest": "^4.1.10"
     }
   },
   "type": "module",
@@ -49,8 +49,6 @@
     "dist:desktop:dmg": "node scripts/build-desktop-artifact.ts --platform mac --target dmg",
     "dist:desktop:dmg:arm64": "node scripts/build-desktop-artifact.ts --platform mac --target dmg --arch arm64",
     "dist:desktop:dmg:x64": "node scripts/build-desktop-artifact.ts --platform mac --target dmg --arch x64",
-    "dist:desktop:linux": "node scripts/build-desktop-artifact.ts --platform linux --target AppImage --arch x64",
-    "dist:desktop:win": "node scripts/build-desktop-artifact.ts --platform win --target nsis --arch x64",
     "release:smoke": "node scripts/release-smoke.ts",
     "release:smoke:mac-update": "node scripts/smoke-mac-update-artifact.ts",
     "release:verify": "node scripts/penkra-release-verify.mjs",
@@ -58,19 +56,39 @@
     "release:install:local": "node scripts/penkra-install-local.mjs",
     "release:publish:local": "node scripts/penkra-publish-local.mjs",
     "release:publish:s3": "node scripts/penkra-publish.mjs",
+    "canary:setup": "node scripts/canary.ts setup",
+    "canary:update": "node scripts/canary.ts update",
+    "canary:start": "node scripts/canary.ts start",
+    "canary:stop": "node scripts/canary.ts stop",
+    "canary:status": "node scripts/canary.ts status",
+    "canary:rollback": "node scripts/canary.ts rollback",
     "clean": "rm -rf node_modules apps/*/node_modules packages/*/node_modules scripts/node_modules apps/*/dist apps/*/dist-electron packages/*/dist .turbo apps/*/.turbo packages/*/.turbo"
   },
   "devDependencies": {
     "@types/node": "catalog:",
-    "app-builder-lib": "26.15.3",
-    "electron-builder": "26.15.3",
     "oxfmt": "^0.40.0",
     "oxlint": "^1.55.0",
-    "turbo": "^2.3.3",
+    "turbo": "^2.9.14",
     "vitest": "catalog:"
   },
   "overrides": {
-    "vite": "^8.0.0"
+    "axios": "^1.16.0",
+    "defu": "^6.1.5",
+    "fast-uri": "^3.1.2",
+    "follow-redirects": "^1.16.0",
+    "form-data": "^4.0.6",
+    "hono": "^4.12.25",
+    "ip-address": "^10.2.0",
+    "joi": "^18.2.1",
+    "lodash": "^4.18.1",
+    "postcss": "^8.5.10",
+    "protobufjs": "^7.6.3",
+    "qs": "^6.15.2",
+    "smol-toml": "^1.6.1",
+    "uuid": "^13.0.1",
+    "vite": "^8.1.4",
+    "ws": "^8.21.0",
+    "yaml": "^2.8.3"
   },
   "engines": {
     "bun": "^1.3.9",

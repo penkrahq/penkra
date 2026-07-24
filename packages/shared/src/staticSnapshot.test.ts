@@ -10,9 +10,9 @@ describe("findAsarArchivePath", () => {
   it("resolves the containing archive for a path inside an asar", () => {
     expect(
       findAsarArchivePath(
-        "/Applications/Synara.app/Contents/Resources/app.asar/apps/server/dist/client",
+        "/Applications/Penkra.app/Contents/Resources/app.asar/apps/server/dist/client",
       ),
-    ).toBe(path.join("/Applications/Synara.app/Contents/Resources/app.asar"));
+    ).toBe(path.join("/Applications/Penkra.app/Contents/Resources/app.asar"));
   });
 
   it("returns the archive itself when the path is the asar file", () => {

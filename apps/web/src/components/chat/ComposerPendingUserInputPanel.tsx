@@ -3,8 +3,7 @@
 // the nav arrows stay raw <button> since they are compact icon controls. The card
 // is rendered detached, floating just above the composer (not fused into the
 // composer surface), so it reuses the composer surface chrome to stay in-tint.
-import { type ApprovalRequestId } from "@synara/contracts";
-import { memo, useCallback, useEffect, useRef } from "react";
+import { useEffect, useEffectEvent, useRef } from "react";
 import { type PendingUserInput } from "../../session-logic";
 import {
   derivePendingUserInputProgress,
@@ -17,7 +16,7 @@ import { COMPOSER_INPUT_SURFACE_CLASS_NAME } from "./composerPickerStyles";
 
 interface PendingUserInputPanelProps {
   pendingUserInputs: PendingUserInput[];
-  respondingRequestIds: ApprovalRequestId[];
+  isResponding: boolean;
   answers: Record<string, PendingUserInputDraftAnswer>;
   questionIndex: number;
   onToggleOption: (questionId: string, optionLabel: string) => PendingUserInputDraftAnswer | null;
@@ -30,9 +29,9 @@ const NAV_BUTTON_CLASS_NAME =
   "flex size-5 items-center justify-center rounded-md text-[var(--color-text-foreground-tertiary)] transition-colors duration-150 hover:bg-[var(--color-background-button-secondary-hover)] hover:text-[var(--color-text-foreground)] disabled:pointer-events-none disabled:opacity-30";
 
 // Keep pending-input choices neutral so they read like Codex list controls instead of accent buttons.
-export const ComposerPendingUserInputPanel = memo(function ComposerPendingUserInputPanel({
+export function ComposerPendingUserInputPanel({
   pendingUserInputs,
-  respondingRequestIds,
+  isResponding,
   answers,
   questionIndex,
   onToggleOption,
@@ -46,9 +45,9 @@ export const ComposerPendingUserInputPanel = memo(function ComposerPendingUserIn
 
   return (
     <ComposerPendingUserInputCard
-      key={activePrompt.requestId}
+      key={`${activePrompt.requestId}:${activePrompt.lifecycleGeneration ?? "legacy"}`}
       prompt={activePrompt}
-      isResponding={respondingRequestIds.includes(activePrompt.requestId)}
+      isResponding={isResponding}
       answers={answers}
       questionIndex={questionIndex}
       onToggleOption={onToggleOption}
@@ -57,9 +56,9 @@ export const ComposerPendingUserInputPanel = memo(function ComposerPendingUserIn
       onCancel={onCancel}
     />
   );
-});
+}
 
-const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard({
+function ComposerPendingUserInputCard({
   prompt,
   isResponding,
   answers,
@@ -80,6 +79,7 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
 }) {
   const progress = derivePendingUserInputProgress(prompt.questions, answers, questionIndex);
   const activeQuestion = progress.activeQuestion;
+  const selectedOptionLabelSet = new Set(progress.selectedOptionLabels);
   const autoAdvanceTimerRef = useRef<number | null>(null);
   const onAdvanceRef = useRef(onAdvance);
   useEffect(() => {
@@ -98,22 +98,20 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
     };
   }, [activeQuestion?.id, isResponding]);
 
-  const handleOptionSelection = useCallback(
-    (questionId: string, optionLabel: string) => {
-      const nextDraftAnswer = onToggleOption(questionId, optionLabel);
-      if (activeQuestion?.multiSelect) {
-        return;
-      }
-      if (autoAdvanceTimerRef.current !== null) {
-        window.clearTimeout(autoAdvanceTimerRef.current);
-      }
-      autoAdvanceTimerRef.current = window.setTimeout(() => {
-        autoAdvanceTimerRef.current = null;
-        onAdvanceRef.current(nextDraftAnswer ? { [questionId]: nextDraftAnswer } : undefined);
-      }, 200);
-    },
-    [activeQuestion?.multiSelect, onToggleOption],
-  );
+  const handleOptionSelection = (questionId: string, optionLabel: string) => {
+    const nextDraftAnswer = onToggleOption(questionId, optionLabel);
+    if (activeQuestion?.multiSelect) {
+      return;
+    }
+    if (autoAdvanceTimerRef.current !== null) {
+      window.clearTimeout(autoAdvanceTimerRef.current);
+    }
+    autoAdvanceTimerRef.current = window.setTimeout(() => {
+      autoAdvanceTimerRef.current = null;
+      onAdvanceRef.current(nextDraftAnswer ? { [questionId]: nextDraftAnswer } : undefined);
+    }, 200);
+  };
+  const handleEffectOptionSelection = useEffectEvent(handleOptionSelection);
 
   // Keyboard shortcut: digits toggle options for multi-select prompts and preserve
   // the current auto-advance behavior for single-select questions.
@@ -140,11 +138,11 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
       const option = activeQuestion.options[optionIndex];
       if (!option) return;
       event.preventDefault();
-      handleOptionSelection(activeQuestion.id, option.label);
+      handleEffectOptionSelection(activeQuestion.id, option.label);
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, [activeQuestion, handleOptionSelection, isResponding]);
+  }, [activeQuestion, isResponding]);
 
   if (!activeQuestion) {
     return null;
@@ -193,7 +191,7 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
       {activeQuestion.options.length > 0 ? (
         <div className="mt-2.5 space-y-0.5">
           {activeQuestion.options.map((option, index) => {
-            const isSelected = progress.selectedOptionLabels.includes(option.label);
+            const isSelected = selectedOptionLabelSet.has(option.label);
             const shortcutKey = index < 9 ? index + 1 : null;
             return (
               <ComposerChoiceRow
@@ -230,4 +228,4 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
       )}
     </div>
   );
-});
+}

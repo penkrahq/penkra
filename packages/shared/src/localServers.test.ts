@@ -49,8 +49,8 @@ describe("localServerAddressLabel", () => {
 
 describe("localServerPrimaryLabel", () => {
   it("prefers the live page title when one was resolved", () => {
-    expect(localServerPrimaryLabel(makeServer({ pageTitle: "Synara", displayName: "Vite" }))).toBe(
-      "Synara",
+    expect(localServerPrimaryLabel(makeServer({ pageTitle: "Penkra", displayName: "Vite" }))).toBe(
+      "Penkra",
     );
   });
 

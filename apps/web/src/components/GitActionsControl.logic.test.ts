@@ -803,6 +803,21 @@ describe("when: HEAD is detached and there are no local changes", () => {
     assert.deepInclude(quick, { kind: "show_hint", label: "Commit", disabled: true });
   });
 
+  it("resolveQuickAction offers to attach the managed worktree to a branch", () => {
+    const quick = resolveQuickAction(
+      status({ branch: null, hasWorkingTreeChanges: false, hasUpstream: false }),
+      false,
+      false,
+      true,
+      true,
+    );
+    assert.deepEqual(quick, {
+      label: "Create Branch",
+      disabled: false,
+      kind: "create_branch",
+    });
+  });
+
   it("buildMenuItems keeps commit, push, and PR disabled", () => {
     const items = buildMenuItems(status({ branch: null, hasWorkingTreeChanges: false }), false);
     assert.deepEqual(items, [
@@ -1340,7 +1355,7 @@ describe("resolveAutoFeatureBranchName", () => {
 });
 
 describe("resolveDefaultCreateBranchName", () => {
-  it("uses Synara as the default namespace", () => {
+  it("uses Penkra as the default namespace", () => {
     const branch = resolveDefaultCreateBranchName(["main"], "fix toast copy");
     assert.equal(branch, "synara/fix-toast-copy");
   });
@@ -1350,12 +1365,12 @@ describe("resolveDefaultCreateBranchName", () => {
     assert.equal(branch, "synara/refine-toolbar-actions");
   });
 
-  it("preserves nested namespaces under Synara", () => {
+  it("preserves nested namespaces under Penkra", () => {
     const branch = resolveDefaultCreateBranchName(["main"], "feature/refine-toolbar-actions");
     assert.equal(branch, "synara/feature/refine-toolbar-actions");
   });
 
-  it("increments suffix when the Synara branch already exists", () => {
+  it("increments suffix when the Penkra branch already exists", () => {
     const branch = resolveDefaultCreateBranchName(
       ["main", "synara/fix-toast-copy", "synara/fix-toast-copy-2"],
       "fix toast copy",
@@ -1391,6 +1406,18 @@ describe("resolveLiveThreadBranchUpdate", () => {
 
 describe("shouldOfferCreateBranchPrompt", () => {
   const temporaryBranch = "synara/deadbeef";
+
+  it("shows the create-branch prompt for detached managed worktrees", () => {
+    assert.isTrue(
+      shouldOfferCreateBranchPrompt({
+        activeWorktreePath: "/tmp/project/.worktrees/detached",
+        gitStatus: {
+          branch: null,
+          hasUpstream: false,
+        },
+      }),
+    );
+  });
 
   it("shows the create-branch prompt for temporary worktree branches without upstream", () => {
     assert.isTrue(

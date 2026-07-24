@@ -7,7 +7,7 @@ import type { ReactNode } from "react";
 import { SIDEBAR_TRAILING_ICON_FORCE_CLASS } from "./sidebarGlyphs";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
-// Right-aligned thread-row meta chips (automation clock, worktree, fork, handoff). Their
+// Right-aligned thread-row meta chips (worktree, fork, handoff). Their
 // icons are forced to the shared trailing size at the slot so they match the pin/archive
 // buttons and the whole right-side cluster reads as one uniform set — including the worktree
 // Central icon, which the shared force class covers via its [data-slot=central-icon] selector.
@@ -16,7 +16,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 const CHIP_SLOT_PX = 15;
 const CHIP_SLOT = `inline-flex h-[15px] w-[15px] shrink-0 items-center justify-center ${SIDEBAR_TRAILING_ICON_FORCE_CLASS}`;
 
-export function SidebarMetaChip({ tooltip, children }: { tooltip: string; children: ReactNode }) {
+function SidebarMetaChip({ tooltip, children }: { tooltip: string; children: ReactNode }) {
   return (
     <Tooltip>
       <TooltipTrigger render={<span className={CHIP_SLOT}>{children}</span>} />
@@ -70,6 +70,6 @@ export function SidebarMetaChipStack({
 }
 
 /** Keeps trailing meta column width stable when a row has no badges. */
-export function SidebarMetaChipPlaceholder() {
+function SidebarMetaChipPlaceholder() {
   return <span className={CHIP_SLOT} />;
 }

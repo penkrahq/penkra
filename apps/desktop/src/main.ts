@@ -17,6 +17,7 @@ import {
   BrowserWindow,
   clipboard,
   dialog,
+  globalShortcut,
   ipcMain,
   Menu,
   Notification,
@@ -40,22 +41,27 @@ import type {
   DesktopUpdateActionResult,
   DesktopUpdateState,
 } from "@synara/contracts";
-import { autoUpdater, BaseUpdater, CancellationToken } from "electron-updater";
+import {
+  autoUpdater,
+  BaseUpdater,
+  CancellationToken,
+  type UpdateDownloadedEvent,
+} from "electron-updater";
 
 import type { ContextMenuItem } from "@synara/contracts";
 import { getMacTrafficLightPosition } from "@synara/shared/desktopChrome";
 import {
   LEGACY_SYNARA_DESKTOP_SCHEME,
-  SYNARA_DESKTOP_ENTRY_URL,
-  SYNARA_DESKTOP_SCHEME,
   SYNARA_DESKTOP_UPDATE_CHANNEL,
-  synaraBundleId,
+  resolveSynaraDesktopFlavor,
+  synaraDesktopIdentity,
 } from "@synara/shared/desktopIdentity";
 import { NetService } from "@synara/shared/Net";
 import { RotatingFileSink } from "@synara/shared/logging";
 import { ensureStaticSnapshot, findAsarArchivePath } from "@synara/shared/staticSnapshot";
 import { isBackendReadinessAborted, waitForHttpReady } from "./backendReadiness";
 import { resolveBackendNodeArgs } from "./backendNodeOptions";
+import { runAfterDesktopShutdown } from "./backendShutdown";
 import {
   bundleSignatureFromStats,
   isBundleStable,
@@ -65,6 +71,16 @@ import {
 } from "./bundleSwapDetection";
 import { waitForBackendStartupReady } from "./backendStartupReadiness";
 import { showDesktopConfirmDialog } from "./confirmDialog";
+import {
+  makeUpdateInstallPreparationCoordinator,
+  type UpdateInstallPreparationAttempt,
+} from "./updateInstallPreparation";
+import {
+  hasPendingDesktopMigrationRecovery,
+  recoverDesktopMigrationIfRequired,
+  resolveDesktopMigrationRecoveryPaths,
+  restoreDesktopMigrationBackup,
+} from "./desktopMigrationRecovery";
 import {
   LSREGISTER_PATH,
   parseLastLaunchVersion,
@@ -86,7 +102,6 @@ import { syncShellEnvironment } from "./syncShellEnvironment";
 import {
   type DownloadProgressSample,
   getAutoUpdateDisabledReason,
-  getDownloadFinalizationTimeoutMessage,
   getDownloadStallTimeoutMessage,
   hasDownloadProgressAdvanced,
   isExpectedStalledDownloadCancellationError,
@@ -123,34 +138,33 @@ import {
   createUpdateInstallMarker,
   markInstallHandoffSync,
   readInstallMarker,
+  recordInstallMarkerFailureSync,
   resolveInstallMarkerOutcome,
   writeInstallMarker,
+  type UpdateInstallHandoffExpectation,
   type UpdateInstallMarker,
 } from "./updateInstallMarker";
+import {
+  fingerprintUpdateArtifact,
+  verifyUpdateArtifactIdentity,
+  type UpdateArtifactIdentity,
+} from "./updateArtifactIdentity";
 import { buildGitHubReleasesPageUrl, resolveGitHubUpdateSource } from "./githubUpdateFeed";
 import { isArm64HostRunningIntelBuild, resolveDesktopRuntimeInfo } from "./runtimeArch";
-import { DesktopBrowserManager } from "./browserManager";
-import {
-  BROWSER_IPC_CHANNELS,
-  registerBrowserIpcHandlers,
-  sendBrowserCopyLink,
-  sendBrowserState,
-} from "./browserIpc";
+import { BROWSER_SESSION_PARTITION, DesktopBrowserManager } from "./browserManager";
+import { registerBrowserIpcHandlers, sendBrowserCopyLink, sendBrowserState } from "./browserIpc";
 import {
   BrowserUsePipeServer,
-  SYNARA_BROWSER_USE_PIPE_ENV,
   SYNARA_BROWSER_USE_PIPE_PATH,
+  resolveBrowserUsePipeBackendEnv,
 } from "./browserUsePipeServer";
-import {
-  DESKTOP_WS_URL_CHANNEL,
-  normalizeDesktopWsUrl,
-  resolveDesktopWsUrlFromEnv,
-} from "./desktopWsBridge";
+import { normalizeDesktopWsUrl, resolveDesktopWsUrlFromEnv } from "./desktopWsBridge";
 import {
   repairBrowserProfileFromBridgeManifest,
   resolveDesktopAppDataBase,
 } from "./desktopUserDataProfile";
 import { isBrokenPipeError } from "./desktopProcessErrors";
+import { createDesktopStaticProtocolResolver } from "./desktopStaticProtocol";
 import {
   readPenkraRootPointer,
   resolvePenkraRuntime,
@@ -158,6 +172,8 @@ import {
   writePenkraRootPointer,
 } from "./penkraRoot";
 import { authenticateAndStorePenkraHq, PENKRA_HQ_AUTH_CHANNEL } from "./penkraHqAuth";
+import { bakedPenkraUpdateToken, penkraUpdateRequestHeaders } from "./penkraUpdateConfig";
+import { installBundledPenkraCli } from "./penkraCliLink";
 import {
   readDesktopWindowState,
   resolveVisibleWindowBounds,
@@ -168,11 +184,9 @@ import {
   readSynaraStorageSnapshot,
   resolveSynaraStorageSnapshotPath,
   saveSynaraStorageSnapshot,
-  STORAGE_MIGRATION_IPC_CHANNELS,
 } from "./desktopStorageMigration";
+import { DESKTOP_IPC_CHANNELS } from "./ipcChannels";
 import { DesktopAppSnapManager } from "./appSnapManager";
-import { bakedPenkraUpdateToken, penkraUpdateRequestHeaders } from "./penkraUpdateConfig";
-import { installBundledPenkraCli } from "./penkraCliLink";
 import {
   registerAppSnapIpcHandlers,
   sendAppSnapCaptured,
@@ -187,30 +201,8 @@ const startupBundleIdentity = captureStartupBundleIdentity();
 
 syncShellEnvironment();
 
-const PICK_FOLDER_CHANNEL = "desktop:pick-folder";
-const SAVE_FILE_CHANNEL = "desktop:save-file";
-const CONFIRM_CHANNEL = "desktop:confirm";
-const SET_THEME_CHANNEL = "desktop:set-theme";
-const CONTEXT_MENU_CHANNEL = "desktop:context-menu";
-const OPEN_EXTERNAL_CHANNEL = "desktop:open-external";
-const SHOW_IN_FOLDER_CHANNEL = "desktop:show-in-folder";
-const CLIPBOARD_WRITE_IMAGE_CHANNEL = "desktop:clipboard-write-image";
+const IPC = DESKTOP_IPC_CHANNELS;
 const MAX_CLIPBOARD_IMAGE_DATA_URL_LENGTH = 16 * 1024 * 1024;
-const WINDOW_MINIMIZE_CHANNEL = "desktop:window-minimize";
-const WINDOW_TOGGLE_MAXIMIZE_CHANNEL = "desktop:window-toggle-maximize";
-const WINDOW_CLOSE_CHANNEL = "desktop:window-close";
-const WINDOW_GET_STATE_CHANNEL = "desktop:window-get-state";
-const WINDOW_STATE_CHANNEL = "desktop:window-state";
-const MENU_ACTION_CHANNEL = "desktop:menu-action";
-const ZOOM_FACTOR_CHANNEL = "desktop:zoom-factor";
-const ZOOM_FACTOR_CHANGED_CHANNEL = "desktop:zoom-factor-changed";
-const UPDATE_STATE_CHANNEL = "desktop:update-state";
-const UPDATE_GET_STATE_CHANNEL = "desktop:update-get-state";
-const UPDATE_CHECK_CHANNEL = "desktop:update-check";
-const UPDATE_DOWNLOAD_CHANNEL = "desktop:update-download";
-const UPDATE_INSTALL_CHANNEL = "desktop:update-install";
-const NOTIFICATIONS_IS_SUPPORTED_CHANNEL = "desktop:notifications-is-supported";
-const NOTIFICATIONS_SHOW_CHANNEL = "desktop:notifications-show";
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
 const penkraAppDataBase = resolveDesktopAppDataBase();
 const penkraRootPointerPath = resolvePenkraRootPointerPath(penkraAppDataBase);
@@ -234,31 +226,45 @@ process.env.PATH = [
   PENKRA_CLI_BIN_DIR,
   ...inheritedPathEntries.filter((entry) => Path.resolve(entry) !== PENKRA_CLI_BIN_DIR),
 ].join(Path.delimiter);
-const BASE_DIR = process.env.SYNARA_HOME?.trim() || Path.join(OS.homedir(), ".synara");
+const desktopFlavor = resolveSynaraDesktopFlavor({
+  isDevelopment,
+  requestedFlavor: process.env.SYNARA_DESKTOP_FLAVOR,
+});
+const desktopIdentity = synaraDesktopIdentity(desktopFlavor);
+const BASE_DIR =
+  process.env.SYNARA_HOME?.trim() ||
+  Path.join(OS.homedir(), desktopIdentity.defaultHomeDirectoryName);
 const STATE_DIR = Path.join(BASE_DIR, "userdata");
 const DESKTOP_WINDOW_STATE_PATH = Path.join(STATE_DIR, "desktop-window-state.json");
-const DESKTOP_SCHEME = SYNARA_DESKTOP_SCHEME;
+const DESKTOP_SCHEME = desktopIdentity.scheme;
 const LEGACY_STORAGE_EXPORT_PATH = "/__penkra_storage_export__.html";
 const LEGACY_STORAGE_MIGRATION_MARKER_PATH = Path.join(
   STATE_DIR,
   "penkra-origin-migration-v1.complete",
 );
 const ROOT_DIR = Path.resolve(__dirname, "../../..");
-const APP_DISPLAY_NAME = isDevelopment ? "Penkra (Dev)" : "Penkra";
-const APP_USER_MODEL_ID = synaraBundleId(isDevelopment);
+const APP_DISPLAY_NAME = desktopIdentity.displayName;
+const APP_USER_MODEL_ID = desktopIdentity.bundleId;
 const COMMIT_HASH_PATTERN = /^[0-9a-f]{7,40}$/i;
 const COMMIT_HASH_DISPLAY_LENGTH = 12;
 const LOG_DIR = Path.join(STATE_DIR, "logs");
 const LOG_FILE_MAX_BYTES = 10 * 1024 * 1024;
 const LOG_FILE_MAX_FILES = 10;
 const APP_RUN_ID = Crypto.randomBytes(6).toString("hex");
+const DESKTOP_BACKEND_SHUTDOWN_TOKEN = Crypto.randomBytes(32).toString("hex");
+// Electron's single-instance lock is scoped through userData on Windows/Linux.
+// Set the flavor-specific profile first so Stable, Dev, and Canary never contend
+// for the same lock even when they use the same Electron executable.
+const userDataPath = resolveUserDataPath();
+FS.mkdirSync(userDataPath, { recursive: true, mode: 0o700 });
+app.setPath("userData", userDataPath);
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
 const AUTO_UPDATE_STARTUP_DELAY_MS = 15_000;
 const AUTO_UPDATE_POLL_INTERVAL_MS = 4 * 60 * 60 * 1000;
 const AUTO_UPDATE_FOREGROUND_RECHECK_MIN_INTERVAL_MS = 5 * 60 * 1000;
 const AUTO_UPDATE_FOREGROUND_RECHECK_MIN_BACKGROUND_MS = 30 * 1000;
 const AUTO_UPDATE_CHECK_TIMEOUT_MS = 45 * 1000;
 const AUTO_UPDATE_DOWNLOAD_STALL_TIMEOUT_MS = 60 * 1000;
-const AUTO_UPDATE_DOWNLOAD_FINALIZATION_TIMEOUT_MS = 30 * 1000;
 // Upper bound on how long we wait for electron-updater to release a cancelled
 // download before allowing a retry, so a wedged updater promise can't block updates.
 const AUTO_UPDATE_DOWNLOAD_SETTLE_TIMEOUT_MS = 20 * 1000;
@@ -297,7 +303,9 @@ let restartTimer: ReturnType<typeof setTimeout> | null = null;
 let isQuitting = false;
 let isUpdaterInstallPreparing = false;
 let isUpdaterQuitAndInstallInFlight = false;
+const updateInstallPreparation = makeUpdateInstallPreparationCoordinator();
 let desktopShutdownPromise: Promise<void> | null = null;
+let desktopStartupBlockedForMigrationRecovery = false;
 let desktopShutdownComplete = false;
 let desktopProtocolRegistered = false;
 let aboutCommitHashCache: string | null | undefined;
@@ -350,12 +358,12 @@ function startBrowserPerformanceLogging(): void {
 }
 
 async function ensureBrowserUsePipeServer(): Promise<void> {
-  if (browserUsePipeServer) {
+  if (browserUsePipeServer || !SYNARA_BROWSER_USE_PIPE_PATH) {
     return;
   }
   const server = new BrowserUsePipeServer(browserManager, {
     requestOpenPanel: () => {
-      mainWindow?.webContents.send(BROWSER_IPC_CHANNELS.requestOpenPanel);
+      mainWindow?.webContents.send(IPC.browser.requestOpenPanel);
     },
   });
   await server.start();
@@ -452,7 +460,7 @@ function getDesktopWindowState(window: BrowserWindow): {
 
 function emitDesktopWindowState(window: BrowserWindow | null = mainWindow): void {
   if (!window || window.isDestroyed()) return;
-  window.webContents.send(WINDOW_STATE_CHANNEL, getDesktopWindowState(window));
+  window.webContents.send(IPC.windowState, getDesktopWindowState(window));
 }
 
 function isSaveFileInput(input: unknown): input is {
@@ -701,6 +709,12 @@ let rejectUpdateDownloadStall: ((error: Error) => void) | null = null;
 let lastUpdateDownloadProgressSample: DownloadProgressSample | null = null;
 let stalledDownloadCancellationSuppressionsRemaining = 0;
 let stalledDownloadCancellationSuppressionExpiresAtMs = 0;
+let downloadedUpdateArtifact: {
+  readonly version: string;
+  readonly identity: UpdateArtifactIdentity;
+} | null = null;
+let downloadedUpdateIdentityTask: Promise<void> | null = null;
+let activeUpdateInstallHandoff: UpdateInstallHandoffExpectation | null = null;
 const pendingUpdateCacheClearQueue = new PendingUpdateCacheClearQueue();
 
 function resolveUpdaterErrorContext(): DesktopUpdateErrorContext {
@@ -710,13 +724,21 @@ function resolveUpdaterErrorContext(): DesktopUpdateErrorContext {
   return updateState.errorContext;
 }
 
-function clearUpdaterInstallInFlightAfterError(): void {
+function clearUpdaterInstallInFlightAfterError(input?: {
+  readonly preservePendingPreparation?: boolean;
+}): boolean {
+  const preparationCancelled = updateInstallPreparation.cancel();
+  if (preparationCancelled && input?.preservePendingPreparation) {
+    return true;
+  }
   if (!isUpdaterInstallPreparing && !isUpdaterQuitAndInstallInFlight) {
-    return;
+    return preparationCancelled;
   }
   isUpdaterInstallPreparing = false;
   isUpdaterQuitAndInstallInFlight = false;
+  activeUpdateInstallHandoff = null;
   isQuitting = false;
+  return preparationCancelled;
 }
 
 function clearUpdateInstallWatchdogTimer(): void {
@@ -730,31 +752,35 @@ function getUpdateInstallMarkerPath(): string {
   return Path.join(app.getPath("userData"), UPDATE_INSTALL_MARKER_FILE_NAME);
 }
 
-function recordInstallMarkerFailure(nowIso: string): number {
-  const result = readInstallMarker(getUpdateInstallMarkerPath());
-  if (result.status !== "valid") {
+function recordInstallMarkerFailure(
+  nowIso: string,
+  expected: UpdateInstallHandoffExpectation | null,
+): number {
+  if (!expected) {
+    console.error(
+      "[desktop-updater] Could not record durable install failure without an exact active attempt.",
+    );
+    return Math.max(1, updateState.installFailureCount + 1);
+  }
+  const result = recordInstallMarkerFailureSync(getUpdateInstallMarkerPath(), expected, nowIso);
+  if (result.status === "missing" || result.status === "invalid") {
     console.error(
       `[desktop-updater] Could not record durable install failure: marker is ${result.status}${result.status === "invalid" ? ` (${result.error})` : ""}.`,
     );
     return Math.max(1, updateState.installFailureCount + 1);
   }
-  if (result.marker.phase === "failed") {
-    return result.marker.consecutiveFailures;
-  }
-  const failedMarker: UpdateInstallMarker = {
-    ...result.marker,
-    phase: "failed",
-    consecutiveFailures: result.marker.consecutiveFailures + 1,
-    lastFailureAt: nowIso,
-  };
-  try {
-    writeInstallMarker(getUpdateInstallMarkerPath(), failedMarker);
-  } catch (error) {
+  if (result.status === "mismatch") {
     console.error(
-      `[desktop-updater] Failed to persist install failure marker: ${formatErrorMessage(error)}`,
+      "[desktop-updater] Refusing to record install failure against a different durable attempt.",
+    );
+    return Math.max(1, updateState.installFailureCount + 1);
+  }
+  if (result.status === "write-failed") {
+    console.error(
+      `[desktop-updater] Failed to persist install failure marker: ${formatErrorMessage(result.error)}`,
     );
   }
-  return failedMarker.consecutiveFailures;
+  return result.marker.consecutiveFailures;
 }
 
 async function logMacUpdateDiagnostics(context: string): Promise<void> {
@@ -795,6 +821,7 @@ function armInstallWatchdog(): void {
     if (!isUpdaterQuitAndInstallInFlight) {
       return;
     }
+    const failedHandoff = activeUpdateInstallHandoff;
     clearUpdaterInstallInFlightAfterError();
     // The backend was already stopped before quitAndInstall(); since the app is
     // not actually quitting, bring it back so the recovered app is functional
@@ -803,7 +830,7 @@ function armInstallWatchdog(): void {
     // Polling was stopped before the install attempt; resume it so background
     // update checks keep running after this recovery.
     scheduleUpdatePoll();
-    const consecutiveFailures = recordInstallMarkerFailure(new Date().toISOString());
+    const consecutiveFailures = recordInstallMarkerFailure(new Date().toISOString(), failedHandoff);
     setUpdateState({
       ...reduceDesktopUpdateStateOnInstallFailure(
         updateState,
@@ -934,6 +961,54 @@ function resolveBackendCwd(): string {
     return resolveAppRoot();
   }
   return OS.homedir();
+}
+
+async function handleDesktopMigrationRecovery(): Promise<
+  "continue" | "restart-requested" | "quit-requested"
+> {
+  const paths = resolveDesktopMigrationRecoveryPaths({
+    baseDir: BASE_DIR,
+    appRoot: resolveAppRoot(),
+    isDevelopment,
+  });
+  desktopStartupBlockedForMigrationRecovery = true;
+  const outcome = await recoverDesktopMigrationIfRequired({
+    markerExists: () => hasPendingDesktopMigrationRecovery(paths),
+    choose: async ({ previousFailure }) => {
+      const failed = previousFailure !== null;
+      const result = await dialog.showMessageBox({
+        type: failed ? "error" : "warning",
+        title: failed ? "Migration recovery failed" : "Penkra needs to recover its database",
+        message: failed
+          ? "The saved database backup could not be restored."
+          : "Penkra stopped a database migration before it could finish safely.",
+        detail: failed
+          ? `${previousFailure}\n\nYou can retry the verified backup restore or quit without opening the database.`
+          : "Restore the verified pre-migration backup and restart Penkra. No provider or chat process will start until recovery succeeds.",
+        buttons: [failed ? "Try restore again" : "Restore backup and restart", "Quit"],
+        defaultId: 0,
+        cancelId: 1,
+        noLink: true,
+      });
+      return result.response === 0 ? "restore" : "quit";
+    },
+    restore: () =>
+      restoreDesktopMigrationBackup({
+        executablePath: process.execPath,
+        nodeArgs: backendNodeArgs(),
+        paths,
+        cwd: resolveBackendCwd(),
+        env: process.env,
+      }),
+    requestRestart: () => app.relaunch(),
+    requestQuit: (reason) => requestGracefulAppQuit(reason),
+    formatError: formatErrorMessage,
+    log: writeDesktopLogHeader,
+  });
+  if (outcome === "continue") {
+    desktopStartupBlockedForMigrationRecovery = false;
+  }
+  return outcome;
 }
 
 function resolveDesktopStaticDir(): string | null {
@@ -1070,38 +1145,6 @@ function computeServedStaticRoot(): ServedStaticRoot | null {
   return { dir: snapshot.dir, snapshotted: true };
 }
 
-function resolveDesktopStaticPath(staticRoot: string, requestUrl: string): string {
-  const url = new URL(requestUrl);
-  const rawPath = decodeURIComponent(url.pathname);
-  const normalizedPath = Path.posix.normalize(rawPath).replace(/^\/+/, "");
-  if (normalizedPath.includes("..")) {
-    return Path.join(staticRoot, "index.html");
-  }
-
-  const requestedPath = normalizedPath.length > 0 ? normalizedPath : "index.html";
-  const resolvedPath = Path.join(staticRoot, requestedPath);
-
-  if (Path.extname(resolvedPath)) {
-    return resolvedPath;
-  }
-
-  const nestedIndex = Path.join(resolvedPath, "index.html");
-  if (FS.existsSync(nestedIndex)) {
-    return nestedIndex;
-  }
-
-  return Path.join(staticRoot, "index.html");
-}
-
-function isStaticAssetRequest(requestUrl: string): boolean {
-  try {
-    const url = new URL(requestUrl);
-    return Path.extname(url.pathname).length > 0;
-  } catch {
-    return false;
-  }
-}
-
 function handleFatalStartupError(stage: string, error: unknown): void {
   const message = formatErrorMessage(error);
   const detail =
@@ -1137,9 +1180,7 @@ function registerDesktopProtocol(): void {
     );
   }
 
-  const staticRootResolved = Path.resolve(staticRoot);
-  const staticRootPrefix = `${staticRootResolved}${Path.sep}`;
-  const fallbackIndex = Path.join(staticRootResolved, "index.html");
+  const resolveStaticRequest = createDesktopStaticProtocolResolver(staticRoot);
   const legacyStorageExportFile = Path.join(
     app.getPath("userData"),
     "penkra-origin-migration-export.html",
@@ -1152,34 +1193,15 @@ function registerDesktopProtocol(): void {
     request,
     callback,
   ) => {
-    try {
-      const parsedUrl = new URL(request.url);
-      if (
-        parsedUrl.protocol === `${LEGACY_SYNARA_DESKTOP_SCHEME}:` &&
-        parsedUrl.pathname === LEGACY_STORAGE_EXPORT_PATH
-      ) {
-        callback({ path: legacyStorageExportFile });
-        return;
-      }
-      const candidate = resolveDesktopStaticPath(staticRootResolved, request.url);
-      const resolvedCandidate = Path.resolve(candidate);
-      const isInRoot =
-        resolvedCandidate === fallbackIndex || resolvedCandidate.startsWith(staticRootPrefix);
-      const isAssetRequest = isStaticAssetRequest(request.url);
-
-      if (!isInRoot || !FS.existsSync(resolvedCandidate)) {
-        if (isAssetRequest) {
-          callback({ error: -6 });
-          return;
-        }
-        callback({ path: fallbackIndex });
-        return;
-      }
-
-      callback({ path: resolvedCandidate });
-    } catch {
-      callback({ path: fallbackIndex });
+    const parsedUrl = new URL(request.url);
+    if (
+      parsedUrl.protocol === `${LEGACY_SYNARA_DESKTOP_SCHEME}:` &&
+      parsedUrl.pathname === LEGACY_STORAGE_EXPORT_PATH
+    ) {
+      callback({ path: legacyStorageExportFile });
+      return;
     }
+    callback(resolveStaticRequest(request.url));
   };
 
   protocol.registerFileProtocol(DESKTOP_SCHEME, handleDesktopProtocol);
@@ -1240,7 +1262,7 @@ function dispatchMenuAction(action: string): void {
 
   const send = () => {
     if (targetWindow.isDestroyed()) return;
-    targetWindow.webContents.send(MENU_ACTION_CHANNEL, action);
+    targetWindow.webContents.send(IPC.menuAction, action);
     if (!targetWindow.isVisible()) {
       targetWindow.show();
     }
@@ -1261,7 +1283,7 @@ function resolveMenuTargetWindow(): BrowserWindow | null {
 
 function sendDesktopZoomFactor(webContents: Electron.WebContents): void {
   if (webContents.isDestroyed()) return;
-  webContents.send(ZOOM_FACTOR_CHANGED_CHANNEL, webContents.getZoomFactor());
+  webContents.send(IPC.zoomFactorChanged, webContents.getZoomFactor());
 }
 
 function attachDesktopZoomFactorSync(window: BrowserWindow): void {
@@ -1296,7 +1318,8 @@ function resolveAutoUpdateDisabledReason(): string | null {
     isPackaged: app.isPackaged,
     platform: process.platform,
     appImage: process.env.APPIMAGE,
-    disabledByEnv: process.env.SYNARA_DISABLE_AUTO_UPDATE === "1",
+    disabledByEnv:
+      desktopIdentity.usesScriptedUpdates || process.env.SYNARA_DISABLE_AUTO_UPDATE === "1",
     hasUpdateFeedConfig: hasConfiguredUpdateFeed(),
   });
 }
@@ -1496,18 +1519,8 @@ function resolveResourcePath(fileName: string): string | null {
   return null;
 }
 
-function resolveIconPath(ext: "ico" | "icns" | "png"): string | null {
-  return resolveResourcePath(`icon.${ext}`);
-}
-
 function resolveNotificationIconPath(): string | null {
-  if (process.platform === "darwin") {
-    return null;
-  }
-  if (process.platform === "win32") {
-    return resolveResourcePath("synara.png") ?? resolveIconPath("ico");
-  }
-  return resolveResourcePath("synara.png") ?? resolveIconPath("png");
+  return null;
 }
 
 function resolveAppSnapHelperPath(): string {
@@ -1554,6 +1567,7 @@ function initializeDesktopAppSnap(): void {
     helperPath: resolveAppSnapHelperPath(),
     captureDirectory: Path.join(app.getPath("userData"), "appsnap", "tmp"),
     excludedBundleId: APP_USER_MODEL_ID,
+    shortcutRegistry: globalShortcut,
     onState: (state) => {
       sendAppSnapEvent(mainWindow, (webContents) => sendAppSnapState(webContents, state));
     },
@@ -1664,7 +1678,7 @@ function showDesktopNotification(input: {
       return;
     }
     if (threadId.length > 0) {
-      mainWindow.webContents.send(MENU_ACTION_CHANNEL, `notification-open-thread:${threadId}`);
+      mainWindow.webContents.send(IPC.menuAction, `notification-open-thread:${threadId}`);
     }
   });
 
@@ -1709,10 +1723,6 @@ function configureAppIdentity(): void {
     version: commitHash ?? "unknown",
     copyright: `© ${new Date().getFullYear()} Emmanuel Gyekye Atta-Penkra`,
   });
-
-  if (process.platform === "win32") {
-    app.setAppUserModelId(APP_USER_MODEL_ID);
-  }
 }
 
 // The packaged bundle icon is a solid, pre-rounded ICNS so Tahoe does not reinterpret
@@ -1957,7 +1967,7 @@ function isExplicitUpdateCheckReason(reason: string): boolean {
 function emitUpdateState(): void {
   for (const window of BrowserWindow.getAllWindows()) {
     if (window.isDestroyed()) continue;
-    window.webContents.send(UPDATE_STATE_CHANNEL, updateState);
+    window.webContents.send(IPC.updateState, updateState);
   }
 }
 
@@ -2030,9 +2040,8 @@ function processInstallMarkerOnStartup(): void {
         `[desktop-updater] Failed to clear successful update install marker: ${formatErrorMessage(error)}`,
       );
     }
-    // electron-updater intentionally keeps the verified archive at the cache
-    // root as update.zip. Preserve it: macOS differential downloads use it as
-    // the byte source for the next release.
+    // Preserve electron-updater's verified archive so the next macOS update can
+    // reuse it as the differential-download source.
     return;
   }
   if (outcome === "stale" || outcome === "invalid") {
@@ -2174,11 +2183,7 @@ function consumeStalledDownloadCancellationSuppression(): void {
 }
 
 // Bounds a silent updater download while allowing slow downloads that keep making progress.
-function armUpdateDownloadStallTimer(
-  reason: string,
-  timeoutMs = AUTO_UPDATE_DOWNLOAD_STALL_TIMEOUT_MS,
-  message = getDownloadStallTimeoutMessage(timeoutMs),
-): void {
+function armUpdateDownloadStallTimer(reason: string): void {
   clearUpdateDownloadStallTimer();
   updateDownloadStallTimer = setTimeout(() => {
     updateDownloadStallTimer = null;
@@ -2186,12 +2191,12 @@ function armUpdateDownloadStallTimer(
       return;
     }
 
-    const error = new Error(message);
+    const error = new Error(getDownloadStallTimeoutMessage(AUTO_UPDATE_DOWNLOAD_STALL_TIMEOUT_MS));
     console.error(`[desktop-updater] ${error.message} (${reason}).`);
     armStalledDownloadCancellationSuppression();
     rejectUpdateDownloadStall?.(error);
     updateDownloadCancellationToken?.cancel();
-  }, timeoutMs);
+  }, AUTO_UPDATE_DOWNLOAD_STALL_TIMEOUT_MS);
   updateDownloadStallTimer.unref();
 }
 
@@ -2205,19 +2210,7 @@ function updateDownloadStallTimerOnProgress(progress: DownloadProgressSample): v
   lastUpdateDownloadProgressSample = {
     percent: progress.percent ?? null,
     transferred: progress.transferred ?? null,
-    total: progress.total ?? null,
   };
-  const transferComplete =
-    (progress.total ?? 0) > 0 &&
-    (progress.transferred ?? 0) >= (progress.total ?? Number.POSITIVE_INFINITY);
-  if (transferComplete || (progress.percent ?? 0) >= 100) {
-    armUpdateDownloadStallTimer(
-      "download transfer complete; waiting for updater finalization",
-      AUTO_UPDATE_DOWNLOAD_FINALIZATION_TIMEOUT_MS,
-      getDownloadFinalizationTimeoutMessage(AUTO_UPDATE_DOWNLOAD_FINALIZATION_TIMEOUT_MS),
-    );
-    return;
-  }
   armUpdateDownloadStallTimer(`download progress ${Math.floor(progress.percent ?? 0)}%`);
 }
 
@@ -2258,7 +2251,7 @@ function handleDesktopAppForegrounded(): void {
 }
 
 async function checkForUpdates(reason: string): Promise<void> {
-  if (isQuitting || !updaterConfigured || updateCheckInFlight) return;
+  if (isQuitting || isUpdaterInstallPreparing || !updaterConfigured || updateCheckInFlight) return;
   if (automaticUpdateActivitySuppressed) {
     if (!isExplicitUpdateCheckReason(reason)) {
       console.info(
@@ -2327,6 +2320,8 @@ async function downloadAvailableUpdate(): Promise<{
     return { accepted: false, completed: false };
   }
   updateDownloadInFlight = true;
+  downloadedUpdateArtifact = null;
+  downloadedUpdateIdentityTask = null;
   setUpdateState(reduceDesktopUpdateStateOnDownloadStart(updateState));
   // Keep existing cancellation suppressions across immediate retries; the old
   // updater cancellation can arrive after a new download has already started.
@@ -2357,7 +2352,14 @@ async function downloadAvailableUpdate(): Promise<{
 
   try {
     await Promise.race([updaterDownloadPromise, downloadStalled]);
-    return { accepted: true, completed: true };
+    const identityTask = downloadedUpdateIdentityTask;
+    if (identityTask) {
+      await identityTask;
+    }
+    return {
+      accepted: true,
+      completed: downloadedUpdateArtifact !== null,
+    };
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     setUpdateState(reduceDesktopUpdateStateOnDownloadFailure(updateState, message));
@@ -2408,13 +2410,12 @@ function prepareAvailableUpdateInBackground(reason: string): void {
     });
 }
 
-async function installDownloadedUpdate(): Promise<{
+async function runDownloadedUpdateInstall(
+  preparationAttempt: UpdateInstallPreparationAttempt,
+): Promise<{
   accepted: boolean;
   completed: boolean;
 }> {
-  if (isQuitting || !updaterConfigured || updateState.status !== "downloaded") {
-    return { accepted: false, completed: false };
-  }
   const versionToInstall = updateState.downloadedVersion ?? updateState.availableVersion;
   if (!versionToInstall || !isKnownUpdateVersionNewer(versionToInstall)) {
     await clearPendingUpdateCache("downloaded version is not newer than current app");
@@ -2424,6 +2425,20 @@ async function installDownloadedUpdate(): Promise<{
     );
     return { accepted: false, completed: false };
   }
+
+  const artifact =
+    downloadedUpdateArtifact?.version === versionToInstall
+      ? downloadedUpdateArtifact.identity
+      : null;
+  if (!artifact || !(await verifyUpdateArtifactIdentity(artifact))) {
+    downloadedUpdateArtifact = null;
+    await clearPendingUpdateCache("downloaded artifact identity is missing or changed");
+    const message = "The downloaded update could not be reverified. Download it again.";
+    setUpdateState(reduceDesktopUpdateStateOnDownloadFailure(updateState, message));
+    console.error(`[desktop-updater] Refusing install handoff: ${message}`);
+    return { accepted: false, completed: false };
+  }
+  updateInstallPreparation.requireActive(preparationAttempt);
 
   const markerPath = getUpdateInstallMarkerPath();
   const existingMarkerResult = readInstallMarker(markerPath);
@@ -2438,36 +2453,114 @@ async function installDownloadedUpdate(): Promise<{
     requestedAt: new Date().toISOString(),
     consecutiveFailures: existingMarker?.consecutiveFailures ?? 0,
     lastFailureAt: existingMarker?.lastFailureAt ?? null,
+    artifact,
   });
+  const handoffExpectation: UpdateInstallHandoffExpectation = {
+    attemptId: marker.attemptId,
+    artifact,
+  };
   let markerWritten = false;
+  let artifactInvalidated = false;
   try {
-    writeInstallMarker(markerPath, marker);
-    markerWritten = true;
     isQuitting = true;
-    isUpdaterInstallPreparing = true;
     clearUpdatePollTimer();
     await stopBackendAndWaitForExit();
+    updateInstallPreparation.requireActive(preparationAttempt);
     await logMacUpdateDiagnostics("before install handoff");
+    updateInstallPreparation.requireActive(preparationAttempt);
+    if (!(await verifyUpdateArtifactIdentity(artifact))) {
+      artifactInvalidated = true;
+      downloadedUpdateArtifact = null;
+      await clearPendingUpdateCache("downloaded artifact changed during install preparation");
+      throw new Error(
+        "The downloaded update changed during install preparation. Download it again.",
+      );
+    }
+    updateInstallPreparation.requireActive(preparationAttempt);
+    writeInstallMarker(markerPath, marker);
+    markerWritten = true;
+    if (!markInstallHandoffSync(markerPath, handoffExpectation)) {
+      throw new Error("Durable update install marker changed before install handoff.");
+    }
+    activeUpdateInstallHandoff = handoffExpectation;
     isUpdaterQuitAndInstallInFlight = true;
     autoUpdater.quitAndInstall();
+    updateInstallPreparation.requireActive(preparationAttempt);
     armInstallWatchdog();
     return { accepted: true, completed: false };
   } catch (error: unknown) {
     const message = formatErrorMessage(error);
-    isUpdaterInstallPreparing = false;
-    isUpdaterQuitAndInstallInFlight = false;
-    isQuitting = false;
+    clearUpdaterInstallInFlightAfterError();
     const consecutiveFailures = markerWritten
-      ? recordInstallMarkerFailure(new Date().toISOString())
+      ? recordInstallMarkerFailure(new Date().toISOString(), handoffExpectation)
       : updateState.installFailureCount;
     startBackend();
     scheduleUpdatePoll();
     setUpdateState({
-      ...reduceDesktopUpdateStateOnInstallFailure(updateState, message),
+      ...(artifactInvalidated
+        ? reduceDesktopUpdateStateOnDownloadFailure(updateState, message)
+        : reduceDesktopUpdateStateOnInstallFailure(updateState, message)),
       installFailureCount: consecutiveFailures,
     });
     console.error(`[desktop-updater] Failed to install update: ${message}`);
     return { accepted: true, completed: false };
+  }
+}
+
+async function installDownloadedUpdate(): Promise<{
+  accepted: boolean;
+  completed: boolean;
+}> {
+  if (isQuitting || !updaterConfigured || updateState.status !== "downloaded") {
+    return { accepted: false, completed: false };
+  }
+  const preparationAttempt = updateInstallPreparation.begin();
+  if (preparationAttempt === null) {
+    return { accepted: false, completed: false };
+  }
+  isUpdaterInstallPreparing = true;
+
+  try {
+    return await runDownloadedUpdateInstall(preparationAttempt);
+  } finally {
+    if (!isUpdaterQuitAndInstallInFlight && isUpdaterInstallPreparing) {
+      clearUpdaterInstallInFlightAfterError();
+    }
+    updateInstallPreparation.release(preparationAttempt);
+  }
+}
+
+async function recordDownloadedUpdateIdentity(info: UpdateDownloadedEvent): Promise<void> {
+  clearUpdateDownloadStallTimer();
+  if (!isUpdateVersionNewer(app.getVersion(), info.version)) {
+    downloadedUpdateArtifact = null;
+    clearPendingUpdateCacheWhenSafe("downloaded version is not newer than current app");
+    setUpdateState(reduceDesktopUpdateStateOnNoUpdate(updateState, new Date().toISOString()));
+    console.info(
+      `[desktop-updater] Ignoring downloaded non-newer update ${info.version}; current version is ${app.getVersion()}.`,
+    );
+    return;
+  }
+
+  try {
+    const identity = await fingerprintUpdateArtifact(info.downloadedFile);
+    if (!isUpdateVersionNewer(app.getVersion(), info.version)) {
+      downloadedUpdateArtifact = null;
+      clearPendingUpdateCacheWhenSafe("downloaded version became stale during fingerprinting");
+      setUpdateState(reduceDesktopUpdateStateOnNoUpdate(updateState, new Date().toISOString()));
+      return;
+    }
+    downloadedUpdateArtifact = { version: info.version, identity };
+    setUpdateState(reduceDesktopUpdateStateOnDownloadComplete(updateState, info.version));
+    console.info(
+      `[desktop-updater] Update downloaded and fingerprinted: ${info.version} (${identity.size} bytes, sha512=${identity.sha512.slice(0, 16)}…).`,
+    );
+  } catch (error) {
+    downloadedUpdateArtifact = null;
+    clearPendingUpdateCacheWhenSafe("downloaded artifact fingerprint failed");
+    const message = `The downloaded update could not be verified: ${formatErrorMessage(error)}`;
+    setUpdateState(reduceDesktopUpdateStateOnDownloadFailure(updateState, message));
+    console.error(`[desktop-updater] ${message}`);
   }
 }
 
@@ -2487,7 +2580,7 @@ function configureAutoUpdater(): void {
     return;
   }
   updaterConfigured = true;
-  hardenElectronUpdater({ BaseUpdater }, autoUpdater);
+  hardenElectronUpdater({ BaseUpdater }, autoUpdater, process.platform, []);
   configuredGitHubUpdateSource = resolveGitHubUpdateSource(appUpdateYml);
   if (configuredGitHubUpdateSource !== null) {
     // The updater itself uses app-update.yml; this URL is only the human fallback.
@@ -2497,16 +2590,16 @@ function configureAutoUpdater(): void {
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = false;
   autoUpdater.requestHeaders = penkraUpdateRequestHeaders(bakedPenkraUpdateToken());
-  // Penkra's generic feed uses electron-updater's standard latest manifests.
+  // Penkra's private generic feed uses electron-updater's standard latest manifests.
   autoUpdater.channel = SYNARA_DESKTOP_UPDATE_CHANNEL;
   autoUpdater.allowPrerelease = DESKTOP_UPDATE_ALLOW_PRERELEASE;
   autoUpdater.allowDowngrade = false;
   // Match electron-updater's native GitHub provider path; the packaged
   // app-update.yml owns the production feed, and generic feeds stay mock-only.
-  // Native-architecture releases publish a blockmap generated from the final,
-  // verified Squirrel ZIP. Only an Intel build switching to arm64 under Rosetta
-  // must bypass differential reuse of the old architecture's archive.
-  autoUpdater.disableDifferentialDownload = isArm64HostRunningIntelBuild(desktopRuntimeInfo);
+  // macOS release builds repack and validate the Squirrel update zip, then omit
+  // the stale zip blockmap so ShipIt always installs the exact signed payload.
+  autoUpdater.disableDifferentialDownload =
+    process.platform === "darwin" || isArm64HostRunningIntelBuild(desktopRuntimeInfo);
   // electron-updater has no working idle timeout on macOS (its socket timeout is
   // wired to a `socket` event Electron's net.request never emits) and never
   // resumes from a byte offset, so a stalled CDN transfer hangs for minutes
@@ -2532,6 +2625,7 @@ function configureAutoUpdater(): void {
   });
   autoUpdater.on("update-available", (info) => {
     clearUpdateCheckTimeoutTimer();
+    downloadedUpdateArtifact = null;
     if (!isUpdateVersionNewer(app.getVersion(), info.version)) {
       void clearPendingUpdateCache("available version is not newer than current app");
       setUpdateState(reduceDesktopUpdateStateOnNoUpdate(updateState, new Date().toISOString()));
@@ -2554,6 +2648,7 @@ function configureAutoUpdater(): void {
   });
   autoUpdater.on("update-not-available", () => {
     clearUpdateCheckTimeoutTimer();
+    downloadedUpdateArtifact = null;
     void clearPendingUpdateCache("no newer update available");
     setUpdateState(reduceDesktopUpdateStateOnNoUpdate(updateState, new Date().toISOString()));
     lastLoggedDownloadMilestone = -1;
@@ -2574,12 +2669,18 @@ function configureAutoUpdater(): void {
       console.warn("[desktop-updater] Ignored expected cancellation after stalled download.");
       return;
     }
-    clearUpdaterInstallInFlightAfterError();
+    const failedHandoff = activeUpdateInstallHandoff;
+    const installPreparationPending = clearUpdaterInstallInFlightAfterError({
+      preservePendingPreparation: true,
+    });
+    if (errorContext === "download") {
+      downloadedUpdateArtifact = null;
+    }
     const installFailureCount =
       errorContext === "install"
-        ? recordInstallMarkerFailure(new Date().toISOString())
+        ? recordInstallMarkerFailure(new Date().toISOString(), failedHandoff)
         : updateState.installFailureCount;
-    if (errorContext === "install") {
+    if (errorContext === "install" && !installPreparationPending) {
       startBackend();
       scheduleUpdatePoll();
     }
@@ -2612,17 +2713,12 @@ function configureAutoUpdater(): void {
     }
   });
   autoUpdater.on("update-downloaded", (info) => {
-    clearUpdateDownloadStallTimer();
-    if (!isUpdateVersionNewer(app.getVersion(), info.version)) {
-      clearPendingUpdateCacheWhenSafe("downloaded version is not newer than current app");
-      setUpdateState(reduceDesktopUpdateStateOnNoUpdate(updateState, new Date().toISOString()));
-      console.info(
-        `[desktop-updater] Ignoring downloaded non-newer update ${info.version}; current version is ${app.getVersion()}.`,
-      );
-      return;
-    }
-    setUpdateState(reduceDesktopUpdateStateOnDownloadComplete(updateState, info.version));
-    console.info(`[desktop-updater] Update downloaded: ${info.version}`);
+    const task = recordDownloadedUpdateIdentity(info);
+    downloadedUpdateIdentityTask = task;
+    const clearTask = () => {
+      if (downloadedUpdateIdentityTask === task) downloadedUpdateIdentityTask = null;
+    };
+    void task.then(clearTask, clearTask);
   });
 
   clearUpdatePollTimer();
@@ -2642,7 +2738,7 @@ function configureAutoUpdater(): void {
 
   scheduleUpdatePoll();
 }
-// Builds process-local Node args so provider/tool children do not inherit Synara's heap guard.
+// Builds process-local Node args so provider/tool children do not inherit Penkra's heap guard.
 function backendNodeArgs(): string[] {
   const configuredMaxOldSpaceMb =
     BACKEND_MAX_OLD_SPACE_ENV_KEYS.map((key) => process.env[key]).find(
@@ -2658,7 +2754,10 @@ function backendNodeArgs(): string[] {
 function backendEnv(): NodeJS.ProcessEnv {
   const servedStaticRoot = resolveServedStaticRoot();
   return {
-    ...process.env,
+    ...resolveBrowserUsePipeBackendEnv(
+      process.env,
+      browserUsePipeServer ? SYNARA_BROWSER_USE_PIPE_PATH : null,
+    ),
     // Point the backend's HTTP static route at the same swap-immune snapshot the
     // synara:// protocol serves, so both surfaces survive app.asar being replaced.
     ...(servedStaticRoot?.snapshotted ? { SYNARA_STATIC_DIR: servedStaticRoot.dir } : {}),
@@ -2667,7 +2766,7 @@ function backendEnv(): NodeJS.ProcessEnv {
     SYNARA_PORT: String(backendPort),
     SYNARA_HOME: BASE_DIR,
     SYNARA_AUTH_TOKEN: backendAuthToken,
-    [SYNARA_BROWSER_USE_PIPE_ENV]: SYNARA_BROWSER_USE_PIPE_PATH,
+    SYNARA_DESKTOP_SHUTDOWN_TOKEN: DESKTOP_BACKEND_SHUTDOWN_TOKEN,
   };
 }
 
@@ -2720,6 +2819,7 @@ function startBackend(): void {
     env: {
       ...backendEnv(),
       ELECTRON_RUN_AS_NODE: "1",
+      SYNARA_SERVER_ENTRY: backendEntry,
     },
     stdio: captureBackendLogs ? ["ignore", "pipe", "pipe"] : "inherit",
   });
@@ -2775,7 +2875,7 @@ function startBackend(): void {
   });
 }
 
-function stopBackend(): void {
+function takeBackendProcessForShutdown(): ChildProcess.ChildProcess | null {
   cancelBackendReadinessWait();
   backendListeningDetector = null;
   if (restartTimer) {
@@ -2785,6 +2885,11 @@ function stopBackend(): void {
 
   const child = backendProcess;
   backendProcess = null;
+  return child;
+}
+
+function stopBackend(): void {
+  const child = takeBackendProcessForShutdown();
   if (!child) return;
 
   if (child.exitCode === null && child.signalCode === null) {
@@ -2798,15 +2903,7 @@ function stopBackend(): void {
 }
 
 async function stopBackendAndWaitForExit(timeoutMs = BACKEND_SHUTDOWN_TIMEOUT_MS): Promise<void> {
-  cancelBackendReadinessWait();
-  backendListeningDetector = null;
-  if (restartTimer) {
-    clearTimeout(restartTimer);
-    restartTimer = null;
-  }
-
-  const child = backendProcess;
-  backendProcess = null;
+  const child = takeBackendProcessForShutdown();
   if (!child) return;
   const backendChild = child;
   if (backendChild.exitCode !== null || backendChild.signalCode !== null) return;
@@ -2872,26 +2969,31 @@ async function shutdownDesktopRuntime(reason: string): Promise<void> {
   }
 
   isQuitting = true;
-  desktopShutdownPromise = (async () => {
-    writeDesktopLogHeader(`${reason} shutdown start`);
-    try {
-      clearUpdateBackgroundBlurTimer();
-      clearUpdateCheckTimeoutTimer();
-      clearUpdatePollTimer();
-      cancelBackendReadinessWait();
-      appSnapManager?.dispose();
-      appSnapManager = null;
-      await disposeBrowserUsePipeServerForShutdown(reason);
-      await stopBackendAndWaitForExit();
-      browserManager.dispose();
-      restoreStdIoCapture?.();
-      writeDesktopLogHeader(`${reason} shutdown complete`);
-    } finally {
-      desktopShutdownComplete = true;
-    }
-  })();
+  writeDesktopLogHeader(`${reason} shutdown start`);
+  const shutdown = runAfterDesktopShutdown(stopBackendAndWaitForExit(), async () => {
+    clearUpdateBackgroundBlurTimer();
+    clearUpdateCheckTimeoutTimer();
+    clearUpdatePollTimer();
+    cancelBackendReadinessWait();
+    appSnapManager?.dispose();
+    appSnapManager = null;
+    await disposeBrowserUsePipeServerForShutdown(reason);
+    browserManager.dispose();
+    restoreStdIoCapture?.();
+    desktopShutdownComplete = true;
+    writeDesktopLogHeader(`${reason} shutdown complete`);
+  });
+  desktopShutdownPromise = shutdown;
 
-  return desktopShutdownPromise;
+  try {
+    await shutdown;
+  } catch (error) {
+    if (desktopShutdownPromise === shutdown) {
+      desktopShutdownPromise = null;
+    }
+    isQuitting = false;
+    throw error;
+  }
 }
 
 function requestGracefulAppQuit(reason: string): void {
@@ -2900,46 +3002,44 @@ function requestGracefulAppQuit(reason: string): void {
     return;
   }
 
-  void shutdownDesktopRuntime(reason)
-    .catch((error: unknown) => {
+  void runAfterDesktopShutdown(shutdownDesktopRuntime(reason), () => app.quit()).catch(
+    (error: unknown) => {
       const message = formatErrorMessage(error);
       writeDesktopLogHeader(`${reason} shutdown failed message=${message}`);
       console.warn(`[desktop] Shutdown failed during ${reason}: ${message}`);
-    })
-    .finally(() => {
-      app.quit();
-    });
+    },
+  );
 }
 
 function registerIpcHandlers(): void {
   const storageSnapshotPath = resolveSynaraStorageSnapshotPath(app.getPath("userData"));
 
-  ipcMain.removeAllListeners(STORAGE_MIGRATION_IPC_CHANNELS.read);
-  ipcMain.on(STORAGE_MIGRATION_IPC_CHANNELS.read, (event: IpcMainEvent) => {
+  ipcMain.removeAllListeners(IPC.storageMigration.read);
+  ipcMain.on(IPC.storageMigration.read, (event: IpcMainEvent) => {
     event.returnValue = readSynaraStorageSnapshot(storageSnapshotPath);
   });
 
-  ipcMain.removeHandler(STORAGE_MIGRATION_IPC_CHANNELS.acknowledge);
-  ipcMain.handle(STORAGE_MIGRATION_IPC_CHANNELS.acknowledge, async () => {
+  ipcMain.removeHandler(IPC.storageMigration.acknowledge);
+  ipcMain.handle(IPC.storageMigration.acknowledge, async () => {
     await acknowledgeSynaraStorageSnapshot(storageSnapshotPath);
     FS.writeFileSync(LEGACY_STORAGE_MIGRATION_MARKER_PATH, "complete\n", { mode: 0o600 });
   });
 
-  ipcMain.removeAllListeners(DESKTOP_WS_URL_CHANNEL);
-  ipcMain.on(DESKTOP_WS_URL_CHANNEL, (event: IpcMainEvent) => {
+  ipcMain.removeAllListeners(IPC.wsUrl);
+  ipcMain.on(IPC.wsUrl, (event: IpcMainEvent) => {
     // The backend port is reserved at runtime, so preload asks main for the
     // live URL instead of trusting build-time or inherited renderer env.
     event.returnValue =
       normalizeDesktopWsUrl(backendWsUrl) ?? resolveDesktopWsUrlFromEnv(process.env);
   });
 
-  ipcMain.removeAllListeners(ZOOM_FACTOR_CHANNEL);
-  ipcMain.on(ZOOM_FACTOR_CHANNEL, (event: IpcMainEvent) => {
+  ipcMain.removeAllListeners(IPC.zoomFactor);
+  ipcMain.on(IPC.zoomFactor, (event: IpcMainEvent) => {
     event.returnValue = event.sender.getZoomFactor();
   });
 
-  ipcMain.removeHandler(PICK_FOLDER_CHANNEL);
-  ipcMain.handle(PICK_FOLDER_CHANNEL, async () => {
+  ipcMain.removeHandler(IPC.pickFolder);
+  ipcMain.handle(IPC.pickFolder, async () => {
     const owner = BrowserWindow.getFocusedWindow() ?? mainWindow;
     const result = owner
       ? await dialog.showOpenDialog(owner, {
@@ -2952,8 +3052,8 @@ function registerIpcHandlers(): void {
     return result.filePaths[0] ?? null;
   });
 
-  ipcMain.removeHandler(SAVE_FILE_CHANNEL);
-  ipcMain.handle(SAVE_FILE_CHANNEL, async (_event, input: unknown) => {
+  ipcMain.removeHandler(IPC.saveFile);
+  ipcMain.handle(IPC.saveFile, async (_event, input: unknown) => {
     if (!isSaveFileInput(input)) {
       throw new Error("Invalid save file input.");
     }
@@ -2975,8 +3075,8 @@ function registerIpcHandlers(): void {
     return result.filePath;
   });
 
-  ipcMain.removeHandler(CONFIRM_CHANNEL);
-  ipcMain.handle(CONFIRM_CHANNEL, async (_event, message: unknown) => {
+  ipcMain.removeHandler(IPC.confirm);
+  ipcMain.handle(IPC.confirm, async (_event, message: unknown) => {
     if (typeof message !== "string") {
       return false;
     }
@@ -2985,8 +3085,8 @@ function registerIpcHandlers(): void {
     return showDesktopConfirmDialog(message, owner);
   });
 
-  ipcMain.removeHandler(SET_THEME_CHANNEL);
-  ipcMain.handle(SET_THEME_CHANNEL, async (_event, rawTheme: unknown) => {
+  ipcMain.removeHandler(IPC.setTheme);
+  ipcMain.handle(IPC.setTheme, async (_event, rawTheme: unknown) => {
     const theme = getSafeTheme(rawTheme);
     if (!theme) {
       return;
@@ -2995,9 +3095,9 @@ function registerIpcHandlers(): void {
     nativeTheme.themeSource = theme;
   });
 
-  ipcMain.removeHandler(CONTEXT_MENU_CHANNEL);
+  ipcMain.removeHandler(IPC.contextMenu);
   ipcMain.handle(
-    CONTEXT_MENU_CHANNEL,
+    IPC.contextMenu,
     async (_event, items: ContextMenuItem[], position?: { x: number; y: number }) => {
       const normalizedItems = items
         .filter((item) => typeof item.id === "string" && typeof item.label === "string")
@@ -3062,8 +3162,8 @@ function registerIpcHandlers(): void {
     },
   );
 
-  ipcMain.removeHandler(OPEN_EXTERNAL_CHANNEL);
-  ipcMain.handle(OPEN_EXTERNAL_CHANNEL, async (_event, rawUrl: unknown) => {
+  ipcMain.removeHandler(IPC.openExternal);
+  ipcMain.handle(IPC.openExternal, async (_event, rawUrl: unknown) => {
     const externalUrl = getSafeExternalUrl(rawUrl);
     if (!externalUrl) {
       return false;
@@ -3077,8 +3177,8 @@ function registerIpcHandlers(): void {
     }
   });
 
-  ipcMain.removeHandler(CLIPBOARD_WRITE_IMAGE_CHANNEL);
-  ipcMain.handle(CLIPBOARD_WRITE_IMAGE_CHANNEL, async (_event, rawDataUrl: unknown) => {
+  ipcMain.removeHandler(IPC.clipboardWriteImage);
+  ipcMain.handle(IPC.clipboardWriteImage, async (_event, rawDataUrl: unknown) => {
     if (typeof rawDataUrl !== "string") {
       return false;
     }
@@ -3100,8 +3200,8 @@ function registerIpcHandlers(): void {
     return true;
   });
 
-  ipcMain.removeHandler(SHOW_IN_FOLDER_CHANNEL);
-  ipcMain.handle(SHOW_IN_FOLDER_CHANNEL, async (_event, rawPath: unknown) => {
+  ipcMain.removeHandler(IPC.showInFolder);
+  ipcMain.handle(IPC.showInFolder, async (_event, rawPath: unknown) => {
     if (typeof rawPath !== "string" || rawPath.trim().length === 0) {
       throw new Error("Missing folder path.");
     }
@@ -3125,14 +3225,14 @@ function registerIpcHandlers(): void {
     shell.showItemInFolder(resolvedPath);
   });
 
-  ipcMain.removeHandler(WINDOW_MINIMIZE_CHANNEL);
-  ipcMain.handle(WINDOW_MINIMIZE_CHANNEL, async (event) => {
+  ipcMain.removeHandler(IPC.windowMinimize);
+  ipcMain.handle(IPC.windowMinimize, async (event) => {
     const window = BrowserWindow.fromWebContents(event.sender) ?? mainWindow;
     window?.minimize();
   });
 
-  ipcMain.removeHandler(WINDOW_TOGGLE_MAXIMIZE_CHANNEL);
-  ipcMain.handle(WINDOW_TOGGLE_MAXIMIZE_CHANNEL, async (event) => {
+  ipcMain.removeHandler(IPC.windowToggleMaximize);
+  ipcMain.handle(IPC.windowToggleMaximize, async (event) => {
     const window = BrowserWindow.fromWebContents(event.sender) ?? mainWindow;
     if (!window) {
       return { isMaximized: false, isFullscreen: false };
@@ -3143,33 +3243,33 @@ function registerIpcHandlers(): void {
       window.maximize();
     }
     const state = getDesktopWindowState(window);
-    window.webContents.send(WINDOW_STATE_CHANNEL, state);
+    window.webContents.send(IPC.windowState, state);
     return state;
   });
 
-  ipcMain.removeHandler(WINDOW_CLOSE_CHANNEL);
-  ipcMain.handle(WINDOW_CLOSE_CHANNEL, async (event) => {
+  ipcMain.removeHandler(IPC.windowClose);
+  ipcMain.handle(IPC.windowClose, async (event) => {
     const window = BrowserWindow.fromWebContents(event.sender) ?? mainWindow;
     window?.close();
   });
 
-  ipcMain.removeHandler(WINDOW_GET_STATE_CHANNEL);
-  ipcMain.handle(WINDOW_GET_STATE_CHANNEL, async (event) => {
+  ipcMain.removeHandler(IPC.windowGetState);
+  ipcMain.handle(IPC.windowGetState, async (event) => {
     const window = BrowserWindow.fromWebContents(event.sender) ?? mainWindow;
     return window ? getDesktopWindowState(window) : { isMaximized: false, isFullscreen: false };
   });
 
-  ipcMain.removeHandler(UPDATE_GET_STATE_CHANNEL);
-  ipcMain.handle(UPDATE_GET_STATE_CHANNEL, async () => updateState);
+  ipcMain.removeHandler(IPC.updateGetState);
+  ipcMain.handle(IPC.updateGetState, async () => updateState);
 
-  ipcMain.removeHandler(UPDATE_CHECK_CHANNEL);
-  ipcMain.handle(UPDATE_CHECK_CHANNEL, async () => {
+  ipcMain.removeHandler(IPC.updateCheck);
+  ipcMain.handle(IPC.updateCheck, async () => {
     await checkForUpdates("renderer");
     return updateState;
   });
 
-  ipcMain.removeHandler(UPDATE_DOWNLOAD_CHANNEL);
-  ipcMain.handle(UPDATE_DOWNLOAD_CHANNEL, async () => {
+  ipcMain.removeHandler(IPC.updateDownload);
+  ipcMain.handle(IPC.updateDownload, async () => {
     const result = await downloadAvailableUpdate();
     return {
       accepted: result.accepted,
@@ -3178,8 +3278,8 @@ function registerIpcHandlers(): void {
     } satisfies DesktopUpdateActionResult;
   });
 
-  ipcMain.removeHandler(UPDATE_INSTALL_CHANNEL);
-  ipcMain.handle(UPDATE_INSTALL_CHANNEL, async () => {
+  ipcMain.removeHandler(IPC.updateInstall);
+  ipcMain.handle(IPC.updateInstall, async () => {
     if (isQuitting) {
       return {
         accepted: false,
@@ -3195,12 +3295,12 @@ function registerIpcHandlers(): void {
     } satisfies DesktopUpdateActionResult;
   });
 
-  ipcMain.removeHandler(NOTIFICATIONS_IS_SUPPORTED_CHANNEL);
-  ipcMain.handle(NOTIFICATIONS_IS_SUPPORTED_CHANNEL, async () => Notification.isSupported());
+  ipcMain.removeHandler(IPC.notificationsIsSupported);
+  ipcMain.handle(IPC.notificationsIsSupported, async () => Notification.isSupported());
 
-  ipcMain.removeHandler(NOTIFICATIONS_SHOW_CHANNEL);
+  ipcMain.removeHandler(IPC.notificationsShow);
   ipcMain.handle(
-    NOTIFICATIONS_SHOW_CHANNEL,
+    IPC.notificationsShow,
     async (
       _event,
       input:
@@ -3225,18 +3325,11 @@ function registerIpcHandlers(): void {
   }
   registerDesktopVoiceTranscriptionHandler();
   startBrowserPerformanceLogging();
-  void ensureBrowserUsePipeServer().catch((error) => {
-    console.warn("[Penkra browser] Failed to start browser-use native pipe", error);
-  });
-
   registerBrowserIpcHandlers(ipcMain, browserManager);
 }
 
 function getIconOption(): { icon: string } | Record<string, never> {
-  if (process.platform === "darwin") return {}; // macOS uses .icns from app bundle
-  const ext = process.platform === "win32" ? "ico" : "png";
-  const iconPath = resolveIconPath(ext);
-  return iconPath ? { icon: iconPath } : {};
+  return {}; // macOS uses .icns from the app bundle
 }
 
 // macOS backs the translucent shell with window vibrancy, so the window is created
@@ -3247,9 +3340,6 @@ function getIconOption(): { icon: string } | Record<string, never> {
 // a bright flash before the renderer paints — the window is shown only after first paint
 // (`show: false`), so this color is not expected to match a custom in-app theme exactly.
 function getWindowMaterialOptions(): BrowserWindowConstructorOptions {
-  if (process.platform !== "darwin") {
-    return { backgroundColor: nativeTheme.shouldUseDarkColors ? "#181818" : "#ffffff" };
-  }
   return {
     vibrancy: "under-window",
     // "followWindow" lets macOS drop vibrancy blending to inactive when the
@@ -3264,12 +3354,6 @@ function getWindowMaterialOptions(): BrowserWindowConstructorOptions {
 // uses a fully frameless shell and renderer-owned minimize/maximize/close controls,
 // so the toolbar can occupy the top edge instead of sitting below a native title bar.
 function getTitleBarOptions(): BrowserWindowConstructorOptions {
-  if (process.platform === "win32") {
-    return { frame: false };
-  }
-  if (process.platform !== "darwin") {
-    return {};
-  }
   return {
     titleBarStyle: "hiddenInset",
     // Derived from the shared chat-surface header geometry (@synara/shared/desktopChrome)
@@ -3387,7 +3471,7 @@ function createWindow(): BrowserWindow {
   window.on("unmaximize", () => emitDesktopWindowState(window));
   window.on("enter-full-screen", () => emitDesktopWindowState(window));
   window.on("leave-full-screen", () => emitDesktopWindowState(window));
-  window.on("close", () => {
+  window.on("close", (event) => {
     try {
       writeDesktopWindowState(DESKTOP_WINDOW_STATE_PATH, {
         version: 1,
@@ -3403,7 +3487,7 @@ function createWindow(): BrowserWindow {
     void window.loadURL(process.env.VITE_DEV_SERVER_URL as string);
     window.webContents.openDevTools({ mode: "detach" });
   } else {
-    void window.loadURL(SYNARA_DESKTOP_ENTRY_URL);
+    void window.loadURL(desktopIdentity.entryUrl);
   }
 
   window.on("closed", () => {
@@ -3467,127 +3551,72 @@ async function showPenkraHqAuthIfNeeded(parent: BrowserWindow): Promise<void> {
 
 function penkraHqAuthHtml(): string {
   return `<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
-  <title>Connect Penkra HQ</title>
-  <style>
-    :root { color-scheme: light dark; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-    * { box-sizing: border-box; }
-    body { margin: 0; background: light-dark(#f7f7f5, #171717); color: light-dark(#181817, #f3f3f1); }
-    main { min-height: 100vh; display: flex; flex-direction: column; justify-content: center; padding: 32px; }
-    h1 { margin: 0 0 8px; font-size: 24px; font-weight: 650; letter-spacing: 0; }
-    p { margin: 0 0 24px; color: light-dark(#62625e, #aaa9a4); font-size: 14px; line-height: 1.45; }
-    label { display: block; margin-bottom: 7px; font-size: 13px; font-weight: 600; }
-    input { width: 100%; height: 40px; padding: 0 11px; border: 1px solid light-dark(#c9c9c4, #494946); border-radius: 6px; background: light-dark(#fff, #232322); color: inherit; font-size: 15px; outline: none; }
-    input:focus { border-color: #18794e; box-shadow: 0 0 0 2px color-mix(in srgb, #18794e 24%, transparent); }
-    #error { min-height: 20px; margin: 8px 0 4px; color: light-dark(#b42318, #ff8a80); font-size: 13px; }
-    footer { display: flex; justify-content: flex-end; gap: 8px; }
-    button { height: 36px; padding: 0 14px; border: 1px solid light-dark(#c9c9c4, #494946); border-radius: 6px; font: inherit; font-size: 14px; cursor: pointer; }
-    #cancel { background: transparent; color: inherit; }
-    #submit { border-color: #18794e; background: #18794e; color: #fff; font-weight: 600; }
-    button:disabled { cursor: default; opacity: .55; }
-  </style>
-</head>
-<body>
-  <main>
-    <h1>Connect Penkra HQ</h1>
-    <p>Enter the master password to connect this workspace.</p>
-    <form>
-      <label for="password">Master password</label>
-      <input id="password" type="password" autocomplete="current-password" autofocus required maxlength="1024">
-      <div id="error" role="alert"></div>
-      <footer>
-        <button id="cancel" type="button">Not now</button>
-        <button id="submit" type="submit">Connect</button>
-      </footer>
-    </form>
-  </main>
-  <script>
-    const form = document.querySelector('form');
-    const input = document.querySelector('#password');
-    const error = document.querySelector('#error');
-    const submit = document.querySelector('#submit');
-    document.querySelector('#cancel').addEventListener('click', () => window.close());
-    form.addEventListener('submit', async (event) => {
-      event.preventDefault();
-      error.textContent = '';
-      submit.disabled = true;
-      input.disabled = true;
-      try {
-        const result = await window.penkraHqAuth.submit(input.value);
-        if (!result.ok) {
-          error.textContent = result.message;
-          submit.disabled = false;
-          input.disabled = false;
-          input.focus();
-          input.select();
-        } else {
-          submit.textContent = 'Connected';
-        }
-      } catch {
-        error.textContent = 'Authentication failed.';
-        submit.disabled = false;
-        input.disabled = false;
-      }
-    });
-  </script>
-</body>
-</html>`;
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<title>Connect Penkra HQ</title><style>
+:root{color-scheme:light dark;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}*{box-sizing:border-box}
+body{margin:0;background:light-dark(#f7f7f5,#171717);color:light-dark(#181817,#f3f3f1)}
+main{min-height:100vh;display:flex;flex-direction:column;justify-content:center;padding:32px}h1{margin:0 0 8px;font-size:24px;font-weight:650}
+p{margin:0 0 24px;color:light-dark(#62625e,#aaa9a4);font-size:14px;line-height:1.45}label{display:block;margin-bottom:7px;font-size:13px;font-weight:600}
+input{width:100%;height:40px;padding:0 11px;border:1px solid light-dark(#c9c9c4,#494946);border-radius:6px;background:light-dark(#fff,#232322);color:inherit;font-size:15px;outline:none}
+input:focus{border-color:#18794e;box-shadow:0 0 0 2px color-mix(in srgb,#18794e 24%,transparent)}#error{min-height:20px;margin:8px 0 4px;color:light-dark(#b42318,#ff8a80);font-size:13px}
+footer{display:flex;justify-content:flex-end;gap:8px}button{height:36px;padding:0 14px;border:1px solid light-dark(#c9c9c4,#494946);border-radius:6px;font:inherit;font-size:14px;cursor:pointer}
+#cancel{background:transparent;color:inherit}#submit{border-color:#18794e;background:#18794e;color:#fff;font-weight:600}button:disabled{cursor:default;opacity:.55}
+</style></head><body><main><h1>Connect Penkra HQ</h1><p>Enter the master password to connect this workspace.</p><form>
+<label for="password">Master password</label><input id="password" type="password" autocomplete="current-password" autofocus required maxlength="1024">
+<div id="error" role="alert"></div><footer><button id="cancel" type="button">Not now</button><button id="submit" type="submit">Connect</button></footer>
+</form></main><script>
+const form=document.querySelector('form'),input=document.querySelector('#password'),error=document.querySelector('#error'),submit=document.querySelector('#submit');
+document.querySelector('#cancel').addEventListener('click',()=>window.close());
+form.addEventListener('submit',async event=>{event.preventDefault();error.textContent='';submit.disabled=true;input.disabled=true;
+try{const result=await window.penkraHqAuth.submit(input.value);if(!result.ok){error.textContent=result.message;submit.disabled=false;input.disabled=false;input.focus();input.select()}else submit.textContent='Connected'}
+catch{error.textContent='Authentication failed.';submit.disabled=false;input.disabled=false}});
+</script></body></html>`;
 }
 
 function configureMediaPermissions(): void {
-  const defaultSession = session.defaultSession;
-  if (!defaultSession) {
-    return;
-  }
+  for (const targetSession of [
+    session.defaultSession,
+    session.fromPartition(BROWSER_SESSION_PARTITION),
+  ]) {
+    if (!targetSession) continue;
 
-  defaultSession.setPermissionCheckHandler((_webContents, permission) => {
-    if (permission === "media") {
-      return process.platform === "darwin"
-        ? systemPreferences.getMediaAccessStatus("microphone") === "granted"
-        : false;
-    }
-    return false;
-  });
+    targetSession.setPermissionCheckHandler((_webContents, permission) => {
+      if (permission === "media") {
+        return process.platform === "darwin"
+          ? systemPreferences.getMediaAccessStatus("microphone") === "granted"
+          : false;
+      }
+      return false;
+    });
 
-  defaultSession.setPermissionRequestHandler((_webContents, permission, callback, details) => {
-    if (permission !== "media") {
-      callback(false);
-      return;
-    }
-
-    // Some Electron microphone requests omit `mediaTypes`, so denying here can suppress
-    // the macOS permission prompt entirely even though the renderer asked for audio input.
-    if (!shouldAllowMediaPermissionRequest(details)) {
-      callback(false);
-      return;
-    }
-
-    if (process.platform === "darwin") {
-      const status = systemPreferences.getMediaAccessStatus("microphone");
-      if (status === "granted") {
-        callback(true);
+    targetSession.setPermissionRequestHandler((_webContents, permission, callback, details) => {
+      if (permission !== "media" || !shouldAllowMediaPermissionRequest(details)) {
+        callback(false);
         return;
       }
 
-      void systemPreferences.askForMediaAccess("microphone").then(callback, () => callback(false));
-      return;
-    }
+      if (process.platform === "darwin") {
+        const status = systemPreferences.getMediaAccessStatus("microphone");
+        if (status === "granted") {
+          callback(true);
+          return;
+        }
 
-    callback(true);
-  });
+        void systemPreferences
+          .askForMediaAccess("microphone")
+          .then(callback, () => callback(false));
+        return;
+      }
+
+      callback(true);
+    });
+  }
 }
 
 // Override Electron's userData path before the `ready` event so that
 // Chromium session data uses a filesystem-friendly directory name.
 // Must be called synchronously at the top level — before `app.whenReady()`.
-const userDataPath = resolveUserDataPath();
-FS.mkdirSync(userDataPath, { recursive: true, mode: 0o700 });
-app.setPath("userData", userDataPath);
-const hasSingleInstanceLock = app.requestSingleInstanceLock();
 if (hasSingleInstanceLock) {
   repairBrowserProfileBeforeElectronReady(userDataPath);
 }
@@ -3604,11 +3633,22 @@ if (!hasSingleInstanceLock) {
 
 async function bootstrap(): Promise<void> {
   writeDesktopLogHeader("bootstrap start");
+  const migrationRecoveryOutcome = await handleDesktopMigrationRecovery();
+  if (migrationRecoveryOutcome !== "continue") {
+    return;
+  }
+
+  configureAutoUpdater();
   backendAuthToken = Crypto.randomBytes(24).toString("hex");
   await reserveBackendEndpoint("bootstrap");
 
   registerIpcHandlers();
   writeDesktopLogHeader("bootstrap ipc handlers registered");
+  try {
+    await ensureBrowserUsePipeServer();
+  } catch (error) {
+    console.warn("[Penkra browser] Failed to start browser-use native pipe", error);
+  }
   startBackend();
   writeDesktopLogHeader("bootstrap backend start requested");
 
@@ -3649,11 +3689,33 @@ app.on("before-quit", (event) => {
   if (isUpdaterQuitAndInstallInFlight) {
     // Electron's updater owns this quit; canceling it would turn install into a plain app quit.
     try {
-      markInstallHandoffSync(getUpdateInstallMarkerPath());
+      if (
+        !activeUpdateInstallHandoff ||
+        !markInstallHandoffSync(getUpdateInstallMarkerPath(), activeUpdateInstallHandoff)
+      ) {
+        throw new Error("Durable update install handoff no longer matches the active attempt.");
+      }
     } catch (error) {
-      console.error(
-        `[desktop-updater] Failed to persist install handoff marker during quit: ${formatErrorMessage(error)}`,
+      event.preventDefault();
+      const failedHandoff = activeUpdateInstallHandoff;
+      clearUpdaterInstallInFlightAfterError();
+      const consecutiveFailures = recordInstallMarkerFailure(
+        new Date().toISOString(),
+        failedHandoff,
       );
+      startBackend();
+      scheduleUpdatePoll();
+      setUpdateState({
+        ...reduceDesktopUpdateStateOnInstallFailure(
+          updateState,
+          "The downloaded update could not be handed to the installer safely.",
+        ),
+        installFailureCount: consecutiveFailures,
+      });
+      console.error(
+        `[desktop-updater] Refused mismatched install handoff during quit: ${formatErrorMessage(error)}`,
+      );
+      return;
     }
     writeDesktopLogHeader("before-quit allowing updater quit-and-install");
     return;
@@ -3714,7 +3776,6 @@ if (hasSingleInstanceLock) {
         throw error;
       }
       startBundleSwapWatcher();
-      configureAutoUpdater();
       void migrateLegacyDesktopStorage()
         .catch((error) => {
           console.warn("[desktop] Failed to migrate legacy renderer storage", error);
@@ -3745,6 +3806,9 @@ if (hasSingleInstanceLock) {
       });
 
       app.on("activate", () => {
+        if (desktopStartupBlockedForMigrationRecovery || isQuitting) {
+          return;
+        }
         handleDesktopAppForegrounded();
         if (BrowserWindow.getAllWindows().length === 0) {
           if (!isDevelopment) {
@@ -3776,31 +3840,23 @@ if (hasSingleInstanceLock) {
     });
 }
 
-app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") {
-    app.quit();
+process.on("uncaughtException", (error: unknown) => {
+  if (!isBrokenPipeError(error)) {
+    throw error;
   }
+  if (desktopShutdownPromise) return;
+  writeDesktopLogHeader("EPIPE received");
+  requestGracefulAppQuit("EPIPE");
 });
 
-if (process.platform !== "win32") {
-  process.on("uncaughtException", (error: unknown) => {
-    if (!isBrokenPipeError(error)) {
-      throw error;
-    }
-    if (desktopShutdownPromise) return;
-    writeDesktopLogHeader("EPIPE received");
-    requestGracefulAppQuit("EPIPE");
-  });
+process.on("SIGINT", () => {
+  if (desktopShutdownPromise) return;
+  writeDesktopLogHeader("SIGINT received");
+  requestGracefulAppQuit("SIGINT");
+});
 
-  process.on("SIGINT", () => {
-    if (desktopShutdownPromise) return;
-    writeDesktopLogHeader("SIGINT received");
-    requestGracefulAppQuit("SIGINT");
-  });
-
-  process.on("SIGTERM", () => {
-    if (desktopShutdownPromise) return;
-    writeDesktopLogHeader("SIGTERM received");
-    requestGracefulAppQuit("SIGTERM");
-  });
-}
+process.on("SIGTERM", () => {
+  if (desktopShutdownPromise) return;
+  writeDesktopLogHeader("SIGTERM received");
+  requestGracefulAppQuit("SIGTERM");
+});

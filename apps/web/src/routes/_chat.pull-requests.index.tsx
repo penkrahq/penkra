@@ -154,6 +154,7 @@ function PullRequestsRouteView() {
   const queryClient = useQueryClient();
   // One fetch per (state, project): the server returns the "all" involvement superset and the
   // Reviewing/Authored tabs are derived below, so involvement switches never hit the network.
+  // Manual memoization kept: this file does not compile under React Compiler (see compile-report).
   const listInput = useMemo(
     () => ({ state: search.state, projectId: search.projectId ?? null }),
     [search.projectId, search.state],
@@ -281,7 +282,11 @@ function PullRequestsRouteView() {
   const detailOpen = selectedInput !== null;
   const [renderedInput, setRenderedInput] = useState(selectedInput);
   useEffect(() => {
-    if (selectedInput) setRenderedInput(selectedInput);
+    if (!selectedInput) return;
+    // Timeout-0 keeps the state write asynchronous (compiler-eligible); the
+    // detail panel animates in over 300ms, so one macrotask is invisible.
+    const timeout = window.setTimeout(() => setRenderedInput(selectedInput), 0);
+    return () => window.clearTimeout(timeout);
     // selectedInput is a fresh object literal every render; depend on its primitive
     // fields instead so this only re-fires when the actual selection changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -387,8 +392,8 @@ function PullRequestsRouteView() {
           >
             <div className={cn("flex items-center gap-2", CHAT_SURFACE_HEADER_HEIGHT_CLASS)}>
               <SidebarHeaderNavigationControls />
-              {/* The title rides the surface header like the automations detail route, so the
-                  scroll area opens straight onto the filters and the list. */}
+              {/* Keep the title in the surface header so the scroll area opens straight onto
+                  the filters and the list. */}
               <h1 className="truncate font-heading text-sm font-medium">Pull requests</h1>
               {scopedProjectName ? (
                 <>

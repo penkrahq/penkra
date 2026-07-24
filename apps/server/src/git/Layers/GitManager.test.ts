@@ -17,10 +17,6 @@ import { GitCommandError, GitHubCliError, TextGenerationError } from "../Errors.
 import { type GitManagerShape } from "../Services/GitManager.ts";
 import { GitHubCli, PULL_REQUEST_SUMMARY_JSON_FIELDS } from "../Services/GitHubCli.ts";
 import {
-  type AutomationIntentGenerationInput,
-  type AutomationIntentGenerationResult,
-  type AutomationCompletionEvaluationInput,
-  type AutomationCompletionEvaluationResult,
   type TextGenerationShape,
   TextGeneration,
   type ThreadRecapGenerationInput,
@@ -83,12 +79,6 @@ interface FakeGitTextGeneration {
   generateThreadRecap: (
     input: ThreadRecapGenerationInput,
   ) => Effect.Effect<{ recap: string }, TextGenerationError>;
-  generateAutomationIntent: (
-    input: AutomationIntentGenerationInput,
-  ) => Effect.Effect<AutomationIntentGenerationResult, TextGenerationError>;
-  evaluateAutomationCompletion: (
-    input: AutomationCompletionEvaluationInput,
-  ) => Effect.Effect<AutomationCompletionEvaluationResult, TextGenerationError>;
 }
 
 function makeTempDir(
@@ -179,26 +169,6 @@ function createTextGeneration(overrides: Partial<FakeGitTextGeneration> = {}): T
       Effect.succeed({
         recap: "Update workflow recap",
       }),
-    generateAutomationIntent: () =>
-      Effect.succeed({
-        isAutomation: true,
-        confidence: 1,
-        language: null,
-        name: "Check site",
-        taskPrompt: "Check the site",
-        schedule: { type: "interval", everySeconds: 3600 },
-        mode: "heartbeat",
-        completionPolicy: { type: "none" },
-        missingFields: [],
-        needsConfirmation: false,
-        reason: null,
-      }),
-    evaluateAutomationCompletion: () =>
-      Effect.succeed({
-        stopMatched: false,
-        confidence: 0.2,
-        reason: "Stop condition was not met.",
-      }),
     ...overrides,
   };
 
@@ -264,28 +234,6 @@ function createTextGeneration(overrides: Partial<FakeGitTextGeneration> = {}): T
           (cause) =>
             new TextGenerationError({
               operation: "generateThreadRecap",
-              detail: "fake text generation failed",
-              ...(cause !== undefined ? { cause } : {}),
-            }),
-        ),
-      ),
-    generateAutomationIntent: (input) =>
-      implementation.generateAutomationIntent(input).pipe(
-        Effect.mapError(
-          (cause) =>
-            new TextGenerationError({
-              operation: "generateAutomationIntent",
-              detail: "fake text generation failed",
-              ...(cause !== undefined ? { cause } : {}),
-            }),
-        ),
-      ),
-    evaluateAutomationCompletion: (input) =>
-      implementation.evaluateAutomationCompletion(input).pipe(
-        Effect.mapError(
-          (cause) =>
-            new TextGenerationError({
-              operation: "evaluateAutomationCompletion",
               detail: "fake text generation failed",
               ...(cause !== undefined ? { cause } : {}),
             }),

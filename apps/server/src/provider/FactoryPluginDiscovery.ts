@@ -1,5 +1,5 @@
 // FILE: FactoryPluginDiscovery.ts
-// Purpose: Reads Factory's local plugin marketplaces into Synara's provider discovery contracts.
+// Purpose: Reads Factory's local plugin marketplaces into Penkra's provider discovery contracts.
 // Layer: Provider filesystem discovery
 // Exports: listFactoryPlugins and readFactoryPlugin.
 

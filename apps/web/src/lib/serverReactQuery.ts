@@ -8,7 +8,6 @@ import { mutationOptions, queryOptions, type QueryClient } from "@tanstack/react
 import { ensureNativeApi } from "~/nativeApi";
 
 export const LOCAL_SERVERS_VISIBLE_REFETCH_INTERVAL_MS = 10_000;
-export const LOCAL_SERVERS_BACKGROUND_REFETCH_INTERVAL_MS = 30_000;
 const LOCAL_SERVERS_DEFAULT_STALE_TIME_MS = 3_000;
 
 export const serverQueryKeys = {
@@ -54,17 +53,6 @@ export function serverAuthSessionQueryOptions() {
       return api.server.getAuthSession();
     },
     staleTime: 15_000,
-  });
-}
-
-export function serverEnvironmentQueryOptions() {
-  return queryOptions({
-    queryKey: serverQueryKeys.environment(),
-    queryFn: async () => {
-      const api = ensureNativeApi();
-      return api.server.getEnvironment();
-    },
-    staleTime: Infinity,
   });
 }
 
@@ -120,7 +108,7 @@ export function serverLocalServersQueryOptions(
 }
 
 // Sidebar project badges need a snapshot, but idle Home should not keep shelling out
-// through lsof/ps; active Synara-owned runs still poll for responsive status.
+// through lsof/ps; active Penkra-owned runs still poll for responsive status.
 export function sidebarLocalServersQueryOptions(input: {
   hasActiveProjectRun: boolean;
   hasProjects: boolean;
@@ -201,7 +189,7 @@ export async function fetchAllProviderUsage(input: ServerListProviderUsageInput 
 }
 
 // Local profile + shareable-card core statistics. The client passes its own fixed
-// UTC offset; all metrics are computed from Synara's local DB projections.
+// UTC offset; all metrics are computed from Penkra's local DB projections.
 export function serverProfileStatsQueryOptions(input: { enabled?: boolean } = {}) {
   const utcOffsetMinutes = -new Date().getTimezoneOffset();
   return queryOptions({

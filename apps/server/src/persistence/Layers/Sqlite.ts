@@ -2,7 +2,16 @@ import { Effect, Layer, FileSystem, Path } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { runMigrations } from "../Migrations.ts";
+import {
+  requireNoPendingMigrationRecovery,
+  runWithPreMigrationBackup,
+} from "../MigrationBackup.ts";
+import { ensurePrivateFileSync, repairPrivateFile } from "../../privatePathPermissions.ts";
 import { ServerConfig } from "../../config.ts";
+import {
+  acquireDatabaseLifecycleLock,
+  releaseDatabaseLifecycleLock,
+} from "../DatabaseLifecycleLock.ts";
 
 type RuntimeSqliteLayerConfig = {
   readonly filename: string;
@@ -26,26 +35,73 @@ const makeRuntimeSqliteLayer = (
     return clientModule.layer(config);
   }).pipe(Layer.unwrap);
 
-const setup = Layer.effectDiscard(
-  Effect.gen(function* () {
-    const sql = yield* SqlClient.SqlClient;
-    yield* sql`PRAGMA journal_mode = WAL;`;
-    yield* sql`PRAGMA foreign_keys = ON;`;
-    yield* runMigrations();
-  }),
-);
+function errnoCode(cause: unknown): string | undefined {
+  const error = cause as (Error & { readonly code?: string; readonly cause?: unknown }) | null;
+  return error?.code ?? (error?.cause as NodeJS.ErrnoException | undefined)?.code;
+}
+
+const repairSqliteFilePermissions = (dbPath: string) =>
+  Effect.promise(async () => {
+    await repairPrivateFile(dbPath);
+    for (const suffix of ["-wal", "-shm"]) {
+      await repairPrivateFile(`${dbPath}${suffix}`).catch((cause) => {
+        if (errnoCode(cause) !== "ENOENT") throw cause;
+      });
+    }
+  });
+
+const makeSetup = (dbPath?: string) =>
+  Layer.effectDiscard(
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const journalModeRows = yield* sql<{ readonly journal_mode: string }>`
+        PRAGMA journal_mode = WAL;
+      `;
+      const journalMode = journalModeRows[0]?.journal_mode;
+      if (journalMode?.toLowerCase() !== "wal") {
+        yield* Effect.logWarning("SQLite WAL journal mode could not be enabled", {
+          resultingJournalMode: journalMode ?? "unknown",
+        });
+      }
+      // synchronous = NORMAL under WAL preserves database consistency and is
+      // safe across application crashes (no corruption, no torn writes). The
+      // only accepted risk is that an OS crash or power loss may lose the most
+      // recent committed transaction(s) that had not yet been checkpointed.
+      // That tradeoff is deliberate: at our per-event write rate, FULL's fsync
+      // on every commit is too costly, and losing the last few events on a hard
+      // power loss is acceptable.
+      yield* sql`PRAGMA synchronous = NORMAL;`;
+      yield* sql`PRAGMA busy_timeout = 5000;`;
+      yield* sql`PRAGMA foreign_keys = ON;`;
+      const migrations = dbPath
+        ? runWithPreMigrationBackup(dbPath, runMigrations())
+        : runMigrations();
+      yield* dbPath
+        ? migrations.pipe(Effect.ensuring(repairSqliteFilePermissions(dbPath)))
+        : migrations;
+    }),
+  );
 
 export const makeSqlitePersistenceLive = (dbPath: string) =>
-  Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem;
-    const path = yield* Path.Path;
-    yield* fs.makeDirectory(path.dirname(dbPath), { recursive: true });
+  Effect.acquireRelease(acquireDatabaseLifecycleLock(dbPath), (lock) =>
+    releaseDatabaseLifecycleLock(lock).pipe(Effect.orDie),
+  ).pipe(
+    Effect.flatMap(() =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        yield* fs.makeDirectory(path.dirname(dbPath), { recursive: true });
+        yield* requireNoPendingMigrationRecovery(dbPath);
+        yield* Effect.sync(() => ensurePrivateFileSync(dbPath));
 
-    return Layer.provideMerge(setup, makeRuntimeSqliteLayer({ filename: dbPath }));
-  }).pipe(Layer.unwrap);
+        return Layer.provideMerge(makeSetup(dbPath), makeRuntimeSqliteLayer({ filename: dbPath }));
+      }),
+    ),
+    Layer.unwrap,
+  );
 
 export const SqlitePersistenceMemory = Layer.provideMerge(
-  setup,
+  makeSetup(),
   makeRuntimeSqliteLayer({ filename: ":memory:" }),
 );
 

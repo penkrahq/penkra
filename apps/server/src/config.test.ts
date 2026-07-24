@@ -47,9 +47,9 @@ afterEach(() => {
 });
 
 describe("resolveStaticDir", () => {
-  it("uses the desktop static snapshot exposed through the Synara environment", async () => {
+  it("uses the desktop static snapshot exposed through the Penkra environment", async () => {
     const snapshotDir = makeTempDir("synara-static-snapshot-test-");
-    fs.writeFileSync(path.join(snapshotDir, "index.html"), "<main>Synara</main>");
+    fs.writeFileSync(path.join(snapshotDir, "index.html"), "<main>Penkra</main>");
     process.env.SYNARA_STATIC_DIR = snapshotDir;
 
     const resolved = await Effect.runPromise(
@@ -77,19 +77,19 @@ describe("resolveDefaultChatWorkspaceRoot", () => {
     ).toBe("/Users/tester/Penkra/.scratch/Studio");
   });
 
-  it("places the managed chat workspace under Documents/Synara on macOS and Linux", () => {
+  it("places the managed chat workspace under Documents/Penkra on macOS and Linux", () => {
     expect(
       resolveDefaultChatWorkspaceRoot({
         homeDir: "/Users/tester",
         platform: "darwin",
       }),
-    ).toBe("/Users/tester/Documents/Synara");
+    ).toBe("/Users/tester/Documents/Penkra");
     expect(
       resolveDefaultChatWorkspaceRoot({
         homeDir: "/home/tester",
         platform: "linux",
       }),
-    ).toBe("/home/tester/Documents/Synara");
+    ).toBe("/home/tester/Documents/Penkra");
   });
 
   it("uses Windows separators when deriving the managed chat workspace on Windows", () => {
@@ -98,7 +98,7 @@ describe("resolveDefaultChatWorkspaceRoot", () => {
         homeDir: "C:\\Users\\tester",
         platform: "win32",
       }),
-    ).toBe("C:\\Users\\tester\\Documents\\Synara");
+    ).toBe("C:\\Users\\tester\\Documents\\Penkra");
   });
 
   it("defaults to the current process platform when no platform is supplied", () => {
@@ -110,7 +110,7 @@ describe("resolveDefaultChatWorkspaceRoot", () => {
 
     try {
       expect(resolveDefaultChatWorkspaceRoot({ homeDir: "C:\\Users\\tester" })).toBe(
-        "C:\\Users\\tester\\Documents\\Synara",
+        "C:\\Users\\tester\\Documents\\Penkra",
       );
     } finally {
       Object.defineProperty(process, "platform", originalPlatformDescriptor!);
@@ -119,19 +119,19 @@ describe("resolveDefaultChatWorkspaceRoot", () => {
 });
 
 describe("resolveDefaultStudioWorkspaceRoot", () => {
-  it("places the Studio workspace under Documents/Synara/Studio on macOS and Linux", () => {
+  it("places the Studio workspace under Documents/Penkra/Studio on macOS and Linux", () => {
     expect(
       resolveDefaultStudioWorkspaceRoot({
         homeDir: "/Users/tester",
         platform: "darwin",
       }),
-    ).toBe("/Users/tester/Documents/Synara/Studio");
+    ).toBe("/Users/tester/Documents/Penkra/Studio");
     expect(
       resolveDefaultStudioWorkspaceRoot({
         homeDir: "/home/tester",
         platform: "linux",
       }),
-    ).toBe("/home/tester/Documents/Synara/Studio");
+    ).toBe("/home/tester/Documents/Penkra/Studio");
   });
 
   it("uses Windows separators when deriving the Studio workspace on Windows", () => {
@@ -140,7 +140,7 @@ describe("resolveDefaultStudioWorkspaceRoot", () => {
         homeDir: "C:\\Users\\tester",
         platform: "win32",
       }),
-    ).toBe("C:\\Users\\tester\\Documents\\Synara\\Studio");
+    ).toBe("C:\\Users\\tester\\Documents\\Penkra\\Studio");
   });
 });
 
@@ -162,9 +162,9 @@ describe("resolveCanonicalWorkspaceRoots", () => {
     // chatWorkspaceRoot/studioWorkspaceRoot don't exist yet under the resolved
     // home, so they must be re-derived from the canonicalized (symlink-free)
     // home rather than the raw, symlinked input.
-    expect(result.chatWorkspaceRoot).toBe(path.join(expectedHomeDir, "Documents", "Synara"));
+    expect(result.chatWorkspaceRoot).toBe(path.join(expectedHomeDir, "Documents", "Penkra"));
     expect(result.studioWorkspaceRoot).toBe(
-      path.join(expectedHomeDir, "Documents", "Synara", "Studio"),
+      path.join(expectedHomeDir, "Documents", "Penkra", "Studio"),
     );
   });
 
@@ -176,7 +176,7 @@ describe("resolveCanonicalWorkspaceRoots", () => {
     fs.mkdirSync(homeDir, { recursive: true });
     // Symlink ~/Documents to a real directory elsewhere, matching the bug
     // report scenario (e.g. iCloud-managed Documents on macOS). Neither
-    // Synara/ nor Synara/Studio exist yet underneath it.
+    // Penkra/ nor Penkra/Studio exist yet underneath it.
     const symlinkedDocuments = path.join(homeDir, "Documents");
     fs.symlinkSync(realDocuments, symlinkedDocuments, "dir");
 
@@ -187,8 +187,8 @@ describe("resolveCanonicalWorkspaceRoots", () => {
 
     const expectedDocuments = fs.realpathSync(realDocuments);
     expect(result.homeDir).toBe(fs.realpathSync(homeDir));
-    expect(result.chatWorkspaceRoot).toBe(path.join(expectedDocuments, "Synara"));
-    expect(result.studioWorkspaceRoot).toBe(path.join(expectedDocuments, "Synara", "Studio"));
+    expect(result.chatWorkspaceRoot).toBe(path.join(expectedDocuments, "Penkra"));
+    expect(result.studioWorkspaceRoot).toBe(path.join(expectedDocuments, "Penkra", "Studio"));
     expect(fs.existsSync(result.chatWorkspaceRoot)).toBe(false);
     expect(fs.existsSync(result.studioWorkspaceRoot)).toBe(false);
 

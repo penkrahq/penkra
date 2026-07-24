@@ -82,7 +82,7 @@ export const ProviderListSkillsResult = Schema.Struct({
 });
 export type ProviderListSkillsResult = typeof ProviderListSkillsResult.Type;
 
-// Unified cross-provider skills catalog (Synara portable skills). Descriptors use
+// Unified cross-provider skills catalog (Penkra portable skills). Descriptors use
 // `scope` to carry the origin label ("synara", "codex", "claude", "cursor", ...).
 export const ProviderSkillsCatalogInput = Schema.Struct({
   cwd: Schema.optional(TrimmedNonEmptyString),
@@ -107,7 +107,6 @@ export const ProviderListCommandsInput = Schema.Struct({
   threadId: Schema.optional(TrimmedNonEmptyString),
   binaryPath: Schema.optional(TrimmedNonEmptyString),
   serverUrl: Schema.optional(TrimmedNonEmptyString),
-  serverPassword: Schema.optional(TrimmedNonEmptyString),
   experimentalWebSockets: Schema.optional(Schema.Boolean),
   agentDir: Schema.optional(TrimmedNonEmptyString),
   forceReload: Schema.optional(Schema.Boolean),

@@ -68,15 +68,23 @@ function expandProviderNativeSlashCommandNames(
   return [...expandedNames];
 }
 
+/**
+ * Providers where app-owned /review (target picker + structured prompt) must
+ * win over listing a native "review" command. OpenCode exposes /review in its
+ * command list but does not honor bare `/review` text turns (#218).
+ */
+export function providerUsesAppOwnedReviewSlashCommand(provider: ProviderKind): boolean {
+  return provider === "codex" || provider === "opencode";
+}
+
 function shouldKeepBuiltInSlashCommandDespiteNativeCollision(
   provider: ProviderKind,
   command: ComposerSlashCommand,
 ): boolean {
   return (
-    command === "automation" ||
     command === "export" ||
     command === "feedback" ||
-    (provider === "codex" && command === "review")
+    (providerUsesAppOwnedReviewSlashCommand(provider) && command === "review")
   );
 }
 
@@ -88,11 +96,27 @@ export function shouldHideProviderNativeCommandFromComposerMenu(
   const normalizedCommand = normalizeComposerSlashCommandName(command);
   const appCommandIsAvailable = options.availableAppCommands?.has(normalizedCommand) ?? true;
   return (
-    normalizedCommand === "automation" ||
     (normalizedCommand === "export" && appCommandIsAvailable) ||
     (normalizedCommand === "feedback" && appCommandIsAvailable) ||
-    (provider === "codex" && normalizedCommand === "review")
+    (providerUsesAppOwnedReviewSlashCommand(provider) && normalizedCommand === "review")
   );
+}
+
+/**
+ * True when a discovered native "review" command should be sent as plain
+ * `/review` text. Codex/OpenCode use the app review UX instead (#218).
+ */
+export function providerSupportsTextNativeReviewCommand(
+  provider: ProviderKind,
+  nativeCommandNames: ReadonlyArray<{ readonly name: string } | string>,
+): boolean {
+  if (providerUsesAppOwnedReviewSlashCommand(provider)) {
+    return false;
+  }
+  return nativeCommandNames.some((command) => {
+    const name = typeof command === "string" ? command : command.name;
+    return name.trim().toLowerCase() === "review";
+  });
 }
 
 export function getProviderNativeSlashCommandSearchTerms(
@@ -185,12 +209,6 @@ const COMPOSER_SLASH_COMMAND_DEFINITIONS: Record<
     description: "Send feedback to the Penkra team",
     source: "app",
   },
-  automation: {
-    command: "automation",
-    label: "/automation",
-    description: "Create a scheduled automation from this prompt",
-    source: "app",
-  },
 };
 
 export function isBuiltInComposerSlashCommand(value: string): value is ComposerSlashCommand {
@@ -217,12 +235,6 @@ export function parseComposerSlashInvocationForCommands(
     command: command as ComposerSlashCommand,
     args: (match[2] ?? "").trim(),
   };
-}
-
-export function getComposerSlashCommandDefinition(
-  command: ComposerSlashCommand,
-): ComposerSlashCommandDefinition {
-  return COMPOSER_SLASH_COMMAND_DEFINITIONS[command];
 }
 
 export function filterComposerSlashCommands(
@@ -392,17 +404,15 @@ export function getAvailableComposerSlashCommands(input: {
           "subagents",
           ...(input.canOfferExportCommand ? (["export"] as const) : []),
           "feedback",
-          "automation",
         ]
       : [
           // Claude owns most slash-command UX natively; sidechat remains app-level because it
-          // creates a Synara split/context clone before the provider sees the first turn.
-          // /export is app-level too — Synara owns the thread transcript, so the download
+          // creates a Penkra split/context clone before the provider sees the first turn.
+          // /export is app-level too — Penkra owns the thread transcript, so the download
           // happens in the app rather than being forwarded to Claude's native /export.
           ...(input.canOfferSideCommand ? (["side"] as const) : []),
           ...(input.canOfferExportCommand ? (["export"] as const) : []),
           "feedback",
-          "automation",
         ];
   return availableCommands.filter((command) => !collidingNativeCommandNames.has(command));
 }

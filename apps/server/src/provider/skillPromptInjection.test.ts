@@ -31,7 +31,7 @@ describe("shouldInlineSkillForProvider", () => {
     expect(shouldInlineSkillForProvider("codex", cursorSkillPath)).toBe(true);
   });
 
-  it("inlines only Synara-owned paths for cursor", () => {
+  it("inlines only Penkra-owned paths for cursor", () => {
     expect(shouldInlineSkillForProvider("cursor", synaraSkillPath)).toBe(true);
     expect(shouldInlineSkillForProvider("cursor", cursorSkillPath)).toBe(false);
     expect(shouldInlineSkillForProvider("cursor", codexSkillPath)).toBe(false);

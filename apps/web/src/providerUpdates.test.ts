@@ -63,12 +63,12 @@ function serverSettings(overrides: Partial<ServerSettings["providers"]> = {}): S
       antigravity: { ...provider, binaryPath: "agy" },
       grok: { ...provider, binaryPath: "grok" },
       droid: { ...provider, binaryPath: "droid" },
-      kilo: { ...provider, binaryPath: "kilo", serverUrl: "", serverPassword: "" },
+      kilo: { ...provider, binaryPath: "kilo", serverUrl: "", serverPasswordConfigured: false },
       opencode: {
         ...provider,
         binaryPath: "opencode",
         serverUrl: "",
-        serverPassword: "",
+        serverPasswordConfigured: false,
         experimentalWebSockets: false,
       },
       pi: { ...provider, binaryPath: "pi", agentDir: "" },
@@ -79,7 +79,7 @@ function serverSettings(overrides: Partial<ServerSettings["providers"]> = {}): S
 }
 
 describe("getVisibleProviderUpdateStatuses", () => {
-  it("excludes providers hidden from Synara so unchecked providers do not nag", () => {
+  it("excludes providers hidden from Penkra so unchecked providers do not nag", () => {
     const result = getVisibleProviderUpdateStatuses({
       providers: [providerStatus("codex"), providerStatus("pi")],
       hiddenProviders: ["pi"],

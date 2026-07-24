@@ -22,16 +22,86 @@ import type { WhatsNewEntry } from "./logic";
 
 export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
   {
+    version: "0.6.0",
+    date: "Jul 24",
+    features: [
+      {
+        id: "built-in-synara-mcp",
+        title: "Penkra's agents can now operate Penkra",
+        description:
+          "Every supported agent running inside Penkra receives built-in tools to understand the app, delegate work, coordinate parallel tasks, and inspect failures.",
+        details:
+          "The Penkra Agent Gateway can list and read projects and tasks, create one task or an exact multi-agent batch across providers and models, wait for every result, continue or interrupt work, rename or archive tasks, and inspect runtime diagnostics. Thread-bound authority, privilege caps, idempotent creation, isolated worktrees, and restart recovery keep delegated work visible and contained.",
+      },
+      {
+        id: "project-spaces",
+        title: "Organize projects into Spaces",
+        description:
+          "Create named, icon-based Spaces for the parts of your work that belong together, while unassigned projects remain easy to find in Void.",
+        details:
+          "Spaces support persisted ordering, project assignment, drag-and-drop movement, bulk moves, activity indicators, inline creation while adding a project, and numbered keyboard shortcuts for direct switching.",
+      },
+      {
+        id: "claude-subagents-workflows",
+        title: "Claude subagents and workflows are first-class",
+        description:
+          "Follow Claude's native subagents and dynamic workflows as real Penkra work, with live status, phases, tools, usage, steering, and background controls.",
+        details:
+          "Child tasks are navigable and independently visible, workflow cards show every phase and agent by default, model and effort stay live, and pause, resume, stop, foreground, and background actions remain synchronized through late events and provider restarts.",
+      },
+      {
+        id: "cross-task-context",
+        title: "Bring another task into the conversation",
+        description:
+          "Mention an existing Penkra task from the composer to give the current agent the right recent context without copying a transcript by hand.",
+        details:
+          "Cross-task mentions include bounded recent conversation context together with the source project and provider identity, and disambiguate tasks that share the same title.",
+      },
+      {
+        id: "faster-agent-work",
+        title: "New work starts faster and streams lighter",
+        description:
+          "New chats paint sooner, model choices arrive earlier, and active turns spend less time on repeated setup, storage, and rendering work.",
+        details:
+          "Penkra prefetches provider models before the composer opens, avoids a redundant first-turn Claude permission wait, prepares Codex overlays without blocking, parallelizes independent turn-start I/O, reduces streaming SQL work, and expands React Compiler coverage across the web app.",
+      },
+      {
+        id: "provider-reliability",
+        title: "Provider sessions stay truer to their capabilities",
+        description:
+          "Claude, Codex, Cursor, Droid, Grok, OpenCode, Kilo, Pi, and Antigravity receive a broad round of model, permission, resume, child-event, and completion fixes.",
+        details:
+          "Highlights include Fable 5 and Opus 4.8 in Pi, namespaced Cursor and Grok model support, accurate Claude context windows, official ACP SDK handling, app-owned OpenCode review commands, isolated Codex child events, safer provider updates, preserved blank PATH defaults, and an Antigravity hook that no longer launches Penkra unexpectedly.",
+      },
+      {
+        id: "desktop-runtime-hardening",
+        title: "Desktop and browser lifecycles recover cleanly",
+        description:
+          "Browser control, Windows shutdown, managed worktrees, durable secrets, thread deletion, and macOS release finalization now fail and recover more predictably.",
+        details:
+          "The desktop browser bridge restores discovery, ownership, teardown, and reconnect behavior; Windows waits for the backend to stop; interrupted worktree cleanup resumes safely; deleted work cannot resurrect queued turns; credential writes survive interruption; and universal macOS releases preserve the correct update metadata.",
+      },
+      {
+        id: "workspace-polish",
+        title: "Hundreds of small edges feel calmer",
+        description:
+          "Sharper Markdown hierarchy, steadier pickers, better composer spacing, smarter sidebar priority, clearer Studio Git controls, and new shortcuts make daily work easier to scan.",
+        details:
+          "This release also adds Commit and Push from the active task, configurable AppSnap shortcuts, a folder opener in Studio, a slimmer running indicator, reliable Cmd+K search on macOS, fixed PR review counts, safer file-icon lookup, cleaner stacked composer panels, and a global new-task flow that uses the latest project state.",
+      },
+    ],
+  },
+  {
     version: "0.5.5",
     date: "Jul 17",
     features: [
       {
         id: "antigravity-provider",
-        title: "Antigravity joins Synara",
+        title: "Antigravity joins Penkra",
         description:
           "Connect the Antigravity CLI as a first-class coding agent, with discovered models, reasoning controls, streaming activity, approvals, and resumable conversations.",
         details:
-          "The new provider adapter covers installation and authentication guidance, model and effort discovery, session creation and resume, tool and plan events, permission requests, usage reporting, cancellation, and restart recovery. Synara also includes dedicated Antigravity branding throughout provider setup and selection.",
+          "The new provider adapter covers installation and authentication guidance, model and effort discovery, session creation and resume, tool and plan events, permission requests, usage reporting, cancellation, and restart recovery. Penkra also includes dedicated Antigravity branding throughout provider setup and selection.",
       },
       {
         id: "steadier-live-turns",
@@ -63,7 +133,7 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         description:
           "A failed Cursor model refresh no longer takes down the model picker or discards usable choices from other discovery sources.",
         details:
-          "Model-catalog queries retain successful and cached data when one Cursor discovery path fails, while pull-request data is coalesced through shared list logic and picker popups use a unified interaction model. Diff headers now use Synara's own visual chrome for a more consistent workspace.",
+          "Model-catalog queries retain successful and cached data when one Cursor discovery path fails, while pull-request data is coalesced through shared list logic and picker popups use a unified interaction model. Diff headers now use Penkra's own visual chrome for a more consistent workspace.",
       },
     ],
   },
@@ -73,7 +143,7 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
     features: [
       {
         id: "pull-request-workspace",
-        title: "Review pull requests without leaving Synara",
+        title: "Review pull requests without leaving Penkra",
         description:
           "Browse, search, and filter pull requests across your projects, then open a complete review workspace beside the conversation.",
         details:
@@ -107,7 +177,7 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         id: "desktop-window-restore",
         title: "Desktop windows reopen where you left them",
         description:
-          "Synara restores the previous desktop window size, position, and maximized state while keeping reopened windows on a visible display.",
+          "Penkra restores the previous desktop window size, position, and maximized state while keeping reopened windows on a visible display.",
         details:
           "Window state is persisted across launches and validated against the current monitor layout, avoiding off-screen restoration when displays have changed.",
       },
@@ -129,7 +199,7 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         id: "appsnap-capture",
         title: "Capture any Mac app straight into your task",
         description:
-          "Press both Option keys to capture the window you are using and attach it to the current Synara task.",
+          "Press both Option keys to capture the window you are using and attach it to the current Penkra task.",
         details:
           "AppSnap is an opt-in macOS workflow with a dedicated setup panel, permission guidance, capture feedback, app icons, and a first-run introduction. Captures stay tied to the active task without stealing focus, and the desktop helper is included in packaged Mac builds.",
       },
@@ -167,15 +237,15 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         id: "droid-provider",
         title: "Factory Droid is now a first-class provider",
         description:
-          "Droid is now available alongside Synara's other agents, with runtime model discovery, session import, token multipliers, and resilient resume and recovery.",
+          "Droid is now available alongside Penkra's other agents, with runtime model discovery, session import, token multipliers, and resilient resume and recovery.",
         details:
-          "Synara now connects to Factory Droid through ACP, discovers models and their switching capabilities at runtime, imports existing Droid sessions, carries context across forks and restarts, and keeps bootstrap, configuration, and turn teardown state coherent. The release also adds the Factory logo and richer Droid token reporting.",
+          "Penkra now connects to Factory Droid through ACP, discovers models and their switching capabilities at runtime, imports existing Droid sessions, carries context across forks and restarts, and keeps bootstrap, configuration, and turn teardown state coherent. The release also adds the Factory logo and richer Droid token reporting.",
       },
       {
         id: "large-history-startup",
         title: "Large conversation histories start reliably",
         description:
-          "Synara now upgrades large local histories without leaving the project list stuck on its loading screen.",
+          "Penkra now upgrades large local histories without leaving the project list stuck on its loading screen.",
         details:
           "The activity-sequence backfill now builds one indexed lookup instead of repeatedly scanning the entire event history. A database with more than 180,000 activities completes the recovery in seconds while preserving every project, thread, message, and activity.",
       },
@@ -225,11 +295,11 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
     features: [
       {
         id: "synara-identity",
-        title: "Synara, all the way through",
+        title: "Penkra, all the way through",
         description:
           "The app now uses one identity everywhere, from its desktop installation and command line to packages, settings, diagnostics, and release artifacts.",
         details:
-          "The desktop bundle is now com.emanueledipietro.synara, the CLI is @synara/cli with the synara command, and every first-party runtime identifier uses the Synara namespace. The 0.4.2 bridge preserves renderer state during the origin change.",
+          "The desktop bundle is now com.emanueledipietro.synara, the CLI is @synara/cli with the synara command, and every first-party runtime identifier uses the Penkra namespace. The 0.4.2 bridge preserves renderer state during the origin change.",
       },
       {
         id: "claude-context-and-resume",
@@ -279,11 +349,11 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
     features: [
       {
         id: "synara-identity-bridge",
-        title: "Synara is preparing a seamless identity upgrade",
+        title: "Penkra is preparing a seamless identity upgrade",
         description:
-          "Launch this version at least once before installing the next Synara release so your drafts, pins, theme, browser state, and other local interface preferences move with you.",
+          "Launch this version at least once before installing the next Penkra release so your drafts, pins, theme, browser state, and other local interface preferences move with you.",
         details:
-          "This bridge writes a validated Synara-only snapshot of renderer state, keeps existing project and thread data intact, and prepares database and checkpoint metadata for the final identity cutover. Earlier command and environment aliases are accepted by this bridge release only and will be removed next.",
+          "This bridge writes a validated Penkra-only snapshot of renderer state, keeps existing project and thread data intact, and prepares database and checkpoint metadata for the final identity cutover. Earlier command and environment aliases are accepted by this bridge release only and will be removed next.",
       },
       {
         id: "claude-usage-reliability",
@@ -297,7 +367,7 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         id: "desktop-update-verification",
         title: "Desktop updates now verify their own installs",
         description:
-          "Synara checks that an update actually installed after restart, detects failed installs, and recovers instead of silently staying on the old version.",
+          "Penkra checks that an update actually installed after restart, detects failed installs, and recovers instead of silently staying on the old version.",
         details:
           "A durable install marker survives restarts and tracks handoff state, an install watchdog recovers from hung installs, and on macOS dedicated diagnostics capture updater state to make failures actionable.",
       },
@@ -343,7 +413,7 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         id: "restore-and-routing-reliability",
         title: "Returning to a chat or Studio is more reliable",
         description:
-          "Synara is more careful about restoring the right destination after reloads, segment switches, reconnects, and partially completed project creation.",
+          "Penkra is more careful about restoring the right destination after reloads, segment switches, reconnects, and partially completed project creation.",
         details:
           "Routing now prefers canonical containers, waits for snapshot hydration where needed, fails closed on ambiguous thread kinds, and guards against overlapping fresh-chat creation so drafts and active work land in the intended surface.",
       },
@@ -389,7 +459,7 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         id: "claude-rate-limits",
         title: "Claude rate limits fail more gracefully",
         description:
-          "When Claude reports usage or rate-limit trouble, Synara now presents the condition more calmly instead of turning it into a generic provider failure.",
+          "When Claude reports usage or rate-limit trouble, Penkra now presents the condition more calmly instead of turning it into a generic provider failure.",
         details:
           "Provider usage handling now narrows usage summary types more safely and treats Claude usage limit responses as a recoverable, user-facing state with focused parser and resilience coverage.",
       },
@@ -443,7 +513,7 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         id: "terminal-shutdown-escalation",
         title: "Terminal shutdown is more reliable",
         description:
-          "Synara is better at shutting down stubborn terminal process trees without returning early while child processes are still alive.",
+          "Penkra is better at shutting down stubborn terminal process trees without returning early while child processes are still alive.",
         details:
           "TerminalManager now routes shutdown through a dedicated process-tree killer with SIGTERM-to-SIGKILL escalation, cancellation when processes exit cleanly, nested process activity coverage, and tests for disposal timing.",
       },
@@ -481,17 +551,9 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         id: "worktree-setup-status",
         title: "Worktree setup failures recover cleanly",
         description:
-          "When a worktree setup step fails, Synara now shows the failed setup state, keeps the timeline from looking stuck, and resets the local dispatch when you send again.",
+          "When a worktree setup step fails, Penkra now shows the failed setup state, keeps the timeline from looking stuck, and resets the local dispatch when you send again.",
         details:
           "ChatView and timeline setup snapshots now carry explicit setup step status, targeted cleanup for failed local dispatches, and focused browser/unit coverage for new-turn reset and setup rows.",
-      },
-      {
-        id: "automation-sent-label",
-        title: "Automation messages are labeled",
-        description:
-          "Prompts sent by an automation now carry a lightweight 'Sent via Automation' label above the bubble, so you can tell at a glance which turns you typed and which a scheduled or heartbeat run kicked off.",
-        details:
-          "User turns dispatched by the automation engine now persist a `dispatchOrigin` on the message end to end (command → event → projection → snapshot), and the transcript renders a clock-marked chip that mirrors the existing steering label.",
       },
       {
         id: "approval-choice-polish",
@@ -505,7 +567,7 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         id: "startup-keepalive-gating",
         title: "Startup does less surprise work",
         description:
-          "Synara avoids unnecessary provider refresh work during startup and gates Claude keepalive behavior more carefully, so opening the app is calmer and less likely to fight credential checks.",
+          "Penkra avoids unnecessary provider refresh work during startup and gates Claude keepalive behavior more carefully, so opening the app is calmer and less likely to fight credential checks.",
         details:
           "Server startup no longer runs provider refresh eagerly, Claude keepalive respects auth-state timing, provider usage hooks handle inactive summaries more predictably, and related settings/server query invalidation paths have tests.",
       },
@@ -527,7 +589,7 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         id: "update-download-progress",
         title: "Update downloads show their progress",
         description:
-          "When Synara is downloading a desktop update, the sidebar update button now shows a live percent badge so you can tell whether it is moving or nearly ready.",
+          "When Penkra is downloading a desktop update, the sidebar update button now shows a live percent badge so you can tell whether it is moving or nearly ready.",
         details:
           "The desktop update helper now clamps reported download percentages, hides them outside active downloads, and covers edge cases for null, negative, oversized, and fractional progress values.",
       },
@@ -543,7 +605,7 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         id: "checkpoint-baseline-resilience",
         title: "Turn checkpoints are harder to confuse",
         description:
-          "Synara preserves the first pre-turn snapshot more carefully, so transcript diffs and restore points better match what was on disk when you pressed send.",
+          "Penkra preserves the first pre-turn snapshot more carefully, so transcript diffs and restore points better match what was on disk when you pressed send.",
         details:
           "Checkpoint capture now has single-flight behavior per repo/ref, a bounded capture timeout, first-writer-wins `skipIfExists` baselines, and extra recovery when a startup or backup path missed the original message baseline.",
       },
@@ -581,13 +643,13 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         id: "cursor-launch-fallbacks",
         title: "Cursor launch fallback is much sturdier",
         description:
-          "Synara now finds Cursor agent commands across more install layouts, including bundled sibling shims and legacy shim locations, while rejecting unsafe fallbacks.",
+          "Penkra now finds Cursor agent commands across more install layouts, including bundled sibling shims and legacy shim locations, while rejecting unsafe fallbacks.",
         details:
           "Cursor ACP command discovery now resolves safer CLI paths, honors bundled sibling launchers, preserves legacy shim coverage, and avoids falling back to paths that do not match the expected Cursor agent shape.",
       },
       {
         id: "muxy-open-in",
-        title: "Muxy can open from Synara",
+        title: "Muxy can open from Penkra",
         description:
           "Open-in support now recognizes Muxy, so editor/open buttons can hand files to the right desktop target when Muxy is part of your workflow.",
         details:
@@ -613,7 +675,7 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         id: "claude-credential-keepalive",
         title: "Claude credentials stay fresh longer",
         description:
-          "Synara refreshes Claude credential freshness on macOS so long sessions are less likely to hit the familiar stale-token sign-in failure.",
+          "Penkra refreshes Claude credential freshness on macOS so long sessions are less likely to hit the familiar stale-token sign-in failure.",
         details:
           "A Claude credential keepalive helper, adapter integration, and focused tests now keep the OAuth token file active enough to avoid the roughly eight-hour stale credential path.",
       },
@@ -715,7 +777,7 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         description:
           "Agent mentions, task rows, tool labels, file-change rows, chat seams, and switches received a small polish pass that makes dense chats easier to scan.",
         details:
-          "Synara now reuses the central robot glyph for agent chips, improves file-change and tool-call labels, refines chat card contrast, and tightens shared switch sizing, thumb travel, and animation.",
+          "Penkra now reuses the central robot glyph for agent chips, improves file-change and tool-call labels, refines chat card contrast, and tightens shared switch sizing, thumb travel, and animation.",
       },
       {
         id: "release-gate-type-fixes",
@@ -735,7 +797,7 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         id: "windows-vscode-store-launch",
         title: "VS Code from the Microsoft Store opens correctly on Windows",
         description:
-          "Synara can now launch VS Code Store installs through the right Windows app identity and URI fallback, so editor buttons work even when the normal `code` command is unavailable.",
+          "Penkra can now launch VS Code Store installs through the right Windows app identity and URI fallback, so editor buttons work even when the normal `code` command is unavailable.",
         details:
           "Editor launch discovery now understands Windows packaged app metadata, adds VS Code and VS Code Insiders Store coverage, falls back from command launch to URI activation, and keeps file-manager launches isolated from editor-specific behavior.",
       },
@@ -743,17 +805,17 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         id: "provider-update-checks",
         title: "Provider update checks are now optional",
         description:
-          "A new settings toggle lets you disable provider update checks when you want Synara to stay quieter about external CLI versions.",
+          "A new settings toggle lets you disable provider update checks when you want Penkra to stay quieter about external CLI versions.",
         details:
           "Provider health, server settings, app settings migration, settings search, root notifications, and provider update filtering now share the same `enableProviderUpdateChecks` flag so background update notices respect the user's preference.",
       },
       {
         id: "icons-and-logo-refresh",
-        title: "The app icon and Synara mark look cleaner",
+        title: "The app icon and Penkra mark look cleaner",
         description:
-          "The desktop, web, marketing, and release assets were refreshed so the Synara icon renders more consistently across macOS, Windows, browser favicons, and update artifacts.",
+          "The desktop, web, marketing, and release assets were refreshed so the Penkra icon renders more consistently across macOS, Windows, browser favicons, and update artifacts.",
         details:
-          "This release refreshes the inline Synara logo path, replaces generated icon assets from the full source image, corrects macOS bundle icon handling after the rounded-icon Ventura pass, and removes a literal Dock-icon workaround that was not the final direction.",
+          "This release refreshes the inline Penkra logo path, replaces generated icon assets from the full source image, corrects macOS bundle icon handling after the rounded-icon Ventura pass, and removes a literal Dock-icon workaround that was not the final direction.",
       },
       {
         id: "workspace-explorer-polish",
@@ -767,7 +829,7 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         id: "lighter-idle-polling",
         title: "Idle server polling is lighter",
         description:
-          "Synara polls local server state less aggressively while idle, reducing background work without changing the active-session refresh path.",
+          "Penkra polls local server state less aggressively while idle, reducing background work without changing the active-session refresh path.",
         details:
           "The server React Query helper now separates active and idle refresh intervals, the sidebar uses the calmer idle cadence, and focused tests cover the interval behavior.",
       },
@@ -789,7 +851,7 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         id: "branch-toolbar-projects",
         title: "Project switching moved closer to your branch work",
         description:
-          "The branch toolbar can now show and change the active project, so project, branch, and worktree context are easier to keep aligned while you move around Synara.",
+          "The branch toolbar can now show and change the active project, so project, branch, and worktree context are easier to keep aligned while you move around Penkra.",
         details:
           "This release teaches the branch toolbar about project selection, shared home-chat containers, draft-thread mapping, project creation recovery, and project picker state so navigation does not depend only on the sidebar.",
       },
@@ -807,7 +869,7 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         description:
           "The diff panel now has a review file tree, giving larger review batches a clearer outline before you dive into individual patches.",
         details:
-          "Synara now builds file diff trees, renders a collapsible review panel with shared disclosure motion, and reuses file-row styling so review navigation feels closer to the rest of the workspace.",
+          "Penkra now builds file diff trees, renders a collapsible review panel with shared disclosure motion, and reuses file-row styling so review navigation feels closer to the rest of the workspace.",
       },
       {
         id: "workspace-explorer",
@@ -853,7 +915,7 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         description:
           "Transcript tool calls now expose clearer detail dialogs for shell commands, patches, file changes, and tool output, so review-heavy chats are easier to audit.",
         details:
-          "Synara now formats tool command transcripts, normalizes patch/change output, labels more tool kinds consistently, preserves structured work metadata through the timeline, and adds focused coverage for tool-call labels and formatting.",
+          "Penkra now formats tool command transcripts, normalizes patch/change output, labels more tool kinds consistently, preserves structured work metadata through the timeline, and adds focused coverage for tool-call labels and formatting.",
       },
       {
         id: "transcript-flow",
@@ -888,14 +950,6 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
           "Provider runtime ingestion now handles more canonical event shapes, Gemini ACP probing is more defensive, provider service behavior has broader coverage, idle runtime cleanup was tightened, process runner handling is safer, and Codex review/compaction progress is easier to reconcile.",
       },
       {
-        id: "automation-approval-safety",
-        title: "Automation setup asks for the right approval",
-        description:
-          "Automation creation and updates now separate setup prompts, update-only flows, approval fallbacks, and risk acknowledgement more carefully.",
-        details:
-          "This release hardens conversational automation setup, preserves update-only approval paths, restores the approval fallback, strips carried setup filler from prompts, and keeps the risk acknowledgement gate attached to dispatch.",
-      },
-      {
         id: "desktop-update-hardening",
         title: "Desktop updates and startup are quieter",
         description:
@@ -907,9 +961,9 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         id: "icons-and-ui-polish",
         title: "The interface has more useful visual signals",
         description:
-          "Provider icons, central icon assets, model pickers, composer controls, automation banners, Kanban cards, preview cards, and tooltips were cleaned up in small but visible ways.",
+          "Provider icons, central icon assets, model pickers, composer controls, Kanban cards, preview cards, and tooltips were cleaned up in small but visible ways.",
         details:
-          "Synara now ships a curated central-icons set, improves provider/model picker presentation, refines composer picker and automation banners, adds better project/thread hover details, and keeps repeated UI surfaces closer to the same visual language.",
+          "Penkra now ships a curated central-icons set, improves provider/model picker presentation, refines the composer picker, adds better project/thread hover details, and keeps repeated UI surfaces closer to the same visual language.",
       },
     ],
   },
@@ -918,44 +972,12 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
     date: "Jun 24",
     features: [
       {
-        id: "automations-workspace",
-        title: "Automations are a real workspace surface",
-        description:
-          "Synara now has first-class Automations for scheduled agent work, with sidebar navigation, list/detail pages, run history, triage actions, and inline editing.",
-        details:
-          "This release wires automation contracts, persistence, scheduler leases, run tracking, RPC methods, sidebar badges, Current/Paused views, detail routes, editable fields, previous-run history, and result triage so scheduled work lives inside the same thread/provider/worktree pipeline as normal chat work.",
-      },
-      {
-        id: "heartbeat-stop-clauses",
-        title: "Heartbeat automations can stop when the goal is met",
-        description:
-          "Heartbeat automations can store an AI-evaluated stop clause, evaluate it after successful runs, and disable themselves with a recorded reason when the condition is satisfied.",
-        details:
-          "Completion policies now support natural-language stop conditions, dedicated background evaluation, visible completion results, timeout handling, stale-result guards, legacy-row defaults, and archive/read preservation so a stop check cannot silently undo user triage state.",
-      },
-      {
-        id: "automation-composer-scheduling",
-        title: "Automation creation understands natural prompts",
-        description:
-          "The composer can turn automation-style prompts into scheduled drafts, including intervals, daily/weekly timing, cron-like schedules, heartbeat targets, and review dialogs.",
-        details:
-          "Automation intent parsing now covers explicit and generated prompts, English and Italian stop/schedule phrasing, bounded fast-loop safety, draft review, source-thread handling, restored plan source metadata, inline editing from composer text, and stricter confirmation for LLM-generated automations.",
-      },
-      {
-        id: "automation-reliability",
-        title: "Scheduled runs are harder to lose or corrupt",
-        description:
-          "Automation scheduling, recovery, and run reconciliation were hardened so crashes, duplicate wakes, approval waits, stale cache updates, and cleanup failures are handled more predictably.",
-        details:
-          "The automation service now has occurrence dedupe, scheduler leases, crash replay, failed-run rollback, startup recovery, bounded completion-evaluation queues, recovery/lease observability, approval ownership re-checks, standalone worktree cleanup, equal-timestamp cache merging, and DST/long-downtime schedule coverage.",
-      },
-      {
         id: "file-attachments-and-previews",
         title: "Files attach, preview, and download more reliably",
         description:
           "Chat now supports generic file attachments alongside images, with better chips/cards, safer upload normalization, worktree-aware previews, and in-app local image downloads.",
         details:
-          "File attachments now flow through contracts, upload storage, composer paste/drop, provider prompts, Kanban dispatch, recap/bootstrap surfaces, optimistic timeline rendering, caps/rollback, attachment-bearing plan follow-ups, explicit unsupported-file rejection, worktree-backed file preview roots, and blob-based download handling that keeps failed local image downloads inside Synara.",
+          "File attachments now flow through contracts, upload storage, composer paste/drop, provider prompts, Kanban dispatch, recap/bootstrap surfaces, optimistic timeline rendering, caps/rollback, attachment-bearing plan follow-ups, explicit unsupported-file rejection, worktree-backed file preview roots, and blob-based download handling that keeps failed local image downloads inside Penkra.",
       },
       {
         id: "provider-model-scoping",
@@ -969,9 +991,9 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         id: "chat-panels-and-thread-state",
         title: "Chats and side panels stay in sync",
         description:
-          "Deleted chats disappear immediately, the Environment panel behaves better in constrained layouts, automation cards show up in the transcript, and file previews avoid extra full-thread subscriptions.",
+          "Deleted chats disappear immediately, the Environment panel behaves better in constrained layouts, and file previews avoid extra full-thread subscriptions.",
         details:
-          "Client projections now use delete tombstones and responsive archived bulk-delete updates, environment-panel open/close preferences survive chat switches, constrained/floating layouts stay calmer by default, thread automation summaries appear in the environment panel, created automation cards render in chat, and file preview routing avoids unnecessary full thread subscriptions.",
+          "Client projections now use delete tombstones and responsive archived bulk-delete updates, environment-panel open/close preferences survive chat switches, constrained/floating layouts stay calmer by default, and file preview routing avoids unnecessary full thread subscriptions.",
       },
       {
         id: "profile-skill-counts",
@@ -1013,7 +1035,7 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         id: "restart-chat-restore",
         title: "Restarts bring you back to the right chat",
         description:
-          "Synara now waits for one fresh server snapshot before giving up on a remembered chat route, so app restarts are less likely to dump you onto an empty fallback screen.",
+          "Penkra now waits for one fresh server snapshot before giving up on a remembered chat route, so app restarts are less likely to dump you onto an empty fallback screen.",
         details:
           "Chat route restore now validates remembered thread/split routes against refreshed orchestration state, holds fallback while startup data is still empty, and has focused coverage for missing-thread and empty-startup recovery paths.",
       },
@@ -1043,9 +1065,9 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         id: "smarter-profile-stats",
         title: "Your profile understands more of your work",
         description:
-          "Synara now tracks richer local profile stats, including your most worked project, skill and agent usage, active hours, provider/model mix, and prompt activity.",
+          "Penkra now tracks richer local profile stats, including your most worked project, skill and agent usage, active hours, provider/model mix, and prompt activity.",
         details:
-          "Profile stats now derive more signal from Synara's local projection database: most-worked project, prompt/thread activity, skill and agent usage, provider/model usage, reasoning patterns, active-hour windows, and token heatmap data are all represented in the profile contract and settings panel.",
+          "Profile stats now derive more signal from Penkra's local projection database: most-worked project, prompt/thread activity, skill and agent usage, provider/model usage, reasoning patterns, active-hour windows, and token heatmap data are all represented in the profile contract and settings panel.",
       },
       {
         id: "pasted-text-cards",
@@ -1071,9 +1093,9 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
     features: [
       {
         id: "profile-and-personalization",
-        title: "Your Synara profile has more personality",
+        title: "Your Penkra profile has more personality",
         description:
-          "Profile settings now include richer identity details, activity stats, and a cleaner editing flow so Synara feels more like your own workspace.",
+          "Profile settings now include richer identity details, activity stats, and a cleaner editing flow so Penkra feels more like your own workspace.",
         details:
           "This release adds profile stats aggregation, profile settings UI polish, activity heatmap refinements, avatar/profile editing updates, and focused coverage for the new profile data paths.",
       },
@@ -1083,7 +1105,7 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         description:
           "Thread deletion now keeps soft-deleted data around long enough to avoid accidental loss while still letting cleanup happen predictably.",
         details:
-          "Synara now tracks thread retention state explicitly, covers soft-delete cleanup behavior with server tests, and keeps deletion/recovery semantics more predictable for early WIP data.",
+          "Penkra now tracks thread retention state explicitly, covers soft-delete cleanup behavior with server tests, and keeps deletion/recovery semantics more predictable for early WIP data.",
       },
       {
         id: "live-composer-edits",
@@ -1135,7 +1157,7 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         id: "restart-and-idle-recovery",
         title: "Restarted sessions are less likely to leave turns hanging",
         description:
-          "After provider restarts, reconnects, or quiet ACP sessions, Synara does a better job of reconciling active turns and finishing idle work instead of getting stuck.",
+          "After provider restarts, reconnects, or quiet ACP sessions, Penkra does a better job of reconciling active turns and finishing idle work instead of getting stuck.",
         details:
           "Startup turn reconciliation, ACP idle watchdog handling, provider runtime ingestion, Cursor/Grok/OpenCode adapter event paths, command reactor cleanup, and shared thread summaries now work together to recover unfinished turns and surface stale runtime state more predictably.",
       },
@@ -1147,7 +1169,7 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
     features: [
       {
         id: "secure-pdf-preview",
-        title: "PDFs open safely inside Synara",
+        title: "PDFs open safely inside Penkra",
         description:
           "Local PDFs can now be previewed directly in the workspace pane with page navigation, zoom controls, selection-safe rendering, and hardened link handling.",
         details:
@@ -1159,13 +1181,13 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         description:
           "The right dock and editor workspace now use the same richer file preview surface, so browsing files, images, markdown, and PDFs feels more consistent.",
         details:
-          "Synara now routes file preview through `WorkspaceFilePreview`, `PdfFilePreview`, shared preview headers, markdown/source selection references, workspace file openers, dock pane activation metadata, local preview URL helpers, and tighter file reference context-menu behavior.",
+          "Penkra now routes file preview through `WorkspaceFilePreview`, `PdfFilePreview`, shared preview headers, markdown/source selection references, workspace file openers, dock pane activation metadata, local preview URL helpers, and tighter file reference context-menu behavior.",
       },
       {
         id: "pi-plugin-routing",
         title: "Pi plugin sessions start in the right place",
         description:
-          "Pi-backed plugin flows now route through Synara more reliably, discover model support better, and keep startup prompts attached to the correct provider session.",
+          "Pi-backed plugin flows now route through Penkra more reliably, discover model support better, and keep startup prompts attached to the correct provider session.",
         details:
           "The Pi adapter gained richer ACP handling, extension model discovery, cwd/session wiring, startup prompt routing, provider command reactor coverage, provider service safeguards, and an ACP mock agent so plugin startup, prompt forwarding, and provider state transitions are covered more directly.",
       },
@@ -1191,7 +1213,7 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         description:
           "Cursor message ids are handled more carefully, changed files moved to a flatter UI path, and stale plan/sidebar indicators were cleaned up.",
         details:
-          "Synara now preserves Cursor message identity more reliably, removes the older turn diff tree path, refines changed-file file-list rendering, fixes duplicate plan-mode icons and stale plan sidebar state, and hides inline project actions from the chat header where they created noise.",
+          "Penkra now preserves Cursor message identity more reliably, removes the older turn diff tree path, refines changed-file file-list rendering, fixes duplicate plan-mode icons and stale plan sidebar state, and hides inline project actions from the chat header where they created noise.",
       },
       {
         id: "preview-security-and-local-files",
@@ -1247,14 +1269,6 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         details:
           "This release fixes editor-mode production feedback, shares project menu picker behavior, splits kanban composer menu discovery from editor logic, and consolidates local image preview state across chat and editor views.",
       },
-      {
-        id: "soccer-physics-playground",
-        title: "A World Cup soccer ball playground landed",
-        description:
-          "There is now a playful soccer-ball physics view for experimenting with motion and interaction inside Synara.",
-        details:
-          "The new World Cup soccer ball physics playground adds a self-contained visual interaction surface, with follow-up formatting and server typecheck cleanup landed on main before the release.",
-      },
     ],
   },
   {
@@ -1275,7 +1289,7 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         description:
           "Ghostty, Terminal, JetBrains, Xcode, Zed, Cursor, VS Code, and other editor launchers now have better discovery, icons, and platform-specific launch behavior.",
         details:
-          "Synara now discovers native editor apps and icons, caches icon assets server-side, exposes authenticated icon routes, and tightens macOS/Linux/Windows launcher handling, including Ghostty working-directory behavior and Linux desktop-entry matching.",
+          "Penkra now discovers native editor apps and icons, caches icon assets server-side, exposes authenticated icon routes, and tightens macOS/Linux/Windows launcher handling, including Ghostty working-directory behavior and Linux desktop-entry matching.",
       },
       {
         id: "portable-skills",
@@ -1307,7 +1321,7 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         description:
           "Legacy migration trackers, pinned/sidechat reconciliation, terminal environment handling, and workspace path checks were tightened for early-WIP installs.",
         details:
-          "Synara now reconciles legacy migration bookkeeping before running migrations, expands migration coverage, validates workspace real-path containment, and carries terminal environment updates through shared server and web contracts.",
+          "Penkra now reconciles legacy migration bookkeeping before running migrations, expands migration coverage, validates workspace real-path containment, and carries terminal environment updates through shared server and web contracts.",
       },
     ],
   },
@@ -1337,7 +1351,7 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         description:
           "Usage limits and pace now show up in the chat environment, settings, and compact controls for Codex, Claude, Cursor, and Gemini.",
         details:
-          "Synara now reads provider credentials and usage data through shared server parsers, normalizes snapshots, stores cached values in SQLite, and renders reusable usage rows, progress tracks, line lists, and settings panels in the web app.",
+          "Penkra now reads provider credentials and usage data through shared server parsers, normalizes snapshots, stores cached values in SQLite, and renders reusable usage rows, progress tracks, line lists, and settings panels in the web app.",
       },
       {
         id: "composer-picker-polish",
@@ -1391,7 +1405,7 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         description:
           "AI response links, source lists, composer chips, and sent user bubbles now share the same link parsing path with website favicons instead of generic globe icons.",
         details:
-          "Synara now caches site favicons server-side, serves authenticated favicon image URLs, recognizes bare domains in composer text, and keeps markdown link text aligned with the same medium-weight chip styling used while composing.",
+          "Penkra now caches site favicons server-side, serves authenticated favicon image URLs, recognizes bare domains in composer text, and keeps markdown link text aligned with the same medium-weight chip styling used while composing.",
       },
       {
         id: "local-server-environment",
@@ -1429,7 +1443,7 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         description:
           "The macOS release path now has stronger artifact smoke checks, zip finalization helpers, and updater download coverage so new builds are easier to trust before they ship.",
         details:
-          "Release tooling now validates Mac update artifacts, parses boolean environment flags consistently, and tests the resumable update downloader without the older update-feed cache layer. The README and release docs were refreshed around the current Synara desktop flow too.",
+          "Release tooling now validates Mac update artifacts, parses boolean environment flags consistently, and tests the resumable update downloader without the older update-feed cache layer. The README and release docs were refreshed around the current Penkra desktop flow too.",
       },
       {
         id: "diff-panel-refactor",
@@ -1523,7 +1537,7 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         description:
           "External Claude shutdowns, terminal cleanup, websocket RPC errors, and provider session recovery picked up extra guards for reconnects and interrupted work.",
         details:
-          "Claude SIGTERM from outside Synara is treated as a benign suspend path, terminal process cleanup has stronger tests, and websocket RPC failure handling is less likely to leave the UI believing a request is still in flight.",
+          "Claude SIGTERM from outside Penkra is treated as a benign suspend path, terminal process cleanup has stronger tests, and websocket RPC failure handling is less likely to leave the UI believing a request is still in flight.",
       },
       {
         id: "migration-and-release-hardening",
@@ -1549,7 +1563,7 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         id: "thread-recap-panel",
         title: "Long chats can be recapped in place",
         description:
-          "Synara can now generate and cache thread recaps, show current-state context in the chat environment, and reuse provider-backed recap generation without making the transcript harder to follow.",
+          "Penkra can now generate and cache thread recaps, show current-state context in the chat environment, and reuse provider-backed recap generation without making the transcript harder to follow.",
       },
       {
         id: "diff-totals-performance",
@@ -1615,13 +1629,13 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         id: "stale-claude-resume-recovery",
         title: "Claude resumes recover from stale native sessions",
         description:
-          "When Claude reports a missing conversation id, Synara clears the stale resume cursor, recreates the provider session, and retries with transcript context instead of leaving the turn failed.",
+          "When Claude reports a missing conversation id, Penkra clears the stale resume cursor, recreates the provider session, and retries with transcript context instead of leaving the turn failed.",
       },
       {
         id: "desktop-update-manual-fallback",
         title: "Desktop updates now have a manual escape hatch",
         description:
-          "If an in-app install silently fails, Synara restarts the backend, resumes update polling, deduplicates error toasts, and points you at the exact GitHub release page for a manual download.",
+          "If an in-app install silently fails, Penkra restarts the backend, resumes update polling, deduplicates error toasts, and points you at the exact GitHub release page for a manual download.",
       },
       {
         id: "mac-desktop-chrome-alignment",
@@ -1639,7 +1653,7 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         id: "agent-task-activity-rendering",
         title: "Agent task activity is easier to follow",
         description:
-          "OpenCode task child sessions and newer shell-step events now flow into Synara's activity timeline, while generic agent task rows keep their useful prompt and result text instead of disappearing or showing wrapper noise.",
+          "OpenCode task child sessions and newer shell-step events now flow into Penkra's activity timeline, while generic agent task rows keep their useful prompt and result text instead of disappearing or showing wrapper noise.",
       },
       {
         id: "transport-reconnect-events",
@@ -1657,7 +1671,7 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         id: "opencode-provider-depth",
         title: "OpenCode support is much deeper",
         description:
-          "OpenCode startup, model discovery, command discovery, server connection options, and experimental WebSocket mode now flow through the same settings and runtime paths as the rest of Synara.",
+          "OpenCode startup, model discovery, command discovery, server connection options, and experimental WebSocket mode now flow through the same settings and runtime paths as the rest of Penkra.",
       },
       {
         id: "opencode-command-discovery-settings",
@@ -1705,7 +1719,7 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         id: "legacy-database-repairs",
         title: "Imported legacy databases recover missing columns",
         description:
-          "Fresh repair migrations reconcile older imported migration trackers that skipped Synara's sidechat-source or pinned-thread columns, preventing startup crashes in those upgraded histories.",
+          "Fresh repair migrations reconcile older imported migration trackers that skipped Penkra's sidechat-source or pinned-thread columns, preventing startup crashes in those upgraded histories.",
       },
       {
         id: "opencode-visual-polish",
@@ -1727,9 +1741,9 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
     features: [
       {
         id: "synara-home-migration",
-        title: "Synara is now the default home",
+        title: "Penkra is now the default home",
         description:
-          "The app now starts from `~/.synara`, carries the Synara environment variables through the desktop and server runtime, and safely imports data from previous installations on first launch.",
+          "The app now starts from `~/.synara`, carries the Penkra environment variables through the desktop and server runtime, and safely imports data from previous installations on first launch.",
       },
       {
         id: "desktop-platform-polish",
@@ -1770,7 +1784,7 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
       {
         id: "claude-opus-4-8",
         title: "Claude Opus 4.8 is available",
-        description: "Synara now includes Claude Opus 4.8 in the Claude model picker.",
+        description: "Penkra now includes Claude Opus 4.8 in the Claude model picker.",
       },
     ],
   },
@@ -1788,7 +1802,7 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         id: "provider-picker-readiness",
         title: "Provider choices wait for real readiness",
         description:
-          "The provider picker no longer treats unknown provider status as usable. Providers stay in a checking state until Synara has confirmed that the local runtime is available and authenticated.",
+          "The provider picker no longer treats unknown provider status as usable. Providers stay in a checking state until Penkra has confirmed that the local runtime is available and authenticated.",
       },
       {
         id: "desktop-shutdown-recovery",
@@ -1816,7 +1830,7 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
     features: [
       {
         id: "grok-provider-headline",
-        title: "Grok joins Synara",
+        title: "Grok joins Penkra",
         description:
           "Pick Grok as a first-class coding provider with ACP-backed sessions, model selection, approval handling, resume support, provider health checks, settings, icons, and handoff wired through the same app surfaces as the rest of your agents.",
       },
@@ -1896,7 +1910,7 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         id: "kilo-code-provider",
         title: "Kilo Code joins the provider lineup",
         description:
-          "Synara can now launch and monitor Kilo Code sessions alongside Codex, Claude, Cursor, OpenCode, and Gemini, with health checks, settings, mentions, handoff, and model compatibility wired through the app.",
+          "Penkra can now launch and monitor Kilo Code sessions alongside Codex, Claude, Cursor, OpenCode, and Gemini, with health checks, settings, mentions, handoff, and model compatibility wired through the app.",
       },
       {
         id: "provider-ordering",
@@ -1926,7 +1940,7 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         id: "opencode-latest-events",
         title: "OpenCode sessions understand the latest event stream",
         description:
-          "Synara now tracks the newer OpenCode SDK session events, keeps titles fresher, and has much deeper coverage around OpenCode startup, output, and recovery flows.",
+          "Penkra now tracks the newer OpenCode SDK session events, keeps titles fresher, and has much deeper coverage around OpenCode startup, output, and recovery flows.",
       },
       {
         id: "turn-recovery-stability",
@@ -1968,7 +1982,7 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         id: "secure-local-image-route",
         title: "Generated images use a safer local route",
         description:
-          "Synara now serves generated files through a dedicated local-image endpoint with MIME checks, workspace-aware path resolution, and Codex generated_images allowlists for both the normal home and desktop overlay home.",
+          "Penkra now serves generated files through a dedicated local-image endpoint with MIME checks, workspace-aware path resolution, and Codex generated_images allowlists for both the normal home and desktop overlay home.",
       },
       {
         id: "provider-favorites",
@@ -1996,9 +2010,9 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
     features: [
       {
         id: "cursor-provider",
-        title: "Cursor is now a first-class Synara provider",
+        title: "Cursor is now a first-class Penkra provider",
         description:
-          "Run Cursor CLI sessions directly from Synara with ACP-backed startup, model discovery, existing-chat resume, handoff, and provider health checks alongside Codex and OpenCode.",
+          "Run Cursor CLI sessions directly from Penkra with ACP-backed startup, model discovery, existing-chat resume, handoff, and provider health checks alongside Codex and OpenCode.",
       },
       {
         id: "effect-acp-runtime",
@@ -2046,7 +2060,7 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         id: "git-commit-push-action",
         title: "Git gained commit and push",
         description:
-          "The Git actions menu can now commit current work and push it from Synara, keeping the common release and handoff flow closer to the chat.",
+          "The Git actions menu can now commit current work and push it from Penkra, keeping the common release and handoff flow closer to the chat.",
       },
       {
         id: "task-and-approval-polish",
@@ -2088,7 +2102,7 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         id: "git-branch-pr-flow",
         title: "Git flows are smoother",
         description:
-          "The Git menu now includes branch creation with Synara-style names, and PR creation can recover from GitHub duplicate-PR responses by reusing the existing open pull request.",
+          "The Git menu now includes branch creation with Penkra-style names, and PR creation can recover from GitHub duplicate-PR responses by reusing the existing open pull request.",
       },
       {
         id: "legacy-import-recovery",
@@ -2136,7 +2150,7 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         id: "opencode-task-events",
         title: "OpenCode tasks show live progress",
         description:
-          "OpenCode todo events now flow into Synara as active task updates, with a compact banner option for keeping current work visible without taking over the chat.",
+          "OpenCode todo events now flow into Penkra as active task updates, with a compact banner option for keeping current work visible without taking over the chat.",
       },
       {
         id: "opencode-model-favourites",
@@ -2148,7 +2162,7 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         id: "opencode-context-usage",
         title: "OpenCode context usage is tracked",
         description:
-          "OpenCode sessions now report context usage more consistently, giving Synara better runtime visibility as conversations grow.",
+          "OpenCode sessions now report context usage more consistently, giving Penkra better runtime visibility as conversations grow.",
       },
       {
         id: "production-debug-flags",
@@ -2166,7 +2180,7 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         id: "cursor-provider",
         title: "Cursor CLI support landed",
         description:
-          "Cursor is now available as a provider, with ACP sessions, model discovery, existing chats, handoff, shortcuts, and git text generation wired into Synara.",
+          "Cursor is now available as a provider, with ACP sessions, model discovery, existing chats, handoff, shortcuts, and git text generation wired into Penkra.",
       },
       {
         id: "chatgpt-voice-transcription",
@@ -2196,7 +2210,7 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         id: "toast-feature-flags",
         title: "Toast behavior can be feature-flagged",
         description:
-          "Toast notifications picked up feature-flag wiring, giving Synara a safer way to roll notification changes forward or back.",
+          "Toast notifications picked up feature-flag wiring, giving Penkra a safer way to roll notification changes forward or back.",
       },
       {
         id: "desktop-bridge-reconnects",
@@ -2214,7 +2228,7 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         id: "branch-switch-recovery",
         title: "Branch switching is much safer",
         description:
-          "Synara now handles messy branch switches with clearer recovery actions, recreated stashes, unpublished branch publishing, and stronger checks around conflicts and local work.",
+          "Penkra now handles messy branch switches with clearer recovery actions, recreated stashes, unpublished branch publishing, and stronger checks around conflicts and local work.",
       },
       {
         id: "plan-mode-proposals",
@@ -2226,7 +2240,7 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         id: "desktop-navigation-controls",
         title: "Desktop navigation controls landed",
         description:
-          "The desktop app now has app-level back and forward navigation controls, making it easier to move around Synara without losing your place.",
+          "The desktop app now has app-level back and forward navigation controls, making it easier to move around Penkra without losing your place.",
       },
       {
         id: "sidebar-sort-stability",
@@ -2250,7 +2264,7 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         id: "gpt-5-5-available",
         title: "GPT-5.5 is available",
         description:
-          "GPT-5.5 is now in the model picker with the right default reasoning behavior, so you can move new Codex sessions onto the latest model directly from Synara.",
+          "GPT-5.5 is now in the model picker with the right default reasoning behavior, so you can move new Codex sessions onto the latest model directly from Penkra.",
       },
       {
         id: "opencode-provider",
@@ -2304,7 +2318,7 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         id: "desktop-boot-splash-screen",
         title: "🚀 Desktop startup feels clearer",
         description:
-          "Synara now shows a proper splash screen while the desktop backend spins up, so launch feels intentional instead of looking briefly stalled.",
+          "Penkra now shows a proper splash screen while the desktop backend spins up, so launch feels intentional instead of looking briefly stalled.",
       },
       {
         id: "provider-capability-and-theme-polish",
@@ -2328,7 +2342,7 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         id: "theme-pack-editor",
         title: "🎨 Theme packs are editable",
         description:
-          "The new theme pack editor lets you tune UI colors directly in Synara, with shared theme tokens keeping the sidebar, composer, transcript, and controls in sync.",
+          "The new theme pack editor lets you tune UI colors directly in Penkra, with shared theme tokens keeping the sidebar, composer, transcript, and controls in sync.",
       },
       {
         id: "sidebar-notifications",
@@ -2406,7 +2420,7 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         id: "update-check-timeout-recovery",
         title: "🛟 No more stuck checking state",
         description:
-          "If the updater never answers, Synara now times out and recovers instead of hanging on a permanent Checking status.",
+          "If the updater never answers, Penkra now times out and recovers instead of hanging on a permanent Checking status.",
       },
     ],
   },
@@ -2424,7 +2438,7 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         id: "custom-provider-binaries",
         title: "🛠️ Custom binary paths for every provider",
         description:
-          "Point Synara at your own Codex, Claude, or Gemini binary when your setup lives outside the default install path.",
+          "Point Penkra at your own Codex, Claude, or Gemini binary when your setup lives outside the default install path.",
       },
       {
         id: "assistant-selections-as-context",

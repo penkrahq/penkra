@@ -28,8 +28,8 @@ const viewNames = (sql: SqlClient.SqlClient) =>
     ORDER BY name ASC
   `.pipe(Effect.map((rows) => rows.map((row) => row.name)));
 
-layer("automation migration", (it) => {
-  it.effect("registers automation backlog migration in the Synara lineage", () =>
+layer("legacy automation migration lineage", (it) => {
+  it.effect("retains the historical migration ids required by existing databases", () =>
     Effect.sync(() => {
       // Look the entry up by id: asserting on the lineage tail would break
       // every time an unrelated migration lands after it.
@@ -38,40 +38,15 @@ layer("automation migration", (it) => {
     }),
   );
 
-  it.effect("creates automation tables and scheduler indexes", () =>
+  it.effect("removes all legacy automation storage after the full lineage runs", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
 
       yield* runMigrations();
 
-      assert.deepStrictEqual(yield* tableNames(sql), [
-        "automation_definitions",
-        "automation_runs",
-        "automation_scheduler_leases",
-      ]);
-      assert.includeMembers(yield* indexNames(sql), [
-        "idx_automation_definitions_due",
-        "idx_automation_runs_history",
-        "idx_automation_runs_recovery",
-        "idx_automation_runs_project",
-        "idx_automation_runs_thread",
-        "idx_automation_runs_completion_eval",
-      ]);
-      assert.includeMembers(yield* viewNames(sql), ["automation_pending_completion_evaluations"]);
-      const policyColumns = yield* sql<{ readonly name: string }>`
-        SELECT name FROM pragma_table_info('automation_definitions')
-        WHERE name IN (
-          'minimum_interval_seconds',
-          'max_runtime_seconds',
-          'retry_policy_json',
-          'misfire_policy',
-          'acknowledged_risks_json',
-          'completion_policy_json',
-          'completion_policy_version',
-          'completion_policy_updated_at'
-        )
-      `;
-      assert.strictEqual(policyColumns.length, 8);
+      assert.deepStrictEqual(yield* tableNames(sql), []);
+      assert.deepStrictEqual(yield* indexNames(sql), []);
+      assert.deepStrictEqual(yield* viewNames(sql), []);
     }),
   );
 });

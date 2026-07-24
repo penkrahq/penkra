@@ -6,7 +6,6 @@ import type {
   ProviderListModelsResult,
   ProviderListPluginsResult,
   ProviderListSkillsResult,
-  ProviderReadPluginResult,
   ProviderSkillsCatalogResult,
 } from "@synara/contracts";
 import { queryOptions } from "@tanstack/react-query";
@@ -144,7 +143,6 @@ export function providerCommandsQueryOptions(input: {
   threadId?: string | null;
   binaryPath?: string | null;
   serverUrl?: string | null;
-  serverPassword?: string | null;
   // Undefined means "not applicable" (non-OpenCode providers); the body normalizes it.
   experimentalWebSockets?: boolean | undefined;
   agentDir?: string | null;
@@ -153,7 +151,6 @@ export function providerCommandsQueryOptions(input: {
   const connectionKey = JSON.stringify({
     binaryPath: input.binaryPath ?? null,
     serverUrl: input.serverUrl ?? null,
-    hasServerPassword: Boolean(input.serverPassword),
     experimentalWebSockets: input.experimentalWebSockets ?? null,
   });
   return queryOptions({
@@ -174,7 +171,6 @@ export function providerCommandsQueryOptions(input: {
         ...(input.threadId ? { threadId: input.threadId } : {}),
         ...(input.binaryPath ? { binaryPath: input.binaryPath } : {}),
         ...(input.serverUrl ? { serverUrl: input.serverUrl } : {}),
-        ...(input.serverPassword ? { serverPassword: input.serverPassword } : {}),
         ...(input.experimentalWebSockets !== undefined
           ? { experimentalWebSockets: input.experimentalWebSockets }
           : {}),
@@ -282,37 +278,6 @@ export function providerPluginsQueryOptions(input: {
     enabled: input.enabled ?? true,
     staleTime: 30_000,
     placeholderData: (previous) => previous ?? EMPTY_PLUGINS_RESULT,
-  });
-}
-
-export function providerReadPluginQueryOptions(input: {
-  provider: ProviderKind;
-  marketplacePath: string;
-  pluginName: string;
-  cwd?: string | null;
-  threadId?: string | null;
-  enabled?: boolean;
-}) {
-  return queryOptions({
-    queryKey: providerDiscoveryQueryKeys.plugin(
-      input.provider,
-      input.marketplacePath,
-      input.pluginName,
-      input.cwd ?? null,
-      input.threadId ?? null,
-    ),
-    queryFn: async (): Promise<ProviderReadPluginResult> => {
-      const api = ensureNativeApi();
-      return api.provider.readPlugin({
-        provider: input.provider,
-        marketplacePath: input.marketplacePath,
-        pluginName: input.pluginName,
-        ...(input.cwd ? { cwd: input.cwd } : {}),
-        ...(input.threadId ? { threadId: input.threadId } : {}),
-      });
-    },
-    enabled: input.enabled ?? true,
-    staleTime: 60_000,
   });
 }
 

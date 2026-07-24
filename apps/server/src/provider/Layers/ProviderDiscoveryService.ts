@@ -75,7 +75,7 @@ const make = Effect.gen(function* () {
       const capabilities = adapter.getComposerCapabilities
         ? yield* adapter.getComposerCapabilities()
         : disabledCapabilitiesForProvider(parsed.provider);
-      // The unified Synara skills catalog backs skill discovery for every
+      // The unified Penkra skills catalog backs skill discovery for every
       // provider, including ones without native skill support.
       return {
         ...capabilities,

@@ -51,6 +51,7 @@ interface RightDockStore {
         | "pullRequestRepository"
         | "pullRequestNumber"
         | "pullRequestInitialTab"
+        | "profileProjectId"
       >
     >,
   ) => void;

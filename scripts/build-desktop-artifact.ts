@@ -5,7 +5,9 @@
 // Depends on: apps/desktop package metadata, electron-builder, and GitHub release config.
 
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { join } from "node:path";
 
 import rootPackageJson from "../package.json" with { type: "json" };
@@ -13,7 +15,6 @@ import desktopPackageJson from "../apps/desktop/package.json" with { type: "json
 import serverPackageJson from "../apps/server/package.json" with { type: "json" };
 
 import { BRAND_ASSET_PATHS } from "./lib/brand-assets.ts";
-import { DESKTOP_STAGE_DEPENDENCY_OVERRIDES } from "./lib/desktop-stage-dependency-overrides.ts";
 import {
   createDesktopPlatformBuildConfig,
   MAC_APPSNAP_HELPER_STAGE_PATH,
@@ -21,8 +22,13 @@ import {
 } from "./lib/desktop-platform-build-config.ts";
 import { SYNARA_PRODUCTION_BUNDLE_ID } from "@synara/shared/desktopIdentity";
 import { parseBooleanEnvValue } from "./lib/env-bool.ts";
+import { finalizeSignedMacDmg } from "./lib/mac-dmg-finalize.ts";
 import { finalizeMacUpdateZip } from "./lib/mac-update-zip-finalize.ts";
-import { resolveUnusedClaudePlatformPackageName } from "./lib/desktop-staged-runtime.ts";
+import {
+  RELEASE_LOCKFILE_PATH,
+  RELEASE_PATCHES_PATH,
+  RELEASE_WORKSPACE_MANIFEST_PATHS,
+} from "./lib/release-workspace-manifests.ts";
 import { resolveCatalogDependencies } from "./lib/resolve-catalog.ts";
 
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
@@ -31,8 +37,9 @@ import { Config, Data, Effect, FileSystem, Layer, Logger, Option, Path, Schema }
 import { Command, Flag } from "effect/unstable/cli";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
-const BuildPlatform = Schema.Literals(["mac", "linux", "win"]);
+const BuildPlatform = Schema.Literals(["mac"]);
 const BuildArch = Schema.Literals(["arm64", "x64", "universal"]);
+const requireFromScriptsWorkspace = createRequire(new URL("./package.json", import.meta.url));
 
 const RepoRoot = Effect.service(Path.Path).pipe(
   Effect.flatMap((path) => path.fromFileUrl(new URL("..", import.meta.url))),
@@ -47,24 +54,6 @@ const ProductionMacLegacyIconSource = Effect.zipWith(
   Effect.service(Path.Path),
   (repoRoot, path) => path.join(repoRoot, BRAND_ASSET_PATHS.productionMacLegacyIconPng),
 );
-const ProductionLinuxIconSource = Effect.zipWith(
-  RepoRoot,
-  Effect.service(Path.Path),
-  (repoRoot, path) => path.join(repoRoot, BRAND_ASSET_PATHS.productionLinuxIconPng),
-);
-const ProductionWindowsIconSource = Effect.zipWith(
-  RepoRoot,
-  Effect.service(Path.Path),
-  (repoRoot, path) => path.join(repoRoot, BRAND_ASSET_PATHS.productionWindowsIconIco),
-);
-const NodePtySmokeScript = Effect.zipWith(RepoRoot, Effect.service(Path.Path), (repoRoot, path) =>
-  path.join(repoRoot, "scripts/node-pty-smoke.mjs"),
-);
-const ParcelWatcherSmokeScript = Effect.zipWith(
-  RepoRoot,
-  Effect.service(Path.Path),
-  (repoRoot, path) => path.join(repoRoot, "scripts/parcel-watcher-smoke.mjs"),
-);
 const AppSnapHelperBuildScript = Effect.zipWith(
   RepoRoot,
   Effect.service(Path.Path),
@@ -73,7 +62,7 @@ const AppSnapHelperBuildScript = Effect.zipWith(
 const encodeJsonString = Schema.encodeEffect(Schema.UnknownFromJsonString);
 
 interface PlatformConfig {
-  readonly cliFlag: "--mac" | "--linux" | "--win";
+  readonly cliFlag: "--mac";
   readonly defaultTarget: string;
   readonly archChoices: ReadonlyArray<typeof BuildArch.Type>;
 }
@@ -84,16 +73,6 @@ const PLATFORM_CONFIG: Record<typeof BuildPlatform.Type, PlatformConfig> = {
     defaultTarget: "dmg",
     archChoices: ["arm64", "x64", "universal"],
   },
-  linux: {
-    cliFlag: "--linux",
-    defaultTarget: "AppImage",
-    archChoices: ["x64", "arm64"],
-  },
-  win: {
-    cliFlag: "--win",
-    defaultTarget: "nsis",
-    archChoices: ["x64", "arm64"],
-  },
 };
 
 interface BuildCliInput {
@@ -101,6 +80,9 @@ interface BuildCliInput {
   readonly target: Option.Option<string>;
   readonly arch: Option.Option<typeof BuildArch.Type>;
   readonly buildVersion: Option.Option<string>;
+  readonly sourceCommit: Option.Option<string>;
+  readonly sourceTag: Option.Option<string>;
+  readonly lockfileSha256: Option.Option<string>;
   readonly outputDir: Option.Option<string>;
   readonly skipBuild: Option.Option<boolean>;
   readonly keepStage: Option.Option<boolean>;
@@ -112,8 +94,6 @@ interface BuildCliInput {
 
 function detectHostBuildPlatform(hostPlatform: string): typeof BuildPlatform.Type | undefined {
   if (hostPlatform === "darwin") return "mac";
-  if (hostPlatform === "linux") return "linux";
-  if (hostPlatform === "win32") return "win";
   return undefined;
 }
 
@@ -138,52 +118,25 @@ class BuildScriptError extends Data.TaggedError("BuildScriptError")<{
   readonly cause?: unknown;
 }> {}
 
-function resolveGitCommitHash(repoRoot: string): string {
-  const result = spawnSync("git", ["rev-parse", "--short=12", "HEAD"], {
+function resolveGitCommitHash(repoRoot: string): string | undefined {
+  const result = spawnSync("git", ["rev-parse", "HEAD"], {
     cwd: repoRoot,
     encoding: "utf8",
   });
   if (result.status !== 0) {
-    return "unknown";
+    return undefined;
   }
   const hash = result.stdout.trim();
-  if (!/^[0-9a-f]{7,40}$/i.test(hash)) {
-    return "unknown";
+  if (!/^[0-9a-f]{40}$/i.test(hash)) {
+    return undefined;
   }
   return hash.toLowerCase();
 }
 
-function resolvePythonForNodeGyp(): string | undefined {
-  const configured = process.env.npm_config_python ?? process.env.PYTHON;
-  if (configured && existsSync(configured)) {
-    return configured;
-  }
-
-  if (process.platform === "win32") {
-    const localAppData = process.env.LOCALAPPDATA;
-    if (localAppData) {
-      for (const version of ["Python313", "Python312", "Python311", "Python310"]) {
-        const candidate = join(localAppData, "Programs", "Python", version, "python.exe");
-        if (existsSync(candidate)) {
-          return candidate;
-        }
-      }
-    }
-  }
-
-  const probe = spawnSync("python", ["-c", "import sys;print(sys.executable)"], {
-    encoding: "utf8",
-  });
-  if (probe.status !== 0) {
-    return undefined;
-  }
-
-  const executable = probe.stdout.trim();
-  if (!executable || !existsSync(executable)) {
-    return undefined;
-  }
-
-  return executable;
+function resolveLockfileSha256(repoRoot: string): string {
+  return createHash("sha256")
+    .update(readFileSync(join(repoRoot, "bun.lock")))
+    .digest("hex");
 }
 
 interface ResolvedBuildOptions {
@@ -191,6 +144,9 @@ interface ResolvedBuildOptions {
   readonly target: string;
   readonly arch: typeof BuildArch.Type;
   readonly version: string | undefined;
+  readonly sourceCommit: string | undefined;
+  readonly sourceTag: string | undefined;
+  readonly lockfileSha256: string | undefined;
   readonly outputDir: string;
   readonly skipBuild: boolean;
   readonly keepStage: boolean;
@@ -205,6 +161,8 @@ interface StagePackageJson {
   readonly version: string;
   readonly buildVersion: string;
   readonly synaraCommitHash: string;
+  readonly synaraLockfileSha256: string;
+  readonly synaraSourceTag: string | null;
   readonly private: true;
   readonly description: string;
   readonly author: string;
@@ -217,25 +175,14 @@ interface StagePackageJson {
   readonly overrides: Record<string, unknown>;
 }
 
-const AzureTrustedSigningOptionsConfig = Config.all({
-  publisherName: Config.string("AZURE_TRUSTED_SIGNING_PUBLISHER_NAME"),
-  endpoint: Config.string("AZURE_TRUSTED_SIGNING_ENDPOINT"),
-  certificateProfileName: Config.string("AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME"),
-  codeSigningAccountName: Config.string("AZURE_TRUSTED_SIGNING_ACCOUNT_NAME"),
-  fileDigest: Config.string("AZURE_TRUSTED_SIGNING_FILE_DIGEST").pipe(Config.withDefault("SHA256")),
-  timestampDigest: Config.string("AZURE_TRUSTED_SIGNING_TIMESTAMP_DIGEST").pipe(
-    Config.withDefault("SHA256"),
-  ),
-  timestampRfc3161: Config.string("AZURE_TRUSTED_SIGNING_TIMESTAMP_RFC3161").pipe(
-    Config.withDefault("http://timestamp.acs.microsoft.com"),
-  ),
-});
-
 const BuildEnvConfig = Config.all({
   platform: Config.schema(BuildPlatform, "SYNARA_DESKTOP_PLATFORM").pipe(Config.option),
   target: Config.string("SYNARA_DESKTOP_TARGET").pipe(Config.option),
   arch: Config.schema(BuildArch, "SYNARA_DESKTOP_ARCH").pipe(Config.option),
   version: Config.string("SYNARA_DESKTOP_VERSION").pipe(Config.option),
+  sourceCommit: Config.string("SYNARA_SOURCE_COMMIT").pipe(Config.option),
+  sourceTag: Config.string("SYNARA_SOURCE_TAG").pipe(Config.option),
+  lockfileSha256: Config.string("SYNARA_LOCKFILE_SHA256").pipe(Config.option),
   outputDir: Config.string("SYNARA_DESKTOP_OUTPUT_DIR").pipe(Config.option),
   skipBuild: Config.string("SYNARA_DESKTOP_SKIP_BUILD").pipe(Config.option),
   keepStage: Config.string("SYNARA_DESKTOP_KEEP_STAGE").pipe(Config.option),
@@ -285,6 +232,9 @@ export const resolveBuildOptions = Effect.fn("resolveBuildOptions")(function* (
   const target = mergeOptions(input.target, env.target, PLATFORM_CONFIG[platform].defaultTarget);
   const arch = mergeOptions(input.arch, env.arch, getDefaultArch(platform));
   const version = mergeOptions(input.buildVersion, env.version, undefined);
+  const sourceCommit = mergeOptions(input.sourceCommit, env.sourceCommit, undefined);
+  const sourceTag = mergeOptions(input.sourceTag, env.sourceTag, undefined);
+  const lockfileSha256 = mergeOptions(input.lockfileSha256, env.lockfileSha256, undefined);
   const envSkipBuild = yield* resolveBooleanEnv("SYNARA_DESKTOP_SKIP_BUILD", env.skipBuild);
   const envKeepStage = yield* resolveBooleanEnv("SYNARA_DESKTOP_KEEP_STAGE", env.keepStage);
   const envSigned = yield* resolveBooleanEnv("SYNARA_DESKTOP_SIGNED", env.signed);
@@ -314,6 +264,9 @@ export const resolveBuildOptions = Effect.fn("resolveBuildOptions")(function* (
     target,
     arch,
     version,
+    sourceCommit,
+    sourceTag,
+    lockfileSha256,
     outputDir,
     skipBuild,
     keepStage,
@@ -420,38 +373,6 @@ function stageMacIcons(stageResourcesDir: string, verbose: boolean) {
   });
 }
 
-function stageLinuxIcons(stageResourcesDir: string) {
-  return Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem;
-    const path = yield* Path.Path;
-    const iconSource = yield* ProductionLinuxIconSource;
-    if (!(yield* fs.exists(iconSource))) {
-      return yield* new BuildScriptError({
-        message: `Production icon source is missing at ${iconSource}`,
-      });
-    }
-
-    const iconPath = path.join(stageResourcesDir, "icon.png");
-    yield* fs.copyFile(iconSource, iconPath);
-  });
-}
-
-function stageWindowsIcons(stageResourcesDir: string) {
-  return Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem;
-    const path = yield* Path.Path;
-    const iconSource = yield* ProductionWindowsIconSource;
-    if (!(yield* fs.exists(iconSource))) {
-      return yield* new BuildScriptError({
-        message: `Production Windows icon source is missing at ${iconSource}`,
-      });
-    }
-
-    const iconPath = path.join(stageResourcesDir, "icon.ico");
-    yield* fs.copyFile(iconSource, iconPath);
-  });
-}
-
 function validateBundledClientAssets(clientDir: string) {
   return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
@@ -504,83 +425,137 @@ function resolveDesktopRuntimeDependencies(
   return resolveCatalogDependencies(runtimeDependencies, catalog, "apps/desktop");
 }
 
-function resolvePenkraUpdateUrl(
-  platform: typeof BuildPlatform.Type,
-  mockUpdates: boolean,
-  mockUpdateServerPort: string | undefined,
-): string | undefined {
-  if (mockUpdates) return `http://localhost:${mockUpdateServerPort ?? 8788}`;
-  const configured = process.env.PENKRA_UPDATE_URL?.trim();
-  if (configured) return configured.replace(/\/$/, "");
-  return platform === "mac" ? "https://api.penkra.com/updates/mac" : undefined;
+function resolveGitHubPublishConfig():
+  | {
+      readonly provider: "github";
+      readonly owner: string;
+      readonly repo: string;
+      readonly releaseType: "release";
+    }
+  | undefined {
+  const rawRepo =
+    process.env.SYNARA_DESKTOP_UPDATE_REPOSITORY?.trim() ||
+    process.env.GITHUB_REPOSITORY?.trim() ||
+    "";
+  if (!rawRepo) return undefined;
+
+  const [owner, repo, ...rest] = rawRepo.split("/");
+  if (!owner || !repo || rest.length > 0) return undefined;
+
+  return {
+    provider: "github",
+    owner,
+    repo,
+    releaseType: "release",
+  };
 }
 
-const verifyStagedNodePty = Effect.fn("verifyStagedNodePty")(function* (
-  stageAppDir: string,
-  verbose: boolean,
-) {
-  const smokeScript = yield* NodePtySmokeScript;
-  yield* Effect.log("[desktop-artifact] Verifying staged node-pty native PTY...");
-  yield* runCommand(
-    ChildProcess.make({
-      cwd: stageAppDir,
-      env: {
-        ...process.env,
-        SYNARA_NODE_PTY_SMOKE_REQUIRE_ROOT: stageAppDir,
-      },
-      ...commandOutputOptions(verbose),
-      shell: process.platform === "win32",
-    })`node ${smokeScript}`,
-  );
-});
+interface PatchFileExpectation {
+  readonly file: string;
+  readonly addedLines: ReadonlyArray<string>;
+}
 
-const prepareStagedNodePty = Effect.fn("prepareStagedNodePty")(function* (
-  stageAppDir: string,
-  platform: typeof BuildPlatform.Type,
-  arch: typeof BuildArch.Type,
-) {
-  if (platform === "win") return;
-
-  const fs = yield* FileSystem.FileSystem;
-  const path = yield* Path.Path;
-  const platformName = platform === "mac" ? "darwin" : "linux";
-  const architectures = arch === "universal" ? ["arm64", "x64"] : [arch];
-
-  for (const architecture of architectures) {
-    const helperPath = path.join(
-      stageAppDir,
-      "node_modules",
-      "node-pty",
-      "prebuilds",
-      `${platformName}-${architecture}`,
-      "spawn-helper",
-    );
-    if (!(yield* fs.exists(helperPath))) {
-      return yield* new BuildScriptError({
-        message: `Missing staged node-pty spawn helper at ${helperPath}.`,
-      });
+function parsePatchAddedLines(patchContents: string): PatchFileExpectation[] {
+  const expectations: Array<{ file: string; addedLines: string[] }> = [];
+  let current: { file: string; addedLines: string[] } | null = null;
+  for (const line of patchContents.split("\n")) {
+    if (line.startsWith("+++ ")) {
+      const target = line.slice(4).trim();
+      if (target === "/dev/null") {
+        current = null;
+        continue;
+      }
+      current = { file: target.startsWith("b/") ? target.slice(2) : target, addedLines: [] };
+      expectations.push(current);
+      continue;
     }
-    chmodSync(helperPath, 0o755);
+    if (current && line.startsWith("+")) {
+      const added = line.slice(1).trim();
+      if (added.length > 0) {
+        current.addedLines.push(added);
+      }
+    }
+  }
+  return expectations.filter((expectation) => expectation.addedLines.length > 0);
+}
+
+// Package managers can silently skip tracked patches when the staged install
+// diverges from the repo setup, so fail the build unless every patched line is present.
+const verifyStagedPatchedDependencies = Effect.fn("verifyStagedPatchedDependencies")(function* (
+  repoRoot: string,
+  stageAppDir: string,
+) {
+  const path = yield* Path.Path;
+  const fs = yield* FileSystem.FileSystem;
+  yield* Effect.log("[desktop-artifact] Verifying staged patched dependencies...");
+  for (const [dependency, patchRelativePath] of Object.entries(
+    rootPackageJson.patchedDependencies ?? {},
+  )) {
+    const packageName = dependency.slice(0, dependency.indexOf("@", 1));
+    const patchContents = yield* fs.readFileString(path.join(repoRoot, patchRelativePath));
+    for (const expectation of parsePatchAddedLines(patchContents)) {
+      const stagedFilePath = path.join(stageAppDir, "node_modules", packageName, expectation.file);
+      const stagedContents = yield* fs.readFileString(stagedFilePath).pipe(
+        Effect.mapError(
+          (cause) =>
+            new BuildScriptError({
+              message: `Patched dependency file is missing from the stage: ${stagedFilePath} (expected by ${patchRelativePath}).`,
+              cause,
+            }),
+        ),
+      );
+      for (const addedLine of expectation.addedLines) {
+        if (!stagedContents.includes(addedLine)) {
+          return yield* new BuildScriptError({
+            message: `Staged dependency ${packageName} is missing patched content: ${expectation.file} does not contain "${addedLine}" from ${patchRelativePath}. The tracked patch was not applied by the staged install.`,
+          });
+        }
+      }
+    }
   }
 });
 
-const verifyStagedParcelWatcher = Effect.fn("verifyStagedParcelWatcher")(function* (
+const installFrozenStageDependencies = Effect.fn("installFrozenStageDependencies")(function* (
+  repoRoot: string,
   stageAppDir: string,
   verbose: boolean,
 ) {
-  const smokeScript = yield* ParcelWatcherSmokeScript;
-  yield* Effect.log("[desktop-artifact] Verifying staged native filesystem watcher...");
+  const path = yield* Path.Path;
+  const fs = yield* FileSystem.FileSystem;
+
+  for (const relativePath of RELEASE_WORKSPACE_MANIFEST_PATHS) {
+    const destination = path.join(stageAppDir, relativePath);
+    yield* fs.makeDirectory(path.dirname(destination), { recursive: true });
+    yield* fs.copyFile(path.join(repoRoot, relativePath), destination);
+  }
+  yield* fs.copyFile(
+    path.join(repoRoot, RELEASE_LOCKFILE_PATH),
+    path.join(stageAppDir, RELEASE_LOCKFILE_PATH),
+  );
+  yield* fs.copy(
+    path.join(repoRoot, RELEASE_PATCHES_PATH),
+    path.join(stageAppDir, RELEASE_PATCHES_PATH),
+  );
+
+  yield* Effect.log(
+    "[desktop-artifact] Installing staged production dependencies from the repository lockfile...",
+  );
   yield* runCommand(
     ChildProcess.make({
       cwd: stageAppDir,
-      env: {
-        ...process.env,
-        SYNARA_PARCEL_WATCHER_SMOKE_REQUIRE_ROOT: stageAppDir,
-      },
       ...commandOutputOptions(verbose),
-      shell: process.platform === "win32",
-    })`node ${smokeScript}`,
+    })`bun install --frozen-lockfile --ignore-scripts --linker hoisted`,
   );
+
+  yield* verifyStagedPatchedDependencies(repoRoot, stageAppDir);
+
+  for (const relativePath of RELEASE_WORKSPACE_MANIFEST_PATHS) {
+    if (relativePath !== "package.json") {
+      yield* fs.remove(path.join(stageAppDir, relativePath));
+    }
+  }
+  yield* fs.remove(path.join(stageAppDir, RELEASE_LOCKFILE_PATH));
+  yield* fs.remove(path.join(stageAppDir, RELEASE_PATCHES_PATH), { recursive: true });
 });
 
 const createBuildConfig = Effect.fn("createBuildConfig")(function* (
@@ -595,32 +570,27 @@ const createBuildConfig = Effect.fn("createBuildConfig")(function* (
     appId: SYNARA_PRODUCTION_BUNDLE_ID,
     productName,
     artifactName: "Penkra-${version}-${arch}.${ext}",
-    extraResources: [{ from: "penkra-cli", to: "penkra-cli" }],
     directories: {
       buildResources: "apps/desktop/resources",
     },
+    forceCodeSigning: signed,
   };
-  const updateUrl = resolvePenkraUpdateUrl(platform, mockUpdates, mockUpdateServerPort);
-  if (updateUrl) {
+  const publishConfig = resolveGitHubPublishConfig();
+  if (publishConfig) {
+    buildConfig.publish = [publishConfig];
+  } else if (mockUpdates) {
     buildConfig.publish = [
       {
         provider: "generic",
-        url: updateUrl,
-        // api.penkra.com authenticates and redirects artifacts to S3. S3
-        // supports ordinary byte ranges, but not the multipart multi-range
-        // response electron-updater otherwise assumes for a generic URL.
-        useMultipleRangeRequest: false,
+        url: `http://localhost:${mockUpdateServerPort ?? 3000}`,
       },
     ];
   }
 
-  const windowsAzureSignOptions =
-    platform === "win" && signed ? yield* AzureTrustedSigningOptionsConfig : undefined;
-
   const platformBuildConfigInput = {
     platform,
     target,
-    ...(windowsAzureSignOptions ? { windowsAzureSignOptions } : {}),
+    signed,
   } as const;
 
   Object.assign(buildConfig, createDesktopPlatformBuildConfig(platformBuildConfigInput));
@@ -633,20 +603,7 @@ const assertPlatformBuildResources = Effect.fn("assertPlatformBuildResources")(f
   stageResourcesDir: string,
   verbose: boolean,
 ) {
-  if (platform === "mac") {
-    yield* stageMacIcons(stageResourcesDir, verbose);
-    return;
-  }
-
-  if (platform === "linux") {
-    yield* stageLinuxIcons(stageResourcesDir);
-    return;
-  }
-
-  if (platform === "win") {
-    yield* stageWindowsIcons(stageResourcesDir);
-    return;
-  }
+  yield* stageMacIcons(stageResourcesDir, verbose);
 });
 
 const stageMacAppSnapHelper = Effect.fn("stageMacAppSnapHelper")(function* (
@@ -750,7 +707,61 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   });
 
   const appVersion = options.version ?? serverPackageJson.version;
-  const commitHash = resolveGitCommitHash(repoRoot);
+  const hasSourceCommit = options.sourceCommit !== undefined;
+  const hasLockfileSha256 = options.lockfileSha256 !== undefined;
+  const exactProvenanceRequested =
+    hasSourceCommit || hasLockfileSha256 || options.sourceTag !== undefined;
+  if (exactProvenanceRequested && (!hasSourceCommit || !hasLockfileSha256 || !options.version)) {
+    return yield* new BuildScriptError({
+      message:
+        "Exact release provenance requires an explicit build version, source commit, and lockfile SHA-256 together.",
+    });
+  }
+
+  const resolvedCommitHash = resolveGitCommitHash(repoRoot);
+  if (options.sourceCommit && !/^[0-9a-f]{40}$/i.test(options.sourceCommit)) {
+    return yield* new BuildScriptError({
+      message: `Expected a full 40-character source commit, got '${options.sourceCommit}'.`,
+    });
+  }
+  if (options.sourceCommit && resolvedCommitHash !== options.sourceCommit.toLowerCase()) {
+    return yield* new BuildScriptError({
+      message: `Release source commit mismatch: expected ${options.sourceCommit}, got ${resolvedCommitHash ?? "unknown"}.`,
+    });
+  }
+  const commitHash = resolvedCommitHash ?? "unknown";
+  const resolvedLockfileSha256 = resolveLockfileSha256(repoRoot);
+  if (options.lockfileSha256 && !/^[0-9a-f]{64}$/i.test(options.lockfileSha256)) {
+    return yield* new BuildScriptError({
+      message: `Expected a 64-character lockfile SHA-256, got '${options.lockfileSha256}'.`,
+    });
+  }
+  if (options.lockfileSha256 && resolvedLockfileSha256 !== options.lockfileSha256.toLowerCase()) {
+    return yield* new BuildScriptError({
+      message: `Release lockfile digest mismatch: expected ${options.lockfileSha256}, got ${resolvedLockfileSha256}.`,
+    });
+  }
+  if (options.sourceTag && options.sourceTag !== `v${appVersion}`) {
+    return yield* new BuildScriptError({
+      message: `Release source tag ${options.sourceTag} does not match artifact version ${appVersion}.`,
+    });
+  }
+  if (exactProvenanceRequested) {
+    const gitStatus = spawnSync("git", ["status", "--porcelain=v1", "--untracked-files=all"], {
+      cwd: repoRoot,
+      encoding: "utf8",
+    });
+    if (gitStatus.status !== 0) {
+      return yield* new BuildScriptError({
+        message: `Unable to inspect release worktree: ${gitStatus.stderr.trim() || "git failed"}.`,
+      });
+    }
+    if (gitStatus.stdout.trim().length > 0) {
+      return yield* new BuildScriptError({
+        message: "Release source worktree is not clean; refusing to stage uncommitted bytes.",
+      });
+    }
+  }
   const mkdir = options.keepStage ? fs.makeTempDirectory : fs.makeTempDirectoryScoped;
   const stageRoot = yield* mkdir({
     prefix: `synara-desktop-${options.platform}-stage-`,
@@ -758,13 +769,6 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
 
   const stageAppDir = path.join(stageRoot, "app");
   const stageResourcesDir = path.join(stageAppDir, "apps/desktop/resources");
-  const cliExecutableName = options.platform === "win" ? "penkra.exe" : "penkra";
-  const configuredCliBinary = process.env.PENKRA_CLI_BINARY?.trim();
-  const cliBinarySource = configuredCliBinary
-    ? path.resolve(configuredCliBinary)
-    : path.resolve(repoRoot, "../backend/apps/cli/dist", cliExecutableName);
-  const stagedCliDirectory = path.join(stageAppDir, "penkra-cli");
-  const stagedCliBinary = path.join(stagedCliDirectory, cliExecutableName);
   const distDirs = {
     desktopDist: path.join(repoRoot, "apps/desktop/dist-electron"),
     desktopResources: path.join(repoRoot, "apps/desktop/resources"),
@@ -778,8 +782,6 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
       ChildProcess.make({
         cwd: repoRoot,
         ...commandOutputOptions(options.verbose),
-        // Windows needs shell mode to resolve .cmd shims (e.g. bun.cmd).
-        shell: process.platform === "win32",
       })`bun run build:desktop`,
     );
   }
@@ -797,11 +799,6 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
       message: `Missing bundled server client at ${bundledClientEntry}. Run 'bun run build:desktop' first.`,
     });
   }
-  if (!(yield* fs.exists(cliBinarySource))) {
-    return yield* new BuildScriptError({
-      message: `Missing Penkra CLI binary at ${cliBinarySource}. Build @penkra/cli for ${options.platform}/${options.arch} or set PENKRA_CLI_BINARY.`,
-    });
-  }
 
   yield* validateBundledClientAssets(path.dirname(bundledClientEntry));
 
@@ -812,36 +809,35 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   yield* fs.copy(distDirs.desktopDist, path.join(stageAppDir, "apps/desktop/dist-electron"));
   yield* fs.copy(distDirs.desktopResources, stageResourcesDir);
   yield* fs.copy(distDirs.serverDist, path.join(stageAppDir, "apps/server/dist"));
-  yield* fs.makeDirectory(stagedCliDirectory, { recursive: true });
-  yield* fs.copyFile(cliBinarySource, stagedCliBinary);
-  if (options.platform !== "win") chmodSync(stagedCliBinary, 0o755);
 
   yield* assertPlatformBuildResources(options.platform, stageResourcesDir, options.verbose);
 
-  if (options.platform === "mac") {
-    yield* stageMacAppSnapHelper(stageAppDir, options.arch, options.verbose);
-  }
+  yield* stageMacAppSnapHelper(stageAppDir, options.arch, options.verbose);
 
   // electron-builder is filtering out stageResourcesDir directory in the AppImage for production
   yield* fs.copy(stageResourcesDir, path.join(stageAppDir, "apps/desktop/prod-resources"));
 
+  const resolvedBuildConfig = yield* createBuildConfig(
+    options.platform,
+    options.target,
+    desktopPackageJson.productName ?? "Penkra",
+    options.signed,
+    options.mockUpdates,
+    options.mockUpdateServerPort,
+  );
+
   const stagePackageJson: StagePackageJson = {
-    name: "synara-desktop",
+    name: "penkra-desktop",
     version: appVersion,
     buildVersion: appVersion,
     synaraCommitHash: commitHash,
+    synaraLockfileSha256: resolvedLockfileSha256,
+    synaraSourceTag: options.sourceTag ?? null,
     private: true,
     description: "Penkra desktop build",
-    author: "Emmanuel Gyekye Atta-Penkra",
+    author: "Penkra",
     main: "apps/desktop/dist-electron/main.js",
-    build: yield* createBuildConfig(
-      options.platform,
-      options.target,
-      desktopPackageJson.productName ?? "Penkra",
-      options.signed,
-      options.mockUpdates,
-      options.mockUpdateServerPort,
-    ),
+    build: resolvedBuildConfig,
     dependencies: {
       ...resolvedServerDependencies,
       ...resolvedDesktopRuntimeDependencies,
@@ -850,51 +846,14 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
       electron: electronVersion,
     },
     overrides: {
-      ...DESKTOP_STAGE_DEPENDENCY_OVERRIDES,
       ...resolvedOverrides,
     },
   };
 
+  yield* installFrozenStageDependencies(repoRoot, stageAppDir, options.verbose);
+
   const stagePackageJsonString = yield* encodeJsonString(stagePackageJson);
   yield* fs.writeFileString(path.join(stageAppDir, "package.json"), `${stagePackageJsonString}\n`);
-
-  yield* Effect.log("[desktop-artifact] Installing staged production dependencies...");
-  yield* runCommand(
-    ChildProcess.make({
-      cwd: stageAppDir,
-      ...commandOutputOptions(options.verbose),
-      // Windows needs shell mode to resolve .cmd shims (e.g. bun.cmd).
-      shell: process.platform === "win32",
-    })`bun install --production`,
-  );
-
-  // Penkra always supplies pathToClaudeCodeExecutable and intentionally uses
-  // the user's installed Claude CLI. The SDK's optional platform package is a
-  // complete second Claude binary (~240 MB unpacked) and must not ship too.
-  const unusedClaudePlatformPackageName = resolveUnusedClaudePlatformPackageName(
-    options.platform,
-    options.arch,
-  );
-  const stagedClaudePlatformPackage = unusedClaudePlatformPackageName
-    ? path.join(stageAppDir, "node_modules", "@anthropic-ai", unusedClaudePlatformPackageName)
-    : null;
-  if (stagedClaudePlatformPackage && (yield* fs.exists(stagedClaudePlatformPackage))) {
-    yield* fs.remove(stagedClaudePlatformPackage, { recursive: true });
-    yield* Effect.log(
-      `[desktop-artifact] Removed unused staged Claude platform binary (${path.basename(stagedClaudePlatformPackage)}).`,
-    );
-  }
-  if (stagedClaudePlatformPackage && (yield* fs.exists(stagedClaudePlatformPackage))) {
-    return yield* new BuildScriptError({
-      message: `Unused Claude platform binary remained in the staged app: ${stagedClaudePlatformPackage}`,
-    });
-  }
-
-  if (options.platform !== "win") {
-    yield* prepareStagedNodePty(stageAppDir, options.platform, options.arch);
-    yield* verifyStagedNodePty(stageAppDir, options.verbose);
-  }
-  yield* verifyStagedParcelWatcher(stageAppDir, options.verbose);
 
   const buildEnv: NodeJS.ProcessEnv = {
     ...process.env,
@@ -913,27 +872,16 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     delete buildEnv.APPLE_API_ISSUER;
   }
 
-  if (process.platform === "win32") {
-    const python = resolvePythonForNodeGyp();
-    if (python) {
-      buildEnv.PYTHON = python;
-      buildEnv.npm_config_python = python;
-    }
-    buildEnv.npm_config_msvs_version = buildEnv.npm_config_msvs_version ?? "2022";
-    buildEnv.GYP_MSVS_VERSION = buildEnv.GYP_MSVS_VERSION ?? "2022";
-  }
-
   yield* Effect.log(
     `[desktop-artifact] Building ${options.platform}/${options.target} (arch=${options.arch}, version=${appVersion})...`,
   );
+  const electronBuilderCliPath = requireFromScriptsWorkspace.resolve("electron-builder/cli.js");
   yield* runCommand(
     ChildProcess.make({
       cwd: stageAppDir,
       env: buildEnv,
       ...commandOutputOptions(options.verbose),
-      // Windows needs shell mode to resolve .cmd shims.
-      shell: process.platform === "win32",
-    })`bunx electron-builder ${platformConfig.cliFlag} --${options.arch} --publish never`,
+    })`${process.execPath} ${electronBuilderCliPath} ${platformConfig.cliFlag} --${options.arch} --publish never`,
   );
 
   const stageDistDir = path.join(stageAppDir, "dist");
@@ -943,25 +891,45 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     });
   }
 
-  if (options.platform === "mac") {
-    yield* Effect.log("[desktop-artifact] Repacking and validating macOS update zip...");
-    const finalizedZip = yield* Effect.tryPromise({
+  if (options.target === "dmg" && options.signed) {
+    yield* Effect.log("[desktop-artifact] Notarizing and validating signed macOS DMG...");
+    const finalizedDmg = yield* Effect.try({
       try: () =>
-        finalizeMacUpdateZip({
+        finalizeSignedMacDmg({
           stageDistDir,
-          signed: options.signed,
+          appleApiKey: buildEnv.APPLE_API_KEY,
+          appleApiKeyId: buildEnv.APPLE_API_KEY_ID,
+          appleApiIssuer: buildEnv.APPLE_API_ISSUER,
           verbose: options.verbose,
         }),
       catch: (cause) =>
         new BuildScriptError({
-          message: "macOS update zip finalization failed.",
+          message: "macOS DMG signing/notarization finalization failed.",
           cause,
         }),
     });
     yield* Effect.log(
-      `[desktop-artifact] Rebuilt final macOS zip blockmap (${path.basename(finalizedZip.blockmapPath)}, ${finalizedZip.blockmapSize} bytes).`,
+      `[desktop-artifact] Signed and notarized macOS DMG (${finalizedDmg.dmgFileName}).`,
     );
   }
+
+  yield* Effect.log("[desktop-artifact] Repacking and validating macOS update zip...");
+  const finalizedZip = yield* Effect.tryPromise({
+    try: () =>
+      finalizeMacUpdateZip({
+        stageDistDir,
+        signed: options.signed,
+        verbose: options.verbose,
+      }),
+    catch: (cause) =>
+      new BuildScriptError({
+        message: "macOS update zip finalization failed.",
+        cause,
+      }),
+  });
+  yield* Effect.log(
+    `[desktop-artifact] Regenerated macOS differential blockmap (${path.basename(finalizedZip.blockmapPath)}, ${finalizedZip.blockmapSize} bytes).`,
+  );
 
   const stageEntries = yield* fs.readDirectory(stageDistDir);
   yield* fs.makeDirectory(options.outputDir, { recursive: true });
@@ -972,7 +940,11 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     const stat = yield* fs.stat(from).pipe(Effect.catch(() => Effect.succeed(null)));
     if (!stat || stat.type !== "File") continue;
 
-    const to = path.join(options.outputDir, entry);
+    const outputEntry =
+      options.arch !== "arm64" && entry === "latest-mac.yml"
+        ? `latest-mac-${options.arch}.yml`
+        : entry;
+    const to = path.join(options.outputDir, outputEntry);
     yield* fs.copyFile(from, to);
     copiedArtifacts.push(to);
   }
@@ -994,9 +966,7 @@ const buildDesktopArtifactCli = Command.make("build-desktop-artifact", {
     Flag.optional,
   ),
   target: Flag.string("target").pipe(
-    Flag.withDescription(
-      "Artifact target, for example dmg/AppImage/nsis (env: SYNARA_DESKTOP_TARGET).",
-    ),
+    Flag.withDescription("Artifact target, for example dmg (env: SYNARA_DESKTOP_TARGET)."),
     Flag.optional,
   ),
   arch: Flag.choice("arch", BuildArch.literals).pipe(
@@ -1005,6 +975,18 @@ const buildDesktopArtifactCli = Command.make("build-desktop-artifact", {
   ),
   buildVersion: Flag.string("build-version").pipe(
     Flag.withDescription("Artifact version metadata (env: SYNARA_DESKTOP_VERSION)."),
+    Flag.optional,
+  ),
+  sourceCommit: Flag.string("source-commit").pipe(
+    Flag.withDescription("Expected full source commit (env: SYNARA_SOURCE_COMMIT)."),
+    Flag.optional,
+  ),
+  sourceTag: Flag.string("source-tag").pipe(
+    Flag.withDescription("Exact source tag when building a release (env: SYNARA_SOURCE_TAG)."),
+    Flag.optional,
+  ),
+  lockfileSha256: Flag.string("lockfile-sha256").pipe(
+    Flag.withDescription("Expected bun.lock SHA-256 (env: SYNARA_LOCKFILE_SHA256)."),
     Flag.optional,
   ),
   outputDir: Flag.string("output-dir").pipe(
@@ -1023,7 +1005,7 @@ const buildDesktopArtifactCli = Command.make("build-desktop-artifact", {
   ),
   signed: Flag.boolean("signed").pipe(
     Flag.withDescription(
-      "Enable signing/notarization discovery; Windows uses Azure Trusted Signing (env: SYNARA_DESKTOP_SIGNED).",
+      "Enable macOS signing and notarization discovery (env: SYNARA_DESKTOP_SIGNED).",
     ),
     Flag.optional,
   ),
@@ -1040,7 +1022,7 @@ const buildDesktopArtifactCli = Command.make("build-desktop-artifact", {
     Flag.optional,
   ),
 }).pipe(
-  Command.withDescription("Build a desktop artifact for Penkra."),
+  Command.withDescription("Build a macOS desktop artifact for Penkra."),
   Command.withHandler((input) => Effect.flatMap(resolveBuildOptions(input), buildDesktopArtifact)),
 );
 

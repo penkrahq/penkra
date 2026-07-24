@@ -52,6 +52,7 @@ export type ProviderSession = typeof ProviderSession.Type;
 export const ProviderSessionStartInput = Schema.Struct({
   threadId: ThreadId,
   provider: Schema.optional(ProviderKind),
+  lifecycleGeneration: Schema.optional(TrimmedNonEmptyString),
   cwd: Schema.optional(TrimmedNonEmptyString),
   modelSelection: Schema.optional(ModelSelection),
   resumeCursor: Schema.optional(Schema.Unknown),
@@ -117,6 +118,32 @@ export const ProviderInterruptTurnInput = Schema.Struct({
 });
 export type ProviderInterruptTurnInput = typeof ProviderInterruptTurnInput.Type;
 
+export const ProviderStopTaskInput = Schema.Struct({
+  threadId: ThreadId,
+  taskId: TrimmedNonEmptyString,
+});
+export type ProviderStopTaskInput = typeof ProviderStopTaskInput.Type;
+
+export const ProviderBackgroundTaskInput = Schema.Struct({
+  threadId: ThreadId,
+  toolUseId: TrimmedNonEmptyString,
+});
+export type ProviderBackgroundTaskInput = typeof ProviderBackgroundTaskInput.Type;
+
+export const ProviderSteerSubagentInput = Schema.Struct({
+  threadId: ThreadId,
+  providerThreadId: TrimmedNonEmptyString,
+  input: Schema.optional(
+    TrimmedNonEmptyString.check(Schema.isMaxLength(PROVIDER_SEND_TURN_MAX_INPUT_CHARS)),
+  ),
+  attachments: Schema.optional(
+    Schema.Array(ChatAttachment).check(Schema.isMaxLength(PROVIDER_SEND_TURN_MAX_ATTACHMENTS)),
+  ),
+  skills: Schema.optional(Schema.Array(ProviderSkillReference)),
+  mentions: Schema.optional(Schema.Array(ProviderMentionReference)),
+});
+export type ProviderSteerSubagentInput = typeof ProviderSteerSubagentInput.Type;
+
 export const ProviderStopSessionInput = Schema.Struct({
   threadId: ThreadId,
 });
@@ -130,6 +157,7 @@ export type ProviderCompactThreadInput = typeof ProviderCompactThreadInput.Type;
 export const ProviderRespondToRequestInput = Schema.Struct({
   threadId: ThreadId,
   requestId: ApprovalRequestId,
+  lifecycleGeneration: Schema.optional(TrimmedNonEmptyString),
   decision: ProviderApprovalDecision,
 });
 export type ProviderRespondToRequestInput = typeof ProviderRespondToRequestInput.Type;
@@ -137,6 +165,7 @@ export type ProviderRespondToRequestInput = typeof ProviderRespondToRequestInput
 export const ProviderRespondToUserInputInput = Schema.Struct({
   threadId: ThreadId,
   requestId: ApprovalRequestId,
+  lifecycleGeneration: Schema.optional(TrimmedNonEmptyString),
   answers: ProviderUserInputAnswers,
 });
 export type ProviderRespondToUserInputInput = typeof ProviderRespondToUserInputInput.Type;
@@ -156,6 +185,7 @@ export const ProviderEvent = Schema.Struct({
   itemId: Schema.optional(ProviderItemId),
   requestId: Schema.optional(ApprovalRequestId),
   requestKind: Schema.optional(ProviderRequestKind),
+  lifecycleGeneration: Schema.optional(TrimmedNonEmptyString),
   providerThreadId: Schema.optional(TrimmedNonEmptyString),
   providerParentThreadId: Schema.optional(TrimmedNonEmptyString),
   textDelta: Schema.optional(Schema.String),

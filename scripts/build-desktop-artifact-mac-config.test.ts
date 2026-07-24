@@ -11,7 +11,6 @@ import {
   NODE_PTY_ASAR_UNPACK_GLOBS,
   PARCEL_WATCHER_ASAR_UNPACK_GLOBS,
   validateDesktopNativeBuildHost,
-  WINDOWS_INSTALLER_GUID,
 } from "./lib/desktop-platform-build-config.ts";
 import { BRAND_ASSET_PATHS } from "./lib/brand-assets.ts";
 
@@ -20,8 +19,10 @@ describe("createDesktopPlatformBuildConfig", () => {
     const config = createDesktopPlatformBuildConfig({
       platform: "mac",
       target: "dmg",
+      signed: true,
     });
     const mac = config.mac as Record<string, unknown>;
+    const dmg = config.dmg as Record<string, unknown>;
     const extendInfo = mac.extendInfo as Record<string, unknown>;
 
     assert.deepStrictEqual(mac.target, ["dmg", "zip"]);
@@ -31,6 +32,9 @@ describe("createDesktopPlatformBuildConfig", () => {
       ...PARCEL_WATCHER_ASAR_UNPACK_GLOBS,
     ]);
     assert.equal(mac.hardenedRuntime, true);
+    assert.equal(mac.notarize, true);
+    assert.equal(dmg.sign, true);
+    assert.equal(dmg.writeUpdateInfo, false);
     assert.equal(mac.entitlements, MAC_ENTITLEMENTS_PATH);
     assert.equal(mac.entitlementsInherit, MAC_INHERITED_ENTITLEMENTS_PATH);
     assert.equal(MAC_APPSNAP_HELPER_BUNDLE_PATH, "Contents/Helpers/synara-appsnap-helper");
@@ -52,80 +56,20 @@ describe("createDesktopPlatformBuildConfig", () => {
     assert.equal(extendInfo.NSScreenCaptureUsageDescription, undefined);
   });
 
-  it("leaves non-macOS platform configs unchanged", () => {
-    const linux = createDesktopPlatformBuildConfig({
-      platform: "linux",
-      target: "AppImage",
-    });
-    const win = createDesktopPlatformBuildConfig({
-      platform: "win",
-      target: "nsis",
-      windowsAzureSignOptions: { publisherName: "Penkra" },
+  it("leaves the DMG container unsigned for build-only macOS artifacts", () => {
+    const config = createDesktopPlatformBuildConfig({
+      platform: "mac",
+      target: "dmg",
+      signed: false,
     });
 
-    assert.equal(linux.mac, undefined);
-    assert.equal(linux.extraFiles, undefined);
-    assert.deepStrictEqual(linux.asarUnpack, [
-      ...NODE_PTY_ASAR_UNPACK_GLOBS,
-      ...PARCEL_WATCHER_ASAR_UNPACK_GLOBS,
-    ]);
-    assert.deepStrictEqual(linux.linux, {
-      target: ["AppImage"],
-      executableName: "penkra",
-      icon: "icon.png",
-      category: "Development",
-      desktop: {
-        entry: {
-          StartupWMClass: "penkra",
-        },
-      },
-    });
-
-    assert.equal(win.mac, undefined);
-    assert.equal(win.extraFiles, undefined);
-    assert.deepStrictEqual(win.asarUnpack, [
-      ...NODE_PTY_ASAR_UNPACK_GLOBS,
-      ...PARCEL_WATCHER_ASAR_UNPACK_GLOBS,
-    ]);
-    assert.equal(WINDOWS_INSTALLER_GUID, "BE0EA921-E16E-482E-BEF8-A806CD303114");
-    assert.deepStrictEqual(win.nsis, {
-      guid: WINDOWS_INSTALLER_GUID,
-    });
-    assert.deepStrictEqual(win.win, {
-      target: ["nsis"],
-      icon: "icon.ico",
-      azureSignOptions: { publisherName: "Penkra" },
-    });
+    assert.deepStrictEqual(config.dmg, { sign: false, writeUpdateInfo: false });
   });
 
-  it("keeps Windows signing optional", () => {
+  it("keeps node-pty unpacked from ASAR in generated build config", () => {
     const config = createDesktopPlatformBuildConfig({
-      platform: "win",
-      target: "nsis",
-    });
-
-    assert.deepStrictEqual(config.win, {
-      target: ["nsis"],
-      icon: "icon.ico",
-    });
-  });
-
-  it("keeps Windows signing optional", () => {
-    const config = createDesktopPlatformBuildConfig({
-      platform: "win",
-      target: "nsis",
-    });
-
-    assert.deepStrictEqual(config.win, {
-      target: ["nsis"],
-      icon: "icon.ico",
-    });
-  });
-
-  it("keeps native modules unpacked from ASAR in generated build config", () => {
-    const config = createDesktopPlatformBuildConfig({
-      platform: "linux",
-      target: "AppImage",
+      platform: "mac",
+      target: "dmg",
     });
 
     assert.deepStrictEqual([...NODE_PTY_ASAR_UNPACK_GLOBS], ["node_modules/node-pty/**"]);
@@ -133,37 +77,6 @@ describe("createDesktopPlatformBuildConfig", () => {
       ...NODE_PTY_ASAR_UNPACK_GLOBS,
       ...PARCEL_WATCHER_ASAR_UNPACK_GLOBS,
     ]);
-  });
-
-  it("blocks unsupported or non-matching Linux native build hosts", () => {
-    assert.equal(
-      validateDesktopNativeBuildHost({
-        platform: "linux",
-        arch: "x64",
-        hostPlatform: "linux",
-        hostArch: "x64",
-      }),
-      null,
-    );
-
-    assert.equal(
-      validateDesktopNativeBuildHost({
-        platform: "linux",
-        arch: "universal",
-        hostPlatform: "linux",
-        hostArch: "x64",
-      }),
-      "Linux desktop artifacts support x64 or arm64 builds, not universal builds.",
-    );
-
-    const issue = validateDesktopNativeBuildHost({
-      platform: "linux",
-      arch: "x64",
-      hostPlatform: "darwin",
-      hostArch: "arm64",
-    });
-
-    assert.ok(issue?.includes("Build linux/x64 on a matching Linux host"));
   });
 
   it("requires a macOS host for the native Swift AppSnap helper", () => {

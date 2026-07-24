@@ -3,7 +3,7 @@ import "../../index.css";
 import { MessageId } from "@synara/contracts";
 import { type LegendListRef } from "@legendapp/list/react";
 import { page } from "vitest/browser";
-import { Profiler, useCallback, useRef, useState, type ProfilerOnRenderCallback } from "react";
+import { Profiler, useRef, useState, type ProfilerOnRenderCallback } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
@@ -28,6 +28,11 @@ const TIMELINE_ENTRIES = [
     },
   },
 ];
+
+async function settleLayout(): Promise<void> {
+  await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+  await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+}
 
 function TranscriptPerfHarness(props: { onTranscriptRender: () => void }) {
   const [composerValue, setComposerValue] = useState("");
@@ -64,12 +69,12 @@ function TranscriptPerfHarness(props: { onTranscriptRender: () => void }) {
     onMessagesTouchStartBase: NOOP,
     onMessagesWheelBase: NOOP,
   });
-  const handleComposerChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleComposerChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     setComposerValue(event.target.value);
-  }, []);
-  const handleTranscriptRender = useCallback<ProfilerOnRenderCallback>(() => {
+  };
+  const handleTranscriptRender: ProfilerOnRenderCallback = () => {
     props.onTranscriptRender();
-  }, [props]);
+  };
 
   return (
     <div>
@@ -164,6 +169,9 @@ describe("ChatTranscriptPane", () => {
     // Well past the visual line clamp so the collapsed message measures as
     // overflowing regardless of viewport width.
     const longUserText = `${Array.from({ length: 40 }, (_, index) => `line ${index}`).join("\n")}\n${hiddenTail}`;
+    const host = document.createElement("div");
+    host.style.cssText = "display:flex;width:600px;height:520px;overflow:hidden;";
+    document.body.append(host);
 
     const screen = await render(
       <ChatTranscriptPane
@@ -217,6 +225,7 @@ describe("ChatTranscriptPane", () => {
         turnDiffSummaryByAssistantMessageId={EMPTY_TURN_DIFFS}
         workspaceRoot={undefined}
       />,
+      { container: host },
     );
     try {
       // Collapsing is a visual clamp: the tail stays in the DOM but the clamp
@@ -241,8 +250,11 @@ describe("ChatTranscriptPane", () => {
       expect(screen.container.querySelector("button[data-scroll-anchor-ignore]")?.textContent).toBe(
         "Show less",
       );
+      await settleLayout();
     } finally {
       await screen.unmount();
+      host.remove();
+      await settleLayout();
     }
   });
 

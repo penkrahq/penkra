@@ -75,7 +75,7 @@ describe("buildSynaraBranchName", () => {
     expect(buildSynaraBranchName("fix toast copy")).toBe("synara/fix-toast-copy");
   });
 
-  it("keeps non-Synara namespaces inside the Synara branch", () => {
+  it("keeps non-Penkra namespaces inside the Penkra branch", () => {
     expect(buildSynaraBranchName("feature/refine-toolbar-actions")).toBe(
       "synara/feature/refine-toolbar-actions",
     );
@@ -95,7 +95,7 @@ describe("buildSynaraBranchName", () => {
 });
 
 describe("resolveUniqueSynaraBranchName", () => {
-  it("increments suffix when the Synara branch already exists", () => {
+  it("increments suffix when the Penkra branch already exists", () => {
     expect(
       resolveUniqueSynaraBranchName(
         ["main", "synara/fix-toast-copy", "synara/fix-toast-copy-2"],

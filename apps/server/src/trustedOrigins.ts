@@ -1,16 +1,22 @@
 // FILE: trustedOrigins.ts
 // Purpose: Shared origin checks for browser-facing HTTP/WS routes that expose
-//          local machine data only to Synara's own app surfaces.
+//          local machine data only to Penkra's own app surfaces.
 // Layer: Server HTTP/security utility
 // Exports: normalizeCorsOrigin, isTrustedAppOrigin,
 //          shouldRejectUntrustedRequestOrigin
 
-import { SYNARA_DESKTOP_ORIGIN } from "@synara/shared/desktopIdentity";
+import {
+  SYNARA_CANARY_DESKTOP_ORIGIN,
+  SYNARA_DESKTOP_ORIGIN,
+} from "@synara/shared/desktopIdentity";
 
 import type { ServerConfigShape } from "./config";
 import { isLoopbackHost, isWildcardHost } from "./startupAccess";
 
-export const DESKTOP_APP_CORS_ORIGIN = SYNARA_DESKTOP_ORIGIN;
+export const DESKTOP_APP_CORS_ORIGINS: ReadonlySet<string> = new Set([
+  SYNARA_DESKTOP_ORIGIN,
+  SYNARA_CANARY_DESKTOP_ORIGIN,
+]);
 
 export function normalizeCorsOrigin(rawOrigin: string | ReadonlyArray<string> | undefined) {
   const value = Array.isArray(rawOrigin) ? rawOrigin[0] : rawOrigin;
@@ -18,8 +24,9 @@ export function normalizeCorsOrigin(rawOrigin: string | ReadonlyArray<string> | 
   if (!trimmed || trimmed === "null") {
     return null;
   }
-  if (trimmed.replace(/\/+$/, "") === DESKTOP_APP_CORS_ORIGIN) {
-    return DESKTOP_APP_CORS_ORIGIN;
+  const normalizedDesktopOrigin = trimmed.replace(/\/+$/, "");
+  if (DESKTOP_APP_CORS_ORIGINS.has(normalizedDesktopOrigin)) {
+    return normalizedDesktopOrigin;
   }
   try {
     const origin = new URL(trimmed).origin;
@@ -36,6 +43,9 @@ function normalizeHostForComparison(host: string): string {
 // Same-origin is trusted for local loopback, explicitly configured hosts, and
 // wildcard binds where remote-reachable auth/session policy is the real gate.
 function isTrustedRequestOriginHost(requestOrigin: string, config: ServerConfigShape): boolean {
+  if (config.publicUrl && !isLoopbackHost(config.host)) {
+    return false;
+  }
   let requestHost: string;
   try {
     requestHost = new URL(requestOrigin).hostname;
@@ -63,10 +73,11 @@ export function isTrustedAppOrigin(input: {
 }) {
   return (
     !input.origin ||
+    input.origin === input.config.publicUrl?.origin ||
     (input.origin === input.requestOrigin &&
       isTrustedRequestOriginHost(input.requestOrigin, input.config)) ||
     input.origin === input.config.devUrl?.origin ||
-    input.origin === DESKTOP_APP_CORS_ORIGIN
+    DESKTOP_APP_CORS_ORIGINS.has(input.origin)
   );
 }
 
@@ -90,4 +101,23 @@ export function shouldRejectUntrustedRequestOrigin(input: {
       config: input.config,
     })
   );
+}
+
+export function shouldRejectAuthMutationOrigin(input: {
+  readonly rawOrigin: string | ReadonlyArray<string> | undefined;
+  readonly requestOrigin: string;
+  readonly config: ServerConfigShape;
+  readonly credentialSource: "bearer" | "cookie";
+}) {
+  if (input.rawOrigin === undefined) {
+    return input.credentialSource !== "bearer";
+  }
+  return shouldRejectUntrustedRequestOrigin(input);
+}
+
+/** Remote-reachable sockets always require a real authenticated session. */
+export function requiresWebSocketAuthentication(
+  config: Pick<ServerConfigShape, "authToken" | "host" | "publicUrl">,
+): boolean {
+  return Boolean(config.authToken) || Boolean(config.publicUrl) || !isLoopbackHost(config.host);
 }

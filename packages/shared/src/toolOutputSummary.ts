@@ -9,6 +9,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function firstTextLine(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const firstLine = value.trim().split(/\r?\n/, 1)[0]?.trim();
+  return firstLine || undefined;
+}
+
 export function countTextLines(content: string): number {
   if (content.length === 0) {
     return 0;
@@ -16,11 +22,6 @@ export function countTextLines(content: string): number {
   return content.replace(/\r?\n$/, "").split(/\r?\n/).length;
 }
 
-/**
- * Extracts the complete human-readable text carried by a provider tool result.
- * ACP providers commonly encode terminal output as an array of content parts,
- * while older integrations use a string or a record field.
- */
 export function extractToolRawOutputText(rawOutput: unknown): string | undefined {
   if (typeof rawOutput === "string") {
     return rawOutput.trim().length > 0 ? rawOutput : undefined;
@@ -36,15 +37,25 @@ export function extractToolRawOutputText(rawOutput: unknown): string | undefined
   }
   for (const key of ["text", "stdout", "output", "content"] as const) {
     const text = extractToolRawOutputText(rawOutput[key]);
-    if (text) {
-      return text;
-    }
+    if (text) return text;
   }
   return undefined;
 }
 
 export function summarizeToolRawOutput(rawOutput: unknown): string | undefined {
   const record = isRecord(rawOutput) ? rawOutput : undefined;
+  const isError =
+    record?.isError === true ||
+    record?.is_error === true ||
+    record?.is_error === 1 ||
+    record?.is_error === "true";
+  if (isError) {
+    const output = isRecord(record?.output) ? record.output : null;
+    const errorSummary = firstTextLine(
+      output?.Error ?? output?.error ?? record?.error ?? record?.message,
+    );
+    if (errorSummary) return errorSummary;
+  }
   const totalFiles = record?.totalFiles;
   if (typeof totalFiles === "number" && Number.isInteger(totalFiles) && totalFiles >= 0) {
     const suffix = record?.truncated === true ? " (truncated)" : "";
@@ -54,6 +65,5 @@ export function summarizeToolRawOutput(rawOutput: unknown): string | undefined {
     const lineCount = countTextLines(record.content);
     return `Read ${lineCount} ${pluralize(lineCount, "line")}`;
   }
-  const text = extractToolRawOutputText(rawOutput)?.trim();
-  return text ? (text.split(/\r?\n/, 1)[0]?.trim() ?? undefined) : undefined;
+  return firstTextLine(extractToolRawOutputText(rawOutput));
 }

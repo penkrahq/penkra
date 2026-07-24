@@ -10,10 +10,10 @@ import {
 import { KeybindingRule, ResolvedKeybindingsConfig } from "./keybindings";
 import { EditorId } from "./editor";
 import { ModelSelection, ProviderKind, ProviderStartOptions } from "./orchestration";
-import { ServerSettings, ServerSettingsPatch } from "./settings";
+import { ServerSettingsPatch, ServerSettingsView } from "./settings";
 import { ExecutionEnvironmentDescriptor } from "./environment";
-import { AutomationCompletionPolicy, AutomationMode, AutomationSchedule } from "./automation";
 
+export const SERVER_VOICE_TRANSCRIPTION_MAX_AUDIO_BYTES = 10 * 1024 * 1024;
 const SERVER_VOICE_TRANSCRIPTION_MAX_AUDIO_BASE64_CHARS = 14_000_000;
 
 const KeybindingsMalformedConfigIssue = Schema.Struct({
@@ -286,50 +286,6 @@ export const ServerGenerateThreadRecapResult = Schema.Struct({
 });
 export type ServerGenerateThreadRecapResult = typeof ServerGenerateThreadRecapResult.Type;
 
-// Schema-validated automation intent extraction for composer-triggered creation.
-// The UI still owns confirmation/error copy; this result only describes what the model understood.
-export const ServerAutomationIntentMissingField = Schema.Literals([
-  "schedule",
-  "taskPrompt",
-  "name",
-  "mode",
-]);
-export type ServerAutomationIntentMissingField = typeof ServerAutomationIntentMissingField.Type;
-
-export const ServerGenerateAutomationIntentInput = Schema.Struct({
-  cwd: TrimmedNonEmptyString,
-  message: TrimmedNonEmptyString.check(Schema.isMaxLength(16_000)),
-  defaultMode: Schema.optional(AutomationMode),
-  nowIso: IsoDateTime,
-  codexHomePath: Schema.optional(TrimmedNonEmptyString),
-  providerOptions: Schema.optional(ProviderStartOptions),
-  textGenerationModel: Schema.optional(TrimmedNonEmptyString),
-  textGenerationModelSelection: Schema.optional(ModelSelection),
-});
-export type ServerGenerateAutomationIntentInput = typeof ServerGenerateAutomationIntentInput.Type;
-
-export const ServerGenerateAutomationIntentResult = Schema.Struct({
-  isAutomation: Schema.Boolean,
-  confidence: Schema.Number.check(Schema.isGreaterThanOrEqualTo(0)).check(
-    Schema.isLessThanOrEqualTo(1),
-  ),
-  language: Schema.NullOr(TrimmedNonEmptyString.check(Schema.isMaxLength(80))),
-  name: Schema.NullOr(TrimmedNonEmptyString.check(Schema.isMaxLength(160))),
-  taskPrompt: Schema.NullOr(TrimmedNonEmptyString.check(Schema.isMaxLength(64_000))),
-  schedule: Schema.NullOr(AutomationSchedule),
-  mode: Schema.NullOr(AutomationMode),
-  maxIterations: Schema.optional(Schema.NullOr(PositiveInt)).pipe(
-    Schema.withDecodingDefault(() => null),
-  ),
-  completionPolicy: Schema.optional(AutomationCompletionPolicy).pipe(
-    Schema.withDecodingDefault(() => ({ type: "none" as const })),
-  ),
-  missingFields: Schema.Array(ServerAutomationIntentMissingField),
-  needsConfirmation: Schema.Boolean,
-  reason: Schema.NullOr(Schema.String.check(Schema.isMaxLength(500))),
-});
-export type ServerGenerateAutomationIntentResult = typeof ServerGenerateAutomationIntentResult.Type;
-
 export const ServerUpsertKeybindingInput = KeybindingRule;
 export type ServerUpsertKeybindingInput = typeof ServerUpsertKeybindingInput.Type;
 
@@ -351,7 +307,7 @@ export const ServerProviderStatusesUpdatedPayload = Schema.Struct({
 export type ServerProviderStatusesUpdatedPayload = typeof ServerProviderStatusesUpdatedPayload.Type;
 
 export const ServerSettingsUpdatedPayload = Schema.Struct({
-  settings: ServerSettings,
+  settings: ServerSettingsView,
 });
 export type ServerSettingsUpdatedPayload = typeof ServerSettingsUpdatedPayload.Type;
 
@@ -434,7 +390,7 @@ export class ServerProviderUpdateError extends Schema.TaggedErrorClass<ServerPro
 export const ServerProviderUpdateResult = ServerProviderStatusesUpdatedPayload;
 export type ServerProviderUpdateResult = typeof ServerProviderUpdateResult.Type;
 
-export const ServerGetSettingsResult = ServerSettings;
+export const ServerGetSettingsResult = ServerSettingsView;
 export type ServerGetSettingsResult = typeof ServerGetSettingsResult.Type;
 
 export const ServerGetEnvironmentResult = ExecutionEnvironmentDescriptor;
@@ -443,5 +399,5 @@ export type ServerGetEnvironmentResult = typeof ServerGetEnvironmentResult.Type;
 export const ServerUpdateSettingsInput = ServerSettingsPatch;
 export type ServerUpdateSettingsInput = typeof ServerUpdateSettingsInput.Type;
 
-export const ServerUpdateSettingsResult = ServerSettings;
+export const ServerUpdateSettingsResult = ServerSettingsView;
 export type ServerUpdateSettingsResult = typeof ServerUpdateSettingsResult.Type;

@@ -31,12 +31,24 @@ export class PersistenceDecodeError extends Schema.TaggedErrorClass<PersistenceD
 }
 
 export function toPersistenceSqlError(operation: string) {
-  return (cause: unknown): PersistenceSqlError =>
-    new PersistenceSqlError({
+  return (cause: unknown): PersistenceSqlError => {
+    const messages: string[] = [];
+    const seen = new Set<unknown>();
+    let current: unknown = cause;
+    while (current && typeof current === "object" && !seen.has(current)) {
+      seen.add(current);
+      if (current instanceof Error && current.message && !messages.includes(current.message)) {
+        messages.push(current.message);
+      }
+      current = "cause" in current ? (current as { readonly cause?: unknown }).cause : undefined;
+    }
+    const causeDetail = messages.length > 0 ? ` (${messages.join(": ")})` : "";
+    return new PersistenceSqlError({
       operation,
-      detail: `Failed to execute ${operation}`,
+      detail: `Failed to execute ${operation}${causeDetail}`,
       cause,
     });
+  };
 }
 
 export function toPersistenceDecodeError(operation: string) {
@@ -46,6 +58,16 @@ export function toPersistenceDecodeError(operation: string) {
       issue: SchemaIssue.makeFormatterDefault()(error.issue),
       cause: error,
     });
+}
+
+export function toPersistenceSqlOrDecodeError(
+  sqlOperation: string,
+  decodeOperation: string,
+): (cause: unknown) => PersistenceSqlError | PersistenceDecodeError {
+  return (cause) =>
+    Schema.isSchemaError(cause)
+      ? toPersistenceDecodeError(decodeOperation)(cause)
+      : toPersistenceSqlError(sqlOperation)(cause);
 }
 
 export function toPersistenceDecodeCauseError(operation: string) {
@@ -73,6 +95,22 @@ export class MigrationLineageError extends Schema.TaggedErrorClass<MigrationLine
       `Migration tracker does not match any known lineage: migration ${this.firstDivergedId} ` +
       `is recorded as "${this.recordedName}" but Penkra expects "${this.expectedName}". ` +
       `Refusing to run migrations against an unrecognized database.`
+    );
+  }
+}
+
+export class MigrationSchemaTooNewError extends Schema.TaggedErrorClass<MigrationSchemaTooNewError>()(
+  "MigrationSchemaTooNewError",
+  {
+    databaseMigrationId: Schema.Number,
+    latestSupportedMigrationId: Schema.Number,
+  },
+) {
+  override get message(): string {
+    return (
+      `Database schema migration ${this.databaseMigrationId} is newer than this Penkra build ` +
+      `(latest supported migration: ${this.latestSupportedMigrationId}). ` +
+      "Refusing writable startup; upgrade Penkra or restore a compatible database backup."
     );
   }
 }
@@ -124,5 +162,3 @@ export type ProjectionRepositoryError = PersistenceSqlError | PersistenceDecodeE
 export type AuthPairingLinkRepositoryError = PersistenceSqlError | PersistenceDecodeError;
 
 export type AuthSessionRepositoryError = PersistenceSqlError | PersistenceDecodeError;
-
-export type AutomationRepositoryError = PersistenceSqlError | PersistenceDecodeError;

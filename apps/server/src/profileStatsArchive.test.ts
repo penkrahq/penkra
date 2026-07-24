@@ -20,6 +20,7 @@ import {
 } from "./checkpointing/Utils";
 import { ServerConfig } from "./config";
 import { SqlitePersistenceMemory } from "./persistence/Layers/Sqlite";
+import { PROVIDER_COMMAND_REACTOR_CONSUMER } from "./persistence/Services/OrchestrationEventDeliveries";
 import { ProfileStatsQuery, ProfileStatsQueryLive } from "./profileStats";
 import {
   aggregateThreadTokenRows,
@@ -120,24 +121,24 @@ const seedTwoThreadsWithActivity = Effect.gen(function* () {
   yield* sql`
     INSERT INTO projection_thread_messages (
       message_id, thread_id, turn_id, role, text, skills_json, mentions_json,
-      is_streaming, source, created_at, updated_at
+      is_streaming, source, dispatch_origin, created_at, updated_at
     )
     VALUES
       (
         'message-keep-1', 'thread-keep', 'turn-keep-1', 'user',
         'keep one', NULL, NULL,
-        0, 'native', '2026-06-13T08:05:00.000Z', '2026-06-13T08:05:00.000Z'
+        0, 'native', 'user', '2026-06-13T08:05:00.000Z', '2026-06-13T08:05:00.000Z'
       ),
       (
         'message-purge-1', 'thread-purge', 'turn-purge-1', 'user',
         'Use /check-code here',
         '[{"name":"check-code","path":"/skills/check-code/SKILL.md"}]', NULL,
-        0, 'native', '2026-06-13T09:05:00.000Z', '2026-06-13T09:05:00.000Z'
+        0, 'native', 'user', '2026-06-13T09:05:00.000Z', '2026-06-13T09:05:00.000Z'
       ),
       (
         'message-purge-2', 'thread-purge', 'turn-purge-2', 'user',
         'purge two', NULL, '[{"name":"reviewer","path":"agent://reviewer"}]',
-        0, 'native', '2026-06-14T10:05:00.000Z', '2026-06-14T10:05:00.000Z'
+        0, 'native', 'agent', '2026-06-14T10:05:00.000Z', '2026-06-14T10:05:00.000Z'
       )
   `;
 
@@ -232,25 +233,35 @@ const seedTwoThreadsWithActivity = Effect.gen(function* () {
     )
     VALUES
       (
-        'thread-keep', 'turn-keep-1', NULL, NULL, 'completed',
+        'thread-keep', 'turn-keep-1', 'message-keep-1', NULL, 'completed',
         '2026-06-13T08:05:00.000Z', '2026-06-13T08:05:10.000Z',
         '2026-06-13T08:06:00.000Z', 1,
         'refs/historical/checkpoints/dGhyZWFkLWtlZXA/turn/1', 'captured', '[]'
       ),
       (
-        'thread-purge', 'turn-purge-1', NULL, NULL, 'completed',
+        'thread-purge', 'turn-purge-1', 'message-purge-1', NULL, 'completed',
         '2026-06-13T09:05:00.000Z', '2026-06-13T09:05:10.000Z',
         '2026-06-13T09:06:00.000Z', 1,
         'refs/historical/checkpoints/dGhyZWFkLXB1cmdl/turn/1', 'captured', '[]'
       ),
       (
-        'thread-purge', 'turn-purge-2', NULL, NULL, 'completed',
+        'thread-purge', 'turn-purge-2', 'message-purge-2', NULL, 'completed',
         '2026-06-14T10:05:00.000Z', '2026-06-14T10:05:10.000Z',
         '2026-06-14T10:06:00.000Z', 2,
         'provider-diff:event-purge-2', 'captured', '[]'
       )
   `;
 });
+
+const acknowledgeProviderCommandJournal = (sql: SqlClient.SqlClient) =>
+  sql`
+    UPDATE orchestration_consumer_state
+    SET last_acked_sequence = (
+      SELECT COALESCE(MAX(sequence), 0) FROM orchestration_events
+    ),
+    updated_at = '2026-07-14T00:00:00.000Z'
+    WHERE consumer_name = ${PROVIDER_COMMAND_REACTOR_CONSUMER}
+  `;
 
 describe("ProfileStatsArchive", () => {
   beforeEach(() => {
@@ -326,6 +337,64 @@ describe("ProfileStatsArchive", () => {
     ]);
   });
 
+  it("computes cumulative deltas across agent turns before excluding their usage", () => {
+    const rows = aggregateThreadTokenRows([
+      {
+        totalProcessedTokens: 1_000,
+        usedTokens: null,
+        provider: "codex",
+        model: "gpt-5.5",
+        dispatchOrigin: "user",
+        createdAt: "2026-06-13T12:00:00.000Z",
+      },
+      {
+        totalProcessedTokens: 2_500,
+        usedTokens: null,
+        provider: "codex",
+        model: "gpt-5.5",
+        dispatchOrigin: "agent",
+        createdAt: "2026-06-13T12:01:00.000Z",
+      },
+      {
+        totalProcessedTokens: 3_000,
+        usedTokens: null,
+        provider: "codex",
+        model: "gpt-5.5",
+        dispatchOrigin: "user",
+        createdAt: "2026-06-13T12:02:00.000Z",
+      },
+    ]);
+
+    expect(rows.map(({ createdAt, tokens }) => ({ createdAt, tokens }))).toEqual([
+      { createdAt: "2026-06-13T12:00:00.000Z", tokens: 1_000 },
+      { createdAt: "2026-06-13T12:02:00.000Z", tokens: 500 },
+    ]);
+  });
+
+  it("keeps a stamped activity provider instead of a mismatched thread fallback", () => {
+    const rows = aggregateThreadTokenRows(
+      [
+        {
+          totalProcessedTokens: 1_500,
+          usedTokens: null,
+          provider: "claudeAgent",
+          model: null,
+          createdAt: "2026-06-13T12:00:00.000Z",
+        },
+      ],
+      { provider: "codex", model: "gpt-5.5" },
+    );
+
+    expect(rows).toEqual([
+      {
+        createdAt: "2026-06-13T12:00:00.000Z",
+        provider: "claudeAgent",
+        model: null,
+        tokens: 1_500,
+      },
+    ]);
+  });
+
   it("purges a thread's rows while keeping every profile stat unchanged", async () => {
     await runArchiveTest(
       Effect.gen(function* () {
@@ -334,7 +403,7 @@ describe("ProfileStatsArchive", () => {
         const archive = yield* ProfileStatsArchive;
 
         yield* seedTwoThreadsWithActivity;
-
+        yield* acknowledgeProviderCommandJournal(sql);
         const statsBefore = yield* statsQuery.getProfileStats({ utcOffsetMinutes: 0 });
         const tokenStatsBefore = yield* statsQuery.getProfileTokenStats({ utcOffsetMinutes: 0 });
         // Half-hour offset: the 18:45Z token activity lands on the NEXT local
@@ -449,6 +518,215 @@ describe("ProfileStatsArchive", () => {
         expect(purgedAgain).toBe(false);
         const statsAfterRepurge = yield* statsQuery.getProfileStats({ utcOffsetMinutes: 0 });
         expect(statsAfterRepurge.activity).toEqual(statsBefore.activity);
+      }),
+    );
+  });
+
+  it("deletes terminal gateway plans and redacts live recovery plans with a purged caller", async () => {
+    await runArchiveTest(
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        const archive = yield* ProfileStatsArchive;
+        yield* seedTwoThreadsWithActivity;
+        yield* acknowledgeProviderCommandJournal(sql);
+
+        const livePlan = JSON.stringify([
+          {
+            index: 0,
+            spec: { prompt: "private live prompt", branchName: "agent/private" },
+            projectId: "project-archive",
+            workspaceRoot: "/work/archive",
+            environment: "worktree",
+            runtimeMode: "full-access",
+            baseBranch: "main",
+            newBranch: "agent/private",
+            plannedWorktreePath: "/worktrees/private",
+            ownershipPreflightPassed: true,
+            worktreeOwnership: {
+              operationId: "operation-live",
+              path: "/worktrees/private",
+              branch: "agent/private",
+              token: "private-owner-token",
+              gitDir: "/repo/.git/worktrees/private",
+              head: "0123456789abcdef",
+              recordedAt: "2026-06-14T10:06:00.000Z",
+            },
+            ids: {
+              threadId: "agent-private-child",
+              compensateCommandId: "delete-agent-private-child",
+            },
+          },
+        ]);
+        yield* sql`
+          INSERT INTO agent_gateway_operations (
+            operation_id, caller_thread_id, caller_turn_id, operation_kind,
+            request_id, fingerprint, requested_count, plan_json, status,
+            result_json, error_json, created_at, updated_at
+          ) VALUES
+            (
+              'operation-terminal', 'thread-purge', 'turn-purge-terminal', 'create_threads',
+              'terminal-request', 'terminal-fingerprint', 1,
+              '[{"spec":{"prompt":"private terminal prompt"}}]', 'completed',
+              '{"workspaceRoot":"/private/result"}', NULL,
+              '2026-06-14T10:05:00.000Z', '2026-06-14T10:05:00.000Z'
+            ),
+            (
+              'operation-live', 'thread-purge', 'turn-purge-live', 'create_threads',
+              'private-request-id', 'private-fingerprint', 1,
+              ${livePlan}, 'dispatching', NULL, '{"path":"/private/error"}',
+              '2026-06-14T10:06:00.000Z', '2026-06-14T10:06:00.000Z'
+            )
+        `;
+
+        expect(yield* archive.purgeThreadWithStatsSnapshot({ threadId: "thread-purge" })).toBe(
+          true,
+        );
+        const rows = yield* sql<{
+          readonly operationId: string;
+          readonly callerThreadId: string;
+          readonly callerTurnId: string;
+          readonly requestId: string;
+          readonly fingerprint: string;
+          readonly planJson: string;
+          readonly status: string;
+          readonly resultJson: string | null;
+          readonly errorJson: string | null;
+          readonly callerPurgedAt: string | null;
+        }>`
+          SELECT
+            operation_id AS "operationId", caller_thread_id AS "callerThreadId",
+            caller_turn_id AS "callerTurnId", request_id AS "requestId", fingerprint,
+            plan_json AS "planJson", status, result_json AS "resultJson",
+            error_json AS "errorJson", caller_purged_at AS "callerPurgedAt"
+          FROM agent_gateway_operations
+          WHERE operation_id = 'operation-live'
+        `;
+        expect(rows).toHaveLength(1);
+        expect(rows[0]).toMatchObject({
+          operationId: "operation-live",
+          callerThreadId: "purged-thread:operation-live",
+          callerTurnId: "purged-turn:operation-live",
+          requestId: "operation-live",
+          fingerprint: "operation-live",
+          status: "dispatching",
+          resultJson: null,
+          errorJson: null,
+          callerPurgedAt: expect.any(String),
+        });
+        const retainedCallerIds = yield* sql<{ readonly count: number }>`
+          SELECT COUNT(*) AS count
+          FROM agent_gateway_operations
+          WHERE caller_thread_id = 'thread-purge'
+             OR caller_turn_id IN ('turn-purge-terminal', 'turn-purge-live')
+        `;
+        expect(retainedCallerIds[0]?.count).toBe(0);
+        expect(rows[0]!.planJson).not.toContain("private live prompt");
+        expect(rows[0]!.planJson).not.toContain("project-archive");
+        expect(JSON.parse(rows[0]!.planJson)[0]).toEqual({
+          workspaceRoot: "/work/archive",
+          environment: "worktree",
+          newBranch: "agent/private",
+          plannedWorktreePath: "/worktrees/private",
+          ownershipPreflightPassed: true,
+          worktreeOwnership: {
+            operationId: "operation-live",
+            path: "/worktrees/private",
+            branch: "agent/private",
+            token: "private-owner-token",
+            gitDir: "/repo/.git/worktrees/private",
+            head: "0123456789abcdef",
+            recordedAt: "2026-06-14T10:06:00.000Z",
+          },
+          ids: {
+            threadId: "agent-private-child",
+            compensateCommandId: "delete-agent-private-child",
+          },
+        });
+      }),
+    );
+  });
+
+  it("retains unresolved delivery evidence and purges only after explicit settlement", async () => {
+    await runArchiveTest(
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        const archive = yield* ProfileStatsArchive;
+
+        yield* seedTwoThreadsWithActivity;
+        yield* acknowledgeProviderCommandJournal(sql);
+        const sourceRows = yield* sql<{ readonly sequence: number }>`
+          SELECT sequence
+          FROM orchestration_events
+          WHERE stream_id = 'thread-purge'
+          ORDER BY sequence ASC
+          LIMIT 1
+        `;
+        const sourceSequence = sourceRows[0]!.sequence;
+        yield* sql`
+          INSERT INTO orchestration_event_deliveries (
+            consumer_name, event_sequence, thread_id, state,
+            claim_owner, claimed_at, claim_expires_at, attempt_count,
+            last_error, completed_at, updated_at
+          ) VALUES (
+            ${PROVIDER_COMMAND_REACTOR_CONSUMER}, ${sourceSequence}, 'thread-purge', 'uncertain',
+            NULL, NULL, NULL, 1,
+            'Provider outcome requires reconciliation.', NULL, '2026-07-14T00:00:00.000Z'
+          )
+        `;
+
+        expect(yield* archive.hasThreadPurgeFence({ threadId: "thread-purge" })).toBe(true);
+        expect(yield* archive.purgeThreadWithStatsSnapshot({ threadId: "thread-purge" })).toBe(
+          false,
+        );
+        const retained = yield* sql<{ readonly threads: number; readonly deliveries: number }>`
+          SELECT
+            (SELECT COUNT(*) FROM projection_threads WHERE thread_id = 'thread-purge') AS threads,
+            (
+              SELECT COUNT(*) FROM orchestration_event_deliveries
+              WHERE thread_id = 'thread-purge' AND state = 'uncertain'
+            ) AS deliveries
+        `;
+        expect(retained[0]).toEqual({ threads: 1, deliveries: 1 });
+
+        yield* sql`
+          UPDATE orchestration_event_deliveries
+          SET state = 'succeeded', completed_at = '2026-07-14T00:00:01.000Z',
+              updated_at = '2026-07-14T00:00:01.000Z'
+          WHERE consumer_name = ${PROVIDER_COMMAND_REACTOR_CONSUMER}
+            AND event_sequence = ${sourceSequence}
+        `;
+        yield* sql`
+          INSERT INTO queued_turn_promotions (
+            queued_event_sequence, thread_id, message_id, dispatch_mode, state,
+            claim_owner, claimed_at, claim_expires_at, attempt_count,
+            created_at, updated_at, promoted_at
+          ) VALUES (
+            ${sourceSequence}, 'thread-purge', 'message-settled-promotion', 'queue', 'promoted',
+            NULL, NULL, NULL, 1,
+            '2026-07-14T00:00:00.000Z', '2026-07-14T00:00:01.000Z',
+            '2026-07-14T00:00:01.000Z'
+          )
+        `;
+
+        expect(yield* archive.hasThreadPurgeFence({ threadId: "thread-purge" })).toBe(false);
+        expect(yield* archive.purgeThreadWithStatsSnapshot({ threadId: "thread-purge" })).toBe(
+          true,
+        );
+        const purgedEvidence = yield* sql<{
+          readonly deliveries: number;
+          readonly promotions: number;
+        }>`
+          SELECT
+            (
+              SELECT COUNT(*) FROM orchestration_event_deliveries
+              WHERE thread_id = 'thread-purge'
+            ) AS deliveries,
+            (
+              SELECT COUNT(*) FROM queued_turn_promotions
+              WHERE thread_id = 'thread-purge'
+            ) AS promotions
+        `;
+        expect(purgedEvidence[0]).toEqual({ deliveries: 0, promotions: 0 });
       }),
     );
   });
@@ -841,167 +1119,6 @@ describe("ProfileStatsArchive", () => {
     );
   });
 
-  it("interrupts active automation runs before deleting the thread shell", async () => {
-    await runArchiveTest(
-      Effect.gen(function* () {
-        const sql = yield* SqlClient.SqlClient;
-        const archive = yield* ProfileStatsArchive;
-
-        yield* sql`
-          INSERT INTO projection_projects (
-            project_id, title, workspace_root, scripts_json, created_at, updated_at, deleted_at
-          )
-          VALUES (
-            'project-automation-purge',
-            'Automation Purge',
-            '/work/automation-purge',
-            '{}',
-            '2026-06-12T09:00:00.000Z',
-            '2026-06-12T09:00:00.000Z',
-            NULL
-          )
-        `;
-        yield* sql`
-          INSERT INTO projection_threads (
-            thread_id, project_id, title, model_selection_json, runtime_mode,
-            interaction_mode, env_mode, created_at, updated_at, deleted_at
-          )
-          VALUES (
-            'thread-automation-purge',
-            'project-automation-purge',
-            'Automation Purge',
-            '{"provider":"codex","model":"gpt-5-codex"}',
-            'full-access', 'default', 'local',
-            '2026-06-13T09:00:00.000Z',
-            '2026-06-13T09:00:00.000Z',
-            '2026-06-13T09:05:00.000Z'
-          )
-        `;
-        yield* sql`
-          INSERT INTO automation_definitions (
-            automation_id, project_id, source_thread_id, name, prompt, schedule_json,
-            enabled, next_run_at, model_selection_json, provider_options_json, runtime_mode,
-            interaction_mode, worktree_mode, mode, target_thread_id, max_iterations,
-            stop_on_error, completion_policy_json, completion_policy_version,
-            completion_policy_updated_at, minimum_interval_seconds, max_runtime_seconds,
-            retry_policy_json, misfire_policy, acknowledged_risks_json, iteration_count,
-            created_at, updated_at, archived_at
-          )
-          VALUES (
-            'automation-purge',
-            'project-automation-purge',
-            NULL,
-            'Automation Purge',
-            'run it',
-            '{"type":"manual"}',
-            1,
-            NULL,
-            '{"provider":"codex","model":"gpt-5-codex"}',
-            NULL,
-            'full-access',
-            'default',
-            'reuse',
-            'heartbeat',
-            'thread-automation-purge',
-            NULL,
-            1,
-            '{"type":"none"}',
-            0,
-            NULL,
-            60,
-            NULL,
-            '{"type":"none"}',
-            'skip',
-            '[]',
-            1,
-            '2026-06-13T09:00:00.000Z',
-            '2026-06-13T09:00:00.000Z',
-            NULL
-          )
-        `;
-        yield* sql`
-          INSERT INTO automation_runs (
-            run_id, automation_id, project_id, thread_id, turn_id, trigger_type, status,
-            scheduled_for, claimed_by, claimed_at, lease_expires_at, started_at, finished_at,
-            thread_create_command_id, turn_start_command_id, message_id, error, result_json,
-            permission_snapshot_json, created_at, updated_at
-          )
-          VALUES (
-            'run-automation-purge',
-            'automation-purge',
-            'project-automation-purge',
-            'thread-automation-purge',
-            NULL,
-            'scheduled',
-            'running',
-            '2026-06-13T09:00:00.000Z',
-            'worker-1',
-            '2026-06-13T09:00:05.000Z',
-            '2026-06-13T09:10:00.000Z',
-            '2026-06-13T09:00:10.000Z',
-            NULL,
-            NULL,
-            'cmd-turn',
-            'message-run',
-            NULL,
-            NULL,
-            '{}',
-            '2026-06-13T09:00:00.000Z',
-            '2026-06-13T09:00:10.000Z'
-          )
-        `;
-
-        const purged = yield* archive.purgeThreadWithStatsSnapshot({
-          threadId: "thread-automation-purge",
-        });
-
-        expect(purged).toBe(true);
-        const rows = yield* sql<{
-          readonly threads: number;
-          readonly runStatus: string;
-          readonly error: string | null;
-          readonly resultJson: string | null;
-          readonly finishedAt: string | null;
-          readonly claimedBy: string | null;
-          readonly leaseExpiresAt: string | null;
-        }>`
-          SELECT
-            (
-              SELECT COUNT(*)
-              FROM projection_threads
-              WHERE thread_id = 'thread-automation-purge'
-            ) AS threads,
-            status AS runStatus,
-            error,
-            result_json AS resultJson,
-            finished_at AS finishedAt,
-            claimed_by AS claimedBy,
-            lease_expires_at AS leaseExpiresAt
-          FROM automation_runs
-          WHERE run_id = 'run-automation-purge'
-        `;
-        const result = JSON.parse(rows[0]?.resultJson ?? "null") as {
-          readonly outcome?: string;
-          readonly severity?: string;
-          readonly summary?: string;
-        } | null;
-        expect(rows[0]).toMatchObject({
-          threads: 0,
-          runStatus: "interrupted",
-          error: "Automation run was interrupted because its thread was deleted.",
-          finishedAt: "2026-06-13T09:05:00.000Z",
-          claimedBy: null,
-          leaseExpiresAt: null,
-        });
-        expect(result).toMatchObject({
-          outcome: "needs-attention",
-          severity: "warning",
-          summary: "Automation run was interrupted because its thread was deleted.",
-        });
-      }),
-    );
-  });
-
   it("sweeps manually soft-deleted threads but leaves retention-hidden ones in place", async () => {
     await runArchiveTest(
       Effect.gen(function* () {
@@ -1068,6 +1185,10 @@ describe("ProfileStatsArchive", () => {
               '{"threadId":"thread-retention","deletedAt":"2026-06-15T09:00:00.000Z"}', '{}'
             )
         `;
+        // The purge fence blocks while provider-intent events (thread.deleted
+        // included) are still unconsumed; a real sweep only runs after the
+        // reactor has acked them.
+        yield* acknowledgeProviderCommandJournal(sql);
 
         const statsBefore = yield* statsQuery.getProfileStats({ utcOffsetMinutes: 0 });
         expect(statsBefore.activity.totalPromptsSent).toBe(2);

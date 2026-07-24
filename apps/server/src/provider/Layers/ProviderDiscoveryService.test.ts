@@ -1,6 +1,6 @@
 // FILE: ProviderDiscoveryService.test.ts
 // Purpose: Verifies the discovery service merges provider-native skills with the
-//          unified Synara catalog, filters user-disabled skills, and reports
+//          unified Penkra catalog, filters user-disabled skills, and reports
 //          skill discovery as supported for every provider.
 // Layer: Server provider tests
 
@@ -64,6 +64,8 @@ const makeConfigLayer = () =>
         ...derived,
         staticDir: undefined,
         devUrl: undefined,
+        publicUrl: undefined,
+        allowInsecureRemote: false,
         noBrowser: true,
         authToken: undefined,
         autoBootstrapProjectFromCwd: false,

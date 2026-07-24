@@ -124,17 +124,6 @@ export function normalizeProjectPathForDispatch(value: string): string {
   return trimTrailingPathSeparators(value.trim());
 }
 
-export function inferProjectTitleFromPath(value: string): string {
-  const normalized = normalizeProjectPathForDispatch(value);
-  const absolutePath = splitAbsolutePath(normalized);
-  if (absolutePath) {
-    return absolutePath.segments.findLast(Boolean) ?? normalized;
-  }
-
-  const segments = normalized.split(/[/\\]/);
-  return segments.findLast(Boolean) ?? normalized;
-}
-
 export function appendBrowsePathSegment(currentPath: string, segment: string): string {
   const separator = preferredPathSeparator(currentPath);
   return `${getBrowseDirectoryPath(currentPath)}${segment}${separator}`;
@@ -190,10 +179,4 @@ export function getBrowseParentPath(currentPath: string): string | null {
 
 export function canNavigateUp(currentPath: string): boolean {
   return hasTrailingPathSeparator(currentPath) && getBrowseParentPath(currentPath) !== null;
-}
-
-export function getInitialBrowseQuery(homeDir: string | null): string {
-  if (!homeDir) return "~/";
-  const separator = homeDir.includes("\\") && !homeDir.startsWith("/") ? "\\" : "/";
-  return homeDir.endsWith(separator) ? homeDir : `${homeDir}${separator}`;
 }

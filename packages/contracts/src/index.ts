@@ -1,5 +1,4 @@
 export * from "./auth";
-export * from "./automation";
 export * from "./baseSchemas";
 export * from "./ipc";
 export * from "./terminal";
@@ -8,7 +7,9 @@ export * from "./providerDiscovery";
 export * from "./providerRuntime";
 export * from "./model";
 export * from "./agentMentions";
+export * from "./agentGateway";
 export * from "./ws";
+export * from "./wsCompatibility";
 export * from "./keybindings";
 export * from "./server";
 export * from "./stats";

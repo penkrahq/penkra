@@ -1,5 +1,5 @@
 // FILE: importedThreadMessages.ts
-// Purpose: Normalizes provider-native transcript snapshots into Synara import messages.
+// Purpose: Normalizes provider-native transcript snapshots into Penkra import messages.
 // Layer: Orchestration import mapping
 // Exports: Codex, Claude, OpenCode, and Factory Droid transcript mappers.
 

@@ -14,25 +14,14 @@ import {
 } from "@synara/contracts";
 import { getDefaultModel } from "@synara/shared/model";
 import { type Thread } from "../types";
+import { DEFAULT_PROVIDER_ORDER } from "../providerOrdering";
 import { stripEmbeddedAssistantSelections } from "./assistantSelections";
 import { randomUUID } from "./utils";
 
-const HANDOFF_PROVIDER_ORDER: ReadonlyArray<ProviderKind> = [
-  "codex",
-  "claudeAgent",
-  "cursor",
-  "antigravity",
-  "grok",
-  "droid",
-  "kilo",
-  "opencode",
-  "pi",
-];
 const IMPORTABLE_THREAD_ACTIVITY_KINDS = new Set([
   "account.rate-limits.updated",
   "account.rate-limited",
   "context-window.updated",
-  "context-window.configured",
 ]);
 
 function isImportableThreadMessage(
@@ -52,7 +41,7 @@ function isImportableThreadActivity(
 export function resolveAvailableHandoffTargetProviders(
   sourceProvider: ProviderKind,
 ): ReadonlyArray<ProviderKind> {
-  return HANDOFF_PROVIDER_ORDER.filter((provider) => provider !== sourceProvider);
+  return DEFAULT_PROVIDER_ORDER.filter((provider) => provider !== sourceProvider);
 }
 
 export function resolveThreadHandoffBadgeLabel(thread: Pick<Thread, "handoff">): string | null {
@@ -114,11 +103,6 @@ export function buildThreadHandoffImportedActivities(
       id: EventId.makeUnsafe(randomUUID()),
     };
   });
-}
-
-// Used by: ChatView fork command gating.
-export function hasTransferableThreadMessages(thread: Pick<Thread, "messages">): boolean {
-  return thread.messages.some(isImportableThreadMessage);
 }
 
 export function hasNativeThreadHandoffMessages(thread: Pick<Thread, "messages">): boolean {

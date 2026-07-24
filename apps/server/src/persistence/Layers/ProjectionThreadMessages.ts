@@ -1,15 +1,12 @@
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
-import { Effect, Layer, Option, Schema, Struct } from "effect";
-import {
-  ChatAttachment,
-  MessageDispatchOrigin,
-  ProviderMentionReference,
-  ProviderSkillReference,
-  TurnDispatchMode,
-} from "@synara/contracts";
+import { Effect, Layer, Option, Schema } from "effect";
 
 import { toPersistenceSqlError } from "../Errors.ts";
+import {
+  ProjectionThreadMessageDbRowSchema,
+  projectionThreadMessageFromRow,
+} from "../projectionThreadMessageRow.ts";
 import {
   GetProjectionThreadMessageInput,
   ProjectionThreadMessageRepository,
@@ -19,41 +16,9 @@ import {
   ProjectionThreadMessage,
 } from "../Services/ProjectionThreadMessages.ts";
 
-const ProjectionThreadMessageDbRowSchema = ProjectionThreadMessage.mapFields(
-  Struct.assign({
-    isStreaming: Schema.Number,
-    attachments: Schema.NullOr(Schema.fromJsonString(Schema.Array(ChatAttachment))),
-    skills: Schema.NullOr(Schema.fromJsonString(Schema.Array(ProviderSkillReference))),
-    mentions: Schema.NullOr(Schema.fromJsonString(Schema.Array(ProviderMentionReference))),
-    dispatchMode: Schema.NullOr(TurnDispatchMode),
-    dispatchOrigin: Schema.NullOr(MessageDispatchOrigin),
-  }),
-);
-
 const LatestUserMessageAtRowSchema = Schema.Struct({
   latestUserMessageAt: Schema.String,
 });
-
-function toProjectionThreadMessage(
-  row: Schema.Schema.Type<typeof ProjectionThreadMessageDbRowSchema>,
-): ProjectionThreadMessage {
-  return {
-    messageId: row.messageId,
-    threadId: row.threadId,
-    turnId: row.turnId,
-    role: row.role,
-    text: row.text,
-    isStreaming: row.isStreaming === 1,
-    source: row.source,
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
-    ...(row.attachments !== null ? { attachments: row.attachments } : {}),
-    ...(row.skills !== null ? { skills: row.skills } : {}),
-    ...(row.mentions !== null ? { mentions: row.mentions } : {}),
-    ...(row.dispatchMode ? { dispatchMode: row.dispatchMode } : {}),
-    ...(row.dispatchOrigin ? { dispatchOrigin: row.dispatchOrigin } : {}),
-  };
-}
 
 const makeProjectionThreadMessageRepository = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
@@ -79,6 +44,7 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
           dispatch_origin,
           is_streaming,
           source,
+          sequence,
           created_at,
           updated_at
         )
@@ -88,54 +54,19 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
           ${row.turnId},
           ${row.role},
           ${row.text},
-          COALESCE(
-            ${nextAttachmentsJson},
-            (
-              SELECT attachments_json
-              FROM projection_thread_messages
-              WHERE message_id = ${row.messageId}
-            )
-          ),
-          COALESCE(
-            ${nextSkillsJson},
-            (
-              SELECT skills_json
-              FROM projection_thread_messages
-              WHERE message_id = ${row.messageId}
-            )
-          ),
-          COALESCE(
-            ${nextMentionsJson},
-            (
-              SELECT mentions_json
-              FROM projection_thread_messages
-              WHERE message_id = ${row.messageId}
-            )
-          ),
-          COALESCE(
-            ${row.dispatchMode ?? null},
-            (
-              SELECT dispatch_mode
-              FROM projection_thread_messages
-              WHERE message_id = ${row.messageId}
-            )
-          ),
-          COALESCE(
-            ${row.dispatchOrigin ?? null},
-            (
-              SELECT dispatch_origin
-              FROM projection_thread_messages
-              WHERE message_id = ${row.messageId}
-            )
-          ),
+          ${nextAttachmentsJson},
+          ${nextSkillsJson},
+          ${nextMentionsJson},
+          ${row.dispatchMode ?? null},
+          ${row.dispatchOrigin ?? null},
           ${row.isStreaming ? 1 : 0},
           ${row.source},
+          ${row.sequence ?? null},
           ${row.createdAt},
           ${row.updatedAt}
         )
-        ON CONFLICT (message_id)
+        ON CONFLICT (thread_id, message_id)
         DO UPDATE SET
-          thread_id = excluded.thread_id,
           turn_id = excluded.turn_id,
           role = excluded.role,
           text = excluded.text,
@@ -161,6 +92,7 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
           ),
           is_streaming = excluded.is_streaming,
           source = excluded.source,
+          sequence = COALESCE(projection_thread_messages.sequence, excluded.sequence),
           created_at = excluded.created_at,
           updated_at = excluded.updated_at
       `;
@@ -185,11 +117,16 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
           dispatch_origin AS "dispatchOrigin",
           is_streaming AS "isStreaming",
           source,
+          sequence,
           created_at AS "createdAt",
           updated_at AS "updatedAt"
         FROM projection_thread_messages
         WHERE thread_id = ${threadId}
-        ORDER BY created_at ASC, message_id ASC
+        ORDER BY
+          CASE WHEN sequence IS NULL THEN 0 ELSE 1 END ASC,
+          sequence ASC,
+          created_at ASC,
+          message_id ASC
       `,
   });
 
@@ -203,7 +140,11 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
         FROM projection_thread_messages
         WHERE thread_id = ${threadId}
           AND role = 'user'
-        ORDER BY created_at DESC, message_id DESC
+        ORDER BY
+          CASE WHEN sequence IS NULL THEN 0 ELSE 1 END DESC,
+          sequence DESC,
+          created_at DESC,
+          message_id DESC
         LIMIT 1
       `,
   });
@@ -211,7 +152,7 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
   const getProjectionThreadMessageRow = SqlSchema.findOneOption({
     Request: GetProjectionThreadMessageInput,
     Result: ProjectionThreadMessageDbRowSchema,
-    execute: ({ messageId }) =>
+    execute: ({ threadId, messageId }) =>
       sql`
         SELECT
           message_id AS "messageId",
@@ -226,10 +167,12 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
           dispatch_origin AS "dispatchOrigin",
           is_streaming AS "isStreaming",
           source,
+          sequence,
           created_at AS "createdAt",
           updated_at AS "updatedAt"
         FROM projection_thread_messages
-        WHERE message_id = ${messageId}
+        WHERE thread_id = ${threadId}
+          AND message_id = ${messageId}
         LIMIT 1
       `,
   });
@@ -248,20 +191,21 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
       Effect.mapError(toPersistenceSqlError("ProjectionThreadMessageRepository.upsert:query")),
     );
 
-  const getByMessageId: ProjectionThreadMessageRepositoryShape["getByMessageId"] = (input) =>
-    getProjectionThreadMessageRow(input).pipe(
-      Effect.mapError(
-        toPersistenceSqlError("ProjectionThreadMessageRepository.getByMessageId:query"),
-      ),
-      Effect.map(Option.map(toProjectionThreadMessage)),
-    );
+  const getByThreadAndMessageId: ProjectionThreadMessageRepositoryShape["getByThreadAndMessageId"] =
+    (input) =>
+      getProjectionThreadMessageRow(input).pipe(
+        Effect.mapError(
+          toPersistenceSqlError("ProjectionThreadMessageRepository.getByThreadAndMessageId:query"),
+        ),
+        Effect.map(Option.map(projectionThreadMessageFromRow)),
+      );
 
   const listByThreadId: ProjectionThreadMessageRepositoryShape["listByThreadId"] = (input) =>
     listProjectionThreadMessageRows(input).pipe(
       Effect.mapError(
         toPersistenceSqlError("ProjectionThreadMessageRepository.listByThreadId:query"),
       ),
-      Effect.map((rows) => rows.map(toProjectionThreadMessage)),
+      Effect.map((rows) => rows.map(projectionThreadMessageFromRow)),
     );
 
   const getLatestUserMessageAt: ProjectionThreadMessageRepositoryShape["getLatestUserMessageAt"] = (
@@ -283,7 +227,7 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
 
   return {
     upsert,
-    getByMessageId,
+    getByThreadAndMessageId,
     listByThreadId,
     getLatestUserMessageAt,
     deleteByThreadId,

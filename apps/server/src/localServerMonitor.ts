@@ -15,6 +15,8 @@ import type {
   ServerStopLocalServerResult,
 } from "@synara/contracts";
 
+import { redactSensitiveProcessArgs } from "./processArgumentRedaction";
+
 const PROCESS_OUTPUT_MAX_BUFFER_BYTES = 2 * 1024 * 1024;
 const STOP_SIGNAL_SETTLE_MS = 450;
 const MAX_PROCESS_ARGS_CHARS = 1_000;
@@ -72,7 +74,7 @@ const EXCLUDED_PROCESS_COMMANDS = new Set([
   "electron",
   "electron helper",
   "electron helper (renderer)",
-  "synara",
+  "penkra",
 ]);
 
 // Chromium/Electron spawns child processes (renderers, GPU, utility, plugin hosts) that can hold
@@ -135,17 +137,6 @@ function execFileText(command: string, args: readonly string[]): Promise<string>
       },
     );
   });
-}
-
-function redactProcessArgs(args: string): string {
-  return args
-    .replace(
-      /(--?(?:api[-_]?key|auth|authorization|key|password|secret|token)(?:=|\s+))(\S+)/gi,
-      "$1[redacted]",
-    )
-    .replace(/(Bearer\s+)[A-Za-z0-9._~+/=-]+/gi, "$1[redacted]")
-    .replace(/\bsk-[A-Za-z0-9_-]{8,}\b/g, "[redacted]")
-    .slice(0, MAX_PROCESS_ARGS_CHARS);
 }
 
 function parseLsofEndpoint(
@@ -267,7 +258,7 @@ function parseProcessInfo(output: string): Map<number, LocalServerProcessInfo> {
     }
     rows.set(Number(match[1]), {
       ppid: Number(match[2]),
-      commandLine: redactProcessArgs(match[3] ?? ""),
+      commandLine: redactSensitiveProcessArgs(match[3] ?? "").slice(0, MAX_PROCESS_ARGS_CHARS),
     });
   }
   return rows;

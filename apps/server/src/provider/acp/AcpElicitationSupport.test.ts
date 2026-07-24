@@ -1,5 +1,5 @@
 // FILE: AcpElicitationSupport.test.ts
-// Purpose: Verifies ACP form schemas and Synara answers round-trip without losing primitive types.
+// Purpose: Verifies ACP form schemas and Penkra answers round-trip without losing primitive types.
 // Layer: Provider ACP tests
 // Depends on: AcpElicitationSupport.
 
@@ -38,7 +38,7 @@ const request = {
 };
 
 describe("ACP elicitation mapping", () => {
-  it("maps primitive form fields to Synara questions", () => {
+  it("maps primitive form fields to Penkra questions", () => {
     expect(elicitationQuestionsFromRequest(request)).toEqual([
       {
         id: "environment",
@@ -69,10 +69,8 @@ describe("ACP elicitation mapping", () => {
         notify: "Yes",
       }),
     ).toEqual({
-      action: {
-        action: "accept",
-        content: { environment: "Production", replicas: 3, notify: true },
-      },
+      action: "accept",
+      content: { environment: "Production", replicas: 3, notify: true },
     });
   });
 });

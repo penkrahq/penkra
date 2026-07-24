@@ -69,7 +69,7 @@ export const isSupportedLocalImagePath = isSupportedLocalImagePathShared;
 
 /**
  * Resolves the home directory the codex app-server child process actually
- * writes images under for the current process env. Synara uses its isolated
+ * writes images under for the current process env. Penkra uses its isolated
  * Codex overlay, not the user's source `~/.codex` directory.
  */
 export function resolveCodexHomePath(homePath?: string): string {

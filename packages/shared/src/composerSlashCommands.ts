@@ -1,5 +1,5 @@
 // FILE: composerSlashCommands.ts
-// Purpose: Share Synara's built-in composer slash command names across web UI
+// Purpose: Share Penkra's built-in composer slash command names across web UI
 //          parsing and server-side profile stats backfills.
 // Layer: Shared runtime utility
 // Exports: command-name constants and normalization helpers.
@@ -18,7 +18,6 @@ export const BUILT_IN_COMPOSER_SLASH_COMMANDS = [
   "fast",
   "export",
   "feedback",
-  "automation",
 ] as const;
 
 export type BuiltInComposerSlashCommand = (typeof BUILT_IN_COMPOSER_SLASH_COMMANDS)[number];

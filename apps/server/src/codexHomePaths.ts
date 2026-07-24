@@ -35,7 +35,7 @@ export function resolveSynaraCodexHomeOverlayPath(
 
 /**
  * Returns the home directory that the codex app-server child process actually
- * writes under. Synara keeps its generated config isolated from the user's
+ * writes under. Penkra keeps its generated config isolated from the user's
  * source Codex home while linking shared state such as authentication.
  */
 export function resolveActiveCodexHomeWritePath(input: CodexHomePathsInput = {}): string {

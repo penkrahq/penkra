@@ -1,5 +1,5 @@
 // FILE: exportThreadArchive.ts
-// Purpose: Build a ZIP archive that exports a single Synara thread so a user
+// Purpose: Build a ZIP archive that exports a single Penkra thread so a user
 //          can download the conversation as a portable, compressed package —
 //          mirroring the `/export` affordance of agent CLIs.
 // Layer: Orchestration utility (plain async module; HTTP composes it through

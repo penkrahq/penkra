@@ -2,17 +2,6 @@ import { Schema, Struct } from "effect";
 import { NonNegativeInt, ProjectId, ThreadId, TrimmedNonEmptyString } from "./baseSchemas";
 
 import {
-  AutomationCancelRunInput,
-  AutomationArchiveRunInput,
-  AutomationCreateInput,
-  AutomationDeleteInput,
-  AutomationListInput,
-  AutomationMarkRunReadInput,
-  AutomationRunNowInput,
-  AutomationStreamEvent,
-  AutomationUpdateInput,
-} from "./automation";
-import {
   ClientOrchestrationCommand,
   OrchestrationEvent,
   OrchestrationImportThreadInput,
@@ -86,7 +75,6 @@ import { FilesystemBrowseInput } from "./filesystem";
 import { OpenInEditorInput } from "./editor";
 import {
   ServerConfigUpdatedPayload,
-  ServerGenerateAutomationIntentInput,
   ServerGenerateThreadRecapInput,
   ServerLifecycleStreamEvent,
   ServerProviderUpdateInput,
@@ -130,9 +118,6 @@ import {
 
 export const WS_METHODS = {
   // Project registry methods
-  projectsList: "projects.list",
-  projectsAdd: "projects.add",
-  projectsRemove: "projects.remove",
   projectsDiscoverScripts: "projects.discoverScripts",
   projectsListDirectories: "projects.listDirectories",
   projectsSearchEntries: "projects.searchEntries",
@@ -215,7 +200,6 @@ export const WS_METHODS = {
   serverGetDiagnostics: "server.getDiagnostics",
   serverTranscribeVoice: "server.transcribeVoice",
   serverGenerateThreadRecap: "server.generateThreadRecap",
-  serverGenerateAutomationIntent: "server.generateAutomationIntent",
   serverUpsertKeybinding: "server.upsertKeybinding",
   subscribeServerLifecycle: "server.subscribeLifecycle",
   subscribeServerConfig: "server.subscribeConfig",
@@ -234,7 +218,6 @@ export const WS_METHODS = {
   // Streaming subscriptions
   subscribeTerminalEvents: "terminal.subscribeEvents",
   subscribeOrchestrationDomainEvents: "orchestration.subscribeDomainEvents",
-  subscribeGitActionProgress: "git.subscribeActionProgress",
 
   // Provider discovery
   providerGetComposerCapabilities: "provider.getComposerCapabilities",
@@ -246,24 +229,12 @@ export const WS_METHODS = {
   providerReadPlugin: "provider.readPlugin",
   providerListModels: "provider.listModels",
   providerListAgents: "provider.listAgents",
-
-  // Automation methods
-  automationList: "automation.list",
-  automationCreate: "automation.create",
-  automationUpdate: "automation.update",
-  automationDelete: "automation.delete",
-  automationRunNow: "automation.runNow",
-  automationCancelRun: "automation.cancelRun",
-  automationMarkRunRead: "automation.markRunRead",
-  automationArchiveRun: "automation.archiveRun",
-  subscribeAutomationEvents: "automation.subscribe",
 } as const;
 
 // ── Push Event Channels ──────────────────────────────────────────────
 
 export const WS_CHANNELS = {
   penkraSnapshot: "penkra.snapshot",
-  automationEvent: "automation.event",
   gitActionProgress: "git.actionProgress",
   terminalEvent: "terminal.event",
   projectDevServerEvent: "project.devServerEvent",
@@ -391,7 +362,6 @@ const WebSocketRequestBody = Schema.Union([
   tagRequestBody(WS_METHODS.serverGetDiagnostics, Schema.Struct({})),
   tagRequestBody(WS_METHODS.serverTranscribeVoice, ServerVoiceTranscriptionInput),
   tagRequestBody(WS_METHODS.serverGenerateThreadRecap, ServerGenerateThreadRecapInput),
-  tagRequestBody(WS_METHODS.serverGenerateAutomationIntent, ServerGenerateAutomationIntentInput),
   tagRequestBody(WS_METHODS.serverUpsertKeybinding, KeybindingRule),
 
   // Provider discovery
@@ -404,17 +374,6 @@ const WebSocketRequestBody = Schema.Union([
   tagRequestBody(WS_METHODS.providerReadPlugin, ProviderReadPluginInput),
   tagRequestBody(WS_METHODS.providerListModels, ProviderListModelsInput),
   tagRequestBody(WS_METHODS.providerListAgents, ProviderListAgentsInput),
-
-  // Automation methods
-  tagRequestBody(WS_METHODS.automationList, AutomationListInput),
-  tagRequestBody(WS_METHODS.automationCreate, AutomationCreateInput),
-  tagRequestBody(WS_METHODS.automationUpdate, AutomationUpdateInput),
-  tagRequestBody(WS_METHODS.automationDelete, AutomationDeleteInput),
-  tagRequestBody(WS_METHODS.automationRunNow, AutomationRunNowInput),
-  tagRequestBody(WS_METHODS.automationCancelRun, AutomationCancelRunInput),
-  tagRequestBody(WS_METHODS.automationMarkRunRead, AutomationMarkRunReadInput),
-  tagRequestBody(WS_METHODS.automationArchiveRun, AutomationArchiveRunInput),
-  tagRequestBody(WS_METHODS.subscribeAutomationEvents, Schema.Struct({})),
 
   // Penkra domain methods
   tagRequestBody(WS_METHODS.penkraGetSnapshot, Schema.Struct({})),
@@ -464,7 +423,6 @@ export interface WsPushPayloadByChannel {
   readonly [WS_CHANNELS.serverConfigUpdated]: typeof ServerConfigUpdatedPayload.Type;
   readonly [WS_CHANNELS.serverProviderStatusesUpdated]: typeof ServerProviderStatusesUpdatedPayload.Type;
   readonly [WS_CHANNELS.serverSettingsUpdated]: typeof ServerSettingsUpdatedPayload.Type;
-  readonly [WS_CHANNELS.automationEvent]: typeof AutomationStreamEvent.Type;
   readonly [WS_CHANNELS.gitActionProgress]: typeof GitActionProgressEvent.Type;
   readonly [WS_CHANNELS.terminalEvent]: typeof TerminalEvent.Type;
   readonly [WS_CHANNELS.projectDevServerEvent]: typeof ProjectDevServerEvent.Type;
@@ -505,10 +463,6 @@ export const WsPushServerSettingsUpdated = makeWsPushSchema(
   WS_CHANNELS.serverSettingsUpdated,
   ServerSettingsUpdatedPayload,
 );
-export const WsPushAutomationEvent = makeWsPushSchema(
-  WS_CHANNELS.automationEvent,
-  AutomationStreamEvent,
-);
 export const WsPushPenkraSnapshot = makeWsPushSchema(WS_CHANNELS.penkraSnapshot, PenkraSnapshot);
 export const WsPushGitActionProgress = makeWsPushSchema(
   WS_CHANNELS.gitActionProgress,
@@ -544,7 +498,6 @@ export const WsPushChannelSchema = Schema.Literals([
   WS_CHANNELS.serverConfigUpdated,
   WS_CHANNELS.serverProviderStatusesUpdated,
   WS_CHANNELS.serverSettingsUpdated,
-  WS_CHANNELS.automationEvent,
   WS_CHANNELS.terminalEvent,
   WS_CHANNELS.projectDevServerEvent,
   WS_CHANNELS.projectWorkspaceChange,
@@ -561,7 +514,6 @@ export const WsPush = Schema.Union([
   WsPushServerConfigUpdated,
   WsPushServerProviderStatusesUpdated,
   WsPushServerSettingsUpdated,
-  WsPushAutomationEvent,
   WsPushGitActionProgress,
   WsPushTerminalEvent,
   WsPushProjectDevServerEvent,
