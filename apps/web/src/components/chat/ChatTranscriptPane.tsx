@@ -6,11 +6,8 @@
 import { type MessageId, type ThreadId, type ThreadMarker, type TurnId } from "@synara/contracts";
 import { type LegendListRef } from "@legendapp/list/react";
 import {
-  memo,
-  useCallback,
   useEffect,
-  useMemo,
-  useRef,
+  useState,
   type ComponentProps,
   type CSSProperties,
   type MouseEventHandler,
@@ -39,7 +36,6 @@ interface ChatTranscriptPaneProps {
   activeTurnInProgress: boolean;
   activeTurnStartedAt: string | null;
   agentActivityDetail?: AgentActivityDetail | null;
-  bottomContentInsetPx?: ComponentProps<typeof MessagesTimeline>["bottomContentInsetPx"];
   contentInsetRightPx?: ComponentProps<typeof MessagesTimeline>["contentInsetRightPx"];
   chatFontSizePx: number;
   emptyStateContent?: ReactNode;
@@ -56,6 +52,7 @@ interface ChatTranscriptPaneProps {
   onTogglePinMessage?: (messageId: MessageId) => void;
   threadMarkers?: readonly ThreadMarker[];
   enteringUserMessageIds?: ComponentProps<typeof MessagesTimeline>["enteringUserMessageIds"];
+  crossTaskOrigin?: ComponentProps<typeof MessagesTimeline>["crossTaskOrigin"];
   markdownCwd: string | undefined;
   onExpandTimelineImage: (preview: ExpandedImagePreview) => void;
   onMessagesClickCapture: MouseEventHandler<HTMLDivElement>;
@@ -73,7 +70,6 @@ interface ChatTranscriptPaneProps {
   onOpenAgentActivity?: ComponentProps<typeof MessagesTimeline>["onOpenAgentActivity"];
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
   onOpenThread: (threadId: ThreadId) => void;
-  onOpenAutomation?: ComponentProps<typeof MessagesTimeline>["onOpenAutomation"];
   onRevertUserMessage: (messageId: MessageId) => void;
   onUndoTurnFiles?: ComponentProps<typeof MessagesTimeline>["onUndoTurnFiles"];
   onEditUserMessage?: (messageId: MessageId, text: string) => boolean | Promise<boolean>;
@@ -82,6 +78,9 @@ interface ChatTranscriptPaneProps {
   resolvedTheme: "light" | "dark";
   revertTurnCountByUserMessageId: Map<MessageId, number>;
   scrollButtonVisible: boolean;
+  subagentToolTraceByThreadId?: ComponentProps<
+    typeof MessagesTimeline
+  >["subagentToolTraceByThreadId"];
   terminalWorkspaceTerminalTabActive: boolean;
   timelineEntries: ComponentProps<typeof MessagesTimeline>["timelineEntries"];
   timestampFormat: TimestampFormat;
@@ -90,13 +89,12 @@ interface ChatTranscriptPaneProps {
   worktreeSetup: WorktreeSetupSnapshot | null;
 }
 
-export const ChatTranscriptPane = memo(function ChatTranscriptPane({
+export function ChatTranscriptPane({
   activeThreadId,
   activeTurnId,
   activeTurnInProgress,
   activeTurnStartedAt,
   agentActivityDetail,
-  bottomContentInsetPx,
   contentInsetRightPx,
   chatFontSizePx,
   emptyStateContent,
@@ -113,6 +111,7 @@ export const ChatTranscriptPane = memo(function ChatTranscriptPane({
   onTogglePinMessage,
   threadMarkers,
   enteringUserMessageIds,
+  crossTaskOrigin,
   markdownCwd,
   onExpandTimelineImage,
   onMessagesClickCapture,
@@ -130,7 +129,6 @@ export const ChatTranscriptPane = memo(function ChatTranscriptPane({
   onOpenAgentActivity,
   onOpenTurnDiff,
   onOpenThread,
-  onOpenAutomation,
   onRevertUserMessage,
   onUndoTurnFiles,
   onEditUserMessage,
@@ -139,6 +137,7 @@ export const ChatTranscriptPane = memo(function ChatTranscriptPane({
   resolvedTheme,
   revertTurnCountByUserMessageId,
   scrollButtonVisible,
+  subagentToolTraceByThreadId,
   terminalWorkspaceTerminalTabActive,
   timelineEntries,
   timestampFormat,
@@ -155,21 +154,14 @@ export const ChatTranscriptPane = memo(function ChatTranscriptPane({
   // flow through a stable store (not pane state) so scroll updates re-render only
   // the trail, not the memoized timeline; reset on thread switch so stale
   // highlights can't linger.
-  const trailItems = useMemo(() => deriveMessageTrailItems(timelineEntries), [timelineEntries]);
-  const activeTrailStoreRef = useRef<ReturnType<typeof createActiveTrailStore> | null>(null);
-  if (activeTrailStoreRef.current === null) {
-    activeTrailStoreRef.current = createActiveTrailStore();
-  }
-  const activeTrailStore = activeTrailStoreRef.current;
+  const trailItems = deriveMessageTrailItems(timelineEntries);
+  const [activeTrailStore] = useState(() => createActiveTrailStore());
   useEffect(() => {
     activeTrailStore.set(null);
   }, [activeThreadId, activeTrailStore]);
-  const handleTrailSelect = useCallback(
-    (messageId: MessageId) => {
-      timelineControllerRef?.current?.scrollToMessage(messageId);
-    },
-    [timelineControllerRef],
-  );
+  const handleTrailSelect = (messageId: MessageId) => {
+    timelineControllerRef?.current?.scrollToMessage(messageId);
+  };
 
   return (
     <div
@@ -184,7 +176,6 @@ export const ChatTranscriptPane = memo(function ChatTranscriptPane({
         {agentActivityDetail && onCloseAgentActivityDetail ? (
           <AgentActivityDetailView
             detail={agentActivityDetail}
-            bottomContentInsetPx={bottomContentInsetPx}
             chatFontSizePx={chatFontSizePx}
             contentInsetRightPx={contentInsetRightPx}
             markdownCwd={markdownCwd}
@@ -209,11 +200,12 @@ export const ChatTranscriptPane = memo(function ChatTranscriptPane({
             {...(onTogglePinMessage ? { onTogglePinMessage } : {})}
             {...(threadMarkers ? { threadMarkers } : {})}
             {...(enteringUserMessageIds ? { enteringUserMessageIds } : {})}
+            {...(crossTaskOrigin ? { crossTaskOrigin } : {})}
             timelineEntries={timelineEntries}
             turnDiffSummaryByAssistantMessageId={turnDiffSummaryByAssistantMessageId}
             onOpenTurnDiff={onOpenTurnDiff}
             onOpenThread={onOpenThread}
-            {...(onOpenAutomation ? { onOpenAutomation } : {})}
+            {...(subagentToolTraceByThreadId ? { subagentToolTraceByThreadId } : {})}
             revertTurnCountByUserMessageId={revertTurnCountByUserMessageId}
             onRevertUserMessage={onRevertUserMessage}
             {...(onUndoTurnFiles ? { onUndoTurnFiles } : {})}
@@ -238,7 +230,6 @@ export const ChatTranscriptPane = memo(function ChatTranscriptPane({
             chatFontSizePx={chatFontSizePx}
             timestampFormat={timestampFormat}
             workspaceRoot={workspaceRoot}
-            bottomContentInsetPx={bottomContentInsetPx}
             contentInsetRightPx={contentInsetRightPx}
             {...(onOpenAgentActivity ? { onOpenAgentActivity } : {})}
             emptyStateContent={
@@ -295,4 +286,4 @@ export const ChatTranscriptPane = memo(function ChatTranscriptPane({
       </div>
     </div>
   );
-});
+}

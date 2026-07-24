@@ -14,7 +14,7 @@ import {
 describe("managed checkpoint refs", () => {
   const threadId = ThreadId.makeUnsafe("thread-1");
 
-  it("creates canonical Synara refs", () => {
+  it("creates canonical Penkra refs", () => {
     expect(checkpointRefForThreadTurn(threadId, 4)).toMatch(/^refs\/synara\/checkpoints\//);
   });
 
@@ -108,7 +108,6 @@ describe("resolveProjectCwdForKind", () => {
 
 describe("resolveThreadWorkspaceCwd", () => {
   const projectId = ProjectId.makeUnsafe("project-1");
-  const threadId = ThreadId.makeUnsafe("thread-1");
 
   it("resolves undefined for a chat-kind thread with no worktree", () => {
     expect(

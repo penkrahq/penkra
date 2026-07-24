@@ -16,6 +16,7 @@ import {
   InfoIcon,
   MessageCircleIcon,
   TerminalIcon,
+  UsersIcon,
 } from "~/lib/icons";
 import {
   RIGHT_DOCK_PANE_KINDS,
@@ -39,6 +40,7 @@ export const RIGHT_DOCK_PANE_META: Record<RightDockPaneKind, RightDockPaneMeta> 
   sidechat: { label: "Side", Icon: MessageCircleIcon },
   git: { label: "Git", Icon: GitCommitIcon },
   pullRequest: { label: "Pull request", Icon: GitPullRequestIcon },
+  profile: { label: "Profile", Icon: UsersIcon },
 };
 
 // Neutral fallback for any pane kind we no longer recognize (e.g. stale
@@ -57,11 +59,12 @@ export function getRightDockPaneMeta(kind: RightDockPaneKind): RightDockPaneMeta
 
 // Add-menu / quick triggers follow the canonical kind order from the single
 // source of truth, so they stay in sync as kinds are added or removed. The
-// "file" kind is intentionally excluded: single-file preview tabs are opened by
-// clicking a file reference in chat, while the add menu offers the richer
-// "explorer" pane (file tree + search + viewer) in its place.
+// Context-driven panes are intentionally excluded: file previews and pull
+// requests open from their source controls, while Profile opens from a project
+// avatar. The add menu offers the richer Explorer pane in place of a single
+// file preview.
 export const RIGHT_DOCK_ADD_MENU_KINDS: readonly RightDockPaneKind[] = RIGHT_DOCK_PANE_KINDS.filter(
-  (kind) => kind !== "file" && kind !== "pullRequest",
+  (kind) => kind !== "file" && kind !== "pullRequest" && kind !== "profile",
 );
 
 // Resolves a tab label, preferring caller-provided per-pane overrides (e.g. the

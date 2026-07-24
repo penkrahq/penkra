@@ -3,17 +3,18 @@
 // Layer: Web settings state
 // Exports: app setting schema, normalization helpers, provider option builders
 
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Option, Schema, SchemaTransformation } from "effect";
 import {
   type AssistantDeliveryMode,
   DEFAULT_GIT_TEXT_GENERATION_MODEL,
   DEFAULT_SERVER_SETTINGS,
+  DEFAULT_SERVER_SETTINGS_VIEW,
   TrimmedNonEmptyString,
   ProviderKind,
   type ProviderStartOptions,
-  type ServerSettings,
+  type ServerSettingsView,
   type ServerSettingsPatch,
 } from "@synara/contracts";
 import {
@@ -22,6 +23,11 @@ import {
   normalizeModelSlug,
   resolveSelectableModel,
 } from "@synara/shared/model";
+import {
+  APP_SNAP_SHORTCUT_KEYS,
+  APP_SNAP_SHORTCUT_MODIFIERS,
+  DEFAULT_APP_SNAP_SHORTCUT,
+} from "@synara/shared/appSnapShortcut";
 import { useLocalStorage } from "./hooks/useLocalStorage";
 import { EnvMode } from "./components/BranchToolbar.logic";
 import { normalizeCursorModelVariantBaseId } from "./cursorModelVariants";
@@ -84,6 +90,15 @@ export const DEFAULT_SIDEBAR_THREAD_SORT_ORDER: SidebarThreadSortOrder = "update
 export const UiDensity = Schema.Literals(UI_DENSITY_MODES);
 export type UiDensity = typeof UiDensity.Type;
 export { DEFAULT_UI_DENSITY };
+
+const AppSnapShortcut = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("both-option-keys") }),
+  Schema.Struct({
+    kind: Schema.Literal("key-chord"),
+    modifier: Schema.Literals(APP_SNAP_SHORTCUT_MODIFIERS),
+    key: Schema.Literals(APP_SNAP_SHORTCUT_KEYS),
+  }),
+]);
 
 export function getDefaultNativeFontSmoothing(platform = globalThis.navigator?.platform ?? "") {
   return /mac|iphone|ipad|ipod/i.test(platform);
@@ -176,6 +191,7 @@ export const AppSettingsSchema = Schema.Struct({
   kiloBinaryPath: Schema.String.check(Schema.isMaxLength(4096)).pipe(withDefaults(() => "")),
   kiloServerUrl: Schema.String.check(Schema.isMaxLength(4096)).pipe(withDefaults(() => "")),
   kiloServerPassword: Schema.String.check(Schema.isMaxLength(4096)).pipe(withDefaults(() => "")),
+  kiloServerPasswordConfigured: Schema.Boolean.pipe(withDefaults(() => false)),
   openCodeBinaryPath: Schema.String.check(Schema.isMaxLength(4096)).pipe(withDefaults(() => "")),
   piBinaryPath: Schema.String.check(Schema.isMaxLength(4096)).pipe(withDefaults(() => "")),
   piAgentDir: Schema.String.check(Schema.isMaxLength(4096)).pipe(withDefaults(() => "")),
@@ -183,6 +199,7 @@ export const AppSettingsSchema = Schema.Struct({
   openCodeServerPassword: Schema.String.check(Schema.isMaxLength(4096)).pipe(
     withDefaults(() => ""),
   ),
+  openCodeServerPasswordConfigured: Schema.Boolean.pipe(withDefaults(() => false)),
   openCodeExperimentalWebSockets: Schema.Boolean.pipe(withDefaults(() => false)),
   defaultThreadEnvMode: EnvMode.pipe(withDefaults(() => "local" as const satisfies EnvMode)),
   confirmThreadDelete: Schema.Boolean.pipe(withDefaults(() => true)),
@@ -220,6 +237,7 @@ export const AppSettingsSchema = Schema.Struct({
   // AppSnap is opt-in because enabling its Settings toggle requests macOS
   // Input Monitoring and Screen Recording permissions.
   enableAppSnap: Schema.Boolean.pipe(withDefaults(() => false)),
+  appSnapShortcut: AppSnapShortcut.pipe(withDefaults(() => DEFAULT_APP_SNAP_SHORTCUT)),
   // Local desktop preference: play the shutter cue when an AppSnap lands in a composer.
   appSnapPlaySound: Schema.Boolean.pipe(withDefaults(() => true)),
   // Deprecated rename bridge. Normalization migrates this value and then omits the key.
@@ -263,6 +281,26 @@ export const AppSettingsSchema = Schema.Struct({
   ).pipe(withDefaults(() => [])),
 });
 export type AppSettings = typeof AppSettingsSchema.Type;
+
+/** The settings values and mutation used by a mounted settings panel.
+ * The route owns the subscription so extracted workflow panels do not create
+ * duplicate local-storage/server-settings subscriptions. */
+export type AppSettingsBinding = {
+  readonly settings: AppSettings;
+  readonly defaults: AppSettings;
+  readonly updateSettings: (patch: Partial<AppSettings>) => void;
+};
+
+export function isGitTextGenerationSettingsDirty(
+  settings: AppSettings,
+  defaults: AppSettings,
+): boolean {
+  return (
+    (settings.textGenerationProvider ?? "codex") !== (defaults.textGenerationProvider ?? "codex") ||
+    (settings.textGenerationModel ?? DEFAULT_GIT_TEXT_GENERATION_MODEL) !==
+      (defaults.textGenerationModel ?? DEFAULT_GIT_TEXT_GENERATION_MODEL)
+  );
+}
 
 type Mutable<T> = { -readonly [Key in keyof T]: T[Key] };
 type MutableServerSettingsPatch = Mutable<ServerSettingsPatch>;
@@ -471,6 +509,10 @@ function normalizeAppSettings(settings: AppSettings): AppSettings {
   return {
     ...currentSettings,
     enableAppSnap: settings.enableAppSnap || legacyEnableAppshots === true,
+    // Password fields are accepted only as write-only update patches. Never retain
+    // reusable provider credentials in browser state or localStorage.
+    kiloServerPassword: "",
+    openCodeServerPassword: "",
     claudeBinaryPath: normalizeProviderBinaryPathOverride("claudeAgent", settings.claudeBinaryPath),
     codexBinaryPath: normalizeProviderBinaryPathOverride("codex", settings.codexBinaryPath),
     cursorBinaryPath: normalizeProviderBinaryPathOverride("cursor", settings.cursorBinaryPath),
@@ -508,7 +550,7 @@ function normalizeAppSettings(settings: AppSettings): AppSettings {
   };
 }
 
-function serverSettingsToAppSettings(settings: ServerSettings): Partial<AppSettings> {
+function serverSettingsToAppSettings(settings: ServerSettingsView): Partial<AppSettings> {
   return {
     claudeBinaryPath: settings.providers.claudeAgent.binaryPath,
     codexBinaryPath: settings.providers.codex.binaryPath,
@@ -522,11 +564,11 @@ function serverSettingsToAppSettings(settings: ServerSettings): Partial<AppSetti
     grokBinaryPath: settings.providers.grok.binaryPath,
     droidBinaryPath: settings.providers.droid.binaryPath,
     kiloBinaryPath: settings.providers.kilo.binaryPath,
-    kiloServerPassword: settings.providers.kilo.serverPassword,
+    kiloServerPasswordConfigured: settings.providers.kilo.serverPasswordConfigured,
     kiloServerUrl: settings.providers.kilo.serverUrl,
     openCodeBinaryPath: settings.providers.opencode.binaryPath,
     openCodeExperimentalWebSockets: settings.providers.opencode.experimentalWebSockets,
-    openCodeServerPassword: settings.providers.opencode.serverPassword,
+    openCodeServerPasswordConfigured: settings.providers.opencode.serverPasswordConfigured,
     openCodeServerUrl: settings.providers.opencode.serverUrl,
     piAgentDir: settings.providers.pi.agentDir,
     piBinaryPath: settings.providers.pi.binaryPath,
@@ -748,6 +790,15 @@ function buildInitialServerSettingsMigrationPatch(settings: AppSettings): Server
     if (normalizedSettings[key] !== defaults[key]) {
       patch[key] = normalizedSettings[key] as never;
     }
+  }
+
+  // Migrate legacy browser-stored passwords once before normalizeAppSettings
+  // scrubs them from local state. All subsequent reads use redacted server views.
+  if (settings.kiloServerPassword.trim()) {
+    patch.kiloServerPassword = settings.kiloServerPassword;
+  }
+  if (settings.openCodeServerPassword.trim()) {
+    patch.openCodeServerPassword = settings.openCodeServerPassword;
   }
 
   for (const key of [
@@ -972,11 +1023,9 @@ export function getProviderStartOptions(
     | "grokBinaryPath"
     | "droidBinaryPath"
     | "kiloBinaryPath"
-    | "kiloServerPassword"
     | "kiloServerUrl"
     | "openCodeBinaryPath"
     | "openCodeExperimentalWebSockets"
-    | "openCodeServerPassword"
     | "openCodeServerUrl"
     | "piAgentDir"
     | "piBinaryPath"
@@ -1001,10 +1050,7 @@ export function getProviderStartOptions(
   );
   const piBinaryPath = normalizeProviderBinaryPathOverride("pi", settings.piBinaryPath);
   const hasOpenCodeStartOptions = Boolean(
-    openCodeBinaryPath ||
-    settings.openCodeExperimentalWebSockets ||
-    settings.openCodeServerUrl ||
-    settings.openCodeServerPassword,
+    openCodeBinaryPath || settings.openCodeExperimentalWebSockets || settings.openCodeServerUrl,
   );
   const providerOptions: ProviderStartOptions = {
     ...(codexBinaryPath || settings.codexHomePath
@@ -1051,12 +1097,11 @@ export function getProviderStartOptions(
           },
         }
       : {}),
-    ...(kiloBinaryPath || settings.kiloServerUrl || settings.kiloServerPassword
+    ...(kiloBinaryPath || settings.kiloServerUrl
       ? {
           kilo: {
             ...(kiloBinaryPath ? { binaryPath: kiloBinaryPath } : {}),
             ...(settings.kiloServerUrl ? { serverUrl: settings.kiloServerUrl } : {}),
-            ...(settings.kiloServerPassword ? { serverPassword: settings.kiloServerPassword } : {}),
           },
         }
       : {}),
@@ -1066,9 +1111,6 @@ export function getProviderStartOptions(
             ...(openCodeBinaryPath ? { binaryPath: openCodeBinaryPath } : {}),
             ...(settings.openCodeExperimentalWebSockets ? { experimentalWebSockets: true } : {}),
             ...(settings.openCodeServerUrl ? { serverUrl: settings.openCodeServerUrl } : {}),
-            ...(settings.openCodeServerPassword
-              ? { serverPassword: settings.openCodeServerPassword }
-              : {}),
           },
         }
       : {}),
@@ -1142,23 +1184,15 @@ export function useAppSettings() {
   );
   const normalizedStoredSettingsRef = useRef(false);
 
-  const defaults = useMemo(
-    () =>
-      normalizeAppSettings({
-        ...DEFAULT_APP_SETTINGS,
-        ...serverSettingsToAppSettings(DEFAULT_SERVER_SETTINGS),
-      }),
-    [],
-  );
+  const defaults = normalizeAppSettings({
+    ...DEFAULT_APP_SETTINGS,
+    ...serverSettingsToAppSettings(DEFAULT_SERVER_SETTINGS_VIEW),
+  });
 
-  const settings = useMemo(
-    () =>
-      normalizeAppSettings({
-        ...localSettings,
-        ...(serverSettingsQuery.data ? serverSettingsToAppSettings(serverSettingsQuery.data) : {}),
-      }),
-    [localSettings, serverSettingsQuery.data],
-  );
+  const settings = normalizeAppSettings({
+    ...localSettings,
+    ...(serverSettingsQuery.data ? serverSettingsToAppSettings(serverSettingsQuery.data) : {}),
+  });
 
   useEffect(() => {
     if (normalizedStoredSettingsRef.current) {
@@ -1198,31 +1232,39 @@ export function useAppSettings() {
       });
   }, [localSettings, queryClient, serverSettingsQuery.data]);
 
-  const updateSettings = useCallback(
-    (patch: Partial<AppSettings>) => {
-      setSettings((prev) => normalizeAppSettings({ ...prev, ...patch }));
-      if (touchesProviderDiscoverySettings(patch)) {
-        void queryClient.invalidateQueries({ queryKey: providerDiscoveryQueryKeys.all });
-      }
+  const updateSettings = (patch: Partial<AppSettings>) => {
+    setSettings((prev) =>
+      normalizeAppSettings({
+        ...prev,
+        ...patch,
+        ...(hasOwn(patch, "kiloServerPassword")
+          ? { kiloServerPasswordConfigured: Boolean(patch.kiloServerPassword?.trim()) }
+          : {}),
+        ...(hasOwn(patch, "openCodeServerPassword")
+          ? { openCodeServerPasswordConfigured: Boolean(patch.openCodeServerPassword?.trim()) }
+          : {}),
+      }),
+    );
+    if (touchesProviderDiscoverySettings(patch)) {
+      void queryClient.invalidateQueries({ queryKey: providerDiscoveryQueryKeys.all });
+    }
 
-      const serverPatch = appSettingsPatchToServerSettingsPatch(patch);
-      if (isServerSettingsPatchEmpty(serverPatch)) {
-        return;
-      }
+    const serverPatch = appSettingsPatchToServerSettingsPatch(patch);
+    if (isServerSettingsPatchEmpty(serverPatch)) {
+      return;
+    }
 
-      void ensureNativeApi()
-        .server.updateSettings(serverPatch)
-        .then((nextSettings) => {
-          queryClient.setQueryData(serverQueryKeys.settings(), nextSettings);
-        })
-        .catch(() => {
-          void queryClient.invalidateQueries({ queryKey: serverQueryKeys.settings() });
-        });
-    },
-    [queryClient, setSettings],
-  );
+    void ensureNativeApi()
+      .server.updateSettings(serverPatch)
+      .then((nextSettings) => {
+        queryClient.setQueryData(serverQueryKeys.settings(), nextSettings);
+      })
+      .catch(() => {
+        void queryClient.invalidateQueries({ queryKey: serverQueryKeys.settings() });
+      });
+  };
 
-  const resetSettings = useCallback(() => {
+  const resetSettings = () => {
     setSettings(DEFAULT_APP_SETTINGS);
     void queryClient.invalidateQueries({ queryKey: providerDiscoveryQueryKeys.all });
     const serverPatch = appSettingsPatchToServerSettingsPatch(defaults);
@@ -1234,7 +1276,7 @@ export function useAppSettings() {
       .catch(() => {
         void queryClient.invalidateQueries({ queryKey: serverQueryKeys.settings() });
       });
-  }, [defaults, queryClient, setSettings]);
+  };
 
   return {
     settings,

@@ -22,7 +22,7 @@ describe("bundleSignatureFromStats", () => {
 
 describe("isWatchableBundlePath", () => {
   it("accepts a packaged asar app path", () => {
-    expect(isWatchableBundlePath("/Applications/Synara.app/Contents/Resources/app.asar")).toBe(
+    expect(isWatchableBundlePath("/Applications/Penkra.app/Contents/Resources/app.asar")).toBe(
       true,
     );
   });

@@ -239,7 +239,7 @@ function handleCheckoutError(
   const dirtyWorktree = parseDirtyWorktreeError(error);
   if (dirtyWorktree) {
     const copyText = toBranchActionErrorMessage(error);
-    const dirtyToastId = addBranchRecoveryToast({
+    addBranchRecoveryToast({
       type: "warning",
       title: "Uncommitted changes block checkout.",
       description: formatDirtyWorktreeDescription(dirtyWorktree.files),
@@ -263,7 +263,7 @@ function handleCheckoutError(
               if (isStashConflictError(stashError)) {
                 await invalidateGitQueries(input.queryClient);
                 input.onSuccess();
-                const stashConflictToastId = addBranchRecoveryToast({
+                addBranchRecoveryToast({
                   type: "warning",
                   title: "Changes saved, but not reapplied.",
                   description:
@@ -517,7 +517,8 @@ export function BranchToolbarBranchSelector({
     setIsDroppingStash(true);
     runBranchAction(async () => {
       try {
-        await api.git.stashDrop({ cwd: dialog.cwd });
+        if (!dialog.info) return;
+        await api.git.stashDrop({ cwd: dialog.cwd, stashRef: dialog.info.stashRef });
         setStashDiscardDialog(null);
       } finally {
         setIsDroppingStash(false);

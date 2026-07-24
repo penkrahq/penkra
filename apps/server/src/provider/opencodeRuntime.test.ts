@@ -3,17 +3,18 @@
 // Layer: Provider runtime tests
 // Exports: Vitest suites for opencodeRuntime.ts
 
-import { Duration, Effect, Exit, Layer, Scope, Sink, Stream } from "effect";
+import { Duration, Effect, Exit, Fiber, Layer, Scope, Sink, Stream } from "effect";
 import { ChildProcessSpawner } from "effect/unstable/process";
 import { TestClock } from "effect/testing";
 import type { ChatAttachment } from "@synara/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
+  buildOpenCodePermissionRules,
   buildOpenCodeServerProcessEnv,
   OpenCodeRuntime,
   OpenCodeRuntimeError,
-  OpenCodeRuntimeLive,
+  makeOpenCodeRuntimeLive,
   OPENCODE_LOCAL_SERVER_IDLE_TTL_MS,
   parseOpenCodeCliModelsOutput,
   parseOpenCodeCredentialProviderIDs,
@@ -22,14 +23,37 @@ import {
 
 const encoder = new TextEncoder();
 
+describe("OpenCode permission policy", () => {
+  it("keeps full access non-interactive while enforcing read-only Plan turns", () => {
+    expect(buildOpenCodePermissionRules("full-access")).toEqual([
+      { permission: "*", pattern: "*", action: "allow" },
+    ]);
+    expect(buildOpenCodePermissionRules("full-access", "plan")).toEqual([
+      { permission: "*", pattern: "*", action: "deny" },
+      { permission: "read", pattern: "*", action: "allow" },
+      { permission: "glob", pattern: "*", action: "allow" },
+      { permission: "grep", pattern: "*", action: "allow" },
+      { permission: "list", pattern: "*", action: "allow" },
+      { permission: "lsp", pattern: "*", action: "allow" },
+      { permission: "webfetch", pattern: "*", action: "allow" },
+      { permission: "websearch", pattern: "*", action: "allow" },
+      { permission: "codesearch", pattern: "*", action: "allow" },
+      { permission: "todoread", pattern: "*", action: "allow" },
+      { permission: "todowrite", pattern: "*", action: "allow" },
+      { permission: "question", pattern: "*", action: "allow" },
+    ]);
+  });
+});
+
 function mockOpenCodeServerHandle(input: {
   stdout: string;
   stderr: string;
+  pid?: number;
   exitCode?: Effect.Effect<ChildProcessSpawner.ExitCode, never>;
   kill?: () => Effect.Effect<void, never>;
 }) {
   return ChildProcessSpawner.makeHandle({
-    pid: ChildProcessSpawner.ProcessId(1),
+    pid: ChildProcessSpawner.ProcessId(input.pid ?? 1),
     exitCode: input.exitCode ?? Effect.never,
     isRunning: Effect.succeed(true),
     kill: input.kill ?? (() => Effect.void),
@@ -53,6 +77,7 @@ function mockPooledOpenCodeServerSpawnerLayer(state: {
   spawnUrls: Array<string>;
   spawnCwds?: Array<string | undefined>;
   killUrls: Array<string>;
+  processUrls?: Map<number, string>;
 }) {
   return Layer.succeed(
     ChildProcessSpawner.ChildProcessSpawner,
@@ -61,12 +86,15 @@ function mockPooledOpenCodeServerSpawnerLayer(state: {
         options?: { cwd?: string };
       };
       const url = `http://127.0.0.1:${59000 + state.spawnUrls.length}`;
+      const pid = 59_000 + state.spawnUrls.length;
       state.spawnUrls.push(url);
       state.spawnCwds?.push(cmd.options?.cwd);
+      state.processUrls?.set(pid, url);
       return Effect.succeed(
         mockOpenCodeServerHandle({
           stdout: `opencode server listening on ${url}\n`,
           stderr: "",
+          pid,
           kill: () =>
             Effect.sync(() => {
               state.killUrls.push(url);
@@ -93,8 +121,21 @@ function openCodeRuntimePoolTestLayer(state: {
   spawnUrls: Array<string>;
   killUrls: Array<string>;
 }) {
+  const processUrls = new Map<number, string>();
   return Layer.merge(
-    OpenCodeRuntimeLive.pipe(Layer.provide(mockPooledOpenCodeServerSpawnerLayer(state))),
+    makeOpenCodeRuntimeLive({
+      netService: {
+        canListenOnHost: () => Effect.succeed(true),
+        isPortAvailableOnLoopback: () => Effect.succeed(true),
+        reserveLoopbackPort: () => Effect.succeed(59_000),
+        findAvailablePort: () => Effect.succeed(59_000),
+      },
+      teardownProcessTree: async ({ rootPid }) => {
+        const url = processUrls.get(rootPid);
+        if (url) state.killUrls.push(url);
+        return { escalated: false, signalErrors: [] };
+      },
+    }).pipe(Layer.provide(mockPooledOpenCodeServerSpawnerLayer({ ...state, processUrls }))),
     TestClock.layer(),
   );
 }
@@ -163,6 +204,20 @@ describe("buildOpenCodeServerProcessEnv", () => {
 
     expect(env.OPENCODE_CONFIG_CONTENT).toBe('{"provider":{"openai":{}}}');
   });
+
+  it("strips inherited Penkra authority from managed server processes", () => {
+    const env = buildOpenCodeServerProcessEnv({
+      baseEnv: {
+        OPENAI_API_KEY: "provider-key",
+        SYNARA_AUTH_TOKEN: "server-secret",
+        SYNARA_BROWSER_USE_PIPE_PATH: "/tmp/browser.sock",
+      },
+    });
+
+    expect(env.OPENAI_API_KEY).toBe("provider-key");
+    expect(env.SYNARA_AUTH_TOKEN).toBeUndefined();
+    expect(env.SYNARA_BROWSER_USE_PIPE_PATH).toBeUndefined();
+  });
 });
 
 describe("OpenCodeRuntime startup diagnostics", () => {
@@ -182,7 +237,9 @@ describe("OpenCodeRuntime startup diagnostics", () => {
         }),
       ).pipe(
         Effect.provide(
-          OpenCodeRuntimeLive.pipe(
+          makeOpenCodeRuntimeLive({
+            teardownProcessTree: async () => ({ escalated: false, signalErrors: [] }),
+          }).pipe(
             Layer.provide(
               mockOpenCodeServerSpawnerLayer({
                 stdout: "booting custom OpenCode wrapper\n",
@@ -220,7 +277,9 @@ describe("OpenCodeRuntime startup diagnostics", () => {
         }),
       ).pipe(
         Effect.provide(
-          OpenCodeRuntimeLive.pipe(
+          makeOpenCodeRuntimeLive({
+            teardownProcessTree: async () => ({ escalated: false, signalErrors: [] }),
+          }).pipe(
             Layer.provide(
               mockOpenCodeServerSpawnerLayer({
                 stdout: "OPENAI_API_KEY=sk-live-123\nauth_token: token-abc\nsafe line\n",
@@ -246,6 +305,55 @@ describe("OpenCodeRuntime startup diagnostics", () => {
 });
 
 describe("OpenCodeRuntime local server pool", () => {
+  it("keeps server scope closure pending until process-tree exit is proven", async () => {
+    let proveExit: (() => void) | undefined;
+    const exitProof = new Promise<void>((resolve) => {
+      proveExit = resolve;
+    });
+    let teardownCalls = 0;
+    const layer = makeOpenCodeRuntimeLive({
+      netService: {
+        canListenOnHost: () => Effect.succeed(true),
+        isPortAvailableOnLoopback: () => Effect.succeed(true),
+        reserveLoopbackPort: () => Effect.succeed(59_000),
+        findAvailablePort: () => Effect.succeed(59_000),
+      },
+      teardownProcessTree: async ({ rootPid }) => {
+        teardownCalls += 1;
+        expect(rootPid).toBe(1);
+        await exitProof;
+        return { escalated: false, signalErrors: [] };
+      },
+    }).pipe(
+      Layer.provide(
+        mockOpenCodeServerSpawnerLayer({
+          stdout: "opencode server listening on http://127.0.0.1:59000\n",
+          stderr: "",
+        }),
+      ),
+    );
+
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const runtime = yield* OpenCodeRuntime;
+          const serverScope = yield* Scope.make("sequential");
+          yield* runtime
+            .startOpenCodeServerProcess({ binaryPath: "opencode" })
+            .pipe(Effect.provideService(Scope.Scope, serverScope));
+
+          const closing = yield* Scope.close(serverScope, Exit.void).pipe(Effect.forkChild);
+          yield* Effect.yieldNow;
+          expect(teardownCalls).toBe(1);
+          expect(closing.pollUnsafe()).toBeUndefined();
+
+          proveExit?.();
+          yield* Fiber.join(closing);
+        }),
+      ).pipe(Effect.provide(layer)),
+    );
+  });
+
   it("reuses a local server while scoped sessions are active and closes it after idling", async () => {
     const state = { spawnUrls: [] as Array<string>, killUrls: [] as Array<string> };
 
@@ -282,6 +390,42 @@ describe("OpenCodeRuntime local server pool", () => {
           expect(third.url).toBe("http://127.0.0.1:59001");
           expect(state.spawnUrls).toEqual(["http://127.0.0.1:59000", "http://127.0.0.1:59001"]);
           yield* Scope.close(thirdScope, Exit.void);
+        }),
+      ).pipe(Effect.provide(openCodeRuntimePoolTestLayer(state))),
+    );
+  });
+
+  it("isolates same-cwd owners and closes private servers immediately on release", async () => {
+    const state = { spawnUrls: [] as Array<string>, killUrls: [] as Array<string> };
+
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const runtime = yield* OpenCodeRuntime;
+          const firstScope = yield* Scope.make();
+          const secondScope = yield* Scope.make();
+          const first = yield* runtime
+            .connectToOpenCodeServer({
+              binaryPath: "opencode",
+              cwd: "/repo",
+              poolIsolationKey: "synara-thread-a",
+            })
+            .pipe(Effect.provideService(Scope.Scope, firstScope));
+          const second = yield* runtime
+            .connectToOpenCodeServer({
+              binaryPath: "opencode",
+              cwd: "/repo",
+              poolIsolationKey: "synara-thread-b",
+            })
+            .pipe(Effect.provideService(Scope.Scope, secondScope));
+
+          expect(first.url).not.toBe(second.url);
+          expect(state.spawnUrls).toEqual(["http://127.0.0.1:59000", "http://127.0.0.1:59001"]);
+
+          yield* Scope.close(firstScope, Exit.void);
+          expect(state.killUrls).toEqual(["http://127.0.0.1:59000"]);
+          yield* Scope.close(secondScope, Exit.void);
+          expect(state.killUrls).toEqual(["http://127.0.0.1:59000", "http://127.0.0.1:59001"]);
         }),
       ).pipe(Effect.provide(openCodeRuntimePoolTestLayer(state))),
     );

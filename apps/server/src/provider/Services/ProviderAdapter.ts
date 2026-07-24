@@ -43,6 +43,25 @@ import type { Effect } from "effect";
 import type { Stream } from "effect";
 
 export type ProviderSessionModelSwitchMode = "in-session" | "restart-session" | "unsupported";
+
+/**
+ * Per-adapter ingress budget. A bounded queue makes a slow durable consumer
+ * apply backpressure to the provider instead of growing the process heap
+ * without limit during a persistence outage.
+ */
+export const PROVIDER_ADAPTER_RUNTIME_EVENT_BUFFER_CAPACITY = 2_048;
+
+/**
+ * Structured payload for steering a running subagent. Mirrors the turn-input
+ * context fields so adapters can project attachments/skills/mentions into the
+ * provider-native steering channel (which is typically text-only).
+ */
+export interface ProviderSteerSubagentPayload {
+  readonly input: string;
+  readonly attachments?: ProviderSendTurnInput["attachments"];
+  readonly skills?: ProviderSendTurnInput["skills"];
+  readonly mentions?: ProviderSendTurnInput["mentions"];
+}
 export type ProviderConversationRollbackMode = "native" | "restart-session";
 
 export interface ProviderAdapterCapabilities {
@@ -116,6 +135,25 @@ export interface ProviderAdapterShape<TError> {
     threadId: ThreadId,
     turnId?: TurnId,
     providerThreadId?: string,
+  ) => Effect.Effect<void, TError>;
+
+  /**
+   * Stop one provider-native background task when the adapter supports it.
+   */
+  readonly stopTask?: (threadId: ThreadId, taskId: string) => Effect.Effect<void, TError>;
+
+  /**
+   * Move one in-flight foreground task to the background when the adapter supports it.
+   */
+  readonly backgroundTask?: (threadId: ThreadId, toolUseId: string) => Effect.Effect<void, TError>;
+
+  /**
+   * Deliver a mid-task user message to a running subagent when the adapter supports it.
+   */
+  readonly steerSubagent?: (
+    threadId: ThreadId,
+    providerThreadId: string,
+    input: ProviderSteerSubagentPayload,
   ) => Effect.Effect<void, TError>;
 
   /**

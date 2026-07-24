@@ -24,6 +24,17 @@ describe("toolOutputSummary", () => {
     expect(summarizeToolRawOutput({ rawInput: {} })).toBeUndefined();
   });
 
+  it("extracts a concise MCP error from an object output", () => {
+    expect(
+      summarizeToolRawOutput({
+        is_error: true,
+        output: {
+          Error: 'Invalid creation plan: Unexpected key "reasoningEffort"\n  at ["threads"][1]',
+        },
+      }),
+    ).toBe('Invalid creation plan: Unexpected key "reasoningEffort"');
+  });
+
   it("concatenates ACP array-shaped text output without dropping later parts", () => {
     const rawOutput = [
       { type: "input_text", text: "Script completed\nWall time 0.1s" },

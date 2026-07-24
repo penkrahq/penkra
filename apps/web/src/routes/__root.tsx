@@ -7,6 +7,7 @@ import {
   type OrchestrationThread,
   type ServerConfig,
   type ServerProviderStatus,
+  type WsCompatibilityError,
 } from "@synara/contracts";
 import { defaultTerminalTitleForCliKind } from "@synara/shared/terminalThreads";
 import {
@@ -17,11 +18,11 @@ import {
   useParams,
   useRouterState,
 } from "@tanstack/react-router";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Throttler } from "@tanstack/react-pacer";
 
-import { APP_DISPLAY_NAME } from "../branding";
+import { APP_DISPLAY_NAME, APP_VERSION } from "../branding";
 import { DesktopWindowControls } from "../components/DesktopWindowControls";
 import { AppSnapCoordinator } from "../components/AppSnapCoordinator";
 import { AppSnapWelcomeDialog } from "../components/AppSnapWelcomeDialog";
@@ -53,6 +54,7 @@ import {
   useComposerDraftStore,
 } from "../composerDraftStore";
 import { useStore } from "../store";
+import { createAllThreadsSelector } from "../storeSelectors";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
 import { terminalActivityFromEvent } from "../terminalActivity";
 import {
@@ -61,6 +63,10 @@ import {
   onServerSettingsUpdated,
   onServerWelcome,
 } from "../wsNativeApi";
+import {
+  addWsCompatibilityIssueListener,
+  readLatestWsCompatibilityIssue,
+} from "../wsTransportEvents";
 import { providerQueryKeys } from "../lib/providerReactQuery";
 import { invalidateProjectFileQueriesForCwds, projectQueryKeys } from "../lib/projectReactQuery";
 import { collectActiveTerminalThreadIds } from "../lib/terminalStateCleanup";
@@ -69,10 +75,10 @@ import { dockTerminalThreadId } from "../lib/dockTerminalScope";
 import { TaskCompletionNotifications } from "../notifications/taskCompletion";
 import { useWorkspaceStore, workspaceThreadId } from "../workspaceStore";
 import {
-  subscribeRetainedThreadDetailIdChanges,
+  resolveThreadDetailSubscriptionLeaseIds,
   useRetainedThreadDetailIds,
 } from "../threadDetailSubscriptionRetention";
-import { getThreadFromState } from "../threadDerivation";
+import { getThreadFromState, getThreadsFromState } from "../threadDerivation";
 import { useAppDensity } from "../hooks/useAppDensity";
 import { useAppTypography } from "../hooks/useAppTypography";
 import { usePreloadSettingsRoute } from "../hooks/usePreloadSettingsRoute";
@@ -157,6 +163,16 @@ function RootRouteView() {
   useNativeFontSmoothing();
   useSyncDesktopTopBarTrafficLightGutterZoom();
   useTheme();
+  const [compatibilityIssue, setCompatibilityIssue] = useState<WsCompatibilityError | null>(() =>
+    readLatestWsCompatibilityIssue(),
+  );
+  useEffect(
+    () =>
+      addWsCompatibilityIssueListener(setCompatibilityIssue, {
+        replayCurrent: true,
+      }),
+    [],
+  );
 
   // Single mount point for the Windows caption buttons. The cluster is pinned to the
   // window's top-right corner (frameless Windows shell) and renders nothing on macOS,
@@ -174,6 +190,15 @@ function RootRouteView() {
   // it last in document order guarantees that subtraction wins. (z above dialogs/toasts
   // so it also stays clickable while a modal is open.)
   const desktopWindowControls = <DesktopWindowControls className="fixed top-0 right-0 z-[250]" />;
+
+  if (compatibilityIssue) {
+    return (
+      <>
+        <TransportCompatibilityView issue={compatibilityIssue} />
+        {desktopWindowControls}
+      </>
+    );
+  }
 
   if (!readNativeApi()) {
     return (
@@ -213,6 +238,48 @@ function RootRouteView() {
   );
 }
 
+function TransportCompatibilityView({ issue }: { issue: WsCompatibilityError }) {
+  const title =
+    issue.action === "update-client"
+      ? "This Penkra client needs an update."
+      : issue.action === "update-server"
+        ? "The Penkra server needs an update."
+        : "Penkra needs to reconnect with a matching build.";
+  const guidance =
+    issue.action === "update-client"
+      ? "Update or reload this client, then reconnect."
+      : issue.action === "update-server"
+        ? "Update or restart the server, then reload this client."
+        : "Reload the app. If this repeats, restart Penkra so the client and server use matching builds.";
+
+  return (
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background px-4 py-10 text-foreground sm:px-6">
+      <div className="pointer-events-none absolute inset-0 opacity-80">
+        <div className="absolute inset-x-0 top-0 h-44 bg-[radial-gradient(44rem_16rem_at_top,color-mix(in_srgb,var(--color-amber-500)_16%,transparent),transparent)]" />
+        <div className="absolute inset-0 bg-[linear-gradient(145deg,color-mix(in_srgb,var(--background)_90%,var(--color-black))_0%,var(--background)_55%)]" />
+      </div>
+      <section className="relative w-full max-w-xl rounded-2xl border border-border/80 bg-card/90 p-6 shadow-2xl shadow-black/20 backdrop-blur-md sm:p-8">
+        <p className="text-[11px] font-semibold text-muted-foreground">{APP_DISPLAY_NAME}</p>
+        <h1 className="mt-3 text-2xl font-semibold sm:text-3xl">{title}</h1>
+        <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{issue.message}</p>
+        <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{guidance}</p>
+        <p className="mt-4 text-xs text-muted-foreground/80">
+          Client {APP_VERSION} · Server {issue.serverBuild}
+        </p>
+        <div className="mt-5">
+          <Button
+            size="sm"
+            className={dialogActionButtonClassName}
+            onClick={() => window.location.reload()}
+          >
+            Reload app
+          </Button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function GitProgressToastPreviewDev() {
   const featureFlags = useFeatureFlags();
   const enabled = import.meta.env.DEV && featureFlags["pin-git-progress-toast-preview"];
@@ -238,194 +305,203 @@ function ProviderStatusRefreshCoordinator() {
   return null;
 }
 
+// Extracted to module scope so its run-always cleanup can stay a try/finally: the
+// React Compiler does not compile module functions, so the finally block is fine
+// here even though it would bail out the component body.
+async function runProviderUpdateAll(params: {
+  providers: ReadonlyArray<ServerProviderStatus>;
+  queryClient: QueryClient;
+  activeToastRef: { current: ActiveProviderUpdateToast | null };
+  isUpdatingAllRef: { current: boolean };
+  progressToastDismissedRef: { current: boolean };
+  setIsUpdatingAll: (value: boolean) => void;
+}): Promise<void> {
+  const {
+    providers,
+    queryClient,
+    activeToastRef,
+    isUpdatingAllRef,
+    progressToastDismissedRef,
+    setIsUpdatingAll,
+  } = params;
+  const activeNotificationKey = providerUpdateNotificationKey(providers);
+  if (isUpdatingAllRef.current || providers.length === 0 || !activeNotificationKey) {
+    return;
+  }
+
+  isUpdatingAllRef.current = true;
+  progressToastDismissedRef.current = false;
+  setIsUpdatingAll(true);
+  const trackedToast = activeToastRef.current;
+  const toastId =
+    trackedToast?.toastId ??
+    toastManager.add({
+      type: "loading",
+      title: "Updating providers...",
+      description:
+        providers.length === 1
+          ? `Updating ${PROVIDER_DISPLAY_NAMES[providers[0]!.provider]}.`
+          : `Updating ${providers.length} providers.`,
+      timeout: 0,
+    });
+  activeToastRef.current = { kind: "update", key: activeNotificationKey, toastId };
+  const dismissProgressToast = () => {
+    progressToastDismissedRef.current = true;
+    if (activeToastRef.current?.toastId === toastId) {
+      activeToastRef.current = null;
+    }
+    toastManager.close(toastId);
+  };
+
+  toastManager.update(toastId, {
+    type: "loading",
+    title: "Updating providers...",
+    description:
+      providers.length === 1
+        ? `Updating ${PROVIDER_DISPLAY_NAMES[providers[0]!.provider]}.`
+        : `Updating ${providers.length} providers.`,
+    actionProps: undefined,
+    data: { onClose: dismissProgressToast },
+    timeout: 0,
+  });
+
+  const failures: Array<{ provider: ServerProviderStatus; reason: string }> = [];
+
+  try {
+    const api = ensureNativeApi();
+    for (const provider of providers) {
+      try {
+        const result = await withProviderUpdateTimeout({
+          provider: provider.provider,
+          request: api.server.updateProvider({ provider: provider.provider }),
+        });
+        const refreshed = result.providers.find((entry) => entry.provider === provider.provider);
+        const updateState = refreshed?.updateState;
+        if (updateState?.status === "failed" || updateState?.status === "unchanged") {
+          failures.push({
+            provider,
+            reason: updateState.message ?? "The update command did not complete successfully.",
+          });
+        } else if (refreshed?.versionAdvisory?.status === "behind_latest") {
+          failures.push({
+            provider,
+            reason: "The provider still appears outdated after updating.",
+          });
+        }
+      } catch (error) {
+        failures.push({
+          provider,
+          reason: error instanceof Error ? error.message : "The update request failed.",
+        });
+      }
+    }
+  } catch (error) {
+    for (const provider of providers) {
+      failures.push({
+        provider,
+        reason:
+          error instanceof Error ? error.message : "The provider update request could not start.",
+      });
+    }
+  } finally {
+    // Refresh is best-effort UI sync; it must not keep the progress toast alive.
+    await queryClient
+      .invalidateQueries({ queryKey: serverQueryKeys.config() })
+      .catch(() => undefined);
+    isUpdatingAllRef.current = false;
+    setIsUpdatingAll(false);
+  }
+
+  if (progressToastDismissedRef.current || activeToastRef.current?.toastId !== toastId) {
+    return;
+  }
+
+  if (failures.length > 0) {
+    activeToastRef.current = null;
+    // Surface the exact manual commands so a user whose one-click update
+    // failed (EACCES on global npm, PATH/package-manager mismatch, etc.) can
+    // copy and run them in a terminal instead of being stuck.
+    const manualCommands = Array.from(
+      new Set(
+        failures
+          .map(({ provider }) => provider.versionAdvisory?.updateCommand)
+          .filter(
+            (command): command is string =>
+              typeof command === "string" && command.trim().length > 0,
+          ),
+      ),
+    );
+    const failureLines = failures
+      .map(({ provider, reason }) => `${PROVIDER_DISPLAY_NAMES[provider.provider]}: ${reason}`)
+      .join("\n");
+    toastManager.update(toastId, {
+      type: "error",
+      title:
+        failures.length === providers.length
+          ? "Provider updates failed"
+          : "Some provider updates failed",
+      description:
+        manualCommands.length > 0
+          ? `${failureLines}\n\nCopy the command${manualCommands.length === 1 ? "" : "s"} below to update manually in a terminal.`
+          : failureLines,
+      data: {
+        onClose: dismissProgressToast,
+        ...(manualCommands.length > 0 ? { copyText: manualCommands.join("\n") } : {}),
+      },
+      timeout: 0,
+    });
+    return;
+  }
+
+  activeToastRef.current = null;
+  toastManager.update(toastId, {
+    type: "success",
+    title:
+      providers.length === 1
+        ? `${PROVIDER_DISPLAY_NAMES[providers[0]!.provider]} updated`
+        : `${providers.length} providers updated`,
+    description: "New sessions will use the refreshed provider tools.",
+    data: { onClose: dismissProgressToast },
+    timeout: 6000,
+  });
+}
+
 function ProviderUpdateNotifications() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { settings } = useAppSettings();
   const serverConfigQuery = useQuery(serverConfigQueryOptions());
   const serverSettingsQuery = useQuery(serverSettingsQueryOptions());
-  const providerUpdateServerSettings = useMemo(
-    () =>
-      serverSettingsQuery.data
-        ? {
-            ...serverSettingsQuery.data,
-            enableProviderUpdateChecks: settings.enableProviderUpdateChecks,
-          }
-        : null,
-    [serverSettingsQuery.data, settings.enableProviderUpdateChecks],
-  );
+  const providerUpdateServerSettings = serverSettingsQuery.data
+    ? {
+        ...serverSettingsQuery.data,
+        enableProviderUpdateChecks: settings.enableProviderUpdateChecks,
+      }
+    : null;
   const [isUpdatingAll, setIsUpdatingAll] = useState(false);
   const activeToastRef = useRef<ActiveProviderUpdateToast | null>(null);
   const isUpdatingAllRef = useRef(false);
   const progressToastDismissedRef = useRef(false);
-  const outdatedProviders = useMemo(
-    () =>
-      getVisibleProviderUpdateStatuses({
-        providers: serverConfigQuery.data?.providers ?? [],
-        hiddenProviders: settings.hiddenProviders,
-        serverSettings: providerUpdateServerSettings,
-        oneClickOnly: true,
-      }),
-    [providerUpdateServerSettings, serverConfigQuery.data?.providers, settings.hiddenProviders],
+  const outdatedProviders = getVisibleProviderUpdateStatuses({
+    providers: serverConfigQuery.data?.providers ?? [],
+    hiddenProviders: settings.hiddenProviders,
+    serverSettings: providerUpdateServerSettings,
+    oneClickOnly: true,
+  });
+  const oneClickProviders = outdatedProviders.filter(
+    (provider) => !isProviderUpdateActive(provider),
   );
-  const oneClickProviders = useMemo(
-    () => outdatedProviders.filter((provider) => !isProviderUpdateActive(provider)),
-    [outdatedProviders],
-  );
-  const notificationKey = useMemo(
-    () => providerUpdateNotificationKey(outdatedProviders),
-    [outdatedProviders],
-  );
+  const notificationKey = providerUpdateNotificationKey(outdatedProviders);
 
-  const updateAll = useCallback(
-    async (providers: ReadonlyArray<ServerProviderStatus>) => {
-      const activeNotificationKey = providerUpdateNotificationKey(providers);
-      if (isUpdatingAllRef.current || providers.length === 0 || !activeNotificationKey) {
-        return;
-      }
-
-      isUpdatingAllRef.current = true;
-      progressToastDismissedRef.current = false;
-      setIsUpdatingAll(true);
-      const trackedToast = activeToastRef.current;
-      const toastId =
-        trackedToast?.toastId ??
-        toastManager.add({
-          type: "loading",
-          title: "Updating providers...",
-          description:
-            providers.length === 1
-              ? `Updating ${PROVIDER_DISPLAY_NAMES[providers[0]!.provider]}.`
-              : `Updating ${providers.length} providers.`,
-          timeout: 0,
-        });
-      activeToastRef.current = { kind: "update", key: activeNotificationKey, toastId };
-      const dismissProgressToast = () => {
-        progressToastDismissedRef.current = true;
-        if (activeToastRef.current?.toastId === toastId) {
-          activeToastRef.current = null;
-        }
-        toastManager.close(toastId);
-      };
-
-      toastManager.update(toastId, {
-        type: "loading",
-        title: "Updating providers...",
-        description:
-          providers.length === 1
-            ? `Updating ${PROVIDER_DISPLAY_NAMES[providers[0]!.provider]}.`
-            : `Updating ${providers.length} providers.`,
-        actionProps: undefined,
-        data: { onClose: dismissProgressToast },
-        timeout: 0,
-      });
-
-      const failures: Array<{ provider: ServerProviderStatus; reason: string }> = [];
-
-      try {
-        const api = ensureNativeApi();
-        for (const provider of providers) {
-          try {
-            const result = await withProviderUpdateTimeout({
-              provider: provider.provider,
-              request: api.server.updateProvider({ provider: provider.provider }),
-            });
-            const refreshed = result.providers.find(
-              (entry) => entry.provider === provider.provider,
-            );
-            const updateState = refreshed?.updateState;
-            if (updateState?.status === "failed" || updateState?.status === "unchanged") {
-              failures.push({
-                provider,
-                reason: updateState.message ?? "The update command did not complete successfully.",
-              });
-            } else if (refreshed?.versionAdvisory?.status === "behind_latest") {
-              failures.push({
-                provider,
-                reason: "The provider still appears outdated after updating.",
-              });
-            }
-          } catch (error) {
-            failures.push({
-              provider,
-              reason: error instanceof Error ? error.message : "The update request failed.",
-            });
-          }
-        }
-      } catch (error) {
-        for (const provider of providers) {
-          failures.push({
-            provider,
-            reason:
-              error instanceof Error
-                ? error.message
-                : "The provider update request could not start.",
-          });
-        }
-      } finally {
-        // Refresh is best-effort UI sync; it must not keep the progress toast alive.
-        await queryClient
-          .invalidateQueries({ queryKey: serverQueryKeys.config() })
-          .catch(() => undefined);
-        isUpdatingAllRef.current = false;
-        setIsUpdatingAll(false);
-      }
-
-      if (progressToastDismissedRef.current || activeToastRef.current?.toastId !== toastId) {
-        return;
-      }
-
-      if (failures.length > 0) {
-        activeToastRef.current = null;
-        // Surface the exact manual commands so a user whose one-click update
-        // failed (EACCES on global npm, PATH/package-manager mismatch, etc.) can
-        // copy and run them in a terminal instead of being stuck.
-        const manualCommands = Array.from(
-          new Set(
-            failures
-              .map(({ provider }) => provider.versionAdvisory?.updateCommand)
-              .filter(
-                (command): command is string =>
-                  typeof command === "string" && command.trim().length > 0,
-              ),
-          ),
-        );
-        const failureLines = failures
-          .map(({ provider, reason }) => `${PROVIDER_DISPLAY_NAMES[provider.provider]}: ${reason}`)
-          .join("\n");
-        toastManager.update(toastId, {
-          type: "error",
-          title:
-            failures.length === providers.length
-              ? "Provider updates failed"
-              : "Some provider updates failed",
-          description:
-            manualCommands.length > 0
-              ? `${failureLines}\n\nCopy the command${manualCommands.length === 1 ? "" : "s"} below to update manually in a terminal.`
-              : failureLines,
-          data: {
-            onClose: dismissProgressToast,
-            ...(manualCommands.length > 0 ? { copyText: manualCommands.join("\n") } : {}),
-          },
-          timeout: 0,
-        });
-        return;
-      }
-
-      activeToastRef.current = null;
-      toastManager.update(toastId, {
-        type: "success",
-        title:
-          providers.length === 1
-            ? `${PROVIDER_DISPLAY_NAMES[providers[0]!.provider]} updated`
-            : `${providers.length} providers updated`,
-        description: "New sessions will use the refreshed provider tools.",
-        data: { onClose: dismissProgressToast },
-        timeout: 6000,
-      });
-    },
-    [queryClient],
-  );
+  const updateAll = (providers: ReadonlyArray<ServerProviderStatus>) =>
+    runProviderUpdateAll({
+      providers,
+      queryClient,
+      activeToastRef,
+      isUpdatingAllRef,
+      progressToastDismissedRef,
+      setIsUpdatingAll,
+    });
 
   useEffect(() => {
     const activeToast = activeToastRef.current;
@@ -557,25 +633,21 @@ function GlobalFeedbackDialog() {
   const isOpen = useFeedbackDialogStore((state) => state.isOpen);
   const requestedContext = useFeedbackDialogStore((state) => state.context);
   const setOpen = useFeedbackDialogStore((state) => state.setOpen);
-  const context = useMemo<FeedbackThreadContext>(
-    () =>
-      requestedContext ?? {
-        provider: activeThread?.modelSelection.provider ?? null,
-        model: activeThread?.modelSelection.model ?? null,
-        projectKind: activeProject?.kind ?? null,
-        environmentMode: activeThread?.envMode ?? null,
-        runtimeMode: activeThread?.runtimeMode ?? null,
-        interactionMode: activeThread?.interactionMode ?? null,
-        sessionStatus: activeThread?.session?.status ?? null,
-        latestTurnState: activeThread?.latestTurn?.state ?? null,
-        messageCount: activeThread?.messages.length ?? 0,
-        activityCount: activeThread?.activities.length ?? 0,
-        hasPendingApproval: activeThread?.hasPendingApprovals === true,
-        hasPendingUserInput: activeThread?.hasPendingUserInput === true,
-        hasThreadError: Boolean(activeThread?.error),
-      },
-    [activeProject?.kind, activeThread, requestedContext],
-  );
+  const context: FeedbackThreadContext = requestedContext ?? {
+    provider: activeThread?.modelSelection.provider ?? null,
+    model: activeThread?.modelSelection.model ?? null,
+    projectKind: activeProject?.kind ?? null,
+    environmentMode: activeThread?.envMode ?? null,
+    runtimeMode: activeThread?.runtimeMode ?? null,
+    interactionMode: activeThread?.interactionMode ?? null,
+    sessionStatus: activeThread?.session?.status ?? null,
+    latestTurnState: activeThread?.latestTurn?.state ?? null,
+    messageCount: activeThread?.messages.length ?? 0,
+    activityCount: activeThread?.activities.length ?? 0,
+    hasPendingApproval: activeThread?.hasPendingApprovals === true,
+    hasPendingUserInput: activeThread?.hasPendingUserInput === true,
+    hasThreadError: Boolean(activeThread?.error),
+  };
 
   return <FeedbackDialog open={isOpen} context={context} onOpenChange={setOpen} />;
 }
@@ -824,7 +896,7 @@ function EventRouter() {
   );
   const setServerWorkspacePaths = useWorkspaceStore((store) => store.setServerWorkspacePaths);
   const workspacePages = useWorkspaceStore((store) => store.workspacePages);
-  const serverThreads = useStore((store) => store.threads);
+  const serverThreads = useStore(selectAllThreads);
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
@@ -833,46 +905,38 @@ function EventRouter() {
     select: (params) => (params.threadId ? ThreadId.makeUnsafe(params.threadId) : null),
   });
   const routeSearch = useDiffRouteSearch();
-  const activeSplitView = useSplitViewStore(selectSplitView(routeSearch.splitViewId ?? null));
-  const visibleThreadIds = useMemo(() => {
-    if (activeSplitView) {
-      return resolveSplitViewThreadIds(activeSplitView);
-    }
-    return routeThreadId ? [routeThreadId] : [];
-  }, [activeSplitView, routeThreadId]);
-  const retainedThreadIds = useRetainedThreadDetailIds();
-  const serverThreadIds = useMemo(
-    () => new Set(serverThreads.map((thread) => thread.id)),
-    [serverThreads],
+  const activeSplitView = useSplitViewStore(
+    useMemo(() => selectSplitView(routeSearch.splitViewId ?? null), [routeSearch.splitViewId]),
   );
-  const subscribedThreadIds = useMemo(() => {
-    const nextThreadIds = new Set<ThreadId>();
-    for (const threadId of visibleThreadIds) {
-      // Visible draft routes need a detail subscription before their shell row exists.
-      // Otherwise fast provider responses can complete before the promoted thread is
-      // known to the shell list, leaving the chat detail stuck on its optimistic state.
-      nextThreadIds.add(threadId);
-    }
-    for (const threadId of retainedThreadIds) {
-      if (serverThreadIds.has(threadId)) {
-        nextThreadIds.add(threadId);
-      }
-    }
-    return [...nextThreadIds];
-  }, [retainedThreadIds, serverThreadIds, visibleThreadIds]);
+  const visibleThreadIds = activeSplitView
+    ? resolveSplitViewThreadIds(activeSplitView)
+    : routeThreadId
+      ? [routeThreadId]
+      : [];
+  const retainedThreadIds = useRetainedThreadDetailIds();
+  const serverThreadIds = new Set(serverThreads.map((thread) => thread.id));
+  const subscribedThreadIds = resolveThreadDetailSubscriptionLeaseIds({
+    visibleThreadIds,
+    retainedThreadIds,
+    serverThreadIds,
+  });
   const workspacePagesRef = useRef(workspacePages);
   const pathnameRef = useRef(pathname);
   const handledBootstrapThreadIdRef = useRef<string | null>(null);
-  const routeVisibleThreadIdsRef = useRef(visibleThreadIds);
   const visibleThreadIdsRef = useRef(subscribedThreadIds);
   const reconcileThreadSubscriptionsRef = useRef<
     ((threadIds: readonly ThreadId[]) => Promise<void>) | null
   >(null);
 
-  workspacePagesRef.current = workspacePages;
-  pathnameRef.current = pathname;
-  routeVisibleThreadIdsRef.current = visibleThreadIds;
-  visibleThreadIdsRef.current = subscribedThreadIds;
+  // Latest-value mirrors read by the subscription effect's post-commit async
+  // callbacks (welcome handler, scoped-subscription reconcile, terminal cleanup).
+  // The refs are seeded via useRef init, so mount reads stay correct before this
+  // runs; subsequent renders refresh them here instead of during render.
+  useEffect(() => {
+    workspacePagesRef.current = workspacePages;
+    pathnameRef.current = pathname;
+    visibleThreadIdsRef.current = subscribedThreadIds;
+  }, [pathname, subscribedThreadIds, workspacePages]);
 
   useEffect(() => {
     const api = readNativeApi();
@@ -908,13 +972,14 @@ function EventRouter() {
         return;
       }
       threadSnapshotRequestInFlight.add(threadId);
-      try {
-        await api.orchestration.subscribeThread({ threadId });
-      } catch {
-        // Keep the pending buffer intact and retry on the next shell/detail update.
-      } finally {
-        threadSnapshotRequestInFlight.delete(threadId);
-      }
+      // Keep the pending buffer intact and retry on the next shell/detail update
+      // if the subscribe fails; the request flag always clears afterward.
+      await api.orchestration
+        .subscribeThread({ threadId })
+        .catch(() => undefined)
+        .finally(() => {
+          threadSnapshotRequestInFlight.delete(threadId);
+        });
     };
 
     const flushThreadBuffer = (threadId: ThreadId, snapshotSequence: number) => {
@@ -946,17 +1011,9 @@ function EventRouter() {
       const removals = [...subscribedThreadIds].filter((threadId) => !nextThreadIds.has(threadId));
       const additions = [...nextThreadIds].filter((threadId) => !subscribedThreadIds.has(threadId));
 
-      // Start new detail snapshots first so route changes can paint from the hot thread cache.
-      for (const threadId of additions) {
-        beginThreadSubscription(threadId);
-        subscribedThreadIds.add(threadId);
-      }
-      await Promise.all(
-        additions.map((threadId) =>
-          api.orchestration.subscribeThread({ threadId }).catch(() => undefined),
-        ),
-      );
-
+      // Release dropped leases before subscribing additions: the server enforces a
+      // per-client thread-stream budget, and subscribing while a stale lease still
+      // holds its slot gets the new thread's stream rejected at admission.
       for (const threadId of removals) {
         threadSnapshotSequenceById.delete(threadId);
         pendingThreadEventsById.delete(threadId);
@@ -969,6 +1026,16 @@ function EventRouter() {
           api.orchestration.unsubscribeThread({ threadId }).catch(() => undefined),
         ),
       );
+
+      for (const threadId of additions) {
+        beginThreadSubscription(threadId);
+        subscribedThreadIds.add(threadId);
+      }
+      await Promise.all(
+        additions.map((threadId) =>
+          api.orchestration.subscribeThread({ threadId }).catch(() => undefined),
+        ),
+      );
     };
 
     const enqueueThreadSubscriptionReconcile = (threadIds: readonly ThreadId[]) => {
@@ -978,16 +1045,6 @@ function EventRouter() {
         .then(() => reconcileThreadSubscriptions(nextThreadIds));
       return reconcileThreadSubscriptionsChain;
     };
-
-    const unsubscribeRetainedThreadIdChanges = subscribeRetainedThreadDetailIdChanges(
-      (nextRetainedThreadIds) => {
-        const nextThreadIds = new Set(routeVisibleThreadIdsRef.current);
-        for (const threadId of nextRetainedThreadIds) {
-          nextThreadIds.add(threadId);
-        }
-        void enqueueThreadSubscriptionReconcile([...nextThreadIds]);
-      },
-    );
 
     const shouldApplyBootstrapShellSnapshot = (snapshot: OrchestrationShellSnapshot) => {
       if (disposed) {
@@ -1000,8 +1057,9 @@ function EventRouter() {
       // Desktop can briefly hydrate from an empty startup stream before the
       // projection reader is fully ready. Let the later non-empty shell query win.
       return (
+        (currentState.spaces.length === 0 && snapshot.spaces.length > 0) ||
         (currentState.projects.length === 0 && snapshot.projects.length > 0) ||
-        (currentState.threads.length === 0 && snapshot.threads.length > 0)
+        ((currentState.threadIds?.length ?? 0) === 0 && snapshot.threads.length > 0)
       );
     };
 
@@ -1020,9 +1078,9 @@ function EventRouter() {
     const ensureScopedSubscriptions = async () => {
       shellSnapshotSequence = -1;
       pendingShellEvents = [];
-      subscribedThreadIds.clear();
       threadSnapshotSequenceById.clear();
       pendingThreadEventsById.clear();
+      threadSnapshotRequestInFlight.clear();
       threadReplayRequestInFlight.clear();
       await api.orchestration.subscribeShell().catch(() => loadShellSnapshotOnce());
       await enqueueThreadSubscriptionReconcile(visibleThreadIdsRef.current);
@@ -1033,7 +1091,7 @@ function EventRouter() {
         useComposerDraftStore.getState().draftThreadsByThreadId,
       ) as ThreadId[];
       const activeThreadIds = collectActiveTerminalThreadIds({
-        snapshotThreads: useStore.getState().threads.map((thread) => ({
+        snapshotThreads: getThreadsFromState(useStore.getState()).map((thread) => ({
           id: thread.id,
           deletedAt: null,
           archivedAt: thread.archivedAt ?? null,
@@ -1135,24 +1193,28 @@ function EventRouter() {
         return;
       }
       threadReplayRequestInFlight.add(threadId);
-      try {
-        const replayedEvents = await api.orchestration.replayEvents(fromSequence);
-        for (const event of replayedEvents
-          .filter((candidate) => isThreadDetailEventForThread(candidate, threadId))
-          .filter(
-            (candidate) => targetSequence === undefined || candidate.sequence <= targetSequence,
-          )
-          .toSorted((left, right) => left.sequence - right.sequence)) {
-          const latestThreadSequence = threadSnapshotSequenceById.get(threadId) ?? fromSequence;
-          if (event.sequence <= latestThreadSequence) {
-            continue;
+      // Promise chain keeps the run-always cleanup (finally) and lets a replay
+      // rejection propagate to callers exactly as the try/finally did.
+      await api.orchestration
+        .replayEvents(fromSequence)
+        .then((replayedEvents) => {
+          for (const event of replayedEvents
+            .filter((candidate) => isThreadDetailEventForThread(candidate, threadId))
+            .filter(
+              (candidate) => targetSequence === undefined || candidate.sequence <= targetSequence,
+            )
+            .toSorted((left, right) => left.sequence - right.sequence)) {
+            const latestThreadSequence = threadSnapshotSequenceById.get(threadId) ?? fromSequence;
+            if (event.sequence <= latestThreadSequence) {
+              continue;
+            }
+            threadSnapshotSequenceById.set(threadId, event.sequence);
+            queueDomainEvent(event);
           }
-          threadSnapshotSequenceById.set(threadId, event.sequence);
-          queueDomainEvent(event);
-        }
-      } finally {
-        threadReplayRequestInFlight.delete(threadId);
-      }
+        })
+        .finally(() => {
+          threadReplayRequestInFlight.delete(threadId);
+        });
     };
 
     const domainEventFlushThrottler = new Throttler(
@@ -1453,7 +1515,6 @@ function EventRouter() {
           api.orchestration.unsubscribeThread({ threadId }).catch(() => undefined),
         ),
       );
-      unsubscribeRetainedThreadIdChanges();
       unsubShellEvent();
       unsubThreadEvent();
       unsubTerminalEvent();
@@ -1490,7 +1551,7 @@ function EventRouter() {
 function DesktopProjectBootstrap() {
   const syncServerReadModel = useStore((store) => store.syncServerReadModel);
   const projects = useStore((store) => store.projects);
-  const threads = useStore((store) => store.threads);
+  const threads = useStore(selectAllThreads);
   const threadsHydrated = useStore((store) => store.threadsHydrated);
   const attemptedRecoveryRef = useRef(false);
 
@@ -1533,3 +1594,4 @@ function DesktopProjectBootstrap() {
   // Desktop hydration normally runs through EventRouter project + orchestration sync.
   return null;
 }
+const selectAllThreads = createAllThreadsSelector();

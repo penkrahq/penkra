@@ -10,7 +10,7 @@ import {
 } from "@synara/contracts";
 import { resolveThreadWorkspaceCwd } from "@synara/shared/threadEnvironment";
 
-import type { AppState } from "../store";
+import type { AppState } from "../storeState";
 import { getThreadFromState } from "../threadDerivation";
 
 const FILE_CHANGE_EVENT_TYPES = new Set<OrchestrationEvent["type"]>([
@@ -94,9 +94,7 @@ export function resolveGitInvalidationCwdForThreadId(
   state: AppState,
   threadId: ThreadId,
 ): string | null {
-  const thread =
-    getThreadFromState(state, threadId) ??
-    state.threads.find((candidate) => candidate.id === threadId);
+  const thread = getThreadFromState(state, threadId);
   if (!thread) {
     return null;
   }

@@ -55,7 +55,7 @@ export function PenkraCreateClientDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogPopup surface="solid" className="max-w-md">
+      <DialogPopup className="max-w-md">
         <DialogHeader>
           <DialogTitle className="text-base">Add client</DialogTitle>
           <DialogDescription>The workspace is created and scoped immediately.</DialogDescription>

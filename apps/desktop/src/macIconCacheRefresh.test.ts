@@ -10,8 +10,8 @@ import {
 
 describe("resolveLaunchVersionRecordPath", () => {
   it("places the record file inside the userData directory", () => {
-    expect(resolveLaunchVersionRecordPath("/home/me/AppData/Synara")).toBe(
-      "/home/me/AppData/Synara/last-launch-version.json",
+    expect(resolveLaunchVersionRecordPath("/home/me/AppData/Penkra")).toBe(
+      "/home/me/AppData/Penkra/last-launch-version.json",
     );
   });
 });
@@ -58,13 +58,13 @@ describe("shouldRefreshIconCache", () => {
 describe("resolveMacAppBundlePath", () => {
   it("resolves the .app bundle from the Electron executable on macOS", () => {
     expect(
-      resolveMacAppBundlePath("/Applications/Synara.app/Contents/MacOS/Synara", "darwin"),
-    ).toBe("/Applications/Synara.app");
+      resolveMacAppBundlePath("/Applications/Penkra.app/Contents/MacOS/Penkra", "darwin"),
+    ).toBe("/Applications/Penkra.app");
   });
 
   it("returns null off macOS", () => {
     expect(
-      resolveMacAppBundlePath("/Applications/Synara.app/Contents/MacOS/Synara", "linux"),
+      resolveMacAppBundlePath("/Applications/Penkra.app/Contents/MacOS/Penkra", "linux"),
     ).toBeNull();
   });
 

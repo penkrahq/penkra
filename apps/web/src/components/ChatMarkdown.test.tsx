@@ -93,9 +93,7 @@ describe("ChatMarkdown", () => {
     expect(markup).toContain(
       'class="inline font-medium text-[var(--info-foreground)] underline-offset-2 hover:underline"',
     );
-    expect(markup).toContain(
-      "inline-block size-[1em] shrink-0 align-middle -translate-y-px mr-0.5",
-    );
+    expect(markup).toContain("inline-block size-[1em] shrink-0 align-middle -translate-y-px mr-1");
     expect(markup).toContain("OpenAI benchmark");
   });
 
@@ -291,6 +289,17 @@ describe("ChatMarkdown user variant", () => {
 
     expect(markup).toContain("<code>$deep-research</code>");
     expect(markup).not.toContain("Deep Research");
+  });
+
+  it("keeps Object.prototype member names as literal inline code", async () => {
+    // `inlineCodeFilePath` strips wrapping quotes, so the quoted forms reach the icon
+    // tables as the bare keys `constructor` / `__proto__`.
+    for (const token of ["constructor", "__proto__", '"constructor"', '"__proto__"']) {
+      const markup = await renderUserMarkdown(`what if a key is \`${token}\``);
+
+      expect(markup).toContain("<code>");
+      expect(markup).not.toContain('data-slot="central-icon"');
+    }
   });
 
   it("renders @-mention tokens as mention chips", async () => {

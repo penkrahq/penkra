@@ -277,13 +277,17 @@ export function collectThreadAttentionCandidates(
     }
 
     const previousApprovalIds = new Set(
-      derivePendingApprovals(previousThread.activities).map((approval) => approval.requestId),
+      derivePendingApprovals(previousThread.activities, previousThread.pendingInteractions).map(
+        (approval) => approval.requestId,
+      ),
     );
     const previousUserInputIds = new Set(
-      derivePendingUserInputs(previousThread.activities).map((request) => request.requestId),
+      derivePendingUserInputs(previousThread.activities, previousThread.pendingInteractions).map(
+        (request) => request.requestId,
+      ),
     );
 
-    for (const approval of derivePendingApprovals(thread.activities)) {
+    for (const approval of derivePendingApprovals(thread.activities, thread.pendingInteractions)) {
       if (previousApprovalIds.has(approval.requestId)) {
         continue;
       }
@@ -298,7 +302,7 @@ export function collectThreadAttentionCandidates(
       });
     }
 
-    for (const request of derivePendingUserInputs(thread.activities)) {
+    for (const request of derivePendingUserInputs(thread.activities, thread.pendingInteractions)) {
       if (previousUserInputIds.has(request.requestId)) {
         continue;
       }
@@ -402,14 +406,6 @@ export function buildTerminalAttentionCopy(candidate: TerminalAttentionCandidate
     title: "Terminal input needed",
     body: `${terminalLabel} needs your attention.`,
   };
-}
-
-export function shouldSuppressVisibleThreadNotification(input: {
-  threadId: Thread["id"];
-  visibleThreadIds: ReadonlySet<Thread["id"]>;
-  windowForeground: boolean;
-}): boolean {
-  return input.windowForeground && input.visibleThreadIds.has(input.threadId);
 }
 
 export const collectInputNeededThreadCandidates = collectThreadAttentionCandidates;

@@ -142,6 +142,7 @@ export function useComposerSlashCommands(input: {
     providerNativeCommandNames,
   });
 
+  // Manual memoization kept: this file does not compile under React Compiler (see compile-report).
   const compactProviderThread = useCallback(async (): Promise<boolean> => {
     const api = readNativeApi();
     if (
@@ -806,26 +807,6 @@ export function useComposerSlashCommands(input: {
         );
         if (wasPromptReplacementApplied(applied)) {
           editorActions.setComposerHighlightedItemId(null);
-        }
-        return;
-      }
-
-      if (item.command === "automation") {
-        const replacement = "/automation ";
-        const replacementRangeEnd = extendReplacementRangeForTrailingSpace(
-          snapshot.value,
-          trigger.rangeEnd,
-          replacement,
-        );
-        const applied = editorActions.applyPromptReplacement(
-          trigger.rangeStart,
-          replacementRangeEnd,
-          replacement,
-          { expectedText: snapshot.value.slice(trigger.rangeStart, replacementRangeEnd) },
-        );
-        if (wasPromptReplacementApplied(applied)) {
-          editorActions.setComposerHighlightedItemId(null);
-          editorActions.scheduleComposerFocus();
         }
         return;
       }

@@ -13,10 +13,10 @@ import {
 
 describe("resolveElectronUpdaterCacheDirName", () => {
   it("matches electron-updater's cache directory fallback", () => {
-    expect(resolveElectronUpdaterCacheDirName(null, "Synara")).toBe("Synara");
+    expect(resolveElectronUpdaterCacheDirName(null, "Penkra")).toBe("Penkra");
     expect(
-      resolveElectronUpdaterCacheDirName({ updaterCacheDirName: "Synara-updater" }, "Synara"),
-    ).toBe("Synara-updater");
+      resolveElectronUpdaterCacheDirName({ updaterCacheDirName: "Penkra-updater" }, "Penkra"),
+    ).toBe("Penkra-updater");
   });
 });
 
@@ -24,55 +24,55 @@ describe("resolveElectronUpdaterPendingCacheDir", () => {
   it("matches electron-updater's pending cache path on macOS", () => {
     expect(
       resolveElectronUpdaterPendingCacheDir({
-        cacheDirName: "Synara-updater",
+        cacheDirName: "Penkra-updater",
         platform: "darwin",
         homeDir: "/Users/test",
       }),
-    ).toBe("/Users/test/Library/Caches/Synara-updater/pending");
+    ).toBe("/Users/test/Library/Caches/Penkra-updater/pending");
   });
 
   it("matches electron-updater's pending cache path on Windows", () => {
     expect(
       resolveElectronUpdaterPendingCacheDir({
-        cacheDirName: "Synara-updater",
+        cacheDirName: "Penkra-updater",
         platform: "win32",
         homeDir: "C:\\Users\\test",
         localAppData: "C:\\Users\\test\\AppData\\Local",
       }),
-    ).toBe("C:\\Users\\test\\AppData\\Local\\Synara-updater\\pending");
+    ).toBe("C:\\Users\\test\\AppData\\Local\\Penkra-updater\\pending");
   });
 
   it("falls back from an empty Windows cache env var like electron-updater", () => {
     expect(
       resolveElectronUpdaterPendingCacheDir({
-        cacheDirName: "Synara-updater",
+        cacheDirName: "Penkra-updater",
         platform: "win32",
         homeDir: "C:\\Users\\test",
         localAppData: "",
       }),
-    ).toBe("C:\\Users\\test\\AppData\\Local\\Synara-updater\\pending");
+    ).toBe("C:\\Users\\test\\AppData\\Local\\Penkra-updater\\pending");
   });
 
   it("matches electron-updater's pending cache path on Linux", () => {
     expect(
       resolveElectronUpdaterPendingCacheDir({
-        cacheDirName: "Synara-updater",
+        cacheDirName: "Penkra-updater",
         platform: "linux",
         homeDir: "/home/test",
         xdgCacheHome: "/tmp/cache",
       }),
-    ).toBe("/tmp/cache/Synara-updater/pending");
+    ).toBe("/tmp/cache/Penkra-updater/pending");
   });
 
   it("falls back from an empty Linux cache env var like electron-updater", () => {
     expect(
       resolveElectronUpdaterPendingCacheDir({
-        cacheDirName: "Synara-updater",
+        cacheDirName: "Penkra-updater",
         platform: "linux",
         homeDir: "/home/test",
         xdgCacheHome: "",
       }),
-    ).toBe("/home/test/.cache/Synara-updater/pending");
+    ).toBe("/home/test/.cache/Penkra-updater/pending");
   });
 
   it("returns null when no cache dir is configured", () => {
@@ -90,11 +90,11 @@ describe("resolveElectronUpdaterCacheDir", () => {
   it("exposes the shared cache root", () => {
     expect(
       resolveElectronUpdaterCacheDir({
-        cacheDirName: "Synara-updater",
+        cacheDirName: "Penkra-updater",
         platform: "darwin",
         homeDir: "/Users/test",
       }),
-    ).toBe("/Users/test/Library/Caches/Synara-updater");
+    ).toBe("/Users/test/Library/Caches/Penkra-updater");
   });
 });
 

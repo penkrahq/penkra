@@ -15,6 +15,7 @@ import {
 import { resolveThreadWorkspaceCwd } from "@synara/shared/threadEnvironment";
 import { Cause, Effect, Layer, ServiceMap } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
+import { redactCreationPlanForPurgedCaller } from "./agentGateway/operationPlan.ts";
 
 import { CheckpointStore } from "./checkpointing/Services/CheckpointStore";
 import {
@@ -24,6 +25,8 @@ import {
   resolveProjectCwdForKind,
 } from "./checkpointing/Utils";
 import { aggregateProfileSkillUsageRows, turnModelSelectionCte } from "./profileStats";
+import { PROVIDER_COMMAND_REACTOR_CONSUMER } from "./persistence/Services/OrchestrationEventDeliveries";
+import { isProviderIntentEventType } from "./orchestration/providerIntentClassification";
 import { THREAD_RETENTION_COMMAND_ID_PREFIX } from "./threadRetention";
 
 interface PurgeThreadRow {
@@ -51,6 +54,7 @@ interface TokenActivityRow {
   // selection applies as the fallback.
   readonly provider: string | null;
   readonly model: string | null;
+  readonly dispatchOrigin?: string | null;
   readonly createdAt: string | null;
 }
 
@@ -244,6 +248,20 @@ function tokenProviderModelKey(provider: string | null, model: string | null): s
   return `${provider ?? ""}\u0000${model ?? ""}`;
 }
 
+function resolveTokenProviderModel(
+  row: TokenActivityRow,
+  fallbackSelection?: { readonly provider: string | null; readonly model: string | null },
+): { readonly provider: string | null; readonly model: string | null } {
+  const stampedProvider = readString(row.provider);
+  const provider = stampedProvider ?? fallbackSelection?.provider ?? null;
+  const model =
+    readString(row.model) ??
+    (stampedProvider === null || stampedProvider === fallbackSelection?.provider
+      ? (fallbackSelection?.model ?? null)
+      : null);
+  return { provider, model };
+}
+
 function addTokenSnapshotRow(
   rows: Map<string, ThreadTokenSnapshotRow>,
   row: ThreadTokenSnapshotRow,
@@ -275,8 +293,7 @@ export function aggregateThreadTokenRows(
     if (tokenCounterValue(row.totalProcessedTokens) === null) {
       continue;
     }
-    const provider = readString(row.provider) ?? fallbackSelection?.provider ?? null;
-    const model = readString(row.model) ?? fallbackSelection?.model ?? null;
+    const { provider, model } = resolveTokenProviderModel(row, fallbackSelection);
     cumulativeProviderModels.add(tokenProviderModelKey(provider, model));
   }
 
@@ -291,11 +308,14 @@ export function aggregateThreadTokenRows(
         ? total
         : Math.max(0, total - previousCumulativeTotal);
     previousCumulativeTotal = total;
-    if (delta <= 0 || row.createdAt === null) {
+    if (
+      delta <= 0 ||
+      row.createdAt === null ||
+      (row.dispatchOrigin != null && row.dispatchOrigin !== "user")
+    ) {
       continue;
     }
-    const provider = readString(row.provider) ?? fallbackSelection?.provider ?? null;
-    const model = readString(row.model) ?? fallbackSelection?.model ?? null;
+    const { provider, model } = resolveTokenProviderModel(row, fallbackSelection);
     addTokenSnapshotRow(tokensByKey, {
       createdAt: row.createdAt,
       provider,
@@ -307,8 +327,7 @@ export function aggregateThreadTokenRows(
   let previousUsedTotal: number | null = null;
   let previousUsedProviderModelKey: string | null = null;
   for (const row of rows) {
-    const provider = readString(row.provider) ?? fallbackSelection?.provider ?? null;
-    const model = readString(row.model) ?? fallbackSelection?.model ?? null;
+    const { provider, model } = resolveTokenProviderModel(row, fallbackSelection);
     const providerModelKey = tokenProviderModelKey(provider, model);
     if (cumulativeProviderModels.has(providerModelKey)) {
       continue;
@@ -324,7 +343,11 @@ export function aggregateThreadTokenRows(
         : Math.max(0, total - previousUsedTotal);
     previousUsedTotal = total;
     previousUsedProviderModelKey = providerModelKey;
-    if (delta <= 0 || row.createdAt === null) {
+    if (
+      delta <= 0 ||
+      row.createdAt === null ||
+      (row.dispatchOrigin != null && row.dispatchOrigin !== "user")
+    ) {
       continue;
     }
     addTokenSnapshotRow(tokensByKey, {
@@ -340,6 +363,10 @@ export function aggregateThreadTokenRows(
 // ── Service ────────────────────────────────────────────────────────────
 
 export interface ProfileStatsArchiveShape {
+  /** True while hard deletion would erase unresolved provider delivery evidence. */
+  readonly hasThreadPurgeFence: (input: {
+    readonly threadId: string;
+  }) => Effect.Effect<boolean, unknown>;
   // Snapshots the thread's stat aggregates and hard-deletes all of its rows in
   // one transaction. Returns false when the thread row is already gone.
   readonly purgeThreadWithStatsSnapshot: (input: {
@@ -361,13 +388,47 @@ export class ProfileStatsArchive extends ServiceMap.Service<
 const makeProfileStatsArchive = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const checkpointStore = yield* CheckpointStore;
-  const threadDeletedAutomationRunResultJson = JSON.stringify({
-    outcome: "needs-attention",
-    summary: "Automation run was interrupted because its thread was deleted.",
-    severity: "warning",
-    unread: true,
-    archivedAt: null,
-  });
+
+  const hasThreadPurgeFence: ProfileStatsArchiveShape["hasThreadPurgeFence"] = ({ threadId }) =>
+    Effect.gen(function* () {
+      const durableRows = yield* sql<{ readonly fenced: number }>`
+        SELECT CASE WHEN
+          EXISTS (
+            SELECT 1
+            FROM orchestration_event_deliveries
+            WHERE consumer_name = ${PROVIDER_COMMAND_REACTOR_CONSUMER}
+              AND thread_id = ${threadId}
+              AND state IN ('inflight', 'retry', 'dead', 'uncertain')
+          )
+          OR EXISTS (
+            SELECT 1
+            FROM queued_turn_promotions
+            WHERE thread_id = ${threadId}
+              AND state IN ('queued', 'promoting')
+          )
+        THEN 1 ELSE 0 END AS fenced
+      `;
+      if ((durableRows[0]?.fenced ?? 0) === 1) return true;
+
+      const unconsumedRows = yield* sql<{ readonly eventType: string }>`
+        SELECT e.event_type AS "eventType"
+        FROM orchestration_events e
+        WHERE e.sequence > COALESCE(
+          (
+            SELECT last_acked_sequence
+            FROM orchestration_consumer_state
+            WHERE consumer_name = ${PROVIDER_COMMAND_REACTOR_CONSUMER}
+          ),
+          0
+        )
+          AND e.aggregate_kind = 'thread'
+          AND (
+            e.stream_id = ${threadId}
+            OR json_extract(e.payload_json, '$.threadId') = ${threadId}
+          )
+      `;
+      return unconsumedRows.some((row) => isProviderIntentEventType(row.eventType));
+    });
 
   const loadThreadCheckpointCleanup = (threadId: string) =>
     Effect.gen(function* () {
@@ -517,14 +578,20 @@ const makeProfileStatsArchive = Effect.gen(function* () {
       if (!thread) {
         return false;
       }
+      if (yield* hasThreadPurgeFence({ threadId })) {
+        return false;
+      }
       const deletedAt = thread.deletedAt ?? new Date().toISOString();
       const projectId = thread.projectId ?? null;
 
       const turnEventRows = yield* sql<TurnEventRow>`
-        SELECT payload_json AS payloadJson
-        FROM orchestration_events
-        WHERE event_type = 'thread.turn-start-requested'
-          AND COALESCE(json_extract(payload_json, '$.threadId'), stream_id) = ${threadId}
+        SELECT e.payload_json AS payloadJson
+        FROM orchestration_events e
+        LEFT JOIN projection_thread_messages m
+          ON m.message_id = json_extract(e.payload_json, '$.messageId')
+        WHERE e.event_type = 'thread.turn-start-requested'
+          AND COALESCE(json_extract(e.payload_json, '$.threadId'), e.stream_id) = ${threadId}
+          AND (m.dispatch_origin IS NULL OR m.dispatch_origin = 'user')
       `;
       // Same counters and per-turn attribution as the live
       // profileStats.queryTokenActivity: both token counters come back raw so
@@ -538,13 +605,20 @@ const makeProfileStatsArchive = Effect.gen(function* () {
           CAST(json_extract(a.payload_json, '$.totalProcessedTokens') AS INTEGER)
             AS totalProcessedTokens,
           CAST(json_extract(a.payload_json, '$.usedTokens') AS INTEGER) AS usedTokens,
-          tm.provider AS provider,
+          COALESCE(tm.provider, json_extract(a.payload_json, '$.provider')) AS provider,
           tm.model AS model,
+          pm.dispatch_origin AS dispatchOrigin,
           a.created_at AS createdAt
         FROM projection_thread_activities a
         LEFT JOIN turn_model tm
           ON tm.thread_id = a.thread_id
          AND tm.turn_id = a.turn_id
+        LEFT JOIN projection_turns pt
+          ON pt.thread_id = a.thread_id
+         AND pt.turn_id = a.turn_id
+        LEFT JOIN projection_thread_messages pm
+          ON pm.thread_id = pt.thread_id
+         AND pm.message_id = pt.pending_message_id
         WHERE a.thread_id = ${threadId}
           AND a.kind = 'context-window.updated'
           AND COALESCE(
@@ -567,6 +641,7 @@ const makeProfileStatsArchive = Effect.gen(function* () {
         WHERE thread_id = ${threadId}
           AND role = 'user'
           AND source = 'native'
+          AND (dispatch_origin IS NULL OR dispatch_origin = 'user')
         ORDER BY created_at ASC, message_id ASC
       `;
 
@@ -604,6 +679,7 @@ const makeProfileStatsArchive = Effect.gen(function* () {
           WHERE thread_id = ${threadId}
             AND role = 'user'
             AND source = 'native'
+            AND (dispatch_origin IS NULL OR dispatch_origin = 'user')
         `;
         yield* Effect.forEach(
           turnRows,
@@ -637,6 +713,62 @@ const makeProfileStatsArchive = Effect.gen(function* () {
       // The event delete mirrors the snapshot scope above (stream id OR
       // payload threadId, thread aggregate only) so no snapshotted event can
       // survive the purge.
+      // Settled delivery rows are no longer recovery evidence. Remove them
+      // before their source events; unresolved rows were fenced above.
+      yield* sql`
+        DELETE FROM orchestration_event_deliveries
+        WHERE consumer_name = ${PROVIDER_COMMAND_REACTOR_CONSUMER}
+          AND thread_id = ${threadId}
+          AND state = 'succeeded'
+      `;
+      yield* sql`
+        DELETE FROM queued_turn_promotions
+        WHERE thread_id = ${threadId}
+          AND state IN ('promoted', 'cancelled')
+      `;
+      // Completed/failed/reliably-unstarted gateway operations no longer have
+      // recovery value once their caller is explicitly purged. In-flight rows
+      // retain only deterministic ids and git ownership evidence until startup
+      // or live compensation terminalizes them; repository terminal writes
+      // then delete the caller-purged row atomically.
+      yield* sql`
+        DELETE FROM agent_gateway_operations
+        WHERE caller_thread_id = ${threadId}
+          AND status IN ('reserved', 'completed', 'failed')
+      `;
+      const liveGatewayOperations = yield* sql<{
+        readonly operationId: string;
+        readonly planJson: string;
+      }>`
+        SELECT operation_id AS "operationId", plan_json AS "planJson"
+        FROM agent_gateway_operations
+        WHERE caller_thread_id = ${threadId}
+          AND status IN ('dispatching', 'compensating')
+      `;
+      yield* Effect.forEach(
+        liveGatewayOperations,
+        (operation) => {
+          const recoveryPlanJson = redactCreationPlanForPurgedCaller({
+            planJson: operation.planJson,
+            operationId: operation.operationId,
+          });
+          return sql`
+            UPDATE agent_gateway_operations
+            SET plan_json = ${recoveryPlanJson},
+                caller_thread_id = 'purged-thread:' || operation_id,
+                caller_turn_id = 'purged-turn:' || operation_id,
+                request_id = operation_id,
+                fingerprint = operation_id,
+                result_json = NULL,
+                error_json = NULL,
+                caller_purged_at = ${deletedAt},
+                updated_at = ${deletedAt}
+            WHERE operation_id = ${operation.operationId}
+              AND status IN ('dispatching', 'compensating')
+          `;
+        },
+        { concurrency: 1, discard: true },
+      );
       yield* sql`
         DELETE FROM orchestration_events
         WHERE aggregate_kind = 'thread'
@@ -647,24 +779,12 @@ const makeProfileStatsArchive = Effect.gen(function* () {
       `;
       yield* sql`DELETE FROM checkpoint_diff_blobs WHERE thread_id = ${threadId}`;
       yield* sql`DELETE FROM provider_session_runtime WHERE thread_id = ${threadId}`;
-      yield* sql`DELETE FROM projection_pending_approvals WHERE thread_id = ${threadId}`;
+      yield* sql`DELETE FROM projection_pending_interactions WHERE thread_id = ${threadId}`;
       yield* sql`DELETE FROM projection_thread_activities WHERE thread_id = ${threadId}`;
       yield* sql`DELETE FROM projection_thread_messages WHERE thread_id = ${threadId}`;
       yield* sql`DELETE FROM projection_thread_proposed_plans WHERE thread_id = ${threadId}`;
       yield* sql`DELETE FROM projection_thread_sessions WHERE thread_id = ${threadId}`;
       yield* sql`DELETE FROM projection_turns WHERE thread_id = ${threadId}`;
-      yield* sql`
-        UPDATE automation_runs
-        SET status = 'interrupted',
-            error = 'Automation run was interrupted because its thread was deleted.',
-            result_json = ${threadDeletedAutomationRunResultJson},
-            finished_at = COALESCE(finished_at, ${deletedAt}),
-            updated_at = ${deletedAt},
-            lease_expires_at = NULL,
-            claimed_by = NULL
-        WHERE thread_id = ${threadId}
-          AND status NOT IN ('succeeded', 'failed', 'cancelled', 'interrupted', 'skipped')
-      `;
       yield* sql`DELETE FROM projection_threads WHERE thread_id = ${threadId}`;
 
       return true;
@@ -745,6 +865,7 @@ const makeProfileStatsArchive = Effect.gen(function* () {
     });
 
   return {
+    hasThreadPurgeFence,
     purgeThreadWithStatsSnapshot,
     purgeSoftDeletedManualThreads,
   } satisfies ProfileStatsArchiveShape;

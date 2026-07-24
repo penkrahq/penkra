@@ -10,10 +10,10 @@ import {
   type RuntimeRequestId,
   type ThreadTokenUsageSnapshot,
   type ThreadId,
-  type ToolLifecycleItemType,
   type TurnId,
 } from "@synara/contracts";
 
+import { canonicalItemTypeFromAcpToolKind } from "./AcpAdapterSupport.ts";
 import type { AcpPermissionRequest, AcpPlanUpdate, AcpToolCallState } from "./AcpRuntimeModel.ts";
 
 type AcpTextStreamKind = Extract<RuntimeContentStreamKind, "assistant_text" | "reasoning_text">;
@@ -26,6 +26,13 @@ type AcpAdapterRawSource = Extract<
 interface AcpEventStamp {
   readonly eventId: EventId;
   readonly createdAt: string;
+}
+
+export function stampAcpRuntimeEventLifecycleGeneration(
+  event: ProviderRuntimeEvent,
+  lifecycleGeneration: string | undefined,
+): ProviderRuntimeEvent {
+  return lifecycleGeneration === undefined ? event : { ...event, lifecycleGeneration };
 }
 
 type AcpCanonicalRequestType = Extract<
@@ -45,22 +52,6 @@ function canonicalRequestTypeFromAcpKind(kind: string | "unknown"): AcpCanonical
       return "file_change_approval";
     default:
       return "unknown";
-  }
-}
-
-function canonicalItemTypeFromAcpToolKind(kind: string | undefined): ToolLifecycleItemType {
-  switch (kind) {
-    case "execute":
-      return "command_execution";
-    case "edit":
-    case "delete":
-    case "move":
-      return "file_change";
-    case "fetch":
-      return "web_search";
-    case "search":
-    default:
-      return "dynamic_tool_call";
   }
 }
 

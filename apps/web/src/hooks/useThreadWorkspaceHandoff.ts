@@ -1,18 +1,16 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import type { OrchestrationShellSnapshot, ThreadId } from "@synara/contracts";
 import { resolveWorktreeHandoffIntent } from "@synara/shared/worktreeHandoff";
 import { useCallback, useState } from "react";
 import { gitHandoffThreadMutationOptions } from "~/lib/gitReactQuery";
 import { buildSuggestedWorktreeName } from "../components/ChatView.logic";
 import { toastManager } from "../components/ui/toast";
 import { newCommandId } from "../lib/utils";
-import { readNativeApi } from "../nativeApi";
 import {
   setupProjectScript,
   type ProjectScriptRunOptions,
   type ProjectScriptRunResult,
 } from "../projectScripts";
-import type { Project, ProjectScript, Thread, ThreadWorkspacePatch } from "../types";
+import type { Project, ProjectScript, Thread } from "../types";
 
 export function useThreadWorkspaceHandoff(input: {
   activeProject: Project | undefined;
@@ -29,8 +27,6 @@ export function useThreadWorkspaceHandoff(input: {
     script: ProjectScript,
     options?: ProjectScriptRunOptions,
   ) => Promise<ProjectScriptRunResult | null>;
-  setStoreThreadWorkspace: (threadId: ThreadId, patch: ThreadWorkspacePatch) => void;
-  syncServerShellSnapshot: (snapshot: OrchestrationShellSnapshot) => void;
 }) {
   const queryClient = useQueryClient();
   const handoffThreadMutation = useMutation(
@@ -39,11 +35,10 @@ export function useThreadWorkspaceHandoff(input: {
   const [worktreeHandoffDialogOpen, setWorktreeHandoffDialogOpen] = useState(false);
   const [worktreeHandoffName, setWorktreeHandoffName] = useState("");
 
+  // Manual memoization kept: this file does not compile under React Compiler (see compile-report).
   const handoffThread = useCallback(
     async (targetMode: "local" | "worktree", options?: { preferredWorktreeName?: string }) => {
-      const api = readNativeApi();
       if (
-        !api ||
         !input.activeProject ||
         !input.activeThread ||
         !input.isServerThread ||
@@ -55,6 +50,8 @@ export function useThreadWorkspaceHandoff(input: {
       try {
         await input.stopActiveThreadSession();
         const result = await handoffThreadMutation.mutateAsync({
+          commandId: newCommandId(),
+          threadId: input.activeThread.id,
           targetMode,
           currentBranch: input.activeThread.branch ?? null,
           worktreePath: input.activeThread.worktreePath ?? null,
@@ -69,27 +66,6 @@ export function useThreadWorkspaceHandoff(input: {
             null,
           preferredNewWorktreeName: options?.preferredWorktreeName ?? null,
         });
-
-        const workspacePatch = {
-          envMode: result.targetMode,
-          branch: result.branch,
-          worktreePath: result.worktreePath,
-          associatedWorktreePath: result.associatedWorktreePath,
-          associatedWorktreeBranch: result.associatedWorktreeBranch,
-          associatedWorktreeRef: result.associatedWorktreeRef,
-          ...(targetMode === "worktree" ? { createBranchFlowCompleted: false } : {}),
-        } as const;
-
-        await api.orchestration.dispatchCommand({
-          type: "thread.meta.update",
-          commandId: newCommandId(),
-          threadId: input.activeThread.id,
-          ...workspacePatch,
-        });
-        input.setStoreThreadWorkspace(input.activeThread.id, workspacePatch);
-
-        const snapshot = await api.orchestration.getShellSnapshot();
-        input.syncServerShellSnapshot(snapshot);
 
         if (targetMode === "worktree" && result.worktreePath) {
           const setupScript = setupProjectScript(input.activeProject.scripts);

@@ -1,6 +1,6 @@
 // FILE: skillsCatalog.ts
 // Purpose: Generic Agent Skill discovery primitives (frontmatter parsing, SKILL.md
-//          walking) plus the unified cross-provider skills catalog backing Synara
+//          walking) plus the unified cross-provider skills catalog backing Penkra
 //          portable skills. Aggregates `~/.synara/skills` with every provider-native
 //          skills folder, deduping by name with provider-native copies winning for
 //          the active provider.
@@ -304,7 +304,7 @@ export interface SkillsCatalogDiscoveryInput {
   /** Optional workspace cwd; when present, project-level skill folders are included. */
   readonly cwd?: string | null;
   readonly homeDir: string;
-  /** Synara base dir (usually `~/.synara`); skills live in `{base}/skills`. */
+  /** Penkra base dir (usually `~/.synara`); skills live in `{base}/skills`. */
   readonly synaraBaseDir: string;
   /** Provider whose native copies should win when the same skill exists in several roots. */
   readonly provider?: ProviderKind | null;
@@ -315,7 +315,7 @@ export interface SkillsCatalogDiscoveryInput {
 }
 
 export interface SkillsCatalogRootInput extends SkillsCatalogDiscoveryInput {
-  /** Native provider scans can opt out; the catalog itself always includes Synara. */
+  /** Native provider scans can opt out; the catalog itself always includes Penkra. */
   readonly includeSynaraRoot?: boolean;
 }
 
@@ -385,7 +385,7 @@ const SKILL_ORIGIN_ROOTS = {
     projectRootNames: [".synara"],
   },
   codex: {
-    // Keep Synara's existing Codex-local root. Official Codex discovery uses
+    // Keep Penkra's existing Codex-local root. Official Codex discovery uses
     // `.agents/skills`, which is represented separately by the shared origin.
     homeRoots: (input) => [nodePath.join(input.homeDir, ".codex", "skills")],
     projectRootNames: [".codex"],
@@ -450,7 +450,7 @@ function projectRootNamesForOrigin(origin: SkillsHomeOrigin): readonly string[] 
   return SKILL_ORIGIN_ROOTS[origin].projectRootNames;
 }
 
-// Native copies first so an agent keeps using its own skill, then Synara as the
+// Native copies first so an agent keeps using its own skill, then Penkra as the
 // portable fallback, then the remaining provider homes for cross-provider reuse.
 function preferredOriginsForProvider(
   provider: ProviderKind | null | undefined,

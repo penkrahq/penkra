@@ -3,10 +3,33 @@
 // Layer: Web transport tests
 // Depends on: the global WebSocket constructor shim and desktop bridge URL contract.
 
+import { Cause } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { WS_CHANNELS } from "@synara/contracts";
+import {
+  ORCHESTRATION_WS_METHODS,
+  WS_CHANNELS,
+  WS_COMPATIBILITY_QUERY,
+  WS_PROTOCOL_EPOCH,
+  WS_PROTOCOL_MAX_REVISION,
+  WS_PROTOCOL_MIN_REVISION,
+  WsCompatibilityError,
+} from "@synara/contracts";
 
-import { shouldKeepServerLifecycleStream, WsTransport } from "./wsTransport";
+import {
+  shouldKeepServerLifecycleStream,
+  getStreamCapacityRetryDelayMs,
+  getTerminalCompatibilityError,
+  isTerminalCompatibilityFailure,
+  makeFeatureSocketUrl,
+  makeRequestAbortScope,
+  shouldReconnectAfterStreamFailure,
+  WsTransport,
+} from "./wsTransport";
+import {
+  addWsCompatibilityIssueListener,
+  emitWsCompatibilityIssue,
+  readLatestWsCompatibilityIssue,
+} from "./wsTransportEvents";
 
 type WsEventType = "open" | "message" | "close" | "error";
 type WsListener = (event?: { data?: unknown }) => void;
@@ -57,6 +80,33 @@ class MockWebSocket {
 
 const originalWebSocket = globalThis.WebSocket;
 
+interface WsTransportInternals {
+  readonly streamCleanups: Map<string, () => void>;
+  readonly streamSettled: Map<string, Promise<void>>;
+  readonly streamCapacityRetries: Map<string, number>;
+  readonly streamCapacityRetryTimers: Map<string, number>;
+  readonly activeThreadStreamInputs: Map<string, unknown>;
+  readonly threadSubscriptions: Map<string, unknown>;
+  startThreadStream(client: unknown, threadId: string, input: unknown): Promise<void>;
+}
+
+function makeBareTransport(): {
+  readonly transport: WsTransport;
+  readonly internals: WsTransportInternals;
+} {
+  const transport = Object.create(WsTransport.prototype) as WsTransport;
+  const internals = transport as unknown as WsTransportInternals;
+  Object.assign(internals, {
+    streamCleanups: new Map(),
+    streamSettled: new Map(),
+    streamCapacityRetries: new Map(),
+    streamCapacityRetryTimers: new Map(),
+    activeThreadStreamInputs: new Map(),
+    threadSubscriptions: new Map(),
+  });
+  return { transport, internals };
+}
+
 beforeEach(() => {
   sockets.length = 0;
   vi.stubEnv("VITE_WS_URL", "");
@@ -66,6 +116,8 @@ beforeEach(() => {
     value: {
       location: { protocol: "http:", hostname: "localhost", port: "3020" },
       desktopBridge: undefined,
+      setTimeout: globalThis.setTimeout.bind(globalThis),
+      clearTimeout: globalThis.clearTimeout.bind(globalThis),
     },
   });
 
@@ -79,6 +131,184 @@ afterEach(() => {
 });
 
 describe("WsTransport", () => {
+  it("does not reconnect the socket for typed stream-admission failures", () => {
+    expect(
+      shouldReconnectAfterStreamFailure(
+        Cause.fail({
+          code: "STREAM_CAPACITY_EXCEEDED",
+          retryable: true,
+          retryAfterMs: 1_000,
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      shouldReconnectAfterStreamFailure(
+        Cause.fail({ code: "STREAM_DUPLICATE_SUBSCRIPTION", retryable: false }),
+      ),
+    ).toBe(false);
+    expect(shouldReconnectAfterStreamFailure(Cause.fail(new Error("transient")))).toBe(true);
+    expect(
+      shouldReconnectAfterStreamFailure(
+        Cause.fail({ code: "WS_PROTOCOL_INCOMPATIBLE", retryable: false }),
+      ),
+    ).toBe(false);
+    expect(
+      isTerminalCompatibilityFailure({
+        code: "WS_PROTOCOL_INCOMPATIBLE",
+        retryable: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("retries capacity-rejected streams in place with the server-provided delay", () => {
+    expect(
+      getStreamCapacityRetryDelayMs(
+        Cause.fail({
+          code: "THREAD_STREAM_CAPACITY_EXCEEDED",
+          retryable: true,
+          retryAfterMs: 1_000,
+        }),
+      ),
+    ).toBe(1_000);
+    expect(
+      getStreamCapacityRetryDelayMs(
+        Cause.fail({ code: "STREAM_CAPACITY_EXCEEDED", retryable: true }),
+      ),
+    ).toBe(1_000);
+    expect(
+      getStreamCapacityRetryDelayMs(
+        Cause.fail({ code: "STREAM_DUPLICATE_SUBSCRIPTION", retryable: false }),
+      ),
+    ).toBeNull();
+    expect(getStreamCapacityRetryDelayMs(Cause.fail(new Error("transient")))).toBeNull();
+    expect(
+      getStreamCapacityRetryDelayMs(
+        Cause.fail({ code: "WS_PROTOCOL_INCOMPATIBLE", retryable: false }),
+      ),
+    ).toBeNull();
+  });
+
+  it("waits for a thread stream to settle before resolving unsubscribe", async () => {
+    const { transport, internals } = makeBareTransport();
+    const threadId = "thread-release-order";
+    const key = `orchestration.thread:${threadId}`;
+    let settleStream: () => void = () => undefined;
+    const settled = new Promise<void>((resolve) => {
+      settleStream = resolve;
+    });
+    const cleanup = vi.fn();
+    internals.threadSubscriptions.set(threadId, { threadId });
+    internals.streamCleanups.set(key, cleanup);
+    internals.streamSettled.set(key, settled);
+
+    let unsubscribeResolved = false;
+    const unsubscribe = transport
+      .request(ORCHESTRATION_WS_METHODS.unsubscribeThread, { threadId })
+      .then(() => {
+        unsubscribeResolved = true;
+      });
+    await Promise.resolve();
+
+    expect(cleanup).toHaveBeenCalledTimes(1);
+    expect(unsubscribeResolved).toBe(false);
+
+    settleStream();
+    await unsubscribe;
+    expect(unsubscribeResolved).toBe(true);
+  });
+
+  it("cancels owned capacity retry timers when a stream stops", async () => {
+    vi.useFakeTimers();
+    try {
+      const { transport, internals } = makeBareTransport();
+      const key = "orchestration.thread:thread-cancel-retry";
+      const retry = vi.fn();
+      const timeoutId = window.setTimeout(retry, 1_000);
+      internals.streamCapacityRetries.set(key, 2);
+      internals.streamCapacityRetryTimers.set(key, timeoutId);
+
+      await transport.request(ORCHESTRATION_WS_METHODS.unsubscribeThread, {
+        threadId: "thread-cancel-retry",
+      });
+      await vi.advanceTimersByTimeAsync(1_000);
+
+      expect(retry).not.toHaveBeenCalled();
+      expect(internals.streamCapacityRetryTimers.has(key)).toBe(false);
+      expect(internals.streamCapacityRetries.has(key)).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not let stale or duplicate thread restarts replace the active stream", async () => {
+    const { internals } = makeBareTransport();
+    const threadId = "thread-current-generation";
+    const key = `orchestration.thread:${threadId}`;
+    const currentInput = { threadId, generation: "current" };
+    const staleInput = { threadId, generation: "stale" };
+    const cleanup = vi.fn();
+    internals.threadSubscriptions.set(threadId, currentInput);
+    internals.streamCleanups.set(key, cleanup);
+    internals.activeThreadStreamInputs.set(key, currentInput);
+
+    await internals.startThreadStream({}, threadId, staleInput);
+    await internals.startThreadStream({}, threadId, currentInput);
+
+    expect(cleanup).not.toHaveBeenCalled();
+    expect(internals.streamCleanups.get(key)).toBe(cleanup);
+  });
+
+  it("latches terminal compatibility guidance for late UI subscribers", () => {
+    const issue = new WsCompatibilityError({
+      message: "Update this client.",
+      code: "WS_PROTOCOL_INCOMPATIBLE",
+      retryable: false,
+      action: "update-client",
+      serverBuild: "0.5.2",
+      protocolEpoch: WS_PROTOCOL_EPOCH,
+      minRevision: WS_PROTOCOL_MIN_REVISION,
+      maxRevision: WS_PROTOCOL_MAX_REVISION,
+    });
+    const listener = vi.fn();
+
+    emitWsCompatibilityIssue(issue);
+    const unsubscribe = addWsCompatibilityIssueListener(listener, { replayCurrent: true });
+
+    expect(readLatestWsCompatibilityIssue()).toBe(issue);
+    expect(listener).toHaveBeenCalledWith(issue);
+    expect(getTerminalCompatibilityError(issue)).toBe(issue);
+
+    unsubscribe();
+    emitWsCompatibilityIssue(null);
+  });
+
+  it("owns request deadlines and external aborts without leaving timers active", async () => {
+    vi.useFakeTimers();
+    try {
+      const deadline = makeRequestAbortScope({ timeoutMs: 25 });
+      expect(deadline.signal?.aborted).toBe(false);
+      expect(deadline.didTimeout()).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(25);
+      expect(deadline.signal?.aborted).toBe(true);
+      expect(deadline.didTimeout()).toBe(true);
+      deadline.cleanup();
+      deadline.cleanup();
+
+      const external = new AbortController();
+      const cancelled = makeRequestAbortScope({ timeoutMs: 1_000, signal: external.signal });
+      external.abort(new Error("cancelled by caller"));
+      expect(cancelled.signal?.aborted).toBe(true);
+      expect(cancelled.didTimeout()).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(cancelled.didTimeout()).toBe(false);
+      cancelled.cleanup();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("keeps the shared lifecycle stream while either lifecycle channel is active", () => {
     expect(shouldKeepServerLifecycleStream(new Set([WS_CHANNELS.serverWelcome]))).toBe(true);
     expect(shouldKeepServerLifecycleStream(new Set([WS_CHANNELS.serverMaintenanceUpdated]))).toBe(
@@ -92,16 +322,16 @@ describe("WsTransport", () => {
     expect(shouldKeepServerLifecycleStream(new Set([WS_CHANNELS.serverConfigUpdated]))).toBe(false);
   });
 
-  it("normalizes explicit websocket URLs to the RPC endpoint", () => {
+  it("opens the stable bootstrap endpoint before the feature RPC socket", async () => {
     const transport = new WsTransport("ws://localhost:3020");
 
-    expect(sockets[0]?.url).toBe("ws://localhost:3020/ws");
+    expect(sockets[0]?.url).toBe("ws://localhost:3020/ws/bootstrap");
     expect(transport.getState()).toBe("connecting");
 
-    transport.dispose();
+    await transport.dispose();
   });
 
-  it("uses the desktop bridge URL before falling back to the browser location", () => {
+  it("uses the desktop bridge URL before falling back to the browser location", async () => {
     const getWsUrl = vi.fn().mockReturnValue("ws://127.0.0.1:53036/?token=old");
     Object.defineProperty(globalThis, "window", {
       configurable: true,
@@ -114,20 +344,41 @@ describe("WsTransport", () => {
     const transport = new WsTransport();
 
     expect(getWsUrl).toHaveBeenCalledTimes(1);
-    expect(sockets[0]?.url).toBe("ws://127.0.0.1:53036/ws?token=old");
+    expect(sockets[0]?.url).toBe("ws://127.0.0.1:53036/ws/bootstrap?token=old");
 
-    transport.dispose();
+    await transport.dispose();
   });
 
-  it("falls back to the current browser host when no desktop bridge URL exists", () => {
+  it("falls back to the current browser host when no desktop bridge URL exists", async () => {
     const transport = new WsTransport();
 
-    expect(sockets[0]?.url).toBe("ws://localhost:3020/ws");
+    expect(sockets[0]?.url).toBe("ws://localhost:3020/ws/bootstrap");
 
-    transport.dispose();
+    await transport.dispose();
   });
 
-  it("notifies state listeners and replays the current state on demand", () => {
+  it("pins the feature socket to the negotiated revision and server generation", () => {
+    const resolved = new URL(
+      makeFeatureSocketUrl("ws://127.0.0.1:53036/?token=old", {
+        protocolEpoch: WS_PROTOCOL_EPOCH,
+        negotiatedRevision: WS_PROTOCOL_MAX_REVISION,
+        serverBuild: "0.5.2",
+        serverInstanceId: "server-instance",
+        capabilities: ["orchestration.cursor-safe-streams"],
+      }),
+    );
+
+    expect(resolved.pathname).toBe("/ws");
+    expect(resolved.searchParams.get("token")).toBe("old");
+    expect(resolved.searchParams.get(WS_COMPATIBILITY_QUERY.protocolRevision)).toBe(
+      String(WS_PROTOCOL_MAX_REVISION),
+    );
+    expect(resolved.searchParams.get(WS_COMPATIBILITY_QUERY.serverInstanceId)).toBe(
+      "server-instance",
+    );
+  });
+
+  it("notifies state listeners and replays the current state on demand", async () => {
     const transport = new WsTransport();
     const listener = vi.fn();
 
@@ -136,13 +387,13 @@ describe("WsTransport", () => {
     expect(listener).toHaveBeenCalledWith("connecting");
 
     listener.mockClear();
-    transport.dispose();
+    await transport.dispose();
 
     expect(listener).toHaveBeenCalledWith("disposed");
 
     listener.mockClear();
     unsubscribe();
-    transport.dispose();
+    await transport.dispose();
 
     expect(listener).not.toHaveBeenCalled();
   });

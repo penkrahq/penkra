@@ -35,6 +35,7 @@ function makeReadModelThread(
 function makeReadModel(threads: OrchestrationReadModel["threads"]): OrchestrationReadModel {
   return {
     snapshotSequence: 0,
+    spaces: [],
     projects: [],
     threads,
     updatedAt: "2026-04-20T00:00:00.000Z",
@@ -105,26 +106,5 @@ describe("thread retention", () => {
     expect(
       getInactiveThreadIdsForRetention(makeReadModel([pinnedThread, unpinnedThread]), nowMs),
     ).toEqual([unpinnedThread.id]);
-  });
-
-  it("does not select enabled heartbeat automation target threads", () => {
-    const nowMs = Date.parse("2026-04-20T00:00:00.000Z");
-    const oldActivityAt = new Date(nowMs - THREAD_RETENTION_UNUSED_MS - 1).toISOString();
-    const heartbeatTarget = makeReadModelThread({
-      id: ThreadId.makeUnsafe("thread-heartbeat-target"),
-      latestUserMessageAt: oldActivityAt,
-    });
-    const ordinaryThread = makeReadModelThread({
-      id: ThreadId.makeUnsafe("thread-ordinary"),
-      latestUserMessageAt: oldActivityAt,
-    });
-
-    expect(
-      getInactiveThreadIdsForRetention(
-        makeReadModel([heartbeatTarget, ordinaryThread]),
-        nowMs,
-        new Set([heartbeatTarget.id]),
-      ),
-    ).toEqual([ordinaryThread.id]);
   });
 });

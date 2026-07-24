@@ -18,6 +18,7 @@ release-*-candidate/
 /.synara/electron-dev
 /.synara/backups
 /.synara-*/
+/apps/server/.synara-*/
 /.synara/
 /.synara-*/
 .idea/

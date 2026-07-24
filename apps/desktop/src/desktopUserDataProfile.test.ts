@@ -25,14 +25,17 @@ afterEach(() => {
 });
 
 describe("desktopUserDataProfile", () => {
-  it("resolves the canonical Synara profile names", () => {
+  it("resolves the canonical Penkra profile names", () => {
     const appDataBase = "/Users/tester/Library/Application Support";
-    expect(resolveDesktopUserDataPath({ appDataBase, isDevelopment: true })).toBe(
+    expect(resolveDesktopUserDataPath({ appDataBase, userDataDirectoryName: "synara-dev" })).toBe(
       "/Users/tester/Library/Application Support/synara-dev",
     );
-    expect(resolveDesktopUserDataPath({ appDataBase, isDevelopment: false })).toBe(
+    expect(resolveDesktopUserDataPath({ appDataBase, userDataDirectoryName: "synara" })).toBe(
       "/Users/tester/Library/Application Support/synara",
     );
+    expect(
+      resolveDesktopUserDataPath({ appDataBase, userDataDirectoryName: "synara-canary" }),
+    ).toBe("/Users/tester/Library/Application Support/synara-canary");
   });
 
   it("uses XDG_CONFIG_HOME on Linux when available", () => {
@@ -81,7 +84,7 @@ describe("desktopUserDataProfile", () => {
     );
   });
 
-  it("rejects bridge manifests that point outside the Synara profile parent", () => {
+  it("rejects bridge manifests that point outside the Penkra profile parent", () => {
     const appDataBase = makeTempDir();
     const unrelatedBase = makeTempDir();
     const targetPath = Path.join(appDataBase, "synara");
@@ -98,7 +101,7 @@ describe("desktopUserDataProfile", () => {
     });
   });
 
-  it("never adds a foreign SQLite sidecar beside an existing Synara database", () => {
+  it("never adds a foreign SQLite sidecar beside an existing Penkra database", () => {
     const appDataBase = makeTempDir();
     const targetPath = Path.join(appDataBase, "synara");
     const sourcePath = Path.join(appDataBase, "previous-profile");

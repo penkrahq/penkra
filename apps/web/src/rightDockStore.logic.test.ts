@@ -33,6 +33,7 @@ describe("RIGHT_DOCK_PANE_KINDS (single source of truth)", () => {
       "sidechat",
       "git",
       "pullRequest",
+      "profile",
     ]);
   });
 
@@ -54,6 +55,7 @@ describe("isRightDockPaneKind", () => {
       "sidechat",
       "git",
       "pullRequest",
+      "profile",
     ]) {
       expect(isRightDockPaneKind(kind)).toBe(true);
     }
@@ -127,6 +129,41 @@ describe("pull request pane", () => {
       ],
     });
     expect(sanitized.panes[0]?.pullRequestNumber).toBeNull();
+  });
+});
+
+describe("profile pane", () => {
+  it("reuses the singleton pane and switches to the clicked client", () => {
+    const first = openPaneInState(createDefaultRightDockState(), {
+      paneId: "profile-1",
+      kind: "profile",
+      profileProjectId: "penkra-client-one" as never,
+    });
+    const reopened = openPaneInState(first, {
+      paneId: "profile-2",
+      kind: "profile",
+      profileProjectId: "penkra-client-two" as never,
+    });
+
+    expect(reopened.panes).toHaveLength(1);
+    expect(reopened.activePaneId).toBe("profile-1");
+    expect(reopened.panes[0]?.profileProjectId).toBe("penkra-client-two");
+  });
+
+  it("keeps the selected client when persisted state is restored", () => {
+    const state = sanitizeRightDockThreadState({
+      open: true,
+      activePaneId: "profile-1",
+      panes: [
+        {
+          id: "profile-1",
+          kind: "profile",
+          profileProjectId: "penkra-client-one",
+        },
+      ],
+    });
+
+    expect(state.panes[0]?.profileProjectId).toBe("penkra-client-one");
   });
 });
 

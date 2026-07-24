@@ -39,7 +39,7 @@ describe("serverLocalServersQueryOptions", () => {
     expect(options.refetchOnWindowFocus).toBe(true);
   });
 
-  it("uses visible polling while a Synara-owned project run is active", () => {
+  it("uses visible polling while a Penkra-owned project run is active", () => {
     const options = sidebarLocalServersQueryOptions({
       hasActiveProjectRun: true,
       hasProjects: true,

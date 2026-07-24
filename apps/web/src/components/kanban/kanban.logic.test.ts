@@ -75,7 +75,7 @@ function makeSidebarThreadSummary(
 
 function makeBoardInput(overrides: Partial<BuildKanbanBoardInput> = {}): BuildKanbanBoardInput {
   return {
-    projects: [{ id: ProjectId.makeUnsafe("project-1"), kind: "project", name: "Synara" }],
+    projects: [{ id: ProjectId.makeUnsafe("project-1"), kind: "project", name: "Penkra" }],
     threads: [],
     draftThreads: [],
     composerDraftByThreadId: {},
@@ -962,7 +962,7 @@ describe("flattenProjectBoardForOverview", () => {
 
     const flattened = flattenProjectBoardForOverview({
       projectId: ProjectId.makeUnsafe("project-1"),
-      projectName: "Synara",
+      projectName: "Penkra",
       projectKind: "project",
       draft: [card("d", "draft")],
       inProgress: [card("w", "inProgress")],

@@ -62,7 +62,7 @@ describe("resolveAllowedLocalPreviewFile", () => {
   });
 
   it("allows images written to the SYNARA_HOME codex-home-overlay generated_images root", async () => {
-    // Codex app-server is launched with CODEX_HOME pointing at a Synara overlay
+    // Codex app-server is launched with CODEX_HOME pointing at a Penkra overlay
     // directory (see resolveSynaraCodexHomeOverlayPath). Generated images therefore
     // live under <SYNARA_HOME>/codex-home-overlay/generated_images/<thread>/<call>.png,
     // which sits outside both the user's `~/.codex` source home and any workspace

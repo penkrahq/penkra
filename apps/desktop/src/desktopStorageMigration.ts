@@ -13,11 +13,6 @@ export const SYNARA_STORAGE_SNAPSHOT_MAX_ENTRIES = 2_048;
 export const SYNARA_STORAGE_SNAPSHOT_MAX_KEY_LENGTH = 512;
 export const SYNARA_STORAGE_SNAPSHOT_MAX_VALUE_LENGTH = 16 * 1024 * 1024;
 
-export const STORAGE_MIGRATION_IPC_CHANNELS = {
-  read: "desktop:storage-migration-read",
-  acknowledge: "desktop:storage-migration-acknowledge",
-} as const;
-
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return false;

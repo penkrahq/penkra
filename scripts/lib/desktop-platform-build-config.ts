@@ -12,7 +12,6 @@ export const MAC_APPSNAP_HELPER_STAGE_PATH =
   "apps/desktop/native/appsnap/build/synara-appsnap-helper";
 export const MAC_APPSNAP_HELPER_ASAR_EXCLUSION = "!apps/desktop/native/appsnap/build/**";
 export const MAC_APPSNAP_HELPER_BUNDLE_PATH = "Contents/Helpers/synara-appsnap-helper";
-export const WINDOWS_INSTALLER_GUID = "BE0EA921-E16E-482E-BEF8-A806CD303114";
 const MAC_DMG_ICON_PATH = "icon.icns";
 export const NODE_PTY_ASAR_UNPACK_GLOBS = ["node_modules/node-pty/**"] as const;
 export const PARCEL_WATCHER_ASAR_UNPACK_GLOBS = [
@@ -22,25 +21,23 @@ export const PARCEL_WATCHER_ASAR_UNPACK_GLOBS = [
 
 export interface DesktopPlatformBuildConfig {
   readonly asarUnpack?: ReadonlyArray<string>;
+  readonly dmg?: Record<string, unknown>;
   readonly extraFiles?: ReadonlyArray<Record<string, string>>;
   readonly files?: ReadonlyArray<string>;
-  readonly linux?: Record<string, unknown>;
   readonly mac?: Record<string, unknown>;
-  readonly nsis?: Record<string, unknown>;
-  readonly win?: Record<string, unknown>;
 }
 
 export interface CreateDesktopPlatformBuildConfigInput {
-  readonly platform: "linux" | "mac" | "win";
+  readonly platform: "mac";
   readonly target: string;
-  readonly windowsAzureSignOptions?: Record<string, string>;
+  readonly signed?: boolean;
 }
 
 export interface DesktopNativeBuildHostInput {
   readonly arch: "arm64" | "x64" | "universal";
   readonly hostArch: string;
   readonly hostPlatform: NodeJS.Platform;
-  readonly platform: "linux" | "mac" | "win";
+  readonly platform: "mac";
 }
 
 export function validateDesktopNativeBuildHost(input: DesktopNativeBuildHostInput): string | null {
@@ -51,17 +48,7 @@ export function validateDesktopNativeBuildHost(input: DesktopNativeBuildHostInpu
       `Current host is ${input.hostPlatform}/${input.hostArch}.`,
     ].join(" ");
   }
-  if (input.platform !== "linux") return null;
-  if (input.arch === "universal") {
-    return "Linux desktop artifacts support x64 or arm64 builds, not universal builds.";
-  }
-  if (input.hostPlatform === "linux" && input.hostArch === input.arch) return null;
-
-  return [
-    "Linux desktop artifacts include the native node-pty terminal dependency.",
-    `Build linux/${input.arch} on a matching Linux host so pty.node and spawn-helper are compiled for Linux.`,
-    `Current host is ${input.hostPlatform}/${input.hostArch}.`,
-  ].join(" ");
+  return null;
 }
 
 export function createDesktopPlatformBuildConfig(
@@ -71,62 +58,39 @@ export function createDesktopPlatformBuildConfig(
     asarUnpack: [...NODE_PTY_ASAR_UNPACK_GLOBS, ...PARCEL_WATCHER_ASAR_UNPACK_GLOBS],
   };
 
-  if (input.platform === "mac") {
-    const mac = {
-      target: input.target === "dmg" ? [input.target, "zip"] : [input.target],
-      icon: MAC_DMG_ICON_PATH,
-      category: "public.app-category.developer-tools",
-      hardenedRuntime: true,
-      entitlements: MAC_ENTITLEMENTS_PATH,
-      entitlementsInherit: MAC_INHERITED_ENTITLEMENTS_PATH,
-      binaries: [MAC_APPSNAP_HELPER_BUNDLE_PATH],
-      // The universal build stages the same pre-lipo'd helper in both app trees.
-      // @electron/universal needs this pattern to preserve that existing fat binary.
-      x64ArchFiles: MAC_APPSNAP_HELPER_BUNDLE_PATH,
-      extendInfo: {
-        NSMicrophoneUsageDescription: MICROPHONE_USAGE_DESCRIPTION,
-      },
-    } satisfies Record<string, unknown>;
-
-    return {
-      ...nativePackaging,
-      files: ["**/*", MAC_APPSNAP_HELPER_ASAR_EXCLUSION],
-      extraFiles: [
-        {
-          from: MAC_APPSNAP_HELPER_STAGE_PATH,
-          to: "Helpers/synara-appsnap-helper",
-        },
-      ],
-      mac,
-    };
-  }
-
-  if (input.platform === "linux") {
-    return {
-      ...nativePackaging,
-      linux: {
-        target: [input.target],
-        executableName: "penkra",
-        icon: "icon.png",
-        category: "Development",
-        desktop: {
-          entry: {
-            StartupWMClass: "penkra",
-          },
-        },
-      },
-    };
-  }
+  const mac = {
+    target: input.target === "dmg" ? [input.target, "zip"] : [input.target],
+    icon: MAC_DMG_ICON_PATH,
+    category: "public.app-category.developer-tools",
+    hardenedRuntime: input.signed === true,
+    notarize: input.signed === true,
+    entitlements: MAC_ENTITLEMENTS_PATH,
+    entitlementsInherit: MAC_INHERITED_ENTITLEMENTS_PATH,
+    binaries: [MAC_APPSNAP_HELPER_BUNDLE_PATH],
+    // The universal build stages the same pre-lipo'd helper in both app trees.
+    // @electron/universal needs this pattern to preserve that existing fat binary.
+    x64ArchFiles: MAC_APPSNAP_HELPER_BUNDLE_PATH,
+    extendInfo: {
+      NSMicrophoneUsageDescription: MICROPHONE_USAGE_DESCRIPTION,
+    },
+  } satisfies Record<string, unknown>;
 
   return {
     ...nativePackaging,
-    nsis: {
-      guid: WINDOWS_INSTALLER_GUID,
+    dmg: {
+      sign: input.signed === true,
+      // The signed release flow notarizes and staples the DMG after electron-builder exits.
+      // Do not emit a blockmap/update entry whose hashes would describe the pre-stapled image;
+      // macOS auto-updates use the separately finalized ZIP artifact.
+      writeUpdateInfo: false,
     },
-    win: {
-      target: [input.target],
-      icon: "icon.ico",
-      ...(input.windowsAzureSignOptions ? { azureSignOptions: input.windowsAzureSignOptions } : {}),
-    },
+    files: ["**/*", MAC_APPSNAP_HELPER_ASAR_EXCLUSION],
+    extraFiles: [
+      {
+        from: MAC_APPSNAP_HELPER_STAGE_PATH,
+        to: "Helpers/synara-appsnap-helper",
+      },
+    ],
+    mac,
   };
 }

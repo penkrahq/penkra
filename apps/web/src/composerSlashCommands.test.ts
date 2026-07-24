@@ -14,6 +14,7 @@ import {
   parseComposerSlashInvocationForCommands,
   parseFastSlashCommandAction,
   parseForkSlashCommandArgs,
+  providerSupportsTextNativeReviewCommand,
   shouldHideProviderNativeCommandFromComposerMenu,
 } from "./composerSlashCommands";
 
@@ -21,7 +22,7 @@ describe("composerSlashCommands", () => {
   it("recognizes built-in slash commands", () => {
     expect(isBuiltInComposerSlashCommand("review")).toBe(true);
     expect(isBuiltInComposerSlashCommand("fast")).toBe(true);
-    expect(isBuiltInComposerSlashCommand("automation")).toBe(true);
+    expect(isBuiltInComposerSlashCommand("automation")).toBe(false);
     expect(isBuiltInComposerSlashCommand("export")).toBe(true);
     expect(isBuiltInComposerSlashCommand("feedback")).toBe(true);
     expect(isBuiltInComposerSlashCommand("unknown")).toBe(false);
@@ -30,9 +31,7 @@ describe("composerSlashCommands", () => {
   it("filters slash commands by query", () => {
     expect(filterComposerSlashCommands("rev").map((entry) => entry.command)).toEqual(["review"]);
     expect(filterComposerSlashCommands("fast").map((entry) => entry.command)).toEqual(["fast"]);
-    expect(filterComposerSlashCommands("auto").map((entry) => entry.command)).toEqual([
-      "automation",
-    ]);
+    expect(filterComposerSlashCommands("auto").map((entry) => entry.command)).toEqual([]);
     expect(filterComposerSlashCommands("feed").map((entry) => entry.command)).toEqual(["feedback"]);
   });
 
@@ -57,10 +56,7 @@ describe("composerSlashCommands", () => {
       command: "side",
       args: "is this safe?",
     });
-    expect(parseComposerSlashInvocation("/automation every 6h check the page")).toEqual({
-      command: "automation",
-      args: "every 6h check the page",
-    });
+    expect(parseComposerSlashInvocation("/automation every 6h check the page")).toBeNull();
     expect(parseComposerSlashInvocation("/feedback")).toEqual({
       command: "feedback",
       args: "",
@@ -234,23 +230,28 @@ describe("composerSlashCommands", () => {
     expect(shouldHideProviderNativeCommandFromComposerMenu("codex", "status")).toBe(false);
   });
 
-  it("keeps app-level /automation available even if a provider exposes a native collision", () => {
+  // #218: OpenCode lists native /review but does not honor bare `/review` text turns.
+  it("keeps app-level /review for opencode and does not treat review as text-native", () => {
     const availableCommands = getAvailableComposerSlashCommands({
-      provider: "antigravity",
+      provider: "opencode",
       supportsFastSlashCommand: false,
-      canOfferCompactCommand: false,
+      canOfferCompactCommand: true,
       canOfferReviewCommand: true,
       canOfferForkCommand: true,
       canOfferSideCommand: true,
       canOfferExportCommand: true,
-      providerNativeCommandNames: ["automation"],
+      providerNativeCommandNames: ["review", "status"],
     });
 
-    expect(availableCommands).toContain("automation");
-    expect(shouldHideProviderNativeCommandFromComposerMenu("antigravity", "automation")).toBe(true);
+    expect(availableCommands).toContain("review");
+    expect(shouldHideProviderNativeCommandFromComposerMenu("opencode", "review")).toBe(true);
+    expect(providerSupportsTextNativeReviewCommand("opencode", ["review", "status"])).toBe(false);
+    expect(providerSupportsTextNativeReviewCommand("opencode", [{ name: "review" }])).toBe(false);
+    // Other providers with a native review still use text pass-through.
+    expect(providerSupportsTextNativeReviewCommand("claudeAgent", ["review"])).toBe(true);
   });
 
-  it("keeps Feedback Synara ahead of provider-native /feedback", () => {
+  it("keeps Feedback Penkra ahead of provider-native /feedback", () => {
     const availableCommands = getAvailableComposerSlashCommands({
       provider: "claudeAgent",
       supportsFastSlashCommand: true,
@@ -266,7 +267,7 @@ describe("composerSlashCommands", () => {
     expect(shouldHideProviderNativeCommandFromComposerMenu("claudeAgent", "feedback")).toBe(true);
   });
 
-  it("only exposes Synara-owned app commands for claude", () => {
+  it("only exposes Penkra-owned app commands for claude", () => {
     expect(
       getAvailableComposerSlashCommands({
         provider: "claudeAgent",
@@ -277,7 +278,7 @@ describe("composerSlashCommands", () => {
         canOfferSideCommand: true,
         canOfferExportCommand: true,
       }),
-    ).toEqual(["side", "export", "feedback", "automation"]);
+    ).toEqual(["side", "export", "feedback"]);
   });
 
   it("offers the app-level /export command on every provider", () => {
@@ -389,7 +390,6 @@ describe("composerSlashCommands", () => {
       "subagents",
       "export",
       "feedback",
-      "automation",
     ]);
   });
 

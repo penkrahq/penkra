@@ -12,12 +12,15 @@ import { it } from "@effect/vitest";
 import { Effect, Exit, Fiber, Stream } from "effect";
 import { describe, expect } from "vitest";
 
-import { AcpSessionRuntime, type AcpSessionRequestLogEvent } from "./AcpSessionRuntime.ts";
-import type * as EffectAcpProtocol from "effect-acp/protocol";
+import {
+  AcpSessionRuntime,
+  type AcpProtocolLogEvent,
+  type AcpSessionRequestLogEvent,
+} from "./AcpSessionRuntime.ts";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const mockAgentPath = path.join(__dirname, "../../../scripts/acp-mock-agent.ts");
-const bunExe = "bun";
+const bunExe = process.execPath;
 
 describe("AcpSessionRuntime", () => {
   it.effect("merges custom initialize client capabilities into the ACP handshake", () => {
@@ -48,6 +51,48 @@ describe("AcpSessionRuntime", () => {
           clientCapabilities: {
             _meta: {
               parameterizedModelPicker: true,
+            },
+          },
+          clientInfo: { name: "synara-test", version: "0.0.0" },
+          authMethodId: "test",
+          requestLogger: (event) =>
+            Effect.sync(() => {
+              requestEvents.push(event);
+            }),
+        }),
+      ),
+      Effect.scoped,
+      Effect.provide(NodeServices.layer),
+    );
+  });
+
+  it.effect("forwards provider session metadata when creating a session", () => {
+    const requestEvents: Array<AcpSessionRequestLogEvent> = [];
+    return Effect.gen(function* () {
+      const runtime = yield* AcpSessionRuntime;
+      yield* runtime.start();
+
+      const sessionStarted = requestEvents.find(
+        (event) => event.method === "session/new" && event.status === "started",
+      );
+      expect(sessionStarted?.payload).toMatchObject({
+        _meta: {
+          "x.ai/hooks": {
+            PreToolUse: [{ matcher: "*", hookCallbackIds: ["synara-plan-guard"] }],
+          },
+        },
+      });
+    }).pipe(
+      Effect.provide(
+        AcpSessionRuntime.layer({
+          spawn: {
+            command: bunExe,
+            args: [mockAgentPath],
+          },
+          cwd: process.cwd(),
+          sessionMeta: {
+            "x.ai/hooks": {
+              PreToolUse: [{ matcher: "*", hookCallbackIds: ["synara-plan-guard"] }],
             },
           },
           clientInfo: { name: "synara-test", version: "0.0.0" },
@@ -107,6 +152,39 @@ describe("AcpSessionRuntime", () => {
     ),
   );
 
+  it.effect("forwards provider session metadata when loading a session", () => {
+    const requestEvents: Array<AcpSessionRequestLogEvent> = [];
+    return Effect.gen(function* () {
+      const runtime = yield* AcpSessionRuntime;
+      const started = yield* runtime.start();
+      expect(started.sessionSetupMethod).toBe("load");
+      expect(
+        requestEvents.find((event) => event.method === "session/load" && event.status === "started")
+          ?.payload,
+      ).toMatchObject({ _meta: { reconnectPolicy: "keep-hooks" } });
+    }).pipe(
+      Effect.provide(
+        AcpSessionRuntime.layer({
+          spawn: {
+            command: bunExe,
+            args: [mockAgentPath],
+          },
+          cwd: process.cwd(),
+          resumeSessionId: "mock-session-1",
+          sessionMeta: { reconnectPolicy: "keep-hooks" },
+          clientInfo: { name: "synara-test", version: "0.0.0" },
+          authMethodId: "test",
+          requestLogger: (event) =>
+            Effect.sync(() => {
+              requestEvents.push(event);
+            }),
+        }),
+      ),
+      Effect.scoped,
+      Effect.provide(NodeServices.layer),
+    );
+  });
+
   it.effect("prefers session/resume when the agent advertises it", () => {
     const requestEvents: Array<AcpSessionRequestLogEvent> = [];
     return Effect.gen(function* () {
@@ -115,16 +193,22 @@ describe("AcpSessionRuntime", () => {
       expect(started.sessionSetupMethod).toBe("resume");
       expect(requestEvents.some((event) => event.method === "session/resume")).toBe(true);
       expect(requestEvents.some((event) => event.method === "session/load")).toBe(false);
+      expect(
+        requestEvents.find(
+          (event) => event.method === "session/resume" && event.status === "started",
+        )?.payload,
+      ).toMatchObject({ _meta: { reconnectPolicy: "keep-hooks" } });
     }).pipe(
       Effect.provide(
         AcpSessionRuntime.layer({
           spawn: {
             command: bunExe,
             args: [mockAgentPath],
-            env: { SYNARA_ACP_SUPPORT_SESSION_RESUME: "1" },
+            env: { VITEST: "true", SYNARA_ACP_SUPPORT_SESSION_RESUME: "1" },
           },
           cwd: process.cwd(),
           resumeSessionId: "mock-session-1",
+          sessionMeta: { reconnectPolicy: "keep-hooks" },
           clientInfo: { name: "synara-test", version: "0.0.0" },
           authMethodId: "test",
           requestLogger: (event) =>
@@ -152,7 +236,7 @@ describe("AcpSessionRuntime", () => {
           spawn: {
             command: bunExe,
             args: [mockAgentPath],
-            env: { SYNARA_ACP_SUPPORT_SESSION_LOAD: "0" },
+            env: { VITEST: "true", SYNARA_ACP_SUPPORT_SESSION_LOAD: "0" },
           },
           cwd: process.cwd(),
           resumeSessionId: "mock-session-1",
@@ -195,6 +279,7 @@ describe("AcpSessionRuntime", () => {
             command: bunExe,
             args: [mockAgentPath],
             env: {
+              VITEST: "true",
               SYNARA_ACP_SUPPORT_SESSION_FORK: "1",
               SYNARA_ACP_EMIT_AVAILABLE_COMMANDS: "1",
               SYNARA_ACP_MODE_CONFIG_ID: "autonomy_level",
@@ -354,6 +439,7 @@ describe("AcpSessionRuntime", () => {
             command: bunExe,
             args: [mockAgentPath],
             env: {
+              VITEST: "true",
               SYNARA_ACP_EMIT_INTERLEAVED_ASSISTANT_TOOL_CALLS: "1",
             },
           },
@@ -399,6 +485,7 @@ describe("AcpSessionRuntime", () => {
             command: bunExe,
             args: [mockAgentPath],
             env: {
+              VITEST: "true",
               SYNARA_ACP_EMIT_UPSTREAM_ASSISTANT_MESSAGE_IDS: "1",
             },
           },
@@ -447,6 +534,7 @@ describe("AcpSessionRuntime", () => {
             command: bunExe,
             args: [mockAgentPath],
             env: {
+              VITEST: "true",
               SYNARA_ACP_EMIT_GENERIC_TOOL_PLACEHOLDERS: "1",
             },
           },
@@ -489,6 +577,7 @@ describe("AcpSessionRuntime", () => {
             command: bunExe,
             args: [mockAgentPath],
             env: {
+              VITEST: "true",
               SYNARA_ACP_EMIT_REASONING_THEN_TOOL_CALL: "1",
             },
           },
@@ -590,7 +679,7 @@ describe("AcpSessionRuntime", () => {
   });
 
   it.effect("emits low-level ACP protocol logs for raw and decoded messages", () => {
-    const protocolEvents: Array<EffectAcpProtocol.AcpProtocolLogEvent> = [];
+    const protocolEvents: Array<AcpProtocolLogEvent> = [];
     return Effect.gen(function* () {
       const runtime = yield* AcpSessionRuntime;
       yield* runtime.start();
@@ -673,6 +762,7 @@ describe("AcpSessionRuntime", () => {
             command: bunExe,
             args: [mockAgentPath],
             env: {
+              VITEST: "true",
               SYNARA_ACP_REQUEST_LOG_PATH: requestLogPath,
             },
           },

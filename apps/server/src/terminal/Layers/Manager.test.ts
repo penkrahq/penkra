@@ -8,7 +8,7 @@ import {
   type TerminalOpenInput,
   type TerminalRestartInput,
 } from "@synara/contracts";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   PtySpawnError,
@@ -187,6 +187,7 @@ describe("TerminalManager", () => {
   const tempDirs: string[] = [];
 
   afterEach(() => {
+    vi.useRealTimers();
     for (const dir of tempDirs.splice(0, tempDirs.length)) {
       fs.rmSync(dir, { recursive: true, force: true });
     }
@@ -232,10 +233,12 @@ describe("TerminalManager", () => {
       processKillGraceMs?: number;
       maxRetainedInactiveSessions?: number;
       ptyAdapter?: FakePtyAdapter;
+      prepareLogs?: (logsDir: string) => void;
     } = {},
   ) {
     const logsDir = fs.mkdtempSync(path.join(os.tmpdir(), "synara-terminal-"));
     tempDirs.push(logsDir);
+    options.prepareLogs?.(logsDir);
     const ptyAdapter = options.ptyAdapter ?? new FakePtyAdapter();
     const manager = new TerminalManagerRuntime({
       logsDir,
@@ -430,6 +433,40 @@ describe("TerminalManager", () => {
 
     manager.dispose();
   });
+
+  it.skipIf(process.platform === "win32")(
+    "creates terminal history with private permissions",
+    async () => {
+      const { manager, ptyAdapter, logsDir } = makeManager();
+      await manager.open(openInput());
+      ptyAdapter.processes[0]?.emitData("private history\n");
+      const historyPath = historyLogPath(logsDir);
+      await waitFor(() => fs.existsSync(historyPath));
+
+      expect(fs.statSync(logsDir).mode & 0o777).toBe(0o700);
+      expect(fs.statSync(historyPath).mode & 0o777).toBe(0o600);
+
+      manager.dispose();
+    },
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "repairs existing terminal history permissions on first open",
+    async () => {
+      const { manager, logsDir } = makeManager(5, {
+        prepareLogs: (directoryPath) => {
+          fs.chmodSync(directoryPath, 0o755);
+          fs.writeFileSync(historyLogPath(directoryPath), "existing history\n", { mode: 0o644 });
+        },
+      });
+
+      expect(fs.statSync(logsDir).mode & 0o777).toBe(0o700);
+      await manager.open(openInput());
+      expect(fs.statSync(historyLogPath(logsDir)).mode & 0o777).toBe(0o600);
+
+      manager.dispose();
+    },
+  );
 
   it("keeps pty reads paused until renderer output ACKs drain", async () => {
     const { manager, ptyAdapter } = makeManager();
@@ -929,6 +966,33 @@ describe("TerminalManager", () => {
     manager.dispose();
   });
 
+  it("keeps terminals reattached after an archive cleanup fence", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-07-23T20:00:00.000Z"));
+    const { manager, ptyAdapter } = makeManager();
+    await manager.open(openInput({ terminalId: "default" }));
+    await manager.open(openInput({ terminalId: "sidecar" }));
+    const defaultProcess = ptyAdapter.processes[0];
+    const sidecarProcess = ptyAdapter.processes[1];
+    expect(defaultProcess).toBeDefined();
+    expect(sidecarProcess).toBeDefined();
+    if (!defaultProcess || !sidecarProcess) return;
+
+    const archivedAt = "2026-07-23T20:00:05.000Z";
+    vi.setSystemTime(new Date("2026-07-23T20:00:10.000Z"));
+    await manager.open(openInput({ terminalId: "sidecar" }));
+
+    await manager.closeSessionsOpenedAtOrBefore({
+      threadId: "thread-1",
+      openedAtOrBefore: archivedAt,
+    });
+
+    expect(defaultProcess.killed).toBe(true);
+    expect(sidecarProcess.killed).toBe(false);
+    await manager.close({ threadId: "thread-1" });
+    manager.dispose();
+  });
+
   it("escalates terminal shutdown to SIGKILL when process does not exit in time", async () => {
     const { manager, ptyAdapter } = makeManager(5, { processKillGraceMs: 10 });
     await manager.open(openInput());
@@ -1059,6 +1123,9 @@ describe("TerminalManager", () => {
     expect(fs.existsSync(nextPath)).toBe(true);
     expect(fs.readFileSync(nextPath, "utf8")).toBe("legacy-line\n");
     expect(fs.existsSync(legacyPath)).toBe(false);
+    if (process.platform !== "win32") {
+      expect(fs.statSync(nextPath).mode & 0o777).toBe(0o600);
+    }
 
     manager.dispose();
   });

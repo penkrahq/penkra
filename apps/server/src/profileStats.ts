@@ -1,5 +1,5 @@
 // FILE: profileStats.ts
-// Purpose: Compute Profile-page stats from Synara's local projection DB only.
+// Purpose: Compute Profile-page stats from Penkra's local projection DB only.
 // The share card never reads provider archives or cloud services for metrics.
 // Stats are lifetime numbers: deleting a thread purges its rows but snapshots
 // the aggregates into profile_stats_deleted_* first (profileStatsArchive.ts),
@@ -243,7 +243,7 @@ function extractTextSkillNames(text: string | null): string[] {
   return names;
 }
 
-// Builds profile skill rows from every stored Synara user message, plus the
+// Builds profile skill rows from every stored Penkra user message, plus the
 // pre-aggregated counts snapshotted from purged threads. Structured references
 // stay authoritative, while text tokens backfill older or partial rows.
 export function aggregateProfileSkillUsageRows(
@@ -390,15 +390,15 @@ function compareNullableText(
 function deriveInitials(name: string): string {
   const parts = name.split(/[\s._-]+/u).filter((part) => part.length > 0);
   if (parts.length >= 2) {
-    return `${parts[0]?.[0] ?? ""}${parts[1]?.[0] ?? ""}`.toUpperCase() || "SY";
+    return `${parts[0]?.[0] ?? ""}${parts[1]?.[0] ?? ""}`.toUpperCase() || "PE";
   }
   const single = parts[0] ?? name;
-  return (single.slice(0, 2) || "SY").toUpperCase();
+  return (single.slice(0, 2) || "PE").toUpperCase();
 }
 
 function sanitizeHandle(basename: string): string {
   const slug = basename.toLowerCase().replace(/[^a-z0-9_]/gu, "");
-  return `@${slug || "synara"}`;
+  return `@${slug || "penkra"}`;
 }
 
 function formatHour(hour: number): string {
@@ -648,7 +648,7 @@ const makeProfileStatsQuery = Effect.gen(function* () {
   // query below merges live projections with those archived aggregates.
   // ── SQL helpers ──────────────────────────────────────────────────────
 
-  // Activity = days/hours the user actually sent a Synara prompt. One day-hour
+  // Activity = days/hours the user actually sent a Penkra prompt. One day-hour
   // grouping gives day totals, hour totals, and lifetime prompt count in TS.
   const queryPromptActivity = (tz: string) =>
     legacyCompatibleQuery(
@@ -663,6 +663,7 @@ const makeProfileStatsQuery = Effect.gen(function* () {
           JOIN projection_threads t ON t.thread_id = m.thread_id
           WHERE m.role = 'user'
             AND m.source = 'native'
+            AND (m.dispatch_origin IS NULL OR m.dispatch_origin = 'user')
           UNION ALL
           SELECT d.created_at AS created_at
           FROM profile_stats_deleted_prompts d
@@ -677,7 +678,7 @@ const makeProfileStatsQuery = Effect.gen(function* () {
       `,
     );
 
-  // Token usage for EVERY provider, straight from Synara's own DB (no external
+  // Token usage for EVERY provider, straight from Penkra's own DB (no external
   // ~/.codex/~/.claude archives, so it is provider-agnostic AND per-instance). Each
   // `context-window.updated` activity carries a running per-thread token counter;
   // the positive delta is the tokens processed in that step, bucketed by the
@@ -701,6 +702,7 @@ const makeProfileStatsQuery = Effect.gen(function* () {
             STRFTIME('%Y-%m-%d', DATETIME(a.created_at, ${tz})) AS day,
             COALESCE(
               tm.provider,
+              json_extract(a.payload_json, '$.provider'),
               CASE
                 WHEN th.model_selection_json IS NOT NULL AND json_valid(th.model_selection_json)
                 THEN json_extract(th.model_selection_json, '$.provider')
@@ -710,13 +712,20 @@ const makeProfileStatsQuery = Effect.gen(function* () {
             COALESCE(
               tm.model,
               CASE
-                WHEN th.model_selection_json IS NOT NULL AND json_valid(th.model_selection_json)
+                WHEN th.model_selection_json IS NOT NULL
+                  AND json_valid(th.model_selection_json)
+                  AND (
+                    json_extract(a.payload_json, '$.provider') IS NULL
+                    OR json_extract(a.payload_json, '$.provider') =
+                      json_extract(th.model_selection_json, '$.provider')
+                  )
                 THEN json_extract(th.model_selection_json, '$.model')
               END,
               'unknown'
             ) AS model,
             CAST(json_extract(a.payload_json, '$.totalProcessedTokens') AS INTEGER) AS tp,
             CAST(json_extract(a.payload_json, '$.usedTokens') AS INTEGER) AS ut,
+            pm.dispatch_origin AS dispatch_origin,
             a.sequence AS sequence,
             a.created_at AS created_at,
             a.activity_id AS activity_id
@@ -725,6 +734,12 @@ const makeProfileStatsQuery = Effect.gen(function* () {
           LEFT JOIN turn_model tm
             ON tm.thread_id = a.thread_id
            AND tm.turn_id = a.turn_id
+          LEFT JOIN projection_turns pt
+            ON pt.thread_id = a.thread_id
+           AND pt.turn_id = a.turn_id
+          LEFT JOIN projection_thread_messages pm
+            ON pm.thread_id = pt.thread_id
+           AND pm.message_id = pt.pending_message_id
           WHERE a.kind = 'context-window.updated'
             AND COALESCE(
               json_extract(a.payload_json, '$.totalProcessedTokens'),
@@ -743,6 +758,7 @@ const makeProfileStatsQuery = Effect.gen(function* () {
             model,
             thread_id,
             tp AS tot,
+            dispatch_origin,
             sequence,
             created_at,
             activity_id
@@ -754,6 +770,7 @@ const makeProfileStatsQuery = Effect.gen(function* () {
             day,
             provider,
             model,
+            dispatch_origin,
             CASE
               WHEN previous_tot IS NULL OR tot < previous_tot THEN tot
               ELSE MAX(0, tot - previous_tot)
@@ -763,6 +780,7 @@ const makeProfileStatsQuery = Effect.gen(function* () {
               day,
               provider,
               model,
+              dispatch_origin,
               tot,
               LAG(tot) OVER (
                 PARTITION BY thread_id
@@ -782,6 +800,7 @@ const makeProfileStatsQuery = Effect.gen(function* () {
             ev.model AS model,
             ev.thread_id AS thread_id,
             ev.ut AS tot,
+            ev.dispatch_origin AS dispatch_origin,
             ev.sequence AS sequence,
             ev.created_at AS created_at,
             ev.activity_id AS activity_id
@@ -799,6 +818,7 @@ const makeProfileStatsQuery = Effect.gen(function* () {
             day,
             provider,
             model,
+            dispatch_origin,
             CASE
               WHEN previous_tot IS NULL THEN tot
               WHEN tot < previous_tot
@@ -811,6 +831,7 @@ const makeProfileStatsQuery = Effect.gen(function* () {
               day,
               provider,
               model,
+              dispatch_origin,
               tot,
               LAG(tot) OVER (
                 PARTITION BY thread_id
@@ -841,8 +862,10 @@ const makeProfileStatsQuery = Effect.gen(function* () {
         ),
         all_tokens AS (
           SELECT day, provider, model, d FROM cumulative_delta
+          WHERE dispatch_origin IS NULL OR dispatch_origin = 'user'
           UNION ALL
           SELECT day, provider, model, d FROM used_only_delta
+          WHERE dispatch_origin IS NULL OR dispatch_origin = 'user'
           UNION ALL
           SELECT
             STRFTIME('%Y-%m-%d', DATETIME(a.created_at, ${tz})) AS day,
@@ -906,7 +929,11 @@ const makeProfileStatsQuery = Effect.gen(function* () {
           FROM orchestration_events e
           JOIN projection_threads t
             ON t.thread_id = COALESCE(json_extract(e.payload_json, '$.threadId'), e.stream_id)
+          LEFT JOIN projection_thread_messages um
+            ON um.thread_id = COALESCE(json_extract(e.payload_json, '$.threadId'), e.stream_id)
+           AND um.message_id = json_extract(e.payload_json, '$.messageId')
           WHERE e.event_type = 'thread.turn-start-requested'
+            AND (um.dispatch_origin IS NULL OR um.dispatch_origin = 'user')
         ),
         turn_counts AS (
           SELECT provider, model, reasoning, COUNT(*) AS count
@@ -939,6 +966,7 @@ const makeProfileStatsQuery = Effect.gen(function* () {
       JOIN projection_threads t ON t.thread_id = m.thread_id
       WHERE m.role = 'user'
         AND m.source = 'native'
+        AND (m.dispatch_origin IS NULL OR m.dispatch_origin = 'user')
         AND (
           (m.skills_json IS NOT NULL AND TRIM(m.skills_json) NOT IN ('', '[]'))
           OR (m.mentions_json IS NOT NULL AND TRIM(m.mentions_json) NOT IN ('', '[]'))
@@ -995,6 +1023,7 @@ const makeProfileStatsQuery = Effect.gen(function* () {
           JOIN projection_threads t ON t.thread_id = m.thread_id
           WHERE m.role = 'user'
             AND m.source = 'native'
+            AND (m.dispatch_origin IS NULL OR m.dispatch_origin = 'user')
           UNION ALL
           SELECT
             d.project_id AS project_id,
@@ -1180,7 +1209,7 @@ const makeProfileStatsQuery = Effect.gen(function* () {
       const totalSkillsUsed = allSkillUsages.reduce((sum, row) => sum + row.runCount, 0);
 
       // ── Identity ──
-      const homeDirBasename = nodePath.basename(config.homeDir) || "synara";
+      const homeDirBasename = nodePath.basename(config.homeDir) || "penkra";
 
       return {
         generatedAt: new Date().toISOString(),

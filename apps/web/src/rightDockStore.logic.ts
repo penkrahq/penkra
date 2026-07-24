@@ -18,6 +18,7 @@ export const RIGHT_DOCK_PANE_KINDS = [
   "sidechat",
   "git",
   "pullRequest",
+  "profile",
 ] as const;
 
 export type RightDockPaneKind = (typeof RIGHT_DOCK_PANE_KINDS)[number];
@@ -39,6 +40,8 @@ export interface RightDockPane {
   pullRequestRepository: string | null;
   pullRequestNumber: number | null;
   pullRequestInitialTab: PullRequestInitialTab | null;
+  // Profile panes show the selected Penkra client/project.
+  profileProjectId: ProjectId | null;
 }
 
 export interface RightDockThreadState {
@@ -110,6 +113,10 @@ function sanitizePersistedPane(value: unknown): RightDockPane | null {
       candidate.pullRequestInitialTab === "code"
         ? candidate.pullRequestInitialTab
         : null,
+    profileProjectId:
+      typeof candidate.profileProjectId === "string"
+        ? (candidate.profileProjectId as ProjectId)
+        : null,
   };
 }
 
@@ -154,6 +161,7 @@ export interface OpenPaneInput {
   pullRequestRepository?: string | null;
   pullRequestNumber?: number | null;
   pullRequestInitialTab?: PullRequestInitialTab | null;
+  profileProjectId?: ProjectId | null;
 }
 
 function createPane(input: OpenPaneInput): RightDockPane {
@@ -168,6 +176,7 @@ function createPane(input: OpenPaneInput): RightDockPane {
     pullRequestRepository: input.pullRequestRepository ?? null,
     pullRequestNumber: input.pullRequestNumber ?? null,
     pullRequestInitialTab: input.pullRequestInitialTab ?? null,
+    profileProjectId: input.profileProjectId ?? null,
   };
 }
 
@@ -194,6 +203,9 @@ function singletonPaneReopenPatch(input: OpenPaneInput): Partial<RightDockPane> 
       pullRequestNumber: input.pullRequestNumber ?? null,
       pullRequestInitialTab: input.pullRequestInitialTab ?? null,
     };
+  }
+  if (input.kind === "profile" && input.profileProjectId !== undefined) {
+    return { profileProjectId: input.profileProjectId };
   }
   return null;
 }

@@ -5,7 +5,7 @@
 // Layer: UI component
 // Exports: SettingsSidebarNav
 
-import { type KeyboardEvent as ReactKeyboardEvent, useCallback, useMemo, useState } from "react";
+import { type KeyboardEvent as ReactKeyboardEvent, useState } from "react";
 
 import { CentralIcon } from "~/lib/central-icons";
 import { cn } from "~/lib/utils";
@@ -50,7 +50,7 @@ function SettingsSearchResultRow(props: {
   onSelect: (entry: SettingsSearchEntry) => void;
 }) {
   const { entry, onSelect } = props;
-  const icon = SETTINGS_SECTION_ICON_BY_ID.get(entry.section) ?? "settings-gear-1";
+  const icon = SETTINGS_SECTION_ICON_BY_ID.get(entry.section) ?? "settings-gear-4";
   // Mirrors the project header + nested thread layout: the section reuses the nav row
   // (muted icon + label) and the matched setting sits below as an indented thread-style row.
   return (
@@ -92,37 +92,28 @@ export function SettingsSidebarNav(props: {
   const [query, setQuery] = useState("");
   const trimmedQuery = query.trim();
   const isSearching = trimmedQuery.length > 0;
-  const results = useMemo(
-    () => rankSettingsSearchEntries(trimmedQuery, SETTINGS_SEARCH_RESULTS_LIMIT),
-    [trimmedQuery],
-  );
+  const results = rankSettingsSearchEntries(trimmedQuery, SETTINGS_SEARCH_RESULTS_LIMIT);
 
-  const handleSelectResult = useCallback(
-    (entry: SettingsSearchEntry) => {
-      const target = settingsSearchEntryTarget(entry);
-      onSelectSection(entry.section, target ? { target } : undefined);
+  const handleSelectResult = (entry: SettingsSearchEntry) => {
+    const target = settingsSearchEntryTarget(entry);
+    onSelectSection(entry.section, target ? { target } : undefined);
+    setQuery("");
+  };
+
+  const handleSearchKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      const topMatch = results[0];
+      if (topMatch) {
+        handleSelectResult(topMatch);
+      }
+      return;
+    }
+    if (event.key === "Escape" && query.length > 0) {
+      event.stopPropagation();
       setQuery("");
-    },
-    [onSelectSection],
-  );
-
-  const handleSearchKeyDown = useCallback(
-    (event: ReactKeyboardEvent<HTMLInputElement>) => {
-      if (event.key === "Enter") {
-        event.preventDefault();
-        const topMatch = results[0];
-        if (topMatch) {
-          handleSelectResult(topMatch);
-        }
-        return;
-      }
-      if (event.key === "Escape" && query.length > 0) {
-        event.stopPropagation();
-        setQuery("");
-      }
-    },
-    [handleSelectResult, query.length, results],
-  );
+    }
+  };
 
   return (
     <div className="px-1.5 py-1.5">

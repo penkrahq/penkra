@@ -77,7 +77,7 @@ describe("localServerMonitor", () => {
     );
   });
 
-  it("keeps dev servers and ignores Electron/Synara-style application listeners", () => {
+  it("keeps dev servers and ignores Electron/Penkra-style application listeners", () => {
     expect(
       isLikelyDevServerProcess({
         command: "node",
@@ -88,14 +88,14 @@ describe("localServerMonitor", () => {
     expect(
       isIgnoredLocalServerProcess({
         command: "Electron",
-        args: "/Applications/Synara.app/Contents/MacOS/Synara",
+        args: "/Applications/Penkra.app/Contents/MacOS/Penkra",
         ports: [61449],
       }),
     ).toBe(true);
     expect(
       isIgnoredLocalServerProcess({
-        command: "Synara",
-        args: "/Applications/Synara.app/Contents/MacOS/Synara",
+        command: "Penkra",
+        args: "/Applications/Penkra.app/Contents/MacOS/Penkra",
         ports: [61449],
       }),
     ).toBe(true);

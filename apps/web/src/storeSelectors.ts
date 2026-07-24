@@ -4,9 +4,16 @@
 
 import type { ProjectId, ThreadEnvironmentMode, ThreadId } from "@synara/contracts";
 
-import type { AppState } from "./store";
+import type { AppState } from "./storeState";
+import { resolveThreadDisplayProvider } from "./lib/threadDisplayProvider";
 import { collectByIds, getThreadFromState, getThreadsFromState } from "./threadDerivation";
-import type { Project, SidebarThreadSummary, Thread, ThreadShell } from "./types";
+import type {
+  ComposerThreadMentionSource,
+  Project,
+  SidebarThreadSummary,
+  Thread,
+  ThreadShell,
+} from "./types";
 
 const EMPTY_THREAD_SHELLS: ThreadShell[] = [];
 
@@ -52,11 +59,7 @@ export function createProjectSelector(
 export function createThreadSelector(
   threadId: ThreadId | null | undefined,
 ): (state: AppState) => Thread | undefined {
-  return (state) =>
-    threadId
-      ? (getThreadFromState(state, threadId) ??
-        state.threads.find((thread) => thread.id === threadId))
-      : undefined;
+  return (state) => (threadId ? getThreadFromState(state, threadId) : undefined);
 }
 
 export function createAllThreadsSelector(): (state: AppState) => readonly Thread[] {
@@ -148,11 +151,7 @@ export function createThreadProjectIdSelector(
     if (!threadId) {
       return null;
     }
-    return (
-      state.threadShellById?.[threadId]?.projectId ??
-      state.threads.find((thread) => thread.id === threadId)?.projectId ??
-      null
-    );
+    return state.threadShellById?.[threadId]?.projectId ?? null;
   };
 }
 
@@ -189,17 +188,7 @@ export function createThreadWorkspaceMetadataSelector(
 export function createThreadExistsSelector(
   threadId: ThreadId | null | undefined,
 ): (state: AppState) => boolean {
-  return (state) =>
-    threadId
-      ? Boolean(state.threadShellById?.[threadId]) ||
-        state.threads.some((thread) => thread.id === threadId)
-      : false;
-}
-
-export function createSidebarThreadSummarySelector(
-  threadId: ThreadId | null | undefined,
-): (state: AppState) => SidebarThreadSummary | undefined {
-  return (state) => (threadId ? state.sidebarThreadSummaryById[threadId] : undefined);
+  return (state) => (threadId ? Boolean(state.threadShellById?.[threadId]) : false);
 }
 
 export function createSidebarThreadSummariesSelector(): (
@@ -210,18 +199,76 @@ export function createSidebarThreadSummariesSelector(): (
   let previousSummaries: readonly SidebarThreadSummary[] = [];
 
   return (state) => {
-    const threadIds = state.threadIds ?? state.threads.map((thread) => thread.id);
+    const threadIds = state.threadIds;
     if (threadIds === previousThreadIds && state.sidebarThreadSummaryById === previousSummaryById) {
       return previousSummaries;
     }
 
     previousThreadIds = threadIds;
     previousSummaryById = state.sidebarThreadSummaryById;
-    previousSummaries = threadIds.flatMap((threadId) => {
+    previousSummaries = (threadIds ?? []).flatMap((threadId) => {
       const summary = state.sidebarThreadSummaryById[threadId];
       return summary ? [summary] : [];
     });
     return previousSummaries;
+  };
+}
+
+export function createComposerThreadMentionSourcesSelector(): (
+  state: AppState,
+) => readonly ComposerThreadMentionSource[] {
+  let previousThreadIds: AppState["threadIds"] | undefined;
+  let previousSummaryById: AppState["sidebarThreadSummaryById"] | undefined;
+  let previousSources: readonly ComposerThreadMentionSource[] = [];
+
+  return (state) => {
+    const threadIds = state.threadIds;
+    const summaryById = state.sidebarThreadSummaryById;
+    if (threadIds === previousThreadIds && summaryById === previousSummaryById) {
+      return previousSources;
+    }
+    previousThreadIds = threadIds;
+    previousSummaryById = summaryById;
+
+    const nextSources = (threadIds ?? []).flatMap((threadId) => {
+      const thread = summaryById[threadId];
+      return thread
+        ? [
+            {
+              id: thread.id,
+              projectId: thread.projectId,
+              title: thread.title,
+              provider: resolveThreadDisplayProvider(thread),
+              createdAt: thread.createdAt,
+              latestUserMessageAt: thread.latestUserMessageAt,
+              ...(thread.archivedAt !== undefined ? { archivedAt: thread.archivedAt } : {}),
+              ...(thread.lastVisitedAt !== undefined
+                ? { lastVisitedAt: thread.lastVisitedAt }
+                : {}),
+            } satisfies ComposerThreadMentionSource,
+          ]
+        : [];
+    });
+    if (
+      nextSources.length === previousSources.length &&
+      nextSources.every((source, index) => {
+        const previous = previousSources[index];
+        return (
+          source.id === previous?.id &&
+          source.projectId === previous.projectId &&
+          source.title === previous.title &&
+          source.provider === previous.provider &&
+          source.createdAt === previous.createdAt &&
+          source.archivedAt === previous.archivedAt &&
+          source.lastVisitedAt === previous.lastVisitedAt &&
+          source.latestUserMessageAt === previous.latestUserMessageAt
+        );
+      })
+    ) {
+      return previousSources;
+    }
+    previousSources = nextSources;
+    return previousSources;
   };
 }
 
@@ -246,6 +293,29 @@ export function createSidebarDisplayThreadsSelector(): (
   };
 }
 
+// Sidebar tree source: unlike the flat display selector above, this keeps
+// child (subagent) threads so buildProjectThreadTree can nest them under
+// their parent row behind the "N subagents" expand toggle. Flat consumers
+// (pinned rows, search palette) should keep using the display selector.
+export function createSidebarTreeThreadsSelector(): (
+  state: AppState,
+) => readonly SidebarThreadSummary[] {
+  const selectSidebarSummaries = createSidebarThreadSummariesSelector();
+  let previousSummaries: readonly SidebarThreadSummary[] | undefined;
+  let previousTreeSummaries: readonly SidebarThreadSummary[] = [];
+
+  return (state) => {
+    const sidebarSummaries = selectSidebarSummaries(state);
+    if (sidebarSummaries === previousSummaries) {
+      return previousTreeSummaries;
+    }
+
+    previousSummaries = sidebarSummaries;
+    previousTreeSummaries = sidebarSummaries.filter((thread) => thread.archivedAt == null);
+    return previousTreeSummaries;
+  };
+}
+
 export function createFirstProjectSelector(): (state: AppState) => Project | undefined {
   let previousProjects: readonly Project[] | undefined;
   let previousFirstProject: Project | undefined;
@@ -258,22 +328,5 @@ export function createFirstProjectSelector(): (state: AppState) => Project | und
     previousProjects = state.projects;
     previousFirstProject = state.projects.find((project) => project.kind === "project");
     return previousFirstProject;
-  };
-}
-
-export function createProjectsByKindSelector(
-  kind: Project["kind"],
-): (state: AppState) => readonly Project[] {
-  let previousProjects: readonly Project[] | undefined;
-  let previousFiltered: readonly Project[] = [];
-
-  return (state) => {
-    if (state.projects === previousProjects) {
-      return previousFiltered;
-    }
-
-    previousProjects = state.projects;
-    previousFiltered = state.projects.filter((project) => project.kind === kind);
-    return previousFiltered;
   };
 }

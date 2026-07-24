@@ -30,7 +30,7 @@ function projectCreateCommand(
     projectId: ProjectId.makeUnsafe("project-chat"),
     kind: "chat",
     title: "Chat",
-    workspaceRoot: "/Users/tester/Documents/Synara/2026-06-11/chat",
+    workspaceRoot: "/Users/tester/Documents/Penkra/2026-06-11/chat",
     createWorkspaceRootIfMissing: true,
     createdAt: "2026-06-11T21:30:43.000Z",
     ...overrides,
@@ -50,7 +50,7 @@ describe("makeDispatchCommandNormalizer", () => {
     const preparedRoots: string[] = [];
     const normalizer = makeDispatchCommandNormalizer<Error>({
       attachmentsDir: "/tmp/attachments",
-      chatWorkspaceRoot: "/Users/tester/Documents/Synara",
+      chatWorkspaceRoot: "/Users/tester/Documents/Penkra",
       fileSystem: {} as FileSystem.FileSystem,
       path: {} as Path.Path,
       canonicalizeProjectWorkspaceRoot: (workspaceRoot) => Effect.succeed(workspaceRoot),
@@ -69,14 +69,14 @@ describe("makeDispatchCommandNormalizer", () => {
     await runPrepareWorkspaceRoot(result);
 
     // Only after the caller explicitly runs the deferred effect does scaffolding happen.
-    expect(preparedRoots).toEqual(["/Users/tester/Documents/Synara/2026-06-11/chat"]);
+    expect(preparedRoots).toEqual(["/Users/tester/Documents/Penkra/2026-06-11/chat"]);
   });
 
   it("retries the deferred prepare effect on transient failures before succeeding", async () => {
     let callCount = 0;
     const normalizer = makeDispatchCommandNormalizer<Error>({
       attachmentsDir: "/tmp/attachments",
-      chatWorkspaceRoot: "/Users/tester/Documents/Synara",
+      chatWorkspaceRoot: "/Users/tester/Documents/Penkra",
       fileSystem: {} as FileSystem.FileSystem,
       path: {} as Path.Path,
       canonicalizeProjectWorkspaceRoot: (workspaceRoot) => Effect.succeed(workspaceRoot),
@@ -102,7 +102,7 @@ describe("makeDispatchCommandNormalizer", () => {
     const preparedRoots: string[] = [];
     const normalizer = makeDispatchCommandNormalizer<Error>({
       attachmentsDir: "/tmp/attachments",
-      chatWorkspaceRoot: "/Users/tester/Documents/Synara",
+      chatWorkspaceRoot: "/Users/tester/Documents/Penkra",
       fileSystem: {} as FileSystem.FileSystem,
       path: {} as Path.Path,
       canonicalizeProjectWorkspaceRoot: (workspaceRoot) => Effect.succeed(workspaceRoot),
@@ -115,14 +115,14 @@ describe("makeDispatchCommandNormalizer", () => {
     const result = await Effect.runPromise(normalizer({ command: projectCreateCommand() }));
     await runPrepareWorkspaceRoot(result);
 
-    expect(preparedRoots).toEqual(["/Users/tester/Documents/Synara/2026-06-11/chat"]);
+    expect(preparedRoots).toEqual(["/Users/tester/Documents/Penkra/2026-06-11/chat"]);
   });
 
   it("does not prepare ordinary projects or the chat workspace root itself", async () => {
     const preparedRoots: string[] = [];
     const normalizer = makeDispatchCommandNormalizer<Error>({
       attachmentsDir: "/tmp/attachments",
-      chatWorkspaceRoot: "/Users/tester/Documents/Synara",
+      chatWorkspaceRoot: "/Users/tester/Documents/Penkra",
       fileSystem: {} as FileSystem.FileSystem,
       path: {} as Path.Path,
       canonicalizeProjectWorkspaceRoot: (workspaceRoot) => Effect.succeed(workspaceRoot),
@@ -136,7 +136,7 @@ describe("makeDispatchCommandNormalizer", () => {
       normalizer({
         command: projectCreateCommand({
           kind: "project",
-          workspaceRoot: "/Users/tester/Documents/Synara/2026-06-11/app",
+          workspaceRoot: "/Users/tester/Documents/Penkra/2026-06-11/app",
         }),
       }),
     );
@@ -144,7 +144,7 @@ describe("makeDispatchCommandNormalizer", () => {
     const second = await Effect.runPromise(
       normalizer({
         command: projectCreateCommand({
-          workspaceRoot: "/Users/tester/Documents/Synara",
+          workspaceRoot: "/Users/tester/Documents/Penkra",
         }),
       }),
     );
@@ -157,8 +157,8 @@ describe("makeDispatchCommandNormalizer", () => {
     const preparedRoots: string[] = [];
     const normalizer = makeDispatchCommandNormalizer<Error>({
       attachmentsDir: "/tmp/attachments",
-      chatWorkspaceRoot: "/Users/tester/Documents/Synara",
-      studioWorkspaceRoot: "/Users/tester/Documents/Synara/Studio",
+      chatWorkspaceRoot: "/Users/tester/Documents/Penkra",
+      studioWorkspaceRoot: "/Users/tester/Documents/Penkra/Studio",
       fileSystem: {} as FileSystem.FileSystem,
       path: {} as Path.Path,
       canonicalizeProjectWorkspaceRoot: (workspaceRoot) => Effect.succeed(workspaceRoot),
@@ -174,20 +174,20 @@ describe("makeDispatchCommandNormalizer", () => {
         command: projectCreateCommand({
           kind: "studio",
           title: "Studio",
-          workspaceRoot: "/Users/tester/Documents/Synara/Studio",
+          workspaceRoot: "/Users/tester/Documents/Penkra/Studio",
         }),
       }),
     );
     await runPrepareWorkspaceRoot(result);
 
-    expect(preparedRoots).toEqual(["/Users/tester/Documents/Synara/Studio"]);
+    expect(preparedRoots).toEqual(["/Users/tester/Documents/Penkra/Studio"]);
   });
 
   it("prepares nested Studio workspace roots but not ordinary projects under Studio", async () => {
     const preparedRoots: string[] = [];
     const normalizer = makeDispatchCommandNormalizer<Error>({
       attachmentsDir: "/tmp/attachments",
-      studioWorkspaceRoot: "/Users/tester/Documents/Synara/Studio",
+      studioWorkspaceRoot: "/Users/tester/Documents/Penkra/Studio",
       fileSystem: {} as FileSystem.FileSystem,
       path: {} as Path.Path,
       canonicalizeProjectWorkspaceRoot: (workspaceRoot) => Effect.succeed(workspaceRoot),
@@ -201,7 +201,7 @@ describe("makeDispatchCommandNormalizer", () => {
       normalizer({
         command: projectCreateCommand({
           kind: "studio",
-          workspaceRoot: "/Users/tester/Documents/Synara/Studio/Outbox",
+          workspaceRoot: "/Users/tester/Documents/Penkra/Studio/Outbox",
         }),
       }),
     );
@@ -210,29 +210,28 @@ describe("makeDispatchCommandNormalizer", () => {
       normalizer({
         command: projectCreateCommand({
           kind: "project",
-          workspaceRoot: "/Users/tester/Documents/Synara/Studio/SomeProject",
+          workspaceRoot: "/Users/tester/Documents/Penkra/Studio/SomeProject",
         }),
       }),
     );
     await runPrepareWorkspaceRoot(second);
 
-    expect(preparedRoots).toEqual(["/Users/tester/Documents/Synara/Studio/Outbox"]);
+    expect(preparedRoots).toEqual(["/Users/tester/Documents/Penkra/Studio/Outbox"]);
   });
 
-  it("rolls back attachment files written before a later upload fails", async () => {
+  it("defers binary attachment authority to the transactional managed ledger", async () => {
     const attachmentsDir = fs.mkdtempSync(path.join(os.tmpdir(), "synara-dispatch-normalize-"));
+    const validId = "thread-rollback-attachments-11111111-1111-4111-8111-111111111111";
+    const validPath = path.join(attachmentsDir, `${validId}.png`);
+    fs.writeFileSync(validPath, Buffer.from([1]));
     const fileSystem = {
-      makeDirectory: (dir: string, options?: { readonly recursive?: boolean }) =>
-        Effect.sync(() => {
-          fs.mkdirSync(dir, { recursive: options?.recursive === true });
-        }),
-      writeFile: (filePath: string, bytes: Uint8Array) =>
-        Effect.sync(() => {
-          fs.writeFileSync(filePath, bytes);
-        }),
-      remove: (filePath: string, options?: { readonly force?: boolean }) =>
-        Effect.sync(() => {
-          fs.rmSync(filePath, { force: options?.force === true });
+      stat: (filePath: string) =>
+        Effect.try({
+          try: () => {
+            const info = fs.statSync(filePath);
+            return { type: "File", size: BigInt(info.size) };
+          },
+          catch: (cause) => new Error("stat failed", { cause }),
         }),
     } as unknown as FileSystem.FileSystem;
     const normalizer = makeDispatchCommandNormalizer<Error>({
@@ -243,43 +242,45 @@ describe("makeDispatchCommandNormalizer", () => {
     });
 
     try {
-      await expect(
-        Effect.runPromise(
-          normalizer({
-            command: {
-              type: "thread.turn.start",
-              commandId: CommandId.makeUnsafe("cmd-turn-attachments"),
-              threadId: ThreadId.makeUnsafe("thread-rollback-attachments"),
-              message: {
-                messageId: MessageId.makeUnsafe("msg-attachments"),
-                role: "user",
-                text: "send files",
-                attachments: [
-                  {
-                    type: "image",
-                    name: "ok.png",
-                    mimeType: "image/png",
-                    sizeBytes: 1,
-                    dataUrl: "data:image/png;base64,AQ==",
-                  },
-                  {
-                    type: "image",
-                    name: "bad.png",
-                    mimeType: "image/png",
-                    sizeBytes: 1,
-                    dataUrl: "data:text/plain;base64,AQ==",
-                  },
-                ],
-              },
-              runtimeMode: "full-access",
-              interactionMode: "default",
-              createdAt: "2026-01-01T00:00:00.000Z",
-            } satisfies Extract<ClientOrchestrationCommand, { type: "thread.turn.start" }>,
-          }),
-        ),
-      ).rejects.toThrow("Invalid image attachment payload");
+      const result = await Effect.runPromise(
+        normalizer({
+          command: {
+            type: "thread.turn.start",
+            commandId: CommandId.makeUnsafe("cmd-turn-attachments"),
+            threadId: ThreadId.makeUnsafe("thread-rollback-attachments"),
+            message: {
+              messageId: MessageId.makeUnsafe("msg-attachments"),
+              role: "user",
+              text: "send files",
+              attachments: [
+                {
+                  type: "image",
+                  id: validId,
+                  name: "ok.png",
+                  mimeType: "image/png",
+                  sizeBytes: 1,
+                },
+                {
+                  type: "image",
+                  id: "thread-rollback-attachments-22222222-2222-4222-8222-222222222222",
+                  name: "bad.png",
+                  mimeType: "image/png",
+                  sizeBytes: 1,
+                },
+              ],
+            },
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            createdAt: "2026-01-01T00:00:00.000Z",
+          } satisfies Extract<ClientOrchestrationCommand, { type: "thread.turn.start" }>,
+        }),
+      );
 
-      expect(fs.readdirSync(attachmentsDir)).toEqual([]);
+      expect(result.command.type).toBe("thread.turn.start");
+      if (result.command.type === "thread.turn.start") {
+        expect(result.command.message.attachments).toHaveLength(2);
+      }
+      expect(fs.readFileSync(validPath)).toEqual(Buffer.from([1]));
     } finally {
       fs.rmSync(attachmentsDir, { recursive: true, force: true });
     }

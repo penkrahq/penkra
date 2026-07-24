@@ -9,8 +9,8 @@ import {
 
 const paths = {
   homeDir: "/Users/tester",
-  chatWorkspaceRoot: "/Users/tester/Documents/Synara/Chats",
-  studioWorkspaceRoot: "/Users/tester/Documents/Synara/Studio",
+  chatWorkspaceRoot: "/Users/tester/Documents/Penkra/Chats",
+  studioWorkspaceRoot: "/Users/tester/Documents/Penkra/Studio",
 };
 
 function successfulHandler() {
@@ -25,7 +25,7 @@ describe("startFreshChatForActiveSurface", () => {
     await startFreshChatForActiveSurface({
       activeProject: {
         kind: "studio",
-        cwd: "/Users/tester/Documents/Synara/Studio",
+        cwd: "/Users/tester/Documents/Penkra/Studio",
       },
       isStudioRoute: false,
       paths,
