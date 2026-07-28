@@ -1,4 +1,8 @@
-import { encodeOutboundMultipart, OutboundHttpError } from "@synara/shared/outboundHttp";
+import {
+  createPinnedLookup,
+  encodeOutboundMultipart,
+  OutboundHttpError,
+} from "@synara/shared/outboundHttp";
 import {
   assertJsonWithinLimits,
   assertOutboundUrlAllowed,
@@ -8,6 +12,23 @@ import {
 import { describe, expect, it } from "vitest";
 
 describe("outbound HTTP policy", () => {
+  it("returns the pinned address shape requested by Node's connection strategy", async () => {
+    const lookup = createPinnedLookup({ address: "8.8.8.8", family: 4 });
+    const lookupWithOptions = (all: boolean) =>
+      new Promise<string | Array<{ address: string; family: number }>>((resolve, reject) => {
+        lookup("example.test", { all }, (error, address) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve(address);
+        });
+      });
+
+    await expect(lookupWithOptions(false)).resolves.toBe("8.8.8.8");
+    await expect(lookupWithOptions(true)).resolves.toEqual([{ address: "8.8.8.8", family: 4 }]);
+  });
+
   it.each([
     "127.0.0.1",
     "10.0.0.1",

@@ -388,6 +388,16 @@ export interface BrowserExecuteCdpInput extends BrowserTabInput {
   params?: Record<string, unknown>;
 }
 
+export interface BrowserFindInPageInput extends BrowserTabInput {
+  text: string;
+  action: "search" | "next" | "previous";
+}
+
+export interface BrowserFindInPageResult {
+  activeMatchOrdinal: number;
+  matches: number;
+}
+
 // Pushed from the desktop main process when the in-app browser copy-link chord fires
 // while the native page (not the React chrome) holds keyboard focus.
 export interface BrowserCopyLinkEvent {
@@ -395,7 +405,7 @@ export interface BrowserCopyLinkEvent {
   url: string;
 }
 
-interface BrowserControlMethods {
+export interface BrowserControlMethods {
   open: (input: BrowserOpenInput) => Promise<ThreadBrowserState>;
   close: (input: BrowserThreadInput) => Promise<ThreadBrowserState>;
   hide: (input: BrowserThreadInput) => Promise<void>;
@@ -407,6 +417,8 @@ interface BrowserControlMethods {
   copyScreenshotToClipboard: (input: BrowserTabInput) => Promise<void>;
   captureScreenshot: (input: BrowserTabInput) => Promise<BrowserCaptureScreenshotResult>;
   executeCdp: (input: BrowserExecuteCdpInput) => Promise<unknown>;
+  findInPage?: (input: BrowserFindInPageInput) => Promise<BrowserFindInPageResult>;
+  stopFindInPage?: (input: BrowserTabInput) => Promise<void>;
   navigate: (input: BrowserNavigateInput) => Promise<ThreadBrowserState>;
   reload: (input: BrowserTabInput) => Promise<ThreadBrowserState>;
   goBack: (input: BrowserTabInput) => Promise<ThreadBrowserState>;

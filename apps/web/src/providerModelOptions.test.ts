@@ -64,6 +64,42 @@ describe("formatProviderModelOptionName", () => {
 });
 
 describe("mergeDynamicModelOptions", () => {
+  it("uses Claude's live catalog without rewriting future models through legacy aliases", () => {
+    expect(
+      mergeDynamicModelOptions({
+        provider: "claudeAgent",
+        staticOptions: [
+          { slug: "claude-opus-4-8", name: "Claude Opus 4.8" },
+          { slug: "custom/private-model", name: "Custom model", isCustom: true },
+        ],
+        dynamicModels: [
+          {
+            slug: "claude-opus-6",
+            name: "Opus",
+            description: "Opus 6",
+          },
+        ],
+      }),
+    ).toEqual([
+      {
+        slug: "claude-opus-6",
+        name: "Claude Opus 6",
+        description: "Opus 6",
+      },
+      { slug: "custom/private-model", name: "Custom model", isCustom: true },
+    ]);
+  });
+
+  it("keeps a live Claude selector alias provider-owned instead of mapping it to an old model", () => {
+    expect(
+      mergeDynamicModelOptions({
+        provider: "claudeAgent",
+        staticOptions: [{ slug: "claude-opus-4-8", name: "Claude Opus 4.8" }],
+        dynamicModels: [{ slug: "opus", name: "Opus", description: "Opus 6" }],
+      }),
+    ).toEqual([{ slug: "opus", name: "Opus", description: "Opus 6" }]);
+  });
+
   it("does not offer Pi Anthropic models when discovery only returns local models", () => {
     expect(
       mergeDynamicModelOptions({

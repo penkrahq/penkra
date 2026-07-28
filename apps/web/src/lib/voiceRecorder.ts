@@ -1,20 +1,18 @@
 // FILE: voiceRecorder.ts
-// Purpose: Captures microphone audio in the browser and normalizes it to Remodex-style WAV clips.
+// Purpose: Captures microphone audio as bounded rolling WAV transcription chunks.
 // Layer: Client utility hook
 // Exports: useVoiceRecorder, formatVoiceRecordingDuration
 // Depends on: browser media devices, Web Audio API, and FileReader for base64 encoding.
 
 import { useEffect, useRef, useState } from "react";
 
-const TARGET_SAMPLE_RATE = 24_000;
-const BUFFER_SIZE = 4_096;
-
-export interface VoiceRecordingPayload {
-  readonly audioBase64: string;
-  readonly mimeType: "audio/wav";
-  readonly sampleRateHz: number;
-  readonly durationMs: number;
-}
+import {
+  encodeVoiceChunkWav,
+  RollingVoiceChunker,
+  VOICE_TARGET_SAMPLE_RATE_HZ,
+  type RawVoiceChunk,
+  type VoiceRecordingPayload,
+} from "./voiceRecordingChunks";
 
 interface RecorderRuntime {
   readonly audioContext: AudioContext;
@@ -22,11 +20,17 @@ interface RecorderRuntime {
   readonly processorNode: ScriptProcessorNode;
   readonly silentGainNode: GainNode;
   readonly stream: MediaStream;
-  readonly chunks: Float32Array[];
+  readonly chunker: RollingVoiceChunker;
+  readonly completedChunks: EncodedVoiceChunk[];
   readonly startedAt: number;
-  sampleRateHz: number;
 }
 
+interface EncodedVoiceChunk {
+  readonly blob: Blob;
+  readonly durationMs: number;
+}
+
+const BUFFER_SIZE = 4_096;
 const MAX_WAVEFORM_SAMPLES = 160;
 
 export function formatVoiceRecordingDuration(durationMs: number): string {
@@ -70,14 +74,16 @@ export function useVoiceRecorder() {
     runtime.stream.getTracks().forEach((track) => track.stop());
     await runtime.audioContext.close().catch(() => undefined);
 
-    const sampleRateHz = runtime.sampleRateHz;
+    const finalRawChunk = runtime.chunker.finish();
+    if (finalRawChunk) {
+      runtime.completedChunks.push(encodeChunk(finalRawChunk));
+    }
     const duration = Math.max(0, performance.now() - runtime.startedAt);
     setDurationMs(0);
 
     return {
-      chunks: runtime.chunks,
-      sampleRateHz,
-      durationMs: duration,
+      chunks: runtime.completedChunks,
+      durationMs: Math.max(runtime.chunker.totalDurationMs, duration),
     };
   };
 
@@ -117,9 +123,9 @@ export function useVoiceRecorder() {
         processorNode,
         silentGainNode,
         stream,
-        chunks: [],
+        chunker: new RollingVoiceChunker(audioContext.sampleRate),
+        completedChunks: [],
         startedAt: performance.now(),
-        sampleRateHz: audioContext.sampleRate,
       };
 
       processorNode.onaudioprocess = (event) => {
@@ -141,7 +147,9 @@ export function useVoiceRecorder() {
           monoSamples[sampleIndex] = (monoSamples[sampleIndex] ?? 0) / normalizer;
         }
 
-        runtime.chunks.push(monoSamples);
+        for (const chunk of runtime.chunker.push(monoSamples)) {
+          runtime.completedChunks.push(encodeChunk(chunk));
+        }
 
         const rmsLevel = Math.min(
           1,
@@ -192,33 +200,25 @@ export function useVoiceRecorder() {
       return null;
     }
 
-    const mergedSamples = mergeFloat32Chunks(recorded.chunks);
-    if (mergedSamples.length === 0) {
+    const chunks = [...recorded.chunks];
+    if (chunks.length === 0) {
       return null;
     }
 
-    const resampledSamples = resampleLinear(
-      mergedSamples,
-      recorded.sampleRateHz,
-      TARGET_SAMPLE_RATE,
-    );
-    if (resampledSamples.length === 0) {
-      return null;
+    const payloadChunks = [];
+    for (const chunk of chunks) {
+      payloadChunks.push({
+        audioBase64: await blobToBase64(chunk.blob),
+        mimeType: "audio/wav" as const,
+        sampleRateHz: VOICE_TARGET_SAMPLE_RATE_HZ,
+        durationMs: chunk.durationMs,
+      });
     }
 
-    const wavBytes = encodeMono16BitWav(resampledSamples, TARGET_SAMPLE_RATE);
-    const audioBase64 = await blobToBase64(new Blob([wavBytes], { type: "audio/wav" }));
-
-    const payload: VoiceRecordingPayload = {
-      audioBase64,
-      mimeType: "audio/wav",
-      sampleRateHz: TARGET_SAMPLE_RATE,
-      durationMs: Math.max(
-        1,
-        Math.round((resampledSamples.length / TARGET_SAMPLE_RATE) * 1_000) || recorded.durationMs,
-      ),
+    return {
+      chunks: payloadChunks,
+      durationMs: Math.max(1, Math.round(recorded.durationMs)),
     };
-    return payload;
   };
 
   const cancelRecording = async () => {
@@ -245,81 +245,12 @@ export function useVoiceRecorder() {
   };
 }
 
-function mergeFloat32Chunks(chunks: readonly Float32Array[]): Float32Array {
-  let totalLength = 0;
-  for (const chunk of chunks) {
-    totalLength += chunk.length;
-  }
-  const merged = new Float32Array(totalLength);
-  let offset = 0;
-  for (const chunk of chunks) {
-    merged.set(chunk, offset);
-    offset += chunk.length;
-  }
-  return merged;
-}
-
-function resampleLinear(
-  samples: Float32Array,
-  inputSampleRateHz: number,
-  outputSampleRateHz: number,
-): Float32Array {
-  if (!Number.isFinite(inputSampleRateHz) || inputSampleRateHz <= 0) {
-    return new Float32Array(0);
-  }
-  if (inputSampleRateHz === outputSampleRateHz) {
-    return samples.slice();
-  }
-
-  const ratio = inputSampleRateHz / outputSampleRateHz;
-  const outputLength = Math.max(1, Math.round(samples.length / ratio));
-  const output = new Float32Array(outputLength);
-
-  for (let index = 0; index < outputLength; index += 1) {
-    const sourceIndex = index * ratio;
-    const leftIndex = Math.floor(sourceIndex);
-    const rightIndex = Math.min(samples.length - 1, leftIndex + 1);
-    const interpolationWeight = sourceIndex - leftIndex;
-    const leftValue = samples[leftIndex] ?? 0;
-    const rightValue = samples[rightIndex] ?? leftValue;
-    output[index] = leftValue + (rightValue - leftValue) * interpolationWeight;
-  }
-
-  return output;
-}
-
-function encodeMono16BitWav(samples: Float32Array, sampleRateHz: number): ArrayBuffer {
-  const dataView = new DataView(new ArrayBuffer(44 + samples.length * 2));
-
-  writeAscii(dataView, 0, "RIFF");
-  dataView.setUint32(4, 36 + samples.length * 2, true);
-  writeAscii(dataView, 8, "WAVE");
-  writeAscii(dataView, 12, "fmt ");
-  dataView.setUint32(16, 16, true);
-  dataView.setUint16(20, 1, true);
-  dataView.setUint16(22, 1, true);
-  dataView.setUint32(24, sampleRateHz, true);
-  dataView.setUint32(28, sampleRateHz * 2, true);
-  dataView.setUint16(32, 2, true);
-  dataView.setUint16(34, 16, true);
-  writeAscii(dataView, 36, "data");
-  dataView.setUint32(40, samples.length * 2, true);
-
-  let offset = 44;
-  for (const sample of samples) {
-    const clamped = Math.max(-1, Math.min(1, sample));
-    const pcm = clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff;
-    dataView.setInt16(offset, Math.round(pcm), true);
-    offset += 2;
-  }
-
-  return dataView.buffer;
-}
-
-function writeAscii(view: DataView, offset: number, value: string): void {
-  for (let index = 0; index < value.length; index += 1) {
-    view.setUint8(offset + index, value.charCodeAt(index));
-  }
+function encodeChunk(chunk: RawVoiceChunk): EncodedVoiceChunk {
+  const wavBytes = encodeVoiceChunkWav(chunk);
+  return {
+    blob: new Blob([wavBytes], { type: "audio/wav" }),
+    durationMs: chunk.durationMs,
+  };
 }
 
 async function blobToBase64(blob: Blob): Promise<string> {

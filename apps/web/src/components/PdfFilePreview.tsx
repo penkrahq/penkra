@@ -11,7 +11,7 @@
 // Layer: Web chat/editor file-preview component
 // Exports: PdfFilePreview
 
-import { useState } from "react";
+import { useEffect, useId, useState } from "react";
 
 import { basenameOfPath } from "~/file-icons";
 import { Loader2Icon, TriangleAlertIcon } from "~/lib/icons";
@@ -23,6 +23,8 @@ import { usePdfZoomController } from "~/lib/pdf/usePdfZoomController";
 import { cn } from "~/lib/utils";
 import { PdfPageView } from "./pdf/PdfPageView";
 import { PdfViewerToolbar } from "./pdf/PdfViewerToolbar";
+import { useOptionalFind } from "./find/FindProvider";
+import { createPdfFindSurface } from "~/lib/find/pdfFindSurface";
 
 export function PdfFilePreview(props: {
   /**
@@ -36,6 +38,8 @@ export function PdfFilePreview(props: {
   openInTarget: string | null;
   className?: string;
 }) {
+  const registerFindSurface = useOptionalFind()?.register;
+  const pdfFindSurfaceId = useId();
   const previewUrl = buildLocalImageUrl({
     src: props.filePath,
     cwd: props.cwd ?? undefined,
@@ -62,6 +66,29 @@ export function PdfFilePreview(props: {
 
   const pageNumbers = Array.from({ length: doc.numPages }, (_, index) => index + 1);
 
+  useEffect(() => {
+    if (!registerFindSurface || doc.status !== "ready" || !doc.document || !scrollRoot) {
+      return;
+    }
+    return registerFindSurface(
+      createPdfFindSurface({
+        id: `pdf:${pdfFindSurfaceId}`,
+        order: 20,
+        document: doc.document,
+        root: scrollRoot,
+        jumpToPage: navigation.jumpToPage,
+      }),
+    );
+  }, [
+    doc.document,
+    doc.status,
+    navigation.jumpToPage,
+    pdfFindSurfaceId,
+    previewUrl,
+    registerFindSurface,
+    scrollRoot,
+  ]);
+
   const outerClassName = cn(
     "flex h-full min-h-0 min-w-0 flex-1 flex-col bg-[var(--color-background-surface)]",
     props.className,
@@ -86,7 +113,11 @@ export function PdfFilePreview(props: {
           onFitPage={zoom.onFitPage}
           openInTarget={props.openInTarget}
         />
-        <div ref={setScrollRoot} className="pdf-viewer-scroll min-h-0 flex-1 overflow-auto">
+        <div
+          ref={setScrollRoot}
+          data-find-exclude
+          className="pdf-viewer-scroll min-h-0 flex-1 overflow-auto"
+        >
           {containerSize
             ? pageNumbers.map((pageNumber) => (
                 <PdfPageView

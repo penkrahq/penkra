@@ -6,7 +6,7 @@
 // Note: raw <button>s for autocomplete-suggestion rows and tab-title activate
 // regions are intentional — list-row and tab semantics, not shadcn Buttons.
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
@@ -75,6 +75,9 @@ import { Input } from "./ui/input";
 import { Menu, MenuItem, MenuSeparator, MenuTrigger } from "./ui/menu";
 import { Skeleton } from "./ui/skeleton";
 import { toastManager } from "./ui/toast";
+import { useOptionalFind } from "./find/FindProvider";
+import { createBrowserFindSurface } from "../lib/find/browserFindSurface";
+import { isFindSurfaceVisible } from "../lib/find/findVisibility";
 
 interface BrowserPanelProps {
   mode: DiffPanelMode;
@@ -504,6 +507,8 @@ export function BrowserPanel({
   runtimeMode = "live",
   onRequestLive,
 }: BrowserPanelProps) {
+  const registerFindSurface = useOptionalFind()?.register;
+  const browserFindSurfaceId = useId();
   const api = readNativeApi();
   const isLiveRuntime = runtimeMode === "live";
   const threadBrowserState = useBrowserStateStore(selectThreadBrowserState(threadId));
@@ -559,6 +564,7 @@ export function BrowserPanel({
     threadBrowserState?.tabs[0] ??
     null;
   const loading = activeTab?.isLoading ?? false;
+  const activeTabId = activeTab?.id ?? null;
   const activeTabIsBlank = isBlankBrowserTabUrl(activeTab);
   const showLocalServersHome = isLiveRuntime && workspaceReady && (!activeTab || activeTabIsBlank);
   const localServersQuery = useQuery(serverLocalServersQueryOptions(showLocalServersHome));
@@ -570,6 +576,36 @@ export function BrowserPanel({
     hasActiveTab: activeTab !== null,
     workspaceReady: runtimeReady,
   });
+
+  useEffect(() => {
+    if (
+      !api?.browser.findInPage ||
+      !api.browser.stopFindInPage ||
+      !registerFindSurface ||
+      !isLiveRuntime ||
+      !activeTabId ||
+      activeTabIsBlank
+    ) {
+      return;
+    }
+    return registerFindSurface(
+      createBrowserFindSurface({
+        id: `browser:${browserFindSurfaceId}`,
+        order: 30,
+        browser: api.browser,
+        target: { threadId, tabId: activeTabId },
+        isVisible: () => isFindSurfaceVisible(browserViewportRef.current),
+      }),
+    );
+  }, [
+    activeTabId,
+    activeTabIsBlank,
+    api,
+    browserFindSurfaceId,
+    isLiveRuntime,
+    registerFindSurface,
+    threadId,
+  ]);
   const browserAddressSuggestions = buildBrowserAddressSuggestions({
     query: addressValue,
     activeTabId: activeTab?.id ?? null,

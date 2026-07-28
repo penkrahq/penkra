@@ -437,6 +437,45 @@ function mapSupportedCommands(commands: SlashCommand[]): ProviderListCommandsRes
   };
 }
 
+function mapSupportedModels(models: ModelInfo[]): ProviderListModelsResult {
+  const seenSlugs = new Set<string>();
+  const descriptors: Array<ProviderListModelsResult["models"][number]> = [];
+
+  for (const model of models) {
+    if (model.value.trim().toLowerCase() === "default") {
+      continue;
+    }
+
+    // Claude Code exposes stable canonical identity separately from the selector
+    // value (`opus` -> `claude-opus-5`). Persist and render the canonical id so
+    // an evergreen alias can never be rewritten through Penkra's legacy table.
+    const slug = (model.resolvedModel ?? model.value).replace(/\[[^\]]+\]$/u, "").trim();
+    if (!slug || seenSlugs.has(slug)) {
+      continue;
+    }
+    seenSlugs.add(slug);
+
+    descriptors.push({
+      slug,
+      name: model.displayName,
+      ...(model.description.trim() ? { description: model.description.trim() } : {}),
+      ...(model.supportedEffortLevels && model.supportedEffortLevels.length > 0
+        ? {
+            supportedReasoningEfforts: model.supportedEffortLevels.map((value) => ({ value })),
+          }
+        : {}),
+      ...(model.supportsFastMode !== undefined ? { supportsFastMode: model.supportsFastMode } : {}),
+      ...(model.supportsAdaptiveThinking === true ? { supportsThinkingToggle: false } : {}),
+    });
+  }
+
+  return {
+    models: descriptors,
+    source: "claudeAgent",
+    cached: false,
+  };
+}
+
 function neverResolvingUserMessageStream(): AsyncIterable<SDKUserMessage> {
   return {
     [Symbol.asyncIterator](): AsyncIterator<SDKUserMessage> {
@@ -1524,7 +1563,17 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
 
     const sessions = new Map<ThreadId, ClaudeSessionContext>();
     const sessionLifecycleLocks = new Map<ThreadId, Semaphore.Semaphore>();
-    let cachedModels: ProviderListModelsResult | null = null;
+    let cachedModels: {
+      readonly result: ProviderListModelsResult;
+      readonly binaryPath: string;
+      readonly cachedAtMs: number;
+    } | null = null;
+    const findDiscoveredModel = (model: string | null | undefined) =>
+      model ? cachedModels?.result.models.find((candidate) => candidate.slug === model) : undefined;
+    const supportsDiscoveredEffort = (
+      model: ProviderListModelsResult["models"][number] | undefined,
+      effort: string,
+    ) => model?.supportedReasoningEfforts?.some((candidate) => candidate.value === effort) === true;
     let cachedAgents: ProviderListAgentsResult | null = null;
     const runtimeEventQueue = yield* Queue.bounded<ProviderRuntimeEvent>(
       PROVIDER_ADAPTER_RUNTIME_EVENT_BUFFER_CAPACITY,
@@ -4464,14 +4513,21 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         );
         const effectiveClaudeModel = modelSelection?.model ?? getDefaultModel("claudeAgent");
         const caps = getModelCapabilities("claudeAgent", effectiveClaudeModel);
+        const discoveredModel = findDiscoveredModel(effectiveClaudeModel);
         const requestedAutoCompactWindowTokens = resolveSelectedClaudeAutoCompactWindow(
           effectiveClaudeModel,
           requestedAutoCompactWindow,
         );
         const apiModelId = modelSelection ? resolveApiModelId(modelSelection) : undefined;
         const effort =
-          requestedEffort && hasEffortLevel(caps, requestedEffort) ? requestedEffort : null;
-        const fastMode = modelSelection?.options?.fastMode === true && caps.supportsFastMode;
+          requestedEffort &&
+          (hasEffortLevel(caps, requestedEffort) ||
+            supportsDiscoveredEffort(discoveredModel, requestedEffort))
+            ? requestedEffort
+            : null;
+        const fastMode =
+          modelSelection?.options?.fastMode === true &&
+          (discoveredModel?.supportsFastMode ?? caps.supportsFastMode);
         const thinking = resolveSelectedClaudeThinkingToggle(
           effectiveClaudeModel,
           modelSelection?.options?.thinking,
@@ -4596,9 +4652,9 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
               .supportedModels()
               .then((models) => {
                 cachedModels = {
-                  models: models.map((m) => ({ slug: m.value, name: m.displayName })),
-                  source: "sdk",
-                  cached: false,
+                  result: mapSupportedModels(models),
+                  binaryPath: providerOptions?.binaryPath ?? "claude",
+                  cachedAtMs: Date.now(),
                 };
               })
               .catch(() => {
@@ -4903,16 +4959,20 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         // restart upstream (claudeSelectionRequiresRestart) before this runs.
         if (modelSelection) {
           const turnCaps = getModelCapabilities("claudeAgent", modelSelection.model);
+          const discoveredTurnModel = findDiscoveredModel(modelSelection.model);
           const requestedEffortOption = trimOrNull(modelSelection.options?.effort ?? null);
           const validEffort =
-            requestedEffortOption && hasEffortLevel(turnCaps, requestedEffortOption)
+            requestedEffortOption &&
+            (hasEffortLevel(turnCaps, requestedEffortOption) ||
+              supportsDiscoveredEffort(discoveredTurnModel, requestedEffortOption))
               ? requestedEffortOption
               : null;
           const requestedEffort = getEffectiveClaudeCodeEffort(validEffort);
           const requestedUltracode =
             validEffort === "ultracode" && hasEffortLevel(turnCaps, "xhigh");
           const requestedFastMode =
-            modelSelection.options?.fastMode === true && turnCaps.supportsFastMode;
+            modelSelection.options?.fastMode === true &&
+            (discoveredTurnModel?.supportsFastMode ?? turnCaps.supportsFastMode);
           const effortChanged =
             requestedEffort !== context.currentEffort &&
             requestedEffort !== "max" &&
@@ -5364,30 +5424,99 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
       ClaudeAdapterShape["getComposerCapabilities"]
     > = () => Effect.succeed(composerCapabilities);
 
-    const listModels: NonNullable<ClaudeAdapterShape["listModels"]> = (_input) =>
-      Effect.sync(() => {
-        if (cachedModels) {
-          return { ...cachedModels, cached: true };
-        }
-        // Fallback: try to get models from any active session
-        for (const [, context] of sessions) {
-          if (!context.stopped && context.query) {
-            // Trigger async cache population
-            context.query
-              .supportedModels()
-              .then((models) => {
-                cachedModels = {
-                  models: models.map((m) => ({ slug: m.value, name: m.displayName })),
-                  source: "sdk",
-                  cached: false,
-                };
-              })
-              .catch(() => {});
-            break;
+    let pendingModelDiscovery: {
+      readonly binaryPath: string;
+      readonly promise: Promise<ProviderListModelsResult>;
+    } | null = null;
+    const MODEL_DISCOVERY_CACHE_TTL_MS = 60_000;
+
+    async function discoverModelsViaTemporaryProcess(
+      cwd: string,
+      binaryPath: string,
+      env: NodeJS.ProcessEnv,
+    ): Promise<ProviderListModelsResult> {
+      const processOwner: ClaudeProcessOwner = {};
+      const tempQuery = createQuery({
+        prompt: neverResolvingUserMessageStream(),
+        options: {
+          cwd,
+          pathToClaudeCodeExecutable: binaryPath,
+          settingSources: [...CLAUDE_SETTING_SOURCES],
+          permissionMode: "plan" as PermissionMode,
+          persistSession: false,
+          env,
+          spawnClaudeCodeProcess: bindClaudeProcessOwner(processOwner),
+        },
+      });
+
+      try {
+        // Drive the initialization handshake without ever yielding a user
+        // message. supportedModels() is then account- and CLI-version-aware.
+        void (async () => {
+          for await (const message of tempQuery) {
+            void message;
           }
+        })().catch(() => undefined);
+
+        return mapSupportedModels(await tempQuery.supportedModels());
+      } finally {
+        tempQuery.close();
+        await Effect.runPromise(
+          teardownClaudeProcess(ThreadId.makeUnsafe("claude:model-discovery"), processOwner),
+        );
+      }
+    }
+
+    const listModels: NonNullable<ClaudeAdapterShape["listModels"]> = (input) =>
+      Effect.gen(function* () {
+        const binaryPath = input.binaryPath ?? "claude";
+        if (
+          cachedModels &&
+          cachedModels.binaryPath === binaryPath &&
+          Date.now() - cachedModels.cachedAtMs < MODEL_DISCOVERY_CACHE_TTL_MS
+        ) {
+          return { ...cachedModels.result, cached: true };
         }
-        // Return empty while waiting for cache
-        return { models: [], source: "pending", cached: false };
+
+        const claudeSdkEnv = yield* resolveClaudeSdkEnv;
+        const pending =
+          pendingModelDiscovery?.binaryPath === binaryPath
+            ? pendingModelDiscovery.promise
+            : discoverModelsViaTemporaryProcess(
+                input.cwd ?? serverConfig.cwd,
+                binaryPath,
+                claudeSdkEnv,
+              );
+        pendingModelDiscovery = { binaryPath, promise: pending };
+
+        const result = yield* Effect.tryPromise({
+          try: () => pending,
+          catch: (cause) =>
+            new ProviderAdapterProcessError({
+              provider: PROVIDER,
+              threadId: ThreadId.makeUnsafe("discovery"),
+              detail: toMessage(cause, "Failed to discover Claude models."),
+              cause,
+            }),
+        }).pipe(
+          Effect.tap(() =>
+            Effect.sync(() => {
+              pendingModelDiscovery = null;
+            }),
+          ),
+          Effect.tapError(() =>
+            Effect.sync(() => {
+              pendingModelDiscovery = null;
+            }),
+          ),
+        );
+
+        cachedModels = {
+          result,
+          binaryPath,
+          cachedAtMs: Date.now(),
+        };
+        return result;
       });
 
     const listAgents: NonNullable<ClaudeAdapterShape["listAgents"]> = (_input) =>

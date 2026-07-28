@@ -49,6 +49,8 @@ export interface ProviderMaintenanceCapabilityResolutionOptions {
   readonly platform?: NodeJS.Platform;
   readonly realCommandPath?: string | null;
   readonly commandDirectory?: string | null;
+  /** Homebrew formula/cask name verified from its installation receipt. */
+  readonly verifiedHomebrewName?: string | null;
 }
 
 export interface PackageManagedProviderMaintenanceDefinition {
@@ -58,6 +60,7 @@ export interface PackageManagedProviderMaintenanceDefinition {
   readonly homebrew: {
     readonly name: string;
     readonly kind: "formula" | "cask";
+    readonly alternatives?: ReadonlyArray<string>;
   } | null;
   readonly latestVersionSource?: ProviderLatestVersionSource | null;
   readonly nativeUpdate: {
@@ -337,6 +340,7 @@ function makePnpmGlobalProviderMaintenanceCapabilities(
 function makeHomebrewProviderMaintenanceCapabilities(
   definition: PackageManagedProviderMaintenanceDefinition,
   pathPrepend?: string | null,
+  verifiedHomebrewName?: string | null,
 ): ProviderMaintenanceCapabilities {
   if (!definition.homebrew) {
     return makeManualOnlyProviderMaintenanceCapabilities({
@@ -345,15 +349,20 @@ function makeHomebrewProviderMaintenanceCapabilities(
     });
   }
 
+  const homebrewName = nonEmptyString(verifiedHomebrewName) ?? definition.homebrew.name;
   return makeProviderMaintenanceCapabilities({
     provider: definition.provider,
     packageName: null,
-    latestVersionSource: resolveLatestVersionSourceForInstallSource(definition, "homebrew"),
+    latestVersionSource: resolveLatestVersionSourceForInstallSource(
+      definition,
+      "homebrew",
+      homebrewName,
+    ),
     updateExecutable: "brew",
     updateArgs:
       definition.homebrew.kind === "cask"
-        ? ["upgrade", "--cask", definition.homebrew.name]
-        : ["upgrade", definition.homebrew.name],
+        ? ["upgrade", "--cask", homebrewName]
+        : ["upgrade", homebrewName],
     updateLockKey: "homebrew",
     ...(pathPrepend === undefined ? {} : { updatePathPrepend: pathPrepend }),
   });
@@ -362,6 +371,7 @@ function makeHomebrewProviderMaintenanceCapabilities(
 function resolveLatestVersionSourceForInstallSource(
   definition: PackageManagedProviderMaintenanceDefinition,
   installSource: ProviderInstallSource,
+  verifiedHomebrewName?: string | null,
 ): ProviderLatestVersionSource | null {
   if (definition.latestVersionSource) {
     return definition.latestVersionSource;
@@ -369,7 +379,7 @@ function resolveLatestVersionSourceForInstallSource(
   if (installSource === "homebrew" && definition.homebrew) {
     return {
       kind: "homebrew",
-      name: definition.homebrew.name,
+      name: nonEmptyString(verifiedHomebrewName) ?? definition.homebrew.name,
       homebrewKind: definition.homebrew.kind,
     };
   }
@@ -406,6 +416,12 @@ function detectInstallSource(
   if (definition.nativeUpdate?.isCommandPath?.(commandPath)) {
     return "native";
   }
+  // A Homebrew formula may wrap an npm package. The enclosing Cellar or
+  // Caskroom remains the owner even when the canonical executable also
+  // contains a nested `lib/node_modules` segment.
+  if (isHomebrewCommandPath(commandPath)) {
+    return "homebrew";
+  }
   if (isBunGlobalCommandPath(commandPath)) {
     return "bun";
   }
@@ -414,9 +430,6 @@ function detectInstallSource(
   }
   if (isNpmGlobalCommandPath(commandPath)) {
     return "npm";
-  }
-  if (isHomebrewCommandPath(commandPath)) {
-    return "homebrew";
   }
   return "unknown";
 }
@@ -428,8 +441,10 @@ function makeProviderMaintenanceForInstallSource(input: {
   readonly pathPrepend?: string | null;
   /** Path that matched install-source detection, used to pin the install tree. */
   readonly commandPath?: string | null;
+  readonly verifiedHomebrewName?: string | null;
 }): ProviderMaintenanceCapabilities {
-  const { definition, installSource, executable, pathPrepend, commandPath } = input;
+  const { definition, installSource, executable, pathPrepend, commandPath, verifiedHomebrewName } =
+    input;
   if (
     definition.nativeUpdate?.strategy === "always" &&
     !definition.nativeUpdate.excludedInstallSources?.includes(installSource)
@@ -471,7 +486,11 @@ function makeProviderMaintenanceForInstallSource(input: {
     return makeNpmGlobalProviderMaintenanceCapabilities(definition, pathPrepend, commandPath);
   }
   if (installSource === "homebrew") {
-    return makeHomebrewProviderMaintenanceCapabilities(definition, pathPrepend);
+    return makeHomebrewProviderMaintenanceCapabilities(
+      definition,
+      pathPrepend,
+      verifiedHomebrewName,
+    );
   }
   return makeManualOnlyProviderMaintenanceCapabilities({
     provider: definition.provider,
@@ -540,6 +559,9 @@ export function resolvePackageManagedProviderMaintenance(
         installSource,
         executable: binaryPath,
         commandPath,
+        ...(options?.verifiedHomebrewName === undefined
+          ? {}
+          : { verifiedHomebrewName: options.verifiedHomebrewName }),
         ...(options?.commandDirectory === undefined
           ? {}
           : { pathPrepend: options.commandDirectory }),
@@ -552,6 +574,9 @@ export function resolvePackageManagedProviderMaintenance(
       definition,
       installSource: "unknown",
       executable: binaryPath,
+      ...(options?.verifiedHomebrewName === undefined
+        ? {}
+        : { verifiedHomebrewName: options.verifiedHomebrewName }),
       ...(options?.commandDirectory === undefined ? {} : { pathPrepend: options.commandDirectory }),
     });
   }
@@ -562,6 +587,37 @@ export function resolvePackageManagedProviderMaintenance(
   });
 }
 
+function homebrewReceiptPath(commandPath: string): string | null {
+  const normalized = commandPath.replaceAll("\\", "/");
+  const match = normalized.match(/^(.*\/(?:cellar|caskroom)\/[^/]+\/[^/]+)(?:\/|$)/i);
+  return match?.[1] ? `${match[1]}/INSTALL_RECEIPT.json` : null;
+}
+
+export function resolveHomebrewNameFromReceipt(
+  definition: PackageManagedProviderMaintenanceDefinition,
+  receiptText: string,
+): string | null {
+  if (!definition.homebrew) {
+    return null;
+  }
+  try {
+    const receipt = JSON.parse(receiptText) as {
+      source?: { tap?: unknown };
+    };
+    const tap = nonEmptyString(receipt.source?.tap);
+    const formulaName = definition.homebrew.name.split("/").at(-1);
+    if (!tap || !formulaName) {
+      return null;
+    }
+    const resolvedName =
+      tap.toLowerCase() === "homebrew/core" ? formulaName : `${tap}/${formulaName}`;
+    const configuredNames = [definition.homebrew.name, ...(definition.homebrew.alternatives ?? [])];
+    return configuredNames.includes(resolvedName) ? resolvedName : null;
+  } catch {
+    return null;
+  }
+}
+
 export const resolveProviderMaintenanceCapabilitiesEffect = Effect.fn(
   "resolveProviderMaintenanceCapabilitiesEffect",
 )(function* (
@@ -569,14 +625,30 @@ export const resolveProviderMaintenanceCapabilitiesEffect = Effect.fn(
   options?: ProviderMaintenanceCapabilityResolutionOptions,
 ) {
   const binaryPath = nonEmptyString(options?.binaryPath) ?? definition.binaryName;
+  const fileSystem = yield* FileSystem.FileSystem;
   if (hasPathSeparator(binaryPath)) {
-    return resolvePackageManagedProviderMaintenance(definition, options);
+    const realCommandPath = yield* fileSystem
+      .realPath(binaryPath)
+      .pipe(Effect.catch(() => Effect.succeed(binaryPath)));
+    const receiptPath = homebrewReceiptPath(realCommandPath);
+    const verifiedHomebrewName =
+      receiptPath && definition.homebrew
+        ? yield* fileSystem.readFileString(receiptPath).pipe(
+            Effect.map((receiptText) => resolveHomebrewNameFromReceipt(definition, receiptText)),
+            Effect.catch(() => Effect.succeed(null)),
+          )
+        : null;
+    return resolvePackageManagedProviderMaintenance(definition, {
+      ...options,
+      binaryPath,
+      realCommandPath,
+      verifiedHomebrewName,
+    });
   }
 
   const pathEntries = (options?.env?.PATH ?? process.env.PATH ?? "")
     .split(options?.platform === "win32" ? ";" : ":")
     .filter(Boolean);
-  const fileSystem = yield* FileSystem.FileSystem;
   const executableCandidates =
     options?.platform === "win32"
       ? WINDOWS_EXECUTABLE_EXTENSIONS.map((extension) => `${binaryPath}${extension}`)
@@ -591,11 +663,20 @@ export const resolveProviderMaintenanceCapabilitiesEffect = Effect.fn(
       const realCommandPath = yield* fileSystem
         .realPath(candidate)
         .pipe(Effect.catch(() => Effect.succeed(candidate)));
+      const receiptPath = homebrewReceiptPath(realCommandPath);
+      const verifiedHomebrewName =
+        receiptPath && definition.homebrew
+          ? yield* fileSystem.readFileString(receiptPath).pipe(
+              Effect.map((receiptText) => resolveHomebrewNameFromReceipt(definition, receiptText)),
+              Effect.catch(() => Effect.succeed(null)),
+            )
+          : null;
       return resolvePackageManagedProviderMaintenance(definition, {
         ...options,
         binaryPath,
         realCommandPath,
         commandDirectory: entry,
+        verifiedHomebrewName,
       });
     }
   }

@@ -5,7 +5,11 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { writeReleaseArtifactProvenance } from "./release-artifact-provenance.ts";
+import {
+  assertDeveloperIdApplicationIdentity,
+  parseMacIdentity,
+  writeReleaseArtifactProvenance,
+} from "./release-artifact-provenance.ts";
 
 const temporaryRoots: string[] = [];
 
@@ -32,6 +36,30 @@ function createWindowsAssets(): string {
 }
 
 describe("release artifact provenance", () => {
+  it("accepts only the stable Developer ID Application release identity", () => {
+    const releaseIdentity = parseMacIdentity(
+      [
+        "Authority=Developer ID Application: Penkra, Inc. (D239U9W6M6)",
+        "Authority=Developer ID Certification Authority",
+        "Authority=Apple Root CA",
+        "TeamIdentifier=D239U9W6M6",
+      ].join("\n"),
+    );
+    expect(() => assertDeveloperIdApplicationIdentity(releaseIdentity, "D239U9W6M6")).not.toThrow();
+
+    const developmentIdentity = parseMacIdentity(
+      [
+        "Authority=Apple Development: Emmanuel Gyekye Atta-Penkra (W4HHC8PG2J)",
+        "Authority=Apple Worldwide Developer Relations Certification Authority",
+        "Authority=Apple Root CA",
+        "TeamIdentifier=D239U9W6M6",
+      ].join("\n"),
+    );
+    expect(() => assertDeveloperIdApplicationIdentity(developmentIdentity, "D239U9W6M6")).toThrow(
+      "must use a Developer ID Application identity",
+    );
+  });
+
   it("hashes the exact collected Linux assets into a deterministic manifest", async () => {
     const assetsDirectory = createAssets();
     const result = await writeReleaseArtifactProvenance({

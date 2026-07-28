@@ -12,6 +12,7 @@ export const MAC_APPSNAP_HELPER_STAGE_PATH =
   "apps/desktop/native/appsnap/build/synara-appsnap-helper";
 export const MAC_APPSNAP_HELPER_ASAR_EXCLUSION = "!apps/desktop/native/appsnap/build/**";
 export const MAC_APPSNAP_HELPER_BUNDLE_PATH = "Contents/Helpers/synara-appsnap-helper";
+export const MAC_RELEASE_SIGNING_IDENTITY = "Developer ID Application";
 const MAC_DMG_ICON_PATH = "icon.icns";
 export const NODE_PTY_ASAR_UNPACK_GLOBS = ["node_modules/node-pty/**"] as const;
 export const PARCEL_WATCHER_ASAR_UNPACK_GLOBS = [
@@ -62,6 +63,11 @@ export function createDesktopPlatformBuildConfig(
     target: input.target === "dmg" ? [input.target, "zip"] : [input.target],
     icon: MAC_DMG_ICON_PATH,
     category: "public.app-category.developer-tools",
+    // Never let electron-builder silently select a development certificate on a
+    // workstation that has both development and distribution identities installed.
+    // A development-signed update changes the app's designated requirement and can
+    // invalidate macOS privacy grants across relaunches.
+    identity: input.signed === true ? MAC_RELEASE_SIGNING_IDENTITY : null,
     hardenedRuntime: input.signed === true,
     notarize: input.signed === true,
     entitlements: MAC_ENTITLEMENTS_PATH,

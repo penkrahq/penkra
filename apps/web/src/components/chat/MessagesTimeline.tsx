@@ -78,6 +78,7 @@ import {
   EditedFileRowContent,
   prefersCompactWorkEntryRow,
   TimelineWorkEntryRow,
+  workEntryFindText,
 } from "./TimelineWorkEntryRow";
 import {
   hasLeadingUserMedia,
@@ -151,8 +152,18 @@ import {
   type ActiveTrailSnapshot,
   type MessageTrailAnchor,
 } from "./messageTrail.logic";
+import { useOptionalFind } from "../find/FindProvider";
+import {
+  createVirtualTextFindSurface,
+  type VirtualFindEntry,
+} from "../../lib/find/virtualTextFindSurface";
+import { markdownVisibleText } from "../../lib/find/markdownVisibleText";
+import { isFindSurfaceVisible } from "../../lib/find/findVisibility";
 
 const MAX_VISIBLE_INLINE_TOOL_ENTRIES = 4;
+interface TimelineVirtualFindEntry extends VirtualFindEntry {
+  readonly targetSelector: string;
+}
 // Changed-files list in the per-turn card is capped so large turns stay compact;
 // the rest are revealed via an inline "Show more" row.
 const MAX_VISIBLE_CHANGED_FILES = 5;
@@ -448,6 +459,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   emptyStateContent,
   contentInsetRightPx,
 }: MessagesTimelineProps) {
+  const registerFindSurface = useOptionalFind()?.register;
+  const transcriptFindSurfaceId = useId();
   const normalizedChatFontSizePx = normalizeChatFontSizePx(chatFontSizePx);
   // Inset rows from the right (overriding the gutter's right padding) without moving the
   // scroll viewport, so the scrollbar stays pinned to the far right while content clears
@@ -630,6 +643,217 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   useEffect(() => {
     rowsRef.current = rows;
   }, [rows]);
+  const transcriptFindEntriesRef = useRef<readonly TimelineVirtualFindEntry[]>([]);
+  transcriptFindEntriesRef.current = rows.flatMap((row, index): TimelineVirtualFindEntry[] => {
+    if (row.kind === "message") {
+      const sourceText =
+        row.message.role === "assistant"
+          ? resolveAssistantMessageDisplayText(row)
+          : deriveDisplayedUserMessageState(row.message.text).visibleText;
+      const assistantWorkText = (
+        workEntries: readonly WorkLogEntry[],
+        workGroupId: string | null,
+        placement: "leading" | "inline",
+      ): string[] => {
+        const displayEntries = workEntries.filter((entry) => !entry.synaraThreadCreation);
+        const toolEntries = displayEntries.filter((entry) => entry.tone === "tool");
+        const statusEntries = displayEntries.filter((entry) => entry.tone !== "tool");
+        const hasGenericFileChangeEntry = toolEntries.some(
+          (entry) => isFileChangeWorkLogEntry(entry) && (entry.changedFiles?.length ?? 0) === 0,
+        );
+        const orderedRenderableEntries = displayEntries.filter(
+          (entry) =>
+            !(
+              hasGenericFileChangeEntry &&
+              isFileChangeWorkLogEntry(entry) &&
+              (entry.changedFiles?.length ?? 0) === 0
+            ),
+        );
+        const toolGroupId = toolEntries.length > 0 ? workGroupId : null;
+        const toolExpanded =
+          toolGroupId !== null ? (expandedWorkGroupsState[toolGroupId] ?? false) : false;
+        const isLiveGroup =
+          toolGroupId !== null &&
+          toolGroupId === lastLiveWorkGroupId &&
+          (activeTurnInProgress || isWorking);
+        const renderPlan = capOpenWorkEntryRenderChunks(
+          planWorkEntryRenderChunks(orderedRenderableEntries, {
+            tailIsLive: placement === "inline" && isLiveGroup,
+          }),
+          {
+            expanded: toolExpanded,
+            maxVisibleEntries: MAX_VISIBLE_INLINE_TOOL_ENTRIES,
+            keep: activeTurnInProgress ? "last" : "first",
+            shouldCapEntry: (entry) => entry.tone === "tool",
+          },
+        );
+        const toolText = renderPlan.chunks.flatMap((chunk) => {
+          if (!chunk.summary) {
+            return chunk.entries.filter((entry) => entry.tone === "tool").map(workEntryFindText);
+          }
+          const summaryKey = `${placement}:${row.message.id}:${chunk.id}`;
+          return (toolGroupSummaryOverrides[summaryKey] ?? false)
+            ? [chunk.summary.label, ...chunk.entries.map(workEntryFindText)]
+            : [chunk.summary.label];
+        });
+        return [...toolText, ...statusEntries.map(workEntryFindText)];
+      };
+      const hasCollapsedWork = Boolean(
+        row.collapsedTurnItems?.some(
+          (item) => item.kind !== "work" || !item.entry.synaraThreadCreation,
+        ),
+      );
+      const leadingWorkText =
+        row.message.role === "assistant" && !hasCollapsedWork
+          ? assistantWorkText(
+              row.leadingWorkEntries ?? [],
+              row.leadingWorkGroupId ?? null,
+              "leading",
+            )
+          : [];
+      const inlineWorkText =
+        row.message.role === "assistant" && !hasCollapsedWork
+          ? assistantWorkText(row.inlineWorkEntries ?? [], row.inlineWorkGroupId ?? null, "inline")
+          : [];
+      const text = [
+        ...leadingWorkText,
+        sourceText ? markdownVisibleText(sourceText) : "",
+        ...inlineWorkText,
+      ]
+        .filter(Boolean)
+        .join("\n");
+      if (!text) return [];
+      return [
+        {
+          id: row.id,
+          index,
+          text,
+          targetSelector: row.message.role === "assistant" ? "" : "[data-find-primary-text]",
+        },
+      ];
+    }
+    if (row.kind !== "work") return [];
+    const displayEntries = row.groupedEntries.filter((entry) => !entry.synaraThreadCreation);
+    const isLiveGroup = row.id === lastLiveWorkGroupId && (activeTurnInProgress || isWorking);
+    const renderPlan = capOpenWorkEntryRenderChunks(
+      planWorkEntryRenderChunks(displayEntries, { tailIsLive: isLiveGroup }),
+      {
+        expanded: expandedWorkGroupsState[row.id] ?? false,
+        maxVisibleEntries: MAX_VISIBLE_WORK_LOG_ENTRIES,
+        keep: "last",
+      },
+    );
+    const visibleText = renderPlan.chunks
+      .flatMap((chunk) => {
+        if (!chunk.summary) return chunk.entries.map(workEntryFindText);
+        const summaryKey = `${row.id}:${chunk.id}`;
+        return (toolGroupSummaryOverrides[summaryKey] ?? false)
+          ? [chunk.summary.label, ...chunk.entries.map(workEntryFindText)]
+          : [chunk.summary.label];
+      })
+      .filter(Boolean)
+      .join("\n");
+    if (!visibleText) return [];
+    return [
+      {
+        id: row.id,
+        index,
+        text: visibleText,
+        targetSelector: "",
+      },
+    ];
+  });
+  // A new thread initially renders without the timeline root. Track the
+  // empty-to-populated boundary independently of the rows array identity so
+  // the find surface registers as soon as the first row mounts.
+  const hasRenderableTranscriptContent = hasMessages || rows.length > 0;
+  useEffect(() => {
+    if (!registerFindSurface) return;
+    const root = timelineRootRef.current;
+    if (!root) return;
+    const highlightName = "penkra-find-transcript-active";
+    return registerFindSurface(
+      createVirtualTextFindSurface({
+        id: `transcript:${transcriptFindSurfaceId}`,
+        order: 10,
+        // The timeline wrapper uses `display: contents`, so it deliberately has
+        // no layout box of its own. A rendered row is the authoritative signal
+        // that this virtualized transcript belongs to the open view.
+        isVisible: () =>
+          isFindSurfaceVisible(root.querySelector<HTMLElement>("[data-find-row-id]")),
+        getEntries: () => transcriptFindEntriesRef.current,
+        reveal: async (entry) => {
+          await resolvedListRef.current?.scrollToIndex({
+            index: entry.index,
+            animated: false,
+            viewPosition: 0.5,
+          });
+          await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+        },
+        highlight: (rawEntry, query, occurrence) => {
+          const entry = rawEntry as TimelineVirtualFindEntry;
+          const rowSelector = `[data-find-row-id="${CSS.escape(entry.id)}"]`;
+          const element = root.querySelector<HTMLElement>(
+            entry.targetSelector ? `${rowSelector} ${entry.targetSelector}` : rowSelector,
+          );
+          if (!element) return;
+          const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+          const nodes: Text[] = [];
+          let text = "";
+          let node: Node | null;
+          while ((node = walker.nextNode())) {
+            nodes.push(node as Text);
+            text += node.textContent ?? "";
+          }
+          const needle = query.toLocaleLowerCase();
+          let start = 0;
+          for (let index = 0; index <= occurrence; index += 1) {
+            start = text
+              .toLocaleLowerCase()
+              .indexOf(needle, index === 0 ? 0 : start + needle.length);
+            if (start < 0) return;
+          }
+          const end = start + needle.length;
+          let offset = 0;
+          let startNode: Text | null = null;
+          let endNode: Text | null = null;
+          let startOffset = 0;
+          let endOffset = 0;
+          for (const textNode of nodes) {
+            const nextOffset = offset + textNode.data.length;
+            if (!startNode && start >= offset && start < nextOffset) {
+              startNode = textNode;
+              startOffset = start - offset;
+            }
+            if (end > offset && end <= nextOffset) {
+              endNode = textNode;
+              endOffset = end - offset;
+              break;
+            }
+            offset = nextOffset;
+          }
+          if (!startNode || !endNode || !CSS.highlights || !globalThis.Highlight) return;
+          const range = document.createRange();
+          range.setStart(startNode, startOffset);
+          range.setEnd(endNode, endOffset);
+          CSS.highlights.set(highlightName, new Highlight(range));
+          element.scrollIntoView({ behavior: "instant", block: "center", inline: "nearest" });
+        },
+        clearHighlight: () => CSS.highlights?.delete(highlightName),
+      }),
+    );
+  }, [
+    activeTurnInProgress,
+    expandedWorkGroupsState,
+    hasRenderableTranscriptContent,
+    isWorking,
+    lastLiveWorkGroupId,
+    registerFindSurface,
+    resolvedListRef,
+    rows,
+    toolGroupSummaryOverrides,
+    transcriptFindSurfaceId,
+  ]);
   const jumpHighlightTimeoutRef = useRef<number | null>(null);
   const markerFineScrollFrameRef = useRef<number | null>(null);
   // Marker spans currently carrying the deep-link "active" ring, tracked so the decoration can be
@@ -933,6 +1157,12 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         enteringMessageRowIds.has(row.id) ? "chat-message-send-enter" : null,
       )}
       data-timeline-row-kind={row.kind}
+      data-find-row-id={row.id}
+      data-find-model-owned={
+        row.kind === "work" || (row.kind === "message" && row.message.role === "assistant")
+          ? true
+          : undefined
+      }
       data-message-id={row.kind === "message" ? row.message.id : undefined}
       data-message-role={row.kind === "message" ? row.message.role : undefined}
     >
@@ -1192,6 +1422,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                     />
                   ) : showUserText ? (
                     <div
+                      data-find-primary-text
+                      data-find-model-owned
                       className={cn(
                         "w-max max-w-full min-w-0 self-end bg-[var(--app-user-message-background)]",
                         USER_MESSAGE_BUBBLE_RADIUS_CLASS_NAME,
@@ -1654,7 +1886,11 @@ export const MessagesTimeline = memo(function MessagesTimeline({
               <div className="group min-w-0 py-0.5">
                 {renderWorkDisplay(leadingWorkDisplay, "leading")}
                 {messageText !== null ? (
-                  <div data-assistant-message-id={row.message.id}>
+                  <div
+                    data-assistant-message-id={row.message.id}
+                    data-find-primary-text
+                    data-find-model-owned
+                  >
                     <ChatMarkdown
                       text={messageText}
                       cwd={markdownCwd}
@@ -1976,7 +2212,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
 
   // Transient rows (for example failed first-send worktree setup) must be able
   // to render even when there are no persisted chat messages yet.
-  const hasRenderableTranscriptContent = hasMessages || rows.length > 0;
   if (!hasRenderableTranscriptContent && !isWorking) {
     if (emptyStateContent) {
       return <div className="flex h-full items-center justify-center">{emptyStateContent}</div>;

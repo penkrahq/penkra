@@ -6,6 +6,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import type {
   Options as ClaudeQueryOptions,
   HookInput,
+  ModelInfo,
   PermissionMode,
   PermissionResult,
   SDKControlGetContextUsageResponse,
@@ -146,7 +147,7 @@ class FakeClaudeQuery implements AsyncIterable<SDKMessage> {
     return [];
   };
 
-  readonly supportedModels = async (): Promise<[]> => {
+  readonly supportedModels = async (): Promise<ModelInfo[]> => {
     return [];
   };
 
@@ -7068,7 +7069,7 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
 
   it.effect("closes an uninstalled Claude query when post-spawn setup fails", () => {
     const query = new FakeClaudeQuery();
-    (query as { supportedModels: () => Promise<[]> }).supportedModels = () => {
+    (query as { supportedModels: () => Promise<ModelInfo[]> }).supportedModels = () => {
       throw new Error("simulated post-spawn setup failure");
     };
     const layer = makeClaudeAdapterLive({ createQuery: () => query }).pipe(
@@ -7090,6 +7091,65 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
       assert.equal(query.closeCalls, 1);
       assert.equal(yield* adapter.hasSession(THREAD_ID), false);
       assert.equal((yield* adapter.listSessions()).length, 0);
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(layer),
+    );
+  });
+
+  it.effect("discovers canonical future Claude models before a session starts", () => {
+    const query = new FakeClaudeQuery();
+    (query as { supportedModels: () => Promise<ModelInfo[]> }).supportedModels = async () => [
+      {
+        value: "default",
+        resolvedModel: "claude-sonnet-6",
+        displayName: "Default (recommended)",
+        description: "Sonnet 6",
+      },
+      {
+        value: "opus",
+        resolvedModel: "claude-opus-6",
+        displayName: "Opus",
+        description: " Opus 6 ",
+        supportsEffort: true,
+        supportedEffortLevels: ["low", "high", "max"],
+        supportsAdaptiveThinking: true,
+        supportsFastMode: true,
+      },
+    ];
+    const layer = makeClaudeAdapterLive({ createQuery: () => query }).pipe(
+      Layer.provideMerge(ServerConfig.layerTest("/tmp/claude-adapter-test", "/tmp")),
+      Layer.provideMerge(NodeServices.layer),
+    );
+
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const listModels = adapter.listModels;
+      if (!listModels) {
+        throw new Error("Expected Claude adapter to support runtime model listing.");
+      }
+      const result = yield* listModels({
+        provider: "claudeAgent",
+        binaryPath: "/custom/claude",
+        cwd: "/tmp/claude-model-discovery",
+      });
+
+      assert.deepEqual(result, {
+        models: [
+          {
+            slug: "claude-opus-6",
+            name: "Opus",
+            description: "Opus 6",
+            supportedReasoningEfforts: [{ value: "low" }, { value: "high" }, { value: "max" }],
+            supportsFastMode: true,
+            supportsThinkingToggle: false,
+          },
+        ],
+        source: "claudeAgent",
+        cached: false,
+      });
+      assert.equal(query.closeCalls, 1);
+      assert.equal(yield* adapter.hasSession(THREAD_ID), false);
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
       Effect.provide(layer),

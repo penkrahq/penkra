@@ -216,6 +216,7 @@ import {
   shouldShowDesktopUpdateButton,
   shouldToastDesktopUpdateActionResult,
 } from "./desktopUpdate.logic";
+import { subscribeToDesktopUpdateState } from "./desktopUpdate.subscription";
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "./ui/alert";
 import { Button } from "./ui/button";
 import { DisclosureChevron } from "./ui/DisclosureChevron";
@@ -1440,7 +1441,12 @@ export default function Sidebar() {
   const sidebarThreads = useStore(selectSidebarThreads);
   const sidebarTreeThreads = useStore(selectSidebarTreeThreads);
   const studioProjectIdSet = useMemo(
-    () => collectStudioProjectIds(projects, { homeDir, chatWorkspaceRoot, studioWorkspaceRoot }),
+    () =>
+      collectStudioProjectIds(projects, {
+        homeDir,
+        chatWorkspaceRoot,
+        studioWorkspaceRoot,
+      }),
     [chatWorkspaceRoot, homeDir, projects, studioWorkspaceRoot],
   );
   const { nonStudioThreads: nonStudioSidebarThreads, studioThreads: studioSidebarThreads } =
@@ -1620,7 +1626,11 @@ export default function Sidebar() {
   const ordinarySpaceProjects = useMemo(
     () =>
       projects.filter((project) =>
-        isOrdinarySpaceProject(project, { homeDir, chatWorkspaceRoot, studioWorkspaceRoot }),
+        isOrdinarySpaceProject(project, {
+          homeDir,
+          chatWorkspaceRoot,
+          studioWorkspaceRoot,
+        }),
       ),
     [chatWorkspaceRoot, homeDir, projects, studioWorkspaceRoot],
   );
@@ -2563,7 +2573,9 @@ export default function Sidebar() {
     if (!primaryNewThreadTarget) {
       return;
     }
-    prefetchModelsForProjectNewThread(primaryNewThreadTarget.projectId, { includeDroid: true });
+    prefetchModelsForProjectNewThread(primaryNewThreadTarget.projectId, {
+      includeDroid: true,
+    });
   }, [prefetchModelsForProjectNewThread, primaryNewThreadTarget]);
 
   useEffect(() => {
@@ -2575,7 +2587,9 @@ export default function Sidebar() {
 
   const handlePrimaryNewThread = useCallback(() => {
     if (primaryNewThreadTarget) {
-      prefetchModelsForProjectNewThread(primaryNewThreadTarget.projectId, { includeDroid: true });
+      prefetchModelsForProjectNewThread(primaryNewThreadTarget.projectId, {
+        includeDroid: true,
+      });
       void handleNewThread(primaryNewThreadTarget.projectId, {
         envMode: resolveSidebarNewThreadEnvMode({
           defaultEnvMode: appSettings.defaultThreadEnvMode,
@@ -3076,7 +3090,10 @@ export default function Sidebar() {
       const successfullyDeletedIds: ThreadId[] = [];
       const runDeletes = async (): Promise<void> => {
         for (const id of ids) {
-          await deleteThread(id, { deletedThreadIds: deletedIds, reconcileDeletedThread: false });
+          await deleteThread(id, {
+            deletedThreadIds: deletedIds,
+            reconcileDeletedThread: false,
+          });
           successfullyDeletedIds.push(id);
         }
       };
@@ -3220,7 +3237,9 @@ export default function Sidebar() {
     (tabIndex: number) => {
       const command = spaceJumpCommandForIndex(tabIndex);
       if (!command) return null;
-      return shortcutLabelForCommand(keybindings, command, { platform: navigator.platform });
+      return shortcutLabelForCommand(keybindings, command, {
+        platform: navigator.platform,
+      });
     },
     [keybindings],
   );
@@ -3466,7 +3485,11 @@ export default function Sidebar() {
   const studioProjects = useMemo(
     () =>
       sortedProjects.filter((project) =>
-        isStudioContainerProject(project, { homeDir, chatWorkspaceRoot, studioWorkspaceRoot }),
+        isStudioContainerProject(project, {
+          homeDir,
+          chatWorkspaceRoot,
+          studioWorkspaceRoot,
+        }),
       ),
     [chatWorkspaceRoot, homeDir, sortedProjects, studioWorkspaceRoot],
   );
@@ -3567,7 +3590,11 @@ export default function Sidebar() {
   const allStandardProjectsBase = useMemo(
     () =>
       sortedProjects.filter((project) =>
-        isOrdinarySpaceProject(project, { homeDir, chatWorkspaceRoot, studioWorkspaceRoot }),
+        isOrdinarySpaceProject(project, {
+          homeDir,
+          chatWorkspaceRoot,
+          studioWorkspaceRoot,
+        }),
       ),
     [chatWorkspaceRoot, homeDir, sortedProjects, studioWorkspaceRoot],
   );
@@ -4622,11 +4649,33 @@ export default function Sidebar() {
                 });
               }}
             >
-              <SidebarLeadingIcon
-                size="sm"
-                tone={SIDEBAR_ROW_LABEL_TEXT_CLASS_NAME}
-                className={projectFolderIconClassName}
-              />
+              {project.id !== "penkra-hq" && !isProjectPinned ? (
+                <button
+                  type="button"
+                  aria-label={`Open ${project.name} profile`}
+                  title={`Open ${project.name} profile`}
+                  className="relative inline-flex size-4 shrink-0 items-center justify-center rounded-full focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    if (routeThreadId) {
+                      openRightDockPane(routeThreadId, {
+                        kind: "profile",
+                        profileProjectId: project.id,
+                      });
+                    }
+                  }}
+                >
+                  <ProjectSidebarIcon cwd={project.cwd} expanded={project.expanded} />
+                </button>
+              ) : (
+                <SidebarLeadingIcon
+                  size="sm"
+                  tone={SIDEBAR_ROW_LABEL_TEXT_CLASS_NAME}
+                  className={projectFolderIconClassName}
+                />
+              )}
               <div
                 className={cn(
                   "flex min-w-0 flex-1 items-center gap-2 overflow-hidden transition-[padding] duration-150 ease-out",
@@ -4669,27 +4718,6 @@ export default function Sidebar() {
                 </span>
               ) : null}
             </SidebarMenuButton>
-            {project.id !== "penkra-hq" && !isProjectPinned ? (
-              <button
-                type="button"
-                aria-label={`Open ${project.name} profile`}
-                title={`Open ${project.name} profile`}
-                className="absolute left-2 top-1/2 z-20 size-4 -translate-y-1/2 rounded-full focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
-                onPointerDown={(event) => event.stopPropagation()}
-                onClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  if (routeThreadId) {
-                    openRightDockPane(routeThreadId, {
-                      kind: "profile",
-                      profileProjectId: project.id,
-                    });
-                  }
-                }}
-              >
-                <ProjectSidebarIcon cwd={project.cwd} expanded={project.expanded} />
-              </button>
-            ) : null}
             <button
               type="button"
               aria-label={pinActionLabel(project.name, isProjectPinned)}
@@ -4727,7 +4755,11 @@ export default function Sidebar() {
                   // row there opens the right-dock detail panel) instead of leaving for GitHub.
                   void navigate({
                     to: "/pull-requests",
-                    search: { involvement: "all", state: "open", projectId: project.id },
+                    search: {
+                      involvement: "all",
+                      state: "open",
+                      projectId: project.id,
+                    },
                   });
                 }}
               />
@@ -4774,15 +4806,21 @@ export default function Sidebar() {
                 tooltipSide="top"
                 data-testid="new-thread-button"
                 onMouseEnter={() => {
-                  prefetchModelsForProjectNewThread(project.id, { includeDroid: true });
+                  prefetchModelsForProjectNewThread(project.id, {
+                    includeDroid: true,
+                  });
                 }}
                 onFocus={() => {
-                  prefetchModelsForProjectNewThread(project.id, { includeDroid: true });
+                  prefetchModelsForProjectNewThread(project.id, {
+                    includeDroid: true,
+                  });
                 }}
                 onClick={(event) => {
                   event.preventDefault();
                   event.stopPropagation();
-                  prefetchModelsForProjectNewThread(project.id, { includeDroid: true });
+                  prefetchModelsForProjectNewThread(project.id, {
+                    includeDroid: true,
+                  });
                   void handleNewThread(project.id, {
                     envMode: resolveSidebarNewThreadEnvMode({
                       defaultEnvMode: appSettings.defaultThreadEnvMode,
@@ -5109,26 +5147,7 @@ export default function Sidebar() {
       return;
     }
 
-    let disposed = false;
-    let receivedSubscriptionUpdate = false;
-    const unsubscribe = bridge.onUpdateState((nextState) => {
-      if (disposed) return;
-      receivedSubscriptionUpdate = true;
-      setDesktopUpdateState(nextState);
-    });
-
-    void bridge
-      .getUpdateState()
-      .then((nextState) => {
-        if (disposed || receivedSubscriptionUpdate) return;
-        setDesktopUpdateState(nextState);
-      })
-      .catch(() => undefined);
-
-    return () => {
-      disposed = true;
-      unsubscribe();
-    };
+    return subscribeToDesktopUpdateState(bridge, setDesktopUpdateState);
   }, []);
 
   // Single entry point for update error toasts. Attaches the manual-download
@@ -5994,7 +6013,9 @@ export default function Sidebar() {
                         projectSortOrder={appSettings.sidebarProjectSortOrder}
                         threadSortOrder={appSettings.sidebarThreadSortOrder}
                         onProjectSortOrderChange={(sortOrder) => {
-                          updateSettings({ sidebarProjectSortOrder: sortOrder });
+                          updateSettings({
+                            sidebarProjectSortOrder: sortOrder,
+                          });
                         }}
                         onThreadSortOrderChange={(sortOrder) => {
                           updateSettings({ sidebarThreadSortOrder: sortOrder });

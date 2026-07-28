@@ -10,7 +10,6 @@ import type {
   ServerVoiceTranscriptionInput,
   ServerVoiceTranscriptionResult,
 } from "@synara/contracts";
-import { SERVER_VOICE_TRANSCRIPTION_MAX_AUDIO_BYTES } from "@synara/contracts";
 import {
   CHATGPT_VOICE_TRANSCRIPTION_URL,
   requestChatGptVoiceTranscription,
@@ -21,61 +20,8 @@ import {
   type OutboundHttpResponse,
 } from "@synara/shared/outboundHttp";
 import { prepareWindowsSafeProcess } from "@synara/shared/windowsProcess";
+import { decodeVoiceTranscriptionAudio } from "@synara/shared/voiceTranscriptionAudio";
 import { SERVER_TRANSCRIBE_VOICE_CHANNEL } from "./ipcChannels";
-
-const MAX_VOICE_DURATION_MS = 120_000;
-
-// --- Input validation ------------------------------------------------------
-
-function normalizeVoiceBase64(value: string): string | null {
-  const normalized = value.trim().replace(/\s+/g, "");
-  return normalized.length > 0 ? normalized : null;
-}
-
-function isLikelyVoiceBase64(value: string): boolean {
-  return /^[A-Za-z0-9+/]+={0,2}$/.test(value);
-}
-
-function isLikelyWavBuffer(buffer: Buffer): boolean {
-  return (
-    buffer.length >= 12 &&
-    buffer.toString("ascii", 0, 4) === "RIFF" &&
-    buffer.toString("ascii", 8, 12) === "WAVE"
-  );
-}
-
-function decodeDesktopVoiceAudio(input: ServerVoiceTranscriptionInput): Buffer {
-  if (input.mimeType !== "audio/wav") {
-    throw new Error("Only WAV audio is supported for voice transcription.");
-  }
-  if (input.sampleRateHz !== 24_000) {
-    throw new Error("Voice transcription requires 24 kHz mono WAV audio.");
-  }
-  if (input.durationMs <= 0) {
-    throw new Error("Voice messages must include a positive duration.");
-  }
-  if (input.durationMs > MAX_VOICE_DURATION_MS) {
-    throw new Error("Voice messages are limited to 120 seconds.");
-  }
-
-  const normalizedBase64 = normalizeVoiceBase64(input.audioBase64);
-  if (!normalizedBase64 || !isLikelyVoiceBase64(normalizedBase64)) {
-    throw new Error("The recorded audio could not be decoded.");
-  }
-
-  const audioBuffer = Buffer.from(normalizedBase64, "base64");
-  if (!audioBuffer.length || audioBuffer.toString("base64") !== normalizedBase64) {
-    throw new Error("The recorded audio could not be decoded.");
-  }
-  if (audioBuffer.length > SERVER_VOICE_TRANSCRIPTION_MAX_AUDIO_BYTES) {
-    throw new Error("Voice messages are limited to 10 MB.");
-  }
-  if (!isLikelyWavBuffer(audioBuffer)) {
-    throw new Error("The recorded audio is not a valid WAV file.");
-  }
-
-  return audioBuffer;
-}
 
 function readNonEmptyString(value: unknown): string | null {
   const normalized = typeof value === "string" ? value.trim() : "";
@@ -248,7 +194,7 @@ function readVoiceResponseErrorMessage(statusCode: number, body: string): string
 async function transcribeVoiceViaDesktopBridge(
   input: ServerVoiceTranscriptionInput,
 ): Promise<ServerVoiceTranscriptionResult> {
-  const audioBuffer = decodeDesktopVoiceAudio(input);
+  const audioBuffer = decodeVoiceTranscriptionAudio(input);
   const auth = await resolveDesktopVoiceAuth(input.cwd?.trim() || process.cwd());
   const response = await requestDesktopVoiceTranscription({
     audioBuffer,

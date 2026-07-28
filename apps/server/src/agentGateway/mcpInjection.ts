@@ -228,7 +228,7 @@ export interface AcpInitializeCapabilitiesView {
 }
 
 /**
- * Build the `mcpServers` entries for an ACP `session/new` / `session/load`
+ * Build the `mcpServers` entries for an ACP `session/new` / `session/resume`
  * payload. Prefers the HTTP transport when the agent advertises support and
  * falls back to the stdio->HTTP proxy script otherwise (stdio is the ACP
  * baseline every agent must accept).

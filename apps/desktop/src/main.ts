@@ -110,6 +110,7 @@ import {
   shouldCheckForUpdatesOnForeground,
 } from "./updateState";
 import { registerDesktopVoiceTranscriptionHandler } from "./voiceTranscription";
+import { PENKRA_VOICE_QA_WAV_ENV, resolveVoiceQaAudioInput } from "./voiceQaAudioInput";
 import {
   resolveDesktopMenuAccelerator,
   resolveKeyboardShortcutsMenuAccelerator,
@@ -3394,8 +3395,9 @@ function createWindow(): BrowserWindow {
       nodeIntegration: false,
       sandbox: true,
       webviewTag: true,
-      // Let Chromium throttle renderer timers/rAF when the window is hidden.
-      backgroundThrottling: true,
+      // Fake-mic QA must keep consuming its real-time fixture while automation
+      // inspects other processes. Normal desktop windows retain power-saving.
+      backgroundThrottling: !voiceQaAudioInput,
     },
   });
   browserManager.setWindow(window);
@@ -3581,6 +3583,9 @@ function configureMediaPermissions(): void {
 
     targetSession.setPermissionCheckHandler((_webContents, permission) => {
       if (permission === "media") {
+        if (voiceQaAudioInput) {
+          return true;
+        }
         return process.platform === "darwin"
           ? systemPreferences.getMediaAccessStatus("microphone") === "granted"
           : false;
@@ -3591,6 +3596,11 @@ function configureMediaPermissions(): void {
     targetSession.setPermissionRequestHandler((_webContents, permission, callback, details) => {
       if (permission !== "media" || !shouldAllowMediaPermissionRequest(details)) {
         callback(false);
+        return;
+      }
+
+      if (voiceQaAudioInput) {
+        callback(true);
         return;
       }
 
@@ -3617,6 +3627,17 @@ function configureMediaPermissions(): void {
 // Must be called synchronously at the top level — before `app.whenReady()`.
 if (hasSingleInstanceLock) {
   repairBrowserProfileBeforeElectronReady(userDataPath);
+}
+
+const voiceQaAudioInput = resolveVoiceQaAudioInput(process.env[PENKRA_VOICE_QA_WAV_ENV]);
+if (voiceQaAudioInput) {
+  // Chromium's out-of-process audio service cannot read arbitrary fixture
+  // paths inside its sandbox. This switch is reachable only through the
+  // explicit on-demand QA environment variable.
+  app.commandLine.appendSwitch("no-sandbox");
+  app.commandLine.appendSwitch("use-fake-device-for-media-stream");
+  app.commandLine.appendSwitch("use-fake-ui-for-media-stream");
+  app.commandLine.appendSwitch("use-file-for-fake-audio-capture", voiceQaAudioInput);
 }
 
 configureAppIdentity();

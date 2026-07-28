@@ -19,6 +19,8 @@ import type {
   BrowserCopyLinkEvent,
   BrowserDetachWebviewInput,
   BrowserExecuteCdpInput,
+  BrowserFindInPageInput,
+  BrowserFindInPageResult,
   BrowserNavigateInput,
   BrowserNewTabInput,
   BrowserOpenInput,
@@ -977,6 +979,48 @@ export class DesktopBrowserManager {
       throw new Error("Couldn't copy a browser screenshot to the clipboard.");
     }
     clipboard.writeImage(image);
+  }
+
+  // Uses Chromium's native find engine so page semantics, match ordering, selection,
+  // scrolling, and dynamically rendered page text match the browser itself.
+  async findInPage(input: BrowserFindInPageInput): Promise<BrowserFindInPageResult> {
+    const runtime = this.runtimes.get(buildRuntimeKey(input.threadId, input.tabId));
+    if (!runtime) return { activeMatchOrdinal: 0, matches: 0 };
+    const webContents = runtime.webContents;
+    return await new Promise((resolve) => {
+      let requestId = -1;
+      let settled = false;
+      const timeout = setTimeout(() => finish({ activeMatchOrdinal: 0, matches: 0 }), 2_000);
+      const finish = (result: BrowserFindInPageResult) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        webContents.removeListener("found-in-page", onFound);
+        webContents.removeListener("destroyed", onDestroyed);
+        resolve(result);
+      };
+      const onDestroyed = () => finish({ activeMatchOrdinal: 0, matches: 0 });
+      const onFound = (_event: Electron.Event, result: Electron.FoundInPageResult) => {
+        if (result.requestId !== requestId || !result.finalUpdate) return;
+        finish({
+          activeMatchOrdinal: result.activeMatchOrdinal,
+          matches: result.matches,
+        });
+      };
+      webContents.on("found-in-page", onFound);
+      webContents.once("destroyed", onDestroyed);
+      requestId = webContents.findInPage(input.text, {
+        forward: input.action !== "previous",
+        findNext: input.action !== "search",
+        matchCase: false,
+      });
+    });
+  }
+
+  stopFindInPage(input: BrowserTabInput): void {
+    this.runtimes
+      .get(buildRuntimeKey(input.threadId, input.tabId))
+      ?.webContents.stopFindInPage("clearSelection");
   }
 
   // Runs a Chrome DevTools Protocol command against the requested tab so higher-level

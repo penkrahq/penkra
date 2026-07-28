@@ -156,6 +156,8 @@ contextBridge.exposeInMainWorld("desktopBridge", {
       ipcRenderer.invoke(IPC.browser.copyScreenshotToClipboard, input),
     captureScreenshot: (input) => ipcRenderer.invoke(IPC.browser.captureScreenshot, input),
     executeCdp: (input) => ipcRenderer.invoke(IPC.browser.executeCdp, input),
+    findInPage: (input) => ipcRenderer.invoke(IPC.browser.findInPage, input),
+    stopFindInPage: (input) => ipcRenderer.invoke(IPC.browser.stopFindInPage, input),
     navigate: (input) => ipcRenderer.invoke(IPC.browser.navigate, input),
     reload: (input) => ipcRenderer.invoke(IPC.browser.reload, input),
     goBack: (input) => ipcRenderer.invoke(IPC.browser.goBack, input),

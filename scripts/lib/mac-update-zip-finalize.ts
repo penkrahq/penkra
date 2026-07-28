@@ -125,12 +125,31 @@ function assertMacZipFrameworkSymlinks(zipPath: string): string {
   return appBundleName;
 }
 
+export function assertDeveloperIdApplicationSignature(output: string): void {
+  const leafAuthority = /^Authority=(.+)$/m.exec(output)?.[1]?.trim() ?? "";
+  if (!leafAuthority.startsWith("Developer ID Application:")) {
+    throw new Error(
+      `macOS release app must use Developer ID Application signing; received ${leafAuthority || "no signing authority"}.`,
+    );
+  }
+}
+
 function verifyMacAppSignature(appBundlePath: string, requireSignature: boolean): void {
   const codeResourcesPath = join(appBundlePath, "Contents", "_CodeSignature", "CodeResources");
   if (!requireSignature && !existsSync(codeResourcesPath)) {
     return;
   }
   runTextCommand("codesign", ["--verify", "--deep", "--strict", "--verbose=4", appBundlePath]);
+  if (requireSignature) {
+    const result = spawnSync("codesign", ["-d", "--verbose=4", appBundlePath], {
+      encoding: "utf8",
+      maxBuffer: COMMAND_OUTPUT_MAX_BUFFER_BYTES,
+    });
+    if (result.status !== 0) {
+      throw new Error(`Could not inspect macOS app signing identity: ${result.stderr.trim()}`);
+    }
+    assertDeveloperIdApplicationSignature(`${result.stdout}\n${result.stderr}`);
+  }
 }
 
 // Recreates the update zip with macOS-native metadata, then validates the same

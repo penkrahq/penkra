@@ -4,17 +4,13 @@
 // Exports: transcribeVoiceWithChatGptSession
 // Depends on: ChatGPT session auth supplied by Codex app-server callers.
 
-import { Buffer } from "node:buffer";
-
 import type {
   ServerVoiceTranscriptionInput,
   ServerVoiceTranscriptionResult,
 } from "@synara/contracts";
-import { SERVER_VOICE_TRANSCRIPTION_MAX_AUDIO_BYTES } from "@synara/contracts";
 import { requestChatGptVoiceTranscription } from "@synara/shared/chatGptVoiceTranscription";
 import { decodeOutboundJson, type OutboundHttpResponse } from "@synara/shared/outboundHttp";
-
-const MAX_DURATION_MS = 120_000;
+import { decodeVoiceTranscriptionAudio } from "@synara/shared/voiceTranscriptionAudio";
 
 export interface ChatGptVoiceAuthContext {
   readonly token: string;
@@ -27,7 +23,7 @@ export async function transcribeVoiceWithChatGptSession(input: {
   readonly resolveAuth: (refreshToken: boolean) => Promise<ChatGptVoiceAuthContext>;
   readonly signal?: AbortSignal;
 }): Promise<ServerVoiceTranscriptionResult> {
-  const audioBuffer = decodeVoiceAudio(input.request);
+  const audioBuffer = decodeVoiceTranscriptionAudio(input.request);
   let auth = await input.resolveAuth(false);
   let response = await requestTranscription({
     audioBuffer,
@@ -69,42 +65,8 @@ export async function transcribeVoiceWithChatGptSession(input: {
   return { text };
 }
 
-// Keep the server-side contract strict so the private backend only sees normalized clips.
-function decodeVoiceAudio(input: ServerVoiceTranscriptionInput): Buffer {
-  if (input.mimeType !== "audio/wav") {
-    throw new Error("Only WAV audio is supported for voice transcription.");
-  }
-  if (input.sampleRateHz !== 24_000) {
-    throw new Error("Voice transcription requires 24 kHz mono WAV audio.");
-  }
-  if (input.durationMs <= 0) {
-    throw new Error("Voice messages must include a positive duration.");
-  }
-  if (input.durationMs > MAX_DURATION_MS) {
-    throw new Error("Voice messages are limited to 120 seconds.");
-  }
-
-  const normalizedBase64 = normalizeBase64(input.audioBase64);
-  if (!normalizedBase64 || !isLikelyBase64(normalizedBase64)) {
-    throw new Error("The recorded audio could not be decoded.");
-  }
-
-  const audioBuffer = Buffer.from(normalizedBase64, "base64");
-  if (!audioBuffer.length || audioBuffer.toString("base64") !== normalizedBase64) {
-    throw new Error("The recorded audio could not be decoded.");
-  }
-  if (audioBuffer.length > SERVER_VOICE_TRANSCRIPTION_MAX_AUDIO_BYTES) {
-    throw new Error("Voice messages are limited to 10 MB.");
-  }
-  if (!isLikelyWavBuffer(audioBuffer)) {
-    throw new Error("The recorded audio is not a valid WAV file.");
-  }
-
-  return audioBuffer;
-}
-
 async function requestTranscription(input: {
-  readonly audioBuffer: Buffer;
+  readonly audioBuffer: Uint8Array;
   readonly mimeType: string;
   readonly token: string;
   readonly transcriptionUrl?: string;
@@ -140,23 +102,6 @@ function readTranscriptionErrorMessage(response: OutboundHttpResponse): string {
   }
 
   return errorMessage;
-}
-
-function normalizeBase64(value: string): string | null {
-  const normalized = value.trim().replace(/\s+/g, "");
-  return normalized.length > 0 ? normalized : null;
-}
-
-function isLikelyBase64(value: string): boolean {
-  return /^[A-Za-z0-9+/]+={0,2}$/.test(value);
-}
-
-function isLikelyWavBuffer(buffer: Buffer): boolean {
-  return (
-    buffer.length >= 12 &&
-    buffer.toString("ascii", 0, 4) === "RIFF" &&
-    buffer.toString("ascii", 8, 12) === "WAVE"
-  );
 }
 
 function readString(value: unknown): string | null {

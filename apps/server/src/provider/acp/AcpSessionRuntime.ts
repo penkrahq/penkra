@@ -110,7 +110,7 @@ export interface AcpSessionRuntimeOptions {
   readonly penkraThreadId?: string;
   readonly resumeSessionId?: string;
   readonly clientCapabilities?: Acp.InitializeRequest["clientCapabilities"];
-  /** Provider-specific metadata sent on session/new, session/load, and session/resume. */
+  /** Provider-specific metadata sent on session/new and session/resume. */
   readonly sessionMeta?: Record<string, unknown>;
   readonly clientInfo: {
     readonly name: string;
@@ -148,13 +148,9 @@ export interface AcpSessionRequestLogEvent {
 export interface AcpSessionRuntimeStartResult {
   readonly sessionId: string;
   readonly initializeResult: Acp.InitializeResponse;
-  readonly sessionSetupResult:
-    | Acp.LoadSessionResponse
-    | Acp.NewSessionResponse
-    | Acp.ResumeSessionResponse;
+  readonly sessionSetupResult: Acp.NewSessionResponse | Acp.ResumeSessionResponse;
   readonly modelConfigId: string | undefined;
-  /** `session/resume` does not replay transcript updates; `session/load` may. */
-  readonly sessionSetupMethod: "new" | "load" | "resume";
+  readonly sessionSetupMethod: "new" | "resume";
 }
 
 export interface AcpSessionRuntimeShape {
@@ -522,10 +518,6 @@ const makeOfficialSdkClient = Effect.fnUntraced(function* (
       logout: (payload: Acp.LogoutRequest) => request(Acp.methods.agent.logout, payload),
       createSession: (payload: Acp.NewSessionRequest) =>
         request(Acp.methods.agent.session.new, payload),
-      loadSession: (payload: Acp.LoadSessionRequest) =>
-        request(Acp.methods.agent.session.load, payload).pipe(
-          Effect.map((response) => response ?? {}),
-        ),
       listSessions: (payload: Acp.ListSessionsRequest) =>
         request(Acp.methods.agent.session.list, payload),
       forkSession: (payload: Acp.ForkSessionRequest) =>
@@ -629,13 +621,6 @@ const makeAcpSessionRuntime = (
       [],
     );
     const startStateRef = yield* Ref.make<AcpStartState>({ _tag: "NotStarted" });
-    // session/load can replay a large history before the consumer attaches; drop
-    // those notifications so they never accumulate in the unbounded queue. For
-    // resumed sessions the gate stays closed past start() and only opens once the
-    // adapter attaches a consumer via getEvents(), because the agent may keep
-    // replaying after replying to session/load. Plain mutable state (not a Ref)
-    // so getEvents() can open the gate synchronously at attach time.
-    let acceptingSessionUpdates = false;
     // Counts every parsed event offered into eventQueue (see
     // sessionUpdatesEnqueuedCount on the shape). Plain mutable state: single
     // writer per offer, and readers only need a monotonic snapshot.
@@ -757,12 +742,6 @@ const makeAcpSessionRuntime = (
               )
             : Effect.void;
         const rememberBoundedState = rememberCommands.pipe(Effect.andThen(rememberConfigOptions));
-        if (!acceptingSessionUpdates) {
-          // Command and configuration inventories are bounded state, not
-          // transcript replay; retain them even while historical session
-          // updates are being suppressed.
-          return rememberBoundedState;
-        }
         return rememberBoundedState.pipe(
           Effect.andThen(
             handleSessionUpdate({
@@ -855,7 +834,6 @@ const makeAcpSessionRuntime = (
     const updateConfigOptions = (
       response:
         | Acp.SetSessionConfigOptionResponse
-        | Acp.LoadSessionResponse
         | Acp.NewSessionResponse
         | Acp.ResumeSessionResponse,
     ): Effect.Effect<void> => Ref.set(configOptionsRef, sessionConfigOptionsFromSetup(response));
@@ -989,11 +967,7 @@ const makeAcpSessionRuntime = (
       const mcpServers = options.buildMcpServers?.(initializeResult) ?? [];
 
       let sessionId: string;
-      let sessionSetupResult:
-        | Acp.LoadSessionResponse
-        | Acp.NewSessionResponse
-        | Acp.ResumeSessionResponse;
-      let resumedExistingSession = false;
+      let sessionSetupResult: Acp.NewSessionResponse | Acp.ResumeSessionResponse;
       let sessionSetupMethod: AcpSessionRuntimeStartResult["sessionSetupMethod"] = "new";
       if (options.resumeSessionId) {
         const resumePayload = {
@@ -1004,43 +978,24 @@ const makeAcpSessionRuntime = (
         } satisfies Acp.ResumeSessionRequest;
         const supportsResume =
           initializeResult.agentCapabilities?.sessionCapabilities?.resume != null;
-        const supportsLoad = initializeResult.agentCapabilities?.loadSession === true;
-        if (!supportsResume && !supportsLoad) {
+        if (!supportsResume) {
           return yield* new AcpErrors.AcpRequestError({
             code: -32601,
             errorMessage:
-              "ACP agent cannot reopen the requested session because it advertises neither session/resume nor session/load.",
+              "This ACP agent version cannot reopen Penkra sessions because it does not advertise session/resume. Update the provider to a version that supports no-replay resume.",
           });
         }
-        const resumed = yield* supportsResume
-          ? runLoggedRequest(
-              "session/resume",
-              resumePayload,
-              acp.agent.resumeSession(resumePayload),
-            )
-          : (() => {
-              const loadPayload = {
-                sessionId: options.resumeSessionId,
-                cwd: options.cwd,
-                mcpServers,
-                ...(options.sessionMeta ? { _meta: options.sessionMeta } : {}),
-              } satisfies Acp.LoadSessionRequest;
-              return runLoggedRequest(
-                "session/load",
-                loadPayload,
-                acp.agent.loadSession(loadPayload),
-              );
-            })();
-        // Resume/load failure is terminal. Retrying as session/new would create a second
+        const resumed = yield* runLoggedRequest(
+          "session/resume",
+          resumePayload,
+          acp.agent.resumeSession(resumePayload),
+        );
+        // Resume failure is terminal. Retrying as session/new would create a second
         // conversation and make delivery outcome ambiguous.
         sessionId = options.resumeSessionId;
         sessionSetupResult = resumed;
-        resumedExistingSession = true;
-        sessionSetupMethod = supportsResume ? "resume" : "load";
+        sessionSetupMethod = "resume";
       } else {
-        // Fresh session: accept updates from before session/new so any early
-        // agent output emitted while the request is in flight is buffered.
-        acceptingSessionUpdates = true;
         const createPayload = {
           cwd: options.cwd,
           mcpServers,
@@ -1060,15 +1015,6 @@ const makeAcpSessionRuntime = (
       yield* Ref.update(configOptionsRef, (current) =>
         sessionConfigOptionsFromSetup(sessionSetupResult, current),
       );
-      // Fresh sessions accept session/update while session/new is in flight, and
-      // those events are already in the queue; resetting the merge/segment state
-      // they created would orphan their continuations (new segment ids, unmerged
-      // tool updates). Only the resumed replay-dropping path starts clean.
-      if (resumedExistingSession) {
-        yield* Ref.set(toolCallsRef, new Map());
-        yield* Ref.set(assistantSegmentRef, { nextSegmentIndex: 0 });
-      }
-
       const nextState = {
         sessionId,
         initializeResult,
@@ -1124,13 +1070,7 @@ const makeAcpSessionRuntime = (
       handleExtNotification: acp.handleExtNotification,
       start: () => start,
       awaitExit: awaitAcpChildExit(child),
-      getEvents: () => {
-        // Attaching a consumer opens the session/update gate: from here on the
-        // queue is drained, so accepting notifications can no longer grow it
-        // without bound (see acceptingSessionUpdates above).
-        acceptingSessionUpdates = true;
-        return Stream.fromQueue(eventQueue);
-      },
+      getEvents: () => Stream.fromQueue(eventQueue),
       sessionUpdatesEnqueuedCount: Effect.sync(() => sessionUpdatesEnqueued),
       getModeState: Ref.get(modeStateRef),
       getConfigOptions: Ref.get(configOptionsRef),

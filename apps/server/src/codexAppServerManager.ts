@@ -276,13 +276,6 @@ const BENIGN_ERROR_LOG_SNIPPETS = [
   "state db record_discrepancy: find_thread_path_by_id_str_in_subdir, falling_back",
 ];
 const BENIGN_PROCESS_OUTPUT_REGEXES = [/^(?:\^C)?Token usage:/i];
-const RECOVERABLE_THREAD_RESUME_ERROR_SNIPPETS = [
-  "not found",
-  "missing thread",
-  "no such thread",
-  "unknown thread",
-  "does not exist",
-];
 const CODEX_DEFAULT_MODEL = "gpt-5.5";
 const CODEX_SPARK_MODEL = "gpt-5.3-codex-spark";
 const CODEX_SPARK_DISABLED_PLAN_TYPES = new Set<CodexPlanType>(["free", "go", "plus"]);
@@ -725,13 +718,19 @@ export function classifyCodexStderrLine(rawLine: string): { message: string } | 
   return { message: normalizeCodexUserVisibleErrorMessage(line) };
 }
 
-export function isRecoverableThreadResumeError(error: unknown): boolean {
-  const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
-  if (!message.includes("thread/resume")) {
-    return false;
-  }
-
-  return RECOVERABLE_THREAD_RESUME_ERROR_SNIPPETS.some((snippet) => message.includes(snippet));
+export function resumeCodexThreadWithoutHistoryReplay(input: {
+  readonly threadId: string;
+  readonly sessionOverrides: Readonly<Record<string, unknown>>;
+  readonly request: (params: Readonly<Record<string, unknown>>) => Promise<unknown>;
+}): Promise<unknown> {
+  return input.request({
+    ...input.sessionOverrides,
+    threadId: input.threadId,
+    // Penkra's event journal is the transcript source of truth. Resume only
+    // Codex execution state; explicit provider history reads use paginated
+    // thread APIs instead of returning all turns in this JSONL response.
+    excludeTurns: true,
+  });
 }
 
 export interface CodexAppServerManagerEvents {
@@ -913,6 +912,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         stopping: false,
       };
 
+      const activeContext = context;
       this.sessions.set(threadId, context);
       this.attachProcessListeners(context);
 
@@ -977,41 +977,24 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       if (resumeThreadId) {
         try {
           threadOpenMethod = "thread/resume";
-          threadOpenResponse = await this.sendRequest(context, "thread/resume", {
-            ...sessionOverrides,
+          threadOpenResponse = await resumeCodexThreadWithoutHistoryReplay({
             threadId: resumeThreadId,
+            sessionOverrides,
+            request: (params) => this.sendRequest(activeContext, "thread/resume", params),
           });
         } catch (error) {
-          if (!isRecoverableThreadResumeError(error)) {
-            this.emitErrorEvent(
-              context,
-              "session/threadResumeFailed",
-              error instanceof Error ? error.message : "Codex thread resume failed.",
-            );
-            await Effect.logWarning("codex app-server thread resume failed", {
-              threadId,
-              requestedRuntimeMode: input.runtimeMode,
-              resumeThreadId,
-              recoverable: false,
-              cause: error instanceof Error ? error.message : String(error),
-            }).pipe(this.runPromise);
-            throw error;
-          }
-
-          threadOpenMethod = "thread/start";
-          this.emitLifecycleEvent(
+          this.emitErrorEvent(
             context,
-            "session/threadResumeFallback",
-            `Could not resume thread ${resumeThreadId}; started a new thread instead.`,
+            "session/threadResumeFailed",
+            error instanceof Error ? error.message : "Codex thread resume failed.",
           );
-          await Effect.logWarning("codex app-server thread resume fell back to fresh start", {
+          await Effect.logWarning("codex app-server thread resume failed", {
             threadId,
             requestedRuntimeMode: input.runtimeMode,
             resumeThreadId,
-            recoverable: true,
             cause: error instanceof Error ? error.message : String(error),
           }).pipe(this.runPromise);
-          threadOpenResponse = await this.sendRequest(context, "thread/start", threadStartParams);
+          throw error;
         }
       } else {
         threadOpenMethod = "thread/start";

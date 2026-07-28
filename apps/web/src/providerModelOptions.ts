@@ -65,8 +65,10 @@ export function formatProviderModelOptionName(input: {
 
 function normalizeDynamicModelSlug(provider: ProviderKind, slug: string): string {
   if (provider === "claudeAgent") {
-    const withoutContextSuffix = slug.replace(/\[[^\]]+\]$/u, "");
-    return normalizeModelSlug(withoutContextSuffix, provider) ?? withoutContextSuffix;
+    // Claude runtime discovery already resolves evergreen selector aliases
+    // (`opus`, `sonnet`) to canonical model ids. Never feed live identity back
+    // through the static compatibility map, which may describe an older release.
+    return slug.replace(/\[[^\]]+\]$/u, "").trim();
   }
   if (provider === "grok") {
     return slug.trim();
@@ -111,6 +113,9 @@ export function mergeDynamicModelOptions(input: {
 
     const normalizedSlug = normalizeDynamicModelSlug(input.provider, dynamicModel.slug);
     const rawSlug = dynamicModel.slug.trim().toLowerCase();
+    const isGenericClaudeFamilyName =
+      input.provider === "claudeAgent" &&
+      ["haiku", "sonnet", "opus", "fable"].includes(rawName.toLowerCase());
     const displayNameFallback = formatProviderModelOptionName({
       provider: input.provider,
       slug: normalizedSlug,
@@ -124,6 +129,7 @@ export function mergeDynamicModelOptions(input: {
       name:
         staticNameBySlug.get(normalizedSlug) ??
         (rawName.length > 0 &&
+        !isGenericClaudeFamilyName &&
         rawName.toLowerCase() !== rawSlug &&
         rawName.toLowerCase() !== normalizedSlug.toLowerCase()
           ? rawName
@@ -153,7 +159,8 @@ export function mergeDynamicModelOptions(input: {
     (model) => !("isCustom" in model) || model.isCustom !== true,
   );
   const missingStaticBuiltIns =
-    (input.provider === "antigravity" ||
+    (input.provider === "claudeAgent" ||
+      input.provider === "antigravity" ||
       input.provider === "kilo" ||
       input.provider === "opencode" ||
       input.provider === "cursor" ||

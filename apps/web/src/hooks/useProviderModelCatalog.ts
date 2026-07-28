@@ -71,7 +71,10 @@ export function useProviderModelCatalog(input: {
   const customModelsByProvider = useMemo(() => getCustomModelsByProvider(settings), [settings]);
 
   const claudeDynamicModelsQuery = useQuery(
-    providerModelsQueryOptions({ provider: "claudeAgent" }),
+    providerModelsQueryOptions({
+      provider: "claudeAgent",
+      binaryPath: settings.claudeBinaryPath || null,
+    }),
   );
   const codexDynamicModelsQuery = useQuery(providerModelsQueryOptions({ provider: "codex" }));
   const cursorDynamicModelsQuery = useQuery(

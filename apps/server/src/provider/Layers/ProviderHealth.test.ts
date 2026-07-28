@@ -293,6 +293,130 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
       });
     });
 
+    it("keeps Claude's native and Homebrew update channels separate", () => {
+      const definition = PACKAGE_MANAGED_PROVIDER_UPDATES.claudeAgent;
+      assert.ok(definition);
+
+      const nativeCapabilities = resolvePackageManagedProviderMaintenance(definition, {
+        binaryPath: "claude",
+        realCommandPath: "/Users/test/.local/share/claude/versions/2.1.220",
+        commandDirectory: "/Users/test/.local/bin",
+      });
+      const homebrewCapabilities = resolvePackageManagedProviderMaintenance(definition, {
+        binaryPath: "claude",
+        realCommandPath: "/opt/homebrew/Caskroom/claude-code/2.1.220/claude",
+        commandDirectory: "/opt/homebrew/bin",
+      });
+
+      assert.deepStrictEqual(nativeCapabilities.update, {
+        command: "claude update",
+        executable: "claude",
+        args: ["update"],
+        lockKey: "claude-native",
+        pathPrepend: "/Users/test/.local/bin",
+      });
+      assert.deepStrictEqual(homebrewCapabilities.update, {
+        command: "brew upgrade --cask claude-code",
+        executable: "brew",
+        args: ["upgrade", "--cask", "claude-code"],
+        lockKey: "homebrew",
+        pathPrepend: "/opt/homebrew/bin",
+      });
+    });
+
+    it("routes OpenCode updates through each detected installation owner", () => {
+      const definition = PACKAGE_MANAGED_PROVIDER_UPDATES.opencode;
+      assert.ok(definition);
+
+      const cases = [
+        {
+          realCommandPath:
+            "/Users/test/.nvm/versions/node/v24.13.0/lib/node_modules/opencode-ai/bin/opencode.exe",
+          commandDirectory: "/Users/test/.nvm/versions/node/v24.13.0/bin",
+          command:
+            "npm install -g --prefix /Users/test/.nvm/versions/node/v24.13.0 opencode-ai@latest",
+          executable: "npm",
+        },
+        {
+          realCommandPath: "/Users/test/.bun/bin/opencode",
+          commandDirectory: "/Users/test/.bun/bin",
+          command: "bun i -g opencode-ai@latest",
+          executable: "bun",
+        },
+        {
+          realCommandPath: "/Users/test/.local/share/pnpm/opencode",
+          commandDirectory: "/Users/test/.local/share/pnpm",
+          command: "pnpm add -g opencode-ai@latest",
+          executable: "pnpm",
+        },
+        {
+          realCommandPath: "/Users/test/.opencode/bin/opencode",
+          commandDirectory: "/Users/test/.opencode/bin",
+          command: "opencode upgrade",
+          executable: "opencode",
+        },
+        {
+          realCommandPath:
+            "/usr/local/Cellar/opencode/1.18.0/libexec/lib/node_modules/opencode-ai/bin/opencode.exe",
+          commandDirectory: "/usr/local/bin",
+          command: "brew upgrade opencode",
+          executable: "brew",
+        },
+      ] as const;
+
+      for (const testCase of cases) {
+        const capabilities = resolvePackageManagedProviderMaintenance(definition, {
+          binaryPath: "opencode",
+          realCommandPath: testCase.realCommandPath,
+          commandDirectory: testCase.commandDirectory,
+        });
+
+        assert.strictEqual(capabilities.update?.command, testCase.command);
+        assert.strictEqual(capabilities.update?.executable, testCase.executable);
+        assert.strictEqual(capabilities.update?.pathPrepend, testCase.commandDirectory);
+      }
+    });
+
+    it("keeps provider-owned updaters pinned to the detected PATH entry", () => {
+      const cases = [
+        {
+          definition: PACKAGE_MANAGED_PROVIDER_UPDATES.antigravity,
+          binaryPath: "agy",
+          realCommandPath: "/Users/test/.local/bin/agy",
+          commandDirectory: "/Users/test/.local/bin",
+          command: "agy update",
+        },
+        {
+          definition: PACKAGE_MANAGED_PROVIDER_UPDATES.droid,
+          binaryPath: "droid",
+          realCommandPath:
+            "/Users/test/.nvm/versions/node/v24.13.0/lib/node_modules/@factory/cli/bin/droid",
+          commandDirectory: "/Users/test/.nvm/versions/node/v24.13.0/bin",
+          command: "droid update",
+        },
+        {
+          definition: PACKAGE_MANAGED_PROVIDER_UPDATES.pi,
+          binaryPath: "pi",
+          realCommandPath:
+            "/Users/test/.nvm/versions/node/v24.13.0/lib/node_modules/@earendil-works/pi-coding-agent/bin/pi",
+          commandDirectory: "/Users/test/.nvm/versions/node/v24.13.0/bin",
+          command: "pi update",
+        },
+      ] as const;
+
+      for (const testCase of cases) {
+        assert.ok(testCase.definition);
+        const capabilities = resolvePackageManagedProviderMaintenance(testCase.definition, {
+          binaryPath: testCase.binaryPath,
+          realCommandPath: testCase.realCommandPath,
+          commandDirectory: testCase.commandDirectory,
+        });
+
+        assert.strictEqual(capabilities.update?.command, testCase.command);
+        assert.strictEqual(capabilities.update?.pathPrepend, testCase.commandDirectory);
+      }
+    });
+
     it.effect("stops a hung provider process and persists a failed update state", () =>
       Effect.gen(function* () {
         let killed = false;

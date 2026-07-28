@@ -166,7 +166,7 @@ describe("decodeSetSessionConfigOptionResponse", () => {
 });
 
 describe("sessionConfigOptionsFromSetup", () => {
-  const replayedConfigOptions = [
+  const retainedConfigOptions = [
     {
       id: "model",
       name: "Model",
@@ -176,11 +176,11 @@ describe("sessionConfigOptionsFromSetup", () => {
     },
   ] satisfies ReadonlyArray<Acp.SessionConfigOption>;
 
-  it("preserves config retained from replay when setup omits configOptions", () => {
-    expect(sessionConfigOptionsFromSetup({}, replayedConfigOptions)).toBe(replayedConfigOptions);
+  it("preserves retained config when setup omits configOptions", () => {
+    expect(sessionConfigOptionsFromSetup({}, retainedConfigOptions)).toBe(retainedConfigOptions);
   });
 
-  it("uses an explicit setup inventory instead of replayed config", () => {
-    expect(sessionConfigOptionsFromSetup({ configOptions: [] }, replayedConfigOptions)).toEqual([]);
+  it("uses an explicit setup inventory instead of retained config", () => {
+    expect(sessionConfigOptionsFromSetup({ configOptions: [] }, retainedConfigOptions)).toEqual([]);
   });
 });

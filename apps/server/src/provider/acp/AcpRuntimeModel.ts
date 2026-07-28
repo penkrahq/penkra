@@ -92,10 +92,7 @@ export type AcpParsedSessionEvent =
       readonly rawPayload: unknown;
     };
 
-type AcpSessionSetupResponse =
-  | Acp.LoadSessionResponse
-  | Acp.NewSessionResponse
-  | Acp.ResumeSessionResponse;
+type AcpSessionSetupResponse = Acp.NewSessionResponse | Acp.ResumeSessionResponse;
 
 type AcpToolCallUpdate = Extract<
   Acp.SessionNotification["update"],

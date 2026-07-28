@@ -48,6 +48,9 @@ import {
   resolveRightDockPaneLabel,
 } from "./rightDockPaneMeta";
 import { useDesktopTopBarWindowControlsGutterClassName } from "~/hooks/useDesktopTopBarGutter";
+import { useOptionalFind } from "../find/FindProvider";
+import { createDomFindSurface } from "~/lib/find/domFindSurface";
+import { isFindSurfaceVisible } from "~/lib/find/findVisibility";
 
 // Shared sizing defaults for dock hosts: the resize floor for a single readable pane and the
 // "half the shell, but never cramped" opening width. The thread route tunes its own values
@@ -141,6 +144,7 @@ function useKeepMountedPaneIds(
 }
 
 export function RightDock(props: RightDockProps) {
+  const registerFindSurface = useOptionalFind()?.register;
   const activePane = resolveActivePane(props.state);
   const onSelectPane = props.onSelectPane;
   const activePaneRuntimeMode = props.activePaneRuntimeMode ?? "live";
@@ -156,6 +160,18 @@ export function RightDock(props: RightDockProps) {
   // pin the dock width to exactly half of it. Mid-session drags still resize
   // freely; the next open re-centers the split.
   const contentRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const root = contentRef.current;
+    if (!root || !registerFindSurface) return;
+    return registerFindSurface(
+      createDomFindSurface({
+        id: "right-dock-rendered",
+        order: 19,
+        root,
+        isVisible: () => props.state.open && isFindSurfaceVisible(root),
+      }),
+    );
+  }, [props.state.open, registerFindSurface]);
   const minWidth = props.minWidth;
   useEffect(() => {
     if (!props.state.open) {
@@ -229,6 +245,7 @@ export function RightDock(props: RightDockProps) {
         <div
           ref={contentRef}
           data-right-dock-content
+          data-find-model-owned
           className="flex h-full min-h-0 w-full flex-col"
         >
           <div

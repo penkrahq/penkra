@@ -108,15 +108,13 @@ describe("AcpSessionRuntime", () => {
     );
   });
 
-  it.effect("loads a resumed session and still prompts normally", () =>
+  it.effect("resumes a session without replay and still prompts normally", () =>
     Effect.gen(function* () {
       const runtime = yield* AcpSessionRuntime;
       const started = yield* runtime.start();
       expect(started.sessionId).toBe("mock-session-1");
 
-      // Resumed sessions drop session/update until a consumer attaches, so the
-      // events stream must be taken before prompting (mirrors the adapters,
-      // which fork the drain right after start()).
+      // Attach the live event consumer before prompting, mirroring the adapters.
       const eventsFiber = yield* Stream.runCollect(Stream.take(runtime.getEvents(), 4)).pipe(
         Effect.forkChild,
       );
@@ -125,8 +123,7 @@ describe("AcpSessionRuntime", () => {
       });
       expect(promptResult).toMatchObject({ stopReason: "end_turn" });
 
-      // The session/load replay chunk emitted before the consumer attached is
-      // dropped; only the prompt's own events arrive.
+      // session/resume does not replay history; only the prompt's own events arrive.
       const notes = Array.from(yield* Fiber.join(eventsFiber));
       expect(notes.map((note) => note._tag)).toEqual([
         "PlanUpdated",
@@ -140,6 +137,7 @@ describe("AcpSessionRuntime", () => {
           spawn: {
             command: bunExe,
             args: [mockAgentPath],
+            env: { VITEST: "true", SYNARA_ACP_SUPPORT_SESSION_RESUME: "1" },
           },
           cwd: process.cwd(),
           resumeSessionId: "mock-session-1",
@@ -152,40 +150,7 @@ describe("AcpSessionRuntime", () => {
     ),
   );
 
-  it.effect("forwards provider session metadata when loading a session", () => {
-    const requestEvents: Array<AcpSessionRequestLogEvent> = [];
-    return Effect.gen(function* () {
-      const runtime = yield* AcpSessionRuntime;
-      const started = yield* runtime.start();
-      expect(started.sessionSetupMethod).toBe("load");
-      expect(
-        requestEvents.find((event) => event.method === "session/load" && event.status === "started")
-          ?.payload,
-      ).toMatchObject({ _meta: { reconnectPolicy: "keep-hooks" } });
-    }).pipe(
-      Effect.provide(
-        AcpSessionRuntime.layer({
-          spawn: {
-            command: bunExe,
-            args: [mockAgentPath],
-          },
-          cwd: process.cwd(),
-          resumeSessionId: "mock-session-1",
-          sessionMeta: { reconnectPolicy: "keep-hooks" },
-          clientInfo: { name: "synara-test", version: "0.0.0" },
-          authMethodId: "test",
-          requestLogger: (event) =>
-            Effect.sync(() => {
-              requestEvents.push(event);
-            }),
-        }),
-      ),
-      Effect.scoped,
-      Effect.provide(NodeServices.layer),
-    );
-  });
-
-  it.effect("prefers session/resume when the agent advertises it", () => {
+  it.effect("forwards provider session metadata when resuming a session", () => {
     const requestEvents: Array<AcpSessionRequestLogEvent> = [];
     return Effect.gen(function* () {
       const runtime = yield* AcpSessionRuntime;
@@ -222,7 +187,7 @@ describe("AcpSessionRuntime", () => {
     );
   });
 
-  it.effect("does not call session/load when the agent does not advertise it", () => {
+  it.effect("rejects legacy load-only agents without starting a replacement session", () => {
     const requestEvents: Array<AcpSessionRequestLogEvent> = [];
     return Effect.gen(function* () {
       const runtime = yield* AcpSessionRuntime;
@@ -236,7 +201,6 @@ describe("AcpSessionRuntime", () => {
           spawn: {
             command: bunExe,
             args: [mockAgentPath],
-            env: { VITEST: "true", SYNARA_ACP_SUPPORT_SESSION_LOAD: "0" },
           },
           cwd: process.cwd(),
           resumeSessionId: "mock-session-1",
@@ -307,6 +271,7 @@ describe("AcpSessionRuntime", () => {
         spawn: {
           command: bunExe,
           args: [mockAgentPath],
+          env: { VITEST: "true", SYNARA_ACP_SUPPORT_SESSION_RESUME: "1" },
         },
         cwd: process.cwd(),
         resumeSessionId: "mock-session-1",

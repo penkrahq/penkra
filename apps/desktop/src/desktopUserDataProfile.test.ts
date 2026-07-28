@@ -82,6 +82,7 @@ describe("desktopUserDataProfile", () => {
     expect(FS.readFileSync(Path.join(targetPartitionPath, "Local Storage", "state"), "utf8")).toBe(
       "current-state",
     );
+    expect(FS.existsSync(Path.join(targetPath, "synara-profile-seed.json"))).toBe(false);
   });
 
   it("rejects bridge manifests that point outside the Penkra profile parent", () => {
@@ -125,6 +126,7 @@ describe("desktopUserDataProfile", () => {
       "current-cookie",
     );
     expect(FS.existsSync(Path.join(targetPartitionPath, "Cookies-journal"))).toBe(false);
+    expect(FS.existsSync(Path.join(targetPath, "synara-profile-seed.json"))).toBe(false);
   });
 
   it("replaces an orphaned target sidecar with one from the repaired database generation", () => {
@@ -208,5 +210,6 @@ describe("desktopUserDataProfile", () => {
       sourcePath: null,
       copiedEntries: [],
     });
+    expect(FS.existsSync(Path.join(targetPath, "synara-profile-seed.json"))).toBe(false);
   });
 });

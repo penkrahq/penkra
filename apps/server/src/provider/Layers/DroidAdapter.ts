@@ -134,11 +134,6 @@ const DROID_ACP_TRANSPORT_DEBUG_MARKER = "droid-acp-meta-stripper-v2";
 const DROID_ACP_LOG_PAYLOAD_LIMIT = 4_000;
 const DROID_ACP_DEBUG_ENV = "SYNARA_DROID_ACP_DEBUG";
 const LEGACY_DROID_ACP_DEBUG_ENV = "DP_DROID_ACP_DEBUG";
-const DROID_RESUME_REPLAY_QUIET_MS = 350;
-// Bounds how long startSession blocks on the replay settling; the background
-// settle loop keeps suppression alive past this until the hard timeout.
-const DROID_RESUME_REPLAY_MAX_WAIT_MS = 3_000;
-const DROID_RESUME_REPLAY_HARD_TIMEOUT_MS = 30_000;
 const DROID_TURN_SETTLE_DRAIN_MAX_WAIT_MS = 1_000;
 const DROID_TURN_SETTLE_DRAIN_POLL_MS = 25;
 // Backstop for an alive-but-silent droid child: if a turn produces no ACP
@@ -228,14 +223,12 @@ interface DroidSessionContext {
   // their parent tool rows so the watchdog can use a longer, still-finite cap.
   readonly activeNestedTaskToolCallIds: Set<string>;
   readonly nestedTaskLifecycleByToolCallId: Map<string, "active" | "completed">;
-  resumeReplayReady: Deferred.Deferred<void> | undefined;
-  resumeReplayLastSuppressedAt: number | undefined;
   // Pending until startSession has applied the requested model/effort config.
   // The session is registered in `sessions` before the config RPCs run (so
-  // replay keeps draining), which means sendTurn can route to it mid-startup;
+  // live updates keep draining), which means sendTurn can route to it mid-startup;
   // turns await this gate so the first prompt never runs with provider
-  // defaults. Resolved by stopSessionInternal too, like resumeReplayReady, so
-  // a failed startup never strands waiters.
+  // defaults. Resolved by stopSessionInternal too, so a failed startup never
+  // strands waiters.
   sessionConfigReady: Deferred.Deferred<void> | undefined;
   // Resolves only after the ACP scope and its child process have fully closed.
   // Recovery awaits this gate before starting a replacement session.
@@ -575,11 +568,6 @@ export function makeDroidAdapter(
               yield* Deferred.succeed(ctx.sessionConfigReady, undefined);
               ctx.sessionConfigReady = undefined;
             }
-            if (ctx.resumeReplayReady !== undefined) {
-              yield* Deferred.succeed(ctx.resumeReplayReady, undefined);
-              ctx.resumeReplayReady = undefined;
-              ctx.resumeReplayLastSuppressedAt = undefined;
-            }
             if (ctx.notificationFiber) {
               yield* Fiber.interrupt(ctx.notificationFiber);
             }
@@ -617,12 +605,9 @@ export function makeDroidAdapter(
     const noteSuppressedDroidRuntimeEvent = (
       ctx: DroidSessionContext,
       eventTag: string,
-      reason: "resume-replay" | "orphan-turn-event",
+      reason: "orphan-turn-event",
     ) =>
       Effect.gen(function* () {
-        if (reason === "resume-replay") {
-          ctx.resumeReplayLastSuppressedAt = Date.now();
-        }
         if (!isDroidAcpDebugEnabled()) {
           return;
         }
@@ -697,10 +682,6 @@ export function makeDroidAdapter(
 
     const activeTurnIdForDroidRuntimeEvent = (ctx: DroidSessionContext, eventTag: string) =>
       Effect.gen(function* () {
-        if (ctx.resumeReplayReady !== undefined) {
-          yield* noteSuppressedDroidRuntimeEvent(ctx, eventTag, "resume-replay");
-          return undefined;
-        }
         if (ctx.activeTurnId === undefined) {
           yield* noteSuppressedDroidRuntimeEvent(ctx, eventTag, "orphan-turn-event");
           return undefined;
@@ -726,44 +707,6 @@ export function makeDroidAdapter(
         ) {
           yield* Effect.sleep(DROID_TURN_SETTLE_DRAIN_POLL_MS);
         }
-      });
-
-    // On session/load, Droid can replay old ACP updates after the session is "ready".
-    // Keep suppression active until that stream actually goes quiet — clearing it
-    // on a fixed timeout lets late historical deltas leak into the first turn as
-    // its content. The hard cap only guards against a replay that never settles.
-    const settleDroidResumeReplayWhenQuiet = (ctx: DroidSessionContext) =>
-      Effect.gen(function* () {
-        const ready = ctx.resumeReplayReady;
-        if (ready === undefined) {
-          return;
-        }
-        const startedAt = Date.now();
-        ctx.resumeReplayLastSuppressedAt = startedAt;
-        while (ctx.resumeReplayReady !== undefined) {
-          const now = Date.now();
-          const lastSuppressedAt = ctx.resumeReplayLastSuppressedAt ?? startedAt;
-          const quietForMs = now - lastSuppressedAt;
-          const elapsedMs = now - startedAt;
-          if (
-            quietForMs >= DROID_RESUME_REPLAY_QUIET_MS ||
-            elapsedMs >= DROID_RESUME_REPLAY_HARD_TIMEOUT_MS
-          ) {
-            const timedOut = elapsedMs >= DROID_RESUME_REPLAY_HARD_TIMEOUT_MS;
-            ctx.resumeReplayReady = undefined;
-            ctx.resumeReplayLastSuppressedAt = undefined;
-            if (timedOut) {
-              yield* Effect.logWarning("droid.acp.resume_replay_quiet_wait_timeout", {
-                threadId: ctx.threadId,
-                elapsedMs,
-              });
-            }
-            yield* Deferred.succeed(ready, undefined);
-            return;
-          }
-          yield* Effect.sleep(Math.min(DROID_RESUME_REPLAY_QUIET_MS - quietForMs, 50));
-        }
-        yield* Deferred.succeed(ready, undefined);
       });
 
     const startSession: DroidAdapterShape["startSession"] = (input) =>
@@ -1025,19 +968,6 @@ export function makeDroidAdapter(
             ),
           );
 
-          if (resumeSessionId !== undefined && started.sessionSetupMethod === "new") {
-            return yield* new ProviderAdapterRequestError({
-              provider: PROVIDER,
-              method: "session/resume",
-              detail:
-                "Droid could not resume the requested native session. Penkra refused the fresh fallback to avoid silently losing conversation context.",
-            });
-          }
-
-          // `session/resume` does not replay history; only legacy `session/load`
-          // needs the replay-suppression gate below.
-          const resumeReplayReady =
-            started.sessionSetupMethod === "load" ? yield* Deferred.make<void>() : undefined;
           const sessionConfigReady = yield* Deferred.make<void>();
           const teardownComplete = yield* Deferred.make<void>();
           const now = yield* nowIso;
@@ -1081,8 +1011,6 @@ export function makeDroidAdapter(
             turnToolCallIds: new Map(),
             activeNestedTaskToolCallIds: new Set(),
             nestedTaskLifecycleByToolCallId: new Map(),
-            resumeReplayReady,
-            resumeReplayLastSuppressedAt: resumeReplayReady !== undefined ? Date.now() : undefined,
             sessionConfigReady,
             teardownComplete,
             latestSessionCostUsd: undefined,
@@ -1159,10 +1087,9 @@ export function makeDroidAdapter(
                       // A queued update for a tool call the just-settled turn
                       // already rendered belongs to that turn; emit it with the
                       // originating turn id so the existing tool row resolves in
-                      // place instead of being dropped as an orphan. Resume
-                      // replay stays suppressed like every other event.
+                      // place instead of being dropped as an orphan.
                       const lateTurnId =
-                        ctx.resumeReplayReady === undefined && ctx.activeTurnId === undefined
+                        ctx.activeTurnId === undefined
                           ? ctx.turnToolCallIds.get(event.toolCall.toolCallId)
                           : undefined;
                       if (lateTurnId !== undefined) {
@@ -1318,8 +1245,8 @@ export function makeDroidAdapter(
           sessions.set(input.threadId, ctx);
           sessionScopeTransferred = true;
 
-          // Config RPCs run after the consumer fork so replay emitted while they
-          // are in flight keeps draining. The session is already registered and
+          // Config RPCs run after the consumer fork so live updates emitted while
+          // they are in flight keep draining. The session is already registered and
           // the start-scope finalizer no longer owns the session scope, so any
           // failure OR interruption of the remaining startup steps must tear the
           // session down explicitly instead of leaking a live child.
@@ -1337,18 +1264,6 @@ export function makeDroidAdapter(
             // deferred can now prompt without inheriting provider defaults.
             yield* Deferred.succeed(sessionConfigReady, undefined);
             ctx.sessionConfigReady = undefined;
-
-            if (resumeReplayReady !== undefined) {
-              // Settle the replay in the background: suppression stays active until
-              // the stream is genuinely quiet, while startup only blocks briefly so
-              // a long replay cannot hold session startup hostage. sendTurn awaits
-              // the deferred, so the first turn stays gated until the replay has
-              // actually finished.
-              yield* settleDroidResumeReplayWhenQuiet(ctx).pipe(Effect.forkIn(ctx.scope));
-              yield* Deferred.await(resumeReplayReady).pipe(
-                Effect.timeoutOption(DROID_RESUME_REPLAY_MAX_WAIT_MS),
-              );
-            }
 
             yield* offerRuntimeEvent(input.lifecycleGeneration, {
               type: "session.started",
@@ -1471,13 +1386,9 @@ export function makeDroidAdapter(
         if (ctx.sessionConfigReady !== undefined) {
           yield* Deferred.await(ctx.sessionConfigReady);
         }
-        if (ctx.resumeReplayReady !== undefined) {
-          yield* Deferred.await(ctx.resumeReplayReady);
-        }
-        // The gates above are resolved by stopSessionInternal too (a failed or
+        // The gate above is resolved by stopSessionInternal too (a failed or
         // stopped startup must not strand waiters); a turn that was blocked on
-        // them must fail here instead of emitting lifecycle events for a dead
-        // session.
+        // it must fail here instead of emitting lifecycle events for a dead session.
         if (ctx.stopped) {
           return yield* new ProviderAdapterSessionNotFoundError({
             provider: PROVIDER,
@@ -1571,7 +1482,7 @@ export function makeDroidAdapter(
           promptParts.unshift(harnessPolicy);
         }
 
-        // A stop can land while the replay gate or attachment reads above were
+        // A stop can land while the startup gate or attachment reads above were
         // in flight; opening the turn now would publish turn.started (and a
         // phantom cancelled completion) for a session that already exited.
         if (ctx.stopped) {
@@ -1610,7 +1521,7 @@ export function makeDroidAdapter(
         });
 
         const runPrompt = Effect.suspend(() =>
-          // interruptTurn during the pre-prompt waits (resume replay, attachment
+          // interruptTurn during the pre-prompt waits (startup configuration, attachment
           // reads) or between turn.started publishing and this fiber being
           // registered sets pendingTurnInterrupted; honor it (and a concurrent
           // stop) here so a cancelled turn is never prompted. Self-interrupting
@@ -1792,7 +1703,7 @@ export function makeDroidAdapter(
           return;
         }
         // A turn that is still starting has no prompt fiber to interrupt yet
-        // (it may be gated on resume replay); flag it so startDroidTurn aborts
+        // (it may be gated on startup configuration); flag it so startDroidTurn aborts
         // before prompting instead of running the cancelled turn anyway.
         if (ctx.turnStarting && ctx.activePromptFiber === undefined) {
           ctx.pendingTurnInterrupted = true;

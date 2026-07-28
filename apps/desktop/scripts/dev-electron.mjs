@@ -123,7 +123,9 @@ function cleanupStaleComputerUseApps() {
     spawnSync("kill", ["-TERM", String(pid)], { stdio: "ignore" });
   }
 
-  spawnSync("sleep", [String(staleComputerUseGracePeriodMs / 1000)], { stdio: "ignore" });
+  spawnSync("sleep", [String(staleComputerUseGracePeriodMs / 1000)], {
+    stdio: "ignore",
+  });
 
   for (const pid of stalePids) {
     spawnSync("kill", ["-KILL", String(pid)], { stdio: "ignore" });
@@ -186,6 +188,22 @@ function startApp() {
     const exitedAbnormally = signal !== null || code !== 0;
     if (!shuttingDown && !expectedExits.has(app) && exitedAbnormally) {
       scheduleRestart();
+      return;
+    }
+    if (
+      !shuttingDown &&
+      !expectedExits.has(app) &&
+      code === 0 &&
+      process.env.PENKRA_DEV_SUPERVISOR_PID
+    ) {
+      const supervisorPid = Number(process.env.PENKRA_DEV_SUPERVISOR_PID);
+      if (Number.isSafeInteger(supervisorPid) && supervisorPid > 0) {
+        // A clean Electron exit is the user's Cmd+Q. Tell the detached
+        // Applications launcher to terminate Turbo, Vite, and every watcher.
+        spawnSync("/bin/kill", ["-TERM", String(supervisorPid)], {
+          stdio: "ignore",
+        });
+      }
     }
   });
 }
@@ -273,7 +291,9 @@ function killChildTree(signal) {
   }
 
   // Kill direct children as a final fallback in case normal shutdown leaves stragglers.
-  spawnSync("pkill", [`-${signal}`, "-P", String(process.pid)], { stdio: "ignore" });
+  spawnSync("pkill", [`-${signal}`, "-P", String(process.pid)], {
+    stdio: "ignore",
+  });
 }
 
 async function shutdown(exitCode) {

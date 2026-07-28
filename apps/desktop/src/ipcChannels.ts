@@ -59,6 +59,8 @@ export const DESKTOP_IPC_CHANNELS = {
     copyScreenshotToClipboard: "desktop:browser-copy-screenshot-to-clipboard",
     captureScreenshot: "desktop:browser-capture-screenshot",
     executeCdp: "desktop:browser-execute-cdp",
+    findInPage: "desktop:browser-find-in-page",
+    stopFindInPage: "desktop:browser-stop-find-in-page",
     navigate: "desktop:browser-navigate",
     reload: "desktop:browser-reload",
     goBack: "desktop:browser-go-back",

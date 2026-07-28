@@ -172,6 +172,10 @@
       "types": "./src/chatGptVoiceTranscription.ts",
       "import": "./src/chatGptVoiceTranscription.ts"
     },
+    "./voiceTranscriptionAudio": {
+      "types": "./src/voiceTranscriptionAudio.ts",
+      "import": "./src/voiceTranscriptionAudio.ts"
+    },
     "./composerSlashCommands": {
       "types": "./src/composerSlashCommands.ts",
       "import": "./src/composerSlashCommands.ts"

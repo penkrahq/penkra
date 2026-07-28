@@ -38,11 +38,13 @@ import { IconButton } from "../ui/icon-button";
 import { DOCK_HEADER_ICON_BUTTON_CLASS } from "./chatHeaderControls";
 import { DiffStat } from "./DiffStatLabel";
 import { DockPaneHeader } from "./DockPaneHeader";
-import { FileDiffCard, FileDiffSurface } from "./FileDiffView";
 import { FileEntryIcon } from "./FileEntryIcon";
 import { PanelStateMessage } from "./PanelStateMessage";
+import { DiffPanelFileList } from "../DiffPanelFileList";
 
 type GitPanelSection = "staged" | "unstaged";
+const EMPTY_COLLAPSED_DIFF_FILES: ReadonlySet<string> = new Set();
+const ignoreDiffCollapse = () => {};
 
 // Selection is keyed by section + working-tree path (not the content-hashed
 // render key) so it survives a file moving between the staged and unstaged
@@ -182,11 +184,16 @@ function GitFileSection(props: {
 
 function SelectedFileDiff(props: { fileDiff: FileDiffMetadata; theme: "light" | "dark" }) {
   return (
-    <FileDiffSurface className="h-full min-h-0 overflow-auto px-2 py-2">
-      <div className="diff-render-file rounded-md">
-        <FileDiffCard fileDiff={props.fileDiff} theme={props.theme} />
-      </div>
-    </FileDiffSurface>
+    <DiffPanelFileList
+      renderableFiles={[props.fileDiff]}
+      resolvedTheme={props.theme}
+      diffRenderMode="stacked"
+      diffWordWrap={false}
+      workspaceRoot={null}
+      collapsedFiles={EMPTY_COLLAPSED_DIFF_FILES}
+      onToggleFileCollapsed={ignoreDiffCollapse}
+      collapsible={false}
+    />
   );
 }
 

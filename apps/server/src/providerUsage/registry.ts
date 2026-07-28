@@ -6,11 +6,9 @@ import type { ProviderKind } from "@synara/contracts";
 
 import { claudeUsageFetcher } from "./providers/claude";
 import { codexUsageFetcher } from "./providers/codex";
-import { cursorUsageFetcher } from "./providers/cursor";
 import type { ProviderUsageFetcher } from "./types";
 
 export const PROVIDER_USAGE_FETCHERS: Partial<Record<ProviderKind, ProviderUsageFetcher>> = {
   codex: codexUsageFetcher,
   claudeAgent: claudeUsageFetcher,
-  cursor: cursorUsageFetcher,
 };

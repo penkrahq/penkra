@@ -72,9 +72,14 @@ const SIDEBAR_SEARCH_DEFAULT_KEYBINDINGS = [
   { key: "ctrl+k", command: "sidebar.search", when: "!isMac" },
 ] as const satisfies ReadonlyArray<KeybindingRule>;
 
+const CHAT_SEARCH_DEFAULT_KEYBINDINGS = [
+  { key: "mod+f", command: "chat.search" },
+] as const satisfies ReadonlyArray<KeybindingRule>;
+
 export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "mod+b", command: "sidebar.toggle", when: "!terminalFocus" },
   ...SIDEBAR_SEARCH_DEFAULT_KEYBINDINGS,
+  ...CHAT_SEARCH_DEFAULT_KEYBINDINGS,
   { key: "mod+shift+o", command: "sidebar.addProject", when: "!terminalFocus" },
   { key: "mod+i", command: "sidebar.importThread", when: "!terminalFocus" },
   { key: "mod+alt+arrowleft", command: "space.previous", when: "!terminalFocus" },

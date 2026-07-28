@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 
 import { parseClaudeUsage } from "./providers/claude.ts";
 import { parseCodexUsage } from "./providers/codex.ts";
-import { parseCursorUsage } from "./providers/cursor.ts";
 
 const NOW_MS = 1_738_000_000_000;
 
@@ -71,33 +70,5 @@ describe("parseClaudeUsage", () => {
     const extra = usageLine(snapshot, "Extra usage");
     expect(extra?.value).toContain("5.00");
     expect(extra?.value).toContain("100.00");
-  });
-});
-
-describe("parseCursorUsage", () => {
-  it("maps total usage, on-demand spend, and credit grants", () => {
-    const snapshot = parseCursorUsage({
-      usage: {
-        billingCycleEnd: "1771077734000",
-        planUsage: {
-          totalSpend: 23_222,
-          limit: 40_000,
-          remaining: 16_778,
-          totalPercentUsed: 15.48,
-        },
-        spendLimitUsage: { individualLimit: 10_000, individualRemaining: 4_000, limitType: "user" },
-      },
-      credits: { hasCreditGrants: true, totalCents: 5_000, usedCents: 1_200 },
-      planName: "Pro",
-      nowMs: NOW_MS,
-    });
-
-    expect(snapshot.status).toBe("ok");
-    expect(snapshot.planName).toBe("Pro");
-    expect(limit(snapshot, "Current")?.usedPercent).toBeCloseTo(15.48);
-    // used = (10000 - 4000) / 100 = $60.00 of $100.00
-    expect(usageLine(snapshot, "On-demand")?.value).toContain("60.00");
-    // remaining = (5000 - 1200) / 100 = $38.00 of $50.00
-    expect(usageLine(snapshot, "Credits")?.value).toContain("38.00");
   });
 });

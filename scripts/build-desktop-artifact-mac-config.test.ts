@@ -7,6 +7,7 @@ import {
   MAC_APPSNAP_HELPER_STAGE_PATH,
   MAC_ENTITLEMENTS_PATH,
   MAC_INHERITED_ENTITLEMENTS_PATH,
+  MAC_RELEASE_SIGNING_IDENTITY,
   MICROPHONE_USAGE_DESCRIPTION,
   NODE_PTY_ASAR_UNPACK_GLOBS,
   PARCEL_WATCHER_ASAR_UNPACK_GLOBS,
@@ -32,6 +33,7 @@ describe("createDesktopPlatformBuildConfig", () => {
       ...PARCEL_WATCHER_ASAR_UNPACK_GLOBS,
     ]);
     assert.equal(mac.hardenedRuntime, true);
+    assert.equal(mac.identity, MAC_RELEASE_SIGNING_IDENTITY);
     assert.equal(mac.notarize, true);
     assert.equal(dmg.sign, true);
     assert.equal(dmg.writeUpdateInfo, false);
@@ -64,6 +66,7 @@ describe("createDesktopPlatformBuildConfig", () => {
     });
 
     assert.deepStrictEqual(config.dmg, { sign: false, writeUpdateInfo: false });
+    assert.equal((config.mac as Record<string, unknown>).identity, null);
   });
 
   it("keeps node-pty unpacked from ASAR in generated build config", () => {

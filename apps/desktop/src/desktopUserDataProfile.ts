@@ -83,6 +83,10 @@ function readBridgeProfileSourcePath(targetPath: string): string | null {
   return sourcePath;
 }
 
+function consumeBridgeProfileManifest(targetPath: string): void {
+  FS.rmSync(Path.join(targetPath, BRIDGE_PROFILE_MANIFEST_FILE_NAME), { force: true });
+}
+
 function findBridgeBrowserPartitionPaths(sourceProfilePath: string): string[] {
   const partitionsPath = Path.join(sourceProfilePath, "Partitions");
   if (!FS.existsSync(partitionsPath)) return [];
@@ -118,6 +122,10 @@ export function repairBrowserProfileFromBridgeManifest(
   try {
     sourcePath = readBridgeProfileSourcePath(targetPath);
     if (!sourcePath || !FS.existsSync(sourcePath)) {
+      // The compatibility bridge is a one-shot handoff. An invalid, unavailable,
+      // or already-removed source must not make every later app launch probe a
+      // sibling application's protected data container again.
+      consumeBridgeProfileManifest(targetPath);
       return {
         status: "bridge-unavailable",
         sourcePath,
@@ -128,6 +136,7 @@ export function repairBrowserProfileFromBridgeManifest(
 
     const sourcePartitionPath = findBridgeBrowserPartitionPaths(sourcePath)[0];
     if (!sourcePartitionPath) {
+      consumeBridgeProfileManifest(targetPath);
       return {
         status: "not-needed",
         sourcePath,
@@ -230,6 +239,7 @@ export function repairBrowserProfileFromBridgeManifest(
       }
     }
 
+    consumeBridgeProfileManifest(targetPath);
     return {
       status: copiedEntries.length > 0 ? "repaired" : "not-needed",
       sourcePath,

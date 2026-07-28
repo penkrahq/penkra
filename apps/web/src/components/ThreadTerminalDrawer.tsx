@@ -15,7 +15,7 @@ import {
 import { type ThreadId } from "@synara/contracts";
 import { type TerminalActivityState, type TerminalCliKind } from "@synara/shared/terminalThreads";
 import { Terminal } from "@xterm/xterm";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { type TerminalContextSelection } from "~/lib/terminalContext";
 import { readNativeApi } from "~/nativeApi";
 import {
@@ -47,6 +47,8 @@ import type {
 import TerminalViewportPane from "./terminal/TerminalViewportPane";
 import { useTerminalDrawerHeight } from "./terminal/useTerminalDrawerHeight";
 import { TerminalSearch } from "./TerminalSearch";
+import { useOptionalFind } from "./find/FindProvider";
+import { createTerminalFindSurface } from "../lib/find/terminalFindSurface";
 import { TerminalScrollToBottom } from "./TerminalScrollToBottom";
 
 function serializeRuntimeEnv(runtimeEnv: Record<string, string> | undefined): string {
@@ -143,6 +145,8 @@ function TerminalViewport({
   autoFocus,
   isVisible,
 }: TerminalViewportProps) {
+  const registerFindSurface = useOptionalFind()?.register;
+  const terminalFindSurfaceId = useId();
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const onAddTerminalContextRef = useRef(onAddTerminalContext);
@@ -264,6 +268,18 @@ function TerminalViewport({
       setSearchAddonInstance(null);
     };
   }, [runtimeCwdReady, runtimeKey]);
+
+  useEffect(() => {
+    if (!searchAddonInstance || !registerFindSurface) return;
+    return registerFindSurface(
+      createTerminalFindSurface({
+        id: `terminal:${terminalFindSurfaceId}`,
+        order: 40,
+        searchAddon: searchAddonInstance,
+        isVisible: () => isVisible && containerRef.current?.isConnected === true,
+      }),
+    );
+  }, [isVisible, registerFindSurface, searchAddonInstance, terminalFindSurfaceId]);
 
   useEffect(() => {
     if (!runtimeCwdReady) return;
@@ -441,7 +457,7 @@ function TerminalViewport({
         />
         <TerminalRuntimeStatusOverlay status={runtimeStatus} />
         <TerminalScrollToBottom terminal={terminalInstance} />
-        <div ref={containerRef} className="h-full w-full" />
+        <div ref={containerRef} data-find-exclude className="h-full w-full" />
       </div>
     </div>
   );

@@ -184,7 +184,7 @@ export async function collectReleaseArtifactDigests(
   return artifacts;
 }
 
-function parseMacIdentity(output: string): {
+export function parseMacIdentity(output: string): {
   readonly teamId: string;
   readonly authorities: ReadonlyArray<string>;
 } {
@@ -196,6 +196,23 @@ function parseMacIdentity(output: string): {
     throw new Error("codesign returned incomplete signing identity output.");
   }
   return { teamId, authorities };
+}
+
+export function assertDeveloperIdApplicationIdentity(
+  identity: ReturnType<typeof parseMacIdentity>,
+  expectedTeamId: string,
+): void {
+  if (identity.teamId !== expectedTeamId) {
+    throw new Error(
+      `macOS app team ID ${identity.teamId} does not match expected ${expectedTeamId}.`,
+    );
+  }
+  const leafAuthority = identity.authorities[0] ?? "";
+  if (!leafAuthority.startsWith("Developer ID Application:")) {
+    throw new Error(
+      `macOS app must use a Developer ID Application identity; received ${leafAuthority || "no leaf authority"}.`,
+    );
+  }
 }
 
 function verifyMacSignatures(
@@ -230,11 +247,7 @@ function verifyMacSignatures(
     const appIdentity = parseMacIdentity(
       `${appIdentityOutput.stdout}\n${appIdentityOutput.stderr}`,
     );
-    if (appIdentity.teamId !== expectedTeamId) {
-      throw new Error(
-        `macOS app team ID ${appIdentity.teamId} does not match expected ${expectedTeamId}.`,
-      );
-    }
+    assertDeveloperIdApplicationIdentity(appIdentity, expectedTeamId);
     runCommand("spctl", ["--assess", "--type", "execute", "--verbose=4", appBundlePath]);
     runCommand("xcrun", ["stapler", "validate", appBundlePath]);
 

@@ -377,6 +377,10 @@ function combineWorkEntryDisplayText(heading: string, preview: string | null): s
     : `${heading} ${preview}`;
 }
 
+export function workEntryFindText(workEntry: WorkLogEntry): string {
+  return combineWorkEntryDisplayText(toolWorkEntryHeading(workEntry), workEntryPreview(workEntry));
+}
+
 function isFileChangeWorkEntry(workEntry: TimelineWorkEntry): boolean {
   return isFileChangeWorkLogEntry(workEntry);
 }

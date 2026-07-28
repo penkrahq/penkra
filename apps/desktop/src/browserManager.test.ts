@@ -43,6 +43,7 @@ class FakeWebContents extends EventEmitter {
   windowOpenHandler: WindowOpenHandler | null = null;
 
   setUserAgent = vi.fn();
+  findInPage = vi.fn(() => 7);
 
   setWindowOpenHandler(handler: WindowOpenHandler): void {
     this.windowOpenHandler = handler;
@@ -82,6 +83,66 @@ function asCharacterizationAccess(
 describe("DesktopBrowserManager repeated workflow characterization", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("settles native find results and removes its listeners", async () => {
+    const manager = new DesktopBrowserManager();
+    const webContents = new FakeWebContents();
+    const runtimes = (
+      manager as unknown as {
+        runtimes: Map<string, { webContents: FakeWebContents }>;
+      }
+    ).runtimes;
+    runtimes.set(`${THREAD_ID}:tab-1`, { webContents });
+
+    const resultPromise = manager.findInPage({
+      threadId: THREAD_ID,
+      tabId: "tab-1",
+      text: "needle",
+      action: "search",
+    });
+    webContents.emit(
+      "found-in-page",
+      {},
+      {
+        requestId: 7,
+        activeMatchOrdinal: 2,
+        matches: 3,
+        finalUpdate: true,
+      },
+    );
+
+    await expect(resultPromise).resolves.toEqual({ activeMatchOrdinal: 2, matches: 3 });
+    expect(webContents.listenerCount("found-in-page")).toBe(0);
+    expect(webContents.listenerCount("destroyed")).toBe(0);
+  });
+
+  it("times out a native find request that never sends a final update", async () => {
+    vi.useFakeTimers();
+    try {
+      const manager = new DesktopBrowserManager();
+      const webContents = new FakeWebContents();
+      const runtimes = (
+        manager as unknown as {
+          runtimes: Map<string, { webContents: FakeWebContents }>;
+        }
+      ).runtimes;
+      runtimes.set(`${THREAD_ID}:tab-1`, { webContents });
+
+      const resultPromise = manager.findInPage({
+        threadId: THREAD_ID,
+        tabId: "tab-1",
+        text: "needle",
+        action: "search",
+      });
+      await vi.advanceTimersByTimeAsync(2_000);
+
+      await expect(resultPromise).resolves.toEqual({ activeMatchOrdinal: 0, matches: 0 });
+      expect(webContents.listenerCount("found-in-page")).toBe(0);
+      expect(webContents.listenerCount("destroyed")).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("emits one state change when a different tab becomes active", () => {

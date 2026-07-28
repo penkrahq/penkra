@@ -11,6 +11,7 @@ import type {
   BrowserCopyLinkEvent,
   BrowserDetachWebviewInput,
   BrowserExecuteCdpInput,
+  BrowserFindInPageInput,
   BrowserNavigateInput,
   BrowserNewTabInput,
   BrowserOpenInput,
@@ -109,6 +110,16 @@ export function registerBrowserIpcHandlers(
   ipcMain.handle(BROWSER_IPC_CHANNELS.executeCdp, async (_event, input: BrowserExecuteCdpInput) =>
     browserManager.executeCdp(input),
   );
+
+  ipcMain.removeHandler(BROWSER_IPC_CHANNELS.findInPage);
+  ipcMain.handle(BROWSER_IPC_CHANNELS.findInPage, async (_event, input: BrowserFindInPageInput) =>
+    browserManager.findInPage(input),
+  );
+
+  ipcMain.removeHandler(BROWSER_IPC_CHANNELS.stopFindInPage);
+  ipcMain.handle(BROWSER_IPC_CHANNELS.stopFindInPage, async (_event, input: BrowserTabInput) => {
+    browserManager.stopFindInPage(input);
+  });
 
   ipcMain.removeHandler(BROWSER_IPC_CHANNELS.navigate);
   ipcMain.handle(BROWSER_IPC_CHANNELS.navigate, async (_event, input: BrowserNavigateInput) =>

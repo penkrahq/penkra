@@ -78,7 +78,10 @@ export function getRuntimeAwareModelCapabilities(input: {
   const staticCapabilities = getModelCapabilities(input.provider, input.model);
   // Runtime discovery is authoritative when available; the static table is only a startup fallback.
   const supportsFastMode =
-    (input.provider === "codex" || input.provider === "cursor") && input.runtimeModel
+    (input.provider === "codex" ||
+      input.provider === "claudeAgent" ||
+      input.provider === "cursor") &&
+    input.runtimeModel
       ? input.runtimeModel.supportsFastMode === true
       : staticCapabilities.supportsFastMode;
   const supportsThinkingToggle =
@@ -95,6 +98,7 @@ export function getRuntimeAwareModelCapabilities(input: {
   // Providers with dynamic catalogs, including Droid, expose model-specific effort ladders here.
   if (
     (input.provider !== "codex" &&
+      input.provider !== "claudeAgent" &&
       input.provider !== "cursor" &&
       input.provider !== "antigravity" &&
       input.provider !== "grok" &&

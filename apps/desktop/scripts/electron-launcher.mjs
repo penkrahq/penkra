@@ -16,6 +16,7 @@ import { createRequire } from "node:module";
 import { resolveSynaraDesktopFlavor, synaraDesktopIdentity } from "@synara/shared/desktopIdentity";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { buildMacosIcon, resolvePenkraDevIconSource } from "../../../scripts/lib/macos-icon.ts";
 
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
 const desktopFlavor = resolveSynaraDesktopFlavor({
@@ -111,19 +112,36 @@ function buildMacLauncher(electronBinaryPath) {
   const runtimeDir = join(desktopDir, ".electron-runtime");
   const targetAppBundlePath = join(runtimeDir, `${APP_DISPLAY_NAME}.app`);
   const targetBinaryPath = join(targetAppBundlePath, "Contents", "MacOS", "Electron");
-  const iconPath = join(desktopDir, "resources", "icon.icns");
+  const iconPath =
+    desktopFlavor === "development"
+      ? join(runtimeDir, "PenkraDev.icns")
+      : join(desktopDir, "resources", "icon.icns");
   const metadataPath = join(runtimeDir, "metadata.json");
+  const iconSourcePath =
+    desktopFlavor === "development"
+      ? resolvePenkraDevIconSource(resolve(desktopDir, "..", ".."))
+      : iconPath;
 
   mkdirSync(runtimeDir, { recursive: true });
+  const currentMetadata = readJson(metadataPath);
+  if (desktopFlavor === "development") {
+    if (currentMetadata?.iconSourcePath !== iconSourcePath) {
+      rmSync(iconPath, { force: true });
+    }
+    buildMacosIcon({
+      sourcePngPath: iconSourcePath,
+      targetIcnsPath: iconPath,
+    });
+  }
 
   const expectedMetadata = {
     launcherVersion: LAUNCHER_VERSION,
     sourceAppBundlePath,
     sourceAppMtimeMs: statSync(sourceAppBundlePath).mtimeMs,
+    iconSourcePath,
     iconMtimeMs: statSync(iconPath).mtimeMs,
   };
 
-  const currentMetadata = readJson(metadataPath);
   if (
     existsSync(targetBinaryPath) &&
     currentMetadata &&

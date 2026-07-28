@@ -1,5 +1,5 @@
 // FILE: GrokAdapter.test.ts
-// Purpose: Covers Grok-specific adapter guards that keep resumed ACP replay out of live turns.
+// Purpose: Covers Grok-specific adapter guards, prompt metadata, plans, and event attribution.
 // Layer: Provider adapter tests
 // Depends on: GrokAdapter helper exports and shared contract ids.
 

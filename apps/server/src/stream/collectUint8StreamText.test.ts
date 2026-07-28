@@ -33,4 +33,19 @@ describe("collectUint8StreamText", () => {
       truncated: true,
     });
   });
+
+  it("can retain the diagnostic tail of a long stream", async () => {
+    const result = await Effect.runPromise(
+      collectUint8StreamText({
+        stream: Stream.fromIterable([encoder.encode("progress..."), encoder.encode("EEXIST")]),
+        maxBytes: 6,
+        retain: "tail",
+      }),
+    );
+
+    expect(result).toEqual({
+      text: "EEXIST",
+      truncated: true,
+    });
+  });
 });

@@ -8,6 +8,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import type { Project } from "../../types";
 import { formatVoiceRecordingDuration, useVoiceRecorder } from "../../lib/voiceRecorder";
+import { transcribeVoiceRecording } from "../../lib/voiceTranscriptionSequence";
 import { readNativeApi } from "../../nativeApi";
 import type { RefreshProviderStatusesNow } from "../../hooks/useProviderStatusRefresh";
 import { toastManager } from "../ui/toast";
@@ -246,19 +247,22 @@ export function useComposerVoiceController(
           });
           return;
         }
-        return api.server
-          .transcribeVoice({
-            provider: "codex",
-            cwd: activeProject.cwd,
-            ...(activeThreadId ? { threadId: activeThreadId } : {}),
-            ...payload,
-          })
-          .then((result) => {
-            if (!isCurrentVoiceRequest()) {
-              return;
-            }
-            onTranscriptReady(result.text);
-          });
+        return transcribeVoiceRecording({
+          recording: payload,
+          isCurrent: isCurrentVoiceRequest,
+          transcribeChunk: (chunk) =>
+            api.server.transcribeVoice({
+              provider: "codex",
+              cwd: activeProject.cwd,
+              ...(activeThreadId ? { threadId: activeThreadId } : {}),
+              ...chunk,
+            }),
+        }).then((transcript) => {
+          if (!transcript || !isCurrentVoiceRequest()) {
+            return;
+          }
+          onTranscriptReady(transcript);
+        });
       })
       .catch((error: unknown) => {
         if (!isCurrentVoiceRequest()) {

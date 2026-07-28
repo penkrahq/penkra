@@ -26,9 +26,9 @@ import {
   CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS,
   CodexAppServerManager,
   classifyCodexStderrLine,
-  isRecoverableThreadResumeError,
   normalizeCodexModelSlug,
   readCodexAccountSnapshot,
+  resumeCodexThreadWithoutHistoryReplay,
   resolveCodexModelForAccount,
 } from "./codexAppServerManager";
 import {
@@ -1040,28 +1040,6 @@ describe("normalizeCodexModelSlug", () => {
   });
 });
 
-describe("isRecoverableThreadResumeError", () => {
-  it("matches not-found resume errors", () => {
-    expect(
-      isRecoverableThreadResumeError(new Error("thread/resume failed: thread not found")),
-    ).toBe(true);
-  });
-
-  it("ignores non-resume errors", () => {
-    expect(
-      isRecoverableThreadResumeError(new Error("thread/start failed: permission denied")),
-    ).toBe(false);
-  });
-
-  it("ignores non-recoverable resume errors", () => {
-    expect(
-      isRecoverableThreadResumeError(
-        new Error("thread/resume failed: timed out waiting for server"),
-      ),
-    ).toBe(false);
-  });
-});
-
 describe("readCodexAccountSnapshot", () => {
   it("disables spark for chatgpt plus accounts", () => {
     expect(
@@ -1165,6 +1143,46 @@ describe("startSession", () => {
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
+  });
+
+  it("resumes Codex execution state without returning transcript history", async () => {
+    const request = vi.fn().mockResolvedValue({ thread: { id: "provider-thread" } });
+
+    await expect(
+      resumeCodexThreadWithoutHistoryReplay({
+        threadId: "provider-thread",
+        sessionOverrides: {
+          model: "gpt-5.5",
+          cwd: "/workspace",
+          approvalPolicy: "never",
+        },
+        request,
+      }),
+    ).resolves.toEqual({ thread: { id: "provider-thread" } });
+
+    expect(request).toHaveBeenCalledOnce();
+    expect(request).toHaveBeenCalledWith({
+      model: "gpt-5.5",
+      cwd: "/workspace",
+      approvalPolicy: "never",
+      threadId: "provider-thread",
+      excludeTurns: true,
+    });
+  });
+
+  it("propagates Codex resume failure without issuing a replacement request", async () => {
+    const resumeError = new Error("thread/resume failed: thread not found");
+    const request = vi.fn().mockRejectedValue(resumeError);
+
+    await expect(
+      resumeCodexThreadWithoutHistoryReplay({
+        threadId: "missing-provider-thread",
+        sessionOverrides: { cwd: "/workspace" },
+        request,
+      }),
+    ).rejects.toBe(resumeError);
+
+    expect(request).toHaveBeenCalledOnce();
   });
 
   it("fails session start with missing-cwd guidance instead of missing Codex CLI", async () => {

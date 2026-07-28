@@ -15,12 +15,31 @@ interface CollectState {
 export function collectUint8StreamText<E>(input: {
   readonly stream: Stream.Stream<Uint8Array, E>;
   readonly maxBytes?: number;
+  /** Keep the beginning by default, or the end when failures are most useful. */
+  readonly retain?: "head" | "tail";
 }): Effect.Effect<CollectedUint8StreamText, E> {
   const maxBytes = input.maxBytes ?? Number.POSITIVE_INFINITY;
+  const retain = input.retain ?? "head";
   return Stream.runFold(
     input.stream,
     (): CollectState => ({ chunks: [], byteLength: 0, truncated: false }),
     (state, chunk) => {
+      if (retain === "tail" && Number.isFinite(maxBytes)) {
+        const combined = Buffer.concat(
+          [...state.chunks, chunk],
+          state.byteLength + chunk.byteLength,
+        );
+        const truncated = state.truncated || combined.byteLength > maxBytes;
+        const retained =
+          combined.byteLength > maxBytes
+            ? combined.subarray(combined.byteLength - maxBytes)
+            : combined;
+        return {
+          chunks: [retained],
+          byteLength: retained.byteLength,
+          truncated,
+        };
+      }
       if (state.truncated) {
         return state;
       }

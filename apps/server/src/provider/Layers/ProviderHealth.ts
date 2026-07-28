@@ -98,6 +98,7 @@ import {
   type PackageManagedProviderMaintenanceDefinition,
 } from "../providerMaintenance";
 import { collectUint8StreamText } from "../../stream/collectUint8StreamText";
+import { sanitizeTerminalOutput } from "../../stream/sanitizeTerminalOutput";
 import { buildCodexProcessEnv } from "../../codexProcessEnv.ts";
 
 export { parseClaudeAuthStatusFromOutput } from "../claudeAuthStatus";
@@ -244,17 +245,16 @@ export const PACKAGE_MANAGED_PROVIDER_UPDATES: Partial<
     provider: OPENCODE_PROVIDER,
     binaryName: "opencode",
     npmPackageName: "opencode-ai",
-    homebrew: { name: "anomalyco/tap/opencode", kind: "formula" },
-    latestVersionSource: { kind: "npm", name: "opencode-ai" },
+    homebrew: {
+      name: "opencode",
+      kind: "formula",
+      alternatives: ["anomalyco/tap/opencode"],
+    },
     nativeUpdate: {
       executable: "opencode",
-      args: (installSource) =>
-        installSource === "unknown" || installSource === "native"
-          ? ["upgrade"]
-          : ["upgrade", "--method", installSource],
+      args: () => ["upgrade"],
       lockKey: "opencode-native",
-      strategy: "always",
-      excludedInstallSources: ["homebrew"],
+      strategy: "matching-path",
       isCommandPath: isOpenCodeNativeCommandPath,
     },
   },
@@ -2523,10 +2523,12 @@ export function makeProviderHealthLive(options?: { readonly providerUpdateTimeou
             collectUint8StreamText({
               stream: child.stdout,
               maxBytes: UPDATE_OUTPUT_MAX_BYTES,
+              retain: "tail",
             }),
             collectUint8StreamText({
               stream: child.stderr,
               maxBytes: UPDATE_OUTPUT_MAX_BYTES,
+              retain: "tail",
             }),
             child.exitCode.pipe(Effect.map(Number)),
           ],
@@ -2605,7 +2607,9 @@ export function makeProviderHealthLive(options?: { readonly providerUpdateTimeou
           }
           const result = commandResult.success;
           const output = Option.isSome(result)
-            ? [result.value.stderr, result.value.stdout].filter(Boolean).join("\n\n").trim() || null
+            ? sanitizeTerminalOutput(
+                [result.value.stderr, result.value.stdout].filter(Boolean).join("\n\n"),
+              ) || null
             : null;
           const failed = Option.isNone(result) || result.value.exitCode !== 0;
           if (failed) {

@@ -10,6 +10,8 @@ import {
 } from "../appNavigation";
 import ShortcutsDialog from "../components/ShortcutsDialog";
 import { RecentViewSwitcher } from "../components/RecentViewSwitcher";
+import { ChatSearchBar } from "../components/ChatSearchBar";
+import { FindProvider } from "../components/find/FindProvider";
 import { shouldRenderTerminalWorkspace } from "../components/ChatView.logic";
 import ThreadSidebar from "../components/Sidebar";
 import { isElectron } from "../env";
@@ -207,6 +209,8 @@ function ChatRouteGlobalShortcuts() {
   });
   const { toggleSidebar } = useSidebar();
   const [shortcutsDialogOpen, setShortcutsDialogOpen] = useState(false);
+  const [chatSearchOpen, setChatSearchOpen] = useState(false);
+  const [chatSearchFocusRequest, setChatSearchFocusRequest] = useState(0);
   const clearSelection = useThreadSelectionStore((state) => state.clearSelection);
   const selectedThreadIdsSize = useThreadSelectionStore((state) => state.selectedThreadIds.size);
   const terminalStateByThreadId = useTerminalStateStore((state) => state.terminalStateByThreadId);
@@ -382,6 +386,14 @@ function ChatRouteGlobalShortcuts() {
         return;
       }
 
+      if (command === "chat.search") {
+        event.preventDefault();
+        event.stopPropagation();
+        setChatSearchOpen(true);
+        setChatSearchFocusRequest((current) => current + 1);
+        return;
+      }
+
       if (!command) return;
 
       if (command === "view.recent.next" || command === "view.recent.previous") {
@@ -537,6 +549,11 @@ function ChatRouteGlobalShortcuts() {
           terminalWorkspaceOpen,
         }}
       />
+      <ChatSearchBar
+        open={chatSearchOpen}
+        focusRequest={chatSearchFocusRequest}
+        onOpenChange={setChatSearchOpen}
+      />
       {recentSwitcherState ? (
         <RecentViewSwitcher
           entries={recentViewEntries}
@@ -598,18 +615,21 @@ function ChatRouteLayout() {
   );
 
   return (
-    <SidebarProvider
-      defaultOpen
-      open={resolvedSidebarOpen}
-      onOpenChange={setSidebarOpen}
-      className="bg-[var(--app-shell-background)]"
-      data-sidebar-side="left"
-    >
-      <ThreadRetentionMaintenanceToast />
-      <ChatRouteGlobalShortcuts />
-      {sidebarElement}
-      {mainContentShell}
-    </SidebarProvider>
+    <FindProvider>
+      <SidebarProvider
+        defaultOpen
+        open={resolvedSidebarOpen}
+        onOpenChange={setSidebarOpen}
+        className="bg-[var(--app-shell-background)]"
+        data-sidebar-side="left"
+        data-find-application-root
+      >
+        <ThreadRetentionMaintenanceToast />
+        <ChatRouteGlobalShortcuts />
+        {sidebarElement}
+        {mainContentShell}
+      </SidebarProvider>
+    </FindProvider>
   );
 }
 

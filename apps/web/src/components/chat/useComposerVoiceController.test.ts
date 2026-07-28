@@ -141,9 +141,14 @@ const PROJECT: Project = {
   scripts: [],
 };
 const AUDIO_PAYLOAD = {
-  audioBase64: "audio",
-  mimeType: "audio/wav" as const,
-  sampleRateHz: 24_000,
+  chunks: [
+    {
+      audioBase64: "audio",
+      mimeType: "audio/wav" as const,
+      sampleRateHz: 24_000,
+      durationMs: 500,
+    },
+  ],
   durationMs: 500,
 };
 
@@ -199,6 +204,29 @@ describe("useComposerVoiceController", () => {
     expect(options.onTranscriptReady).toHaveBeenCalledWith("transcribed once");
   });
 
+  it("transcribes rolling chunks in order and applies one merged result", async () => {
+    recorder.stopRecording.mockResolvedValueOnce({
+      chunks: [
+        { ...AUDIO_PAYLOAD.chunks[0], audioBase64: "first" },
+        { ...AUDIO_PAYLOAD.chunks[0], audioBase64: "second" },
+      ],
+      durationMs: 130_000,
+    });
+    nativeApi.transcribeVoice
+      .mockResolvedValueOnce({ text: "A sentence crosses the boundary." })
+      .mockResolvedValueOnce({ text: "crosses the boundary. Then it continues." });
+
+    await result.submitComposerVoiceRecording();
+
+    expect(nativeApi.transcribeVoice.mock.calls.map(([input]) => input.audioBase64)).toEqual([
+      "first",
+      "second",
+    ]);
+    expect(options.onTranscriptReady).toHaveBeenCalledWith(
+      "A sentence crosses the boundary. Then it continues.",
+    );
+  });
+
   it.each(["thread", "provider", "cancel"] as const)(
     "ignores a stale transcription after %s changes",
     async (staleCause) => {
@@ -244,7 +272,7 @@ describe("useComposerVoiceController", () => {
   });
 
   it("supports ChatView-specific transcription failure copy without changing defaults", async () => {
-    nativeApi.transcribeVoice.mockRejectedValueOnce(new Error("network failed"));
+    nativeApi.transcribeVoice.mockRejectedValue(new Error("network failed"));
     render({
       failureCopy: {
         transcriptionFailedTitle: "Couldn't transcribe voice note",
@@ -261,7 +289,7 @@ describe("useComposerVoiceController", () => {
   });
 
   it("refreshes status for expired auth and keeps the refresh action available", async () => {
-    nativeApi.transcribeVoice.mockRejectedValueOnce(new Error("session expired"));
+    nativeApi.transcribeVoice.mockRejectedValue(new Error("session expired"));
 
     await result.submitComposerVoiceRecording();
 

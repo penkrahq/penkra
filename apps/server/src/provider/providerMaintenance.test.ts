@@ -4,6 +4,7 @@ import {
   createProviderVersionAdvisory,
   deriveNpmGlobalPrefix,
   parseGenericCliVersion,
+  resolveHomebrewNameFromReceipt,
   resolvePackageManagedProviderMaintenance,
   type PackageManagedProviderMaintenanceDefinition,
 } from "./providerMaintenance";
@@ -20,17 +21,16 @@ const OPENCODE_DEFINITION = {
   provider: "opencode",
   binaryName: "opencode",
   npmPackageName: "opencode-ai",
-  homebrew: { name: "anomalyco/tap/opencode", kind: "formula" },
-  latestVersionSource: { kind: "npm", name: "opencode-ai" },
+  homebrew: {
+    name: "opencode",
+    kind: "formula",
+    alternatives: ["anomalyco/tap/opencode"],
+  },
   nativeUpdate: {
     executable: "opencode",
-    args: (installSource) =>
-      installSource === "unknown" || installSource === "native"
-        ? ["upgrade"]
-        : ["upgrade", "--method", installSource],
+    args: () => ["upgrade"],
     lockKey: "opencode-native",
-    strategy: "always",
-    excludedInstallSources: ["homebrew"],
+    strategy: "matching-path",
   },
 } as const satisfies PackageManagedProviderMaintenanceDefinition;
 
@@ -110,17 +110,17 @@ describe("providerMaintenance", () => {
     assert.strictEqual(capabilities.packageName, null);
   });
 
-  it("uses provider-native update commands with detected install method", () => {
+  it("updates package-managed OpenCode through the manager that owns it", () => {
     const capabilities = resolvePackageManagedProviderMaintenance(OPENCODE_DEFINITION, {
       binaryPath: "opencode",
       realCommandPath: "/Users/test/.local/share/pnpm/opencode",
     });
 
     assert.deepStrictEqual(capabilities.update, {
-      command: "opencode upgrade --method pnpm",
-      executable: "opencode",
-      args: ["upgrade", "--method", "pnpm"],
-      lockKey: "opencode-native",
+      command: "pnpm add -g opencode-ai@latest",
+      executable: "pnpm",
+      args: ["add", "-g", "opencode-ai@latest"],
+      lockKey: "pnpm-global",
     });
     assert.deepStrictEqual(capabilities.latestVersionSource, {
       kind: "npm",
@@ -128,22 +128,37 @@ describe("providerMaintenance", () => {
     });
   });
 
-  it("uses Homebrew updates but keeps npm latest metadata for tapped OpenCode installs", () => {
+  it("treats Homebrew's nested npm payload as owned by Homebrew", () => {
     const capabilities = resolvePackageManagedProviderMaintenance(OPENCODE_DEFINITION, {
       binaryPath: "opencode",
-      realCommandPath: "/opt/homebrew/Cellar/opencode/1.14.46/bin/opencode",
+      realCommandPath:
+        "/usr/local/Cellar/opencode/1.17.15/libexec/lib/node_modules/opencode-ai/bin/opencode.exe",
     });
 
     assert.deepStrictEqual(capabilities.update, {
-      command: "brew upgrade anomalyco/tap/opencode",
+      command: "brew upgrade opencode",
       executable: "brew",
-      args: ["upgrade", "anomalyco/tap/opencode"],
+      args: ["upgrade", "opencode"],
       lockKey: "homebrew",
     });
     assert.deepStrictEqual(capabilities.latestVersionSource, {
-      kind: "npm",
-      name: "opencode-ai",
+      kind: "homebrew",
+      name: "opencode",
+      homebrewKind: "formula",
     });
+  });
+
+  it("keeps the upstream OpenCode tap distinct from Homebrew Core", () => {
+    const receipt = JSON.stringify({ source: { tap: "anomalyco/tap" } });
+    const verifiedHomebrewName = resolveHomebrewNameFromReceipt(OPENCODE_DEFINITION, receipt);
+    const capabilities = resolvePackageManagedProviderMaintenance(OPENCODE_DEFINITION, {
+      binaryPath: "opencode",
+      realCommandPath: "/opt/homebrew/Cellar/opencode/1.18.0/bin/opencode",
+      verifiedHomebrewName,
+    });
+
+    assert.strictEqual(verifiedHomebrewName, "anomalyco/tap/opencode");
+    assert.strictEqual(capabilities.update?.command, "brew upgrade anomalyco/tap/opencode");
   });
 
   it("marks older semver versions as behind latest", () => {
