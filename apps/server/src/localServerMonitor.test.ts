@@ -398,7 +398,7 @@ describe("localServerMonitor", () => {
       [456, { ppid: 123, commandLine: "node child" }],
       [123, { ppid: 1, commandLine: "bun run dev" }],
     ]);
-    const cwdByPid = new Map<number, string>([[123, "/Users/dev/monorepo"]]);
+    const cwdByPid = new Map<number, string>([[123, "/Users/dev/workspace"]]);
     const servers = buildLocalServerProcesses(
       parseLsofTcpListenOutput(["p456", "cnode", "PTCP", "n127.0.0.1:5173"].join("\n")),
       processInfo,
@@ -406,7 +406,7 @@ describe("localServerMonitor", () => {
     );
 
     expect(servers).toHaveLength(1);
-    expect(servers[0]?.cwd).toBe("/Users/dev/monorepo");
+    expect(servers[0]?.cwd).toBe("/Users/dev/workspace");
   });
 
   it("omits cwd when it cannot be resolved", () => {

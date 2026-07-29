@@ -560,7 +560,7 @@ const devRunnerCli = Command.make("dev-runner", {
     Argument.variadic(),
   ),
 }).pipe(
-  Command.withDescription("Run monorepo development modes with deterministic port/env wiring."),
+  Command.withDescription("Run repository development modes with deterministic port/env wiring."),
   Command.withHandler((input) => runDevRunnerWithInput(input)),
 );
 

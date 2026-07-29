@@ -303,12 +303,12 @@ export const resolveStaticDir = Effect.fn(function* () {
     return bundledClient;
   }
 
-  const monorepoClient = resolve(join(import.meta.dirname, "../../web/dist"));
-  const monorepoStat = yield* exists(join(monorepoClient, "index.html")).pipe(
+  const workspaceClient = resolve(join(import.meta.dirname, "../../web/dist"));
+  const workspaceClientStat = yield* exists(join(workspaceClient, "index.html")).pipe(
     Effect.orElseSucceed(() => false),
   );
-  if (monorepoStat) {
-    return monorepoClient;
+  if (workspaceClientStat) {
+    return workspaceClient;
   }
   return undefined;
 });

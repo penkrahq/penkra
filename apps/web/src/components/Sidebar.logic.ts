@@ -554,7 +554,7 @@ export function findWorkspaceRootMatch<T>(
 
 // Finds the item whose workspace root most specifically contains `targetPath`
 // (equal to it, or its closest ancestor). Used to attribute a dev server's cwd
-// to a project even when it runs from a monorepo subdirectory; the deepest root
+// to a project even when it runs from a nested package directory; the deepest root
 // wins so a nested project beats its parent.
 export function findDeepestWorkspaceRootMatch<T>(
   items: readonly T[],
