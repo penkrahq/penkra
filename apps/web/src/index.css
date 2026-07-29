@@ -112,6 +112,12 @@
 }
 
 @layer components {
+  [data-slot="input-shared"]:focus-within,
+  [data-pencil-component="TKKOp"]:focus-within {
+    border-color: var(--color-border-focus) !important;
+    color: var(--color-text-foreground) !important;
+  }
+
   .sidebar-icon-button {
     @apply items-center justify-center rounded-sm p-0.5 text-muted-foreground/60 transition-colors hover:text-foreground/82 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring;
     background: transparent;
