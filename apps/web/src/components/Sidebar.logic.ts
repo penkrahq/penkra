@@ -6,10 +6,8 @@ import {
   MAX_PINNED_PROJECTS,
   type KeybindingCommand,
   type ProjectId,
-  type PullRequestReviewRequestCountResult,
   type ThreadId,
 } from "@synara/contracts";
-import { pluralize } from "@synara/shared/text";
 import { resolveThreadEnvironmentMode } from "@synara/shared/threadEnvironment";
 import { isWorkspaceRootWithin, workspaceRootsEqual } from "@synara/shared/threadWorkspace";
 import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "../appSettings";
@@ -48,10 +46,6 @@ export const SIDEBAR_THREAD_PREWARM_LIMIT = 10;
 export const DEBUG_FEATURE_FLAGS_MENU_STORAGE_KEY = "synara:show-debug-feature-flags-menu";
 export type SidebarNewThreadEnvMode = "local" | "worktree";
 export type SidebarView = "threads" | "studio" | "workspace";
-export type SidebarActionBadge = {
-  readonly text: string;
-  readonly accessibleLabel: string;
-};
 
 export function isProjectsSidebarSurface(input: {
   readonly isOnSettings: boolean;
@@ -59,56 +53,6 @@ export function isProjectsSidebarSurface(input: {
   readonly isOnWorkspace: boolean;
 }): boolean {
   return !input.isOnSettings && !input.isOnStudio && !input.isOnWorkspace;
-}
-
-/** Keep partial review counts visible without presenting them as exact. */
-export function resolvePullRequestReviewBadge(
-  result: PullRequestReviewRequestCountResult | undefined,
-): SidebarActionBadge | null {
-  if (!result) return null;
-  if (result.incomplete) {
-    return result.count > 0
-      ? {
-          text: `${result.count}+`,
-          accessibleLabel: `At least ${result.count} ${pluralize(
-            result.count,
-            "pull request is",
-            "pull requests are",
-          )} waiting for your review`,
-        }
-      : null;
-  }
-  return result.count > 0
-    ? {
-        text: String(result.count),
-        accessibleLabel: `${result.count} ${pluralize(
-          result.count,
-          "pull request is",
-          "pull requests are",
-        )} waiting for your review`,
-      }
-    : null;
-}
-
-/** Stable repository-resolution input for PR caches. Sidebar-only presentation changes such as
- * expand/collapse and ordering do not invalidate; project roots/names do. */
-export function pullRequestRepositoryConfigFingerprint(
-  projects: ReadonlyArray<Pick<Project, "id" | "kind" | "cwd" | "name" | "remoteName">>,
-): string {
-  return JSON.stringify(
-    projects
-      .filter((project) => project.kind === "project")
-      .map((project) => [project.id, project.cwd, project.name, project.remoteName] as const)
-      .toSorted((left, right) => left[0].localeCompare(right[0])),
-  );
-}
-
-/** The optimistic segment follows a destination click and clears when the user returns. */
-export function resolvePendingSidebarViewSelection(
-  activeView: SidebarView,
-  selectedView: SidebarView,
-): SidebarView | null {
-  return selectedView === activeView ? null : selectedView;
 }
 
 type SidebarProject = {

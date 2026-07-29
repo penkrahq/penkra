@@ -13,7 +13,6 @@ import {
   getFallbackThreadIdAfterDelete,
   getVisibleSidebarEntriesForPreview,
   orderPinnedProjectsForSidebar,
-  pullRequestRepositoryConfigFingerprint,
   getPinnedThreadsForSidebar,
   getNextVisibleSidebarThreadId,
   getSidebarThreadIdForJumpCommand,
@@ -33,10 +32,8 @@ import {
   isDuplicateProjectCreateError,
   pruneProjectThreadListPagingForCollapsedProjects,
   recoverExistingAddProjectTarget,
-  resolvePullRequestReviewBadge,
   resolveSidebarThreadListPaging,
   resolveProjectEmptyState,
-  resolvePendingSidebarViewSelection,
   resolveSettingsBackTarget,
   resolveProjectStatusIndicator,
   resolveSidebarNewThreadEnvMode,
@@ -72,16 +69,6 @@ function makeLatestTurn(overrides?: {
   };
 }
 
-describe("resolvePendingSidebarViewSelection", () => {
-  it("optimistically follows a destination segment", () => {
-    expect(resolvePendingSidebarViewSelection("threads", "studio")).toBe("studio");
-  });
-
-  it("clears the optimistic segment when the user returns to the active view", () => {
-    expect(resolvePendingSidebarViewSelection("threads", "threads")).toBeNull();
-  });
-});
-
 describe("isProjectsSidebarSurface", () => {
   it("enables Space shortcuts only where the Space switcher is visible", () => {
     expect(
@@ -112,44 +99,6 @@ describe("isProjectsSidebarSurface", () => {
         isOnWorkspace: false,
       }),
     ).toBe(false);
-  });
-});
-
-describe("resolvePullRequestReviewBadge", () => {
-  it("distinguishes complete, partial, and unavailable review counts", () => {
-    expect(resolvePullRequestReviewBadge({ count: 3, incomplete: false })).toEqual({
-      text: "3",
-      accessibleLabel: "3 pull requests are waiting for your review",
-    });
-    expect(resolvePullRequestReviewBadge({ count: 3, incomplete: true })).toEqual({
-      text: "3+",
-      accessibleLabel: "At least 3 pull requests are waiting for your review",
-    });
-    expect(resolvePullRequestReviewBadge({ count: 0, incomplete: true })).toBeNull();
-    expect(resolvePullRequestReviewBadge({ count: 0, incomplete: false })).toBeNull();
-    expect(resolvePullRequestReviewBadge(undefined)).toBeNull();
-    expect(resolvePullRequestReviewBadge({ count: 1, incomplete: false })?.accessibleLabel).toBe(
-      "1 pull request is waiting for your review",
-    );
-  });
-});
-
-describe("pullRequestRepositoryConfigFingerprint", () => {
-  it("changes for repository-affecting project edits but not sidebar ordering or expansion", () => {
-    const first = makeProject({ id: ProjectId.makeUnsafe("project-1"), cwd: "/repo/one" });
-    const second = makeProject({ id: ProjectId.makeUnsafe("project-2"), cwd: "/repo/two" });
-    const baseline = pullRequestRepositoryConfigFingerprint([first, second]);
-
-    expect(pullRequestRepositoryConfigFingerprint([second, first])).toBe(baseline);
-    expect(
-      pullRequestRepositoryConfigFingerprint([{ ...first, expanded: !first.expanded }, second]),
-    ).toBe(baseline);
-    expect(
-      pullRequestRepositoryConfigFingerprint([{ ...first, cwd: "/repo/moved" }, second]),
-    ).not.toBe(baseline);
-    expect(
-      pullRequestRepositoryConfigFingerprint([{ ...first, name: "Renamed" }, second]),
-    ).not.toBe(baseline);
   });
 });
 

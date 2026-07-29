@@ -4,7 +4,6 @@
 
 import {
   ArchiveIcon,
-  AppsIcon,
   CopyIcon,
   ExternalLinkIcon,
   FileIcon,
@@ -15,7 +14,6 @@ import {
   PencilIcon,
   PinIcon,
   PlayIcon,
-  SearchIcon,
   StopFilledIcon,
   TemporaryThreadIcon,
   TerminalIcon,
@@ -31,7 +29,6 @@ import {
   type PrStatePresentation,
 } from "~/components/pullRequest/pullRequestStatePresentation";
 import { PinStatusIcon, pinActionLabel } from "~/lib/pin";
-import { NavItemShared } from "~/components/left-rail/nav-item-shared/NavItemShared";
 import { ensureNativeApi } from "~/nativeApi";
 import { autoAnimate } from "@formkit/auto-animate";
 import { FiGitBranch, FiUserPlus } from "react-icons/fi";
@@ -48,7 +45,6 @@ import {
   Suspense,
   useState,
   type DragEvent as ReactDragEvent,
-  type ComponentType,
   type MouseEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
@@ -150,6 +146,7 @@ import { CHAT_SURFACE_HEADER_HEIGHT_CLASS } from "./chat/chatHeaderControls";
 import { SidebarLeadingControls } from "./SidebarHeaderNavigationControls";
 import { SidebarHeaderShared } from "./left-rail/sidebar-header-shared/SidebarHeaderShared";
 import { AccountMenu } from "./left-rail/menu-account/AccountMenu";
+import { SidebarTopNavigation } from "./left-rail/sidebar-top-navigation/SidebarTopNavigation";
 import { ProjectSidebarIcon } from "./ProjectSidebarIcon";
 import { useRightDockStore } from "../rightDockStore";
 import { PenkraCreateClientDialog } from "../penkra/PenkraCreateClientDialog";
@@ -276,7 +273,6 @@ import {
   DEBUG_FEATURE_FLAGS_MENU_STORAGE_KEY,
   resolveProjectEmptyState,
   resolveProjectStatusIndicator,
-  resolvePendingSidebarViewSelection,
   resolveSettingsBackTarget,
   type SettingsBackTarget,
   resolveSidebarNewThreadEnvMode,
@@ -286,7 +282,6 @@ import {
   resolveThreadStatusPill,
   type ThreadStatusPill,
   type SidebarDerivedProjectData,
-  type SidebarActionBadge,
   type SidebarView,
   shouldShowDebugFeatureFlagsMenu,
   shouldPrunePinnedThreads,
@@ -412,13 +407,6 @@ const EMPTY_THREAD_JUMP_LABELS = new Map<ThreadId, string>();
 const EMPTY_SHORTCUT_PARTS: readonly string[] = [];
 const ADD_PROJECT_SNAPSHOT_CATCH_UP_MAX_ATTEMPTS = 6;
 const ADD_PROJECT_SNAPSHOT_CATCH_UP_DELAY_MS = 50;
-const SIDEBAR_VIEW_LABELS: Record<SidebarView, string> = {
-  threads: "Projects",
-  studio: "Studio",
-  workspace: "Workspace",
-};
-/** Snap the optimistic segment selection back if the navigation never lands. */
-const SIDEBAR_SEGMENT_PENDING_RESET_MS = 2000;
 const EMPTY_PROJECT_SIDEBAR_DATA: ReadonlyMap<ProjectId, SidebarDerivedProjectData> = new Map();
 const DebugFeatureFlagsMenu = import.meta.env.DEV
   ? lazy(() =>
@@ -894,70 +882,6 @@ function ChatSortMenu({
   );
 }
 
-function SidebarPrimaryAction({
-  icon: Icon,
-  label,
-  onClick,
-  onMouseEnter,
-  onFocus,
-  active = false,
-  disabled = false,
-  shortcutLabel,
-  badge,
-}: {
-  // Accepts both Lucide adapters and raw react-icons glyphs (rendered via SidebarGlyph).
-  icon: ComponentType<{ className?: string }>;
-  label: string;
-  onClick?: () => void;
-  onMouseEnter?: () => void;
-  onFocus?: () => void;
-  active?: boolean;
-  disabled?: boolean;
-  shortcutLabel?: string | null;
-  badge?: SidebarActionBadge | null;
-}) {
-  const shortcutParts = shortcutLabel ? splitShortcutLabel(shortcutLabel) : [];
-
-  return (
-    <SidebarMenuItem>
-      <NavItemShared
-        icon={<SidebarGlyph icon={Icon} variant="leading" />}
-        state={active ? "selected" : "default"}
-        aria-current={active ? "page" : undefined}
-        className={cn(
-          "group/sidebar-primary-action",
-          "h-[29px]",
-        )}
-        disabled={disabled}
-        onClick={onClick}
-        onMouseEnter={onMouseEnter}
-        onFocus={onFocus}
-        trailing={
-          badge ? (
-            <span
-              className="inline-flex h-4 min-w-4 items-center justify-center rounded-md bg-muted px-1 text-[10px] font-medium text-muted-foreground"
-              aria-label={badge.accessibleLabel}
-              title={badge.accessibleLabel}
-            >
-              {badge.text}
-            </span>
-          ) : shortcutParts.length > 0 ? (
-            <span className="opacity-0 transition-opacity group-hover/sidebar-primary-action:opacity-100 group-focus-visible/sidebar-primary-action:opacity-100">
-              <KbdGroup>
-                {shortcutParts.map((part) => (
-                  <Kbd key={part}>{part}</Kbd>
-                ))}
-              </KbdGroup>
-            </span>
-          ) : null
-        }
-      >
-        {label}
-      </NavItemShared>
-    </SidebarMenuItem>
-  );
-}
-
 function SortableProjectItem({
   projectId,
   disabled = false,
@@ -992,146 +916,6 @@ function SortableProjectItem({
     >
       {children({ attributes, listeners, setActivatorNodeRef })}
     </li>
-  );
-}
-
-export function SidebarSegmentedPicker({
-  views,
-  activeView,
-  onSelectView,
-  onPrewarmView,
-}: {
-  views: ReadonlyArray<SidebarView>;
-  activeView: SidebarView;
-  onSelectView: (view: SidebarView) => void;
-  onPrewarmView?: (view: SidebarView) => void;
-}) {
-  // Optimistic selection: activeView is derived from the route, which only updates
-  // after the segment switch's (heavy) render commits — the thumb would otherwise
-  // sit still for the whole switch and the click would feel dead. Drive the thumb
-  // from the clicked segment immediately (the navigation itself runs in a
-  // transition, see navigateToBackTarget) and let the route catch up; the timeout
-  // snaps back if the navigation never lands (e.g. Workspace with no pages).
-  // Stamp an optimistic selection with the route it started from. When the route
-  // changes, synchronously replace that state before React commits the new props.
-  // Merely hiding a mismatched key is insufficient: browser Back can return to the
-  // old key after the route-landing effect has cancelled the snap-back timeout.
-  const [pendingView, setPendingView] = useState<{
-    key: SidebarView;
-    value: SidebarView | null;
-  }>(() => ({ key: activeView, value: null }));
-  if (pendingView.key !== activeView) {
-    setPendingView({ key: activeView, value: null });
-  }
-  const pendingViewResetTimeoutRef = useRef<number | null>(null);
-  const clearPendingViewResetTimeout = useCallback(() => {
-    if (pendingViewResetTimeoutRef.current !== null) {
-      window.clearTimeout(pendingViewResetTimeoutRef.current);
-      pendingViewResetTimeoutRef.current = null;
-    }
-  }, []);
-  // Cancel the pending snap-back timer once the route lands. The synchronous reset
-  // above owns the state transition; this effect only releases the timer.
-  useEffect(() => {
-    clearPendingViewResetTimeout();
-  }, [activeView, clearPendingViewResetTimeout]);
-  useEffect(() => clearPendingViewResetTimeout, [clearPendingViewResetTimeout]);
-
-  // A single-option switcher is just a static label, so hide it entirely when the
-  // user has turned off one of the two sections in Settings.
-  if (views.length < 2) {
-    return null;
-  }
-  const effectivePendingView = pendingView.key === activeView ? pendingView.value : null;
-  const displayedView = effectivePendingView ?? activeView;
-  const handleSelectView = (view: SidebarView) => {
-    const nextPendingView = resolvePendingSidebarViewSelection(activeView, view);
-    clearPendingViewResetTimeout();
-    setPendingView({ key: activeView, value: nextPendingView });
-    if (nextPendingView !== null) {
-      // Start the detail subscription before the transition render so the
-      // destination transcript is already loading while React works.
-      onPrewarmView?.(view);
-      pendingViewResetTimeoutRef.current = window.setTimeout(() => {
-        pendingViewResetTimeoutRef.current = null;
-        setPendingView((current) => ({ ...current, value: null }));
-      }, SIDEBAR_SEGMENT_PENDING_RESET_MS);
-    }
-    onSelectView(view);
-  };
-  // displayedView can name a hidden view (e.g. a Studio thread is open while the Studio section is
-  // toggled off) — show no selection then, instead of parking the thumb on the wrong segment.
-  const activeIndex = views.indexOf(displayedView);
-  const segmentCount = views.length;
-  const activeSegment = Math.max(0, activeIndex);
-  const isFirstActive = activeSegment === 0;
-  const isLastActive = activeSegment === segmentCount - 1;
-  // One segment's share of the track interior: the padding box (100%) minus the two 0.5 side
-  // paddings. The chip fills exactly one cell for interior segments.
-  const cell = `(100% - 0.25rem) / ${segmentCount}`;
-  // The active *outer* segment leans a few px past the track's outer edge so it reads as a
-  // raised chip tilting toward that side (macOS style). Its inner edge stays glued to the
-  // segment boundary — only the width grows — so no gap opens next to the neighbour.
-  const OVERHANG = "5px";
-  const chipLeft = isFirstActive
-    ? `calc(-1px - ${OVERHANG})`
-    : `calc(0.125rem + ${activeSegment} * (${cell}))`;
-  const chipWidth =
-    isFirstActive || isLastActive
-      ? `calc(${cell} + 0.125rem + 1px + ${OVERHANG})`
-      : `calc(${cell})`;
-  return (
-    <div className="px-3 pt-0.5 pb-2.5">
-      <div className="sidebar-segmented-picker relative isolate inline-flex w-full rounded-lg p-0.5">
-        {/* Single highlighted pill that glides between segments instead of snapping per-button.
-            A slim vertical overhang plus an outward horizontal lean on the end segments make
-            the selected segment read as a raised chip lifted out of the recessed well. */}
-        <div
-          aria-hidden
-          className={cn(
-            "sidebar-segmented-thumb pointer-events-none absolute -inset-y-[1.5px] z-0 rounded-md transition-[left,width] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]",
-            activeIndex < 0 && "opacity-0",
-          )}
-          style={{ left: chipLeft, width: chipWidth }}
-        />
-        {views.map((view, index) => {
-          const active = displayedView === view;
-          // The end-segment chip grows outward by 0.125rem + 1px + OVERHANG, so its visual
-          // center sits half that off the cell center. Follow it with the label (same motion
-          // as the thumb) so the text stays centered inside the chip.
-          const isOuterSegment = index === 0 || index === segmentCount - 1;
-          const labelShift =
-            active && isOuterSegment
-              ? `calc(${index === 0 ? "-1 * " : ""}(0.125rem + 1px + ${OVERHANG}) / 2)`
-              : "0px";
-          return (
-            <button
-              key={view}
-              type="button"
-              className={cn(
-                "relative z-10 flex-1 rounded-md px-2.5 py-0.5 text-[11.5px] font-medium transition-colors duration-200",
-                active
-                  ? "text-[var(--color-text-foreground)]"
-                  : "text-[var(--color-text-foreground-secondary)] hover:text-[var(--color-text-foreground)]",
-              )}
-              onPointerEnter={() => {
-                if (view !== activeView) {
-                  onPrewarmView?.(view);
-                }
-              }}
-              onClick={() => handleSelectView(view)}
-            >
-              <span
-                className="block transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]"
-                style={{ transform: `translateX(${labelShift})` }}
-              >
-                {SIDEBAR_VIEW_LABELS[view]}
-              </span>
-            </button>
-          );
-        })}
-      </div>
-    </div>
   );
 }
 
@@ -5204,9 +4988,6 @@ export default function Sidebar() {
     shortcutLabelForCommand(keybindings, "chat.newChat") ??
     shortcutLabelForCommand(keybindings, "chat.newLocal");
   const newTerminalThreadShortcutLabel = shortcutLabelForCommand(keybindings, "chat.newTerminal");
-  const searchShortcutLabel =
-    shortcutLabelForCommand(keybindings, "sidebar.search") ??
-    (isMacPlatform(navigator.platform) ? "⌘K" : "Ctrl+K");
   const importThreadShortcutLabel =
     shortcutLabelForCommand(keybindings, "sidebar.importThread") ??
     (isMacPlatform(navigator.platform) ? "⌘I" : "Ctrl+I");
@@ -5620,6 +5401,41 @@ export default function Sidebar() {
         </SidebarHeader>
       )}
 
+      {!isOnSettings ? (
+        <SidebarTopNavigation
+          activeItemId={
+            searchPaletteOpen
+              ? "search"
+              : isOnStudio
+                ? "sites"
+                : isOnKanban
+                  ? "scheduled"
+                  : isOnPlugins
+                    ? "apps"
+                    : undefined
+          }
+          onSelect={(itemId) => {
+            switch (itemId) {
+              case "search":
+                setSearchPaletteOpen(true);
+                break;
+              case "new-chat":
+                void handleCreateHomeChat();
+                break;
+              case "sites":
+                handleSidebarViewChange("studio");
+                break;
+              case "scheduled":
+                void navigate({ to: "/kanban" });
+                break;
+              case "apps":
+                void navigate({ to: "/plugins" });
+                break;
+            }
+          }}
+        />
+      ) : null}
+
       <SidebarContent className="gap-0 font-system-ui">
         {showArm64IntelBuildWarning && arm64IntelBuildWarningDescription ? (
           <SidebarGroup className="px-2 pt-2 pb-0">
@@ -5671,50 +5487,6 @@ export default function Sidebar() {
               key={isOnWorkspace ? "workspace" : isOnStudio ? "studio" : "threads"}
               className="sidebar-surface-enter"
             >
-              {/* Pencil Sidebar Top Navigation (dxWQT). */}
-              <SidebarGroup className="px-1.5 pt-1 pb-1.5">
-                <SidebarMenu className="gap-0.5">
-                  <SidebarPrimaryAction
-                    icon={SearchIcon}
-                    label="Search"
-                    active={searchPaletteOpen}
-                    onClick={() => {
-                      setSearchPaletteOpen(true);
-                    }}
-                    shortcutLabel={searchShortcutLabel}
-                  />
-                  <SidebarPrimaryAction
-                    icon={NewThreadIcon}
-                    label="New chat"
-                    onClick={handleCreateHomeChat}
-                  />
-                  <SidebarPrimaryAction
-                    icon={WorktreeIcon}
-                    label="Sites"
-                    active={isOnStudio}
-                    onClick={() => {
-                      handleSidebarViewChange("studio");
-                    }}
-                  />
-                  <SidebarPrimaryAction
-                    icon={KanbanIcon}
-                    label="Scheduled"
-                    active={isOnKanban}
-                    onClick={() => {
-                      void navigate({ to: "/kanban" });
-                    }}
-                  />
-                  <SidebarPrimaryAction
-                    icon={AppsIcon}
-                    label="Apps"
-                    active={isOnPlugins}
-                    onClick={() => {
-                      void navigate({ to: "/plugins" });
-                    }}
-                  />
-                </SidebarMenu>
-              </SidebarGroup>
-
               {isOnWorkspace ? (
                 <SidebarGroup className="px-1.5 pt-1 pb-1.5">
                   <div className="my-2 h-px w-full bg-border" />
