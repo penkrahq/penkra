@@ -210,9 +210,26 @@ try {
       '[data-pencil-name="Sidebar"] > [data-pencil-name="Header"] > [data-pencil-name="Brand"]',
     )
     .boundingBox();
-  if (windowedChrome !== "macos-windowed" || windowedFrame?.y !== 0 || windowedBrand?.x !== 90) {
+  const windowedSearch = await pencilFrame(chromePage)
+    .locator(
+      '[data-pencil-name="Sidebar"] > [data-pencil-name="Header"] > [data-pencil-name="Search"]',
+    )
+    .boundingBox();
+  const windowedBrandCenter = windowedBrand
+    ? windowedBrand.y + windowedBrand.height / 2
+    : undefined;
+  const windowedSearchCenter = windowedSearch
+    ? windowedSearch.y + windowedSearch.height / 2
+    : undefined;
+  if (
+    windowedChrome !== "macos-windowed" ||
+    windowedFrame?.y !== 0 ||
+    windowedBrand?.x !== 90 ||
+    windowedBrandCenter !== 23 ||
+    windowedSearchCenter !== 23
+  ) {
     throw new Error(
-      `Windowed macOS traffic-light affordance is wrong: mode=${windowedChrome}, frameY=${windowedFrame?.y}, brandX=${windowedBrand?.x}.`,
+      `Windowed macOS traffic-light alignment is wrong: mode=${windowedChrome}, frameY=${windowedFrame?.y}, brandX=${windowedBrand?.x}, brandCenter=${windowedBrandCenter}, searchCenter=${windowedSearchCenter}.`,
     );
   }
 
@@ -226,9 +243,12 @@ try {
       '[data-pencil-name="Sidebar"] > [data-pencil-name="Header"] > [data-pencil-name="Brand"]',
     )
     .boundingBox();
-  if (fullscreenFrame?.y !== 0 || fullscreenBrand?.x !== 10) {
+  const fullscreenBrandCenter = fullscreenBrand
+    ? fullscreenBrand.y + fullscreenBrand.height / 2
+    : undefined;
+  if (fullscreenFrame?.y !== 0 || fullscreenBrand?.x !== 10 || fullscreenBrandCenter !== 23) {
     throw new Error(
-      `Fullscreen macOS chrome did not restore Pencil geometry: frameY=${fullscreenFrame?.y}, brandX=${fullscreenBrand?.x}.`,
+      `Fullscreen macOS chrome did not restore Pencil geometry: frameY=${fullscreenFrame?.y}, brandX=${fullscreenBrand?.x}, brandCenter=${fullscreenBrandCenter}.`,
     );
   }
   await chromePage.close();

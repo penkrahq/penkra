@@ -29,6 +29,11 @@ const WORKSPACE_CSS = `
     min-width: 0 !important;
   }
 
+  body > [data-pencil-name] > [data-pencil-name="Sidebar"] > [data-pencil-name="Header"] {
+    height: 46px !important;
+    min-height: 46px !important;
+  }
+
   body > [data-pencil-name] > [data-pencil-name="Dim Backdrop"] {
     width: 100% !important;
     height: 100% !important;
