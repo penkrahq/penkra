@@ -11,16 +11,17 @@ import {
   resolvePenkraDevLauncherPaths,
   resolvePenkraDevWorkspaceCommand,
 } from "./penkra-dev-launcher";
-import { shellQuote } from "./install-penkra-dev-app";
+import {
+  parseAppleDevelopmentIdentity,
+  resolvePenkraDevLauncherCompileArgs,
+} from "./install-penkra-dev-app";
 import { resolvePenkraDevIconSource } from "./lib/macos-icon";
 
 describe("Penkra Dev launcher", () => {
   it("keeps launcher state and development data outside production Penkra", () => {
     const paths = resolvePenkraDevLauncherPaths("/Users/tester");
 
-    expect(paths.stateDirectory).toBe(
-      "/Users/tester/Library/Application Support/Penkra Dev Launcher",
-    );
+    expect(paths.stateDirectory).toBe("/Users/tester/Penkra_Dev/.launcher");
     expect(paths.developmentRoot).toBe("/Users/tester/Penkra_Dev");
     expect(paths.lockDirectory).toBe(`${paths.stateDirectory}/supervisor.lock`);
   });
@@ -61,6 +62,34 @@ describe("Penkra Dev launcher", () => {
     });
   });
 
+  it("compiles a standalone launcher with its repository root embedded", () => {
+    expect(
+      resolvePenkraDevLauncherCompileArgs({
+        launcherScriptPath: "/workspace/scripts/penkra-dev-launcher.ts",
+        executablePath: "/tmp/Penkra (Dev)",
+        repoRoot: "/workspace",
+      }),
+    ).toEqual([
+      "build",
+      "--compile",
+      "--minify",
+      "--define",
+      'PENKRA_DEV_REPO_ROOT="/workspace"',
+      "/workspace/scripts/penkra-dev-launcher.ts",
+      "--outfile",
+      "/tmp/Penkra (Dev)",
+    ]);
+  });
+
+  it("prefers a stable Apple Development signing identity", () => {
+    expect(
+      parseAppleDevelopmentIdentity(
+        '  1) ABC "Apple Development: Penkra Developer (TEAM123)"\n     1 valid identities found',
+      ),
+    ).toBe("Apple Development: Penkra Developer (TEAM123)");
+    expect(parseAppleDevelopmentIdentity("0 valid identities found")).toBeNull();
+  });
+
   it("passes local platform identity through Turbo to Electron", () => {
     const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
     const turboConfig = JSON.parse(readFileSync(resolve(repoRoot, "turbo.json"), "utf8")) as {
@@ -78,7 +107,4 @@ describe("Penkra Dev launcher", () => {
     );
   });
 
-  it("quotes launcher paths without permitting shell interpolation", () => {
-    expect(shellQuote("/tmp/Penkra Dev/app's runtime")).toBe("'/tmp/Penkra Dev/app'\\''s runtime'");
-  });
 });

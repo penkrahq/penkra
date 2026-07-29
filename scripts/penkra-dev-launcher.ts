@@ -15,12 +15,19 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+declare const PENKRA_DEV_REPO_ROOT: string | undefined;
+
 const SUPERVISOR_COMMAND = "supervise";
 const DEV_INSTANCE_NAME = "penkra-app-launcher";
-const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const compiledRepoRoot =
+  typeof PENKRA_DEV_REPO_ROOT === "string" ? PENKRA_DEV_REPO_ROOT : undefined;
+const repoRoot = resolve(
+  compiledRepoRoot ?? resolve(dirname(fileURLToPath(import.meta.url)), ".."),
+);
 const workspaceRoot = resolve(repoRoot, "..");
 const workspaceOrchestratorPath = join(workspaceRoot, "backend", "ops", "dev-workspace.mjs");
 const launcherScriptPath = fileURLToPath(import.meta.url);
+const launcherExecutablePath = compiledRepoRoot ? process.execPath : launcherScriptPath;
 const developmentAppPath = join(
   repoRoot,
   "apps",
@@ -38,26 +45,22 @@ export interface PenkraDevLauncherPaths {
 }
 
 export function resolvePenkraDevLauncherPaths(homeDirectory = homedir()): PenkraDevLauncherPaths {
-  const stateDirectory = join(
-    homeDirectory,
-    "Library",
-    "Application Support",
-    "Penkra Dev Launcher",
-  );
+  const developmentRoot = join(homeDirectory, "Penkra_Dev");
+  const stateDirectory = join(developmentRoot, ".launcher");
   return {
     stateDirectory,
     lockDirectory: join(stateDirectory, "supervisor.lock"),
     ownerPath: join(stateDirectory, "supervisor.lock", "owner.json"),
     logPath: join(stateDirectory, "launcher.log"),
-    developmentRoot: join(homeDirectory, "Penkra_Dev"),
+    developmentRoot,
   };
 }
 
 export function isExpectedPenkraDevSupervisorCommand(
   command: string,
-  expectedScriptPath = launcherScriptPath,
+  expectedLauncherPath = launcherExecutablePath,
 ): boolean {
-  return command.includes(expectedScriptPath) && command.includes(` ${SUPERVISOR_COMMAND}`);
+  return command.includes(expectedLauncherPath) && command.includes(` ${SUPERVISOR_COMMAND}`);
 }
 
 export interface PenkraDevWorkspaceCommand {
@@ -67,11 +70,11 @@ export interface PenkraDevWorkspaceCommand {
 }
 
 export function resolvePenkraDevWorkspaceCommand(
-  nodeExecutable = process.execPath,
+  runtimeExecutable: string,
   orchestratorPath = workspaceOrchestratorPath,
 ): PenkraDevWorkspaceCommand {
   return {
-    executable: resolve(nodeExecutable),
+    executable: resolve(runtimeExecutable),
     args: [resolve(orchestratorPath)],
     cwd: resolve(orchestratorPath, "..", "..", ".."),
   };
@@ -225,7 +228,7 @@ async function terminateProcessTree(rootPid: number, signal: NodeJS.Signals): Pr
 
 async function supervise(bunExecutable: string): Promise<void> {
   const paths = resolvePenkraDevLauncherPaths();
-  const workspaceCommand = resolvePenkraDevWorkspaceCommand();
+  const workspaceCommand = resolvePenkraDevWorkspaceCommand(bunExecutable);
   if (!existsSync(workspaceCommand.args[0]!)) {
     throw new Error(
       `Penkra Dev launcher cannot find the full-workspace orchestrator: ${workspaceCommand.args[0]}`,
@@ -310,6 +313,10 @@ process.once("exit", () => {
 function launchDetachedSupervisor(bunExecutable: string): void {
   const paths = resolvePenkraDevLauncherPaths();
   mkdirSync(paths.stateDirectory, { recursive: true, mode: 0o700 });
+  if (developmentElectronIsRunning()) {
+    void focusDevelopmentElectronWhenReady();
+    return;
+  }
   if (supervisorIsRunning(paths)) {
     void focusDevelopmentElectronWhenReady();
     return;
@@ -317,24 +324,26 @@ function launchDetachedSupervisor(bunExecutable: string): void {
 
   const logDescriptor = openSync(paths.logPath, "a", 0o600);
   try {
-    const child = spawn(
-      process.execPath,
-      [launcherScriptPath, SUPERVISOR_COMMAND, "--bun", bunExecutable],
-      {
-        cwd: repoRoot,
-        detached: true,
-        env: process.env,
-        stdio: ["ignore", logDescriptor, logDescriptor],
-      },
-    );
+    const launcherArgs = compiledRepoRoot
+      ? [SUPERVISOR_COMMAND, "--bun", bunExecutable]
+      : [launcherScriptPath, SUPERVISOR_COMMAND, "--bun", bunExecutable];
+    const child = spawn(process.execPath, launcherArgs, {
+      cwd: repoRoot,
+      detached: true,
+      env: process.env,
+      stdio: ["ignore", logDescriptor, logDescriptor],
+    });
     child.unref();
   } finally {
     closeSync(logDescriptor);
   }
 }
 
-async function main(): Promise<void> {
-  const [command = "launch", ...args] = process.argv.slice(2);
+export async function runPenkraDevLauncher(argv = process.argv): Promise<void> {
+  const commandIndex = argv.findIndex(
+    (argument) => argument === "launch" || argument === SUPERVISOR_COMMAND,
+  );
+  const [command = "launch", ...args] = argv.slice(commandIndex >= 0 ? commandIndex : 2);
   const bunExecutable = parseBunExecutable(args);
   if (command === "launch") {
     launchDetachedSupervisor(bunExecutable);
@@ -348,10 +357,11 @@ async function main(): Promise<void> {
 }
 
 const isDirectExecution =
-  process.argv[1] !== undefined &&
-  resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url));
+  (import.meta as ImportMeta & { readonly main?: boolean }).main === true ||
+  (process.argv[1] !== undefined &&
+    resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url)));
 if (isDirectExecution) {
-  void main().catch((error: unknown) => {
+  void runPenkraDevLauncher().catch((error: unknown) => {
     process.stderr.write(
       `[penkra-dev-launcher] ${error instanceof Error ? error.stack || error.message : String(error)}\n`,
     );

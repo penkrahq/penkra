@@ -3646,7 +3646,7 @@ function configureMediaPermissions(): void {
 // Override Electron's userData path before the `ready` event so that
 // Chromium session data uses a filesystem-friendly directory name.
 // Must be called synchronously at the top level — before `app.whenReady()`.
-if (hasSingleInstanceLock) {
+if (hasSingleInstanceLock && !isDevelopment) {
   repairBrowserProfileBeforeElectronReady(userDataPath);
 }
 

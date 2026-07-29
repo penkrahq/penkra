@@ -3,7 +3,6 @@
 
 import { spawnSync } from "node:child_process";
 import {
-  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -24,8 +23,9 @@ const previousTargetAppPath = "/Applications/Penkra Dev.app";
 const bundleIdentifier = "com.penkra.app.dev.launcher";
 const executableName = "Penkra (Dev)";
 
-export function shellQuote(value: string): string {
-  return `'${value.replaceAll("'", "'\\''")}'`;
+export function parseAppleDevelopmentIdentity(output: string): string | null {
+  const match = output.match(/"([^"]*Apple Development:[^"]+)"/u);
+  return match?.[1] ?? null;
 }
 
 function resolveBunExecutable(): string {
@@ -37,6 +37,39 @@ function resolveBunExecutable(): string {
     throw new Error("Cannot install Penkra Dev: Bun is not available.");
   }
   return resolve(candidate);
+}
+
+function resolveCodeSigningIdentity(): string {
+  const configured = process.env.PENKRA_DEV_CODESIGN_IDENTITY?.trim();
+  if (configured) return configured;
+
+  const identities = spawnSync(
+    "/usr/bin/security",
+    ["find-identity", "-v", "-p", "codesigning"],
+    { encoding: "utf8" },
+  );
+  if (identities.status === 0) {
+    const appleDevelopmentIdentity = parseAppleDevelopmentIdentity(identities.stdout);
+    if (appleDevelopmentIdentity) return appleDevelopmentIdentity;
+  }
+  return "-";
+}
+
+export function resolvePenkraDevLauncherCompileArgs(input: {
+  readonly launcherScriptPath: string;
+  readonly executablePath: string;
+  readonly repoRoot: string;
+}): string[] {
+  return [
+    "build",
+    "--compile",
+    "--minify",
+    "--define",
+    `PENKRA_DEV_REPO_ROOT=${JSON.stringify(input.repoRoot)}`,
+    input.launcherScriptPath,
+    "--outfile",
+    input.executablePath,
+  ];
 }
 
 function makeInfoPlist(): string {
@@ -77,12 +110,6 @@ function makeInfoPlist(): string {
 `;
 }
 
-function makeExecutableScript(bunExecutable: string): string {
-  return `#!/bin/zsh
-exec ${shellQuote(process.execPath)} ${shellQuote(launcherScriptPath)} launch --bun ${shellQuote(bunExecutable)}
-`;
-}
-
 function install(): void {
   if (process.platform !== "darwin") {
     throw new Error("Penkra Dev Applications launcher is available only on macOS.");
@@ -100,15 +127,26 @@ function install(): void {
   const executablePath = join(macosPath, executableName);
   const iconPath = join(resourcesPath, "PenkraDev.icns");
   const backupPath = `/Applications/.Penkra Dev.backup-${String(process.pid)}.app`;
+  const signingIdentity = resolveCodeSigningIdentity();
 
   try {
     mkdirSync(macosPath, { recursive: true });
     mkdirSync(resourcesPath, { recursive: true });
     writeFileSync(join(contentsPath, "Info.plist"), makeInfoPlist());
-    writeFileSync(executablePath, makeExecutableScript(bunExecutable), {
-      mode: 0o755,
-    });
-    chmodSync(executablePath, 0o755);
+    const compile = spawnSync(
+      bunExecutable,
+      resolvePenkraDevLauncherCompileArgs({
+        launcherScriptPath,
+        executablePath,
+        repoRoot,
+      }),
+      { cwd: repoRoot, encoding: "utf8" },
+    );
+    if (compile.status !== 0) {
+      throw new Error(
+        `Could not compile Penkra Dev launcher: ${(compile.stderr || compile.stdout).trim()}`,
+      );
+    }
     buildMacosIcon({
       sourcePngPath: resolvePenkraDevIconSource(repoRoot),
       targetIcnsPath: iconPath,
@@ -116,7 +154,16 @@ function install(): void {
 
     const sign = spawnSync(
       "/usr/bin/codesign",
-      ["--force", "--deep", "--sign", "-", stagedAppPath],
+      [
+        "--force",
+        "--deep",
+        "--options",
+        "runtime",
+        "--timestamp=none",
+        "--sign",
+        signingIdentity,
+        stagedAppPath,
+      ],
       { encoding: "utf8" },
     );
     if (sign.status !== 0) {
@@ -150,7 +197,7 @@ function install(): void {
     }
 
     process.stdout.write(
-      `Installed Penkra Dev launcher at ${targetAppPath}\nRepository: ${repoRoot}\nBun: ${bunExecutable}\n`,
+      `Installed Penkra Dev launcher at ${targetAppPath}\nRepository: ${repoRoot}\nBun: ${bunExecutable}\nSigning identity: ${signingIdentity}\n`,
     );
   } finally {
     rmSync(temporaryRoot, { recursive: true, force: true });
