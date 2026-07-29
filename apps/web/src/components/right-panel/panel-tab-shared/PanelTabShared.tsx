@@ -16,6 +16,7 @@ export const PanelTabShared = forwardRef<HTMLButtonElement, PanelTabSharedProps>
   ) {
     return (
       <div
+        data-pencil-component="nyAGp"
         className={cn(
           "group/panel-tab flex h-8 items-center gap-1.5 rounded-t-md px-3 font-sans text-[13px] text-[var(--color-text-foreground-secondary)] transition-colors hover:bg-[var(--color-background-button-secondary-hover)] hover:text-[var(--color-text-foreground)]",
           active &&

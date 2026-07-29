@@ -9448,6 +9448,7 @@ export default function ChatView({
           className="relative z-10 w-full overflow-visible"
           data-chat-composer-form="true"
           data-chat-pane-scope={paneScopeId}
+          data-pencil-component="TKKOp"
         >
           <ComposerColumnFrame>
             {/* A bare wrapper keeps the normal-flow panels' -mb-px seam onto the input shell
@@ -9954,6 +9955,7 @@ export default function ChatView({
 
   return (
     <div
+      data-pencil-component="y0DmC"
       className={cn(
         "relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden",
         CHAT_BACKGROUND_CLASS_NAME,
@@ -9975,6 +9977,7 @@ export default function ChatView({
       />
       {/* Top bar */}
       <header
+        data-pencil-component="Kpx7i"
         className={cn(
           CHAT_SURFACE_HEADER_DIVIDER_CLASS_NAME,
           !isEditorRail && CHAT_SURFACE_HEADER_PADDING_X_CLASS,

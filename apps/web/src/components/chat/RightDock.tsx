@@ -28,6 +28,7 @@ import { resolveActivePane } from "~/rightDockStore.logic";
 import { Button } from "../ui/button";
 import { IconButton } from "../ui/icon-button";
 import { Menu, MenuItem, MenuTrigger } from "../ui/menu";
+import { PanelTabShared } from "../right-panel/panel-tab-shared/PanelTabShared";
 import {
   Sidebar,
   SIDEBAR_OFFCANVAS_MOTION_CLASS,
@@ -40,7 +41,6 @@ import { ComposerPickerMenuPopup } from "./ComposerPickerMenuPopup";
 import {
   CHAT_SURFACE_HEADER_ROW_CLASS_NAME,
   DOCK_HEADER_ICON_BUTTON_CLASS,
-  SurfaceTabChip,
 } from "./chatHeaderControls";
 import {
   getRightDockPaneMeta,
@@ -92,16 +92,15 @@ function RightDockTab(props: {
   onClose: () => void;
 }) {
   return (
-    <SurfaceTabChip
+    <PanelTabShared
       active={props.active}
       title={props.label}
-      label={props.label}
-      labelClassName="max-w-[10rem]"
       icon={props.icon ?? resolveRightDockPaneIcon(props.pane)}
-      closeLabel={`Close ${props.label}`}
-      onSelect={props.onSelect}
+      onClick={props.onSelect}
       onClose={props.onClose}
-    />
+    >
+      {props.label}
+    </PanelTabShared>
   );
 }
 
@@ -227,6 +226,7 @@ export function RightDock(props: RightDockProps) {
       style={{ "--sidebar-width": props.defaultWidth } as CSSProperties}
     >
       <Sidebar
+        data-pencil-component="ayA7J"
         side="right"
         collapsible="offcanvas"
         className={cn(
@@ -255,7 +255,11 @@ export function RightDock(props: RightDockProps) {
               desktopTopBarWindowControlsGutterClassName,
             )}
           >
-            <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+            <div
+              className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto"
+              data-pencil-component="x1igca"
+              role="tablist"
+            >
               {props.state.panes.map((pane) => (
                 <RightDockTab
                   key={pane.id}
