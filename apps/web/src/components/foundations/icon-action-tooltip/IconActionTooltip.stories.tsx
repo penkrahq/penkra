@@ -8,6 +8,7 @@ const meta = {
     pencil: {
       componentId: "zwljJ",
       groupId: "fVh0u",
+      overlayId: "o4UviR",
       tooltipIds: ["Q5AL4", "eH89J"],
     },
   },

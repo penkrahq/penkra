@@ -1,10 +1,19 @@
+import { IconBrandGithub } from "@tabler/icons-react";
 import { useState } from "react";
 
 import { ButtonBack } from "~/components/foundations/button-back/ButtonBack";
-import { ButtonPrimary } from "~/components/foundations/button-primary/ButtonPrimary";
+import { ScrollArea } from "~/components/ui/scroll-area";
 
+import { AgentCardClaude } from "../agent-card-claude/AgentCardClaude";
+import { AgentCardCodex } from "../agent-card-codex/AgentCardCodex";
+import { AgentCardCursor } from "../agent-card-cursor/AgentCardCursor";
 import { AgentCardVerticalShared } from "../agent-card-vertical-shared/AgentCardVerticalShared";
-import { OnboardingLayout } from "../shared/OnboardingLayout";
+import { AgentGridRow } from "../agent-grid-row/AgentGridRow";
+import { OnboardingActionsAgents } from "../onboarding-actions-agents/OnboardingActionsAgents";
+import {
+  onboardingIllustrations,
+  OnboardingLayout,
+} from "../shared/OnboardingLayout";
 
 export interface OnboardingConnectAgentProps {
   onBack?: () => void;
@@ -16,12 +25,6 @@ export function OnboardingConnectAgent({
   onContinue,
 }: OnboardingConnectAgentProps) {
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
-  const agents = [
-    { description: "Anthropic", id: "claude", label: "Claude", provider: "claudeAgent" as const },
-    { description: "OpenAI", id: "codex", label: "Codex", provider: "codex" as const },
-    { description: "Cursor", id: "cursor", label: "Cursor", provider: "cursor" as const },
-  ];
-
   const toggle = (id: string) =>
     setSelected((current) => {
       const next = new Set(current);
@@ -31,33 +34,93 @@ export function OnboardingConnectAgent({
     });
 
   return (
-    <OnboardingLayout>
+    <OnboardingLayout brandImage={onboardingIllustrations.connectAgent}>
       <ButtonBack className="absolute top-7 left-7" onClick={onBack} />
       <div className="w-[488px] font-sans" data-pencil-component="X4Yqda">
         <h1 className="text-2xl font-semibold">Connect an agent to get started</h1>
         <p className="mt-2 text-sm text-[var(--color-text-foreground-secondary)]">
           Pick at least one — you can add more anytime.
         </p>
-        <div className="mt-6 flex gap-3">
-          {agents.map((agent) => (
-            <AgentCardVerticalShared
-              description={agent.description}
-              key={agent.id}
-              onClick={() => toggle(agent.id)}
-              provider={agent.provider}
-              selected={selected.has(agent.id)}
-            >
-              {agent.label}
-            </AgentCardVerticalShared>
-          ))}
-        </div>
-        <ButtonPrimary
+        <ScrollArea
+          aria-label="Available agents"
+          className="mt-6 h-[340px]"
+          hideScrollbars
+          scrollFade
+        >
+          <div className="flex flex-col gap-3 pb-1">
+            <AgentGridRow>
+              <AgentCardClaude
+                onClick={() => toggle("claude")}
+                selected={selected.has("claude")}
+              />
+              <AgentCardCodex
+                onClick={() => toggle("codex")}
+                selected={selected.has("codex")}
+              />
+              <AgentCardCursor
+                onClick={() => toggle("cursor")}
+                selected={selected.has("cursor")}
+              />
+            </AgentGridRow>
+            <AgentGridRow>
+              <AgentCardVerticalShared
+                description="Not connected"
+                onClick={() => toggle("grok")}
+                provider="grok"
+                selected={selected.has("grok")}
+              >
+                Grok
+              </AgentCardVerticalShared>
+              <AgentCardVerticalShared
+                description="Not connected"
+                onClick={() => toggle("droid")}
+                provider="droid"
+                selected={selected.has("droid")}
+              >
+                Droid
+              </AgentCardVerticalShared>
+              <AgentCardVerticalShared
+                description="Not connected"
+                onClick={() => toggle("kilo")}
+                provider="kilo"
+                selected={selected.has("kilo")}
+              >
+                Kilo
+              </AgentCardVerticalShared>
+            </AgentGridRow>
+            <AgentGridRow>
+              <AgentCardVerticalShared
+                description="Not connected"
+                onClick={() => toggle("pi")}
+                provider="pi"
+                selected={selected.has("pi")}
+              >
+                Pi
+              </AgentCardVerticalShared>
+              <AgentCardVerticalShared
+                description="Not connected"
+                icon={<IconBrandGithub className="size-10" />}
+                onClick={() => toggle("github")}
+                selected={selected.has("github")}
+              >
+                GitHub
+              </AgentCardVerticalShared>
+              <AgentCardVerticalShared
+                description="Not connected"
+                onClick={() => toggle("opencode")}
+                provider="opencode"
+                selected={selected.has("opencode")}
+              >
+                OpenCode
+              </AgentCardVerticalShared>
+            </AgentGridRow>
+          </div>
+        </ScrollArea>
+        <OnboardingActionsAgents
           className="mt-6"
           disabled={selected.size === 0}
           onClick={() => onContinue?.([...selected])}
-        >
-          Continue
-        </ButtonPrimary>
+        />
       </div>
     </OnboardingLayout>
   );

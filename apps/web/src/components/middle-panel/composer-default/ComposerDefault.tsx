@@ -66,11 +66,6 @@ export const ComposerDefault = forwardRef<HTMLTextAreaElement, ComposerDefaultPr
         data-focused={focused}
         data-pencil-component="TKKOp"
         onSubmit={submit}
-        style={{
-          borderColor: focused
-            ? "var(--color-border-focus)"
-            : "var(--color-border)",
-        }}
       >
         <textarea
           className="min-h-9 w-full flex-1 resize-none border-0 bg-transparent p-0 font-sans text-sm text-[var(--color-text-foreground)] outline-none placeholder:text-current placeholder:opacity-100 disabled:cursor-not-allowed"

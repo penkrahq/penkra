@@ -30,7 +30,7 @@ describe("Pencil onboarding", () => {
 
     await page.getByLabelText("API key").fill("sk-local");
     await page.getByRole("textbox", { name: "Key name" }).fill("Production");
-    await page.getByRole("button", { name: "Continue" }).click();
+    await page.getByRole("button", { name: "Save" }).click();
     expect(onContinue).toHaveBeenCalledWith("sk-local", "Production");
   });
 });

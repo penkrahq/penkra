@@ -1,8 +1,7 @@
 import { ButtonBack } from "~/components/foundations/button-back/ButtonBack";
-import { ButtonSecondary } from "~/components/foundations/button-secondary/ButtonSecondary";
-import { ButtonSignInWithClaude } from "~/components/foundations/button-sign-in-with-claude/ButtonSignInWithClaude";
 
-import { ConnectionRowShared } from "../connection-row-shared/ConnectionRowShared";
+import { ConnectionMethodList } from "../connection-method-list/ConnectionMethodList";
+import { ConnectionsList } from "../connections-list/ConnectionsList";
 import { OnboardingLayout } from "../shared/OnboardingLayout";
 
 export interface OnboardingConnectionsProps {
@@ -24,15 +23,12 @@ export function OnboardingConnections({
         <p className="mt-2 text-sm text-[var(--color-text-foreground-secondary)]">
           Add or remove providers and API keys.
         </p>
-        <div className="mt-6">
-          <ConnectionRowShared />
-          <ConnectionRowShared detail="Shared workspace" label="team@example.com" />
-          <ConnectionRowShared detail="API key" label="Production key" />
-        </div>
-        <div className="mt-6 flex flex-col gap-2.5">
-          <ButtonSignInWithClaude onClick={onSignIn} />
-          <ButtonSecondary onClick={onEnterApiKey}>Enter API key</ButtonSecondary>
-        </div>
+        <ConnectionsList className="mt-6" />
+        <ConnectionMethodList
+          className="mt-6"
+          onEnterApiKey={onEnterApiKey}
+          onSignIn={onSignIn}
+        />
       </div>
     </OnboardingLayout>
   );

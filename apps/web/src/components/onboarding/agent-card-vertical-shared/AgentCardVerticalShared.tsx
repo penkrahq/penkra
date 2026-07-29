@@ -1,11 +1,12 @@
 import type { ProviderKind } from "@synara/contracts";
-import { forwardRef, type ButtonHTMLAttributes } from "react";
+import { forwardRef, type ButtonHTMLAttributes, type ReactNode } from "react";
 
 import { ProviderIcon } from "~/components/ProviderIcon";
 import { cn } from "~/lib/utils";
 
 export interface AgentCardVerticalSharedProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   description?: string;
+  icon?: ReactNode;
   provider?: ProviderKind;
   selected?: boolean;
 }
@@ -18,6 +19,7 @@ export const AgentCardVerticalShared = forwardRef<
     children = "Claude",
     className,
     description = "Anthropic",
+    icon,
     provider = "claudeAgent",
     selected = false,
     ...props
@@ -37,7 +39,7 @@ export const AgentCardVerticalShared = forwardRef<
       type="button"
       {...props}
     >
-      <ProviderIcon className="size-10" provider={provider} />
+      {icon ?? <ProviderIcon className="size-10" provider={provider} />}
       <span className="flex flex-col items-center">
         <span className="text-[13px] font-semibold text-[var(--color-text-foreground)]">
           {children}

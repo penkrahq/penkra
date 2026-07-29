@@ -11,10 +11,10 @@ import { useMemo, useState } from "react";
 import { AppListCard } from "~/components/apps/app-list-card/AppListCard";
 import { InputSearchApps } from "~/components/apps/input-search-apps/InputSearchApps";
 import { ButtonBack } from "~/components/foundations/button-back/ButtonBack";
-import { ButtonPrimary } from "~/components/foundations/button-primary/ButtonPrimary";
-import { ScrollArea } from "~/components/ui/scroll-area";
 import { cn } from "~/lib/utils";
 
+import { AppGrid } from "../app-grid/AppGrid";
+import { OnboardingActionsApps } from "../onboarding-actions-apps/OnboardingActionsApps";
 const apps = [
   {
     iconClassName: "text-[#4a90e2]",
@@ -121,46 +121,37 @@ export function OnboardingApps({ onBack, onContinue }: OnboardingAppsProps) {
           />
 
           <div className="mt-4 min-h-0 flex-1">
-            <ScrollArea
-              aria-label="Available apps"
-              className="h-[300px]"
-              hideScrollbars
-              scrollFade
-            >
-              <div className="flex flex-col gap-3 pb-1">
-                {visibleApps.map((app) => {
-                  const Icon = app.icon;
-                  return (
-                    <AppListCard
-                      checked={selected.has(app.id)}
-                      description={app.description}
-                      icon={
-                        <Icon
-                          aria-hidden="true"
-                          className={cn("size-7", app.iconClassName)}
-                        />
-                      }
-                      key={app.id}
-                      name={app.name}
-                      onCheckedChange={(checked) => setAppSelected(app.id, checked)}
-                    />
-                  );
-                })}
-                {visibleApps.length === 0 ? (
-                  <p className="py-10 text-center text-sm text-[var(--pencil-text-secondary)]">
-                    No apps match “{query}”.
-                  </p>
-                ) : null}
-              </div>
-            </ScrollArea>
+            <AppGrid>
+              {visibleApps.map((app) => {
+                const Icon = app.icon;
+                return (
+                  <AppListCard
+                    checked={selected.has(app.id)}
+                    description={app.description}
+                    icon={
+                      <Icon
+                        aria-hidden="true"
+                        className={cn("size-7", app.iconClassName)}
+                      />
+                    }
+                    key={app.id}
+                    name={app.name}
+                    onCheckedChange={(checked) => setAppSelected(app.id, checked)}
+                  />
+                );
+              })}
+              {visibleApps.length === 0 ? (
+                <p className="py-10 text-center text-sm text-[var(--pencil-text-secondary)]">
+                  No apps match “{query}”.
+                </p>
+              ) : null}
+            </AppGrid>
           </div>
 
-          <ButtonPrimary
+          <OnboardingActionsApps
             className="mt-4"
             onClick={() => onContinue?.(selected)}
-          >
-            Continue
-          </ButtonPrimary>
+          />
         </div>
       </div>
 
