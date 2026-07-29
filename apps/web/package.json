@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests",
+    "test:new-ui-smoke": "vite build && node scripts/new-ui-smoke.mjs",
     "test:browser": "vitest run --config vitest.browser.config.ts",
     "test:browser:stable": "vitest run --config vitest.browser.stable.config.ts",
     "test:browser:geometry": "vitest run --config vitest.browser.geometry.config.ts",

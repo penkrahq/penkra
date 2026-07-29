@@ -1,50 +1,45 @@
-# Synara
+# Penkra
 
-Synara provides supported agents with built-in tools to coordinate tasks inside the app.
+Penkra is a desktop workspace for knowledge work with AI agents. Its product design
+comes from `penkra.pen`; the application reproduces that design verbatim.
 
-Synara is a local-first desktop app for coding with the AI agents and subscriptions you already use.
+This repository continues from the archived Penkra Console Git history so Penkra can
+retain its proven desktop, provider, storage, browser, packaging, and release
+infrastructure. The former console interface is not the product design and is not the
+active renderer.
 
-It brings chats, terminals, browser previews, diffs, branches, provider sessions, and handoffs into one focused workspace so you can run agent work without juggling a dozen windows.
+## Development
 
-![Synara app showing parallel agent threads, terminal output, and project navigation](assets/prod/readme-screenshot.jpeg)
-
-## What it does
-
-- Use the AI accounts you already pay for: Claude Code, Codex, Antigravity, OpenCode, Cursor, Grok, Kilo Code, and Pi.
-- Run parallel work across projects, threads, and isolated Git worktrees without branches stepping on each other.
-- Keep split chats, terminals, browser previews, and agent output visible in the same window.
-- Hand off a thread to another provider when you want a second model to pick up with the same context.
-- Review diffs, create branches, commit, push, and open PRs from the app.
-- Keep your workspace local. Synara stores chats, projects, and history on your machine and talks directly to the providers you choose.
-
-## How to use
-
-> [!WARNING]
-> You need to have [Codex CLI](https://github.com/openai/codex) installed and authorized for Codex sessions to work.
-
-Install the [desktop app from the Releases page](https://github.com/Emanuele-web04/Synara/releases), or download it from [trysynara.com](https://www.trysynara.com/).
-
-You can also run Synara locally while the project is still early:
+Install dependencies:
 
 ```sh
-bun install
-bun run dev
+bun install --frozen-lockfile
 ```
 
-## Privacy
+Install the macOS development launcher:
 
-Synara runs as the workspace layer on your machine. There is no Synara cloud holding your repositories, chats, or project history.
+```sh
+bun run dev:desktop:install-app
+```
 
-The provider you choose still receives the prompts, file snippets, diffs, terminal output, or tool results needed for a session, but that traffic goes to the provider you picked rather than through a separate Synara-hosted workspace.
+Opening `/Applications/Penkra Dev.app` starts the complete local development workspace
+and launches the desktop application as **Penkra (Dev)**.
 
-## Some notes
+Run the Pencil-renderer verification:
 
-Synara is still very early. Expect bugs, rough edges, and fast-moving internals.
+```sh
+bun run --cwd apps/web test:new-ui-smoke
+```
 
-Focused issues and PRs are welcome, especially bug fixes, reliability fixes, and small maintenance improvements.
+## Repository structure
 
-## Contributing
+- `apps/web/src/new-ui` — active Pencil-authoritative renderer and interactions
+- `apps/web/public/pencil` — exported Pencil screens and image assets
+- `apps/desktop` — Electron lifecycle, native integration, identity, IPC, and updates
+- `apps/server` — local server, provider harnesses, threads, filesystem, and browser runtime
+- `packages/contracts` — shared application contracts
+- `packages/shared` — reusable runtime and domain utilities
 
-Read [CONTRIBUTING.md](./CONTRIBUTING.md) before opening an issue or PR.
-
-Need support? [Open a GitHub issue](https://github.com/Emanuele-web04/synara/issues).
+The former renderer remains in `apps/web/src` while its useful capabilities are mapped
+into the new interface. It is removed incrementally after replacements are verified.
+See `docs/NEW_UI_MIGRATION.md`.

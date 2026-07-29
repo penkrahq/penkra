@@ -195,6 +195,9 @@ import {
   sendAppSnapState,
 } from "./appSnapIpc";
 
+const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
+const isPackagedRuntime = app.isPackaged && !isDevelopment;
+
 // Capture the real archive identity before any explicit app.asar lookup. Static
 // snapshotting and the runtime watcher both use this same generation as their
 // baseline, so a replacement during startup cannot silently become "normal."
@@ -204,7 +207,7 @@ syncShellEnvironment();
 
 const IPC = DESKTOP_IPC_CHANNELS;
 const MAX_CLIPBOARD_IMAGE_DATA_URL_LENGTH = 16 * 1024 * 1024;
-const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
+const usesPencilAuthoritativeRenderer = true;
 const penkraAppDataBase = resolveDesktopAppDataBase();
 const penkraRootPointerPath = resolvePenkraRootPointerPath(penkraAppDataBase);
 const penkraRuntime = resolvePenkraRuntime({
@@ -597,7 +600,7 @@ function writeDesktopStreamChunk(
 }
 
 function installStdIoCapture(): void {
-  if (!app.isPackaged || desktopLogSink === null || restoreStdIoCapture !== null) {
+  if (!isPackagedRuntime || desktopLogSink === null || restoreStdIoCapture !== null) {
     return;
   }
 
@@ -636,7 +639,7 @@ function installStdIoCapture(): void {
 }
 
 function initializePackagedLogging(): void {
-  if (!app.isPackaged) return;
+  if (!isPackagedRuntime) return;
   try {
     desktopLogSink = new RotatingFileSink({
       filePath: Path.join(LOG_DIR, "desktop-main.log"),
@@ -865,7 +868,7 @@ protocol.registerSchemesAsPrivileged([
 ]);
 
 function resolveAppRoot(): string {
-  if (!app.isPackaged) {
+  if (!isPackagedRuntime) {
     return ROOT_DIR;
   }
   return app.getAppPath();
@@ -888,7 +891,7 @@ function parseAppUpdateYml(): Record<string, string> | null {
   try {
     // electron-updater reads from process.resourcesPath in packaged builds,
     // or dev-app-update.yml via app.getAppPath() in dev.
-    const ymlPath = app.isPackaged
+    const ymlPath = isPackagedRuntime
       ? Path.join(process.resourcesPath, "app-update.yml")
       : Path.join(app.getAppPath(), "dev-app-update.yml");
     const raw = FS.readFileSync(ymlPath, "utf-8");
@@ -943,7 +946,7 @@ function resolveAboutCommitHash(): string | null {
   }
 
   // Only packaged builds are required to expose commit metadata.
-  if (!app.isPackaged) {
+  if (!isPackagedRuntime) {
     aboutCommitHashCache = null;
     return aboutCommitHashCache;
   }
@@ -958,7 +961,7 @@ function resolveBackendEntry(): string {
 }
 
 function resolveBackendCwd(): string {
-  if (!app.isPackaged) {
+  if (!isPackagedRuntime) {
     return resolveAppRoot();
   }
   return OS.homedir();
@@ -1316,7 +1319,7 @@ function hasConfiguredUpdateFeed(): boolean {
 function resolveAutoUpdateDisabledReason(): string | null {
   return getAutoUpdateDisabledReason({
     isDevelopment,
-    isPackaged: app.isPackaged,
+    isPackaged: isPackagedRuntime,
     platform: process.platform,
     appImage: process.env.APPIMAGE,
     disabledByEnv:
@@ -1525,7 +1528,7 @@ function resolveNotificationIconPath(): string | null {
 }
 
 function resolveAppSnapHelperPath(): string {
-  if (app.isPackaged) {
+  if (isPackagedRuntime) {
     return Path.resolve(process.resourcesPath, "..", "Helpers", "synara-appsnap-helper");
   }
   return Path.resolve(__dirname, "..", ".electron-runtime", "appsnap", "synara-appsnap-helper");
@@ -1778,7 +1781,7 @@ function persistLastLaunchVersion(version: string): void {
 // changes across launches, force Launch Services to re-read the bundle so the
 // new icon shows on every surface. Best-effort: never blocks startup.
 function refreshMacIconCacheOnVersionChange(): void {
-  if (process.platform !== "darwin" || !app.isPackaged) {
+  if (process.platform !== "darwin" || !isPackagedRuntime) {
     return;
   }
 
@@ -1838,7 +1841,7 @@ function readBundleSignature(bundlePath: string): BundleSignature | null {
 }
 
 function captureStartupBundleIdentity(): BundleIdentity | null {
-  if (!app.isPackaged) {
+  if (!isPackagedRuntime) {
     return null;
   }
   const bundlePath = app.getAppPath();
@@ -1880,7 +1883,7 @@ function restartAfterStartupBundleSwap(error: BundleChangedDuringStartupError): 
 // returns the wrong bytes. Detect the swap and offer a restart; continuing is
 // never safe.
 function startBundleSwapWatcher(): void {
-  if (!app.isPackaged || bundleSwapPollTimer) {
+  if (!isPackagedRuntime || bundleSwapPollTimer) {
     return;
   }
   const bundlePath = app.getAppPath();
@@ -2810,7 +2813,7 @@ function startBackend(): void {
     return;
   }
 
-  const captureBackendLogs = app.isPackaged && backendLogSink !== null;
+  const captureBackendLogs = isPackagedRuntime && backendLogSink !== null;
   const child = ChildProcess.spawn(process.execPath, [...backendNodeArgs(), backendEntry], {
     cwd: resolveBackendCwd(),
     // In Electron main, process.execPath points to the Electron binary.
@@ -3464,7 +3467,9 @@ function createWindow(): BrowserWindow {
     }
     window.show();
     emitDesktopWindowState(window);
-    void showPenkraHqAuthIfNeeded(window);
+    if (!usesPencilAuthoritativeRenderer) {
+      void showPenkraHqAuthIfNeeded(window);
+    }
   });
 
   window.on("maximize", () => emitDesktopWindowState(window));
@@ -3800,7 +3805,7 @@ if (hasSingleInstanceLock) {
           console.warn("[desktop] Failed to migrate legacy renderer storage", error);
         })
         .then(async () => {
-          if (!app.isPackaged) return;
+          if (!isPackagedRuntime) return;
           const result = await installBundledPenkraCli({
             resourcesPath: process.resourcesPath,
             penkraRoot: PENKRA_ROOT,

@@ -1,5 +1,5 @@
 {
-  "name": "@synara/monorepo",
+  "name": "@penkra/monorepo",
   "private": true,
   "workspaces": {
     "packages": [

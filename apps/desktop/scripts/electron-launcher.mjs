@@ -8,6 +8,7 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  renameSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -26,7 +27,7 @@ const desktopFlavor = resolveSynaraDesktopFlavor({
 const desktopIdentity = synaraDesktopIdentity(desktopFlavor);
 const APP_DISPLAY_NAME = desktopIdentity.displayName;
 const APP_BUNDLE_ID = desktopIdentity.bundleId;
-const LAUNCHER_VERSION = 2;
+const LAUNCHER_VERSION = 3;
 const MICROPHONE_USAGE_DESCRIPTION =
   "Synara needs microphone access so you can record voice notes and transcribe them into the chat composer.";
 
@@ -57,6 +58,7 @@ function patchMainBundleInfoPlist(appBundlePath, iconPath) {
   setPlistString(infoPlistPath, "CFBundleDisplayName", APP_DISPLAY_NAME);
   setPlistString(infoPlistPath, "CFBundleName", APP_DISPLAY_NAME);
   setPlistString(infoPlistPath, "CFBundleIdentifier", APP_BUNDLE_ID);
+  setPlistString(infoPlistPath, "CFBundleExecutable", APP_DISPLAY_NAME);
   setPlistString(infoPlistPath, "CFBundleIconFile", "icon.icns");
   setPlistString(infoPlistPath, "NSMicrophoneUsageDescription", MICROPHONE_USAGE_DESCRIPTION);
 
@@ -111,7 +113,8 @@ function buildMacLauncher(electronBinaryPath) {
   const sourceAppBundlePath = resolve(electronBinaryPath, "../../..");
   const runtimeDir = join(desktopDir, ".electron-runtime");
   const targetAppBundlePath = join(runtimeDir, `${APP_DISPLAY_NAME}.app`);
-  const targetBinaryPath = join(targetAppBundlePath, "Contents", "MacOS", "Electron");
+  const copiedBinaryPath = join(targetAppBundlePath, "Contents", "MacOS", "Electron");
+  const targetBinaryPath = join(targetAppBundlePath, "Contents", "MacOS", APP_DISPLAY_NAME);
   const iconPath =
     desktopFlavor === "development"
       ? join(runtimeDir, "PenkraDev.icns")
@@ -152,8 +155,17 @@ function buildMacLauncher(electronBinaryPath) {
 
   rmSync(targetAppBundlePath, { recursive: true, force: true });
   cpSync(sourceAppBundlePath, targetAppBundlePath, { recursive: true });
+  renameSync(copiedBinaryPath, targetBinaryPath);
   patchMainBundleInfoPlist(targetAppBundlePath, iconPath);
   patchHelperBundleInfoPlists(targetAppBundlePath);
+  const sign = spawnSync(
+    "/usr/bin/codesign",
+    ["--force", "--deep", "--sign", "-", targetAppBundlePath],
+    { encoding: "utf8" },
+  );
+  if (sign.status !== 0) {
+    throw new Error(`Failed to sign ${APP_DISPLAY_NAME}: ${sign.stderr.trim()}`);
+  }
   writeFileSync(metadataPath, `${JSON.stringify(expectedMetadata, null, 2)}\n`);
 
   return targetBinaryPath;
