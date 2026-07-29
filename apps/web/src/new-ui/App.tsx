@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { installPencilRuntime, type Phase } from "./pencilRuntime";
 import { installResponsiveLayout } from "./responsiveLayout";
-import { useMacWindowedTitlebar } from "./useMacWindowChrome";
+import { useMacWindowedTrafficLightGutter } from "./useMacTrafficLightGutter";
 
 const phaseFile: Record<Phase, string> = {
   welcome: "./pencil/welcome.html",
@@ -35,7 +35,7 @@ export function App() {
   const frameRef = useRef<HTMLIFrameElement>(null);
   const onboarding = onboardingPhases.has(phase);
   const sourceWidth = phase === "workspace" ? 1512 : 1440;
-  const reserveMacTitlebar = useMacWindowedTitlebar();
+  const macTrafficLightGutter = useMacWindowedTrafficLightGutter();
 
   const go = useCallback((next: Phase) => {
     sessionStorage.setItem("penkra-mock-phase", next);
@@ -54,18 +54,23 @@ export function App() {
     const onLoad = () => {
       const document = frame.contentDocument;
       if (!document) return;
-      installResponsiveLayout(document, phase);
+      installResponsiveLayout(document, phase, { macTrafficLightGutter });
       void installPencilRuntime(document, phase, { go });
     };
 
     frame.addEventListener("load", onLoad);
     return () => frame.removeEventListener("load", onLoad);
-  }, [go, phase]);
+  }, [go, macTrafficLightGutter, phase]);
+
+  useEffect(() => {
+    const document = frameRef.current?.contentDocument;
+    if (document) installResponsiveLayout(document, phase, { macTrafficLightGutter });
+  }, [macTrafficLightGutter, phase]);
 
   return (
     <main
       className="pencil-stage"
-      data-window-chrome={reserveMacTitlebar ? "macos-windowed" : "flush"}
+      data-window-chrome={macTrafficLightGutter > 0 ? "macos-windowed" : "flush"}
     >
       <div className="pencil-viewport">
         <iframe

@@ -27,11 +27,6 @@ body,
   -webkit-app-region: no-drag;
 }
 
-.pencil-stage[data-window-chrome="macos-windowed"] .pencil-viewport {
-  top: 46px;
-  height: calc(100% - 46px);
-}
-
 .pencil-frame {
   position: absolute;
   inset: 0;

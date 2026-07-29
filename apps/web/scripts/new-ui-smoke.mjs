@@ -187,6 +187,8 @@ try {
   const chromePage = await browser.newPage({ viewport: { width: 1000, height: 700 } });
   await chromePage.addInitScript(() => {
     window.desktopBridge = {
+      getZoomFactor: () => 1,
+      onZoomFactorChange: () => () => undefined,
       windowControls: {
         getState: async () => ({ isMaximized: false, isFullscreen: false }),
         onState: (listener) => {
@@ -203,9 +205,14 @@ try {
     .locator(".pencil-stage")
     .getAttribute("data-window-chrome");
   const windowedFrame = await chromePage.locator("iframe").boundingBox();
-  if (windowedChrome !== "macos-windowed" || windowedFrame?.y !== 46) {
+  const windowedBrand = await pencilFrame(chromePage)
+    .locator(
+      '[data-pencil-name="Sidebar"] > [data-pencil-name="Header"] > [data-pencil-name="Brand"]',
+    )
+    .boundingBox();
+  if (windowedChrome !== "macos-windowed" || windowedFrame?.y !== 0 || windowedBrand?.x !== 90) {
     throw new Error(
-      `Windowed macOS chrome did not reserve 46px: mode=${windowedChrome}, y=${windowedFrame?.y}.`,
+      `Windowed macOS traffic-light affordance is wrong: mode=${windowedChrome}, frameY=${windowedFrame?.y}, brandX=${windowedBrand?.x}.`,
     );
   }
 
@@ -214,9 +221,14 @@ try {
   });
   await chromePage.locator('.pencil-stage[data-window-chrome="flush"]').waitFor();
   const fullscreenFrame = await chromePage.locator("iframe").boundingBox();
-  if (fullscreenFrame?.y !== 0) {
+  const fullscreenBrand = await pencilFrame(chromePage)
+    .locator(
+      '[data-pencil-name="Sidebar"] > [data-pencil-name="Header"] > [data-pencil-name="Brand"]',
+    )
+    .boundingBox();
+  if (fullscreenFrame?.y !== 0 || fullscreenBrand?.x !== 10) {
     throw new Error(
-      `Fullscreen macOS chrome did not return to the top edge: y=${fullscreenFrame?.y}.`,
+      `Fullscreen macOS chrome did not restore Pencil geometry: frameY=${fullscreenFrame?.y}, brandX=${fullscreenBrand?.x}.`,
     );
   }
   await chromePage.close();

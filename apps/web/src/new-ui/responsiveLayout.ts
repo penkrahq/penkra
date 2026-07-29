@@ -117,12 +117,26 @@ const ONBOARDING_CSS = `
   }
 `;
 
-export function installResponsiveLayout(document: Document, phase: Phase) {
+export function installResponsiveLayout(
+  document: Document,
+  phase: Phase,
+  options: { macTrafficLightGutter: number },
+) {
   const existing = document.querySelector<HTMLStyleElement>("style[data-penkra-responsive]");
   existing?.remove();
 
   const style = document.createElement("style");
   style.dataset.penkraResponsive = "true";
-  style.textContent = `${BASE_CSS}\n${ONBOARDING_PHASES.has(phase) ? ONBOARDING_CSS : WORKSPACE_CSS}`;
+  const trafficLightCss =
+    options.macTrafficLightGutter > 0
+      ? `
+  body > [data-pencil-name] > [data-pencil-name="Sidebar"] > [data-pencil-name="Header"] {
+    padding-left: ${options.macTrafficLightGutter}px !important;
+  }
+`
+      : "";
+  style.textContent = `${BASE_CSS}\n${
+    ONBOARDING_PHASES.has(phase) ? ONBOARDING_CSS : WORKSPACE_CSS
+  }\n${trafficLightCss}`;
   document.head.append(style);
 }
