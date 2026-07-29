@@ -24,6 +24,11 @@ export const DESKTOP_IPC_CHANNELS = {
   updateInstall: "desktop:update-install",
   notificationsIsSupported: "desktop:notifications-is-supported",
   notificationsShow: "desktop:notifications-show",
+  hqAuth: {
+    getRequired: "desktop:hq-auth-get-required",
+    submit: "desktop:hq-auth-submit",
+    skip: "desktop:hq-auth-skip",
+  },
   zoomFactor: "desktop:zoom-factor",
   zoomFactorChanged: "desktop:zoom-factor-changed",
   wsUrl: "desktop:get-ws-url",

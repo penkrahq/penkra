@@ -2,16 +2,14 @@ import { constants } from "node:fs";
 import { chmod, mkdir, open, rename } from "node:fs/promises";
 import path from "node:path";
 
-export const PENKRA_HQ_AUTH_CHANNEL = "penkra:hq-auth";
-
-export type PenkraHqAuthResult = { ok: true } | { ok: false; message: string };
+import type { DesktopHqAuthResult } from "@synara/contracts";
 
 export async function authenticateAndStorePenkraHq(input: {
   endpoint: string;
   password: string;
   configPath: string;
   fetchImpl?: typeof fetch;
-}): Promise<PenkraHqAuthResult> {
+}): Promise<DesktopHqAuthResult> {
   if (input.password.length < 1 || input.password.length > 1024) {
     return { ok: false, message: "Enter the Penkra master password." };
   }

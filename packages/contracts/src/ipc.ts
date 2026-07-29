@@ -442,6 +442,8 @@ export interface DesktopWindowState {
   isFullscreen: boolean;
 }
 
+export type DesktopHqAuthResult = { ok: true } | { ok: false; message: string };
+
 export interface SynaraStorageSnapshot {
   readonly version: 1;
   readonly exportedAt: string;
@@ -494,6 +496,11 @@ export interface DesktopBridge {
   notifications: {
     isSupported: () => Promise<boolean>;
     show: (input: DesktopNotificationInput) => Promise<boolean>;
+  };
+  hqAuth?: {
+    getRequired: () => Promise<boolean>;
+    submit: (password: string) => Promise<DesktopHqAuthResult>;
+    skip: () => Promise<void>;
   };
   appSnap: {
     getState: () => Promise<DesktopAppSnapState>;

@@ -175,7 +175,7 @@ import {
   resolvePenkraRootPointerPath,
   writePenkraRootPointer,
 } from "./penkraRoot";
-import { authenticateAndStorePenkraHq, PENKRA_HQ_AUTH_CHANNEL } from "./penkraHqAuth";
+import { authenticateAndStorePenkraHq } from "./penkraHqAuth";
 import { bakedPenkraUpdateToken, penkraUpdateRequestHeaders } from "./penkraUpdateConfig";
 import { installBundledPenkraCli } from "./penkraCliLink";
 import {
@@ -210,7 +210,6 @@ syncShellEnvironment();
 
 const IPC = DESKTOP_IPC_CHANNELS;
 const MAX_CLIPBOARD_IMAGE_DATA_URL_LENGTH = 16 * 1024 * 1024;
-const usesPencilAuthoritativeRenderer = true;
 const penkraAppDataBase = resolveDesktopAppDataBase();
 const penkraRootPointerPath = resolvePenkraRootPointerPath(penkraAppDataBase);
 const penkraRuntime = resolvePenkraRuntime({
@@ -296,7 +295,7 @@ const browserPerfLoggingEnabled = process.env.SYNARA_BROWSER_PERF === "1";
 type DesktopUpdateErrorContext = DesktopUpdateState["errorContext"];
 
 let mainWindow: BrowserWindow | null = null;
-let penkraHqAuthShown = false;
+let penkraHqAuthSkipped = false;
 let backendProcess: ChildProcess.ChildProcess | null = null;
 let backendPort = 0;
 let backendAuthToken = "";
@@ -3026,6 +3025,38 @@ function requestGracefulAppQuit(reason: string): void {
 function registerIpcHandlers(): void {
   const storageSnapshotPath = resolveSynaraStorageSnapshotPath(app.getPath("userData"));
 
+  ipcMain.removeHandler(IPC.hqAuth.getRequired);
+  ipcMain.handle(
+    IPC.hqAuth.getRequired,
+    async () => !penkraHqAuthSkipped && !FS.existsSync(PENKRA_HQ_CONFIG_PATH),
+  );
+
+  ipcMain.removeHandler(IPC.hqAuth.submit);
+  ipcMain.handle(IPC.hqAuth.submit, async (event, password: unknown) => {
+    if (event.sender !== mainWindow?.webContents || typeof password !== "string") {
+      return { ok: false, message: "Authentication failed." };
+    }
+    const result = await authenticateAndStorePenkraHq({
+      endpoint: PENKRA_API_URL,
+      password,
+      configPath: PENKRA_HQ_CONFIG_PATH,
+    });
+    if (result.ok) {
+      setTimeout(() => {
+        app.relaunch();
+        app.exit(0);
+      }, 350);
+    }
+    return result;
+  });
+
+  ipcMain.removeHandler(IPC.hqAuth.skip);
+  ipcMain.handle(IPC.hqAuth.skip, async (event) => {
+    if (event.sender === mainWindow?.webContents) {
+      penkraHqAuthSkipped = true;
+    }
+  });
+
   ipcMain.removeAllListeners(IPC.storageMigration.read);
   ipcMain.on(IPC.storageMigration.read, (event: IpcMainEvent) => {
     event.returnValue = readSynaraStorageSnapshot(storageSnapshotPath);
@@ -3483,9 +3514,6 @@ function createWindow(): BrowserWindow {
     }
     window.show();
     emitDesktopWindowState(window);
-    if (!usesPencilAuthoritativeRenderer) {
-      void showPenkraHqAuthIfNeeded(window);
-    }
   });
 
   window.on("maximize", () => emitDesktopWindowState(window));
@@ -3519,80 +3547,6 @@ function createWindow(): BrowserWindow {
   });
 
   return window;
-}
-
-async function showPenkraHqAuthIfNeeded(parent: BrowserWindow): Promise<void> {
-  if (penkraHqAuthShown || FS.existsSync(PENKRA_HQ_CONFIG_PATH) || parent.isDestroyed()) return;
-  penkraHqAuthShown = true;
-  const authWindow = new BrowserWindow({
-    parent,
-    modal: true,
-    width: 440,
-    height: 360,
-    minWidth: 400,
-    minHeight: 340,
-    maximizable: false,
-    minimizable: false,
-    resizable: false,
-    show: false,
-    autoHideMenuBar: true,
-    title: "Connect Penkra HQ",
-    backgroundColor: nativeTheme.shouldUseDarkColors ? "#171717" : "#f7f7f5",
-    webPreferences: {
-      preload: Path.join(__dirname, "penkraHqAuthPreload.js"),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-    },
-  });
-  ipcMain.removeHandler(PENKRA_HQ_AUTH_CHANNEL);
-  ipcMain.handle(PENKRA_HQ_AUTH_CHANNEL, async (event, password: unknown) => {
-    if (event.sender !== authWindow.webContents || typeof password !== "string") {
-      return { ok: false, message: "Authentication failed." };
-    }
-    const result = await authenticateAndStorePenkraHq({
-      endpoint: PENKRA_API_URL,
-      password,
-      configPath: PENKRA_HQ_CONFIG_PATH,
-    });
-    if (result.ok) {
-      setTimeout(() => {
-        app.relaunch();
-        app.exit(0);
-      }, 350);
-    }
-    return result;
-  });
-  authWindow.once("ready-to-show", () => authWindow.show());
-  authWindow.once("closed", () => ipcMain.removeHandler(PENKRA_HQ_AUTH_CHANNEL));
-  await authWindow.loadURL(
-    `data:text/html;charset=utf-8,${encodeURIComponent(penkraHqAuthHtml())}`,
-  );
-}
-
-function penkraHqAuthHtml(): string {
-  return `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
-<title>Connect Penkra HQ</title><style>
-:root{color-scheme:light dark;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}*{box-sizing:border-box}
-body{margin:0;background:light-dark(#f7f7f5,#171717);color:light-dark(#181817,#f3f3f1)}
-main{min-height:100vh;display:flex;flex-direction:column;justify-content:center;padding:32px}h1{margin:0 0 8px;font-size:24px;font-weight:650}
-p{margin:0 0 24px;color:light-dark(#62625e,#aaa9a4);font-size:14px;line-height:1.45}label{display:block;margin-bottom:7px;font-size:13px;font-weight:600}
-input{width:100%;height:40px;padding:0 11px;border:1px solid light-dark(#c9c9c4,#494946);border-radius:6px;background:light-dark(#fff,#232322);color:inherit;font-size:15px;outline:none}
-input:focus{border-color:#18794e;box-shadow:0 0 0 2px color-mix(in srgb,#18794e 24%,transparent)}#error{min-height:20px;margin:8px 0 4px;color:light-dark(#b42318,#ff8a80);font-size:13px}
-footer{display:flex;justify-content:flex-end;gap:8px}button{height:36px;padding:0 14px;border:1px solid light-dark(#c9c9c4,#494946);border-radius:6px;font:inherit;font-size:14px;cursor:pointer}
-#cancel{background:transparent;color:inherit}#submit{border-color:#18794e;background:#18794e;color:#fff;font-weight:600}button:disabled{cursor:default;opacity:.55}
-</style></head><body><main><h1>Connect Penkra HQ</h1><p>Enter the master password to connect this workspace.</p><form>
-<label for="password">Master password</label><input id="password" type="password" autocomplete="current-password" autofocus required maxlength="1024">
-<div id="error" role="alert"></div><footer><button id="cancel" type="button">Not now</button><button id="submit" type="submit">Connect</button></footer>
-</form></main><script>
-const form=document.querySelector('form'),input=document.querySelector('#password'),error=document.querySelector('#error'),submit=document.querySelector('#submit');
-document.querySelector('#cancel').addEventListener('click',()=>window.close());
-form.addEventListener('submit',async event=>{event.preventDefault();error.textContent='';submit.disabled=true;input.disabled=true;
-try{const result=await window.penkraHqAuth.submit(input.value);if(!result.ok){error.textContent=result.message;submit.disabled=false;input.disabled=false;input.focus();input.select()}else submit.textContent='Connected'}
-catch{error.textContent='Authentication failed.';submit.disabled=false;input.disabled=false}});
-</script></body></html>`;
 }
 
 function configureMediaPermissions(): void {

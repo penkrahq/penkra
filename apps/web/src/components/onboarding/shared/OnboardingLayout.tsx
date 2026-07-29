@@ -34,7 +34,7 @@ export function OnboardingLayout({
   return (
     <section
       className={cn(
-        "relative flex h-[640px] w-[1040px] overflow-hidden bg-[var(--color-background-panel)] text-[var(--color-text-foreground)]",
+        "relative flex h-[min(640px,calc(100vh-2rem))] min-h-[520px] w-full max-w-[1040px] overflow-hidden bg-[var(--color-background-panel)] text-[var(--color-text-foreground)]",
         className,
       )}
     >
@@ -44,10 +44,12 @@ export function OnboardingLayout({
           className="absolute left-5 top-5 z-10 size-7 text-[var(--color-text-foreground)]"
         />
       ) : null}
-      <main className="relative flex w-[600px] items-center justify-center">{children}</main>
+      <main className="relative flex min-w-0 flex-1 items-center justify-center px-6">
+        {children}
+      </main>
       <aside
         aria-label="Penkra"
-        className="relative flex w-[440px] items-center justify-center overflow-hidden bg-[var(--color-background-elevated-primary-opaque)]"
+        className="relative hidden w-[440px] shrink-0 items-center justify-center overflow-hidden bg-[var(--color-background-elevated-primary-opaque)] md:flex"
       >
         {brandImage ? (
           <img

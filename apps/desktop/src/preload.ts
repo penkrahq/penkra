@@ -100,6 +100,11 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     isSupported: () => ipcRenderer.invoke(IPC.notificationsIsSupported),
     show: (input) => ipcRenderer.invoke(IPC.notificationsShow, input),
   },
+  hqAuth: {
+    getRequired: () => ipcRenderer.invoke(IPC.hqAuth.getRequired),
+    submit: (password) => ipcRenderer.invoke(IPC.hqAuth.submit, password),
+    skip: () => ipcRenderer.invoke(IPC.hqAuth.skip),
+  },
   appSnap: {
     getState: () => ipcRenderer.invoke(IPC.appSnap.getState),
     setEnabled: (enabled) => ipcRenderer.invoke(IPC.appSnap.setEnabled, enabled),

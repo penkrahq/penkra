@@ -26,6 +26,7 @@ import { APP_DISPLAY_NAME, APP_VERSION } from "../branding";
 import { DesktopWindowControls } from "../components/DesktopWindowControls";
 import { AppSnapCoordinator } from "../components/AppSnapCoordinator";
 import { AppSnapWelcomeDialog } from "../components/AppSnapWelcomeDialog";
+import { DesktopOnboardingGate } from "../components/onboarding/DesktopOnboardingGate";
 import { FeedbackDialog } from "../components/FeedbackDialog";
 import { SETTINGS_TARGETS } from "../settingsNavigation";
 import ShortcutsDialog from "../components/ShortcutsDialog";
@@ -217,22 +218,24 @@ function RootRouteView() {
 
   return (
     <>
-      <ToastProvider position="top-center">
-        <AnchoredToastProvider>
-          <GitProgressToastPreviewDev />
-          <EventRouter />
-          <ProviderStatusRefreshCoordinator />
-          <GlobalShortcutsDialog />
-          <GlobalFeedbackDialog />
-          <GlobalWhatsNewSurface />
-          <TaskCompletionNotifications />
-          <AppSnapWelcomeDialog />
-          <AppSnapCoordinator />
-          <ProviderUpdateNotifications />
-          <DesktopProjectBootstrap />
-          <Outlet />
-        </AnchoredToastProvider>
-      </ToastProvider>
+      <DesktopOnboardingGate>
+        <ToastProvider position="top-center">
+          <AnchoredToastProvider>
+            <GitProgressToastPreviewDev />
+            <EventRouter />
+            <ProviderStatusRefreshCoordinator />
+            <GlobalShortcutsDialog />
+            <GlobalFeedbackDialog />
+            <GlobalWhatsNewSurface />
+            <TaskCompletionNotifications />
+            <AppSnapWelcomeDialog />
+            <AppSnapCoordinator />
+            <ProviderUpdateNotifications />
+            <DesktopProjectBootstrap />
+            <Outlet />
+          </AnchoredToastProvider>
+        </ToastProvider>
+      </DesktopOnboardingGate>
       {desktopWindowControls}
     </>
   );
