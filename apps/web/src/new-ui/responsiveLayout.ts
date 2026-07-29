@@ -34,6 +34,13 @@ const WORKSPACE_CSS = `
     min-height: 46px !important;
   }
 
+  body > [data-pencil-name] > [data-pencil-name="Thread"] > [data-pencil-name="Top Bar"] {
+    height: 46px !important;
+    min-height: 46px !important;
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+  }
+
   body > [data-pencil-name] > [data-pencil-name="Dim Backdrop"] {
     width: 100% !important;
     height: 100% !important;
@@ -136,7 +143,10 @@ export function installResponsiveLayout(
     options.macTrafficLightGutter > 0
       ? `
   body > [data-pencil-name] > [data-pencil-name="Sidebar"] > [data-pencil-name="Header"] {
-    padding-left: ${options.macTrafficLightGutter}px !important;
+    padding-left: max(
+      ${options.macTrafficLightGutter}px,
+      calc(env(titlebar-area-x, 0px) + 10px)
+    ) !important;
   }
 `
       : "";

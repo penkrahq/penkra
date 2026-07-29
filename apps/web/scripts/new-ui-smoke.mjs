@@ -186,6 +186,21 @@ try {
   stage = "macOS window chrome";
   const chromePage = await browser.newPage({ viewport: { width: 1000, height: 700 } });
   await chromePage.addInitScript(() => {
+    let titlebarAreaX = 0;
+    const geometryListeners = new Set();
+    Object.defineProperty(navigator, "windowControlsOverlay", {
+      configurable: true,
+      value: {
+        visible: true,
+        getTitlebarAreaRect: () => new DOMRect(titlebarAreaX, 0, 1000 - titlebarAreaX, 46),
+        addEventListener: (_type, listener) => geometryListeners.add(listener),
+        removeEventListener: (_type, listener) => geometryListeners.delete(listener),
+      },
+    });
+    window.__emitTitlebarGeometry = (x) => {
+      titlebarAreaX = x;
+      for (const listener of geometryListeners) listener();
+    };
     window.desktopBridge = {
       getZoomFactor: () => 1,
       onZoomFactorChange: () => () => undefined,
@@ -215,23 +230,56 @@ try {
       '[data-pencil-name="Sidebar"] > [data-pencil-name="Header"] > [data-pencil-name="Search"]',
     )
     .boundingBox();
+  const windowedThreadTitle = await pencilFrame(chromePage)
+    .locator(
+      '[data-pencil-name="Thread"] > [data-pencil-name="Top Bar"] > [data-pencil-name="Title"]',
+    )
+    .boundingBox();
+  const windowedPanelIcon = await pencilFrame(chromePage)
+    .locator(
+      '[data-pencil-name="Thread"] > [data-pencil-name="Top Bar"] > [data-pencil-name="Panel Icon"]',
+    )
+    .boundingBox();
   const windowedBrandCenter = windowedBrand
     ? windowedBrand.y + windowedBrand.height / 2
     : undefined;
   const windowedSearchCenter = windowedSearch
     ? windowedSearch.y + windowedSearch.height / 2
     : undefined;
+  const windowedThreadTitleCenter = windowedThreadTitle
+    ? windowedThreadTitle.y + windowedThreadTitle.height / 2
+    : undefined;
+  const windowedPanelIconCenter = windowedPanelIcon
+    ? windowedPanelIcon.y + windowedPanelIcon.height / 2
+    : undefined;
   if (
     windowedChrome !== "macos-windowed" ||
     windowedFrame?.y !== 0 ||
     windowedBrand?.x !== 90 ||
     windowedBrandCenter !== 23 ||
-    windowedSearchCenter !== 23
+    windowedSearchCenter !== 23 ||
+    windowedThreadTitleCenter !== 23 ||
+    windowedPanelIconCenter !== 23
   ) {
     throw new Error(
-      `Windowed macOS traffic-light alignment is wrong: mode=${windowedChrome}, frameY=${windowedFrame?.y}, brandX=${windowedBrand?.x}, brandCenter=${windowedBrandCenter}, searchCenter=${windowedSearchCenter}.`,
+      `Windowed macOS titlebar alignment is wrong: mode=${windowedChrome}, frameY=${windowedFrame?.y}, brandX=${windowedBrand?.x}, brandCenter=${windowedBrandCenter}, searchCenter=${windowedSearchCenter}, threadTitleCenter=${windowedThreadTitleCenter}, panelIconCenter=${windowedPanelIconCenter}.`,
     );
   }
+
+  await chromePage.evaluate(() => {
+    window.__emitTitlebarGeometry?.(150);
+  });
+  await pencilFrame(chromePage)
+    .locator(
+      '[data-pencil-name="Sidebar"] > [data-pencil-name="Header"] > [data-pencil-name="Brand"]',
+    )
+    .evaluate((element) => {
+      if (element.getBoundingClientRect().x !== 160) {
+        throw new Error(
+          `Expanded macOS titlebar safe area did not move the brand: x=${element.getBoundingClientRect().x}.`,
+        );
+      }
+    });
 
   await chromePage.evaluate(() => {
     window.__emitDesktopWindowState?.({ isMaximized: false, isFullscreen: true });

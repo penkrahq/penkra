@@ -49,7 +49,10 @@ import {
 } from "electron-updater";
 
 import type { ContextMenuItem } from "@synara/contracts";
-import { getMacTrafficLightPosition } from "@synara/shared/desktopChrome";
+import {
+  CHAT_SURFACE_HEADER_HEIGHT_PX,
+  getMacTrafficLightPosition,
+} from "@synara/shared/desktopChrome";
 import {
   LEGACY_SYNARA_DESKTOP_SCHEME,
   SYNARA_DESKTOP_UPDATE_CHANNEL,
@@ -3358,6 +3361,12 @@ function getWindowMaterialOptions(): BrowserWindowConstructorOptions {
 function getTitleBarOptions(): BrowserWindowConstructorOptions {
   return {
     titleBarStyle: "hiddenInset",
+    // Enables Electron's standard Window Controls Overlay geometry APIs and
+    // titlebar-area-* CSS environment variables. The renderer uses the live safe
+    // area instead of assuming the native control cluster is always 90px wide.
+    titleBarOverlay: {
+      height: CHAT_SURFACE_HEADER_HEIGHT_PX,
+    },
     // Derived from the shared chat-surface header geometry (@synara/shared/desktopChrome)
     // so the native lights and the renderer's leading toggle/arrow controls always share
     // the same vertical center. Tune the height/radius there, never the raw px here.
