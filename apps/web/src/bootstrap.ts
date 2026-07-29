@@ -1,4 +1,15 @@
 // FILE: bootstrap.ts
-// Purpose: Boots the Pencil-authoritative Penkra renderer inside the retained app runtime.
+// Purpose: Completes synchronous renderer storage migration before any app store can hydrate.
 
-void import("./new-ui/main");
+import "./storageOriginMigration";
+
+import { bootstrapSignedOutScreen } from "./authSignedOut";
+import { bootstrapPairingSession } from "./pairingBootstrap";
+
+if (!bootstrapSignedOutScreen()) {
+  void bootstrapPairingSession().then((result) => {
+    if (result === "not-pairing") {
+      return import("./main");
+    }
+  });
+}

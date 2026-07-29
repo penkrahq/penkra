@@ -24,6 +24,7 @@ release-*-candidate/
 .idea/
 apps/web/.playwright
 apps/web/playwright-report
+apps/web/storybook-static
 .playwright-cli/
 output/playwright/
 apps/web/src/components/__screenshots__

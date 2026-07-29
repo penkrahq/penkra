@@ -14,17 +14,20 @@ export const SearchInput = forwardRef<HTMLInputElement, InputProps>(function Sea
   ref,
 ) {
   return (
-    <div className="relative w-full">
+    <div className="group/search-input relative w-full">
       <Input
         ref={ref}
         type={type}
         size={size}
         variant={variant}
-        className={cn("[&>[data-slot=input]]:pl-8", className)}
+        className={cn(
+          "[&>[data-slot=input]]:pl-8 [&>[data-slot=input]]:placeholder:opacity-100",
+          className,
+        )}
         {...props}
       />
       <SearchIcon
-        className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground/70"
+        className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground/70 transition-colors group-focus-within/search-input:text-foreground"
         aria-hidden="true"
       />
     </div>

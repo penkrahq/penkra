@@ -1021,7 +1021,12 @@ function SettingsRouteView() {
           </div>
         </div>
         <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
-          <div className="flex-1 overflow-y-auto">
+          <div
+            aria-label="Settings content"
+            className="min-h-0 flex-1 overflow-y-auto overscroll-contain outline-none focus-visible:ring-1 focus-visible:ring-ring/60"
+            data-pencil-region="bHQ9w"
+            tabIndex={0}
+          >
             <div
               className={cn(
                 "mx-auto w-full px-6 py-8",
