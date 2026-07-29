@@ -65,6 +65,41 @@ async function click(page, name) {
   await pencilFrame(page).locator(`[data-pencil-name="${name}"]`).first().click();
 }
 
+async function box(page, name) {
+  const bounds = await pencilFrame(page)
+    .locator(`[data-pencil-name="${name}"]`)
+    .first()
+    .boundingBox();
+  if (!bounds) throw new Error(`Expected "${name}" to have visible bounds.`);
+  return bounds;
+}
+
+async function expectResponsiveWorkspace(page) {
+  await page.setViewportSize({ width: 1512, height: 900 });
+  const fontSize = await pencilFrame(page)
+    .locator('[data-pencil-name="Brand"]')
+    .first()
+    .evaluate((element) => getComputedStyle(element).fontSize);
+
+  await page.setViewportSize({ width: 1000, height: 700 });
+  const root = await box(page, "Main — 3 rails");
+  const sidebar = await box(page, "Sidebar");
+  const resizedFontSize = await pencilFrame(page)
+    .locator('[data-pencil-name="Brand"]')
+    .first()
+    .evaluate((element) => getComputedStyle(element).fontSize);
+
+  if (root.width !== 1000 || root.height !== 700) {
+    throw new Error(`Workspace did not fill 1000x700 viewport: ${root.width}x${root.height}.`);
+  }
+  if (sidebar.width !== 240 || sidebar.height !== 700) {
+    throw new Error(`Sidebar geometry changed unexpectedly: ${sidebar.width}x${sidebar.height}.`);
+  }
+  if (resizedFontSize !== fontSize) {
+    throw new Error(`Typography scaled during resize: ${fontSize} became ${resizedFontSize}.`);
+  }
+}
+
 let browser;
 try {
   await waitForPreview();
@@ -94,6 +129,7 @@ try {
   await expectFrame(page, "Install Apps");
   await click(page, "Continue Button");
   await expectFrame(page, "Main — 3 rails");
+  await expectResponsiveWorkspace(page);
 
   stage = "settings";
   await click(page, "Account");
@@ -114,6 +150,29 @@ try {
     await expectFrame(page, expectedFrame);
   }
 
+  stage = "compact settings";
+  await page.setViewportSize({ width: 840, height: 620 });
+  const settingsModal = await box(page, "Settings Modal");
+  if (settingsModal.width > 808 || settingsModal.height > 588) {
+    throw new Error(
+      `Settings modal exceeds compact viewport: ${settingsModal.width}x${settingsModal.height}.`,
+    );
+  }
+
+  stage = "compact onboarding";
+  await page.goto(`${origin}/?phase=welcome`);
+  await expectFrame(page, "Welcome");
+  const onboardingPanel = await box(page, "Onboarding Panel");
+  const brandPanelDisplay = await pencilFrame(page)
+    .locator('[data-pencil-name="Brand Panel"]')
+    .first()
+    .evaluate((element) => getComputedStyle(element).display);
+  if (onboardingPanel.width > 808 || onboardingPanel.height > 588 || brandPanelDisplay !== "none") {
+    throw new Error(
+      `Onboarding did not adapt at 840x620: ${onboardingPanel.width}x${onboardingPanel.height}, brand=${brandPanelDisplay}.`,
+    );
+  }
+
   stage = "permission sheet";
   await page.goto(`${origin}/?phase=permission`);
   await expectFrame(page, "Permission request");
@@ -124,8 +183,46 @@ try {
     throw new Error(`Expected one permission sheet, received ${sheetCount}.`);
   }
 
+  stage = "macOS window chrome";
+  const chromePage = await browser.newPage({ viewport: { width: 1000, height: 700 } });
+  await chromePage.addInitScript(() => {
+    window.desktopBridge = {
+      windowControls: {
+        getState: async () => ({ isMaximized: false, isFullscreen: false }),
+        onState: (listener) => {
+          window.__emitDesktopWindowState = listener;
+          return () => {
+            delete window.__emitDesktopWindowState;
+          };
+        },
+      },
+    };
+  });
+  await chromePage.goto(`${origin}/?phase=workspace`);
+  const windowedChrome = await chromePage
+    .locator(".pencil-stage")
+    .getAttribute("data-window-chrome");
+  const windowedFrame = await chromePage.locator("iframe").boundingBox();
+  if (windowedChrome !== "macos-windowed" || windowedFrame?.y !== 46) {
+    throw new Error(
+      `Windowed macOS chrome did not reserve 46px: mode=${windowedChrome}, y=${windowedFrame?.y}.`,
+    );
+  }
+
+  await chromePage.evaluate(() => {
+    window.__emitDesktopWindowState?.({ isMaximized: false, isFullscreen: true });
+  });
+  await chromePage.locator('.pencil-stage[data-window-chrome="flush"]').waitFor();
+  const fullscreenFrame = await chromePage.locator("iframe").boundingBox();
+  if (fullscreenFrame?.y !== 0) {
+    throw new Error(
+      `Fullscreen macOS chrome did not return to the top edge: y=${fullscreenFrame?.y}.`,
+    );
+  }
+  await chromePage.close();
+
   process.stdout.write(
-    "Penkra new UI smoke passed: onboarding → workspace → settings suite → permission\n",
+    "Penkra new UI smoke passed: onboarding → workspace → settings → permission → window chrome\n",
   );
 } catch (error) {
   process.stderr.write(`Penkra new UI smoke failed during ${stage}.\n`);

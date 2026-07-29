@@ -14,7 +14,7 @@ interface or information architecture.
 - `main` continues from archived console snapshot `a149f2e8`.
 - `prototype/pencil-ui-2026-07-28` preserves standalone prototype commit `30c40e1`.
 - The separate `penkra-console` repository remains archived and unchanged.
-- The new `penkra` repository has no publication remote yet.
+- The new public repository is `https://github.com/penkrahq/penkra`.
 
 ## Active integration
 

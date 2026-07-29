@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { installPencilRuntime, type Phase } from "./pencilRuntime";
+import { installResponsiveLayout } from "./responsiveLayout";
+import { useMacWindowedTitlebar } from "./useMacWindowChrome";
 
 const phaseFile: Record<Phase, string> = {
   welcome: "./pencil/welcome.html",
@@ -30,14 +32,10 @@ function initialPhase(): Phase {
 
 export function App() {
   const [phase, setPhase] = useState<Phase>(initialPhase);
-  const [scale, setScale] = useState(1);
   const frameRef = useRef<HTMLIFrameElement>(null);
   const onboarding = onboardingPhases.has(phase);
   const sourceWidth = phase === "workspace" ? 1512 : 1440;
-  const viewport = useMemo(
-    () => (onboarding ? { width: 1440, height: 900 } : { width: sourceWidth, height: 900 }),
-    [onboarding, sourceWidth],
-  );
+  const reserveMacTitlebar = useMacWindowedTitlebar();
 
   const go = useCallback((next: Phase) => {
     sessionStorage.setItem("penkra-mock-phase", next);
@@ -50,21 +48,13 @@ export function App() {
   }, [onboarding, sourceWidth]);
 
   useEffect(() => {
-    const fit = () => {
-      setScale(Math.min(window.innerWidth / viewport.width, window.innerHeight / viewport.height));
-    };
-    fit();
-    window.addEventListener("resize", fit);
-    return () => window.removeEventListener("resize", fit);
-  }, [viewport]);
-
-  useEffect(() => {
     const frame = frameRef.current;
     if (!frame) return;
 
     const onLoad = () => {
       const document = frame.contentDocument;
       if (!document) return;
+      installResponsiveLayout(document, phase);
       void installPencilRuntime(document, phase, { go });
     };
 
@@ -72,32 +62,19 @@ export function App() {
     return () => frame.removeEventListener("load", onLoad);
   }, [go, phase]);
 
-  const frameOffset = onboarding
-    ? { left: 0, top: 0 }
-    : { left: (viewport.width - sourceWidth) / 2, top: 0 };
-
   return (
-    <main className="pencil-stage">
-      <div
-        className="pencil-viewport"
-        style={{
-          width: viewport.width,
-          height: viewport.height,
-          transform: `translate(-50%, -50%) scale(${scale})`,
-        }}
-      >
+    <main
+      className="pencil-stage"
+      data-window-chrome={reserveMacTitlebar ? "macos-windowed" : "flush"}
+    >
+      <div className="pencil-viewport">
         <iframe
           ref={frameRef}
           key={phase}
           className="pencil-frame"
+          sandbox="allow-same-origin"
           src={phaseFile[phase]}
           title="Penkra"
-          style={{
-            left: frameOffset.left,
-            top: frameOffset.top,
-            width: sourceWidth,
-            height: 900,
-          }}
         />
       </div>
     </main>
