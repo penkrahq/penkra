@@ -5,10 +5,24 @@ import { InputShared } from "./InputShared";
 
 const meta = {
   args: {
-    "aria-label": "Email address",
-    leadingIcon: <IconMail aria-hidden className="size-4" />,
-    placeholder: "you@company.com",
-    type: "email",
+    "aria-label": "API key",
+    leadingIcon: (
+      <svg
+        aria-hidden="true"
+        className="size-4"
+        fill="none"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="2"
+        viewBox="0 0 24 24"
+      >
+        <circle cx="7.5" cy="15.5" r="5.5" />
+        <path d="m12 12 9-9m-3 3 3 3m-6 0 3 3" />
+      </svg>
+    ),
+    placeholder: "sk-ant-••••••••••••••••",
+    type: "password",
   },
   component: InputShared,
   decorators: [
@@ -38,6 +52,21 @@ export const Search: Story = {
     leadingIcon: <IconSearch aria-hidden className="size-4" />,
     placeholder: "Search",
     type: "search",
+  },
+};
+
+export const Email: Story = {
+  args: {
+    "aria-label": "Email address",
+    leadingIcon: <IconMail aria-hidden className="size-4" />,
+    placeholder: "you@company.com",
+    type: "email",
+  },
+};
+
+export const Focused: Story = {
+  play: async ({ canvas }) => {
+    await canvas.getByLabelText("API key").focus();
   },
 };
 

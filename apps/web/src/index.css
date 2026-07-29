@@ -93,14 +93,21 @@
        namespace so their authored dark surfaces do not accidentally inherit a
        semantically unrelated application theme token. */
     --pencil-accent: #3b82f6;
+    --pencil-accent-active: #2563eb;
+    --pencil-accent-focus: #7aa2f7;
     --pencil-accent-hover: #5b9cf6;
     --pencil-border: #26272e;
+    --pencil-border-hover: #4a4e5e;
+    --pencil-disabled: #1f212b;
+    --pencil-error: #ef4444;
     --pencil-input: #1c2030;
+    --pencil-overlay: #000;
     --pencil-surface: #0f1115;
     --pencil-surface-raised: #141519;
     --pencil-text-primary: #e8eaf2;
     --pencil-text-secondary: #9aa0b4;
     --pencil-text-tertiary: #6b7088;
+    --pencil-white: #fff;
   }
 }
 

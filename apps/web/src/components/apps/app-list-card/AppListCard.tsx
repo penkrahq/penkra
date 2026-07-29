@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import { Switch } from "~/components/ui/switch";
+import { SwitchShared } from "~/components/foundations/switch-shared/SwitchShared";
 import { CircleCheckIcon } from "~/lib/icons";
 
 export interface AppListCardProps {
@@ -37,10 +37,9 @@ export function AppListCard({
           {description}
         </p>
       </div>
-      <Switch
+      <SwitchShared
         aria-label={`${checked ? "Remove" : "Add"} ${name}`}
         checked={checked}
-        className="[--thumb-size:16px] data-checked:border-[var(--pencil-accent)] data-checked:bg-[var(--pencil-accent)]"
         onCheckedChange={(next) => onCheckedChange(Boolean(next))}
       />
     </article>

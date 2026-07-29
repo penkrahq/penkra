@@ -10,9 +10,9 @@ import { useMemo, useState } from "react";
 
 import { AppListCard } from "~/components/apps/app-list-card/AppListCard";
 import { InputSearchApps } from "~/components/apps/input-search-apps/InputSearchApps";
-import { Button } from "~/components/ui/button";
+import { ButtonBack } from "~/components/foundations/button-back/ButtonBack";
+import { ButtonPrimary } from "~/components/foundations/button-primary/ButtonPrimary";
 import { ScrollArea } from "~/components/ui/scroll-area";
-import { ArrowLeftIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
 
 const apps = [
@@ -96,15 +96,10 @@ export function OnboardingApps({ onBack, onContinue }: OnboardingAppsProps) {
       data-pencil-component="YmEq2"
     >
       <div className="relative flex min-w-0 flex-1 justify-center md:w-[600px] md:flex-none">
-        <Button
-          aria-label="Back"
-          className="absolute top-[25px] left-[22px] z-10 size-8 border-transparent bg-transparent p-0 text-[var(--pencil-text-secondary)] hover:bg-transparent hover:text-[var(--pencil-text-primary)] md:top-[21px] md:left-[20px]"
+        <ButtonBack
+          className="absolute top-[29px] left-[31px] z-10 md:top-[25px] md:left-[29px]"
           onClick={onBack}
-          size="icon"
-          variant="ghost"
-        >
-          <ArrowLeftIcon aria-hidden="true" className="size-3.5" />
-        </Button>
+        />
 
         <div className="flex h-full w-full max-w-[488px] min-w-0 flex-col px-3 pt-[78px] pb-[78.5px] sm:px-0">
           <header>
@@ -160,12 +155,12 @@ export function OnboardingApps({ onBack, onContinue }: OnboardingAppsProps) {
             </ScrollArea>
           </div>
 
-          <Button
-            className="mt-4 h-[41px] w-full rounded-[10px] border-transparent bg-[var(--pencil-accent)] font-sans text-sm font-semibold text-white hover:bg-[var(--pencil-accent-hover)]"
+          <ButtonPrimary
+            className="mt-4"
             onClick={() => onContinue?.(selected)}
           >
             Continue
-          </Button>
+          </ButtonPrimary>
         </div>
       </div>
 
