@@ -21,7 +21,7 @@ export function SidebarWorkspace({
   return (
     <aside
       aria-label="Workspace"
-      className="flex h-[900px] w-60 flex-col overflow-hidden bg-[#0b0c10]"
+      className="flex h-[900px] w-60 flex-col overflow-hidden bg-[var(--color-background-surface)]"
       data-pencil-component="UPCCE"
     >
       <SidebarHeaderShared />

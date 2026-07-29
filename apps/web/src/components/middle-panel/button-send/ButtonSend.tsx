@@ -13,7 +13,7 @@ export const ButtonSend = forwardRef<HTMLButtonElement, ButtonSendProps>(functio
     <button
       aria-label={ariaLabel}
       className={cn(
-        "inline-flex size-[26px] shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-[var(--color-background-button-primary)] p-0 text-[var(--color-text-button-primary)] outline-none transition-colors hover:bg-[var(--color-background-button-primary-hover)] focus-visible:ring-1 focus-visible:ring-[var(--color-border-focus)] disabled:cursor-not-allowed disabled:bg-[var(--color-background-button-primary-inactive)] disabled:text-[var(--color-text-foreground-tertiary)]",
+        "inline-flex size-[26px] shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-[var(--color-background-button-primary)] p-0 text-[var(--color-text-button-primary)] outline-none transition-[background-color,opacity] hover:bg-[color-mix(in_srgb,var(--color-background-button-primary)_90%,transparent)] focus-visible:ring-1 focus-visible:ring-[var(--color-border-focus)] disabled:cursor-not-allowed disabled:opacity-64",
         className,
       )}
       ref={ref}

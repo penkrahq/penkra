@@ -12,7 +12,7 @@ export const InputKeyName = forwardRef<HTMLInputElement, InputKeyNameProps>(func
 ) {
   return (
     <label className="flex w-full flex-col gap-[7px]">
-      <span className="font-sans text-[13px] leading-4 font-semibold text-[var(--pencil-text-secondary)]">
+      <span className="font-sans text-[13px] leading-4 font-semibold text-[var(--color-text-foreground-secondary)]">
         {label}
       </span>
       <InputShared

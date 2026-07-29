@@ -26,12 +26,13 @@ export const LeftRailRow = forwardRef<HTMLButtonElement, LeftRailRowProps>(funct
   return (
     <button
       className={cn(
-        "group/left-rail-row flex h-[27px] w-full min-w-0 cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent px-2 font-sans text-[13px] leading-4 font-normal text-[var(--pencil-text-secondary)] outline-none transition-colors",
-        "hover:bg-white/5 hover:text-[var(--pencil-text-primary)] active:bg-[var(--pencil-disabled)] active:text-[var(--pencil-text-primary)] focus-visible:ring-1 focus-visible:ring-[var(--pencil-accent-focus)]",
-        state === "selected" && "bg-[var(--pencil-disabled)] text-[var(--pencil-text-primary)]",
-        state === "open" && "text-[#c4c8d9]",
+        "group/left-rail-row flex h-[27px] w-full min-w-0 cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent px-2 font-sans text-[13px] leading-4 font-normal text-[var(--color-text-foreground-secondary)] outline-none transition-colors",
+        "hover:bg-[var(--color-background-button-secondary-hover)] hover:text-[var(--color-text-foreground)] active:bg-[var(--color-background-button-secondary-active)] active:text-[var(--color-text-foreground)] focus-visible:ring-1 focus-visible:ring-[var(--color-border-focus)]",
+        state === "selected" &&
+          "bg-[var(--color-background-button-secondary-active)] text-[var(--color-text-foreground)]",
+        state === "open" && "text-[var(--color-text-foreground-secondary)]",
         disabled &&
-          "cursor-not-allowed bg-transparent text-[var(--pencil-border-hover)] hover:bg-transparent hover:text-[var(--pencil-border-hover)]",
+          "cursor-not-allowed bg-transparent text-[var(--color-text-foreground-tertiary)] hover:bg-transparent hover:text-[var(--color-text-foreground-tertiary)]",
         className,
       )}
       data-state={state}

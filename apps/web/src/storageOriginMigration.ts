@@ -9,7 +9,7 @@ const MAX_SNAPSHOT_VALUE_LENGTH = 16 * 1024 * 1024;
 const MAX_SNAPSHOT_BYTES = 16 * 1024 * 1024;
 
 function isCanonicalStorageKey(key: string): boolean {
-  return key.startsWith("synara:") || key.startsWith("synara.");
+  return key.startsWith("penkra:") || key.startsWith("synara:") || key.startsWith("synara.");
 }
 
 function getLocalStorage(): Storage | null {

@@ -19,9 +19,10 @@ import { buildMacosIcon, resolvePenkraDevIconSource } from "./lib/macos-icon.ts"
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const launcherScriptPath = join(repoRoot, "scripts", "penkra-dev-launcher.ts");
-const targetAppPath = "/Applications/Penkra Dev.app";
+const targetAppPath = "/Applications/Penkra (Dev).app";
+const previousTargetAppPath = "/Applications/Penkra Dev.app";
 const bundleIdentifier = "com.penkra.app.dev.launcher";
-const executableName = "Penkra Dev";
+const executableName = "Penkra (Dev)";
 
 export function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
@@ -46,7 +47,7 @@ function makeInfoPlist(): string {
   <key>CFBundleDevelopmentRegion</key>
   <string>en</string>
   <key>CFBundleDisplayName</key>
-  <string>Penkra Dev</string>
+  <string>Penkra (Dev)</string>
   <key>CFBundleExecutable</key>
   <string>${executableName}</string>
   <key>CFBundleIconFile</key>
@@ -56,7 +57,7 @@ function makeInfoPlist(): string {
   <key>CFBundleInfoDictionaryVersion</key>
   <string>6.0</string>
   <key>CFBundleName</key>
-  <string>Penkra Dev</string>
+  <string>Penkra (Dev)</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
@@ -92,7 +93,7 @@ function install(): void {
 
   const bunExecutable = resolveBunExecutable();
   const temporaryRoot = mkdtempSync(join(tmpdir(), "penkra-dev-app-"));
-  const stagedAppPath = join(temporaryRoot, "Penkra Dev.app");
+  const stagedAppPath = join(temporaryRoot, "Penkra (Dev).app");
   const contentsPath = join(stagedAppPath, "Contents");
   const macosPath = join(contentsPath, "MacOS");
   const resourcesPath = join(contentsPath, "Resources");
@@ -143,6 +144,9 @@ function install(): void {
     );
     if (register.status !== 0) {
       throw new Error(`Could not register Penkra Dev launcher: ${register.stderr.trim()}`);
+    }
+    if (previousTargetAppPath !== targetAppPath) {
+      rmSync(previousTargetAppPath, { recursive: true, force: true });
     }
 
     process.stdout.write(

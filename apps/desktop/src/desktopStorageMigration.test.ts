@@ -16,7 +16,7 @@ const snapshot = (exportedAt = "2026-07-09T00:00:00.000Z") => ({
   version: 1 as const,
   exportedAt,
   entries: {
-    "synara:theme": "dark",
+    "penkra:theme": "dark",
     "synara.openUsage.enabled": "true",
   },
 });

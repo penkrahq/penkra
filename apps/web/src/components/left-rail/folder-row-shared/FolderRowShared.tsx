@@ -21,7 +21,7 @@ export function FolderRowShared({
       {onAdd ? (
         <button
           aria-label="Add thread"
-          className="absolute top-1/2 right-2 inline-flex size-3.5 -translate-y-1/2 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-[var(--pencil-text-secondary)] opacity-0 outline-none group-hover/folder-row:opacity-100 hover:text-[var(--pencil-text-primary)] focus-visible:opacity-100 focus-visible:ring-1 focus-visible:ring-[var(--pencil-accent-focus)]"
+          className="absolute top-1/2 right-2 inline-flex size-3.5 -translate-y-1/2 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-[var(--color-text-foreground-secondary)] opacity-0 outline-none group-hover/folder-row:opacity-100 hover:text-[var(--color-text-foreground)] focus-visible:opacity-100 focus-visible:ring-1 focus-visible:ring-[var(--color-border-focus)]"
           onClick={onAdd}
           type="button"
         >

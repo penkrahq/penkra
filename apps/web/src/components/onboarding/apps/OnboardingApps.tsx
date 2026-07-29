@@ -92,7 +92,7 @@ export function OnboardingApps({ onBack, onContinue }: OnboardingAppsProps) {
   return (
     <section
       aria-labelledby="onboarding-apps-title"
-      className="relative flex h-[640px] w-full max-w-[1040px] overflow-hidden bg-[var(--pencil-surface-raised)] text-[var(--pencil-text-primary)]"
+      className="relative flex h-[640px] w-full max-w-[1040px] overflow-hidden bg-[var(--color-background-panel)] text-[var(--color-text-foreground)]"
       data-pencil-component="YmEq2"
     >
       <div className="relative flex min-w-0 flex-1 justify-center md:w-[600px] md:flex-none">
@@ -109,7 +109,7 @@ export function OnboardingApps({ onBack, onContinue }: OnboardingAppsProps) {
             >
               Add your first apps
             </h1>
-            <p className="mt-[7px] font-sans text-sm leading-[17px] text-[var(--pencil-text-secondary)]">
+            <p className="mt-[7px] font-sans text-sm leading-[17px] text-[var(--color-text-foreground-secondary)]">
               Choose a few essentials — you can always add more later.
             </p>
           </header>
@@ -141,7 +141,7 @@ export function OnboardingApps({ onBack, onContinue }: OnboardingAppsProps) {
                 );
               })}
               {visibleApps.length === 0 ? (
-                <p className="py-10 text-center text-sm text-[var(--pencil-text-secondary)]">
+                <p className="py-10 text-center text-sm text-[var(--color-text-foreground-secondary)]">
                   No apps match “{query}”.
                 </p>
               ) : null}
@@ -157,7 +157,7 @@ export function OnboardingApps({ onBack, onContinue }: OnboardingAppsProps) {
 
       <aside
         aria-hidden="true"
-        className="hidden h-full w-[440px] shrink-0 bg-[var(--pencil-surface-raised)] md:block"
+        className="hidden h-full w-[440px] shrink-0 bg-[var(--color-background-panel)] md:block"
       />
     </section>
   );

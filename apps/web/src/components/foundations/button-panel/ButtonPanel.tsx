@@ -12,7 +12,7 @@ export const ButtonPanel = forwardRef<HTMLButtonElement, ButtonPanelProps>(funct
     <button
       aria-label={ariaLabel}
       className={cn(
-        "inline-flex size-4 shrink-0 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-[var(--pencil-text-secondary)] outline-none transition-colors hover:text-[var(--pencil-text-primary)] focus-visible:ring-1 focus-visible:ring-[var(--pencil-accent-focus)] disabled:cursor-not-allowed disabled:text-[var(--pencil-border-hover)]",
+        "inline-flex size-4 shrink-0 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-[var(--color-text-foreground-secondary)] outline-none transition-colors hover:text-[var(--color-text-foreground)] focus-visible:ring-1 focus-visible:ring-[var(--color-border-focus)] disabled:cursor-not-allowed disabled:text-[var(--color-text-foreground-tertiary)]",
         className,
       )}
       ref={ref}

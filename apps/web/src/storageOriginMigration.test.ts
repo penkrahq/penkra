@@ -28,7 +28,7 @@ describe("storageOriginMigration", () => {
   });
 
   it("imports missing keys without overwriting current-origin state", async () => {
-    globalThis.localStorage.setItem("synara:theme", "current");
+    globalThis.localStorage.setItem("penkra:theme", "current");
     const { importSynaraStorageSnapshot } = await import("./storageOriginMigration");
 
     expect(
@@ -36,12 +36,12 @@ describe("storageOriginMigration", () => {
         version: 1,
         exportedAt: "2026-07-09T00:00:00.000Z",
         entries: {
-          "synara:theme": "snapshot",
+          "penkra:theme": "snapshot",
           "synara:composer-drafts:v1": "draft",
         },
       }),
     ).toBe(true);
-    expect(globalThis.localStorage.getItem("synara:theme")).toBe("current");
+    expect(globalThis.localStorage.getItem("penkra:theme")).toBe("current");
     expect(globalThis.localStorage.getItem("synara:composer-drafts:v1")).toBe("draft");
   });
 
@@ -52,12 +52,12 @@ describe("storageOriginMigration", () => {
         version: 1,
         exportedAt: "2026-07-09T00:00:00.000Z",
         entries: {
-          "synara:theme": "dark",
+          "penkra:theme": "dark",
           "foreign:theme": "light",
         },
       }),
     ).toBe(false);
-    expect(globalThis.localStorage.getItem("synara:theme")).toBeNull();
+    expect(globalThis.localStorage.getItem("penkra:theme")).toBeNull();
   });
 
   it("imports snapshots containing large composer drafts", async () => {
@@ -87,7 +87,7 @@ describe("storageOriginMigration", () => {
     const snapshot = {
       version: 1 as const,
       exportedAt: "2026-07-09T00:00:00.000Z",
-      entries: { "synara:theme": "dark", "synara:composer-drafts:v1": "draft" },
+      entries: { "penkra:theme": "dark", "synara:composer-drafts:v1": "draft" },
     };
 
     expect(importSynaraStorageSnapshot(snapshot, storage)).toBe(false);
@@ -104,7 +104,7 @@ describe("storageOriginMigration", () => {
           readSnapshot: () => ({
             version: 1,
             exportedAt: "2026-07-09T00:00:00.000Z",
-            entries: { "synara:theme": "dark" },
+            entries: { "penkra:theme": "dark" },
           }),
           acknowledgeSnapshot,
         },
@@ -113,7 +113,7 @@ describe("storageOriginMigration", () => {
 
     await import("./storageOriginMigration");
     await vi.waitFor(() => expect(acknowledgeSnapshot).toHaveBeenCalledOnce());
-    expect(globalThis.localStorage.getItem("synara:theme")).toBe("dark");
+    expect(globalThis.localStorage.getItem("penkra:theme")).toBe("dark");
   });
 
   it("does not acknowledge when renderer storage rejects a write", async () => {
@@ -130,7 +130,7 @@ describe("storageOriginMigration", () => {
           readSnapshot: () => ({
             version: 1,
             exportedAt: "2026-07-09T00:00:00.000Z",
-            entries: { "synara:theme": "dark" },
+            entries: { "penkra:theme": "dark" },
           }),
           acknowledgeSnapshot,
         },

@@ -12,8 +12,8 @@ export const ButtonBack = forwardRef<HTMLButtonElement, ButtonBackProps>(
       <Button
         aria-label={ariaLabel}
         className={cn(
-          "!size-3.5 !rounded-none !border-0 !bg-transparent !p-0 !text-[var(--pencil-text-secondary)] sm:!size-3.5",
-          "hover:!text-[var(--pencil-text-primary)] active:!text-[var(--pencil-text-primary)] disabled:!text-[var(--pencil-border-hover)] disabled:!opacity-100 [&_svg]:!size-3.5 [&_svg]:!opacity-100",
+          "!size-3.5 !rounded-none !border-0 !bg-transparent !p-0 !text-[var(--color-text-foreground-secondary)] sm:!size-3.5",
+          "hover:!text-[var(--color-text-foreground)] active:!text-[var(--color-text-foreground)] focus-visible:!ring-[var(--color-border-focus)] disabled:!text-[var(--color-text-foreground-tertiary)] disabled:!opacity-100 [&_svg]:!size-3.5 [&_svg]:!opacity-100",
           className,
         )}
         ref={ref}

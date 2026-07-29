@@ -29,7 +29,7 @@ export interface AccountMenuProps {
 }
 
 const itemClassName =
-  "h-[29px] gap-2 rounded-md px-2.5 text-[13px] text-[var(--pencil-text-secondary)] hover:text-[var(--pencil-text-primary)] [&_svg]:size-3.5";
+  "h-[29px] gap-2 rounded-md px-2.5 text-[13px] text-[var(--color-text-foreground-secondary)] hover:text-[var(--color-text-foreground)] [&_svg]:size-3.5";
 
 export function AccountMenu({
   accountName = "gigsama",
@@ -53,29 +53,29 @@ export function AccountMenu({
       <MenuPopupBase
         align="start"
         anchor={anchorRef}
-        className="w-[220px] rounded-[10px] border border-[var(--pencil-border)] bg-[#141519] p-1.5"
+        className="w-[220px] rounded-[10px] border border-[var(--color-border)] bg-[var(--color-background-elevated-primary-opaque)] p-1.5"
         side="top"
       >
         <MenuItem className={itemClassName} onClick={onSettings}>
           <IconSettings />
           <span className="flex-1">Settings</span>
-          <IconChevronRight className="text-[var(--pencil-text-tertiary)]" />
+          <IconChevronRight className="text-[var(--color-text-foreground-tertiary)]" />
         </MenuItem>
         <MenuItem className={itemClassName} onClick={onFeedback}>
           <IconMessage />
           <span className="flex-1">Give Feedback</span>
-          <IconChevronRight className="text-[var(--pencil-text-tertiary)]" />
+          <IconChevronRight className="text-[var(--color-text-foreground-tertiary)]" />
         </MenuItem>
         <MenuItem className={itemClassName} onClick={onSupport}>
           <IconHelpCircle />
           <span className="flex-1">Support Us</span>
-          <IconChevronRight className="text-[var(--pencil-text-tertiary)]" />
+          <IconChevronRight className="text-[var(--color-text-foreground-tertiary)]" />
         </MenuItem>
-        <MenuSeparator className="my-1 bg-[var(--pencil-border)]" />
+        <MenuSeparator className="my-1 bg-[var(--color-border)]" />
         <MenuItem className={cn(itemClassName, "w-full")} onClick={onLogout}>
           <IconLogout />
           <span className="flex-1">Log Out</span>
-          <IconChevronRight className="text-[var(--pencil-text-tertiary)]" />
+          <IconChevronRight className="text-[var(--color-text-foreground-tertiary)]" />
         </MenuItem>
       </MenuPopupBase>
     </Menu>

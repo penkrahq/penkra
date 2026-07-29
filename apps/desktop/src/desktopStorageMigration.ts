@@ -22,7 +22,7 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
 }
 
 export function isSynaraStorageKey(key: string): boolean {
-  return key.startsWith("synara:") || key.startsWith("synara.");
+  return key.startsWith("penkra:") || key.startsWith("synara:") || key.startsWith("synara.");
 }
 
 export function validateSynaraStorageSnapshot(value: unknown): SynaraStorageSnapshot | null {

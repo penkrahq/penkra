@@ -16,12 +16,14 @@ type Story = StoryObj<typeof meta>;
 export const Default: Story = {};
 export const Hover: Story = {
   args: {
-    className: "!bg-white/5 !text-[var(--pencil-text-primary)]",
+    className:
+      "!bg-[var(--color-background-button-secondary-hover)] !text-[var(--color-text-foreground)]",
   },
 };
 export const Active: Story = {
   args: {
-    className: "!bg-[var(--pencil-disabled)] !text-[var(--pencil-text-primary)]",
+    className:
+      "!bg-[var(--color-background-button-secondary-active)] !text-[var(--color-text-foreground)]",
   },
 };
 export const Selected: Story = { args: { "aria-pressed": true } };

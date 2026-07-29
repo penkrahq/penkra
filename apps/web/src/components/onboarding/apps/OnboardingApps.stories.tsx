@@ -17,7 +17,7 @@ const meta = {
     },
   },
   render: (args) => (
-    <main className="flex min-h-screen items-center justify-center bg-[var(--pencil-surface)] p-0">
+    <main className="flex min-h-screen items-center justify-center bg-[var(--color-background-surface)] p-0">
       <OnboardingApps {...args} />
     </main>
   ),

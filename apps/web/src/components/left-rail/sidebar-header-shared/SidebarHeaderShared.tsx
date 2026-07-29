@@ -27,19 +27,19 @@ export function SidebarHeaderShared({
       {...props}
     >
       <button
-        className="inline-flex min-w-0 cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-sm font-bold text-[var(--pencil-text-primary)] outline-none focus-visible:ring-1 focus-visible:ring-[var(--pencil-accent-focus)]"
+        className="inline-flex min-w-0 cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-sm font-bold text-[var(--color-text-foreground)] outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-border-focus)]"
         onClick={onBrand}
         type="button"
       >
         <span className="truncate">{brand}</span>
         {showBrandMenu ? (
-          <IconChevronDown className="size-3 text-[var(--pencil-text-secondary)]" />
+          <IconChevronDown className="size-3 text-[var(--color-text-foreground-secondary)]" />
         ) : null}
       </button>
       <span className="flex-1" />
       <button
         aria-label="Search"
-        className="inline-flex size-4 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-[var(--pencil-text-secondary)] outline-none hover:text-[var(--pencil-text-primary)] focus-visible:ring-1 focus-visible:ring-[var(--pencil-accent-focus)]"
+        className="inline-flex size-4 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-[var(--color-text-foreground-secondary)] outline-none hover:text-[var(--color-text-foreground)] focus-visible:ring-1 focus-visible:ring-[var(--color-border-focus)]"
         onClick={onSearch}
         type="button"
       >

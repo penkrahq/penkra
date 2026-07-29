@@ -1,14 +1,39 @@
 import "../../index.css";
 
 import { page } from "vitest/browser";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
+
+import {
+  buildThemeCssVariables,
+  DEFAULT_THEME_STATE,
+  resolveThemePack,
+} from "../../theme/theme.logic";
 
 import { ButtonPrimary } from "./button-primary/ButtonPrimary";
 import { InputShared } from "./input-shared/InputShared";
 import { SwitchShared } from "./switch-shared/SwitchShared";
 
+function resolveCssColor(value: string): string {
+  const probe = document.createElement("span");
+  probe.style.color = value;
+  document.body.append(probe);
+  const resolved = getComputedStyle(probe).color;
+  probe.remove();
+  return resolved;
+}
+
 describe("Pencil foundations", () => {
+  beforeEach(() => {
+    const theme = buildThemeCssVariables(
+      resolveThemePack(DEFAULT_THEME_STATE, "dark"),
+      "dark",
+    );
+    for (const [name, value] of Object.entries(theme.variables)) {
+      document.documentElement.style.setProperty(name, value);
+    }
+  });
+
   afterEach(() => {
     document.body.innerHTML = "";
   });
@@ -31,8 +56,13 @@ describe("Pencil foundations", () => {
     element.focus();
     expect(document.activeElement).toBe(element);
     await vi.waitFor(() => {
-      expect(getComputedStyle(control!).borderColor).toBe("rgb(59, 130, 246)");
-      expect(getComputedStyle(control!).color).toBe("rgb(232, 234, 242)");
+      const rootStyle = getComputedStyle(document.documentElement);
+      expect(getComputedStyle(control!).borderColor).toBe(
+        resolveCssColor(rootStyle.getPropertyValue("--color-border-focus")),
+      );
+      expect(getComputedStyle(control!).color).toBe(
+        resolveCssColor(rootStyle.getPropertyValue("--color-text-foreground")),
+      );
     });
   });
 

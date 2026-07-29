@@ -16,12 +16,18 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const SUPERVISOR_COMMAND = "supervise";
-const DEVELOPMENT_BUNDLE_ID = "com.penkra.app.dev";
 const DEV_INSTANCE_NAME = "penkra-app-launcher";
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const workspaceRoot = resolve(repoRoot, "..");
 const workspaceOrchestratorPath = join(workspaceRoot, "backend", "ops", "dev-workspace.mjs");
 const launcherScriptPath = fileURLToPath(import.meta.url);
+const developmentAppPath = join(
+  repoRoot,
+  "apps",
+  "desktop",
+  ".electron-runtime",
+  "Penkra (Dev).app",
+);
 
 export interface PenkraDevLauncherPaths {
   readonly stateDirectory: string;
@@ -114,7 +120,7 @@ function focusDevelopmentElectron(): boolean {
   if (!developmentElectronIsRunning()) return false;
   const result = spawnSync(
     "/usr/bin/osascript",
-    ["-e", `tell application id "${DEVELOPMENT_BUNDLE_ID}" to activate`],
+    ["-e", `tell application "${developmentAppPath}" to activate`],
     { encoding: "utf8" },
   );
   return result.status === 0;

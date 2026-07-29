@@ -145,20 +145,28 @@ export function ThemePackEditor({
           >
             <SelectTrigger
               size="sm"
-              className={cn(SETTINGS_CONTROL_RADIUS_CLASS_NAME, "ml-1 min-w-52 gap-2")}
+              className={cn(
+                SETTINGS_CONTROL_RADIUS_CLASS_NAME,
+                "ml-1 w-[102px] min-w-[102px] gap-1.5",
+              )}
               aria-label={`${titleLabel} code theme`}
             >
               <SelectValue className="flex-1 text-left">
                 <CodeThemeSelectOption label={codeThemeLabel} theme={theme} />
               </SelectValue>
             </SelectTrigger>
-            <SettingsSelectPopup align="end" alignItemWithTrigger={false} className="p-1.5">
+            <SettingsSelectPopup
+              align="end"
+              alignItemWithTrigger={false}
+              className="p-1"
+              shellClassName="min-w-[180px]"
+            >
               {codeThemes.map((option) => (
                 <SelectItem
                   hideIndicator
                   key={option.id}
                   value={option.id}
-                  className={cn(SETTINGS_CONTROL_RADIUS_CLASS_NAME, "px-2 py-2")}
+                  className="h-7 rounded-md px-2 py-1"
                 >
                   <CodeThemeSelectOption label={option.label} theme={option.previewTheme} />
                 </SelectItem>
@@ -446,7 +454,7 @@ function CodeThemeBadge({ theme }: { theme: ChromeTheme }) {
   return (
     <span
       aria-hidden
-      className="flex size-5 shrink-0 items-center justify-center rounded-md border text-[10px] font-semibold leading-none"
+      className="flex size-[18px] shrink-0 items-center justify-center rounded-sm border text-[9px] font-semibold leading-none"
       style={{
         backgroundColor: theme.surface,
         borderColor: mixColor(theme.surface, theme.ink, 0.16),
@@ -460,10 +468,10 @@ function CodeThemeBadge({ theme }: { theme: ChromeTheme }) {
 
 function CodeThemeSelectOption({ label, theme }: { label: string; theme: ChromeTheme }) {
   return (
-    <div className="flex min-w-0 items-center gap-2.5">
+    <div className="flex min-w-0 items-center gap-1.5">
       <CodeThemeBadge theme={theme} />
       <div className="min-w-0 flex-1">
-        <div className="truncate text-[13px] text-[var(--color-text-foreground)]">{label}</div>
+        <div className="truncate text-xs text-[var(--color-text-foreground)]">{label}</div>
       </div>
     </div>
   );

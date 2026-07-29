@@ -346,10 +346,6 @@ describe("buildThemeCssVariables", () => {
     expect(cssVariables.variables["--vscode-terminal-ansiMagenta"]).toBe("#c2a1ff");
     expect(cssVariables.variables["--vscode-terminal-ansiRed"]).toBe("#ff7e78");
     expect(cssVariables.variables["--vscode-terminal-foreground"]).toBe("#e3e4e6");
-    expect(cssVariables.variables["--color-token-terminal-ansi-blue"]).toBe("#606acc");
-    expect(cssVariables.variables["--color-token-terminal-ansi-green"]).toBe("#56a554");
-    expect(cssVariables.variables["--color-token-terminal-ansi-magenta"]).toBe("#c2a1ff");
-    expect(cssVariables.variables["--color-token-terminal-ansi-red"]).toBe("#ff7e78");
   });
 
   it("exposes a structured derived-token surface for retrieving non-stored colors", () => {
@@ -370,26 +366,22 @@ describe("buildThemeCssVariables", () => {
     // Dark primary button label is the surface color (dark) on the white (ink) button.
     expect(tokens.derived.textButtonPrimary).toBe("#0f0f11");
     expect(tokens.derived.buttonPrimaryBackground).toBe("#e3e4e6");
-    // Codex maps the sidebar token to the PRIMARY surface (same as main-surface-primary),
-    // not the darker under-surface; mirror that so the sidebar color matches Codex.
-    expect(tokens.aliases["--color-token-side-bar-background"]).toBe("#0f0f11");
-    expect(tokens.aliases["--color-token-list-hover-background"]).toBe(
+    expect(tokens.codexVariables["--color-background-surface"]).toBe("#0f0f11");
+    expect(tokens.codexVariables["--color-background-button-secondary-hover"]).toBe(
       tokens.derived.buttonSecondaryBackgroundHover,
     );
-    expect(tokens.aliases["--color-token-dropdown-background"]).toBe(
+    expect(tokens.codexVariables["--color-background-control-opaque"]).toBe(
       tokens.derived.controlBackgroundOpaque,
     );
-    expect(tokens.aliases["--color-token-main-surface-primary"]).toBe("#0f0f11");
-    expect(tokens.aliases["--color-token-input-background"]).toBe("rgba(27, 27, 29, 0.96)");
-    expect(tokens.aliases["--color-token-terminal-background"]).toBe("#0f0f11");
-    expect(tokens.aliases["--color-token-terminal-foreground"]).toBe("#e3e4e6");
-    expect(tokens.aliases["--color-token-terminal-ansi-black"]).toBe(
+    expect(tokens.codexVariables["--vscode-terminal-background"]).toBe("#0f0f11");
+    expect(tokens.codexVariables["--vscode-terminal-foreground"]).toBe("#e3e4e6");
+    expect(tokens.codexVariables["--vscode-terminal-ansiBlack"]).toBe(
       tokens.derived.textForegroundTertiary,
     );
-    expect(tokens.aliases["--color-token-terminal-ansi-bright-black"]).toBe(
+    expect(tokens.codexVariables["--vscode-terminal-ansiBrightBlack"]).toBe(
       tokens.derived.textForegroundSecondary,
     );
-    expect(tokens.aliases["--color-token-terminal-ansi-yellow"]).toBe("#f5b44a");
+    expect(tokens.codexVariables["--vscode-terminal-ansiYellow"]).toBe("#f5b44a");
   });
 
   it("uses the zero-contrast dark composer and dropdown control color", () => {
@@ -402,7 +394,7 @@ describe("buildThemeCssVariables", () => {
     );
 
     expect(tokens.derived.controlBackgroundOpaque).toBe("rgb(30, 30, 30)");
-    expect(tokens.aliases["--color-token-dropdown-background"]).toBe("rgb(30, 30, 30)");
+    expect(tokens.codexVariables["--color-background-control-opaque"]).toBe("rgb(30, 30, 30)");
   });
 
   it("matches Codex's light composer surface token path", () => {

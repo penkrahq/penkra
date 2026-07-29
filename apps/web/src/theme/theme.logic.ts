@@ -104,7 +104,6 @@ export interface ThemeDerivedTokens {
 }
 
 export interface ResolvedThemeTokens {
-  aliases: Record<string, string>;
   codexVariables: Record<string, string>;
   computed: {
     contrast: number;
@@ -197,10 +196,6 @@ const CODE_THEME_SEED_PATCH_METADATA: Partial<
     dark: { contrast: true, fonts: { code: true, ui: true }, opaqueWindows: true },
     light: { contrast: true, fonts: { code: true, ui: true }, opaqueWindows: true },
   },
-  synara: {
-    dark: { contrast: true },
-    light: { contrast: true },
-  },
 };
 
 // Mirror the packaged Codex catalog closely enough that share-string validation
@@ -210,7 +205,6 @@ export const CODE_THEME_OPTIONS: readonly CodeThemeOption[] = [
   { id: "ayu", label: "Ayu", variants: ["dark"] },
   { id: "catppuccin", label: "Catppuccin", variants: ["light", "dark"] },
   { id: "codex", label: "Codex", variants: ["light", "dark"] },
-  { id: "synara", label: "Penkra", variants: ["light", "dark"] },
   { id: "dracula", label: "Dracula", variants: ["dark"] },
   { id: "everforest", label: "Everforest", variants: ["light", "dark"] },
   { id: "github", label: "GitHub", variants: ["light", "dark"] },
@@ -701,8 +695,8 @@ export function buildThemeCssVariables(
       ? "translucent"
       : "opaque";
   const warningColor = WARNING_COLOR_BY_VARIANT[variant];
-  // Codex paints the app sidebar with the PRIMARY surface (--color-background-surface,
-  // mapped through --color-token-side-bar-background), not the darker "under" surface.
+  // Codex paints the app sidebar with the primary surface
+  // (--color-background-surface), not the darker "under" surface.
   // The under-surface is reserved for the window body behind the content (see
   // --app-shell-background / --background). Sourcing the sidebar from the primary
   // surface keeps its pure color matching Codex in both light and dark.
@@ -809,7 +803,6 @@ export function buildThemeCssVariables(
     material,
     variables: {
       ...codexVariables,
-      ...resolvedTokens.aliases,
       ...appVariables,
     },
   };
@@ -828,7 +821,6 @@ export function buildResolvedThemeTokens(
   const codexVariables = buildCodexCssVariables(computedTheme, derived, panel);
 
   return {
-    aliases: buildThemeTokenAliases(codexVariables),
     codexVariables,
     computed: {
       contrast: computedTheme.contrast,
@@ -955,105 +947,6 @@ function buildCodexCssVariables(
 function buildTerminalAnsiGreen(diffAddedColor: string): string {
   // Terminal success green should read calmer than diff decorations on a white shell.
   return mixHex(diffAddedColor, "#000000", 0.18);
-}
-
-function buildThemeTokenAliases(codexVariables: Record<string, string>): Record<string, string> {
-  const readCodexVariable = (name: string) => getRequiredVariable(codexVariables, name);
-
-  return {
-    "--color-token-badge-background": readCodexVariable("--color-background-accent"),
-    "--color-token-badge-foreground": readCodexVariable("--color-text-foreground"),
-    "--color-token-border": readCodexVariable("--color-border"),
-    "--color-token-border-default": readCodexVariable("--color-border"),
-    "--color-token-border-heavy": readCodexVariable("--color-border-heavy"),
-    "--color-token-border-light": readCodexVariable("--color-border-light"),
-    "--color-token-button-background": readCodexVariable("--color-background-button-primary"),
-    "--color-token-button-border": readCodexVariable("--color-border"),
-    "--color-token-button-foreground": readCodexVariable("--color-text-button-primary"),
-    "--color-token-button-secondary-hover-background": readCodexVariable(
-      "--color-background-button-secondary-hover",
-    ),
-    "--color-token-checkbox-active-background": readCodexVariable(
-      "--color-background-accent-hover",
-    ),
-    "--color-token-checkbox-active-foreground": readCodexVariable("--color-text-foreground"),
-    "--color-token-description-foreground": readCodexVariable("--color-text-foreground-secondary"),
-    "--color-token-disabled-foreground": readCodexVariable("--color-text-foreground-tertiary"),
-    "--color-token-dropdown-background": readCodexVariable("--color-background-control-opaque"),
-    "--color-token-focus-border": readCodexVariable("--color-border-focus"),
-    "--color-token-foreground": readCodexVariable("--color-text-foreground"),
-    "--color-token-input-background": readCodexVariable("--color-background-control"),
-    "--color-token-input-border": readCodexVariable("--color-border"),
-    "--color-token-input-foreground": readCodexVariable("--color-text-foreground"),
-    "--color-token-input-placeholder-foreground": readCodexVariable(
-      "--color-text-foreground-tertiary",
-    ),
-    "--color-token-link": readCodexVariable("--color-text-accent"),
-    "--color-token-list-active-selection-background": readCodexVariable(
-      "--color-background-button-secondary",
-    ),
-    "--color-token-list-active-selection-foreground": readCodexVariable("--color-text-foreground"),
-    "--color-token-list-active-selection-icon-foreground":
-      readCodexVariable("--color-icon-primary"),
-    "--color-token-list-hover-background": readCodexVariable(
-      "--color-background-button-secondary-hover",
-    ),
-    "--color-token-main-surface-primary": readCodexVariable("--color-background-surface"),
-    "--color-token-menu-background": readCodexVariable("--color-background-elevated-primary"),
-    "--color-token-menu-border": readCodexVariable("--color-border"),
-    "--color-token-progress-bar-background": readCodexVariable("--color-background-accent"),
-    "--color-token-radio-active-foreground": readCodexVariable("--color-icon-accent"),
-    "--color-token-scrollbar-slider-active-background": readCodexVariable("--color-border-heavy"),
-    "--color-token-scrollbar-slider-background": readCodexVariable("--color-border-light"),
-    "--color-token-scrollbar-slider-hover-background": readCodexVariable("--color-border"),
-    "--color-token-side-bar-background": readCodexVariable("--color-background-surface"),
-    "--color-token-terminal-ansi-black": readCodexVariable("--vscode-terminal-ansiBlack"),
-    "--color-token-terminal-ansi-blue": readCodexVariable("--vscode-terminal-ansiBlue"),
-    "--color-token-terminal-ansi-bright-black": readCodexVariable(
-      "--vscode-terminal-ansiBrightBlack",
-    ),
-    "--color-token-terminal-ansi-bright-blue": readCodexVariable(
-      "--vscode-terminal-ansiBrightBlue",
-    ),
-    "--color-token-terminal-ansi-bright-cyan": readCodexVariable(
-      "--vscode-terminal-ansiBrightCyan",
-    ),
-    "--color-token-terminal-ansi-bright-green": readCodexVariable(
-      "--vscode-terminal-ansiBrightGreen",
-    ),
-    "--color-token-terminal-ansi-bright-magenta": readCodexVariable(
-      "--vscode-terminal-ansiBrightMagenta",
-    ),
-    "--color-token-terminal-ansi-bright-red": readCodexVariable("--vscode-terminal-ansiBrightRed"),
-    "--color-token-terminal-ansi-bright-white": readCodexVariable(
-      "--vscode-terminal-ansiBrightWhite",
-    ),
-    "--color-token-terminal-ansi-bright-yellow": readCodexVariable(
-      "--vscode-terminal-ansiBrightYellow",
-    ),
-    "--color-token-terminal-ansi-cyan": readCodexVariable("--vscode-terminal-ansiCyan"),
-    "--color-token-terminal-ansi-green": readCodexVariable("--vscode-terminal-ansiGreen"),
-    "--color-token-terminal-ansi-magenta": readCodexVariable("--vscode-terminal-ansiMagenta"),
-    "--color-token-terminal-ansi-red": readCodexVariable("--vscode-terminal-ansiRed"),
-    "--color-token-terminal-ansi-white": readCodexVariable("--vscode-terminal-ansiWhite"),
-    "--color-token-terminal-ansi-yellow": readCodexVariable("--vscode-terminal-ansiYellow"),
-    "--color-token-terminal-background": readCodexVariable("--vscode-terminal-background"),
-    "--color-token-terminal-border": readCodexVariable("--vscode-terminal-border"),
-    "--color-token-terminal-foreground": readCodexVariable("--vscode-terminal-foreground"),
-    "--color-token-text-code-block-background": readCodexVariable(
-      "--color-background-elevated-secondary-opaque",
-    ),
-    "--color-token-text-link-active-foreground": readCodexVariable("--color-text-accent"),
-    "--color-token-text-link-foreground": readCodexVariable("--color-text-accent"),
-    "--color-token-text-primary": readCodexVariable("--color-text-foreground"),
-    "--color-token-text-secondary": readCodexVariable("--color-text-foreground-secondary"),
-    "--color-token-text-tertiary": readCodexVariable("--color-text-foreground-tertiary"),
-    "--color-token-toolbar-hover-background": readCodexVariable(
-      "--color-background-button-tertiary-hover",
-    ),
-    "--color-token-editor-background": readCodexVariable("--color-background-editor-opaque"),
-    "--color-token-editor-foreground": readCodexVariable("--color-text-foreground"),
-  };
 }
 
 function getRequiredVariable(variables: Record<string, string>, name: string): string {

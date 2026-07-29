@@ -38,10 +38,11 @@ export const AccountRowShared = forwardRef<HTMLDivElement, AccountRowSharedProps
     return (
       <div
       className={cn(
-        "group/account-row flex h-9 w-60 items-center gap-2 bg-transparent px-2 font-sans text-[13px] text-[var(--pencil-text-secondary)] transition-colors hover:bg-white/5 hover:text-[var(--pencil-text-primary)]",
-        selected && "bg-[var(--pencil-disabled)] text-[var(--pencil-text-primary)]",
+        "group/account-row flex h-9 w-60 items-center gap-2 bg-transparent px-2 font-sans text-[13px] text-[var(--color-text-foreground-secondary)] transition-colors hover:bg-[var(--color-background-button-secondary-hover)] hover:text-[var(--color-text-foreground)]",
+        selected &&
+          "bg-[var(--color-background-button-secondary-active)] text-[var(--color-text-foreground)]",
         disabled &&
-          "pointer-events-none bg-transparent text-[var(--pencil-border-hover)] hover:bg-transparent",
+          "pointer-events-none bg-transparent text-[var(--color-text-foreground-tertiary)] hover:bg-transparent",
         className,
       )}
         data-selected={selected || undefined}
@@ -49,7 +50,7 @@ export const AccountRowShared = forwardRef<HTMLDivElement, AccountRowSharedProps
         {...props}
       >
         <button
-          className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 border-0 bg-transparent p-0 text-inherit outline-none focus-visible:ring-1 focus-visible:ring-[var(--pencil-accent-focus)]"
+          className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 border-0 bg-transparent p-0 text-inherit outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-border-focus)]"
           disabled={disabled}
           onClick={onAccount}
           type="button"
@@ -58,14 +59,14 @@ export const AccountRowShared = forwardRef<HTMLDivElement, AccountRowSharedProps
         <AvatarAccount />
         <span className="min-w-0 flex-1 truncate text-left">{name}</span>
         {updateAvailable ? (
-          <span className="rounded-full bg-[var(--pencil-accent)] px-1.5 py-0.5 text-[10px] leading-3 font-semibold text-[var(--pencil-white)]">
+          <span className="rounded-full bg-[var(--color-background-accent)] px-1.5 py-0.5 text-[10px] leading-3 font-semibold text-[var(--color-text-button-primary)]">
             Update
           </span>
         ) : null}
         </button>
         <button
         aria-label="Settings"
-        className="inline-flex size-3.5 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-[var(--pencil-text-tertiary)] outline-none hover:text-[var(--pencil-text-primary)] focus-visible:ring-1 focus-visible:ring-[var(--pencil-accent-focus)]"
+        className="inline-flex size-3.5 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-[var(--color-text-foreground-tertiary)] outline-none hover:text-[var(--color-text-foreground)] focus-visible:ring-1 focus-visible:ring-[var(--color-border-focus)]"
         disabled={disabled}
         onClick={onSettings}
         type="button"
@@ -74,7 +75,7 @@ export const AccountRowShared = forwardRef<HTMLDivElement, AccountRowSharedProps
         </button>
         <button
         aria-label="Help"
-        className="inline-flex size-3.5 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-[var(--pencil-text-tertiary)] outline-none hover:text-[var(--pencil-text-primary)] focus-visible:ring-1 focus-visible:ring-[var(--pencil-accent-focus)]"
+        className="inline-flex size-3.5 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-[var(--color-text-foreground-tertiary)] outline-none hover:text-[var(--color-text-foreground)] focus-visible:ring-1 focus-visible:ring-[var(--color-border-focus)]"
         disabled={disabled}
         onClick={onHelp}
         type="button"

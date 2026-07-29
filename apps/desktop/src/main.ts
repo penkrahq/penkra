@@ -1236,7 +1236,14 @@ async function migrateLegacyDesktopStorage(): Promise<void> {
       const entries = {};
       for (let index = 0; index < localStorage.length; index += 1) {
         const key = localStorage.key(index);
-        if (!key || (!key.startsWith("synara:") && !key.startsWith("synara."))) continue;
+        if (
+          !key ||
+          (!key.startsWith("penkra:") &&
+            !key.startsWith("synara:") &&
+            !key.startsWith("synara."))
+        ) {
+          continue;
+        }
         const value = localStorage.getItem(key);
         if (value !== null) entries[key] = value;
       }

@@ -180,86 +180,86 @@ export function terminalThemeFromApp(): ITheme {
 
   return {
     background: resolveTerminalCssColor(
-      "var(--color-token-terminal-background, var(--color-background-surface))",
+      "var(--vscode-terminal-background)",
       fallbackTheme.background,
       "backgroundColor",
     ),
     black: resolveTerminalCssColor(
-      "var(--color-token-terminal-ansi-black, var(--color-text-foreground-tertiary))",
+      "var(--vscode-terminal-ansiBlack)",
       fallbackTheme.black,
     ),
     blue: resolveTerminalCssColor(
-      "var(--color-token-terminal-ansi-blue, var(--color-accent-blue, var(--color-text-accent)))",
+      "var(--vscode-terminal-ansiBlue)",
       fallbackTheme.blue,
     ),
     brightBlack: resolveTerminalCssColor(
-      "var(--color-token-terminal-ansi-bright-black, var(--color-text-foreground-secondary))",
+      "var(--vscode-terminal-ansiBrightBlack)",
       fallbackTheme.brightBlack,
     ),
     brightBlue: resolveTerminalCssColor(
-      "var(--color-token-terminal-ansi-bright-blue, var(--color-accent-blue, var(--color-text-accent)))",
+      "var(--vscode-terminal-ansiBrightBlue)",
       fallbackTheme.brightBlue,
     ),
     brightCyan: resolveTerminalCssColor(
-      "var(--color-token-terminal-ansi-bright-cyan, var(--color-accent-blue, var(--color-text-accent)))",
+      "var(--vscode-terminal-ansiBrightCyan)",
       fallbackTheme.brightCyan,
     ),
     brightGreen: resolveTerminalCssColor(
-      "var(--color-token-terminal-ansi-bright-green, var(--color-decoration-added))",
+      "var(--vscode-terminal-ansiBrightGreen)",
       fallbackTheme.brightGreen,
     ),
     brightMagenta: resolveTerminalCssColor(
-      "var(--color-token-terminal-ansi-bright-magenta, var(--color-accent-purple, var(--color-text-accent)))",
+      "var(--vscode-terminal-ansiBrightMagenta)",
       fallbackTheme.brightMagenta,
     ),
     brightRed: resolveTerminalCssColor(
-      "var(--color-token-terminal-ansi-bright-red, var(--color-decoration-deleted))",
+      "var(--vscode-terminal-ansiBrightRed)",
       fallbackTheme.brightRed,
     ),
     brightWhite: resolveTerminalCssColor(
-      "var(--color-token-terminal-ansi-bright-white, var(--color-text-foreground))",
+      "var(--vscode-terminal-ansiBrightWhite)",
       fallbackTheme.brightWhite,
     ),
     brightYellow: resolveTerminalCssColor(
-      "var(--color-token-terminal-ansi-bright-yellow, var(--warning))",
+      "var(--vscode-terminal-ansiBrightYellow)",
       fallbackTheme.brightYellow,
     ),
     cursor: resolveTerminalCssColor(
-      "var(--color-token-terminal-foreground, var(--color-text-foreground, var(--foreground)))",
+      "var(--vscode-terminal-foreground)",
       foregroundFallback,
     ),
     cyan: resolveTerminalCssColor(
-      "var(--color-token-terminal-ansi-cyan, var(--color-accent-blue, var(--color-text-accent)))",
+      "var(--vscode-terminal-ansiCyan)",
       fallbackTheme.cyan,
     ),
     foreground: resolveTerminalCssColor(
-      "var(--color-token-terminal-foreground, var(--color-text-foreground, var(--foreground)))",
+      "var(--vscode-terminal-foreground)",
       fallbackTheme.foreground,
     ),
     green: resolveTerminalCssColor(
-      "var(--color-token-terminal-ansi-green, var(--color-decoration-added))",
+      "var(--vscode-terminal-ansiGreen)",
       fallbackTheme.green,
     ),
     magenta: resolveTerminalCssColor(
-      "var(--color-token-terminal-ansi-magenta, var(--color-accent-purple, var(--color-text-accent)))",
+      "var(--vscode-terminal-ansiMagenta)",
       fallbackTheme.magenta,
     ),
     red: resolveTerminalCssColor(
-      "var(--color-token-terminal-ansi-red, var(--color-decoration-deleted))",
+      "var(--vscode-terminal-ansiRed)",
       fallbackTheme.red,
     ),
     scrollbarSliderActiveBackground: resolveTerminalCssColor(
-      "var(--color-token-scrollbar-slider-active-background)",
+      "var(--color-border-heavy)",
       fallbackTheme.scrollbarSliderActiveBackground,
       "backgroundColor",
     ),
     scrollbarSliderBackground: resolveTerminalCssColor(
-      "var(--color-token-scrollbar-slider-background)",
+      "var(--color-border-light)",
       fallbackTheme.scrollbarSliderBackground,
       "backgroundColor",
     ),
     scrollbarSliderHoverBackground: resolveTerminalCssColor(
-      "var(--color-token-scrollbar-slider-hover-background)",
+      "var(--color-border)",
       fallbackTheme.scrollbarSliderHoverBackground,
       "backgroundColor",
     ),
@@ -269,11 +269,11 @@ export function terminalThemeFromApp(): ITheme {
       "backgroundColor",
     ),
     white: resolveTerminalCssColor(
-      "var(--color-token-terminal-ansi-white, var(--color-text-foreground))",
+      "var(--vscode-terminal-ansiWhite)",
       fallbackTheme.white,
     ),
     yellow: resolveTerminalCssColor(
-      "var(--color-token-terminal-ansi-yellow, var(--warning))",
+      "var(--vscode-terminal-ansiYellow)",
       fallbackTheme.yellow,
     ),
   };

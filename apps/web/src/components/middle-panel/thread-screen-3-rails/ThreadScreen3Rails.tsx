@@ -22,7 +22,7 @@ export function ThreadScreen3Rails({
   return (
     <section
       className={cn(
-        "flex h-[900px] w-[780px] flex-col overflow-hidden bg-black",
+        "flex h-[900px] w-[780px] flex-col overflow-hidden bg-[var(--color-background-surface-under)]",
         className,
       )}
       data-pencil-component="y0DmC"

@@ -13,9 +13,9 @@ type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {};
 export const Hover: Story = {
-  args: { className: "!text-[var(--pencil-text-primary)]" },
+  args: { className: "!text-[var(--color-text-foreground)]" },
 };
 export const Active: Story = {
-  args: { className: "!text-[var(--pencil-text-primary)]" },
+  args: { className: "!text-[var(--color-text-foreground)]" },
 };
 export const Disabled: Story = { args: { disabled: true } };
