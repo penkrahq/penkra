@@ -1,0 +1,35 @@
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: #0f1115;
+}
+
+.pencil-stage {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #0f1115;
+  -webkit-app-region: drag;
+}
+
+.pencil-viewport {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  overflow: hidden;
+  transform-origin: center;
+  background: #0f1115;
+  -webkit-app-region: no-drag;
+}
+
+.pencil-frame {
+  position: absolute;
+  border: 0;
+  background: #0f1115;
+  -webkit-app-region: no-drag;
+}
