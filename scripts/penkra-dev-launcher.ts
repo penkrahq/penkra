@@ -16,11 +16,14 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 declare const PENKRA_DEV_REPO_ROOT: string | undefined;
+declare const PENKRA_DEV_BUN_EXECUTABLE: string | undefined;
 
 const SUPERVISOR_COMMAND = "supervise";
 const DEV_INSTANCE_NAME = "penkra-app-launcher";
 const compiledRepoRoot =
   typeof PENKRA_DEV_REPO_ROOT === "string" ? PENKRA_DEV_REPO_ROOT : undefined;
+const compiledBunExecutable =
+  typeof PENKRA_DEV_BUN_EXECUTABLE === "string" ? PENKRA_DEV_BUN_EXECUTABLE : undefined;
 const repoRoot = resolve(
   compiledRepoRoot ?? resolve(dirname(fileURLToPath(import.meta.url)), ".."),
 );
@@ -160,7 +163,7 @@ function releaseSupervisorLock(paths: PenkraDevLauncherPaths): void {
 
 function parseBunExecutable(args: readonly string[]): string {
   const index = args.indexOf("--bun");
-  const candidate = index >= 0 ? args[index + 1]?.trim() : "";
+  const candidate = index >= 0 ? args[index + 1]?.trim() : compiledBunExecutable?.trim();
   if (!candidate || !existsSync(candidate)) {
     throw new Error(`Penkra Dev launcher cannot find its configured Bun executable: ${candidate}`);
   }

@@ -56,6 +56,7 @@ function resolveCodeSigningIdentity(): string {
 }
 
 export function resolvePenkraDevLauncherCompileArgs(input: {
+  readonly bunExecutable: string;
   readonly launcherScriptPath: string;
   readonly executablePath: string;
   readonly repoRoot: string;
@@ -66,6 +67,8 @@ export function resolvePenkraDevLauncherCompileArgs(input: {
     "--minify",
     "--define",
     `PENKRA_DEV_REPO_ROOT=${JSON.stringify(input.repoRoot)}`,
+    "--define",
+    `PENKRA_DEV_BUN_EXECUTABLE=${JSON.stringify(input.bunExecutable)}`,
     input.launcherScriptPath,
     "--outfile",
     input.executablePath,
@@ -136,6 +139,7 @@ function install(): void {
     const compile = spawnSync(
       bunExecutable,
       resolvePenkraDevLauncherCompileArgs({
+        bunExecutable,
         launcherScriptPath,
         executablePath,
         repoRoot,

@@ -66,6 +66,7 @@ describe("Penkra Dev launcher", () => {
   it("compiles a standalone launcher with its repository root embedded", () => {
     expect(
       resolvePenkraDevLauncherCompileArgs({
+        bunExecutable: "/opt/homebrew/bin/bun",
         launcherScriptPath: "/workspace/scripts/penkra-dev-launcher.ts",
         executablePath: "/tmp/Penkra (Dev)",
         repoRoot: "/workspace",
@@ -76,6 +77,8 @@ describe("Penkra Dev launcher", () => {
       "--minify",
       "--define",
       'PENKRA_DEV_REPO_ROOT="/workspace"',
+      "--define",
+      'PENKRA_DEV_BUN_EXECUTABLE="/opt/homebrew/bin/bun"',
       "/workspace/scripts/penkra-dev-launcher.ts",
       "--outfile",
       "/tmp/Penkra (Dev)",
