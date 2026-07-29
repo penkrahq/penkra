@@ -4,6 +4,7 @@
 
 import {
   ArchiveIcon,
+  AppsIcon,
   CopyIcon,
   ExternalLinkIcon,
   FileIcon,
@@ -31,6 +32,7 @@ import {
   type PrStatePresentation,
 } from "~/components/pullRequest/pullRequestStatePresentation";
 import { PinStatusIcon, pinActionLabel } from "~/lib/pin";
+import { NavItemShared } from "~/components/left-rail/nav-item-shared/NavItemShared";
 import { ensureNativeApi } from "~/nativeApi";
 import { autoAnimate } from "@formkit/auto-animate";
 import { FiGitBranch, FiUserPlus } from "react-icons/fi";
@@ -151,7 +153,7 @@ import { DEFAULT_THREAD_TERMINAL_ID, type SidebarThreadSummary, type Thread } fr
 import { shouldRenderTerminalWorkspace } from "./ChatView.logic";
 import { CHAT_SURFACE_HEADER_HEIGHT_CLASS } from "./chat/chatHeaderControls";
 import { SidebarLeadingControls } from "./SidebarHeaderNavigationControls";
-import { SynaraLogo } from "./SynaraLogo";
+import { SidebarHeaderShared } from "./left-rail/sidebar-header-shared/SidebarHeaderShared";
 import { ProjectSidebarIcon } from "./ProjectSidebarIcon";
 import { useRightDockStore } from "../rightDockStore";
 import { PenkraCreateClientDialog } from "../penkra/PenkraCreateClientDialog";
@@ -923,45 +925,40 @@ function SidebarPrimaryAction({
 
   return (
     <SidebarMenuItem>
-      <SidebarMenuButton
-        size="sm"
-        data-active={active}
+      <NavItemShared
+        icon={<SidebarGlyph icon={Icon} variant="leading" />}
+        state={active ? "selected" : "default"}
         aria-current={active ? "page" : undefined}
         className={cn(
           "group/sidebar-primary-action",
-          SIDEBAR_HEADER_ROW_CLASS_NAME,
-          active
-            ? SIDEBAR_ROW_ACTIVE_CLASS_NAME
-            : cn(SIDEBAR_ROW_IDLE_TEXT_CLASS_NAME, SIDEBAR_ROW_HOVER_CLASS_NAME),
+          "h-[29px]",
         )}
-        aria-disabled={disabled || undefined}
         disabled={disabled}
         onClick={onClick}
         onMouseEnter={onMouseEnter}
         onFocus={onFocus}
+        trailing={
+          badge ? (
+            <span
+              className="inline-flex h-4 min-w-4 items-center justify-center rounded-md bg-muted px-1 text-[10px] font-medium text-muted-foreground"
+              aria-label={badge.accessibleLabel}
+              title={badge.accessibleLabel}
+            >
+              {badge.text}
+            </span>
+          ) : shortcutParts.length > 0 ? (
+            <span className="opacity-0 transition-opacity group-hover/sidebar-primary-action:opacity-100 group-focus-visible/sidebar-primary-action:opacity-100">
+              <KbdGroup>
+                {shortcutParts.map((part) => (
+                  <Kbd key={part}>{part}</Kbd>
+                ))}
+              </KbdGroup>
+            </span>
+          ) : null
+        }
       >
-        <SidebarLeadingIcon size="sm" tone="text-inherit">
-          <SidebarGlyph icon={Icon} variant="leading" />
-        </SidebarLeadingIcon>
-        <span className="truncate">{label}</span>
-        {badge ? (
-          <span
-            className="ml-auto inline-flex h-4 min-w-4 items-center justify-center rounded-md bg-muted px-1 text-[10px] font-medium text-muted-foreground"
-            aria-label={badge.accessibleLabel}
-            title={badge.accessibleLabel}
-          >
-            {badge.text}
-          </span>
-        ) : shortcutParts.length > 0 ? (
-          <span className="ml-auto opacity-0 transition-opacity group-hover/sidebar-primary-action:opacity-100 group-focus-visible/sidebar-primary-action:opacity-100">
-            <KbdGroup>
-              {shortcutParts.map((part) => (
-                <Kbd key={part}>{part}</Kbd>
-              ))}
-            </KbdGroup>
-          </span>
-        ) : null}
-      </SidebarMenuButton>
+        {label}
+      </NavItemShared>
     </SidebarMenuItem>
   );
 }
@@ -1234,6 +1231,7 @@ export default function Sidebar() {
   const isOnStudioRoute = pathname.startsWith("/studio");
   const isOnKanban = pathname.startsWith("/kanban");
   const isOnPullRequests = pathname.startsWith("/pull-requests");
+  const isOnPlugins = pathname === "/plugins";
   const pullRequestRepositoryConfig = useMemo(
     () => pullRequestRepositoryConfigFingerprint(projects),
     [projects],
@@ -5656,15 +5654,16 @@ export default function Sidebar() {
         <>
           <SidebarHeader
             className={cn(
-              "drag-region flex-row items-center gap-2 py-0 ps-4 pe-3 font-system-ui",
+              "drag-region flex-row items-center py-0 ps-4 pe-3 font-system-ui",
               CHAT_SURFACE_HEADER_HEIGHT_CLASS,
               isMacDesktop && DESKTOP_TOP_BAR_TRAFFIC_LIGHT_GUTTER_CLASS,
             )}
           >
-            {titlebarControls}
-            <SynaraLogo
-              aria-label="Penkra"
-              className="pointer-events-none ml-auto size-3.5 text-[var(--color-text-foreground-secondary)] opacity-80"
+            <SidebarHeaderShared
+              brand="Penkra"
+              className="h-full w-full px-0"
+              leading={titlebarControls}
+              onSearch={() => setSearchPaletteOpen(true)}
             />
           </SidebarHeader>
         </>
@@ -5803,6 +5802,14 @@ export default function Sidebar() {
                       />
                     </>
                   )}
+                  <SidebarPrimaryAction
+                    icon={AppsIcon}
+                    label="Apps"
+                    active={isOnPlugins}
+                    onClick={() => {
+                      void navigate({ to: "/plugins" });
+                    }}
+                  />
                 </SidebarMenu>
               </SidebarGroup>
 

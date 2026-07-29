@@ -583,6 +583,7 @@ function ChatRouteLayout() {
   // The thread sidebar always lives on the left; the right dock is a separate surface.
   const sidebarElement = (
     <Sidebar
+      data-pencil-component="UPCCE"
       side="left"
       collapsible="offcanvas"
       // Match the right dock's soft drawer slide (shared token) instead of the
