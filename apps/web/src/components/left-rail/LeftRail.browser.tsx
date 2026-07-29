@@ -68,4 +68,23 @@ describe("Pencil left rail", () => {
     expect(onSettings).toHaveBeenCalledOnce();
     expect(onHelp).toHaveBeenCalledOnce();
   });
+
+  it("keeps an available update independent from the account menu", async () => {
+    const onAccount = vi.fn();
+    const onUpdate = vi.fn();
+    await render(
+      <AccountRowShared
+        name="gigsama"
+        onAccount={onAccount}
+        onUpdate={onUpdate}
+        updateAvailable
+        updateLabel="Install update"
+      />,
+    );
+
+    await page.getByRole("button", { name: "Install update" }).click();
+
+    expect(onUpdate).toHaveBeenCalledOnce();
+    expect(onAccount).not.toHaveBeenCalled();
+  });
 });

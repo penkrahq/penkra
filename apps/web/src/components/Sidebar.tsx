@@ -16,7 +16,6 @@ import {
   PinIcon,
   PlayIcon,
   SearchIcon,
-  SettingsIcon,
   StopFilledIcon,
   TemporaryThreadIcon,
   TerminalIcon,
@@ -128,10 +127,6 @@ import {
   resolveNewThreadTarget,
 } from "../lib/projectShortcutTargets";
 import {
-  pullRequestQueryKeys,
-  pullRequestReviewRequestCountQueryOptions,
-} from "../lib/pullRequestReactQuery";
-import {
   prefetchProviderModelsForNewThread,
   resolveNewThreadModelPrefetchCwd,
   resolveNewThreadModelPrefetchProvider,
@@ -154,6 +149,7 @@ import { shouldRenderTerminalWorkspace } from "./ChatView.logic";
 import { CHAT_SURFACE_HEADER_HEIGHT_CLASS } from "./chat/chatHeaderControls";
 import { SidebarLeadingControls } from "./SidebarHeaderNavigationControls";
 import { SidebarHeaderShared } from "./left-rail/sidebar-header-shared/SidebarHeaderShared";
+import { AccountMenu } from "./left-rail/menu-account/AccountMenu";
 import { ProjectSidebarIcon } from "./ProjectSidebarIcon";
 import { useRightDockStore } from "../rightDockStore";
 import { PenkraCreateClientDialog } from "../penkra/PenkraCreateClientDialog";
@@ -208,7 +204,6 @@ import {
   getDesktopUpdateActionError,
   getDesktopUpdateAlreadyCurrentNotice,
   getDesktopUpdateButtonPresentation,
-  getDesktopUpdateButtonTooltip,
   getDesktopUpdateDownloadPercent,
   getDesktopUpdateErrorSignature,
   isDesktopUpdateButtonDisabled,
@@ -268,7 +263,6 @@ import {
   getPinnedThreadsForSidebar,
   getUnpinnedThreadsForSidebar,
   orderPinnedProjectsForSidebar,
-  pullRequestRepositoryConfigFingerprint,
   getNextVisibleSidebarThreadId,
   getSidebarThreadIdsToPrewarm,
   getVisibleSidebarEntriesForPreview,
@@ -278,7 +272,6 @@ import {
   isProjectsSidebarSurface,
   pruneProjectThreadListPagingForCollapsedProjects,
   recoverExistingAddProjectTarget,
-  resolvePullRequestReviewBadge,
   resolveSidebarThreadListPaging,
   DEBUG_FEATURE_FLAGS_MENU_STORAGE_KEY,
   resolveProjectEmptyState,
@@ -362,6 +355,8 @@ import {
   PROJECT_CREATE_EXISTING_SYNC_ERROR,
 } from "../lib/projectCreation";
 import { useSpacesUiStore } from "../spacesUiStore";
+import { useProfileName } from "./profile/useProfileName";
+import { toDisplayName } from "./profile/profileFormatting";
 import { CreateProjectDialog, type CreateProjectSubmitValue } from "./CreateProjectDialog";
 import { SpaceEditorDialog } from "./SpaceEditorDialog";
 import { useSpacesController } from "./useSpacesController";
@@ -1219,6 +1214,8 @@ export default function Sidebar() {
   const deleteWorkspace = useWorkspaceStore((store) => store.deleteWorkspace);
   const reorderWorkspace = useWorkspaceStore((store) => store.reorderWorkspace);
   const homeDir = useWorkspaceStore((store) => store.homeDir);
+  const defaultProfileName = toDisplayName(homeDir.split(/[\\/]/).filter(Boolean).at(-1) ?? "");
+  const { name: profileName } = useProfileName(defaultProfileName);
   const chatWorkspaceRoot = useWorkspaceStore((store) => store.chatWorkspaceRoot);
   const studioWorkspaceRoot = useWorkspaceStore((store) => store.studioWorkspaceRoot);
   const navigate = useNavigate();
@@ -1230,24 +1227,7 @@ export default function Sidebar() {
   const isOnWorkspace = pathname.startsWith("/workspace");
   const isOnStudioRoute = pathname.startsWith("/studio");
   const isOnKanban = pathname.startsWith("/kanban");
-  const isOnPullRequests = pathname.startsWith("/pull-requests");
   const isOnPlugins = pathname === "/plugins";
-  const pullRequestRepositoryConfig = useMemo(
-    () => pullRequestRepositoryConfigFingerprint(projects),
-    [projects],
-  );
-  const previousPullRequestRepositoryConfigRef = useRef(pullRequestRepositoryConfig);
-  useEffect(() => {
-    if (previousPullRequestRepositoryConfigRef.current === pullRequestRepositoryConfig) return;
-    previousPullRequestRepositoryConfigRef.current = pullRequestRepositoryConfig;
-    void queryClient.invalidateQueries({ queryKey: pullRequestQueryKeys.all });
-  }, [pullRequestRepositoryConfig, queryClient]);
-  // Count-only server query keeps rich pull-request rows off the wire and out of this cache.
-  const pullRequestsReviewingQuery = useQuery({
-    ...pullRequestReviewRequestCountQueryOptions({ projectId: null }),
-    enabled: projects.some((project) => project.kind === "project"),
-  });
-  const pullRequestsReviewBadge = resolvePullRequestReviewBadge(pullRequestsReviewingQuery.data);
   const { settings: appSettings, updateSettings } = useAppSettings();
   // Threads is always available; Studio, Workspace, and the standalone Chats footer
   // can be hidden independently from Settings.
@@ -2770,23 +2750,6 @@ export default function Sidebar() {
       setOptimisticActiveThreadId(threadId);
     },
     [prewarmThreadDetailForIntent],
-  );
-
-  // Segment-switch counterpart of primeThreadActivation: hovering/clicking a
-  // segment resolves the thread the switch will land on and opens its detail
-  // subscription early, so the destination transcript is warm instead of popping
-  // in after a subscribe round-trip once the route has already swapped.
-  const prewarmSidebarViewTarget = useCallback(
-    (view: SidebarView) => {
-      if (view !== "studio" && view !== "threads") {
-        return;
-      }
-      const target = view === "studio" ? resolveBackToStudioTarget() : resolveBackToThreadsTarget();
-      if (target.kind === "thread") {
-        prewarmThreadDetailForIntent(ThreadId.makeUnsafe(target.threadId));
-      }
-    },
-    [prewarmThreadDetailForIntent, resolveBackToStudioTarget, resolveBackToThreadsTarget],
   );
 
   const copyThreadIdToClipboard = useCopyThreadIdToClipboard();
@@ -5219,12 +5182,6 @@ export default function Sidebar() {
 
   const showDesktopUpdateButton = isElectron && shouldShowDesktopUpdateButton(desktopUpdateState);
 
-  const desktopUpdateTooltip = desktopUpdateState
-    ? getDesktopUpdateButtonTooltip(desktopUpdateState, {
-        installing: installingDesktopUpdate,
-      })
-    : "Update available";
-
   const desktopUpdateButtonDisabled =
     isDesktopUpdateButtonDisabled(desktopUpdateState) || installingDesktopUpdate;
   const desktopUpdateButtonAction = desktopUpdateState
@@ -5239,17 +5196,7 @@ export default function Sidebar() {
     desktopUpdateState && showArm64IntelBuildWarning
       ? getArm64IntelBuildWarningDescription(desktopUpdateState)
       : null;
-  const desktopUpdateButtonInteractivityClasses = desktopUpdateButtonDisabled
-    ? "cursor-not-allowed opacity-60"
-    : "hover:brightness-110";
-  const desktopUpdateButtonHasSecondaryLabel =
-    desktopUpdateButtonPresentation.secondaryLabel !== null;
   const desktopUpdateDownloadPercent = getDesktopUpdateDownloadPercent(desktopUpdateState);
-  const desktopUpdateRowButtonClasses = cn(
-    "inline-flex h-6 shrink-0 items-center justify-center gap-1.5 rounded-full bg-[var(--info)] px-2.5 font-system-ui text-[length:var(--app-font-size-ui-xs,10px)] font-medium leading-none text-white transition-colors",
-    desktopUpdateButtonHasSecondaryLabel && "min-h-6 py-0.5",
-    desktopUpdateButtonInteractivityClasses,
-  );
   const newThreadShortcutLabel =
     shortcutLabelForCommand(keybindings, "chat.new") ??
     shortcutLabelForCommand(keybindings, "chat.newLatestProject");
@@ -5718,90 +5665,45 @@ export default function Sidebar() {
           </SidebarGroup>
         ) : (
           <>
-            <SidebarSegmentedPicker
-              views={[
-                ...(studioSectionVisible ? (["studio"] as const) : []),
-                "threads",
-                ...(workspaceSectionVisible ? (["workspace"] as const) : []),
-              ]}
-              activeView={isOnStudio ? "studio" : isOnWorkspace ? "workspace" : "threads"}
-              onSelectView={handleSidebarViewChange}
-              onPrewarmView={prewarmSidebarViewTarget}
-            />
-            {/* Keyed per segment so switching surfaces (Studio <-> Projects <->
-                Workspace) remounts the content with a short enter animation
-                instead of a hard cut. The picker above stays outside the key so
-                its thumb can glide across the switch. */}
+            {/* Route-aware content retains the production behavior while the visible
+                hierarchy follows Pencil's single workspace rail. */}
             <div
               key={isOnWorkspace ? "workspace" : isOnStudio ? "studio" : "threads"}
               className="sidebar-surface-enter"
             >
-              {/* Primary sidebar actions stay limited to features we currently ship. */}
+              {/* Pencil Sidebar Top Navigation (dxWQT). */}
               <SidebarGroup className="px-1.5 pt-1 pb-1.5">
                 <SidebarMenu className="gap-0.5">
-                  {isOnWorkspace ? (
-                    <SidebarPrimaryAction
-                      icon={TerminalIcon}
-                      label="New workspace"
-                      onClick={handleCreateWorkspace}
-                    />
-                  ) : isOnStudio ? (
-                    <>
-                      <SidebarPrimaryAction
-                        icon={NewThreadIcon}
-                        label="New studio chat"
-                        onClick={handleCreateStudioChat}
-                      />
-                      <SidebarPrimaryAction
-                        icon={SearchIcon}
-                        label="Search"
-                        active={searchPaletteOpen}
-                        onClick={() => {
-                          setSearchPaletteOpen(true);
-                        }}
-                        shortcutLabel={searchShortcutLabel}
-                      />
-                    </>
-                  ) : (
-                    <>
-                      <SidebarPrimaryAction
-                        icon={NewThreadIcon}
-                        label="New thread"
-                        onClick={handlePrimaryNewThread}
-                        onMouseEnter={prefetchModelsForPrimaryNewThread}
-                        onFocus={prefetchModelsForPrimaryNewThread}
-                      />
-                      <SidebarPrimaryAction
-                        icon={SearchIcon}
-                        label="Search"
-                        active={searchPaletteOpen}
-                        onClick={() => {
-                          setSearchPaletteOpen(true);
-                        }}
-                        shortcutLabel={searchShortcutLabel}
-                      />
-                      <SidebarPrimaryAction
-                        icon={KanbanIcon}
-                        label="Kanban"
-                        active={isOnKanban}
-                        onClick={() => {
-                          void navigate({ to: "/kanban" });
-                        }}
-                      />
-                      <SidebarPrimaryAction
-                        icon={IoIosGitCompare}
-                        label="Pull requests"
-                        active={isOnPullRequests}
-                        badge={pullRequestsReviewBadge}
-                        onClick={() => {
-                          void navigate({
-                            to: "/pull-requests",
-                            search: { involvement: "all", state: "open" },
-                          });
-                        }}
-                      />
-                    </>
-                  )}
+                  <SidebarPrimaryAction
+                    icon={SearchIcon}
+                    label="Search"
+                    active={searchPaletteOpen}
+                    onClick={() => {
+                      setSearchPaletteOpen(true);
+                    }}
+                    shortcutLabel={searchShortcutLabel}
+                  />
+                  <SidebarPrimaryAction
+                    icon={NewThreadIcon}
+                    label="New chat"
+                    onClick={handleCreateHomeChat}
+                  />
+                  <SidebarPrimaryAction
+                    icon={WorktreeIcon}
+                    label="Sites"
+                    active={isOnStudio}
+                    onClick={() => {
+                      handleSidebarViewChange("studio");
+                    }}
+                  />
+                  <SidebarPrimaryAction
+                    icon={KanbanIcon}
+                    label="Scheduled"
+                    active={isOnKanban}
+                    onClick={() => {
+                      void navigate({ to: "/kanban" });
+                    }}
+                  />
                   <SidebarPrimaryAction
                     icon={AppsIcon}
                     label="Apps"
@@ -6229,70 +6131,28 @@ export default function Sidebar() {
         ) : null}
       </SidebarContent>
 
-      <SidebarFooter className="gap-2 p-2 font-system-ui">
-        <SidebarMenu>
-          <SidebarMenuItem>
-            <div className="flex flex-col gap-1">
-              {DebugFeatureFlagsMenu && showDebugFeatureFlagsMenu && !isOnSettings ? (
-                <Suspense fallback={null}>
-                  <DebugFeatureFlagsMenu />
-                </Suspense>
-              ) : null}
-              <div className="flex items-center gap-2">
-                {!isOnSettings && (
-                  <SidebarMenuButton
-                    size="sm"
-                    className={cn(
-                      SIDEBAR_HEADER_ROW_CLASS_NAME,
-                      SIDEBAR_ROW_IDLE_TEXT_CLASS_NAME,
-                      SIDEBAR_ROW_HOVER_CLASS_NAME,
-                      "flex-1",
-                    )}
-                    onClick={() => void navigate({ to: "/settings" })}
-                  >
-                    <SidebarLeadingIcon size="sm" tone={SIDEBAR_ROW_LABEL_TEXT_CLASS_NAME}>
-                      <SidebarGlyph icon={SettingsIcon} variant="leading" />
-                    </SidebarLeadingIcon>
-                    <span>Settings</span>
-                  </SidebarMenuButton>
-                )}
-                {showDesktopUpdateButton ? (
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={
-                        <button
-                          type="button"
-                          aria-label={desktopUpdateTooltip}
-                          aria-disabled={desktopUpdateButtonDisabled || undefined}
-                          disabled={desktopUpdateButtonDisabled}
-                          className={desktopUpdateRowButtonClasses}
-                          onClick={handleDesktopUpdateButtonClick}
-                        >
-                          <span className="flex min-w-0 flex-1 items-center justify-between gap-1.5 leading-tight">
-                            <span className="min-w-0 truncate text-center">
-                              {desktopUpdateButtonPresentation.label}
-                            </span>
-                            {desktopUpdateButtonPresentation.secondaryLabel ? (
-                              <span className="min-w-0 truncate text-center text-[length:var(--app-font-size-ui-xs,10px)] text-white/80">
-                                {desktopUpdateButtonPresentation.secondaryLabel}
-                              </span>
-                            ) : null}
-                          </span>
-                          {desktopUpdateDownloadPercent !== null ? (
-                            <span className="rounded-full bg-white/20 px-1.5 py-0.5 text-[9px] font-semibold tabular-nums text-white/95">
-                              {desktopUpdateDownloadPercent}%
-                            </span>
-                          ) : null}
-                        </button>
-                      }
-                    />
-                    <TooltipPopup side="top">{desktopUpdateTooltip}</TooltipPopup>
-                  </Tooltip>
-                ) : null}
-              </div>
+      <SidebarFooter className="gap-1 p-0 font-system-ui">
+        {DebugFeatureFlagsMenu && showDebugFeatureFlagsMenu && !isOnSettings ? (
+          <Suspense fallback={null}>
+            <div className="px-2">
+              <DebugFeatureFlagsMenu />
             </div>
-          </SidebarMenuItem>
-        </SidebarMenu>
+          </Suspense>
+        ) : null}
+        <AccountMenu
+          accountName={profileName}
+          onFeedback={() => openFeedbackDialog()}
+          onSettings={() => void navigate({ to: "/settings" })}
+          onSupport={() => openFeedbackDialog()}
+          onUpdate={showDesktopUpdateButton ? handleDesktopUpdateButtonClick : undefined}
+          updateAvailable={showDesktopUpdateButton}
+          updateDisabled={desktopUpdateButtonDisabled}
+          updateLabel={
+            desktopUpdateDownloadPercent !== null
+              ? `${desktopUpdateDownloadPercent}%`
+              : desktopUpdateButtonPresentation.label
+          }
+        />
       </SidebarFooter>
 
       <CreateProjectDialog

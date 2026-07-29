@@ -1,9 +1,5 @@
 import { IconHelpCircle, IconSettings } from "@tabler/icons-react";
-import {
-  forwardRef,
-  type ButtonHTMLAttributes,
-  type HTMLAttributes,
-} from "react";
+import { forwardRef, type ButtonHTMLAttributes, type HTMLAttributes } from "react";
 
 import { AvatarAccount } from "~/components/foundations/avatar-account/AvatarAccount";
 import { cn } from "~/lib/utils";
@@ -15,8 +11,11 @@ export interface AccountRowSharedProps extends HTMLAttributes<HTMLDivElement> {
   onAccount?: () => void;
   onHelp?: () => void;
   onSettings?: () => void;
+  onUpdate?: () => void;
   selected?: boolean;
   updateAvailable?: boolean;
+  updateDisabled?: boolean;
+  updateLabel?: string;
 }
 
 export const AccountRowShared = forwardRef<HTMLDivElement, AccountRowSharedProps>(
@@ -29,22 +28,25 @@ export const AccountRowShared = forwardRef<HTMLDivElement, AccountRowSharedProps
       onAccount,
       onHelp,
       onSettings,
+      onUpdate,
       selected = false,
       updateAvailable = false,
+      updateDisabled = false,
+      updateLabel = "Update",
       ...props
     },
     ref,
   ) {
     return (
       <div
-      className={cn(
-        "group/account-row flex h-9 w-60 items-center gap-2 bg-transparent px-2 font-sans text-[13px] text-[var(--color-text-foreground-secondary)] transition-colors hover:bg-[var(--color-background-button-secondary-hover)] hover:text-[var(--color-text-foreground)]",
-        selected &&
-          "bg-[var(--color-background-button-secondary-active)] text-[var(--color-text-foreground)]",
-        disabled &&
-          "pointer-events-none bg-transparent text-[var(--color-text-foreground-tertiary)] hover:bg-transparent",
-        className,
-      )}
+        className={cn(
+          "group/account-row flex h-9 w-60 items-center gap-2 bg-transparent px-2 font-sans text-[13px] text-[var(--color-text-foreground-secondary)] transition-colors hover:bg-[var(--color-background-button-secondary-hover)] hover:text-[var(--color-text-foreground)]",
+          selected &&
+            "bg-[var(--color-background-button-secondary-active)] text-[var(--color-text-foreground)]",
+          disabled &&
+            "pointer-events-none bg-transparent text-[var(--color-text-foreground-tertiary)] hover:bg-transparent",
+          className,
+        )}
         data-selected={selected || undefined}
         ref={ref}
         {...props}
@@ -56,31 +58,44 @@ export const AccountRowShared = forwardRef<HTMLDivElement, AccountRowSharedProps
           type="button"
           {...accountButtonProps}
         >
-        <AvatarAccount />
-        <span className="min-w-0 flex-1 truncate text-left">{name}</span>
+          <AvatarAccount />
+          <span className="min-w-0 flex-1 truncate text-left">{name}</span>
+        </button>
         {updateAvailable ? (
-          <span className="rounded-full bg-[var(--color-background-accent)] px-1.5 py-0.5 text-[10px] leading-3 font-semibold text-[var(--color-text-button-primary)]">
-            Update
-          </span>
+          onUpdate ? (
+            <button
+              aria-label={updateLabel}
+              aria-disabled={updateDisabled || undefined}
+              className="cursor-pointer rounded-full border-0 bg-[var(--color-background-accent)] px-1.5 py-0.5 text-[10px] leading-3 font-semibold text-[var(--color-text-button-primary)] outline-none hover:brightness-110 focus-visible:ring-1 focus-visible:ring-[var(--color-border-focus)]"
+              disabled={disabled || updateDisabled}
+              onClick={onUpdate}
+              type="button"
+            >
+              {updateLabel}
+            </button>
+          ) : (
+            <span className="rounded-full bg-[var(--color-background-accent)] px-1.5 py-0.5 text-[10px] leading-3 font-semibold text-[var(--color-text-button-primary)]">
+              {updateLabel}
+            </span>
+          )
         ) : null}
+        <button
+          aria-label="Settings"
+          className="inline-flex size-3.5 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-[var(--color-text-foreground-tertiary)] outline-none hover:text-[var(--color-text-foreground)] focus-visible:ring-1 focus-visible:ring-[var(--color-border-focus)]"
+          disabled={disabled}
+          onClick={onSettings}
+          type="button"
+        >
+          <IconSettings className="size-3.5" />
         </button>
         <button
-        aria-label="Settings"
-        className="inline-flex size-3.5 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-[var(--color-text-foreground-tertiary)] outline-none hover:text-[var(--color-text-foreground)] focus-visible:ring-1 focus-visible:ring-[var(--color-border-focus)]"
-        disabled={disabled}
-        onClick={onSettings}
-        type="button"
-      >
-        <IconSettings className="size-3.5" />
-        </button>
-        <button
-        aria-label="Help"
-        className="inline-flex size-3.5 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-[var(--color-text-foreground-tertiary)] outline-none hover:text-[var(--color-text-foreground)] focus-visible:ring-1 focus-visible:ring-[var(--color-border-focus)]"
-        disabled={disabled}
-        onClick={onHelp}
-        type="button"
-      >
-        <IconHelpCircle className="size-3.5" />
+          aria-label="Help"
+          className="inline-flex size-3.5 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-[var(--color-text-foreground-tertiary)] outline-none hover:text-[var(--color-text-foreground)] focus-visible:ring-1 focus-visible:ring-[var(--color-border-focus)]"
+          disabled={disabled}
+          onClick={onHelp}
+          type="button"
+        >
+          <IconHelpCircle className="size-3.5" />
         </button>
       </div>
     );

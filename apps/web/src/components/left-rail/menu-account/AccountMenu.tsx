@@ -26,6 +26,10 @@ export interface AccountMenuProps {
   onLogout?: () => void;
   onSettings?: () => void;
   onSupport?: () => void;
+  onUpdate?: () => void;
+  updateAvailable?: boolean;
+  updateDisabled?: boolean;
+  updateLabel?: string;
 }
 
 const itemClassName =
@@ -38,6 +42,10 @@ export function AccountMenu({
   onLogout,
   onSettings,
   onSupport,
+  onUpdate,
+  updateAvailable,
+  updateDisabled,
+  updateLabel,
 }: AccountMenuProps) {
   const [open, setOpen] = useState(defaultOpen ?? false);
   const anchorRef = useRef<HTMLDivElement>(null);
@@ -48,7 +56,13 @@ export function AccountMenu({
         accountButtonProps={{ "aria-expanded": open, "aria-haspopup": "menu" }}
         name={accountName}
         onAccount={() => setOpen((current) => !current)}
+        onHelp={onSupport}
+        onSettings={onSettings}
+        onUpdate={onUpdate}
         ref={anchorRef}
+        updateAvailable={updateAvailable}
+        updateDisabled={updateDisabled}
+        updateLabel={updateLabel}
       />
       <MenuPopupBase
         align="start"
