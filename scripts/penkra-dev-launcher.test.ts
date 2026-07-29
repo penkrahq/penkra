@@ -10,6 +10,7 @@ import {
   isExpectedPenkraDevSupervisorCommand,
   resolvePenkraDevLauncherPaths,
   resolvePenkraDevWorkspaceCommand,
+  shouldRunPenkraDevLauncher,
 } from "./penkra-dev-launcher";
 import {
   parseAppleDevelopmentIdentity,
@@ -79,6 +80,17 @@ describe("Penkra Dev launcher", () => {
       "--outfile",
       "/tmp/Penkra (Dev)",
     ]);
+  });
+
+  it("executes the compiled launcher even when Bun does not mark the bundle as main", () => {
+    expect(
+      shouldRunPenkraDevLauncher({
+        compiledRepoRoot: "/workspace",
+        importMetaMain: false,
+        argvEntry: "launch",
+        sourcePath: "/workspace/scripts/penkra-dev-launcher.ts",
+      }),
+    ).toBe(true);
   });
 
   it("prefers a stable Apple Development signing identity", () => {

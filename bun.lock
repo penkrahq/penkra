@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "@synara/monorepo",
+      "name": "@penkra/client-workspace",
       "devDependencies": {
         "@types/node": "catalog:",
         "oxfmt": "^0.40.0",

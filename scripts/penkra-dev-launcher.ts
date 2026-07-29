@@ -356,10 +356,25 @@ export async function runPenkraDevLauncher(argv = process.argv): Promise<void> {
   throw new Error(`Unknown Penkra Dev launcher command: ${command}`);
 }
 
-const isDirectExecution =
-  (import.meta as ImportMeta & { readonly main?: boolean }).main === true ||
-  (process.argv[1] !== undefined &&
-    resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url)));
+export function shouldRunPenkraDevLauncher(input: {
+  readonly compiledRepoRoot: string | undefined;
+  readonly importMetaMain: boolean;
+  readonly argvEntry: string | undefined;
+  readonly sourcePath: string;
+}): boolean {
+  return (
+    input.compiledRepoRoot !== undefined ||
+    input.importMetaMain ||
+    (input.argvEntry !== undefined && resolve(input.argvEntry) === resolve(input.sourcePath))
+  );
+}
+
+const isDirectExecution = shouldRunPenkraDevLauncher({
+  compiledRepoRoot,
+  importMetaMain: (import.meta as ImportMeta & { readonly main?: boolean }).main === true,
+  argvEntry: process.argv[1],
+  sourcePath: fileURLToPath(import.meta.url),
+});
 if (isDirectExecution) {
   void runPenkraDevLauncher().catch((error: unknown) => {
     process.stderr.write(

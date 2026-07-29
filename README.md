@@ -23,7 +23,7 @@ Install the macOS development launcher:
 bun run dev:desktop:install-app
 ```
 
-Opening `/Applications/Penkra Dev.app` starts the complete local development workspace
+Opening `/Applications/Penkra (Dev).app` starts the complete local development workspace
 and launches the desktop application as **Penkra (Dev)**.
 
 Run the component library:
@@ -31,6 +31,10 @@ Run the component library:
 ```sh
 bun run --cwd apps/web storybook
 ```
+
+This is one independent repository organized as a Bun workspace. From its root,
+`bun run test` runs the test task in each internal workspace package; it does not
+cross into `penkra-website` or `penkra-backend`.
 
 ## Repository structure
 
