@@ -12,10 +12,11 @@ import {
   SETTINGS_CARD_ROW_DESCRIPTION_CLASS_NAME,
   SETTINGS_CARD_ROW_TITLE_CLASS_NAME,
   SETTINGS_PANEL_SECTION_CLASS_NAME,
-  SETTINGS_SECTION_LABEL_CLASS_NAME,
 } from "~/settingsPanelStyles";
 import { SelectPopup } from "~/components/ui/select";
 import { composerPickerMenuShellClassName } from "~/components/chat/composerPickerSize";
+import { SettingRowShared } from "./setting-row-shared/SettingRowShared";
+import { SettingsSectionShared } from "./settings-section-shared/SettingsSectionShared";
 
 const settingsCardClassName = cn(
   SETTINGS_CARD_CLASS_NAME,
@@ -28,10 +29,9 @@ export function SettingsCard({ children }: { children: ReactNode }) {
 
 export function SettingsSection({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section className={SETTINGS_PANEL_SECTION_CLASS_NAME}>
-      <h2 className={SETTINGS_SECTION_LABEL_CLASS_NAME}>{title}</h2>
-      <SettingsCard>{children}</SettingsCard>
-    </section>
+    <SettingsSectionShared className={SETTINGS_PANEL_SECTION_CLASS_NAME} title={title}>
+      {children}
+    </SettingsSectionShared>
   );
 }
 
@@ -125,35 +125,22 @@ export function SettingsRow({
   // via `?target=…`; scroll-margin keeps the row clear of the sticky settings header.
   const anchorId = typeof title === "string" ? settingRowAnchorId(title) : undefined;
   return (
-    <div
+    <SettingRowShared
       id={anchorId}
-      className={cn(SETTINGS_CARD_ROW_CLASS_NAME, anchorId && "scroll-mt-24")}
+      className={cn(
+        anchorId && "scroll-mt-24",
+        onClick && "cursor-pointer",
+        children && "flex-wrap",
+      )}
+      control={control}
+      description={description}
+      label={title}
+      onClick={onClick}
+      resetAction={resetAction}
+      status={status}
       data-slot="settings-row"
     >
-      <div
-        className={cn(
-          "flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between",
-          onClick && "cursor-pointer",
-        )}
-        onClick={onClick}
-      >
-        <div className="min-w-0 flex-1 space-y-0.5">
-          <div className="flex min-h-5 items-center gap-1.5">
-            <h3 className={SETTINGS_CARD_ROW_TITLE_CLASS_NAME}>{title}</h3>
-            <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center">
-              {resetAction}
-            </span>
-          </div>
-          <p className={SETTINGS_CARD_ROW_DESCRIPTION_CLASS_NAME}>{description}</p>
-          {status ? <div className="pt-1 text-[11px] text-muted-foreground">{status}</div> : null}
-        </div>
-        {control ? (
-          <div className="flex w-full shrink-0 items-center gap-2 sm:w-auto sm:justify-end">
-            {control}
-          </div>
-        ) : null}
-      </div>
       {children}
-    </div>
+    </SettingRowShared>
   );
 }

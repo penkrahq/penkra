@@ -55,6 +55,7 @@ import {
   SettingsSection,
 } from "../components/settings/SettingsPanelPrimitives";
 import { SkillsSettingsPanel } from "../components/settings/SkillsSettingsPanel";
+import { SettingsHeader } from "../components/settings/settings-header/SettingsHeader";
 import { ThemePackEditor } from "../components/ThemePackEditor";
 import {
   CHAT_CONTENT_CARD_CLASS_NAME,
@@ -1035,14 +1036,10 @@ function SettingsRouteView() {
             >
               {activeSection !== "profile" ? (
                 <div className="mb-8 flex items-start justify-between gap-4">
-                  <div className="min-w-0">
-                    <h1 className="text-xl font-medium tracking-tight text-foreground">
-                      {activeSectionItem.label}
-                    </h1>
-                    <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
-                      {activeSectionItem.description}
-                    </p>
-                  </div>
+                  <SettingsHeader
+                    subtitle={activeSectionItem.description}
+                    title={activeSectionItem.label}
+                  />
                   <Button
                     size="xs"
                     variant="outline"

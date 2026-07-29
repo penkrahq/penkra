@@ -1,20 +1,37 @@
-import type { ReactNode } from "react";
+import type { HTMLAttributes, ReactNode } from "react";
 
-export interface SettingsSectionSharedProps {
+import { cn } from "~/lib/utils";
+
+export interface SettingsSectionSharedProps extends HTMLAttributes<HTMLElement> {
   children: ReactNode;
-  title?: string;
+  contentClassName?: string;
+  title?: ReactNode;
 }
 
 export function SettingsSectionShared({
   children,
+  className,
+  contentClassName,
   title = "Notifications",
+  ...props
 }: SettingsSectionSharedProps) {
   return (
-    <section className="w-[440px] font-sans" data-pencil-component="jDh8n">
+    <section
+      className={cn("w-full font-sans", className)}
+      data-pencil-component="jDh8n"
+      {...props}
+    >
       <h2 className="text-[11px] font-semibold uppercase tracking-wide text-[var(--color-text-foreground-tertiary)]">
         {title}
       </h2>
-      <div className="mt-2 divide-y divide-[var(--color-border)] px-5">{children}</div>
+      <div
+        className={cn(
+          "mt-2 divide-y divide-[var(--color-border)] rounded-[10px] border border-[var(--color-border)] bg-[var(--color-background-surface)] px-5",
+          contentClassName,
+        )}
+      >
+        {children}
+      </div>
     </section>
   );
 }
