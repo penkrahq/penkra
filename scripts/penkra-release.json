@@ -1,6 +1,6 @@
 {
   "version": "0.1.19",
-  "backendRepository": "penkrahq/backend",
+  "backendRepository": "penkrahq/penkra-backend",
   "backendRef": "b4bb752a07a1752d35efe421e9382fa55a67d154",
   "platform": "mac",
   "arch": "arm64",

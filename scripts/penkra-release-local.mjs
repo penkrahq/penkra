@@ -6,9 +6,12 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
 import release from "./penkra-release.json" with { type: "json" };
+import {
+  readPenkraDevWorkspace,
+  validatePenkraDevWorkspace,
+} from "./lib/penkra-dev-workspace.ts";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const workspaceRoot = resolve(repoRoot, "..");
 const { values } = parseArgs({
   options: {
     publish: { type: "boolean", default: false },
@@ -72,7 +75,13 @@ let cliBinary = values["cli-binary"]
   ? resolve(repoRoot, values["cli-binary"])
   : process.env.PENKRA_CLI_BINARY?.trim();
 if (!cliBinary) {
-  const backendRoot = resolve(workspaceRoot, "backend");
+  const configuredBackendRoot = process.env.PENKRA_BACKEND_ROOT?.trim();
+  const backendRoot = configuredBackendRoot
+    ? validatePenkraDevWorkspace({
+        desktopRoot: repoRoot,
+        backendRoot: configuredBackendRoot,
+      }).backendRoot
+    : readPenkraDevWorkspace().backendRoot;
   const backendHead = readGitHead(backendRoot);
   if (!backendHead.startsWith(release.backendRef)) {
     throw new Error(

@@ -15,6 +15,12 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import {
+  readPenkraDevWorkspace,
+  resolvePenkraDevWorkspaceConfigPath,
+  type PenkraDevWorkspace,
+} from "./lib/penkra-dev-workspace.ts";
+
 declare const PENKRA_DEV_REPO_ROOT: string | undefined;
 declare const PENKRA_DEV_BUN_EXECUTABLE: string | undefined;
 
@@ -27,8 +33,6 @@ const compiledBunExecutable =
 const repoRoot = resolve(
   compiledRepoRoot ?? resolve(dirname(fileURLToPath(import.meta.url)), ".."),
 );
-const workspaceRoot = resolve(repoRoot, "..");
-const workspaceOrchestratorPath = join(workspaceRoot, "backend", "ops", "dev-workspace.mjs");
 const launcherScriptPath = fileURLToPath(import.meta.url);
 const launcherExecutablePath = compiledRepoRoot ? process.execPath : launcherScriptPath;
 const developmentAppPath = join(
@@ -74,12 +78,13 @@ export interface PenkraDevWorkspaceCommand {
 
 export function resolvePenkraDevWorkspaceCommand(
   runtimeExecutable: string,
-  orchestratorPath = workspaceOrchestratorPath,
+  workspace: PenkraDevWorkspace,
 ): PenkraDevWorkspaceCommand {
+  const orchestratorPath = join(workspace.backendRoot, "ops", "dev-workspace.mjs");
   return {
     executable: resolve(runtimeExecutable),
-    args: [resolve(orchestratorPath)],
-    cwd: resolve(orchestratorPath, "..", "..", ".."),
+    args: [orchestratorPath, "--desktop-root", workspace.desktopRoot],
+    cwd: workspace.backendRoot,
   };
 }
 
@@ -231,7 +236,8 @@ async function terminateProcessTree(rootPid: number, signal: NodeJS.Signals): Pr
 
 async function supervise(bunExecutable: string): Promise<void> {
   const paths = resolvePenkraDevLauncherPaths();
-  const workspaceCommand = resolvePenkraDevWorkspaceCommand(bunExecutable);
+  const workspace = readPenkraDevWorkspace(resolvePenkraDevWorkspaceConfigPath());
+  const workspaceCommand = resolvePenkraDevWorkspaceCommand(bunExecutable, workspace);
   if (!existsSync(workspaceCommand.args[0]!)) {
     throw new Error(
       `Penkra Dev launcher cannot find the full-workspace orchestrator: ${workspaceCommand.args[0]}`,
@@ -247,8 +253,8 @@ async function supervise(bunExecutable: string): Promise<void> {
     `${JSON.stringify(
       {
         pid: process.pid,
-        repoRoot,
-        workspaceRoot,
+        desktopRoot: workspace.desktopRoot,
+        backendRoot: workspace.backendRoot,
         startedAt: new Date().toISOString(),
       },
       null,

@@ -138,7 +138,7 @@ function verifyReleaseWorkflowSafety(): void {
   const notes = readFileSync(resolve(repoRoot, `docs/releases/${release.version}.md`), "utf8");
 
   if (!/^\d+\.\d+\.\d+$/.test(release.version)) throw new Error("Invalid Penkra release version.");
-  if (release.backendRepository !== "penkrahq/backend") {
+  if (release.backendRepository !== "penkrahq/penkra-backend") {
     throw new Error("Expected the Penkra backend repository.");
   }
   if (!/^[0-9a-f]{7,40}$/.test(release.backendRef)) {

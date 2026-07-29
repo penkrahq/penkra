@@ -17,6 +17,7 @@ import {
   resolvePenkraDevLauncherCompileArgs,
 } from "./install-penkra-dev-app";
 import { resolvePenkraDevIconSource } from "./lib/macos-icon";
+import { resolvePenkraDevWorkspaceConfigPath } from "./lib/penkra-dev-workspace";
 
 describe("Penkra Dev launcher", () => {
   it("keeps launcher state and development data outside production Penkra", () => {
@@ -52,15 +53,25 @@ describe("Penkra Dev launcher", () => {
 
   it("delegates startup to the canonical full-workspace orchestrator", () => {
     expect(
-      resolvePenkraDevWorkspaceCommand(
-        "/usr/local/bin/node",
-        "/workspace/backend/ops/dev-workspace.mjs",
-      ),
+      resolvePenkraDevWorkspaceCommand("/usr/local/bin/node", {
+        desktopRoot: "/workspace/penkra",
+        backendRoot: "/repositories/backend-checkout",
+      }),
     ).toEqual({
       executable: "/usr/local/bin/node",
-      args: ["/workspace/backend/ops/dev-workspace.mjs"],
-      cwd: "/workspace",
+      args: [
+        "/repositories/backend-checkout/ops/dev-workspace.mjs",
+        "--desktop-root",
+        "/workspace/penkra",
+      ],
+      cwd: "/repositories/backend-checkout",
     });
+  });
+
+  it("keeps repository topology in local launcher state", () => {
+    expect(resolvePenkraDevWorkspaceConfigPath("/Users/tester")).toBe(
+      "/Users/tester/Penkra_Dev/.launcher/workspace.json",
+    );
   });
 
   it("compiles a standalone launcher with its repository root embedded", () => {

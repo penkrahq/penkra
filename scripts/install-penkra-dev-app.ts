@@ -15,6 +15,11 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { buildMacosIcon, resolvePenkraDevIconSource } from "./lib/macos-icon.ts";
+import {
+  discoverPenkraBackendRoot,
+  resolvePenkraDevWorkspaceConfigPath,
+  writePenkraDevWorkspace,
+} from "./lib/penkra-dev-workspace.ts";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const launcherScriptPath = join(repoRoot, "scripts", "penkra-dev-launcher.ts");
@@ -131,6 +136,16 @@ function install(): void {
   const iconPath = join(resourcesPath, "PenkraDev.icns");
   const backupPath = `/Applications/.Penkra Dev.backup-${String(process.pid)}.app`;
   const signingIdentity = resolveCodeSigningIdentity();
+  const workspace = writePenkraDevWorkspace(
+    {
+      desktopRoot: repoRoot,
+      backendRoot: discoverPenkraBackendRoot({
+        desktopRoot: repoRoot,
+        configuredBackendRoot: process.env.PENKRA_BACKEND_ROOT,
+      }),
+    },
+    resolvePenkraDevWorkspaceConfigPath(),
+  );
 
   try {
     mkdirSync(macosPath, { recursive: true });
@@ -201,7 +216,7 @@ function install(): void {
     }
 
     process.stdout.write(
-      `Installed Penkra Dev launcher at ${targetAppPath}\nRepository: ${repoRoot}\nBun: ${bunExecutable}\nSigning identity: ${signingIdentity}\n`,
+      `Installed Penkra Dev launcher at ${targetAppPath}\nDesktop repository: ${workspace.desktopRoot}\nBackend repository: ${workspace.backendRoot}\nBun: ${bunExecutable}\nSigning identity: ${signingIdentity}\n`,
     );
   } finally {
     rmSync(temporaryRoot, { recursive: true, force: true });
