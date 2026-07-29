@@ -12,9 +12,11 @@ export function usePreloadSettingsRoute() {
 
   useEffect(() => {
     const preload = () => {
-      router.preloadRoute({ to: "/settings" }).catch(() => {
-        // Preloading is best-effort; navigation falls back to loading on demand.
-      });
+      // We only need the code-split route component here. `preloadRoute()` also
+      // creates and caches route matches, which can race an active navigation
+      // during development. Loading the chunk directly keeps this warmup free of
+      // navigation state and lets normal navigation create the match on demand.
+      void router.loadRouteChunk(router.routesById["/_chat/settings"]);
     };
 
     if (typeof requestIdleCallback === "function") {

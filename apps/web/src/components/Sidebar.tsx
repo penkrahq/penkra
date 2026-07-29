@@ -4614,6 +4614,14 @@ export default function Sidebar() {
             }
           >
             <SidebarMenuButton
+              render={
+                <div
+                  role="button"
+                  tabIndex={0}
+                  aria-expanded={project.expanded}
+                  aria-label={`${project.expanded ? "Collapse" : "Expand"} ${project.name}`}
+                />
+              }
               ref={isManualProjectSorting ? dragHandleProps?.setActivatorNodeRef : undefined}
               size="sm"
               className={cn(
@@ -4629,7 +4637,7 @@ export default function Sidebar() {
                     // project. Manual sort mode is excluded because dnd-kit owns the
                     // drag gesture there for reordering.
                     draggable: true,
-                    onDragStart: (event: ReactDragEvent<HTMLButtonElement>) => {
+                    onDragStart: (event: ReactDragEvent<HTMLDivElement>) => {
                       event.dataTransfer.effectAllowed = "move";
                       event.dataTransfer.setData(
                         PROJECT_SPACE_DRAG_MIME,
@@ -4897,7 +4905,7 @@ export default function Sidebar() {
   }
 
   const handleProjectTitleClick = useCallback(
-    (event: React.MouseEvent<HTMLButtonElement>, projectId: ProjectId) => {
+    (event: React.MouseEvent<HTMLElement>, projectId: ProjectId) => {
       if (dragInProgressRef.current) {
         event.preventDefault();
         event.stopPropagation();
@@ -4919,7 +4927,7 @@ export default function Sidebar() {
   );
 
   const handleProjectTitleKeyDown = useCallback(
-    (event: React.KeyboardEvent<HTMLButtonElement>, projectId: ProjectId) => {
+    (event: React.KeyboardEvent<HTMLElement>, projectId: ProjectId) => {
       if (event.key !== "Enter" && event.key !== " ") return;
       event.preventDefault();
       if (dragInProgressRef.current) {
