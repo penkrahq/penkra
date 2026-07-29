@@ -53,10 +53,11 @@ import {
   HammerIcon,
   ListChecksIcon,
   PluginIcon,
-  SearchIcon,
 } from "~/lib/icons";
 import { cn } from "~/lib/utils";
-import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupText } from "./ui/input-group";
+import { InputSearchApps } from "./apps/input-search-apps/InputSearchApps";
+import { PillCategory } from "./apps/pill-category/PillCategory";
+import { RowInstalledApp } from "./apps/row-installed-app/RowInstalledApp";
 import { SidebarInset } from "./ui/sidebar";
 import { SidebarHeaderNavigationControls } from "./SidebarHeaderNavigationControls";
 import {
@@ -173,38 +174,23 @@ function PluginGlyph({ plugin }: { plugin: ProviderPluginDescriptor }) {
   // Prefer metadata-provided artwork so marketplace plugins keep their own branding.
   if (logo && !logoFailed) {
     return (
-      <span
-        className="inline-flex size-11 shrink-0 items-center justify-center rounded-[14px] border border-border/60 bg-background"
-        style={accent ? { boxShadow: `0 0 0 0.5px ${accent}25` } : undefined}
-      >
-        <img
-          src={logo}
-          alt=""
-          className="size-6 object-contain"
-          loading="lazy"
-          onError={() => setLogoFailed(true)}
-        />
-      </span>
+      <img
+        src={logo}
+        alt=""
+        className="size-5 object-contain"
+        loading="lazy"
+        onError={() => setLogoFailed(true)}
+      />
     );
   }
 
   if (brand) {
     const BrandIcon = brand.icon;
-    return (
-      <span
-        className="inline-flex size-11 shrink-0 items-center justify-center rounded-[14px] border border-border/60 bg-background"
-        style={accent ? { boxShadow: `0 0 0 0.5px ${accent}25` } : undefined}
-      >
-        <BrandIcon className="size-5" style={{ color: brand.color }} />
-      </span>
-    );
+    return <BrandIcon className="size-5" style={{ color: brand.color }} />;
   }
 
   return (
-    <span
-      className="inline-flex size-11 shrink-0 items-center justify-center rounded-[14px]"
-      style={style}
-    >
+    <span className="inline-flex size-5 items-center justify-center rounded-md" style={style}>
       <PluginIcon className="size-5 text-white/80" />
     </span>
   );
@@ -214,7 +200,7 @@ function SkillGlyph({ skill }: { skill: ProviderSkillDescriptor }) {
   const hue = nameToHue(skill.interface?.displayName ?? skill.name);
   return (
     <span
-      className="inline-flex size-11 shrink-0 items-center justify-center rounded-[14px]"
+      className="inline-flex size-5 items-center justify-center rounded-md"
       style={{
         background: `linear-gradient(145deg, hsl(${hue} 55% 30%), hsl(${hue} 45% 18%))`,
         boxShadow: `0 0 0 0.5px hsl(${hue} 40% 30% / 0.35)`,
@@ -237,19 +223,13 @@ function TabButton({
   onClick: () => void;
 }) {
   return (
-    <button
-      type="button"
-      className={cn(
-        "inline-flex h-10 items-center border-b-2 px-1 text-[13px] font-medium transition-colors",
-        active
-          ? "border-foreground text-foreground"
-          : "border-transparent text-muted-foreground hover:text-foreground/80",
-      )}
-      aria-pressed={active}
+    <PillCategory
+      selected={active}
       onClick={onClick}
+      className="no-drag"
     >
       {label}
-    </button>
+    </PillCategory>
   );
 }
 
@@ -325,16 +305,13 @@ function PluginGridItem({ entry }: { entry: PluginEntry }) {
     entry.plugin.source.path;
 
   return (
-    <div className="flex items-center gap-3 rounded-xl px-3 py-3 transition-colors hover:bg-[var(--sidebar-accent)]">
-      <PluginGlyph plugin={entry.plugin} />
-      <div className="min-w-0 flex-1">
-        <p className="text-[13px] font-semibold leading-snug text-foreground">
-          {entry.plugin.interface?.displayName ?? entry.plugin.name}
-        </p>
-        <p className="mt-0.5 truncate text-[12px] text-muted-foreground">{description}</p>
-      </div>
-      <InstalledStatus installed={isInstalledProviderPlugin(entry.plugin)} />
-    </div>
+    <RowInstalledApp
+      action={<InstalledStatus installed={isInstalledProviderPlugin(entry.plugin)} />}
+      description={description}
+      icon={<PluginGlyph plugin={entry.plugin} />}
+      name={entry.plugin.interface?.displayName ?? entry.plugin.name}
+      tone="slate"
+    />
   );
 }
 
@@ -343,16 +320,13 @@ function SkillGridItem({ skill }: { skill: ProviderSkillDescriptor }) {
     skill.interface?.shortDescription ?? skill.description ?? "No description available.";
 
   return (
-    <div className="flex items-center gap-3 rounded-xl px-3 py-3 transition-colors hover:bg-[var(--sidebar-accent)]">
-      <SkillGlyph skill={skill} />
-      <div className="min-w-0 flex-1">
-        <p className="text-[13px] font-semibold leading-snug text-foreground">
-          {skill.interface?.displayName ?? skill.name}
-        </p>
-        <p className="mt-0.5 truncate text-[12px] text-muted-foreground">{description}</p>
-      </div>
-      <InstalledStatus installed={skill.enabled} />
-    </div>
+    <RowInstalledApp
+      action={<InstalledStatus installed={skill.enabled} />}
+      description={description}
+      icon={<SkillGlyph skill={skill} />}
+      name={skill.interface?.displayName ?? skill.name}
+      tone="slate"
+    />
   );
 }
 
@@ -532,7 +506,10 @@ export function PluginLibrary() {
   // ── Render ───────────────────────────────────────────────────────────────
 
   return (
-    <SidebarInset className="h-dvh min-h-0 overflow-hidden isolate">
+    <SidebarInset
+      className="h-dvh min-h-0 overflow-hidden isolate bg-[var(--color-background-surface)] font-sans"
+      data-pencil-component="WDRTD"
+    >
       <div className="flex h-full flex-col">
         {/* ── Top nav ───────────────────────────────────────────────────── */}
         <div
@@ -543,7 +520,7 @@ export function PluginLibrary() {
           )}
         >
           <SidebarHeaderNavigationControls />
-          <div className="flex items-end gap-3">
+          <div className="flex items-center gap-2 py-2">
             <TabButton
               label="Plugins"
               active={selectedTab === "plugins"}
@@ -583,32 +560,30 @@ export function PluginLibrary() {
         </div>
 
         {/* ── Scrollable body ───────────────────────────────────────────── */}
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        <div
+          className="min-h-0 flex-1 overflow-y-auto"
+          data-pencil-region="apps-gallery-content"
+        >
           {/* Hero */}
-          <div className="px-6 py-10 text-center">
-            <h1 className="text-[28px] font-semibold text-foreground">
-              Make {providerLabel} work your way
-            </h1>
+          <div className="mx-auto max-w-2xl px-6 pt-8 pb-5">
+            <h1 className="text-xl font-semibold text-[var(--color-text-foreground)]">Apps</h1>
+            <p className="mt-1 text-[13px] text-[var(--color-text-foreground-tertiary)]">
+              Discover the plugins and skills available to {providerLabel}.
+            </p>
           </div>
 
           {/* Search */}
           <div className="mx-auto max-w-2xl px-6 pb-6">
-            <InputGroup className="rounded-xl bg-background/70 shadow-xs">
-              <InputGroupAddon>
-                <InputGroupText>
-                  <SearchIcon className="size-4 text-muted-foreground/60" />
-                </InputGroupText>
-              </InputGroupAddon>
-              <InputGroupInput
-                value={selectedTab === "plugins" ? pluginSearch : skillSearch}
-                onChange={(e) => {
-                  if (selectedTab === "plugins") setPluginSearch(e.target.value);
-                  else setSkillSearch(e.target.value);
-                }}
-                placeholder={selectedTab === "plugins" ? "Search plugins" : "Search skills"}
-                className="text-sm"
-              />
-            </InputGroup>
+            <InputSearchApps
+              aria-label={selectedTab === "plugins" ? "Search plugins" : "Search skills"}
+              className="w-full"
+              value={selectedTab === "plugins" ? pluginSearch : skillSearch}
+              onChange={(event) => {
+                if (selectedTab === "plugins") setPluginSearch(event.target.value);
+                else setSkillSearch(event.target.value);
+              }}
+              placeholder={selectedTab === "plugins" ? "Search plugins" : "Search skills"}
+            />
           </div>
 
           {/* Warnings */}
@@ -637,7 +612,7 @@ export function PluginLibrary() {
           )}
 
           {/* Grid content */}
-          <div className="px-3 pb-10 sm:px-5">
+          <div className="mx-auto max-w-2xl px-6 pb-10">
             {selectedTab === "plugins" ? (
               <>
                 {!canListPlugins ? (
@@ -663,7 +638,7 @@ export function PluginLibrary() {
                     {marketplaceSections.map((section) => (
                       <div key={section.key}>
                         <SectionHeader title={section.title} />
-                        <div className="grid grid-cols-1 sm:grid-cols-2">
+                        <div className="flex flex-col gap-2">
                           {section.entries.map((entry) => (
                             <PluginGridItem key={pluginEntryKey(entry)} entry={entry} />
                           ))}
@@ -693,7 +668,7 @@ export function PluginLibrary() {
                 ) : (
                   <div>
                     <SectionHeader title="Skills" />
-                    <div className="grid grid-cols-1 sm:grid-cols-2">
+                    <div className="flex flex-col gap-2">
                       {filteredSkills.map((skill) => (
                         <SkillGridItem key={skill.path} skill={skill} />
                       ))}

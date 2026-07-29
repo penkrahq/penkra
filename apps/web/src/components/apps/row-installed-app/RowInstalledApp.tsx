@@ -7,6 +7,7 @@ import { ButtonInstall } from "../button-install/ButtonInstall";
 import { IconTileApp, type IconTileAppProps } from "../icon-tile-app/IconTileApp";
 
 export interface RowInstalledAppProps extends HTMLAttributes<HTMLElement> {
+  action?: ReactNode;
   description?: string;
   icon?: ReactNode;
   name?: string;
@@ -15,6 +16,7 @@ export interface RowInstalledAppProps extends HTMLAttributes<HTMLElement> {
 }
 
 export function RowInstalledApp({
+  action,
   className,
   description = "Search the web and pull in pages without leaving your thread.",
   icon = <IconBrandChrome />,
@@ -41,7 +43,7 @@ export function RowInstalledApp({
           {description}
         </span>
       </span>
-      <ButtonInstall installed onClick={onOpen} />
+      {action ?? <ButtonInstall installed onClick={onOpen} />}
     </article>
   );
 }
