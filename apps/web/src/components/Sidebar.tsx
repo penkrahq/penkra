@@ -145,6 +145,7 @@ import { AccountMenu } from "./left-rail/menu-account/AccountMenu";
 import { SidebarTopNavigation } from "./left-rail/sidebar-top-navigation/SidebarTopNavigation";
 import { FolderRowShared } from "./left-rail/folder-row-shared/FolderRowShared";
 import { ShowMoreRow } from "./left-rail/show-more-row/ShowMoreRow";
+import { SidebarProjects } from "./left-rail/sidebar-projects/SidebarProjects";
 import { ThreadRowShared } from "./left-rail/thread-row-shared/ThreadRowShared";
 import { WorkspaceHeaderShared } from "./left-rail/workspace-header-shared/WorkspaceHeaderShared";
 import { ProjectSidebarIcon } from "./ProjectSidebarIcon";
@@ -238,11 +239,8 @@ import {
 } from "./ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import {
-  SidebarContent,
   SidebarFooter,
-  SidebarGroup,
   SidebarHeader,
-  SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarMenuSub,
@@ -5277,67 +5275,63 @@ export default function Sidebar() {
         }}
       />
 
-      <SidebarContent className="gap-0 font-system-ui">
-        {showArm64IntelBuildWarning && arm64IntelBuildWarningDescription ? (
-          <SidebarGroup className="px-2 pt-2 pb-0">
-            <Alert variant="warning" className="rounded-2xl border-warning/40 bg-warning/8">
-              <TriangleAlertIcon />
-              <AlertTitle>Intel build on Apple Silicon</AlertTitle>
-              <AlertDescription>{arm64IntelBuildWarningDescription}</AlertDescription>
-              {desktopUpdateButtonAction !== "none" ? (
-                <AlertAction>
-                  <Button
-                    size="xs"
-                    variant="outline"
-                    disabled={desktopUpdateButtonDisabled}
-                    onClick={handleDesktopUpdateButtonClick}
-                  >
-                    {desktopUpdateButtonAction === "download"
-                      ? "Preparing ARM build"
-                      : desktopUpdateButtonAction === "install"
-                        ? "Update ARM build"
-                        : "Check for ARM build update"}
-                  </Button>
-                </AlertAction>
-              ) : null}
-            </Alert>
-          </SidebarGroup>
-        ) : null}
-        <div className="sidebar-surface-enter">
-          <SidebarGroup className="px-2 py-2">
-            <SidebarMenu ref={attachProjectListAutoAnimateRef} className="gap-0.5">
-              {standardProjects.map((project) => renderPencilProjectItem(project))}
-            </SidebarMenu>
-
-            {projectEmptyState === "loading" && (
-              <div
-                className="space-y-2 px-2 pt-4"
-                aria-live="polite"
-                aria-label="Loading projects"
-              >
-                <div className="text-center text-[length:var(--app-font-size-ui,12px)] text-muted-foreground/58">
-                  Loading projects...
-                </div>
-                <div className="mx-auto grid w-full max-w-42 gap-1.5 opacity-70">
-                  <div className="h-2 rounded-full bg-muted/55 animate-pulse" />
-                  <div className="mx-auto h-2 w-4/5 rounded-full bg-muted/40 animate-pulse" />
-                  <div className="mx-auto h-2 w-3/5 rounded-full bg-muted/30 animate-pulse" />
-                </div>
-              </div>
-            )}
-
-            {projectEmptyState === "empty" && (
-              <SpaceEmptyState
-                space={activeSpace}
-                hasProjectsElsewhere={allStandardProjectsBase.length > 0}
-                onMoveProjects={() => {
-                  if (activeSpace) openSpaceProjectPicker(activeSpace.id);
-                }}
-              />
-            )}
-          </SidebarGroup>
+      {showArm64IntelBuildWarning && arm64IntelBuildWarningDescription ? (
+        <div className="px-2 pt-2">
+          <Alert variant="warning" className="rounded-2xl border-warning/40 bg-warning/8">
+            <TriangleAlertIcon />
+            <AlertTitle>Intel build on Apple Silicon</AlertTitle>
+            <AlertDescription>{arm64IntelBuildWarningDescription}</AlertDescription>
+            {desktopUpdateButtonAction !== "none" ? (
+              <AlertAction>
+                <Button
+                  size="xs"
+                  variant="outline"
+                  disabled={desktopUpdateButtonDisabled}
+                  onClick={handleDesktopUpdateButtonClick}
+                >
+                  {desktopUpdateButtonAction === "download"
+                    ? "Preparing ARM build"
+                    : desktopUpdateButtonAction === "install"
+                      ? "Update ARM build"
+                      : "Check for ARM build update"}
+                </Button>
+              </AlertAction>
+            ) : null}
+          </Alert>
         </div>
-      </SidebarContent>
+      ) : null}
+      <SidebarProjects className="sidebar-surface-enter font-system-ui">
+        <div ref={attachProjectListAutoAnimateRef} className="flex flex-col gap-0.5">
+          {standardProjects.map((project) => renderPencilProjectItem(project))}
+        </div>
+
+        {projectEmptyState === "loading" && (
+          <div
+            className="space-y-2 px-2 pt-4"
+            aria-live="polite"
+            aria-label="Loading projects"
+          >
+            <div className="text-center text-[length:var(--app-font-size-ui,12px)] text-muted-foreground/58">
+              Loading projects...
+            </div>
+            <div className="mx-auto grid w-full max-w-42 gap-1.5 opacity-70">
+              <div className="h-2 rounded-full bg-muted/55 animate-pulse" />
+              <div className="mx-auto h-2 w-4/5 rounded-full bg-muted/40 animate-pulse" />
+              <div className="mx-auto h-2 w-3/5 rounded-full bg-muted/30 animate-pulse" />
+            </div>
+          </div>
+        )}
+
+        {projectEmptyState === "empty" && (
+          <SpaceEmptyState
+            space={activeSpace}
+            hasProjectsElsewhere={allStandardProjectsBase.length > 0}
+            onMoveProjects={() => {
+              if (activeSpace) openSpaceProjectPicker(activeSpace.id);
+            }}
+          />
+        )}
+      </SidebarProjects>
 
       <SidebarFooter className="gap-1 p-0 font-system-ui">
         {DebugFeatureFlagsMenu && showDebugFeatureFlagsMenu && !isOnSettings ? (
