@@ -32,8 +32,10 @@ import {
   Effect,
   Equal,
   Exit,
+  FileSystem,
   Layer,
   Option,
+  Path,
   Schema,
   Semaphore,
   Stream,
@@ -77,6 +79,7 @@ import {
 import { resolveTextGenerationInputForSelection } from "../../git/textGenerationSelection.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { resolveProviderDispatchAttachments } from "../../provider/providerAttachmentPaths.ts";
+import { resolveManagedProviderStartOptions } from "../../provider/managedProviderRuntime.ts";
 import { OrchestrationEventDeliveryRepositoryLive } from "../../persistence/Layers/OrchestrationEventDeliveries.ts";
 import { ProjectionPendingInteractionRepositoryLive } from "../../persistence/Layers/ProjectionPendingInteractions.ts";
 import { QueuedTurnPromotionRepositoryLive } from "../../persistence/Layers/QueuedTurnPromotions.ts";
@@ -360,6 +363,8 @@ const make = Effect.gen(function* () {
   const serverSettings = yield* ServerSettingsService;
   const managedAttachments = yield* ManagedAttachmentRepository;
   const serverConfig = yield* ServerConfig;
+  const fileSystem = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
   const handledTurnStartKeys = yield* Cache.make<string, true>({
     capacity: HANDLED_TURN_START_KEY_MAX,
     timeToLive: HANDLED_TURN_START_KEY_TTL,
@@ -877,8 +882,14 @@ const make = Effect.gen(function* () {
         issue: `Provider '${preferredProvider}' is disabled in server settings revision ${settingsSnapshot.revision}.`,
       });
     }
-    const resolvedProviderOptions = providerStartOptionsFromServerSettings(
-      settingsSnapshot.settings,
+    const resolvedProviderOptions = yield* resolveManagedProviderStartOptions({
+      stateDir: serverConfig.stateDir,
+      provider: preferredProvider,
+      configuredBinaryPath: settingsSnapshot.settings.providers[preferredProvider].binaryPath,
+      providerOptions: providerStartOptionsFromServerSettings(settingsSnapshot.settings),
+    }).pipe(
+      Effect.provideService(FileSystem.FileSystem, fileSystem),
+      Effect.provideService(Path.Path, path),
     );
     const effectiveCwd = yield* resolveProjectedThreadWorkspaceCwd(thread);
     const workspaceState = resolveThreadWorkspaceState({

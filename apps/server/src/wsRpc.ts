@@ -1332,6 +1332,14 @@ const makeWsRpcHandlersLayer = () =>
                   )
                 : providerHealth.updateProvider(input),
             ),
+            Effect.mapError((cause) =>
+              cause instanceof ServerProviderUpdateError
+                ? cause
+                : new ServerProviderUpdateError({
+                    provider: input.provider,
+                    reason: "Could not verify whether this provider has an active session.",
+                  }),
+            ),
           ),
         [WS_METHODS.serverListWorktrees]: () =>
           rpcEffect(
