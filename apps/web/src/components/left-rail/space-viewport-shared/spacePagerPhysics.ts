@@ -3,11 +3,8 @@ export const SPACE_PAGER_RAMP_PX = 34;
 export const SPACE_PAGER_COMMIT_RATIO = 0.3;
 export const SPACE_PAGER_PROJECTED_COMMIT_RATIO = 0.38;
 export const SPACE_PAGER_PROJECTION_MS = 140;
-export const SPACE_PAGER_SETTLE_TRANSITION = {
-  bounce: 0,
-  type: "spring",
-  visualDuration: 0.3,
-} as const;
+export const SPACE_PAGER_SETTLE_MAX_DURATION_SECONDS = 0.3;
+export const SPACE_PAGER_SETTLE_MIN_DURATION_SECONDS = 0.08;
 
 const INITIAL_GAIN = 0.22;
 const MIN_FLING_VELOCITY_PX_PER_MS = 0.24;
@@ -68,6 +65,29 @@ export function resolveSpacePagerDestination({
 
   const direction = Math.sign(distanceCommits ? dragDistance : projectedDistance);
   return clamp(activePageIndex + direction, 0, finalIndex);
+}
+
+export function resolveSpacePagerSettleTransition(
+  currentPosition: number,
+  targetPosition: number,
+  pageWidth: number,
+) {
+  const remainingFraction =
+    pageWidth > 0 ? clamp(Math.abs(targetPosition - currentPosition) / pageWidth, 0, 1) : 0;
+  const visualDuration =
+    remainingFraction === 0
+      ? 0
+      : clamp(
+          remainingFraction * SPACE_PAGER_SETTLE_MAX_DURATION_SECONDS,
+          SPACE_PAGER_SETTLE_MIN_DURATION_SECONDS,
+          SPACE_PAGER_SETTLE_MAX_DURATION_SECONDS,
+        );
+
+  return {
+    bounce: 0,
+    type: "spring",
+    visualDuration,
+  } as const;
 }
 
 export function normalizeWheelDelta(event: WheelEvent, pageWidth: number) {

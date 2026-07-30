@@ -5,12 +5,12 @@ import {
   applySpacePagerEngagement,
   normalizeWheelDelta,
   resolveSpacePagerDestination,
-  SPACE_PAGER_SETTLE_TRANSITION,
+  resolveSpacePagerSettleTransition,
 } from "./spacePagerPhysics";
 
 const AXIS_LOCK_PX = 6;
 const AXIS_DOMINANCE_RATIO = 1.15;
-const WHEEL_IDLE_MS = 76;
+const WHEEL_IDLE_MS = 48;
 const MOMENTUM_GUARD_IDLE_MS = 110;
 
 interface WheelGesture {
@@ -98,8 +98,17 @@ export function useSpacePager({
         return;
       }
 
+      const transition = resolveSpacePagerSettleTransition(
+        trackPositionRef.current,
+        target,
+        pageWidthRef.current,
+      );
+      if (transition.visualDuration === 0) {
+        setTrackPosition(target);
+        return;
+      }
       settleAnimationRef.current = animate(trackPositionRef.current, target, {
-        ...SPACE_PAGER_SETTLE_TRANSITION,
+        ...transition,
         onComplete: () => {
           setTrackPosition(target);
           settleAnimationRef.current = null;

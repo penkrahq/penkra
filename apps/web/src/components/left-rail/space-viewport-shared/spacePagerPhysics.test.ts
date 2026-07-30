@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   applySpacePagerEngagement,
   resolveSpacePagerDestination,
+  resolveSpacePagerSettleTransition,
   SPACE_PAGER_ACTIVATION_PX,
-  SPACE_PAGER_SETTLE_TRANSITION,
 } from "./spacePagerPhysics";
 
 describe("spacePagerPhysics", () => {
@@ -87,13 +87,22 @@ describe("spacePagerPhysics", () => {
     ).toBe(1);
   });
 
-  it("uses one duration-based, zero-bounce settle for every release speed", () => {
-    expect(SPACE_PAGER_SETTLE_TRANSITION).toEqual({
+  it("scales zero-bounce settling by remaining distance, not release speed", () => {
+    expect(resolveSpacePagerSettleTransition(-12, 0, 240)).toEqual({
+      bounce: 0,
+      type: "spring",
+      visualDuration: 0.08,
+    });
+    expect(resolveSpacePagerSettleTransition(-120, -240, 240)).toEqual({
+      bounce: 0,
+      type: "spring",
+      visualDuration: 0.15,
+    });
+    expect(resolveSpacePagerSettleTransition(0, -240, 240)).toEqual({
       bounce: 0,
       type: "spring",
       visualDuration: 0.3,
     });
-    expect("velocity" in SPACE_PAGER_SETTLE_TRANSITION).toBe(false);
-    expect("stiffness" in SPACE_PAGER_SETTLE_TRANSITION).toBe(false);
+    expect("velocity" in resolveSpacePagerSettleTransition(-12, 0, 240)).toBe(false);
   });
 });
