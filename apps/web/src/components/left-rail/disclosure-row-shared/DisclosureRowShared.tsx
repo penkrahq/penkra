@@ -23,7 +23,8 @@ export function DisclosureRowShared({
   return (
     <LeftRailRow
       aria-expanded={expanded}
-      leading={<Chevron />}
+      leading={<Chevron className="size-3.5" />}
+      leadingClassName="size-3.5"
       state={expanded ? "open" : state}
       trailing={showTrailing ? <IconDots className="size-3.5" /> : null}
       {...props}

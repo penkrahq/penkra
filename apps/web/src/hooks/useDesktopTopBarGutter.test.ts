@@ -18,6 +18,7 @@ describe("shouldReserveDesktopTopBarTrafficLightGutter", () => {
         isMacDesktop: true,
         sidebarOpen: false,
         isMobile: false,
+        isFullscreen: false,
       }),
     ).toBe(false);
   });
@@ -29,6 +30,7 @@ describe("shouldReserveDesktopTopBarTrafficLightGutter", () => {
         isMacDesktop: false,
         sidebarOpen: false,
         isMobile: false,
+        isFullscreen: false,
       }),
     ).toBe(false);
   });
@@ -40,6 +42,7 @@ describe("shouldReserveDesktopTopBarTrafficLightGutter", () => {
         isMacDesktop: true,
         sidebarOpen: true,
         isMobile: false,
+        isFullscreen: false,
       }),
     ).toBe(false);
   });
@@ -51,6 +54,7 @@ describe("shouldReserveDesktopTopBarTrafficLightGutter", () => {
         isMacDesktop: true,
         sidebarOpen: false,
         isMobile: false,
+        isFullscreen: false,
       }),
     ).toBe(true);
   });
@@ -63,9 +67,22 @@ describe("shouldReserveDesktopTopBarTrafficLightGutter", () => {
           isMacDesktop: true,
           sidebarOpen,
           isMobile: true,
+          isFullscreen: false,
         }),
       ).toBe(true);
     }
+  });
+
+  it("returns content to the leading edge in native fullscreen", () => {
+    expect(
+      shouldReserveDesktopTopBarTrafficLightGutter({
+        isElectron: true,
+        isMacDesktop: true,
+        sidebarOpen: false,
+        isMobile: false,
+        isFullscreen: true,
+      }),
+    ).toBe(false);
   });
 });
 

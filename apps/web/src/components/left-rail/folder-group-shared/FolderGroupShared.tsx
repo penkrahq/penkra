@@ -1,9 +1,11 @@
 "use client";
 
 import type { ProviderKind } from "@synara/contracts";
-import { IconChevronDown, IconChevronRight, IconFolder, IconFolderOpen } from "@tabler/icons-react";
 import { useState } from "react";
 
+import { DisclosureSection } from "~/components/ui/DisclosureRegion";
+
+import { FolderStateIcon } from "../folder-state-icon/FolderStateIcon";
 import { LeftRailRow, type LeftRailRowState } from "../row-shared/LeftRailRow";
 import { ShowMoreRow } from "../show-more-row/ShowMoreRow";
 import { ThreadRowShared } from "../thread-row-shared/ThreadRowShared";
@@ -44,39 +46,41 @@ export function FolderGroupShared({
     onExpandedChange?.(nextExpanded);
   };
 
-  const Chevron = expanded ? IconChevronDown : IconChevronRight;
-  const Folder = expanded ? IconFolderOpen : IconFolder;
+  const hasContent = threads.length > 0 || showMore;
 
   return (
-    <section className="w-full" data-pencil-component="Shahm">
-      <LeftRailRow
-        aria-expanded={expanded}
-        leading={
-          <span className="relative inline-flex size-4 items-center justify-center">
-            <Folder className="size-3.5" />
-            <Chevron className="absolute -left-2 size-2.5" />
-          </span>
-        }
-        onClick={() => setExpanded(!expanded)}
-        state={expanded ? "open" : "default"}
-      >
-        <span className="font-medium">{label}</span>
-      </LeftRailRow>
-      {expanded ? (
-        <div className="mt-0.5 flex flex-col gap-0.5" data-slot="folder-content">
-          {threads.map((thread) => (
-            <ThreadRowShared
-              key={thread.id}
-              onClick={() => onThreadSelect?.(thread.id)}
-              {...(thread.provider === undefined ? {} : { harness: thread.provider })}
-              {...(thread.state === undefined ? {} : { state: thread.state })}
-            >
-              {thread.label}
-            </ThreadRowShared>
-          ))}
-          {showMore ? <ShowMoreRow onClick={onShowMore}>Show more</ShowMoreRow> : null}
-        </div>
-      ) : null}
-    </section>
+    <DisclosureSection
+      className="w-full"
+      contentClassName="pt-0.5"
+      data-pencil-component="Shahm"
+      hasContent={hasContent}
+      header={
+        <LeftRailRow
+          aria-expanded={expanded}
+          className="gap-1.5"
+          leading={<FolderStateIcon open={expanded} />}
+          leadingClassName="size-3.5"
+          onClick={() => setExpanded(!expanded)}
+          state={expanded ? "open" : "default"}
+        >
+          <span className="font-medium">{label}</span>
+        </LeftRailRow>
+      }
+      open={expanded}
+    >
+      <div className="flex flex-col gap-0.5" data-slot="folder-content">
+        {threads.map((thread) => (
+          <ThreadRowShared
+            key={thread.id}
+            onClick={() => onThreadSelect?.(thread.id)}
+            {...(thread.provider === undefined ? {} : { harness: thread.provider })}
+            {...(thread.state === undefined ? {} : { state: thread.state })}
+          >
+            {thread.label}
+          </ThreadRowShared>
+        ))}
+        {showMore ? <ShowMoreRow onClick={onShowMore}>Show more</ShowMoreRow> : null}
+      </div>
+    </DisclosureSection>
   );
 }

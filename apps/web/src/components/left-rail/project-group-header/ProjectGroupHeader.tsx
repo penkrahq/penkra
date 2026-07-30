@@ -20,8 +20,9 @@ export function ProjectGroupHeader({
   return (
     <LeftRailRow
       aria-expanded={expanded}
-      className="h-7"
-      leading={<Chevron className="!size-3" />}
+      className="h-7 gap-1.5"
+      leading={<Chevron className="size-3" />}
+      leadingClassName="size-3"
       {...props}
       state={expanded ? "open" : state}
     >

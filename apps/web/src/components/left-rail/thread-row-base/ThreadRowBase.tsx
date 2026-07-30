@@ -20,6 +20,7 @@ export function ThreadRowBase({
     <LeftRailRow
       className="pl-6"
       leading={<BranchIcon />}
+      leadingClassName="size-3.5"
       trailing={
         refreshing ? (
           <IconRefresh aria-label="Refreshing" className="size-[13px] animate-spin" />

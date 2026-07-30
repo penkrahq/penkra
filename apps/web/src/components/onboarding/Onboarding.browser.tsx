@@ -13,6 +13,7 @@ import {
 import { OnboardingApiKey } from "./api-key/OnboardingApiKey";
 import { OnboardingConnectAgent } from "./connect-agent/OnboardingConnectAgent";
 import { DesktopOnboardingGate } from "./DesktopOnboardingGate";
+import { OnboardingWelcome } from "./welcome/OnboardingWelcome";
 
 function resolveCssColor(value: string): string {
   const probe = document.createElement("span");
@@ -58,6 +59,35 @@ describe("Pencil onboarding", () => {
     await page.getByRole("textbox", { name: "Key name" }).fill("Production");
     await page.getByRole("button", { name: "Save" }).click();
     expect(onContinue).toHaveBeenCalledWith("sk-local", "Production");
+  });
+
+  it("keeps the onboarding frame distinct from the launch canvas across themes", async () => {
+    await render(<OnboardingWelcome />);
+
+    const frame = document.querySelector<HTMLElement>("[data-onboarding-frame]");
+    expect(frame).not.toBeNull();
+
+    const darkFrame = getComputedStyle(frame!).backgroundColor;
+    const darkCanvas = resolveCssColor(
+      getComputedStyle(document.documentElement).getPropertyValue("--background"),
+    );
+    expect(darkFrame).toBe("rgb(30, 30, 30)");
+    expect(darkFrame).not.toBe(darkCanvas);
+
+    const lightTheme = buildThemeCssVariables(
+      resolveThemePack(DEFAULT_THEME_STATE, "light"),
+      "light",
+    );
+    for (const [name, value] of Object.entries(lightTheme.variables)) {
+      document.documentElement.style.setProperty(name, value);
+    }
+
+    const lightFrame = getComputedStyle(frame!).backgroundColor;
+    const lightCanvas = resolveCssColor(
+      getComputedStyle(document.documentElement).getPropertyValue("--background"),
+    );
+    expect(lightFrame).toBe("rgb(249, 249, 249)");
+    expect(lightFrame).not.toBe(lightCanvas);
   });
 
   it("starts processing only after the sign-up callback returns", async () => {

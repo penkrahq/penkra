@@ -64,7 +64,12 @@ import { RotatingFileSink } from "@synara/shared/logging";
 import { ensureStaticSnapshot, findAsarArchivePath } from "@synara/shared/staticSnapshot";
 import { isBackendReadinessAborted, waitForHttpReady } from "./backendReadiness";
 import { resolveBackendNodeArgs } from "./backendNodeOptions";
+import { captureBackendProcessOutput } from "./backendProcessOutput";
 import { runAfterDesktopShutdown } from "./backendShutdown";
+import {
+  type BackendStartupBlock,
+  BackendStartupBlockDetector,
+} from "./backendStartupBlock";
 import {
   bundleSignatureFromStats,
   isBundleStable,
@@ -73,6 +78,12 @@ import {
   type BundleSignature,
 } from "./bundleSwapDetection";
 import { waitForBackendStartupReady } from "./backendStartupReadiness";
+import {
+  BACKEND_MAX_CONSECUTIVE_START_FAILURES,
+  BackendOutputTailDetector,
+  BackendSupervisionPolicy,
+  summarizeBackendFailureOutput,
+} from "./backendSupervisionPolicy";
 import { showDesktopConfirmDialog } from "./confirmDialog";
 import {
   makeUpdateInstallPreparationCoordinator,
@@ -304,8 +315,10 @@ let backendHttpUrl = "";
 let backendWsUrl = "";
 let backendReadinessAbortController: AbortController | null = null;
 let backendInitialWindowOpenInFlight: Promise<void> | null = null;
+let backendLifecycleDialogInFlight: Promise<void> | null = null;
 let backendListeningDetector: ServerListeningDetector | null = null;
-let restartAttempt = 0;
+const backendSupervision = new BackendSupervisionPolicy();
+let lastBackendFailureDetail: string | null = null;
 let restartTimer: ReturnType<typeof setTimeout> | null = null;
 let isQuitting = false;
 let isUpdaterInstallPreparing = false;
@@ -670,19 +683,6 @@ function initializePackagedLogging(): void {
   }
 }
 
-function captureBackendOutput(child: ChildProcess.ChildProcess): void {
-  const attachStream = (stream: NodeJS.ReadableStream | null | undefined): void => {
-    stream?.on("data", (chunk: unknown) => {
-      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk), "utf8");
-      backendLogSink?.write(buffer);
-      backendListeningDetector?.push(buffer);
-    });
-  };
-
-  attachStream(child.stdout);
-  attachStream(child.stderr);
-}
-
 initializePackagedLogging();
 
 function getDestructiveMenuIcon(): Electron.NativeImage | undefined {
@@ -976,6 +976,23 @@ function resolveBackendCwd(): string {
     return resolveAppRoot();
   }
   return OS.homedir();
+}
+
+function isDesktopMigrationRecoveryPending(): boolean {
+  try {
+    return hasPendingDesktopMigrationRecovery(
+      resolveDesktopMigrationRecoveryPaths({
+        baseDir: BASE_DIR,
+        appRoot: resolveAppRoot(),
+        isDevelopment,
+      }),
+    );
+  } catch (error) {
+    writeDesktopLogHeader(
+      `migration recovery marker check failed message=${formatErrorMessage(error)}`,
+    );
+    return false;
+  }
 }
 
 async function handleDesktopMigrationRecovery(): Promise<
@@ -2769,25 +2786,185 @@ function backendEnv(): NodeJS.ProcessEnv {
     SYNARA_HOME: BASE_DIR,
     SYNARA_AUTH_TOKEN: backendAuthToken,
     SYNARA_DESKTOP_SHUTDOWN_TOKEN: DESKTOP_BACKEND_SHUTDOWN_TOKEN,
+    SYNARA_DESKTOP_PARENT_PID: String(process.pid),
   };
 }
 
 function scheduleBackendRestart(reason: string): void {
-  if (isQuitting || restartTimer) return;
+  const response = backendSupervision.respondToStartFailure({
+    quitting: isQuitting,
+    restartPending: restartTimer !== null,
+    migrationRecoveryMarkerPresent: isDesktopMigrationRecoveryPending(),
+  });
 
-  const delayMs = Math.min(500 * 2 ** restartAttempt, 10_000);
-  restartAttempt += 1;
-  safeConsoleError(`[desktop] backend exited unexpectedly (${reason}); restarting in ${delayMs}ms`);
-
-  restartTimer = setTimeout(() => {
-    restartTimer = null;
-    void restartBackendAfterCrash(reason);
-  }, delayMs);
+  switch (response.kind) {
+    case "ignore":
+      return;
+    case "recover-migration":
+      writeDesktopLogHeader(
+        `migration recovery marker detected after backend failure reason=${sanitizeLogValue(reason)}`,
+      );
+      void runMidSessionMigrationRecovery(reason);
+      return;
+    case "give-up":
+      writeDesktopLogHeader(
+        `backend supervision gave up failures=${response.failures} reason=${sanitizeLogValue(reason)}`,
+      );
+      safeConsoleError(
+        `[desktop] backend failed to start ${response.failures} times in a row (${reason}); no further restarts will be attempted`,
+      );
+      presentBackendStartupGiveUp(reason);
+      return;
+    case "retry":
+      safeConsoleError(
+        `[desktop] backend exited unexpectedly (${reason}); restarting in ${response.delayMs}ms (attempt ${response.attempt}/${BACKEND_MAX_CONSECUTIVE_START_FAILURES})`,
+      );
+      restartTimer = setTimeout(() => {
+        restartTimer = null;
+        void restartBackendAfterCrash(reason);
+      }, response.delayMs);
+      return;
+  }
 }
 
-async function restartBackendAfterCrash(reason: string): Promise<void> {
+async function runMidSessionMigrationRecovery(reason: string): Promise<void> {
+  const outcome = await handleDesktopMigrationRecovery();
+  if (outcome !== "continue") return;
+  await restartBackendAfterCrash(reason);
+}
+
+function backendFailureDialogDetail(reason: string): string {
+  const summary = summarizeBackendFailureOutput(lastBackendFailureDetail ?? "");
+  const cause = summary.length > 0 ? summary : reason;
+  return [
+    cause,
+    "Penkra paused automatic restarts so a failing backend cannot keep respawning in the background.",
+    `Log folder:\n${LOG_DIR}`,
+  ].join("\n\n");
+}
+
+async function openDesktopLogDirectory(): Promise<void> {
+  try {
+    await FS.promises.mkdir(LOG_DIR, { recursive: true });
+    const errorMessage = await shell.openPath(LOG_DIR);
+    if (errorMessage.trim().length > 0) {
+      throw new Error(errorMessage);
+    }
+  } catch (error) {
+    safeConsoleError(`[desktop] failed to open log directory: ${formatErrorMessage(error)}`);
+  }
+}
+
+function presentBackendStartupGiveUp(reason: string): void {
+  if (isQuitting || backendLifecycleDialogInFlight) return;
+
+  const detail = backendFailureDialogDetail(reason);
+  const task = (async () => {
+    for (;;) {
+      const result = await dialog.showMessageBox({
+        type: "error",
+        title: "Penkra's backend didn't start",
+        message: `Penkra's backend failed to start ${BACKEND_MAX_CONSECUTIVE_START_FAILURES} times in a row.`,
+        detail,
+        buttons: ["Try again", "Open logs", "Quit"],
+        defaultId: 0,
+        cancelId: 2,
+        noLink: true,
+      });
+
+      if (result.response === 1) {
+        await openDesktopLogDirectory();
+        continue;
+      }
+      if (result.response === 0) {
+        backendLifecycleDialogInFlight = null;
+        await restartBackendAfterCrash("manual retry after backend startup failure", "lifecycle");
+        return;
+      }
+
+      requestGracefulAppQuit("backend failed to start");
+      return;
+    }
+  })().finally(() => {
+    if (backendLifecycleDialogInFlight === task) {
+      backendLifecycleDialogInFlight = null;
+    }
+  });
+  backendLifecycleDialogInFlight = task;
+}
+
+function handleBackendStartupBlock(block: BackendStartupBlock): void {
+  if (isQuitting || backendLifecycleDialogInFlight) return;
+
+  const task = (async () => {
+    if (block.kind === "migration-recovery-required") {
+      const result = await dialog.showMessageBox({
+        type: "warning",
+        title: "Penkra needs to recover its database",
+        message: "A database migration did not finish safely.",
+        detail:
+          "Restart Penkra to open the verified backup recovery flow. Provider and chat processes will remain stopped until recovery completes.",
+        buttons: ["Restart and recover", "Quit"],
+        defaultId: 0,
+        cancelId: 1,
+        noLink: true,
+      });
+      if (result.response === 0) {
+        app.relaunch();
+        requestGracefulAppQuit("migration recovery required");
+      } else {
+        requestGracefulAppQuit("migration recovery declined");
+      }
+      return;
+    }
+
+    const processDetail =
+      block.ownerPid === null
+        ? "Another Penkra backend is already using this database."
+        : `Another Penkra backend (process ${block.ownerPid}) is already using this database.`;
+    for (;;) {
+      const result = await dialog.showMessageBox({
+        type: "warning",
+        title: "Penkra is already running elsewhere",
+        message: "Your local Penkra data is in use by another process.",
+        detail: `${processDetail}\n\nStop the other Penkra app or development server, then try again. Your data has not been changed.`,
+        buttons: ["Try again", "Open logs", "Quit"],
+        defaultId: 0,
+        cancelId: 2,
+        noLink: true,
+      });
+      if (result.response === 1) {
+        await openDesktopLogDirectory();
+        continue;
+      }
+      if (result.response === 0) {
+        backendLifecycleDialogInFlight = null;
+        await restartBackendAfterCrash("database lifecycle lock retry", "lifecycle");
+      } else {
+        requestGracefulAppQuit("database lifecycle lock");
+      }
+      return;
+    }
+  })().finally(() => {
+    if (backendLifecycleDialogInFlight === task) {
+      backendLifecycleDialogInFlight = null;
+    }
+  });
+  backendLifecycleDialogInFlight = task;
+}
+
+type BackendStartTrigger = "lifecycle" | "crash-restart";
+
+async function restartBackendAfterCrash(
+  reason: string,
+  trigger: BackendStartTrigger = "crash-restart",
+): Promise<void> {
   if (isQuitting || backendProcess) {
     return;
+  }
+
+  if (trigger === "lifecycle") {
+    backendSupervision.reset();
   }
 
   cancelBackendReadinessWait();
@@ -2800,12 +2977,17 @@ async function restartBackendAfterCrash(reason: string): Promise<void> {
     return;
   }
 
-  startBackend();
+  startBackend(trigger);
   ensureInitialBackendWindowOpen(backendHttpUrl);
 }
 
-function startBackend(): void {
+function startBackend(trigger: BackendStartTrigger = "lifecycle"): void {
   if (isQuitting || backendProcess) return;
+  if (desktopStartupBlockedForMigrationRecovery) return;
+
+  if (trigger === "lifecycle") {
+    backendSupervision.reset();
+  }
 
   const backendEntry = resolveBackendEntry();
   if (!FS.existsSync(backendEntry)) {
@@ -2813,7 +2995,6 @@ function startBackend(): void {
     return;
   }
 
-  const captureBackendLogs = isPackagedRuntime && backendLogSink !== null;
   const child = ChildProcess.spawn(process.execPath, [...backendNodeArgs(), backendEntry], {
     cwd: resolveBackendCwd(),
     // In Electron main, process.execPath points to the Electron binary.
@@ -2823,9 +3004,15 @@ function startBackend(): void {
       ELECTRON_RUN_AS_NODE: "1",
       SYNARA_SERVER_ENTRY: backendEntry,
     },
-    stdio: captureBackendLogs ? ["ignore", "pipe", "pipe"] : "inherit",
+    // Keep output piped in development and production so startup blockers and
+    // readiness remain observable before the backend begins listening.
+    // IPC and the expected parent PID bind the backend lifetime to Electron. If
+    // Electron is force-killed or crashes, the child releases its database.
+    stdio: ["ignore", "pipe", "pipe", "ipc"],
   });
   const listeningDetector = new ServerListeningDetector();
+  const startupBlockDetector = new BackendStartupBlockDetector();
+  const outputTailDetector = new BackendOutputTailDetector();
   backendListeningDetector = listeningDetector;
   backendProcess = child;
   let backendSessionClosed = false;
@@ -2838,11 +3025,30 @@ function startBackend(): void {
     "START",
     `pid=${child.pid ?? "unknown"} port=${backendPort} cwd=${resolveBackendCwd()}`,
   );
-  captureBackendOutput(child);
-
-  child.once("spawn", () => {
-    restartAttempt = 0;
+  const backendLogDestination = backendLogSink;
+  const backendOutputCapture = captureBackendProcessOutput({
+    stdout: child.stdout,
+    stderr: child.stderr,
+    ...(backendLogDestination ? { writeLog: (chunk) => backendLogDestination.write(chunk) } : {}),
+    writeStdout: (chunk) => {
+      process.stdout.write(chunk);
+    },
+    writeStderr: (chunk) => {
+      process.stderr.write(chunk);
+    },
+    detectors: [listeningDetector, startupBlockDetector, outputTailDetector],
   });
+
+  // Attach both branches immediately so a failed restart can never produce an
+  // unhandled readiness rejection. Readiness, not spawn, resets supervision.
+  void listeningDetector.promise.then(
+    () => {
+      if (backendListeningDetector === listeningDetector) {
+        backendSupervision.recordReadiness();
+      }
+    },
+    () => undefined,
+  );
 
   child.on("error", (error) => {
     if (backendListeningDetector === listeningDetector) {
@@ -2853,6 +3059,7 @@ function startBackend(): void {
       backendProcess = null;
     }
     closeBackendSession(`pid=${child.pid ?? "unknown"} error=${error.message}`);
+    lastBackendFailureDetail = error.message;
     scheduleBackendRestart(error.message);
   });
 
@@ -2868,12 +3075,20 @@ function startBackend(): void {
     if (backendProcess === child) {
       backendProcess = null;
     }
-    closeBackendSession(
-      `pid=${child.pid ?? "unknown"} code=${code ?? "null"} signal=${signal ?? "null"}`,
-    );
-    if (isQuitting) return;
-    const reason = `code=${code ?? "null"} signal=${signal ?? "null"}`;
-    scheduleBackendRestart(reason);
+    void backendOutputCapture.drained.then(() => {
+      closeBackendSession(
+        `pid=${child.pid ?? "unknown"} code=${code ?? "null"} signal=${signal ?? "null"}`,
+      );
+      if (isQuitting) return;
+      const startupBlock = startupBlockDetector.read();
+      if (startupBlock) {
+        handleBackendStartupBlock(startupBlock);
+        return;
+      }
+      const reason = `code=${code ?? "null"} signal=${signal ?? "null"}`;
+      lastBackendFailureDetail = outputTailDetector.read();
+      scheduleBackendRestart(reason);
+    });
   });
 }
 

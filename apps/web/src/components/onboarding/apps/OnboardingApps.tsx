@@ -92,7 +92,7 @@ export function OnboardingApps({ onBack, onContinue }: OnboardingAppsProps) {
   return (
     <section
       aria-labelledby="onboarding-apps-title"
-      className="relative flex h-[640px] w-full max-w-[1040px] overflow-hidden bg-[var(--color-background-panel)] text-[var(--color-text-foreground)]"
+      className="relative flex h-[640px] w-full max-w-[1040px] overflow-hidden bg-[var(--color-background-onboarding-frame)] text-[var(--color-text-foreground)]"
       data-pencil-component="YmEq2"
     >
       <div className="relative flex min-w-0 flex-1 justify-center md:w-[600px] md:flex-none">
@@ -149,7 +149,7 @@ export function OnboardingApps({ onBack, onContinue }: OnboardingAppsProps) {
 
       <aside
         aria-hidden="true"
-        className="hidden h-full w-[440px] shrink-0 bg-[var(--color-background-panel)] md:block"
+        className="hidden h-full w-[440px] shrink-0 bg-[var(--color-background-onboarding-frame)] md:block"
       />
     </section>
   );

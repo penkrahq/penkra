@@ -65,33 +65,9 @@ export const COMPOSER_MAX_WIDTH_CLASS_NAME = "max-w-[35rem]";
 /** Main chat column background — matches the theme Background setting exactly. */
 export const CHAT_BACKGROUND_CLASS_NAME = "bg-[var(--color-background-surface)]";
 
-/** Turns the main content column into a distinct, opaque card that floats over the
- *  (optionally translucent) sidebar instead of sharing one continuous surface with it.
- *  - The rounded seam edge, the 1px inset ring divider, and the depth shadow all live in
- *    `index.css` and are applied per `data-sidebar-side` ONLY while the sidebar is expanded
- *    — when it collapses (offcanvas) the card fills the window edge-to-edge and stays square
- *    so its corner doesn't double up with the macOS window's own rounded corner.
- *  - The single seam divider is a 1px inset ring on the card (see `index.css`), so it
- *    follows the rounded corner. The `SidebarRail`
- *    (`placement="content-seam"`, z-[25]) is just the resize hit-area and intensifies
- *    that same border on hover via `:has()` — never put a seam border on the sidebar,
- *    and never draw a second divider/shadow line on the rail.
- *  - `data-sidebar-side` on `SidebarProvider` picks left vs right seam geometry.
- *  - `relative z-[15]` stacks the card above the sidebar shell but below the content-seam
- *    rail (`z-[25]`), so on collapse the sidebar slides *under* the card (the
- *    movement goes "over") rather than the card shifting sideways with it.
- *  - `overflow-hidden` clips children to the rounded edge.
- *
- *  Apply this to the OPAQUE content surface (e.g. the chat wrapper, or a
- *  SidebarInset `surfaceClassName`) — never to a transparent, full-width
- *  `SidebarInset` shell, or its raised z-index would cover and block the sidebar. */
-export const CHAT_CONTENT_CARD_CLASS_NAME = "chat-content-card relative z-[15] overflow-hidden";
-
-/** Opaque chat surface that floats as a card over the sidebar: column background + card chrome.
- *  Apply to the element that should read as the raised card (the chat content wrapper, or a
- *  SidebarInset `surfaceClassName`). Routes with their own background (e.g. settings) combine
- *  `CHAT_CONTENT_CARD_CLASS_NAME` with their own background token instead. */
-export const CHAT_MAIN_CONTENT_SURFACE_CLASS_NAME = `${CHAT_BACKGROUND_CLASS_NAME} ${CHAT_CONTENT_CARD_CLASS_NAME}`;
+/** Opaque, square-edged main content surface. The Pencil shell has no card,
+ * seam affordance, divider shadow, or rounded inner edge between rails. */
+export const CHAT_MAIN_CONTENT_SURFACE_CLASS_NAME = `${CHAT_BACKGROUND_CLASS_NAME} relative overflow-hidden`;
 
 /** Clipped full-height inset shell for routes that already own an outer card wrapper.
  *  Default RouteInsetSurface card routes use an unclipped inset so seam shadows can bleed. */

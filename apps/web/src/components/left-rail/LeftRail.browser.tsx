@@ -4,9 +4,12 @@ import { page } from "vitest/browser";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
+import { TopBarThread } from "../middle-panel/top-bar-thread/TopBarThread";
+import { DisclosureSection } from "../ui/DisclosureRegion";
 import { AccountRowShared } from "./account-row-shared/AccountRowShared";
 import { AccountControlShared } from "./account-control-shared/AccountControlShared";
 import { FolderGroupShared } from "./folder-group-shared/FolderGroupShared";
+import { SidebarHeaderShared } from "./sidebar-header-shared/SidebarHeaderShared";
 import { SidebarProjects } from "./sidebar-projects/SidebarProjects";
 
 const threads = Array.from({ length: 12 }, (_, index) => ({
@@ -18,6 +21,23 @@ const threads = Array.from({ length: 12 }, (_, index) => ({
 describe("Pencil left rail", () => {
   afterEach(() => {
     document.body.innerHTML = "";
+  });
+
+  it("keeps the sidebar and thread chrome on the shared 46px titlebar baseline", async () => {
+    await render(
+      <div>
+        <SidebarHeaderShared />
+        <TopBarThread />
+      </div>,
+    );
+
+    const sidebarHeader = document.querySelector<HTMLElement>("header:first-child");
+    const threadHeader = document.querySelectorAll<HTMLElement>("header")[1];
+
+    expect(sidebarHeader).not.toBeNull();
+    expect(threadHeader).not.toBeNull();
+    expect(sidebarHeader!.getBoundingClientRect().height).toBe(46);
+    expect(threadHeader!.getBoundingClientRect().height).toBe(46);
   });
 
   it("uses a real bounded vertical scroll viewport for overflowing projects", async () => {
@@ -43,9 +63,90 @@ describe("Pencil left rail", () => {
 
     const disclosure = page.getByRole("button", { name: "penut" });
     await expect.element(disclosure).toHaveAttribute("aria-expanded", "false");
+    expect(disclosure.element().querySelector("[data-folder-state='closed']")).toBeVisible();
+    expect(disclosure.element().querySelector("[data-folder-state='open']")).not.toBeVisible();
+    const rowRect = disclosure.element().getBoundingClientRect();
+    const leadingRect = disclosure
+      .element()
+      .querySelector<HTMLElement>("[data-slot='left-rail-leading']")!
+      .getBoundingClientRect();
+    const labelRect = disclosure
+      .element()
+      .querySelector<HTMLElement>("[data-slot='left-rail-label']")!
+      .getBoundingClientRect();
+    expect(leadingRect.width).toBe(14);
+    expect(Math.abs(leadingRect.left - rowRect.left - 10)).toBeLessThan(1);
+    expect(Math.abs(labelRect.left - leadingRect.right - 6)).toBeLessThan(1);
+    await disclosure.hover();
+    expect(disclosure.element().querySelector("[data-folder-state='closed']")).not.toBeVisible();
+    expect(disclosure.element().querySelector("[data-folder-state='open']")).toBeVisible();
     await disclosure.click();
     await expect.element(disclosure).toHaveAttribute("aria-expanded", "true");
-    await expect.element(page.getByRole("button", { name: "Thread 1" })).toBeVisible();
+    expect(disclosure.element().querySelector("[data-folder-state='closed']")).not.toBeVisible();
+    expect(disclosure.element().querySelector("[data-folder-state='open']")).toBeVisible();
+    expect(disclosure.element().querySelectorAll("svg")).toHaveLength(2);
+    const firstThread = page.getByRole("button", { name: "Thread 1" });
+    await expect.element(firstThread).toBeVisible();
+    expect(
+      Math.abs(
+        firstThread.element().getBoundingClientRect().top -
+          disclosure.element().getBoundingClientRect().bottom -
+          2,
+      ),
+    ).toBeLessThan(1);
+  });
+
+  it("keeps an empty shared disclosure at zero layout height", async () => {
+    const { rerender } = await render(
+      <div className="flex flex-col gap-0.5">
+        <DisclosureSection
+          hasContent={false}
+          header={<div className="h-[27px]" data-slot="empty-disclosure-header" />}
+          open={false}
+        >
+          <div className="h-[27px]" data-slot="empty-disclosure-content" />
+        </DisclosureSection>
+        <div className="h-[27px]" data-slot="empty-disclosure-sibling" />
+      </div>,
+    );
+
+    const sibling = document.querySelector<HTMLElement>("[data-slot='empty-disclosure-sibling']")!;
+    const siblingTop = sibling.getBoundingClientRect().top;
+
+    await rerender(
+      <div className="flex flex-col gap-0.5">
+        <DisclosureSection
+          hasContent={false}
+          header={<div className="h-[27px]" data-slot="empty-disclosure-header" />}
+          open
+        >
+          <div className="h-[27px]" data-slot="empty-disclosure-content" />
+        </DisclosureSection>
+        <div className="h-[27px]" data-slot="empty-disclosure-sibling" />
+      </div>,
+    );
+
+    expect(document.querySelector("[data-slot='empty-disclosure-content']")).toBeNull();
+    expect(sibling.getBoundingClientRect().top).toBe(siblingTop);
+  });
+
+  it("does not move the next row when an empty folder is expanded", async () => {
+    await render(
+      <div className="flex flex-col gap-0.5">
+        <FolderGroupShared label="Empty folder" />
+        <div className="h-[27px]" data-slot="empty-folder-sibling" />
+      </div>,
+    );
+
+    const disclosure = page.getByRole("button", { name: "Empty folder" });
+    const sibling = document.querySelector<HTMLElement>("[data-slot='empty-folder-sibling']")!;
+    const siblingTop = sibling.getBoundingClientRect().top;
+
+    await disclosure.click();
+
+    await expect.element(disclosure).toHaveAttribute("aria-expanded", "true");
+    expect(document.querySelector("[data-slot='folder-content']")).toBeNull();
+    expect(sibling.getBoundingClientRect().top).toBe(siblingTop);
   });
 
   it("keeps account and help as separate actions", async () => {

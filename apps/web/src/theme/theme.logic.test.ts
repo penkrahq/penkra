@@ -459,6 +459,26 @@ describe("buildThemeCssVariables", () => {
     expect(darkVariables["--color-brand-mark-bridge"]).toBe("#8CB8E1");
   });
 
+  it("derives a distinct onboarding frame surface for both variants", () => {
+    const lightVariables = buildThemeCssVariables(
+      resolveThemePack(DEFAULT_THEME_STATE, "light"),
+      "light",
+    ).variables;
+    const darkVariables = buildThemeCssVariables(
+      resolveThemePack(DEFAULT_THEME_STATE, "dark"),
+      "dark",
+    ).variables;
+
+    expect(lightVariables["--color-background-onboarding-frame"]).toBe("#f9f9f9");
+    expect(darkVariables["--color-background-onboarding-frame"]).toBe("#1e1e1e");
+    expect(lightVariables["--color-background-onboarding-frame"]).not.toBe(
+      lightVariables["--background"],
+    );
+    expect(darkVariables["--color-background-onboarding-frame"]).not.toBe(
+      darkVariables["--background"],
+    );
+  });
+
   it("shares the user message bubble background with the chat code-block surface", () => {
     const pack = {
       codeThemeId: "custom-light",

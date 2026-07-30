@@ -33,6 +33,7 @@ export function ThreadRowShared({
           <ProviderIcon className="size-3.5" provider={harness} />
         )
       }
+      leadingClassName="size-3.5"
       trailing={
         refreshing ? (
           <IconRefresh aria-label="Refreshing" className="size-[13px] animate-spin" />

@@ -32,9 +32,10 @@ export function OnboardingLayout({
   return (
     <section
       className={cn(
-        "relative flex h-[min(640px,calc(100vh-2rem))] min-h-[520px] w-full max-w-[1040px] overflow-hidden bg-[var(--color-background-panel)] text-[var(--color-text-foreground)]",
+        "relative flex h-[min(640px,calc(100vh-2rem))] min-h-[520px] w-full max-w-[1040px] overflow-hidden bg-[var(--color-background-onboarding-frame)] text-[var(--color-text-foreground)]",
         className,
       )}
+      data-onboarding-frame
     >
       {showBrandLogo ? (
         <PenkraMark

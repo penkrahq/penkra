@@ -4,7 +4,7 @@
 // Exports: DisclosureRegion
 // Depends on: disclosureMotion helpers
 
-import type { ReactNode } from "react";
+import type { ComponentPropsWithoutRef, ReactNode } from "react";
 
 import {
   DISCLOSURE_INNER_CLASS,
@@ -30,5 +30,36 @@ export function DisclosureRegion(props: {
         <div className={disclosureContentClassName(open, contentClassName)}>{children}</div>
       </div>
     </div>
+  );
+}
+
+export interface DisclosureSectionProps extends Omit<
+  ComponentPropsWithoutRef<"section">,
+  "children"
+> {
+  children: ReactNode;
+  contentClassName?: string;
+  hasContent: boolean;
+  header: ReactNode;
+  open: boolean;
+}
+
+export function DisclosureSection({
+  children,
+  contentClassName,
+  hasContent,
+  header,
+  open,
+  ...sectionProps
+}: DisclosureSectionProps) {
+  return (
+    <section {...sectionProps}>
+      {header}
+      {hasContent ? (
+        <DisclosureRegion contentClassName={contentClassName} open={open}>
+          {children}
+        </DisclosureRegion>
+      ) : null}
+    </section>
   );
 }
