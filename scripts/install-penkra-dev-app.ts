@@ -114,10 +114,12 @@ function install(): void {
   const iconPath = join(resourcesPath, "PenkraDev.icns");
   const backupPath = `/Applications/.Penkra Dev.backup-${String(process.pid)}.app`;
   const signingIdentity = resolveMacDevelopmentSigningIdentity();
+  const configuredBackendRoot = process.env.PENKRA_BACKEND_ROOT?.trim();
   const backendRoot = discoverPenkraBackendRoot({
     desktopRoot: repoRoot,
-    configuredBackendRoot: process.env.PENKRA_BACKEND_ROOT,
+    ...(configuredBackendRoot ? { configuredBackendRoot } : {}),
   });
+  const configuredWebsiteRoot = process.env.PENKRA_WEBSITE_ROOT?.trim();
   const workspace = writePenkraDevWorkspace(
     {
       desktopRoot: repoRoot,
@@ -125,7 +127,7 @@ function install(): void {
       websiteRoot: discoverPenkraWebsiteRoot({
         desktopRoot: repoRoot,
         backendRoot,
-        configuredWebsiteRoot: process.env.PENKRA_WEBSITE_ROOT,
+        ...(configuredWebsiteRoot ? { configuredWebsiteRoot } : {}),
       }),
     },
     resolvePenkraDevWorkspaceConfigPath(),
@@ -195,9 +197,7 @@ function install(): void {
     if (register.status !== 0) {
       throw new Error(`Could not register Penkra Dev launcher: ${register.stderr.trim()}`);
     }
-    if (previousTargetAppPath !== targetAppPath) {
-      rmSync(previousTargetAppPath, { recursive: true, force: true });
-    }
+    rmSync(previousTargetAppPath, { recursive: true, force: true });
 
     process.stdout.write(
       `Installed Penkra Dev launcher at ${targetAppPath}\nDesktop repository: ${workspace.desktopRoot}\nBackend repository: ${workspace.backendRoot}\nWebsite repository: ${workspace.websiteRoot}\nBun: ${bunExecutable}\nSigning identity: ${signingIdentity}\n`,

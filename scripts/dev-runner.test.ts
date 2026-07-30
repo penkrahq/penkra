@@ -34,7 +34,6 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
       "SYNARA_AUTO_BOOTSTRAP_PROJECT_FROM_CWD",
       "VITE_WS_URL",
       "VITE_DEV_SERVER_URL",
-      "PENKRA_UPDATE_TOKEN",
     ]) {
       assert.ok(globalEnv.has(name), `${name} must be declared in turbo.json globalEnv`);
     }

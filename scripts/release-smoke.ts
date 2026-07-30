@@ -15,10 +15,6 @@ import {
 } from "@synara/shared/desktopIdentity";
 
 import {
-  readReleaseUpdatePolicyConfig,
-  resolveReleaseUpdatePolicy,
-} from "./lib/release-update-policy.ts";
-import {
   RELEASE_LOCKFILE_PATH,
   RELEASE_PATCHES_PATH,
   RELEASE_WORKSPACE_MANIFEST_PATHS,
@@ -109,102 +105,68 @@ function verifyCanonicalIdentity(): void {
   if (SYNARA_DESKTOP_UPDATE_CHANNEL !== "latest") {
     throw new Error(`Unexpected desktop update channel: ${SYNARA_DESKTOP_UPDATE_CHANNEL}.`);
   }
-
-  const releasePolicy = readReleaseUpdatePolicyConfig(repoRoot);
-  const resolvedPolicy = resolveReleaseUpdatePolicy("9.9.9", releasePolicy);
-  if (
-    resolvedPolicy.lane !== "clean" ||
-    !resolvedPolicy.makeLatest ||
-    resolvedPolicy.mirrorToStableChannel
-  ) {
-    throw new Error("Expected the inherited clean-release fixture to resolve to GitHub Latest.");
-  }
 }
 
 function verifyReleaseWorkflowSafety(): void {
   const workflow = readFileSync(resolve(repoRoot, ".github/workflows/release.yml"), "utf8");
   const ciWorkflow = readFileSync(resolve(repoRoot, ".github/workflows/ci.yml"), "utf8");
-  const publisher = readFileSync(resolve(repoRoot, "scripts/penkra-publish.mjs"), "utf8");
-  const localRelease = readFileSync(resolve(repoRoot, "scripts/penkra-release-local.mjs"), "utf8");
-  const release = JSON.parse(
-    readFileSync(resolve(repoRoot, "scripts/penkra-release.json"), "utf8"),
-  ) as {
-    version: string;
-    backendRepository: string;
-    backendRef: string;
-    platform: string;
-    arch: string;
-  };
-  const notes = readFileSync(resolve(repoRoot, `docs/releases/${release.version}.md`), "utf8");
-
-  if (!/^\d+\.\d+\.\d+$/.test(release.version)) throw new Error("Invalid Penkra release version.");
-  if (release.backendRepository !== "penkrahq/penkra-backend") {
-    throw new Error("Expected the Penkra backend repository.");
-  }
-  if (!/^[0-9a-f]{7,40}$/.test(release.backendRef)) {
-    throw new Error("Expected an exact backend revision.");
-  }
-  if (release.platform !== "mac" || release.arch !== "arm64") {
-    throw new Error("Expected the production release to be macOS arm64 only.");
-  }
-  assertContains(notes, `Penkra ${release.version}`, "Expected versioned Penkra release notes.");
-  assertNotContains(ciWorkflow, "push:", "CI must not run on pushes.");
-  assertNotContains(ciWorkflow, "pull_request:", "CI must not run on pull requests.");
-  assertNotContains(workflow, "push:", "Desktop releases must not run on pushes or tags.");
+  assertContains(ciWorkflow, "pull_request:", "Expected CI on pull requests.");
   assertContains(
-    workflow,
-    "workflow_dispatch:\n    inputs:\n      publish:",
-    "Expected a manual publication opt-in input.",
+    ciWorkflow,
+    "push:\n    branches:\n      - main",
+    "Expected CI on pushes to main.",
   );
   assertContains(
     workflow,
-    "default: false\n        type: boolean",
-    "Expected manual release runs to default to build-only mode.",
+    'tags:\n      - "v*.*.*"',
+    "Expected stable desktop releases to build from version tags.",
   );
+  assertNotContains(workflow, "workflow_dispatch:", "Release creation must start from a tag.");
   assertContains(
     workflow,
-    "if: ${{ inputs.publish }}",
-    "Expected S3 publication to require explicit publication mode.",
+    '[[ ! "$version" =~ ^[0-9]+\\.[0-9]+\\.[0-9]+$ ]]',
+    "Expected release tags to require stable semantic versions.",
   );
   assertContains(workflow, "runs-on: macos-14", "Expected the release to run on macOS.");
   assertContains(
     workflow,
-    'release.platform !== "mac" || release.arch !== "arm64"',
-    "Expected release metadata to be constrained to macOS arm64.",
+    "environment: desktop-release",
+    "Expected signing secrets to be protected by the desktop release environment.",
+  );
+  assertContains(workflow, "--target dmg", "Expected a signed DMG and matching update ZIP.");
+  assertContains(workflow, "--arch arm64", "Expected the production release to be macOS arm64.");
+  assertContains(
+    workflow,
+    "--source-commit",
+    "Expected release artifacts to be bound to the tagged commit.",
   );
   assertContains(
     workflow,
-    "--platform mac --target zip --arch arm64",
-    "Expected a signed macOS arm64 ZIP build.",
+    "--lockfile-sha256",
+    "Expected release artifacts to be bound to the repository lockfile.",
   );
   assertContains(
     workflow,
-    "PENKRA_UPDATE_TOKEN: ${{ secrets.PENKRA_UPDATE_TOKEN }}",
-    "Expected the private update token during packaging.",
+    "uses: actions/attest@v4",
+    "Expected public release artifacts to carry GitHub build provenance.",
   );
+  assertContains(workflow, "--draft", "Expected an explicit draft-release review gate.");
+  assertContains(workflow, "--generate-notes", "Expected GitHub-generated release notes.");
   assertContains(
     workflow,
-    "repository: ${{ steps.release.outputs.backend_repository }}",
-    "Expected the pinned Penkra backend CLI source.",
+    "Public desktop artifact contains the private Penkra CLI.",
+    "Expected release verification to reject the private CLI.",
   );
-  assertContains(
-    workflow,
-    "bun run release:publish:s3 -- release",
-    "Expected explicit publication to use Penkra's private S3 publisher.",
-  );
-  assertContains(localRelease, "PENKRA_CLI_BINARY", "Expected the local release to pin the CLI.");
-  assertContains(
-    localRelease,
-    "scripts/penkra-publish.mjs",
-    "Expected the local release to use the private S3 publisher.",
-  );
-  assertContains(publisher, "isStrictlyNewer", "Expected monotonic release publication.");
-  assertContains(publisher, ".zip.blockmap", "Expected differential blockmap publication.");
-  if (publisher.indexOf("const manifestUpload") <= publisher.indexOf("for (const file")) {
-    throw new Error("Versioned artifacts must upload before latest-mac.yml.");
+  for (const forbidden of [
+    "BACKEND_REPOSITORY_TOKEN",
+    "penkra-backend",
+    "PENKRA_UPDATE_TOKEN",
+    "PENKRA_RELEASE_BUCKET",
+    "AWS_ACCESS_KEY_ID",
+    "release:publish:s3",
+  ]) {
+    assertNotContains(workflow, forbidden, `Release workflow must not contain ${forbidden}.`);
   }
-  assertNotContains(workflow, "windows-", "The production release must not retain a Windows lane.");
-  assertNotContains(workflow, "ubuntu-", "The production release must not retain a Linux lane.");
 }
 
 function verifyDesktopStageLockAuthority(): void {
@@ -266,20 +228,18 @@ function verifyDesktopStageLockAuthority(): void {
     "electron-builder.cmd",
     "Desktop packaging must not depend on a Windows bin shim that Bun may hoist elsewhere.",
   );
-  assertContains(
+  assertContains(buildScript, 'provider: "github"', "Expected GitHub Releases auto-updates.");
+  assertContains(buildScript, 'owner: "penkrahq"', "Expected the Penkra GitHub owner.");
+  assertContains(buildScript, 'repo: "penkra"', "Expected the public Penkra release repository.");
+  assertNotContains(
     buildScript,
-    '"https://api.penkra.com/updates/mac"',
-    "Expected the packaged app to use Penkra's private update feed.",
+    "PENKRA_CLI_BINARY",
+    "Public packaging must not require the private Penkra CLI.",
   );
-  assertContains(
+  assertNotContains(
     buildScript,
-    "useMultipleRangeRequest: false",
-    "Expected ordinary byte ranges through the authenticated S3 redirect.",
-  );
-  assertContains(
-    buildScript,
-    'extraResources: [{ from: "penkra-cli", to: "penkra-cli" }]',
-    "Expected the pinned Penkra CLI in the packaged app.",
+    'from: "penkra-cli"',
+    "Public packaging must not stage the private Penkra CLI.",
   );
   assertContains(
     buildScript,

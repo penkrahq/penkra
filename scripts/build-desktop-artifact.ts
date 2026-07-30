@@ -2,11 +2,11 @@
 // FILE: build-desktop-artifact.ts
 // Purpose: Stages and builds packaged desktop artifacts plus Penkra updater metadata.
 // Layer: Release/build script
-// Depends on: apps/desktop package metadata, the pinned Penkra CLI, and electron-builder.
+// Depends on: apps/desktop package metadata and electron-builder.
 
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmodSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 
@@ -429,13 +429,12 @@ function resolveDesktopRuntimeDependencies(
   return resolveCatalogDependencies(runtimeDependencies, catalog, "apps/desktop");
 }
 
-function resolvePenkraUpdateUrl(
+function resolveMockUpdateUrl(
   mockUpdates: boolean,
   mockUpdateServerPort: string | undefined,
 ): string {
   if (mockUpdates) return `http://localhost:${mockUpdateServerPort ?? 3000}`;
-  const configured = process.env.PENKRA_UPDATE_URL?.trim();
-  return configured ? configured.replace(/\/$/, "") : "https://api.penkra.com/updates/mac";
+  throw new Error("A mock update URL is only valid for a mock update build.");
 }
 
 interface PatchFileExpectation {
@@ -564,22 +563,26 @@ const createBuildConfig = Effect.fn("createBuildConfig")(function* (
         schemes: [PENKRA_ACCOUNT_AUTH_SCHEME],
       },
     ],
-    extraResources: [{ from: "penkra-cli", to: "penkra-cli" }],
     directories: {
       buildResources: "apps/desktop/resources",
     },
     forceCodeSigning: signed,
   };
-  buildConfig.publish = [
-    {
-      provider: "generic",
-      url: resolvePenkraUpdateUrl(mockUpdates, mockUpdateServerPort),
-      // Penkra authenticates its generic feed and redirects artifacts to S3.
-      // S3 supports ordinary byte ranges, but not the multipart multi-range
-      // response electron-updater otherwise assumes for a generic URL.
-      useMultipleRangeRequest: false,
-    },
-  ];
+  buildConfig.publish = mockUpdates
+    ? [
+        {
+          provider: "generic",
+          url: resolveMockUpdateUrl(mockUpdates, mockUpdateServerPort),
+          useMultipleRangeRequest: false,
+        },
+      ]
+    : [
+        {
+          provider: "github",
+          owner: "penkrahq",
+          repo: "penkra",
+        },
+      ];
 
   const platformBuildConfigInput = {
     platform,
@@ -763,15 +766,6 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
 
   const stageAppDir = path.join(stageRoot, "app");
   const stageResourcesDir = path.join(stageAppDir, "apps/desktop/resources");
-  const configuredCliBinary = process.env.PENKRA_CLI_BINARY?.trim();
-  if (!configuredCliBinary) {
-    return yield* new BuildScriptError({
-      message: "PENKRA_CLI_BINARY must point to the pinned backend CLI binary.",
-    });
-  }
-  const cliBinarySource = path.resolve(configuredCliBinary);
-  const stagedCliDirectory = path.join(stageAppDir, "penkra-cli");
-  const stagedCliBinary = path.join(stagedCliDirectory, "penkra");
   const distDirs = {
     desktopDist: path.join(repoRoot, "apps/desktop/dist-electron"),
     desktopResources: path.join(repoRoot, "apps/desktop/resources"),
@@ -802,12 +796,6 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
       message: `Missing bundled server client at ${bundledClientEntry}. Run 'bun run build:desktop' first.`,
     });
   }
-  if (!(yield* fs.exists(cliBinarySource))) {
-    return yield* new BuildScriptError({
-      message: `Pinned Penkra CLI binary does not exist: ${cliBinarySource}`,
-    });
-  }
-
   yield* validateBundledClientAssets(path.dirname(bundledClientEntry));
 
   yield* fs.makeDirectory(path.join(stageAppDir, "apps/desktop"), { recursive: true });
@@ -817,10 +805,6 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   yield* fs.copy(distDirs.desktopDist, path.join(stageAppDir, "apps/desktop/dist-electron"));
   yield* fs.copy(distDirs.desktopResources, stageResourcesDir);
   yield* fs.copy(distDirs.serverDist, path.join(stageAppDir, "apps/server/dist"));
-  yield* fs.makeDirectory(stagedCliDirectory, { recursive: true });
-  yield* fs.copyFile(cliBinarySource, stagedCliBinary);
-  chmodSync(stagedCliBinary, 0o755);
-
   yield* assertPlatformBuildResources(options.platform, stageResourcesDir, options.verbose);
 
   yield* stageMacAppSnapHelper(stageAppDir, options.arch, options.verbose);
@@ -968,6 +952,12 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
 
   const copiedArtifacts: string[] = [];
   for (const entry of stageEntries) {
+    const isReleaseArtifact =
+      entry === "latest-mac.yml" ||
+      entry.endsWith(".dmg") ||
+      entry.endsWith(".zip") ||
+      entry.endsWith(".zip.blockmap");
+    if (!isReleaseArtifact) continue;
     const from = path.join(stageDistDir, entry);
     const stat = yield* fs.stat(from).pipe(Effect.catch(() => Effect.succeed(null)));
     if (!stat || stat.type !== "File") continue;

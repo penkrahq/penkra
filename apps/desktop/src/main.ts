@@ -177,8 +177,6 @@ import {
   resolvePenkraRootPointerPath,
   writePenkraRootPointer,
 } from "./penkraRoot";
-import { bakedPenkraUpdateToken, penkraUpdateRequestHeaders } from "./penkraUpdateConfig";
-import { installBundledPenkraCli } from "./penkraCliLink";
 import {
   readDesktopWindowState,
   resolveVisibleWindowBounds,
@@ -2613,8 +2611,7 @@ function configureAutoUpdater(): void {
 
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = false;
-  autoUpdater.requestHeaders = penkraUpdateRequestHeaders(bakedPenkraUpdateToken());
-  // Penkra's private generic feed uses electron-updater's standard latest manifests.
+  // Stable desktop builds use the public GitHub Releases provider configured at packaging time.
   autoUpdater.channel = SYNARA_DESKTOP_UPDATE_CHANNEL;
   autoUpdater.allowPrerelease = DESKTOP_UPDATE_ALLOW_PRERELEASE;
   autoUpdater.allowDowngrade = false;
@@ -3765,18 +3762,6 @@ if (hasSingleInstanceLock) {
       void migrateLegacyDesktopStorage()
         .catch((error) => {
           console.warn("[desktop] Failed to migrate legacy renderer storage", error);
-        })
-        .then(async () => {
-          if (!isPackagedRuntime) return;
-          const result = await installBundledPenkraCli({
-            resourcesPath: process.resourcesPath,
-            penkraRoot: PENKRA_ROOT,
-            platform: process.platform,
-          });
-          console.info("[desktop] Penkra CLI install result", result);
-        })
-        .catch((error) => {
-          console.warn("[desktop] Failed to install bundled Penkra CLI", error);
         })
         .then(() => bootstrap())
         .catch((error) => {

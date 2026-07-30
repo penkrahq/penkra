@@ -1,118 +1,216 @@
 name: Release Penkra Desktop
 
 on:
-  workflow_dispatch:
-    inputs:
-      publish:
-        description: Publish the verified artifacts to the production S3 update feed
-        required: true
-        default: false
-        type: boolean
+  push:
+    tags:
+      - "v*.*.*"
 
 concurrency:
-  group: penkra-desktop-production
+  group: penkra-desktop-${{ github.ref }}
   cancel-in-progress: false
 
-jobs:
-  release:
-    runs-on: macos-14
-    timeout-minutes: 45
-    environment: production-desktop
-    permissions:
-      contents: read
-    steps:
-      - name: Check out Penkra app
-        uses: actions/checkout@v7
+permissions:
+  contents: read
 
-      - name: Read pinned release metadata
+jobs:
+  preflight:
+    name: Validate release source
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      source_commit: ${{ steps.release.outputs.source_commit }}
+      lockfile_sha256: ${{ steps.release.outputs.lockfile_sha256 }}
+    steps:
+      - name: Checkout tagged source
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Resolve and validate release identity
         id: release
+        shell: bash
         run: |
-          node --input-type=module <<'NODE'
-          import release from "./scripts/penkra-release.json" with { type: "json" };
-          if (!/^\d+\.\d+\.\d+$/.test(release.version)) throw new Error("Invalid release version");
-          if (release.platform !== "mac" || release.arch !== "arm64") {
-            throw new Error("The production release lane is macOS arm64 only");
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          version="${tag#v}"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Stable releases require an exact vMAJOR.MINOR.PATCH tag, got: $tag" >&2
+            exit 1
+          fi
+
+          node --input-type=module - "$version" <<'NODE'
+          import { readFileSync } from "node:fs";
+
+          const version = process.argv[2];
+          const manifests = [
+            "apps/desktop/package.json",
+            "apps/server/package.json",
+            "apps/web/package.json",
+            "packages/contracts/package.json",
+          ];
+          for (const manifest of manifests) {
+            const actual = JSON.parse(readFileSync(manifest, "utf8")).version;
+            if (actual !== version) {
+              throw new Error(`${manifest} is ${actual}; release tag requires ${version}`);
+            }
           }
-          console.log(`Preparing Penkra ${release.version} with backend ${release.backendRef}`);
           NODE
-          node -e 'const fs=require("fs");const r=require("./scripts/penkra-release.json");fs.appendFileSync(process.env.GITHUB_OUTPUT,`version=${r.version}\nbackend_repository=${r.backendRepository}\nbackend_ref=${r.backendRef}\n`)'
+
+          source_commit="$(git rev-parse HEAD)"
+          lockfile_sha256="$(shasum -a 256 bun.lock | awk '{print $1}')"
+          {
+            echo "version=$version"
+            echo "source_commit=$source_commit"
+            echo "lockfile_sha256=$lockfile_sha256"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: package.json
 
-      - name: Install and validate app
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Verify release source
         run: |
-          bun install --frozen-lockfile
+          bun run brand:check
           bun run fmt:check
           bun run lint
           bun run typecheck
           bun run test
+          bun run release:smoke
 
-      - name: Check out pinned backend CLI
-        uses: actions/checkout@v7
+  build:
+    name: Build signed macOS arm64 release
+    needs: preflight
+    runs-on: macos-14
+    timeout-minutes: 60
+    environment: desktop-release
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - name: Checkout tagged source
+        uses: actions/checkout@v6
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
         with:
-          repository: ${{ steps.release.outputs.backend_repository }}
-          ref: ${{ steps.release.outputs.backend_ref }}
-          token: ${{ secrets.BACKEND_REPOSITORY_TOKEN }}
-          path: penkra-backend
+          bun-version-file: package.json
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 11.7.0
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
 
-      - name: Build pinned backend CLI
-        working-directory: penkra-backend
-        run: |
-          pnpm install --frozen-lockfile
-          pnpm --filter @penkra/cli build:binary
-
-      - name: Build signed macOS arm64 artifact
+      - name: Build, sign, and notarize
         env:
-          PENKRA_CLI_BINARY: ${{ github.workspace }}/penkra-backend/apps/cli/dist/penkra
-          PENKRA_UPDATE_TOKEN: ${{ secrets.PENKRA_UPDATE_TOKEN }}
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        shell: bash
         run: |
-          required=(PENKRA_UPDATE_TOKEN CSC_LINK CSC_KEY_PASSWORD)
-          for name in "${required[@]}"; do test -n "${!name}" || { echo "Missing $name"; exit 1; }; done
-          if test -n "$APPLE_API_KEY" || test -n "$APPLE_API_KEY_ID" || test -n "$APPLE_API_ISSUER"; then
-            required_notary=(APPLE_API_KEY APPLE_API_KEY_ID APPLE_API_ISSUER)
-            for name in "${required_notary[@]}"; do
-              test -n "${!name}" || { echo "Partial Apple notarization configuration: missing $name"; exit 1; }
-            done
-            key_path="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY_ID}.p8"
-            printf '%s' "$APPLE_API_KEY" > "$key_path"
-            export APPLE_API_KEY="$key_path"
-          else
-            echo "Building with the configured signing identity; notarization is not configured"
-          fi
-          bun run dist:desktop:artifact -- \
-            --platform mac --target zip --arch arm64 \
-            --build-version "${{ steps.release.outputs.version }}" --signed --verbose
+          set -euo pipefail
+          required=(
+            CSC_LINK
+            CSC_KEY_PASSWORD
+            APPLE_API_KEY
+            APPLE_API_KEY_ID
+            APPLE_API_ISSUER
+          )
+          for name in "${required[@]}"; do
+            test -n "${!name:-}" || { echo "Missing required release secret: $name" >&2; exit 1; }
+          done
 
-      - name: Verify updater artifact
-        run: bun run release:smoke:mac-update -- --artifact-dir release
+          key_path="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY_ID}.p8"
+          printf '%s' "$APPLE_API_KEY" > "$key_path"
+          export APPLE_API_KEY="$key_path"
+
+          bun run dist:desktop:artifact -- \
+            --platform mac \
+            --target dmg \
+            --arch arm64 \
+            --build-version "${{ needs.preflight.outputs.version }}" \
+            --source-commit "${{ needs.preflight.outputs.source_commit }}" \
+            --source-tag "${GITHUB_REF_NAME}" \
+            --lockfile-sha256 "${{ needs.preflight.outputs.lockfile_sha256 }}" \
+            --signed \
+            --verbose
+
+      - name: Verify updater artifact and public-package boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          bun run release:smoke:mac-update -- --artifact-dir release
+          if ditto -l -k release/*.zip | grep -q '/Contents/Resources/penkra-cli/'; then
+            echo "Public desktop artifact contains the private Penkra CLI." >&2
+            exit 1
+          fi
+
+      - name: Write SHA-256 checksums
+        working-directory: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          artifacts=(*.dmg *.zip *.blockmap *.yml)
+          if (( ${#artifacts[@]} == 0 )); then
+            echo "No release artifacts found for checksums." >&2
+            exit 1
+          fi
+          shasum -a 256 "${artifacts[@]}" > SHA256SUMS.txt
+
+      - name: Attest release artifacts
+        uses: actions/attest@v4
+        with:
+          subject-path: release/*
 
       - name: Retain exact release artifacts
         uses: actions/upload-artifact@v6
         with:
-          name: penkra-${{ steps.release.outputs.version }}-mac-arm64
+          name: penkra-${{ needs.preflight.outputs.version }}-mac-arm64
           path: release/*
           if-no-files-found: error
           retention-days: 30
 
-      - name: Publish versioned files then manifest
-        if: ${{ inputs.publish }}
+  draft_release:
+    name: Create draft GitHub Release
+    needs: [preflight, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Download verified release artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: penkra-${{ needs.preflight.outputs.version }}-mac-arm64
+          path: release
+
+      - name: Create or refresh draft release
         env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION: ${{ secrets.AWS_REGION }}
-          PENKRA_RELEASE_BUCKET: ${{ secrets.PENKRA_RELEASE_BUCKET }}
-          PENKRA_UPDATE_TOKEN: ${{ secrets.PENKRA_UPDATE_TOKEN }}
-        run: bun run release:publish:s3 -- release
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            is_draft="$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)"
+            if [[ "$is_draft" != "true" ]]; then
+              echo "Release $RELEASE_TAG is already published; refusing to replace it." >&2
+              exit 1
+            fi
+            gh release upload "$RELEASE_TAG" release/* \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber
+          else
+            gh release create "$RELEASE_TAG" release/* \
+              --repo "$GITHUB_REPOSITORY" \
+              --verify-tag \
+              --draft \
+              --generate-notes \
+              --title "Penkra $RELEASE_TAG"
+          fi

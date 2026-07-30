@@ -4,8 +4,6 @@ import { existsSync, mkdtempSync, readdirSync, renameSync, rmSync } from "node:f
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 
-import release from "./penkra-release.json" with { type: "json" };
-
 const artifactDir = resolve(process.argv[2] ?? "release");
 const zipNames = readdirSync(artifactDir).filter((name) => name.endsWith(".zip"));
 if (zipNames.length !== 1 || !zipNames[0]) {
@@ -34,8 +32,15 @@ try {
     join(source, "Contents", "Info"),
     "CFBundleShortVersionString",
   ]);
-  if (version !== release.version) {
-    throw new Error(`Local artifact version ${version} does not match release ${release.version}.`);
+  const manifest = readdirSync(artifactDir).find((name) => name === "latest-mac.yml");
+  if (!manifest) {
+    throw new Error("Release directory does not contain latest-mac.yml.");
+  }
+  const manifestContents = run("sed", ["-n", "s/^version: *//p", join(artifactDir, manifest)]);
+  if (version !== manifestContents) {
+    throw new Error(
+      `Local artifact version ${version} does not match update manifest ${manifestContents}.`,
+    );
   }
 
   run("osascript", ["-e", 'tell application "Penkra" to quit']);

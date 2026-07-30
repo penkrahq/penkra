@@ -9,6 +9,13 @@
 - If the user asks to focus on code only, do not run `bun fmt`, `bun lint`, or `bun typecheck` automatically. In that mode, make the code changes first and only run verification if the user explicitly asks for it.
 - NEVER run `bun test`. Always use `bun run test` (runs Vitest).
 
+## Version Authority
+
+- Never choose, infer, bump, reset, tag, or publish a Penkra version unless the user explicitly approves the exact version in the current conversation.
+- Instructions such as “release,” “clean cut,” “major change,” or “proceed” do not authorize a version change.
+- Keep existing package and lockfile versions unchanged until the exact version is approved.
+- Before creating or pushing a version tag or publishing a GitHub Release, restate the exact approved version and verify that package manifests, the lockfile, tag, artifact metadata, and release title all match it.
+
 ## Project Snapshot
 
 Synara is a minimal web GUI for using coding agents like Codex and Claude.

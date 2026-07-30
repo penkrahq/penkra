@@ -7,13 +7,11 @@ import { defineConfig } from "tsdown";
 
 const sourcemapEnv = process.env.SYNARA_DESKTOP_SOURCEMAP?.trim().toLowerCase();
 const buildSourcemap = sourcemapEnv === "1" || sourcemapEnv === "true";
-const penkraUpdateToken = process.env.PENKRA_UPDATE_TOKEN?.trim() ?? "";
 
 const shared = {
   format: "cjs" as const,
   outDir: "dist-electron",
   sourcemap: buildSourcemap,
-  define: { __PENKRA_UPDATE_TOKEN__: JSON.stringify(penkraUpdateToken) },
   outExtensions: () => ({ js: ".js" }),
 };
 

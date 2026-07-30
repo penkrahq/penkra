@@ -37,7 +37,7 @@ interface SmokeResult {
   readonly manifestHeadContentLength: number;
   readonly zipHeadContentLength: number;
   readonly zipBlockmapSize: number;
-  readonly bundledPenkraCliPresent: boolean;
+  readonly bundledPrivatePenkraCliPresent: boolean;
   readonly unusedClaudePlatformBinaryAbsent: boolean;
   readonly cleanedUp: boolean;
 }
@@ -299,11 +299,11 @@ async function smokeMacUpdateArtifact(): Promise<SmokeResult> {
     }
 
     const zipEntries = listZipEntries(zipPath);
-    const bundledPenkraCliPresent = zipEntries.some((entry) =>
+    const bundledPrivatePenkraCliPresent = zipEntries.some((entry) =>
       entry.endsWith("/Contents/Resources/penkra-cli/penkra"),
     );
-    if (!bundledPenkraCliPresent) {
-      throw new Error("The update ZIP does not contain the pinned Penkra CLI.");
+    if (bundledPrivatePenkraCliPresent) {
+      throw new Error("The public update ZIP contains the private Penkra CLI.");
     }
 
     const unusedClaudePlatformBinaryAbsent = !zipEntries.some((entry) =>
@@ -339,7 +339,7 @@ async function smokeMacUpdateArtifact(): Promise<SmokeResult> {
       manifestHeadContentLength,
       zipHeadContentLength,
       zipBlockmapSize,
-      bundledPenkraCliPresent,
+      bundledPrivatePenkraCliPresent,
       unusedClaudePlatformBinaryAbsent,
       cleanedUp,
     };
