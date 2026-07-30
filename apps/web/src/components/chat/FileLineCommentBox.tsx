@@ -8,7 +8,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 
 import { FILE_COMMENT_TEXT_MAX_CHARS, normalizeFileCommentText } from "~/lib/fileComments";
-import { PenkraMark } from "../PenkraMark";
+import { PenkraMark } from "../foundations/penkra-mark-shared/PenkraMark";
 import { Button } from "../ui/button";
 
 interface FileLineCommentBoxProps {

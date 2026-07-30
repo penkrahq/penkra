@@ -51,7 +51,7 @@ import { DiffStatLabel } from "./DiffStatLabel";
 import { type ExpandedImagePreview } from "./ExpandedImagePreview";
 import { LinkChipIcon } from "../LinkChipIcon";
 import { normalizeCompactToolLabel } from "./MessagesTimeline.logic";
-import { PenkraMark } from "../PenkraMark";
+import { PenkraMark } from "../foundations/penkra-mark-shared/PenkraMark";
 import type { SubagentToolTrace } from "./subagentToolTrace.logic";
 import { ToolCallDetailsContent } from "./ToolCallDetailsDialog";
 import { DisclosureChevron } from "../ui/DisclosureChevron";

@@ -1,8 +1,13 @@
-import { IconBrandGithub, IconBrandX, IconBrandYoutube } from "@tabler/icons-react";
-import { useState } from "react";
+import {
+  IconBell,
+  IconBrandGithub,
+  IconBrandX,
+  IconBrandYoutube,
+  IconRefresh,
+} from "@tabler/icons-react";
 
+import { useAppSettings } from "~/appSettings";
 import { APP_VERSION } from "~/branding";
-import { SwitchShared } from "~/components/foundations/switch-shared/SwitchShared";
 import { OpenWithRowShared } from "~/components/settings/open-with-row-shared/OpenWithRowShared";
 import { SettingRowShared } from "~/components/settings/setting-row-shared/SettingRowShared";
 import { SettingsSectionShared } from "~/components/settings/settings-section-shared/SettingsSectionShared";
@@ -25,8 +30,13 @@ const CODE_OPTIONS = [
   { id: "finder", label: "Finder" },
 ];
 
+const PROVIDER_UPDATE_OPTIONS = [
+  { id: "automatic", icon: <IconRefresh />, label: "Automatic" },
+  { id: "notify", icon: <IconBell />, label: "Notify me" },
+];
+
 export function SettingsGeneralPage() {
-  const [launchAtStartup, setLaunchAtStartup] = useState(true);
+  const { settings, updateSettings } = useAppSettings();
 
   return (
     <div className="flex flex-col gap-6" data-pencil-page="general">
@@ -57,17 +67,17 @@ export function SettingsGeneralPage() {
         />
       </SettingsSectionShared>
 
-      <SettingsSectionShared title="Startup">
-        <SettingRowShared
-          control={
-            <SwitchShared
-              aria-label="Launch at startup"
-              checked={launchAtStartup}
-              onCheckedChange={setLaunchAtStartup}
-            />
-          }
-          description="Automatically open Penkra when your computer starts up."
-          label="Launch at startup"
+      <SettingsSectionShared title="Notifications">
+        <OpenWithRowShared
+          description="Update automatically or notify you first."
+          onValueChange={(providerUpdateMode) => {
+            if (providerUpdateMode === "automatic" || providerUpdateMode === "notify") {
+              updateSettings({ providerUpdateMode });
+            }
+          }}
+          options={PROVIDER_UPDATE_OPTIONS}
+          title="Provider updates"
+          value={settings.providerUpdateMode}
         />
       </SettingsSectionShared>
 

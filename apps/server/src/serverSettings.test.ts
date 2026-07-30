@@ -3,7 +3,11 @@ import { DEFAULT_MODEL_BY_PROVIDER } from "@synara/contracts";
 import { Effect, FileSystem, Layer } from "effect";
 import { describe, expect, it } from "vitest";
 import { ServerConfig } from "./config";
-import { ServerSettingsLive, ServerSettingsService } from "./serverSettings";
+import {
+  migratePersistedServerSettings,
+  ServerSettingsLive,
+  ServerSettingsService,
+} from "./serverSettings";
 
 const serverConfigLayer = ServerConfig.layerTest(process.cwd(), {
   prefix: "synara-settings-test-",
@@ -16,6 +20,18 @@ const runWithSettings = <A, E>(
 ) => Effect.runPromise(effect.pipe(Effect.provide(testLayer)) as Effect.Effect<A, E, never>);
 
 describe("ServerSettingsService", () => {
+  it("migrates the legacy update-check boolean without overriding an explicit mode", () => {
+    expect(migratePersistedServerSettings({ enableProviderUpdateChecks: false })).toEqual({
+      providerUpdateMode: "notify",
+    });
+    expect(
+      migratePersistedServerSettings({
+        enableProviderUpdateChecks: false,
+        providerUpdateMode: "automatic",
+      }),
+    ).toEqual({ providerUpdateMode: "automatic" });
+  });
+
   it("loads defaults when settings file does not exist", async () => {
     const settings = await runWithSettings(
       Effect.gen(function* () {
@@ -28,7 +44,7 @@ describe("ServerSettingsService", () => {
     expect(settings.providers.codex.binaryPath).toBe("codex");
     expect(settings.providers.grok.binaryPath).toBe("grok");
     expect(settings.defaultThreadEnvMode).toBe("local");
-    expect(settings.enableProviderUpdateChecks).toBe(true);
+    expect(settings.providerUpdateMode).toBe("automatic");
   });
 
   it("persists updates and reloads them", async () => {
@@ -41,7 +57,7 @@ describe("ServerSettingsService", () => {
 
         const updated = yield* service.updateSettings({
           enableAssistantStreaming: true,
-          enableProviderUpdateChecks: false,
+          providerUpdateMode: "notify",
           providers: {
             codex: {
               binaryPath: "/usr/local/bin/codex",
@@ -55,14 +71,14 @@ describe("ServerSettingsService", () => {
     );
 
     expect(result.updated.enableAssistantStreaming).toBe(true);
-    expect(result.updated.enableProviderUpdateChecks).toBe(false);
+    expect(result.updated.providerUpdateMode).toBe("notify");
     expect(result.updated.providers.codex.binaryPath).toBe("/usr/local/bin/codex");
     expect(result.parsed).toMatchObject({
       revision: 1,
-      migrationVersion: 1,
+      migrationVersion: 2,
       settings: {
         enableAssistantStreaming: true,
-        enableProviderUpdateChecks: false,
+        providerUpdateMode: "notify",
         providers: {
           codex: {
             binaryPath: "/usr/local/bin/codex",

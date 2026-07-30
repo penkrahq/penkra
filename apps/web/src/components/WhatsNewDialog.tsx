@@ -9,7 +9,7 @@
 import { useState } from "react";
 
 import { ArrowLeftIcon, ArrowRightIcon } from "~/lib/icons";
-import { PenkraMark } from "~/components/PenkraMark";
+import { PenkraMark } from "~/components/foundations/penkra-mark-shared/PenkraMark";
 
 import { ChangelogAccordion } from "../whatsNew/ChangelogAccordion";
 import { FeatureSection } from "../whatsNew/FeatureSection";
