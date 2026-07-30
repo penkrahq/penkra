@@ -9,7 +9,13 @@ const meta = {
     description: "Show a notification when an agent finishes.",
   },
   component: SettingRowShared,
-  decorators: [(Story) => <div className="w-[400px]"><Story /></div>],
+  decorators: [
+    (Story) => (
+      <div className="w-[400px]">
+        <Story />
+      </div>
+    ),
+  ],
   parameters: { pencil: { componentId: "x2ssr7", groupId: "L8Pc7b" } },
   title: "Settings/Setting Row/Shared",
 } satisfies Meta<typeof SettingRowShared>;

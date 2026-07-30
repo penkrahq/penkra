@@ -3,10 +3,7 @@ import { ButtonSecondary } from "~/components/foundations/button-secondary/Butto
 import { DividerOnboarding } from "~/components/foundations/divider-onboarding/DividerOnboarding";
 
 import { AgentLogos } from "../agent-logos/AgentLogos";
-import {
-  onboardingIllustrations,
-  OnboardingLayout,
-} from "../shared/OnboardingLayout";
+import { onboardingIllustrations, OnboardingLayout } from "../shared/OnboardingLayout";
 
 export interface OnboardingWelcomeProps {
   authProcessingIntent?: "sign-in" | "sign-up" | null;
@@ -22,10 +19,7 @@ export function OnboardingWelcome({
   const authenticationProcessing = authProcessingIntent !== null;
 
   return (
-    <OnboardingLayout
-      brandImage={onboardingIllustrations.welcome}
-      showBrandLogo
-    >
+    <OnboardingLayout brandImage={onboardingIllustrations.welcome} showBrandLogo>
       <div className="w-[488px] font-sans" data-pencil-component="X3BOc">
         <p className="text-[13px] font-light text-[var(--color-text-foreground-tertiary)]">
           Welcome to Penkra
@@ -34,8 +28,7 @@ export function OnboardingWelcome({
           Best app to work with AI
         </h1>
         <p className="mt-2 text-[15px] leading-5 text-[var(--color-text-foreground-secondary)]">
-          Install apps, connect your subscriptions and work seamlessly with any
-          AI model
+          Install apps, connect your subscriptions and work seamlessly with any AI model
         </p>
         <AgentLogos className="mt-8" />
         <DividerOnboarding className="mt-8" />

@@ -4,7 +4,13 @@ import { ThreadRowShared } from "./ThreadRowShared";
 
 const meta = {
   component: ThreadRowShared,
-  decorators: [(Story) => <div className="w-56"><Story /></div>],
+  decorators: [
+    (Story) => (
+      <div className="w-56">
+        <Story />
+      </div>
+    ),
+  ],
   parameters: {
     pencil: {
       componentId: "RR4w3",

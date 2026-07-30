@@ -6,12 +6,7 @@
 import type { KeybindingShortcut } from "@synara/contracts";
 
 import { formatShortcutLabel } from "../keybindings";
-import {
-  MessageCircleIcon,
-  PanelLeftIcon,
-  PinFilledIcon,
-  SettingsIcon,
-} from "../lib/icons";
+import { MessageCircleIcon, PanelLeftIcon, PinFilledIcon, SettingsIcon } from "../lib/icons";
 import { cn } from "../lib/utils";
 import type { RecentViewDisplayEntry } from "../recentViews.logic";
 import { ProviderIcon } from "./ProviderIcon";

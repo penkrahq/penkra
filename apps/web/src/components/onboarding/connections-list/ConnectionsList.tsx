@@ -4,10 +4,7 @@ import { cn } from "~/lib/utils";
 
 import { ConnectionRowShared } from "../connection-row-shared/ConnectionRowShared";
 
-export function ConnectionsList({
-  className,
-  ...props
-}: HTMLAttributes<HTMLDivElement>) {
+export function ConnectionsList({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
   return (
     <div
       className={cn("flex w-[488px] flex-col gap-2", className)}

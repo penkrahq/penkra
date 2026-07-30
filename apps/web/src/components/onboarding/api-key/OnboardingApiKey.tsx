@@ -5,10 +5,7 @@ import { ButtonSave } from "~/components/foundations/button-save/ButtonSave";
 
 import { FieldGroupApiKey } from "../field-group-api-key/FieldGroupApiKey";
 import { NoticeSecurity } from "../notice-security/NoticeSecurity";
-import {
-  onboardingIllustrations,
-  OnboardingLayout,
-} from "../shared/OnboardingLayout";
+import { onboardingIllustrations, OnboardingLayout } from "../shared/OnboardingLayout";
 
 export interface OnboardingApiKeyProps {
   onBack?: () => void;
@@ -34,11 +31,7 @@ export function OnboardingApiKey({ onBack, onContinue }: OnboardingApiKeyProps) 
           onApiKeyChange={(event) => setKey(event.target.value)}
           onKeyNameChange={(event) => setName(event.target.value)}
         />
-        <ButtonSave
-          className="mt-6"
-          disabled={!key}
-          onClick={() => onContinue?.(key, name)}
-        />
+        <ButtonSave className="mt-6" disabled={!key} onClick={() => onContinue?.(key, name)} />
         <NoticeSecurity className="mt-3" />
       </div>
     </OnboardingLayout>

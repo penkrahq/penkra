@@ -75,9 +75,9 @@ describe("buildShortcutSheetSections", () => {
       ),
     ).toBe(true);
     expect(
-      sections.flatMap((section) => section.entries).some((entry) =>
-        entry.id.startsWith("terminal."),
-      ),
+      sections
+        .flatMap((section) => section.entries)
+        .some((entry) => entry.id.startsWith("terminal.")),
     ).toBe(false);
   });
 

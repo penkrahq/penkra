@@ -17,9 +17,7 @@ export function PermissionSection({
 }: PermissionSectionProps) {
   const resolvedHeading =
     heading ??
-    (required
-      ? "Required — Ledger can't work without these"
-      : "Optional — you can turn these off");
+    (required ? "Required — Ledger can't work without these" : "Optional — you can turn these off");
 
   return (
     <section className="w-full font-sans">

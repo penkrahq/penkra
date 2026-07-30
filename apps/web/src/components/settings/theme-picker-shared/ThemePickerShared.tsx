@@ -1,17 +1,10 @@
 import { IconChevronDown } from "@tabler/icons-react";
 import { useState } from "react";
 
-import {
-  Popover,
-  PopoverPopup,
-  PopoverTrigger,
-} from "~/components/ui/popover";
+import { Popover, PopoverPopup, PopoverTrigger } from "~/components/ui/popover";
 import { cn } from "~/lib/utils";
 
-import {
-  MenuThemePicker,
-  type ThemePresetName,
-} from "../menu-theme-picker/MenuThemePicker";
+import { MenuThemePicker, type ThemePresetName } from "../menu-theme-picker/MenuThemePicker";
 
 export interface ThemePickerSharedProps {
   className?: string;
@@ -50,11 +43,7 @@ export function ThemePickerShared({
         <span className="min-w-0 flex-1 truncate text-left">{selectedValue}</span>
         <IconChevronDown className="size-3 shrink-0 text-[var(--color-text-foreground-tertiary)]" />
       </PopoverTrigger>
-      <PopoverPopup
-        align="end"
-        className="border-0 bg-transparent p-0 shadow-none"
-        sideOffset={6}
-      >
+      <PopoverPopup align="end" className="border-0 bg-transparent p-0 shadow-none" sideOffset={6}>
         <MenuThemePicker onValueChange={select} value={selectedValue} />
       </PopoverPopup>
     </Popover>

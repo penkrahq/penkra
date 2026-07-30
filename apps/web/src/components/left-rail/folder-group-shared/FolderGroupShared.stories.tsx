@@ -12,7 +12,13 @@ const threads = [
 const meta = {
   args: { defaultExpanded: true, showMore: true, threads },
   component: FolderGroupShared,
-  decorators: [(Story) => <div className="w-56"><Story /></div>],
+  decorators: [
+    (Story) => (
+      <div className="w-56">
+        <Story />
+      </div>
+    ),
+  ],
   parameters: { pencil: { componentId: "Shahm", groupId: "PUf7t" } },
   title: "Left Rail/Folder Group/Shared",
 } satisfies Meta<typeof FolderGroupShared>;

@@ -128,12 +128,7 @@ export function OnboardingApps({ onBack, onContinue }: OnboardingAppsProps) {
                   <AppListCard
                     checked={selected.has(app.id)}
                     description={app.description}
-                    icon={
-                      <Icon
-                        aria-hidden="true"
-                        className={cn("size-7", app.iconClassName)}
-                      />
-                    }
+                    icon={<Icon aria-hidden="true" className={cn("size-7", app.iconClassName)} />}
                     key={app.id}
                     name={app.name}
                     onCheckedChange={(checked) => setAppSelected(app.id, checked)}
@@ -148,10 +143,7 @@ export function OnboardingApps({ onBack, onContinue }: OnboardingAppsProps) {
             </AppGrid>
           </div>
 
-          <OnboardingActionsApps
-            className="mt-4"
-            onClick={() => onContinue?.(selected)}
-          />
+          <OnboardingActionsApps className="mt-4" onClick={() => onContinue?.(selected)} />
         </div>
       </div>
 

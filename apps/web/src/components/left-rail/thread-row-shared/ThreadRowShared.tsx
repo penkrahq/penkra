@@ -8,8 +8,10 @@ import { cn } from "~/lib/utils";
 
 import { LeftRailRow } from "../row-shared/LeftRailRow";
 
-export interface ThreadRowSharedProps
-  extends Omit<ComponentProps<typeof LeftRailRow>, "leading" | "trailing"> {
+export interface ThreadRowSharedProps extends Omit<
+  ComponentProps<typeof LeftRailRow>,
+  "leading" | "trailing"
+> {
   harness?: ProviderKind | "github";
   refreshing?: boolean;
 }

@@ -4,7 +4,13 @@ import { PanelTabs } from "./PanelTabs";
 
 const meta = {
   component: PanelTabs,
-  decorators: [(Story) => <div className="w-[420px]"><Story /></div>],
+  decorators: [
+    (Story) => (
+      <div className="w-[420px]">
+        <Story />
+      </div>
+    ),
+  ],
   parameters: { pencil: { componentId: "x1igca", groupId: "DH1W8" } },
   title: "Right Panel/Panel Tabs",
 } satisfies Meta<typeof PanelTabs>;

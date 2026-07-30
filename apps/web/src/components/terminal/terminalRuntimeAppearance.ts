@@ -184,14 +184,8 @@ export function terminalThemeFromApp(): ITheme {
       fallbackTheme.background,
       "backgroundColor",
     ),
-    black: resolveTerminalCssColor(
-      "var(--vscode-terminal-ansiBlack)",
-      fallbackTheme.black,
-    ),
-    blue: resolveTerminalCssColor(
-      "var(--vscode-terminal-ansiBlue)",
-      fallbackTheme.blue,
-    ),
+    black: resolveTerminalCssColor("var(--vscode-terminal-ansiBlack)", fallbackTheme.black),
+    blue: resolveTerminalCssColor("var(--vscode-terminal-ansiBlue)", fallbackTheme.blue),
     brightBlack: resolveTerminalCssColor(
       "var(--vscode-terminal-ansiBrightBlack)",
       fallbackTheme.brightBlack,
@@ -224,30 +218,15 @@ export function terminalThemeFromApp(): ITheme {
       "var(--vscode-terminal-ansiBrightYellow)",
       fallbackTheme.brightYellow,
     ),
-    cursor: resolveTerminalCssColor(
-      "var(--vscode-terminal-foreground)",
-      foregroundFallback,
-    ),
-    cyan: resolveTerminalCssColor(
-      "var(--vscode-terminal-ansiCyan)",
-      fallbackTheme.cyan,
-    ),
+    cursor: resolveTerminalCssColor("var(--vscode-terminal-foreground)", foregroundFallback),
+    cyan: resolveTerminalCssColor("var(--vscode-terminal-ansiCyan)", fallbackTheme.cyan),
     foreground: resolveTerminalCssColor(
       "var(--vscode-terminal-foreground)",
       fallbackTheme.foreground,
     ),
-    green: resolveTerminalCssColor(
-      "var(--vscode-terminal-ansiGreen)",
-      fallbackTheme.green,
-    ),
-    magenta: resolveTerminalCssColor(
-      "var(--vscode-terminal-ansiMagenta)",
-      fallbackTheme.magenta,
-    ),
-    red: resolveTerminalCssColor(
-      "var(--vscode-terminal-ansiRed)",
-      fallbackTheme.red,
-    ),
+    green: resolveTerminalCssColor("var(--vscode-terminal-ansiGreen)", fallbackTheme.green),
+    magenta: resolveTerminalCssColor("var(--vscode-terminal-ansiMagenta)", fallbackTheme.magenta),
+    red: resolveTerminalCssColor("var(--vscode-terminal-ansiRed)", fallbackTheme.red),
     scrollbarSliderActiveBackground: resolveTerminalCssColor(
       "var(--color-border-heavy)",
       fallbackTheme.scrollbarSliderActiveBackground,
@@ -268,14 +247,8 @@ export function terminalThemeFromApp(): ITheme {
       fallbackTheme.selectionBackground,
       "backgroundColor",
     ),
-    white: resolveTerminalCssColor(
-      "var(--vscode-terminal-ansiWhite)",
-      fallbackTheme.white,
-    ),
-    yellow: resolveTerminalCssColor(
-      "var(--vscode-terminal-ansiYellow)",
-      fallbackTheme.yellow,
-    ),
+    white: resolveTerminalCssColor("var(--vscode-terminal-ansiWhite)", fallbackTheme.white),
+    yellow: resolveTerminalCssColor("var(--vscode-terminal-ansiYellow)", fallbackTheme.yellow),
   };
 }
 

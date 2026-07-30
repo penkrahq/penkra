@@ -4,7 +4,13 @@ import { WorkspaceHeaderShared } from "./WorkspaceHeaderShared";
 
 const meta = {
   component: WorkspaceHeaderShared,
-  decorators: [(Story) => <div className="w-56"><Story /></div>],
+  decorators: [
+    (Story) => (
+      <div className="w-56">
+        <Story />
+      </div>
+    ),
+  ],
   parameters: { pencil: { componentId: "mI4rI", groupId: "PUf7t", statesId: "N0dG2o" } },
   title: "Left Rail/Workspace Header/Shared",
 } satisfies Meta<typeof WorkspaceHeaderShared>;

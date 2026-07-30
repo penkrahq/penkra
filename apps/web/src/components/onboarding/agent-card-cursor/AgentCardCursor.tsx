@@ -2,10 +2,7 @@ import type { ComponentProps } from "react";
 
 import { AgentCardVerticalShared } from "../agent-card-vertical-shared/AgentCardVerticalShared";
 
-export type AgentCardCursorProps = Omit<
-  ComponentProps<typeof AgentCardVerticalShared>,
-  "provider"
->;
+export type AgentCardCursorProps = Omit<ComponentProps<typeof AgentCardVerticalShared>, "provider">;
 
 export function AgentCardCursor(props: AgentCardCursorProps) {
   return (

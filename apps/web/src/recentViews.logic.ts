@@ -221,11 +221,9 @@ export function buildRecentViewDisplayEntries(input: {
         const projectName = thread ? projectNameById.get(thread.projectId) : null;
         const provider = summary?.modelSelection.provider;
         const title = normalizeOptionalId(thread?.title) ?? "New chat";
-        const subtitleParts = [
-          projectName ?? "Chat",
-          "Chat",
-          base.isSplit ? "Split" : null,
-        ].filter((part): part is string => Boolean(part));
+        const subtitleParts = [projectName ?? "Chat", "Chat", base.isSplit ? "Split" : null].filter(
+          (part): part is string => Boolean(part),
+        );
         return {
           ...base,
           icon: resolveThreadDisplayIcon({ provider }),

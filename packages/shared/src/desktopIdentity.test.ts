@@ -28,12 +28,8 @@ describe("desktopIdentity", () => {
 
   it("gives every install flavor a distinct account-auth callback scheme", () => {
     expect(PENKRA_PRODUCTION_ACCOUNT_AUTH_SCHEME).toBe("com.penkra.app");
-    expect(PENKRA_DEVELOPMENT_ACCOUNT_AUTH_SCHEME).toBe(
-      "com.penkra.app.dev",
-    );
-    expect(PENKRA_CANARY_ACCOUNT_AUTH_SCHEME).toBe(
-      "com.penkra.app.canary",
-    );
+    expect(PENKRA_DEVELOPMENT_ACCOUNT_AUTH_SCHEME).toBe("com.penkra.app.dev");
+    expect(PENKRA_CANARY_ACCOUNT_AUTH_SCHEME).toBe("com.penkra.app.canary");
     expect(synaraDesktopIdentity("production").accountAuthScheme).toBe(
       PENKRA_PRODUCTION_ACCOUNT_AUTH_SCHEME,
     );

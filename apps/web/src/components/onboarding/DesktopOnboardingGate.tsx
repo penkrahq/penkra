@@ -18,11 +18,8 @@ export function DesktopOnboardingGate({
   children,
 }: DesktopOnboardingGateProps) {
   const accountAuth = bridge?.accountAuth;
-  const [state, setState] = useState<GateState>(
-    accountAuth ? "checking" : "complete",
-  );
-  const [authProcessingIntent, setAuthProcessingIntent] =
-    useState<AuthIntent | null>(null);
+  const [state, setState] = useState<GateState>(accountAuth ? "checking" : "complete");
+  const [authProcessingIntent, setAuthProcessingIntent] = useState<AuthIntent | null>(null);
   const isCreatingAccount = useRef(false);
 
   const requestAuth = useCallback(
@@ -47,16 +44,12 @@ export function DesktopOnboardingGate({
     }
 
     let active = true;
-    const unsubscribeCallbackStarted = accountAuth.onCallbackStarted(
-      (callback) => {
-        if (!active) return;
-        const callbackIntent =
-          callback.intent ??
-          (isCreatingAccount.current ? "sign-up" : "sign-in");
-        isCreatingAccount.current = callbackIntent === "sign-up";
-        setAuthProcessingIntent(callbackIntent);
-      },
-    );
+    const unsubscribeCallbackStarted = accountAuth.onCallbackStarted((callback) => {
+      if (!active) return;
+      const callbackIntent = callback.intent ?? (isCreatingAccount.current ? "sign-up" : "sign-in");
+      isCreatingAccount.current = callbackIntent === "sign-up";
+      setAuthProcessingIntent(callbackIntent);
+    });
     const unsubscribeAuthenticated = accountAuth.onAuthenticated(() => {
       if (!active) return;
       setAuthProcessingIntent(null);

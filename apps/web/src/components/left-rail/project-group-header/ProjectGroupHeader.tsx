@@ -3,8 +3,10 @@ import type { ComponentProps } from "react";
 
 import { LeftRailRow } from "../row-shared/LeftRailRow";
 
-export interface ProjectGroupHeaderProps
-  extends Omit<ComponentProps<typeof LeftRailRow>, "leading"> {
+export interface ProjectGroupHeaderProps extends Omit<
+  ComponentProps<typeof LeftRailRow>,
+  "leading"
+> {
   expanded?: boolean;
 }
 

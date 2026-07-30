@@ -12,7 +12,13 @@ const threads = Array.from({ length: 7 }, (_, index) => ({
 
 const meta = {
   component: SidebarProjects,
-  decorators: [(Story) => <div className="h-80 w-60"><Story /></div>],
+  decorators: [
+    (Story) => (
+      <div className="h-80 w-60">
+        <Story />
+      </div>
+    ),
+  ],
   parameters: { pencil: { componentId: "mKbbW", groupId: "PUf7t" } },
   title: "Left Rail/Sidebar Projects/Vertical Scroll Region",
 } satisfies Meta<typeof SidebarProjects>;
@@ -25,13 +31,7 @@ export const Overflowing: Story = {
       <>
         <WorkspaceHeaderShared>penkra</WorkspaceHeaderShared>
         {["penut", "Borge", "Atferd"].map((label) => (
-          <FolderGroupShared
-            defaultExpanded
-            key={label}
-            label={label}
-            showMore
-            threads={threads}
-          />
+          <FolderGroupShared defaultExpanded key={label} label={label} showMore threads={threads} />
         ))}
       </>
     ),

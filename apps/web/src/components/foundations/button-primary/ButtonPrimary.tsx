@@ -29,12 +29,7 @@ export const ButtonPrimary = forwardRef<HTMLButtonElement, ButtonPrimaryProps>(
         ref={ref}
         {...props}
       >
-        {loading ? (
-          <LoaderCircleIcon
-            aria-hidden="true"
-            className="size-4 animate-spin"
-          />
-        ) : null}
+        {loading ? <LoaderCircleIcon aria-hidden="true" className="size-4 animate-spin" /> : null}
         {loading && loadingLabel ? loadingLabel : children}
       </Button>
     );

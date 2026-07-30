@@ -5,7 +5,13 @@ import { InputKeyName } from "./InputKeyName";
 const meta = {
   args: { "aria-label": "Key name" },
   component: InputKeyName,
-  decorators: [(Story) => <div className="w-[488px]"><Story /></div>],
+  decorators: [
+    (Story) => (
+      <div className="w-[488px]">
+        <Story />
+      </div>
+    ),
+  ],
   parameters: { pencil: { componentId: "EpNo7", groupId: "fVh0u" } },
   title: "Foundations/Input/Key Name",
 } satisfies Meta<typeof InputKeyName>;

@@ -6,7 +6,13 @@ import { AppListRowShared } from "./AppListRowShared";
 const meta = {
   args: { children: "GitHub", icon: <GitHubIcon />, shortcut: "⌃⇧G" },
   component: AppListRowShared,
-  decorators: [(Story) => <div className="w-[260px]"><Story /></div>],
+  decorators: [
+    (Story) => (
+      <div className="w-[260px]">
+        <Story />
+      </div>
+    ),
+  ],
   parameters: { pencil: { componentId: "jjaEQ", groupId: "DH1W8", statesId: "RUn4U" } },
   title: "Right Panel/App List Row/Shared",
 } satisfies Meta<typeof AppListRowShared>;

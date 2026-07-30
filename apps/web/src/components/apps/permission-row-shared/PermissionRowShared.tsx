@@ -28,9 +28,7 @@ export function PermissionRowShared({
           {title}
         </strong>
         {required ? (
-          <span className="text-[11px] text-[var(--color-text-foreground-tertiary)]">
-            Required
-          </span>
+          <span className="text-[11px] text-[var(--color-text-foreground-tertiary)]">Required</span>
         ) : (
           <SwitchShared
             aria-label={title}

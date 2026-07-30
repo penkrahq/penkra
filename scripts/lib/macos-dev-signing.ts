@@ -8,17 +8,13 @@ export function parseAppleDevelopmentIdentity(output: string): string | null {
   return match?.[1] ?? null;
 }
 
-export function resolveMacDevelopmentSigningIdentity(
-  env: NodeJS.ProcessEnv = process.env,
-): string {
+export function resolveMacDevelopmentSigningIdentity(env: NodeJS.ProcessEnv = process.env): string {
   const configured = env.PENKRA_DEV_CODESIGN_IDENTITY?.trim();
   if (configured) return configured;
 
-  const identities = spawnSync(
-    "/usr/bin/security",
-    ["find-identity", "-v", "-p", "codesigning"],
-    { encoding: "utf8" },
-  );
+  const identities = spawnSync("/usr/bin/security", ["find-identity", "-v", "-p", "codesigning"], {
+    encoding: "utf8",
+  });
   if (identities.status === 0) {
     const appleDevelopmentIdentity = parseAppleDevelopmentIdentity(identities.stdout);
     if (appleDevelopmentIdentity) return appleDevelopmentIdentity;

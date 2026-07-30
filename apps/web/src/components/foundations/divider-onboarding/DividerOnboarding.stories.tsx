@@ -4,7 +4,13 @@ import { DividerOnboarding } from "./DividerOnboarding";
 
 const meta = {
   component: DividerOnboarding,
-  decorators: [(Story) => <div className="w-[488px]"><Story /></div>],
+  decorators: [
+    (Story) => (
+      <div className="w-[488px]">
+        <Story />
+      </div>
+    ),
+  ],
   parameters: { pencil: { componentId: "zvB0L", groupId: "fVh0u" } },
   title: "Foundations/Divider/Onboarding",
 } satisfies Meta<typeof DividerOnboarding>;

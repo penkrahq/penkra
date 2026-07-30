@@ -2,10 +2,7 @@ import type { ComponentProps } from "react";
 
 import { ThreadScreen3Rails } from "./ThreadScreen3Rails";
 
-type ThreadScreen3RailsAdapterProps = Omit<
-  ComponentProps<typeof ThreadScreen3Rails>,
-  "layoutMode"
->;
+type ThreadScreen3RailsAdapterProps = Omit<ComponentProps<typeof ThreadScreen3Rails>, "layoutMode">;
 
 /**
  * Production adapter for Pencil's three-rail thread shell.

@@ -4,8 +4,10 @@ import type { ComponentProps } from "react";
 import { BranchIcon } from "../branch-icon/BranchIcon";
 import { LeftRailRow } from "../row-shared/LeftRailRow";
 
-export interface ThreadRowBaseProps
-  extends Omit<ComponentProps<typeof LeftRailRow>, "leading" | "trailing"> {
+export interface ThreadRowBaseProps extends Omit<
+  ComponentProps<typeof LeftRailRow>,
+  "leading" | "trailing"
+> {
   refreshing?: boolean;
 }
 

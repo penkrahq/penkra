@@ -12,8 +12,7 @@ import { cn } from "~/lib/utils";
 
 import { ComposerActions } from "../composer-actions/ComposerActions";
 
-export interface ComposerDefaultProps
-  extends TextareaHTMLAttributes<HTMLTextAreaElement> {
+export interface ComposerDefaultProps extends TextareaHTMLAttributes<HTMLTextAreaElement> {
   onSend?: () => void;
   children?: ReactNode;
   layoutMode?: "application" | "preview";

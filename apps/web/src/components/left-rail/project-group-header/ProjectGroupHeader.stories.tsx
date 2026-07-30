@@ -4,7 +4,13 @@ import { ProjectGroupHeader } from "./ProjectGroupHeader";
 
 const meta = {
   component: ProjectGroupHeader,
-  decorators: [(Story) => <div className="w-56"><Story /></div>],
+  decorators: [
+    (Story) => (
+      <div className="w-56">
+        <Story />
+      </div>
+    ),
+  ],
   parameters: { pencil: { componentId: "KYAyf", groupId: "PUf7t", statesId: "N0dG2o" } },
   title: "Left Rail/Project Group Header",
 } satisfies Meta<typeof ProjectGroupHeader>;

@@ -19,7 +19,9 @@ export const ComposerMenuRow = forwardRef<HTMLButtonElement, ComposerMenuRowProp
         type={type}
         {...props}
       >
-        {leading ? <span className="inline-flex size-3.5 items-center justify-center">{leading}</span> : null}
+        {leading ? (
+          <span className="inline-flex size-3.5 items-center justify-center">{leading}</span>
+        ) : null}
         <span className="min-w-0 flex-1 truncate text-left">{children}</span>
         <IconChevronRight className="size-3.5 text-[var(--color-text-foreground-tertiary)]" />
       </button>

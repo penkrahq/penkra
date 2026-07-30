@@ -2,21 +2,13 @@ import { forwardRef, type InputHTMLAttributes, type ReactNode } from "react";
 
 import { cn } from "~/lib/utils";
 
-export interface InputSharedProps
-  extends Omit<InputHTMLAttributes<HTMLInputElement>, "size"> {
+export interface InputSharedProps extends Omit<InputHTMLAttributes<HTMLInputElement>, "size"> {
   leadingIcon?: ReactNode;
   invalid?: boolean;
 }
 
 export const InputShared = forwardRef<HTMLInputElement, InputSharedProps>(function InputShared(
-  {
-    "aria-invalid": ariaInvalid,
-    className,
-    disabled,
-    invalid = false,
-    leadingIcon,
-    ...props
-  },
+  { "aria-invalid": ariaInvalid, className, disabled, invalid = false, leadingIcon, ...props },
   ref,
 ) {
   const isInvalid = invalid || ariaInvalid === true || ariaInvalid === "true";

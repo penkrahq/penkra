@@ -27,11 +27,7 @@ export interface MenuHarnessProps {
   value?: ProviderKind;
 }
 
-export function MenuHarness({
-  className,
-  onValueChange,
-  value = "claudeAgent",
-}: MenuHarnessProps) {
+export function MenuHarness({ className, onValueChange, value = "claudeAgent" }: MenuHarnessProps) {
   return (
     <div
       aria-label="Agent harness"

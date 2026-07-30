@@ -3,8 +3,10 @@ import type { ComponentProps } from "react";
 
 import { LeftRailRow } from "../row-shared/LeftRailRow";
 
-export interface DisclosureRowSharedProps
-  extends Omit<ComponentProps<typeof LeftRailRow>, "leading" | "trailing"> {
+export interface DisclosureRowSharedProps extends Omit<
+  ComponentProps<typeof LeftRailRow>,
+  "leading" | "trailing"
+> {
   expanded?: boolean;
   showTrailing?: boolean;
 }

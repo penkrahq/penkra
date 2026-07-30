@@ -14,9 +14,7 @@ export function resolvePenkraAccountServiceEndpoints(input: {
   const configuredApiUrl = input.configuredApiUrl?.trim();
   const configuredAuthOrigin = input.configuredAuthOrigin?.trim();
   if (Boolean(configuredApiUrl) !== Boolean(configuredAuthOrigin)) {
-    throw new Error(
-      "PENKRA_API_URL and PENKRA_AUTH_ORIGIN must be configured together.",
-    );
+    throw new Error("PENKRA_API_URL and PENKRA_AUTH_ORIGIN must be configured together.");
   }
   return {
     apiUrl: resolveApiUrl(configuredApiUrl),
@@ -27,12 +25,9 @@ export function resolvePenkraAccountServiceEndpoints(input: {
 function resolveApiUrl(configuredApiUrl?: string): string {
   const url = new URL(configuredApiUrl || PENKRA_PRODUCTION_API_URL);
   const isLocalHttp =
-    url.protocol === "http:" &&
-    (url.hostname === "localhost" || url.hostname === "127.0.0.1");
+    url.protocol === "http:" && (url.hostname === "localhost" || url.hostname === "127.0.0.1");
   if (url.protocol !== "https:" && !isLocalHttp) {
-    throw new Error(
-      "PENKRA_API_URL must use HTTPS, except for localhost development.",
-    );
+    throw new Error("PENKRA_API_URL must use HTTPS, except for localhost development.");
   }
   url.pathname = "/";
   url.search = "";

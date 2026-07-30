@@ -6,10 +6,5 @@ import { cn } from "~/lib/utils";
 export type DividerOnboardingProps = ComponentProps<typeof Separator>;
 
 export function DividerOnboarding({ className, ...props }: DividerOnboardingProps) {
-  return (
-    <Separator
-      className={cn("w-full !bg-[var(--color-border)]", className)}
-      {...props}
-    />
-  );
+  return <Separator className={cn("w-full !bg-[var(--color-border)]", className)} {...props} />;
 }

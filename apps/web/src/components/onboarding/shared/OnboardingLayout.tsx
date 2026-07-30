@@ -11,10 +11,8 @@ export interface OnboardingLayoutProps {
 }
 
 export const onboardingIllustrations = {
-  apiKey: new URL(
-    "../../../../../../design/assets/onboarding-illustration.png",
-    import.meta.url,
-  ).href,
+  apiKey: new URL("../../../../../../design/assets/onboarding-illustration.png", import.meta.url)
+    .href,
   connectAgent: new URL(
     "../../../../../../design/assets/onboarding-illustration-jfvmE.png",
     import.meta.url,
@@ -52,12 +50,7 @@ export function OnboardingLayout({
         className="relative hidden w-[440px] shrink-0 items-center justify-center overflow-hidden bg-[var(--color-background-elevated-primary-opaque)] md:flex"
       >
         {brandImage ? (
-          <img
-            alt=""
-            aria-hidden="true"
-            className="size-full object-cover"
-            src={brandImage}
-          />
+          <img alt="" aria-hidden="true" className="size-full object-cover" src={brandImage} />
         ) : (
           <span className="font-sans text-2xl font-bold tracking-tight">Penkra</span>
         )}

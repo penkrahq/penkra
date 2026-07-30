@@ -8,7 +8,13 @@ const meta = {
       "Who gets the Patient onboarding completed mail on prod? Is it a list or just one person?",
   },
   component: MessageUser,
-  decorators: [(Story) => <div className="w-[560px]"><Story /></div>],
+  decorators: [
+    (Story) => (
+      <div className="w-[560px]">
+        <Story />
+      </div>
+    ),
+  ],
   parameters: { pencil: { componentId: "BDWPr", groupId: "e46ib4" } },
   title: "Middle Panel/Message/User",
 } satisfies Meta<typeof MessageUser>;

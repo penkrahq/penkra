@@ -61,11 +61,7 @@ describe("Pencil middle panel", () => {
 
   it("exposes message actions as real buttons", async () => {
     const onCopy = vi.fn();
-    await render(
-      <MessageUser onCopy={onCopy}>
-        Copy this message
-      </MessageUser>,
-    );
+    await render(<MessageUser onCopy={onCopy}>Copy this message</MessageUser>);
 
     await page.getByRole("button", { name: "Copy message" }).click();
     expect(onCopy).toHaveBeenCalledOnce();

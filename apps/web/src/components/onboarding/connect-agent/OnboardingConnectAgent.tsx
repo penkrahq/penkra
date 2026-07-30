@@ -10,23 +10,15 @@ import { AgentCardCursor } from "../agent-card-cursor/AgentCardCursor";
 import { AgentCardVerticalShared } from "../agent-card-vertical-shared/AgentCardVerticalShared";
 import { AgentGridRow } from "../agent-grid-row/AgentGridRow";
 import { OnboardingActionsAgents } from "../onboarding-actions-agents/OnboardingActionsAgents";
-import {
-  onboardingIllustrations,
-  OnboardingLayout,
-} from "../shared/OnboardingLayout";
+import { onboardingIllustrations, OnboardingLayout } from "../shared/OnboardingLayout";
 
 export interface OnboardingConnectAgentProps {
   onBack?: () => void;
   onContinue?: (agents: readonly string[]) => void;
 }
 
-export function OnboardingConnectAgent({
-  onBack,
-  onContinue,
-}: OnboardingConnectAgentProps) {
-  const [selected, setSelected] = useState<ReadonlySet<string>>(
-    () => new Set(["claude"]),
-  );
+export function OnboardingConnectAgent({ onBack, onContinue }: OnboardingConnectAgentProps) {
+  const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set(["claude"]));
   const toggle = (id: string) =>
     setSelected((current) => {
       const next = new Set(current);
@@ -51,18 +43,9 @@ export function OnboardingConnectAgent({
         >
           <div className="flex flex-col gap-3 pb-1">
             <AgentGridRow>
-              <AgentCardClaude
-                onClick={() => toggle("claude")}
-                selected={selected.has("claude")}
-              />
-              <AgentCardCodex
-                onClick={() => toggle("codex")}
-                selected={selected.has("codex")}
-              />
-              <AgentCardCursor
-                onClick={() => toggle("cursor")}
-                selected={selected.has("cursor")}
-              />
+              <AgentCardClaude onClick={() => toggle("claude")} selected={selected.has("claude")} />
+              <AgentCardCodex onClick={() => toggle("codex")} selected={selected.has("codex")} />
+              <AgentCardCursor onClick={() => toggle("cursor")} selected={selected.has("cursor")} />
             </AgentGridRow>
             <AgentGridRow>
               <AgentCardVerticalShared

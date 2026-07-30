@@ -24,10 +24,7 @@ export function ComposerActions({
   showHarness = false,
 }: ComposerActionsProps) {
   return (
-    <div
-      className="flex h-[26px] w-full items-center"
-      data-pencil-component="JwTiI"
-    >
+    <div className="flex h-[26px] w-full items-center" data-pencil-component="JwTiI">
       <IconActionTooltip
         ariaLabel="Attach files"
         label="Attach files"
@@ -39,20 +36,10 @@ export function ComposerActions({
       <AccessPillTrigger onClick={onAccess} />
       <span className="min-w-2 flex-1" />
       {showHarness ? <HarnessSelectorShared /> : null}
-      <IconActionTooltip
-        ariaLabel="Change mode"
-        label="Change mode"
-        onClick={onMode}
-        shortcut=""
-      >
+      <IconActionTooltip ariaLabel="Change mode" label="Change mode" onClick={onMode} shortcut="">
         <IconCircle className="size-[13px]" />
       </IconActionTooltip>
-      <IconActionTooltip
-        ariaLabel="Voice input"
-        label="Voice input"
-        onClick={onVoice}
-        shortcut=""
-      >
+      <IconActionTooltip ariaLabel="Voice input" label="Voice input" onClick={onVoice} shortcut="">
         <IconMicrophone />
       </IconActionTooltip>
       <ButtonSend disabled={disabled} />

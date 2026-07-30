@@ -4,7 +4,13 @@ import { ButtonSignInWithClaude } from "./ButtonSignInWithClaude";
 
 const meta = {
   component: ButtonSignInWithClaude,
-  decorators: [(Story) => <div className="w-[488px]"><Story /></div>],
+  decorators: [
+    (Story) => (
+      <div className="w-[488px]">
+        <Story />
+      </div>
+    ),
+  ],
   parameters: { pencil: { componentId: "TO6VK", groupId: "fVh0u" } },
   title: "Foundations/Button/Sign in with Claude",
 } satisfies Meta<typeof ButtonSignInWithClaude>;

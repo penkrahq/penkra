@@ -1,11 +1,6 @@
 import type { ReactNode } from "react";
 
-import {
-  Tooltip,
-  TooltipPopup,
-  TooltipProvider,
-  TooltipTrigger,
-} from "~/components/ui/tooltip";
+import { Tooltip, TooltipPopup, TooltipProvider, TooltipTrigger } from "~/components/ui/tooltip";
 import { PlusIcon } from "~/lib/icons";
 
 export interface IconActionTooltipProps {

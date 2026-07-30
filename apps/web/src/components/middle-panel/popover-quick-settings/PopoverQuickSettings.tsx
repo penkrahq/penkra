@@ -11,10 +11,7 @@ export interface PopoverQuickSettingsProps {
   onSelect?: (setting: QuickSettingName) => void;
 }
 
-export function PopoverQuickSettings({
-  className,
-  onSelect,
-}: PopoverQuickSettingsProps) {
+export function PopoverQuickSettings({ className, onSelect }: PopoverQuickSettingsProps) {
   return (
     <div
       aria-label="Quick settings"
@@ -26,11 +23,7 @@ export function PopoverQuickSettings({
       role="menu"
     >
       {quickSettings.map((setting) => (
-        <ComposerMenuRow
-          key={setting}
-          onClick={() => onSelect?.(setting)}
-          role="menuitem"
-        >
+        <ComposerMenuRow key={setting} onClick={() => onSelect?.(setting)} role="menuitem">
           {setting}
         </ComposerMenuRow>
       ))}

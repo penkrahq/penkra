@@ -6,7 +6,13 @@ import { ComposerMenuRow } from "./ComposerMenuRow";
 const meta = {
   args: { children: "Codex", leading: <IconSparkles /> },
   component: ComposerMenuRow,
-  decorators: [(Story) => <div className="w-[206px]"><Story /></div>],
+  decorators: [
+    (Story) => (
+      <div className="w-[206px]">
+        <Story />
+      </div>
+    ),
+  ],
   parameters: {
     pencil: { componentId: "pbUT3", groupId: "e46ib4", relatedId: "nBV5e" },
   },

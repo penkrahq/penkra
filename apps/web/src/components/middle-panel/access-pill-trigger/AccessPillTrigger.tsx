@@ -9,10 +9,7 @@ export interface AccessPillTriggerProps extends ButtonHTMLAttributes<HTMLButtonE
 }
 
 export const AccessPillTrigger = forwardRef<HTMLButtonElement, AccessPillTriggerProps>(
-  function AccessPillTrigger(
-    { className, label = "Full access", type = "button", ...props },
-    ref,
-  ) {
+  function AccessPillTrigger({ className, label = "Full access", type = "button", ...props }, ref) {
     return (
       <button
         className={cn(

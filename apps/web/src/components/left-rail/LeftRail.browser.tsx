@@ -136,11 +136,7 @@ describe("Pencil left rail", () => {
 
     expect(Math.abs(popupRect.bottom - rowRect.top)).toBeLessThan(1);
     expect(
-      Math.abs(
-        popupRect.left -
-          rowRect.left -
-          (rowRect.width - popupRect.width) / 2,
-      ),
+      Math.abs(popupRect.left - rowRect.left - (rowRect.width - popupRect.width) / 2),
     ).toBeLessThan(1);
 
     await page.getByRole("menuitem", { name: "Settings" }).click();

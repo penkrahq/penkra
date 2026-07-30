@@ -25,10 +25,7 @@ function resolveCssColor(value: string): string {
 
 describe("Pencil onboarding", () => {
   beforeEach(() => {
-    const theme = buildThemeCssVariables(
-      resolveThemePack(DEFAULT_THEME_STATE, "dark"),
-      "dark",
-    );
+    const theme = buildThemeCssVariables(resolveThemePack(DEFAULT_THEME_STATE, "dark"), "dark");
     for (const [name, value] of Object.entries(theme.variables)) {
       document.documentElement.style.setProperty(name, value);
     }
@@ -69,12 +66,7 @@ describe("Pencil onboarding", () => {
       | ((callback: { intent: "sign-in" | "sign-up" | null }) => void)
       | undefined;
     let notifyAuthenticated:
-      | ((user: {
-          id: string;
-          email: string;
-          name: string;
-          image: string | null;
-        }) => void)
+      | ((user: { id: string; email: string; name: string; image: string | null }) => void)
       | undefined;
     let notifyError: ((error: { message: string }) => void) | undefined;
     const bridge = {
@@ -116,37 +108,25 @@ describe("Pencil onboarding", () => {
     await expect.element(createAccountButton).toBeEnabled();
     await expect.element(signInButton).toBeEnabled();
     expect(requestSignUp).toHaveBeenCalledOnce();
-    await expect
-      .element(page.getByText("Application shell"))
-      .not.toBeInTheDocument();
+    await expect.element(page.getByText("Application shell")).not.toBeInTheDocument();
 
     notifyCallbackStarted?.({ intent: "sign-up" });
     const creatingAccountButton = page.getByRole("button", {
       name: "Creating account…",
     });
-    await expect
-      .element(creatingAccountButton)
-      .toHaveAttribute("aria-busy", "true");
+    await expect.element(creatingAccountButton).toHaveAttribute("aria-busy", "true");
     await expect.element(creatingAccountButton).toBeDisabled();
     await expect.element(signInButton).toBeDisabled();
     const rootStyle = getComputedStyle(document.documentElement);
-    const creatingAccountStyle = getComputedStyle(
-      creatingAccountButton.element(),
-    );
+    const creatingAccountStyle = getComputedStyle(creatingAccountButton.element());
     expect(creatingAccountStyle.backgroundColor).toBe(
-      resolveCssColor(
-        rootStyle.getPropertyValue(
-          "--color-background-button-secondary-active",
-        ),
-      ),
+      resolveCssColor(rootStyle.getPropertyValue("--color-background-button-secondary-active")),
     );
     expect(creatingAccountStyle.borderColor).toBe(
       resolveCssColor(rootStyle.getPropertyValue("--color-border-heavy")),
     );
     expect(creatingAccountStyle.color).toBe(
-      resolveCssColor(
-        rootStyle.getPropertyValue("--color-text-foreground-secondary"),
-      ),
+      resolveCssColor(rootStyle.getPropertyValue("--color-text-foreground-secondary")),
     );
 
     notifyError?.({ message: "Authentication was cancelled." });
@@ -161,12 +141,8 @@ describe("Pencil onboarding", () => {
       name: "Person",
       image: null,
     });
-    await expect
-      .element(page.getByText("Connect an agent to get started"))
-      .toBeVisible();
-    await expect
-      .element(page.getByText("Application shell"))
-      .not.toBeInTheDocument();
+    await expect.element(page.getByText("Connect an agent to get started")).toBeVisible();
+    await expect.element(page.getByText("Application shell")).not.toBeInTheDocument();
   });
 
   it("enters the application after an existing account signs in", async () => {
@@ -174,12 +150,7 @@ describe("Pencil onboarding", () => {
       | ((callback: { intent: "sign-in" | "sign-up" | null }) => void)
       | undefined;
     let notifyAuthenticated:
-      | ((user: {
-          id: string;
-          email: string;
-          name: string;
-          image: string | null;
-        }) => void)
+      | ((user: { id: string; email: string; name: string; image: string | null }) => void)
       | undefined;
     const bridge = {
       accountAuth: {
@@ -219,38 +190,24 @@ describe("Pencil onboarding", () => {
     const rootStyle = getComputedStyle(document.documentElement);
     const signingInStyle = getComputedStyle(signingInButton.element());
     expect(signingInStyle.backgroundColor).toBe(
-      resolveCssColor(
-        rootStyle.getPropertyValue(
-          "--color-background-button-secondary-active",
-        ),
-      ),
+      resolveCssColor(rootStyle.getPropertyValue("--color-background-button-secondary-active")),
     );
     expect(signingInStyle.borderColor).toBe(
       resolveCssColor(rootStyle.getPropertyValue("--color-border-heavy")),
     );
     expect(signingInStyle.color).toBe(
-      resolveCssColor(
-        rootStyle.getPropertyValue("--color-text-foreground-tertiary"),
-      ),
+      resolveCssColor(rootStyle.getPropertyValue("--color-text-foreground-tertiary")),
     );
     await expect.element(createAccountButton).toBeDisabled();
-    const unavailableCreateAccountStyle = getComputedStyle(
-      createAccountButton.element(),
-    );
+    const unavailableCreateAccountStyle = getComputedStyle(createAccountButton.element());
     expect(unavailableCreateAccountStyle.backgroundColor).toBe(
-      resolveCssColor(
-        rootStyle.getPropertyValue(
-          "--color-background-button-secondary-active",
-        ),
-      ),
+      resolveCssColor(rootStyle.getPropertyValue("--color-background-button-secondary-active")),
     );
     expect(unavailableCreateAccountStyle.borderColor).toBe(
       resolveCssColor(rootStyle.getPropertyValue("--color-border")),
     );
     expect(unavailableCreateAccountStyle.color).toBe(
-      resolveCssColor(
-        rootStyle.getPropertyValue("--color-text-foreground-tertiary"),
-      ),
+      resolveCssColor(rootStyle.getPropertyValue("--color-text-foreground-tertiary")),
     );
     notifyAuthenticated?.({
       id: "user-1",

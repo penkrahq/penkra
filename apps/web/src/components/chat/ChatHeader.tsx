@@ -295,12 +295,7 @@ function EditorRailTabs(props: {
       });
     }, 0);
     return () => window.clearTimeout(timeoutId);
-  }, [
-    props.activeProvider,
-    props.activeThreadId,
-    props.activeThreadTitle,
-    props.projectId,
-  ]);
+  }, [props.activeProvider, props.activeThreadId, props.activeThreadTitle, props.projectId]);
   const sortedProjectThreads = sortThreadsForSidebar(
     displayThreads.filter((thread) => thread.projectId === props.projectId),
     settings.sidebarThreadSortOrder,
@@ -316,10 +311,7 @@ function EditorRailTabs(props: {
     ]),
   );
   const activeChatAlreadyOpen = openChatTabs.some((thread) => thread.id === props.activeThreadId);
-  const orderedOpenTabs =
-    !activeChatAlreadyOpen
-      ? [...openChatTabs, currentChatTab]
-      : openChatTabs;
+  const orderedOpenTabs = !activeChatAlreadyOpen ? [...openChatTabs, currentChatTab] : openChatTabs;
   const chatTabs = orderedOpenTabs.map((thread) => sidebarThreadById.get(thread.id) ?? thread);
   const shouldShowTabs = chatTabs.length > 1;
   const openChatTab = (threadId: ThreadId) => {
@@ -626,9 +618,7 @@ export function ChatHeader({
                 {threadIconKind === "none" ? null : (
                   <span
                     className="inline-flex size-3.5 shrink-0 items-center justify-center"
-                    title={
-                      PROVIDER_DISPLAY_NAMES[activeProvider]
-                    }
+                    title={PROVIDER_DISPLAY_NAMES[activeProvider]}
                   >
                     {renderProviderIcon(activeProvider, "size-3.5")}
                   </span>

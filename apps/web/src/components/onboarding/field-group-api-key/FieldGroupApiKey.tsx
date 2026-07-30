@@ -20,10 +20,7 @@ export function FieldGroupApiKey({
   onKeyNameChange,
 }: FieldGroupApiKeyProps) {
   return (
-    <div
-      className={cn("flex w-[488px] flex-col gap-6", className)}
-      data-pencil-component="YzDKb"
-    >
+    <div className={cn("flex w-[488px] flex-col gap-6", className)} data-pencil-component="YzDKb">
       <label className="flex flex-col gap-[7px]">
         <span className="text-[13px] font-semibold text-[var(--color-text-foreground-secondary)]">
           API key
@@ -36,11 +33,7 @@ export function FieldGroupApiKey({
           value={apiKey}
         />
       </label>
-      <InputKeyName
-        aria-label="Key name"
-        onChange={onKeyNameChange}
-        value={keyName}
-      />
+      <InputKeyName aria-label="Key name" onChange={onKeyNameChange} value={keyName} />
     </div>
   );
 }

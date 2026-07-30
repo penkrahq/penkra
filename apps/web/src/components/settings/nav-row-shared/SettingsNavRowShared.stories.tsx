@@ -6,7 +6,13 @@ import { SettingsNavRowShared } from "./SettingsNavRowShared";
 const meta = {
   args: { children: "General", icon: <IconSettings /> },
   component: SettingsNavRowShared,
-  decorators: [(Story) => <div className="w-[196px]"><Story /></div>],
+  decorators: [
+    (Story) => (
+      <div className="w-[196px]">
+        <Story />
+      </div>
+    ),
+  ],
   parameters: { pencil: { componentId: "H9SGJk", groupId: "L8Pc7b", statesId: "Ns7XV" } },
   title: "Settings/Settings Nav Row/Shared",
 } satisfies Meta<typeof SettingsNavRowShared>;

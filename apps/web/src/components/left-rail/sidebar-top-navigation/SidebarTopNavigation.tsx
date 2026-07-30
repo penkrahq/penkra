@@ -1,8 +1,4 @@
-import {
-  IconAlarm,
-  IconEdit,
-  IconLayoutGrid,
-} from "@tabler/icons-react";
+import { IconAlarm, IconEdit, IconLayoutGrid } from "@tabler/icons-react";
 import type { ComponentType, SVGProps } from "react";
 
 import { NavItemShared } from "../nav-item-shared/NavItemShared";

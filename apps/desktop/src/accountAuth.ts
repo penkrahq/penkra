@@ -10,10 +10,7 @@ import { electronClient } from "@better-auth/electron/client";
 import { storage } from "@better-auth/electron/storage";
 import { createAuthClient } from "better-auth/client";
 
-import type {
-  DesktopAccountAuthState,
-  DesktopAccountUser,
-} from "@synara/contracts";
+import type { DesktopAccountAuthState, DesktopAccountUser } from "@synara/contracts";
 import type { SynaraDesktopFlavor } from "@synara/shared/desktopIdentity";
 import {
   isPenkraAccountAuthCallbackUrl,
@@ -99,40 +96,28 @@ export function configurePenkraAccountAuth(input: {
   let callbackAttempt = 0;
 
   const notifyCallbackStarted = (url: string | undefined) => {
-    if (
-      !url ||
-      !isPenkraAccountAuthCallbackUrl(url, input.accountAuthScheme)
-    )
-      return;
+    if (!url || !isPenkraAccountAuthCallbackUrl(url, input.accountAuthScheme)) return;
     const attempt = ++callbackAttempt;
     const callbackIntent = pendingIntent;
     pendingIntent = null;
-    input
-      .getWindow()
-      ?.webContents.send(DESKTOP_IPC_CHANNELS.accountAuth.callbackStarted, {
-        intent: callbackIntent,
-      });
+    input.getWindow()?.webContents.send(DESKTOP_IPC_CHANNELS.accountAuth.callbackStarted, {
+      intent: callbackIntent,
+    });
     setTimeout(() => {
       if (attempt !== callbackAttempt) return;
       void signInClient
         .getSession()
         .then((result) => {
           if (attempt !== callbackAttempt || result.data?.user) return;
-          input
-            .getWindow()
-            ?.webContents.send(DESKTOP_IPC_CHANNELS.accountAuth.error, {
-              message:
-                result.error?.message ||
-                "Authentication did not complete. Please try again.",
-            });
+          input.getWindow()?.webContents.send(DESKTOP_IPC_CHANNELS.accountAuth.error, {
+            message: result.error?.message || "Authentication did not complete. Please try again.",
+          });
         })
         .catch(() => {
           if (attempt !== callbackAttempt) return;
-          input
-            .getWindow()
-            ?.webContents.send(DESKTOP_IPC_CHANNELS.accountAuth.error, {
-              message: "Authentication did not complete. Please try again.",
-            });
+          input.getWindow()?.webContents.send(DESKTOP_IPC_CHANNELS.accountAuth.error, {
+            message: "Authentication did not complete. Please try again.",
+          });
         });
     }, AUTH_CALLBACK_TIMEOUT_MS);
   };
@@ -140,38 +125,22 @@ export function configurePenkraAccountAuth(input: {
   app.on("open-url", (_event, url) => {
     notifyCallbackStarted(url);
   });
-  app.on(
-    "second-instance",
-    (_event, commandLine, _workingDirectory, additionalData) => {
-      const callbackUrl =
-        typeof additionalData === "string" &&
-        isPenkraAccountAuthCallbackUrl(
-          additionalData,
-          input.accountAuthScheme,
-        )
-          ? additionalData
-          : [...commandLine]
-              .reverse()
-              .find((argument) =>
-                isPenkraAccountAuthCallbackUrl(
-                  argument,
-                  input.accountAuthScheme,
-                ),
-              );
-      notifyCallbackStarted(callbackUrl);
-    },
-  );
+  app.on("second-instance", (_event, commandLine, _workingDirectory, additionalData) => {
+    const callbackUrl =
+      typeof additionalData === "string" &&
+      isPenkraAccountAuthCallbackUrl(additionalData, input.accountAuthScheme)
+        ? additionalData
+        : [...commandLine]
+            .reverse()
+            .find((argument) => isPenkraAccountAuthCallbackUrl(argument, input.accountAuthScheme));
+    notifyCallbackStarted(callbackUrl);
+  });
   void app.whenReady().then(() => {
     if (process.platform === "darwin") return;
     notifyCallbackStarted(
       [...process.argv]
         .reverse()
-        .find((argument) =>
-          isPenkraAccountAuthCallbackUrl(
-            argument,
-            input.accountAuthScheme,
-          ),
-        ),
+        .find((argument) => isPenkraAccountAuthCallbackUrl(argument, input.accountAuthScheme)),
     );
   });
 
@@ -183,70 +152,53 @@ export function configurePenkraAccountAuth(input: {
   });
 
   input.ipcMain.removeHandler(DESKTOP_IPC_CHANNELS.accountAuth.getState);
-  input.ipcMain.handle(
-    DESKTOP_IPC_CHANNELS.accountAuth.getState,
-    async (event) => {
-      if (event.sender !== input.getWindow()?.webContents)
-        return authError("Authentication failed.");
-      const result = await signInClient.getSession();
-      if (result.error) return authError(result.error.message);
-      const user = result.data?.user;
-      return user
-        ? { status: "authenticated", user: toDesktopAccountUser(user) }
-        : { status: "unauthenticated" };
-    },
-  );
+  input.ipcMain.handle(DESKTOP_IPC_CHANNELS.accountAuth.getState, async (event) => {
+    if (event.sender !== input.getWindow()?.webContents) return authError("Authentication failed.");
+    const result = await signInClient.getSession();
+    if (result.error) return authError(result.error.message);
+    const user = result.data?.user;
+    return user
+      ? { status: "authenticated", user: toDesktopAccountUser(user) }
+      : { status: "unauthenticated" };
+  });
 
   input.ipcMain.removeHandler(DESKTOP_IPC_CHANNELS.accountAuth.requestSignIn);
-  input.ipcMain.handle(
-    DESKTOP_IPC_CHANNELS.accountAuth.requestSignIn,
-    async (event) => {
-      if (event.sender !== input.getWindow()?.webContents) return;
-      pendingIntent = "sign-in";
-      try {
-        await signInClient.requestAuth();
-      } catch (error) {
-        pendingIntent = null;
-        throw error;
-      }
-    },
-  );
+  input.ipcMain.handle(DESKTOP_IPC_CHANNELS.accountAuth.requestSignIn, async (event) => {
+    if (event.sender !== input.getWindow()?.webContents) return;
+    pendingIntent = "sign-in";
+    try {
+      await signInClient.requestAuth();
+    } catch (error) {
+      pendingIntent = null;
+      throw error;
+    }
+  });
 
   input.ipcMain.removeHandler(DESKTOP_IPC_CHANNELS.accountAuth.requestSignUp);
-  input.ipcMain.handle(
-    DESKTOP_IPC_CHANNELS.accountAuth.requestSignUp,
-    async (event) => {
-      if (event.sender !== input.getWindow()?.webContents) return;
-      pendingIntent = "sign-up";
-      try {
-        await signUpClient.requestAuth();
-      } catch (error) {
-        pendingIntent = null;
-        throw error;
-      }
-    },
-  );
+  input.ipcMain.handle(DESKTOP_IPC_CHANNELS.accountAuth.requestSignUp, async (event) => {
+    if (event.sender !== input.getWindow()?.webContents) return;
+    pendingIntent = "sign-up";
+    try {
+      await signUpClient.requestAuth();
+    } catch (error) {
+      pendingIntent = null;
+      throw error;
+    }
+  });
 
   input.ipcMain.removeHandler(DESKTOP_IPC_CHANNELS.accountAuth.signOut);
-  input.ipcMain.handle(
-    DESKTOP_IPC_CHANNELS.accountAuth.signOut,
-    async (event) => {
-      if (event.sender !== input.getWindow()?.webContents) return;
-      await signInClient.signOut();
-      input
-        .getWindow()
-        ?.webContents.send(DESKTOP_IPC_CHANNELS.accountAuth.userUpdated, null);
-    },
-  );
+  input.ipcMain.handle(DESKTOP_IPC_CHANNELS.accountAuth.signOut, async (event) => {
+    if (event.sender !== input.getWindow()?.webContents) return;
+    await signInClient.signOut();
+    input.getWindow()?.webContents.send(DESKTOP_IPC_CHANNELS.accountAuth.userUpdated, null);
+  });
 }
 
 function serviceKey(authOrigin: string): string {
   return createHash("sha256").update(authOrigin).digest("hex").slice(0, 12);
 }
 
-function toDesktopAccountUser(
-  user: Record<string, unknown>,
-): DesktopAccountUser {
+function toDesktopAccountUser(user: Record<string, unknown>): DesktopAccountUser {
   return {
     id: String(user.id ?? ""),
     email: String(user.email ?? ""),

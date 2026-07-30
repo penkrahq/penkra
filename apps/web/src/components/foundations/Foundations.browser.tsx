@@ -25,10 +25,7 @@ function resolveCssColor(value: string): string {
 
 describe("Pencil foundations", () => {
   beforeEach(() => {
-    const theme = buildThemeCssVariables(
-      resolveThemePack(DEFAULT_THEME_STATE, "dark"),
-      "dark",
-    );
+    const theme = buildThemeCssVariables(resolveThemePack(DEFAULT_THEME_STATE, "dark"), "dark");
     for (const [name, value] of Object.entries(theme.variables)) {
       document.documentElement.style.setProperty(name, value);
     }

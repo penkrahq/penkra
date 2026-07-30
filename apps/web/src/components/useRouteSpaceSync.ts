@@ -26,11 +26,5 @@ export function useRouteSpaceSync(input: {
     if (routeThreadId) {
       rememberSpaceThread(routeSpaceId, routeThreadId);
     }
-  }, [
-    rememberSpaceThread,
-    routeProjectId,
-    routeSpaceId,
-    routeThreadId,
-    setActiveSpaceId,
-  ]);
+  }, [rememberSpaceThread, routeProjectId, routeSpaceId, routeThreadId, setActiveSpaceId]);
 }

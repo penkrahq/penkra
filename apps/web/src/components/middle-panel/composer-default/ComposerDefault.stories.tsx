@@ -4,7 +4,13 @@ import { ComposerDefault } from "./ComposerDefault";
 
 const meta = {
   component: ComposerDefault,
-  decorators: [(Story) => <div className="w-[560px]"><Story /></div>],
+  decorators: [
+    (Story) => (
+      <div className="w-[560px]">
+        <Story />
+      </div>
+    ),
+  ],
   parameters: { pencil: { componentId: "TKKOp", groupId: "e46ib4" } },
   title: "Middle Panel/Composer/Default",
 } satisfies Meta<typeof ComposerDefault>;

@@ -25,10 +25,7 @@ export function SidebarWorkspace({
       data-pencil-component="UPCCE"
     >
       <SidebarHeaderShared />
-      <SidebarTopNavigation
-        activeItemId={activeNavigationItemId}
-        onSelect={onNavigationSelect}
-      />
+      <SidebarTopNavigation activeItemId={activeNavigationItemId} onSelect={onNavigationSelect} />
       <SidebarProjects>{children}</SidebarProjects>
       <AccountControlShared accountName={accountName} />
     </aside>

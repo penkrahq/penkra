@@ -2,10 +2,7 @@ import type { HTMLAttributes } from "react";
 
 import { cn } from "~/lib/utils";
 
-export function DimBackdropModal({
-  className,
-  ...props
-}: HTMLAttributes<HTMLDivElement>) {
+export function DimBackdropModal({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
   return (
     <div
       aria-hidden="true"

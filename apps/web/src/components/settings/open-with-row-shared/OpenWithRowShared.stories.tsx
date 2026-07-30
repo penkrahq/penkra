@@ -4,7 +4,13 @@ import { OpenWithRowShared } from "./OpenWithRowShared";
 
 const meta = {
   component: OpenWithRowShared,
-  decorators: [(Story) => <div className="w-[440px]"><Story /></div>],
+  decorators: [
+    (Story) => (
+      <div className="w-[440px]">
+        <Story />
+      </div>
+    ),
+  ],
   parameters: { pencil: { componentId: "MqhKC", groupId: "L8Pc7b" } },
   title: "Settings/Open With Row/Shared",
 } satisfies Meta<typeof OpenWithRowShared>;

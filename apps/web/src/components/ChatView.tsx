@@ -3526,8 +3526,7 @@ export default function ChatView({
   });
   const shouldRenderChatPaneContent = true;
   const secondaryChromeThreadId = activeThread?.id ?? threadId;
-  const shouldDeferSecondaryChrome =
-    activeThread !== undefined && !isCenteredEmptyLanding;
+  const shouldDeferSecondaryChrome = activeThread !== undefined && !isCenteredEmptyLanding;
   const [secondaryChromeState, setSecondaryChromeState] = useState(() => ({
     threadId: secondaryChromeThreadId,
     ready: true,
@@ -9095,493 +9094,493 @@ export default function ChatView({
             data-chat-composer-form="true"
             data-chat-pane-scope={paneScopeId}
           >
-          <ComposerColumnFrame>
-            {/* A bare wrapper keeps the normal-flow panels' -mb-px seam onto the input shell
+            <ComposerColumnFrame>
+              {/* A bare wrapper keeps the normal-flow panels' -mb-px seam onto the input shell
                 via margin collapse. */}
-            <div>
-              {showComposerLiveChangesHeader ? (
-                <ComposerLiveChangesHeader
-                  fileCount={activeTurnLiveDiffState.fileCount}
-                  additions={activeTurnLiveDiffState.additions}
-                  deletions={activeTurnLiveDiffState.deletions}
-                  onReview={
-                    activeTurnLiveDiffState.turnId ? onReviewComposerLiveChanges : undefined
-                  }
-                />
-              ) : null}
-              {renderActiveTaskListCard(showComposerLiveChangesHeader)}
-              {workflowRunState ? (
-                <WorkflowRunCard
-                  workflowRun={workflowRunState}
-                  nowMs={workflowNowMs}
-                  compact={workflowRunCardCompact}
-                  onCompactChange={setWorkflowRunCardCompact}
-                  onOpenThread={onNavigateToThread}
-                  onStop={onStopWorkflowRun}
-                  onPause={onPauseWorkflowRun}
-                  onResume={onResumeWorkflowRun}
-                  onDismiss={onDismissWorkflowRun}
-                  attachedToPrevious={
-                    showComposerLiveChangesHeader || showComposerActiveTaskListCard
-                  }
-                />
-              ) : null}
-              {showComposerSubagentStrip ? (
-                <ComposerSubagentStrip
-                  items={composerSubagentStripItems}
-                  compact={subagentStripCompact}
-                  onCompactChange={setSubagentStripCompact}
-                  onOpenThread={onNavigateToThread}
-                  onBackgroundItem={onBackgroundSubagentStripItem}
-                  onStopItem={onStopSubagentStripItem}
-                  onStopAll={onStopAllSubagentStripItems}
+              <div>
+                {showComposerLiveChangesHeader ? (
+                  <ComposerLiveChangesHeader
+                    fileCount={activeTurnLiveDiffState.fileCount}
+                    additions={activeTurnLiveDiffState.additions}
+                    deletions={activeTurnLiveDiffState.deletions}
+                    onReview={
+                      activeTurnLiveDiffState.turnId ? onReviewComposerLiveChanges : undefined
+                    }
+                  />
+                ) : null}
+                {renderActiveTaskListCard(showComposerLiveChangesHeader)}
+                {workflowRunState ? (
+                  <WorkflowRunCard
+                    workflowRun={workflowRunState}
+                    nowMs={workflowNowMs}
+                    compact={workflowRunCardCompact}
+                    onCompactChange={setWorkflowRunCardCompact}
+                    onOpenThread={onNavigateToThread}
+                    onStop={onStopWorkflowRun}
+                    onPause={onPauseWorkflowRun}
+                    onResume={onResumeWorkflowRun}
+                    onDismiss={onDismissWorkflowRun}
+                    attachedToPrevious={
+                      showComposerLiveChangesHeader || showComposerActiveTaskListCard
+                    }
+                  />
+                ) : null}
+                {showComposerSubagentStrip ? (
+                  <ComposerSubagentStrip
+                    items={composerSubagentStripItems}
+                    compact={subagentStripCompact}
+                    onCompactChange={setSubagentStripCompact}
+                    onOpenThread={onNavigateToThread}
+                    onBackgroundItem={onBackgroundSubagentStripItem}
+                    onStopItem={onStopSubagentStripItem}
+                    onStopAll={onStopAllSubagentStripItems}
+                    attachedToPrevious={
+                      showComposerLiveChangesHeader ||
+                      showComposerActiveTaskListCard ||
+                      showComposerWorkflowRunCard
+                    }
+                  />
+                ) : null}
+                <ComposerQueuedHeader
+                  queuedTurns={queuedComposerTurns}
+                  onSteer={onSteerQueuedComposerTurn}
+                  onRemove={removeQueuedComposerTurn}
+                  onEdit={onEditQueuedComposerTurn}
+                  cwd={threadWorkspaceCwd ?? undefined}
                   attachedToPrevious={
                     showComposerLiveChangesHeader ||
                     showComposerActiveTaskListCard ||
-                    showComposerWorkflowRunCard
+                    showComposerWorkflowRunCard ||
+                    showComposerSubagentStrip
                   }
                 />
-              ) : null}
-              <ComposerQueuedHeader
-                queuedTurns={queuedComposerTurns}
-                onSteer={onSteerQueuedComposerTurn}
-                onRemove={removeQueuedComposerTurn}
-                onEdit={onEditQueuedComposerTurn}
-                cwd={threadWorkspaceCwd ?? undefined}
-                attachedToPrevious={
-                  showComposerLiveChangesHeader ||
-                  showComposerActiveTaskListCard ||
-                  showComposerWorkflowRunCard ||
-                  showComposerSubagentStrip
-                }
-              />
-              {/* Pending approvals and AskUserQuestion prompts both render as a detached
+                {/* Pending approvals and AskUserQuestion prompts both render as a detached
                   card floating just above the composer (padding gives the measured gap),
                   instead of a banner fused into the composer surface. An approval takes
                   precedence and suppresses the question card while one is active. */}
-              {activePendingApproval ? (
-                <div className="pb-2">
-                  <ComposerPendingApprovalPanel
-                    approval={activePendingApproval}
-                    pendingCount={pendingApprovals.length}
-                    isResponding={respondingRequestKeys.includes(
-                      pendingRequestInstanceKey(
-                        activePendingApproval.requestId,
-                        activePendingApproval.lifecycleGeneration,
-                      ),
-                    )}
-                    onRespond={onRespondToApproval}
-                  />
-                </div>
-              ) : pendingUserInputs.length > 0 ? (
-                <div className="pb-2">
-                  <ComposerPendingUserInputPanel
-                    pendingUserInputs={pendingUserInputs}
-                    isResponding={activePendingIsResponding}
-                    answers={activePendingDraftAnswers}
-                    questionIndex={activePendingQuestionIndex}
-                    onToggleOption={onToggleActivePendingUserInputOption}
-                    onAdvance={onAdvanceActivePendingUserInput}
-                    onPrevious={onPreviousActivePendingUserInputQuestion}
-                    onCancel={onCancelActivePendingUserInput}
-                  />
-                </div>
-              ) : null}
-            </div>
-            <div
-              className={cn(
-                COMPOSER_INPUT_SHELL_CLASS_NAME,
-                composerProviderState.composerFrameClassName,
-                composerMenuOpen && !isComposerApprovalState && "overflow-visible",
-              )}
-            >
+                {activePendingApproval ? (
+                  <div className="pb-2">
+                    <ComposerPendingApprovalPanel
+                      approval={activePendingApproval}
+                      pendingCount={pendingApprovals.length}
+                      isResponding={respondingRequestKeys.includes(
+                        pendingRequestInstanceKey(
+                          activePendingApproval.requestId,
+                          activePendingApproval.lifecycleGeneration,
+                        ),
+                      )}
+                      onRespond={onRespondToApproval}
+                    />
+                  </div>
+                ) : pendingUserInputs.length > 0 ? (
+                  <div className="pb-2">
+                    <ComposerPendingUserInputPanel
+                      pendingUserInputs={pendingUserInputs}
+                      isResponding={activePendingIsResponding}
+                      answers={activePendingDraftAnswers}
+                      questionIndex={activePendingQuestionIndex}
+                      onToggleOption={onToggleActivePendingUserInputOption}
+                      onAdvance={onAdvanceActivePendingUserInput}
+                      onPrevious={onPreviousActivePendingUserInputQuestion}
+                      onCancel={onCancelActivePendingUserInput}
+                    />
+                  </div>
+                ) : null}
+              </div>
               <div
                 className={cn(
-                  COMPOSER_INPUT_SURFACE_CLASS_NAME,
-                  composerProviderState.composerSurfaceClassName,
+                  COMPOSER_INPUT_SHELL_CLASS_NAME,
+                  composerProviderState.composerFrameClassName,
                   composerMenuOpen && !isComposerApprovalState && "overflow-visible",
                 )}
               >
-                <ComposerInputBanners
-                  roundedTopReset={false}
-                  planFollowUp={
-                    !activePendingApproval &&
-                    pendingUserInputs.length === 0 &&
-                    showPlanFollowUpPrompt &&
-                    activeProposedPlan
-                      ? {
-                          id: activeProposedPlan.id,
-                          title: proposedPlanTitle(activeProposedPlan.planMarkdown) ?? null,
-                        }
-                      : null
-                  }
-                />
                 <div
                   className={cn(
-                    COMPOSER_EDITOR_PADDING_CLASS_NAME,
+                    COMPOSER_INPUT_SURFACE_CLASS_NAME,
+                    composerProviderState.composerSurfaceClassName,
                     composerMenuOpen && !isComposerApprovalState && "overflow-visible",
                   )}
                 >
-                  {composerMenuOpen && !isComposerApprovalState ? (
-                    <div className={COMPOSER_COMMAND_MENU_FLOATING_WRAPPER_CLASS_NAME}>
-                      {isLocalFolderBrowserOpen ? (
-                        <ComposerLocalDirectoryMenu
-                          mentionQuery={mentionTriggerQuery}
-                          rootLabel={localFolderBrowseRootPath ?? "Local folders unavailable"}
-                          homeDir={serverConfigQuery.data?.homeDir ?? null}
-                          onSelectEntry={(absolutePath) =>
-                            handleSelectLocalDirectoryMention(absolutePath)
+                  <ComposerInputBanners
+                    roundedTopReset={false}
+                    planFollowUp={
+                      !activePendingApproval &&
+                      pendingUserInputs.length === 0 &&
+                      showPlanFollowUpPrompt &&
+                      activeProposedPlan
+                        ? {
+                            id: activeProposedPlan.id,
+                            title: proposedPlanTitle(activeProposedPlan.planMarkdown) ?? null,
                           }
-                          onNavigateFolder={handleNavigateLocalFolder}
-                          handleRef={localDirectoryMenuRef}
-                        />
-                      ) : (
-                        <ComposerCommandMenu
-                          items={composerMenuItems}
-                          resolvedTheme={resolvedTheme}
-                          isLoading={isComposerMenuLoading}
-                          triggerKind={
-                            composerCommandPicker !== null
-                              ? "slash-command"
-                              : effectiveComposerTriggerKind
-                          }
-                          activeItemId={activeComposerMenuItem?.id ?? null}
-                          onHighlightedItemChange={onComposerMenuItemHighlighted}
-                          onSelect={onSelectComposerItem}
-                        />
-                      )}
-                    </div>
-                  ) : null}
-                  {!isComposerApprovalState &&
-                    pendingUserInputs.length === 0 &&
-                    (composerAssistantSelections.length > 0 ||
-                      composerFileComments.length > 0 ||
-                      composerPastedTexts.length > 0 ||
-                      composerFiles.length > 0 ||
-                      composerImages.length > 0) && (
-                      <ComposerReferenceAttachments
-                        assistantSelections={composerAssistantSelections}
-                        fileComments={composerFileComments}
-                        pastedTexts={composerPastedTexts}
-                        files={composerFiles}
-                        images={composerImages}
-                        nonPersistedImageIdSet={nonPersistedComposerImageIdSet}
-                        onExpandImage={setExpandedImage}
-                        onRemoveAssistantSelections={clearComposerAssistantSelectionsFromDraft}
-                        onRemoveFileComments={clearComposerFileCommentsFromDraft}
-                        onRemovePastedText={removeComposerPastedTextFromDraft}
-                        onShowPastedTextInField={showComposerPastedTextInField}
-                        onRemoveFile={removeComposerFile}
-                        onRemoveImage={removeComposerImage}
-                      />
-                    )}
-                  <ComposerPromptEditor
-                    ref={composerEditorRef}
-                    value={
-                      isComposerApprovalState
-                        ? ""
-                        : activePendingProgress
-                          ? activePendingProgress.customAnswer
-                          : prompt
+                        : null
                     }
-                    cursor={composerCursor}
-                    terminalContexts={
-                      !isComposerApprovalState && pendingUserInputs.length === 0
-                        ? composerTerminalContexts
-                        : []
-                    }
-                    mentionReferences={selectedComposerMentions}
-                    onRemoveTerminalContext={removeComposerTerminalContextFromDraft}
-                    onChange={onPromptChange}
-                    onCommandKeyDown={onComposerCommandKey}
-                    onPaste={onComposerPaste}
-                    {...(canCollapsePastedTextToDraft
-                      ? { onCollapsePastedText: addPastedTextToDraft }
-                      : {})}
-                    placeholder={
-                      isComposerApprovalState
-                        ? "Resolve this approval request to continue"
-                        : activePendingProgress
-                          ? activePendingProgress.activeQuestion?.options.length === 0
-                            ? "Type your answer to continue"
-                            : "Type your own answer, or leave this blank to use the selected option"
-                          : showPlanFollowUpPrompt && activeProposedPlan
-                            ? "Add feedback to refine the plan, or leave this blank to implement it"
-                            : activeThread?.parentThreadId
-                              ? "Message this subagent while it works"
-                              : hasLiveTurn
-                                ? "Ask for follow-up changes"
-                                : phase === "disconnected"
-                                  ? "Ask for follow-up changes or attach images"
-                                  : "Ask anything, @tag files/folders, or use / to show available commands"
-                    }
-                    disabled={isComposerEditorDisabled}
                   />
-                </div>
-                {/* Bottom toolbar — hidden while an approval takes over the composer,
-                    since the approve/decline actions live in the detached approval card
-                    floating above (see ComposerPendingApprovalPanel). */}
-                {activePendingApproval ? null : (
                   <div
-                    data-chat-composer-footer="true"
                     className={cn(
-                      "@container",
-                      COMPOSER_FOOTER_ROW_CLASS_NAME,
-                      isComposerFooterCompact
-                        ? "gap-1.5"
-                        : "flex-wrap gap-1.5 sm:flex-nowrap sm:gap-0",
+                      COMPOSER_EDITOR_PADDING_CLASS_NAME,
+                      composerMenuOpen && !isComposerApprovalState && "overflow-visible",
                     )}
                   >
-                    <div
-                      data-chat-composer-leading="true"
-                      className={cn(
-                        "flex items-center",
-                        isVoiceRecording || isVoiceTranscribing
-                          ? "min-w-0 shrink-0 gap-1"
-                          : isComposerFooterCompact
-                            ? "min-w-0 flex-1 gap-1 overflow-hidden"
-                            : "min-w-0 flex-1 gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:min-w-max sm:overflow-visible",
-                      )}
-                    >
-                      {relocateComposerLeadingControls
-                        ? null
-                        : renderComposerLeadingControls({ iconOnly: false })}
-
-                      {!isVoiceRecording && !isVoiceTranscribing ? (
-                        <>
-                          {interactionMode === "plan" ? (
-                            <Button
-                              variant="ghost"
-                              className="shrink-0 whitespace-nowrap px-2 text-[length:var(--app-font-size-ui-sm,11px)] sm:text-[length:var(--app-font-size-ui-sm,11px)] font-normal text-[var(--color-text-foreground-secondary)] hover:bg-[var(--color-background-button-secondary-hover)] hover:text-[var(--color-text-foreground)] sm:px-3"
-                              size="sm"
-                              type="button"
-                              onClick={toggleInteractionMode}
-                              title="Plan mode — click to return to normal build mode"
-                            >
-                              <GoTasklist className="size-3.5" />
-                              <span className="sr-only sm:not-sr-only">Plan</span>
-                            </Button>
-                          ) : null}
-
-                          {activeTaskList || sidebarProposedPlan || planSidebarOpen ? (
-                            <Button
-                              variant="ghost"
-                              className="shrink-0 whitespace-nowrap px-2 text-[length:var(--app-font-size-ui-sm,11px)] sm:text-[length:var(--app-font-size-ui-sm,11px)] font-normal sm:px-3"
-                              size="sm"
-                              type="button"
-                              onClick={togglePlanSidebar}
-                              title={planSidebarToggleTitle}
-                              aria-label={planSidebarToggleTitle}
-                            >
-                              <LayoutSidebarIcon className="size-3.5" />
-                              <span className="sr-only sm:not-sr-only">
-                                {planSidebarToggleLabel}
-                              </span>
-                            </Button>
-                          ) : null}
-                        </>
-                      ) : null}
-                    </div>
-
-                    <div
-                      data-chat-composer-actions="right"
-                      className={cn(
-                        "flex items-center gap-2",
-                        isVoiceRecording || isVoiceTranscribing ? "min-w-0 flex-1" : "shrink-0",
-                      )}
-                    >
-                      {!isVoiceRecording &&
-                      !isVoiceTranscribing &&
-                      runtimeUsageContextWindow &&
-                      composerFooterControlsPlan.showContextMeter ? (
-                        <ContextWindowMeter
-                          usage={runtimeUsageContextWindow}
-                          {...(activeCumulativeCostUsd != null
-                            ? { cumulativeCostUsd: activeCumulativeCostUsd }
-                            : {})}
-                          {...(contextWindowSelectionStatus.activeLabel !== undefined
-                            ? {
-                                activeWindowLabel: contextWindowSelectionStatus.activeLabel,
-                              }
-                            : {})}
-                          {...(contextWindowSelectionStatus.pendingSelectedLabel !== undefined
-                            ? {
-                                pendingWindowLabel:
-                                  contextWindowSelectionStatus.pendingSelectedLabel,
-                              }
-                            : {})}
-                        />
-                      ) : null}
-                      {!isVoiceRecording && !isVoiceTranscribing ? composerPickerControls : null}
-                      {showVoiceNotesControl && (isVoiceRecording || isVoiceTranscribing) ? (
-                        <ComposerVoiceRecorderBar
-                          disabled={isComposerApprovalState || isConnecting || isSendBusy}
-                          isRecording={isVoiceRecording}
-                          isTranscribing={isVoiceTranscribing}
-                          durationLabel={voiceRecordingDurationLabel}
-                          waveformLevels={voiceWaveformLevels}
-                          onCancel={() => {
-                            if (isVoiceRecording) {
-                              void submitComposerVoiceRecording();
-                              return;
+                    {composerMenuOpen && !isComposerApprovalState ? (
+                      <div className={COMPOSER_COMMAND_MENU_FLOATING_WRAPPER_CLASS_NAME}>
+                        {isLocalFolderBrowserOpen ? (
+                          <ComposerLocalDirectoryMenu
+                            mentionQuery={mentionTriggerQuery}
+                            rootLabel={localFolderBrowseRootPath ?? "Local folders unavailable"}
+                            homeDir={serverConfigQuery.data?.homeDir ?? null}
+                            onSelectEntry={(absolutePath) =>
+                              handleSelectLocalDirectoryMention(absolutePath)
                             }
-                            cancelComposerVoiceRecording();
-                          }}
-                          onSubmit={() => {
-                            void submitComposerVoiceRecording();
-                          }}
-                        />
-                      ) : null}
-                      {activePendingProgress ? (
-                        <Button
-                          type="submit"
-                          size="sm"
-                          className="rounded-full px-4"
-                          disabled={
-                            activePendingIsResponding ||
-                            (activePendingProgress.isLastQuestion
-                              ? !activePendingResolvedAnswers
-                              : !activePendingProgress.canAdvance)
-                          }
-                        >
-                          {activePendingIsResponding
-                            ? "Submitting..."
-                            : activePendingProgress.isLastQuestion
-                              ? "Submit answers"
-                              : "Next question"}
-                        </Button>
-                      ) : phase === "running" ? (
-                        <Button
-                          type="button"
-                          variant="prominent"
-                          size="icon-xs"
-                          className="sm:size-[26px]"
-                          onClick={() => void onInterrupt()}
-                          aria-label="Stop generation"
-                          title="Stop the current response. On Mac, press Ctrl+C to interrupt."
-                        >
-                          <span
-                            aria-hidden="true"
-                            className="block size-2 rounded-[1px] bg-current"
+                            onNavigateFolder={handleNavigateLocalFolder}
+                            handleRef={localDirectoryMenuRef}
                           />
-                        </Button>
-                      ) : pendingUserInputs.length === 0 &&
-                        !isVoiceRecording &&
-                        !isVoiceTranscribing ? (
-                        showPlanFollowUpPrompt ? (
-                          prompt.trim().length > 0 ? (
-                            <Button
-                              type="submit"
-                              size="sm"
-                              className="h-9 rounded-full px-4 sm:h-8"
-                              disabled={isSendBusy || isConnecting}
-                            >
-                              {isConnecting || isSendBusy ? "Sending..." : "Refine"}
-                            </Button>
-                          ) : (
-                            <div className="flex items-center">
+                        ) : (
+                          <ComposerCommandMenu
+                            items={composerMenuItems}
+                            resolvedTheme={resolvedTheme}
+                            isLoading={isComposerMenuLoading}
+                            triggerKind={
+                              composerCommandPicker !== null
+                                ? "slash-command"
+                                : effectiveComposerTriggerKind
+                            }
+                            activeItemId={activeComposerMenuItem?.id ?? null}
+                            onHighlightedItemChange={onComposerMenuItemHighlighted}
+                            onSelect={onSelectComposerItem}
+                          />
+                        )}
+                      </div>
+                    ) : null}
+                    {!isComposerApprovalState &&
+                      pendingUserInputs.length === 0 &&
+                      (composerAssistantSelections.length > 0 ||
+                        composerFileComments.length > 0 ||
+                        composerPastedTexts.length > 0 ||
+                        composerFiles.length > 0 ||
+                        composerImages.length > 0) && (
+                        <ComposerReferenceAttachments
+                          assistantSelections={composerAssistantSelections}
+                          fileComments={composerFileComments}
+                          pastedTexts={composerPastedTexts}
+                          files={composerFiles}
+                          images={composerImages}
+                          nonPersistedImageIdSet={nonPersistedComposerImageIdSet}
+                          onExpandImage={setExpandedImage}
+                          onRemoveAssistantSelections={clearComposerAssistantSelectionsFromDraft}
+                          onRemoveFileComments={clearComposerFileCommentsFromDraft}
+                          onRemovePastedText={removeComposerPastedTextFromDraft}
+                          onShowPastedTextInField={showComposerPastedTextInField}
+                          onRemoveFile={removeComposerFile}
+                          onRemoveImage={removeComposerImage}
+                        />
+                      )}
+                    <ComposerPromptEditor
+                      ref={composerEditorRef}
+                      value={
+                        isComposerApprovalState
+                          ? ""
+                          : activePendingProgress
+                            ? activePendingProgress.customAnswer
+                            : prompt
+                      }
+                      cursor={composerCursor}
+                      terminalContexts={
+                        !isComposerApprovalState && pendingUserInputs.length === 0
+                          ? composerTerminalContexts
+                          : []
+                      }
+                      mentionReferences={selectedComposerMentions}
+                      onRemoveTerminalContext={removeComposerTerminalContextFromDraft}
+                      onChange={onPromptChange}
+                      onCommandKeyDown={onComposerCommandKey}
+                      onPaste={onComposerPaste}
+                      {...(canCollapsePastedTextToDraft
+                        ? { onCollapsePastedText: addPastedTextToDraft }
+                        : {})}
+                      placeholder={
+                        isComposerApprovalState
+                          ? "Resolve this approval request to continue"
+                          : activePendingProgress
+                            ? activePendingProgress.activeQuestion?.options.length === 0
+                              ? "Type your answer to continue"
+                              : "Type your own answer, or leave this blank to use the selected option"
+                            : showPlanFollowUpPrompt && activeProposedPlan
+                              ? "Add feedback to refine the plan, or leave this blank to implement it"
+                              : activeThread?.parentThreadId
+                                ? "Message this subagent while it works"
+                                : hasLiveTurn
+                                  ? "Ask for follow-up changes"
+                                  : phase === "disconnected"
+                                    ? "Ask for follow-up changes or attach images"
+                                    : "Ask anything, @tag files/folders, or use / to show available commands"
+                      }
+                      disabled={isComposerEditorDisabled}
+                    />
+                  </div>
+                  {/* Bottom toolbar — hidden while an approval takes over the composer,
+                    since the approve/decline actions live in the detached approval card
+                    floating above (see ComposerPendingApprovalPanel). */}
+                  {activePendingApproval ? null : (
+                    <div
+                      data-chat-composer-footer="true"
+                      className={cn(
+                        "@container",
+                        COMPOSER_FOOTER_ROW_CLASS_NAME,
+                        isComposerFooterCompact
+                          ? "gap-1.5"
+                          : "flex-wrap gap-1.5 sm:flex-nowrap sm:gap-0",
+                      )}
+                    >
+                      <div
+                        data-chat-composer-leading="true"
+                        className={cn(
+                          "flex items-center",
+                          isVoiceRecording || isVoiceTranscribing
+                            ? "min-w-0 shrink-0 gap-1"
+                            : isComposerFooterCompact
+                              ? "min-w-0 flex-1 gap-1 overflow-hidden"
+                              : "min-w-0 flex-1 gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:min-w-max sm:overflow-visible",
+                        )}
+                      >
+                        {relocateComposerLeadingControls
+                          ? null
+                          : renderComposerLeadingControls({ iconOnly: false })}
+
+                        {!isVoiceRecording && !isVoiceTranscribing ? (
+                          <>
+                            {interactionMode === "plan" ? (
+                              <Button
+                                variant="ghost"
+                                className="shrink-0 whitespace-nowrap px-2 text-[length:var(--app-font-size-ui-sm,11px)] sm:text-[length:var(--app-font-size-ui-sm,11px)] font-normal text-[var(--color-text-foreground-secondary)] hover:bg-[var(--color-background-button-secondary-hover)] hover:text-[var(--color-text-foreground)] sm:px-3"
+                                size="sm"
+                                type="button"
+                                onClick={toggleInteractionMode}
+                                title="Plan mode — click to return to normal build mode"
+                              >
+                                <GoTasklist className="size-3.5" />
+                                <span className="sr-only sm:not-sr-only">Plan</span>
+                              </Button>
+                            ) : null}
+
+                            {activeTaskList || sidebarProposedPlan || planSidebarOpen ? (
+                              <Button
+                                variant="ghost"
+                                className="shrink-0 whitespace-nowrap px-2 text-[length:var(--app-font-size-ui-sm,11px)] sm:text-[length:var(--app-font-size-ui-sm,11px)] font-normal sm:px-3"
+                                size="sm"
+                                type="button"
+                                onClick={togglePlanSidebar}
+                                title={planSidebarToggleTitle}
+                                aria-label={planSidebarToggleTitle}
+                              >
+                                <LayoutSidebarIcon className="size-3.5" />
+                                <span className="sr-only sm:not-sr-only">
+                                  {planSidebarToggleLabel}
+                                </span>
+                              </Button>
+                            ) : null}
+                          </>
+                        ) : null}
+                      </div>
+
+                      <div
+                        data-chat-composer-actions="right"
+                        className={cn(
+                          "flex items-center gap-2",
+                          isVoiceRecording || isVoiceTranscribing ? "min-w-0 flex-1" : "shrink-0",
+                        )}
+                      >
+                        {!isVoiceRecording &&
+                        !isVoiceTranscribing &&
+                        runtimeUsageContextWindow &&
+                        composerFooterControlsPlan.showContextMeter ? (
+                          <ContextWindowMeter
+                            usage={runtimeUsageContextWindow}
+                            {...(activeCumulativeCostUsd != null
+                              ? { cumulativeCostUsd: activeCumulativeCostUsd }
+                              : {})}
+                            {...(contextWindowSelectionStatus.activeLabel !== undefined
+                              ? {
+                                  activeWindowLabel: contextWindowSelectionStatus.activeLabel,
+                                }
+                              : {})}
+                            {...(contextWindowSelectionStatus.pendingSelectedLabel !== undefined
+                              ? {
+                                  pendingWindowLabel:
+                                    contextWindowSelectionStatus.pendingSelectedLabel,
+                                }
+                              : {})}
+                          />
+                        ) : null}
+                        {!isVoiceRecording && !isVoiceTranscribing ? composerPickerControls : null}
+                        {showVoiceNotesControl && (isVoiceRecording || isVoiceTranscribing) ? (
+                          <ComposerVoiceRecorderBar
+                            disabled={isComposerApprovalState || isConnecting || isSendBusy}
+                            isRecording={isVoiceRecording}
+                            isTranscribing={isVoiceTranscribing}
+                            durationLabel={voiceRecordingDurationLabel}
+                            waveformLevels={voiceWaveformLevels}
+                            onCancel={() => {
+                              if (isVoiceRecording) {
+                                void submitComposerVoiceRecording();
+                                return;
+                              }
+                              cancelComposerVoiceRecording();
+                            }}
+                            onSubmit={() => {
+                              void submitComposerVoiceRecording();
+                            }}
+                          />
+                        ) : null}
+                        {activePendingProgress ? (
+                          <Button
+                            type="submit"
+                            size="sm"
+                            className="rounded-full px-4"
+                            disabled={
+                              activePendingIsResponding ||
+                              (activePendingProgress.isLastQuestion
+                                ? !activePendingResolvedAnswers
+                                : !activePendingProgress.canAdvance)
+                            }
+                          >
+                            {activePendingIsResponding
+                              ? "Submitting..."
+                              : activePendingProgress.isLastQuestion
+                                ? "Submit answers"
+                                : "Next question"}
+                          </Button>
+                        ) : phase === "running" ? (
+                          <Button
+                            type="button"
+                            variant="prominent"
+                            size="icon-xs"
+                            className="sm:size-[26px]"
+                            onClick={() => void onInterrupt()}
+                            aria-label="Stop generation"
+                            title="Stop the current response. On Mac, press Ctrl+C to interrupt."
+                          >
+                            <span
+                              aria-hidden="true"
+                              className="block size-2 rounded-[1px] bg-current"
+                            />
+                          </Button>
+                        ) : pendingUserInputs.length === 0 &&
+                          !isVoiceRecording &&
+                          !isVoiceTranscribing ? (
+                          showPlanFollowUpPrompt ? (
+                            prompt.trim().length > 0 ? (
                               <Button
                                 type="submit"
                                 size="sm"
-                                className="h-9 rounded-l-full rounded-r-none px-4 sm:h-8"
+                                className="h-9 rounded-full px-4 sm:h-8"
                                 disabled={isSendBusy || isConnecting}
                               >
-                                {isConnecting || isSendBusy ? "Sending..." : "Implement"}
+                                {isConnecting || isSendBusy ? "Sending..." : "Refine"}
                               </Button>
-                              <Menu>
-                                <MenuTrigger
-                                  render={
-                                    <Button
-                                      size="sm"
-                                      variant="default"
-                                      className="h-9 rounded-l-none rounded-r-full border-l-white/12 px-2 sm:h-8"
-                                      aria-label="Implementation actions"
-                                      disabled={isSendBusy || isConnecting}
-                                    />
-                                  }
+                            ) : (
+                              <div className="flex items-center">
+                                <Button
+                                  type="submit"
+                                  size="sm"
+                                  className="h-9 rounded-l-full rounded-r-none px-4 sm:h-8"
+                                  disabled={isSendBusy || isConnecting}
                                 >
-                                  <ChevronDownIcon className="size-3.5" />
-                                </MenuTrigger>
-                                <ComposerPickerMenuPopup align="end" side="top">
-                                  <MenuItem
-                                    disabled={isSendBusy || isConnecting}
-                                    onClick={() => void onImplementPlanInNewThread()}
+                                  {isConnecting || isSendBusy ? "Sending..." : "Implement"}
+                                </Button>
+                                <Menu>
+                                  <MenuTrigger
+                                    render={
+                                      <Button
+                                        size="sm"
+                                        variant="default"
+                                        className="h-9 rounded-l-none rounded-r-full border-l-white/12 px-2 sm:h-8"
+                                        aria-label="Implementation actions"
+                                        disabled={isSendBusy || isConnecting}
+                                      />
+                                    }
                                   >
-                                    Implement in a new thread
-                                  </MenuItem>
-                                </ComposerPickerMenuPopup>
-                              </Menu>
-                            </div>
-                          )
-                        ) : (
-                          <>
-                            {showVoiceNotesControl ? (
-                              <ComposerVoiceButton
-                                disabled={isComposerApprovalState || isConnecting || isSendBusy}
-                                isRecording={isVoiceRecording}
-                                isTranscribing={isVoiceTranscribing}
-                                durationLabel={voiceRecordingDurationLabel}
-                                onClick={toggleComposerVoiceRecording}
-                              />
-                            ) : null}
-                            <Button
-                              type="submit"
-                              variant="prominent"
-                              size="icon-xs"
-                              className="size-7 rounded-full sm:size-7"
-                              disabled={
-                                isSendBusy ||
-                                isConnecting ||
-                                isVoiceTranscribing ||
-                                !composerSendState.hasSendableContent
-                              }
-                              aria-label={
-                                isConnecting
-                                  ? "Connecting"
-                                  : isVoiceTranscribing
-                                    ? "Transcribing voice note"
-                                    : isPreparingWorktree
-                                      ? "Preparing worktree"
-                                      : isSendBusy
-                                        ? "Sending"
-                                        : "Send message"
-                              }
-                            >
-                              {isConnecting || isSendBusy ? (
-                                <svg
-                                  width="12"
-                                  height="12"
-                                  viewBox="0 0 14 14"
-                                  fill="none"
-                                  className="animate-spin"
-                                  aria-hidden="true"
-                                >
-                                  <circle
-                                    cx="7"
-                                    cy="7"
-                                    r="5.5"
-                                    stroke="currentColor"
-                                    strokeWidth="1.5"
-                                    strokeLinecap="round"
-                                    strokeDasharray="20 12"
-                                  />
-                                </svg>
-                              ) : (
-                                <ComposerSendArrowIcon
-                                  aria-hidden="true"
-                                  className="size-5 shrink-0"
+                                    <ChevronDownIcon className="size-3.5" />
+                                  </MenuTrigger>
+                                  <ComposerPickerMenuPopup align="end" side="top">
+                                    <MenuItem
+                                      disabled={isSendBusy || isConnecting}
+                                      onClick={() => void onImplementPlanInNewThread()}
+                                    >
+                                      Implement in a new thread
+                                    </MenuItem>
+                                  </ComposerPickerMenuPopup>
+                                </Menu>
+                              </div>
+                            )
+                          ) : (
+                            <>
+                              {showVoiceNotesControl ? (
+                                <ComposerVoiceButton
+                                  disabled={isComposerApprovalState || isConnecting || isSendBusy}
+                                  isRecording={isVoiceRecording}
+                                  isTranscribing={isVoiceTranscribing}
+                                  durationLabel={voiceRecordingDurationLabel}
+                                  onClick={toggleComposerVoiceRecording}
                                 />
-                              )}
-                            </Button>
-                          </>
-                        )
-                      ) : null}
+                              ) : null}
+                              <Button
+                                type="submit"
+                                variant="prominent"
+                                size="icon-xs"
+                                className="size-7 rounded-full sm:size-7"
+                                disabled={
+                                  isSendBusy ||
+                                  isConnecting ||
+                                  isVoiceTranscribing ||
+                                  !composerSendState.hasSendableContent
+                                }
+                                aria-label={
+                                  isConnecting
+                                    ? "Connecting"
+                                    : isVoiceTranscribing
+                                      ? "Transcribing voice note"
+                                      : isPreparingWorktree
+                                        ? "Preparing worktree"
+                                        : isSendBusy
+                                          ? "Sending"
+                                          : "Send message"
+                                }
+                              >
+                                {isConnecting || isSendBusy ? (
+                                  <svg
+                                    width="12"
+                                    height="12"
+                                    viewBox="0 0 14 14"
+                                    fill="none"
+                                    className="animate-spin"
+                                    aria-hidden="true"
+                                  >
+                                    <circle
+                                      cx="7"
+                                      cy="7"
+                                      r="5.5"
+                                      stroke="currentColor"
+                                      strokeWidth="1.5"
+                                      strokeLinecap="round"
+                                      strokeDasharray="20 12"
+                                    />
+                                  </svg>
+                                ) : (
+                                  <ComposerSendArrowIcon
+                                    aria-hidden="true"
+                                    className="size-5 shrink-0"
+                                  />
+                                )}
+                              </Button>
+                            </>
+                          )
+                        ) : null}
+                      </div>
                     </div>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
-            </div>
-          </ComposerColumnFrame>
+            </ComposerColumnFrame>
           </form>
         </ComposerDefaultAdapter>
         {emptyLandingControls}
@@ -9601,9 +9600,7 @@ export default function ChatView({
 
   return (
     <ThreadScreen3RailsAdapter
-      className={cn(
-        CHAT_BACKGROUND_CLASS_NAME,
-      )}
+      className={cn(CHAT_BACKGROUND_CLASS_NAME)}
       onDragEnter={onComposerDragEnter}
       onDragOver={onComposerDragOver}
       onDragLeave={onComposerDragLeave}

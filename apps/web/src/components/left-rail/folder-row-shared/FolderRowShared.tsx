@@ -3,16 +3,14 @@ import type { ComponentProps } from "react";
 
 import { LeftRailRow } from "../row-shared/LeftRailRow";
 
-export interface FolderRowSharedProps
-  extends Omit<ComponentProps<typeof LeftRailRow>, "leading" | "trailing"> {
+export interface FolderRowSharedProps extends Omit<
+  ComponentProps<typeof LeftRailRow>,
+  "leading" | "trailing"
+> {
   onAdd?: () => void;
 }
 
-export function FolderRowShared({
-  children = "penut",
-  onAdd,
-  ...props
-}: FolderRowSharedProps) {
+export function FolderRowShared({ children = "penut", onAdd, ...props }: FolderRowSharedProps) {
   return (
     <div className="group/folder-row relative w-full">
       <LeftRailRow className="pr-7" leading={<IconFolder />} {...props}>

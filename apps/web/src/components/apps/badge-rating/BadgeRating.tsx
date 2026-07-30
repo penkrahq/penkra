@@ -7,11 +7,7 @@ export interface BadgeRatingProps extends HTMLAttributes<HTMLSpanElement> {
   value?: string;
 }
 
-export function BadgeRating({
-  className,
-  value = "4.9",
-  ...props
-}: BadgeRatingProps) {
+export function BadgeRating({ className, value = "4.9", ...props }: BadgeRatingProps) {
   return (
     <span
       aria-label={`${value} out of 5 stars`}
