@@ -4,9 +4,8 @@ import * as Path from "node:path";
 
 const POINTER_DIRECTORY_NAME = "Penkra";
 const POINTER_FILE_NAME = "root.json";
-// Development is a separate local product surface, not another view of production data.
+// Development keeps its files separate even when it uses the live account services.
 const DEVELOPMENT_ROOT_DIRECTORY_NAME = "Penkra_Dev";
-const DEVELOPMENT_API_URL = "http://127.0.0.1:3012";
 const PRODUCTION_API_URL = "https://api.penkra.com";
 
 export type PenkraRootResolution = {
@@ -35,7 +34,7 @@ export function resolvePenkraRuntime(input: {
   if (input.isDevelopment) {
     return {
       root: Path.resolve(configuredRoot || Path.join(homeDir, DEVELOPMENT_ROOT_DIRECTORY_NAME)),
-      apiUrl: (configuredApiUrl || DEVELOPMENT_API_URL).replace(/\/$/, ""),
+      apiUrl: (configuredApiUrl || PRODUCTION_API_URL).replace(/\/$/, ""),
       needsRootPicker: false,
     };
   }

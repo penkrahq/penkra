@@ -3,6 +3,8 @@
 // Layer: Desktop main process
 // Depends on: Better Auth's Electron client, encrypted OS storage, and narrow IPC channels.
 
+import { createHash } from "node:crypto";
+
 import { app, type BrowserWindow, type IpcMain } from "electron";
 import { electronClient } from "@better-auth/electron/client";
 import { storage } from "@better-auth/electron/storage";
@@ -41,7 +43,7 @@ export function configurePenkraAccountAuth(input: {
   ipcMain: IpcMain;
 }): void {
   const accountStorage = storage({
-    configName: "account-auth",
+    configName: `account-auth-${input.desktopFlavor}-${serviceKey(input.authOrigin)}`,
     projectName: "Penkra",
   });
   const electronOptions = {
@@ -236,6 +238,10 @@ export function configurePenkraAccountAuth(input: {
         ?.webContents.send(DESKTOP_IPC_CHANNELS.accountAuth.userUpdated, null);
     },
   );
+}
+
+function serviceKey(authOrigin: string): string {
+  return createHash("sha256").update(authOrigin).digest("hex").slice(0, 12);
 }
 
 function toDesktopAccountUser(

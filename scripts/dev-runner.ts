@@ -17,6 +17,19 @@ import * as ConfigProvider from "effect/ConfigProvider";
 import { Argument, Command, Flag } from "effect/unstable/cli";
 import { ChildProcess } from "effect/unstable/process";
 
+try {
+  process.loadEnvFile();
+} catch (error) {
+  if (
+    typeof error !== "object" ||
+    error === null ||
+    !("code" in error) ||
+    error.code !== "ENOENT"
+  ) {
+    throw error;
+  }
+}
+
 const BASE_SERVER_PORT = 3773;
 const BASE_WEB_PORT = 5733;
 const MAX_HASH_OFFSET = 3000;

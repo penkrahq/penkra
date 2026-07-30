@@ -114,7 +114,7 @@ import {
 } from "./updateState";
 import { registerDesktopVoiceTranscriptionHandler } from "./voiceTranscription";
 import { configurePenkraAccountAuth } from "./accountAuth";
-import { resolvePenkraAuthOrigin } from "./accountAuthOrigin";
+import { resolvePenkraAccountServiceEndpoints } from "./accountServiceEndpoints";
 import { PENKRA_VOICE_QA_WAV_ENV, resolveVoiceQaAudioInput } from "./voiceQaAudioInput";
 import {
   resolveDesktopMenuAccelerator,
@@ -213,10 +213,14 @@ const IPC = DESKTOP_IPC_CHANNELS;
 const MAX_CLIPBOARD_IMAGE_DATA_URL_LENGTH = 16 * 1024 * 1024;
 const penkraAppDataBase = resolveDesktopAppDataBase();
 const penkraRootPointerPath = resolvePenkraRootPointerPath(penkraAppDataBase);
+const penkraAccountServices = resolvePenkraAccountServiceEndpoints({
+  configuredApiUrl: process.env.PENKRA_API_URL,
+  configuredAuthOrigin: process.env.PENKRA_AUTH_ORIGIN,
+});
 const penkraRuntime = resolvePenkraRuntime({
   isDevelopment,
   configuredRoot: process.env.PENKRA_ROOT,
-  configuredApiUrl: process.env.PENKRA_API_URL,
+  configuredApiUrl: penkraAccountServices.apiUrl,
   persistedProductionRoot: isDevelopment ? null : readPenkraRootPointer(penkraRootPointerPath),
 });
 const needsPenkraRootPicker = penkraRuntime.needsRootPicker;
@@ -328,7 +332,7 @@ let configuredUpdaterCacheDirName: string | null = null;
 
 configurePenkraAccountAuth({
   accountAuthScheme: desktopIdentity.accountAuthScheme,
-  authOrigin: resolvePenkraAuthOrigin(process.env.PENKRA_AUTH_ORIGIN),
+  authOrigin: penkraAccountServices.authOrigin,
   desktopFlavor,
   getWindow: () => mainWindow,
   ipcMain,
@@ -3480,6 +3484,16 @@ function createWindow(): BrowserWindow {
     window.setTitle(APP_DISPLAY_NAME);
     emitUpdateState();
   });
+  window.webContents.on("did-fail-load", (_event, code, description, validatedUrl) => {
+    console.error(
+      `[desktop] Renderer failed to load (${code}: ${description}) url=${validatedUrl}`,
+    );
+  });
+  window.webContents.on("render-process-gone", (_event, details) => {
+    console.error(
+      `[desktop] Renderer process exited reason=${details.reason} code=${details.exitCode}`,
+    );
+  });
   window.once("ready-to-show", () => {
     // Preserve the original first-launch behavior, then respect the state saved
     // by subsequent closes. Normal bounds are restored before maximizing so the
@@ -3508,10 +3522,13 @@ function createWindow(): BrowserWindow {
   });
 
   if (isDevelopment) {
-    void window.loadURL(process.env.VITE_DEV_SERVER_URL as string);
-    window.webContents.openDevTools({ mode: "detach" });
+    void window.loadURL(process.env.VITE_DEV_SERVER_URL as string).catch((error) => {
+      console.error(`[desktop] Failed to load development renderer: ${formatErrorMessage(error)}`);
+    });
   } else {
-    void window.loadURL(desktopIdentity.entryUrl);
+    void window.loadURL(desktopIdentity.entryUrl).catch((error) => {
+      console.error(`[desktop] Failed to load renderer: ${formatErrorMessage(error)}`);
+    });
   }
 
   window.on("closed", () => {

@@ -19,7 +19,7 @@ afterEach(() => {
 });
 
 describe("Penkra root pointer", () => {
-  it("keeps development on a local root and API without a production picker", () => {
+  it("keeps development files local while using live services by default", () => {
     const base = temporaryDirectory();
     expect(
       resolvePenkraRuntime({
@@ -29,7 +29,7 @@ describe("Penkra root pointer", () => {
       }),
     ).toEqual({
       root: Path.join(base, "Penkra_Dev"),
-      apiUrl: "http://127.0.0.1:3012",
+      apiUrl: "https://api.penkra.com",
       needsRootPicker: false,
     });
   });

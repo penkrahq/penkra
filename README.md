@@ -26,6 +26,11 @@ bun run dev:desktop:install-app
 Opening `/Applications/Penkra (Dev).app` starts the complete local development workspace
 and launches the desktop application as **Penkra (Dev)**.
 
+Source builds use Penkra's production account services by default, so public contributors can
+sign in with an ordinary Penkra account without running the private backend. Internal development
+sets both `PENKRA_API_URL` and `PENKRA_AUTH_ORIGIN` to the local backend and website. A custom
+compatible service must set both values together; see `.env.example`.
+
 Run the component library:
 
 ```sh
