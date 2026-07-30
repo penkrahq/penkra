@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   canaryCloneArgs,
   canaryStartArgs,
+  createCanaryEnvironment,
   parseCanaryArgs,
   resolveCanaryPaths,
   resolveCanaryRef,
@@ -38,7 +39,10 @@ describe("canary tooling", () => {
   });
 
   it("tracks main by default and accepts a stacked PR ref", () => {
-    expect(parseCanaryArgs(["update"])).toEqual({ command: "update", ref: null });
+    expect(parseCanaryArgs(["update"])).toEqual({
+      command: "update",
+      ref: null,
+    });
     expect(parseCanaryArgs(["setup", "--ref", "codex/synara-canary"])).toEqual({
       command: "setup",
       ref: "codex/synara-canary",
@@ -56,6 +60,39 @@ describe("canary tooling", () => {
 
   it("starts the desktop launcher directly so the persisted PID stays alive", () => {
     expect(canaryStartArgs()).toEqual(["apps/desktop/scripts/start-electron.mjs"]);
+  });
+
+  it("isolates the Penkra root and skips redundant login-shell probing", () => {
+    const paths = resolveCanaryPaths(
+      {
+        SYNARA_CANARY_HOME: "/tmp/canary-data",
+        SYNARA_CANARY_SOURCE: "/tmp/canary-source",
+      },
+      "/Users/tester",
+    );
+    const environment = createCanaryEnvironment(
+      {
+        PATH: "/usr/bin",
+        VITE_DEV_SERVER_URL: "http://localhost:5173",
+        ELECTRON_RENDERER_PORT: "5173",
+        SYNARA_AUTH_TOKEN: "secret",
+      },
+      paths,
+      "a".repeat(40),
+    );
+
+    expect(environment).toMatchObject({
+      PATH: "/usr/bin",
+      PENKRA_ROOT: "/tmp/canary-data",
+      PENKRA_SKIP_LOGIN_SHELL_ENVIRONMENT: "1",
+      SYNARA_DESKTOP_FLAVOR: "canary",
+      SYNARA_DISABLE_AUTO_UPDATE: "1",
+      SYNARA_HOME: "/tmp/canary-data",
+      SYNARA_COMMIT_HASH: "a".repeat(40),
+    });
+    expect(environment.VITE_DEV_SERVER_URL).toBeUndefined();
+    expect(environment.ELECTRON_RENDERER_PORT).toBeUndefined();
+    expect(environment.SYNARA_AUTH_TOKEN).toBeUndefined();
   });
 
   it("keeps updating the selected stacked ref until explicitly moved to main", () => {

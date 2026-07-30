@@ -99,6 +99,26 @@ export function canaryStartArgs(): ReadonlyArray<string> {
   return ["apps/desktop/scripts/start-electron.mjs"];
 }
 
+export function createCanaryEnvironment(
+  inheritedEnvironment: NodeJS.ProcessEnv,
+  paths: CanaryPaths,
+  commit: string,
+): NodeJS.ProcessEnv {
+  const env = { ...inheritedEnvironment };
+  delete env.VITE_DEV_SERVER_URL;
+  delete env.ELECTRON_RENDERER_PORT;
+  delete env.SYNARA_AUTH_TOKEN;
+  Object.assign(env, {
+    PENKRA_ROOT: paths.home,
+    PENKRA_SKIP_LOGIN_SHELL_ENVIRONMENT: "1",
+    SYNARA_DESKTOP_FLAVOR: "canary",
+    SYNARA_DISABLE_AUTO_UPDATE: "1",
+    SYNARA_HOME: paths.home,
+    SYNARA_COMMIT_HASH: commit,
+  });
+  return env;
+}
+
 function run(command: string, args: ReadonlyArray<string>, cwd: string): void {
   const result = spawnSync(command, [...args], {
     cwd,
@@ -150,7 +170,9 @@ function readState(paths: CanaryPaths): CanaryState | null {
 function writeState(paths: CanaryPaths, state: CanaryState): void {
   FS.mkdirSync(paths.home, { recursive: true });
   const temporaryPath = `${paths.state}.tmp`;
-  FS.writeFileSync(temporaryPath, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
+  FS.writeFileSync(temporaryPath, `${JSON.stringify(state, null, 2)}\n`, {
+    mode: 0o600,
+  });
   FS.renameSync(temporaryPath, paths.state);
 }
 
@@ -179,7 +201,9 @@ function stopCanary(paths: CanaryPaths): void {
     return;
   }
   if (process.platform === "win32") {
-    spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore" });
+    spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], {
+      stdio: "ignore",
+    });
   } else {
     try {
       process.kill(-pid, "SIGTERM");
@@ -256,16 +280,7 @@ function startCanary(paths: CanaryPaths): void {
     throw new Error("Synara Canary is not built. Run `bun run canary:setup` first.");
   }
   FS.mkdirSync(paths.home, { recursive: true });
-  const env = { ...process.env };
-  delete env.VITE_DEV_SERVER_URL;
-  delete env.ELECTRON_RENDERER_PORT;
-  delete env.SYNARA_AUTH_TOKEN;
-  Object.assign(env, {
-    SYNARA_DESKTOP_FLAVOR: "canary",
-    SYNARA_DISABLE_AUTO_UPDATE: "1",
-    SYNARA_HOME: paths.home,
-    SYNARA_COMMIT_HASH: commit,
-  });
+  const env = createCanaryEnvironment(process.env, paths, commit);
   const logDescriptor = FS.openSync(paths.log, "a", 0o600);
   try {
     FS.writeSync(logDescriptor, `\n[${new Date().toISOString()}] Starting ${commit}\n`);
