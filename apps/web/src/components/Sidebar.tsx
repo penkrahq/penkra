@@ -2,199 +2,209 @@
 // Purpose: Renders the project/thread sidebar, including row status, sorting, and thread actions.
 // Exports: Sidebar
 
-import {
-  ArchiveIcon,
-  CopyIcon,
-  ExternalLinkIcon,
-  FileIcon,
-  FolderOpenIcon,
-  type LucideIcon,
-  NewThreadIcon,
-  PencilIcon,
-  PinIcon,
-  PlayIcon,
-  StopFilledIcon,
-  TemporaryThreadIcon,
-  Trash2,
-  TriangleAlertIcon,
-  WorktreeIcon,
-  XIcon,
-} from "~/lib/icons";
-import { CentralIcon, createCentralIconComponent } from "~/lib/central-icons";
-import {
-  PR_STATE_PRESENTATION_ICONS,
-  resolvePrStatePresentation,
-  type PrStatePresentation,
-} from "~/components/pullRequest/pullRequestStatePresentation";
-import { PinStatusIcon, pinActionLabel } from "~/lib/pin";
-import { ensureNativeApi } from "~/nativeApi";
 import { autoAnimate } from "@formkit/auto-animate";
-import { FiGitBranch, FiUserPlus } from "react-icons/fi";
-import { GoRepoForked } from "react-icons/go";
-import { HiOutlineArchiveBox } from "react-icons/hi2";
-import {
-  useCallback,
-  useEffect,
-  lazy,
-  startTransition,
-  useMemo,
-  useRef,
-  Suspense,
-  useState,
-  type DragEvent as ReactDragEvent,
-  type MouseEvent,
-  type PointerEvent as ReactPointerEvent,
-  type ReactNode,
-} from "react";
-import {
-  DndContext,
-  type DragCancelEvent,
-  type CollisionDetection,
-  PointerSensor,
-  type DragStartEvent,
-  closestCorners,
-  pointerWithin,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-} from "@dnd-kit/core";
-import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
-import { restrictToFirstScrollableAncestor, restrictToVerticalAxis } from "@dnd-kit/modifiers";
-import { CSS } from "@dnd-kit/utilities";
 import {
   MAX_PINNED_PROJECTS,
-  type DesktopUpdateState,
-  type OrchestrationShellSnapshot,
   PROVIDER_DISPLAY_NAMES,
   ProjectId,
   SpaceId,
-  type ProviderKind,
   ThreadId,
+  type DesktopUpdateState,
   type GitStatusResult,
+  type OrchestrationShellSnapshot,
+  type ProviderKind,
   type ResolvedKeybindingsConfig,
 } from "@synara/contracts";
-import { isGenericChatThreadTitle } from "@synara/shared/chatThreads";
 import { getDefaultModel } from "@synara/shared/model";
 import { pluralize } from "@synara/shared/text";
 import { resolveThreadWorkspaceCwd } from "@synara/shared/threadEnvironment";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useLocation, useNavigate, useParams, useSearch } from "@tanstack/react-router";
+import { useLocation, useNavigate, useParams } from "@tanstack/react-router";
 import {
-  type SidebarProjectSortOrder,
-  type SidebarThreadSortOrder,
-  useAppSettings,
-} from "../appSettings";
+  Suspense,
+  lazy,
+  startTransition,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
+import { useCopyPathToClipboard, useCopyThreadIdToClipboard } from "~/hooks/useCopyToClipboard";
+import { DESKTOP_TOP_BAR_TRAFFIC_LIGHT_GUTTER_CLASS } from "~/hooks/useDesktopTopBarGutter";
+import { createCentralIconComponent } from "~/lib/central-icons";
+import { createClientPointMenuAnchor } from "~/lib/clientPointMenuAnchor";
+import {
+  ArchiveIcon,
+  CopyIcon,
+  ExternalLinkIcon,
+  FolderOpenIcon,
+  PencilIcon,
+  PinIcon,
+  PlayIcon,
+  StopFilledIcon,
+  Trash2,
+  TriangleAlertIcon,
+  XIcon,
+  type LucideIcon,
+} from "~/lib/icons";
+import { pinActionLabel } from "~/lib/pin";
+import { cn } from "~/lib/utils";
+import { ensureNativeApi } from "~/nativeApi";
+import { useAppSettings } from "../appSettings";
+import type { LastThreadRoute } from "../chatRouteRestore";
+import { useComposerDraftStore } from "../composerDraftStore";
 import { isElectron } from "../env";
-import { formatRelativeTime } from "../lib/relativeTime";
-import { isMacPlatform, newCommandId, newThreadId } from "../lib/utils";
-import { isOrdinarySpaceProject } from "../lib/spaces";
-import { reconcileDeletedThreadsFromClient } from "../lib/deletedThreadClientReconciliation";
-import { deleteProjectFromClient } from "../lib/projectDelete";
-import { persistAppStateNow, useStore } from "../store";
-import { getThreadFromState } from "../threadDerivation";
+import { useFeedbackDialogStore } from "../feedbackDialogStore";
+import { useFocusedChatContext } from "../focusedChatContext";
+import { useDiffRouteSearch } from "../hooks/useDiffRouteSearch";
+import { useHandleNewChat } from "../hooks/useHandleNewChat";
+import { useHandleNewThread } from "../hooks/useHandleNewThread";
+import {
+  firstLocalServerUrl,
+  useSidebarProjectRunController,
+} from "../hooks/useSidebarProjectRunController";
+import { useSidebarThreadActions } from "../hooks/useSidebarThreadActions";
+import { useThreadActivationController } from "../hooks/useThreadActivationController";
+import { useThreadHandoff } from "../hooks/useThreadHandoff";
 import {
   resolveShortcutCommand,
   shortcutLabelForCommand,
-  splitShortcutLabel,
   shouldShowThreadJumpHints,
-  spaceJumpCommandForIndex,
   spaceJumpIndexFromCommand,
   threadJumpCommandForIndex,
   threadJumpIndexFromCommand,
 } from "../keybindings";
-import {
-  createAllThreadsSelector,
-  createSidebarDisplayThreadsSelector,
-  createSidebarThreadSummariesSelector,
-  createSidebarTreeThreadsSelector,
-} from "../storeSelectors";
-import { derivePendingApprovals, derivePendingUserInputs } from "../session-logic";
+import { useLatestProjectStore } from "../latestProjectStore";
+import { isHomeChatContainerProject, prewarmHomeChatProject } from "../lib/chatProjects";
+import { reconcileDeletedThreadsFromClient } from "../lib/deletedThreadClientReconciliation";
 import { gitResolvePullRequestQueryOptions, gitStatusQueryOptions } from "../lib/gitReactQuery";
+import { waitForRecoverableProjectInReadModel } from "../lib/projectCreateRecovery";
 import {
-  providerComposerCapabilitiesQueryOptions,
-  supportsThreadImport,
-} from "../lib/providerDiscoveryReactQuery";
+  PROJECT_CREATE_EXISTING_SYNC_ERROR,
+  createOrRecoverProjectFromPath,
+} from "../lib/projectCreation";
+import { deleteProjectFromClient } from "../lib/projectDelete";
 import {
   resolveCurrentProjectTargetId,
   resolveLatestProjectTargetIdWithFallback,
   resolveNewThreadTarget,
 } from "../lib/projectShortcutTargets";
 import {
+  providerComposerCapabilitiesQueryOptions,
+  supportsThreadImport,
+} from "../lib/providerDiscoveryReactQuery";
+import {
   prefetchProviderModelsForNewThread,
   resolveNewThreadModelPrefetchCwd,
   resolveNewThreadModelPrefetchProvider,
 } from "../lib/providerModelPrefetch";
 import { serverConfigQueryOptions } from "../lib/serverReactQuery";
-import { readNativeApi } from "../nativeApi";
-import { isHomeChatContainerProject, prewarmHomeChatProject } from "../lib/chatProjects";
 import {
-  collectStudioProjectIds,
-  isStudioContainerProject,
-} from "../lib/studioProjects";
-import { useComposerDraftStore } from "../composerDraftStore";
-import { useLatestProjectStore } from "../latestProjectStore";
-import { resolveThreadEnvironmentPresentation } from "../lib/threadEnvironment";
+  VOID_SPACE_ICON,
+  VOID_SPACE_KEY,
+  VOID_SPACE_NAME,
+  resolveActiveSpaceId,
+  spaceDisplayIcon,
+  spaceDisplayName,
+  spaceKey,
+} from "../lib/spaceGrouping";
+import { isOrdinarySpaceProject } from "../lib/spaces";
+import { collectStudioProjectIds, isStudioContainerProject } from "../lib/studioProjects";
+import { isTerminalFocused } from "../lib/terminalFocus";
+import {
+  canCreateThreadHandoff,
+  resolveAvailableHandoffTargetProviders,
+} from "../lib/threadHandoff";
 import { dispatchThreadRename } from "../lib/threadRename";
-import type { SidebarThreadSummary, Thread } from "../types";
-import { shouldRenderTerminalWorkspace } from "./ChatView.logic";
-import { CHAT_SURFACE_HEADER_HEIGHT_CLASS } from "./chat/chatHeaderControls";
-import { SidebarLeadingControls } from "./SidebarHeaderNavigationControls";
-import { SidebarHeaderShared } from "./left-rail/sidebar-header-shared/SidebarHeaderShared";
-import { AccountMenu } from "./left-rail/menu-account/AccountMenu";
-import { SidebarTopNavigation } from "./left-rail/sidebar-top-navigation/SidebarTopNavigation";
-import { FolderRowShared } from "./left-rail/folder-row-shared/FolderRowShared";
-import { ShowMoreRow } from "./left-rail/show-more-row/ShowMoreRow";
-import { SidebarProjects } from "./left-rail/sidebar-projects/SidebarProjects";
-import { ThreadRowShared } from "./left-rail/thread-row-shared/ThreadRowShared";
-import { WorkspaceHeaderShared } from "./left-rail/workspace-header-shared/WorkspaceHeaderShared";
-import { ProjectSidebarIcon } from "./ProjectSidebarIcon";
-import { useRightDockStore } from "../rightDockStore";
+import { isMacPlatform, newCommandId, newThreadId } from "../lib/utils";
+import { readNativeApi } from "../nativeApi";
 import { PenkraCreateClientDialog } from "../penkra/PenkraCreateClientDialog";
-import { penkraProjectId } from "../penkra/invoke";
 import { penkraQueryKeys, penkraSnapshotQueryOptions } from "../penkra/reactQuery";
-import { ThreadHoverCardContent } from "./ThreadHoverCardContent";
-import { ProjectHoverCardContent } from "./ProjectHoverCardContent";
+import { usePinnedProjectsStore } from "../pinnedProjectsStore";
+import { reconcileOptimisticPinState } from "../pinning.logic";
+import { useRightDockStore } from "../rightDockStore";
+import { derivePendingApprovals, derivePendingUserInputs } from "../session-logic";
+import { useSpacesUiStore } from "../spacesUiStore";
+import { selectSplitView, useSplitViewStore } from "../splitViewStore";
+import { persistAppStateNow, useStore } from "../store";
 import {
-  SIDEBAR_HOVER_CARD_POPUP_PROPS,
-  SIDEBAR_HOVER_CARD_SURFACE_CLASS_NAME,
-  SIDEBAR_HOVER_CARD_TRIGGER_PROPS,
-} from "./sidebarHoverCardStyles";
-import {
-  abbreviateHomePath,
-  createProjectHoverCardAnchor,
-  createThreadHoverCardAnchor,
-} from "./sidebarHoverCardAnchors";
-import { PreviewCard, PreviewCardPopup, PreviewCardTrigger } from "./ui/preview-card";
-import { SidebarIconButton } from "./SidebarIconButton";
-import { SidebarLeadingIcon } from "./SidebarLeadingIcon";
-import { SidebarMetaChipStack } from "./SidebarMetaChip";
-import { SidebarRowHoverActions } from "./SidebarRowHoverActions";
-import { SidebarSectionToolbar } from "./SidebarSectionToolbar";
-import { SidebarGlyph, sidebarGlyphClass, SIDEBAR_TRAILING_ICON_CLASS } from "./sidebarGlyphs";
-import { ThreadPinToggleButton } from "./ThreadPinToggleButton";
-import { ThreadRunningSpinner } from "./ThreadRunningSpinner";
-import {
-  SidebarThreadRowContent,
-  type SidebarThreadTerminalStatus,
-} from "./SidebarThreadRowContent";
+  createAllThreadsSelector,
+  createSidebarDisplayThreadsSelector,
+  createSidebarThreadSummariesSelector,
+  createSidebarTreeThreadsSelector,
+} from "../storeSelectors";
+import { useTemporaryThreadStore } from "../temporaryThreadStore";
+import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
+import { getThreadFromState } from "../threadDerivation";
+import { useThreadDetailPrewarm } from "../threadDetailPrewarm";
+import { retainThreadDetailSubscription } from "../threadDetailSubscriptionRetention";
+import { useThreadSelectionStore } from "../threadSelectionStore";
+import type { SidebarThreadSummary, Thread } from "../types";
+import { useWorkspaceStore } from "../workspaceStore";
+import { shouldRenderTerminalWorkspace } from "./ChatView.logic";
+import { CreateProjectDialog, type CreateProjectSubmitValue } from "./CreateProjectDialog";
 import { RenameDialog } from "./RenameDialog";
 import { RenameThreadDialog } from "./RenameThreadDialog";
 import {
-  SidebarSearchPalette,
-  type ImportProviderKind,
-  type SidebarSearchPaletteMode,
-} from "./SidebarSearchPalette";
-import { useHandleNewChat } from "../hooks/useHandleNewChat";
-import { useHandleNewThread } from "../hooks/useHandleNewThread";
-import { useThreadHandoff } from "../hooks/useThreadHandoff";
-import { useFeedbackDialogStore } from "../feedbackDialogStore";
-import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
-import { toastManager } from "./ui/toast";
+  DEBUG_FEATURE_FLAGS_MENU_STORAGE_KEY,
+  buildProjectThreadTree,
+  derivePinnedProjectIdsForSidebar,
+  deriveSidebarProjectData,
+  findWorkspaceRootMatch,
+  getNextVisibleSidebarThreadId,
+  getPinnedThreadsForSidebar,
+  getSidebarThreadIdsToPrewarm,
+  getUnpinnedThreadsForSidebar,
+  getVisibleSidebarEntriesForPreview,
+  groupSidebarThreadsByProjectId,
+  isLatestPinnedProjectMutation,
+  isProjectsSidebarSurface,
+  orderPinnedProjectsForSidebar,
+  partitionSidebarThreadsByProjectIds,
+  pruneProjectThreadListPagingForCollapsedProjects,
+  recoverExistingAddProjectTarget,
+  resolveProjectEmptyState,
+  resolveSettingsBackTarget,
+  resolveSidebarNewThreadEnvMode,
+  resolveSidebarThreadListPaging,
+  resolveThreadStatusPill,
+  shouldClearThreadSelectionOnMouseDown,
+  shouldPrunePinnedThreads,
+  shouldShowDebugFeatureFlagsMenu,
+  sortProjectsForSidebar,
+  sortThreadsForSidebar,
+  type SettingsBackTarget,
+  type SidebarDerivedProjectData,
+} from "./Sidebar.logic";
 import {
   normalizeSidebarProjectThreadListCwd,
   persistSidebarUiState,
   readSidebarUiState,
 } from "./Sidebar.uiState";
+import { SidebarLeadingControls } from "./SidebarHeaderNavigationControls";
+import {
+  SidebarSearchPalette,
+  type ImportProviderKind,
+  type SidebarSearchPaletteMode,
+} from "./SidebarSearchPalette";
+import type {
+  SidebarSearchAction,
+  SidebarSearchProject,
+  SidebarSearchThread,
+} from "./SidebarSearchPalette.logic";
+import { SpaceEditorDialog } from "./SpaceEditorDialog";
+import { SpaceEmptyState } from "./SpaceEmptyState";
+import { SpaceIcon } from "./SpaceIcon";
+import { SpaceProjectPickerDialog } from "./SpaceProjectPickerDialog";
+import { THREAD_DRAG_MIME } from "./chat-drop-overlay/ChatPaneDropOverlay";
+import {
+  ComposerPickerMenuPopup,
+  ComposerPickerMenuSubPopup,
+} from "./chat/ComposerPickerMenuPopup";
+import { CHAT_SURFACE_HEADER_HEIGHT_CLASS } from "./chat/chatHeaderControls";
 import {
   getArm64IntelBuildWarningDescription,
   getDesktopUpdateActionError,
@@ -210,10 +220,24 @@ import {
   shouldToastDesktopUpdateActionResult,
 } from "./desktopUpdate.logic";
 import { subscribeToDesktopUpdateState } from "./desktopUpdate.subscription";
+import { FolderRowShared } from "./left-rail/folder-row-shared/FolderRowShared";
+import { AccountMenu } from "./left-rail/menu-account/AccountMenu";
+import { ShowMoreRow } from "./left-rail/show-more-row/ShowMoreRow";
+import { SidebarHeaderShared } from "./left-rail/sidebar-header-shared/SidebarHeaderShared";
+import { SidebarProjects } from "./left-rail/sidebar-projects/SidebarProjects";
+import { SidebarTopNavigation } from "./left-rail/sidebar-top-navigation/SidebarTopNavigation";
+import { ThreadRowShared } from "./left-rail/thread-row-shared/ThreadRowShared";
+import { WorkspaceHeaderShared } from "./left-rail/workspace-header-shared/WorkspaceHeaderShared";
+import { toDisplayName } from "./profile/profileFormatting";
+import { useProfileName } from "./profile/useProfileName";
+import {
+  SIDEBAR_CONTEXT_MENU_ICON_CLASS_NAME,
+  SIDEBAR_CONTEXT_MENU_ITEM_CLASS_NAME,
+  SIDEBAR_CONTEXT_MENU_PANEL_CLASS_NAME,
+  SidebarContextMenuIcon,
+} from "./sidebarContextMenuStyles";
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "./ui/alert";
 import { Button } from "./ui/button";
-import { DisclosureChevron } from "./ui/DisclosureChevron";
-import { Input } from "./ui/input";
 import {
   Dialog,
   DialogDescription,
@@ -223,7 +247,7 @@ import {
   DialogPopup,
   DialogTitle,
 } from "./ui/dialog";
-import { Kbd, KbdGroup } from "./ui/kbd";
+import { Input } from "./ui/input";
 import {
   Menu,
   MenuGroup,
@@ -233,170 +257,21 @@ import {
   MenuSeparator,
   MenuSub,
   MenuSubTrigger,
-  MenuTrigger,
 } from "./ui/menu";
-import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
-import {
-  SidebarFooter,
-  SidebarHeader,
-  SidebarMenuButton,
-  SidebarMenuItem,
-  SidebarMenuSub,
-  SidebarMenuSubButton,
-  SidebarMenuSubItem,
-  SidebarTrigger,
-} from "./ui/sidebar";
-import { useThreadSelectionStore } from "../threadSelectionStore";
-import {
-  buildProjectThreadTree,
-  derivePinnedProjectIdsForSidebar,
-  deriveSidebarProjectData,
-  createSidebarThreadHoverAnchorId,
-  findWorkspaceRootMatch,
-  getPinnedThreadsForSidebar,
-  getUnpinnedThreadsForSidebar,
-  orderPinnedProjectsForSidebar,
-  getNextVisibleSidebarThreadId,
-  getSidebarThreadIdsToPrewarm,
-  getVisibleSidebarEntriesForPreview,
-  groupSidebarThreadsByProjectId,
-  partitionSidebarThreadsByProjectIds,
-  isLatestPinnedProjectMutation,
-  isProjectsSidebarSurface,
-  pruneProjectThreadListPagingForCollapsedProjects,
-  recoverExistingAddProjectTarget,
-  resolveSidebarThreadListPaging,
-  DEBUG_FEATURE_FLAGS_MENU_STORAGE_KEY,
-  resolveProjectEmptyState,
-  resolveProjectStatusIndicator,
-  resolveSettingsBackTarget,
-  type SettingsBackTarget,
-  resolveSidebarNewThreadEnvMode,
-  resolveThreadHoverCardMetadata,
-  resolveThreadRowClassName,
-  resolveThreadRowTrailingReserveClass,
-  resolveThreadStatusPill,
-  type ThreadStatusPill,
-  type SidebarDerivedProjectData,
-  shouldShowDebugFeatureFlagsMenu,
-  shouldPrunePinnedThreads,
-  shouldClearThreadSelectionOnMouseDown,
-  sortProjectsForSidebar,
-  sortThreadsForSidebar,
-} from "./Sidebar.logic";
-import type { LastThreadRoute } from "../chatRouteRestore";
-import { useCopyPathToClipboard, useCopyThreadIdToClipboard } from "~/hooks/useCopyToClipboard";
-import { DESKTOP_TOP_BAR_TRAFFIC_LIGHT_GUTTER_CLASS } from "~/hooks/useDesktopTopBarGutter";
-import { cn } from "~/lib/utils";
-import {
-  disclosureContentClassName,
-  disclosureShellClassName,
-  DISCLOSURE_INNER_CLASS,
-} from "~/lib/disclosureMotion";
-import { createClientPointMenuAnchor } from "~/lib/clientPointMenuAnchor";
-import {
-  canCreateThreadHandoff,
-  resolveAvailableHandoffTargetProviders,
-  resolveThreadHandoffBadgeLabel,
-} from "../lib/threadHandoff";
-import { isTerminalFocused } from "../lib/terminalFocus";
-import { useDiffRouteSearch } from "../hooks/useDiffRouteSearch";
-import {
-  sidebarHoverRevealHideClassName,
-  SIDEBAR_HEADER_ROW_CLASS_NAME,
-  SIDEBAR_NESTED_LIST_GAP_CLASS_NAME,
-  SIDEBAR_NESTED_LIST_OFFSET_CLASS_NAME,
-  SIDEBAR_ROW_ACTIVE_CLASS_NAME,
-  SIDEBAR_ROW_HOVER_CLASS_NAME,
-  SIDEBAR_ROW_IDLE_TEXT_CLASS_NAME,
-  SIDEBAR_ROW_LABEL_TEXT_CLASS_NAME,
-  SIDEBAR_SECTION_LABEL_CLASS_NAME,
-} from "../sidebarRowStyles";
-import {
-  ComposerPickerMenuPopup,
-  ComposerPickerMenuSubPopup,
-} from "./chat/ComposerPickerMenuPopup";
-import { selectSplitView, useSplitViewStore } from "../splitViewStore";
-import { THREAD_DRAG_MIME } from "./chat-drop-overlay/ChatPaneDropOverlay";
-import { useTemporaryThreadStore } from "../temporaryThreadStore";
-import { useThreadActivationController } from "../hooks/useThreadActivationController";
-import {
-  firstLocalServerUrl,
-  useSidebarProjectRunController,
-} from "../hooks/useSidebarProjectRunController";
-import { useSidebarThreadActions } from "../hooks/useSidebarThreadActions";
-import { usePinnedProjectsStore } from "../pinnedProjectsStore";
-import { reconcileOptimisticPinState } from "../pinning.logic";
-import { useThreadDetailPrewarm } from "../threadDetailPrewarm";
-import { retainThreadDetailSubscription } from "../threadDetailSubscriptionRetention";
-import { useWorkspaceStore } from "../workspaceStore";
-import type {
-  SidebarSearchAction,
-  SidebarSearchProject,
-  SidebarSearchThread,
-} from "./SidebarSearchPalette.logic";
-import { useFocusedChatContext } from "../focusedChatContext";
-import { waitForRecoverableProjectInReadModel } from "../lib/projectCreateRecovery";
-import {
-  createOrRecoverProjectFromPath,
-  PROJECT_CREATE_EXISTING_SYNC_ERROR,
-} from "../lib/projectCreation";
-import { useSpacesUiStore } from "../spacesUiStore";
-import { useProfileName } from "./profile/useProfileName";
-import { toDisplayName } from "./profile/profileFormatting";
-import { CreateProjectDialog, type CreateProjectSubmitValue } from "./CreateProjectDialog";
-import { SpaceEditorDialog } from "./SpaceEditorDialog";
+import { SidebarFooter, SidebarHeader, SidebarTrigger } from "./ui/sidebar";
+import { toastManager } from "./ui/toast";
 import { useSpacesController } from "./useSpacesController";
-import { SpaceEmptyState } from "./SpaceEmptyState";
-import { SpaceIcon } from "./SpaceIcon";
-import { SpaceProjectPickerDialog } from "./SpaceProjectPickerDialog";
-import { PROJECT_SPACE_DRAG_MIME, SpaceSwitcher, type SpaceActivityTone } from "./SpaceSwitcher";
-import {
-  SIDEBAR_CONTEXT_MENU_ICON_CLASS_NAME,
-  SIDEBAR_CONTEXT_MENU_ITEM_CLASS_NAME,
-  SIDEBAR_CONTEXT_MENU_PANEL_CLASS_NAME,
-  SidebarContextMenuIcon,
-} from "./sidebarContextMenuStyles";
-import {
-  VOID_SPACE_ICON,
-  VOID_SPACE_KEY,
-  VOID_SPACE_NAME,
-  spaceDisplayIcon,
-  spaceDisplayName,
-  spaceKey,
-  resolveActiveSpaceId,
-} from "../lib/spaceGrouping";
-
-// Central glyphs for the sidebar section-header buttons (expand/collapse, sort, add).
-const ExpandAllIcon = createCentralIconComponent("expand-45");
-const CollapseAllIcon = createCentralIconComponent("minimize-45");
-const SortFilterIcon = createCentralIconComponent("filter-2");
 const AddPlusIcon = createCentralIconComponent("plus-medium");
 
 const EMPTY_KEYBINDINGS: ResolvedKeybindingsConfig = [];
 const THREAD_PREVIEW_LIMIT = 5;
 // Each "Show more" click reveals this many extra rows; "Show less" hides them again page by page.
 const THREAD_PREVIEW_PAGE_SIZE = 5;
-// Mouse clicks must not focus the paging buttons, or the focus ring lingers as a solid block
-// after the click; they should only light up on hover/press. Keyboard focus is unaffected.
-const preventFocusOnMouseDown = (event: React.MouseEvent) => {
-  event.preventDefault();
-};
-const SIDEBAR_SORT_LABELS: Record<SidebarProjectSortOrder, string> = {
-  updated_at: "Last user message",
-  created_at: "Created at",
-  manual: "Manual",
-};
-const SIDEBAR_THREAD_SORT_LABELS: Record<SidebarThreadSortOrder, string> = {
-  updated_at: "Last user message",
-  created_at: "Created at",
-};
 const SIDEBAR_LIST_ANIMATION_OPTIONS = {
   duration: 180,
   easing: "ease-out",
 } as const;
 const EMPTY_THREAD_JUMP_LABELS = new Map<ThreadId, string>();
-const EMPTY_SHORTCUT_PARTS: readonly string[] = [];
 const ADD_PROJECT_SNAPSHOT_CATCH_UP_MAX_ATTEMPTS = 6;
 const ADD_PROJECT_SNAPSHOT_CATCH_UP_DELAY_MS = 50;
 const EMPTY_PROJECT_SIDEBAR_DATA: ReadonlyMap<ProjectId, SidebarDerivedProjectData> = new Map();
@@ -504,157 +379,9 @@ function buildThreadJumpLabelMap(input: {
   }
   return mapping.size > 0 ? mapping : EMPTY_THREAD_JUMP_LABELS;
 }
-function WorktreeBadgeGlyph({ className }: { className?: string }) {
-  return <WorktreeIcon aria-hidden="true" className={sidebarGlyphClass("meta", className)} />;
-}
-
-// Trailing row status: spinner while working, check when completed, otherwise a
-// colored status dot. Thread rows and project headers use the same glyph so a
-// collapsed project still advertises active child chats.
-function SidebarStatusTrailingGlyph({ status }: { status: ThreadStatusPill }) {
-  if (status.label === "Completed") {
-    // Match the worktree/other trailing chips' optical size (15px) so the green
-    // check reads as part of the same right-side icon cluster. Same filled glyph
-    // as a passing PR check (PullRequestCheckStatusIcon).
-    return (
-      <CentralIcon
-        name="circle-check"
-        variant="fill"
-        className={cn(SIDEBAR_TRAILING_ICON_CLASS, status.colorClass)}
-      />
-    );
-  }
-  if (status.pulse) {
-    return <ThreadRunningSpinner />;
-  }
-  return (
-    <span aria-hidden="true" className={cn("size-1.5 shrink-0 rounded-full", status.dotClass)} />
-  );
-}
-
-/** Pulsing green dot shown before a project name while a dev run is live. */
-function ProjectRunIndicatorDot({ className }: { className?: string }) {
-  return (
-    <span
-      aria-hidden="true"
-      title="Dev server running"
-      className={cn(
-        "size-1.5 shrink-0 rounded-full bg-emerald-400 motion-safe:animate-pulse",
-        className,
-      )}
-    />
-  );
-}
-
-/** Meta chips fade on row hover so pin/archive actions can occupy the same slot. */
-const THREAD_ROW_META_CHIP_HOVER_FADE_CLASS_NAME = cn(
-  "flex shrink-0 items-center",
-  sidebarHoverRevealHideClassName("thread-row"),
-);
-
-/** Fixed-width status column; fades on hover so pin/archive can overlay this slot. */
-function threadRowTimestampSlotClassName(
-  isSubagentThread: boolean,
-  toneClassName?: string,
-): string {
-  return cn(
-    // No right margin: the timestamp moved to the hover card, so this column now
-    // only carries the status glyph (check/spinner/dot). It must sit flush at the
-    // row's right padding like the meta chips (worktree, fork) — a leftover `mr-1`
-    // pushed the completed check ~4px past them and broke the trailing-cluster line.
-    "flex shrink-0 items-center justify-end leading-none tabular-nums",
-    sidebarHoverRevealHideClassName("thread-row"),
-    isSubagentThread
-      ? "w-[1.2rem] text-[10px]"
-      : // Nudge the timestamp a hair above the meta scale while still tracking the user's
-        // typography setting (the CSS var is always set; the 11px is just an SSR fallback).
-        "w-[1.625rem] text-[length:calc(var(--app-font-size-ui-meta,11px)+0.5px)]",
-    toneClassName ?? (isSubagentThread ? "text-muted-foreground/26" : "text-muted-foreground/38"),
-  );
-}
-
-function resolveWorktreeBadgeLabel(
-  thread: Pick<Thread, "envMode" | "worktreePath">,
-): string | null {
-  return resolveThreadEnvironmentPresentation({
-    envMode: thread.envMode,
-    worktreePath: thread.worktreePath,
-  }).worktreeBadgeLabel;
-}
-
-type ThreadMetaChip = {
-  id: "handoff" | "fork" | "worktree";
-  tooltip: string;
-  icon: ReactNode;
-};
-
-/**
- * Back-to-front order: first = behind, last = in front.
- * Priority lowest -> highest: handoff -> fork -> worktree. Sidechats skip fork/temporary
- * badges because the "Sidechat:" title already identifies them.
- */
-function resolveThreadRowMetaChips(input: {
-  thread: Pick<
-    Thread,
-    "forkSourceThreadId" | "sidechatSourceThreadId" | "envMode" | "worktreePath" | "handoff"
-  >;
-  includeHandoffBadge: boolean;
-  /**
-   * When the leading provider avatar already renders the source → target handoff
-   * pair, the trailing handoff chip is a redundant double icon and is dropped.
-   */
-  handoffShownInAvatar?: boolean;
-}): ThreadMetaChip[] {
-  const chips: ThreadMetaChip[] = [];
-  const isSidechatThread = Boolean(input.thread.sidechatSourceThreadId);
-
-  const handoffBadgeLabel = resolveThreadHandoffBadgeLabel(input.thread);
-  if (input.includeHandoffBadge && !input.handoffShownInAvatar && handoffBadgeLabel) {
-    chips.push({
-      id: "handoff",
-      tooltip: handoffBadgeLabel,
-      icon: <SidebarGlyph icon={FiGitBranch} variant="meta" className="text-muted-foreground/55" />,
-    });
-  }
-
-  if (input.thread.forkSourceThreadId && !isSidechatThread) {
-    chips.push({
-      id: "fork",
-      tooltip: "Forked thread",
-      icon: (
-        <SidebarGlyph
-          icon={GoRepoForked}
-          variant="meta"
-          className="text-emerald-600 dark:text-emerald-300/90"
-        />
-      ),
-    });
-  }
-
-  const worktreeBadgeLabel = resolveWorktreeBadgeLabel(input.thread);
-  if (worktreeBadgeLabel) {
-    chips.push({
-      id: "worktree",
-      tooltip: worktreeBadgeLabel,
-      icon: <WorktreeBadgeGlyph className="text-muted-foreground/55" />,
-    });
-  }
-
-  return chips;
-}
-
-interface PrStatusIndicator {
-  label: PrStatePresentation["label"];
-  colorClass: string;
-  icon: LucideIcon;
-  tooltip: string;
-  url: string;
-}
 
 type ThreadPr = GitStatusResult["pr"];
 
-// Also accepts persisted `lastKnownPr` entries, whose draft/mergeability/diff fields are
-// optional because older rows predate them.
 function toThreadPr(
   pr:
     | NonNullable<ThreadPr>
@@ -665,11 +392,11 @@ function toThreadPr(
         baseBranch: string;
         headBranch: string;
         state: "open" | "closed" | "merged";
-        isDraft?: boolean | undefined;
-        mergeability?: "mergeable" | "conflicting" | "unknown" | undefined;
-        additions?: number | null | undefined;
-        deletions?: number | null | undefined;
-        changedFiles?: number | null | undefined;
+        isDraft?: boolean;
+        mergeability?: "mergeable" | "conflicting" | "unknown";
+        additions?: number | null;
+        deletions?: number | null;
+        changedFiles?: number | null;
       },
 ): ThreadPr {
   return {
@@ -685,229 +412,6 @@ function toThreadPr(
     deletions: pr.deletions ?? null,
     changedFiles: pr.changedFiles ?? null,
   };
-}
-
-function terminalStatusFromThreadState(input: {
-  runningTerminalIds: string[];
-  terminalAttentionStatesById: Record<string, "attention" | "review">;
-}): SidebarThreadTerminalStatus | null {
-  const terminalAttentionStates = Object.values(input.terminalAttentionStatesById ?? {});
-  if (terminalAttentionStates.includes("attention")) {
-    return {
-      label: "Terminal input needed",
-      colorClass: "text-amber-600 dark:text-amber-300/90",
-      pulse: false,
-    };
-  }
-  if ((input.runningTerminalIds?.length ?? 0) > 0) {
-    return {
-      label: "Terminal process running",
-      colorClass: "text-teal-600 dark:text-teal-300/90",
-      pulse: true,
-    };
-  }
-  if (terminalAttentionStates.includes("review")) {
-    return {
-      label: "Terminal task completed",
-      colorClass: "text-emerald-600 dark:text-emerald-300/90",
-      pulse: false,
-    };
-  }
-  return null;
-}
-
-function prStatusIndicator(pr: ThreadPr): PrStatusIndicator | null {
-  if (!pr) return null;
-  const presentation = resolvePrStatePresentation(pr);
-  return {
-    label: presentation.label,
-    colorClass: presentation.colorClass,
-    icon: PR_STATE_PRESENTATION_ICONS[presentation.iconKind],
-    tooltip: `#${pr.number} ${presentation.label}: ${pr.title}`,
-    url: pr.url,
-  };
-}
-
-function ThreadPrStatusBadge({
-  prStatus,
-  onOpen,
-  className,
-}: {
-  prStatus: PrStatusIndicator;
-  onOpen: (event: MouseEvent<HTMLElement>, prUrl: string) => void;
-  className?: string;
-}) {
-  return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <button
-            type="button"
-            aria-label={prStatus.tooltip}
-            className={cn(
-              "inline-flex size-4 shrink-0 cursor-pointer items-center justify-center rounded-sm outline-hidden transition-colors focus-visible:ring-1 focus-visible:ring-ring",
-              prStatus.colorClass,
-              className,
-            )}
-            onClick={(event) => onOpen(event, prStatus.url)}
-          >
-            <SidebarGlyph icon={prStatus.icon} variant="meta" className="size-3.5" />
-          </button>
-        }
-      />
-      <TooltipPopup side="top">{prStatus.tooltip}</TooltipPopup>
-    </Tooltip>
-  );
-}
-
-type SortableProjectHandleProps = Pick<
-  ReturnType<typeof useSortable>,
-  "attributes" | "listeners" | "setActivatorNodeRef"
->;
-
-function ProjectSortMenu({
-  projectSortOrder,
-  threadSortOrder,
-  onProjectSortOrderChange,
-  onThreadSortOrderChange,
-}: {
-  projectSortOrder: SidebarProjectSortOrder;
-  threadSortOrder: SidebarThreadSortOrder;
-  onProjectSortOrderChange: (sortOrder: SidebarProjectSortOrder) => void;
-  onThreadSortOrderChange: (sortOrder: SidebarThreadSortOrder) => void;
-}) {
-  return (
-    <Menu>
-      <SidebarIconButton
-        render={<MenuTrigger />}
-        icon={SortFilterIcon}
-        label="Sort projects"
-        tooltip="Sort projects"
-        tooltipSide="right"
-      />
-      <ComposerPickerMenuPopup align="end" side="bottom" className="min-w-44">
-        <MenuGroup>
-          <div className="px-2 py-1 sm:text-xs font-medium text-muted-foreground">
-            Sort projects
-          </div>
-          <MenuRadioGroup
-            value={projectSortOrder}
-            onValueChange={(value) => {
-              onProjectSortOrderChange(value as SidebarProjectSortOrder);
-            }}
-          >
-            {(Object.entries(SIDEBAR_SORT_LABELS) as Array<[SidebarProjectSortOrder, string]>).map(
-              ([value, label]) => (
-                <MenuRadioItem key={value} value={value} className="min-h-7 py-1 sm:text-xs">
-                  {label}
-                </MenuRadioItem>
-              ),
-            )}
-          </MenuRadioGroup>
-        </MenuGroup>
-        <MenuGroup>
-          <div className="px-2 pt-2 pb-1 sm:text-xs font-medium text-muted-foreground">
-            Sort threads
-          </div>
-          <ThreadSortMenuItems
-            threadSortOrder={threadSortOrder}
-            onThreadSortOrderChange={onThreadSortOrderChange}
-          />
-        </MenuGroup>
-      </ComposerPickerMenuPopup>
-    </Menu>
-  );
-}
-
-function ThreadSortMenuItems({
-  threadSortOrder,
-  onThreadSortOrderChange,
-}: {
-  threadSortOrder: SidebarThreadSortOrder;
-  onThreadSortOrderChange: (sortOrder: SidebarThreadSortOrder) => void;
-}) {
-  return (
-    <MenuRadioGroup
-      value={threadSortOrder}
-      onValueChange={(value) => {
-        onThreadSortOrderChange(value as SidebarThreadSortOrder);
-      }}
-    >
-      {(Object.entries(SIDEBAR_THREAD_SORT_LABELS) as Array<[SidebarThreadSortOrder, string]>).map(
-        ([value, label]) => (
-          <MenuRadioItem key={value} value={value} className="min-h-7 py-1 sm:text-xs">
-            {label}
-          </MenuRadioItem>
-        ),
-      )}
-    </MenuRadioGroup>
-  );
-}
-
-function ChatSortMenu({
-  threadSortOrder,
-  onThreadSortOrderChange,
-}: {
-  threadSortOrder: SidebarThreadSortOrder;
-  onThreadSortOrderChange: (sortOrder: SidebarThreadSortOrder) => void;
-}) {
-  return (
-    <Menu>
-      <SidebarIconButton
-        render={<MenuTrigger />}
-        icon={SortFilterIcon}
-        label="Sort chats"
-        tooltip="Sort chats"
-        tooltipSide="top"
-      />
-      <ComposerPickerMenuPopup align="end" side="bottom" className="min-w-44">
-        <MenuGroup>
-          <div className="px-2 py-1 sm:text-xs font-medium text-muted-foreground">Sort chats</div>
-          <ThreadSortMenuItems
-            threadSortOrder={threadSortOrder}
-            onThreadSortOrderChange={onThreadSortOrderChange}
-          />
-        </MenuGroup>
-      </ComposerPickerMenuPopup>
-    </Menu>
-  );
-}
-
-function SortableProjectItem({
-  projectId,
-  disabled = false,
-  children,
-}: {
-  projectId: ProjectId;
-  disabled?: boolean;
-  children: (handleProps: SortableProjectHandleProps) => React.ReactNode;
-}) {
-  const {
-    attributes,
-    listeners,
-    setActivatorNodeRef,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-    isOver,
-  } = useSortable({ id: projectId, disabled });
-  return (
-    <li
-      ref={setNodeRef}
-      style={{
-        transform: CSS.Translate.toString(transform),
-        transition,
-      }}
-      className={`group/menu-item relative rounded-md ${
-        isDragging ? "z-20 opacity-80" : ""
-      } ${isOver && !isDragging ? "ring-1 ring-primary/40" : ""}`}
-      data-sidebar="menu-item"
-      data-slot="sidebar-menu-item"
-    >
-      {children({ attributes, listeners, setActivatorNodeRef })}
-    </li>
-  );
 }
 
 export default function Sidebar() {
@@ -974,13 +478,6 @@ export default function Sidebar() {
     [queryClient],
   );
   const [penkraCreateClientOpen, setPenkraCreateClientOpen] = useState(false);
-  const penkraClientByProjectId = useMemo(
-    () =>
-      new Map(
-        (penkraSnapshot?.clients ?? []).map((client) => [penkraProjectId(client.id), client]),
-      ),
-    [penkraSnapshot?.clients],
-  );
   const routeThreadId = useParams({
     strict: false,
     select: (params) => (params.threadId ? ThreadId.makeUnsafe(params.threadId) : null),
@@ -990,8 +487,7 @@ export default function Sidebar() {
     if (!routeThreadId) return false;
     const dock = store.dockStateByThreadId[routeThreadId];
     return Boolean(
-      dock?.open &&
-        dock.panes.find((pane) => pane.id === dock.activePaneId)?.kind === "apps",
+      dock?.open && dock.panes.find((pane) => pane.id === dock.activePaneId)?.kind === "apps",
     );
   });
   const handleOpenApps = useCallback(async () => {
@@ -1004,11 +500,6 @@ export default function Sidebar() {
       openRightDockPane(result.threadId, { kind: "apps" });
     }
   }, [handleNewChat, openRightDockPane, routeThreadId]);
-  const routeProjectId = useParams({
-    strict: false,
-    select: (params) =>
-      typeof params.projectId === "string" ? ProjectId.makeUnsafe(params.projectId) : null,
-  });
   const routeSearch = useDiffRouteSearch();
   const activeSplitView = useSplitViewStore(
     useMemo(() => selectSplitView(routeSearch.splitViewId ?? null), [routeSearch.splitViewId]),
@@ -1128,8 +619,6 @@ export default function Sidebar() {
     threadId: ThreadId;
     timestamp: number;
   } | null>(null);
-  const dragInProgressRef = useRef(false);
-  const suppressProjectClickAfterDragRef = useRef(false);
   const optimisticPinnedStateByProjectIdRef = useRef(new Map<ProjectId, boolean>());
   const latestPinnedMutationVersionByProjectIdRef = useRef(new Map<ProjectId, number>());
   const [desktopUpdateState, setDesktopUpdateState] = useState<DesktopUpdateState | null>(null);
@@ -1375,27 +864,6 @@ export default function Sidebar() {
       ),
     [activeSpaceNonStudioSidebarTreeThreads, isOnStudio, pinnedThreadIds, studioSidebarTreeThreads],
   );
-  const openPrLink = useCallback((event: MouseEvent<HTMLElement>, prUrl: string) => {
-    event.preventDefault();
-    event.stopPropagation();
-
-    const api = readNativeApi();
-    if (!api) {
-      toastManager.add({
-        type: "error",
-        title: "Link opening is unavailable.",
-      });
-      return;
-    }
-
-    void api.shell.openExternal(prUrl).catch((error) => {
-      toastManager.add({
-        type: "error",
-        title: "Unable to open PR link",
-        description: error instanceof Error ? error.message : "An error occurred.",
-      });
-    });
-  }, []);
   const projectCwdById = useMemo(
     () => new Map(projects.map((project) => [project.id, project.cwd] as const)),
     [projects],
@@ -1557,47 +1025,6 @@ export default function Sidebar() {
       });
     },
     [appSettings.sidebarThreadSortOrder, navigate, sidebarThreads],
-  );
-
-  const openPenkraInstructions = useCallback(
-    (projectId: ProjectId, scope: "hq" | "client") => {
-      const hostThreadId =
-        routeThreadId ??
-        sortThreadsForSidebar(
-          sidebarThreads.filter((thread) => thread.projectId === projectId),
-          appSettings.sidebarThreadSortOrder,
-        )[0]?.id ??
-        null;
-      if (!hostThreadId) {
-        toastManager.add({
-          type: "warning",
-          title: "Open a chat first",
-          description: "The instructions viewer uses the existing chat side panel.",
-        });
-        return;
-      }
-
-      const filePaths =
-        scope === "hq" ? (["hq.md", "client.md"] as const) : (["client.md"] as const);
-      for (const filePath of filePaths) {
-        openRightDockPane(hostThreadId, { kind: "file", filePath });
-      }
-      if (hostThreadId !== routeThreadId || routeSearch.splitViewId) {
-        void navigate({
-          to: "/$threadId",
-          params: { threadId: hostThreadId },
-          search: {},
-        });
-      }
-    },
-    [
-      appSettings.sidebarThreadSortOrder,
-      navigate,
-      openRightDockPane,
-      routeSearch.splitViewId,
-      routeThreadId,
-      sidebarThreads,
-    ],
   );
 
   const openOrCreateProjectThreadFromSnapshot = useCallback(
@@ -1841,13 +1268,6 @@ export default function Sidebar() {
     [navigate],
   );
 
-  const handleBackToAppFromSettings = useCallback(() => {
-    if (navigateToBackTarget(resolveBackToThreadsTarget())) {
-      return;
-    }
-    void navigate({ to: "/" });
-  }, [navigate, navigateToBackTarget, resolveBackToThreadsTarget]);
-
   useEffect(() => {
     if (!threadsHydrated || !homeDir) {
       return;
@@ -2035,15 +1455,6 @@ export default function Sidebar() {
     },
     [appSettings, projects, queryClient, serverCwd],
   );
-
-  const prefetchModelsForPrimaryNewThread = useCallback(() => {
-    if (!primaryNewThreadTarget) {
-      return;
-    }
-    prefetchModelsForProjectNewThread(primaryNewThreadTarget.projectId, {
-      includeDroid: true,
-    });
-  }, [prefetchModelsForProjectNewThread, primaryNewThreadTarget]);
 
   useEffect(() => {
     if (!primaryNewThreadTarget) {
@@ -2589,19 +2000,6 @@ export default function Sidebar() {
     },
     [activeSpaceId, addProjectFromPath, handleSelectSpaceForIncomingProject, projects],
   );
-
-  // Tab index 0 is Void, then spaces in strip order — the same mapping the
-  // space.jump.N dispatch below uses, surfaced in each tab's tooltip.
-  const jumpShortcutLabelForSpaceTab = useCallback(
-    (tabIndex: number) => {
-      const command = spaceJumpCommandForIndex(tabIndex);
-      if (!command) return null;
-      return shortcutLabelForCommand(keybindings, command, {
-        platform: navigator.platform,
-      });
-    },
-    [keybindings],
-  );
   const handleProjectContextMenuAction = useCallback(
     async (projectId: ProjectId, clicked: ProjectContextMenuId) => {
       setProjectContextMenuState(null);
@@ -2739,52 +2137,6 @@ export default function Sidebar() {
     [projectById],
   );
 
-  const projectDnDSensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: { distance: 6 },
-    }),
-  );
-  const projectCollisionDetection = useCallback<CollisionDetection>((args) => {
-    const pointerCollisions = pointerWithin(args);
-    if (pointerCollisions.length > 0) {
-      return pointerCollisions;
-    }
-
-    return closestCorners(args);
-  }, []);
-
-  const handleProjectDragEnd = useCallback(
-    (event: DragEndEvent) => {
-      if (appSettings.sidebarProjectSortOrder !== "manual") {
-        dragInProgressRef.current = false;
-        return;
-      }
-      dragInProgressRef.current = false;
-      const { active, over } = event;
-      if (!over || active.id === over.id) return;
-      const activeProject = projects.find((project) => project.id === active.id);
-      const overProject = projects.find((project) => project.id === over.id);
-      if (!activeProject || !overProject) return;
-      reorderProjects(activeProject.id, overProject.id);
-    },
-    [appSettings.sidebarProjectSortOrder, projects, reorderProjects],
-  );
-
-  const handleProjectDragStart = useCallback(
-    (_event: DragStartEvent) => {
-      if (appSettings.sidebarProjectSortOrder !== "manual") {
-        return;
-      }
-      dragInProgressRef.current = true;
-      suppressProjectClickAfterDragRef.current = true;
-    },
-    [appSettings.sidebarProjectSortOrder],
-  );
-
-  const handleProjectDragCancel = useCallback((_event: DragCancelEvent) => {
-    dragInProgressRef.current = false;
-  }, []);
-
   const animatedProjectListsRef = useRef(new WeakSet<HTMLElement>());
   const attachProjectListAutoAnimateRef = useCallback((node: HTMLElement | null) => {
     if (!node || animatedProjectListsRef.current.has(node)) {
@@ -2810,10 +2162,6 @@ export default function Sidebar() {
     }
     return byProjectId;
   }, [appSettings.sidebarThreadSortOrder, sidebarThreadsByProjectId]);
-  const handleProjectTitlePointerDownCapture = useCallback(() => {
-    suppressProjectClickAfterDragRef.current = false;
-  }, []);
-
   const handleRenameProjectSave = useCallback(
     (projectId: ProjectId, nextName: string, previousLocalName: string | null) => {
       const trimmed = nextName.trim();
@@ -2953,32 +2301,6 @@ export default function Sidebar() {
       ),
     [chatWorkspaceRoot, homeDir, sortedProjects, studioWorkspaceRoot],
   );
-  const spaceActivityById = useMemo(() => {
-    const priority: Record<SpaceActivityTone, number> = {
-      attention: 3,
-      running: 2,
-      completed: 1,
-    };
-    const activity = new Map<SpaceId | null, SpaceActivityTone>();
-    for (const project of allStandardProjectsBase) {
-      const status = resolveProjectStatusIndicator(
-        (sidebarThreadsByProjectId.get(project.id) ?? []).map(resolveThreadStatusForSidebar),
-      );
-      if (!status) continue;
-      const tone: SpaceActivityTone =
-        status.label === "Working" || status.label === "Connecting"
-          ? "running"
-          : status.label === "Completed"
-            ? "completed"
-            : "attention";
-      const projectSpaceId = project.spaceId ?? null;
-      const current = activity.get(projectSpaceId);
-      if (!current || priority[tone] > priority[current]) {
-        activity.set(projectSpaceId, tone);
-      }
-    }
-    return activity;
-  }, [allStandardProjectsBase, resolveThreadStatusForSidebar, sidebarThreadsByProjectId]);
   const standardProjectsBase = useMemo(
     () => allStandardProjectsBase.filter((project) => (project.spaceId ?? null) === activeSpaceId),
     [activeSpaceId, allStandardProjectsBase],
@@ -3263,48 +2585,6 @@ export default function Sidebar() {
       refetchInterval: 60_000,
     })),
   });
-  const prByThreadId = useMemo(() => {
-    const statusByCwd = new Map<string, GitStatusResult>();
-    for (let index = 0; index < threadGitStatusCwds.length; index += 1) {
-      const cwd = threadGitStatusCwds[index];
-      if (!cwd) continue;
-      const status = threadGitStatusQueries[index]?.data;
-      if (status) {
-        statusByCwd.set(cwd, status);
-      }
-    }
-
-    const storedPrByThreadId = new Map<ThreadId, ThreadPr>();
-    for (let index = 0; index < threadStoredPrTargets.length; index += 1) {
-      const target = threadStoredPrTargets[index];
-      if (!target) {
-        continue;
-      }
-      const result = threadStoredPrQueries[index]?.data?.pullRequest ?? null;
-      if (result) {
-        storedPrByThreadId.set(target.threadId, toThreadPr(result));
-        continue;
-      }
-      storedPrByThreadId.set(target.threadId, toThreadPr(target.lastKnownPr));
-    }
-
-    const map = new Map<ThreadId, ThreadPr>();
-    for (const target of threadGitTargets) {
-      const status = target.cwd ? statusByCwd.get(target.cwd) : undefined;
-      const branchMatches =
-        target.branch !== null && status?.branch !== null && status?.branch === target.branch;
-      const livePr = branchMatches ? (status?.pr ?? null) : null;
-      map.set(target.threadId, livePr ?? storedPrByThreadId.get(target.threadId) ?? null);
-    }
-    return map;
-  }, [
-    threadGitStatusCwds,
-    threadGitStatusQueries,
-    threadGitTargets,
-    threadStoredPrQueries,
-    threadStoredPrTargets,
-  ]);
-  const isManualProjectSorting = appSettings.sidebarProjectSortOrder === "manual";
   const threadJumpCommandByThreadId = useMemo(() => {
     const mapping = new Map<ThreadId, NonNullable<ReturnType<typeof threadJumpCommandForIndex>>>();
     for (const [visibleThreadIndex, threadId] of visibleSidebarThreadIds.entries()) {
@@ -3343,13 +2623,6 @@ export default function Sidebar() {
   const visibleThreadJumpLabelByThreadId = showThreadJumpHints
     ? threadJumpLabelByThreadId
     : EMPTY_THREAD_JUMP_LABELS;
-  const visibleThreadJumpLabelPartsByThreadId = useMemo(() => {
-    const partsByThreadId = new Map<ThreadId, readonly string[]>();
-    for (const [threadId, label] of visibleThreadJumpLabelByThreadId) {
-      partsByThreadId.set(threadId, splitShortcutLabel(label));
-    }
-    return partsByThreadId;
-  }, [visibleThreadJumpLabelByThreadId]);
 
   useEffect(() => {
     const threadIdsToPrewarm = getSidebarThreadIdsToPrewarm({
@@ -3366,857 +2639,6 @@ export default function Sidebar() {
       }
     };
   }, [activeSidebarThreadId, visibleSidebarThreadIds]);
-
-  // Pinned rows should show the user-facing project label, not the raw folder basename.
-  function resolvePinnedThreadProjectLabel(projectId: ProjectId): string | null {
-    const project = projectById.get(projectId);
-    if (!project) return null;
-    return project.name ?? project.folderName ?? null;
-  }
-
-  // Keep hover actions in the same trailing slot used by the timestamp they replace.
-  function renderThreadArchiveAction(
-    threadId: ThreadId,
-    toneClassName: string,
-    options?: {
-      compact?: boolean;
-    },
-  ) {
-    const compact = options?.compact === true;
-
-    return (
-      <SidebarIconButton
-        icon={HiOutlineArchiveBox}
-        label="Archive thread"
-        title="Archive thread"
-        data-testid={`thread-archive-${threadId}`}
-        size={compact ? "sm" : "md"}
-        // Match the pin and the right-side meta chips (shared trailing-icon size); subagent
-        // rows stay on the denser "compact" scale.
-        iconClassName={compact ? sidebarGlyphClass("compact") : SIDEBAR_TRAILING_ICON_CLASS}
-        className={cn("hover:text-foreground/89", toneClassName)}
-        onMouseDown={(event) => {
-          event.preventDefault();
-          event.stopPropagation();
-        }}
-        onClick={(event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          void archiveThreadWithUndo(threadId);
-        }}
-      />
-    );
-  }
-
-  function renderThreadHoverActions(input: {
-    threadId: ThreadId;
-    toneClassName: string;
-    isPinned: boolean;
-    includePinToggle?: boolean;
-    compact?: boolean;
-  }) {
-    const compact = input.compact === true;
-    const includePinToggle = input.includePinToggle !== false;
-
-    return (
-      <SidebarRowHoverActions threadId={input.threadId}>
-        <div className="pointer-events-auto inline-flex items-center gap-2">
-          {includePinToggle ? (
-            <ThreadPinToggleButton
-              pinned={input.isPinned}
-              presentation="inline"
-              toneClassName={input.toneClassName}
-              onToggle={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                toggleThreadPinned(input.threadId);
-              }}
-            />
-          ) : null}
-          {renderThreadArchiveAction(input.threadId, input.toneClassName, {
-            compact,
-          })}
-        </div>
-      </SidebarRowHoverActions>
-    );
-  }
-
-  function renderThreadRowTrailingCluster(input: {
-    isSubagentThread: boolean;
-    threadJumpLabel: string | null;
-    threadJumpLabelParts: readonly string[];
-    rightMetaChips: ThreadMetaChip[];
-    threadStatus: ReturnType<typeof resolveThreadStatusForSidebar>;
-    timestampToneClassName?: string;
-    hoverActions: ReactNode;
-  }) {
-    return (
-      <div className="relative flex shrink-0 items-center justify-end gap-1">
-        {input.rightMetaChips.length > 0 ? (
-          <div className={THREAD_ROW_META_CHIP_HOVER_FADE_CLASS_NAME}>
-            <SidebarMetaChipStack chips={input.rightMetaChips} />
-          </div>
-        ) : null}
-        {input.threadJumpLabel ? (
-          <KbdGroup className={THREAD_ROW_META_CHIP_HOVER_FADE_CLASS_NAME}>
-            {input.threadJumpLabelParts.map((part) => (
-              <Kbd key={part}>{part}</Kbd>
-            ))}
-          </KbdGroup>
-        ) : null}
-        {!input.threadJumpLabel && input.threadStatus ? (
-          // The relative time now lives in the row hover card, so the trailing
-          // slot only carries the live status/loader glyph; when idle it
-          // collapses and the hover action icons sit flush at the end.
-          <span
-            className={threadRowTimestampSlotClassName(
-              input.isSubagentThread,
-              input.timestampToneClassName,
-            )}
-          >
-            <SidebarStatusTrailingGlyph status={input.threadStatus} />
-          </span>
-        ) : null}
-        {input.hoverActions}
-      </div>
-    );
-  }
-
-  // Section header (label + hover-revealed toolbar) shared by the Threads and Studio surfaces,
-  // so spacing/typography stay in lockstep; only the label and toolbar contents vary.
-  function renderListSectionHeader(label: string, toolbar: ReactNode) {
-    return (
-      <div className="group/project-header relative my-1">
-        <div
-          className={cn(
-            "flex h-7 w-full min-w-0 items-center px-2 py-0.5 pr-[4.75rem]",
-            SIDEBAR_SECTION_LABEL_CLASS_NAME,
-          )}
-        >
-          <span className="truncate">{label}</span>
-        </div>
-        <SidebarSectionToolbar placement="overlay" revealOnHover>
-          {toolbar}
-        </SidebarSectionToolbar>
-      </div>
-    );
-  }
-  // Identical "Pinned" header + rows block shared by the Threads and Studio surfaces.
-  // `pinnedThreads` is already the surface-appropriate list, so a single helper keeps both in sync.
-  function renderPinnedThreadsSection() {
-    if (pinnedThreads.length === 0) {
-      return null;
-    }
-    return (
-      <div className="mb-3">
-        <div className="my-1 flex items-center justify-between px-2 py-1">
-          <span className={SIDEBAR_SECTION_LABEL_CLASS_NAME}>Pinned</span>
-        </div>
-        <div className="flex flex-col gap-0.5">
-          {pinnedThreads.map((thread) => renderPinnedThreadRow(thread))}
-        </div>
-      </div>
-    );
-  }
-
-  // Shared rich hover card for thread/chat rows. Worktree metadata is resolved
-  // once here so pinned and nested rows stay visually and semantically identical.
-  function renderThreadHoverCardPopup(thread: SidebarThreadSummary, hoverAnchorId: string) {
-    const hoverProject = projectById.get(thread.projectId) ?? null;
-    const hoverMetadata = resolveThreadHoverCardMetadata({
-      thread,
-      project: hoverProject,
-    });
-    return (
-      <TooltipPopup
-        {...SIDEBAR_HOVER_CARD_POPUP_PROPS}
-        // Zero the viewport's px-2 py-1 inset so the card's own padding matches
-        // the project PreviewCard (which has no viewport). The var also drives
-        // the viewport width calc, so setting it to 0 keeps the content full-width.
-        viewportClassName="[--viewport-inline-padding:0px] py-0"
-        anchor={createThreadHoverCardAnchor(hoverAnchorId)}
-        className={cn(SIDEBAR_HOVER_CARD_SURFACE_CLASS_NAME, "whitespace-normal leading-tight")}
-      >
-        <ThreadHoverCardContent
-          title={thread.title}
-          timeLabel={formatRelativeTime(thread.updatedAt ?? thread.createdAt)}
-          projectName={hoverMetadata.projectName}
-          projectCwd={hoverMetadata.projectCwd}
-          sourceProjectName={hoverMetadata.sourceProjectName}
-          branch={hoverMetadata.branch}
-          worktreeName={hoverMetadata.worktreeName}
-        />
-      </TooltipPopup>
-    );
-  }
-
-  // Interactive hover card for project/folder rows: name + pin toggle, chat
-  // count, path, and an "Edit project" action. Rendered inside a PreviewCard so
-  // its controls stay reachable when the pointer moves into the card.
-  function renderProjectHoverCardPopup(
-    project: (typeof sortedProjects)[number],
-    chatCount: number,
-  ) {
-    return (
-      <PreviewCardPopup
-        {...SIDEBAR_HOVER_CARD_POPUP_PROPS}
-        anchor={createProjectHoverCardAnchor(project.id)}
-        className={SIDEBAR_HOVER_CARD_SURFACE_CLASS_NAME}
-      >
-        <ProjectHoverCardContent
-          name={project.name}
-          isPinned={pinnedProjectIdSet.has(project.id)}
-          chatCount={chatCount}
-          path={abbreviateHomePath(project.cwd, homeDir)}
-          onTogglePin={() => toggleProjectPinned(project.id)}
-          onEditProject={() => void handleProjectContextMenuAction(project.id, "rename")}
-        />
-      </PreviewCardPopup>
-    );
-  }
-
-  function renderPinnedThreadRow(thread: SidebarThreadSummary) {
-    const threadTerminalState = selectThreadTerminalState(terminalStateByThreadId, thread.id);
-    const threadEntryPoint = threadTerminalState.entryPoint;
-    const terminalStatus = terminalStatusFromThreadState({
-      runningTerminalIds: threadTerminalState.runningTerminalIds,
-      terminalAttentionStatesById: threadTerminalState.terminalAttentionStatesById,
-    });
-    const terminalCount = threadTerminalState.terminalIds.length;
-    const isActive = visualActiveSidebarThreadId === thread.id;
-    const projectLabel = resolvePinnedThreadProjectLabel(thread.projectId);
-    const rightMetaChips = resolveThreadRowMetaChips({
-      thread,
-      includeHandoffBadge: true,
-      handoffShownInAvatar:
-        threadEntryPoint !== "terminal" &&
-        !isGenericChatThreadTitle(thread.title) &&
-        Boolean(thread.handoff?.sourceProvider),
-    });
-    const threadStatus = resolveThreadStatusForSidebar(thread);
-    const isSubagentThread = Boolean(thread.parentThreadId);
-    const prStatus = prStatusIndicator(prByThreadId.get(thread.id) ?? null);
-    const leadingPrStatus =
-      isSubagentThread || thread.forkSourceThreadId || thread.sidechatSourceThreadId
-        ? null
-        : prStatus;
-    const threadJumpLabel = visibleThreadJumpLabelByThreadId.get(thread.id) ?? null;
-    const threadJumpLabelParts =
-      visibleThreadJumpLabelPartsByThreadId.get(thread.id) ?? EMPTY_SHORTCUT_PARTS;
-    // The trailing cluster (meta chips + status glyph) is absolutely positioned; it
-    // only grows past the reserve when a live glyph (spinner/check/dot or jump label)
-    // occupies the status slot. In that state the right-aligned project label needs a
-    // hair of clearance so it stops kissing the worktree chip — see the margin below.
-    const hasTrailingStatusGlyph = Boolean(threadStatus) || Boolean(threadJumpLabel);
-    const hoverAnchorId = createSidebarThreadHoverAnchorId({
-      scope: "pinned",
-      threadId: thread.id,
-    });
-    return (
-      <Tooltip key={thread.id}>
-        <TooltipTrigger
-          {...SIDEBAR_HOVER_CARD_TRIGGER_PROPS}
-          render={
-            <div
-              data-thread-hover-anchor={hoverAnchorId}
-              className="group/thread-row relative w-full"
-            />
-          }
-        >
-          {leadingPrStatus ? (
-            <ThreadPrStatusBadge
-              prStatus={leadingPrStatus}
-              onOpen={openPrLink}
-              className="pointer-events-auto absolute left-1.5 top-1/2 z-30 size-5 -translate-y-1/2"
-            />
-          ) : null}
-          <div
-            role="button"
-            tabIndex={0}
-            data-thread-item
-            className={cn(
-              SIDEBAR_HEADER_ROW_CLASS_NAME,
-              // Match the normal thread row: a flex row whose title claims all free
-              // space, with a trailing reserve that grows only for the badges actually
-              // present — instead of a rigid grid that permanently fenced off a
-              // timestamp-era column and squeezed the title/project even when wide.
-              "relative gap-1.5 transition-colors",
-              leadingPrStatus && "pl-8",
-              resolveThreadRowTrailingReserveClass({
-                metaChipCount: rightMetaChips.length,
-                hasTrailingGlyph: hasTrailingStatusGlyph,
-              }),
-              isActive
-                ? SIDEBAR_ROW_ACTIVE_CLASS_NAME
-                : cn(SIDEBAR_ROW_IDLE_TEXT_CLASS_NAME, SIDEBAR_ROW_HOVER_CLASS_NAME),
-            )}
-            onPointerDown={(event) => primeThreadActivation(event, thread.id)}
-            onClick={() => activateThreadFromSidebarIntent(thread.id)}
-            onDoubleClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              openRenameThreadDialog(thread.id);
-            }}
-            onPointerUp={(event) => handleThreadRenamePointerUp(event, thread.id)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" || event.key === " ") {
-                event.preventDefault();
-                activateThreadFromSidebarIntent(thread.id);
-              }
-            }}
-            onContextMenu={(event) => {
-              event.preventDefault();
-              void handleThreadContextMenu(thread.id, {
-                x: event.clientX,
-                y: event.clientY,
-              });
-            }}
-          >
-            <SidebarThreadRowContent
-              thread={thread}
-              terminalEntryPoint={threadEntryPoint === "terminal"}
-              terminalStatus={terminalStatus}
-              terminalCount={terminalCount}
-              isActive={isActive}
-              variant="pinned"
-              pendingStatusColorClass={
-                threadStatus?.label === "Pending Approval" ? threadStatus.colorClass : null
-              }
-              suffix={
-                projectLabel ? (
-                  // Right-aligned project context for the flattened pinned list. The title
-                  // (flex-1) pushes it to the content edge, so it shows in full when the row
-                  // has room and only truncates under real pressure, shifting left as the
-                  // trailing reserve grows on hover/status. When a live status glyph occupies
-                  // the trailing slot (e.g. the running spinner), the absolute cluster reaches
-                  // a few px past the reserve — a small margin keeps the folder name from
-                  // touching the worktree chip. It costs no space when the row is idle.
-                  <span
-                    className={cn(
-                      "max-w-[40%] shrink-0 truncate text-right text-[length:var(--app-font-size-ui-meta,10px)] text-muted-foreground/38 transition-[margin] duration-150 ease-out",
-                      hasTrailingStatusGlyph && "mr-2",
-                    )}
-                  >
-                    {projectLabel}
-                  </span>
-                ) : null
-              }
-            />
-            <div className="absolute top-1/2 right-1.5 flex -translate-y-1/2 items-center">
-              {renderThreadRowTrailingCluster({
-                isSubagentThread,
-                threadJumpLabel,
-                threadJumpLabelParts,
-                rightMetaChips,
-                threadStatus,
-                timestampToneClassName: "text-muted-foreground/38",
-                hoverActions: renderThreadHoverActions({
-                  threadId: thread.id,
-                  toneClassName: "text-muted-foreground/42",
-                  isPinned: true,
-                  compact: isSubagentThread,
-                }),
-              })}
-            </div>
-          </div>
-        </TooltipTrigger>
-        {renderThreadHoverCardPopup(thread, hoverAnchorId)}
-      </Tooltip>
-    );
-  }
-
-  function renderThreadRow(
-    thread: SidebarThreadSummary,
-    orderedProjectThreadIds: readonly ThreadId[],
-    depth = 0,
-    // Chat rows sit directly under the "Chats" header (no project nesting), so
-    // their top-level rows align flush like pinned rows instead of the indented
-    // column used for project-nested threads.
-    topLevel = false,
-  ) {
-    const threadTerminalState = selectThreadTerminalState(terminalStateByThreadId, thread.id);
-    const threadEntryPoint = threadTerminalState.entryPoint;
-    const isActive = visualActiveSidebarThreadId === thread.id;
-    const isPinned = pinnedThreadIdSet.has(thread.id);
-    const isSelected = selectedThreadIds.has(thread.id);
-    const isHighlighted = isActive || isSelected;
-    const threadStatus = resolveThreadStatusForSidebar(thread);
-    const prStatus = prStatusIndicator(prByThreadId.get(thread.id) ?? null);
-    const terminalStatus = terminalStatusFromThreadState({
-      runningTerminalIds: threadTerminalState.runningTerminalIds,
-      terminalAttentionStatesById: threadTerminalState.terminalAttentionStatesById,
-    });
-    const terminalCount = threadTerminalState.terminalIds.length;
-    const isTemporaryThread =
-      temporaryThreadIds[thread.id] === true ||
-      draftThreadsByThreadId[thread.id]?.isTemporary === true;
-    const secondaryMetaClass = isHighlighted
-      ? "text-foreground/54 dark:text-foreground/64"
-      : "text-muted-foreground/34";
-    const rightMetaChips = resolveThreadRowMetaChips({
-      thread,
-      includeHandoffBadge: !isTemporaryThread,
-      handoffShownInAvatar:
-        threadEntryPoint !== "terminal" &&
-        !isGenericChatThreadTitle(thread.title) &&
-        Boolean(thread.handoff?.sourceProvider),
-    });
-    const isSubagentThread = Boolean(thread.parentThreadId);
-    const leadingPrStatus =
-      isSubagentThread || thread.forkSourceThreadId || thread.sidechatSourceThreadId
-        ? null
-        : prStatus;
-    const subagentIndentPx = Math.max(0, Math.min(depth - 1, 3) * 10);
-    const showCompactMeta = !isSubagentThread;
-    const showTemporaryThreadIcon =
-      showCompactMeta && isTemporaryThread && !thread.sidechatSourceThreadId;
-    const threadJumpLabel = visibleThreadJumpLabelByThreadId.get(thread.id) ?? null;
-    const threadJumpLabelParts =
-      visibleThreadJumpLabelPartsByThreadId.get(thread.id) ?? EMPTY_SHORTCUT_PARTS;
-    const hoverAnchorId = createSidebarThreadHoverAnchorId({
-      scope: topLevel ? "chat" : "project",
-      threadId: thread.id,
-    });
-
-    return (
-      <SidebarMenuSubItem
-        key={thread.id}
-        data-thread-hover-anchor={hoverAnchorId}
-        className="group/thread-row w-full"
-        data-thread-item
-      >
-        {leadingPrStatus ? (
-          <ThreadPrStatusBadge
-            prStatus={leadingPrStatus}
-            onOpen={openPrLink}
-            className="pointer-events-auto absolute left-1.5 top-1/2 z-30 size-5 -translate-y-1/2"
-          />
-        ) : null}
-        <Tooltip>
-          <TooltipTrigger
-            {...SIDEBAR_HOVER_CARD_TRIGGER_PROPS}
-            render={
-              <SidebarMenuSubButton
-                render={<div role="button" tabIndex={0} />}
-                data-thread-entry-point={threadEntryPoint}
-                size="sm"
-                isActive={isActive}
-                className={cn(
-                  resolveThreadRowClassName({
-                    isActive,
-                    isSelected,
-                  }),
-                  leadingPrStatus ? "pl-8" : topLevel && !isSubagentThread ? "pl-2" : null,
-                  isSubagentThread
-                    ? "pr-7.5"
-                    : resolveThreadRowTrailingReserveClass({
-                        metaChipCount: showCompactMeta ? rightMetaChips.length : 0,
-                        hasTrailingGlyph: Boolean(threadStatus) || Boolean(threadJumpLabel),
-                      }),
-                )}
-                draggable
-                onDragStart={(event) => {
-                  const dragImage = event.currentTarget as HTMLElement | null;
-                  event.dataTransfer.effectAllowed = "move";
-                  event.dataTransfer.setData(
-                    THREAD_DRAG_MIME,
-                    JSON.stringify({ threadId: thread.id }),
-                  );
-                  if (dragImage) {
-                    const rect = dragImage.getBoundingClientRect();
-                    event.dataTransfer.setDragImage(
-                      dragImage,
-                      Math.max(0, event.clientX - rect.left),
-                      Math.max(0, event.clientY - rect.top),
-                    );
-                  }
-                }}
-                onClick={(event) => {
-                  handleThreadClick(event, thread.id, orderedProjectThreadIds);
-                }}
-                onPointerDown={(event) => primeThreadActivation(event, thread.id)}
-                onDoubleClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  openRenameThreadDialog(thread.id);
-                }}
-                onPointerUp={(event) => handleThreadRenamePointerUp(event, thread.id)}
-                onKeyDown={(event) => {
-                  if (event.key !== "Enter" && event.key !== " ") return;
-                  event.preventDefault();
-                  activateThreadFromSidebarIntent(thread.id);
-                }}
-                onContextMenu={(event) => {
-                  event.preventDefault();
-                  if (selectedThreadIds.size > 0 && selectedThreadIds.has(thread.id)) {
-                    void handleMultiSelectContextMenu({
-                      x: event.clientX,
-                      y: event.clientY,
-                    });
-                  } else {
-                    if (selectedThreadIds.size > 0) {
-                      clearSelection();
-                    }
-                    void handleThreadContextMenu(thread.id, {
-                      x: event.clientX,
-                      y: event.clientY,
-                    });
-                  }
-                }}
-              />
-            }
-          >
-            <SidebarThreadRowContent
-              thread={thread}
-              terminalEntryPoint={threadEntryPoint === "terminal"}
-              terminalStatus={terminalStatus}
-              terminalCount={terminalCount}
-              isActive={isActive}
-              variant="standard"
-              subagentIndentPx={subagentIndentPx}
-              pendingStatusColorClass={
-                threadStatus?.label === "Pending Approval" ? threadStatus.colorClass : null
-              }
-              suffix={
-                showTemporaryThreadIcon ? (
-                  <div className="ml-auto flex shrink-0 items-center gap-1.5 pr-1">
-                    <Tooltip>
-                      <TooltipTrigger
-                        render={
-                          <span className="inline-flex shrink-0 items-center text-muted-foreground/55">
-                            <TemporaryThreadIcon />
-                          </span>
-                        }
-                      />
-                      <TooltipPopup side="top">Temporary chat</TooltipPopup>
-                    </Tooltip>
-                  </div>
-                ) : undefined
-              }
-            />
-            <div className={cn("absolute top-1/2 flex -translate-y-1/2 items-center", "right-1.5")}>
-              {renderThreadRowTrailingCluster({
-                isSubagentThread,
-                threadJumpLabel,
-                threadJumpLabelParts,
-                rightMetaChips: showCompactMeta ? rightMetaChips : [],
-                threadStatus,
-                timestampToneClassName: isSubagentThread
-                  ? isHighlighted
-                    ? "text-foreground/38 dark:text-foreground/46"
-                    : "text-muted-foreground/24"
-                  : secondaryMetaClass,
-                hoverActions: renderThreadHoverActions({
-                  threadId: thread.id,
-                  toneClassName: secondaryMetaClass,
-                  isPinned,
-                  compact: isSubagentThread,
-                }),
-              })}
-            </div>
-          </TooltipTrigger>
-          {renderThreadHoverCardPopup(thread, hoverAnchorId)}
-        </Tooltip>
-      </SidebarMenuSubItem>
-    );
-  }
-
-  function renderProjectItem(
-    project: (typeof sortedProjects)[number],
-    dragHandleProps: SortableProjectHandleProps | null,
-  ) {
-    const isProjectPinned = pinnedProjectIdSet.has(project.id);
-    const projectSidebarData = surfaceProjectSidebarDataById.get(project.id);
-    if (!projectSidebarData) {
-      return null;
-    }
-    const {
-      orderedProjectThreadIds,
-      allProjectThreadCount,
-      projectStatus,
-      visibleEntries,
-      threadListExtraPages,
-      canShowMoreThreads,
-      canShowLessThreads,
-    } = projectSidebarData;
-    const projectFolderIconClassName = "";
-    const projectRun = projectRunsByProjectId[project.id] ?? null;
-    const penkraClient = penkraClientByProjectId.get(project.id) ?? null;
-    const projectRunServer = projectRunServerByProjectId.get(project.id) ?? null;
-    // A project reads as "running" when Penkra tracks a run for it or when a
-    // local server (possibly started outside Penkra) is attributed by cwd.
-    const isProjectRunning = projectRun !== null || projectRunServer !== null;
-    const collapsedProjectStatus = project.expanded ? null : projectStatus;
-    // The "open dev server" affordance now lives in the project context menu, so
-    // the hover toolbar always reserves space for the three thread actions. The
-    // reserve lives on the *name* container (not the button) so only the truncating
-    // name yields to the overlay toolbar; the trailing run dot stays put and fades
-    // in place instead of sliding left. Focus is read from the group because the
-    // name container itself is not focusable — the row's button is.
-    const projectToolbarReserveClassName =
-      "group-hover/project-header:pr-[4.75rem] group-has-[:focus-visible]/project-header:pr-[4.75rem]";
-
-    return (
-      <div className="group/collapsible">
-        <PreviewCard>
-          <PreviewCardTrigger
-            {...SIDEBAR_HOVER_CARD_TRIGGER_PROPS}
-            render={
-              <div
-                className="group/project-header relative"
-                data-project-hover-anchor={project.id}
-              />
-            }
-          >
-            <SidebarMenuButton
-              render={
-                <div
-                  role="button"
-                  tabIndex={0}
-                  aria-expanded={project.expanded}
-                  aria-label={`${project.expanded ? "Collapse" : "Expand"} ${project.name}`}
-                />
-              }
-              ref={isManualProjectSorting ? dragHandleProps?.setActivatorNodeRef : undefined}
-              size="sm"
-              className={cn(
-                SIDEBAR_HEADER_ROW_CLASS_NAME,
-                "hover:bg-[var(--sidebar-accent)] group-hover/project-header:bg-[var(--sidebar-accent)] group-hover/project-header:text-[var(--sidebar-accent-foreground)]",
-                isManualProjectSorting ? "cursor-grab active:cursor-grabbing" : "cursor-pointer",
-              )}
-              {...(isManualProjectSorting && dragHandleProps ? dragHandleProps.attributes : {})}
-              {...(isManualProjectSorting && dragHandleProps ? dragHandleProps.listeners : {})}
-              {...(!isManualProjectSorting && spaces.length > 0
-                ? {
-                    // Native drag-to-file: drop the row on a space tab to move the
-                    // project. Manual sort mode is excluded because dnd-kit owns the
-                    // drag gesture there for reordering.
-                    draggable: true,
-                    onDragStart: (event: ReactDragEvent<HTMLDivElement>) => {
-                      event.dataTransfer.effectAllowed = "move";
-                      event.dataTransfer.setData(
-                        PROJECT_SPACE_DRAG_MIME,
-                        JSON.stringify({ projectId: project.id }),
-                      );
-                    },
-                  }
-                : {})}
-              onPointerDownCapture={handleProjectTitlePointerDownCapture}
-              onClick={(event) => handleProjectTitleClick(event, project.id)}
-              onKeyDown={(event) => handleProjectTitleKeyDown(event, project.id)}
-              onContextMenu={(event) => {
-                event.preventDefault();
-                void handleProjectContextMenu(project.id, {
-                  x: event.clientX,
-                  y: event.clientY,
-                });
-              }}
-            >
-              {project.id !== "penkra-hq" && !isProjectPinned ? (
-                <button
-                  type="button"
-                  aria-label={`Open ${project.name} profile`}
-                  title={`Open ${project.name} profile`}
-                  className="relative inline-flex size-4 shrink-0 items-center justify-center rounded-full focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
-                  onPointerDown={(event) => event.stopPropagation()}
-                  onClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    if (routeThreadId) {
-                      openRightDockPane(routeThreadId, {
-                        kind: "profile",
-                        profileProjectId: project.id,
-                      });
-                    }
-                  }}
-                >
-                  <ProjectSidebarIcon cwd={project.cwd} expanded={project.expanded} />
-                </button>
-              ) : (
-                <SidebarLeadingIcon
-                  size="sm"
-                  tone={SIDEBAR_ROW_LABEL_TEXT_CLASS_NAME}
-                  className={projectFolderIconClassName}
-                />
-              )}
-              <div
-                className={cn(
-                  "flex min-w-0 flex-1 items-center gap-2 overflow-hidden transition-[padding] duration-150 ease-out",
-                  projectToolbarReserveClassName,
-                )}
-              >
-                <span
-                  className={cn(
-                    "truncate font-system-ui text-[length:var(--app-font-size-ui,12px)] font-normal",
-                    SIDEBAR_ROW_LABEL_TEXT_CLASS_NAME,
-                  )}
-                >
-                  {project.name}
-                </span>
-                {project.localName ? (
-                  <span className="shrink-0 truncate text-[length:var(--app-font-size-ui,12px)] text-muted-foreground/40">
-                    {project.folderName}
-                  </span>
-                ) : null}
-              </div>
-              {/* Closed folders surface child-chat status on the project row; open
-                  folders leave that signal to their visible child thread rows. */}
-              {isProjectRunning || collapsedProjectStatus ? (
-                <span
-                  aria-label={
-                    collapsedProjectStatus
-                      ? `Project status: ${collapsedProjectStatus.label}`
-                      : undefined
-                  }
-                  title={collapsedProjectStatus?.label}
-                  className={cn(
-                    "ml-auto flex min-w-[1.625rem] shrink-0 items-center justify-end gap-2 self-center",
-                    sidebarHoverRevealHideClassName("project-header"),
-                  )}
-                >
-                  {isProjectRunning ? <ProjectRunIndicatorDot /> : null}
-                  {collapsedProjectStatus ? (
-                    <SidebarStatusTrailingGlyph status={collapsedProjectStatus} />
-                  ) : null}
-                </span>
-              ) : null}
-            </SidebarMenuButton>
-            <button
-              type="button"
-              aria-label={pinActionLabel(project.name, isProjectPinned)}
-              aria-pressed={isProjectPinned}
-              title={pinActionLabel(project.name, isProjectPinned)}
-              className={cn(
-                "sidebar-icon-button absolute left-2 top-1/2 z-20 inline-flex size-4 -translate-y-1/2 cursor-pointer items-center justify-center rounded-sm transition-opacity hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring",
-                SIDEBAR_ROW_LABEL_TEXT_CLASS_NAME,
-                isProjectPinned
-                  ? "pointer-events-auto opacity-100"
-                  : "pointer-events-none opacity-0",
-              )}
-              onMouseDown={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-              }}
-              onClick={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                toggleProjectPinned(project.id);
-              }}
-            >
-              <PinStatusIcon pinned={isProjectPinned} className="size-3.5" />
-            </button>
-            <SidebarSectionToolbar placement="overlay" revealOnHover>
-              {project.id === "penkra-hq" || penkraClient ? (
-                <SidebarIconButton
-                  icon={FileIcon}
-                  label={`View instructions for ${project.name}`}
-                  tooltip="Instructions"
-                  tooltipSide="top"
-                  onClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    openPenkraInstructions(project.id, penkraClient ? "client" : "hq");
-                  }}
-                />
-              ) : null}
-              <SidebarIconButton
-                icon={NewThreadIcon}
-                label={`Create new thread in ${project.name}`}
-                tooltip={
-                  newThreadShortcutLabel ? `New thread (${newThreadShortcutLabel})` : "New thread"
-                }
-                tooltipSide="top"
-                data-testid="new-thread-button"
-                onMouseEnter={() => {
-                  prefetchModelsForProjectNewThread(project.id, {
-                    includeDroid: true,
-                  });
-                }}
-                onFocus={() => {
-                  prefetchModelsForProjectNewThread(project.id, {
-                    includeDroid: true,
-                  });
-                }}
-                onClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  prefetchModelsForProjectNewThread(project.id, {
-                    includeDroid: true,
-                  });
-                  void handleNewThread(project.id, {
-                    envMode: resolveSidebarNewThreadEnvMode({
-                      defaultEnvMode: appSettings.defaultThreadEnvMode,
-                    }),
-                  });
-                }}
-              />
-            </SidebarSectionToolbar>
-          </PreviewCardTrigger>
-          {renderProjectHoverCardPopup(project, allProjectThreadCount)}
-        </PreviewCard>
-
-        <div
-          className={cn(
-            disclosureShellClassName(project.expanded),
-            SIDEBAR_NESTED_LIST_OFFSET_CLASS_NAME,
-          )}
-        >
-          <div className={DISCLOSURE_INNER_CLASS}>
-            <SidebarMenuSub
-              className={cn(
-                "mx-0 my-0 w-full translate-x-0 border-l-0 px-0 py-0",
-                SIDEBAR_NESTED_LIST_GAP_CLASS_NAME,
-                disclosureContentClassName(project.expanded),
-              )}
-            >
-              {visibleEntries.map((entry) =>
-                renderThreadRow(entry.thread, orderedProjectThreadIds, entry.depth),
-              )}
-
-              {(canShowMoreThreads || canShowLessThreads) && (
-                <SidebarMenuSubItem className="w-full">
-                  <div className="flex w-full items-center gap-1">
-                    {canShowMoreThreads && (
-                      <SidebarMenuSubButton
-                        render={<button type="button" />}
-                        data-thread-selection-safe
-                        size="sm"
-                        className="h-7 flex-1 translate-x-0 justify-start rounded-lg pr-2 pl-8 text-left text-[length:var(--app-font-size-ui,12px)] text-muted-foreground/79 hover:bg-transparent hover:text-foreground active:bg-transparent active:text-foreground"
-                        onMouseDown={preventFocusOnMouseDown}
-                        onClick={() => {
-                          showMoreThreadsForProject(project.cwd, threadListExtraPages);
-                        }}
-                      >
-                        <span>Show more</span>
-                      </SidebarMenuSubButton>
-                    )}
-                    {canShowLessThreads && (
-                      <SidebarMenuSubButton
-                        render={<button type="button" />}
-                        data-thread-selection-safe
-                        size="sm"
-                        className={cn(
-                          "h-7 translate-x-0 justify-start rounded-lg text-left text-[length:var(--app-font-size-ui,12px)] text-muted-foreground/79 hover:bg-transparent hover:text-foreground active:bg-transparent active:text-foreground",
-                          // Keep the left indent when "Show less" is the only affordance left.
-                          canShowMoreThreads ? "w-auto flex-none px-2" : "flex-1 pr-2 pl-8",
-                        )}
-                        onMouseDown={preventFocusOnMouseDown}
-                        onClick={() => {
-                          showLessThreadsForProject(project.cwd, threadListExtraPages);
-                        }}
-                      >
-                        <span>Show less</span>
-                      </SidebarMenuSubButton>
-                    )}
-                  </div>
-                </SidebarMenuSubItem>
-              )}
-            </SidebarMenuSub>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   function renderPencilProjectItem(project: (typeof sortedProjects)[number]) {
     const projectSidebarData = surfaceProjectSidebarDataById.get(project.id);
@@ -4295,8 +2717,7 @@ export default function Sidebar() {
     const isActive = visualActiveSidebarThreadId === thread.id;
     const isSelected = selectedThreadIds.has(thread.id);
     const threadStatus = resolveThreadStatusForSidebar(thread);
-    const isRefreshing =
-      threadStatus?.label === "Working" || threadStatus?.label === "Connecting";
+    const isRefreshing = threadStatus?.label === "Working" || threadStatus?.label === "Connecting";
 
     return (
       <ThreadRowShared
@@ -4330,10 +2751,7 @@ export default function Sidebar() {
         }}
         onDragStart={(event) => {
           event.dataTransfer.effectAllowed = "move";
-          event.dataTransfer.setData(
-            THREAD_DRAG_MIME,
-            JSON.stringify({ threadId: thread.id }),
-          );
+          event.dataTransfer.setData(THREAD_DRAG_MIME, JSON.stringify({ threadId: thread.id }));
         }}
         onKeyDown={(event) => {
           if (event.key !== "Enter" && event.key !== " ") return;
@@ -4343,9 +2761,7 @@ export default function Sidebar() {
         onPointerDown={(event) => primeThreadActivation(event, thread.id)}
         onPointerUp={(event) => handleThreadRenamePointerUp(event, thread.id)}
         harness={
-          thread.title.trim().toLowerCase() === "main"
-            ? "github"
-            : thread.modelSelection.provider
+          thread.title.trim().toLowerCase() === "main" ? "github" : thread.modelSelection.provider
         }
         refreshing={isRefreshing}
         state={isActive ? "selected" : "default"}
@@ -4354,40 +2770,6 @@ export default function Sidebar() {
       </ThreadRowShared>
     );
   }
-
-  const handleProjectTitleClick = useCallback(
-    (event: React.MouseEvent<HTMLElement>, projectId: ProjectId) => {
-      if (dragInProgressRef.current) {
-        event.preventDefault();
-        event.stopPropagation();
-        return;
-      }
-      if (suppressProjectClickAfterDragRef.current) {
-        // Consume the synthetic click emitted after a drag release.
-        suppressProjectClickAfterDragRef.current = false;
-        event.preventDefault();
-        event.stopPropagation();
-        return;
-      }
-      if (selectedThreadIds.size > 0) {
-        clearSelection();
-      }
-      toggleProject(projectId);
-    },
-    [clearSelection, selectedThreadIds.size, toggleProject],
-  );
-
-  const handleProjectTitleKeyDown = useCallback(
-    (event: React.KeyboardEvent<HTMLElement>, projectId: ProjectId) => {
-      if (event.key !== "Enter" && event.key !== " ") return;
-      event.preventDefault();
-      if (dragInProgressRef.current) {
-        return;
-      }
-      toggleProject(projectId);
-    },
-    [toggleProject],
-  );
 
   useEffect(() => {
     const onMouseDown = (event: globalThis.MouseEvent) => {
@@ -5018,14 +3400,6 @@ export default function Sidebar() {
     [setThreadListExtraPagesForProject],
   );
 
-  const handleToggleProjects = useCallback(() => {
-    if (allProjectsExpanded) {
-      collapseProjectsExcept(focusedProjectId);
-      return;
-    }
-    setAllProjectsExpanded(true);
-  }, [allProjectsExpanded, collapseProjectsExcept, focusedProjectId, setAllProjectsExpanded]);
-
   // Only macOS draws the traffic lights in the renderer's top-left, so only there
   // does the open-sidebar header need to reserve the gutter (mirrors the mac guard
   // in useDesktopTopBarTrafficLightGutterClassName used by the closed-state surfaces).
@@ -5107,13 +3481,7 @@ export default function Sidebar() {
       )}
 
       <SidebarTopNavigation
-        activeItemId={
-          searchPaletteOpen
-            ? "search"
-            : isOnApps
-              ? "apps"
-              : undefined
-        }
+        activeItemId={searchPaletteOpen ? "search" : isOnApps ? "apps" : undefined}
         disabledItemIds={["sites", "scheduled"]}
         onSelect={(itemId) => {
           switch (itemId) {
@@ -5165,11 +3533,7 @@ export default function Sidebar() {
         </div>
 
         {projectEmptyState === "loading" && (
-          <div
-            className="space-y-2 px-2 pt-4"
-            aria-live="polite"
-            aria-label="Loading projects"
-          >
+          <div className="space-y-2 px-2 pt-4" aria-live="polite" aria-label="Loading projects">
             <div className="text-center text-[length:var(--app-font-size-ui,12px)] text-muted-foreground/58">
               Loading projects...
             </div>
