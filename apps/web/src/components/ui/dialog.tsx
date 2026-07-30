@@ -73,18 +73,20 @@ const dialogPanelFieldClassName =
   "[&_[data-slot=textarea-control]]:min-h-24 [&_[data-slot=textarea-control]_[data-slot=textarea]]:px-2.5 [&_[data-slot=textarea-control]_[data-slot=textarea]]:py-2";
 
 function DialogPopup({
+  backdropClassName,
   className,
   children,
   showCloseButton = true,
   bottomStickOnMobile = true,
   ...props
 }: DialogPrimitive.Popup.Props & {
+  backdropClassName?: string;
   showCloseButton?: boolean;
   bottomStickOnMobile?: boolean;
 }) {
   return (
     <DialogPortal>
-      <DialogBackdrop />
+      <DialogBackdrop className={backdropClassName} />
       <DialogViewport
         className={cn(bottomStickOnMobile && "max-sm:grid-rows-[1fr_auto] max-sm:p-0 max-sm:pt-12")}
       >

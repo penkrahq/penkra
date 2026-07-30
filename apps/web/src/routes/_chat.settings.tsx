@@ -50,15 +50,9 @@ import {
   SettingsSection,
 } from "../components/settings/SettingsPanelPrimitives";
 import { SkillsSettingsPanel } from "../components/settings/SkillsSettingsPanel";
-import {
-  ModalSettings,
-  type SettingsPage,
-} from "../components/settings/modal-settings/ModalSettings";
+import type { SettingsPage } from "../components/settings/modal-settings/ModalSettings";
+import { SettingsDialog } from "../components/settings/modal-settings/SettingsDialog";
 import { ThemePackEditor } from "../components/ThemePackEditor";
-import {
-  CHAT_CONTENT_CARD_CLASS_NAME,
-  CHAT_MAIN_VIEWPORT_SHELL_CLASS_NAME,
-} from "../components/chat/composerPickerStyles";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { SelectItem } from "../components/ui/select";
@@ -75,7 +69,6 @@ import {
   type SettingsSectionId,
 } from "../settingsNavigation";
 import {
-  SETTINGS_PAGE_BACKGROUND_CLASS_NAME,
   SETTINGS_PANEL_SECTION_CLASS_NAME,
   SETTINGS_SECTION_LABEL_CLASS_NAME,
 } from "../settingsPanelStyles";
@@ -885,16 +878,11 @@ function SettingsRouteView() {
   };
 
   return (
-    <div
-      className={cn(
-        CHAT_MAIN_VIEWPORT_SHELL_CLASS_NAME,
-        SETTINGS_PAGE_BACKGROUND_CLASS_NAME,
-        CHAT_CONTENT_CARD_CLASS_NAME,
-        "flex items-center justify-center p-6",
-      )}
-    >
-      <ModalSettings
-        className="max-h-full max-w-full"
+    <>
+      <SettingsDialog
+        onClose={() => {
+          void navigate({ to: "/" });
+        }}
         page={activePage}
         onPageChange={(page) => {
           const section = SETTINGS_SECTION_BY_PAGE[page];
@@ -923,13 +911,13 @@ function SettingsRouteView() {
           </div>
           {renderPencilPagePanel()}
         </div>
-      </ModalSettings>
+      </SettingsDialog>
       <ReleaseHistoryDialog
         open={releaseHistoryOpen}
         onOpenChange={setReleaseHistoryOpen}
         defaultExpandedVersion={APP_VERSION}
       />
-    </div>
+    </>
   );
 }
 

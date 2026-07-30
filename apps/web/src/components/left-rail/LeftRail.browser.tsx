@@ -103,9 +103,10 @@ describe("Pencil left rail", () => {
   });
 
   it("opens the shared account popup from its semantic menu trigger", async () => {
+    const onSettings = vi.fn();
     await render(
       <div className="flex h-64 items-end">
-        <AccountControlShared accountName="gigsama" />
+        <AccountControlShared accountName="gigsama" onSettings={onSettings} />
       </div>,
     );
 
@@ -141,5 +142,8 @@ describe("Pencil left rail", () => {
           (rowRect.width - popupRect.width) / 2,
       ),
     ).toBeLessThan(1);
+
+    await page.getByRole("menuitem", { name: "Settings" }).click();
+    expect(onSettings).toHaveBeenCalledOnce();
   });
 });

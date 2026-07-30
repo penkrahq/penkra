@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
 import { ModalSettings } from "./modal-settings/ModalSettings";
+import { SettingsDialog } from "./modal-settings/SettingsDialog";
 import { OpenWithRowShared } from "./open-with-row-shared/OpenWithRowShared";
 import { ThemePanelShared } from "./theme-panel-shared/ThemePanelShared";
 
@@ -25,6 +26,29 @@ describe("Pencil settings structure", () => {
     );
     expect(viewport).not.toBeNull();
     expect(viewport!.scrollHeight).toBeGreaterThan(viewport!.clientHeight);
+  });
+
+  it("presents settings as the full-shell Pencil dialog", async () => {
+    const onClose = vi.fn();
+    const rendered = await render(<SettingsDialog onClose={onClose} />);
+
+    try {
+      const dialog = page.getByRole("dialog", { name: "Settings" });
+      await expect.element(dialog).toBeVisible();
+
+      const popup = document.querySelector<HTMLElement>("[data-slot='dialog-popup']");
+      const backdrop = document.querySelector<HTMLElement>("[data-slot='dialog-backdrop']");
+      expect(popup).not.toBeNull();
+      expect(backdrop).not.toBeNull();
+      expect(popup!.getBoundingClientRect().width).toBe(Math.min(880, window.innerWidth - 48));
+      expect(popup!.getBoundingClientRect().height).toBe(Math.min(640, window.innerHeight - 48));
+      expect(getComputedStyle(backdrop!).backgroundColor).toBe("rgba(0, 0, 0, 0.7)");
+
+      document.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "Escape" }));
+      await vi.waitFor(() => expect(onClose).toHaveBeenCalledOnce());
+    } finally {
+      rendered.unmount();
+    }
   });
 
   it("uses native interactive controls for expandable and theme settings", async () => {
