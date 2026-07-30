@@ -103,7 +103,11 @@ describe("Pencil left rail", () => {
   });
 
   it("opens the shared account popup from its semantic menu trigger", async () => {
-    await render(<AccountControlShared accountName="gigsama" />);
+    await render(
+      <div className="flex h-64 items-end">
+        <AccountControlShared accountName="gigsama" />
+      </div>,
+    );
 
     const trigger = page.getByRole("button", { name: "gigsama" });
     await expect.element(trigger).toHaveAttribute("aria-expanded", "false");
@@ -126,5 +130,8 @@ describe("Pencil left rail", () => {
     expect(popup!.getBoundingClientRect().height).toBe(139);
     expect(getComputedStyle(popup!).flexDirection).toBe("column");
     expect(getComputedStyle(popup!).borderTopWidth).toBe("1px");
+    expect(
+      Math.abs(popup!.getBoundingClientRect().bottom - row!.getBoundingClientRect().top),
+    ).toBeLessThan(1);
   });
 });

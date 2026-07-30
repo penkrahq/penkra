@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import { Menu, MenuTrigger } from "~/components/ui/menu";
 
@@ -33,6 +33,7 @@ export function AccountControlShared({
   updateLabel,
 }: AccountControlSharedProps) {
   const [open, setOpen] = useState(defaultOpen ?? false);
+  const accountRowRef = useRef<HTMLDivElement>(null);
 
   return (
     <Menu onOpenChange={setOpen} open={open}>
@@ -45,11 +46,13 @@ export function AccountControlShared({
           onSettings={onSettings}
           onUpdate={onUpdate}
           selected={open}
+          ref={accountRowRef}
           updateAvailable={updateAvailable}
           updateDisabled={updateDisabled}
           updateLabel={updateLabel}
         />
         <AccountMenu
+          anchor={accountRowRef}
           onFeedback={onFeedback}
           onLogout={onLogout}
           onSettings={onSettings}

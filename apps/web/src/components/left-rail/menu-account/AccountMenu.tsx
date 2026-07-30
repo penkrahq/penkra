@@ -1,7 +1,10 @@
+import type { ComponentProps } from "react";
+
 import { MenuItem, MenuPopupBase, MenuSeparator } from "~/components/ui/menu";
 import { AccountMenuIcon, type AccountMenuIconName } from "./AccountMenuIcon";
 
 export interface AccountMenuProps {
+  anchor?: ComponentProps<typeof MenuPopupBase>["anchor"];
   onFeedback?: () => void;
   onLogout?: () => void;
   onSettings?: () => void;
@@ -28,6 +31,7 @@ function AccountMenuItem({ icon, label, onClick }: AccountMenuItemProps) {
 }
 
 export function AccountMenu({
+  anchor,
   onFeedback,
   onLogout,
   onSettings,
@@ -36,9 +40,11 @@ export function AccountMenu({
   return (
     <MenuPopupBase
       align="start"
+      anchor={anchor}
       className="box-border h-[139px] w-[220px] flex-col rounded-[10px] border-[#ffffff12] bg-[#1a1a1a] p-1.5 [border-width:1px]"
       data-pencil-component="KjCFX"
       side="top"
+      sideOffset={0}
       surface="bare"
     >
       <AccountMenuItem icon="settings" label="Settings" onClick={onSettings} />
