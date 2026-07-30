@@ -16,7 +16,6 @@ import {
   PlayIcon,
   StopFilledIcon,
   TemporaryThreadIcon,
-  TerminalIcon,
   Trash2,
   TriangleAlertIcon,
   WorktreeIcon,
@@ -89,7 +88,7 @@ import {
 } from "../appSettings";
 import { isElectron } from "../env";
 import { formatRelativeTime } from "../lib/relativeTime";
-import { isMacPlatform, newCommandId, newThreadId, randomUUID } from "../lib/utils";
+import { isMacPlatform, newCommandId, newThreadId } from "../lib/utils";
 import { isOrdinarySpaceProject } from "../lib/spaces";
 import { reconcileDeletedThreadsFromClient } from "../lib/deletedThreadClientReconciliation";
 import { deleteProjectFromClient } from "../lib/projectDelete";
@@ -139,8 +138,7 @@ import { useComposerDraftStore } from "../composerDraftStore";
 import { useLatestProjectStore } from "../latestProjectStore";
 import { resolveThreadEnvironmentPresentation } from "../lib/threadEnvironment";
 import { dispatchThreadRename } from "../lib/threadRename";
-import { quotePosixShellArgument } from "../lib/shellQuote";
-import { DEFAULT_THREAD_TERMINAL_ID, type SidebarThreadSummary, type Thread } from "../types";
+import type { SidebarThreadSummary, Thread } from "../types";
 import { shouldRenderTerminalWorkspace } from "./ChatView.logic";
 import { CHAT_SURFACE_HEADER_HEIGHT_CLASS } from "./chat/chatHeaderControls";
 import { SidebarLeadingControls } from "./SidebarHeaderNavigationControls";
@@ -336,14 +334,13 @@ import { usePinnedProjectsStore } from "../pinnedProjectsStore";
 import { reconcileOptimisticPinState } from "../pinning.logic";
 import { useThreadDetailPrewarm } from "../threadDetailPrewarm";
 import { retainThreadDetailSubscription } from "../threadDetailSubscriptionRetention";
-import { useWorkspaceStore, workspaceThreadId } from "../workspaceStore";
+import { useWorkspaceStore } from "../workspaceStore";
 import type {
   SidebarSearchAction,
   SidebarSearchProject,
   SidebarSearchThread,
 } from "./SidebarSearchPalette.logic";
 import { useFocusedChatContext } from "../focusedChatContext";
-import { terminalRuntimeRegistry } from "./terminal/terminalRuntimeRegistry";
 import { waitForRecoverableProjectInReadModel } from "../lib/projectCreateRecovery";
 import {
   createOrRecoverProjectFromPath,
@@ -919,42 +916,6 @@ function SortableProjectItem({
   );
 }
 
-function SortableWorkspaceItem({
-  workspaceId,
-  children,
-}: {
-  workspaceId: string;
-  children: (handleProps: SortableProjectHandleProps) => React.ReactNode;
-}) {
-  const {
-    attributes,
-    listeners,
-    setActivatorNodeRef,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-    isOver,
-  } = useSortable({ id: workspaceId });
-
-  return (
-    <li
-      ref={setNodeRef}
-      style={{
-        transform: CSS.Translate.toString(transform),
-        transition,
-      }}
-      className={`group/menu-item relative rounded-md ${
-        isDragging ? "z-20 opacity-80" : ""
-      } ${isOver && !isDragging ? "ring-1 ring-primary/40" : ""}`}
-      data-sidebar="menu-item"
-      data-slot="sidebar-menu-item"
-    >
-      {children({ attributes, listeners, setActivatorNodeRef })}
-    </li>
-  );
-}
-
 export default function Sidebar() {
   const [showDebugFeatureFlagsMenu, setShowDebugFeatureFlagsMenu] = useState(
     readDebugFeatureFlagsMenuVisibility,
@@ -992,13 +953,10 @@ export default function Sidebar() {
   const pinProjectLocally = usePinnedProjectsStore((store) => store.pinProject);
   const unpinProject = usePinnedProjectsStore((store) => store.unpinProject);
   const prunePinnedProjects = usePinnedProjectsStore((store) => store.prunePinnedProjects);
-  const workspacePages = useWorkspaceStore((store) => store.workspacePages);
-  const createWorkspace = useWorkspaceStore((store) => store.createWorkspace);
-  const renameWorkspace = useWorkspaceStore((store) => store.renameWorkspace);
-  const deleteWorkspace = useWorkspaceStore((store) => store.deleteWorkspace);
-  const reorderWorkspace = useWorkspaceStore((store) => store.reorderWorkspace);
   const homeDir = useWorkspaceStore((store) => store.homeDir);
-  const defaultProfileName = toDisplayName(homeDir.split(/[\\/]/).filter(Boolean).at(-1) ?? "");
+  const defaultProfileName = toDisplayName(
+    (homeDir ?? "").split(/[\\/]/).filter(Boolean).at(-1) ?? "",
+  );
   const { name: profileName } = useProfileName(defaultProfileName);
   const chatWorkspaceRoot = useWorkspaceStore((store) => store.chatWorkspaceRoot);
   const studioWorkspaceRoot = useWorkspaceStore((store) => store.studioWorkspaceRoot);
@@ -1008,16 +966,15 @@ export default function Sidebar() {
   const isOnSettings = useLocation({
     select: (loc) => loc.pathname === "/settings",
   });
-  const isOnWorkspace = pathname.startsWith("/workspace");
+  const isOnWorkspace = false;
   const isOnStudioRoute = pathname.startsWith("/studio");
   const isOnKanban = pathname.startsWith("/kanban");
   const isOnPlugins = pathname === "/plugins";
   const { settings: appSettings, updateSettings } = useAppSettings();
-  // Threads is always available; Studio, Workspace, and the standalone Chats footer
-  // can be hidden independently from Settings.
+  // Threads is always available; Studio and the standalone Chats footer can be
+  // hidden independently from Settings.
   const chatsSectionVisible = appSettings.showChatsSection;
   const studioSectionVisible = appSettings.showStudioSection;
-  const workspaceSectionVisible = appSettings.showWorkspaceSection;
   const { handleNewThread } = useHandleNewThread();
   const { handleNewChat } = useHandleNewChat();
   const { handleNewStudioChat } = useHandleNewStudioChat();
@@ -1044,10 +1001,6 @@ export default function Sidebar() {
     select: (params) => (params.threadId ? ThreadId.makeUnsafe(params.threadId) : null),
   });
   const openRightDockPane = useRightDockStore((store) => store.openPane);
-  const routeWorkspaceId = useParams({
-    strict: false,
-    select: (params) => (typeof params.workspaceId === "string" ? params.workspaceId : null),
-  });
   const routeProjectId = useParams({
     strict: false,
     select: (params) =>
@@ -1179,8 +1132,6 @@ export default function Sidebar() {
   const optimisticPinnedStateByProjectIdRef = useRef(new Map<ProjectId, boolean>());
   const latestPinnedMutationVersionByProjectIdRef = useRef(new Map<ProjectId, number>());
   const [desktopUpdateState, setDesktopUpdateState] = useState<DesktopUpdateState | null>(null);
-  const [renamingWorkspaceId, setRenamingWorkspaceId] = useState<string | null>(null);
-  const [renamingWorkspaceTitle, setRenamingWorkspaceTitle] = useState("");
   const [installingDesktopUpdate, setInstallingDesktopUpdate] = useState(false);
   const [optimisticPinnedStateByProjectId, setOptimisticPinnedStateByProjectId] = useState<
     ReadonlyMap<ProjectId, boolean>
@@ -1597,25 +1548,6 @@ export default function Sidebar() {
     }, 0);
     return () => window.clearTimeout(settle);
   }, [optimisticPinnedStateByProjectId, projects]);
-  const workspaceRows = useMemo(
-    () =>
-      workspacePages.map((workspace) => {
-        const terminalState = selectThreadTerminalState(
-          terminalStateByThreadId,
-          workspaceThreadId(workspace.id),
-        );
-        return {
-          ...workspace,
-          terminalCount: terminalState.terminalOpen ? terminalState.terminalIds.length : 0,
-          terminalStatus: terminalStatusFromThreadState({
-            runningTerminalIds: terminalState.runningTerminalIds,
-            terminalAttentionStatesById: terminalState.terminalAttentionStatesById,
-          }),
-          runningTerminalIds: terminalState.runningTerminalIds,
-        };
-      }),
-    [terminalStateByThreadId, workspacePages],
-  );
   const focusMostRecentThreadForProject = useCallback(
     (projectId: ProjectId) => {
       const latestThread = sortThreadsForSidebar(
@@ -1852,16 +1784,6 @@ export default function Sidebar() {
     ],
   );
 
-  const navigateToWorkspace = useCallback(
-    (workspaceId: string, options?: { replace?: boolean }) => {
-      void navigate({
-        to: "/workspace/$workspaceId",
-        params: { workspaceId },
-        ...(options?.replace ? { replace: true } : {}),
-      });
-    },
-    [navigate],
-  );
   // Shared resolver behind resolveBackToStudioTarget/resolveBackToThreadsTarget (and the
   // settings-back path below) — differs only in which segment's thread list and draft ids are
   // passed in.
@@ -2005,14 +1927,6 @@ export default function Sidebar() {
 
   const handleSidebarViewChange = useCallback(
     (view: SidebarView) => {
-      if (view === "workspace") {
-        const fallbackWorkspaceId = workspacePages[0]?.id;
-        if (!fallbackWorkspaceId) {
-          return;
-        }
-        navigateToWorkspace(routeWorkspaceId ?? fallbackWorkspaceId);
-        return;
-      }
       if (view === "studio") {
         // Remembered route first — it already treats the stored Studio draft as a valid target
         // (resolveBackToStudioTarget includes studioDraftThreadIds), so switching back to Studio
@@ -2034,12 +1948,9 @@ export default function Sidebar() {
     [
       handleNewChat,
       navigateToBackTarget,
-      navigateToWorkspace,
       openStudioChatFallback,
       resolveBackToStudioTarget,
       resolveBackToThreadsTarget,
-      routeWorkspaceId,
-      workspacePages,
     ],
   );
 
@@ -2054,22 +1965,12 @@ export default function Sidebar() {
       handleSidebarViewChange("threads");
       return;
     }
-    if (isOnWorkspace && !workspaceSectionVisible) {
-      handleSidebarViewChange("threads");
-    }
   }, [
     handleSidebarViewChange,
     isOnSettings,
     isOnStudio,
-    isOnWorkspace,
     studioSectionVisible,
-    workspaceSectionVisible,
   ]);
-
-  const handleCreateWorkspace = useCallback(() => {
-    const workspaceId = createWorkspace();
-    navigateToWorkspace(workspaceId);
-  }, [createWorkspace, navigateToWorkspace]);
 
   useEffect(() => {
     // Same hydration gate as the Studio prewarm below: persisted paths make homeDir truthy
@@ -2094,67 +1995,6 @@ export default function Sidebar() {
   const handleCreateStudioChat = useCallback(async () => {
     await handleNewStudioChat({ fresh: true });
   }, [handleNewStudioChat]);
-
-  const beginWorkspaceRename = useCallback((workspaceId: string, title: string) => {
-    setRenamingWorkspaceId(workspaceId);
-    setRenamingWorkspaceTitle(title);
-  }, []);
-
-  const commitWorkspaceRename = useCallback(() => {
-    if (!renamingWorkspaceId) {
-      return;
-    }
-    renameWorkspace(renamingWorkspaceId, renamingWorkspaceTitle);
-    setRenamingWorkspaceId(null);
-  }, [renameWorkspace, renamingWorkspaceId, renamingWorkspaceTitle]);
-
-  const handleDeleteWorkspace = useCallback(
-    async (workspaceId: string) => {
-      const workspaceThread = workspaceThreadId(workspaceId);
-      const api = readNativeApi();
-      const terminalState = selectThreadTerminalState(
-        useTerminalStateStore.getState().terminalStateByThreadId,
-        workspaceThread,
-      );
-
-      if (api && typeof api.terminal.close === "function") {
-        terminalRuntimeRegistry.disposeThread(workspaceThread);
-        await Promise.allSettled(
-          terminalState.terminalIds.map((terminalId) =>
-            api.terminal.close({
-              threadId: workspaceThread,
-              terminalId,
-              deleteHistory: true,
-            }),
-          ),
-        );
-      }
-
-      clearTerminalState(workspaceThread);
-      deleteWorkspace(workspaceId);
-
-      const nextWorkspaceId = useWorkspaceStore.getState().workspacePages[0]?.id ?? null;
-      if (routeWorkspaceId === workspaceId && nextWorkspaceId) {
-        navigateToWorkspace(nextWorkspaceId, { replace: true });
-      }
-    },
-    [clearTerminalState, deleteWorkspace, navigateToWorkspace, routeWorkspaceId],
-  );
-
-  const handleWorkspaceDragEnd = useCallback(
-    (event: DragEndEvent) => {
-      const { active, over } = event;
-      if (!over || active.id === over.id) {
-        return;
-      }
-      const nextIndex = workspacePages.findIndex((workspace) => workspace.id === String(over.id));
-      if (nextIndex < 0) {
-        return;
-      }
-      reorderWorkspace(String(active.id), nextIndex);
-    },
-    [reorderWorkspace, workspacePages],
-  );
 
   const addProjectFromPath = useCallback(
     async (
@@ -2609,9 +2449,6 @@ export default function Sidebar() {
           { id: "mark-unread", label: "Mark unread" },
           ...handoffItems,
           { id: "copy-path", label: "Copy Path", separatorBefore: true },
-          ...(threadWorkspacePath
-            ? [{ id: "open-path-in-terminal", label: "Open Path in Terminal" }]
-            : []),
           { id: "copy-thread-id", label: "Copy Thread ID" },
           ...(options?.extraItems ?? []),
           { id: "archive", label: "Archive", separatorBefore: true },
@@ -2657,91 +2494,6 @@ export default function Sidebar() {
         copyPathToClipboard(threadWorkspacePath);
         return;
       }
-      if (clicked === "open-path-in-terminal") {
-        if (!threadWorkspacePath) {
-          toastManager.add({
-            type: "error",
-            title: "Path unavailable",
-            description: "This thread does not have a workspace path to open.",
-          });
-          return;
-        }
-        await navigate({ to: "/$threadId", params: { threadId } });
-        const terminalStore = useTerminalStateStore.getState();
-        const currentTerminalState = selectThreadTerminalState(
-          terminalStore.terminalStateByThreadId,
-          threadId,
-        );
-
-        // Reuse the active terminal when one is already open and idle so that
-        // repeatedly invoking "Open Path in Terminal" doesn't pile up tabs.
-        // Only spawn a fresh tab when there is no terminal yet, the active id
-        // is stale (no longer in the layout), or the active terminal is busy
-        // running a subprocess.
-        const candidateBaseTerminalId =
-          currentTerminalState.activeTerminalId ||
-          currentTerminalState.terminalIds[0] ||
-          DEFAULT_THREAD_TERMINAL_ID;
-        const baseTerminalAvailable =
-          currentTerminalState.terminalOpen &&
-          currentTerminalState.terminalIds.includes(candidateBaseTerminalId) &&
-          !currentTerminalState.runningTerminalIds.includes(candidateBaseTerminalId);
-        const shouldCreateNewTerminal = !baseTerminalAvailable;
-        const targetTerminalId = shouldCreateNewTerminal
-          ? `terminal-${randomUUID()}`
-          : candidateBaseTerminalId;
-
-        const previousTerminalOpen = currentTerminalState.terminalOpen;
-        const previousPresentationMode = currentTerminalState.presentationMode;
-        const previousActiveTerminalId = currentTerminalState.activeTerminalId;
-
-        terminalStore.setTerminalPresentationMode(threadId, "drawer");
-        terminalStore.setTerminalOpen(threadId, true);
-        if (shouldCreateNewTerminal) {
-          terminalStore.newTerminal(threadId, targetTerminalId);
-        } else {
-          terminalStore.setActiveTerminal(threadId, targetTerminalId);
-        }
-
-        const cdCommand = `cd ${quotePosixShellArgument(threadWorkspacePath)}\r`;
-        try {
-          if (shouldCreateNewTerminal) {
-            // A brand new PTY needs an explicit cwd so that the shell's first
-            // prompt already shows the workspace path. The follow-up `cd` write
-            // makes the navigation visible in the scrollback (it's effectively
-            // a no-op since the shell is already there, but it matches the
-            // user-typed-it experience).
-            await api.terminal.open({
-              threadId,
-              terminalId: targetTerminalId,
-              cwd: threadWorkspacePath,
-            });
-          }
-          // Existing PTYs keep their launch cwd/env on reattach; writing `cd`
-          // navigates in place without replacing shell state.
-          await api.terminal.write({
-            threadId,
-            terminalId: targetTerminalId,
-            data: cdCommand,
-          });
-        } catch (error) {
-          if (shouldCreateNewTerminal) {
-            terminalStore.closeTerminal(threadId, targetTerminalId);
-          }
-          terminalStore.setTerminalPresentationMode(threadId, previousPresentationMode);
-          terminalStore.setTerminalOpen(threadId, previousTerminalOpen);
-          if (previousActiveTerminalId) {
-            terminalStore.setActiveTerminal(threadId, previousActiveTerminalId);
-          }
-          toastManager.add({
-            type: "error",
-            title: "Unable to open terminal",
-            description:
-              error instanceof Error ? error.message : "The terminal could not be opened.",
-          });
-        }
-        return;
-      }
       if (clicked === "copy-thread-id") {
         copyThreadIdToClipboard(threadId);
         return;
@@ -2766,7 +2518,6 @@ export default function Sidebar() {
       clearThreadNotification,
       handoffThread,
       markThreadUnread,
-      navigate,
       openRenameThreadDialog,
       pinnedThreadIdSet,
       projectCwdById,
@@ -4528,28 +4279,7 @@ export default function Sidebar() {
                     openPenkraInstructions(project.id, penkraClient ? "client" : "hq");
                   }}
                 />
-              ) : (
-                <SidebarIconButton
-                  icon={TerminalIcon}
-                  label={`Create new terminal thread in ${project.name}`}
-                  tooltip={
-                    newTerminalThreadShortcutLabel
-                      ? `New terminal thread (${newTerminalThreadShortcutLabel})`
-                      : "New terminal thread"
-                  }
-                  tooltipSide="top"
-                  onClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    void handleNewThread(project.id, {
-                      envMode: resolveSidebarNewThreadEnvMode({
-                        defaultEnvMode: appSettings.defaultThreadEnvMode,
-                      }),
-                      entryPoint: "terminal",
-                    });
-                  }}
-                />
-              )}
+              ) : null}
               <SidebarIconButton
                 icon={NewThreadIcon}
                 label={`Create new thread in ${project.name}`}
@@ -4987,7 +4717,6 @@ export default function Sidebar() {
   const newChatShortcutLabel =
     shortcutLabelForCommand(keybindings, "chat.newChat") ??
     shortcutLabelForCommand(keybindings, "chat.newLocal");
-  const newTerminalThreadShortcutLabel = shortcutLabelForCommand(keybindings, "chat.newTerminal");
   const importThreadShortcutLabel =
     shortcutLabelForCommand(keybindings, "sidebar.importThread") ??
     (isMacPlatform(navigator.platform) ? "⌘I" : "Ctrl+I");
@@ -5484,124 +5213,10 @@ export default function Sidebar() {
             {/* Route-aware content retains the production behavior while the visible
                 hierarchy follows Pencil's single workspace rail. */}
             <div
-              key={isOnWorkspace ? "workspace" : isOnStudio ? "studio" : "threads"}
+              key={isOnStudio ? "studio" : "threads"}
               className="sidebar-surface-enter"
             >
-              {isOnWorkspace ? (
-                <SidebarGroup className="px-1.5 pt-1 pb-1.5">
-                  <div className="my-2 h-px w-full bg-border" />
-                  <div className="mb-1.5 flex items-center px-2">
-                    <span className={SIDEBAR_SECTION_LABEL_CLASS_NAME}>Workspace</span>
-                  </div>
-
-                  <DndContext
-                    sensors={projectDnDSensors}
-                    collisionDetection={closestCorners}
-                    modifiers={[restrictToVerticalAxis, restrictToFirstScrollableAncestor]}
-                    onDragEnd={handleWorkspaceDragEnd}
-                  >
-                    <SidebarMenu className="gap-0.5">
-                      <SortableContext
-                        items={workspaceRows.map((workspace) => workspace.id)}
-                        strategy={verticalListSortingStrategy}
-                      >
-                        {workspaceRows.map((workspace) => {
-                          const isActive = routeWorkspaceId === workspace.id;
-                          const isRenaming = renamingWorkspaceId === workspace.id;
-                          return (
-                            <SortableWorkspaceItem key={workspace.id} workspaceId={workspace.id}>
-                              {(dragHandleProps) =>
-                                isRenaming ? (
-                                  <div className="px-1.5 py-0.5">
-                                    <input
-                                      autoFocus
-                                      value={renamingWorkspaceTitle}
-                                      onChange={(event) => {
-                                        setRenamingWorkspaceTitle(event.target.value);
-                                      }}
-                                      onBlur={commitWorkspaceRename}
-                                      onKeyDown={(event) => {
-                                        if (event.key === "Enter") {
-                                          event.preventDefault();
-                                          commitWorkspaceRename();
-                                        }
-                                        if (event.key === "Escape") {
-                                          event.preventDefault();
-                                          setRenamingWorkspaceId(null);
-                                          setRenamingWorkspaceTitle(workspace.title);
-                                        }
-                                      }}
-                                      className="h-7 w-full rounded-md border border-[color:var(--color-border)] bg-[var(--color-background-control-opaque)] px-2 text-[length:var(--app-font-size-ui,12px)] text-[var(--color-text-foreground)] outline-none focus:border-[color:var(--color-border-focus)]"
-                                    />
-                                  </div>
-                                ) : (
-                                  <>
-                                    <SidebarMenuButton
-                                      size="sm"
-                                      isActive={isActive}
-                                      className="h-8 gap-2 rounded-lg pl-2 pr-8 font-system-ui text-[length:var(--app-font-size-ui,12px)] font-normal text-foreground/89 transition-colors hover:bg-[var(--sidebar-accent)] data-[active=true]:bg-[var(--sidebar-accent-active)] data-[active=true]:text-[var(--sidebar-accent-foreground)]"
-                                      onClick={() => {
-                                        navigateToWorkspace(workspace.id);
-                                      }}
-                                      onContextMenu={(event) => {
-                                        event.preventDefault();
-                                        beginWorkspaceRename(workspace.id, workspace.title);
-                                      }}
-                                    >
-                                      <SidebarLeadingIcon
-                                        ref={dragHandleProps.setActivatorNodeRef}
-                                        {...dragHandleProps.attributes}
-                                        {...dragHandleProps.listeners}
-                                        size="sm"
-                                        tone="text-muted-foreground/65"
-                                        className="cursor-grab active:cursor-grabbing"
-                                      >
-                                        <SidebarGlyph icon={TerminalIcon} variant="chrome" />
-                                      </SidebarLeadingIcon>
-                                      <span className="min-w-0 flex-1 truncate">
-                                        {workspace.title}
-                                      </span>
-                                      {workspace.terminalStatus && (
-                                        <span
-                                          className={cn(
-                                            "inline-flex size-1.5 shrink-0 rounded-full",
-                                            workspace.terminalStatus.label ===
-                                              "Terminal input needed"
-                                              ? "bg-amber-500 dark:bg-amber-300/90"
-                                              : workspace.terminalStatus.label ===
-                                                  "Terminal process running"
-                                                ? "bg-teal-500 dark:bg-teal-300/90"
-                                                : "bg-emerald-500 dark:bg-emerald-300/90",
-                                          )}
-                                        />
-                                      )}
-                                      {workspace.terminalCount > 0 && (
-                                        <span className="shrink-0 text-[length:var(--app-font-size-ui-xs,10px)] tabular-nums text-muted-foreground/50">
-                                          {workspace.terminalCount}
-                                        </span>
-                                      )}
-                                    </SidebarMenuButton>
-                                    <SidebarIconButton
-                                      icon={Trash2}
-                                      label="Delete workspace"
-                                      glyph="meta"
-                                      className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground/50 opacity-0 transition-opacity group-hover/menu-item:opacity-100 group-focus-within/menu-item:opacity-100"
-                                      onClick={(event) => {
-                                        event.stopPropagation();
-                                        void handleDeleteWorkspace(workspace.id);
-                                      }}
-                                    />
-                                  </>
-                                )
-                              }
-                            </SortableWorkspaceItem>
-                          );
-                        })}
-                      </SortableContext>
-                    </SidebarMenu>
-                  </DndContext>
-                </SidebarGroup>
-              ) : isOnStudio ? (
+              {isOnStudio ? (
                 // Studio is "just chats": a labeled Studio block holding a flat list of threads
                 // rooted at the Studio workspace (no project-folder chrome).
                 <SidebarGroup className="px-1.5 py-1.5">

@@ -12,7 +12,6 @@ import ShortcutsDialog from "../components/ShortcutsDialog";
 import { RecentViewSwitcher } from "../components/RecentViewSwitcher";
 import { ChatSearchBar } from "../components/ChatSearchBar";
 import { FindProvider } from "../components/find/FindProvider";
-import { shouldRenderTerminalWorkspace } from "../components/ChatView.logic";
 import ThreadSidebar from "../components/Sidebar";
 import { isElectron } from "../env";
 import { useHandleNewChat } from "../hooks/useHandleNewChat";
@@ -28,14 +27,12 @@ import {
   resolveNewThreadTarget,
 } from "../lib/projectShortcutTargets";
 import { resolveInheritedThreadContext } from "../lib/threadBootstrap";
-import { isTerminalFocused } from "../lib/terminalFocus";
 import { serverConfigQueryOptions } from "../lib/serverReactQuery";
 import { startFreshChatForActiveSurface } from "../lib/startContainerChat";
 import { isOrdinarySpaceProject } from "../lib/spaces";
 import { resolveShortcutCommand } from "../keybindings";
 import { useStore } from "../store";
 import { useSpacesUiStore } from "../spacesUiStore";
-import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
 import { useThreadSelectionStore } from "../threadSelectionStore";
 import { onServerMaintenanceUpdated } from "../wsNativeApi";
 import { useWorkspaceStore } from "../workspaceStore";
@@ -213,7 +210,6 @@ function ChatRouteGlobalShortcuts() {
   const [chatSearchFocusRequest, setChatSearchFocusRequest] = useState(0);
   const clearSelection = useThreadSelectionStore((state) => state.clearSelection);
   const selectedThreadIdsSize = useThreadSelectionStore((state) => state.selectedThreadIds.size);
-  const terminalStateByThreadId = useTerminalStateStore((state) => state.terminalStateByThreadId);
   const {
     activeContextThreadId,
     activeDraftThread,
@@ -249,19 +245,11 @@ function ChatRouteGlobalShortcuts() {
   const platform = typeof navigator === "undefined" ? "" : navigator.platform;
   const providerStatuses = useProviderStatusesForLocalConfig();
   const refreshProviderStatuses = useRefreshProviderStatusesNow();
-  const activeThreadTerminalState = activeContextThreadId
-    ? selectThreadTerminalState(terminalStateByThreadId, activeContextThreadId)
-    : null;
-  const terminalOpen = activeThreadTerminalState?.terminalOpen ?? false;
   const activeProject =
     activeProjectId !== null
       ? (projects.find((project) => project.id === activeProjectId) ?? null)
       : null;
   const activeProjectScripts = activeProject?.kind === "project" ? activeProject.scripts : [];
-  const terminalWorkspaceOpen = shouldRenderTerminalWorkspace({
-    presentationMode: activeThreadTerminalState?.presentationMode ?? "drawer",
-    terminalOpen,
-  });
   // Shortcuts that target "a project" must stay inside the Space you are looking at, or
   // mod+alt+arrow would switch Space and the next new-thread shortcut would drop you back
   // out of it.
@@ -324,9 +312,9 @@ function ChatRouteGlobalShortcuts() {
     const onWindowKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return;
       const shortcutContext = {
-        terminalFocus: isTerminalFocused(),
-        terminalOpen,
-        terminalWorkspaceOpen,
+        terminalFocus: false,
+        terminalOpen: false,
+        terminalWorkspaceOpen: false,
       };
 
       if (recentSwitcherState && event.key === "Escape") {
@@ -420,20 +408,6 @@ function ChatRouteGlobalShortcuts() {
         return;
       }
 
-      if (command === "chat.newTerminal") {
-        const target = resolveNewThreadTarget({ currentProjectId, latestUsableProjectId });
-        if (!target) return;
-        event.preventDefault();
-        event.stopPropagation();
-        void handleNewThread(target.projectId, {
-          ...(target.inheritContext
-            ? resolveInheritedThreadContext({ activeThread, activeDraftThread })
-            : {}),
-          entryPoint: "terminal",
-        });
-        return;
-      }
-
       if (
         command === "chat.newClaude" ||
         command === "chat.newCodex" ||
@@ -510,8 +484,6 @@ function ChatRouteGlobalShortcuts() {
     refreshProviderStatuses,
     recentSwitcherState,
     selectedThreadIdsSize,
-    terminalOpen,
-    terminalWorkspaceOpen,
     toggleSidebar,
   ]);
 
@@ -544,9 +516,9 @@ function ChatRouteGlobalShortcuts() {
         projectScripts={activeProjectScripts}
         platform={platform}
         context={{
-          terminalFocus: isTerminalFocused(),
-          terminalOpen,
-          terminalWorkspaceOpen,
+          terminalFocus: false,
+          terminalOpen: false,
+          terminalWorkspaceOpen: false,
         }}
       />
       <ChatSearchBar

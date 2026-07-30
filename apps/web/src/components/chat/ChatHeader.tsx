@@ -27,7 +27,6 @@ import {
   MessageCircleIcon,
   PanelRightCloseIcon,
   PlusIcon,
-  TerminalIcon,
   XIcon,
 } from "~/lib/icons";
 import { formatRelativeTime } from "~/lib/relativeTime";
@@ -124,14 +123,8 @@ interface ChatHeaderProps {
   // a project chat-history menu. Provided only by the editor workspace chat pane.
   editorChatControls?: {
     projectId: ProjectId;
-    activeSurface: "chat" | "terminal";
-    terminalAvailable: boolean;
-    terminalHasRunningActivity: boolean;
     onNewChat: () => void;
-    onNewTerminal: () => void;
     onOpenChat: (threadId: ThreadId) => void;
-    onOpenTerminal: () => void;
-    onCloseTerminal: () => void;
   } | null;
   onRunProjectScript: (script: ProjectScript) => void;
   onAddProjectScript: (input: NewProjectScriptInput) => Promise<void>;
@@ -230,14 +223,8 @@ function EditorRailTabs(props: {
   activeThreadId: ThreadId;
   activeThreadTitle: string;
   activeProvider: ProviderKind;
-  activeSurface: "chat" | "terminal";
-  terminalAvailable: boolean;
-  terminalHasRunningActivity: boolean;
   onNewChat: () => void;
-  onNewTerminal: () => void;
   onOpenChat: (threadId: ThreadId) => void;
-  onOpenTerminal: () => void;
-  onCloseTerminal: () => void;
   onNavigateToThread: (threadId: ThreadId) => void;
 }) {
   const { settings } = useAppSettings();
@@ -253,7 +240,6 @@ function EditorRailTabs(props: {
           },
         ];
   });
-  const [terminalTabOpen, setTerminalTabOpen] = useState(props.terminalAvailable);
   const selectDisplayThreads = createSidebarDisplayThreadsSelector();
   const displayThreads = useStore(selectDisplayThreads);
   const currentChatTab: EditorRailChatTab = {
@@ -287,18 +273,6 @@ function EditorRailTabs(props: {
     return () => window.clearTimeout(timeoutId);
   }, [props.activeProvider, props.activeThreadId, props.activeThreadTitle, props.projectId]);
   useEffect(() => {
-    if (!props.terminalAvailable) {
-      return;
-    }
-    const timeoutId = window.setTimeout(() => {
-      setTerminalTabOpen(true);
-    }, 0);
-    return () => window.clearTimeout(timeoutId);
-  }, [props.terminalAvailable]);
-  useEffect(() => {
-    if (props.activeSurface !== "chat") {
-      return;
-    }
     const timeoutId = window.setTimeout(() => {
       const activeChatTab: EditorRailChatTab = {
         id: props.activeThreadId,
@@ -323,7 +297,6 @@ function EditorRailTabs(props: {
     return () => window.clearTimeout(timeoutId);
   }, [
     props.activeProvider,
-    props.activeSurface,
     props.activeThreadId,
     props.activeThreadTitle,
     props.projectId,
@@ -344,25 +317,11 @@ function EditorRailTabs(props: {
   );
   const activeChatAlreadyOpen = openChatTabs.some((thread) => thread.id === props.activeThreadId);
   const orderedOpenTabs =
-    props.activeSurface === "chat" && !activeChatAlreadyOpen
+    !activeChatAlreadyOpen
       ? [...openChatTabs, currentChatTab]
       : openChatTabs;
   const chatTabs = orderedOpenTabs.map((thread) => sidebarThreadById.get(thread.id) ?? thread);
-  const terminalTabVisible = terminalTabOpen || props.terminalAvailable;
-  const tabCount = chatTabs.length + (terminalTabVisible ? 1 : 0);
-  const shouldShowTabs = tabCount > 1;
-  const newTerminalTab = () => {
-    setTerminalTabOpen(true);
-    props.onNewTerminal();
-  };
-  const openTerminalTab = () => {
-    setTerminalTabOpen(true);
-    props.onOpenTerminal();
-  };
-  const closeTerminalTab = () => {
-    setTerminalTabOpen(false);
-    props.onCloseTerminal();
-  };
+  const shouldShowTabs = chatTabs.length > 1;
   const openChatTab = (threadId: ThreadId) => {
     const sidebarThread = displayThreads.find((thread) => thread.id === threadId);
     if (sidebarThread) {
@@ -378,7 +337,7 @@ function EditorRailTabs(props: {
     props.onOpenChat(threadId);
   };
   const closeChatTab = (threadId: ThreadId) => {
-    const closingActiveChat = props.activeSurface === "chat" && threadId === props.activeThreadId;
+    const closingActiveChat = threadId === props.activeThreadId;
     const nextChatTab = chatTabs.find((thread) => thread.id !== threadId);
     setAndStoreOpenChatTabs((current) => current.filter((thread) => thread.id !== threadId));
     if (!closingActiveChat) {
@@ -388,9 +347,7 @@ function EditorRailTabs(props: {
       props.onOpenChat(nextChatTab.id);
       return;
     }
-    if (terminalTabVisible) {
-      openTerminalTab();
-    }
+    props.onNewChat();
   };
 
   return (
@@ -420,10 +377,6 @@ function EditorRailTabs(props: {
               <MessageCircleIcon className="size-3.5 shrink-0 text-muted-foreground" />
               <span>New chat</span>
             </MenuItem>
-            <MenuItem onClick={newTerminalTab}>
-              <TerminalIcon className="size-3.5 shrink-0 text-muted-foreground" />
-              <span>New terminal</span>
-            </MenuItem>
           </ComposerPickerMenuPopup>
         </Menu>
         <EditorChatHistoryMenu
@@ -440,7 +393,7 @@ function EditorRailTabs(props: {
           {chatTabs.map((thread, index) => (
             <SurfaceTabChip
               key={thread.id}
-              active={props.activeSurface === "chat" && thread.id === props.activeThreadId}
+              active={thread.id === props.activeThreadId}
               title={thread.title}
               label={`Chat ${index + 1}`}
               labelClassName="max-w-24"
@@ -456,30 +409,13 @@ function EditorRailTabs(props: {
               onClose={() => closeChatTab(thread.id)}
             />
           ))}
-          {terminalTabVisible ? (
-            <SurfaceTabChip
-              active={props.activeSurface === "terminal"}
-              title="Terminal"
-              label="Terminal"
-              labelClassName="max-w-24"
-              icon={<TerminalIcon className="size-3 shrink-0 text-[var(--color-text-accent)]" />}
-              trailing={
-                props.terminalHasRunningActivity ? (
-                  <span className="size-1.5 shrink-0 rounded-full bg-emerald-500/80" />
-                ) : null
-              }
-              onSelect={openTerminalTab}
-              closeLabel="Close Terminal"
-              onClose={closeTerminalTab}
-            />
-          ) : null}
         </div>
       ) : null}
     </div>
   );
 }
 
-export type ChatHeaderThreadIconKind = "none" | "provider" | "terminal";
+export type ChatHeaderThreadIconKind = "none" | "provider";
 
 export function resolveChatHeaderThreadIconKind(
   entryPoint: ThreadPrimarySurface,
@@ -488,7 +424,7 @@ export function resolveChatHeaderThreadIconKind(
   if (entryPoint === "chat" && isGenericChatThreadTitle(title)) {
     return "none";
   }
-  return entryPoint === "terminal" ? "terminal" : "provider";
+  return "provider";
 }
 
 export function ChatHeader({
@@ -691,16 +627,10 @@ export function ChatHeader({
                   <span
                     className="inline-flex size-3.5 shrink-0 items-center justify-center"
                     title={
-                      threadIconKind === "terminal"
-                        ? "Terminal"
-                        : PROVIDER_DISPLAY_NAMES[activeProvider]
+                      PROVIDER_DISPLAY_NAMES[activeProvider]
                     }
                   >
-                    {threadIconKind === "terminal" ? (
-                      <TerminalIcon className="size-3.5 text-[var(--color-text-accent)]" />
-                    ) : (
-                      renderProviderIcon(activeProvider, "size-3.5")
-                    )}
+                    {renderProviderIcon(activeProvider, "size-3.5")}
                   </span>
                 )}
                 <h2
@@ -733,14 +663,8 @@ export function ChatHeader({
                   activeThreadId={activeThreadId}
                   activeThreadTitle={activeThreadTitle}
                   activeProvider={activeProvider}
-                  activeSurface={editorChatControls.activeSurface}
-                  terminalAvailable={editorChatControls.terminalAvailable}
-                  terminalHasRunningActivity={editorChatControls.terminalHasRunningActivity}
                   onNewChat={editorChatControls.onNewChat}
-                  onNewTerminal={editorChatControls.onNewTerminal}
                   onOpenChat={editorChatControls.onOpenChat}
-                  onOpenTerminal={editorChatControls.onOpenTerminal}
-                  onCloseTerminal={editorChatControls.onCloseTerminal}
                   onNavigateToThread={onNavigateToThread}
                 />
               ) : null}

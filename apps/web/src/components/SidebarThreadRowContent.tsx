@@ -5,7 +5,6 @@
 import { useMemo, type ReactNode } from "react";
 
 import { isGenericChatThreadTitle } from "@synara/shared/chatThreads";
-import { pluralize } from "@synara/shared/text";
 
 import { createThreadSelector } from "../storeSelectors";
 import { useStore } from "../store";
@@ -13,10 +12,8 @@ import { resolveSubagentPresentationForThread } from "../lib/subagentPresentatio
 import { resolveThreadHandoffBadgeLabel } from "../lib/threadHandoff";
 import { SIDEBAR_ROW_LABEL_TEXT_CLASS_NAME } from "../sidebarRowStyles";
 import type { SidebarThreadSummary } from "../types";
-import { TerminalIcon } from "../lib/icons";
 import { cn } from "../lib/utils";
 import { ProviderIcon } from "./ProviderIcon";
-import { SidebarGlyph } from "./sidebarGlyphs";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
 export interface SidebarThreadTerminalStatus {
@@ -25,24 +22,10 @@ export interface SidebarThreadTerminalStatus {
   pulse: boolean;
 }
 
-function ProviderAvatarWithTerminal({
-  thread,
-  terminalStatus,
-  terminalCount,
-}: {
-  thread: SidebarThreadSummary;
-  terminalStatus: SidebarThreadTerminalStatus | null;
-  terminalCount: number;
-}) {
+function ProviderAvatar({ thread }: { thread: SidebarThreadSummary }) {
   const provider = thread.session?.provider ?? thread.modelSelection.provider;
   const handoffSourceProvider = thread.handoff?.sourceProvider ?? null;
   const handoffTooltip = resolveThreadHandoffBadgeLabel(thread);
-  const showBadge = terminalCount > 1 || terminalStatus !== null;
-  const badgeTooltip =
-    terminalCount > 1
-      ? `${terminalCount} ${pluralize(terminalCount, "terminal")} open`
-      : (terminalStatus?.label ?? "Terminal open");
-  const badgeColorClass = terminalStatus?.colorClass ?? "text-muted-foreground/55";
 
   const hasHandoff = Boolean(handoffSourceProvider);
   const containerClass = hasHandoff
@@ -74,37 +57,7 @@ function ProviderAvatarWithTerminal({
       avatarNode
     );
 
-  return (
-    <span className="relative inline-flex shrink-0 items-center">
-      {wrappedAvatar}
-      {showBadge ? (
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <span
-                aria-label={badgeTooltip}
-                className="sidebar-icon-chip absolute -top-1.5 -right-1.5 inline-flex size-3 min-w-3 items-center justify-center rounded-full px-px"
-              >
-                {terminalCount > 1 ? (
-                  <span
-                    className={cn(
-                      "text-[8px] font-semibold leading-none tabular-nums",
-                      badgeColorClass,
-                    )}
-                  >
-                    {terminalCount}
-                  </span>
-                ) : (
-                  <TerminalIcon className={cn("size-2.5", badgeColorClass)} />
-                )}
-              </span>
-            }
-          />
-          <TooltipPopup side="top">{badgeTooltip}</TooltipPopup>
-        </Tooltip>
-      ) : null}
-    </span>
-  );
+  return <span className="relative inline-flex shrink-0 items-center">{wrappedAvatar}</span>;
 }
 
 function renderSubagentLabel(input: {
@@ -165,9 +118,9 @@ function SidebarSubagentLabel({
 
 export function SidebarThreadRowContent({
   thread,
-  terminalEntryPoint,
-  terminalStatus,
-  terminalCount,
+  terminalEntryPoint: _terminalEntryPoint,
+  terminalStatus: _terminalStatus,
+  terminalCount: _terminalCount,
   isActive,
   variant,
   subagentIndentPx = 0,
@@ -215,14 +168,8 @@ export function SidebarThreadRowContent({
             style={{ backgroundColor: subagentPresentation?.accentColor }}
           />
         </span>
-      ) : terminalEntryPoint ? (
-        <SidebarGlyph icon={TerminalIcon} variant="chrome" />
       ) : showThreadProviderAvatar ? (
-        <ProviderAvatarWithTerminal
-          thread={thread}
-          terminalStatus={terminalStatus}
-          terminalCount={terminalCount}
-        />
+        <ProviderAvatar thread={thread} />
       ) : null}
       <div
         className={cn(

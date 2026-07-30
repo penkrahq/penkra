@@ -124,7 +124,7 @@ export function NotificationsSettingsPanel({
 
   async function sendTestNotification() {
     const title = "Activity notification";
-    const body = "Notification test for chats and terminal agents.";
+    const body = "Notification test for agent activity.";
 
     if (window.desktopBridge) {
       const shown = await window.desktopBridge.notifications.show({ title, body, silent: false });
@@ -167,7 +167,7 @@ export function NotificationsSettingsPanel({
       <SettingsSection title="Activity alerts">
         <SettingsRow
           title="Activity toasts"
-          description="Show an in-app toast when a chat or managed terminal agent finishes or needs input."
+          description="Show an in-app toast when an agent finishes or needs input."
           resetAction={
             settings.enableTaskCompletionToasts !== defaults.enableTaskCompletionToasts ? (
               <SettingResetButton
@@ -193,7 +193,7 @@ export function NotificationsSettingsPanel({
 
         <SettingsRow
           title="Desktop notifications"
-          description="Show an OS notification when a chat or managed terminal agent finishes or needs input while the app is in the background."
+          description="Show an OS notification when an agent finishes or needs input while the app is in the background."
           status={buildNotificationSettingsSupportText(browserNotificationPermission)}
           resetAction={
             settings.enableSystemTaskCompletionNotifications !==

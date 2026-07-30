@@ -134,6 +134,8 @@ import {
 import { DisclosureChevron } from "../ui/DisclosureChevron";
 import { DisclosureRegion } from "../ui/DisclosureRegion";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
+import { MessageUserAdapter } from "../middle-panel/message-user/MessageUserAdapter";
+import { MessageAssistantAdapter } from "../middle-panel/message-assistant/MessageAssistantAdapter";
 import {
   DISCLOSURE_CLEANUP_BUFFER_MS,
   DISCLOSURE_TRANSITION_MS,
@@ -1140,32 +1142,33 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     [cancelUserMessageEdit, onEditUserMessage],
   );
 
-  const renderRowContent = (row: MessagesTimelineRow) => (
-    <div
-      className={cn(
-        CHAT_COLUMN_FRAME_CLASS_NAME,
-        "px-1 transition-colors duration-500",
-        row.kind === "work" ||
-          row.kind === "working-header" ||
-          (row.kind === "message" && row.message.role === "assistant")
-          ? "pb-2"
-          : "pb-4",
-        row.kind === "message" && row.message.role === "assistant" ? "group/assistant" : null,
-        row.kind === "message" && row.message.id === highlightedMessageId
-          ? "rounded-xl bg-[var(--color-background-elevated-secondary)]"
-          : null,
-        enteringMessageRowIds.has(row.id) ? "chat-message-send-enter" : null,
-      )}
-      data-timeline-row-kind={row.kind}
-      data-find-row-id={row.id}
-      data-find-model-owned={
-        row.kind === "work" || (row.kind === "message" && row.message.role === "assistant")
-          ? true
-          : undefined
-      }
-      data-message-id={row.kind === "message" ? row.message.id : undefined}
-      data-message-role={row.kind === "message" ? row.message.role : undefined}
-    >
+  const renderRowContent = (row: MessagesTimelineRow) => {
+    const content = (
+      <div
+        className={cn(
+          CHAT_COLUMN_FRAME_CLASS_NAME,
+          "px-1 transition-colors duration-500",
+          row.kind === "work" ||
+            row.kind === "working-header" ||
+            (row.kind === "message" && row.message.role === "assistant")
+            ? "pb-2"
+            : "pb-4",
+          row.kind === "message" && row.message.role === "assistant" ? "group/assistant" : null,
+          row.kind === "message" && row.message.id === highlightedMessageId
+            ? "rounded-xl bg-[var(--color-background-elevated-secondary)]"
+            : null,
+          enteringMessageRowIds.has(row.id) ? "chat-message-send-enter" : null,
+        )}
+        data-timeline-row-kind={row.kind}
+        data-find-row-id={row.id}
+        data-find-model-owned={
+          row.kind === "work" || (row.kind === "message" && row.message.role === "assistant")
+            ? true
+            : undefined
+        }
+        data-message-id={row.kind === "message" ? row.message.id : undefined}
+        data-message-role={row.kind === "message" ? row.message.role : undefined}
+      >
       {row.kind === "work" &&
         (() => {
           const groupId = row.id;
@@ -2207,8 +2210,17 @@ export const MessagesTimeline = memo(function MessagesTimeline({
           </div>
         </DisclosureRegion>
       )}
-    </div>
-  );
+      </div>
+    );
+
+    if (row.kind === "message" && row.message.role === "user") {
+      return <MessageUserAdapter>{content}</MessageUserAdapter>;
+    }
+    if (row.kind === "message" && row.message.role === "assistant") {
+      return <MessageAssistantAdapter>{content}</MessageAssistantAdapter>;
+    }
+    return content;
+  };
 
   // Transient rows (for example failed first-send worktree setup) must be able
   // to render even when there are no persisted chat messages yet.

@@ -100,11 +100,6 @@ const AVAILABLE_NOW_DEFINITIONS: readonly ShortcutDefinition[] = [
     description: "Open the empty chat landing view.",
   },
   {
-    command: "chat.newTerminal",
-    label: "New terminal thread",
-    description: "Create a thread that opens directly into terminal mode.",
-  },
-  {
     command: "chat.newClaude",
     label: "New Claude thread",
     description: "Start a fresh thread with Claude selected.",
@@ -162,11 +157,6 @@ const AVAILABLE_NOW_DEFINITIONS: readonly ShortcutDefinition[] = [
     description: "Focus or blur the chat prompt composer.",
   },
   {
-    command: "terminal.toggle",
-    label: "Toggle terminal",
-    description: "Show or hide the terminal surface for the active thread.",
-  },
-  {
     command: "diff.toggle",
     label: "Toggle diff",
     description: "Open or close the working tree diff panel.",
@@ -207,40 +197,13 @@ const THREAD_JUMP_DEFINITIONS: readonly ShortcutDefinition[] = Array.from(
   }),
 );
 
-const WORKSPACE_DEFINITIONS: readonly ShortcutDefinition[] = [
-  {
-    command: "terminal.workspace.newFullWidth",
-    label: "Open full-width terminal workspace",
-    description: "Expand the active thread into the workspace terminal layout.",
-  },
-  {
-    command: "terminal.workspace.terminal",
-    label: "Focus terminal tab",
-    description: "Switch the workspace to the terminal tab.",
-  },
-  {
-    command: "terminal.workspace.chat",
-    label: "Focus chat tab",
-    description: "Switch the workspace back to the chat tab.",
-  },
-  {
-    command: "terminal.workspace.closeActive",
-    label: "Close active workspace panel",
-    description: "Close the currently focused workspace panel or tab.",
-  },
-] as const;
-
 function modSlashLabel(platform: string): string {
   return isMacPlatform(platform) ? "⌘/" : "Ctrl+/";
 }
 
 /** Human-readable sheet label for a keybinding command, e.g. `chat.new` → "New thread". */
 export function shortcutSheetCommandLabel(command: KeybindingCommand): string | null {
-  for (const definitions of [
-    AVAILABLE_NOW_DEFINITIONS,
-    WORKSPACE_DEFINITIONS,
-    THREAD_JUMP_DEFINITIONS,
-  ]) {
+  for (const definitions of [AVAILABLE_NOW_DEFINITIONS, THREAD_JUMP_DEFINITIONS]) {
     for (const definition of definitions) {
       const commands = Array.isArray(definition.command)
         ? definition.command
@@ -289,6 +252,12 @@ export function buildShortcutSheetSections(
   options: BuildShortcutSheetSectionsOptions,
 ): ShortcutSheetSection[] {
   const sections: ShortcutSheetSection[] = [];
+  const sheetContext: ShortcutSheetContext = {
+    ...options.context,
+    terminalFocus: false,
+    terminalOpen: false,
+    terminalWorkspaceOpen: false,
+  };
 
   const currentEntries: ShortcutSheetEntry[] = [
     {
@@ -301,7 +270,7 @@ export function buildShortcutSheetSections(
       AVAILABLE_NOW_DEFINITIONS,
       options.keybindings,
       options.platform,
-      options.context,
+      sheetContext,
     ),
   ];
 
@@ -313,62 +282,25 @@ export function buildShortcutSheetSections(
     },
     options.keybindings,
     options.platform,
-    options.context,
+    sheetContext,
   );
   if (sidebarToggle) {
     currentEntries.splice(1, 0, sidebarToggle);
   }
 
-  const currentNavigationEntries = options.context.terminalWorkspaceOpen
-    ? definitionsToEntries(
-        WORKSPACE_DEFINITIONS,
-        options.keybindings,
-        options.platform,
-        options.context,
-      )
-    : definitionsToEntries(
-        THREAD_JUMP_DEFINITIONS,
-        options.keybindings,
-        options.platform,
-        options.context,
-      );
+  const currentNavigationEntries = definitionsToEntries(
+    THREAD_JUMP_DEFINITIONS,
+    options.keybindings,
+    options.platform,
+    sheetContext,
+  );
 
   sections.push({
     id: "available-now",
     title: "Available now",
-    description: options.context.terminalWorkspaceOpen
-      ? "These reflect the active workspace-terminal context."
-      : "These reflect the current chat and sidebar context.",
+    description: "These reflect the current chat and sidebar context.",
     entries: [...currentEntries, ...currentNavigationEntries],
   });
-
-  const alternateContext: ShortcutSheetContext = options.context.terminalWorkspaceOpen
-    ? { ...options.context, terminalWorkspaceOpen: false }
-    : {
-        ...options.context,
-        terminalOpen: true,
-        terminalWorkspaceOpen: true,
-      };
-  const alternateDefinitions = options.context.terminalWorkspaceOpen
-    ? THREAD_JUMP_DEFINITIONS
-    : WORKSPACE_DEFINITIONS;
-  const alternateEntries = definitionsToEntries(
-    alternateDefinitions,
-    options.keybindings,
-    options.platform,
-    alternateContext,
-  );
-  if (alternateEntries.length > 0) {
-    sections.push({
-      id: "alternate-context",
-      title: options.context.terminalWorkspaceOpen ? "Outside workspace mode" : "In workspace mode",
-      description: options.context.terminalWorkspaceOpen
-        ? "Number-row jumps return when the terminal workspace is closed."
-        : "These bindings take over when the terminal switches into workspace mode.",
-      tone: "muted",
-      entries: alternateEntries,
-    });
-  }
 
   const projectScriptEntries = options.projectScripts
     .map((script) => {

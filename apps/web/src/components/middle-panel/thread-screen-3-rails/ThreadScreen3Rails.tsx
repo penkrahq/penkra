@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { HTMLAttributes, ReactNode } from "react";
 
 import { ScrollArea } from "~/components/ui/scroll-area";
 import { cn } from "~/lib/utils";
@@ -6,10 +6,14 @@ import { cn } from "~/lib/utils";
 import { ComposerDefault } from "../composer-default/ComposerDefault";
 import { TopBarThread } from "../top-bar-thread/TopBarThread";
 
-export interface ThreadScreen3RailsProps {
+export interface ThreadScreen3RailsProps extends HTMLAttributes<HTMLElement> {
   children: ReactNode;
-  className?: string;
   composer?: ReactNode;
+  /**
+   * The production transcript and composer own their scrolling, focus, streaming,
+   * and overlay behavior. Stories use the self-contained Pencil preview.
+   */
+  layoutMode?: "application" | "preview";
   title?: string;
 }
 
@@ -17,8 +21,25 @@ export function ThreadScreen3Rails({
   children,
   className,
   composer = <ComposerDefault />,
+  layoutMode = "preview",
   title,
+  ...props
 }: ThreadScreen3RailsProps) {
+  if (layoutMode === "application") {
+    return (
+      <section
+        className={cn(
+          "relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[var(--color-background-surface-under)]",
+          className,
+        )}
+        data-pencil-component="y0DmC"
+        {...props}
+      >
+        {children}
+      </section>
+    );
+  }
+
   return (
     <section
       className={cn(
@@ -26,6 +47,7 @@ export function ThreadScreen3Rails({
         className,
       )}
       data-pencil-component="y0DmC"
+      {...props}
     >
       <TopBarThread title={title} />
       <ScrollArea

@@ -53,11 +53,11 @@ describe("buildShortcutSheetSections", () => {
         (entry) => entry.id === "composer.focus.toggle" && entry.shortcutLabel === "⌘L",
       ),
     ).toBe(true);
-    expect(sections[1]?.title).toBe("In workspace mode");
-    expect(sections[2]?.entries[0]?.shortcutLabel).toBe("⌘R");
+    expect(sections[1]?.title).toBe("Project scripts");
+    expect(sections[1]?.entries[0]?.shortcutLabel).toBe("⌘R");
   });
 
-  it("switches to workspace shortcuts when the workspace is open", () => {
+  it("does not surface removed terminal shortcuts from legacy context", () => {
     const sections = buildShortcutSheetSections({
       keybindings: [],
       projectScripts: [],
@@ -71,15 +71,14 @@ describe("buildShortcutSheetSections", () => {
 
     expect(
       sections[0]?.entries.some(
-        (entry) => entry.id === "terminal.workspace.terminal" && entry.shortcutLabel === "Ctrl+1",
-      ),
-    ).toBe(true);
-    expect(sections[1]?.title).toBe("Outside workspace mode");
-    expect(
-      sections[1]?.entries.some(
         (entry) => entry.id === "thread.jump.1" && entry.shortcutLabel === "Ctrl+1",
       ),
     ).toBe(true);
+    expect(
+      sections.flatMap((section) => section.entries).some((entry) =>
+        entry.id.startsWith("terminal."),
+      ),
+    ).toBe(false);
   });
 
   it("falls back to the legacy new-chat alias when needed", () => {

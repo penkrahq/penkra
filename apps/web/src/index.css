@@ -2531,7 +2531,7 @@ diffs-container {
 /* Composer shell/surface corner geometry — single source of truth so radius
    tweaks are not split across Tailwind utilities (and HMR cannot leave stale rules). */
 :root {
-  --composer-radius: 1.2rem;
+  --composer-radius: 1.125rem;
 }
 
 .chat-composer-shell,

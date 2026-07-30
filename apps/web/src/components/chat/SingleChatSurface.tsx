@@ -105,7 +105,6 @@ const EditorWorkspaceView = lazy(() =>
     default: module.EditorWorkspaceView,
   })),
 );
-const DockTerminalPane = lazy(() => import("./DockTerminalPane"));
 const GitPanel = lazy(() => import("./GitPanel"));
 const DockExplorerPane = lazy(() =>
   import("./DockExplorerPane").then((module) => ({
@@ -696,24 +695,6 @@ export function SingleChatSurface(props: {
             liveRefreshEnabled={context.isActive && dockState.open}
             queriesEnabled={context.isActive && dockState.open}
           />
-        );
-      case "terminal":
-        if (context.runtimeMode === "preview") {
-          return <PanelStateMessage>Terminal is sleeping. Restoring shortly.</PanelStateMessage>;
-        }
-        // Kept mounted across tab switches; visibility toggles the xterm runtime
-        // instead of detaching/reattaching it (avoids the open-lag + fit flicker).
-        // Also sleep it while the dock is collapsed: a closed dock keeps the pane
-        // mounted (offcanvas is CSS-only), so without this the off-screen terminal
-        // would keep WebGL + resize observers alive for nothing.
-        return (
-          <Suspense fallback={<PanelStateMessage>Loading terminal...</PanelStateMessage>}>
-            <DockTerminalPane
-              hostThreadId={props.threadId}
-              projectId={props.projectId}
-              isActive={context.isActive && dockState.open}
-            />
-          </Suspense>
         );
       case "git":
         return (

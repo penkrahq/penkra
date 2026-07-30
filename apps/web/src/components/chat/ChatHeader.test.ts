@@ -8,8 +8,8 @@ import { describe, expect, it } from "vitest";
 import { resolveChatHeaderThreadIconKind } from "./ChatHeader";
 
 describe("resolveChatHeaderThreadIconKind", () => {
-  it("uses the terminal icon for terminal-first threads", () => {
-    expect(resolveChatHeaderThreadIconKind("terminal", "New terminal")).toBe("terminal");
+  it("does not expose terminal identity for legacy terminal-first threads", () => {
+    expect(resolveChatHeaderThreadIconKind("terminal", "New terminal")).toBe("provider");
   });
 
   it("keeps provider branding for chat-first threads", () => {

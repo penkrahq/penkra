@@ -22,7 +22,6 @@ export interface OpenWithRowSharedProps {
 const defaultOptions = [
   { id: "penkra", label: "Penkra" },
   { id: "finder", label: "Finder" },
-  { id: "terminal", label: "Terminal" },
 ];
 
 export function OpenWithRowShared({

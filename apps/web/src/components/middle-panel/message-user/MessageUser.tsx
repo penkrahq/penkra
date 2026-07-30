@@ -7,6 +7,7 @@ import { MessageActions } from "../message-actions/MessageActions";
 export interface MessageUserProps {
   children: ReactNode;
   className?: string;
+  layoutMode?: "application" | "preview";
   onCopy?: () => void;
   onEdit?: () => void;
   time?: string;
@@ -15,10 +16,19 @@ export interface MessageUserProps {
 export function MessageUser({
   children,
   className,
+  layoutMode = "preview",
   onCopy,
   onEdit,
   time,
 }: MessageUserProps) {
+  if (layoutMode === "application") {
+    return (
+      <div className={cn("contents", className)} data-pencil-component="BDWPr">
+        {children}
+      </div>
+    );
+  }
+
   return (
     <article
       className={cn("group/message flex w-full flex-col items-end", className)}

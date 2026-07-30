@@ -3,6 +3,7 @@ import {
   type FocusEvent,
   type FormEvent,
   type KeyboardEvent,
+  type ReactNode,
   type TextareaHTMLAttributes,
   useState,
 } from "react";
@@ -14,14 +15,18 @@ import { ComposerActions } from "../composer-actions/ComposerActions";
 export interface ComposerDefaultProps
   extends TextareaHTMLAttributes<HTMLTextAreaElement> {
   onSend?: () => void;
+  children?: ReactNode;
+  layoutMode?: "application" | "preview";
   showHarness?: boolean;
 }
 
 export const ComposerDefault = forwardRef<HTMLTextAreaElement, ComposerDefaultProps>(
   function ComposerDefault(
     {
+      children,
       className,
       disabled,
+      layoutMode = "preview",
       onBlur,
       onFocus,
       onKeyDown,
@@ -33,6 +38,14 @@ export const ComposerDefault = forwardRef<HTMLTextAreaElement, ComposerDefaultPr
     ref,
   ) {
     const [focused, setFocused] = useState(false);
+
+    if (layoutMode === "application") {
+      return (
+        <div className={cn("contents", className)} data-pencil-component="TKKOp">
+          {children}
+        </div>
+      );
+    }
 
     const submit = (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();

@@ -8,6 +8,7 @@ import { MessageActions } from "../message-actions/MessageActions";
 export interface MessageAssistantProps {
   children: ReactNode;
   className?: string;
+  layoutMode?: "application" | "preview";
   onCopy?: () => void;
   onRetry?: () => void;
   time?: string;
@@ -17,11 +18,20 @@ export interface MessageAssistantProps {
 export function MessageAssistant({
   children,
   className,
+  layoutMode = "preview",
   onCopy,
   onRetry,
   time,
   workedFor = "Worked for 1m 14s",
 }: MessageAssistantProps) {
+  if (layoutMode === "application") {
+    return (
+      <div className={cn("contents", className)} data-pencil-component="kUqNe">
+        {children}
+      </div>
+    );
+  }
+
   return (
     <article
       className={cn("group/message flex w-full flex-col items-start", className)}

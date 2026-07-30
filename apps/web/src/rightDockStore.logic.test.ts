@@ -29,7 +29,6 @@ describe("RIGHT_DOCK_PANE_KINDS (single source of truth)", () => {
       "diff",
       "explorer",
       "file",
-      "terminal",
       "sidechat",
       "git",
       "pullRequest",
@@ -51,7 +50,6 @@ describe("isRightDockPaneKind", () => {
       "diff",
       "explorer",
       "file",
-      "terminal",
       "sidechat",
       "git",
       "pullRequest",
@@ -71,6 +69,18 @@ describe("isRightDockPaneKind", () => {
 });
 
 describe("removed pane kinds", () => {
+  it("drops stale persisted terminal panes", () => {
+    const state = sanitizeRightDockThreadState({
+      open: true,
+      activePaneId: "terminal",
+      panes: [{ id: "terminal", kind: "terminal" }],
+    });
+
+    expect(state.panes).toEqual([]);
+    expect(state.activePaneId).toBeNull();
+    expect(state.open).toBe(false);
+  });
+
   it("drops stale persisted instruction panes", () => {
     const state = sanitizeRightDockThreadState({
       open: true,
@@ -174,7 +184,7 @@ describe("sanitizeRightDockThreadState", () => {
       activePaneId: "b",
       panes: [
         { id: "a", kind: "diff", threadId: null, diffTurnId: null, diffFilePath: null },
-        { id: "b", kind: "terminal", threadId: null, diffTurnId: null, diffFilePath: null },
+        { id: "b", kind: "browser", threadId: null, diffTurnId: null, diffFilePath: null },
       ],
     });
     expect(state.panes.map((pane) => pane.id)).toEqual(["a", "b"]);

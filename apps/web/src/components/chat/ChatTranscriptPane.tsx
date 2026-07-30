@@ -81,7 +81,6 @@ interface ChatTranscriptPaneProps {
   subagentToolTraceByThreadId?: ComponentProps<
     typeof MessagesTimeline
   >["subagentToolTraceByThreadId"];
-  terminalWorkspaceTerminalTabActive: boolean;
   timelineEntries: ComponentProps<typeof MessagesTimeline>["timelineEntries"];
   timestampFormat: TimestampFormat;
   turnDiffSummaryByAssistantMessageId: Map<MessageId, TurnDiffSummary>;
@@ -138,7 +137,6 @@ export function ChatTranscriptPane({
   revertTurnCountByUserMessageId,
   scrollButtonVisible,
   subagentToolTraceByThreadId,
-  terminalWorkspaceTerminalTabActive,
   timelineEntries,
   timestampFormat,
   turnDiffSummaryByAssistantMessageId,
@@ -167,11 +165,7 @@ export function ChatTranscriptPane({
     <div
       data-chat-transcript-pane="true"
       data-pencil-region="PGsVQ"
-      aria-hidden={terminalWorkspaceTerminalTabActive}
-      className={cn(
-        "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden",
-        terminalWorkspaceTerminalTabActive ? "pointer-events-none invisible" : "",
-      )}
+      className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
     >
       <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
         {agentActivityDetail && onCloseAgentActivityDetail ? (
