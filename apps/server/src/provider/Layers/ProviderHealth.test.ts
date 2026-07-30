@@ -507,7 +507,7 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
       assert.strictEqual(codex?.message, "Provider is disabled in Penkra settings.");
     });
 
-    it("suppresses cached update advisories when automatic update checks are disabled", () => {
+    it("keeps update advisories visible in notify mode", () => {
       const statuses = projectProviderStatusesForSettings(
         [
           {
@@ -524,17 +524,20 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
             },
           },
         ],
-        { ...DEFAULT_SERVER_SETTINGS, enableProviderUpdateChecks: false },
+        { ...DEFAULT_SERVER_SETTINGS, providerUpdateMode: "notify" },
         "2026-06-16T12:05:00.000Z",
       );
       const codex = statuses.find((status) => status.provider === "codex");
 
       assert.strictEqual(codex?.available, true);
       assert.strictEqual(codex?.version, "0.129.0");
-      assert.strictEqual(codex?.versionAdvisory?.status, "unknown");
-      assert.strictEqual(codex?.versionAdvisory?.latestVersion, null);
-      assert.strictEqual(codex?.versionAdvisory?.canUpdate, false);
-      assert.strictEqual(codex?.versionAdvisory?.updateCommand, null);
+      assert.strictEqual(codex?.versionAdvisory?.status, "behind_latest");
+      assert.strictEqual(codex?.versionAdvisory?.latestVersion, "0.130.0");
+      assert.strictEqual(codex?.versionAdvisory?.canUpdate, true);
+      assert.strictEqual(
+        codex?.versionAdvisory?.updateCommand,
+        "npm install -g @openai/codex@latest",
+      );
     });
 
     it.effect("does not expose cached ready statuses for disabled providers", () =>

@@ -13,6 +13,7 @@ import {
   DEFAULT_SERVER_SETTINGS_VIEW,
   TrimmedNonEmptyString,
   ProviderKind,
+  ProviderUpdateMode,
   type ProviderStartOptions,
   type ServerSettingsView,
   type ServerSettingsPatch,
@@ -222,7 +223,9 @@ export const AppSettingsSchema = Schema.Struct({
   showEnvironmentInstructions: Schema.Boolean.pipe(withDefaults(() => true)),
   showEnvironmentNotepad: Schema.Boolean.pipe(withDefaults(() => true)),
   enableAssistantStreaming: Schema.Boolean.pipe(withDefaults(() => true)),
-  enableProviderUpdateChecks: Schema.Boolean.pipe(withDefaults(() => true)),
+  providerUpdateMode: ProviderUpdateMode.pipe(withDefaults(() => "automatic")),
+  // Deprecated bridge. Normalization migrates the old boolean and omits it.
+  enableProviderUpdateChecks: Schema.optionalKey(Schema.Boolean),
   enableNativeFontSmoothing: Schema.Boolean.pipe(withDefaults(getDefaultNativeFontSmoothing)),
   enableTaskCompletionToasts: Schema.Boolean.pipe(withDefaults(() => true)),
   enableSystemTaskCompletionNotifications: Schema.Boolean.pipe(withDefaults(() => true)),
@@ -495,12 +498,15 @@ function normalizeProviderBinaryPathOverride(
 function normalizeAppSettings(settings: AppSettings): AppSettings {
   const {
     enableAppshots: legacyEnableAppshots,
+    enableProviderUpdateChecks: legacyEnableProviderUpdateChecks,
     geminiBinaryPath: legacyGeminiBinaryPath,
     customGeminiModels: legacyCustomGeminiModels,
     ...currentSettings
   } = settings;
   return {
     ...currentSettings,
+    providerUpdateMode:
+      legacyEnableProviderUpdateChecks === false ? "notify" : settings.providerUpdateMode,
     enableAppSnap: settings.enableAppSnap || legacyEnableAppshots === true,
     // Password fields are accepted only as write-only update patches. Never retain
     // reusable provider credentials in browser state or localStorage.
@@ -552,7 +558,7 @@ function serverSettingsToAppSettings(settings: ServerSettingsView): Partial<AppS
     cursorBinaryPath: settings.providers.cursor.binaryPath,
     defaultThreadEnvMode: settings.defaultThreadEnvMode,
     enableAssistantStreaming: settings.enableAssistantStreaming,
-    enableProviderUpdateChecks: settings.enableProviderUpdateChecks,
+    providerUpdateMode: settings.providerUpdateMode,
     antigravityBinaryPath: settings.providers.antigravity.binaryPath,
     grokBinaryPath: settings.providers.grok.binaryPath,
     droidBinaryPath: settings.providers.droid.binaryPath,
@@ -614,8 +620,8 @@ function appSettingsPatchToServerSettingsPatch(patch: Partial<AppSettings>): Ser
   if (hasOwn(patch, "enableAssistantStreaming")) {
     serverPatch.enableAssistantStreaming = Boolean(patch.enableAssistantStreaming);
   }
-  if (hasOwn(patch, "enableProviderUpdateChecks")) {
-    serverPatch.enableProviderUpdateChecks = Boolean(patch.enableProviderUpdateChecks);
+  if (hasOwn(patch, "providerUpdateMode")) {
+    serverPatch.providerUpdateMode = patch.providerUpdateMode;
   }
   if (patch.defaultThreadEnvMode === "local" || patch.defaultThreadEnvMode === "worktree") {
     serverPatch.defaultThreadEnvMode = patch.defaultThreadEnvMode;
@@ -764,7 +770,7 @@ function buildInitialServerSettingsMigrationPatch(settings: AppSettings): Server
     "cursorBinaryPath",
     "defaultThreadEnvMode",
     "enableAssistantStreaming",
-    "enableProviderUpdateChecks",
+    "providerUpdateMode",
     "antigravityBinaryPath",
     "grokBinaryPath",
     "droidBinaryPath",

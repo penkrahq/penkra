@@ -3,7 +3,7 @@
 // Layer: Chat presentation
 // Depends on: the caller-supplied project display name.
 
-import { PenkraMark } from "~/components/PenkraMark";
+import { PenkraMark } from "~/components/foundations/penkra-mark-shared/PenkraMark";
 
 export const ChatEmptyStateHero = function ChatEmptyStateHero({
   projectName,

@@ -1,4 +1,4 @@
-// FILE: PenkraMark.tsx
+// FILE: foundations/penkra-mark-shared/PenkraMark.tsx
 // Purpose: Render the canonical Penkra mark recovered from the Pencil source of truth.
 // Layer: Shared app branding primitive
 
@@ -12,8 +12,12 @@ export interface PenkraMarkProps extends SVGProps<SVGSVGElement> {
 
 export function PenkraMark({ className, monochrome = false, ...props }: PenkraMarkProps) {
   const ariaLabel = props["aria-label"];
-  const glyphFill = monochrome ? "currentColor" : "#F5F5F7";
-  const bridgeFill = monochrome ? "currentColor" : "#8CB8E1";
+  const glyphFill = monochrome
+    ? "currentColor"
+    : "var(--color-brand-mark-glyph, #F5F5F7)";
+  const bridgeFill = monochrome
+    ? "currentColor"
+    : "var(--color-brand-mark-bridge, #8CB8E1)";
 
   return (
     <svg

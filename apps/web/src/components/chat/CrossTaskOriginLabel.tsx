@@ -5,7 +5,7 @@
 import { type ProviderKind, type ThreadId } from "@synara/contracts";
 import { memo, type ReactNode } from "react";
 
-import { PenkraMark } from "../PenkraMark";
+import { PenkraMark } from "../foundations/penkra-mark-shared/PenkraMark";
 import { cn } from "~/lib/utils";
 
 export interface CrossTaskOrigin {

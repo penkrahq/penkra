@@ -632,7 +632,7 @@ function ProviderToolRow(props: {
   settings: AppSettings;
   defaults: AppSettings;
   hiddenProviderSet: ReadonlySet<ProviderKind>;
-  serverSettings: Pick<ServerSettings, "providers" | "enableProviderUpdateChecks"> | null;
+  serverSettings: Pick<ServerSettings, "providers" | "providerUpdateMode"> | null;
   providerStatus: ServerProviderStatus | undefined;
   updatingProviders: ReadonlySet<ProviderKind>;
   onOpenChange: (open: boolean) => void;
@@ -653,13 +653,9 @@ function ProviderToolRow(props: {
     updateAdvisory?.status === "behind_latest" && !showProviderUpdateStatus;
   const currentProviderVersion = formatProviderVersion(props.providerStatus?.version);
   const providerUpdateLabel = props.providerStatus
-    ? !props.settings.enableProviderUpdateChecks
-      ? currentProviderVersion
-        ? `Current ${currentProviderVersion}`
-        : null
-      : providerUpdateSuppressed
-        ? null
-        : providerUpdateStatusLabel(props.providerStatus)
+    ? providerUpdateSuppressed
+      ? null
+      : providerUpdateStatusLabel(props.providerStatus)
     : null;
   const updateActive = Boolean(
     (props.providerStatus && isProviderUpdateActive(props.providerStatus)) ||
@@ -789,14 +785,8 @@ export function ProvidersSettingsPanel({
     [serverConfigQuery.data?.providers],
   );
   const providerUpdateServerSettings = useMemo(
-    () =>
-      serverSettingsQuery.data
-        ? {
-            ...serverSettingsQuery.data,
-            enableProviderUpdateChecks: settings.enableProviderUpdateChecks,
-          }
-        : null,
-    [serverSettingsQuery.data, settings.enableProviderUpdateChecks],
+    () => serverSettingsQuery.data ?? null,
+    [serverSettingsQuery.data],
   );
   const outdatedProviderStatuses = useMemo(
     () =>
@@ -886,12 +876,12 @@ export function ProvidersSettingsPanel({
             title="Automatic CLI update checks"
             description="Check Codex, Claude, and other provider CLIs for newer versions in the background."
             resetAction={
-              settings.enableProviderUpdateChecks !== defaults.enableProviderUpdateChecks ? (
+              settings.providerUpdateMode !== defaults.providerUpdateMode ? (
                 <SettingResetButton
                   label="CLI update checks"
                   onClick={() =>
                     updateSettings({
-                      enableProviderUpdateChecks: defaults.enableProviderUpdateChecks,
+                      providerUpdateMode: defaults.providerUpdateMode,
                     })
                   }
                 />
@@ -899,9 +889,9 @@ export function ProvidersSettingsPanel({
             }
             control={
               <Switch
-                checked={settings.enableProviderUpdateChecks}
+                checked={settings.providerUpdateMode === "automatic"}
                 onCheckedChange={(checked) =>
-                  updateSettings({ enableProviderUpdateChecks: Boolean(checked) })
+                  updateSettings({ providerUpdateMode: checked ? "automatic" : "notify" })
                 }
                 aria-label="Automatic CLI update checks"
               />
@@ -912,14 +902,12 @@ export function ProvidersSettingsPanel({
             title="Provider updates"
             description="Review installed provider tools that Penkra can safely update."
             status={
-              !settings.enableProviderUpdateChecks
-                ? "Automatic checks off"
-                : outdatedProviderCount > 0
-                  ? `${outdatedProviderCount} ${pluralize(outdatedProviderCount, "update")} available`
-                  : "No provider updates detected"
+              outdatedProviderCount > 0
+                ? `${outdatedProviderCount} ${pluralize(outdatedProviderCount, "update")} available`
+                : "No provider updates detected"
             }
           >
-            {settings.enableProviderUpdateChecks && outdatedProviderStatuses.length > 0 ? (
+            {outdatedProviderStatuses.length > 0 ? (
               <div
                 className={cn(
                   "mt-4",
@@ -1022,11 +1010,9 @@ export function ProvidersSettingsPanel({
             title="Installed CLIs"
             description="Review provider versions and update tools. Open a row only when you need binary overrides."
             status={
-              !settings.enableProviderUpdateChecks
-                ? "Automatic checks off"
-                : outdatedProviderCount > 0
-                  ? `${outdatedProviderCount} ${pluralize(outdatedProviderCount, "update")} available`
-                  : "No provider updates detected"
+              outdatedProviderCount > 0
+                ? `${outdatedProviderCount} ${pluralize(outdatedProviderCount, "update")} available`
+                : "No provider updates detected"
             }
             resetAction={
               installSettingsDirty ? (

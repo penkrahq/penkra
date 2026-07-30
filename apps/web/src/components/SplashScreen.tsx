@@ -2,7 +2,7 @@
 // Purpose: Render the branded startup face while the app is still booting a route or session.
 // Layer: Shared app loading presentation
 
-import { PenkraMark } from "~/components/PenkraMark";
+import { PenkraMark } from "~/components/foundations/penkra-mark-shared/PenkraMark";
 
 export function SplashScreen({
   errorMessage,

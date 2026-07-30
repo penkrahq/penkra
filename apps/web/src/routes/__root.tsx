@@ -452,12 +452,7 @@ function ProviderUpdateNotifications() {
   const { settings } = useAppSettings();
   const serverConfigQuery = useQuery(serverConfigQueryOptions());
   const serverSettingsQuery = useQuery(serverSettingsQueryOptions());
-  const providerUpdateServerSettings = serverSettingsQuery.data
-    ? {
-        ...serverSettingsQuery.data,
-        enableProviderUpdateChecks: settings.enableProviderUpdateChecks,
-      }
-    : null;
+  const providerUpdateServerSettings = serverSettingsQuery.data ?? null;
   const [isUpdatingAll, setIsUpdatingAll] = useState(false);
   const activeToastRef = useRef<ActiveProviderUpdateToast | null>(null);
   const isUpdatingAllRef = useRef(false);
@@ -485,12 +480,16 @@ function ProviderUpdateNotifications() {
 
   useEffect(() => {
     const activeToast = activeToastRef.current;
-    if (activeToast?.kind === "prompt" && activeToast.key !== notificationKey) {
+    if (
+      activeToast?.kind === "prompt" &&
+      (settings.providerUpdateMode !== "notify" || activeToast.key !== notificationKey)
+    ) {
       toastManager.close(activeToast.toastId);
       activeToastRef.current = null;
     }
 
     if (
+      settings.providerUpdateMode !== "notify" ||
       outdatedProviders.length === 0 ||
       oneClickProviders.length === 0 ||
       !notificationKey ||
@@ -553,7 +552,15 @@ function ProviderUpdateNotifications() {
       },
     });
     activeToastRef.current = { kind: "prompt", key: notificationKey, toastId };
-  }, [isUpdatingAll, navigate, notificationKey, oneClickProviders, outdatedProviders, updateAll]);
+  }, [
+    isUpdatingAll,
+    navigate,
+    notificationKey,
+    oneClickProviders,
+    outdatedProviders,
+    settings.providerUpdateMode,
+    updateAll,
+  ]);
 
   return null;
 }

@@ -2013,13 +2013,6 @@ function makeSuppressedProviderVersionAdvisory(
   };
 }
 
-function suppressProviderVersionAdvisory(status: ServerProviderStatus): ServerProviderStatus {
-  return {
-    ...status,
-    versionAdvisory: makeSuppressedProviderVersionAdvisory(status),
-  };
-}
-
 // Disabled providers are a settings overlay, not a probe result. Keep the raw
 // cached/probed status intact so re-enabling a provider can reuse it immediately.
 export function projectProviderStatusesForSettings(
@@ -2047,9 +2040,7 @@ export function projectProviderStatusesForSettings(
     }
 
     if (status && !isDisabledProviderStatusOverlay(status)) {
-      projected.push(
-        settings.enableProviderUpdateChecks ? status : suppressProviderVersionAdvisory(status),
-      );
+      projected.push(status);
     }
   }
 
@@ -2254,18 +2245,7 @@ export function makeProviderHealthLive(options?: { readonly providerUpdateTimeou
       const enrichStatuses = Effect.fn("enrichProviderStatuses")(function* (
         statuses: ReadonlyArray<ServerProviderStatus>,
       ) {
-        const settings = yield* serverSettings.ready.pipe(
-          Effect.flatMap(() => serverSettings.getSettings),
-          Effect.catch(() => Effect.succeed(null)),
-        );
-        if (settings?.enableProviderUpdateChecks === false) {
-          return yield* Effect.forEach(
-            statuses.map(suppressProviderVersionAdvisory),
-            applyVolatileProviderState,
-            { concurrency: "unbounded" },
-          );
-        }
-
+        yield* serverSettings.ready.pipe(Effect.catch(() => Effect.void));
         const enriched = yield* Effect.forEach(
           statuses,
           (status) =>
