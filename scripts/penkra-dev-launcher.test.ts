@@ -4,13 +4,14 @@
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   isExpectedPenkraDevSupervisorCommand,
   resolvePenkraDevLauncherPaths,
   resolvePenkraDevWorkspaceCommand,
   shouldRunPenkraDevLauncher,
+  waitForDockerEngine,
 } from "./penkra-dev-launcher";
 import {
   makeInfoPlist,
@@ -28,6 +29,64 @@ describe("Penkra Dev launcher", () => {
     expect(paths.stateDirectory).toBe("/Users/tester/Penkra_Dev/.launcher");
     expect(paths.developmentRoot).toBe("/Users/tester/Penkra_Dev");
     expect(paths.lockDirectory).toBe(`${paths.stateDirectory}/supervisor.lock`);
+    expect(paths.statusPath).toBe(`${paths.stateDirectory}/status.json`);
+    expect(paths.failurePath).toBe(`${paths.stateDirectory}/failure.json`);
+  });
+
+  it("does not open Docker Desktop when its engine is already ready", async () => {
+    let startCount = 0;
+
+    await expect(
+      waitForDockerEngine({
+        isReady: () => true,
+        startDockerDesktop: () => {
+          startCount += 1;
+        },
+        sleep: async () => {},
+      }),
+    ).resolves.toBe("already-ready");
+    expect(startCount).toBe(0);
+  });
+
+  it("opens Docker Desktop once and waits for the engine", async () => {
+    let checks = 0;
+    let startCount = 0;
+
+    await expect(
+      waitForDockerEngine({
+        isReady: () => {
+          checks += 1;
+          return checks >= 3;
+        },
+        startDockerDesktop: () => {
+          startCount += 1;
+        },
+        sleep: async () => {},
+        timeoutMs: 1_000,
+        pollIntervalMs: 1,
+      }),
+    ).resolves.toBe("started");
+    expect(startCount).toBe(1);
+  });
+
+  it("reports when Docker Desktop never becomes ready", async () => {
+    let currentTime = 0;
+    const dateNow = vi.spyOn(Date, "now").mockImplementation(() => currentTime);
+    try {
+      await expect(
+        waitForDockerEngine({
+          isReady: () => false,
+          startDockerDesktop: () => {},
+          sleep: async (milliseconds) => {
+            currentTime += milliseconds;
+          },
+          timeoutMs: 3_000,
+          pollIntervalMs: 1_000,
+        }),
+      ).rejects.toThrow("Docker Desktop did not become ready within 3 seconds");
+    } finally {
+      dateNow.mockRestore();
+    }
   });
 
   it("accepts only the configured detached supervisor command", () => {
