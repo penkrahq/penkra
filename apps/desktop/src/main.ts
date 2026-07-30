@@ -2328,7 +2328,10 @@ async function downloadAvailableUpdate(): Promise<{
     updateState.availableVersion !== null
   ) {
     await checkForUpdates("renderer");
-    return { accepted: true, completed: false };
+    const refreshedState = updateState as DesktopUpdateState;
+    if (refreshedState.status !== "available") {
+      return { accepted: true, completed: false };
+    }
   }
   if (!updaterConfigured || updateDownloadInFlight || updateState.status !== "available") {
     return { accepted: false, completed: false };
@@ -2411,25 +2414,6 @@ async function downloadAvailableUpdate(): Promise<{
       await clearPendingUpdateCache(pendingCacheClearReason);
     }
   }
-}
-
-// Starts the automatic prepare step after a successful update check; install
-// stays user-controlled so active agent work is not interrupted by a restart.
-function prepareAvailableUpdateInBackground(reason: string): void {
-  if (updateDownloadInFlight || updateState.status !== "available") {
-    return;
-  }
-  void downloadAvailableUpdate()
-    .then((result) => {
-      if (result.accepted && result.completed) {
-        console.info(`[desktop-updater] Background update download completed (${reason}).`);
-      }
-    })
-    .catch((error) => {
-      console.error(
-        `[desktop-updater] Background update download crashed (${reason}): ${formatErrorMessage(error)}`,
-      );
-    });
 }
 
 async function runDownloadedUpdateInstall(
@@ -2663,7 +2647,6 @@ function configureAutoUpdater(): void {
     );
     lastLoggedDownloadMilestone = -1;
     console.info(`[desktop-updater] Update available: ${info.version}`);
-    prepareAvailableUpdateInBackground(`available ${info.version}`);
   });
   autoUpdater.on("update-not-available", () => {
     clearUpdateCheckTimeoutTimer();
