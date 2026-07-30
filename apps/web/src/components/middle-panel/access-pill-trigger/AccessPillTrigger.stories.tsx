@@ -4,7 +4,7 @@ import { AccessPillTrigger } from "./AccessPillTrigger";
 
 const meta = {
   component: AccessPillTrigger,
-  parameters: { pencil: { componentId: "iP6oE", groupId: "e46ib4" } },
+  parameters: { pencil: { componentId: "iP6oE", groupId: "kVpYl" } },
   title: "Middle Panel/Access Pill/Trigger",
 } satisfies Meta<typeof AccessPillTrigger>;
 

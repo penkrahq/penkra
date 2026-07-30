@@ -5,7 +5,7 @@ import { ComposerDefault } from "./ComposerDefault";
 const meta = {
   component: ComposerDefault,
   decorators: [(Story) => <div className="w-[560px]"><Story /></div>],
-  parameters: { pencil: { componentId: "TKKOp", groupId: "e46ib4" } },
+  parameters: { pencil: { componentId: "TKKOp", groupId: "kVpYl" } },
   title: "Middle Panel/Composer/Default",
 } satisfies Meta<typeof ComposerDefault>;
 

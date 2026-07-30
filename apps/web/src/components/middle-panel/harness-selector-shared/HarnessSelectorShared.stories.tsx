@@ -4,7 +4,7 @@ import { HarnessSelectorShared } from "./HarnessSelectorShared";
 
 const meta = {
   component: HarnessSelectorShared,
-  parameters: { pencil: { componentId: "g1dQ5", groupId: "e46ib4" } },
+  parameters: { pencil: { componentId: "g1dQ5", groupId: "kVpYl" } },
   title: "Middle Panel/Harness Selector/Shared",
 } satisfies Meta<typeof HarnessSelectorShared>;
 
