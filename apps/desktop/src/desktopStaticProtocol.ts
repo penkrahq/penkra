@@ -9,6 +9,17 @@ export type DesktopStaticProtocolResponse = { path: string } | { error: -6 };
 
 type PathExists = (path: string) => boolean;
 
+export function resolveDesktopAppRoot(input: {
+  readonly isPackagedRuntime: boolean;
+  readonly isSourceCanary: boolean;
+  readonly sourceRoot: string;
+  readonly packagedAppRoot: string;
+}): string {
+  return !input.isPackagedRuntime || input.isSourceCanary
+    ? input.sourceRoot
+    : input.packagedAppRoot;
+}
+
 export function createDesktopStaticProtocolResolver(
   staticRoot: string,
   pathExists: PathExists = existsSync,

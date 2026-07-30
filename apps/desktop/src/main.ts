@@ -178,7 +178,10 @@ import {
   resolveDesktopAppDataBase,
 } from "./desktopUserDataProfile";
 import { isBrokenPipeError } from "./desktopProcessErrors";
-import { createDesktopStaticProtocolResolver } from "./desktopStaticProtocol";
+import {
+  createDesktopStaticProtocolResolver,
+  resolveDesktopAppRoot,
+} from "./desktopStaticProtocol";
 import {
   readCanaryRootArgument,
   readPenkraRootPointer,
@@ -885,10 +888,12 @@ protocol.registerSchemesAsPrivileged([
 ]);
 
 function resolveAppRoot(): string {
-  if (!isPackagedRuntime) {
-    return ROOT_DIR;
-  }
-  return app.getAppPath();
+  return resolveDesktopAppRoot({
+    isPackagedRuntime,
+    isSourceCanary: desktopFlavor === "canary",
+    sourceRoot: ROOT_DIR,
+    packagedAppRoot: app.getAppPath(),
+  });
 }
 
 /**

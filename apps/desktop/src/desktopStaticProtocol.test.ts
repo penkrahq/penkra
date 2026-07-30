@@ -2,7 +2,10 @@ import * as Path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { createDesktopStaticProtocolResolver } from "./desktopStaticProtocol";
+import {
+  createDesktopStaticProtocolResolver,
+  resolveDesktopAppRoot,
+} from "./desktopStaticProtocol";
 
 const staticRoot = Path.resolve("/virtual/synara-static");
 const rootIndex = Path.join(staticRoot, "index.html");
@@ -15,6 +18,25 @@ function resolverWithExistingPaths(paths: ReadonlyArray<string>) {
 }
 
 describe("createDesktopStaticProtocolResolver", () => {
+  it("uses the source checkout for Canary while preserving packaged Stable resolution", () => {
+    expect(
+      resolveDesktopAppRoot({
+        isPackagedRuntime: true,
+        isSourceCanary: true,
+        sourceRoot: "/checkout",
+        packagedAppRoot: "/Applications/Penkra.app",
+      }),
+    ).toBe("/checkout");
+    expect(
+      resolveDesktopAppRoot({
+        isPackagedRuntime: true,
+        isSourceCanary: false,
+        sourceRoot: "/checkout",
+        packagedAppRoot: "/Applications/Penkra.app",
+      }),
+    ).toBe("/Applications/Penkra.app");
+  });
+
   it("resolves an existing asset inside the static root", () => {
     const assetPath = Path.join(staticRoot, "assets", "app.js");
     const resolveRequest = resolverWithExistingPaths([rootIndex, assetPath]);
