@@ -130,7 +130,6 @@ import { isHomeChatContainerProject, prewarmHomeChatProject } from "../lib/chatP
 import {
   collectStudioProjectIds,
   isStudioContainerProject,
-  prewarmStudioProject,
 } from "../lib/studioProjects";
 import { useComposerDraftStore } from "../composerDraftStore";
 import { useLatestProjectStore } from "../latestProjectStore";
@@ -186,7 +185,6 @@ import {
   type SidebarSearchPaletteMode,
 } from "./SidebarSearchPalette";
 import { useHandleNewChat } from "../hooks/useHandleNewChat";
-import { useHandleNewStudioChat } from "../hooks/useHandleNewStudioChat";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useThreadHandoff } from "../hooks/useThreadHandoff";
 import { useFeedbackDialogStore } from "../feedbackDialogStore";
@@ -280,7 +278,6 @@ import {
   resolveThreadStatusPill,
   type ThreadStatusPill,
   type SidebarDerivedProjectData,
-  type SidebarView,
   shouldShowDebugFeatureFlagsMenu,
   shouldPrunePinnedThreads,
   shouldClearThreadSelectionOnMouseDown,
@@ -959,21 +956,13 @@ export default function Sidebar() {
   const studioWorkspaceRoot = useWorkspaceStore((store) => store.studioWorkspaceRoot);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const pathname = useLocation({ select: (loc) => loc.pathname });
   const isOnSettings = useLocation({
     select: (loc) => loc.pathname === "/settings",
   });
   const isOnWorkspace = false;
-  const isOnStudioRoute = pathname.startsWith("/studio");
-  const isOnKanban = pathname.startsWith("/kanban");
   const { settings: appSettings, updateSettings } = useAppSettings();
-  // Threads is always available; Studio and the standalone Chats footer can be
-  // hidden independently from Settings.
-  const chatsSectionVisible = appSettings.showChatsSection;
-  const studioSectionVisible = appSettings.showStudioSection;
   const { handleNewThread } = useHandleNewThread();
   const { handleNewChat } = useHandleNewChat();
-  const { handleNewStudioChat } = useHandleNewStudioChat();
   const { createThreadHandoff } = useThreadHandoff();
   const penkraSnapshotQuery = useQuery(penkraSnapshotQueryOptions());
   const penkraSnapshot = penkraSnapshotQuery.data ?? null;
@@ -1790,9 +1779,6 @@ export default function Sidebar() {
     ],
   );
 
-  // Shared resolver behind resolveBackToStudioTarget/resolveBackToThreadsTarget (and the
-  // settings-back path below) — differs only in which segment's thread list and draft ids are
-  // passed in.
   const resolveBackTargetForThreads = useCallback(
     (threads: readonly SidebarThreadSummary[], extraAvailableThreadIds?: ReadonlySet<string>) => {
       const latestThread =
@@ -1815,18 +1801,6 @@ export default function Sidebar() {
     [appSettings.sidebarThreadSortOrder, lastThreadRoute, splitViewsById],
   );
 
-  // Fresh unsent chats have a route id but no persisted sidebar summary yet. Keep those draft
-  // routes valid return targets — scoped to whichever segment the draft's project belongs to —
-  // for both the settings back button and the segment switcher.
-  const studioDraftThreadIds = useMemo(() => {
-    const draftThreadIds = new Set<string>();
-    for (const [threadId, draft] of Object.entries(draftThreadsByThreadId)) {
-      if (studioProjectIdSet.has(draft.projectId)) {
-        draftThreadIds.add(threadId);
-      }
-    }
-    return draftThreadIds;
-  }, [draftThreadsByThreadId, studioProjectIdSet]);
   const nonStudioDraftThreadIds = useMemo(() => {
     const draftThreadIds = new Set<string>();
     for (const [threadId, draft] of Object.entries(draftThreadsByThreadId)) {
@@ -1836,21 +1810,6 @@ export default function Sidebar() {
     }
     return draftThreadIds;
   }, [draftThreadsByThreadId, studioProjectIdSet]);
-
-  // Where the Studio segment lands, resolved directly (remembered Studio route, else the latest
-  // Studio chat) instead of bouncing through the "/studio" splash route — that extra hop +
-  // async redirect is what made the segment switch feel sluggish. Mirrors
-  // resolveBackToThreadsTarget so both segments restore the thread you were last on.
-  // Archived chats are excluded, matching the /studio landing: the sidebar hides them, so
-  // neither the segment switch nor settings back may resurrect one.
-  const activeStudioSidebarThreads = useMemo(
-    () => studioSidebarThreads.filter((thread) => (thread.archivedAt ?? null) === null),
-    [studioSidebarThreads],
-  );
-  const resolveBackToStudioTarget = useCallback(
-    () => resolveBackTargetForThreads(activeStudioSidebarThreads, studioDraftThreadIds),
-    [activeStudioSidebarThreads, resolveBackTargetForThreads, studioDraftThreadIds],
-  );
 
   const resolveBackToThreadsTarget = useCallback(
     () => resolveBackTargetForThreads(nonStudioSidebarThreads, nonStudioDraftThreadIds),
@@ -1882,125 +1841,25 @@ export default function Sidebar() {
     [navigate],
   );
 
-  // Settings is reachable from either segment (Threads or Studio) and from routes outside the
-  // sidebar entirely (see EnvironmentPanel, __root, etc.), so we can't infer "which segment was
-  // active" from the route once we're already on /settings. Instead we remember the last active
-  // segment continuously (mirrors the lastThreadRoute tracking below) and use that on the way
-  // back. This keeps the back button from bouncing across segments when the remembered thread
-  // route is stale (e.g. its thread was deleted): the segment-scoped resolver falls back to that
-  // *same* segment's latest thread instead of the globally most-recent thread.
-  const lastActiveSidebarSegmentRef = useRef<"studio" | "threads">("threads");
-  useEffect(() => {
-    if (isOnSettings) {
-      return;
-    }
-    lastActiveSidebarSegmentRef.current = isOnStudio ? "studio" : "threads";
-  }, [isOnSettings, isOnStudio]);
-
-  // Shared Studio fallback: reopen/create via handleNewStudioChat and, on failure, land on
-  // /studio — its splash already displays the error with a retry. Swallowing the result here
-  // would make the segment click appear dead and hide the cross-kind conflict message.
-  const openStudioChatFallback = useCallback(() => {
-    void handleNewStudioChat().then((result) => {
-      if (!result.ok) {
-        void navigate({ to: "/" });
-      }
-    });
-  }, [handleNewStudioChat, navigate]);
-
   const handleBackToAppFromSettings = useCallback(() => {
-    const fromStudio = lastActiveSidebarSegmentRef.current === "studio";
-    const target = fromStudio ? resolveBackToStudioTarget() : resolveBackToThreadsTarget();
-
-    if (navigateToBackTarget(target)) {
-      return;
-    }
-
-    // Segment-appropriate fallback, matching handleSidebarViewChange: leaving Settings from the
-    // Studio segment with nothing restorable lands back in Studio, not on a fresh home draft.
-    if (fromStudio) {
-      openStudioChatFallback();
+    if (navigateToBackTarget(resolveBackToThreadsTarget())) {
       return;
     }
     void navigate({ to: "/" });
-  }, [
-    navigate,
-    navigateToBackTarget,
-    openStudioChatFallback,
-    resolveBackToStudioTarget,
-    resolveBackToThreadsTarget,
-  ]);
-
-  const handleSidebarViewChange = useCallback(
-    (view: SidebarView) => {
-      if (view === "studio") {
-        // Remembered route first — it already treats the stored Studio draft as a valid target
-        // (resolveBackToStudioTarget includes studioDraftThreadIds), so switching back to Studio
-        // returns to the thread you were on, not an old empty draft. handleNewStudioChat stays
-        // the fallback and reopens the stored draft when there is nothing to restore.
-        if (navigateToBackTarget(resolveBackToStudioTarget())) {
-          return;
-        }
-        openStudioChatFallback();
-        return;
-      }
-
-      if (navigateToBackTarget(resolveBackToThreadsTarget())) {
-        return;
-      }
-
-      void handleNewChat({ fresh: true });
-    },
-    [
-      handleNewChat,
-      navigateToBackTarget,
-      openStudioChatFallback,
-      resolveBackToStudioTarget,
-      resolveBackToThreadsTarget,
-    ],
-  );
-
-  // Keep the user off optional tabs once hidden in Settings: viewing one
-  // (e.g. via a bookmark/deep link) jumps back to the always-visible Threads tab.
-  // Settings is its own route and is never redirected.
-  useEffect(() => {
-    if (isOnSettings) {
-      return;
-    }
-    if (isOnStudio && !studioSectionVisible) {
-      handleSidebarViewChange("threads");
-      return;
-    }
-  }, [
-    handleSidebarViewChange,
-    isOnSettings,
-    isOnStudio,
-    studioSectionVisible,
-  ]);
+  }, [navigate, navigateToBackTarget, resolveBackToThreadsTarget]);
 
   useEffect(() => {
-    // Same hydration gate as the Studio prewarm below: persisted paths make homeDir truthy
-    // immediately on reload, well before the first shell snapshot arrives.
     if (!threadsHydrated || !homeDir) {
       return;
     }
     prewarmHomeChatProject({ homeDir, chatWorkspaceRoot });
   }, [chatWorkspaceRoot, homeDir, threadsHydrated]);
-  useEffect(() => {
-    if (!threadsHydrated || !studioSectionVisible || !studioWorkspaceRoot) {
-      return;
-    }
-    prewarmStudioProject({ homeDir, chatWorkspaceRoot, studioWorkspaceRoot });
-  }, [chatWorkspaceRoot, homeDir, studioSectionVisible, studioWorkspaceRoot, threadsHydrated]);
 
   // Opens a fresh home-chat draft directly on the draft thread route so the first send
   // does not need a second route swap from "/" to "/$threadId".
   const handleCreateHomeChat = useCallback(async () => {
     await handleNewChat({ fresh: true });
   }, [handleNewChat]);
-  const handleCreateStudioChat = useCallback(async () => {
-    await handleNewStudioChat({ fresh: true });
-  }, [handleNewStudioChat]);
 
   const addProjectFromPath = useCallback(
     async (
@@ -5712,11 +5571,7 @@ export default function Sidebar() {
           actions={searchPaletteActions}
           projects={searchPaletteProjects}
           projectById={projectById}
-          onCreateChat={() =>
-            // Segment-aware, matching the sidebar's + action: "New chat" from the palette while
-            // on the Studio segment opens a Studio chat, not a home draft.
-            void (isOnStudio ? handleCreateStudioChat() : handleCreateHomeChat())
-          }
+          onCreateChat={() => void handleCreateHomeChat()}
           onCreateThread={handlePrimaryNewThread}
           onAddProjectPath={addProjectFromPath}
           homeDir={homeDir}
