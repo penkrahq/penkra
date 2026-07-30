@@ -60,6 +60,10 @@ describe("canary tooling", () => {
 
   it("starts the desktop launcher directly so the persisted PID stays alive", () => {
     expect(canaryStartArgs()).toEqual(["apps/desktop/scripts/start-electron.mjs"]);
+    expect(canaryStartArgs("/tmp/canary-data")).toEqual([
+      "apps/desktop/scripts/start-electron.mjs",
+      "--penkra-canary-root=/tmp/canary-data",
+    ]);
   });
 
   it("isolates the Penkra root and skips redundant login-shell probing", () => {
@@ -87,6 +91,7 @@ describe("canary tooling", () => {
       PENKRA_SKIP_LOGIN_SHELL_ENVIRONMENT: "1",
       SYNARA_DESKTOP_FLAVOR: "canary",
       SYNARA_DISABLE_AUTO_UPDATE: "1",
+      SYNARA_CANARY_HOME: "/tmp/canary-data",
       SYNARA_HOME: "/tmp/canary-data",
       SYNARA_COMMIT_HASH: "a".repeat(40),
     });

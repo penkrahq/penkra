@@ -2,6 +2,8 @@ import * as FS from "node:fs";
 import * as OS from "node:os";
 import * as Path from "node:path";
 
+import type { SynaraDesktopFlavor } from "@synara/shared/desktopIdentity";
+
 const POINTER_DIRECTORY_NAME = "Penkra";
 const POINTER_FILE_NAME = "root.json";
 // Development keeps its files separate even when it uses the live account services.
@@ -20,8 +22,41 @@ export type PenkraRuntimeResolution = {
   readonly needsRootPicker: boolean;
 };
 
+const CANARY_ROOT_ARGUMENT_PREFIX = "--penkra-canary-root=";
+
+export function readCanaryRootArgument(argv: ReadonlyArray<string>): string | undefined {
+  for (const argument of argv) {
+    if (!argument.startsWith(CANARY_ROOT_ARGUMENT_PREFIX)) continue;
+    const root = argument.slice(CANARY_ROOT_ARGUMENT_PREFIX.length).trim();
+    if (root && Path.isAbsolute(root)) {
+      return Path.resolve(root);
+    }
+  }
+  return undefined;
+}
+
+export function resolveConfiguredPenkraRoot(input: {
+  readonly desktopFlavor: SynaraDesktopFlavor;
+  readonly canaryRootArgument?: string | undefined;
+  readonly canaryHome?: string | undefined;
+  readonly penkraRoot?: string | undefined;
+  readonly synaraHome?: string | undefined;
+}): string | undefined {
+  if (input.desktopFlavor === "canary") {
+    return (
+      input.canaryRootArgument?.trim() ||
+      input.canaryHome?.trim() ||
+      input.synaraHome?.trim() ||
+      input.penkraRoot?.trim() ||
+      undefined
+    );
+  }
+  return input.penkraRoot?.trim() || undefined;
+}
+
 export function resolvePenkraRuntime(input: {
   readonly isDevelopment: boolean;
+  readonly allowConfiguredRoot?: boolean;
   readonly homeDir?: string;
   readonly configuredRoot?: string | undefined;
   readonly configuredApiUrl?: string | undefined;
@@ -34,6 +69,14 @@ export function resolvePenkraRuntime(input: {
   if (input.isDevelopment) {
     return {
       root: Path.resolve(configuredRoot || Path.join(homeDir, DEVELOPMENT_ROOT_DIRECTORY_NAME)),
+      apiUrl: (configuredApiUrl || PRODUCTION_API_URL).replace(/\/$/, ""),
+      needsRootPicker: false,
+    };
+  }
+
+  if (input.allowConfiguredRoot && configuredRoot) {
+    return {
+      root: Path.resolve(configuredRoot),
       apiUrl: (configuredApiUrl || PRODUCTION_API_URL).replace(/\/$/, ""),
       needsRootPicker: false,
     };

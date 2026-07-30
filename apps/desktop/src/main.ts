@@ -180,7 +180,9 @@ import {
 import { isBrokenPipeError } from "./desktopProcessErrors";
 import { createDesktopStaticProtocolResolver } from "./desktopStaticProtocol";
 import {
+  readCanaryRootArgument,
   readPenkraRootPointer,
+  resolveConfiguredPenkraRoot,
   resolvePenkraRuntime,
   resolvePenkraRootPointerPath,
   writePenkraRootPointer,
@@ -223,9 +225,20 @@ const penkraAccountServices = resolvePenkraAccountServiceEndpoints({
   configuredApiUrl: process.env.PENKRA_API_URL,
   configuredAuthOrigin: process.env.PENKRA_AUTH_ORIGIN,
 });
+const desktopFlavor = resolveSynaraDesktopFlavor({
+  isDevelopment,
+  requestedFlavor: process.env.SYNARA_DESKTOP_FLAVOR,
+});
 const penkraRuntime = resolvePenkraRuntime({
   isDevelopment,
-  configuredRoot: process.env.PENKRA_ROOT,
+  allowConfiguredRoot: desktopFlavor === "canary",
+  configuredRoot: resolveConfiguredPenkraRoot({
+    desktopFlavor,
+    canaryRootArgument: readCanaryRootArgument(process.argv),
+    canaryHome: process.env.SYNARA_CANARY_HOME,
+    penkraRoot: process.env.PENKRA_ROOT,
+    synaraHome: process.env.SYNARA_HOME,
+  }),
   configuredApiUrl: penkraAccountServices.apiUrl,
   persistedProductionRoot: isDevelopment ? null : readPenkraRootPointer(penkraRootPointerPath),
 });
@@ -242,10 +255,6 @@ process.env.PATH = [
   PENKRA_CLI_BIN_DIR,
   ...inheritedPathEntries.filter((entry) => Path.resolve(entry) !== PENKRA_CLI_BIN_DIR),
 ].join(Path.delimiter);
-const desktopFlavor = resolveSynaraDesktopFlavor({
-  isDevelopment,
-  requestedFlavor: process.env.SYNARA_DESKTOP_FLAVOR,
-});
 const desktopIdentity = synaraDesktopIdentity(desktopFlavor);
 const BASE_DIR =
   process.env.SYNARA_HOME?.trim() ||

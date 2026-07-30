@@ -90,13 +90,16 @@ export function canaryCloneArgs(originUrl: string, source: string): ReadonlyArra
   return ["clone", "--", originUrl, source];
 }
 
-export function canaryStartArgs(): ReadonlyArray<string> {
+export function canaryStartArgs(canaryHome?: string): ReadonlyArray<string> {
   // Invoke the desktop launcher directly. `bun run --cwd apps/desktop start`
   // adds a short-lived package-script process in front of the launcher, so the
   // PID persisted by Canary goes stale while Electron is still running. The
   // direct launcher remains alive for Electron's lifetime and also preserves
   // Canary's flavor, home, updater policy, and commit identity.
-  return ["apps/desktop/scripts/start-electron.mjs"];
+  return [
+    "apps/desktop/scripts/start-electron.mjs",
+    ...(canaryHome ? [`--penkra-canary-root=${canaryHome}`] : []),
+  ];
 }
 
 export function createCanaryEnvironment(
@@ -113,6 +116,7 @@ export function createCanaryEnvironment(
     PENKRA_SKIP_LOGIN_SHELL_ENVIRONMENT: "1",
     SYNARA_DESKTOP_FLAVOR: "canary",
     SYNARA_DISABLE_AUTO_UPDATE: "1",
+    SYNARA_CANARY_HOME: paths.home,
     SYNARA_HOME: paths.home,
     SYNARA_COMMIT_HASH: commit,
   });
@@ -284,7 +288,7 @@ function startCanary(paths: CanaryPaths): void {
   const logDescriptor = FS.openSync(paths.log, "a", 0o600);
   try {
     FS.writeSync(logDescriptor, `\n[${new Date().toISOString()}] Starting ${commit}\n`);
-    const child = spawn("bun", [...canaryStartArgs()], {
+    const child = spawn("bun", [...canaryStartArgs(paths.home)], {
       cwd: paths.source,
       env,
       detached: true,
