@@ -84,6 +84,18 @@ Long term maintainability is a core priority. If you add new functionality, firs
 
 ## UI Conventions
 
+### Pencil-to-code component structure
+
+Treat the active Penkra `.pen` file as the authority for the component catalog and its grouping.
+
+- Mirror each user-visible Pencil component group directly under `apps/web/src/components/`. For example, direct reusable children of Pencil's `Left Rail` group belong directly under `apps/web/src/components/left-rail/`; do not invent an intermediate category that does not exist in Pencil.
+- Mirror a Pencil component's slash-separated name as a kebab-case folder and named React component. Keep Pencil and code names recognizable in both directions.
+- Keep composed feature screens separate from reusable component definitions. A screen may compose components from several groups without changing those components' ownership.
+- Cross-cutting implementation primitives in `components/ui` may remain framework-oriented when they are not user-visible Pencil components. A user-visible component may be placed outside its Pencil group only when the design itself identifies it as shared across groups; document that exception beside the component.
+- Before translating a component, verify its actual Pencil parent rather than inferring ownership from where an instance appears.
+- When an orphaned or misplaced Pencil component is discovered, correct the Pencil hierarchy and audit the rest of the component catalog for the same inconsistency before adding more code.
+- Every structural design-to-code pass must compare the direct reusable children of each Pencil component group with the corresponding code directories. Report and resolve missing, extra, orphaned, or mismatched entries instead of silently creating a new organization.
+
 ### Open/close (toggle) animations — single source
 
 Any UI element with an open/close toggle (expand/collapse, show/hide, disclosure) MUST reuse the shared disclosure motion in `apps/web/src/lib/disclosureMotion.ts`. Never write bespoke height/opacity transitions or one-off `@keyframes` for a toggle — use the same logic and the same functions everywhere so every toggle feels identical (220ms `ease-out`, with `motion-reduce` fallbacks).

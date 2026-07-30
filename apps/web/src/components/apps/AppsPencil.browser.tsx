@@ -1,11 +1,11 @@
 import "../../index.css";
 
 import { page } from "vitest/browser";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { render } from "vitest-browser-react";
 
 import { InputSearchApps } from "./input-search-apps/InputSearchApps";
-import { PermissionSheetInstall } from "./permission-sheet-install/PermissionSheetInstall";
+import { LauncherItemShared } from "./launcher-item-shared/LauncherItemShared";
 import { PanelAppsContent } from "../right-panel/panel-apps/PanelApps";
 
 describe("Pencil apps structure", () => {
@@ -29,12 +29,9 @@ describe("Pencil apps structure", () => {
     await expect.element(page.getByText("Terminal", { exact: true })).not.toBeInTheDocument();
   });
 
-  it("keeps install permissions interactive", async () => {
-    const onInstall = vi.fn();
-    await render(<PermissionSheetInstall onInstall={onInstall} />);
+  it("keeps launcher items as native reusable controls", async () => {
+    await render(<LauncherItemShared label="Browser" />);
 
-    await page.getByRole("switch", { name: "Read the conversation you're in" }).click();
-    await page.getByRole("button", { name: "Install" }).click();
-    expect(onInstall).toHaveBeenCalledOnce();
+    await expect.element(page.getByRole("button", { name: "Browser" })).toBeEnabled();
   });
 });
