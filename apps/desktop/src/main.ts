@@ -317,6 +317,7 @@ const browserPerfLoggingEnabled = process.env.SYNARA_BROWSER_PERF === "1";
 type DesktopUpdateErrorContext = DesktopUpdateState["errorContext"];
 
 let mainWindow: BrowserWindow | null = null;
+let hasCreatedMainWindow = false;
 let backendProcess: ChildProcess.ChildProcess | null = null;
 let backendPort = 0;
 let backendAuthToken = "";
@@ -3635,6 +3636,7 @@ function createWindow(): BrowserWindow {
       backgroundThrottling: !voiceQaAudioInput,
     },
   });
+  hasCreatedMainWindow = true;
   browserManager.setWindow(window);
   attachDesktopZoomFactorSync(window);
 
@@ -3922,6 +3924,15 @@ app.on("before-quit", (event) => {
 
   event.preventDefault();
   requestGracefulAppQuit("before-quit");
+});
+
+app.on("window-all-closed", () => {
+  // The fresh-profile storage migration owns a hidden BrowserWindow before the
+  // real app window exists. Closing that helper must not terminate startup.
+  if (!hasCreatedMainWindow || process.platform === "darwin") {
+    return;
+  }
+  requestGracefulAppQuit("window-all-closed");
 });
 
 if (hasSingleInstanceLock) {

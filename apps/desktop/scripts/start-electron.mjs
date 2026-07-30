@@ -23,8 +23,21 @@ const child = spawn(
   },
 );
 
+let forwardedSignal = null;
+for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
+  process.once(signal, () => {
+    if (forwardedSignal !== null) return;
+    forwardedSignal = signal;
+    if (child.exitCode === null && child.signalCode === null) {
+      child.kill(signal);
+      return;
+    }
+    process.exit(0);
+  });
+}
+
 child.on("exit", (code, signal) => {
-  if (signal) {
+  if (signal && forwardedSignal === null) {
     process.kill(process.pid, signal);
     return;
   }
