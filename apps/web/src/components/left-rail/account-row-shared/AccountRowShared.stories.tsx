@@ -12,5 +12,31 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 export const Default: Story = {};
 export const Selected: Story = { args: { selected: true } };
-export const UpdateAvailable: Story = { args: { updateAvailable: true } };
+export const UpdateAvailable: Story = {
+  args: { onUpdate: () => undefined, updateLabel: "Update", updatePhase: "ready" },
+};
+export const UpdatePreparing: Story = {
+  args: {
+    onUpdate: () => undefined,
+    updateDisabled: true,
+    updateLabel: "Preparing…",
+    updatePhase: "preparing",
+  },
+};
+export const UpdateDownloading: Story = {
+  args: {
+    onUpdate: () => undefined,
+    updateDisabled: true,
+    updateLabel: "42%",
+    updatePhase: "downloading",
+  },
+};
+export const UpdateInstalling: Story = {
+  args: {
+    onUpdate: () => undefined,
+    updateDisabled: true,
+    updateLabel: "Updating…",
+    updatePhase: "installing",
+  },
+};
 export const Disabled: Story = { args: { disabled: true } };

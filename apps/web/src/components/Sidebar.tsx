@@ -2749,12 +2749,14 @@ export default function Sidebar() {
   // the fallback must also be surfaced reactively here. Dedup keeps it from
   // doubling up with the click-handler toast for user-initiated failures.
   useEffect(() => {
-    if (!getDesktopUpdateErrorSignature(desktopUpdateState)) {
+    const errorSignature = getDesktopUpdateErrorSignature(desktopUpdateState);
+    if (!errorSignature) {
       // Returning to any non-error state (new download, success, up-to-date)
       // clears the dedup key so the next distinct failure notifies again.
       lastDesktopUpdateErrorToastSignatureRef.current = null;
       return;
     }
+    setInstallingDesktopUpdate(false);
     if (!desktopUpdateState?.releaseUrl) {
       return;
     }
@@ -2787,6 +2789,15 @@ export default function Sidebar() {
       ? getArm64IntelBuildWarningDescription(desktopUpdateState)
       : null;
   const desktopUpdateDownloadPercent = getDesktopUpdateDownloadPercent(desktopUpdateState);
+  const desktopAccountUpdatePhase = installingDesktopUpdate
+    ? "installing"
+    : desktopUpdateState?.status === "downloading"
+      ? desktopUpdateDownloadPercent === null
+        ? "preparing"
+        : "downloading"
+      : showDesktopUpdateButton
+        ? "ready"
+        : "none";
   const newThreadShortcutLabel =
     shortcutLabelForCommand(keybindings, "chat.new") ??
     shortcutLabelForCommand(keybindings, "chat.newLatestProject");
@@ -2949,8 +2960,8 @@ export default function Sidebar() {
           if (nextState.status === "available") {
             toastManager.add({
               type: "info",
-              title: "Preparing update",
-              description: `Penkra is preparing version ${nextState.availableVersion ?? "available"} in the background.`,
+              title: "Update available",
+              description: `Click Update to download version ${nextState.availableVersion ?? "available"} and restart Penkra.`,
             });
             return;
           }
@@ -2959,7 +2970,7 @@ export default function Sidebar() {
             toastManager.add({
               type: "info",
               title: "Preparing update",
-              description: "Penkra is downloading the update in the background.",
+              description: "Penkra is downloading the update.",
             });
             return;
           }
@@ -3000,19 +3011,50 @@ export default function Sidebar() {
       return;
     }
 
+    const installReadyUpdate = async () => {
+      setInstallingDesktopUpdate(true);
+      persistAppStateNow();
+      try {
+        const result = await bridge.installUpdate();
+        setDesktopUpdateState(result.state);
+        const alreadyCurrentNotice = getDesktopUpdateAlreadyCurrentNotice(result);
+        if (alreadyCurrentNotice) {
+          setInstallingDesktopUpdate(false);
+          toastManager.add({
+            type: "info",
+            title: "Already up to date",
+            description: alreadyCurrentNotice,
+          });
+          return;
+        }
+        const actionError = getDesktopUpdateActionError(result);
+        if (actionError) {
+          setInstallingDesktopUpdate(false);
+          surfaceDesktopUpdateError({
+            title: "Could not install update",
+            description: actionError,
+            state: result.state,
+          });
+          return;
+        }
+        if (!result.accepted) {
+          setInstallingDesktopUpdate(false);
+        }
+      } catch (error) {
+        setInstallingDesktopUpdate(false);
+        surfaceDesktopUpdateError({
+          title: "Could not install update",
+          description: error instanceof Error ? error.message : "An unexpected error occurred.",
+          state: desktopUpdateState,
+        });
+      }
+    };
+
     if (desktopUpdateButtonAction === "download") {
       void bridge
         .downloadUpdate()
-        .then((result) => {
-          setInstallingDesktopUpdate(false);
+        .then(async (result) => {
           setDesktopUpdateState(result.state);
-          if (result.completed) {
-            toastManager.add({
-              type: "success",
-              title: "Update ready",
-              description: "Click Update when you’re ready to restart and install it.",
-            });
-          }
           const alreadyCurrentNotice = getDesktopUpdateAlreadyCurrentNotice(result);
           if (alreadyCurrentNotice) {
             toastManager.add({
@@ -3020,6 +3062,10 @@ export default function Sidebar() {
               title: "Already up to date",
               description: alreadyCurrentNotice,
             });
+            return;
+          }
+          if (result.completed) {
+            await installReadyUpdate();
             return;
           }
           if (!shouldToastDesktopUpdateActionResult(result)) return;
@@ -3042,39 +3088,7 @@ export default function Sidebar() {
     }
 
     if (desktopUpdateButtonAction === "install") {
-      setInstallingDesktopUpdate(true);
-      persistAppStateNow();
-      void bridge
-        .installUpdate()
-        .then((result) => {
-          setDesktopUpdateState(result.state);
-          setInstallingDesktopUpdate(false);
-          const alreadyCurrentNotice = getDesktopUpdateAlreadyCurrentNotice(result);
-          if (alreadyCurrentNotice) {
-            toastManager.add({
-              type: "info",
-              title: "Already up to date",
-              description: alreadyCurrentNotice,
-            });
-            return;
-          }
-          if (!shouldToastDesktopUpdateActionResult(result)) return;
-          const actionError = getDesktopUpdateActionError(result);
-          if (!actionError) return;
-          surfaceDesktopUpdateError({
-            title: "Could not install update",
-            description: actionError,
-            state: result.state,
-          });
-        })
-        .catch((error) => {
-          setInstallingDesktopUpdate(false);
-          surfaceDesktopUpdateError({
-            title: "Could not install update",
-            description: error instanceof Error ? error.message : "An unexpected error occurred.",
-            state: desktopUpdateState,
-          });
-        });
+      void installReadyUpdate();
     }
   }, [
     desktopUpdateButtonAction,
@@ -3221,7 +3235,7 @@ export default function Sidebar() {
                   onClick={handleDesktopUpdateButtonClick}
                 >
                   {desktopUpdateButtonAction === "download"
-                    ? "Preparing ARM build"
+                    ? "Update ARM build"
                     : desktopUpdateButtonAction === "install"
                       ? "Update ARM build"
                       : "Check for ARM build update"}
@@ -3304,7 +3318,6 @@ export default function Sidebar() {
           onLogout={() => setLogoutConfirmationOpen(true)}
           onSettings={() => void navigate({ to: "/settings" })}
           onSupport={() => openFeedbackDialog()}
-          {...(showDesktopUpdateButton ? { onUpdate: handleDesktopUpdateButtonClick } : {})}
           updateAvailable={showDesktopUpdateButton}
           updateDisabled={desktopUpdateButtonDisabled}
           updateLabel={
@@ -3312,6 +3325,8 @@ export default function Sidebar() {
               ? `${desktopUpdateDownloadPercent}%`
               : desktopUpdateButtonPresentation.label
           }
+          updatePhase={desktopAccountUpdatePhase}
+          {...(showDesktopUpdateButton ? { onUpdate: handleDesktopUpdateButtonClick } : {})}
         />
       </SidebarFooter>
 

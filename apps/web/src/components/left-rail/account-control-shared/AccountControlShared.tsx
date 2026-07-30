@@ -4,7 +4,7 @@ import { useRef, useState } from "react";
 
 import { Menu, MenuTrigger } from "~/components/ui/menu";
 
-import { AccountRowShared } from "../account-row-shared/AccountRowShared";
+import { AccountRowShared, type AccountUpdatePhase } from "../account-row-shared/AccountRowShared";
 import { AccountMenu } from "../menu-account/AccountMenu";
 
 export interface AccountControlSharedProps {
@@ -18,6 +18,7 @@ export interface AccountControlSharedProps {
   updateAvailable?: boolean;
   updateDisabled?: boolean;
   updateLabel?: string;
+  updatePhase?: AccountUpdatePhase;
 }
 
 export function AccountControlShared({
@@ -31,6 +32,7 @@ export function AccountControlShared({
   updateAvailable,
   updateDisabled,
   updateLabel,
+  updatePhase,
 }: AccountControlSharedProps) {
   const [open, setOpen] = useState(defaultOpen ?? false);
   const accountRowRef = useRef<HTMLDivElement>(null);
@@ -42,14 +44,14 @@ export function AccountControlShared({
           accountButtonProps={{ "aria-expanded": open, "aria-haspopup": "menu" }}
           accountButtonWrapper={(button) => <MenuTrigger render={button} />}
           name={accountName}
-          {...(onSupport === undefined ? {} : { onHelp: onSupport })}
-          {...(onSettings === undefined ? {} : { onSettings })}
-          {...(onUpdate === undefined ? {} : { onUpdate })}
           selected={open}
+          ref={accountRowRef}
+          {...(onSupport === undefined ? {} : { onHelp: onSupport })}
+          {...(onUpdate === undefined ? {} : { onUpdate })}
           {...(updateAvailable === undefined ? {} : { updateAvailable })}
           {...(updateDisabled === undefined ? {} : { updateDisabled })}
           {...(updateLabel === undefined ? {} : { updateLabel })}
-          ref={accountRowRef}
+          {...(updatePhase === undefined ? {} : { updatePhase })}
         />
         <AccountMenu
           anchor={accountRowRef}

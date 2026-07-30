@@ -28,7 +28,7 @@ describe("desktop update button presentation timeline", () => {
       status: "checking",
     });
     expect(checking).toEqual({
-      label: "Checking...",
+      label: "Checking…",
       secondaryLabel: null,
     });
 
@@ -39,7 +39,7 @@ describe("desktop update button presentation timeline", () => {
       downloadPercent: 37.9,
     });
     expect(downloading).toEqual({
-      label: "Preparing",
+      label: "Preparing…",
       secondaryLabel: null,
     });
 
@@ -64,7 +64,7 @@ describe("desktop update button presentation timeline", () => {
     });
 
     expect(downloading).toEqual({
-      label: "Preparing",
+      label: "Preparing…",
       secondaryLabel: null,
     });
   });
@@ -77,7 +77,7 @@ describe("desktop update button presentation timeline", () => {
       downloadPercent: 126.9,
     });
     expect(over).toEqual({
-      label: "Preparing",
+      label: "Preparing…",
       secondaryLabel: null,
     });
 
@@ -88,7 +88,7 @@ describe("desktop update button presentation timeline", () => {
       downloadPercent: -8,
     });
     expect(below).toEqual({
-      label: "Preparing",
+      label: "Preparing…",
       secondaryLabel: null,
     });
   });

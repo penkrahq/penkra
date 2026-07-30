@@ -1,4 +1,3 @@
-import { IconAdjustmentsHorizontal, IconLifebuoy } from "@tabler/icons-react";
 import {
   forwardRef,
   type ButtonHTMLAttributes,
@@ -9,6 +8,9 @@ import {
 
 import { AvatarAccount } from "~/components/foundations/avatar-account/AvatarAccount";
 import { cn } from "~/lib/utils";
+import { CircleQuestionIcon, LoaderCircleIcon } from "~/lib/icons";
+
+export type AccountUpdatePhase = "none" | "preparing" | "downloading" | "ready" | "installing";
 
 export interface AccountRowSharedProps extends HTMLAttributes<HTMLDivElement> {
   accountButtonProps?: Omit<ButtonHTMLAttributes<HTMLButtonElement>, "children" | "onClick">;
@@ -17,12 +19,12 @@ export interface AccountRowSharedProps extends HTMLAttributes<HTMLDivElement> {
   name?: string;
   onAccount?: () => void;
   onHelp?: () => void;
-  onSettings?: () => void;
   onUpdate?: () => void;
   selected?: boolean;
   updateAvailable?: boolean;
   updateDisabled?: boolean;
   updateLabel?: string;
+  updatePhase?: AccountUpdatePhase;
 }
 
 export const AccountRowShared = forwardRef<HTMLDivElement, AccountRowSharedProps>(
@@ -35,19 +37,24 @@ export const AccountRowShared = forwardRef<HTMLDivElement, AccountRowSharedProps
       name = "gigsama",
       onAccount,
       onHelp,
-      onSettings,
       onUpdate,
       selected = false,
       updateAvailable = false,
       updateDisabled = false,
       updateLabel = "Update",
+      updatePhase,
       ...props
     },
     ref,
   ) {
+    const resolvedUpdatePhase = updatePhase ?? (updateAvailable ? "ready" : "none");
+    const showUpdate = resolvedUpdatePhase !== "none";
+    const showUpdateSpinner =
+      resolvedUpdatePhase === "preparing" || resolvedUpdatePhase === "installing";
+    const updateIsActionable = resolvedUpdatePhase === "ready";
     const accountButton = (
       <button
-        className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 border-0 bg-transparent p-0 text-inherit outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-border-focus)]"
+        className="flex h-7 min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-[6px] border-0 bg-transparent px-2.5 py-1 text-inherit outline-none hover:text-[var(--color-text-foreground)] focus-visible:ring-1 focus-visible:ring-[var(--color-border-focus)]"
         disabled={disabled}
         onClick={onAccount}
         type="button"
@@ -61,52 +68,66 @@ export const AccountRowShared = forwardRef<HTMLDivElement, AccountRowSharedProps
     return (
       <div
         className={cn(
-          "group/account-row flex h-11 w-60 items-center gap-2 rounded-[6px] bg-transparent px-2.5 font-sans text-[13px] text-[var(--color-text-foreground-secondary)] transition-colors hover:text-[var(--color-text-foreground)]",
+          "group/account-row flex h-11 w-60 items-center rounded-[6px] bg-transparent py-2 font-sans text-[13px] text-[var(--color-text-foreground-secondary)]",
           selected && "text-[var(--color-text-foreground)]",
           disabled &&
-            "pointer-events-none bg-transparent text-[var(--color-text-foreground-tertiary)] hover:bg-transparent",
+            "pointer-events-none bg-transparent text-[var(--color-text-foreground-tertiary)]",
           className,
         )}
+        data-pencil-component="QXbUg"
         data-selected={selected || undefined}
         ref={ref}
         {...props}
       >
         {accountButtonWrapper ? accountButtonWrapper(accountButton) : accountButton}
-        {updateAvailable ? (
-          onUpdate ? (
-            <button
-              aria-label={updateLabel}
-              aria-disabled={updateDisabled || undefined}
-              className="cursor-pointer rounded-full border-0 bg-[var(--color-background-accent)] px-1.5 py-0.5 text-[10px] leading-3 font-semibold text-[var(--color-text-button-primary)] outline-none hover:brightness-110 focus-visible:ring-1 focus-visible:ring-[var(--color-border-focus)]"
-              disabled={disabled || updateDisabled}
-              onClick={onUpdate}
-              type="button"
-            >
-              {updateLabel}
-            </button>
-          ) : (
-            <span className="rounded-full bg-[var(--color-background-accent)] px-1.5 py-0.5 text-[10px] leading-3 font-semibold text-[var(--color-text-button-primary)]">
-              {updateLabel}
-            </span>
-          )
+        {showUpdate ? (
+          <div className="flex h-7 shrink-0 items-center justify-center px-2.5">
+            {onUpdate ? (
+              <button
+                aria-label={updateLabel}
+                aria-disabled={updateDisabled || undefined}
+                className={cn(
+                  "flex h-[26px] cursor-pointer items-center justify-center gap-1 rounded-full border-0 px-1.5 text-xs leading-none font-normal outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)]",
+                  updateIsActionable
+                    ? "bg-[#339cff] text-white hover:bg-[#1f8fef] active:bg-[#147bca] dark:bg-[#5bafff] dark:hover:bg-[#79bfff] dark:active:bg-[#339cff]"
+                    : "bg-[#ecedef] text-[#6d7075] dark:bg-[#2a2a2a] dark:text-[#a6a6a6]",
+                )}
+                data-update-phase={resolvedUpdatePhase}
+                disabled={disabled || updateDisabled || !updateIsActionable}
+                onClick={onUpdate}
+                type="button"
+              >
+                {showUpdateSpinner ? (
+                  <LoaderCircleIcon aria-hidden="true" className="size-[13px] animate-spin" />
+                ) : null}
+                {updateLabel}
+              </button>
+            ) : (
+              <span
+                className={cn(
+                  "flex h-[26px] items-center justify-center gap-1 rounded-full px-1.5 text-xs leading-none font-normal",
+                  updateIsActionable
+                    ? "bg-[#339cff] text-white dark:bg-[#5bafff]"
+                    : "bg-[#ecedef] text-[#6d7075] dark:bg-[#2a2a2a] dark:text-[#a6a6a6]",
+                )}
+                data-update-phase={resolvedUpdatePhase}
+              >
+                {showUpdateSpinner ? (
+                  <LoaderCircleIcon aria-hidden="true" className="size-[13px] animate-spin" />
+                ) : null}
+                {updateLabel}
+              </span>
+            )}
+          </div>
         ) : null}
         <button
-          aria-label="Settings"
-          className="inline-flex size-3.5 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-[var(--color-text-foreground-tertiary)] outline-none group-hover/account-row:text-[var(--color-text-foreground)] hover:text-[var(--color-text-foreground)] focus-visible:ring-1 focus-visible:ring-[var(--color-border-focus)]"
-          disabled={disabled}
-          onClick={onSettings}
-          type="button"
-        >
-          <IconAdjustmentsHorizontal className="size-3.5" />
-        </button>
-        <button
           aria-label="Help"
-          className="inline-flex size-3.5 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-[var(--color-text-foreground-tertiary)] outline-none group-hover/account-row:text-[var(--color-text-foreground)] hover:text-[var(--color-text-foreground)] focus-visible:ring-1 focus-visible:ring-[var(--color-border-focus)]"
+          className="inline-flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-[6px] border-0 bg-transparent p-0 text-[var(--color-text-foreground-tertiary)] outline-none hover:text-[var(--color-text-foreground)] focus-visible:ring-1 focus-visible:ring-[var(--color-border-focus)]"
           disabled={disabled}
           onClick={onHelp}
           type="button"
         >
-          <IconLifebuoy className="size-3.5" />
+          <CircleQuestionIcon className="size-3.5" />
         </button>
       </div>
     );
