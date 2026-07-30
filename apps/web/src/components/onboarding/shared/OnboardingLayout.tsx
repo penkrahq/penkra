@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import { PenkraMark } from "~/components/PenkraMark";
+import { PenkraMark } from "~/components/foundations/penkra-mark-shared/PenkraMark";
 import { cn } from "~/lib/utils";
 
 export interface OnboardingLayoutProps {

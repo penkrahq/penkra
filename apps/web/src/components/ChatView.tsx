@@ -253,7 +253,7 @@ import {
 import { useProviderModelCatalog } from "../hooks/useProviderModelCatalog";
 import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
 import BranchToolbar, { RuntimeUsageControls } from "./BranchToolbar";
-import { PenkraMark } from "./PenkraMark";
+import { PenkraMark } from "./foundations/penkra-mark-shared/PenkraMark";
 import { ThreadWorktreeHandoffDialog } from "./ThreadWorktreeHandoffDialog";
 import {
   formatShortcutLabel,

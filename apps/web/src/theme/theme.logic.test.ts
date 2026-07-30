@@ -443,6 +443,22 @@ describe("buildThemeCssVariables", () => {
     expect(tokens.derived.textButtonPrimary).not.toBe(tokens.derived.buttonPrimaryBackground);
   });
 
+  it("publishes stable Penkra brand colors for light and dark surfaces", () => {
+    const lightVariables = buildThemeCssVariables(
+      resolveThemePack(DEFAULT_THEME_STATE, "light"),
+      "light",
+    ).variables;
+    const darkVariables = buildThemeCssVariables(
+      resolveThemePack(DEFAULT_THEME_STATE, "dark"),
+      "dark",
+    ).variables;
+
+    expect(lightVariables["--color-brand-mark-glyph"]).toBe("#001D56");
+    expect(darkVariables["--color-brand-mark-glyph"]).toBe("#F5F5F7");
+    expect(lightVariables["--color-brand-mark-bridge"]).toBe("#8CB8E1");
+    expect(darkVariables["--color-brand-mark-bridge"]).toBe("#8CB8E1");
+  });
+
   it("shares the user message bubble background with the chat code-block surface", () => {
     const pack = {
       codeThemeId: "custom-light",
