@@ -1,19 +1,17 @@
+import { animate, type AnimationPlaybackControls } from "motion";
 import { useCallback, useEffect, useRef } from "react";
 
 import {
   applySpacePagerEngagement,
   normalizeWheelDelta,
   resolveSpacePagerDestination,
+  SPACE_PAGER_SETTLE_TRANSITION,
 } from "./spacePagerPhysics";
 
 const AXIS_LOCK_PX = 6;
 const AXIS_DOMINANCE_RATIO = 1.15;
 const WHEEL_IDLE_MS = 76;
 const MOMENTUM_GUARD_IDLE_MS = 110;
-const SPRING_STIFFNESS = 310;
-const SPRING_DAMPING = 36;
-const SPRING_POSITION_EPSILON = 0.25;
-const SPRING_VELOCITY_EPSILON = 4;
 
 interface WheelGesture {
   deceleratingEvents: number;
@@ -54,7 +52,8 @@ export function useSpacePager({
 }: UseSpacePagerInput) {
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const trackRef = useRef<HTMLDivElement | null>(null);
-  const animationFrameRef = useRef<number | null>(null);
+  const settleAnimationRef = useRef<AnimationPlaybackControls | null>(null);
+  const settlingPageIndexRef = useRef<number | null>(null);
   const wheelEndTimerRef = useRef<number | null>(null);
   const momentumGuardTimerRef = useRef<number | null>(null);
   const gestureRef = useRef<WheelGesture | null>(null);
@@ -79,16 +78,18 @@ export function useSpacePager({
     [pageCount],
   );
 
-  const cancelSpring = useCallback(() => {
-    if (animationFrameRef.current !== null) {
-      window.cancelAnimationFrame(animationFrameRef.current);
-      animationFrameRef.current = null;
+  const cancelSettle = useCallback(() => {
+    if (settleAnimationRef.current !== null) {
+      settleAnimationRef.current.stop();
+      settleAnimationRef.current = null;
     }
+    settlingPageIndexRef.current = null;
   }, []);
 
-  const startSpring = useCallback(
-    (target: number, initialVelocity: number) => {
-      cancelSpring();
+  const settleTrack = useCallback(
+    (target: number, pageIndex: number) => {
+      cancelSettle();
+      settlingPageIndexRef.current = pageIndex;
       if (
         typeof window.matchMedia === "function" &&
         window.matchMedia("(prefers-reduced-motion: reduce)").matches
@@ -97,36 +98,17 @@ export function useSpacePager({
         return;
       }
 
-      let position = trackPositionRef.current;
-      let velocity = Math.min(1800, Math.max(-1800, initialVelocity));
-      let previousTime = performance.now();
-
-      const animate = (timestamp: number) => {
-        const elapsedSeconds = Math.min((timestamp - previousTime) / 1000, 1 / 30);
-        previousTime = timestamp;
-
-        const displacement = position - target;
-        const acceleration = -SPRING_STIFFNESS * displacement - SPRING_DAMPING * velocity;
-        velocity += acceleration * elapsedSeconds;
-        position += velocity * elapsedSeconds;
-        const unboundedPosition = position;
-        position = setTrackPosition(position);
-        if (position !== unboundedPosition) velocity = 0;
-
-        if (
-          Math.abs(position - target) <= SPRING_POSITION_EPSILON &&
-          Math.abs(velocity) <= SPRING_VELOCITY_EPSILON
-        ) {
+      settleAnimationRef.current = animate(trackPositionRef.current, target, {
+        ...SPACE_PAGER_SETTLE_TRANSITION,
+        onComplete: () => {
           setTrackPosition(target);
-          animationFrameRef.current = null;
-          return;
-        }
-        animationFrameRef.current = window.requestAnimationFrame(animate);
-      };
-
-      animationFrameRef.current = window.requestAnimationFrame(animate);
+          settleAnimationRef.current = null;
+          settlingPageIndexRef.current = null;
+        },
+        onUpdate: setTrackPosition,
+      });
     },
-    [cancelSpring, setTrackPosition],
+    [cancelSettle, setTrackPosition],
   );
 
   const clearWheelEndTimer = useCallback(() => {
@@ -165,14 +147,9 @@ export function useSpacePager({
         activePageIndexRef.current = destination;
         onActivePageIndexChange(destination);
       }
-      const target = -destination * width;
-      const releaseVelocity =
-        Math.abs(trackPositionRef.current - target) <= SPRING_POSITION_EPSILON
-          ? 0
-          : -gesture.velocity * 1000;
-      startSpring(target, releaseVelocity);
+      settleTrack(-destination * width, destination);
     },
-    [clearWheelEndTimer, onActivePageIndexChange, pageCount, startSpring],
+    [clearWheelEndTimer, onActivePageIndexChange, pageCount, settleTrack],
   );
 
   useEffect(() => {
@@ -233,7 +210,7 @@ export function useSpacePager({
           horizontalIntentRef.current = "locked";
           gesture.distance = gesture.totalX;
           gesture.originPosition = trackPositionRef.current;
-          cancelSpring();
+          cancelSettle();
         } else if (
           totalVertical >= AXIS_LOCK_PX &&
           totalVertical > totalHorizontal * AXIS_DOMINANCE_RATIO
@@ -294,7 +271,7 @@ export function useSpacePager({
     viewport.addEventListener("wheel", onWheel, { passive: false });
     return () => viewport.removeEventListener("wheel", onWheel);
   }, [
-    cancelSpring,
+    cancelSettle,
     clearWheelEndTimer,
     finishGesture,
     pageCount,
@@ -306,28 +283,29 @@ export function useSpacePager({
     if (!viewport || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(() => {
       pageWidthRef.current = viewport.clientWidth;
-      cancelSpring();
+      cancelSettle();
       setTrackPosition(-activePageIndexRef.current * viewport.clientWidth);
     });
     observer.observe(viewport);
     return () => observer.disconnect();
-  }, [cancelSpring, setTrackPosition]);
+  }, [cancelSettle, setTrackPosition]);
 
   useEffect(() => {
     if (gestureRef.current) return;
+    if (settlingPageIndexRef.current === activePageIndex) return;
     const width = pageWidthRef.current;
-    if (width > 0) startSpring(-activePageIndex * width, 0);
-  }, [activePageIndex, startSpring]);
+    if (width > 0) settleTrack(-activePageIndex * width, activePageIndex);
+  }, [activePageIndex, settleTrack]);
 
   useEffect(
     () => () => {
-      cancelSpring();
+      cancelSettle();
       clearWheelEndTimer();
       if (momentumGuardTimerRef.current !== null) {
         window.clearTimeout(momentumGuardTimerRef.current);
       }
     },
-    [cancelSpring, clearWheelEndTimer],
+    [cancelSettle, clearWheelEndTimer],
   );
 
   return { trackRef, viewportRef };

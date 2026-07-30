@@ -3,6 +3,11 @@ export const SPACE_PAGER_RAMP_PX = 34;
 export const SPACE_PAGER_COMMIT_RATIO = 0.3;
 export const SPACE_PAGER_PROJECTED_COMMIT_RATIO = 0.38;
 export const SPACE_PAGER_PROJECTION_MS = 140;
+export const SPACE_PAGER_SETTLE_TRANSITION = {
+  bounce: 0,
+  type: "spring",
+  visualDuration: 0.3,
+} as const;
 
 const INITIAL_GAIN = 0.22;
 const MIN_FLING_VELOCITY_PX_PER_MS = 0.24;

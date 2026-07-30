@@ -4,6 +4,7 @@ import {
   applySpacePagerEngagement,
   resolveSpacePagerDestination,
   SPACE_PAGER_ACTIVATION_PX,
+  SPACE_PAGER_SETTLE_TRANSITION,
 } from "./spacePagerPhysics";
 
 describe("spacePagerPhysics", () => {
@@ -84,5 +85,15 @@ describe("spacePagerPhysics", () => {
         velocity: 0.05,
       }),
     ).toBe(1);
+  });
+
+  it("uses one duration-based, zero-bounce settle for every release speed", () => {
+    expect(SPACE_PAGER_SETTLE_TRANSITION).toEqual({
+      bounce: 0,
+      type: "spring",
+      visualDuration: 0.3,
+    });
+    expect("velocity" in SPACE_PAGER_SETTLE_TRANSITION).toBe(false);
+    expect("stiffness" in SPACE_PAGER_SETTLE_TRANSITION).toBe(false);
   });
 });
