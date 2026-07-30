@@ -1,0 +1,61 @@
+// FILE: backendProcessOutput.ts
+// Purpose: Tee piped backend output into startup detectors and configured logs.
+
+export interface BackendOutputDetector {
+  push(chunk: Buffer): void;
+}
+
+export interface CaptureBackendProcessOutputInput {
+  readonly stdout: NodeJS.ReadableStream | null | undefined;
+  readonly stderr: NodeJS.ReadableStream | null | undefined;
+  readonly writeLog?: ((chunk: Buffer) => void) | undefined;
+  readonly writeStdout: (chunk: Buffer) => void;
+  readonly writeStderr: (chunk: Buffer) => void;
+  readonly detectors: ReadonlyArray<BackendOutputDetector>;
+}
+
+export interface BackendProcessOutputCapture {
+  /** Resolves after both child streams have delivered all buffered output. */
+  readonly drained: Promise<void>;
+}
+
+export function captureBackendProcessOutput(
+  input: CaptureBackendProcessOutputInput,
+): BackendProcessOutputCapture {
+  const attachStream = (
+    stream: NodeJS.ReadableStream | null | undefined,
+    writeFallback: (chunk: Buffer) => void,
+  ): Promise<void> => {
+    if (!stream) return Promise.resolve();
+
+    stream.on("data", (chunk: unknown) => {
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk), "utf8");
+      if (input.writeLog) {
+        input.writeLog(buffer);
+      } else {
+        writeFallback(buffer);
+      }
+      for (const detector of input.detectors) {
+        detector.push(buffer);
+      }
+    });
+
+    return new Promise((resolve) => {
+      let resolved = false;
+      const resolveOnce = () => {
+        if (resolved) return;
+        resolved = true;
+        resolve();
+      };
+      stream.once("end", resolveOnce);
+      stream.once("close", resolveOnce);
+      stream.once("error", () => undefined);
+    });
+  };
+
+  const stdoutDrained = attachStream(input.stdout, input.writeStdout);
+  const stderrDrained = attachStream(input.stderr, input.writeStderr);
+  return {
+    drained: Promise.all([stdoutDrained, stderrDrained]).then(() => undefined),
+  };
+}

@@ -51,16 +51,30 @@ describe("Pencil logout confirmation", () => {
     const surface = document.querySelector<HTMLElement>("[data-pencil-component='r88fa']");
     const popup = document.querySelector<HTMLElement>("[data-pencil-component='hSE1M']");
     const backdrop = document.querySelector<HTMLElement>("[data-slot='alert-dialog-backdrop']");
+    const icon = document.querySelector<HTMLElement>("[data-slot='logout-icon']");
+    const content = document.querySelector<HTMLElement>("[data-slot='logout-content']");
+    const actions = document.querySelector<HTMLElement>("[data-slot='logout-actions']");
     const cancel = page.getByRole("button", { name: "Cancel" });
     const confirm = page.getByRole("button", { name: "Log out" });
 
     expect(surface).not.toBeNull();
     expect(popup).not.toBeNull();
     expect(backdrop).not.toBeNull();
+    expect(icon).not.toBeNull();
+    expect(content).not.toBeNull();
+    expect(actions).not.toBeNull();
     expect(surface!.getBoundingClientRect().width).toBe(Math.min(400, window.innerWidth - 32));
     expect(surface!.getBoundingClientRect().height).toBe(220);
     expect(getComputedStyle(surface!).borderRadius).toBe("0px");
     expect(getComputedStyle(backdrop!).backgroundColor).toBe("rgba(0, 0, 0, 0.7)");
+    const surfaceRect = surface!.getBoundingClientRect();
+    const iconRect = icon!.getBoundingClientRect();
+    const contentRect = content!.getBoundingClientRect();
+    const actionsRect = actions!.getBoundingClientRect();
+    expect(Math.abs(iconRect.top - surfaceRect.top - 24)).toBeLessThan(1);
+    expect(Math.abs(contentRect.top - iconRect.bottom)).toBeLessThan(1);
+    expect(Math.abs(actionsRect.top - contentRect.bottom)).toBeLessThan(1);
+    expect(Math.abs(surfaceRect.bottom - actionsRect.bottom - 20)).toBeLessThan(1);
     expect(
       Math.abs(
         (await cancel.element()).getBoundingClientRect().width -

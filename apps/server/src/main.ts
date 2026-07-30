@@ -49,6 +49,10 @@ import { AnalyticsService } from "./telemetry/Services/AnalyticsService";
 import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine";
 import { startThreadRetentionJob } from "./threadRetention";
 import { PenkraRegistry } from "./penkra/layer";
+import {
+  consumeDesktopParentPidFromEnvironment,
+  waitForDesktopParentDisconnect,
+} from "./desktopParentLifecycle";
 
 export class StartupError extends Data.TaggedError("StartupError")<{
   readonly message: string;
@@ -348,8 +352,31 @@ export function makeServerStartupLogData(config: ServerConfigShape): Record<stri
   };
 }
 
-const makeServerProgram = (input: CliInput) =>
-  Effect.gen(function* () {
+const makeServerProgram = (input: CliInput) => {
+  // Consume and arm this before any server layer can acquire the database. The
+  // guard must cover startup as well as the steady-state HTTP server.
+  const desktopParentPid = consumeDesktopParentPidFromEnvironment(process.env);
+  const parentDisconnect =
+    desktopParentPid === null
+      ? Effect.never
+      : Effect.logInfo("desktop parent lifecycle guard armed", {
+          expectedParentPid: desktopParentPid,
+          actualParentPid: process.ppid,
+          ipcChannelAvailable: process.channel !== undefined,
+          ipcConnected: process.connected,
+        }).pipe(
+          Effect.andThen(
+            waitForDesktopParentDisconnect({
+              parentProcess: process,
+              expectedParentPid: desktopParentPid,
+            }),
+          ),
+          Effect.tap(() =>
+            Effect.logWarning("desktop parent disconnected; shutting down the backend cleanly"),
+          ),
+        );
+
+  const serverProgram = Effect.gen(function* () {
     const cliConfig = yield* CliConfig;
     const { start, stopSignal } = yield* Server;
     const openDeps = yield* Open;
@@ -471,7 +498,13 @@ const makeServerProgram = (input: CliInput) =>
     }
 
     return yield* stopSignal;
-  }).pipe(Effect.scoped, Effect.provide(LayerLive(input)));
+  });
+
+  return Effect.raceFirst(serverProgram, parentDisconnect).pipe(
+    Effect.scoped,
+    Effect.provide(LayerLive(input)),
+  );
+};
 
 /**
  * These flags mirrors the environment variables and the config shape.

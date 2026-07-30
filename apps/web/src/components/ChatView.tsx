@@ -253,7 +253,7 @@ import {
 import { useProviderModelCatalog } from "../hooks/useProviderModelCatalog";
 import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
 import BranchToolbar, { RuntimeUsageControls } from "./BranchToolbar";
-import { PenkraMark } from "./PenkraMark";
+import { PenkraMark } from "./foundations/penkra-mark-shared/PenkraMark";
 import { ThreadWorktreeHandoffDialog } from "./ThreadWorktreeHandoffDialog";
 import {
   formatShortcutLabel,
@@ -9625,7 +9625,7 @@ export default function ChatView({
           CHAT_SURFACE_HEADER_DIVIDER_CLASS_NAME,
           !isEditorRail && CHAT_SURFACE_HEADER_PADDING_X_CLASS,
           "flex items-center",
-          isEditorRail ? "h-10" : "h-8",
+          isEditorRail && "h-10",
           isElectron && "drag-region",
           // The editor-rail chat header sits in the editor's second row (inside the
           // right-side chat pane), not flush against the window edges — the editor's

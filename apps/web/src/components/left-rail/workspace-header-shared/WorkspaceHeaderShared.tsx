@@ -21,7 +21,8 @@ export function WorkspaceHeaderShared({
       <LeftRailRow
         aria-expanded={expanded}
         className="pr-7"
-        leading={<Chevron />}
+        leading={<Chevron className="size-3" />}
+        leadingClassName="size-3.5"
         state={expanded ? "open" : props.state}
         {...props}
       >

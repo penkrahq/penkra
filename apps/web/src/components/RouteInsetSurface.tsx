@@ -1,5 +1,5 @@
 // FILE: RouteInsetSurface.tsx
-// Purpose: Route-level SidebarInset preset — the seam-shadow card surface for chat-style routes.
+// Purpose: Route-level SidebarInset preset for chat-style routes.
 // Layer: Shared app component
 // Exports: RouteInsetSurface
 // Depends on: SidebarInset (ui) and the shared chat surface class constants.
@@ -12,10 +12,9 @@ import {
 } from "./chat/composerPickerStyles";
 import { SidebarInset } from "./ui/sidebar";
 
-const CARD_SURFACE_ROUTE_INSET_CLASS_NAME = "h-dvh min-h-0 overscroll-y-none text-foreground";
+const DEFAULT_ROUTE_INSET_CLASS_NAME = "h-dvh min-h-0 overscroll-y-none text-foreground";
 
-// Default route cards keep SidebarInset as the sidebar peer while letting the
-// inner card shadow bleed past the unclipped outer inset.
+// Keep SidebarInset as the sidebar peer while the inner surface owns route color.
 export function RouteInsetSurface({
   className,
   surfaceClassName,
@@ -24,7 +23,7 @@ export function RouteInsetSurface({
   if (surfaceClassName === undefined) {
     return (
       <SidebarInset
-        className={className ?? CARD_SURFACE_ROUTE_INSET_CLASS_NAME}
+        className={className ?? DEFAULT_ROUTE_INSET_CLASS_NAME}
         surfaceClassName={CHAT_MAIN_CONTENT_SURFACE_CLASS_NAME}
         {...props}
       />
