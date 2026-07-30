@@ -15,13 +15,11 @@ import {
   writeFileSync,
 } from "node:fs";
 import { createRequire } from "node:module";
-import {
-  resolveSynaraDesktopFlavor,
-  synaraDesktopIdentity,
-} from "@synara/shared/desktopIdentity";
+import { resolveSynaraDesktopFlavor, synaraDesktopIdentity } from "@synara/shared/desktopIdentity";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildMacosIcon, resolvePenkraDevIconSource } from "../../../scripts/lib/macos-icon.ts";
+import { APP_DATA_USAGE_DESCRIPTION } from "../../../scripts/lib/macos-privacy.ts";
 import { resolveMacDevelopmentSigningIdentity } from "../../../scripts/lib/macos-dev-signing.ts";
 
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
@@ -32,7 +30,7 @@ const desktopFlavor = resolveSynaraDesktopFlavor({
 const desktopIdentity = synaraDesktopIdentity(desktopFlavor);
 const APP_DISPLAY_NAME = desktopIdentity.displayName;
 const APP_BUNDLE_ID = desktopIdentity.bundleId;
-const LAUNCHER_VERSION = 8;
+const LAUNCHER_VERSION = 9;
 const MICROPHONE_USAGE_DESCRIPTION =
   "Synara needs microphone access so you can record voice notes and transcribe them into the chat composer.";
 
@@ -60,18 +58,14 @@ function setPlistString(plistPath, key, value) {
 
 function setPlistJson(plistPath, key, value) {
   const json = JSON.stringify(value);
-  const replaceResult = spawnSync(
-    "plutil",
-    ["-replace", key, "-json", json, plistPath],
-    { encoding: "utf8" },
-  );
+  const replaceResult = spawnSync("plutil", ["-replace", key, "-json", json, plistPath], {
+    encoding: "utf8",
+  });
   if (replaceResult.status === 0) return;
 
-  const insertResult = spawnSync(
-    "plutil",
-    ["-insert", key, "-json", json, plistPath],
-    { encoding: "utf8" },
-  );
+  const insertResult = spawnSync("plutil", ["-insert", key, "-json", json, plistPath], {
+    encoding: "utf8",
+  });
   if (insertResult.status === 0) return;
 
   const details = [replaceResult.stderr, insertResult.stderr].filter(Boolean).join("\n");
@@ -86,6 +80,7 @@ function patchMainBundleInfoPlist(appBundlePath, iconPath) {
   setPlistString(infoPlistPath, "CFBundleExecutable", APP_DISPLAY_NAME);
   setPlistString(infoPlistPath, "CFBundleIconFile", "icon.icns");
   setPlistString(infoPlistPath, "NSMicrophoneUsageDescription", MICROPHONE_USAGE_DESCRIPTION);
+  setPlistString(infoPlistPath, "NSAppDataUsageDescription", APP_DATA_USAGE_DESCRIPTION);
   setPlistJson(infoPlistPath, "CFBundleURLTypes", [
     {
       CFBundleURLName: "Penkra Account Authentication",

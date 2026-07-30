@@ -2,19 +2,13 @@
 // Purpose: Install a stable macOS Applications launcher for the detached Penkra dev stack.
 
 import { spawnSync } from "node:child_process";
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  renameSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { buildMacosIcon, resolvePenkraDevIconSource } from "./lib/macos-icon.ts";
+import { APP_DATA_USAGE_DESCRIPTION } from "./lib/macos-privacy.ts";
 import { resolveMacDevelopmentSigningIdentity } from "./lib/macos-dev-signing.ts";
 export { parseAppleDevelopmentIdentity } from "./lib/macos-dev-signing.ts";
 import {
@@ -62,7 +56,7 @@ export function resolvePenkraDevLauncherCompileArgs(input: {
   ];
 }
 
-function makeInfoPlist(): string {
+export function makeInfoPlist(): string {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -93,6 +87,8 @@ function makeInfoPlist(): string {
   <true/>
   <key>LSUIElement</key>
   <true/>
+  <key>NSAppDataUsageDescription</key>
+  <string>${APP_DATA_USAGE_DESCRIPTION}</string>
   <key>NSHighResolutionCapable</key>
   <true/>
 </dict>

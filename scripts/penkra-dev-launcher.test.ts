@@ -13,10 +13,12 @@ import {
   shouldRunPenkraDevLauncher,
 } from "./penkra-dev-launcher";
 import {
+  makeInfoPlist,
   parseAppleDevelopmentIdentity,
   resolvePenkraDevLauncherCompileArgs,
 } from "./install-penkra-dev-app";
 import { resolvePenkraDevIconSource } from "./lib/macos-icon";
+import { APP_DATA_USAGE_DESCRIPTION } from "./lib/macos-privacy";
 import { resolvePenkraDevWorkspaceConfigPath } from "./lib/penkra-dev-workspace";
 
 describe("Penkra Dev launcher", () => {
@@ -119,6 +121,12 @@ describe("Penkra Dev launcher", () => {
     expect(parseAppleDevelopmentIdentity("0 valid identities found")).toBeNull();
   });
 
+  it("explains intentional access to installed provider data", () => {
+    expect(makeInfoPlist()).toContain(
+      `<key>NSAppDataUsageDescription</key>\n  <string>${APP_DATA_USAGE_DESCRIPTION}</string>`,
+    );
+  });
+
   it("passes local platform identity through Turbo to Electron", () => {
     const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
     const turboConfig = JSON.parse(readFileSync(resolve(repoRoot, "turbo.json"), "utf8")) as {
@@ -140,5 +148,4 @@ describe("Penkra Dev launcher", () => {
       "/workspace/apps/desktop/resources/icon.png",
     );
   });
-
 });

@@ -3,6 +3,8 @@
 // Layer: Release/build helper
 // Depends on: Desktop packaging policy and electron-builder config shape.
 
+import { APP_DATA_USAGE_DESCRIPTION } from "./macos-privacy.ts";
+
 export const MICROPHONE_USAGE_DESCRIPTION =
   "Penkra needs microphone access so you can record voice notes and transcribe them into the chat composer.";
 export const MAC_ENTITLEMENTS_PATH = "apps/desktop/resources/entitlements.mac.plist";
@@ -77,6 +79,7 @@ export function createDesktopPlatformBuildConfig(
     // @electron/universal needs this pattern to preserve that existing fat binary.
     x64ArchFiles: MAC_APPSNAP_HELPER_BUNDLE_PATH,
     extendInfo: {
+      NSAppDataUsageDescription: APP_DATA_USAGE_DESCRIPTION,
       NSMicrophoneUsageDescription: MICROPHONE_USAGE_DESCRIPTION,
     },
   } satisfies Record<string, unknown>;

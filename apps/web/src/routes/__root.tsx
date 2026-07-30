@@ -89,8 +89,6 @@ import { useNativeFontSmoothing } from "../hooks/useNativeFontSmoothing";
 import { invalidateGitQueries, invalidateGitQueriesForCwds } from "../lib/gitReactQuery";
 import { hasLiveThreadsWithMissingProjects } from "../lib/desktopProjectRecovery";
 import { useDiffRouteSearch } from "../hooks/useDiffRouteSearch";
-import { useProviderAuthRefreshOnFocus } from "../hooks/useProviderAuthRefreshOnFocus";
-import { useProviderStatusRefresh } from "../hooks/useProviderStatusRefresh";
 import { resolveSplitViewThreadIds, selectSplitView, useSplitViewStore } from "../splitViewStore";
 import { providerModelDiscoveryInvalidationFingerprint } from "../lib/providerDiscoveryInvalidation";
 import { providerDiscoveryQueryKeys } from "../lib/providerDiscoveryReactQuery";
@@ -99,8 +97,6 @@ import {
   getVisibleProviderUpdateStatuses,
   isProviderUpdateActive,
   providerUpdateNotificationKey,
-  PROVIDER_UPDATE_INITIAL_REFRESH_DELAY_MS,
-  PROVIDER_UPDATE_REFRESH_INTERVAL_MS,
   withProviderUpdateTimeout,
 } from "../providerUpdates";
 import {
@@ -223,7 +219,6 @@ function RootRouteView() {
           <AnchoredToastProvider>
             <GitProgressToastPreviewDev />
             <EventRouter />
-            <ProviderStatusRefreshCoordinator />
             <GlobalShortcutsDialog />
             <GlobalFeedbackDialog />
             <GlobalWhatsNewSurface />
@@ -287,24 +282,6 @@ function GitProgressToastPreviewDev() {
   const featureFlags = useFeatureFlags();
   const enabled = import.meta.env.DEV && featureFlags["pin-git-progress-toast-preview"];
   useGitProgressToastPreview(enabled);
-  return null;
-}
-
-function ProviderStatusRefreshCoordinator() {
-  const { settings } = useAppSettings();
-  const serverSettingsQuery = useQuery(serverSettingsQueryOptions());
-  const providerUpdateChecksEnabled =
-    serverSettingsQuery.data !== undefined && settings.enableProviderUpdateChecks;
-
-  useProviderAuthRefreshOnFocus();
-  // Provider latest-version checks are slow/network-backed, so keep this cadence
-  // coarse while still honoring the automatic update-check setting.
-  useProviderStatusRefresh({
-    enabled: providerUpdateChecksEnabled,
-    initialDelayMs: PROVIDER_UPDATE_INITIAL_REFRESH_DELAY_MS,
-    intervalMs: PROVIDER_UPDATE_REFRESH_INTERVAL_MS,
-  });
-
   return null;
 }
 

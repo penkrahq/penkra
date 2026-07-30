@@ -14,6 +14,7 @@ import {
   validateDesktopNativeBuildHost,
 } from "./lib/desktop-platform-build-config.ts";
 import { BRAND_ASSET_PATHS } from "./lib/brand-assets.ts";
+import { APP_DATA_USAGE_DESCRIPTION } from "./lib/macos-privacy.ts";
 
 describe("createDesktopPlatformBuildConfig", () => {
   it("adds explicit microphone entitlements to macOS builds", () => {
@@ -54,6 +55,7 @@ describe("createDesktopPlatformBuildConfig", () => {
         to: "Helpers/synara-appsnap-helper",
       },
     ]);
+    assert.equal(extendInfo.NSAppDataUsageDescription, APP_DATA_USAGE_DESCRIPTION);
     assert.equal(extendInfo.NSMicrophoneUsageDescription, MICROPHONE_USAGE_DESCRIPTION);
     assert.equal(extendInfo.NSScreenCaptureUsageDescription, undefined);
   });
