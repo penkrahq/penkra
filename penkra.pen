@@ -15950,7 +15950,8 @@
                         {
                           "type": "frame",
                           "id": "re8ot",
-                          "name": "Startup",
+                          "name": "Notifications",
+                          "context": "Global notification and automatic-maintenance preferences.",
                           "width": "fill_container",
                           "fill": "$card-fill",
                           "cornerRadius": 12,
@@ -15962,83 +15963,58 @@
                               "id": "Q4gaQ",
                               "name": "Section Title",
                               "fill": "$text-tertiary",
-                              "content": "Startup",
+                              "content": "Notifications",
                               "fontFamily": "$font-body",
                               "fontSize": 11,
                               "fontWeight": "500",
                               "letterSpacing": 0.4
                             },
                             {
-                              "type": "frame",
-                              "id": "KJgee",
-                              "name": "Launch at startup",
+                              "id": "g4Jyn2",
+                              "type": "ref",
+                              "ref": "MqhKC",
+                              "name": "Provider updates",
                               "width": "fill_container",
-                              "fill": "#00000000",
-                              "gap": 12,
-                              "padding": [
-                                10,
-                                0
-                              ],
-                              "alignItems": "center",
-                              "children": [
-                                {
-                                  "type": "frame",
-                                  "id": "kHPyQ",
-                                  "name": "Texts",
-                                  "width": "fill_container",
-                                  "fill": "#00000000",
-                                  "layout": "vertical",
-                                  "gap": 2,
-                                  "children": [
-                                    {
-                                      "type": "text",
-                                      "id": "c36cr5",
-                                      "name": "Title",
-                                      "fill": "$color-text-foreground",
-                                      "content": "Launch at startup",
-                                      "fontFamily": "Inter",
-                                      "fontSize": 13,
-                                      "fontWeight": "normal"
-                                    },
-                                    {
-                                      "type": "text",
-                                      "id": "Sq30B",
-                                      "name": "Description",
-                                      "fill": "$color-text-foreground-tertiary",
-                                      "textGrowth": "fixed-width",
-                                      "width": 354,
-                                      "content": "Automatically open Penkra when your computer starts up.",
-                                      "fontFamily": "Inter",
-                                      "fontSize": 11,
-                                      "fontWeight": "normal"
-                                    }
-                                  ]
+                              "theme": {
+                                "state": "default"
+                              },
+                              "descendants": {
+                                "JmUPy": {
+                                  "content": "Provider updates"
                                 },
-                                {
-                                  "type": "frame",
-                                  "id": "eUSmk",
-                                  "name": "Toggle",
-                                  "width": 36,
-                                  "height": 20,
-                                  "fill": "$color-text-accent",
-                                  "cornerRadius": 999,
-                                  "layout": "none",
-                                  "children": [
-                                    {
-                                      "type": "frame",
-                                      "id": "u2mRBz",
-                                      "x": 18,
-                                      "y": 2,
-                                      "name": "Thumb",
-                                      "width": 16,
-                                      "height": 16,
-                                      "fill": "#FFFFFF",
-                                      "cornerRadius": 999,
-                                      "layout": "none"
-                                    }
-                                  ]
+                                "fEI1o": {
+                                  "content": "Update automatically or notify you first.",
+                                  "fontSize": 11
+                                },
+                                "mvF6G": {
+                                  "content": "Automatic"
+                                },
+                                "x1XmZ": {
+                                  "width": 400
+                                },
+                                "c4mVqp/DfPw6": {
+                                  "icon": "refresh-cw"
+                                },
+                                "c4mVqp/CywKu": {
+                                  "content": "Automatic"
+                                },
+                                "c4mVqp/u7bBy": {
+                                  "enabled": true
+                                },
+                                "QAkpO/DfPw6": {
+                                  "icon": "bell"
+                                },
+                                "QAkpO/CywKu": {
+                                  "content": "Notify me"
+                                },
+                                "QAkpO/u7bBy": {
+                                  "enabled": false
+                                },
+                                "eg8Uz": {
+                                  "enabled": false,
+                                  "width": 400
                                 }
-                              ]
+                              }
                             }
                           ]
                         },
@@ -18864,7 +18840,7 @@
                       "name": "Chevron",
                       "width": 14,
                       "height": 14,
-                      "icon": "chevron-right",
+                      "icon": "$settings-chevron-icon",
                       "library": "lucide",
                       "fill": "$text-tertiary"
                     }
@@ -18878,7 +18854,7 @@
               "x": 0,
               "y": 0,
               "name": "Options",
-              "enabled": false,
+              "enabled": "$settings-content-visible",
               "width": "fill_container(0)",
               "layout": "vertical",
               "gap": 8,
@@ -27249,6 +27225,141 @@
           "width": 240,
           "height": 44,
           "theme": {}
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "r88fa",
+      "x": 32400,
+      "y": 0,
+      "name": "Modal / Logout Confirmation",
+      "reusable": true,
+      "width": 400,
+      "height": 220,
+      "fill": "$color-background-surface",
+      "cornerRadius": 14,
+      "stroke": "$color-border",
+      "strokeWidth": 1,
+      "strokeAlignment": "inner",
+      "layout": "vertical",
+      "padding": [
+        24,
+        24,
+        20,
+        24
+      ],
+      "alignItems": "center",
+      "children": [
+        {
+          "type": "frame",
+          "id": "nwOFZ",
+          "name": "Icon Container",
+          "width": 40,
+          "height": 40,
+          "fill": "#F8717114",
+          "cornerRadius": 20,
+          "layout": "none",
+          "children": [
+            {
+              "type": "icon",
+              "id": "GdASh",
+              "x": 8,
+              "y": 8,
+              "name": "Warning Icon",
+              "width": 24,
+              "height": 24,
+              "icon": "log-out",
+              "library": "lucide",
+              "fill": "$color-text-destructive"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "reeCE",
+          "name": "Content",
+          "width": "fill_container",
+          "layout": "vertical",
+          "gap": 8,
+          "padding": [
+            16,
+            0,
+            0,
+            0
+          ],
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "text",
+              "id": "Y4sBr",
+              "name": "Title",
+              "fill": "$color-text-foreground",
+              "content": "Log out",
+              "textAlign": "center",
+              "fontFamily": "Inter",
+              "fontSize": 16,
+              "fontWeight": "600"
+            },
+            {
+              "type": "text",
+              "id": "Ht3kf",
+              "name": "Description",
+              "fill": "$color-text-foreground-secondary",
+              "textGrowth": "fixed-width",
+              "width": "fill_container",
+              "content": "Are you sure you want to log out? You'll need to sign in again to access your account.",
+              "lineHeight": 1.4,
+              "textAlign": "center",
+              "fontFamily": "Inter",
+              "fontSize": 13,
+              "fontWeight": "normal"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "uWWg9",
+          "name": "Actions",
+          "width": "fill_container",
+          "gap": 8,
+          "padding": [
+            20,
+            0,
+            0,
+            0
+          ],
+          "justifyContent": "end",
+          "children": [
+            {
+              "id": "H6vHb",
+              "type": "ref",
+              "ref": "LsMFv",
+              "name": "Cancel Button",
+              "width": 80,
+              "height": 36,
+              "descendants": {
+                "EccQ0": {
+                  "content": "Cancel"
+                }
+              }
+            },
+            {
+              "id": "LhRAz",
+              "type": "ref",
+              "ref": "TecAX",
+              "name": "Log Out Button",
+              "width": 100,
+              "height": 36,
+              "fill": "$color-text-destructive",
+              "descendants": {
+                "cCt1S": {
+                  "content": "Log out",
+                  "fill": "#FFFFFF"
+                }
+              }
+            }
+          ]
         }
       ]
     }
