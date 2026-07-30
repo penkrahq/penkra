@@ -476,7 +476,7 @@ function SortableProviderVisibilityRow(props: {
       </div>
       <Switch
         checked={!props.isHidden}
-        onCheckedChange={(checked) => props.onHiddenChange(!Boolean(checked))}
+        onCheckedChange={(checked) => props.onHiddenChange(!checked)}
         aria-label={`Show ${props.option.title} in the provider picker`}
       />
     </div>
@@ -651,7 +651,6 @@ function ProviderToolRow(props: {
   const updateAdvisory = props.providerStatus?.versionAdvisory;
   const providerUpdateSuppressed =
     updateAdvisory?.status === "behind_latest" && !showProviderUpdateStatus;
-  const currentProviderVersion = formatProviderVersion(props.providerStatus?.version);
   const providerUpdateLabel = props.providerStatus
     ? providerUpdateSuppressed
       ? null
@@ -872,32 +871,6 @@ export function ProvidersSettingsPanel({
     <div className="space-y-6">
       <div id={SETTINGS_TARGETS.providerUpdates}>
         <SettingsSection title="Updates">
-          <SettingsRow
-            title="Automatic CLI update checks"
-            description="Check Codex, Claude, and other provider CLIs for newer versions in the background."
-            resetAction={
-              settings.providerUpdateMode !== defaults.providerUpdateMode ? (
-                <SettingResetButton
-                  label="CLI update checks"
-                  onClick={() =>
-                    updateSettings({
-                      providerUpdateMode: defaults.providerUpdateMode,
-                    })
-                  }
-                />
-              ) : null
-            }
-            control={
-              <Switch
-                checked={settings.providerUpdateMode === "automatic"}
-                onCheckedChange={(checked) =>
-                  updateSettings({ providerUpdateMode: checked ? "automatic" : "notify" })
-                }
-                aria-label="Automatic CLI update checks"
-              />
-            }
-          />
-
           <SettingsRow
             title="Provider updates"
             description="Review installed provider tools that Penkra can safely update."
