@@ -12,12 +12,10 @@ import {
   PinFilledIcon,
   PluginIcon,
   SettingsIcon,
-  WindowIcon,
 } from "../lib/icons";
 import { cn } from "../lib/utils";
 import type { RecentViewDisplayEntry } from "../recentViews.logic";
 import { ProviderIcon } from "./ProviderIcon";
-import TerminalIdentityIcon from "./terminal/TerminalIdentityIcon";
 import { Kbd } from "./ui/kbd";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
@@ -69,17 +67,13 @@ function EntryIcon(props: { entry: RecentViewDisplayEntry }) {
   const className = "size-[18px]";
 
   switch (props.entry.icon.kind) {
-    case "terminal":
-      return <TerminalIdentityIcon className={className} iconKey={props.entry.icon.iconKey} />;
     case "provider":
       return <ProviderIcon provider={props.entry.icon.provider} className={className} />;
     case "chat":
       return <MessageCircleIcon className={className} aria-hidden="true" />;
-    case "workspace":
-      return <WindowIcon className={className} aria-hidden="true" />;
     case "settings":
       return <SettingsIcon className={className} aria-hidden="true" />;
-    case "plugins":
+    case "apps":
       return <PluginIcon className={className} aria-hidden="true" />;
   }
 }

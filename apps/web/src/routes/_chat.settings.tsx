@@ -213,8 +213,6 @@ function SettingsRouteView() {
     ...(settings.sidebarThreadSortOrder !== defaults.sidebarThreadSortOrder
       ? ["Thread sort order"]
       : []),
-    ...(settings.showChatsSection !== defaults.showChatsSection ? ["Chats section"] : []),
-    ...(settings.showStudioSection !== defaults.showStudioSection ? ["Studio section"] : []),
     ...(settings.uiDensity !== defaults.uiDensity ? ["UI density"] : []),
     ...(settings.chatFontSizePx !== defaults.chatFontSizePx ? ["Base font size"] : []),
     ...(shouldShowFontSmoothing &&
@@ -477,26 +475,6 @@ function SettingsRouteView() {
             </SettingsSelectControl>
           }
         />
-      </SettingsSection>
-
-      <SettingsSection title="Sidebar sections">
-        {renderBooleanSettingRow({
-          settingKey: "showChatsSection",
-          title: "Chats",
-          description:
-            "Show the standalone Chats list in the sidebar footer (chats not tied to a project).",
-          resetLabel: "chats section",
-          ariaLabel: "Show the Chats section in the sidebar",
-        })}
-
-        {renderBooleanSettingRow({
-          settingKey: "showStudioSection",
-          title: "Studio",
-          description: "Show the Studio tab in the sidebar switcher.",
-          resetLabel: "studio section",
-          ariaLabel: "Show the Studio section in the sidebar",
-        })}
-
       </SettingsSection>
 
       <div id={SETTINGS_TARGETS.environmentPanel}>

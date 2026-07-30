@@ -4,7 +4,6 @@
 
 import { describe, expect, it } from "vitest";
 import { ProjectId, ThreadId } from "@synara/contracts";
-import type { ResolvedTerminalVisualIdentity } from "@synara/shared/terminalThreads";
 import {
   buildRecentViewDisplayEntries,
   deriveCurrentRecentView,
@@ -44,11 +43,10 @@ describe("recent view MRU logic", () => {
     ]);
 
     const withSixth = upsertRecentView(reopened, {
-      kind: "workspace",
-      workspaceId: "workspace-1",
+      kind: "apps",
     });
     expect(withSixth.map(recentViewKey)).toEqual([
-      "workspace:workspace-1",
+      "apps",
       "thread:thread-3",
       "thread:thread-1",
       "thread:thread-2",
@@ -60,19 +58,17 @@ describe("recent view MRU logic", () => {
     const recentViews: RecentView[] = [
       { kind: "thread", threadId: threadId("thread-1"), splitViewId: "split-missing" },
       { kind: "thread", threadId: threadId("thread-deleted") },
-      { kind: "workspace", workspaceId: "workspace-deleted" },
-      { kind: "plugins" },
+      { kind: "apps" },
     ];
 
     const pruned = pruneRecentViews(recentViews, {
       availableThreadIds: new Set([threadId("thread-1")]),
-      availableWorkspaceIds: new Set(["workspace-1"]),
       availableSplitViewIds: new Set(["split-1"]),
     });
 
     expect(pruned).toEqual([
       { kind: "thread", threadId: threadId("thread-1") },
-      { kind: "plugins" },
+      { kind: "apps" },
     ]);
   });
 
@@ -81,7 +77,6 @@ describe("recent view MRU logic", () => {
       [{ kind: "thread", threadId: threadId("thread-1"), splitViewId: "split-1" }],
       {
         availableThreadIds: new Set([threadId("thread-1"), threadId("thread-2")]),
-        availableWorkspaceIds: new Set(),
         availableSplitViewIds: new Set(["split-1"]),
         threadIdsBySplitViewId: new Map([["split-1", new Set([threadId("thread-2")])]]),
       },
@@ -94,7 +89,7 @@ describe("recent view MRU logic", () => {
     const recentViews: RecentView[] = [
       { kind: "thread", threadId: threadId("thread-current") },
       { kind: "settings" },
-      { kind: "workspace", workspaceId: "workspace-1" },
+      { kind: "apps" },
     ];
 
     expect(
@@ -120,7 +115,6 @@ describe("recent view MRU logic", () => {
         pathname: "/thread-1",
         routeThreadId: threadId("thread-1"),
         activeThreadId: threadId("thread-focused"),
-        routeWorkspaceId: null,
         splitViewId: "split-1",
       }),
     ).toEqual({
@@ -134,12 +128,11 @@ describe("recent view MRU logic", () => {
         pathname: "/",
         routeThreadId: null,
         activeThreadId: null,
-        routeWorkspaceId: null,
       }),
     ).toBeNull();
   });
 
-  it("prefers terminal visual identity over thread provider for display icons", () => {
+  it("uses the thread provider for display icons", () => {
     const terminalThreadId = threadId("thread-terminal");
     const project = { id: projectId("project-1"), name: "Penkra" } as Project;
     const threadSummary = {
@@ -155,31 +148,12 @@ describe("recent view MRU logic", () => {
       threadsById: { [terminalThreadId]: threadSummary },
       projects: [project],
       pinnedThreadIds: [],
-      workspacePages: [],
-      terminalVisualIdentityByThreadId: new Map<ThreadId, ResolvedTerminalVisualIdentity>([
-        [
-          terminalThreadId,
-          {
-            cliKind: null,
-            iconKey: "terminal",
-            state: "running",
-            title: "bun dev",
-          },
-        ],
-      ]),
     });
 
     expect(entries[0]).toMatchObject({
-      icon: { kind: "terminal", iconKey: "terminal" },
-      isTerminal: true,
+      icon: { kind: "provider", provider: "codex" },
       provider: "codex",
-      subtitle: "Penkra · Terminal",
-      terminalVisualIdentity: {
-        cliKind: null,
-        iconKey: "terminal",
-        state: "running",
-        title: "bun dev",
-      },
+      subtitle: "Penkra · Chat",
     });
   });
 });

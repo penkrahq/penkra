@@ -7,7 +7,6 @@ import {
   IconBrandSlack,
   IconFileSpreadsheet,
   IconFileTypeDoc,
-  IconTerminal2,
   IconX,
 } from "@tabler/icons-react";
 import { useMemo, useState, type ReactNode } from "react";
@@ -64,14 +63,6 @@ const discoverApps: GalleryApp[] = [
     name: "Excel",
     rating: "4.6",
     tone: "green",
-  },
-  {
-    category: "Developer",
-    description: "Run shell commands from a thread.",
-    icon: <IconTerminal2 />,
-    name: "Terminal",
-    rating: "4.7",
-    tone: "slate",
   },
   {
     category: "Design",

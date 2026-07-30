@@ -4,7 +4,6 @@
 // Exports: useRecentViewSwitcher
 
 import { ThreadId } from "@synara/contracts";
-import type { ResolvedTerminalVisualIdentity } from "@synara/shared/terminalThreads";
 import { useLocation, useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 
@@ -27,12 +26,6 @@ import { collectLeaves } from "../splitView.logic";
 import { useSplitViewStore } from "../splitViewStore";
 import { useStore } from "../store";
 import { useThreadDetailPrewarm } from "../threadDetailPrewarm";
-import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
-import {
-  resolveTerminalVisualIdentityMap,
-  selectRepresentativeTerminalVisualIdentity,
-} from "../terminalVisualIdentity";
-import { useWorkspaceStore } from "../workspaceStore";
 import type { useHandleNewThread } from "./useHandleNewThread";
 
 type NewThreadContext = ReturnType<typeof useHandleNewThread>;
@@ -58,10 +51,6 @@ export function useRecentViewSwitcher(input: UseRecentViewSwitcherInput) {
     strict: false,
     select: (params) => (params.threadId ? ThreadId.makeUnsafe(params.threadId) : null),
   });
-  const routeWorkspaceId = useParams({
-    strict: false,
-    select: (params) => (typeof params.workspaceId === "string" ? params.workspaceId : null),
-  });
   const routeSearch = useSearch({ strict: false }) as Record<string, unknown>;
   const [recentSwitcherState, setRecentSwitcherState] = useState<RecentViewSwitcherState | null>(
     null,
@@ -71,12 +60,8 @@ export function useRecentViewSwitcher(input: UseRecentViewSwitcherInput) {
   const pruneRecentViewsStore = useRecentViewsStore((state) => state.pruneRecentViews);
   const { prewarmThreadDetail, prewarmThreadDetails } = useThreadDetailPrewarm();
   const persistedPinnedThreadIds = usePinnedThreadsStore((state) => state.pinnedThreadIds);
-  const workspacePages = useWorkspaceStore((state) => state.workspacePages);
   const draftThreadsByThreadId = useComposerDraftStore((state) => state.draftThreadsByThreadId);
   const sidebarThreadSummaryById = useStore((state) => state.sidebarThreadSummaryById);
-  const terminalStateByThreadId = useTerminalStateStore((state) => state.terminalStateByThreadId);
-  const openChatThreadPage = useTerminalStateStore((state) => state.openChatThreadPage);
-  const openTerminalThreadPage = useTerminalStateStore((state) => state.openTerminalThreadPage);
   const threadsHydrated = useStore((state) => state.threadsHydrated);
   const routeSplitViewId =
     typeof routeSearch.splitViewId === "string" ? routeSearch.splitViewId : undefined;
@@ -85,7 +70,6 @@ export function useRecentViewSwitcher(input: UseRecentViewSwitcherInput) {
     pathname,
     routeThreadId,
     activeThreadId: routeThreadId ? (input.activeContextThreadId ?? routeThreadId) : null,
-    routeWorkspaceId,
     splitViewId: routeSplitViewId,
     settingsSection,
   });
@@ -96,29 +80,6 @@ export function useRecentViewSwitcher(input: UseRecentViewSwitcherInput) {
   const switcherOpen = recentSwitcherState !== null;
   let recentViewEntries: RecentViewDisplayEntry[] = EMPTY_RECENT_VIEW_ENTRIES;
   if (switcherOpen) {
-    const terminalVisualIdentityByThreadId = new Map<ThreadId, ResolvedTerminalVisualIdentity>();
-    for (const view of recentViews) {
-      if (view.kind !== "thread") continue;
-      const terminalState = selectThreadTerminalState(terminalStateByThreadId, view.threadId);
-      if (terminalState.entryPoint === "terminal") {
-        const terminalVisualIdentityById = resolveTerminalVisualIdentityMap({
-          runningTerminalIds: terminalState.runningTerminalIds,
-          terminalAttentionStatesById: terminalState.terminalAttentionStatesById,
-          terminalCliKindsById: terminalState.terminalCliKindsById,
-          terminalIds: terminalState.terminalIds,
-          terminalLabelsById: terminalState.terminalLabelsById,
-          terminalTitleOverridesById: terminalState.terminalTitleOverridesById,
-        });
-        const representativeIdentity = selectRepresentativeTerminalVisualIdentity({
-          activeTerminalId: terminalState.activeTerminalId,
-          terminalIds: terminalState.terminalIds,
-          terminalVisualIdentityById,
-        });
-        if (representativeIdentity) {
-          terminalVisualIdentityByThreadId.set(view.threadId, representativeIdentity.identity);
-        }
-      }
-    }
     const draftThreadsById: Record<string, RecentViewThreadDraftSummary> = {};
     for (const [threadId, draftThread] of Object.entries(draftThreadsByThreadId)) {
       draftThreadsById[threadId] = {
@@ -139,8 +100,6 @@ export function useRecentViewSwitcher(input: UseRecentViewSwitcherInput) {
       draftThreadsById,
       projects: input.projects,
       pinnedThreadIds: persistedPinnedThreadIds,
-      workspacePages,
-      terminalVisualIdentityByThreadId,
     });
   }
   const currentRecentViewRef = useRef<RecentView | null>(currentRecentView);
@@ -174,7 +133,6 @@ export function useRecentViewSwitcher(input: UseRecentViewSwitcherInput) {
     const sidebarThreadSummaryById = useStore.getState().sidebarThreadSummaryById;
     const draftThreadsByThreadId = useComposerDraftStore.getState().draftThreadsByThreadId;
     const splitViewsById = useSplitViewStore.getState().splitViewsById;
-    const workspacePages = useWorkspaceStore.getState().workspacePages;
     const activeContextThreadId = activeContextThreadIdRef.current;
     const activeDraftThread = activeDraftThreadRef.current;
 
@@ -189,7 +147,6 @@ export function useRecentViewSwitcher(input: UseRecentViewSwitcherInput) {
       availableThreadIds.add(activeContextThreadId);
     }
 
-    const availableWorkspaceIds = new Set(workspacePages.map((workspace) => workspace.id));
     const availableSplitViewIds = new Set(
       Object.keys(splitViewsById).filter((splitViewId) => Boolean(splitViewsById[splitViewId])),
     );
@@ -207,7 +164,6 @@ export function useRecentViewSwitcher(input: UseRecentViewSwitcherInput) {
 
     return {
       availableThreadIds,
-      availableWorkspaceIds,
       availableSplitViewIds,
       threadIdsBySplitViewId,
     };
@@ -244,32 +200,10 @@ export function useRecentViewSwitcher(input: UseRecentViewSwitcherInput) {
             .getState()
             .setFocusedPane(splitActivation.splitViewId, splitActivation.paneId);
         }
-        const terminalState = selectThreadTerminalState(
-          useTerminalStateStore.getState().terminalStateByThreadId,
-          view.threadId,
-        );
-        if (terminalState.entryPoint === "terminal") {
-          openTerminalThreadPage(view.threadId);
-        } else {
-          openChatThreadPage(view.threadId);
-        }
         void navigate({
           to: "/$threadId",
           params: { threadId: view.threadId },
           search: () => (splitActivation ? { splitViewId: splitActivation.splitViewId } : {}),
-        });
-        return;
-      }
-      case "workspace": {
-        const workspaceExists = useWorkspaceStore
-          .getState()
-          .workspacePages.some((workspace) => workspace.id === view.workspaceId);
-        if (!workspaceExists) {
-          return;
-        }
-        void navigate({
-          to: "/workspace/$workspaceId",
-          params: { workspaceId: view.workspaceId },
         });
         return;
       }
@@ -279,8 +213,8 @@ export function useRecentViewSwitcher(input: UseRecentViewSwitcherInput) {
           search: () => (view.section ? { section: view.section } : {}),
         });
         return;
-      case "plugins":
-        void navigate({ to: "/plugins" });
+      case "apps":
+        void navigate({ to: "/apps" });
         return;
     }
   };

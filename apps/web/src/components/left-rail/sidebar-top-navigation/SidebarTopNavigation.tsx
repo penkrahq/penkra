@@ -17,6 +17,7 @@ export interface SidebarNavigationItem {
 
 export interface SidebarTopNavigationProps {
   activeItemId?: string;
+  disabledItemIds?: ReadonlyArray<string>;
   items?: SidebarNavigationItem[];
   onSelect?: (id: string) => void;
 }
@@ -31,6 +32,7 @@ const defaultItems: SidebarNavigationItem[] = [
 
 export function SidebarTopNavigation({
   activeItemId,
+  disabledItemIds = [],
   items = defaultItems,
   onSelect,
 }: SidebarTopNavigationProps) {
@@ -38,6 +40,7 @@ export function SidebarTopNavigation({
     <nav aria-label="Primary" className="flex w-60 flex-col gap-0.5 px-2 py-1">
       {items.map(({ icon: Icon, id, label }) => (
         <NavItemShared
+          disabled={disabledItemIds.includes(id)}
           icon={<Icon />}
           key={id}
           onClick={() => onSelect?.(id)}

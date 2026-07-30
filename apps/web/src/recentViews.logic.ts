@@ -4,10 +4,6 @@
 // Exports: recent view types plus MRU update, pruning, and display derivation helpers
 
 import type { ProjectId, ProviderKind, ThreadId } from "@synara/contracts";
-import type {
-  ResolvedTerminalVisualIdentity,
-  TerminalIconKey,
-} from "@synara/shared/terminalThreads";
 import type { Project, SidebarThreadSummary } from "./types";
 
 export const MAX_RECENT_VIEWS = 5;
@@ -19,15 +15,11 @@ export type RecentView =
       splitViewId?: string | undefined;
     }
   | {
-      kind: "workspace";
-      workspaceId: string;
-    }
-  | {
       kind: "settings";
       section?: string | undefined;
     }
   | {
-      kind: "plugins";
+      kind: "apps";
     };
 
 export interface RecentViewDisplayEntry {
@@ -40,23 +32,14 @@ export interface RecentViewDisplayEntry {
   isCurrent: boolean;
   isPinned: boolean;
   isSplit: boolean;
-  isTerminal: boolean;
   provider?: ProviderKind | undefined;
-  terminalVisualIdentity?: ResolvedTerminalVisualIdentity | undefined;
 }
 
 export type RecentViewDisplayIcon =
   | { kind: "chat" }
   | { kind: "provider"; provider: ProviderKind }
-  | { kind: "terminal"; iconKey: TerminalIconKey }
-  | { kind: "workspace" }
   | { kind: "settings" }
-  | { kind: "plugins" };
-
-export interface RecentViewWorkspaceSummary {
-  id: string;
-  title: string;
-}
+  | { kind: "apps" };
 
 export interface RecentViewThreadDraftSummary {
   id: ThreadId;
@@ -67,7 +50,6 @@ export interface RecentViewThreadDraftSummary {
 
 export interface RecentViewAvailability {
   availableThreadIds: ReadonlySet<ThreadId>;
-  availableWorkspaceIds: ReadonlySet<string>;
   availableSplitViewIds: ReadonlySet<string>;
   threadIdsBySplitViewId?: ReadonlyMap<string, ReadonlySet<ThreadId>> | undefined;
 }
@@ -91,12 +73,10 @@ export function recentViewKey(view: RecentView): string {
       return view.splitViewId
         ? `thread:${view.threadId}:split:${view.splitViewId}`
         : `thread:${view.threadId}`;
-    case "workspace":
-      return `workspace:${view.workspaceId}`;
     case "settings":
       return view.section ? `settings:${view.section}` : "settings";
-    case "plugins":
-      return "plugins";
+    case "apps":
+      return "apps";
   }
 }
 
@@ -104,18 +84,10 @@ export function deriveCurrentRecentView(input: {
   pathname: string;
   routeThreadId: ThreadId | null;
   activeThreadId: ThreadId | null;
-  routeWorkspaceId: string | null;
   splitViewId?: string | undefined;
   settingsSection?: string | undefined;
 }): RecentView | null {
   const splitViewId = normalizeOptionalId(input.splitViewId);
-
-  if (input.pathname.startsWith("/workspace/") && input.routeWorkspaceId) {
-    return {
-      kind: "workspace",
-      workspaceId: input.routeWorkspaceId,
-    };
-  }
 
   if (input.pathname === "/settings") {
     const section = normalizeOptionalId(input.settingsSection);
@@ -125,8 +97,8 @@ export function deriveCurrentRecentView(input: {
     };
   }
 
-  if (input.pathname === "/plugins") {
-    return { kind: "plugins" };
+  if (input.pathname === "/apps") {
+    return { kind: "apps" };
   }
 
   if (input.routeThreadId) {
@@ -194,21 +166,15 @@ function normalizeAvailableView(
       }
       return view;
     }
-    case "workspace":
-      return availability.availableWorkspaceIds.has(view.workspaceId) ? view : null;
     case "settings":
-    case "plugins":
+    case "apps":
       return view;
   }
 }
 
 function resolveThreadDisplayIcon(input: {
   provider?: ProviderKind | undefined;
-  terminalVisualIdentity?: ResolvedTerminalVisualIdentity | null | undefined;
 }): RecentViewDisplayIcon {
-  if (input.terminalVisualIdentity) {
-    return { kind: "terminal", iconKey: input.terminalVisualIdentity.iconKey };
-  }
   if (input.provider) {
     return { kind: "provider", provider: input.provider };
   }
@@ -243,20 +209,13 @@ export function buildRecentViewDisplayEntries(input: {
   draftThreadsById?: Readonly<Record<string, RecentViewThreadDraftSummary | undefined>>;
   projects: readonly Project[];
   pinnedThreadIds: readonly ThreadId[];
-  workspacePages: readonly RecentViewWorkspaceSummary[];
-  terminalVisualIdentityByThreadId?: ReadonlyMap<ThreadId, ResolvedTerminalVisualIdentity>;
 }): RecentViewDisplayEntry[] {
   const currentKey = input.currentView ? recentViewKey(input.currentView) : null;
   const projectNameById = new Map(input.projects.map((project) => [project.id, project.name]));
-  const workspaceNameById = new Map(
-    input.workspacePages.map((workspace) => [workspace.id, workspace.title]),
-  );
   const pinnedThreadIds = new Set(input.pinnedThreadIds);
 
   return input.recentViews.map((view) => {
     const key = recentViewKey(view);
-    const terminalVisualIdentity =
-      view.kind === "thread" ? input.terminalVisualIdentityByThreadId?.get(view.threadId) : null;
     const base = {
       key,
       view,
@@ -264,8 +223,6 @@ export function buildRecentViewDisplayEntries(input: {
       isCurrent: key === currentKey,
       isPinned: false,
       isSplit: view.kind === "thread" && Boolean(view.splitViewId),
-      isTerminal: Boolean(terminalVisualIdentity),
-      ...(terminalVisualIdentity ? { terminalVisualIdentity } : {}),
     };
 
     switch (view.kind) {
@@ -277,25 +234,18 @@ export function buildRecentViewDisplayEntries(input: {
         const title = normalizeOptionalId(thread?.title) ?? "New chat";
         const subtitleParts = [
           projectName ?? "Chat",
-          base.isTerminal ? "Terminal" : "Chat",
+          "Chat",
           base.isSplit ? "Split" : null,
         ].filter((part): part is string => Boolean(part));
         return {
           ...base,
-          icon: resolveThreadDisplayIcon({ provider, terminalVisualIdentity }),
+          icon: resolveThreadDisplayIcon({ provider }),
           provider,
           title,
           subtitle: subtitleParts.join(" · "),
           isPinned: pinnedThreadIds.has(view.threadId) || Boolean(thread?.isPinned),
         };
       }
-      case "workspace":
-        return {
-          ...base,
-          icon: { kind: "workspace" },
-          title: workspaceNameById.get(view.workspaceId) ?? "Workspace",
-          subtitle: "Terminal workspace",
-        };
       case "settings":
         return {
           ...base,
@@ -303,12 +253,12 @@ export function buildRecentViewDisplayEntries(input: {
           title: "Settings",
           subtitle: view.section ? (SETTINGS_LABELS[view.section] ?? view.section) : "App settings",
         };
-      case "plugins":
+      case "apps":
         return {
           ...base,
-          icon: { kind: "plugins" },
-          title: "Plugins",
-          subtitle: "Extensions and integrations",
+          icon: { kind: "apps" },
+          title: "Apps",
+          subtitle: "Installed and available apps",
         };
     }
   });

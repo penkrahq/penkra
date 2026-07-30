@@ -1,7 +1,7 @@
 import type { ResolvedKeybindingsConfig } from "@synara/contracts";
 import { useQuery } from "@tanstack/react-query";
 import { Outlet, createFileRoute, useLocation, useNavigate } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 
 import {
   goBackInAppHistory,
@@ -15,7 +15,6 @@ import { FindProvider } from "../components/find/FindProvider";
 import ThreadSidebar from "../components/Sidebar";
 import { isElectron } from "../env";
 import { useHandleNewChat } from "../hooks/useHandleNewChat";
-import { useHandleNewStudioChat } from "../hooks/useHandleNewStudioChat";
 import { useTemporaryThreadLifecycle } from "../hooks/useTemporaryThreadLifecycle";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useRecentViewSwitcher } from "../hooks/useRecentViewSwitcher";
@@ -28,7 +27,6 @@ import {
 } from "../lib/projectShortcutTargets";
 import { resolveInheritedThreadContext } from "../lib/threadBootstrap";
 import { serverConfigQueryOptions } from "../lib/serverReactQuery";
-import { startFreshChatForActiveSurface } from "../lib/startContainerChat";
 import { isOrdinarySpaceProject } from "../lib/spaces";
 import { resolveShortcutCommand } from "../keybindings";
 import { useStore } from "../store";
@@ -48,23 +46,10 @@ import {
   SidebarRail,
   useSidebar,
 } from "~/components/ui/sidebar";
-import type { SidebarResizableOptions } from "~/components/ui/sidebar";
 import { cn } from "~/lib/utils";
 
 const EMPTY_KEYBINDINGS: ResolvedKeybindingsConfig = [];
-const THREAD_SIDEBAR_WIDTH_STORAGE_KEY = "chat_thread_sidebar_width";
-const THREAD_SIDEBAR_MIN_WIDTH = 13 * 16;
-const THREAD_MAIN_CONTENT_MIN_WIDTH = 40 * 16;
-
-// Single source of truth for the thread sidebar resize behavior. Shared by <Sidebar>
-// and the detached content-seam <SidebarRail> (via SidebarInstanceProvider) so the
-// drag handle keeps working even though the rail lives outside <Sidebar> (above the card).
-const THREAD_SIDEBAR_RESIZABLE: SidebarResizableOptions = {
-  minWidth: THREAD_SIDEBAR_MIN_WIDTH,
-  shouldAcceptWidth: ({ nextWidth, wrapper }) =>
-    wrapper.clientWidth - nextWidth >= THREAD_MAIN_CONTENT_MIN_WIDTH,
-  storageKey: THREAD_SIDEBAR_WIDTH_STORAGE_KEY,
-};
+const THREAD_SIDEBAR_RESIZABLE = false;
 const MAINTENANCE_EVENT_STALE_MS = 5 * 60 * 1000;
 
 type MaintenanceToastId = ReturnType<typeof toastManager.add>;
@@ -201,9 +186,6 @@ function isRecentViewSwitcherCommitKey(event: KeyboardEvent): boolean {
 
 function ChatRouteGlobalShortcuts() {
   const navigate = useNavigate();
-  const isStudioRoute = useLocation({
-    select: (location) => location.pathname.startsWith("/studio"),
-  });
   const { toggleSidebar } = useSidebar();
   const [shortcutsDialogOpen, setShortcutsDialogOpen] = useState(false);
   const [chatSearchOpen, setChatSearchOpen] = useState(false);
@@ -230,7 +212,6 @@ function ChatRouteGlobalShortcuts() {
     projects,
   });
   const { handleNewChat } = useHandleNewChat();
-  const { handleNewStudioChat } = useHandleNewStudioChat();
   const homeDir = useWorkspaceStore((state) => state.homeDir);
   const chatWorkspaceRoot = useWorkspaceStore((state) => state.chatWorkspaceRoot);
   const studioWorkspaceRoot = useWorkspaceStore((state) => state.studioWorkspaceRoot);
@@ -275,25 +256,7 @@ function ChatRouteGlobalShortcuts() {
   // Deliberately unscoped: the persisted id is only cleared once the project is gone from
   // the app entirely, not merely absent from the Space you happen to be in.
   const persistedLatestProjectStillExists = resolveLatestProjectTargetId(projects, latestProjectId);
-  const handleNewChatForActiveSurface = useCallback(
-    () =>
-      startFreshChatForActiveSurface({
-        activeProject,
-        isStudioRoute,
-        paths: { homeDir, chatWorkspaceRoot, studioWorkspaceRoot },
-        handleNewChat,
-        handleNewStudioChat,
-      }),
-    [
-      activeProject,
-      chatWorkspaceRoot,
-      handleNewChat,
-      handleNewStudioChat,
-      homeDir,
-      isStudioRoute,
-      studioWorkspaceRoot,
-    ],
-  );
+  const handleNewChatForActiveSurface = useCallback(() => handleNewChat(), [handleNewChat]);
 
   useEffect(() => {
     if (!currentProjectId) {
@@ -596,6 +559,7 @@ function ChatRouteLayout() {
         className="bg-[var(--app-shell-background)]"
         data-sidebar-side="left"
         data-find-application-root
+        style={{ "--sidebar-width": "15rem" } as CSSProperties}
       >
         <ThreadRetentionMaintenanceToast />
         <ChatRouteGlobalShortcuts />

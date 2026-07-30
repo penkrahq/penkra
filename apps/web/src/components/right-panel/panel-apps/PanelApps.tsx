@@ -1,4 +1,4 @@
-import { IconBrandNotion, IconBrandSlack, IconBrowser, IconTerminal } from "@tabler/icons-react";
+import { IconBrandNotion, IconBrandSlack, IconBrowser } from "@tabler/icons-react";
 
 import { GitHubIcon } from "~/components/Icons";
 
@@ -20,7 +20,6 @@ export function PanelApps() {
         </AppListRowShared>
         <AppListRowShared icon={<IconBrowser />}>Browser</AppListRowShared>
         <AppListRowShared>Linear</AppListRowShared>
-        <AppListRowShared icon={<IconTerminal />}>Terminal</AppListRowShared>
       </div>
     </RightPanelShared>
   );
