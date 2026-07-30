@@ -6,6 +6,23 @@ import { describe, expect, it, vi } from "vitest";
 import { fixPath } from "./os-jank";
 
 describe("fixPath", () => {
+  it("does not execute a login shell when the launcher supplied the environment", () => {
+    const env: NodeJS.ProcessEnv = {
+      PATH: "/opt/homebrew/bin:/usr/bin",
+      PENKRA_SKIP_LOGIN_SHELL_ENVIRONMENT: "1",
+    };
+    const readPath = vi.fn(() => "/unexpected");
+
+    fixPath({
+      env,
+      platform: "darwin",
+      readPath,
+    });
+
+    expect(readPath).not.toHaveBeenCalled();
+    expect(env.PATH).toBe("/opt/homebrew/bin:/usr/bin");
+  });
+
   it("hydrates PATH on linux using the resolved login shell", () => {
     const env: NodeJS.ProcessEnv = {
       SHELL: "/bin/zsh",

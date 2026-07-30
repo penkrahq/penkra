@@ -5,6 +5,7 @@ import {
   copyFileSync,
   cpSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   readFileSync,
   readdirSync,
@@ -18,6 +19,7 @@ import { resolveSynaraDesktopFlavor, synaraDesktopIdentity } from "@synara/share
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildMacosIcon, resolvePenkraDevIconSource } from "../../../scripts/lib/macos-icon.ts";
+import { resolveMacDevelopmentSigningIdentity } from "../../../scripts/lib/macos-dev-signing.ts";
 
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
 const desktopFlavor = resolveSynaraDesktopFlavor({
@@ -27,7 +29,7 @@ const desktopFlavor = resolveSynaraDesktopFlavor({
 const desktopIdentity = synaraDesktopIdentity(desktopFlavor);
 const APP_DISPLAY_NAME = desktopIdentity.displayName;
 const APP_BUNDLE_ID = desktopIdentity.bundleId;
-const LAUNCHER_VERSION = 3;
+const LAUNCHER_VERSION = 8;
 const MICROPHONE_USAGE_DESCRIPTION =
   "Synara needs microphone access so you can record voice notes and transcribe them into the chat composer.";
 
@@ -109,6 +111,59 @@ function readJson(path) {
   }
 }
 
+function isMachOFile(filePath) {
+  const result = spawnSync("/usr/bin/file", ["-b", filePath], { encoding: "utf8" });
+  return result.status === 0 && result.stdout.includes("Mach-O");
+}
+
+function collectNestedMacCodePaths(appBundlePath) {
+  const codeFiles = [];
+  const codeBundles = [];
+  const frameworksDir = join(appBundlePath, "Contents", "Frameworks");
+  if (!existsSync(frameworksDir)) return [];
+
+  const visit = (directory) => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const entryPath = join(directory, entry.name);
+      const stat = lstatSync(entryPath);
+      if (stat.isSymbolicLink()) continue;
+      if (stat.isDirectory()) {
+        visit(entryPath);
+        if (/\.(?:app|framework|xpc)$/u.test(entry.name)) {
+          codeBundles.push(entryPath);
+        }
+        continue;
+      }
+      if (!stat.isFile()) continue;
+      if (!entry.name.endsWith(".dylib") && (stat.mode & 0o111) === 0) continue;
+      if (isMachOFile(entryPath)) codeFiles.push(entryPath);
+    }
+  };
+
+  visit(frameworksDir);
+  const deepestFirst = (left, right) =>
+    right.split("/").length - left.split("/").length || left.localeCompare(right);
+  return [...codeFiles.sort(deepestFirst), ...codeBundles.sort(deepestFirst)];
+}
+
+function signMacCode(codePath, signingIdentity) {
+  const result = spawnSync(
+    "/usr/bin/codesign",
+    ["--force", "--timestamp=none", "--sign", signingIdentity, codePath],
+    { encoding: "utf8" },
+  );
+  if (result.status !== 0) {
+    throw new Error(`Failed to sign ${codePath}: ${result.stderr.trim()}`);
+  }
+}
+
+function signMacAppInsideOut(appBundlePath, signingIdentity) {
+  for (const nestedCodePath of collectNestedMacCodePaths(appBundlePath)) {
+    signMacCode(nestedCodePath, signingIdentity);
+  }
+  signMacCode(appBundlePath, signingIdentity);
+}
+
 function buildMacLauncher(electronBinaryPath) {
   const sourceAppBundlePath = resolve(electronBinaryPath, "../../..");
   const runtimeDir = join(desktopDir, ".electron-runtime");
@@ -119,7 +174,7 @@ function buildMacLauncher(electronBinaryPath) {
     desktopFlavor === "development"
       ? join(runtimeDir, "PenkraDev.icns")
       : join(desktopDir, "resources", "icon.icns");
-  const metadataPath = join(runtimeDir, "metadata.json");
+  const metadataPath = join(runtimeDir, `metadata-${desktopFlavor}.json`);
   const iconSourcePath =
     desktopFlavor === "development"
       ? resolvePenkraDevIconSource(resolve(desktopDir, "..", ".."))
@@ -143,6 +198,7 @@ function buildMacLauncher(electronBinaryPath) {
     sourceAppMtimeMs: statSync(sourceAppBundlePath).mtimeMs,
     iconSourcePath,
     iconMtimeMs: statSync(iconPath).mtimeMs,
+    signingIdentity: resolveMacDevelopmentSigningIdentity(),
   };
 
   if (
@@ -158,14 +214,7 @@ function buildMacLauncher(electronBinaryPath) {
   renameSync(copiedBinaryPath, targetBinaryPath);
   patchMainBundleInfoPlist(targetAppBundlePath, iconPath);
   patchHelperBundleInfoPlists(targetAppBundlePath);
-  const sign = spawnSync(
-    "/usr/bin/codesign",
-    ["--force", "--deep", "--sign", "-", targetAppBundlePath],
-    { encoding: "utf8" },
-  );
-  if (sign.status !== 0) {
-    throw new Error(`Failed to sign ${APP_DISPLAY_NAME}: ${sign.stderr.trim()}`);
-  }
+  signMacAppInsideOut(targetAppBundlePath, expectedMetadata.signingIdentity);
   writeFileSync(metadataPath, `${JSON.stringify(expectedMetadata, null, 2)}\n`);
 
   return targetBinaryPath;

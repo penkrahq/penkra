@@ -277,6 +277,7 @@ async function supervise(bunExecutable: string): Promise<void> {
     ].join(":"),
     PENKRA_DEV_SUPERVISOR_PID: String(process.pid),
     PENKRA_DEV_ROOT: paths.developmentRoot,
+    PENKRA_SKIP_LOGIN_SHELL_ENVIRONMENT: "1",
     SYNARA_DEV_INSTANCE: DEV_INSTANCE_NAME,
   };
   delete environment.SYNARA_AUTH_TOKEN;

@@ -3,6 +3,22 @@ import { describe, expect, it, vi } from "vitest";
 import { syncShellEnvironment } from "./syncShellEnvironment";
 
 describe("syncShellEnvironment", () => {
+  it("does not execute a login shell when the launcher supplied the environment", () => {
+    const env: NodeJS.ProcessEnv = {
+      PATH: "/opt/homebrew/bin:/usr/bin",
+      PENKRA_SKIP_LOGIN_SHELL_ENVIRONMENT: "1",
+    };
+    const readEnvironment = vi.fn(() => ({ PATH: "/unexpected" }));
+
+    syncShellEnvironment(env, {
+      platform: "darwin",
+      readEnvironment,
+    });
+
+    expect(readEnvironment).not.toHaveBeenCalled();
+    expect(env.PATH).toBe("/opt/homebrew/bin:/usr/bin");
+  });
+
   it("hydrates PATH and missing SSH_AUTH_SOCK from the login shell on macOS", () => {
     const env: NodeJS.ProcessEnv = {
       SHELL: "/bin/zsh",

@@ -15,6 +15,8 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { buildMacosIcon, resolvePenkraDevIconSource } from "./lib/macos-icon.ts";
+import { resolveMacDevelopmentSigningIdentity } from "./lib/macos-dev-signing.ts";
+export { parseAppleDevelopmentIdentity } from "./lib/macos-dev-signing.ts";
 import {
   discoverPenkraBackendRoot,
   resolvePenkraDevWorkspaceConfigPath,
@@ -28,11 +30,6 @@ const previousTargetAppPath = "/Applications/Penkra Dev.app";
 const bundleIdentifier = "com.penkra.app.dev.launcher";
 const executableName = "Penkra (Dev)";
 
-export function parseAppleDevelopmentIdentity(output: string): string | null {
-  const match = output.match(/"([^"]*Apple Development:[^"]+)"/u);
-  return match?.[1] ?? null;
-}
-
 function resolveBunExecutable(): string {
   const configured = process.env.BUN_EXECUTABLE?.trim();
   if (configured && existsSync(configured)) return resolve(configured);
@@ -42,22 +39,6 @@ function resolveBunExecutable(): string {
     throw new Error("Cannot install Penkra Dev: Bun is not available.");
   }
   return resolve(candidate);
-}
-
-function resolveCodeSigningIdentity(): string {
-  const configured = process.env.PENKRA_DEV_CODESIGN_IDENTITY?.trim();
-  if (configured) return configured;
-
-  const identities = spawnSync(
-    "/usr/bin/security",
-    ["find-identity", "-v", "-p", "codesigning"],
-    { encoding: "utf8" },
-  );
-  if (identities.status === 0) {
-    const appleDevelopmentIdentity = parseAppleDevelopmentIdentity(identities.stdout);
-    if (appleDevelopmentIdentity) return appleDevelopmentIdentity;
-  }
-  return "-";
 }
 
 export function resolvePenkraDevLauncherCompileArgs(input: {
@@ -135,7 +116,7 @@ function install(): void {
   const executablePath = join(macosPath, executableName);
   const iconPath = join(resourcesPath, "PenkraDev.icns");
   const backupPath = `/Applications/.Penkra Dev.backup-${String(process.pid)}.app`;
-  const signingIdentity = resolveCodeSigningIdentity();
+  const signingIdentity = resolveMacDevelopmentSigningIdentity();
   const workspace = writePenkraDevWorkspace(
     {
       desktopRoot: repoRoot,

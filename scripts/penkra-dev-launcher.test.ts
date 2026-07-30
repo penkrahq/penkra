@@ -123,7 +123,12 @@ describe("Penkra Dev launcher", () => {
     };
 
     expect(turboConfig.globalEnv).toEqual(
-      expect.arrayContaining(["PENKRA_API_URL", "PENKRA_DEV_SUPERVISOR_PID", "PENKRA_ROOT"]),
+      expect.arrayContaining([
+        "PENKRA_API_URL",
+        "PENKRA_DEV_SUPERVISOR_PID",
+        "PENKRA_ROOT",
+        "PENKRA_SKIP_LOGIN_SHELL_ENVIRONMENT",
+      ]),
     );
   });
 

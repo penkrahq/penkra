@@ -68,6 +68,14 @@ export function syncShellEnvironment(
   const platform = options.platform ?? process.platform;
   const logWarning = options.logWarning ?? logShellEnvironmentWarning;
 
+  // The Applications dev launcher constructs a deterministic PATH before it
+  // starts Turbo. Re-running an interactive login shell here is redundant and,
+  // on macOS, can prompt for unrelated App Data touched by the user's shell
+  // startup scripts.
+  if (env.PENKRA_SKIP_LOGIN_SHELL_ENVIRONMENT === "1") {
+    return;
+  }
+
   if (platform === "win32") {
     syncWindowsEnvironment(
       env,

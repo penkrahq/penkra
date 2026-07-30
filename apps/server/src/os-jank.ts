@@ -32,6 +32,12 @@ export function fixPath(
   const logWarning = options.logWarning ?? logPathHydrationWarning;
   const readPath = options.readPath ?? readPathFromLoginShell;
 
+  // A supervised Penkra Dev launch already provides a complete deterministic
+  // PATH. Avoid sourcing the user's interactive shell again in the backend.
+  if (env.PENKRA_SKIP_LOGIN_SHELL_ENVIRONMENT === "1") {
+    return;
+  }
+
   try {
     let shellPath: string | undefined;
     for (const shell of listLoginShellCandidates(platform, env.SHELL, options.userShell)) {
