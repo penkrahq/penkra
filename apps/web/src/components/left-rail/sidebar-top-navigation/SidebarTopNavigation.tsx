@@ -1,7 +1,7 @@
 import {
   IconAlarm,
-  IconApps,
-  IconPencil,
+  IconEdit,
+  IconLayoutGrid,
 } from "@tabler/icons-react";
 import type { ComponentType, SVGProps } from "react";
 
@@ -21,8 +21,8 @@ export interface SidebarTopNavigationProps {
 }
 
 const defaultItems: SidebarNavigationItem[] = [
-  { icon: IconPencil, id: "new-chat", label: "New chat" },
-  { icon: IconApps, id: "apps", label: "Apps" },
+  { icon: IconEdit, id: "new-chat", label: "New chat" },
+  { icon: IconLayoutGrid, id: "apps", label: "Apps" },
   { icon: IconAlarm, id: "scheduled", label: "Scheduled" },
 ];
 
