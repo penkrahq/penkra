@@ -2,7 +2,7 @@ import type { HTMLAttributes, ReactNode } from "react";
 
 import { cn } from "~/lib/utils";
 
-export interface SettingsSectionSharedProps extends HTMLAttributes<HTMLElement> {
+export interface SettingsSectionSharedProps extends Omit<HTMLAttributes<HTMLElement>, "title"> {
   children: ReactNode;
   contentClassName?: string;
   title?: ReactNode;

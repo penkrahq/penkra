@@ -1,5 +1,5 @@
 // FILE: RightDock.tsx
-// Purpose: Tabbed multi-pane right sidebar shell (browser, diff, terminal, sidechat, git).
+// Purpose: Tabbed multi-pane right sidebar shell.
 // Layer: Chat right-dock UI
 // Depends on: ui/sidebar primitive, right-dock pane metadata, and a caller-provided pane renderer.
 
@@ -104,7 +104,7 @@ function RightDockTab(props: {
   );
 }
 
-// Persist which keep-mounted panes (e.g. terminals) have been activated so they
+// Persist which keep-mounted panes have been activated so they
 // stay in the DOM while another tab is selected, pruned to live panes so closed
 // panes drop out and the set never leaks across thread switches. The set is
 // The rendered set is derived synchronously so a kept pane never unmounts for a

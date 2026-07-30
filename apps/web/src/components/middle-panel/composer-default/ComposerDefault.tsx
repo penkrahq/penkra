@@ -24,7 +24,7 @@ export const ComposerDefault = forwardRef<HTMLTextAreaElement, ComposerDefaultPr
     {
       children,
       className,
-      disabled,
+      disabled = false,
       layoutMode = "preview",
       onBlur,
       onFocus,

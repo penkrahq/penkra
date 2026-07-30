@@ -3188,7 +3188,7 @@ export default function Sidebar() {
       )}
 
       <SidebarTopNavigation
-        activeItemId={isOnApps ? "apps" : undefined}
+        {...(isOnApps ? { activeItemId: "apps" } : {})}
         disabledItemIds={["scheduled"]}
         onSelect={(itemId) => {
           switch (itemId) {
@@ -3301,7 +3301,7 @@ export default function Sidebar() {
           onFeedback={() => openFeedbackDialog()}
           onSettings={() => void navigate({ to: "/settings" })}
           onSupport={() => openFeedbackDialog()}
-          onUpdate={showDesktopUpdateButton ? handleDesktopUpdateButtonClick : undefined}
+          {...(showDesktopUpdateButton ? { onUpdate: handleDesktopUpdateButtonClick } : {})}
           updateAvailable={showDesktopUpdateButton}
           updateDisabled={desktopUpdateButtonDisabled}
           updateLabel={

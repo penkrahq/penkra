@@ -1,10 +1,9 @@
-import { IconAlarm, IconEdit, IconLayoutGrid } from "@tabler/icons-react";
-import type { ComponentType, SVGProps } from "react";
+import { IconAlarm, IconEdit, IconLayoutGrid, type TablerIcon } from "@tabler/icons-react";
 
 import { NavItemShared } from "../nav-item-shared/NavItemShared";
 
 export interface SidebarNavigationItem {
-  icon: ComponentType<SVGProps<SVGSVGElement>>;
+  icon: TablerIcon;
   id: string;
   label: string;
 }

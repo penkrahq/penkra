@@ -15,6 +15,7 @@ export function WorkspaceHeaderShared({
   children = "penkra",
   expanded = true,
   onAdd,
+  state = "default",
   ...props
 }: WorkspaceHeaderSharedProps) {
   const Chevron = expanded ? IconChevronDown : IconChevronRight;
@@ -24,8 +25,8 @@ export function WorkspaceHeaderShared({
         aria-expanded={expanded}
         className="pr-7"
         leading={<Chevron />}
-        state={expanded ? "open" : props.state}
         {...props}
+        state={expanded ? "open" : state}
       >
         {children}
       </LeftRailRow>

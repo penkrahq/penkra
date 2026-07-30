@@ -28,18 +28,28 @@ export function ComposerActions({
       <IconActionTooltip
         ariaLabel="Attach files"
         label="Attach files"
-        onClick={onAttach}
         shortcut=""
+        {...(onAttach === undefined ? {} : { onClick: onAttach })}
       >
         <IconPlus />
       </IconActionTooltip>
       <AccessPillTrigger onClick={onAccess} />
       <span className="min-w-2 flex-1" />
       {showHarness ? <HarnessSelectorShared /> : null}
-      <IconActionTooltip ariaLabel="Change mode" label="Change mode" onClick={onMode} shortcut="">
+      <IconActionTooltip
+        ariaLabel="Change mode"
+        label="Change mode"
+        shortcut=""
+        {...(onMode === undefined ? {} : { onClick: onMode })}
+      >
         <IconCircle className="size-[13px]" />
       </IconActionTooltip>
-      <IconActionTooltip ariaLabel="Voice input" label="Voice input" onClick={onVoice} shortcut="">
+      <IconActionTooltip
+        ariaLabel="Voice input"
+        label="Voice input"
+        shortcut=""
+        {...(onVoice === undefined ? {} : { onClick: onVoice })}
+      >
         <IconMicrophone />
       </IconActionTooltip>
       <ButtonSend disabled={disabled} />

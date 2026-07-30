@@ -13,6 +13,7 @@ export interface ProjectGroupHeaderProps extends Omit<
 export function ProjectGroupHeader({
   children = "Projects",
   expanded = true,
+  state = "default",
   ...props
 }: ProjectGroupHeaderProps) {
   const Chevron = expanded ? IconChevronDown : IconChevronRight;
@@ -21,8 +22,8 @@ export function ProjectGroupHeader({
       aria-expanded={expanded}
       className="h-7"
       leading={<Chevron className="!size-3" />}
-      state={expanded ? "open" : props.state}
       {...props}
+      state={expanded ? "open" : state}
     >
       {children}
     </LeftRailRow>

@@ -15,7 +15,7 @@ export function DisclosureRowShared({
   children = "penkra",
   expanded = false,
   showTrailing = false,
-  state,
+  state = "default",
   ...props
 }: DisclosureRowSharedProps) {
   const Chevron = expanded ? IconChevronDown : IconChevronRight;

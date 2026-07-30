@@ -22,6 +22,7 @@ export function MessageActions({
   time = "3:48 AM",
   visible = false,
 }: MessageActionsProps) {
+  const secondaryAction = assistant ? onRetry : onEdit;
   const actions = (
     <span
       className={cn(
@@ -32,16 +33,16 @@ export function MessageActions({
       <IconActionTooltip
         ariaLabel={assistant ? "Copy response" : "Copy message"}
         label={assistant ? "Copy response" : "Copy message"}
-        onClick={onCopy}
         shortcut=""
+        {...(onCopy === undefined ? {} : { onClick: onCopy })}
       >
         <IconCopy className="size-[13px]" />
       </IconActionTooltip>
       <IconActionTooltip
         ariaLabel={assistant ? "Retry response" : "Edit message"}
         label={assistant ? "Retry response" : "Edit message"}
-        onClick={assistant ? onRetry : onEdit}
         shortcut=""
+        {...(secondaryAction === undefined ? {} : { onClick: secondaryAction })}
       >
         {assistant ? (
           <IconRefresh className="size-[13px]" />

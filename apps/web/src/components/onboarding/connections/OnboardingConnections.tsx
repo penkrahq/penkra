@@ -24,7 +24,11 @@ export function OnboardingConnections({
           Add or remove providers and API keys.
         </p>
         <ConnectionsList className="mt-6" />
-        <ConnectionMethodList className="mt-6" onEnterApiKey={onEnterApiKey} onSignIn={onSignIn} />
+        <ConnectionMethodList
+          className="mt-6"
+          {...(onEnterApiKey === undefined ? {} : { onEnterApiKey })}
+          {...(onSignIn === undefined ? {} : { onSignIn })}
+        />
       </div>
     </OnboardingLayout>
   );

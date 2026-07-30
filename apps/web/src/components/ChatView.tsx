@@ -9644,7 +9644,7 @@ export default function ChatView({
             </ComposerPickerMenuPopup>
           </Menu>
         }
-        onPanelToggle={!isEditorRail && !rightDockOpen ? openRightDock : undefined}
+        {...(!isEditorRail && !rightDockOpen ? { onPanelToggle: openRightDock } : {})}
         panelToggleDisabled={isEditorRail || rightDockOpen}
         title={activeThreadDisplayTitle}
       />

@@ -49,7 +49,7 @@ export function ThreadScreen3Rails({
       data-pencil-component="y0DmC"
       {...props}
     >
-      <TopBarThread title={title} />
+      <TopBarThread {...(title === undefined ? {} : { title })} />
       <ScrollArea
         aria-label="Conversation"
         className="min-h-0 w-[760px] flex-1 self-center"

@@ -37,7 +37,7 @@ export function CardAppStore({
       data-pencil-component="fgUwH"
       {...props}
     >
-      <IconTileApp icon={icon} tone={tone} />
+      <IconTileApp icon={icon} {...(tone === undefined ? {} : { tone })} />
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <div className="flex items-center gap-1.5">
           <strong className="truncate text-sm font-semibold text-[var(--color-text-foreground)]">

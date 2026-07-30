@@ -49,7 +49,12 @@ export function MessageAssistant({
       <div className="max-w-full font-sans text-sm leading-normal text-[var(--color-text-foreground)]">
         {children}
       </div>
-      <MessageActions assistant onCopy={onCopy} onRetry={onRetry} time={time} />
+      <MessageActions
+        assistant
+        {...(onCopy === undefined ? {} : { onCopy })}
+        {...(onRetry === undefined ? {} : { onRetry })}
+        {...(time === undefined ? {} : { time })}
+      />
     </article>
   );
 }

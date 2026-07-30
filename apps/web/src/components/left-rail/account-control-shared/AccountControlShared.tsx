@@ -42,21 +42,21 @@ export function AccountControlShared({
           accountButtonProps={{ "aria-expanded": open, "aria-haspopup": "menu" }}
           accountButtonWrapper={(button) => <MenuTrigger render={button} />}
           name={accountName}
-          onHelp={onSupport}
-          onSettings={onSettings}
-          onUpdate={onUpdate}
+          {...(onSupport === undefined ? {} : { onHelp: onSupport })}
+          {...(onSettings === undefined ? {} : { onSettings })}
+          {...(onUpdate === undefined ? {} : { onUpdate })}
           selected={open}
+          {...(updateAvailable === undefined ? {} : { updateAvailable })}
+          {...(updateDisabled === undefined ? {} : { updateDisabled })}
+          {...(updateLabel === undefined ? {} : { updateLabel })}
           ref={accountRowRef}
-          updateAvailable={updateAvailable}
-          updateDisabled={updateDisabled}
-          updateLabel={updateLabel}
         />
         <AccountMenu
           anchor={accountRowRef}
-          onFeedback={onFeedback}
-          onLogout={onLogout}
-          onSettings={onSettings}
-          onSupport={onSupport}
+          {...(onFeedback === undefined ? {} : { onFeedback })}
+          {...(onLogout === undefined ? {} : { onLogout })}
+          {...(onSettings === undefined ? {} : { onSettings })}
+          {...(onSupport === undefined ? {} : { onSupport })}
         />
       </div>
     </Menu>

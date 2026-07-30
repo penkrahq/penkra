@@ -37,7 +37,11 @@ export function MessageUser({
       <div className="max-w-[80%] rounded-[14px] bg-[var(--color-background-user-message)] px-3.5 py-2.5 font-sans text-sm leading-normal text-[var(--color-text-foreground)]">
         {children}
       </div>
-      <MessageActions onCopy={onCopy} onEdit={onEdit} time={time} />
+      <MessageActions
+        {...(onCopy === undefined ? {} : { onCopy })}
+        {...(onEdit === undefined ? {} : { onEdit })}
+        {...(time === undefined ? {} : { time })}
+      />
     </article>
   );
 }

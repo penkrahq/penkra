@@ -47,13 +47,29 @@ export function AccountMenu({
       sideOffset={0}
       surface="bare"
     >
-      <AccountMenuItem icon="settings" label="Settings" onClick={onSettings} />
-      <AccountMenuItem icon="feedback" label="Give Feedback" onClick={onFeedback} />
-      <AccountMenuItem icon="support" label="Support Us" onClick={onSupport} />
+      <AccountMenuItem
+        icon="settings"
+        label="Settings"
+        {...(onSettings === undefined ? {} : { onClick: onSettings })}
+      />
+      <AccountMenuItem
+        icon="feedback"
+        label="Give Feedback"
+        {...(onFeedback === undefined ? {} : { onClick: onFeedback })}
+      />
+      <AccountMenuItem
+        icon="support"
+        label="Support Us"
+        {...(onSupport === undefined ? {} : { onClick: onSupport })}
+      />
       <div className="flex h-[9px] w-[206px] items-center px-1">
         <MenuSeparator className="m-0 h-px w-[198px] bg-[#ffffff12]" />
       </div>
-      <AccountMenuItem icon="logout" label="Log Out" onClick={onLogout} />
+      <AccountMenuItem
+        icon="logout"
+        label="Log Out"
+        {...(onLogout === undefined ? {} : { onClick: onLogout })}
+      />
     </MenuPopupBase>
   );
 }

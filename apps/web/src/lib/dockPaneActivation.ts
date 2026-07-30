@@ -15,21 +15,15 @@ export const DOCK_PANE_DEFERRED_HYDRATION_FRAMES = 2;
 const DEFERRED_RUNTIME_PANE_KINDS: ReadonlySet<RightDockPaneKind> = new Set<RightDockPaneKind>([
   "browser",
   "sidechat",
-  "terminal",
 ]);
 
 // Pane kinds whose React subtree must stay mounted while inactive instead of
-// being torn down when another tab is selected. Unmounting a terminal detaches
-// its xterm DOM (terminalRuntime.detach -> wrapper.remove) and re-running attach
-// triggers a double FitAddon pass, which the user sees as a slow open plus a
-// multi-line reflow flicker. Keeping it mounted and toggling visibility makes
-// tab switches instant and flicker-free while preserving scrollback/runtime.
-// The explorer pane keeps its browse state (selected file, expanded directories,
-// search query, sidebar visibility) in local component state, so keep it mounted
-// while another tab is active — otherwise switching tabs would tear the subtree
-// down and reset the explorer to its workspace root on return.
+// being torn down when another tab is selected. The explorer pane keeps its
+// browse state (selected file, expanded directories, search query, sidebar
+// visibility) in local component state, so keep it mounted while another tab is
+// active — otherwise switching tabs would tear the subtree down and reset the
+// explorer to its workspace root on return.
 const KEEP_MOUNTED_PANE_KINDS: ReadonlySet<RightDockPaneKind> = new Set<RightDockPaneKind>([
-  "terminal",
   "explorer",
 ]);
 
