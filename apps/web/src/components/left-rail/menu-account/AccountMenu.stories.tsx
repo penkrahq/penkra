@@ -4,7 +4,7 @@ import { Menu, MenuTrigger } from "~/components/ui/menu";
 
 import { AccountMenu } from "./AccountMenu";
 
-const meta = {
+const meta: Meta<typeof AccountMenu> = {
   component: AccountMenu,
   decorators: [
     (Story) => (
@@ -18,7 +18,7 @@ const meta = {
   ],
   parameters: { pencil: { componentId: "KjCFX", groupId: "PUf7t" } },
   title: "Left Rail/Menu/Account",
-} satisfies Meta<typeof AccountMenu>;
+};
 
 export default meta;
 type Story = StoryObj<typeof meta>;
