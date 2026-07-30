@@ -63,11 +63,7 @@ export function shouldShowArm64IntelBuildWarning(state: DesktopUpdateState | nul
 }
 
 export function isDesktopUpdateButtonDisabled(state: DesktopUpdateState | null): boolean {
-  return (
-    state?.status === "downloading" ||
-    state?.status === "checking" ||
-    (state?.status === "available" && state.errorContext !== "download")
-  );
+  return state?.status === "downloading" || state?.status === "checking";
 }
 
 export interface DesktopUpdateButtonPresentation {
@@ -81,7 +77,7 @@ export function getDesktopUpdateButtonPresentation(
 ): DesktopUpdateButtonPresentation {
   if (options?.installing) {
     return {
-      label: "Updating...",
+      label: "Updating…",
       secondaryLabel: null,
     };
   }
@@ -95,14 +91,14 @@ export function getDesktopUpdateButtonPresentation(
 
   if (state.status === "checking") {
     return {
-      label: "Checking...",
+      label: "Checking…",
       secondaryLabel: null,
     };
   }
 
   if (state.status === "downloading") {
     return {
-      label: "Preparing",
+      label: "Preparing…",
       secondaryLabel: null,
     };
   }
@@ -116,7 +112,7 @@ export function getDesktopUpdateButtonPresentation(
       };
     }
     return {
-      label: "Preparing",
+      label: "Update",
       secondaryLabel: null,
     };
   }
@@ -201,7 +197,7 @@ export function getDesktopUpdateButtonTooltip(
     return `Could not install update ${state.downloadedVersion ?? state.availableVersion}. Click to retry.`;
   }
   if (state.status === "available") {
-    return `Preparing update ${state.availableVersion ?? ""}`.trim();
+    return `Download update ${state.availableVersion ?? ""} and restart Penkra`.trim();
   }
   if (state.status === "downloading") {
     const progress =

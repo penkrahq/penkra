@@ -48,26 +48,17 @@ describe("Pencil left rail", () => {
     await expect.element(page.getByRole("button", { name: "Thread 1" })).toBeVisible();
   });
 
-  it("keeps account, settings, and help as separate actions", async () => {
+  it("keeps account and help as separate actions", async () => {
     const onAccount = vi.fn();
     const onHelp = vi.fn();
-    const onSettings = vi.fn();
-    await render(
-      <AccountRowShared
-        name="gigsama"
-        onAccount={onAccount}
-        onHelp={onHelp}
-        onSettings={onSettings}
-      />,
-    );
+    await render(<AccountRowShared name="gigsama" onAccount={onAccount} onHelp={onHelp} />);
 
     await page.getByRole("button", { name: "gigsama" }).click();
-    await page.getByRole("button", { name: "Settings" }).click();
     await page.getByRole("button", { name: "Help" }).click();
 
     expect(onAccount).toHaveBeenCalledOnce();
-    expect(onSettings).toHaveBeenCalledOnce();
     expect(onHelp).toHaveBeenCalledOnce();
+    expect(page.getByRole("button", { name: "Settings" }).query()).toBeNull();
   });
 
   it("keeps the account row surface transparent on hover", async () => {
@@ -75,12 +66,11 @@ describe("Pencil left rail", () => {
 
     await page.getByRole("button", { name: "gigsama" }).hover();
     const row = document.querySelector<HTMLElement>(".group\\/account-row");
-    const settings = document.querySelector<HTMLElement>("button[aria-label='Settings']");
+    const help = document.querySelector<HTMLElement>("button[aria-label='Help']");
 
     expect(row).not.toBeNull();
-    expect(settings).not.toBeNull();
+    expect(help).not.toBeNull();
     expect(getComputedStyle(row!).backgroundColor).toBe("rgba(0, 0, 0, 0)");
-    expect(getComputedStyle(settings!).color).toBe(getComputedStyle(row!).color);
   });
 
   it("keeps an available update independent from the account menu", async () => {
@@ -91,15 +81,77 @@ describe("Pencil left rail", () => {
         name="gigsama"
         onAccount={onAccount}
         onUpdate={onUpdate}
-        updateAvailable
-        updateLabel="Install update"
+        updateLabel="Update"
+        updatePhase="ready"
       />,
     );
 
-    await page.getByRole("button", { name: "Install update" }).click();
+    await page.getByRole("button", { name: "Update" }).click();
 
     expect(onUpdate).toHaveBeenCalledOnce();
     expect(onAccount).not.toHaveBeenCalled();
+  });
+
+  it("matches the Pencil lifecycle treatments without changing account-row geometry", async () => {
+    const { rerender } = await render(
+      <AccountRowShared
+        name="gigsama"
+        onUpdate={vi.fn()}
+        updateDisabled
+        updateLabel="Preparing…"
+        updatePhase="preparing"
+      />,
+    );
+
+    const preparing = page.getByRole("button", { name: "Preparing…" });
+    const row = preparing.element().closest<HTMLElement>(".h-11");
+    await expect.element(preparing).toBeDisabled();
+    expect(preparing.element().querySelector(".animate-spin")).not.toBeNull();
+
+    await rerender(
+      <AccountRowShared
+        name="gigsama"
+        onUpdate={vi.fn()}
+        updateDisabled
+        updateLabel="42%"
+        updatePhase="downloading"
+      />,
+    );
+    const downloading = page.getByRole("button", { name: "42%" });
+    await expect.element(downloading).toBeDisabled();
+    expect(downloading.element().querySelector(".animate-spin")).toBeNull();
+    const neutralUpdateBackground = getComputedStyle(downloading.element()).backgroundColor;
+
+    await rerender(
+      <AccountRowShared
+        name="gigsama"
+        onUpdate={vi.fn()}
+        updateLabel="Update"
+        updatePhase="ready"
+      />,
+    );
+    const ready = page.getByRole("button", { name: "Update" });
+    await expect.element(ready).toBeEnabled();
+    expect(ready.element().getBoundingClientRect().height).toBe(26);
+    expect(getComputedStyle(ready.element()).backgroundColor).not.toBe(neutralUpdateBackground);
+
+    await rerender(
+      <AccountRowShared
+        name="gigsama"
+        onUpdate={vi.fn()}
+        updateDisabled
+        updateLabel="Updating…"
+        updatePhase="installing"
+      />,
+    );
+    const installing = page.getByRole("button", { name: "Updating…" });
+    await expect.element(installing).toBeDisabled();
+    expect(installing.element().querySelector(".animate-spin")).not.toBeNull();
+    expect(row?.getBoundingClientRect().height).toBe(44);
+    expect(row?.getBoundingClientRect().width).toBe(240);
+    expect(page.getByRole("button", { name: "Help" }).element().getBoundingClientRect().width).toBe(
+      28,
+    );
   });
 
   it("opens the shared account popup from its semantic menu trigger", async () => {

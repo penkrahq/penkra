@@ -53,7 +53,9 @@ describe("desktop update button state", () => {
     };
     expect(shouldShowDesktopUpdateButton(state)).toBe(true);
     expect(resolveDesktopUpdateButtonAction(state)).toBe("download");
-    expect(isDesktopUpdateButtonDisabled(state)).toBe(true);
+    expect(isDesktopUpdateButtonDisabled(state)).toBe(false);
+    expect(getDesktopUpdateButtonLabel(state)).toBe("Update");
+    expect(getDesktopUpdateButtonTooltip(state)).toBe("Download update 1.1.0 and restart Penkra");
   });
 
   it("keeps retry action available after a download error", () => {
@@ -167,9 +169,9 @@ describe("desktop update button state", () => {
     expect(shouldShowDesktopUpdateButton(state)).toBe(true);
     expect(isDesktopUpdateButtonDisabled(state)).toBe(true);
     expect(getDesktopUpdateButtonTooltip(state)).toContain("42%");
-    expect(getDesktopUpdateButtonLabel(state)).toBe("Preparing");
+    expect(getDesktopUpdateButtonLabel(state)).toBe("Preparing…");
     expect(getDesktopUpdateButtonPresentation(state)).toEqual({
-      label: "Preparing",
+      label: "Preparing…",
       secondaryLabel: null,
     });
     expect(getDesktopUpdateDownloadPercent(state)).toBe(42);
@@ -217,7 +219,7 @@ describe("desktop update button state", () => {
     expect(resolveDesktopUpdateButtonAction(state)).toBe("check");
     expect(isDesktopUpdateButtonDisabled(state)).toBe(true);
     expect(getDesktopUpdateButtonTooltip(state)).toContain("Checking for updates");
-    expect(getDesktopUpdateButtonLabel(state)).toBe("Checking...");
+    expect(getDesktopUpdateButtonLabel(state)).toBe("Checking…");
   });
 
   it("shows retry labels for actionable update errors", () => {
@@ -278,7 +280,7 @@ describe("desktop update button state", () => {
       availableVersion: "1.1.0",
     };
     const presentation = getDesktopUpdateButtonPresentation(installingState, { installing: true });
-    expect(presentation.label).toBe("Updating...");
+    expect(presentation.label).toBe("Updating…");
     expect(getDesktopUpdateButtonTooltip(installingState, { installing: true })).toBe(
       "Applying update...",
     );
