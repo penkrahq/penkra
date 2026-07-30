@@ -47,6 +47,8 @@ export interface PenkraDevLauncherPaths {
   readonly stateDirectory: string;
   readonly lockDirectory: string;
   readonly ownerPath: string;
+  readonly statusPath: string;
+  readonly failurePath: string;
   readonly logPath: string;
   readonly developmentRoot: string;
 }
@@ -58,9 +60,42 @@ export function resolvePenkraDevLauncherPaths(homeDirectory = homedir()): Penkra
     stateDirectory,
     lockDirectory: join(stateDirectory, "supervisor.lock"),
     ownerPath: join(stateDirectory, "supervisor.lock", "owner.json"),
+    statusPath: join(stateDirectory, "status.json"),
+    failurePath: join(stateDirectory, "failure.json"),
     logPath: join(stateDirectory, "launcher.log"),
     developmentRoot,
   };
+}
+
+export interface DockerReadinessOptions {
+  readonly isReady: () => boolean;
+  readonly startDockerDesktop: () => void;
+  readonly sleep: (milliseconds: number) => Promise<void>;
+  readonly timeoutMs?: number;
+  readonly pollIntervalMs?: number;
+  readonly onWaiting?: () => void;
+}
+
+export async function waitForDockerEngine({
+  isReady,
+  startDockerDesktop,
+  sleep,
+  timeoutMs = 120_000,
+  pollIntervalMs = 1_000,
+  onWaiting,
+}: DockerReadinessOptions): Promise<"already-ready" | "started"> {
+  if (isReady()) return "already-ready";
+
+  startDockerDesktop();
+  onWaiting?.();
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    await sleep(pollIntervalMs);
+    if (isReady()) return "started";
+  }
+  throw new Error(
+    `Docker Desktop did not become ready within ${Math.ceil(timeoutMs / 1_000)} seconds.`,
+  );
 }
 
 export function isExpectedPenkraDevSupervisorCommand(
@@ -143,9 +178,12 @@ function focusDevelopmentElectron(): boolean {
   return result.status === 0;
 }
 
-async function focusDevelopmentElectronWhenReady(timeoutMs = 10_000): Promise<void> {
+async function focusDevelopmentElectronWhenReady(
+  timeoutMs = 10_000,
+  shouldContinue = () => true,
+): Promise<void> {
   const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
+  while (Date.now() < deadline && shouldContinue()) {
     if (focusDevelopmentElectron()) return;
     await new Promise((resolvePromise) => setTimeout(resolvePromise, 200));
   }
@@ -169,6 +207,129 @@ function acquireSupervisorLock(paths: PenkraDevLauncherPaths): boolean {
 function releaseSupervisorLock(paths: PenkraDevLauncherPaths): void {
   if (readOwnerPid(paths) === process.pid) {
     rmSync(paths.lockDirectory, { recursive: true, force: true });
+  }
+}
+
+type LauncherStatusPhase =
+  | "starting"
+  | "waiting-for-docker"
+  | "starting-workspace"
+  | "running"
+  | "failed"
+  | "stopped";
+
+function writeLauncherStatus(
+  paths: PenkraDevLauncherPaths,
+  phase: LauncherStatusPhase,
+  detail: string,
+): void {
+  writeFileSync(
+    paths.statusPath,
+    `${JSON.stringify(
+      {
+        phase,
+        detail,
+        supervisorPid: process.pid,
+        updatedAt: new Date().toISOString(),
+      },
+      null,
+      2,
+    )}\n`,
+    { mode: 0o600 },
+  );
+}
+
+function resolveDockerExecutable(): string {
+  const candidates = [
+    "/usr/local/bin/docker",
+    "/opt/homebrew/bin/docker",
+    "/Applications/Docker.app/Contents/Resources/bin/docker",
+  ];
+  const executable = candidates.find((candidate) => existsSync(candidate));
+  if (!executable) {
+    throw new Error(
+      "Docker CLI is not installed. Install Docker Desktop before launching Penkra (Dev).",
+    );
+  }
+  return executable;
+}
+
+function dockerEngineIsReady(dockerExecutable: string): boolean {
+  const result = spawnSync(dockerExecutable, ["info", "--format", "{{.ServerVersion}}"], {
+    stdio: "ignore",
+    timeout: 5_000,
+  });
+  return result.status === 0;
+}
+
+async function ensureDockerEngineReady(paths: PenkraDevLauncherPaths): Promise<void> {
+  const dockerExecutable = resolveDockerExecutable();
+  await waitForDockerEngine({
+    isReady: () => dockerEngineIsReady(dockerExecutable),
+    startDockerDesktop: () => {
+      if (!existsSync("/Applications/Docker.app")) {
+        throw new Error(
+          "Docker Desktop is not installed in Applications. Install it before launching Penkra (Dev).",
+        );
+      }
+      const result = spawnSync("/usr/bin/open", ["-gja", "/Applications/Docker.app"], {
+        encoding: "utf8",
+      });
+      if (result.status !== 0) {
+        throw new Error(`Could not open Docker Desktop: ${result.stderr.trim()}`);
+      }
+    },
+    sleep: (milliseconds) =>
+      new Promise((resolvePromise) => setTimeout(resolvePromise, milliseconds)),
+    onWaiting: () =>
+      writeLauncherStatus(
+        paths,
+        "waiting-for-docker",
+        "Waiting for the Docker Desktop engine to become ready.",
+      ),
+  });
+}
+
+type FailureAction = "quit" | "retry" | "view-log";
+
+function showFailureDialog(message: string): FailureAction {
+  const script = [
+    "on run argv",
+    "set failureMessage to item 1 of argv",
+    'display dialog failureMessage with title "Penkra (Dev) could not start" buttons {"Quit", "View Log", "Retry"} default button "Retry" cancel button "Quit" with icon stop',
+    "return button returned of result",
+    "end run",
+  ];
+  const result = spawnSync(
+    "/usr/bin/osascript",
+    script.flatMap((line) => ["-e", line]).concat(message),
+    { encoding: "utf8" },
+  );
+  if (result.status !== 0) return "quit";
+  switch (result.stdout.trim()) {
+    case "Retry":
+      return "retry";
+    case "View Log":
+      return "view-log";
+    default:
+      return "quit";
+  }
+}
+
+function revealLauncherLog(logPath: string): void {
+  spawnSync("/usr/bin/open", ["-R", logPath], { stdio: "ignore" });
+}
+
+function readWorkspaceFailure(paths: PenkraDevLauncherPaths): string | null {
+  try {
+    const parsed = JSON.parse(readFileSync(paths.failurePath, "utf8")) as {
+      message?: unknown;
+    };
+    return typeof parsed.message === "string" && parsed.message.trim()
+      ? parsed.message.trim()
+      : null;
+  } catch {
+    return null;
   }
 }
 
@@ -254,69 +415,121 @@ async function supervise(bunExecutable: string): Promise<void> {
     return;
   }
 
-  writeFileSync(
-    paths.ownerPath,
-    `${JSON.stringify(
-      {
-        pid: process.pid,
-        desktopRoot: workspace.desktopRoot,
-        backendRoot: workspace.backendRoot,
-        startedAt: new Date().toISOString(),
-      },
-      null,
-      2,
-    )}\n`,
-    { mode: 0o600 },
-  );
+  try {
+    writeFileSync(
+      paths.ownerPath,
+      `${JSON.stringify(
+        {
+          pid: process.pid,
+          desktopRoot: workspace.desktopRoot,
+          backendRoot: workspace.backendRoot,
+          websiteRoot: workspace.websiteRoot,
+          startedAt: new Date().toISOString(),
+        },
+        null,
+        2,
+      )}\n`,
+      { mode: 0o600 },
+    );
 
-  const environment: NodeJS.ProcessEnv = {
-    ...process.env,
-    PATH: [
-      dirname(bunExecutable),
-      join(repoRoot, "node_modules", ".bin"),
-      "/opt/homebrew/bin",
-      "/usr/local/bin",
-      "/usr/bin",
-      "/bin",
-      "/usr/sbin",
-      "/sbin",
-    ].join(":"),
-    PENKRA_DEV_SUPERVISOR_PID: String(process.pid),
-    PENKRA_DEV_ROOT: paths.developmentRoot,
-    PENKRA_SKIP_LOGIN_SHELL_ENVIRONMENT: "1",
-    SYNARA_DEV_INSTANCE: DEV_INSTANCE_NAME,
-  };
-  delete environment.SYNARA_AUTH_TOKEN;
+    const environment: NodeJS.ProcessEnv = {
+      ...process.env,
+      PATH: [
+        dirname(bunExecutable),
+        join(repoRoot, "node_modules", ".bin"),
+        "/opt/homebrew/bin",
+        "/usr/local/bin",
+        "/usr/bin",
+        "/bin",
+        "/usr/sbin",
+        "/sbin",
+      ].join(":"),
+      PENKRA_DEV_SUPERVISOR_PID: String(process.pid),
+      PENKRA_DEV_FAILURE_PATH: paths.failurePath,
+      PENKRA_DEV_ROOT: paths.developmentRoot,
+      PENKRA_SKIP_LOGIN_SHELL_ENVIRONMENT: "1",
+      SYNARA_DEV_INSTANCE: DEV_INSTANCE_NAME,
+    };
+    delete environment.SYNARA_AUTH_TOKEN;
 
-  const child = spawn(workspaceCommand.executable, workspaceCommand.args, {
-    cwd: workspaceCommand.cwd,
-    detached: true,
-    env: environment,
-    stdio: "inherit",
-  });
+    while (true) {
+      try {
+        writeLauncherStatus(paths, "starting", "Checking local development prerequisites.");
+        await ensureDockerEngineReady(paths);
+        writeLauncherStatus(paths, "starting-workspace", "Starting the local Penkra workspace.");
+        rmSync(paths.failurePath, { force: true });
 
-  let stopping = false;
-  let stopPromise: Promise<void> | null = null;
-  const stop = (signal: NodeJS.Signals) => {
-    if (stopping) return;
-    stopping = true;
-    if (child.exitCode === null && child.signalCode === null) {
-      stopPromise = terminateProcessTree(child.pid!, signal);
+        const child = spawn(workspaceCommand.executable, workspaceCommand.args, {
+          cwd: workspaceCommand.cwd,
+          detached: true,
+          env: environment,
+          stdio: "inherit",
+        });
+
+        let stopping = false;
+        let stopPromise: Promise<void> | null = null;
+        let childActive = true;
+        const stop = (signal: NodeJS.Signals) => {
+          if (stopping) return;
+          stopping = true;
+          if (child.exitCode === null && child.signalCode === null) {
+            stopPromise = terminateProcessTree(child.pid!, signal);
+          }
+        };
+        const signalHandlers = new Map<NodeJS.Signals, () => void>();
+        for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
+          const handler = () => stop(signal);
+          signalHandlers.set(signal, handler);
+          process.once(signal, handler);
+        }
+
+        const focusPromise = focusDevelopmentElectronWhenReady(120_000, () => childActive).then(
+          () => {
+            if (developmentElectronIsRunning()) {
+              writeLauncherStatus(paths, "running", "Penkra (Dev) is running.");
+            }
+          },
+        );
+
+        let exitCode: number;
+        try {
+          exitCode = await new Promise<number>((resolveExit, rejectExit) => {
+            child.once("error", rejectExit);
+            child.once("exit", (code, signal) => {
+              resolveExit(code ?? (signal ? 1 : 0));
+            });
+          });
+        } finally {
+          childActive = false;
+          for (const [signal, handler] of signalHandlers) {
+            process.removeListener(signal, handler);
+          }
+          await focusPromise;
+        }
+        await stopPromise;
+        if (exitCode === 0 || stopping) {
+          writeLauncherStatus(paths, "stopped", "Penkra (Dev) stopped.");
+          process.exitCode = exitCode;
+          return;
+        }
+        throw new Error(
+          readWorkspaceFailure(paths) ?? `The local workspace exited with code ${exitCode}.`,
+        );
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        writeLauncherStatus(paths, "failed", detail);
+        const action = showFailureDialog(
+          `${detail}\n\nThe detailed startup log is available at:\n${paths.logPath}`,
+        );
+        if (action === "retry") continue;
+        if (action === "view-log") revealLauncherLog(paths.logPath);
+        process.exitCode = 1;
+        return;
+      }
     }
-  };
-  for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
-    process.once(signal, () => stop(signal));
+  } finally {
+    releaseSupervisorLock(paths);
   }
-
-  const exitCode = await new Promise<number>((resolveExit, rejectExit) => {
-    child.once("error", rejectExit);
-    child.once("exit", (code, signal) => {
-      resolveExit(code ?? (signal ? 1 : 0));
-    });
-  });
-  await stopPromise;
-  releaseSupervisorLock(paths);
-  process.exitCode = exitCode;
 }
 
 process.once("exit", () => {

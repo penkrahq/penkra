@@ -24,7 +24,10 @@ bun run dev:desktop:install-app
 ```
 
 Opening `/Applications/Penkra (Dev).app` starts the complete local development workspace
-and launches the desktop application as **Penkra (Dev)**.
+and launches the desktop application as **Penkra (Dev)**. The launcher starts Docker Desktop
+when necessary and waits for its engine before bootstrapping the workspace. Startup state is
+written to `~/Penkra_Dev/.launcher/status.json`; a failed startup presents Retry and View Log
+actions instead of exiting silently.
 
 Source builds use Penkra's production account services by default, so public contributors can
 sign in with an ordinary Penkra account without running the private backend. Internal development
