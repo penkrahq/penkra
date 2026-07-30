@@ -1,9 +1,27 @@
 import "../../index.css";
 
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { page } from "vitest/browser";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
+
+vi.mock("~/nativeApi", async () => {
+  const { DEFAULT_SERVER_SETTINGS_VIEW } = await import("@synara/contracts");
+  const api = {
+    server: {
+      getSettings: async () => DEFAULT_SERVER_SETTINGS_VIEW,
+      updateSettings: async (patch: Record<string, unknown>) => ({
+        ...DEFAULT_SERVER_SETTINGS_VIEW,
+        ...patch,
+      }),
+    },
+  };
+  return {
+    ensureNativeApi: () => api,
+    readNativeApi: () => api,
+  };
+});
 
 import { ModalSettings } from "./modal-settings/ModalSettings";
 import { SettingsDialog } from "./modal-settings/SettingsDialog";
@@ -12,18 +30,23 @@ import { OpenWithRowShared } from "./open-with-row-shared/OpenWithRowShared";
 import { SettingsPageContent } from "./pages/SettingsPageContent";
 import { ThemePanelShared } from "./theme-panel-shared/ThemePanelShared";
 
+const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
 function SettingsDialogHarness() {
   const [activePage, setActivePage] = useState<SettingsPage>("general");
 
   return (
-    <SettingsDialog onClose={() => undefined} onPageChange={setActivePage} page={activePage}>
-      <SettingsPageContent page={activePage} />
-    </SettingsDialog>
+    <QueryClientProvider client={queryClient}>
+      <SettingsDialog onClose={() => undefined} onPageChange={setActivePage} page={activePage}>
+        <SettingsPageContent page={activePage} />
+      </SettingsDialog>
+    </QueryClientProvider>
   );
 }
 
 describe("Pencil settings structure", () => {
   afterEach(() => {
+    queryClient.clear();
     document.body.innerHTML = "";
   });
 
@@ -73,8 +96,8 @@ describe("Pencil settings structure", () => {
     );
 
     await page.getByRole("button", { name: /Open with/i }).click();
-    await expect.element(page.getByRole("option", { name: /Finder/i })).toBeVisible();
-    await page.getByRole("option", { name: /Finder/i }).click();
+    await expect.element(page.getByRole("button", { name: "Finder", exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Finder", exact: true }).click();
     await expect.element(page.getByRole("button", { name: /Finder/i })).toBeVisible();
 
     await page.getByRole("slider", { name: "Contrast" }).fill("62");
@@ -89,7 +112,14 @@ describe("Pencil settings structure", () => {
 
     await expect.element(page.getByText("Defaults and updates for Penkra.")).toBeVisible();
     await expect.element(page.getByText("Open with", { exact: true })).toBeVisible();
+    await expect.element(page.getByText("Notifications", { exact: true })).toBeVisible();
+    const providerUpdates = page.getByRole("button", { name: /Provider updates/i });
+    await expect.element(providerUpdates).toHaveTextContent("Automatic");
+    await providerUpdates.click();
+    await page.getByRole("button", { name: "Notify me", exact: true }).click();
+    await expect.element(providerUpdates).toHaveTextContent("Notify me");
     expect(document.body.textContent).not.toContain("Restore defaults");
+    expect(document.body.textContent).not.toContain("Automatic CLI update checks");
 
     await page.getByRole("button", { name: "Agents", exact: true }).click();
     await expect

@@ -223,7 +223,9 @@ export const AppSettingsSchema = Schema.Struct({
   showEnvironmentInstructions: Schema.Boolean.pipe(withDefaults(() => true)),
   showEnvironmentNotepad: Schema.Boolean.pipe(withDefaults(() => true)),
   enableAssistantStreaming: Schema.Boolean.pipe(withDefaults(() => true)),
-  providerUpdateMode: ProviderUpdateMode.pipe(withDefaults(() => "automatic")),
+  providerUpdateMode: ProviderUpdateMode.pipe(
+    withDefaults(() => "automatic" as const satisfies ProviderUpdateMode),
+  ),
   // Deprecated bridge. Normalization migrates the old boolean and omits it.
   enableProviderUpdateChecks: Schema.optionalKey(Schema.Boolean),
   enableNativeFontSmoothing: Schema.Boolean.pipe(withDefaults(getDefaultNativeFontSmoothing)),
@@ -620,7 +622,7 @@ function appSettingsPatchToServerSettingsPatch(patch: Partial<AppSettings>): Ser
   if (hasOwn(patch, "enableAssistantStreaming")) {
     serverPatch.enableAssistantStreaming = Boolean(patch.enableAssistantStreaming);
   }
-  if (hasOwn(patch, "providerUpdateMode")) {
+  if (patch.providerUpdateMode === "automatic" || patch.providerUpdateMode === "notify") {
     serverPatch.providerUpdateMode = patch.providerUpdateMode;
   }
   if (patch.defaultThreadEnvMode === "local" || patch.defaultThreadEnvMode === "worktree") {
