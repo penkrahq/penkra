@@ -75,9 +75,12 @@ describe("Pencil left rail", () => {
 
     await page.getByRole("button", { name: "gigsama" }).hover();
     const row = document.querySelector<HTMLElement>(".group\\/account-row");
+    const settings = document.querySelector<HTMLElement>("button[aria-label='Settings']");
 
     expect(row).not.toBeNull();
+    expect(settings).not.toBeNull();
     expect(getComputedStyle(row!).backgroundColor).toBe("rgba(0, 0, 0, 0)");
+    expect(getComputedStyle(settings!).color).toBe(getComputedStyle(row!).color);
   });
 
   it("keeps an available update independent from the account menu", async () => {

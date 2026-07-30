@@ -92,7 +92,7 @@ export const AccountRowShared = forwardRef<HTMLDivElement, AccountRowSharedProps
         ) : null}
         <button
           aria-label="Settings"
-          className="inline-flex size-3.5 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-[var(--color-text-foreground-tertiary)] outline-none hover:text-[var(--color-text-foreground)] focus-visible:ring-1 focus-visible:ring-[var(--color-border-focus)]"
+          className="inline-flex size-3.5 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-[var(--color-text-foreground-tertiary)] outline-none group-hover/account-row:text-[var(--color-text-foreground)] hover:text-[var(--color-text-foreground)] focus-visible:ring-1 focus-visible:ring-[var(--color-border-focus)]"
           disabled={disabled}
           onClick={onSettings}
           type="button"
@@ -101,7 +101,7 @@ export const AccountRowShared = forwardRef<HTMLDivElement, AccountRowSharedProps
         </button>
         <button
           aria-label="Help"
-          className="inline-flex size-3.5 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-[var(--color-text-foreground-tertiary)] outline-none hover:text-[var(--color-text-foreground)] focus-visible:ring-1 focus-visible:ring-[var(--color-border-focus)]"
+          className="inline-flex size-3.5 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-[var(--color-text-foreground-tertiary)] outline-none group-hover/account-row:text-[var(--color-text-foreground)] hover:text-[var(--color-text-foreground)] focus-visible:ring-1 focus-visible:ring-[var(--color-border-focus)]"
           disabled={disabled}
           onClick={onHelp}
           type="button"
