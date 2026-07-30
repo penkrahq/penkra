@@ -8,7 +8,6 @@ import {
   ExternalLinkIcon,
   FileIcon,
   FolderOpenIcon,
-  KanbanIcon,
   type LucideIcon,
   NewThreadIcon,
   PencilIcon,
@@ -31,7 +30,6 @@ import { PinStatusIcon, pinActionLabel } from "~/lib/pin";
 import { ensureNativeApi } from "~/nativeApi";
 import { autoAnimate } from "@formkit/auto-animate";
 import { FiGitBranch, FiUserPlus } from "react-icons/fi";
-import { IoIosGitCompare } from "react-icons/io";
 import { GoRepoForked } from "react-icons/go";
 import { HiOutlineArchiveBox } from "react-icons/hi2";
 import {
@@ -416,7 +414,6 @@ const DebugFeatureFlagsMenu = import.meta.env.DEV
 
 type ProjectContextMenuId =
   | "open-in-finder"
-  | "open-in-kanban"
   | "copy-path"
   | "start-dev"
   | "stop-dev"
@@ -1907,7 +1904,7 @@ export default function Sidebar() {
   const openStudioChatFallback = useCallback(() => {
     void handleNewStudioChat().then((result) => {
       if (!result.ok) {
-        void navigate({ to: "/studio" });
+        void navigate({ to: "/" });
       }
     });
   }, [handleNewStudioChat, navigate]);
@@ -2699,8 +2696,6 @@ export default function Sidebar() {
     sidebarThreads,
     sidebarThreadSortOrder: appSettings.sidebarThreadSortOrder,
     routeThreadId,
-    routeProjectId,
-    isOnKanban,
     activeRouteProject,
     activeRouteProjectId,
     activateThreadFromSidebarIntent,
@@ -2770,10 +2765,6 @@ export default function Sidebar() {
                 : "An unknown error occurred opening the folder.",
           });
         }
-        return;
-      }
-      if (clicked === "open-in-kanban") {
-        void navigate({ to: "/kanban/$projectId", params: { projectId } });
         return;
       }
       if (clicked === "copy-path") {
@@ -4257,26 +4248,6 @@ export default function Sidebar() {
               <PinStatusIcon pinned={isProjectPinned} className="size-3.5" />
             </button>
             <SidebarSectionToolbar placement="overlay" revealOnHover>
-              <SidebarIconButton
-                icon={IoIosGitCompare}
-                label={`View pull requests for ${project.name}`}
-                tooltip="Pull requests"
-                tooltipSide="top"
-                onClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  // Opens the in-app pull requests view scoped to this project (selecting a
-                  // row there opens the right-dock detail panel) instead of leaving for GitHub.
-                  void navigate({
-                    to: "/pull-requests",
-                    search: {
-                      involvement: "all",
-                      state: "open",
-                      projectId: project.id,
-                    },
-                  });
-                }}
-              />
               {project.id === "penkra-hq" || penkraClient ? (
                 <SidebarIconButton
                   icon={FileIcon}
