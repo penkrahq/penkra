@@ -198,7 +198,6 @@ import {
   ComposerPickerMenuPopup,
   ComposerPickerMenuSubPopup,
 } from "./chat/ComposerPickerMenuPopup";
-import { CHAT_SURFACE_HEADER_HEIGHT_CLASS } from "./chat/chatHeaderControls";
 import {
   getArm64IntelBuildWarningDescription,
   getDesktopUpdateActionError,
@@ -3117,17 +3116,10 @@ export default function Sidebar() {
     [setThreadListExtraPagesForProject],
   );
 
-  // Only macOS draws the traffic lights in the renderer's top-left, so only there
-  // does the open-sidebar header need to reserve the gutter (mirrors the mac guard
-  // in useDesktopTopBarTrafficLightGutterClassName used by the closed-state surfaces).
   const isMacDesktop = typeof navigator !== "undefined" ? isMacPlatform(navigator.platform) : false;
 
-  // Open-sidebar (in-sidebar) and non-electron wordmark clusters share the one
-  // SidebarLeadingControls primitive with the closed-state host headers, so the
-  // toggle + arrows look identical whether the sidebar is open or collapsed; only
-  // the wrapper layout differs per host.
-  const titlebarControls = <SidebarLeadingControls className="hidden md:flex" />;
-
+  // Closed-state and non-Electron hosts retain shell navigation controls. The
+  // expanded desktop rail uses the Pencil header primitive directly.
   const headerControls = <SidebarLeadingControls className="ml-auto hidden md:flex" />;
 
   const wordmark = (
@@ -3178,15 +3170,13 @@ export default function Sidebar() {
         <>
           <SidebarHeader
             className={cn(
-              "drag-region flex-row items-center py-0 ps-4 pe-3 font-system-ui",
-              CHAT_SURFACE_HEADER_HEIGHT_CLASS,
+              "drag-region h-[32.5px] flex-row items-center p-0 font-system-ui",
               isMacDesktop && DESKTOP_TOP_BAR_TRAFFIC_LIGHT_GUTTER_CLASS,
             )}
           >
             <SidebarHeaderShared
               brand="Penkra"
-              className="h-full w-full px-0"
-              leading={titlebarControls}
+              className="h-full w-full"
               onSearch={() => setSearchPaletteOpen(true)}
             />
           </SidebarHeader>
@@ -3198,17 +3188,12 @@ export default function Sidebar() {
       )}
 
       <SidebarTopNavigation
-        activeItemId={searchPaletteOpen ? "search" : isOnApps ? "apps" : undefined}
-        disabledItemIds={["sites", "scheduled"]}
+        activeItemId={isOnApps ? "apps" : undefined}
+        disabledItemIds={["scheduled"]}
         onSelect={(itemId) => {
           switch (itemId) {
-            case "search":
-              setSearchPaletteOpen(true);
-              break;
             case "new-chat":
               void handleCreateHomeChat();
-              break;
-            case "sites":
               break;
             case "scheduled":
               break;

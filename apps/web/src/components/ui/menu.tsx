@@ -69,15 +69,18 @@ function MenuPopupBase({
   alignOffset?: MenuPrimitive.Positioner.Props["alignOffset"];
   side?: MenuPrimitive.Positioner.Props["side"];
   anchor?: MenuPrimitive.Positioner.Props["anchor"];
-  surface?: "default" | "composer";
+  surface?: "bare" | "default" | "composer";
   pickerSize?: "small" | "normal" | undefined;
 }) {
   const popupSurfaceClassName =
     surface === "composer"
       ? COMPOSER_PICKER_MENU_SURFACE_CLASS_NAME
-      : APP_TRANSLUCENT_POPUP_SURFACE_CLASS_NAME;
+      : surface === "default"
+        ? APP_TRANSLUCENT_POPUP_SURFACE_CLASS_NAME
+        : undefined;
 
   const isComposerSurface = surface === "composer";
+  const isBareSurface = surface === "bare";
 
   return (
     <MenuPrimitive.Portal>
@@ -85,7 +88,11 @@ function MenuPopupBase({
         align={align}
         alignOffset={alignOffset}
         anchor={anchor}
-        className={cn("z-50 min-w-32", isComposerSurface ? undefined : className)}
+        className={cn(
+          "z-50",
+          isComposerSurface || isBareSurface ? undefined : "min-w-32",
+          !isComposerSurface && !isBareSurface ? className : undefined,
+        )}
         data-slot="menu-positioner"
         side={side}
         sideOffset={sideOffset}
@@ -93,8 +100,12 @@ function MenuPopupBase({
         <MenuPrimitive.Popup
           className={cn(
             "relative flex origin-(--transform-origin) text-[var(--color-text-foreground)] outline-none focus:outline-none",
-            isComposerSurface ? "min-w-0 max-w-[92vw]" : "w-full min-w-full",
-            isComposerSurface ? className : null,
+            isComposerSurface
+              ? "min-w-0 max-w-[92vw]"
+              : isBareSurface
+                ? undefined
+                : "w-full min-w-full",
+            isComposerSurface || isBareSurface ? className : null,
             popupSurfaceClassName,
           )}
           data-slot="menu-popup"
@@ -111,6 +122,8 @@ function MenuPopupBase({
             >
               {children}
             </div>
+          ) : surface === "bare" ? (
+            children
           ) : (
             <div className="max-h-(--available-height) w-full overflow-y-auto p-1">{children}</div>
           )}
@@ -128,15 +141,17 @@ function MenuItem({
   className,
   inset,
   variant = "default",
+  appearance = "picker",
   ...props
 }: MenuPrimitive.Item.Props & {
   inset?: boolean;
   variant?: "default" | "destructive";
+  appearance?: "plain" | "picker";
 }) {
   return (
     <MenuPrimitive.Item
       className={cn(
-        COMPOSER_PICKER_MENU_OPTION_CLASS_NAME,
+        appearance === "picker" ? COMPOSER_PICKER_MENU_OPTION_CLASS_NAME : undefined,
         // text-destructive (not -foreground): these items sit on the popup surface, so they
         // need the red accent itself — the foreground token is for text on a destructive fill.
         "data-inset:ps-8 data-[variant=destructive]:text-destructive",

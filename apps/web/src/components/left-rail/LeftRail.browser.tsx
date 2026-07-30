@@ -6,6 +6,7 @@ import { render } from "vitest-browser-react";
 
 import { AccountRowShared } from "./account-row-shared/AccountRowShared";
 import { FolderGroupShared } from "./folder-group-shared/FolderGroupShared";
+import { AccountMenu } from "./menu-account/AccountMenu";
 import { SidebarProjects } from "./sidebar-projects/SidebarProjects";
 
 const threads = Array.from({ length: 12 }, (_, index) => ({
@@ -69,6 +70,16 @@ describe("Pencil left rail", () => {
     expect(onHelp).toHaveBeenCalledOnce();
   });
 
+  it("keeps the account row surface transparent on hover", async () => {
+    await render(<AccountRowShared name="gigsama" />);
+
+    await page.getByRole("button", { name: "gigsama" }).hover();
+    const row = document.querySelector<HTMLElement>(".group\\/account-row");
+
+    expect(row).not.toBeNull();
+    expect(getComputedStyle(row!).backgroundColor).toBe("rgba(0, 0, 0, 0)");
+  });
+
   it("keeps an available update independent from the account menu", async () => {
     const onAccount = vi.fn();
     const onUpdate = vi.fn();
@@ -86,5 +97,26 @@ describe("Pencil left rail", () => {
 
     expect(onUpdate).toHaveBeenCalledOnce();
     expect(onAccount).not.toHaveBeenCalled();
+  });
+
+  it("opens the shared account popup from its semantic menu trigger", async () => {
+    await render(<AccountMenu accountName="gigsama" />);
+
+    const trigger = page.getByRole("button", { name: "gigsama" });
+    await expect.element(trigger).toHaveAttribute("aria-expanded", "false");
+    await trigger.click();
+
+    await expect.element(trigger).toHaveAttribute("aria-expanded", "true");
+    await expect.element(page.getByRole("menuitem", { name: "Settings" })).toBeVisible();
+    await expect.element(page.getByRole("menuitem", { name: "Give Feedback" })).toBeVisible();
+    await expect.element(page.getByRole("menuitem", { name: "Support Us" })).toBeVisible();
+    await expect.element(page.getByRole("menuitem", { name: "Log Out" })).toBeVisible();
+
+    const popup = document.querySelector<HTMLElement>("[data-slot='menu-popup']");
+    expect(popup).not.toBeNull();
+    expect(popup!.getBoundingClientRect().width).toBe(220);
+    expect(popup!.getBoundingClientRect().height).toBe(139);
+    expect(getComputedStyle(popup!).flexDirection).toBe("column");
+    expect(getComputedStyle(popup!).borderTopWidth).toBe("1px");
   });
 });

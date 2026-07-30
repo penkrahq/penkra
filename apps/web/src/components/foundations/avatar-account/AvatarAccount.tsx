@@ -8,7 +8,7 @@ export function AvatarAccount({ className, ...props }: AvatarAccountProps) {
   return (
     <span
       className={cn(
-        "inline-flex size-5 shrink-0 items-center justify-center rounded-full bg-[#c77dff] text-[#0b0c10]",
+        "inline-flex size-5 shrink-0 items-center justify-center rounded-full bg-[#c77dff] text-[#181818]",
         className,
       )}
       data-slot="avatar-account"

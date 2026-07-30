@@ -1,11 +1,18 @@
-import { IconHelpCircle, IconSettings } from "@tabler/icons-react";
-import { forwardRef, type ButtonHTMLAttributes, type HTMLAttributes } from "react";
+import { IconAdjustmentsHorizontal, IconLifebuoy } from "@tabler/icons-react";
+import {
+  forwardRef,
+  type ButtonHTMLAttributes,
+  type HTMLAttributes,
+  type ReactElement,
+  type ReactNode,
+} from "react";
 
 import { AvatarAccount } from "~/components/foundations/avatar-account/AvatarAccount";
 import { cn } from "~/lib/utils";
 
 export interface AccountRowSharedProps extends HTMLAttributes<HTMLDivElement> {
   accountButtonProps?: Omit<ButtonHTMLAttributes<HTMLButtonElement>, "children" | "onClick">;
+  accountButtonWrapper?: (button: ReactElement) => ReactNode;
   disabled?: boolean;
   name?: string;
   onAccount?: () => void;
@@ -22,6 +29,7 @@ export const AccountRowShared = forwardRef<HTMLDivElement, AccountRowSharedProps
   function AccountRowShared(
     {
       accountButtonProps,
+      accountButtonWrapper,
       className,
       disabled = false,
       name = "gigsama",
@@ -37,10 +45,23 @@ export const AccountRowShared = forwardRef<HTMLDivElement, AccountRowSharedProps
     },
     ref,
   ) {
+    const accountButton = (
+      <button
+        className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 border-0 bg-transparent p-0 text-inherit outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-border-focus)]"
+        disabled={disabled}
+        onClick={onAccount}
+        type="button"
+        {...accountButtonProps}
+      >
+        <AvatarAccount />
+        <span className="min-w-0 flex-1 truncate text-left">{name}</span>
+      </button>
+    );
+
     return (
       <div
         className={cn(
-          "group/account-row flex h-9 w-60 items-center gap-2 bg-transparent px-2 font-sans text-[13px] text-[var(--color-text-foreground-secondary)] transition-colors hover:bg-[var(--color-background-button-secondary-hover)] hover:text-[var(--color-text-foreground)]",
+          "group/account-row flex h-9 w-60 items-center gap-2 rounded-[6px] bg-transparent px-2.5 font-sans text-[13px] text-[var(--color-text-foreground-secondary)] transition-colors hover:text-[var(--color-text-foreground)]",
           selected &&
             "bg-[var(--color-background-button-secondary-active)] text-[var(--color-text-foreground)]",
           disabled &&
@@ -51,16 +72,7 @@ export const AccountRowShared = forwardRef<HTMLDivElement, AccountRowSharedProps
         ref={ref}
         {...props}
       >
-        <button
-          className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 border-0 bg-transparent p-0 text-inherit outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-border-focus)]"
-          disabled={disabled}
-          onClick={onAccount}
-          type="button"
-          {...accountButtonProps}
-        >
-          <AvatarAccount />
-          <span className="min-w-0 flex-1 truncate text-left">{name}</span>
-        </button>
+        {accountButtonWrapper ? accountButtonWrapper(accountButton) : accountButton}
         {updateAvailable ? (
           onUpdate ? (
             <button
@@ -86,7 +98,7 @@ export const AccountRowShared = forwardRef<HTMLDivElement, AccountRowSharedProps
           onClick={onSettings}
           type="button"
         >
-          <IconSettings className="size-3.5" />
+          <IconAdjustmentsHorizontal className="size-3.5" />
         </button>
         <button
           aria-label="Help"
@@ -95,7 +107,7 @@ export const AccountRowShared = forwardRef<HTMLDivElement, AccountRowSharedProps
           onClick={onHelp}
           type="button"
         >
-          <IconHelpCircle className="size-3.5" />
+          <IconLifebuoy className="size-3.5" />
         </button>
       </div>
     );
