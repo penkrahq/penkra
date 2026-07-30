@@ -6,7 +6,7 @@
 import { PROVIDER_DISPLAY_NAMES, type ProviderKind } from "@synara/contracts";
 import { PROVIDER_DESCRIPTORS } from "@synara/shared/providerMetadata";
 import { sameAppSnapShortcut } from "@synara/shared/appSnapShortcut";
-import { createFileRoute, useSearch } from "@tanstack/react-router";
+import { createFileRoute, useNavigate, useSearch } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 
 import {
@@ -50,23 +50,19 @@ import {
   SettingsSection,
 } from "../components/settings/SettingsPanelPrimitives";
 import { SkillsSettingsPanel } from "../components/settings/SkillsSettingsPanel";
-import { SettingsHeader } from "../components/settings/settings-header/SettingsHeader";
+import {
+  ModalSettings,
+  type SettingsPage,
+} from "../components/settings/modal-settings/ModalSettings";
 import { ThemePackEditor } from "../components/ThemePackEditor";
 import {
   CHAT_CONTENT_CARD_CLASS_NAME,
   CHAT_MAIN_VIEWPORT_SHELL_CLASS_NAME,
 } from "../components/chat/composerPickerStyles";
-import {
-  CHAT_SURFACE_HEADER_HEIGHT_CLASS,
-  CHAT_SURFACE_HEADER_PADDING_X_CLASS,
-} from "../components/chat/chatHeaderControls";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { SelectItem } from "../components/ui/select";
 import { Switch } from "../components/ui/switch";
-import { RouteInsetSurface } from "../components/RouteInsetSurface";
-import { SidebarHeaderNavigationControls } from "../components/SidebarHeaderNavigationControls";
-import { useDesktopTopBarTrafficLightGutterClassName } from "../hooks/useDesktopTopBarGutter";
 import { useTheme } from "../hooks/useTheme";
 import { isUiDensity } from "../lib/appDensity";
 import { DeviceLaptopIcon, MoonIcon, RotateCcwIcon, SunIcon } from "../lib/icons";
@@ -75,8 +71,8 @@ import { ensureNativeApi, readNativeApi } from "../nativeApi";
 import { sameProviderOrder } from "../providerOrdering";
 import {
   normalizeSettingsSection,
-  SETTINGS_NAV_ITEMS,
   SETTINGS_TARGETS,
+  type SettingsSectionId,
 } from "../settingsNavigation";
 import {
   SETTINGS_PAGE_BACKGROUND_CLASS_NAME,
@@ -148,6 +144,28 @@ const SIDEBAR_THREAD_SORT_ORDER_LABELS = {
   created_at: "Newest first",
 } as const;
 
+const SETTINGS_SECTION_BY_PAGE: Readonly<Record<SettingsPage, SettingsSectionId>> = {
+  general: "general",
+  permissions: "behavior",
+  agents: "providers",
+  apps: "appsnap",
+  connectors: "integrations",
+  appearance: "appearance",
+  account: "profile",
+};
+
+function settingsPageFromSection(section: SettingsSectionId): SettingsPage {
+  if (section === "appearance") return "appearance";
+  if (section === "profile") return "account";
+  if (section === "models" || section === "providers" || section === "skills" || section === "usage") {
+    return "agents";
+  }
+  if (section === "appsnap") return "apps";
+  if (section === "integrations") return "connectors";
+  if (section === "behavior" || section === "advanced") return "permissions";
+  return "general";
+}
+
 // ── Settings UI primitives ────────────────────────────────────────────────
 
 // Shared settings controls live in ~/components/settings/SettingControls.
@@ -165,10 +183,11 @@ type BooleanSettingKey = {
 // ── Route screen ───────────────────────────────────────────────────────────
 
 function SettingsRouteView() {
+  const navigate = useNavigate();
   const routeSearch = useSearch({ strict: false }) as Record<string, unknown>;
   const activeSection = normalizeSettingsSection(routeSearch.section);
+  const activePage = settingsPageFromSection(activeSection);
   const settingsTarget = typeof routeSearch.target === "string" ? routeSearch.target : null;
-  const activeSectionItem = SETTINGS_NAV_ITEMS.find((item) => item.id === activeSection)!;
 
   const {
     isDefaultActiveTheme,
@@ -180,7 +199,6 @@ function SettingsRouteView() {
     setSystemUiFont,
   } = useTheme();
   const { settings, defaults, updateSettings, resetSettings } = useAppSettings();
-  const desktopTopBarTrafficLightGutterClassName = useDesktopTopBarTrafficLightGutterClassName();
   const [releaseHistoryOpen, setReleaseHistoryOpen] = useState(false);
   const [resetEpoch, setResetEpoch] = useState(0);
   const shouldShowFontSmoothing = isMacPlatform(
@@ -798,24 +816,71 @@ function SettingsRouteView() {
     </div>
   );
 
-  const renderRouteOwnedPanel = () => {
-    switch (activeSection) {
+  const renderPencilPagePanel = () => {
+    switch (activePage) {
       case "general":
-        return renderGeneralPanel();
+        return (
+          <>
+            {renderGeneralPanel()}
+            <NotificationsSettingsPanel
+              active
+              settings={settings}
+              defaults={defaults}
+              updateSettings={updateSettings}
+            />
+            <WorktreesSettingsPanel active />
+            <ArchivedSettingsPanel active />
+          </>
+        );
+      case "permissions":
+        return (
+          <>
+            {renderBehaviorPanel()}
+            <KeyboardShortcutsSettingsPanel />
+            <AdvancedSettingsPanel
+              active
+              onOpenReleaseHistory={() => setReleaseHistoryOpen(true)}
+              resetEpoch={resetEpoch}
+            />
+          </>
+        );
+      case "agents":
+        return (
+          <>
+            <ModelsSettingsPanel
+              active
+              settings={settings}
+              defaults={defaults}
+              updateSettings={updateSettings}
+              resetEpoch={resetEpoch}
+            />
+            <SkillsSettingsPanel />
+            <ProviderUsageSettingsPanel />
+          </>
+        );
+      case "apps":
+        return (
+          <AppSnapSettingsPanel
+            active
+            settings={settings}
+            defaults={defaults}
+            updateSettings={updateSettings}
+          />
+        );
+      case "connectors":
+        return (
+          <ProvidersSettingsPanel
+            active
+            settings={settings}
+            defaults={defaults}
+            updateSettings={updateSettings}
+            resetEpoch={resetEpoch}
+          />
+        );
       case "appearance":
         return renderAppearancePanel();
-      case "behavior":
-        return renderBehaviorPanel();
-      case "shortcuts":
-        return <KeyboardShortcutsSettingsPanel />;
-      case "profile":
+      case "account":
         return <ProfileSettingsPanel />;
-      case "skills":
-        return <SkillsSettingsPanel />;
-      case "usage":
-        return <ProviderUsageSettingsPanel />;
-      default:
-        return null;
     }
   };
 
@@ -825,113 +890,45 @@ function SettingsRouteView() {
         CHAT_MAIN_VIEWPORT_SHELL_CLASS_NAME,
         SETTINGS_PAGE_BACKGROUND_CLASS_NAME,
         CHAT_CONTENT_CARD_CLASS_NAME,
+        "flex items-center justify-center p-6",
       )}
     >
-      <RouteInsetSurface surfaceClassName={SETTINGS_PAGE_BACKGROUND_CLASS_NAME}>
-        {/* Companion sidebar trigger so settings is reachable-and-exitable even when the
-          sidebar is collapsed (web/mobile have no global Back arrow). Pinned to the
-          card's top-left — at the same header height + traffic-light gutter as the
-          chat/workspace headers — so the collapsed-state toggle sits by the traffic
-          lights instead of floating in the centered settings body. It renders nothing
-          while the sidebar is open (SidebarHeaderNavigationControls returns null), so it
-          adds no navigation chrome in the common (open) state and never shifts the centered
-          content (hence absolute, not a layout-occupying header row). The strip stays a
-          drag-region so the Windows frameless window can be moved by its top edge; the
-          caption buttons themselves are a separate fixed cluster (see root route). */}
-        <div
-          className={cn(
-            "drag-region absolute inset-x-0 top-0 z-10 flex items-center",
-            CHAT_SURFACE_HEADER_PADDING_X_CLASS,
-            CHAT_SURFACE_HEADER_HEIGHT_CLASS,
-            desktopTopBarTrafficLightGutterClassName,
-          )}
-        >
-          <div className="pointer-events-auto">
-            <SidebarHeaderNavigationControls />
-          </div>
-        </div>
-        <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
-          <div
-            aria-label="Settings content"
-            className="min-h-0 flex-1 overflow-y-auto overscroll-contain outline-none focus-visible:ring-1 focus-visible:ring-ring/60"
-            data-pencil-region="bHQ9w"
-            tabIndex={0}
-          >
-            <div
-              className={cn(
-                "mx-auto w-full px-6 py-8",
-                activeSection === "profile" ? "max-w-3xl" : "max-w-2xl",
-              )}
+      <ModalSettings
+        className="max-h-full max-w-full"
+        page={activePage}
+        onPageChange={(page) => {
+          const section = SETTINGS_SECTION_BY_PAGE[page];
+          void navigate({
+            to: "/settings",
+            search: (previous) => ({
+              ...previous,
+              section: section === "general" ? undefined : section,
+              target: undefined,
+            }),
+          });
+        }}
+      >
+        <div className="flex flex-col gap-7">
+          <div className="flex justify-end">
+            <Button
+              size="xs"
+              variant="outline"
+              className="shrink-0"
+              disabled={changedSettingLabels.length === 0}
+              onClick={() => void restoreDefaults()}
             >
-              {activeSection !== "profile" ? (
-                <div className="mb-8 flex items-start justify-between gap-4">
-                  <SettingsHeader
-                    subtitle={activeSectionItem.description}
-                    title={activeSectionItem.label}
-                  />
-                  <Button
-                    size="xs"
-                    variant="outline"
-                    className="shrink-0"
-                    disabled={changedSettingLabels.length === 0}
-                    onClick={() => void restoreDefaults()}
-                  >
-                    <RotateCcwIcon className="size-3.5" />
-                    Restore defaults
-                  </Button>
-                </div>
-              ) : null}
-
-              {renderRouteOwnedPanel()}
-              {/* These workflow owners stay mounted so drafts, request guards, and pending
-                  mutations retain route lifetime while inactive panels render no DOM. */}
-              <div className="contents">
-                <NotificationsSettingsPanel
-                  active={activeSection === "notifications"}
-                  settings={settings}
-                  defaults={defaults}
-                  updateSettings={updateSettings}
-                />
-                <AppSnapSettingsPanel
-                  active={activeSection === "appsnap"}
-                  settings={settings}
-                  defaults={defaults}
-                  updateSettings={updateSettings}
-                />
-                <WorktreesSettingsPanel active={activeSection === "worktrees"} />
-                <ArchivedSettingsPanel active={activeSection === "archived"} />
-                <ModelsSettingsPanel
-                  active={activeSection === "models"}
-                  settings={settings}
-                  defaults={defaults}
-                  updateSettings={updateSettings}
-                  resetEpoch={resetEpoch}
-                />
-                <ProvidersSettingsPanel
-                  active={activeSection === "providers"}
-                  settings={settings}
-                  defaults={defaults}
-                  updateSettings={updateSettings}
-                  resetEpoch={resetEpoch}
-                />
-                <AdvancedSettingsPanel
-                  active={activeSection === "advanced"}
-                  onOpenReleaseHistory={() => setReleaseHistoryOpen(true)}
-                  resetEpoch={resetEpoch}
-                />
-              </div>
-            </div>
+              <RotateCcwIcon className="size-3.5" />
+              Restore defaults
+            </Button>
           </div>
+          {renderPencilPagePanel()}
         </div>
-        {/* Mounted at the route level (outside the scrollable panel) so the
-          dialog portal can overlay the entire settings view without being
-          clipped by the content wrapper's overflow. */}
-        <ReleaseHistoryDialog
-          open={releaseHistoryOpen}
-          onOpenChange={setReleaseHistoryOpen}
-          defaultExpandedVersion={APP_VERSION}
-        />
-      </RouteInsetSurface>
+      </ModalSettings>
+      <ReleaseHistoryDialog
+        open={releaseHistoryOpen}
+        onOpenChange={setReleaseHistoryOpen}
+        defaultExpandedVersion={APP_VERSION}
+      />
     </div>
   );
 }

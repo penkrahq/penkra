@@ -213,9 +213,6 @@ export function useRecentViewSwitcher(input: UseRecentViewSwitcherInput) {
           search: () => (view.section ? { section: view.section } : {}),
         });
         return;
-      case "apps":
-        void navigate({ to: "/apps" });
-        return;
     }
   };
 

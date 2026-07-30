@@ -10,6 +10,7 @@ import { isPlainObject, sanitizeStringKeyedRecord } from "./persistedRecord";
 // validator, the per-kind metadata map, and the add-menu order are all derived
 // from this list so they can never drift apart.
 export const RIGHT_DOCK_PANE_KINDS = [
+  "apps",
   "browser",
   "diff",
   "explorer",

@@ -17,9 +17,6 @@ export type RecentView =
   | {
       kind: "settings";
       section?: string | undefined;
-    }
-  | {
-      kind: "apps";
     };
 
 export interface RecentViewDisplayEntry {
@@ -38,8 +35,7 @@ export interface RecentViewDisplayEntry {
 export type RecentViewDisplayIcon =
   | { kind: "chat" }
   | { kind: "provider"; provider: ProviderKind }
-  | { kind: "settings" }
-  | { kind: "apps" };
+  | { kind: "settings" };
 
 export interface RecentViewThreadDraftSummary {
   id: ThreadId;
@@ -75,8 +71,6 @@ export function recentViewKey(view: RecentView): string {
         : `thread:${view.threadId}`;
     case "settings":
       return view.section ? `settings:${view.section}` : "settings";
-    case "apps":
-      return "apps";
   }
 }
 
@@ -95,10 +89,6 @@ export function deriveCurrentRecentView(input: {
       kind: "settings",
       ...(section ? { section } : {}),
     };
-  }
-
-  if (input.pathname === "/apps") {
-    return { kind: "apps" };
   }
 
   if (input.routeThreadId) {
@@ -167,7 +157,6 @@ function normalizeAvailableView(
       return view;
     }
     case "settings":
-    case "apps":
       return view;
   }
 }
@@ -252,13 +241,6 @@ export function buildRecentViewDisplayEntries(input: {
           icon: { kind: "settings" },
           title: "Settings",
           subtitle: view.section ? (SETTINGS_LABELS[view.section] ?? view.section) : "App settings",
-        };
-      case "apps":
-        return {
-          ...base,
-          icon: { kind: "apps" },
-          title: "Apps",
-          subtitle: "Installed and available apps",
         };
     }
   });

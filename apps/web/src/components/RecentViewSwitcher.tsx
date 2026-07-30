@@ -10,7 +10,6 @@ import {
   MessageCircleIcon,
   PanelLeftIcon,
   PinFilledIcon,
-  PluginIcon,
   SettingsIcon,
 } from "../lib/icons";
 import { cn } from "../lib/utils";
@@ -73,8 +72,6 @@ function EntryIcon(props: { entry: RecentViewDisplayEntry }) {
       return <MessageCircleIcon className={className} aria-hidden="true" />;
     case "settings":
       return <SettingsIcon className={className} aria-hidden="true" />;
-    case "apps":
-      return <PluginIcon className={className} aria-hidden="true" />;
   }
 }
 

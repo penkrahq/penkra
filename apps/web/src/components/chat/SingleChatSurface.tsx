@@ -77,6 +77,7 @@ import {
 import { PanelStateMessage } from "./PanelStateMessage";
 import { RightDock } from "./RightDock";
 import { RightDockProfilePane } from "./RightDockProfilePane";
+import { PanelAppsContent } from "../right-panel/panel-apps/PanelApps";
 import { RIGHT_DOCK_ADD_MENU_KINDS, getRightDockPaneMeta } from "./rightDockPaneMeta";
 import {
   CHAT_BACKGROUND_CLASS_NAME,
@@ -653,6 +654,12 @@ export function SingleChatSurface(props: {
     context: { runtimeMode: DockPaneRuntimeMode; isActive: boolean; isVisible: boolean },
   ): ReactNode => {
     switch (pane.kind) {
+      case "apps":
+        return (
+          <div className="flex h-full min-h-0 w-full items-center justify-center overflow-y-auto p-5">
+            <PanelAppsContent />
+          </div>
+        );
       case "browser":
         return (
           <Suspense fallback={<PanelStateMessage>Loading browser...</PanelStateMessage>}>

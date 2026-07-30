@@ -25,6 +25,7 @@ describe("setDockOpenInState", () => {
 describe("RIGHT_DOCK_PANE_KINDS (single source of truth)", () => {
   it("lists every supported kind", () => {
     expect([...RIGHT_DOCK_PANE_KINDS]).toEqual([
+      "apps",
       "browser",
       "diff",
       "explorer",
@@ -46,6 +47,7 @@ describe("RIGHT_DOCK_PANE_KINDS (single source of truth)", () => {
 describe("isRightDockPaneKind", () => {
   it("accepts the known pane kinds", () => {
     for (const kind of [
+      "apps",
       "browser",
       "diff",
       "explorer",

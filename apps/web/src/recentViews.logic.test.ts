@@ -43,10 +43,10 @@ describe("recent view MRU logic", () => {
     ]);
 
     const withSixth = upsertRecentView(reopened, {
-      kind: "apps",
+      kind: "settings",
     });
     expect(withSixth.map(recentViewKey)).toEqual([
-      "apps",
+      "settings",
       "thread:thread-3",
       "thread:thread-1",
       "thread:thread-2",
@@ -58,7 +58,7 @@ describe("recent view MRU logic", () => {
     const recentViews: RecentView[] = [
       { kind: "thread", threadId: threadId("thread-1"), splitViewId: "split-missing" },
       { kind: "thread", threadId: threadId("thread-deleted") },
-      { kind: "apps" },
+      { kind: "settings" },
     ];
 
     const pruned = pruneRecentViews(recentViews, {
@@ -68,7 +68,7 @@ describe("recent view MRU logic", () => {
 
     expect(pruned).toEqual([
       { kind: "thread", threadId: threadId("thread-1") },
-      { kind: "apps" },
+      { kind: "settings" },
     ]);
   });
 
@@ -89,7 +89,7 @@ describe("recent view MRU logic", () => {
     const recentViews: RecentView[] = [
       { kind: "thread", threadId: threadId("thread-current") },
       { kind: "settings" },
-      { kind: "apps" },
+      { kind: "settings", section: "appearance" },
     ];
 
     expect(

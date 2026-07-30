@@ -15,6 +15,7 @@ import {
   GlobeIcon,
   InfoIcon,
   MessageCircleIcon,
+  PluginIcon,
   UsersIcon,
 } from "~/lib/icons";
 import {
@@ -31,6 +32,7 @@ export interface RightDockPaneMeta {
 }
 
 export const RIGHT_DOCK_PANE_META: Record<RightDockPaneKind, RightDockPaneMeta> = {
+  apps: { label: "Apps", Icon: PluginIcon },
   browser: { label: "Browser", Icon: GlobeIcon },
   diff: { label: "Diff", Icon: DiffIcon },
   explorer: { label: "Explorer", Icon: FoldersIcon },

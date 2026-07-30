@@ -307,7 +307,6 @@ import {
 } from "../lib/threadHandoff";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import { useDiffRouteSearch } from "../hooks/useDiffRouteSearch";
-import { normalizeSettingsSection } from "../settingsNavigation";
 import {
   sidebarHoverRevealHideClassName,
   SIDEBAR_HEADER_ROW_CLASS_NAME,
@@ -319,7 +318,6 @@ import {
   SIDEBAR_ROW_LABEL_TEXT_CLASS_NAME,
   SIDEBAR_SECTION_LABEL_CLASS_NAME,
 } from "../sidebarRowStyles";
-import { SettingsSidebarNav } from "./SettingsSidebarNav";
 import {
   ComposerPickerMenuPopup,
   ComposerPickerMenuSubPopup,
@@ -972,7 +970,6 @@ export default function Sidebar() {
   const isOnWorkspace = false;
   const isOnStudioRoute = pathname.startsWith("/studio");
   const isOnKanban = pathname.startsWith("/kanban");
-  const isOnApps = pathname === "/apps";
   const { settings: appSettings, updateSettings } = useAppSettings();
   // Threads is always available; Studio and the standalone Chats footer can be
   // hidden independently from Settings.
@@ -1004,14 +1001,30 @@ export default function Sidebar() {
     select: (params) => (params.threadId ? ThreadId.makeUnsafe(params.threadId) : null),
   });
   const openRightDockPane = useRightDockStore((store) => store.openPane);
+  const isOnApps = useRightDockStore((store) => {
+    if (!routeThreadId) return false;
+    const dock = store.dockStateByThreadId[routeThreadId];
+    return Boolean(
+      dock?.open &&
+        dock.panes.find((pane) => pane.id === dock.activePaneId)?.kind === "apps",
+    );
+  });
+  const handleOpenApps = useCallback(async () => {
+    if (routeThreadId) {
+      openRightDockPane(routeThreadId, { kind: "apps" });
+      return;
+    }
+    const result = await handleNewChat();
+    if (result.ok && result.threadId) {
+      openRightDockPane(result.threadId, { kind: "apps" });
+    }
+  }, [handleNewChat, openRightDockPane, routeThreadId]);
   const routeProjectId = useParams({
     strict: false,
     select: (params) =>
       typeof params.projectId === "string" ? ProjectId.makeUnsafe(params.projectId) : null,
   });
   const routeSearch = useDiffRouteSearch();
-  const settingsSectionSearch = useSearch({ strict: false }) as Record<string, unknown>;
-  const activeSettingsSection = normalizeSettingsSection(settingsSectionSearch.section);
   const activeSplitView = useSplitViewStore(
     useMemo(() => selectSplitView(routeSearch.splitViewId ?? null), [routeSearch.splitViewId]),
   );
@@ -5196,35 +5209,33 @@ export default function Sidebar() {
         </SidebarHeader>
       )}
 
-      {!isOnSettings ? (
-        <SidebarTopNavigation
-          activeItemId={
-            searchPaletteOpen
-              ? "search"
-              : isOnApps
-                ? "apps"
-                : undefined
+      <SidebarTopNavigation
+        activeItemId={
+          searchPaletteOpen
+            ? "search"
+            : isOnApps
+              ? "apps"
+              : undefined
+        }
+        disabledItemIds={["sites", "scheduled"]}
+        onSelect={(itemId) => {
+          switch (itemId) {
+            case "search":
+              setSearchPaletteOpen(true);
+              break;
+            case "new-chat":
+              void handleCreateHomeChat();
+              break;
+            case "sites":
+              break;
+            case "scheduled":
+              break;
+            case "apps":
+              void handleOpenApps();
+              break;
           }
-          disabledItemIds={["sites", "scheduled"]}
-          onSelect={(itemId) => {
-            switch (itemId) {
-              case "search":
-                setSearchPaletteOpen(true);
-                break;
-              case "new-chat":
-                void handleCreateHomeChat();
-                break;
-              case "sites":
-                break;
-              case "scheduled":
-                break;
-              case "apps":
-                void navigate({ to: "/apps" });
-                break;
-            }
-          }}
-        />
-      ) : null}
+        }}
+      />
 
       <SidebarContent className="gap-0 font-system-ui">
         {showArm64IntelBuildWarning && arm64IntelBuildWarningDescription ? (
@@ -5252,61 +5263,40 @@ export default function Sidebar() {
             </Alert>
           </SidebarGroup>
         ) : null}
-        {isOnSettings ? (
-          <SidebarGroup className="p-0">
-            <SettingsSidebarNav
-              activeSection={activeSettingsSection}
-              onBack={handleBackToAppFromSettings}
-              onSelectSection={(section, options) => {
-                void navigate({
-                  to: "/settings",
-                  search: (previous) => ({
-                    ...previous,
-                    section: section === "general" ? undefined : section,
-                    target: options?.target,
-                  }),
-                });
-              }}
-            />
+        <div className="sidebar-surface-enter">
+          <SidebarGroup className="px-2 py-2">
+            <SidebarMenu ref={attachProjectListAutoAnimateRef} className="gap-0.5">
+              {standardProjects.map((project) => renderPencilProjectItem(project))}
+            </SidebarMenu>
+
+            {projectEmptyState === "loading" && (
+              <div
+                className="space-y-2 px-2 pt-4"
+                aria-live="polite"
+                aria-label="Loading projects"
+              >
+                <div className="text-center text-[length:var(--app-font-size-ui,12px)] text-muted-foreground/58">
+                  Loading projects...
+                </div>
+                <div className="mx-auto grid w-full max-w-42 gap-1.5 opacity-70">
+                  <div className="h-2 rounded-full bg-muted/55 animate-pulse" />
+                  <div className="mx-auto h-2 w-4/5 rounded-full bg-muted/40 animate-pulse" />
+                  <div className="mx-auto h-2 w-3/5 rounded-full bg-muted/30 animate-pulse" />
+                </div>
+              </div>
+            )}
+
+            {projectEmptyState === "empty" && (
+              <SpaceEmptyState
+                space={activeSpace}
+                hasProjectsElsewhere={allStandardProjectsBase.length > 0}
+                onMoveProjects={() => {
+                  if (activeSpace) openSpaceProjectPicker(activeSpace.id);
+                }}
+              />
+            )}
           </SidebarGroup>
-        ) : (
-          <>
-            <div className="sidebar-surface-enter">
-              <SidebarGroup className="px-2 py-2">
-                <SidebarMenu ref={attachProjectListAutoAnimateRef} className="gap-0.5">
-                  {standardProjects.map((project) => renderPencilProjectItem(project))}
-                </SidebarMenu>
-
-                {projectEmptyState === "loading" && (
-                  <div
-                    className="space-y-2 px-2 pt-4"
-                    aria-live="polite"
-                    aria-label="Loading projects"
-                  >
-                    <div className="text-center text-[length:var(--app-font-size-ui,12px)] text-muted-foreground/58">
-                      Loading projects...
-                    </div>
-                    <div className="mx-auto grid w-full max-w-42 gap-1.5 opacity-70">
-                      <div className="h-2 rounded-full bg-muted/55 animate-pulse" />
-                      <div className="mx-auto h-2 w-4/5 rounded-full bg-muted/40 animate-pulse" />
-                      <div className="mx-auto h-2 w-3/5 rounded-full bg-muted/30 animate-pulse" />
-                    </div>
-                  </div>
-                )}
-
-                {projectEmptyState === "empty" && (
-                  <SpaceEmptyState
-                    space={activeSpace}
-                    hasProjectsElsewhere={allStandardProjectsBase.length > 0}
-                    onMoveProjects={() => {
-                      if (activeSpace) openSpaceProjectPicker(activeSpace.id);
-                    }}
-                  />
-                )}
-              </SidebarGroup>
-            </div>
-          </>
-        )}
+        </div>
       </SidebarContent>
 
       <SidebarFooter className="gap-1 p-0 font-system-ui">
