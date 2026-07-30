@@ -145,6 +145,7 @@ import { AccountMenu } from "./left-rail/menu-account/AccountMenu";
 import { SidebarTopNavigation } from "./left-rail/sidebar-top-navigation/SidebarTopNavigation";
 import { FolderRowShared } from "./left-rail/folder-row-shared/FolderRowShared";
 import { ShowMoreRow } from "./left-rail/show-more-row/ShowMoreRow";
+import { ThreadRowShared } from "./left-rail/thread-row-shared/ThreadRowShared";
 import { WorkspaceHeaderShared } from "./left-rail/workspace-header-shared/WorkspaceHeaderShared";
 import { ProjectSidebarIcon } from "./ProjectSidebarIcon";
 import { useRightDockStore } from "../rightDockStore";
@@ -4407,7 +4408,7 @@ export default function Sidebar() {
         {project.expanded ? (
           <div className="mt-0.5 flex flex-col gap-0.5">
             {visibleEntries.map((entry) =>
-              renderThreadRow(entry.thread, orderedProjectThreadIds, entry.depth),
+              renderPencilThreadRow(entry.thread, orderedProjectThreadIds, entry.depth),
             )}
             {canShowMoreThreads ? (
               <ShowMoreRow
@@ -4426,6 +4427,74 @@ export default function Sidebar() {
           </div>
         ) : null}
       </section>
+    );
+  }
+
+  function renderPencilThreadRow(
+    thread: SidebarThreadSummary,
+    orderedProjectThreadIds: readonly ThreadId[],
+    depth = 0,
+  ) {
+    const isActive = visualActiveSidebarThreadId === thread.id;
+    const isSelected = selectedThreadIds.has(thread.id);
+    const threadStatus = resolveThreadStatusForSidebar(thread);
+    const isRefreshing =
+      threadStatus?.label === "Working" || threadStatus?.label === "Connecting";
+
+    return (
+      <ThreadRowShared
+        aria-label={thread.title}
+        className={cn(depth > 0 && "pl-6", isSelected && "ring-1 ring-[var(--color-border-focus)]")}
+        data-thread-item
+        draggable
+        key={thread.id}
+        onClick={(event) => handleThreadClick(event, thread.id, orderedProjectThreadIds)}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          if (selectedThreadIds.size > 0 && selectedThreadIds.has(thread.id)) {
+            void handleMultiSelectContextMenu({
+              x: event.clientX,
+              y: event.clientY,
+            });
+            return;
+          }
+          if (selectedThreadIds.size > 0) {
+            clearSelection();
+          }
+          void handleThreadContextMenu(thread.id, {
+            x: event.clientX,
+            y: event.clientY,
+          });
+        }}
+        onDoubleClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          openRenameThreadDialog(thread.id);
+        }}
+        onDragStart={(event) => {
+          event.dataTransfer.effectAllowed = "move";
+          event.dataTransfer.setData(
+            THREAD_DRAG_MIME,
+            JSON.stringify({ threadId: thread.id }),
+          );
+        }}
+        onKeyDown={(event) => {
+          if (event.key !== "Enter" && event.key !== " ") return;
+          event.preventDefault();
+          activateThreadFromSidebarIntent(thread.id);
+        }}
+        onPointerDown={(event) => primeThreadActivation(event, thread.id)}
+        onPointerUp={(event) => handleThreadRenamePointerUp(event, thread.id)}
+        harness={
+          thread.title.trim().toLowerCase() === "main"
+            ? "github"
+            : thread.modelSelection.provider
+        }
+        refreshing={isRefreshing}
+        state={isActive ? "selected" : "default"}
+      >
+        {thread.title}
+      </ThreadRowShared>
     );
   }
 

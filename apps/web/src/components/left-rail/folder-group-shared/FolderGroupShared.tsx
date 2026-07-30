@@ -68,7 +68,7 @@ export function FolderGroupShared({
             <ThreadRowShared
               key={thread.id}
               onClick={() => onThreadSelect?.(thread.id)}
-              provider={thread.provider}
+              harness={thread.provider}
               state={thread.state}
             >
               {thread.label}
