@@ -117,7 +117,7 @@ describe("Pencil left rail", () => {
     const row = document.querySelector<HTMLElement>(".group\\/account-row");
     expect(row).not.toBeNull();
     expect(row!.getAttribute("data-selected")).toBe("true");
-    expect(row!.getBoundingClientRect().height).toBe(40);
+    expect(row!.getBoundingClientRect().height).toBe(44);
     expect(getComputedStyle(row!).backgroundColor).toBe("rgba(0, 0, 0, 0)");
     await expect.element(page.getByRole("menuitem", { name: "Settings" })).toBeVisible();
     await expect.element(page.getByRole("menuitem", { name: "Give Feedback" })).toBeVisible();
