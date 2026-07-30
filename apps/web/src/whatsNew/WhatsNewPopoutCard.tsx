@@ -9,7 +9,7 @@ import { type KeyboardEvent } from "react";
 
 import { XIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
-import { PenkraMark } from "~/components/PenkraMark";
+import { PenkraMark } from "~/components/foundations/penkra-mark-shared/PenkraMark";
 
 import type { WhatsNewEntry } from "./logic";
 

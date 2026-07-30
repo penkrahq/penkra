@@ -52,7 +52,7 @@ function serverSettings(overrides: Partial<ServerSettings["providers"]> = {}): S
 
   return {
     enableAssistantStreaming: false,
-    enableProviderUpdateChecks: true,
+    providerUpdateMode: "automatic",
     defaultThreadEnvMode: "local",
     addProjectBaseDirectory: "",
     textGenerationModelSelection: { provider: "codex", model: "gpt-5.4-mini" },
@@ -109,13 +109,13 @@ describe("getVisibleProviderUpdateStatuses", () => {
     expect(result).toEqual([]);
   });
 
-  it("excludes provider updates when automatic update checks are disabled", () => {
+  it("keeps provider updates visible in notify mode", () => {
     const result = getVisibleProviderUpdateStatuses({
       providers: [providerStatus("codex")],
-      serverSettings: { ...serverSettings(), enableProviderUpdateChecks: false },
+      serverSettings: { ...serverSettings(), providerUpdateMode: "notify" },
     });
 
-    expect(result).toEqual([]);
+    expect(result.map((provider) => provider.provider)).toEqual(["codex"]);
   });
 
   it("can narrow notifications to one-click updates while settings keep manual updates visible", () => {

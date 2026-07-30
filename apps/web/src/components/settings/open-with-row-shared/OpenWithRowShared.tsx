@@ -1,12 +1,15 @@
 import { IconChevronRight } from "@tabler/icons-react";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 
 import { cn } from "~/lib/utils";
+import { DisclosureRegion } from "~/components/ui/DisclosureRegion";
+import { disclosureChevronClassName } from "~/lib/disclosureMotion";
 
 import { AppPickerRowShared } from "../app-picker-row-shared/AppPickerRowShared";
 
 export interface OpenWithOption {
   id: string;
+  icon?: ReactNode;
   label: string;
 }
 
@@ -62,23 +65,23 @@ export function OpenWithRowShared({
         </span>
         <span className="flex items-center gap-1 text-xs text-[var(--color-text-foreground-secondary)]">
           {selectedLabel}
-          <IconChevronRight className={cn("size-3.5 transition-transform", open && "rotate-90")} />
+          <IconChevronRight className={disclosureChevronClassName(open)} />
         </span>
       </button>
-      {open ? (
+      <DisclosureRegion open={open}>
         <div className="flex flex-col gap-2 pb-2.5 pt-1">
           {options.map((option) => (
             <AppPickerRowShared
+              icon={option.icon}
               key={option.id}
               onClick={() => select(option.id)}
-              role="option"
               selected={option.id === selectedValue}
             >
               {option.label}
             </AppPickerRowShared>
           ))}
         </div>
-      ) : null}
+      </DisclosureRegion>
     </div>
   );
 }

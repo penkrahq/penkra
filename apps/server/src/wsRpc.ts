@@ -24,6 +24,7 @@ import {
   type ServerConfigStreamEvent,
   type ServerDiagnosticsResult,
   type ServerLifecycleStreamEvent,
+  ServerProviderUpdateError,
 } from "@synara/contracts";
 import { clamp } from "effect/Number";
 import { Effect, FileSystem, Layer, Option, Path, Queue, Schema, Scope, Stream } from "effect";
@@ -76,6 +77,7 @@ import { makeImportThreadHandler } from "./orchestration/importThreadRoute";
 import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine";
 import { ProviderCommandReactor } from "./orchestration/Services/ProviderCommandReactor";
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
+import { hasActiveProviderThread } from "./provider/providerUpdateCoordinator";
 import { shouldPublishThreadShellForEvent } from "./orchestration/threadShellEvents";
 import { ProviderDiscoveryService } from "./provider/Services/ProviderDiscoveryService";
 import { discoverSkillsCatalog, synaraSkillsDir } from "./provider/skillsCatalog";
@@ -1318,7 +1320,19 @@ const makeWsRpcHandlersLayer = () =>
             providerHealth.refresh.pipe(Effect.map((providers) => ({ providers }))),
             "Failed to refresh providers",
           ),
-        [WS_METHODS.serverUpdateProvider]: (input) => providerHealth.updateProvider(input),
+        [WS_METHODS.serverUpdateProvider]: (input) =>
+          projectionReadModelQuery.getShellSnapshot().pipe(
+            Effect.flatMap((snapshot) =>
+              hasActiveProviderThread(input.provider, snapshot.threads)
+                ? Effect.fail(
+                    new ServerProviderUpdateError({
+                      provider: input.provider,
+                      reason: "Wait for active provider sessions to finish before updating.",
+                    }),
+                  )
+                : providerHealth.updateProvider(input),
+            ),
+          ),
         [WS_METHODS.serverListWorktrees]: () =>
           rpcEffect(
             pruneManagedWorktrees.pipe(Effect.map((worktrees) => ({ worktrees }))),

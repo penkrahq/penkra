@@ -83,6 +83,9 @@ const DisabledSkillNames = Schema.Array(Schema.String.check(Schema.isMaxLength(2
   Schema.withDecodingDefault(() => []),
 );
 
+export const ProviderUpdateMode = Schema.Literals(["automatic", "notify"]);
+export type ProviderUpdateMode = typeof ProviderUpdateMode.Type;
+
 // User-level skill toggles. Skills are keyed by lowercased name because the
 // unified catalog dedupes provider copies of the same skill by name.
 export const SkillsServerSettings = Schema.Struct({
@@ -92,7 +95,7 @@ export type SkillsServerSettings = typeof SkillsServerSettings.Type;
 
 export const ServerSettings = Schema.Struct({
   enableAssistantStreaming: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
-  enableProviderUpdateChecks: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
+  providerUpdateMode: ProviderUpdateMode.pipe(Schema.withDecodingDefault(() => "automatic")),
   defaultThreadEnvMode: ThreadEnvironmentMode.pipe(Schema.withDecodingDefault(() => "local")),
   addProjectBaseDirectory: StringSetting.pipe(Schema.withDecodingDefault(() => "")),
   textGenerationModelSelection: ModelSelection.pipe(
@@ -141,7 +144,7 @@ const ProviderSettingsBasePatch = {
 
 export const ServerSettingsPatch = Schema.Struct({
   enableAssistantStreaming: Schema.optionalKey(Schema.Boolean),
-  enableProviderUpdateChecks: Schema.optionalKey(Schema.Boolean),
+  providerUpdateMode: Schema.optionalKey(ProviderUpdateMode),
   defaultThreadEnvMode: Schema.optionalKey(ThreadEnvironmentMode),
   addProjectBaseDirectory: Schema.optionalKey(StringSetting),
   textGenerationModelSelection: Schema.optionalKey(ModelSelectionPatch),

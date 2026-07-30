@@ -38,6 +38,8 @@ import { startClaudeCredentialKeepalive } from "./provider/claudeCredentialKeepa
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
 import { ProviderSessionReaperLive } from "./provider/Layers/ProviderSessionReaper";
 import { ProviderRuntimeReconcilerLive } from "./provider/Layers/ProviderRuntimeReconciler";
+import { ProviderHealth } from "./provider/Services/ProviderHealth";
+import { startAutomaticProviderUpdates } from "./provider/providerUpdateCoordinator";
 import { Server } from "./effectServer";
 import { ServerLoggerLive } from "./serverLogger";
 import { ServerSettingsService } from "./serverSettings";
@@ -353,6 +355,7 @@ const makeServerProgram = (input: CliInput) =>
     const openDeps = yield* Open;
     const serverAuth = yield* ServerAuth;
     const serverSettings = yield* ServerSettingsService;
+    const providerHealth = yield* ProviderHealth;
     yield* cliConfig.fixPath;
 
     const config = yield* ServerConfig;
@@ -394,6 +397,12 @@ const makeServerProgram = (input: CliInput) =>
     // Start the retention loop after the server is live so startup can serve
     // existing history first, then hide inactive threads from the app in the background.
     yield* startThreadRetentionJob(orchestrationEngine, projectionSnapshotQuery);
+    yield* startAutomaticProviderUpdates({
+      providerHealth,
+      projectionSnapshotQuery,
+      serverSettings,
+      config,
+    });
     yield* Effect.forkChild(recordStartupHeartbeat);
     yield* Effect.forkChild(
       penkraRegistry.reconcile.pipe(
