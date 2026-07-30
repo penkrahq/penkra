@@ -41,7 +41,13 @@ function SwipePrototype() {
 
 const meta = {
   component: SwipePrototype,
-  decorators: [(Story) => <div className="h-[810px] w-60"><Story /></div>],
+  decorators: [
+    (Story) => (
+      <div className="h-[810px] w-60">
+        <Story />
+      </div>
+    ),
+  ],
   parameters: { pencil: { componentId: "yc0hr", groupId: "PUf7t" } },
   title: "Left Rail/Space Viewport/Shared",
 } satisfies Meta<typeof SwipePrototype>;

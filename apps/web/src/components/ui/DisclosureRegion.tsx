@@ -56,7 +56,10 @@ export function DisclosureSection({
     <section {...sectionProps}>
       {header}
       {hasContent ? (
-        <DisclosureRegion contentClassName={contentClassName} open={open}>
+        <DisclosureRegion
+          {...(contentClassName === undefined ? {} : { contentClassName })}
+          open={open}
+        >
           {children}
         </DisclosureRegion>
       ) : null}

@@ -19,15 +19,8 @@ function LogoutHarness({
 
   return (
     <div className="flex h-64 w-60 items-end">
-      <AccountControlShared
-        accountName="gigsama"
-        onLogout={() => setOpen(true)}
-      />
-      <PopupLogoutConfirmation
-        onConfirm={onConfirm}
-        onOpenChange={setOpen}
-        open={open}
-      />
+      <AccountControlShared accountName="gigsama" onLogout={() => setOpen(true)} />
+      <PopupLogoutConfirmation onConfirm={onConfirm} onOpenChange={setOpen} open={open} />
     </div>
   );
 }

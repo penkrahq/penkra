@@ -4,8 +4,10 @@ import type { ComponentProps } from "react";
 import { FolderStateIcon } from "../folder-state-icon/FolderStateIcon";
 import { LeftRailRow } from "../row-shared/LeftRailRow";
 
-export interface FolderRowSharedProps
-  extends Omit<ComponentProps<typeof LeftRailRow>, "leading" | "trailing"> {
+export interface FolderRowSharedProps extends Omit<
+  ComponentProps<typeof LeftRailRow>,
+  "leading" | "trailing"
+> {
   expanded?: boolean;
   onAdd?: () => void;
 }
@@ -24,10 +26,15 @@ export function FolderRowShared({
     <div className="group/folder-row relative w-full">
       <LeftRailRow
         className="gap-1.5 pr-7"
-        disabled={disabled}
-        leading={<FolderStateIcon disabled={disabled} open={showOpenFolder} />}
+        leading={
+          <FolderStateIcon
+            {...(disabled === undefined ? {} : { disabled })}
+            open={showOpenFolder}
+          />
+        }
         leadingClassName="size-3.5"
-        state={state}
+        {...(disabled === undefined ? {} : { disabled })}
+        {...(state === undefined ? {} : { state })}
         {...props}
       >
         {children}

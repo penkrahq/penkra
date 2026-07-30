@@ -55,11 +55,7 @@ export function ModalLogoutConfirmation({
       </div>
 
       <div className="grid w-full grid-cols-2 gap-2 pt-5" data-slot="logout-actions">
-        <ButtonSecondary
-          className="!h-9 min-w-0 sm:!h-9"
-          disabled={loading}
-          onClick={onCancel}
-        >
+        <ButtonSecondary className="!h-9 min-w-0 sm:!h-9" disabled={loading} onClick={onCancel}>
           Cancel
         </ButtonSecondary>
         <ButtonPrimary

@@ -59,10 +59,7 @@ export function AppBarShared({
 }: AppBarSharedProps) {
   return (
     <div
-      className={cn(
-        "flex h-8 w-[420px] flex-col bg-transparent font-sans",
-        className,
-      )}
+      className={cn("flex h-8 w-[420px] flex-col bg-transparent font-sans", className)}
       data-pencil-component="HQgpR"
     >
       <div className="flex h-[31px] w-full items-center gap-2 px-2">

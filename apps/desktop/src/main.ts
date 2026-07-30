@@ -66,10 +66,7 @@ import { isBackendReadinessAborted, waitForHttpReady } from "./backendReadiness"
 import { resolveBackendNodeArgs } from "./backendNodeOptions";
 import { captureBackendProcessOutput } from "./backendProcessOutput";
 import { runAfterDesktopShutdown } from "./backendShutdown";
-import {
-  type BackendStartupBlock,
-  BackendStartupBlockDetector,
-} from "./backendStartupBlock";
+import { type BackendStartupBlock, BackendStartupBlockDetector } from "./backendStartupBlock";
 import {
   bundleSignatureFromStats,
   isBundleStable,
@@ -3704,7 +3701,7 @@ function createWindow(): BrowserWindow {
   window.on("unmaximize", () => emitDesktopWindowState(window));
   window.on("enter-full-screen", () => emitDesktopWindowState(window));
   window.on("leave-full-screen", () => emitDesktopWindowState(window));
-  window.on("close", (event) => {
+  window.on("close", () => {
     try {
       writeDesktopWindowState(DESKTOP_WINDOW_STATE_PATH, {
         version: 1,

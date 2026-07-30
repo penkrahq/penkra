@@ -8,11 +8,8 @@ const DEFAULT_DESKTOP_WINDOW_STATE: DesktopWindowState = {
 };
 
 export function useDesktopWindowState(): DesktopWindowState {
-  const controls =
-    typeof window === "undefined" ? undefined : window.desktopBridge?.windowControls;
-  const [windowState, setWindowState] = useState<DesktopWindowState>(
-    DEFAULT_DESKTOP_WINDOW_STATE,
-  );
+  const controls = typeof window === "undefined" ? undefined : window.desktopBridge?.windowControls;
+  const [windowState, setWindowState] = useState<DesktopWindowState>(DEFAULT_DESKTOP_WINDOW_STATE);
 
   useEffect(() => {
     if (!controls) return;

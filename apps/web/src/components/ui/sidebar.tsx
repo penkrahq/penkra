@@ -402,7 +402,6 @@ function SidebarRail({
 }: React.ComponentProps<"button">) {
   const { open, toggleSidebar } = useSidebar();
   const sidebarInstance = React.useContext(SidebarInstanceContext);
-  const side = sidebarInstance?.side ?? "left";
   const railRef = React.useRef<HTMLButtonElement | null>(null);
   const suppressClickRef = React.useRef(false);
   const resizeStateRef = React.useRef<{

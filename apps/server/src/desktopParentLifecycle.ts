@@ -20,9 +20,7 @@ export function consumeDesktopParentPidFromEnvironment(
 ): number | null {
   const matchingKeys =
     platform === "win32"
-      ? Object.keys(environment).filter(
-          (key) => key.toUpperCase() === DESKTOP_PARENT_PID_ENV_KEY,
-        )
+      ? Object.keys(environment).filter((key) => key.toUpperCase() === DESKTOP_PARENT_PID_ENV_KEY)
       : [DESKTOP_PARENT_PID_ENV_KEY];
   let rawValue: string | undefined;
   for (const key of matchingKeys) {

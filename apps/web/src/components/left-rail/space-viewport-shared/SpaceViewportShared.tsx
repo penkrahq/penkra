@@ -5,8 +5,10 @@ import { cn } from "~/lib/utils";
 
 const SCROLL_SETTLE_FALLBACK_MS = 140;
 
-export interface SpaceViewportSharedProps
-  extends Omit<ComponentProps<"div">, "children" | "onScroll"> {
+export interface SpaceViewportSharedProps extends Omit<
+  ComponentProps<"div">,
+  "children" | "onScroll"
+> {
   activePageIndex: number;
   children: ReactNode;
   onActivePageIndexChange: (pageIndex: number) => void;
@@ -46,10 +48,7 @@ export function SpaceViewportShared({
       if (fallbackTimerRef.current !== null) {
         window.clearTimeout(fallbackTimerRef.current);
       }
-      fallbackTimerRef.current = window.setTimeout(
-        settleActivePage,
-        SCROLL_SETTLE_FALLBACK_MS,
-      );
+      fallbackTimerRef.current = window.setTimeout(settleActivePage, SCROLL_SETTLE_FALLBACK_MS);
     };
     const onScrollEnd = () => {
       if (fallbackTimerRef.current !== null) {

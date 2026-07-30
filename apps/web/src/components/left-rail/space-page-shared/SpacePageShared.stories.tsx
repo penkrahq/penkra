@@ -8,7 +8,13 @@ import { SpacePageShared } from "./SpacePageShared";
 
 const meta = {
   component: SpacePageShared,
-  decorators: [(Story) => <div className="h-[810px] w-60"><Story /></div>],
+  decorators: [
+    (Story) => (
+      <div className="h-[810px] w-60">
+        <Story />
+      </div>
+    ),
+  ],
   parameters: { pencil: { componentId: "tssws", groupId: "PUf7t" } },
   title: "Left Rail/Space Page/Shared",
 } satisfies Meta<typeof SpacePageShared>;

@@ -12,10 +12,7 @@ import {
 } from "~/theme/theme.logic";
 import { PenkraMark } from "./PenkraMark";
 
-const BRAND_VARIABLES = [
-  "--color-brand-mark-bridge",
-  "--color-brand-mark-glyph",
-] as const;
+const BRAND_VARIABLES = ["--color-brand-mark-bridge", "--color-brand-mark-glyph"] as const;
 
 function applyBrandTheme(variant: ThemeVariant) {
   const variables = buildThemeCssVariables(
@@ -24,7 +21,11 @@ function applyBrandTheme(variant: ThemeVariant) {
   ).variables;
 
   for (const name of BRAND_VARIABLES) {
-    document.documentElement.style.setProperty(name, variables[name]);
+    const value = variables[name];
+    if (value === undefined) {
+      throw new Error(`Missing expected Penkra brand variable: ${name}`);
+    }
+    document.documentElement.style.setProperty(name, value);
   }
 }
 
@@ -40,7 +41,11 @@ describe("PenkraMark theme behavior", () => {
     await render(<PenkraMark aria-label="Penkra" />);
 
     const mark = page.getByLabelText("Penkra").element();
-    const [glyph, bridge] = mark.querySelectorAll("path");
+    const glyph = mark.querySelector("path:first-of-type");
+    const bridge = mark.querySelector("path:last-of-type");
+    if (!glyph || !bridge) {
+      throw new Error("Expected the Penkra mark to render glyph and bridge paths.");
+    }
 
     applyBrandTheme("light");
     expect(getComputedStyle(glyph).fill).toBe("rgb(0, 29, 86)");
