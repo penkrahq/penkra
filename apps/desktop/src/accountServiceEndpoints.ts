@@ -1,24 +1,27 @@
-import { resolvePenkraAuthOrigin } from "./accountAuthOrigin";
+import { resolvePenkraWebsiteOrigin } from "./accountWebsiteOrigin";
 
 export const PENKRA_PRODUCTION_API_URL = "https://api.penkra.com";
 
 export type PenkraAccountServiceEndpoints = {
   readonly apiUrl: string;
-  readonly authOrigin: string;
+  readonly authBaseUrl: string;
+  readonly websiteOrigin: string;
 };
 
 export function resolvePenkraAccountServiceEndpoints(input: {
   readonly configuredApiUrl?: string | undefined;
-  readonly configuredAuthOrigin?: string | undefined;
+  readonly configuredWebsiteOrigin?: string | undefined;
 }): PenkraAccountServiceEndpoints {
   const configuredApiUrl = input.configuredApiUrl?.trim();
-  const configuredAuthOrigin = input.configuredAuthOrigin?.trim();
-  if (Boolean(configuredApiUrl) !== Boolean(configuredAuthOrigin)) {
-    throw new Error("PENKRA_API_URL and PENKRA_AUTH_ORIGIN must be configured together.");
+  const configuredWebsiteOrigin = input.configuredWebsiteOrigin?.trim();
+  if (Boolean(configuredApiUrl) !== Boolean(configuredWebsiteOrigin)) {
+    throw new Error("PENKRA_API_URL and PENKRA_WEBSITE_ORIGIN must be configured together.");
   }
+  const apiUrl = resolveApiUrl(configuredApiUrl);
   return {
-    apiUrl: resolveApiUrl(configuredApiUrl),
-    authOrigin: resolvePenkraAuthOrigin(configuredAuthOrigin),
+    apiUrl,
+    authBaseUrl: `${apiUrl}/auth`,
+    websiteOrigin: resolvePenkraWebsiteOrigin(configuredWebsiteOrigin),
   };
 }
 

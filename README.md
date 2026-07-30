@@ -31,7 +31,8 @@ actions instead of exiting silently.
 
 Source builds use Penkra's production account services by default, so public contributors can
 sign in with an ordinary Penkra account without running the private backend. Internal development
-sets both `PENKRA_API_URL` and `PENKRA_AUTH_ORIGIN` to the local backend and website. A custom
+sets both `PENKRA_API_URL` and `PENKRA_WEBSITE_ORIGIN` to the local backend and website. Authentication
+protocol calls use the backend's `/auth` endpoint. A custom
 compatible service must set both values together; see `.env.example`.
 
 Run the component library:

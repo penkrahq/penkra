@@ -226,7 +226,7 @@ const penkraAppDataBase = resolveDesktopAppDataBase();
 const penkraRootPointerPath = resolvePenkraRootPointerPath(penkraAppDataBase);
 const penkraAccountServices = resolvePenkraAccountServiceEndpoints({
   configuredApiUrl: process.env.PENKRA_API_URL,
-  configuredAuthOrigin: process.env.PENKRA_AUTH_ORIGIN,
+  configuredWebsiteOrigin: process.env.PENKRA_WEBSITE_ORIGIN,
 });
 const desktopFlavor = resolveSynaraDesktopFlavor({
   isDevelopment,
@@ -353,10 +353,11 @@ let configuredUpdaterCacheDirName: string | null = null;
 
 configurePenkraAccountAuth({
   accountAuthScheme: desktopIdentity.accountAuthScheme,
-  authOrigin: penkraAccountServices.authOrigin,
+  authBaseUrl: penkraAccountServices.authBaseUrl,
   desktopFlavor,
   getWindow: () => mainWindow,
   ipcMain,
+  websiteOrigin: penkraAccountServices.websiteOrigin,
 });
 
 browserManager.subscribe((state) => {

@@ -1,21 +1,21 @@
 import { describe, expect, it } from "vitest";
 
 import { isPenkraAccountAuthCallbackUrl } from "./accountAuthCallback";
-import { resolvePenkraAuthOrigin } from "./accountAuthOrigin";
+import { resolvePenkraWebsiteOrigin } from "./accountWebsiteOrigin";
 
-describe("Penkra account auth origin", () => {
+describe("Penkra account website origin", () => {
   it("defaults to the live Penkra website", () => {
-    expect(resolvePenkraAuthOrigin()).toBe("https://penkra.com");
+    expect(resolvePenkraWebsiteOrigin()).toBe("https://penkra.com");
   });
 
   it("allows localhost HTTP for desktop development", () => {
-    expect(resolvePenkraAuthOrigin("http://localhost:3000/sign-in?stale=1")).toBe(
+    expect(resolvePenkraWebsiteOrigin("http://localhost:3000/sign-in?stale=1")).toBe(
       "http://localhost:3000",
     );
   });
 
   it("rejects insecure remote origins", () => {
-    expect(() => resolvePenkraAuthOrigin("http://example.com")).toThrow(/HTTPS/);
+    expect(() => resolvePenkraWebsiteOrigin("http://example.com")).toThrow(/HTTPS/);
   });
 });
 

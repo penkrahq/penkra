@@ -6,7 +6,8 @@ describe("Penkra account service endpoints", () => {
   it("uses live Penkra services when source development has no override", () => {
     expect(resolvePenkraAccountServiceEndpoints({})).toEqual({
       apiUrl: "https://api.penkra.com",
-      authOrigin: "https://penkra.com",
+      authBaseUrl: "https://api.penkra.com/auth",
+      websiteOrigin: "https://penkra.com",
     });
   });
 
@@ -14,11 +15,12 @@ describe("Penkra account service endpoints", () => {
     expect(
       resolvePenkraAccountServiceEndpoints({
         configuredApiUrl: "http://127.0.0.1:3012/",
-        configuredAuthOrigin: "http://localhost:3000/sign-in",
+        configuredWebsiteOrigin: "http://localhost:3000/sign-in",
       }),
     ).toEqual({
       apiUrl: "http://127.0.0.1:3012",
-      authOrigin: "http://localhost:3000",
+      authBaseUrl: "http://127.0.0.1:3012/auth",
+      websiteOrigin: "http://localhost:3000",
     });
   });
 
@@ -30,7 +32,7 @@ describe("Penkra account service endpoints", () => {
     ).toThrow(/configured together/);
     expect(() =>
       resolvePenkraAccountServiceEndpoints({
-        configuredAuthOrigin: "http://localhost:3000",
+        configuredWebsiteOrigin: "http://localhost:3000",
       }),
     ).toThrow(/configured together/);
   });
@@ -39,7 +41,7 @@ describe("Penkra account service endpoints", () => {
     expect(() =>
       resolvePenkraAccountServiceEndpoints({
         configuredApiUrl: "http://example.com",
-        configuredAuthOrigin: "https://example.com",
+        configuredWebsiteOrigin: "https://example.com",
       }),
     ).toThrow(/HTTPS/);
   });

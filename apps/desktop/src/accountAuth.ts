@@ -34,13 +34,14 @@ type PenkraElectronAuthClient = ReturnType<typeof createAuthClient> & {
 
 export function configurePenkraAccountAuth(input: {
   accountAuthScheme: string;
-  authOrigin: string;
+  authBaseUrl: string;
   desktopFlavor: SynaraDesktopFlavor;
   getWindow: () => BrowserWindow | null;
   ipcMain: IpcMain;
+  websiteOrigin: string;
 }): void {
   const accountStorage = storage({
-    configName: `account-auth-${input.desktopFlavor}-${serviceKey(input.authOrigin)}`,
+    configName: `account-auth-${input.desktopFlavor}-${serviceKey(input.authBaseUrl)}`,
     projectName: "Penkra",
   });
   const electronOptions = {
@@ -74,7 +75,7 @@ export function configurePenkraAccountAuth(input: {
     },
   } as const;
   const createPenkraAuthClient = (path: "/sign-in" | "/sign-up") => {
-    const signInUrl = new URL(path, input.authOrigin);
+    const signInUrl = new URL(path, input.websiteOrigin);
     if (input.desktopFlavor !== "production") {
       signInUrl.searchParams.set("desktop_flavor", input.desktopFlavor);
     }
@@ -86,7 +87,7 @@ export function configurePenkraAccountAuth(input: {
     // BetterFetch generics from separate declaration paths. Keep that mismatch at
     // this package boundary while retaining the Electron actions in our local type.
     return createAuthClient({
-      baseURL: input.authOrigin,
+      baseURL: input.authBaseUrl,
       plugins: [plugin as never],
     }) as unknown as PenkraElectronAuthClient;
   };
@@ -194,8 +195,8 @@ export function configurePenkraAccountAuth(input: {
   });
 }
 
-function serviceKey(authOrigin: string): string {
-  return createHash("sha256").update(authOrigin).digest("hex").slice(0, 12);
+function serviceKey(authBaseUrl: string): string {
+  return createHash("sha256").update(authBaseUrl).digest("hex").slice(0, 12);
 }
 
 function toDesktopAccountUser(user: Record<string, unknown>): DesktopAccountUser {
