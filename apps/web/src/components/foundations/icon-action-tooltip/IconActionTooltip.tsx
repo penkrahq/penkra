@@ -31,13 +31,13 @@ export function IconActionTooltip({
           {children}
         </TooltipTrigger>
         <TooltipPopup
-          className="!rounded-lg !border !border-[var(--color-border)] !bg-[var(--color-background-elevated-primary-opaque)] !text-[var(--color-text-foreground)] after:absolute after:-bottom-1 after:left-1/2 after:size-2 after:-translate-x-1/2 after:rotate-45 after:bg-[var(--color-background-elevated-primary-opaque)]"
+          className="!rounded-lg !border !border-black !bg-black !text-white after:absolute after:-bottom-1 after:left-1/2 after:size-2 after:-translate-x-1/2 after:rotate-45 after:bg-black"
           sideOffset={8}
           viewportClassName="flex items-center gap-2 !px-2.5 !py-1.5"
         >
           <span className="font-sans text-xs leading-[15px]">{label}</span>
           {shortcut ? (
-            <kbd className="rounded-full bg-[var(--color-background-button-secondary-hover)] px-1 py-0.5 font-sans text-[11px] leading-[13px] font-normal text-[var(--color-text-foreground-tertiary)]">
+            <kbd className="rounded-full bg-white/5 px-1 py-0.5 font-sans text-[11px] leading-[13px] font-normal text-white/35">
               {shortcut}
             </kbd>
           ) : null}
