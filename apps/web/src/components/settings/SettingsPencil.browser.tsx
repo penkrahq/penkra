@@ -116,7 +116,21 @@ describe("Pencil settings structure", () => {
     const providerUpdates = page.getByRole("button", { name: /Provider updates/i });
     await expect.element(providerUpdates).toHaveTextContent("Automatic");
     await providerUpdates.click();
-    await page.getByRole("button", { name: "Notify me", exact: true }).click();
+    const notifyOption = page.getByRole("button", { name: "Notify me", exact: true });
+    await expect.element(notifyOption).toBeVisible();
+    const providerUpdatesElement = Array.from(document.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("Provider updates"),
+    );
+    const notifyOptionElement = Array.from(document.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "Notify me",
+    );
+    expect(providerUpdatesElement).toBeDefined();
+    expect(notifyOptionElement).toBeDefined();
+    const providerUpdatesBounds = providerUpdatesElement!.getBoundingClientRect();
+    const notifyOptionBounds = notifyOptionElement!.getBoundingClientRect();
+    expect(notifyOptionBounds.height).toBeGreaterThanOrEqual(38);
+    expect(notifyOptionBounds.top).toBeGreaterThanOrEqual(providerUpdatesBounds.bottom);
+    await notifyOption.click();
     await expect.element(providerUpdates).toHaveTextContent("Notify me");
     expect(document.body.textContent).not.toContain("Restore defaults");
     expect(document.body.textContent).not.toContain("Automatic CLI update checks");
