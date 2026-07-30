@@ -11,6 +11,7 @@ import {
   resolvePenkraDevLauncherPaths,
   resolvePenkraDevWorkspaceCommand,
   shouldRunPenkraDevLauncher,
+  waitForDevelopmentElectron,
   waitForDockerEngine,
 } from "./penkra-dev-launcher";
 import {
@@ -87,6 +88,43 @@ describe("Penkra Dev launcher", () => {
     } finally {
       dateNow.mockRestore();
     }
+  });
+
+  it("keeps monitoring for Electron throughout a live workspace startup", async () => {
+    let checks = 0;
+    let focusCount = 0;
+
+    await expect(
+      waitForDevelopmentElectron({
+        isRunning: () => {
+          checks += 1;
+          return checks === 4;
+        },
+        onRunning: () => {
+          focusCount += 1;
+        },
+        shouldContinue: () => true,
+        sleep: async () => {},
+        timeoutMs: null,
+      }),
+    ).resolves.toBe(true);
+    expect(checks).toBe(4);
+    expect(focusCount).toBe(1);
+  });
+
+  it("stops monitoring when the workspace exits before Electron starts", async () => {
+    let workspaceActive = true;
+
+    await expect(
+      waitForDevelopmentElectron({
+        isRunning: () => false,
+        shouldContinue: () => workspaceActive,
+        sleep: async () => {
+          workspaceActive = false;
+        },
+        timeoutMs: null,
+      }),
+    ).resolves.toBe(false);
   });
 
   it("accepts only the configured detached supervisor command", () => {

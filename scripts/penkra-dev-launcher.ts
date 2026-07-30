@@ -178,15 +178,48 @@ function focusDevelopmentElectron(): boolean {
   return result.status === 0;
 }
 
-async function focusDevelopmentElectronWhenReady(
-  timeoutMs = 10_000,
+export interface DevelopmentElectronReadinessOptions {
+  readonly isRunning: () => boolean;
+  readonly sleep: (milliseconds: number) => Promise<void>;
+  readonly onRunning?: () => void;
+  readonly pollIntervalMs?: number;
+  readonly shouldContinue?: () => boolean;
+  readonly timeoutMs?: number | null;
+}
+
+export async function waitForDevelopmentElectron({
+  isRunning,
+  sleep,
+  onRunning,
+  pollIntervalMs = 200,
   shouldContinue = () => true,
-): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline && shouldContinue()) {
-    if (focusDevelopmentElectron()) return;
-    await new Promise((resolvePromise) => setTimeout(resolvePromise, 200));
+  timeoutMs = 10_000,
+}: DevelopmentElectronReadinessOptions): Promise<boolean> {
+  const deadline = timeoutMs === null ? null : Date.now() + timeoutMs;
+  while (shouldContinue() && (deadline === null || Date.now() < deadline)) {
+    if (isRunning()) {
+      onRunning?.();
+      return true;
+    }
+    await sleep(pollIntervalMs);
   }
+  return false;
+}
+
+async function focusDevelopmentElectronWhenReady(
+  timeoutMs: number | null = 10_000,
+  shouldContinue = () => true,
+): Promise<boolean> {
+  return waitForDevelopmentElectron({
+    isRunning: developmentElectronIsRunning,
+    onRunning: () => {
+      focusDevelopmentElectron();
+    },
+    shouldContinue,
+    sleep: (milliseconds) =>
+      new Promise((resolvePromise) => setTimeout(resolvePromise, milliseconds)),
+    timeoutMs,
+  });
 }
 
 function acquireSupervisorLock(paths: PenkraDevLauncherPaths): boolean {
@@ -483,9 +516,9 @@ async function supervise(bunExecutable: string): Promise<void> {
           process.once(signal, handler);
         }
 
-        const focusPromise = focusDevelopmentElectronWhenReady(120_000, () => childActive).then(
-          () => {
-            if (developmentElectronIsRunning()) {
+        const focusPromise = focusDevelopmentElectronWhenReady(null, () => childActive).then(
+          (running) => {
+            if (running) {
               writeLauncherStatus(paths, "running", "Penkra (Dev) is running.");
             }
           },
