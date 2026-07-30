@@ -11,7 +11,7 @@ const meta = {
       </div>
     ),
   ],
-  parameters: { pencil: { componentId: "JwTiI", groupId: "e46ib4" } },
+  parameters: { pencil: { componentId: "JwTiI", groupId: "kVpYl" } },
   title: "Middle Panel/Composer Actions",
 } satisfies Meta<typeof ComposerActions>;
 

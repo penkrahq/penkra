@@ -14,7 +14,7 @@ const meta = {
     ),
   ],
   parameters: {
-    pencil: { componentId: "pbUT3", groupId: "e46ib4", relatedId: "nBV5e" },
+    pencil: { componentId: "pbUT3", groupId: "kVpYl", relatedId: "nBV5e" },
   },
   title: "Middle Panel/Composer Menu Row",
 } satisfies Meta<typeof ComposerMenuRow>;

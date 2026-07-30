@@ -11,7 +11,7 @@ const meta = {
       </div>
     ),
   ],
-  parameters: { pencil: { componentId: "k4x6m", groupId: "e46ib4" } },
+  parameters: { pencil: { componentId: "k4x6m", groupId: "kVpYl" } },
   title: "Middle Panel/Access Pill/Content",
 } satisfies Meta<typeof AccessPillContent>;
 

@@ -215,6 +215,7 @@ import {
 import { subscribeToDesktopUpdateState } from "./desktopUpdate.subscription";
 import { FolderRowShared } from "./left-rail/folder-row-shared/FolderRowShared";
 import { AccountControlShared } from "./left-rail/account-control-shared/AccountControlShared";
+import { PopupLogoutConfirmation } from "./left-rail/popup-logout-confirmation/PopupLogoutConfirmation";
 import { ShowMoreRow } from "./left-rail/show-more-row/ShowMoreRow";
 import { SidebarHeaderShared } from "./left-rail/sidebar-header-shared/SidebarHeaderShared";
 import { SidebarProjects } from "./left-rail/sidebar-projects/SidebarProjects";
@@ -436,6 +437,7 @@ export default function Sidebar() {
     [queryClient],
   );
   const [penkraCreateClientOpen, setPenkraCreateClientOpen] = useState(false);
+  const [logoutConfirmationOpen, setLogoutConfirmationOpen] = useState(false);
   const routeThreadId = useParams({
     strict: false,
     select: (params) => (params.threadId ? ThreadId.makeUnsafe(params.threadId) : null),
@@ -3299,6 +3301,7 @@ export default function Sidebar() {
         <AccountControlShared
           accountName={profileName}
           onFeedback={() => openFeedbackDialog()}
+          onLogout={() => setLogoutConfirmationOpen(true)}
           onSettings={() => void navigate({ to: "/settings" })}
           onSupport={() => openFeedbackDialog()}
           {...(showDesktopUpdateButton ? { onUpdate: handleDesktopUpdateButtonClick } : {})}
@@ -3651,6 +3654,18 @@ export default function Sidebar() {
       <PenkraCreateClientDialog
         open={penkraCreateClientOpen}
         onOpenChange={setPenkraCreateClientOpen}
+      />
+
+      <PopupLogoutConfirmation
+        onConfirm={async () => {
+          const accountAuth = window.desktopBridge?.accountAuth;
+          if (!accountAuth) {
+            throw new Error("Account authentication is unavailable.");
+          }
+          await accountAuth.signOut();
+        }}
+        onOpenChange={setLogoutConfirmationOpen}
+        open={logoutConfirmationOpen}
       />
 
       {searchPaletteOpen ? (

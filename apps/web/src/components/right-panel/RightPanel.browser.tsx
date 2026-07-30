@@ -5,8 +5,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
 import { AppListRowShared } from "./app-list-row-shared/AppListRowShared";
+import { AppBarShared } from "./app-bar-shared/AppBarShared";
 import { PanelTabs } from "./panel-tabs/PanelTabs";
-import { PermissionSheet } from "./permission-sheet/PermissionSheet";
 
 describe("Pencil right panel", () => {
   afterEach(() => {
@@ -27,11 +27,15 @@ describe("Pencil right panel", () => {
     expect(onSelect).toHaveBeenCalledWith("review");
   });
 
-  it("uses an actual switch for permission decisions", async () => {
-    await render(<PermissionSheet />);
-    const permission = page.getByRole("switch", { name: "Connect to the internet" });
-    await expect.element(permission).toBeChecked();
-    await permission.click();
-    await expect.element(permission).not.toBeChecked();
+  it("keeps app-bar navigation as separate native actions", async () => {
+    const onBack = vi.fn();
+    const onRefresh = vi.fn();
+    await render(<AppBarShared onBack={onBack} onRefresh={onRefresh} />);
+
+    await page.getByRole("button", { name: "Back" }).click();
+    await page.getByRole("button", { name: "Refresh" }).click();
+
+    expect(onBack).toHaveBeenCalledOnce();
+    expect(onRefresh).toHaveBeenCalledOnce();
   });
 });
