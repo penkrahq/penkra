@@ -23,7 +23,7 @@ export function SidebarHeaderShared({
   return (
     <header
       className={cn(
-        "flex h-8 w-60 items-center gap-1.5 bg-transparent px-2.5 font-sans",
+        "flex h-[46px] w-60 items-center gap-1.5 bg-transparent px-2.5 font-sans",
         className,
       )}
       {...props}

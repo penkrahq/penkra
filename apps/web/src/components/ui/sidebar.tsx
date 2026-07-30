@@ -187,8 +187,7 @@ function SidebarProvider({
 }
 
 // Resolves user-facing resizable options into concrete bounds, or null when resizing
-// is unavailable (mobile / non-collapsible / disabled). Shared by Sidebar and the
-// detached content-seam rail so both agree on identical resize behavior.
+// is unavailable (mobile / non-collapsible / disabled).
 function resolveSidebarResizable(
   resizable: boolean | SidebarResizableOptions,
   { collapsible, isMobile }: { collapsible: "offcanvas" | "icon" | "none"; isMobile: boolean },
@@ -204,36 +203,6 @@ function resolveSidebarResizable(
     ...(options.onResize ? { onResize: options.onResize } : {}),
     ...(options.shouldAcceptWidth ? { shouldAcceptWidth: options.shouldAcceptWidth } : {}),
   };
-}
-
-// Supplies the per-instance sidebar context (side + resolved resize options) to a
-// SidebarRail rendered OUTSIDE its <Sidebar> — e.g. the content-seam rail, which must
-// stack above the chat card. Without this the detached rail has no resize config and
-// silently degrades to toggle-only (the "can't drag" regression). Provide the SAME
-// `resizable`/`side` here as on the matching <Sidebar>. Must be used inside a SidebarProvider.
-function SidebarInstanceProvider({
-  side,
-  resizable,
-  collapsible = "offcanvas",
-  children,
-}: {
-  side: "left" | "right";
-  resizable: boolean | SidebarResizableOptions;
-  collapsible?: "offcanvas" | "icon" | "none";
-  children: React.ReactNode;
-}) {
-  const { isMobile } = useSidebar();
-  const resolvedResizable = React.useMemo(
-    () => resolveSidebarResizable(resizable, { collapsible, isMobile }),
-    [collapsible, isMobile, resizable],
-  );
-  const value = React.useMemo<SidebarInstanceContextProps>(
-    () => ({ resizable: resolvedResizable, side }),
-    [resolvedResizable, side],
-  );
-  return (
-    <SidebarInstanceContext.Provider value={value}>{children}</SidebarInstanceContext.Provider>
-  );
 }
 
 function Sidebar({
@@ -423,7 +392,6 @@ function clampSidebarWidth(width: number, options: SidebarResolvedResizableOptio
 }
 
 function SidebarRail({
-  placement = "sidebar-shell",
   className,
   onClick,
   onPointerCancel,
@@ -431,14 +399,10 @@ function SidebarRail({
   onPointerMove,
   onPointerUp,
   ...props
-}: React.ComponentProps<"button"> & {
-  /** `content-seam` sits on the chat column edge above the card; `sidebar-shell` stays on the sidebar container. */
-  placement?: "sidebar-shell" | "content-seam";
-}) {
+}: React.ComponentProps<"button">) {
   const { open, toggleSidebar } = useSidebar();
   const sidebarInstance = React.useContext(SidebarInstanceContext);
   const side = sidebarInstance?.side ?? "left";
-  const isContentSeam = placement === "content-seam";
   const railRef = React.useRef<HTMLButtonElement | null>(null);
   const suppressClickRef = React.useRef(false);
   const resizeStateRef = React.useRef<{
@@ -662,32 +626,15 @@ function SidebarRail({
     <button
       aria-label={railLabel}
       className={cn(
-        isContentSeam
-          ? [
-              /* Resize hit-area on the chat card seam. The visible divider is the card's
-                 border-inline edge (follows the rounded corner); hovering this rail
-                 intensifies that border via :has() in index.css — no overlay line here.
-                 This rail lives OUTSIDE <Sidebar>, so `in-data-[side]` cursor variants
-                 never match (no [data-side] ancestor). Set the cursor directly:
-                 `col-resize` (the ↔ handle) when resizing is available — matching the
-                 body cursor used during the drag — else `pointer` for the toggle. */
-              "absolute inset-y-0 z-[25] hidden w-4 sm:flex",
-              canResize ? "cursor-col-resize" : "cursor-pointer",
-              side === "left" ? "left-0 -translate-x-1/2" : "right-0 translate-x-1/2",
-            ]
-          : [
-              /* Legacy: rail anchored to the sidebar shell (right dock, etc.). */
-              "-translate-x-1/2 group-data-[side=left]:-right-4 absolute inset-y-0 z-20 hidden w-4 transition-all ease-linear after:absolute after:inset-y-0 after:left-1/2 after:w-[2px] after:-translate-x-1/2 after:bg-transparent after:transition-colors hover:after:bg-sidebar-border group-data-[side=right]:left-0 sm:flex [[data-collapsible=offcanvas][data-state=collapsed]_&]:pointer-events-none",
-              "in-data-[side=left]:cursor-w-resize in-data-[side=right]:cursor-e-resize",
-              "[[data-side=left][data-state=collapsed]_&]:cursor-e-resize [[data-side=right][data-state=collapsed]_&]:cursor-w-resize",
-              "group-data-[collapsible=offcanvas]:translate-x-0 group-data-[collapsible=offcanvas]:after:left-full",
-              "[[data-side=left][data-collapsible=offcanvas]_&]:-right-2",
-              "[[data-side=right][data-collapsible=offcanvas]_&]:-left-2",
-            ],
+        "-translate-x-1/2 group-data-[side=left]:-right-4 absolute inset-y-0 z-20 hidden w-4 transition-all ease-linear after:absolute after:inset-y-0 after:left-1/2 after:w-[2px] after:-translate-x-1/2 after:bg-transparent after:transition-colors hover:after:bg-sidebar-border group-data-[side=right]:left-0 sm:flex [[data-collapsible=offcanvas][data-state=collapsed]_&]:pointer-events-none",
+        "in-data-[side=left]:cursor-w-resize in-data-[side=right]:cursor-e-resize",
+        "[[data-side=left][data-state=collapsed]_&]:cursor-e-resize [[data-side=right][data-state=collapsed]_&]:cursor-w-resize",
+        "group-data-[collapsible=offcanvas]:translate-x-0 group-data-[collapsible=offcanvas]:after:left-full",
+        "[[data-side=left][data-collapsible=offcanvas]_&]:-right-2",
+        "[[data-side=right][data-collapsible=offcanvas]_&]:-left-2",
         className,
       )}
       data-sidebar="rail"
-      data-placement={placement}
       data-slot="sidebar-rail"
       onClick={handleClick}
       onPointerCancel={handlePointerCancel}
@@ -1110,7 +1057,6 @@ export {
   SidebarHeaderTrigger,
   SidebarHeader,
   SidebarInput,
-  SidebarInstanceProvider,
   SidebarInset,
   SidebarMenu,
   SidebarMenuAction,

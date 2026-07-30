@@ -33,6 +33,7 @@ import {
 } from "react";
 import { useCopyPathToClipboard, useCopyThreadIdToClipboard } from "~/hooks/useCopyToClipboard";
 import { DESKTOP_TOP_BAR_TRAFFIC_LIGHT_GUTTER_CLASS } from "~/hooks/useDesktopTopBarGutter";
+import { useDesktopWindowState } from "~/hooks/useDesktopWindowState";
 import { createCentralIconComponent } from "~/lib/central-icons";
 import { createClientPointMenuAnchor } from "~/lib/clientPointMenuAnchor";
 import {
@@ -198,6 +199,7 @@ import {
   ComposerPickerMenuPopup,
   ComposerPickerMenuSubPopup,
 } from "./chat/ComposerPickerMenuPopup";
+import { CHAT_SURFACE_HEADER_HEIGHT_CLASS } from "./chat/chatHeaderControls";
 import {
   getArm64IntelBuildWarningDescription,
   getDesktopUpdateActionError,
@@ -222,6 +224,7 @@ import { SidebarProjects } from "./left-rail/sidebar-projects/SidebarProjects";
 import { SidebarTopNavigation } from "./left-rail/sidebar-top-navigation/SidebarTopNavigation";
 import { ThreadRowShared } from "./left-rail/thread-row-shared/ThreadRowShared";
 import { WorkspaceHeaderShared } from "./left-rail/workspace-header-shared/WorkspaceHeaderShared";
+import { DisclosureSection } from "./ui/DisclosureRegion";
 import { toDisplayName } from "./profile/profileFormatting";
 import { useProfileName } from "./profile/useProfileName";
 import {
@@ -2064,9 +2067,6 @@ export default function Sidebar() {
     [chatWorkspaceRoot, homeDir, sortedProjects],
   );
   const visibleChatThreadRows = useMemo(() => {
-    if (!chatSectionExpanded) {
-      return [];
-    }
     return buildProjectThreadTree({
       threads: sortThreadsForSidebar(
         chatProjects.flatMap((project) => sortedSidebarThreadsByProjectId.get(project.id) ?? []),
@@ -2077,7 +2077,6 @@ export default function Sidebar() {
   }, [
     activeSidebarThreadId,
     appSettings.sidebarThreadSortOrder,
-    chatSectionExpanded,
     chatProjects,
     sortedSidebarThreadsByProjectId,
   ]);
@@ -2125,6 +2124,8 @@ export default function Sidebar() {
       renderedChatEntries: visibleEntries,
     };
   }, [activeChatPreviewEntry?.rowId, chatThreadListExtraPages, visibleChatPreviewEntries]);
+  const hasChatContent =
+    renderedChatEntries.length > 0 || canShowMoreChatThreads || canShowLessChatThreads;
   const allStandardProjectsBase = useMemo(
     () =>
       sortedProjects.filter((project) =>
@@ -2372,11 +2373,13 @@ export default function Sidebar() {
     }
     const {
       orderedProjectThreadIds,
+      projectThreads,
       visibleEntries,
       threadListExtraPages,
       canShowMoreThreads,
       canShowLessThreads,
     } = projectSidebarData;
+    const hasProjectContent = projectThreads.length > 0 || canShowMoreThreads || canShowLessThreads;
     const state =
       focusedProjectId === project.id ? "selected" : project.expanded ? "open" : "default";
     const handleAddThread = () => {
@@ -2388,6 +2391,7 @@ export default function Sidebar() {
     };
     const rowProps = {
       children: project.name,
+      expanded: project.expanded,
       onAdd: handleAddThread,
       onClick: () => toggleProject(project.id),
       onContextMenu: (event: React.MouseEvent<HTMLButtonElement>) => {
@@ -2401,30 +2405,29 @@ export default function Sidebar() {
     } as const;
 
     return (
-      <section key={project.id} className="w-full" data-pencil-project-id={project.id}>
-        <FolderRowShared {...rowProps} />
-        {project.expanded ? (
-          <div className="mt-0.5 flex flex-col gap-0.5">
-            {visibleEntries.map((entry) =>
-              renderPencilThreadRow(entry.thread, orderedProjectThreadIds, entry.depth),
-            )}
-            {canShowMoreThreads ? (
-              <ShowMoreRow
-                onClick={() => showMoreThreadsForProject(project.cwd, threadListExtraPages)}
-              >
-                Show more
-              </ShowMoreRow>
-            ) : null}
-            {canShowLessThreads ? (
-              <ShowMoreRow
-                onClick={() => showLessThreadsForProject(project.cwd, threadListExtraPages)}
-              >
-                Show less
-              </ShowMoreRow>
-            ) : null}
-          </div>
+      <DisclosureSection
+        key={project.id}
+        className="w-full"
+        contentClassName="flex flex-col gap-0.5 pt-0.5"
+        data-pencil-project-id={project.id}
+        hasContent={hasProjectContent}
+        header={<FolderRowShared {...rowProps} />}
+        open={project.expanded}
+      >
+        {visibleEntries.map((entry) =>
+          renderPencilThreadRow(entry.thread, orderedProjectThreadIds, entry.depth),
+        )}
+        {canShowMoreThreads ? (
+          <ShowMoreRow onClick={() => showMoreThreadsForProject(project.cwd, threadListExtraPages)}>
+            Show more
+          </ShowMoreRow>
         ) : null}
-      </section>
+        {canShowLessThreads ? (
+          <ShowMoreRow onClick={() => showLessThreadsForProject(project.cwd, threadListExtraPages)}>
+            Show less
+          </ShowMoreRow>
+        ) : null}
+      </DisclosureSection>
     );
   }
 
@@ -3133,6 +3136,8 @@ export default function Sidebar() {
   );
 
   const isMacDesktop = typeof navigator !== "undefined" ? isMacPlatform(navigator.platform) : false;
+  const { isFullscreen } = useDesktopWindowState();
+  const showMacTrafficLightAffordance = isMacDesktop && !isFullscreen;
 
   // Closed-state and non-Electron hosts retain shell navigation controls. The
   // expanded desktop rail uses the Pencil header primitive directly.
@@ -3186,13 +3191,14 @@ export default function Sidebar() {
         <>
           <SidebarHeader
             className={cn(
-              "drag-region h-[32.5px] flex-row items-center p-0 font-system-ui",
-              isMacDesktop && DESKTOP_TOP_BAR_TRAFFIC_LIGHT_GUTTER_CLASS,
+              "drag-region flex-row items-center p-0 font-system-ui",
+              CHAT_SURFACE_HEADER_HEIGHT_CLASS,
+              showMacTrafficLightAffordance && DESKTOP_TOP_BAR_TRAFFIC_LIGHT_GUTTER_CLASS,
             )}
           >
             <SidebarHeaderShared
               brand="Penkra"
-              className="h-full w-full"
+              className={cn("h-full w-full", showMacTrafficLightAffordance && "px-0")}
               onSearch={() => setSearchPaletteOpen(true)}
             />
           </SidebarHeader>
@@ -3246,36 +3252,41 @@ export default function Sidebar() {
         </div>
       ) : null}
       <SidebarProjects className="sidebar-surface-enter font-system-ui">
-        <WorkspaceHeaderShared
-          expanded={chatSectionExpanded}
-          onAdd={() => void handleCreateHomeChat()}
-          onClick={() => setChatSectionExpanded((expanded) => !expanded)}
+        <DisclosureSection
+          className="w-full"
+          contentClassName="flex flex-col gap-0.5 pt-0.5"
+          hasContent={hasChatContent}
+          header={
+            <WorkspaceHeaderShared
+              expanded={chatSectionExpanded}
+              onAdd={() => void handleCreateHomeChat()}
+              onClick={() => setChatSectionExpanded((expanded) => !expanded)}
+            >
+              penkra
+            </WorkspaceHeaderShared>
+          }
+          open={chatSectionExpanded}
         >
-          penkra
-        </WorkspaceHeaderShared>
-        {chatSectionExpanded ? (
-          <div className="flex flex-col gap-0.5">
-            {renderedChatEntries.map((entry) =>
-              renderPencilThreadRow(entry.row.thread, visibleChatOrderedThreadIds, entry.row.depth),
-            )}
-            {canShowMoreChatThreads ? (
-              <ShowMoreRow
-                onClick={() => setChatThreadListExtraPages(chatThreadListEffectiveExtraPages + 1)}
-              >
-                Show more
-              </ShowMoreRow>
-            ) : null}
-            {canShowLessChatThreads ? (
-              <ShowMoreRow
-                onClick={() =>
-                  setChatThreadListExtraPages(Math.max(0, chatThreadListEffectiveExtraPages - 1))
-                }
-              >
-                Show less
-              </ShowMoreRow>
-            ) : null}
-          </div>
-        ) : null}
+          {renderedChatEntries.map((entry) =>
+            renderPencilThreadRow(entry.row.thread, visibleChatOrderedThreadIds, entry.row.depth),
+          )}
+          {canShowMoreChatThreads ? (
+            <ShowMoreRow
+              onClick={() => setChatThreadListExtraPages(chatThreadListEffectiveExtraPages + 1)}
+            >
+              Show more
+            </ShowMoreRow>
+          ) : null}
+          {canShowLessChatThreads ? (
+            <ShowMoreRow
+              onClick={() =>
+                setChatThreadListExtraPages(Math.max(0, chatThreadListEffectiveExtraPages - 1))
+              }
+            >
+              Show less
+            </ShowMoreRow>
+          ) : null}
+        </DisclosureSection>
         <div ref={attachProjectListAutoAnimateRef} className="flex flex-col gap-0.5">
           {standardProjects.map((project) => renderPencilProjectItem(project))}
         </div>

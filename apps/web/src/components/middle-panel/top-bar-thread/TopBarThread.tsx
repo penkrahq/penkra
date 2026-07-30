@@ -2,6 +2,7 @@ import { IconDots, IconFolder } from "@tabler/icons-react";
 import type { HTMLAttributes, ReactNode } from "react";
 
 import { ButtonPanel } from "~/components/foundations/button-panel/ButtonPanel";
+import { CHAT_SURFACE_HEADER_HEIGHT_CLASS } from "~/components/chat/chatHeaderControls";
 import { cn } from "~/lib/utils";
 
 export interface TopBarThreadProps extends HTMLAttributes<HTMLElement> {
@@ -25,7 +26,8 @@ export function TopBarThread({
   return (
     <header
       className={cn(
-        "flex h-8 w-full items-center gap-2 bg-transparent px-3.5 font-sans text-[13px]",
+        "flex w-full items-center gap-2 bg-transparent px-3.5 font-sans text-[13px]",
+        CHAT_SURFACE_HEADER_HEIGHT_CLASS,
         className,
       )}
       data-pencil-component="Kpx7i"

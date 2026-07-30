@@ -41,15 +41,12 @@ import { toastManager } from "~/components/ui/toast";
 import {
   Sidebar,
   SIDEBAR_OFFCANVAS_MOTION_CLASS,
-  SidebarInstanceProvider,
   SidebarProvider,
-  SidebarRail,
   useSidebar,
 } from "~/components/ui/sidebar";
 import { cn } from "~/lib/utils";
 
 const EMPTY_KEYBINDINGS: ResolvedKeybindingsConfig = [];
-const THREAD_SIDEBAR_RESIZABLE = false;
 const MAINTENANCE_EVENT_STALE_MS = 5 * 60 * 1000;
 
 type MaintenanceToastId = ReturnType<typeof toastManager.add>;
@@ -527,25 +524,16 @@ function ChatRouteLayout() {
       gapClassName={cn(SIDEBAR_GAP_CLASS, SIDEBAR_OFFCANVAS_MOTION_CLASS)}
       innerClassName={SIDEBAR_INNER_CLASS}
       transparentSurface
-      resizable={THREAD_SIDEBAR_RESIZABLE}
     >
       <ThreadSidebar />
     </Sidebar>
   );
 
-  // Chat column shell. The content-seam rail is the resize hit-area for the seam —
-  // the visible divider + depth shadow live on the chat card's inner edge (see
-  // `.chat-content-card` in index.css). It sits OUTSIDE <Sidebar> so it stacks above
-  // the card, so SidebarInstanceProvider re-supplies the same resize config/side it
-  // would have gotten inside <Sidebar> (otherwise dragging to resize stops working).
-  // `data-sidebar-side` on the provider selects the seam geometry.
+  // The Pencil shell has no interactive divider between the left rail and the
+  // center panel. Keep this wrapper layout-only: sidebar visibility remains
+  // available through explicit app commands, never through an invisible seam.
   const mainContentShell = (
-    <div className="chat-content-card-backing relative flex h-svh min-h-0 min-w-0 flex-1">
-      {isEditorView ? null : (
-        <SidebarInstanceProvider side="left" resizable={THREAD_SIDEBAR_RESIZABLE}>
-          <SidebarRail placement="content-seam" />
-        </SidebarInstanceProvider>
-      )}
+    <div className="relative flex h-svh min-h-0 min-w-0 flex-1">
       <Outlet />
     </div>
   );

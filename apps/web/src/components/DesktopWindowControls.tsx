@@ -1,14 +1,6 @@
-import { useEffect, useState } from "react";
-
-import type { DesktopWindowState } from "@synara/contracts";
-
 import { isElectron } from "~/env";
+import { useDesktopWindowState } from "~/hooks/useDesktopWindowState";
 import { cn, isWindowsPlatform } from "~/lib/utils";
-
-const DEFAULT_WINDOW_STATE: DesktopWindowState = {
-  isMaximized: false,
-  isFullscreen: false,
-};
 
 // Native Windows caption glyphs. These code points resolve in "Segoe Fluent Icons"
 // (Windows 11) and fall back to "Segoe MDL2 Assets" (Windows 10): minimize, maximize,
@@ -43,25 +35,10 @@ function CaptionGlyph({ glyph }: { glyph: string }) {
 }
 
 export function DesktopWindowControls({ className }: { className?: string }) {
-  const [windowState, setWindowState] = useState<DesktopWindowState>(DEFAULT_WINDOW_STATE);
+  const windowState = useDesktopWindowState();
   const platform = typeof navigator === "undefined" ? "" : navigator.platform;
   const isWindowsDesktop = isWindowsPlatform(platform);
   const controls = typeof window === "undefined" ? undefined : window.desktopBridge?.windowControls;
-
-  useEffect(() => {
-    if (!controls) return;
-    let cancelled = false;
-
-    void controls.getState().then((state) => {
-      if (!cancelled) setWindowState(state);
-    });
-    const unsubscribe = controls.onState(setWindowState);
-
-    return () => {
-      cancelled = true;
-      unsubscribe();
-    };
-  }, [controls]);
 
   if (!isElectron || !isWindowsDesktop || !controls) {
     return null;
@@ -88,7 +65,7 @@ export function DesktopWindowControls({ className }: { className?: string }) {
         title={isMaximized ? "Restore" : "Maximize"}
         className={CAPTION_BUTTON_CLASS}
         onClick={() => {
-          void controls.toggleMaximize().then(setWindowState);
+          void controls.toggleMaximize();
         }}
       >
         <CaptionGlyph glyph={isMaximized ? GLYPH_RESTORE : GLYPH_MAXIMIZE} />

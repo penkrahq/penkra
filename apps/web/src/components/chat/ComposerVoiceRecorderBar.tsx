@@ -109,11 +109,7 @@ export function ComposerVoiceRecorderBar(props: ComposerVoiceRecorderBarProps) {
         disabled={props.disabled || props.isTranscribing}
         onClick={props.onSubmit}
       >
-        {props.isTranscribing ? (
-          <Loader2Icon aria-hidden="true" className="size-3 animate-spin" />
-        ) : (
-          <FiArrowUp aria-hidden="true" className="size-[13px]" strokeWidth={2.25} />
-        )}
+        <FiArrowUp aria-hidden="true" className="size-[13px]" strokeWidth={2.25} />
       </button>
     </div>
   );

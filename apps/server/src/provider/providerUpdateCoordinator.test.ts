@@ -3,7 +3,8 @@ import {
   type OrchestrationThreadShell,
   type ServerProviderStatus,
 } from "@synara/contracts";
-import { Effect, Stream } from "effect";
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import { Effect, FileSystem, Stream } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
 import type { ProjectionSnapshotQueryShape } from "../orchestration/Services/ProjectionSnapshotQuery";
@@ -59,8 +60,9 @@ function thread(overrides: Partial<OrchestrationThreadShell> = {}): Orchestratio
 function outdatedCodex(): ServerProviderStatus {
   return {
     provider: "codex",
+    status: "ready",
     available: true,
-    authenticated: true,
+    authStatus: "authenticated",
     version: "1.0.0",
     checkedAt: "2026-07-30T00:00:00.000Z",
     versionAdvisory: {
@@ -72,7 +74,7 @@ function outdatedCodex(): ServerProviderStatus {
       checkedAt: "2026-07-30T00:00:00.000Z",
       message: "Update available.",
     },
-  } as ServerProviderStatus;
+  } satisfies ServerProviderStatus;
 }
 
 describe("provider update coordinator", () => {
@@ -111,9 +113,9 @@ describe("provider update coordinator", () => {
             ...DEFAULT_SERVER_SETTINGS,
             providerUpdateMode: "notify",
           }),
-        } as ServerSettingsShape,
+        } as unknown as ServerSettingsShape,
         config: { stateDir: "/unused" },
-      }),
+      }).pipe(Effect.provide(NodeServices.layer)),
     );
     expect(refresh).not.toHaveBeenCalled();
     expect(updateProvider).not.toHaveBeenCalled();
@@ -141,10 +143,112 @@ describe("provider update coordinator", () => {
         } as unknown as ProjectionSnapshotQueryShape,
         serverSettings: {
           getSettings: Effect.succeed(DEFAULT_SERVER_SETTINGS),
-        } as ServerSettingsShape,
+        } as unknown as ServerSettingsShape,
         config: { stateDir: "/unused" },
-      }),
+      }).pipe(Effect.provide(NodeServices.layer)),
     );
     expect(updateProvider).not.toHaveBeenCalled();
+  });
+
+  it("installs and confirms a managed runtime in automatic mode", async () => {
+    const refreshed = {
+      ...outdatedCodex(),
+      version: "1.1.0",
+      versionAdvisory: {
+        ...outdatedCodex().versionAdvisory!,
+        status: "up_to_date" as const,
+        currentVersion: "1.1.0",
+      },
+    };
+    const refresh = vi
+      .fn()
+      .mockReturnValueOnce(Effect.succeed([outdatedCodex()]))
+      .mockReturnValueOnce(Effect.succeed([refreshed]));
+    const installManagedRuntime = vi.fn(() =>
+      Effect.succeed({
+        binaryPath: "/managed/codex",
+        version: "1.1.0",
+        reused: false,
+      }),
+    );
+
+    const history = await Effect.runPromise(
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const stateDir = yield* fileSystem.makeTempDirectoryScoped({
+          prefix: "penkra-provider-update-",
+        });
+        yield* runAutomaticProviderUpdateCycle({
+          providerHealth: {
+            getStatuses: Effect.succeed([]),
+            refresh: Effect.suspend(refresh),
+            updateProvider: vi.fn(),
+            streamChanges: Stream.empty,
+          } as unknown as ProviderHealthShape,
+          projectionSnapshotQuery: {
+            getShellSnapshot: () =>
+              Effect.succeed({
+                snapshotSequence: 1,
+                spaces: [],
+                projects: [],
+                threads: [],
+                updatedAt: "2026-07-30T00:00:00.000Z",
+              }),
+          } as unknown as ProjectionSnapshotQueryShape,
+          serverSettings: {
+            getSettings: Effect.succeed(DEFAULT_SERVER_SETTINGS),
+          } as unknown as ServerSettingsShape,
+          config: { stateDir },
+          installManagedRuntime,
+        });
+        return yield* fileSystem.readFileString(`${stateDir}/provider-update-history.json`);
+      }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+    );
+
+    expect(installManagedRuntime).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: "codex",
+        packageName: "@openai/codex",
+        version: "1.1.0",
+      }),
+    );
+    expect(JSON.parse(history)).toEqual([
+      expect.objectContaining({
+        provider: "codex",
+        status: "succeeded",
+        targetVersion: "1.1.0",
+      }),
+    ]);
+  });
+
+  it("does not mutate a custom external provider binary", async () => {
+    const installManagedRuntime = vi.fn();
+    await Effect.runPromise(
+      runAutomaticProviderUpdateCycle({
+        providerHealth: {
+          getStatuses: Effect.succeed([]),
+          refresh: Effect.succeed([outdatedCodex()]),
+          updateProvider: vi.fn(),
+          streamChanges: Stream.empty,
+        } as unknown as ProviderHealthShape,
+        projectionSnapshotQuery: {} as ProjectionSnapshotQueryShape,
+        serverSettings: {
+          getSettings: Effect.succeed({
+            ...DEFAULT_SERVER_SETTINGS,
+            providers: {
+              ...DEFAULT_SERVER_SETTINGS.providers,
+              codex: {
+                ...DEFAULT_SERVER_SETTINGS.providers.codex,
+                binaryPath: "/custom/bin/codex",
+              },
+            },
+          }),
+        } as unknown as ServerSettingsShape,
+        config: { stateDir: "/unused" },
+        installManagedRuntime,
+      }).pipe(Effect.provide(NodeServices.layer)),
+    );
+
+    expect(installManagedRuntime).not.toHaveBeenCalled();
   });
 });

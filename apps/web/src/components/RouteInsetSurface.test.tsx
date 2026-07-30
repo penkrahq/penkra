@@ -1,5 +1,5 @@
 // FILE: RouteInsetSurface.test.tsx
-// Purpose: Guards chat-style route card shells against sidebar peer/layout regressions.
+// Purpose: Guards chat-style route surfaces against sidebar peer/layout regressions.
 // Layer: Component rendering tests
 // Depends on: RouteInsetSurface and Sidebar layout primitives.
 
@@ -57,8 +57,8 @@ describe("RouteInsetSurface", () => {
     expect(mainTag).toContain("peer-data-[variant=sidebar]");
     expect(mainTag).toContain("h-dvh");
     expect(mainTag).not.toContain("overflow-hidden");
-    expect(surfaceTag).toContain("chat-content-card");
     expect(surfaceTag).toContain("overflow-hidden");
+    expect(surfaceTag).not.toContain("rounded");
   });
 
   it("keeps explicit-surface callers on the clipped inset path", () => {
@@ -77,6 +77,6 @@ describe("RouteInsetSurface", () => {
 
     expect(mainTag).toContain("overflow-hidden");
     expect(surfaceTag).toContain("custom-route-surface");
-    expect(surfaceTag).not.toContain("chat-content-card");
+    expect(surfaceTag).not.toContain("rounded");
   });
 });

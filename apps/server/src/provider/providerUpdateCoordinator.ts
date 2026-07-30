@@ -12,13 +12,32 @@ import type {
   ProviderKind,
   ServerProviderStatus,
 } from "@synara/contracts";
-import { Cause, Duration, Effect, FileSystem, Result, Schedule, Stream } from "effect";
+import {
+  Cause,
+  Duration,
+  Effect,
+  FileSystem,
+  Path,
+  Result,
+  Schedule,
+  Semaphore,
+  Stream,
+} from "effect";
+import { ChildProcessSpawner } from "effect/unstable/process";
 
 import { writeFileStringAtomically } from "../atomicWrite";
 import type { ServerConfigShape } from "../config";
 import type { ProjectionSnapshotQueryShape } from "../orchestration/Services/ProjectionSnapshotQuery";
 import type { ServerSettingsShape } from "../serverSettings";
 import type { ProviderHealthShape } from "./Services/ProviderHealth";
+import { isCanonicalProviderBinaryPath } from "./managedProviderRuntime";
+import {
+  installManagedProviderRuntime,
+  type ManagedProviderRuntimeInstallInput,
+  type ManagedProviderRuntimeInstallResult,
+} from "./managedProviderRuntimeInstaller";
+import { PACKAGE_MANAGED_PROVIDER_UPDATES } from "./Layers/ProviderHealth";
+import { compareSemverVersions } from "./providerMaintenance";
 
 export const PROVIDER_UPDATE_INITIAL_DELAY = Duration.seconds(10);
 export const PROVIDER_UPDATE_INTERVAL = Duration.hours(1);
@@ -61,8 +80,7 @@ function isAutomaticUpdateCandidate(status: ServerProviderStatus): boolean {
   const advisory = status.versionAdvisory;
   return (
     advisory?.status === "behind_latest" &&
-    advisory.canUpdate === true &&
-    advisory.updateCommand !== null &&
+    advisory.latestVersion !== null &&
     status.updateState?.status !== "queued" &&
     status.updateState?.status !== "running"
   );
@@ -100,6 +118,13 @@ export function runAutomaticProviderUpdateCycle(input: {
   readonly projectionSnapshotQuery: ProjectionSnapshotQueryShape;
   readonly serverSettings: ServerSettingsShape;
   readonly config: Pick<ServerConfigShape, "stateDir">;
+  readonly installManagedRuntime?: (
+    input: ManagedProviderRuntimeInstallInput,
+  ) => Effect.Effect<
+    ManagedProviderRuntimeInstallResult,
+    unknown,
+    FileSystem.FileSystem | Path.Path | ChildProcessSpawner.ChildProcessSpawner
+  >;
 }) {
   return Effect.gen(function* () {
     const settings = yield* input.serverSettings.getSettings;
@@ -109,6 +134,16 @@ export function runAutomaticProviderUpdateCycle(input: {
 
     const statuses = yield* input.providerHealth.refresh;
     for (const candidate of statuses.filter(isAutomaticUpdateCandidate)) {
+      const definition = PACKAGE_MANAGED_PROVIDER_UPDATES[candidate.provider];
+      const targetVersion = candidate.versionAdvisory?.latestVersion ?? null;
+      const configuredBinaryPath = settings.providers[candidate.provider].binaryPath;
+      if (
+        !definition?.npmPackageName ||
+        !targetVersion ||
+        !isCanonicalProviderBinaryPath(candidate.provider, configuredBinaryPath)
+      ) {
+        continue;
+      }
       const shell = yield* input.projectionSnapshotQuery.getShellSnapshot();
       if (hasActiveProviderThread(candidate.provider, shell.threads)) {
         yield* Effect.logInfo("provider update deferred for active session", {
@@ -118,16 +153,20 @@ export function runAutomaticProviderUpdateCycle(input: {
       }
 
       const startedAt = new Date().toISOString();
-      const result = yield* input.providerHealth
-        .updateProvider({ provider: candidate.provider })
-        .pipe(Effect.result);
+      const result = yield* (input.installManagedRuntime ?? installManagedProviderRuntime)({
+        stateDir: input.config.stateDir,
+        provider: candidate.provider,
+        version: targetVersion,
+        packageName: definition.npmPackageName,
+        binaryName: definition.binaryName,
+      }).pipe(Effect.result);
       const finishedAt = new Date().toISOString();
 
       if (Result.isFailure(result)) {
         yield* appendHistoryEntry(input.config.stateDir, {
           provider: candidate.provider,
           fromVersion: candidate.versionAdvisory?.currentVersion ?? null,
-          targetVersion: candidate.versionAdvisory?.latestVersion ?? null,
+          targetVersion,
           startedAt,
           finishedAt,
           status: "failed",
@@ -137,23 +176,24 @@ export function runAutomaticProviderUpdateCycle(input: {
         continue;
       }
 
-      const refreshed = result.success.providers.find(
+      const refreshed = (yield* input.providerHealth.refresh).find(
         (provider) => provider.provider === candidate.provider,
       );
       const status =
-        refreshed?.updateState?.status === "succeeded"
+        refreshed?.version && compareSemverVersions(refreshed.version, targetVersion) === 0
           ? "succeeded"
-          : refreshed?.updateState?.status === "unchanged"
-            ? "unchanged"
-            : "failed";
+          : "failed";
       yield* appendHistoryEntry(input.config.stateDir, {
         provider: candidate.provider,
         fromVersion: candidate.versionAdvisory?.currentVersion ?? null,
-        targetVersion: candidate.versionAdvisory?.latestVersion ?? null,
+        targetVersion,
         startedAt,
         finishedAt,
         status,
-        message: refreshed?.updateState?.message ?? "Provider update completed.",
+        message:
+          status === "succeeded"
+            ? `Activated managed provider runtime ${targetVersion}.`
+            : "Managed runtime was installed, but the provider health check did not confirm its version.",
       });
     }
   });
@@ -162,24 +202,29 @@ export function runAutomaticProviderUpdateCycle(input: {
 export function startAutomaticProviderUpdates(
   input: Parameters<typeof runAutomaticProviderUpdateCycle>[0],
 ) {
-  const cycle = runAutomaticProviderUpdateCycle(input).pipe(
-    Effect.catchCause((cause) =>
-      Cause.hasInterruptsOnly(cause)
-        ? Effect.interrupt
-        : Effect.logWarning("automatic provider update cycle failed", {
-            cause: Cause.pretty(cause),
-          }),
-    ),
-  );
-  const scheduled = Effect.sleep(PROVIDER_UPDATE_INITIAL_DELAY).pipe(
-    Effect.andThen(cycle),
-    Effect.repeat(Schedule.spaced(PROVIDER_UPDATE_INTERVAL)),
-  );
-  const onAutomaticSelected = input.serverSettings.streamChanges.pipe(
-    Stream.filter((settings) => settings.providerUpdateMode === "automatic"),
-    Stream.runForEach(() => cycle),
-  );
-  return Effect.all([Effect.forkChild(scheduled), Effect.forkChild(onAutomaticSelected)], {
-    discard: true,
+  return Effect.gen(function* () {
+    const semaphore = yield* Semaphore.make(1);
+    const cycle = semaphore
+      .withPermits(1)(runAutomaticProviderUpdateCycle(input))
+      .pipe(
+        Effect.catchCause((cause) =>
+          Cause.hasInterruptsOnly(cause)
+            ? Effect.interrupt
+            : Effect.logWarning("automatic provider update cycle failed", {
+                cause: Cause.pretty(cause),
+              }),
+        ),
+      );
+    const scheduled = Effect.sleep(PROVIDER_UPDATE_INITIAL_DELAY).pipe(
+      Effect.andThen(cycle),
+      Effect.repeat(Schedule.spaced(PROVIDER_UPDATE_INTERVAL)),
+    );
+    const onAutomaticSelected = input.serverSettings.streamChanges.pipe(
+      Stream.filter((settings) => settings.providerUpdateMode === "automatic"),
+      Stream.runForEach(() => cycle),
+    );
+    yield* Effect.all([Effect.forkChild(scheduled), Effect.forkChild(onAutomaticSelected)], {
+      discard: true,
+    });
   });
 }

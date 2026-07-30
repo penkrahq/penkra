@@ -88,6 +88,7 @@ import {
   writeProviderStatusCache,
 } from "../providerStatusCache";
 import { makeProviderMaintenanceCommandCoordinator } from "../providerMaintenanceCommandCoordinator";
+import { resolveProviderBinary } from "../managedProviderRuntime";
 import {
   enrichProviderStatusWithVersionAdvisory,
   compareSemverVersions,
@@ -2123,7 +2124,10 @@ export function makeProviderHealthLive(options?: { readonly providerUpdateTimeou
         Effect.map((probe) => probe?.subscriptionType),
       );
 
-      const getProviderBinaryPath = (provider: ProviderKind, settings: ServerSettings) => {
+      const getConfiguredProviderBinaryPath = (
+        provider: ProviderKind,
+        settings: ServerSettings,
+      ) => {
         switch (provider) {
           case "codex":
             return settings.providers.codex.binaryPath;
@@ -2146,6 +2150,17 @@ export function makeProviderHealthLive(options?: { readonly providerUpdateTimeou
         }
       };
 
+      const getProviderBinaryPath = (provider: ProviderKind, settings: ServerSettings) =>
+        resolveProviderBinary({
+          stateDir: serverConfig.stateDir,
+          provider,
+          configuredBinaryPath: getConfiguredProviderBinaryPath(provider, settings),
+        }).pipe(
+          Effect.provideService(FileSystem.FileSystem, fileSystem),
+          Effect.provideService(Path.Path, path),
+          Effect.map((resolution) => resolution.binaryPath),
+        );
+
       const getProviderMaintenanceCapabilities = Effect.fn("getProviderMaintenanceCapabilities")(
         function* (provider: ProviderKind) {
           const settings = yield* serverSettings.getSettings;
@@ -2159,10 +2174,9 @@ export function makeProviderHealthLive(options?: { readonly providerUpdateTimeou
               updateLockKey: null,
             });
           }
+          const binaryPath = yield* getProviderBinaryPath(provider, settings);
           if (provider === "cursor") {
-            const command = buildCursorAgentCommand(getProviderBinaryPath(provider, settings), [
-              "update",
-            ]);
+            const command = buildCursorAgentCommand(binaryPath, ["update"]);
             return makeProviderMaintenanceCapabilities({
               provider,
               packageName: null,
@@ -2182,7 +2196,7 @@ export function makeProviderHealthLive(options?: { readonly providerUpdateTimeou
             });
           }
           return yield* resolveProviderMaintenanceCapabilitiesEffect(definition, {
-            binaryPath: getProviderBinaryPath(provider, settings),
+            binaryPath,
             env: providerCommandEnv(provider),
             platform: process.platform,
           }).pipe(Effect.provideService(FileSystem.FileSystem, fileSystem));
@@ -2288,68 +2302,81 @@ export function makeProviderHealthLive(options?: { readonly providerUpdateTimeou
         .pipe(
           Effect.flatMap(() => serverSettings.getSettings),
           Effect.flatMap((settings) =>
-            Effect.all(
-              [
-                checkProviderWhenEnabled(
-                  settings,
-                  CODEX_PROVIDER,
-                  makeCheckCodexProviderStatus(
-                    settings.providers.codex.binaryPath,
-                    settings.providers.codex.homePath,
+            Effect.gen(function* () {
+              const binaryPaths = yield* Effect.all(
+                {
+                  codex: getProviderBinaryPath(CODEX_PROVIDER, settings),
+                  claudeAgent: getProviderBinaryPath(CLAUDE_AGENT_PROVIDER, settings),
+                  cursor: getProviderBinaryPath(CURSOR_PROVIDER, settings),
+                  antigravity: getProviderBinaryPath(ANTIGRAVITY_PROVIDER, settings),
+                  grok: getProviderBinaryPath(GROK_PROVIDER, settings),
+                  droid: getProviderBinaryPath(DROID_PROVIDER, settings),
+                  kilo: getProviderBinaryPath(KILO_PROVIDER, settings),
+                  opencode: getProviderBinaryPath(OPENCODE_PROVIDER, settings),
+                  pi: getProviderBinaryPath(PI_PROVIDER, settings),
+                },
+                { concurrency: "unbounded" },
+              );
+              return yield* Effect.all(
+                [
+                  checkProviderWhenEnabled(
+                    settings,
+                    CODEX_PROVIDER,
+                    makeCheckCodexProviderStatus(
+                      binaryPaths.codex,
+                      settings.providers.codex.homePath,
+                    ),
                   ),
-                ),
-                checkProviderWhenEnabled(
-                  settings,
-                  CLAUDE_AGENT_PROVIDER,
-                  makeCheckClaudeProviderStatus(
-                    resolveClaudeSubscription,
-                    settings.providers.claudeAgent.binaryPath,
-                    serverConfig.homeDir,
+                  checkProviderWhenEnabled(
+                    settings,
+                    CLAUDE_AGENT_PROVIDER,
+                    makeCheckClaudeProviderStatus(
+                      resolveClaudeSubscription,
+                      binaryPaths.claudeAgent,
+                      serverConfig.homeDir,
+                    ),
                   ),
-                ),
-                checkProviderWhenEnabled(
-                  settings,
-                  CURSOR_PROVIDER,
-                  makeCheckCursorProviderStatus(settings.providers.cursor.binaryPath),
-                ),
-                checkProviderWhenEnabled(
-                  settings,
-                  ANTIGRAVITY_PROVIDER,
-                  checkAntigravityProviderStatus(settings.providers.antigravity.binaryPath),
-                ),
-                checkProviderWhenEnabled(
-                  settings,
-                  GROK_PROVIDER,
-                  makeCheckGrokProviderStatus(settings.providers.grok.binaryPath),
-                ),
-                checkProviderWhenEnabled(
-                  settings,
-                  DROID_PROVIDER,
-                  makeCheckDroidProviderStatus(settings.providers.droid.binaryPath),
-                ),
-                checkProviderWhenEnabled(
-                  settings,
-                  KILO_PROVIDER,
-                  makeCheckKiloProviderStatus(settings.providers.kilo.binaryPath),
-                ),
-                checkProviderWhenEnabled(
-                  settings,
-                  OPENCODE_PROVIDER,
-                  makeCheckOpenCodeProviderStatus(settings.providers.opencode.binaryPath),
-                ),
-                checkProviderWhenEnabled(
-                  settings,
-                  PI_PROVIDER,
-                  checkPiProviderStatus(
-                    settings.providers.pi.agentDir,
-                    settings.providers.pi.binaryPath,
+                  checkProviderWhenEnabled(
+                    settings,
+                    CURSOR_PROVIDER,
+                    makeCheckCursorProviderStatus(binaryPaths.cursor),
                   ),
-                ),
-              ],
-              {
-                concurrency: "unbounded",
-              },
-            ),
+                  checkProviderWhenEnabled(
+                    settings,
+                    ANTIGRAVITY_PROVIDER,
+                    checkAntigravityProviderStatus(binaryPaths.antigravity),
+                  ),
+                  checkProviderWhenEnabled(
+                    settings,
+                    GROK_PROVIDER,
+                    makeCheckGrokProviderStatus(binaryPaths.grok),
+                  ),
+                  checkProviderWhenEnabled(
+                    settings,
+                    DROID_PROVIDER,
+                    makeCheckDroidProviderStatus(binaryPaths.droid),
+                  ),
+                  checkProviderWhenEnabled(
+                    settings,
+                    KILO_PROVIDER,
+                    makeCheckKiloProviderStatus(binaryPaths.kilo),
+                  ),
+                  checkProviderWhenEnabled(
+                    settings,
+                    OPENCODE_PROVIDER,
+                    makeCheckOpenCodeProviderStatus(binaryPaths.opencode),
+                  ),
+                  checkProviderWhenEnabled(
+                    settings,
+                    PI_PROVIDER,
+                    checkPiProviderStatus(settings.providers.pi.agentDir, binaryPaths.pi),
+                  ),
+                ],
+                {
+                  concurrency: "unbounded",
+                },
+              );
+            }),
           ),
         )
         .pipe(

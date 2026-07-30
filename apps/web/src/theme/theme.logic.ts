@@ -68,6 +68,8 @@ export interface ThemeDerivedTokens {
   accentBackground: string;
   accentBackgroundActive: string;
   accentBackgroundHover: string;
+  brandMarkBridge: string;
+  brandMarkGlyph: string;
   border: string;
   borderFocus: string;
   borderHeavy: string;
@@ -93,6 +95,7 @@ export interface ThemeDerivedTokens {
   iconPrimary: string;
   iconSecondary: string;
   iconTertiary: string;
+  onboardingFrameBackground: string;
   simpleScrim: string;
   textAccent: string;
   textButtonPrimary: string;
@@ -157,6 +160,11 @@ const WARNING_COLOR_BY_VARIANT: Record<ThemeVariant, string> = {
   dark: "#f5b44a",
   light: "#d97706",
 };
+const BRAND_MARK_GLYPH_BY_VARIANT: Record<ThemeVariant, string> = {
+  dark: "#F5F5F7",
+  light: "#001D56",
+};
+const BRAND_MARK_BRIDGE = "#8CB8E1";
 const PANEL_BASE_ALPHA: Record<ThemeVariant, number> = {
   dark: 0.03,
   light: 0.18,
@@ -890,12 +898,15 @@ function buildCodexCssVariables(
     "--color-background-elevated-primary-opaque": derivedTokens.elevatedPrimaryOpaque,
     "--color-background-elevated-secondary": derivedTokens.elevatedSecondary,
     "--color-background-elevated-secondary-opaque": derivedTokens.elevatedSecondaryOpaque,
+    "--color-background-onboarding-frame": derivedTokens.onboardingFrameBackground,
     "--color-background-panel": panelBackground,
     "--color-background-surface": theme.theme.surface,
     "--color-background-surface-under": theme.surfaceUnder,
     // The user message bubble has always reused the subtle secondary surface
     // (theme ink at ~4% over the background); keep it sourced from there.
     "--color-background-user-message": derivedTokens.buttonSecondaryBackground,
+    "--color-brand-mark-bridge": derivedTokens.brandMarkBridge,
+    "--color-brand-mark-glyph": derivedTokens.brandMarkGlyph,
     "--color-border": derivedTokens.border,
     "--color-border-focus": derivedTokens.borderFocus,
     "--color-border-heavy": derivedTokens.borderHeavy,
@@ -975,6 +986,8 @@ function buildLightDerivedTokens(theme: ReturnType<typeof buildComputedTheme>) {
       theme.theme.accent,
       0.12 + theme.contrast * 0.045,
     ),
+    brandMarkBridge: BRAND_MARK_BRIDGE,
+    brandMarkGlyph: BRAND_MARK_GLYPH_BY_VARIANT.light,
     // Light borders run slightly stronger than Codex's base derivation so the chat
     // seam (--color-border) and chat/header dividers (--color-border-light) read
     // clearly on white surfaces. Keep the bump small; don't exceed borderHeavy.
@@ -1003,6 +1016,7 @@ function buildLightDerivedTokens(theme: ReturnType<typeof buildComputedTheme>) {
     iconPrimary: theme.theme.ink,
     iconSecondary: formatRgba(theme.ink, 0.65 + theme.contrast * 0.1),
     iconTertiary: formatRgba(theme.ink, 0.45 + theme.contrast * 0.1),
+    onboardingFrameBackground: mixHex(theme.theme.surface, theme.theme.ink, 0.025),
     simpleScrim: formatRgba(BLACK, 0.08 + theme.contrast * 0.04),
     textAccent: theme.theme.accent,
     textButtonPrimary: theme.theme.surface,
@@ -1024,6 +1038,8 @@ function buildDarkDerivedTokens(theme: ReturnType<typeof buildComputedTheme>) {
     accentBackground: mixHex("#000000", theme.theme.accent, 0.2 + theme.contrast * 0.08),
     accentBackgroundActive: mixHex("#000000", theme.theme.accent, 0.22 + theme.contrast * 0.12),
     accentBackgroundHover: mixHex("#000000", theme.theme.accent, 0.21 + theme.contrast * 0.1),
+    brandMarkBridge: BRAND_MARK_BRIDGE,
+    brandMarkGlyph: BRAND_MARK_GLYPH_BY_VARIANT.dark,
     border: formatRgba(theme.ink, 0.1 + theme.contrast * 0.04),
     borderFocus: formatRgba(focusBase, 0.7 + theme.contrast * 0.1),
     borderHeavy: formatRgba(theme.ink, 0.16 + theme.contrast * 0.06),
@@ -1056,6 +1072,7 @@ function buildDarkDerivedTokens(theme: ReturnType<typeof buildComputedTheme>) {
     iconPrimary: formatRgba(theme.ink, 0.82 + theme.contrast * 0.14),
     iconSecondary: formatRgba(theme.ink, 0.65 + theme.contrast * 0.1),
     iconTertiary: formatRgba(theme.ink, 0.45 + theme.contrast * 0.1),
+    onboardingFrameBackground: mixHex(theme.theme.surface, theme.theme.ink, 0.055),
     simpleScrim: formatRgba(theme.ink, 0.08 + theme.contrast * 0.04),
     // Codex brightens dark accent affordances through the same focus mix used
     // for the border, rather than using the raw accent directly.

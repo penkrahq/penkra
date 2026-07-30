@@ -26,17 +26,23 @@ export function ModalLogoutConfirmation({
   return (
     <div
       className={cn(
-        "box-border flex h-[220px] w-[400px] flex-col items-center border border-[var(--color-border)] bg-[var(--color-background-surface)] px-6 pt-6 pb-5 font-sans text-[var(--color-text-foreground)]",
+        "box-border flex h-[220px] w-[400px] flex-col items-center border-0 bg-[var(--color-background-surface)] px-6 pt-6 pb-5 font-sans text-[var(--color-text-foreground)] ring-1 ring-[var(--color-border)] ring-inset",
         className,
       )}
       data-pencil-component="r88fa"
     >
-      <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-destructive/8 text-destructive">
+      <div
+        className="flex size-10 shrink-0 items-center justify-center rounded-full bg-destructive/8 text-destructive"
+        data-slot="logout-icon"
+      >
         <AccountMenuIcon aria-hidden="true" className="size-6" name="logout" />
       </div>
 
-      <div className="flex w-full flex-col items-center gap-2 pt-4 text-center">
-        <h2 className="text-base leading-normal font-semibold" id={titleId}>
+      <div
+        className="flex w-full flex-col items-center gap-2 pt-4 text-center"
+        data-slot="logout-content"
+      >
+        <h2 className="text-base leading-[1.2] font-semibold" id={titleId}>
           Log out
         </h2>
         <p
@@ -48,7 +54,7 @@ export function ModalLogoutConfirmation({
         </p>
       </div>
 
-      <div className="grid w-full grid-cols-2 gap-2 pt-5">
+      <div className="grid w-full grid-cols-2 gap-2 pt-5" data-slot="logout-actions">
         <ButtonSecondary
           className="!h-9 min-w-0 sm:!h-9"
           disabled={loading}

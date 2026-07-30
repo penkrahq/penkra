@@ -12,6 +12,7 @@ import { useLayoutEffect } from "react";
 import { isElectron } from "~/env";
 import { useSidebar } from "~/components/ui/sidebar";
 import { isMacPlatform, isWindowsPlatform } from "~/lib/utils";
+import { useDesktopWindowState } from "./useDesktopWindowState";
 
 /**
  * Class name backed by `index.css` (not Tailwind) so the gutter survives zoom
@@ -36,9 +37,11 @@ export function shouldReserveDesktopTopBarTrafficLightGutter(input: {
   isMacDesktop: boolean;
   sidebarOpen: boolean;
   isMobile: boolean;
+  isFullscreen: boolean;
 }): boolean {
   if (!input.isElectron) return false;
   if (!input.isMacDesktop) return false;
+  if (input.isFullscreen) return false;
   // Mobile drawers float above content rather than reserving a column,
   // so the chat header always owns the left edge in that mode.
   if (input.isMobile) return true;
@@ -99,12 +102,14 @@ export function useSyncDesktopTopBarTrafficLightGutterZoom(): void {
  */
 export function useDesktopTopBarTrafficLightGutterClassName(): string | null {
   const { isMobile, open } = useSidebar();
+  const { isFullscreen } = useDesktopWindowState();
   const isMacDesktop = typeof navigator !== "undefined" ? isMacPlatform(navigator.platform) : false;
   return shouldReserveDesktopTopBarTrafficLightGutter({
     isElectron,
     isMacDesktop,
     sidebarOpen: open,
     isMobile,
+    isFullscreen,
   })
     ? DESKTOP_TOP_BAR_TRAFFIC_LIGHT_GUTTER_CLASS
     : null;
