@@ -62,8 +62,7 @@ export const AccountRowShared = forwardRef<HTMLDivElement, AccountRowSharedProps
       <div
         className={cn(
           "group/account-row flex h-9 w-60 items-center gap-2 rounded-[6px] bg-transparent px-2.5 font-sans text-[13px] text-[var(--color-text-foreground-secondary)] transition-colors hover:text-[var(--color-text-foreground)]",
-          selected &&
-            "bg-[var(--color-background-button-secondary-active)] text-[var(--color-text-foreground)]",
+          selected && "text-[var(--color-text-foreground)]",
           disabled &&
             "pointer-events-none bg-transparent text-[var(--color-text-foreground-tertiary)] hover:bg-transparent",
           className,

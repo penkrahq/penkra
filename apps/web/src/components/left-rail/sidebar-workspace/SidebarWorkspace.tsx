@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import { AccountMenu } from "../menu-account/AccountMenu";
+import { AccountControlShared } from "../account-control-shared/AccountControlShared";
 import { SidebarHeaderShared } from "../sidebar-header-shared/SidebarHeaderShared";
 import { SidebarProjects } from "../sidebar-projects/SidebarProjects";
 import { SidebarTopNavigation } from "../sidebar-top-navigation/SidebarTopNavigation";
@@ -30,7 +30,7 @@ export function SidebarWorkspace({
         onSelect={onNavigationSelect}
       />
       <SidebarProjects>{children}</SidebarProjects>
-      <AccountMenu accountName={accountName} />
+      <AccountControlShared accountName={accountName} />
     </aside>
   );
 }

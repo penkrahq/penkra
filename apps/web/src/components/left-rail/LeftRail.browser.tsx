@@ -5,8 +5,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
 import { AccountRowShared } from "./account-row-shared/AccountRowShared";
+import { AccountControlShared } from "./account-control-shared/AccountControlShared";
 import { FolderGroupShared } from "./folder-group-shared/FolderGroupShared";
-import { AccountMenu } from "./menu-account/AccountMenu";
 import { SidebarProjects } from "./sidebar-projects/SidebarProjects";
 
 const threads = Array.from({ length: 12 }, (_, index) => ({
@@ -100,13 +100,17 @@ describe("Pencil left rail", () => {
   });
 
   it("opens the shared account popup from its semantic menu trigger", async () => {
-    await render(<AccountMenu accountName="gigsama" />);
+    await render(<AccountControlShared accountName="gigsama" />);
 
     const trigger = page.getByRole("button", { name: "gigsama" });
     await expect.element(trigger).toHaveAttribute("aria-expanded", "false");
     await trigger.click();
 
     await expect.element(trigger).toHaveAttribute("aria-expanded", "true");
+    const row = document.querySelector<HTMLElement>(".group\\/account-row");
+    expect(row).not.toBeNull();
+    expect(row!.getAttribute("data-selected")).toBe("true");
+    expect(getComputedStyle(row!).backgroundColor).toBe("rgba(0, 0, 0, 0)");
     await expect.element(page.getByRole("menuitem", { name: "Settings" })).toBeVisible();
     await expect.element(page.getByRole("menuitem", { name: "Give Feedback" })).toBeVisible();
     await expect.element(page.getByRole("menuitem", { name: "Support Us" })).toBeVisible();

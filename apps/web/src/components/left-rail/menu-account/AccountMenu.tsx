@@ -1,29 +1,11 @@
-"use client";
-
-import { useState } from "react";
-
-import {
-  Menu,
-  MenuItem,
-  MenuPopupBase,
-  MenuSeparator,
-  MenuTrigger,
-} from "~/components/ui/menu";
-
-import { AccountRowShared } from "../account-row-shared/AccountRowShared";
+import { MenuItem, MenuPopupBase, MenuSeparator } from "~/components/ui/menu";
 import { AccountMenuIcon, type AccountMenuIconName } from "./AccountMenuIcon";
 
 export interface AccountMenuProps {
-  accountName?: string;
-  defaultOpen?: boolean;
   onFeedback?: () => void;
   onLogout?: () => void;
   onSettings?: () => void;
   onSupport?: () => void;
-  onUpdate?: () => void;
-  updateAvailable?: boolean;
-  updateDisabled?: boolean;
-  updateLabel?: string;
 }
 
 const itemClassName =
@@ -46,46 +28,26 @@ function AccountMenuItem({ icon, label, onClick }: AccountMenuItemProps) {
 }
 
 export function AccountMenu({
-  accountName = "gigsama",
-  defaultOpen,
   onFeedback,
   onLogout,
   onSettings,
   onSupport,
-  onUpdate,
-  updateAvailable,
-  updateDisabled,
-  updateLabel,
 }: AccountMenuProps) {
-  const [open, setOpen] = useState(defaultOpen ?? false);
-
   return (
-    <Menu onOpenChange={setOpen} open={open}>
-      <AccountRowShared
-        accountButtonProps={{ "aria-expanded": open, "aria-haspopup": "menu" }}
-        accountButtonWrapper={(button) => <MenuTrigger render={button} />}
-        name={accountName}
-        onHelp={onSupport}
-        onSettings={onSettings}
-        onUpdate={onUpdate}
-        updateAvailable={updateAvailable}
-        updateDisabled={updateDisabled}
-        updateLabel={updateLabel}
-      />
-      <MenuPopupBase
-        align="start"
-        className="box-border h-[139px] w-[220px] flex-col rounded-[10px] border-[#ffffff12] bg-[#1a1a1a] p-1.5 [border-width:1px]"
-        side="top"
-        surface="bare"
-      >
-        <AccountMenuItem icon="settings" label="Settings" onClick={onSettings} />
-        <AccountMenuItem icon="feedback" label="Give Feedback" onClick={onFeedback} />
-        <AccountMenuItem icon="support" label="Support Us" onClick={onSupport} />
-        <div className="flex h-[9px] w-[206px] items-center px-1">
-          <MenuSeparator className="m-0 h-px w-[198px] bg-[#ffffff12]" />
-        </div>
-        <AccountMenuItem icon="logout" label="Log Out" onClick={onLogout} />
-      </MenuPopupBase>
-    </Menu>
+    <MenuPopupBase
+      align="start"
+      className="box-border h-[139px] w-[220px] flex-col rounded-[10px] border-[#ffffff12] bg-[#1a1a1a] p-1.5 [border-width:1px]"
+      data-pencil-component="KjCFX"
+      side="top"
+      surface="bare"
+    >
+      <AccountMenuItem icon="settings" label="Settings" onClick={onSettings} />
+      <AccountMenuItem icon="feedback" label="Give Feedback" onClick={onFeedback} />
+      <AccountMenuItem icon="support" label="Support Us" onClick={onSupport} />
+      <div className="flex h-[9px] w-[206px] items-center px-1">
+        <MenuSeparator className="m-0 h-px w-[198px] bg-[#ffffff12]" />
+      </div>
+      <AccountMenuItem icon="logout" label="Log Out" onClick={onLogout} />
+    </MenuPopupBase>
   );
 }

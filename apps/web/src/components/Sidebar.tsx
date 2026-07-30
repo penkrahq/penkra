@@ -214,7 +214,7 @@ import {
 } from "./desktopUpdate.logic";
 import { subscribeToDesktopUpdateState } from "./desktopUpdate.subscription";
 import { FolderRowShared } from "./left-rail/folder-row-shared/FolderRowShared";
-import { AccountMenu } from "./left-rail/menu-account/AccountMenu";
+import { AccountControlShared } from "./left-rail/account-control-shared/AccountControlShared";
 import { ShowMoreRow } from "./left-rail/show-more-row/ShowMoreRow";
 import { SidebarHeaderShared } from "./left-rail/sidebar-header-shared/SidebarHeaderShared";
 import { SidebarProjects } from "./left-rail/sidebar-projects/SidebarProjects";
@@ -3296,7 +3296,7 @@ export default function Sidebar() {
             </div>
           </Suspense>
         ) : null}
-        <AccountMenu
+        <AccountControlShared
           accountName={profileName}
           onFeedback={() => openFeedbackDialog()}
           onSettings={() => void navigate({ to: "/settings" })}
