@@ -209,11 +209,10 @@ function stopCanary(paths: CanaryPaths): void {
       stdio: "ignore",
     });
   } else {
-    try {
-      process.kill(-pid, "SIGTERM");
-    } catch {
-      process.kill(pid, "SIGTERM");
-    }
+    // The launcher forwards termination to Electron, which then completes the
+    // backend shutdown handshake. Signaling the whole process group would also
+    // hit Electron and the backend directly, racing that graceful path.
+    process.kill(pid, "SIGTERM");
   }
   FS.rmSync(paths.pid, { force: true });
 }
