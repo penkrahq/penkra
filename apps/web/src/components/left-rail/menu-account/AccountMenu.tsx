@@ -39,7 +39,7 @@ export function AccountMenu({
 }: AccountMenuProps) {
   return (
     <MenuPopupBase
-      align="start"
+      align="center"
       anchor={anchor}
       className="box-border h-[139px] w-[220px] flex-col rounded-[10px] border-[#ffffff12] bg-[#1a1a1a] p-1.5 [border-width:1px]"
       data-pencil-component="KjCFX"

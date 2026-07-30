@@ -130,8 +130,16 @@ describe("Pencil left rail", () => {
     expect(popup!.getBoundingClientRect().height).toBe(139);
     expect(getComputedStyle(popup!).flexDirection).toBe("column");
     expect(getComputedStyle(popup!).borderTopWidth).toBe("1px");
+    const popupRect = popup!.getBoundingClientRect();
+    const rowRect = row!.getBoundingClientRect();
+
+    expect(Math.abs(popupRect.bottom - rowRect.top)).toBeLessThan(1);
     expect(
-      Math.abs(popup!.getBoundingClientRect().bottom - row!.getBoundingClientRect().top),
+      Math.abs(
+        popupRect.left -
+          rowRect.left -
+          (rowRect.width - popupRect.width) / 2,
+      ),
     ).toBeLessThan(1);
   });
 });
