@@ -12,6 +12,7 @@ export interface OpenWithOption {
 
 export interface OpenWithRowSharedProps {
   className?: string;
+  defaultValue?: string;
   description?: string;
   onValueChange?: (value: string) => void;
   options?: OpenWithOption[];
@@ -26,13 +27,14 @@ const defaultOptions = [
 
 export function OpenWithRowShared({
   className,
+  defaultValue,
   description = "Choose the app used to open this item.",
   onValueChange,
   options = defaultOptions,
   title = "Open with",
   value,
 }: OpenWithRowSharedProps) {
-  const [internalValue, setInternalValue] = useState(value ?? options[0]?.id ?? "");
+  const [internalValue, setInternalValue] = useState(defaultValue ?? value ?? options[0]?.id ?? "");
   const [open, setOpen] = useState(false);
   const selectedValue = value ?? internalValue;
   const selectedLabel =
@@ -45,10 +47,7 @@ export function OpenWithRowShared({
   }
 
   return (
-    <div
-      className={cn("w-full font-sans", className)}
-      data-pencil-component="MqhKC"
-    >
+    <div className={cn("w-full font-sans", className)} data-pencil-component="MqhKC">
       <button
         aria-expanded={open}
         className="flex w-full cursor-pointer items-center gap-3 border-0 bg-transparent py-2.5 text-left outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-border-focus)]"
@@ -63,9 +62,7 @@ export function OpenWithRowShared({
         </span>
         <span className="flex items-center gap-1 text-xs text-[var(--color-text-foreground-secondary)]">
           {selectedLabel}
-          <IconChevronRight
-            className={cn("size-3.5 transition-transform", open && "rotate-90")}
-          />
+          <IconChevronRight className={cn("size-3.5 transition-transform", open && "rotate-90")} />
         </span>
       </button>
       {open ? (

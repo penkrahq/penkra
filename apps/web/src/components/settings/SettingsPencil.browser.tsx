@@ -1,13 +1,26 @@
 import "../../index.css";
 
 import { page } from "vitest/browser";
+import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
 import { ModalSettings } from "./modal-settings/ModalSettings";
 import { SettingsDialog } from "./modal-settings/SettingsDialog";
+import type { SettingsPage } from "./modal-settings/ModalSettings";
 import { OpenWithRowShared } from "./open-with-row-shared/OpenWithRowShared";
+import { SettingsPageContent } from "./pages/SettingsPageContent";
 import { ThemePanelShared } from "./theme-panel-shared/ThemePanelShared";
+
+function SettingsDialogHarness() {
+  const [activePage, setActivePage] = useState<SettingsPage>("general");
+
+  return (
+    <SettingsDialog onClose={() => undefined} onPageChange={setActivePage} page={activePage}>
+      <SettingsPageContent page={activePage} />
+    </SettingsDialog>
+  );
+}
 
 describe("Pencil settings structure", () => {
   afterEach(() => {
@@ -69,5 +82,39 @@ describe("Pencil settings structure", () => {
     const uiFont = page.getByRole("textbox", { name: "UI font" });
     await uiFont.fill("Inter");
     await expect.element(uiFont).toHaveValue("Inter");
+  });
+
+  it("renders the Pencil-defined Settings pages without legacy controls", async () => {
+    await render(<SettingsDialogHarness />);
+
+    await expect.element(page.getByText("Defaults and updates for Penkra.")).toBeVisible();
+    await expect.element(page.getByText("Open with", { exact: true })).toBeVisible();
+    expect(document.body.textContent).not.toContain("Restore defaults");
+
+    await page.getByRole("button", { name: "Agents", exact: true }).click();
+    await expect
+      .element(page.getByText("Choose which coding agent runs your threads."))
+      .toBeVisible();
+    await expect.element(page.getByText("Claude Agent")).toBeVisible();
+    await expect.element(page.getByText("Model & Access")).toBeVisible();
+
+    await page.getByRole("button", { name: "Apps", exact: true }).click();
+    await expect.element(page.getByText("Installed apps from the Penkra registry.")).toBeVisible();
+    await expect.element(page.getByRole("switch", { name: "Ledger installed" })).toBeChecked();
+    expect(document.body.textContent).not.toContain("Installed appsInstalled");
+
+    await page.getByRole("button", { name: "Connectors", exact: true }).click();
+    await expect.element(page.getByText("Link external services and integrations.")).toBeVisible();
+    await expect.element(page.getByRole("switch", { name: "Calendar connected" })).toBeChecked();
+
+    await page.getByRole("button", { name: "Appearance", exact: true }).click();
+    await expect.element(page.getByText("Customize the look and feel of Penkra.")).toBeVisible();
+    await expect
+      .element(page.getByRole("button", { name: "System" }))
+      .toHaveAttribute("aria-pressed", "true");
+
+    await page.getByRole("button", { name: "Account", exact: true }).click();
+    await expect.element(page.getByText("Manage your profile and preferences.")).toBeVisible();
+    await expect.element(page.getByText("Anthropic API key")).toBeVisible();
   });
 });

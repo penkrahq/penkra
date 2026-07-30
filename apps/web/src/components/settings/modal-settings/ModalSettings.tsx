@@ -35,13 +35,48 @@ export interface ModalSettingsProps {
 }
 
 const pages = [
-  { icon: IconSettings, id: "general", label: "General" },
-  { icon: IconKey, id: "permissions", label: "Permissions" },
-  { icon: IconRobot, id: "agents", label: "Agents" },
-  { icon: IconApps, id: "apps", label: "Apps" },
-  { icon: IconPlug, id: "connectors", label: "Connectors" },
-  { icon: IconBrush, id: "appearance", label: "Appearance" },
-  { icon: IconUser, id: "account", label: "Account" },
+  {
+    icon: IconSettings,
+    id: "general",
+    label: "General",
+    subtitle: "Defaults and updates for Penkra.",
+  },
+  {
+    icon: IconKey,
+    id: "permissions",
+    label: "Permissions",
+    subtitle: "Review pending access requests and manage alerts.",
+  },
+  {
+    icon: IconRobot,
+    id: "agents",
+    label: "Agents",
+    subtitle: "Choose which coding agent runs your threads.",
+  },
+  {
+    icon: IconApps,
+    id: "apps",
+    label: "Apps",
+    subtitle: "Installed apps from the Penkra registry.",
+  },
+  {
+    icon: IconPlug,
+    id: "connectors",
+    label: "Connectors",
+    subtitle: "Link external services and integrations.",
+  },
+  {
+    icon: IconBrush,
+    id: "appearance",
+    label: "Appearance",
+    subtitle: "Customize the look and feel of Penkra.",
+  },
+  {
+    icon: IconUser,
+    id: "account",
+    label: "Account",
+    subtitle: "Manage your profile and preferences.",
+  },
 ] as const;
 
 export function ModalSettings({
@@ -50,7 +85,7 @@ export function ModalSettings({
   onPageChange,
   page = "general",
 }: ModalSettingsProps) {
-  const title = pages.find((item) => item.id === page)?.label ?? "General";
+  const activePage = pages.find((item) => item.id === page) ?? pages[0];
   return (
     <section
       aria-label="Settings"
@@ -76,13 +111,13 @@ export function ModalSettings({
         ))}
       </nav>
       <ScrollArea
-        aria-label={`${title} settings`}
+        aria-label={`${activePage.label} settings`}
         className="h-full min-h-0 flex-1"
         data-pencil-region="settings-content"
         scrollFade
       >
         <div className="mx-auto flex w-[440px] flex-col gap-7 py-8">
-          <SettingsHeader title={title} />
+          <SettingsHeader subtitle={activePage.subtitle} title={activePage.label} />
           {children ?? (
             <SettingsSectionShared>
               {Array.from({ length: 12 }, (_, index) => (

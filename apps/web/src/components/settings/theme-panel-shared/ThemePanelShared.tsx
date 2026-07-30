@@ -8,6 +8,7 @@ import { ThemePickerShared } from "../theme-picker-shared/ThemePickerShared";
 
 export interface ThemePanelSharedProps {
   className?: string;
+  mode?: "dark" | "light";
   onCopyTheme?: () => void;
   onImport?: () => void;
   title?: string;
@@ -32,11 +33,13 @@ function ThemeValueRow({ label, value }: ThemeValueRowProps) {
 
 export function ThemePanelShared({
   className,
+  mode = "light",
   onCopyTheme,
   onImport,
   title = "Light theme",
 }: ThemePanelSharedProps) {
-  const [contrast, setContrast] = useState(45);
+  const dark = mode === "dark";
+  const [contrast, setContrast] = useState(dark ? 60 : 45);
   const [preset, setPreset] = useState<ThemePresetName>("GitHub");
   const [translucentSidebar, setTranslucentSidebar] = useState(true);
 
@@ -49,9 +52,7 @@ export function ThemePanelShared({
       data-pencil-component="xRiiX"
     >
       <header className="flex items-center justify-between gap-4">
-        <h3 className="text-[13px] font-semibold text-[var(--color-text-foreground)]">
-          {title}
-        </h3>
+        <h3 className="text-[13px] font-semibold text-[var(--color-text-foreground)]">{title}</h3>
         <div className="flex items-center gap-4">
           <button
             className="cursor-pointer border-0 bg-transparent p-0 text-xs text-[var(--color-text-foreground-tertiary)] hover:text-[var(--color-text-foreground)]"
@@ -77,42 +78,40 @@ export function ThemePanelShared({
           <span className="flex items-center gap-2 rounded-lg border border-[var(--color-border-focus)] bg-[var(--color-background-accent)] px-2.5 py-1.5">
             <input
               aria-label="Accent color"
-              className="size-4 cursor-pointer appearance-none overflow-hidden rounded-full border-2 border-white bg-[#0969da] p-0 [&::-moz-color-swatch]:border-0 [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:border-0"
-              defaultValue="#0969da"
+              className="size-4 cursor-pointer appearance-none overflow-hidden rounded-full border-2 border-white p-0 [&::-moz-color-swatch]:border-0 [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:border-0"
+              defaultValue={dark ? "#1f6feb" : "#0969da"}
               type="color"
             />
-            <span className="text-xs text-[var(--color-text-foreground)]">#0969DA</span>
-          </span>
-        </label>
-        <label className="flex min-h-[44px] items-center justify-between gap-4 py-2.5">
-          <span className="text-[13px] text-[var(--color-text-foreground)]">
-            Background
-          </span>
-          <span className="flex items-center gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-background-surface)] px-2.5 py-1.5">
-            <input
-              aria-label="Background color"
-              className="size-4 cursor-pointer appearance-none overflow-hidden rounded-full border border-[var(--color-border)] bg-white p-0 [&::-moz-color-swatch]:border-0 [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:border-0"
-              defaultValue="#ffffff"
-              type="color"
-            />
-            <span className="text-xs text-[var(--color-text-foreground-secondary)]">
-              #FFFFFF
+            <span className="text-xs text-[var(--color-text-foreground)]">
+              {dark ? "#1F6FEB" : "#0969DA"}
             </span>
           </span>
         </label>
         <label className="flex min-h-[44px] items-center justify-between gap-4 py-2.5">
-          <span className="text-[13px] text-[var(--color-text-foreground)]">
-            Foreground
+          <span className="text-[13px] text-[var(--color-text-foreground)]">Background</span>
+          <span className="flex items-center gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-background-surface)] px-2.5 py-1.5">
+            <input
+              aria-label="Background color"
+              className="size-4 cursor-pointer appearance-none overflow-hidden rounded-full border border-[var(--color-border)] bg-white p-0 [&::-moz-color-swatch]:border-0 [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:border-0"
+              defaultValue={dark ? "#0d1117" : "#ffffff"}
+              type="color"
+            />
+            <span className="text-xs text-[var(--color-text-foreground-secondary)]">
+              {dark ? "#0D1117" : "#FFFFFF"}
+            </span>
           </span>
+        </label>
+        <label className="flex min-h-[44px] items-center justify-between gap-4 py-2.5">
+          <span className="text-[13px] text-[var(--color-text-foreground)]">Foreground</span>
           <span className="flex items-center gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-background-surface)] px-2.5 py-1.5">
             <input
               aria-label="Foreground color"
               className="size-4 cursor-pointer appearance-none overflow-hidden rounded-full border border-[var(--color-border)] bg-[#1f2328] p-0 [&::-moz-color-swatch]:border-0 [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:border-0"
-              defaultValue="#1f2328"
+              defaultValue={dark ? "#e6edf3" : "#1f2328"}
               type="color"
             />
             <span className="text-xs text-[var(--color-text-foreground-secondary)]">
-              #1F2328
+              {dark ? "#E6EDF3" : "#1F2328"}
             </span>
           </span>
         </label>
