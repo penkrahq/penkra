@@ -216,12 +216,15 @@ import {
 } from "./desktopUpdate.logic";
 import { subscribeToDesktopUpdateState } from "./desktopUpdate.subscription";
 import { FolderRowShared } from "./left-rail/folder-row-shared/FolderRowShared";
+import { FolderGroupShared } from "./left-rail/folder-group-shared/FolderGroupShared";
 import { AccountControlShared } from "./left-rail/account-control-shared/AccountControlShared";
 import { PopupLogoutConfirmation } from "./left-rail/popup-logout-confirmation/PopupLogoutConfirmation";
 import { ShowMoreRow } from "./left-rail/show-more-row/ShowMoreRow";
 import { SidebarHeaderShared } from "./left-rail/sidebar-header-shared/SidebarHeaderShared";
 import { SidebarProjects } from "./left-rail/sidebar-projects/SidebarProjects";
 import { SidebarTopNavigation } from "./left-rail/sidebar-top-navigation/SidebarTopNavigation";
+import { SpacePageShared } from "./left-rail/space-page-shared/SpacePageShared";
+import { SpaceViewportShared } from "./left-rail/space-viewport-shared/SpaceViewportShared";
 import { ThreadRowShared } from "./left-rail/thread-row-shared/ThreadRowShared";
 import { WorkspaceHeaderShared } from "./left-rail/workspace-header-shared/WorkspaceHeaderShared";
 import { DisclosureSection } from "./ui/DisclosureRegion";
@@ -269,6 +272,34 @@ const SIDEBAR_LIST_ANIMATION_OPTIONS = {
   easing: "ease-out",
 } as const;
 const EMPTY_THREAD_JUMP_LABELS = new Map<ThreadId, string>();
+const PROTOTYPE_SPACE_PAGE_COUNT = 2;
+const PROTOTYPE_SPACE_FOLDERS = [
+  {
+    label: "Research",
+    threads: [
+      {
+        id: "prototype-space-research-arc",
+        label: "Study Arc space switching",
+        provider: "claudeAgent" as const,
+      },
+      {
+        id: "prototype-space-research-zen",
+        label: "Compare Zen gesture behavior",
+        provider: "codex" as const,
+      },
+    ],
+  },
+  {
+    label: "Experiments",
+    threads: [
+      {
+        id: "prototype-space-experiment-snap",
+        label: "Tune momentum and snapping",
+        provider: "codex" as const,
+      },
+    ],
+  },
+] as const;
 const ADD_PROJECT_SNAPSHOT_CATCH_UP_MAX_ATTEMPTS = 6;
 const ADD_PROJECT_SNAPSHOT_CATCH_UP_DELAY_MS = 50;
 const DebugFeatureFlagsMenu = import.meta.env.DEV
@@ -379,6 +410,7 @@ function buildThreadJumpLabelMap(input: {
 type ThreadPr = GitStatusResult["pr"];
 
 export default function Sidebar() {
+  const [prototypeSpacePageIndex, setPrototypeSpacePageIndex] = useState(0);
   const [showDebugFeatureFlagsMenu, setShowDebugFeatureFlagsMenu] = useState(
     readDebugFeatureFlagsMenuVisibility,
   );
@@ -3187,133 +3219,183 @@ export default function Sidebar() {
 
   return (
     <>
-      {isElectron ? (
-        <>
-          <SidebarHeader
-            className={cn(
-              "drag-region flex-row items-center p-0 font-system-ui",
-              CHAT_SURFACE_HEADER_HEIGHT_CLASS,
-              showMacTrafficLightAffordance && DESKTOP_TOP_BAR_TRAFFIC_LIGHT_GUTTER_CLASS,
-            )}
-          >
-            <SidebarHeaderShared
-              brand="Penkra"
-              className={cn("h-full w-full", showMacTrafficLightAffordance && "px-0")}
-              onSearch={() => setSearchPaletteOpen(true)}
-            />
-          </SidebarHeader>
-        </>
-      ) : (
-        <SidebarHeader className="gap-3 px-3 py-2.5 font-system-ui sm:gap-2.5 sm:px-4 sm:py-3">
-          {wordmark}
-        </SidebarHeader>
-      )}
-
-      <SidebarTopNavigation
-        {...(isOnApps ? { activeItemId: "apps" } : {})}
-        disabledItemIds={["scheduled"]}
-        onSelect={(itemId) => {
-          switch (itemId) {
-            case "new-chat":
-              void handleCreateHomeChat();
-              break;
-            case "scheduled":
-              break;
-            case "apps":
-              void handleOpenApps();
-              break;
-          }
-        }}
-      />
-
-      {showArm64IntelBuildWarning && arm64IntelBuildWarningDescription ? (
-        <div className="px-2 pt-2">
-          <Alert variant="warning" className="rounded-2xl border-warning/40 bg-warning/8">
-            <TriangleAlertIcon />
-            <AlertTitle>Intel build on Apple Silicon</AlertTitle>
-            <AlertDescription>{arm64IntelBuildWarningDescription}</AlertDescription>
-            {desktopUpdateButtonAction !== "none" ? (
-              <AlertAction>
-                <Button
-                  size="xs"
-                  variant="outline"
-                  disabled={desktopUpdateButtonDisabled}
-                  onClick={handleDesktopUpdateButtonClick}
-                >
-                  {desktopUpdateButtonAction === "download"
-                    ? "Update ARM build"
-                    : desktopUpdateButtonAction === "install"
-                      ? "Update ARM build"
-                      : "Check for ARM build update"}
-                </Button>
-              </AlertAction>
-            ) : null}
-          </Alert>
-        </div>
-      ) : null}
-      <SidebarProjects className="sidebar-surface-enter font-system-ui">
-        <DisclosureSection
-          className="w-full"
-          contentClassName="flex flex-col gap-0.5 pt-0.5"
-          hasContent={hasChatContent}
-          header={
-            <WorkspaceHeaderShared
-              expanded={chatSectionExpanded}
-              onAdd={() => void handleCreateHomeChat()}
-              onClick={() => setChatSectionExpanded((expanded) => !expanded)}
+      <SpaceViewportShared
+        activePageIndex={prototypeSpacePageIndex}
+        onActivePageIndexChange={setPrototypeSpacePageIndex}
+        pageCount={PROTOTYPE_SPACE_PAGE_COUNT}
+      >
+        <SpacePageShared active={prototypeSpacePageIndex === 0} label="Current">
+          {isElectron ? (
+            <SidebarHeader
+              className={cn(
+                "drag-region flex-row items-center p-0 font-system-ui",
+                CHAT_SURFACE_HEADER_HEIGHT_CLASS,
+                showMacTrafficLightAffordance && DESKTOP_TOP_BAR_TRAFFIC_LIGHT_GUTTER_CLASS,
+              )}
             >
-              penkra
-            </WorkspaceHeaderShared>
-          }
-          open={chatSectionExpanded}
-        >
-          {renderedChatEntries.map((entry) =>
-            renderPencilThreadRow(entry.row.thread, visibleChatOrderedThreadIds, entry.row.depth),
+              <SidebarHeaderShared
+                brand="Penkra"
+                className={cn("h-full w-full", showMacTrafficLightAffordance && "px-0")}
+                onSearch={() => setSearchPaletteOpen(true)}
+              />
+            </SidebarHeader>
+          ) : (
+            <SidebarHeader className="gap-3 px-3 py-2.5 font-system-ui sm:gap-2.5 sm:px-4 sm:py-3">
+              {wordmark}
+            </SidebarHeader>
           )}
-          {canShowMoreChatThreads ? (
-            <ShowMoreRow
-              onClick={() => setChatThreadListExtraPages(chatThreadListEffectiveExtraPages + 1)}
-            >
-              Show more
-            </ShowMoreRow>
-          ) : null}
-          {canShowLessChatThreads ? (
-            <ShowMoreRow
-              onClick={() =>
-                setChatThreadListExtraPages(Math.max(0, chatThreadListEffectiveExtraPages - 1))
+
+          <SidebarTopNavigation
+            {...(isOnApps ? { activeItemId: "apps" } : {})}
+            disabledItemIds={["scheduled"]}
+            onSelect={(itemId) => {
+              switch (itemId) {
+                case "new-chat":
+                  void handleCreateHomeChat();
+                  break;
+                case "scheduled":
+                  break;
+                case "apps":
+                  void handleOpenApps();
+                  break;
               }
-            >
-              Show less
-            </ShowMoreRow>
-          ) : null}
-        </DisclosureSection>
-        <div ref={attachProjectListAutoAnimateRef} className="flex flex-col gap-0.5">
-          {standardProjects.map((project) => renderPencilProjectItem(project))}
-        </div>
-
-        {projectEmptyState === "loading" && (
-          <div className="space-y-2 px-2 pt-4" aria-live="polite" aria-label="Loading projects">
-            <div className="text-center text-[length:var(--app-font-size-ui,12px)] text-muted-foreground/58">
-              Loading projects...
-            </div>
-            <div className="mx-auto grid w-full max-w-42 gap-1.5 opacity-70">
-              <div className="h-2 rounded-full bg-muted/55 animate-pulse" />
-              <div className="mx-auto h-2 w-4/5 rounded-full bg-muted/40 animate-pulse" />
-              <div className="mx-auto h-2 w-3/5 rounded-full bg-muted/30 animate-pulse" />
-            </div>
-          </div>
-        )}
-
-        {projectEmptyState === "empty" && (
-          <SpaceEmptyState
-            space={activeSpace}
-            hasProjectsElsewhere={allStandardProjectsBase.length > 0}
-            onMoveProjects={() => {
-              if (activeSpace) openSpaceProjectPicker(activeSpace.id);
             }}
           />
-        )}
-      </SidebarProjects>
+
+          {showArm64IntelBuildWarning && arm64IntelBuildWarningDescription ? (
+            <div className="px-2 pt-2">
+              <Alert variant="warning" className="rounded-2xl border-warning/40 bg-warning/8">
+                <TriangleAlertIcon />
+                <AlertTitle>Intel build on Apple Silicon</AlertTitle>
+                <AlertDescription>{arm64IntelBuildWarningDescription}</AlertDescription>
+                {desktopUpdateButtonAction !== "none" ? (
+                  <AlertAction>
+                    <Button
+                      size="xs"
+                      variant="outline"
+                      disabled={desktopUpdateButtonDisabled}
+                      onClick={handleDesktopUpdateButtonClick}
+                    >
+                      {desktopUpdateButtonAction === "download"
+                        ? "Update ARM build"
+                        : desktopUpdateButtonAction === "install"
+                          ? "Update ARM build"
+                          : "Check for ARM build update"}
+                    </Button>
+                  </AlertAction>
+                ) : null}
+              </Alert>
+            </div>
+          ) : null}
+          <SidebarProjects className="sidebar-surface-enter font-system-ui">
+            <DisclosureSection
+              className="w-full"
+              contentClassName="flex flex-col gap-0.5 pt-0.5"
+              hasContent={hasChatContent}
+              header={
+                <WorkspaceHeaderShared
+                  expanded={chatSectionExpanded}
+                  onAdd={() => void handleCreateHomeChat()}
+                  onClick={() => setChatSectionExpanded((expanded) => !expanded)}
+                >
+                  penkra
+                </WorkspaceHeaderShared>
+              }
+              open={chatSectionExpanded}
+            >
+              {renderedChatEntries.map((entry) =>
+                renderPencilThreadRow(
+                  entry.row.thread,
+                  visibleChatOrderedThreadIds,
+                  entry.row.depth,
+                ),
+              )}
+              {canShowMoreChatThreads ? (
+                <ShowMoreRow
+                  onClick={() => setChatThreadListExtraPages(chatThreadListEffectiveExtraPages + 1)}
+                >
+                  Show more
+                </ShowMoreRow>
+              ) : null}
+              {canShowLessChatThreads ? (
+                <ShowMoreRow
+                  onClick={() =>
+                    setChatThreadListExtraPages(Math.max(0, chatThreadListEffectiveExtraPages - 1))
+                  }
+                >
+                  Show less
+                </ShowMoreRow>
+              ) : null}
+            </DisclosureSection>
+            <div ref={attachProjectListAutoAnimateRef} className="flex flex-col gap-0.5">
+              {standardProjects.map((project) => renderPencilProjectItem(project))}
+            </div>
+
+            {projectEmptyState === "loading" && (
+              <div
+                className="space-y-2 px-2 pt-4"
+                aria-live="polite"
+                aria-label="Loading projects"
+              >
+                <div className="text-center text-[length:var(--app-font-size-ui,12px)] text-muted-foreground/58">
+                  Loading projects...
+                </div>
+                <div className="mx-auto grid w-full max-w-42 gap-1.5 opacity-70">
+                  <div className="h-2 rounded-full bg-muted/55 animate-pulse" />
+                  <div className="mx-auto h-2 w-4/5 rounded-full bg-muted/40 animate-pulse" />
+                  <div className="mx-auto h-2 w-3/5 rounded-full bg-muted/30 animate-pulse" />
+                </div>
+              </div>
+            )}
+
+            {projectEmptyState === "empty" && (
+              <SpaceEmptyState
+                space={activeSpace}
+                hasProjectsElsewhere={allStandardProjectsBase.length > 0}
+                onMoveProjects={() => {
+                  if (activeSpace) openSpaceProjectPicker(activeSpace.id);
+                }}
+              />
+            )}
+          </SidebarProjects>
+        </SpacePageShared>
+
+        <SpacePageShared active={prototypeSpacePageIndex === 1} label="Prototype">
+          {isElectron ? (
+            <SidebarHeader
+              className={cn(
+                "drag-region flex-row items-center p-0 font-system-ui",
+                CHAT_SURFACE_HEADER_HEIGHT_CLASS,
+                showMacTrafficLightAffordance && DESKTOP_TOP_BAR_TRAFFIC_LIGHT_GUTTER_CLASS,
+              )}
+            >
+              <SidebarHeaderShared
+                brand="Penkra"
+                className={cn("h-full w-full", showMacTrafficLightAffordance && "px-0")}
+                onSearch={() => setSearchPaletteOpen(true)}
+              />
+            </SidebarHeader>
+          ) : (
+            <SidebarHeader className="gap-3 px-3 py-2.5 font-system-ui sm:gap-2.5 sm:px-4 sm:py-3">
+              {wordmark}
+            </SidebarHeader>
+          )}
+          <SidebarTopNavigation disabledItemIds={["new-chat", "apps", "scheduled"]} />
+          <SidebarProjects className="font-system-ui">
+            <WorkspaceHeaderShared expanded>prototype</WorkspaceHeaderShared>
+            <ThreadRowShared harness="claudeAgent">Test the swipe interaction</ThreadRowShared>
+            <ThreadRowShared harness="codex">Tune momentum and snapping</ThreadRowShared>
+            {PROTOTYPE_SPACE_FOLDERS.map((folder) => (
+              <FolderGroupShared
+                defaultExpanded
+                key={folder.label}
+                label={folder.label}
+                threads={[...folder.threads]}
+              />
+            ))}
+          </SidebarProjects>
+        </SpacePageShared>
+      </SpaceViewportShared>
 
       <SidebarFooter className="gap-1 p-0 font-system-ui">
         {DebugFeatureFlagsMenu && showDebugFeatureFlagsMenu && !isOnSettings ? (
