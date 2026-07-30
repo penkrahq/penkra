@@ -226,8 +226,7 @@ export function useSpacePager({
 
       event.preventDefault();
       const elapsed = Math.max(1, timestamp - gesture.lastEventAt);
-      const instantaneousVelocity =
-        gesture.lastDeltaMagnitude === 0 ? 0 : delta.x / elapsed;
+      const instantaneousVelocity = gesture.lastDeltaMagnitude === 0 ? 0 : delta.x / elapsed;
       gesture.velocity = gesture.velocity * 0.72 + instantaneousVelocity * 0.28;
       if (gesture.distance !== gesture.totalX) {
         gesture.distance += delta.x;
@@ -270,13 +269,7 @@ export function useSpacePager({
 
     viewport.addEventListener("wheel", onWheel, { passive: false });
     return () => viewport.removeEventListener("wheel", onWheel);
-  }, [
-    cancelSettle,
-    clearWheelEndTimer,
-    finishGesture,
-    pageCount,
-    setTrackPosition,
-  ]);
+  }, [cancelSettle, clearWheelEndTimer, finishGesture, pageCount, setTrackPosition]);
 
   useEffect(() => {
     const viewport = viewportRef.current;

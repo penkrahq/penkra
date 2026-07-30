@@ -3332,11 +3332,7 @@ export default function Sidebar() {
             </div>
 
             {projectEmptyState === "loading" && (
-              <div
-                className="space-y-2 px-2 pt-4"
-                aria-live="polite"
-                aria-label="Loading projects"
-              >
+              <div className="space-y-2 px-2 pt-4" aria-live="polite" aria-label="Loading projects">
                 <div className="text-center text-[length:var(--app-font-size-ui,12px)] text-muted-foreground/58">
                   Loading projects...
                 </div>
