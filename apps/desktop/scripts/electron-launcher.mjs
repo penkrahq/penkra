@@ -15,7 +15,10 @@ import {
   writeFileSync,
 } from "node:fs";
 import { createRequire } from "node:module";
-import { resolveSynaraDesktopFlavor, synaraDesktopIdentity } from "@synara/shared/desktopIdentity";
+import {
+  resolveSynaraDesktopFlavor,
+  synaraDesktopIdentity,
+} from "@synara/shared/desktopIdentity";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildMacosIcon, resolvePenkraDevIconSource } from "../../../scripts/lib/macos-icon.ts";
@@ -55,6 +58,26 @@ function setPlistString(plistPath, key, value) {
   throw new Error(`Failed to update plist key "${key}" at ${plistPath}: ${details}`.trim());
 }
 
+function setPlistJson(plistPath, key, value) {
+  const json = JSON.stringify(value);
+  const replaceResult = spawnSync(
+    "plutil",
+    ["-replace", key, "-json", json, plistPath],
+    { encoding: "utf8" },
+  );
+  if (replaceResult.status === 0) return;
+
+  const insertResult = spawnSync(
+    "plutil",
+    ["-insert", key, "-json", json, plistPath],
+    { encoding: "utf8" },
+  );
+  if (insertResult.status === 0) return;
+
+  const details = [replaceResult.stderr, insertResult.stderr].filter(Boolean).join("\n");
+  throw new Error(`Failed to update plist key "${key}" at ${plistPath}: ${details}`.trim());
+}
+
 function patchMainBundleInfoPlist(appBundlePath, iconPath) {
   const infoPlistPath = join(appBundlePath, "Contents", "Info.plist");
   setPlistString(infoPlistPath, "CFBundleDisplayName", APP_DISPLAY_NAME);
@@ -63,6 +86,12 @@ function patchMainBundleInfoPlist(appBundlePath, iconPath) {
   setPlistString(infoPlistPath, "CFBundleExecutable", APP_DISPLAY_NAME);
   setPlistString(infoPlistPath, "CFBundleIconFile", "icon.icns");
   setPlistString(infoPlistPath, "NSMicrophoneUsageDescription", MICROPHONE_USAGE_DESCRIPTION);
+  setPlistJson(infoPlistPath, "CFBundleURLTypes", [
+    {
+      CFBundleURLName: "Penkra Account Authentication",
+      CFBundleURLSchemes: [desktopIdentity.accountAuthScheme],
+    },
+  ]);
 
   const resourcesDir = join(appBundlePath, "Contents", "Resources");
   copyFileSync(iconPath, join(resourcesDir, "icon.icns"));
@@ -193,6 +222,7 @@ function buildMacLauncher(electronBinaryPath) {
   }
 
   const expectedMetadata = {
+    accountAuthScheme: desktopIdentity.accountAuthScheme,
     launcherVersion: LAUNCHER_VERSION,
     sourceAppBundlePath,
     sourceAppMtimeMs: statSync(sourceAppBundlePath).mtimeMs,

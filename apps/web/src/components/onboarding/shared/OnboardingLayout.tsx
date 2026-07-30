@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import { SynaraLogo } from "~/components/SynaraLogo";
+import { PenkraMark } from "~/components/PenkraMark";
 import { cn } from "~/lib/utils";
 
 export interface OnboardingLayoutProps {
@@ -39,7 +39,7 @@ export function OnboardingLayout({
       )}
     >
       {showBrandLogo ? (
-        <SynaraLogo
+        <PenkraMark
           aria-label="Penkra"
           className="absolute left-5 top-5 z-10 size-7 text-[var(--color-text-foreground)]"
         />

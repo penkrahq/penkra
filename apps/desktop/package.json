@@ -14,6 +14,9 @@
     "smoke-test": "node scripts/smoke-test.mjs"
   },
   "dependencies": {
+    "@better-auth/electron": "1.6.25",
+    "better-auth": "1.6.25",
+    "conf": "15.0.2",
     "effect": "catalog:",
     "electron": "40.10.6",
     "electron-updater": "^6.6.2"

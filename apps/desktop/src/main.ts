@@ -113,6 +113,8 @@ import {
   shouldCheckForUpdatesOnForeground,
 } from "./updateState";
 import { registerDesktopVoiceTranscriptionHandler } from "./voiceTranscription";
+import { configurePenkraAccountAuth } from "./accountAuth";
+import { resolvePenkraAuthOrigin } from "./accountAuthOrigin";
 import { PENKRA_VOICE_QA_WAV_ENV, resolveVoiceQaAudioInput } from "./voiceQaAudioInput";
 import {
   resolveDesktopMenuAccelerator,
@@ -175,7 +177,6 @@ import {
   resolvePenkraRootPointerPath,
   writePenkraRootPointer,
 } from "./penkraRoot";
-import { authenticateAndStorePenkraHq } from "./penkraHqAuth";
 import { bakedPenkraUpdateToken, penkraUpdateRequestHeaders } from "./penkraUpdateConfig";
 import { installBundledPenkraCli } from "./penkraCliLink";
 import {
@@ -221,7 +222,6 @@ const penkraRuntime = resolvePenkraRuntime({
 const needsPenkraRootPicker = penkraRuntime.needsRootPicker;
 const PENKRA_ROOT = penkraRuntime.root;
 const PENKRA_PICKER_USER_DATA = Path.join(penkraAppDataBase, "Penkra", "picker-userdata");
-const PENKRA_HQ_CONFIG_PATH = Path.join(PENKRA_ROOT, "hq", ".penkra", "config.json");
 const PENKRA_API_URL = penkraRuntime.apiUrl;
 process.env.PENKRA_ROOT = PENKRA_ROOT;
 process.env.PENKRA_API_URL = PENKRA_API_URL;
@@ -295,7 +295,6 @@ const browserPerfLoggingEnabled = process.env.SYNARA_BROWSER_PERF === "1";
 type DesktopUpdateErrorContext = DesktopUpdateState["errorContext"];
 
 let mainWindow: BrowserWindow | null = null;
-let penkraHqAuthSkipped = false;
 let backendProcess: ChildProcess.ChildProcess | null = null;
 let backendPort = 0;
 let backendAuthToken = "";
@@ -326,6 +325,14 @@ let browserUsePipeServer: BrowserUsePipeServer | null = null;
 let appSnapManager: DesktopAppSnapManager | null = null;
 let configuredGitHubUpdateSource: ReturnType<typeof resolveGitHubUpdateSource> = null;
 let configuredUpdaterCacheDirName: string | null = null;
+
+configurePenkraAccountAuth({
+  accountAuthScheme: desktopIdentity.accountAuthScheme,
+  authOrigin: resolvePenkraAuthOrigin(process.env.PENKRA_AUTH_ORIGIN),
+  desktopFlavor,
+  getWindow: () => mainWindow,
+  ipcMain,
+});
 
 browserManager.subscribe((state) => {
   sendBrowserState(mainWindow?.webContents, state);
@@ -3024,38 +3031,6 @@ function requestGracefulAppQuit(reason: string): void {
 
 function registerIpcHandlers(): void {
   const storageSnapshotPath = resolveSynaraStorageSnapshotPath(app.getPath("userData"));
-
-  ipcMain.removeHandler(IPC.hqAuth.getRequired);
-  ipcMain.handle(
-    IPC.hqAuth.getRequired,
-    async () => !penkraHqAuthSkipped && !FS.existsSync(PENKRA_HQ_CONFIG_PATH),
-  );
-
-  ipcMain.removeHandler(IPC.hqAuth.submit);
-  ipcMain.handle(IPC.hqAuth.submit, async (event, password: unknown) => {
-    if (event.sender !== mainWindow?.webContents || typeof password !== "string") {
-      return { ok: false, message: "Authentication failed." };
-    }
-    const result = await authenticateAndStorePenkraHq({
-      endpoint: PENKRA_API_URL,
-      password,
-      configPath: PENKRA_HQ_CONFIG_PATH,
-    });
-    if (result.ok) {
-      setTimeout(() => {
-        app.relaunch();
-        app.exit(0);
-      }, 350);
-    }
-    return result;
-  });
-
-  ipcMain.removeHandler(IPC.hqAuth.skip);
-  ipcMain.handle(IPC.hqAuth.skip, async (event) => {
-    if (event.sender === mainWindow?.webContents) {
-      penkraHqAuthSkipped = true;
-    }
-  });
 
   ipcMain.removeAllListeners(IPC.storageMigration.read);
   ipcMain.on(IPC.storageMigration.read, (event: IpcMainEvent) => {

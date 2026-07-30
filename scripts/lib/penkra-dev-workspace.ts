@@ -14,10 +14,12 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
 const BACKEND_ORIGIN = "github.com/penkrahq/penkra-backend";
+const WEBSITE_ORIGIN = "github.com/penkrahq/penkra-website";
 
 export interface PenkraDevWorkspace {
   readonly desktopRoot: string;
   readonly backendRoot: string;
+  readonly websiteRoot: string;
 }
 
 export function resolvePenkraDevWorkspaceConfigPath(homeDirectory = homedir()): string {
@@ -28,10 +30,12 @@ export function validatePenkraDevWorkspace(input: PenkraDevWorkspace): PenkraDev
   const workspace = {
     desktopRoot: resolve(input.desktopRoot),
     backendRoot: resolve(input.backendRoot),
+    websiteRoot: resolve(input.websiteRoot),
   };
   const requiredPaths = [
     join(workspace.desktopRoot, "scripts", "penkra-dev-launcher.ts"),
     join(workspace.backendRoot, "ops", "dev-workspace.mjs"),
+    join(workspace.websiteRoot, "next.config.ts"),
   ];
   const missingPath = requiredPaths.find((path) => !existsSync(path));
   if (missingPath) {
@@ -58,7 +62,9 @@ export function readPenkraDevWorkspace(
     !("desktopRoot" in parsed) ||
     typeof parsed.desktopRoot !== "string" ||
     !("backendRoot" in parsed) ||
-    typeof parsed.backendRoot !== "string"
+    typeof parsed.backendRoot !== "string" ||
+    !("websiteRoot" in parsed) ||
+    typeof parsed.websiteRoot !== "string"
   ) {
     throw new Error(`Penkra Dev workspace configuration is invalid at ${configPath}.`);
   }
@@ -96,6 +102,15 @@ function repositoryMatchesOrigin(repositoryRoot: string, expectedOrigin: string)
   return result.status === 0 && normalizeGitRemote(result.stdout) === expectedOrigin;
 }
 
+function validateRepositoryPath(repositoryRoot: string, requiredRelativePath: string): string {
+  const resolvedRoot = resolve(repositoryRoot);
+  const requiredPath = join(resolvedRoot, requiredRelativePath);
+  if (!existsSync(requiredPath)) {
+    throw new Error(`Penkra Dev workspace is missing a required path: ${requiredPath}`);
+  }
+  return resolvedRoot;
+}
+
 export function discoverPenkraBackendRoot(input: {
   readonly desktopRoot: string;
   readonly configuredBackendRoot?: string;
@@ -103,10 +118,7 @@ export function discoverPenkraBackendRoot(input: {
 }): string {
   const configured = input.configuredBackendRoot?.trim();
   if (configured) {
-    return validatePenkraDevWorkspace({
-      desktopRoot: input.desktopRoot,
-      backendRoot: configured,
-    }).backendRoot;
+    return validateRepositoryPath(configured, join("ops", "dev-workspace.mjs"));
   }
 
   const workspaceParent = resolve(input.workspaceParent ?? dirname(input.desktopRoot));
@@ -114,13 +126,34 @@ export function discoverPenkraBackendRoot(input: {
     if (!entry.isDirectory()) continue;
     const candidate = join(workspaceParent, entry.name);
     if (repositoryMatchesOrigin(candidate, BACKEND_ORIGIN)) {
-      return validatePenkraDevWorkspace({
-        desktopRoot: input.desktopRoot,
-        backendRoot: candidate,
-      }).backendRoot;
+      return validateRepositoryPath(candidate, join("ops", "dev-workspace.mjs"));
     }
   }
   throw new Error(
     "Cannot locate the Penkra backend repository. Set PENKRA_BACKEND_ROOT or place its checkout in the same workspace before reinstalling Penkra Dev.",
+  );
+}
+
+export function discoverPenkraWebsiteRoot(input: {
+  readonly desktopRoot: string;
+  readonly backendRoot: string;
+  readonly configuredWebsiteRoot?: string;
+  readonly workspaceParent?: string;
+}): string {
+  const configured = input.configuredWebsiteRoot?.trim();
+  if (configured) {
+    return validateRepositoryPath(configured, "next.config.ts");
+  }
+
+  const workspaceParent = resolve(input.workspaceParent ?? dirname(input.desktopRoot));
+  for (const entry of readdirSync(workspaceParent, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const candidate = join(workspaceParent, entry.name);
+    if (repositoryMatchesOrigin(candidate, WEBSITE_ORIGIN)) {
+      return validateRepositoryPath(candidate, "next.config.ts");
+    }
+  }
+  throw new Error(
+    "Cannot locate the Penkra website repository. Set PENKRA_WEBSITE_ROOT or place its checkout in the same workspace before reinstalling Penkra Dev.",
   );
 }

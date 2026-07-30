@@ -2,29 +2,55 @@ import "../../index.css";
 
 import type { DesktopBridge } from "@synara/contracts";
 import { page } from "vitest/browser";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
+import {
+  buildThemeCssVariables,
+  DEFAULT_THEME_STATE,
+  resolveThemePack,
+} from "../../theme/theme.logic";
 import { OnboardingApiKey } from "./api-key/OnboardingApiKey";
 import { OnboardingConnectAgent } from "./connect-agent/OnboardingConnectAgent";
 import { DesktopOnboardingGate } from "./DesktopOnboardingGate";
-import { OnboardingHqAuth } from "./hq-auth/OnboardingHqAuth";
+
+function resolveCssColor(value: string): string {
+  const probe = document.createElement("span");
+  probe.style.color = value;
+  document.body.append(probe);
+  const resolved = getComputedStyle(probe).color;
+  probe.remove();
+  return resolved;
+}
 
 describe("Pencil onboarding", () => {
+  beforeEach(() => {
+    const theme = buildThemeCssVariables(
+      resolveThemePack(DEFAULT_THEME_STATE, "dark"),
+      "dark",
+    );
+    for (const [name, value] of Object.entries(theme.variables)) {
+      document.documentElement.style.setProperty(name, value);
+    }
+  });
+
   afterEach(() => {
     document.body.innerHTML = "";
   });
 
-  it("requires and returns a selected agent", async () => {
+  it("matches the Pencil default selection and returns selected agents", async () => {
     const onContinue = vi.fn();
     await render(<OnboardingConnectAgent onContinue={onContinue} />);
 
     const continueButton = page.getByRole("button", { name: "Continue" });
-    await expect.element(continueButton).toBeDisabled();
-    await page.getByRole("button", { name: "Codex" }).click();
+    await expect
+      .element(page.getByRole("button", { name: "Claude" }))
+      .toHaveAttribute("aria-pressed", "true");
+    await expect.element(page.getByText("3 connections")).toBeVisible();
     await expect.element(continueButton).toBeEnabled();
+    await page.getByRole("button", { name: "Codex" }).click();
     await continueButton.click();
-    expect(onContinue).toHaveBeenCalledWith(["codex"]);
+    expect(onContinue).toHaveBeenCalledWith(["claude", "codex"]);
   });
 
   it("keeps API key fields native and editable", async () => {
@@ -37,30 +63,39 @@ describe("Pencil onboarding", () => {
     expect(onContinue).toHaveBeenCalledWith("sk-local", "Production");
   });
 
-  it("submits HQ authentication through a native password form", async () => {
-    const onSubmit = vi
-      .fn()
-      .mockResolvedValueOnce({ ok: false, message: "Authentication failed." })
-      .mockResolvedValueOnce({ ok: true });
-    await render(<OnboardingHqAuth onSubmit={onSubmit} />);
-
-    const password = page.getByLabelText("Master password");
-    await password.fill("wrong");
-    await page.getByRole("button", { name: "Connect" }).click();
-    await expect.element(page.getByRole("alert")).toHaveTextContent("Authentication failed.");
-
-    await password.fill("correct");
-    await page.getByRole("button", { name: "Connect" }).click();
-    expect(onSubmit).toHaveBeenLastCalledWith("correct");
-  });
-
-  it("gates the app only when desktop HQ authentication is required", async () => {
-    const skip = vi.fn().mockResolvedValue(undefined);
+  it("starts processing only after the sign-up callback returns", async () => {
+    const requestSignUp = vi.fn().mockResolvedValue(undefined);
+    let notifyCallbackStarted:
+      | ((callback: { intent: "sign-in" | "sign-up" | null }) => void)
+      | undefined;
+    let notifyAuthenticated:
+      | ((user: {
+          id: string;
+          email: string;
+          name: string;
+          image: string | null;
+        }) => void)
+      | undefined;
+    let notifyError: ((error: { message: string }) => void) | undefined;
     const bridge = {
-      hqAuth: {
-        getRequired: vi.fn().mockResolvedValue(true),
-        skip,
-        submit: vi.fn(),
+      accountAuth: {
+        getState: vi.fn().mockResolvedValue({ status: "unauthenticated" }),
+        requestSignIn: vi.fn().mockResolvedValue(undefined),
+        requestSignUp,
+        signOut: vi.fn().mockResolvedValue(undefined),
+        onCallbackStarted: vi.fn((listener) => {
+          notifyCallbackStarted = listener;
+          return () => undefined;
+        }),
+        onAuthenticated: vi.fn((listener) => {
+          notifyAuthenticated = listener;
+          return () => undefined;
+        }),
+        onUserUpdated: vi.fn(() => () => undefined),
+        onError: vi.fn((listener) => {
+          notifyError = listener;
+          return () => undefined;
+        }),
       },
     } as unknown as DesktopBridge;
 
@@ -71,8 +106,189 @@ describe("Pencil onboarding", () => {
     );
 
     await expect.element(page.getByText("Welcome to Penkra")).toBeVisible();
-    await page.getByRole("button", { name: "Skip for now" }).click();
+    const createAccountButton = page.getByRole("button", {
+      name: "Create an account",
+    });
+    const signInButton = page.getByRole("button", { name: "Sign in" });
+    await createAccountButton.click();
+    await expect.element(page.getByText("Welcome to Penkra")).toBeVisible();
+    await expect.element(createAccountButton).not.toHaveAttribute("aria-busy");
+    await expect.element(createAccountButton).toBeEnabled();
+    await expect.element(signInButton).toBeEnabled();
+    expect(requestSignUp).toHaveBeenCalledOnce();
+    await expect
+      .element(page.getByText("Application shell"))
+      .not.toBeInTheDocument();
+
+    notifyCallbackStarted?.({ intent: "sign-up" });
+    const creatingAccountButton = page.getByRole("button", {
+      name: "Creating account…",
+    });
+    await expect
+      .element(creatingAccountButton)
+      .toHaveAttribute("aria-busy", "true");
+    await expect.element(creatingAccountButton).toBeDisabled();
+    await expect.element(signInButton).toBeDisabled();
+    const rootStyle = getComputedStyle(document.documentElement);
+    const creatingAccountStyle = getComputedStyle(
+      creatingAccountButton.element(),
+    );
+    expect(creatingAccountStyle.backgroundColor).toBe(
+      resolveCssColor(
+        rootStyle.getPropertyValue(
+          "--color-background-button-secondary-active",
+        ),
+      ),
+    );
+    expect(creatingAccountStyle.borderColor).toBe(
+      resolveCssColor(rootStyle.getPropertyValue("--color-border-heavy")),
+    );
+    expect(creatingAccountStyle.color).toBe(
+      resolveCssColor(
+        rootStyle.getPropertyValue("--color-text-foreground-secondary"),
+      ),
+    );
+
+    notifyError?.({ message: "Authentication was cancelled." });
+    await expect.element(creatingAccountButton).not.toBeInTheDocument();
+    await expect.element(createAccountButton).toBeEnabled();
+    await expect.element(signInButton).toBeEnabled();
+
+    notifyCallbackStarted?.({ intent: "sign-up" });
+    notifyAuthenticated?.({
+      id: "user-1",
+      email: "person@example.com",
+      name: "Person",
+      image: null,
+    });
+    await expect
+      .element(page.getByText("Connect an agent to get started"))
+      .toBeVisible();
+    await expect
+      .element(page.getByText("Application shell"))
+      .not.toBeInTheDocument();
+  });
+
+  it("enters the application after an existing account signs in", async () => {
+    let notifyCallbackStarted:
+      | ((callback: { intent: "sign-in" | "sign-up" | null }) => void)
+      | undefined;
+    let notifyAuthenticated:
+      | ((user: {
+          id: string;
+          email: string;
+          name: string;
+          image: string | null;
+        }) => void)
+      | undefined;
+    const bridge = {
+      accountAuth: {
+        getState: vi.fn().mockResolvedValue({ status: "unauthenticated" }),
+        requestSignIn: vi.fn().mockResolvedValue(undefined),
+        requestSignUp: vi.fn().mockResolvedValue(undefined),
+        signOut: vi.fn().mockResolvedValue(undefined),
+        onCallbackStarted: vi.fn((listener) => {
+          notifyCallbackStarted = listener;
+          return () => undefined;
+        }),
+        onAuthenticated: vi.fn((listener) => {
+          notifyAuthenticated = listener;
+          return () => undefined;
+        }),
+        onUserUpdated: vi.fn(() => () => undefined),
+        onError: vi.fn(() => () => undefined),
+      },
+    } as unknown as DesktopBridge;
+
+    await render(
+      <DesktopOnboardingGate bridge={bridge}>
+        <p>Application shell</p>
+      </DesktopOnboardingGate>,
+    );
+
+    const createAccountButton = page.getByRole("button", {
+      name: "Create an account",
+    });
+    await page.getByRole("button", { name: "Sign in" }).click();
+    await expect
+      .element(page.getByRole("button", { name: "Sign in" }))
+      .not.toHaveAttribute("aria-busy");
+    notifyCallbackStarted?.({ intent: "sign-in" });
+    const signingInButton = page.getByRole("button", { name: "Signing in…" });
+    await expect.element(signingInButton).toHaveAttribute("aria-busy", "true");
+    const rootStyle = getComputedStyle(document.documentElement);
+    const signingInStyle = getComputedStyle(signingInButton.element());
+    expect(signingInStyle.backgroundColor).toBe(
+      resolveCssColor(
+        rootStyle.getPropertyValue(
+          "--color-background-button-secondary-active",
+        ),
+      ),
+    );
+    expect(signingInStyle.borderColor).toBe(
+      resolveCssColor(rootStyle.getPropertyValue("--color-border-heavy")),
+    );
+    expect(signingInStyle.color).toBe(
+      resolveCssColor(
+        rootStyle.getPropertyValue("--color-text-foreground-tertiary"),
+      ),
+    );
+    await expect.element(createAccountButton).toBeDisabled();
+    const unavailableCreateAccountStyle = getComputedStyle(
+      createAccountButton.element(),
+    );
+    expect(unavailableCreateAccountStyle.backgroundColor).toBe(
+      resolveCssColor(
+        rootStyle.getPropertyValue(
+          "--color-background-button-secondary-active",
+        ),
+      ),
+    );
+    expect(unavailableCreateAccountStyle.borderColor).toBe(
+      resolveCssColor(rootStyle.getPropertyValue("--color-border")),
+    );
+    expect(unavailableCreateAccountStyle.color).toBe(
+      resolveCssColor(
+        rootStyle.getPropertyValue("--color-text-foreground-tertiary"),
+      ),
+    );
+    notifyAuthenticated?.({
+      id: "user-1",
+      email: "person@example.com",
+      name: "Person",
+      image: null,
+    });
     await expect.element(page.getByText("Application shell")).toBeVisible();
-    expect(skip).toHaveBeenCalledOnce();
+  });
+
+  it("enters the application when an account session already exists", async () => {
+    const bridge = {
+      accountAuth: {
+        getState: vi.fn().mockResolvedValue({
+          status: "authenticated",
+          user: {
+            id: "user-1",
+            email: "person@example.com",
+            name: "Person",
+            image: null,
+          },
+        }),
+        requestSignIn: vi.fn(),
+        requestSignUp: vi.fn(),
+        signOut: vi.fn(),
+        onCallbackStarted: vi.fn(() => () => undefined),
+        onAuthenticated: vi.fn(() => () => undefined),
+        onUserUpdated: vi.fn(() => () => undefined),
+        onError: vi.fn(() => () => undefined),
+      },
+    } as unknown as DesktopBridge;
+
+    await render(
+      <DesktopOnboardingGate bridge={bridge}>
+        <p>Application shell</p>
+      </DesktopOnboardingGate>,
+    );
+
+    await expect.element(page.getByText("Application shell")).toBeVisible();
   });
 });

@@ -20,7 +20,10 @@ import {
   MAC_APPSNAP_HELPER_STAGE_PATH,
   validateDesktopNativeBuildHost,
 } from "./lib/desktop-platform-build-config.ts";
-import { SYNARA_PRODUCTION_BUNDLE_ID } from "@synara/shared/desktopIdentity";
+import {
+  PENKRA_ACCOUNT_AUTH_SCHEME,
+  SYNARA_PRODUCTION_BUNDLE_ID,
+} from "@synara/shared/desktopIdentity";
 import { parseBooleanEnvValue } from "./lib/env-bool.ts";
 import { finalizeSignedMacDmg } from "./lib/mac-dmg-finalize.ts";
 import { finalizeMacUpdateZip } from "./lib/mac-update-zip-finalize.ts";
@@ -555,6 +558,12 @@ const createBuildConfig = Effect.fn("createBuildConfig")(function* (
     appId: SYNARA_PRODUCTION_BUNDLE_ID,
     productName,
     artifactName: "Penkra-${version}-${arch}.${ext}",
+    protocols: [
+      {
+        name: "Penkra Account Authentication",
+        schemes: [PENKRA_ACCOUNT_AUTH_SCHEME],
+      },
+    ],
     extraResources: [{ from: "penkra-cli", to: "penkra-cli" }],
     directories: {
       buildResources: "apps/desktop/resources",

@@ -253,7 +253,7 @@ import {
 import { useProviderModelCatalog } from "../hooks/useProviderModelCatalog";
 import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
 import BranchToolbar, { RuntimeUsageControls } from "./BranchToolbar";
-import { SynaraLogo } from "./SynaraLogo";
+import { PenkraMark } from "./PenkraMark";
 import { ThreadWorktreeHandoffDialog } from "./ThreadWorktreeHandoffDialog";
 import {
   formatShortcutLabel,
@@ -9692,7 +9692,7 @@ export default function ChatView({
                       CHAT_COLUMN_FRAME_CLASS_NAME,
                     )}
                   >
-                    <SynaraLogo aria-label="Penkra logo" className="size-10" />
+                    <PenkraMark aria-label="Penkra logo" className="size-10" />
                     <h2
                       data-testid="empty-landing-heading"
                       className="text-[26px] font-normal leading-[1.15] tracking-[-0.015em] text-foreground/95 sm:text-[30px]"

@@ -19,6 +19,7 @@ import { resolveMacDevelopmentSigningIdentity } from "./lib/macos-dev-signing.ts
 export { parseAppleDevelopmentIdentity } from "./lib/macos-dev-signing.ts";
 import {
   discoverPenkraBackendRoot,
+  discoverPenkraWebsiteRoot,
   resolvePenkraDevWorkspaceConfigPath,
   writePenkraDevWorkspace,
 } from "./lib/penkra-dev-workspace.ts";
@@ -117,12 +118,18 @@ function install(): void {
   const iconPath = join(resourcesPath, "PenkraDev.icns");
   const backupPath = `/Applications/.Penkra Dev.backup-${String(process.pid)}.app`;
   const signingIdentity = resolveMacDevelopmentSigningIdentity();
+  const backendRoot = discoverPenkraBackendRoot({
+    desktopRoot: repoRoot,
+    configuredBackendRoot: process.env.PENKRA_BACKEND_ROOT,
+  });
   const workspace = writePenkraDevWorkspace(
     {
       desktopRoot: repoRoot,
-      backendRoot: discoverPenkraBackendRoot({
+      backendRoot,
+      websiteRoot: discoverPenkraWebsiteRoot({
         desktopRoot: repoRoot,
-        configuredBackendRoot: process.env.PENKRA_BACKEND_ROOT,
+        backendRoot,
+        configuredWebsiteRoot: process.env.PENKRA_WEBSITE_ROOT,
       }),
     },
     resolvePenkraDevWorkspaceConfigPath(),
@@ -197,7 +204,7 @@ function install(): void {
     }
 
     process.stdout.write(
-      `Installed Penkra Dev launcher at ${targetAppPath}\nDesktop repository: ${workspace.desktopRoot}\nBackend repository: ${workspace.backendRoot}\nBun: ${bunExecutable}\nSigning identity: ${signingIdentity}\n`,
+      `Installed Penkra Dev launcher at ${targetAppPath}\nDesktop repository: ${workspace.desktopRoot}\nBackend repository: ${workspace.backendRoot}\nWebsite repository: ${workspace.websiteRoot}\nBun: ${bunExecutable}\nSigning identity: ${signingIdentity}\n`,
     );
   } finally {
     rmSync(temporaryRoot, { recursive: true, force: true });

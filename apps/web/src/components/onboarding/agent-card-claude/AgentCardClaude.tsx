@@ -11,7 +11,7 @@ export function AgentCardClaude(props: AgentCardClaudeProps) {
   return (
     <AgentCardVerticalShared
       data-pencil-component="k5hz3"
-      description="Not connected"
+      description="3 connections"
       provider="claudeAgent"
       {...props}
     >

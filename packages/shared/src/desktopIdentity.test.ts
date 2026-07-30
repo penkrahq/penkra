@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  PENKRA_CANARY_ACCOUNT_AUTH_SCHEME,
+  PENKRA_DEVELOPMENT_ACCOUNT_AUTH_SCHEME,
+  PENKRA_PRODUCTION_ACCOUNT_AUTH_SCHEME,
   resolveSynaraDesktopFlavor,
   SYNARA_CANARY_BUNDLE_ID,
   SYNARA_CANARY_DESKTOP_ENTRY_URL,
@@ -23,6 +26,22 @@ describe("desktopIdentity", () => {
     expect(synaraBundleId(true)).toBe(SYNARA_DEVELOPMENT_BUNDLE_ID);
   });
 
+  it("gives every install flavor a distinct account-auth callback scheme", () => {
+    expect(PENKRA_PRODUCTION_ACCOUNT_AUTH_SCHEME).toBe("com.penkra.app");
+    expect(PENKRA_DEVELOPMENT_ACCOUNT_AUTH_SCHEME).toBe(
+      "com.penkra.app.dev",
+    );
+    expect(PENKRA_CANARY_ACCOUNT_AUTH_SCHEME).toBe(
+      "com.penkra.app.canary",
+    );
+    expect(synaraDesktopIdentity("production").accountAuthScheme).toBe(
+      PENKRA_PRODUCTION_ACCOUNT_AUTH_SCHEME,
+    );
+    expect(synaraDesktopIdentity("development").accountAuthScheme).toBe(
+      PENKRA_DEVELOPMENT_ACCOUNT_AUTH_SCHEME,
+    );
+  });
+
   it("uses the exact packaged renderer origin and entry URL", () => {
     expect(SYNARA_DESKTOP_ORIGIN).toBe("penkra://app");
     expect(SYNARA_DESKTOP_ENTRY_URL).toBe("penkra://app/index.html");
@@ -41,6 +60,7 @@ describe("desktopIdentity", () => {
       flavor: "canary",
       displayName: "Penkra Canary",
       bundleId: SYNARA_CANARY_BUNDLE_ID,
+      accountAuthScheme: PENKRA_CANARY_ACCOUNT_AUTH_SCHEME,
       scheme: "penkra-canary",
       origin: SYNARA_CANARY_DESKTOP_ORIGIN,
       entryUrl: SYNARA_CANARY_DESKTOP_ENTRY_URL,

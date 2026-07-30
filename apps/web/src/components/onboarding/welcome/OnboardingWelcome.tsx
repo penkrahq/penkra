@@ -9,11 +9,18 @@ import {
 } from "../shared/OnboardingLayout";
 
 export interface OnboardingWelcomeProps {
-  onContinue?: () => void;
-  onSkip?: () => void;
+  authProcessingIntent?: "sign-in" | "sign-up" | null;
+  onCreateAccount?: () => void;
+  onSignIn?: () => void;
 }
 
-export function OnboardingWelcome({ onContinue, onSkip }: OnboardingWelcomeProps) {
+export function OnboardingWelcome({
+  authProcessingIntent = null,
+  onCreateAccount,
+  onSignIn,
+}: OnboardingWelcomeProps) {
+  const authenticationProcessing = authProcessingIntent !== null;
+
   return (
     <OnboardingLayout
       brandImage={onboardingIllustrations.welcome}
@@ -27,13 +34,28 @@ export function OnboardingWelcome({ onContinue, onSkip }: OnboardingWelcomeProps
           Best app to work with AI
         </h1>
         <p className="mt-2 text-[15px] leading-5 text-[var(--color-text-foreground-secondary)]">
-          Install apps, connect your subscriptions and work seamlessly with any AI model
+          Install apps, connect your subscriptions and work seamlessly with any
+          AI model
         </p>
         <AgentLogos className="mt-8" />
         <DividerOnboarding className="mt-8" />
         <div className="mt-8 flex flex-col gap-2.5">
-          <ButtonPrimary onClick={onContinue}>Sign in</ButtonPrimary>
-          <ButtonSecondary onClick={onSkip}>Skip for now</ButtonSecondary>
+          <ButtonPrimary
+            disabled={authenticationProcessing}
+            loading={authProcessingIntent === "sign-up"}
+            loadingLabel="Creating account…"
+            onClick={onCreateAccount}
+          >
+            Create an account
+          </ButtonPrimary>
+          <ButtonSecondary
+            disabled={authenticationProcessing}
+            loading={authProcessingIntent === "sign-in"}
+            loadingLabel="Signing in…"
+            onClick={onSignIn}
+          >
+            Sign in
+          </ButtonSecondary>
         </div>
       </div>
     </OnboardingLayout>

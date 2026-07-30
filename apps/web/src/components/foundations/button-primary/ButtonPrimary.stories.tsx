@@ -5,8 +5,16 @@ import { ButtonPrimary } from "./ButtonPrimary";
 const meta = {
   args: { children: "Create an account" },
   component: ButtonPrimary,
-  decorators: [(Story) => <div className="w-[488px]"><Story /></div>],
-  parameters: { pencil: { componentId: "TecAX", groupId: "fVh0u", statesId: "uAdKP" } },
+  decorators: [
+    (Story) => (
+      <div className="w-[488px]">
+        <Story />
+      </div>
+    ),
+  ],
+  parameters: {
+    pencil: { componentId: "TecAX", groupId: "fVh0u", statesId: "uAdKP" },
+  },
   title: "Foundations/Button/Primary",
 } satisfies Meta<typeof ButtonPrimary>;
 
@@ -28,3 +36,6 @@ export const Active: Story = {
 };
 export const Selected: Story = { args: { "aria-pressed": true } };
 export const Disabled: Story = { args: { disabled: true } };
+export const Loading: Story = {
+  args: { loading: true, loadingLabel: "Creating account…" },
+};

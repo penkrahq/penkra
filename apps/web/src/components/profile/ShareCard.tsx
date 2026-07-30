@@ -8,7 +8,7 @@
 import { forwardRef, type ReactNode } from "react";
 import type { ProfileStats, ProfileTokenStats } from "@synara/contracts";
 import { ProviderIcon } from "~/components/ProviderIcon";
-import { SynaraLogo } from "~/components/SynaraLogo";
+import { PenkraMark } from "~/components/PenkraMark";
 import { ActivityHeatmap, CARD_HEATMAP_INTENSITY_CLASSES } from "./ActivityHeatmap";
 import { ProfileAvatar } from "./ProfileAvatar";
 import { formatCompact, formatDays } from "./profileFormatting";
@@ -121,7 +121,7 @@ export const ShareCard = forwardRef<HTMLDivElement, ShareCardProps>(function Sha
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2 text-slate-600">
-          <SynaraLogo className="size-6 text-slate-700" />
+          <PenkraMark monochrome className="size-6 text-slate-700" />
           <span className="text-xl font-normal tracking-tight">Penkra</span>
         </div>
       </div>

@@ -51,7 +51,7 @@ import { DiffStatLabel } from "./DiffStatLabel";
 import { type ExpandedImagePreview } from "./ExpandedImagePreview";
 import { LinkChipIcon } from "../LinkChipIcon";
 import { normalizeCompactToolLabel } from "./MessagesTimeline.logic";
-import { SynaraLogo } from "../SynaraLogo";
+import { PenkraMark } from "../PenkraMark";
 import type { SubagentToolTrace } from "./subagentToolTrace.logic";
 import { ToolCallDetailsContent } from "./ToolCallDetailsDialog";
 import { DisclosureChevron } from "../ui/DisclosureChevron";
@@ -95,7 +95,7 @@ type TimelineWorkEntry = WorkLogEntry;
 const AgentTaskIcon: LucideIcon = (props) => <BotIcon {...props} />;
 
 const SynaraToolIcon: LucideIcon = ({ className, ...props }) => (
-  <SynaraLogo {...props} className={cn("text-current", className)} />
+  <PenkraMark monochrome {...props} className={cn("text-current", className)} />
 );
 
 function workToneIcon(tone: TimelineWorkEntry["tone"]): {

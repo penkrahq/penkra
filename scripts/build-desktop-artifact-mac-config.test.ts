@@ -102,11 +102,11 @@ describe("createDesktopPlatformBuildConfig", () => {
     assert.ok(issue?.includes("Build mac/arm64 on macOS"));
   });
 
-  it("keeps separate macOS sources for solid and rounded icons", () => {
-    assert.equal(BRAND_ASSET_PATHS.productionMacIconPng, "assets/prod/black-macos-1024.png");
+  it("uses the canonical Pencil-derived Penkra artwork for every macOS icon path", () => {
+    assert.equal(BRAND_ASSET_PATHS.productionMacIconPng, "assets/brand/penkra-app-icon-1024.png");
     assert.equal(
       BRAND_ASSET_PATHS.productionMacLegacyIconPng,
-      "assets/prod/black-macos-legacy-1024.png",
+      BRAND_ASSET_PATHS.productionMacIconPng,
     );
   });
 });

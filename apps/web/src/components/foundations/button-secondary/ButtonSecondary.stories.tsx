@@ -5,8 +5,16 @@ import { ButtonSecondary } from "./ButtonSecondary";
 const meta = {
   args: { children: "Sign in" },
   component: ButtonSecondary,
-  decorators: [(Story) => <div className="w-[488px]"><Story /></div>],
-  parameters: { pencil: { componentId: "LsMFv", groupId: "fVh0u", statesId: "L6vfi" } },
+  decorators: [
+    (Story) => (
+      <div className="w-[488px]">
+        <Story />
+      </div>
+    ),
+  ],
+  parameters: {
+    pencil: { componentId: "LsMFv", groupId: "fVh0u", statesId: "L6vfi" },
+  },
   title: "Foundations/Button/Secondary",
 } satisfies Meta<typeof ButtonSecondary>;
 
@@ -28,3 +36,6 @@ export const Active: Story = {
 };
 export const Selected: Story = { args: { "aria-pressed": true } };
 export const Disabled: Story = { args: { disabled: true } };
+export const Loading: Story = {
+  args: { loading: true, loadingLabel: "Signing in…" },
+};

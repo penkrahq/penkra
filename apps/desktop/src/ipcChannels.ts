@@ -24,10 +24,15 @@ export const DESKTOP_IPC_CHANNELS = {
   updateInstall: "desktop:update-install",
   notificationsIsSupported: "desktop:notifications-is-supported",
   notificationsShow: "desktop:notifications-show",
-  hqAuth: {
-    getRequired: "desktop:hq-auth-get-required",
-    submit: "desktop:hq-auth-submit",
-    skip: "desktop:hq-auth-skip",
+  accountAuth: {
+    getState: "desktop:account-auth-get-state",
+    requestSignIn: "desktop:account-auth-request-sign-in",
+    requestSignUp: "desktop:account-auth-request-sign-up",
+    signOut: "desktop:account-auth-sign-out",
+    callbackStarted: "desktop:account-auth-callback-started",
+    authenticated: "penkra-account:authenticated",
+    userUpdated: "penkra-account:user-updated",
+    error: "penkra-account:error",
   },
   zoomFactor: "desktop:zoom-factor",
   zoomFactorChanged: "desktop:zoom-factor-changed",
@@ -80,4 +85,5 @@ export const DESKTOP_IPC_CHANNELS = {
 export const BROWSER_IPC_CHANNELS = DESKTOP_IPC_CHANNELS.browser;
 export const APPSNAP_IPC_CHANNELS = DESKTOP_IPC_CHANNELS.appSnap;
 export const DESKTOP_WS_URL_CHANNEL = DESKTOP_IPC_CHANNELS.wsUrl;
-export const SERVER_TRANSCRIBE_VOICE_CHANNEL = DESKTOP_IPC_CHANNELS.transcribeVoice;
+export const SERVER_TRANSCRIBE_VOICE_CHANNEL =
+  DESKTOP_IPC_CHANNELS.transcribeVoice;

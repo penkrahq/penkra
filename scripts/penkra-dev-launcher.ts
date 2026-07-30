@@ -83,7 +83,13 @@ export function resolvePenkraDevWorkspaceCommand(
   const orchestratorPath = join(workspace.backendRoot, "ops", "dev-workspace.mjs");
   return {
     executable: resolve(runtimeExecutable),
-    args: [orchestratorPath, "--desktop-root", workspace.desktopRoot],
+    args: [
+      orchestratorPath,
+      "--desktop-root",
+      workspace.desktopRoot,
+      "--website-root",
+      workspace.websiteRoot,
+    ],
     cwd: workspace.backendRoot,
   };
 }

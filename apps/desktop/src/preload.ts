@@ -1,6 +1,9 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron";
 import type { DesktopBridge } from "@synara/contracts";
-import { normalizeDesktopWsUrl, resolveDesktopWsUrlFromEnv } from "./desktopWsBridge";
+import {
+  normalizeDesktopWsUrl,
+  resolveDesktopWsUrlFromEnv,
+} from "./desktopWsBridge";
 import { DESKTOP_IPC_CHANNELS } from "./ipcChannels";
 
 const IPC = DESKTOP_IPC_CHANNELS;
@@ -29,14 +32,16 @@ contextBridge.exposeInMainWorld("desktopBridge", {
   saveFile: (input) => ipcRenderer.invoke(IPC.saveFile, input),
   confirm: (message) => ipcRenderer.invoke(IPC.confirm, message),
   setTheme: (theme) => ipcRenderer.invoke(IPC.setTheme, theme),
-  showContextMenu: (items, position) => ipcRenderer.invoke(IPC.contextMenu, items, position),
+  showContextMenu: (items, position) =>
+    ipcRenderer.invoke(IPC.contextMenu, items, position),
   openExternal: (url: string) => ipcRenderer.invoke(IPC.openExternal, url),
   showInFolder: (path: string) => ipcRenderer.invoke(IPC.showInFolder, path),
   shell: {
     showInFolder: (path: string) => ipcRenderer.invoke(IPC.showInFolder, path),
   },
   clipboard: {
-    writeImagePngDataUrl: (dataUrl: string) => ipcRenderer.invoke(IPC.clipboardWriteImage, dataUrl),
+    writeImagePngDataUrl: (dataUrl: string) =>
+      ipcRenderer.invoke(IPC.clipboardWriteImage, dataUrl),
   },
   windowControls: {
     minimize: () => ipcRenderer.invoke(IPC.windowMinimize),
@@ -44,7 +49,10 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     close: () => ipcRenderer.invoke(IPC.windowClose),
     getState: () => ipcRenderer.invoke(IPC.windowGetState),
     onState: (listener) => {
-      const wrappedListener = (_event: Electron.IpcRendererEvent, state: unknown) => {
+      const wrappedListener = (
+        _event: Electron.IpcRendererEvent,
+        state: unknown,
+      ) => {
         if (typeof state !== "object" || state === null) return;
         listener(state as Parameters<typeof listener>[0]);
       };
@@ -56,7 +64,10 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     },
   },
   onMenuAction: (listener) => {
-    const wrappedListener = (_event: Electron.IpcRendererEvent, action: unknown) => {
+    const wrappedListener = (
+      _event: Electron.IpcRendererEvent,
+      action: unknown,
+    ) => {
       if (typeof action !== "string") return;
       listener(action);
     };
@@ -68,11 +79,17 @@ contextBridge.exposeInMainWorld("desktopBridge", {
   },
   getZoomFactor: () => {
     const factor = ipcRenderer.sendSync(IPC.zoomFactor);
-    return typeof factor === "number" && Number.isFinite(factor) && factor > 0 ? factor : 1;
+    return typeof factor === "number" && Number.isFinite(factor) && factor > 0
+      ? factor
+      : 1;
   },
   onZoomFactorChange: (listener) => {
-    const wrappedListener = (_event: Electron.IpcRendererEvent, factor: unknown) => {
-      if (typeof factor !== "number" || !Number.isFinite(factor) || factor <= 0) return;
+    const wrappedListener = (
+      _event: Electron.IpcRendererEvent,
+      factor: unknown,
+    ) => {
+      if (typeof factor !== "number" || !Number.isFinite(factor) || factor <= 0)
+        return;
       listener(factor);
     };
 
@@ -86,7 +103,10 @@ contextBridge.exposeInMainWorld("desktopBridge", {
   downloadUpdate: () => ipcRenderer.invoke(IPC.updateDownload),
   installUpdate: () => ipcRenderer.invoke(IPC.updateInstall),
   onUpdateState: (listener) => {
-    const wrappedListener = (_event: Electron.IpcRendererEvent, state: unknown) => {
+    const wrappedListener = (
+      _event: Electron.IpcRendererEvent,
+      state: unknown,
+    ) => {
       if (typeof state !== "object" || state === null) return;
       listener(state as Parameters<typeof listener>[0]);
     };
@@ -100,48 +120,125 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     isSupported: () => ipcRenderer.invoke(IPC.notificationsIsSupported),
     show: (input) => ipcRenderer.invoke(IPC.notificationsShow, input),
   },
-  hqAuth: {
-    getRequired: () => ipcRenderer.invoke(IPC.hqAuth.getRequired),
-    submit: (password) => ipcRenderer.invoke(IPC.hqAuth.submit, password),
-    skip: () => ipcRenderer.invoke(IPC.hqAuth.skip),
+  accountAuth: {
+    getState: () => ipcRenderer.invoke(IPC.accountAuth.getState),
+    requestSignIn: () => ipcRenderer.invoke(IPC.accountAuth.requestSignIn),
+    requestSignUp: () => ipcRenderer.invoke(IPC.accountAuth.requestSignUp),
+    signOut: () => ipcRenderer.invoke(IPC.accountAuth.signOut),
+    onCallbackStarted: (listener) => {
+      const wrappedListener = (
+        _event: Electron.IpcRendererEvent,
+        callback: unknown,
+      ) => {
+        if (typeof callback !== "object" || callback === null) return;
+        listener(callback as Parameters<typeof listener>[0]);
+      };
+      ipcRenderer.on(IPC.accountAuth.callbackStarted, wrappedListener);
+      return () =>
+        ipcRenderer.removeListener(
+          IPC.accountAuth.callbackStarted,
+          wrappedListener,
+        );
+    },
+    onAuthenticated: (listener) => {
+      const wrappedListener = (
+        _event: Electron.IpcRendererEvent,
+        user: unknown,
+      ) => {
+        if (typeof user !== "object" || user === null) return;
+        listener(user as Parameters<typeof listener>[0]);
+      };
+      ipcRenderer.on(IPC.accountAuth.authenticated, wrappedListener);
+      return () =>
+        ipcRenderer.removeListener(
+          IPC.accountAuth.authenticated,
+          wrappedListener,
+        );
+    },
+    onUserUpdated: (listener) => {
+      const wrappedListener = (
+        _event: Electron.IpcRendererEvent,
+        user: unknown,
+      ) => {
+        if (user !== null && (typeof user !== "object" || user === null))
+          return;
+        listener(user as Parameters<typeof listener>[0]);
+      };
+      ipcRenderer.on(IPC.accountAuth.userUpdated, wrappedListener);
+      return () =>
+        ipcRenderer.removeListener(
+          IPC.accountAuth.userUpdated,
+          wrappedListener,
+        );
+    },
+    onError: (listener) => {
+      const wrappedListener = (
+        _event: Electron.IpcRendererEvent,
+        error: unknown,
+      ) => {
+        if (typeof error !== "object" || error === null) return;
+        listener(error as Parameters<typeof listener>[0]);
+      };
+      ipcRenderer.on(IPC.accountAuth.error, wrappedListener);
+      return () =>
+        ipcRenderer.removeListener(IPC.accountAuth.error, wrappedListener);
+    },
   },
   appSnap: {
     getState: () => ipcRenderer.invoke(IPC.appSnap.getState),
-    setEnabled: (enabled) => ipcRenderer.invoke(IPC.appSnap.setEnabled, enabled),
-    checkShortcut: (shortcut) => ipcRenderer.invoke(IPC.appSnap.checkShortcut, shortcut),
-    setShortcut: (shortcut) => ipcRenderer.invoke(IPC.appSnap.setShortcut, shortcut),
-    requestPermissions: () => ipcRenderer.invoke(IPC.appSnap.requestPermissions),
-    listPendingCaptures: () => ipcRenderer.invoke(IPC.appSnap.listPendingCaptures),
+    setEnabled: (enabled) =>
+      ipcRenderer.invoke(IPC.appSnap.setEnabled, enabled),
+    checkShortcut: (shortcut) =>
+      ipcRenderer.invoke(IPC.appSnap.checkShortcut, shortcut),
+    setShortcut: (shortcut) =>
+      ipcRenderer.invoke(IPC.appSnap.setShortcut, shortcut),
+    requestPermissions: () =>
+      ipcRenderer.invoke(IPC.appSnap.requestPermissions),
+    listPendingCaptures: () =>
+      ipcRenderer.invoke(IPC.appSnap.listPendingCaptures),
     acknowledgeCapture: (captureId) =>
       ipcRenderer.invoke(IPC.appSnap.acknowledgeCapture, captureId),
     onCaptured: (listener) => {
-      const wrappedListener = (_event: Electron.IpcRendererEvent, capture: unknown) => {
+      const wrappedListener = (
+        _event: Electron.IpcRendererEvent,
+        capture: unknown,
+      ) => {
         if (typeof capture !== "object" || capture === null) return;
         listener(capture as Parameters<typeof listener>[0]);
       };
       ipcRenderer.on(IPC.appSnap.captured, wrappedListener);
-      return () => ipcRenderer.removeListener(IPC.appSnap.captured, wrappedListener);
+      return () =>
+        ipcRenderer.removeListener(IPC.appSnap.captured, wrappedListener);
     },
     onError: (listener) => {
-      const wrappedListener = (_event: Electron.IpcRendererEvent, error: unknown) => {
+      const wrappedListener = (
+        _event: Electron.IpcRendererEvent,
+        error: unknown,
+      ) => {
         if (typeof error !== "object" || error === null) return;
         listener(error as Parameters<typeof listener>[0]);
       };
       ipcRenderer.on(IPC.appSnap.error, wrappedListener);
-      return () => ipcRenderer.removeListener(IPC.appSnap.error, wrappedListener);
+      return () =>
+        ipcRenderer.removeListener(IPC.appSnap.error, wrappedListener);
     },
     onState: (listener) => {
-      const wrappedListener = (_event: Electron.IpcRendererEvent, state: unknown) => {
+      const wrappedListener = (
+        _event: Electron.IpcRendererEvent,
+        state: unknown,
+      ) => {
         if (typeof state !== "object" || state === null) return;
         listener(state as Parameters<typeof listener>[0]);
       };
       ipcRenderer.on(IPC.appSnap.state, wrappedListener);
-      return () => ipcRenderer.removeListener(IPC.appSnap.state, wrappedListener);
+      return () =>
+        ipcRenderer.removeListener(IPC.appSnap.state, wrappedListener);
     },
   },
   storageMigration: {
     readSnapshot: () => ipcRenderer.sendSync(IPC.storageMigration.read),
-    acknowledgeSnapshot: () => ipcRenderer.invoke(IPC.storageMigration.acknowledge),
+    acknowledgeSnapshot: () =>
+      ipcRenderer.invoke(IPC.storageMigration.acknowledge),
   },
   server: {
     transcribeVoice: (input) => ipcRenderer.invoke(IPC.transcribeVoice, input),
@@ -154,15 +251,19 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     setPanelBounds: async (input) => {
       ipcRenderer.send(IPC.browser.setBounds, input);
     },
-    attachWebview: (input) => ipcRenderer.invoke(IPC.browser.attachWebview, input),
-    detachWebview: (input) => ipcRenderer.invoke(IPC.browser.detachWebview, input),
+    attachWebview: (input) =>
+      ipcRenderer.invoke(IPC.browser.attachWebview, input),
+    detachWebview: (input) =>
+      ipcRenderer.invoke(IPC.browser.detachWebview, input),
     copyLink: (input) => ipcRenderer.invoke(IPC.browser.requestCopyLink, input),
     copyScreenshotToClipboard: (input) =>
       ipcRenderer.invoke(IPC.browser.copyScreenshotToClipboard, input),
-    captureScreenshot: (input) => ipcRenderer.invoke(IPC.browser.captureScreenshot, input),
+    captureScreenshot: (input) =>
+      ipcRenderer.invoke(IPC.browser.captureScreenshot, input),
     executeCdp: (input) => ipcRenderer.invoke(IPC.browser.executeCdp, input),
     findInPage: (input) => ipcRenderer.invoke(IPC.browser.findInPage, input),
-    stopFindInPage: (input) => ipcRenderer.invoke(IPC.browser.stopFindInPage, input),
+    stopFindInPage: (input) =>
+      ipcRenderer.invoke(IPC.browser.stopFindInPage, input),
     navigate: (input) => ipcRenderer.invoke(IPC.browser.navigate, input),
     reload: (input) => ipcRenderer.invoke(IPC.browser.reload, input),
     goBack: (input) => ipcRenderer.invoke(IPC.browser.goBack, input),
@@ -170,9 +271,13 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     newTab: (input) => ipcRenderer.invoke(IPC.browser.newTab, input),
     closeTab: (input) => ipcRenderer.invoke(IPC.browser.closeTab, input),
     selectTab: (input) => ipcRenderer.invoke(IPC.browser.selectTab, input),
-    openDevTools: (input) => ipcRenderer.invoke(IPC.browser.openDevTools, input),
+    openDevTools: (input) =>
+      ipcRenderer.invoke(IPC.browser.openDevTools, input),
     onState: (listener) => {
-      const wrappedListener = (_event: Electron.IpcRendererEvent, state: unknown) => {
+      const wrappedListener = (
+        _event: Electron.IpcRendererEvent,
+        state: unknown,
+      ) => {
         if (typeof state !== "object" || state === null) return;
         listener(state as Parameters<typeof listener>[0]);
       };
@@ -186,11 +291,17 @@ contextBridge.exposeInMainWorld("desktopBridge", {
       const wrappedListener = () => listener();
       ipcRenderer.on(IPC.browser.requestOpenPanel, wrappedListener);
       return () => {
-        ipcRenderer.removeListener(IPC.browser.requestOpenPanel, wrappedListener);
+        ipcRenderer.removeListener(
+          IPC.browser.requestOpenPanel,
+          wrappedListener,
+        );
       };
     },
     onBrowserCopyLink: (listener) => {
-      const wrappedListener = (_event: Electron.IpcRendererEvent, payload: unknown) => {
+      const wrappedListener = (
+        _event: Electron.IpcRendererEvent,
+        payload: unknown,
+      ) => {
         if (typeof payload !== "object" || payload === null) return;
         listener(payload as Parameters<typeof listener>[0]);
       };

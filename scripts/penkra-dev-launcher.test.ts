@@ -56,6 +56,7 @@ describe("Penkra Dev launcher", () => {
       resolvePenkraDevWorkspaceCommand("/usr/local/bin/node", {
         desktopRoot: "/workspace/penkra",
         backendRoot: "/repositories/backend-checkout",
+        websiteRoot: "/repositories/website-checkout",
       }),
     ).toEqual({
       executable: "/usr/local/bin/node",
@@ -63,6 +64,8 @@ describe("Penkra Dev launcher", () => {
         "/repositories/backend-checkout/ops/dev-workspace.mjs",
         "--desktop-root",
         "/workspace/penkra",
+        "--website-root",
+        "/repositories/website-checkout",
       ],
       cwd: "/repositories/backend-checkout",
     });

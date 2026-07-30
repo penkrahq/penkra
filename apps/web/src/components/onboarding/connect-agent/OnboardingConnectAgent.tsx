@@ -24,7 +24,9 @@ export function OnboardingConnectAgent({
   onBack,
   onContinue,
 }: OnboardingConnectAgentProps) {
-  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
+  const [selected, setSelected] = useState<ReadonlySet<string>>(
+    () => new Set(["claude"]),
+  );
   const toggle = (id: string) =>
     setSelected((current) => {
       const next = new Set(current);
