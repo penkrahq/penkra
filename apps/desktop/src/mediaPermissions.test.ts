@@ -76,6 +76,42 @@ describe("isTrustedMediaPermissionRequest", () => {
       ),
     ).toBe(false);
   });
+
+  it("accepts Electron's packaged custom-scheme main-frame check shape", () => {
+    const trusted = {
+      isDestroyed: () => false,
+      getURL: () => "penkra://app/index.html",
+    };
+
+    expect(
+      isTrustedMediaPermissionRequest(
+        trusted,
+        trusted,
+        {
+          embeddingOrigin: "penkra://app/index.html",
+          isMainFrame: true,
+          mediaType: "audio",
+          requestingUrl: "",
+        },
+        "",
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects a main-frame request with a cross-origin embedding origin", () => {
+    const trusted = {
+      isDestroyed: () => false,
+      getURL: () => "penkra://app/index.html",
+    };
+
+    expect(
+      isTrustedMediaPermissionRequest(trusted, trusted, {
+        embeddingOrigin: "https://untrusted.example/frame",
+        isMainFrame: true,
+        mediaType: "audio",
+      }),
+    ).toBe(false);
+  });
 });
 
 describe("resolveMicrophonePermissionRequest", () => {

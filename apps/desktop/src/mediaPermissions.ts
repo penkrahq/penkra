@@ -45,11 +45,20 @@ function hasTrustedMainFrameOrigin(
 ): boolean {
   if (typeof details !== "object" || details === null) return true;
   const record = details as Record<string, unknown>;
-  if (record.isMainFrame === false || typeof record.embeddingOrigin === "string") return false;
+  // Electron 40 reports embeddingOrigin for Penkra's packaged custom-scheme
+  // main document even though its API documentation describes that field as a
+  // cross-origin subframe signal. isMainFrame is the authoritative frame check;
+  // every reported URL is still required to match the live renderer below.
+  if (record.isMainFrame === false) return false;
 
   const rendererOrigin = requester.getURL ? comparableOrigin(requester.getURL()) : null;
   if (!rendererOrigin) return true;
-  const reportedOrigins = [requestingOrigin, record.requestingUrl, record.securityOrigin]
+  const reportedOrigins = [
+    requestingOrigin,
+    record.requestingUrl,
+    record.securityOrigin,
+    record.embeddingOrigin,
+  ]
     .filter((value): value is string => typeof value === "string" && value.length > 0)
     .map(comparableOrigin);
   return reportedOrigins.every((origin) => origin === rendererOrigin);
