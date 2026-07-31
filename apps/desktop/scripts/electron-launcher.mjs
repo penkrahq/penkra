@@ -22,17 +22,21 @@ import { buildMacosIcon, resolvePenkraDevIconSource } from "../../../scripts/lib
 import { APP_DATA_USAGE_DESCRIPTION } from "../../../scripts/lib/macos-privacy.ts";
 import { resolveMacDevelopmentSigningIdentity } from "../../../scripts/lib/macos-dev-signing.ts";
 
-const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
-const desktopFlavor = resolveSynaraDesktopFlavor({ isDevelopment });
+const desktopFlavor = resolveSynaraDesktopFlavor({
+  isPackaged: false,
+  requestedFlavor: process.env.PENKRA_DESKTOP_FLAVOR,
+});
 const desktopIdentity = synaraDesktopIdentity(desktopFlavor);
 const APP_DISPLAY_NAME = desktopIdentity.displayName;
 const APP_BUNDLE_ID = desktopIdentity.bundleId;
-const LAUNCHER_VERSION = 9;
+const LAUNCHER_VERSION = 10;
 const MICROPHONE_USAGE_DESCRIPTION =
-  "Synara needs microphone access so you can record voice notes and transcribe them into the chat composer.";
+  "Penkra needs microphone access so you can record voice notes and transcribe them into the chat composer.";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 export const desktopDir = resolve(__dirname, "..");
+const MAIN_ENTITLEMENTS_PATH = join(desktopDir, "resources", "entitlements.mac.plist");
+const INHERIT_ENTITLEMENTS_PATH = join(desktopDir, "resources", "entitlements.mac.inherit.plist");
 
 function setPlistString(plistPath, key, value) {
   const replaceResult = spawnSync("plutil", ["-replace", key, "-string", value, plistPath], {
@@ -167,10 +171,11 @@ function collectNestedMacCodePaths(appBundlePath) {
   return [...codeFiles.sort(deepestFirst), ...codeBundles.sort(deepestFirst)];
 }
 
-function signMacCode(codePath, signingIdentity) {
+function signMacCode(codePath, signingIdentity, entitlementsPath) {
+  const entitlementsArgs = entitlementsPath ? ["--entitlements", entitlementsPath] : [];
   const result = spawnSync(
     "/usr/bin/codesign",
-    ["--force", "--timestamp=none", "--sign", signingIdentity, codePath],
+    ["--force", "--timestamp=none", "--sign", signingIdentity, ...entitlementsArgs, codePath],
     { encoding: "utf8" },
   );
   if (result.status !== 0) {
@@ -180,9 +185,12 @@ function signMacCode(codePath, signingIdentity) {
 
 function signMacAppInsideOut(appBundlePath, signingIdentity) {
   for (const nestedCodePath of collectNestedMacCodePaths(appBundlePath)) {
-    signMacCode(nestedCodePath, signingIdentity);
+    const inheritedEntitlements = /\.(?:app|xpc)$/u.test(nestedCodePath)
+      ? INHERIT_ENTITLEMENTS_PATH
+      : undefined;
+    signMacCode(nestedCodePath, signingIdentity, inheritedEntitlements);
   }
-  signMacCode(appBundlePath, signingIdentity);
+  signMacCode(appBundlePath, signingIdentity, MAIN_ENTITLEMENTS_PATH);
 }
 
 function buildMacLauncher(electronBinaryPath) {
@@ -220,6 +228,8 @@ function buildMacLauncher(electronBinaryPath) {
     sourceAppMtimeMs: statSync(sourceAppBundlePath).mtimeMs,
     iconSourcePath,
     iconMtimeMs: statSync(iconPath).mtimeMs,
+    mainEntitlementsMtimeMs: statSync(MAIN_ENTITLEMENTS_PATH).mtimeMs,
+    inheritEntitlementsMtimeMs: statSync(INHERIT_ENTITLEMENTS_PATH).mtimeMs,
     signingIdentity: resolveMacDevelopmentSigningIdentity(),
   };
 

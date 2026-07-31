@@ -4,7 +4,10 @@ import { join } from "node:path";
 import waitOn from "wait-on";
 
 import { buildAppSnapHelper } from "./build-appsnap-helper.mjs";
-import { desktopDir, resolveElectronPath } from "./electron-launcher.mjs";
+import { resolveDevElectronArgs } from "./electron-launch-args.mjs";
+
+process.env.PENKRA_DESKTOP_FLAVOR = "development";
+const { desktopDir, resolveElectronPath } = await import("./electron-launcher.mjs");
 
 const port = Number(process.env.ELECTRON_RENDERER_PORT ?? 5733);
 const devServerUrl = `http://localhost:${port}`;
@@ -78,7 +81,7 @@ function cleanupStaleDevApps() {
 
   const executable = escapeExtendedRegex(resolveElectronPath());
   const devRoot = escapeExtendedRegex(desktopDir);
-  const commandPattern = `^${executable}[[:space:]]+--synara-dev-root=${devRoot}([[:space:]]|$)`;
+  const commandPattern = `^${executable}[[:space:]]+dist-electron/main\\.js[[:space:]]+--synara-dev-root=${devRoot}([[:space:]]|$)`;
   spawnSync("pkill", ["-f", "--", commandPattern], { stdio: "ignore" });
 }
 
@@ -155,18 +158,14 @@ function startApp() {
     return;
   }
 
-  const app = spawn(
-    resolveElectronPath(),
-    [`--synara-dev-root=${desktopDir}`, "dist-electron/main.js"],
-    {
-      cwd: desktopDir,
-      env: {
-        ...childEnv,
-        VITE_DEV_SERVER_URL: devServerUrl,
-      },
-      stdio: "inherit",
+  const app = spawn(resolveElectronPath(), resolveDevElectronArgs(desktopDir), {
+    cwd: desktopDir,
+    env: {
+      ...childEnv,
+      VITE_DEV_SERVER_URL: devServerUrl,
     },
-  );
+    stdio: "inherit",
+  });
 
   currentApp = app;
 

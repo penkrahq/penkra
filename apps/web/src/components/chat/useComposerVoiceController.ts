@@ -198,6 +198,7 @@ export function useComposerVoiceController(
       await startVoiceRecording();
       voiceRecordingStartedAtRef.current = performance.now();
     } catch (error) {
+      console.error("[voice-recorder] Could not start microphone capture.", error);
       toastManager.add({
         type: "error",
         title: "Could not start recording",

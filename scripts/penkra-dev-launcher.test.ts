@@ -16,6 +16,7 @@ import {
 } from "./penkra-dev-launcher";
 import {
   makeInfoPlist,
+  resolvePenkraDevLauncherSignArgs,
   parseAppleDevelopmentIdentity,
   resolvePenkraDevLauncherCompileArgs,
 } from "./install-penkra-dev-app";
@@ -221,6 +222,25 @@ describe("Penkra Dev launcher", () => {
   it("explains intentional access to installed provider data", () => {
     expect(makeInfoPlist()).toContain(
       `<key>NSAppDataUsageDescription</key>\n  <string>${APP_DATA_USAGE_DESCRIPTION}</string>`,
+    );
+    expect(makeInfoPlist()).toContain("<key>NSMicrophoneUsageDescription</key>");
+    expect(makeInfoPlist()).toContain("Penkra needs microphone access");
+  });
+
+  it("signs the launcher with the microphone entitlement", () => {
+    expect(
+      resolvePenkraDevLauncherSignArgs({
+        entitlementsPath: "/repo/scripts/resources/penkra-dev-launcher.entitlements.plist",
+        signingIdentity: "Apple Development: Developer (TEAM123)",
+        stagedAppPath: "/tmp/Penkra (Dev).app",
+      }),
+    ).toEqual(
+      expect.arrayContaining([
+        "--options",
+        "runtime",
+        "--entitlements",
+        "/repo/scripts/resources/penkra-dev-launcher.entitlements.plist",
+      ]),
     );
   });
 

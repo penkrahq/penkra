@@ -44,7 +44,24 @@ describe("desktopIdentity", () => {
   });
 
   it("selects only Stable or Dev from the runtime mode", () => {
-    expect(resolveSynaraDesktopFlavor({ isDevelopment: false })).toBe("production");
-    expect(resolveSynaraDesktopFlavor({ isDevelopment: true })).toBe("development");
+    expect(resolveSynaraDesktopFlavor({ isPackaged: true })).toBe("production");
+    expect(resolveSynaraDesktopFlavor({ isPackaged: false, requestedFlavor: "development" })).toBe(
+      "development",
+    );
+  });
+
+  it("requires explicit local identity and honors it for branded Dev bundles", () => {
+    expect(() => resolveSynaraDesktopFlavor({ isPackaged: false })).toThrow(
+      "PENKRA_DESKTOP_FLAVOR=development",
+    );
+    expect(() =>
+      resolveSynaraDesktopFlavor({ isPackaged: false, requestedFlavor: "production" }),
+    ).toThrow("Unsupported Penkra desktop flavor");
+    expect(resolveSynaraDesktopFlavor({ isPackaged: true, requestedFlavor: "development" })).toBe(
+      "development",
+    );
+    expect(() =>
+      resolveSynaraDesktopFlavor({ isPackaged: true, requestedFlavor: "production" }),
+    ).toThrow("Unsupported Penkra desktop flavor");
   });
 });

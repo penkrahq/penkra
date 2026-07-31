@@ -682,12 +682,11 @@ export function isVoiceAuthExpiredMessage(message: string): boolean {
 }
 
 export function describeVoiceRecordingStartError(error: unknown): string {
-  if (!(error instanceof Error)) {
-    return "The microphone could not be opened.";
-  }
-
-  const normalizedMessage = error.message.trim();
-  const errorName = typeof error.name === "string" ? error.name : "";
+  const errorRecord =
+    typeof error === "object" && error !== null ? (error as Record<string, unknown>) : null;
+  const normalizedMessage =
+    typeof errorRecord?.message === "string" ? errorRecord.message.trim() : "";
+  const errorName = typeof errorRecord?.name === "string" ? errorRecord.name : "";
 
   if (errorName === "NotAllowedError" || errorName === "PermissionDeniedError") {
     return "Microphone access was denied. Enable it in macOS Privacy & Security > Microphone for Penkra, then try again.";

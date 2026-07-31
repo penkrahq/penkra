@@ -726,6 +726,9 @@ describe("voice helpers", () => {
     error.name = "NotAllowedError";
 
     expect(describeVoiceRecordingStartError(error)).toContain("Microphone access was denied");
+    expect(
+      describeVoiceRecordingStartError({ name: "NotAllowedError", message: "Permission denied" }),
+    ).toContain("Microphone access was denied");
   });
 
   it("derives voice-note availability from provider auth and runtime state", () => {

@@ -27,9 +27,26 @@ export interface SynaraDesktopIdentity {
 }
 
 export function resolveSynaraDesktopFlavor(input: {
-  readonly isDevelopment: boolean;
+  readonly isPackaged: boolean;
+  readonly requestedFlavor?: string;
 }): SynaraDesktopFlavor {
-  return input.isDevelopment ? "development" : "production";
+  const requestedFlavor = input.requestedFlavor?.trim();
+
+  if (requestedFlavor === "development") {
+    return "development";
+  }
+
+  if (requestedFlavor) {
+    throw new Error(`Unsupported Penkra desktop flavor: ${requestedFlavor}.`);
+  }
+
+  if (input.isPackaged) {
+    return "production";
+  }
+
+  throw new Error(
+    "A local Penkra desktop runtime must explicitly set PENKRA_DESKTOP_FLAVOR=development.",
+  );
 }
 
 export function synaraDesktopIdentity(flavor: SynaraDesktopFlavor): SynaraDesktopIdentity {

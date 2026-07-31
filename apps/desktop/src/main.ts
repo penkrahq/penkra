@@ -103,7 +103,10 @@ import {
 } from "./macIconCacheRefresh";
 import { collectMacUpdateDiagnostics } from "./macUpdateDiagnostics";
 import { openInitialBackendWindow } from "./initialBackendWindowOpen";
-import { shouldAllowMediaPermissionRequest } from "./mediaPermissions";
+import {
+  isTrustedMediaPermissionRequest,
+  resolveMicrophonePermissionRequest,
+} from "./mediaPermissions";
 import {
   installResumableUpdateDownloader,
   type ResumableDownloaderTarget,
@@ -244,7 +247,13 @@ const shellEnvironmentSync = syncShellEnvironment();
 
 const IPC = DESKTOP_IPC_CHANNELS;
 const MAX_CLIPBOARD_IMAGE_DATA_URL_LENGTH = 16 * 1024 * 1024;
-const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
+const desktopFlavor = resolveSynaraDesktopFlavor({
+  isPackaged: app.isPackaged,
+  ...(process.env.PENKRA_DESKTOP_FLAVOR
+    ? { requestedFlavor: process.env.PENKRA_DESKTOP_FLAVOR }
+    : {}),
+});
+const isDevelopment = desktopFlavor === "development";
 const isPackagedRuntime = app.isPackaged && !isDevelopment;
 const penkraAppDataBase = resolveDesktopAppDataBase();
 const penkraRootPointerPath = resolvePenkraRootPointerPath(penkraAppDataBase);
@@ -252,7 +261,6 @@ const penkraAccountServices = resolvePenkraAccountServiceEndpoints({
   configuredApiUrl: process.env.PENKRA_API_URL,
   configuredWebsiteOrigin: process.env.PENKRA_WEBSITE_ORIGIN,
 });
-const desktopFlavor = resolveSynaraDesktopFlavor({ isDevelopment });
 const penkraRuntime = resolvePenkraRuntime({
   isDevelopment,
   configuredRoot: process.env.PENKRA_ROOT,
@@ -4148,37 +4156,44 @@ function presentRendererCrashRecovery(
 }
 
 function configureMediaPermissions(): void {
-  for (const targetSession of [
-    session.defaultSession,
-    session.fromPartition(BROWSER_SESSION_PARTITION),
+  for (const { targetSession, trustedRequester } of [
+    {
+      targetSession: session.defaultSession,
+      trustedRequester: () => mainWindow?.webContents ?? null,
+    },
+    {
+      targetSession: session.fromPartition(BROWSER_SESSION_PARTITION),
+      trustedRequester: () => null,
+    },
   ]) {
     if (!targetSession) continue;
 
-    targetSession.setPermissionCheckHandler((_webContents, permission) => {
-      if (permission === "media") {
-        return process.platform === "darwin"
-          ? systemPreferences.getMediaAccessStatus("microphone") === "granted"
-          : false;
-      }
-      return false;
-    });
+    targetSession.setPermissionCheckHandler(
+      (webContents, permission, requestingOrigin, details) =>
+        permission === "media" &&
+        isTrustedMediaPermissionRequest(webContents, trustedRequester(), details, requestingOrigin),
+    );
 
-    targetSession.setPermissionRequestHandler((_webContents, permission, callback, details) => {
-      if (permission !== "media" || !shouldAllowMediaPermissionRequest(details)) {
+    targetSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
+      if (
+        permission !== "media" ||
+        !isTrustedMediaPermissionRequest(webContents, trustedRequester(), details)
+      ) {
         callback(false);
         return;
       }
 
       if (process.platform === "darwin") {
         const status = systemPreferences.getMediaAccessStatus("microphone");
-        if (status === "granted") {
-          callback(true);
-          return;
-        }
-
-        void systemPreferences
-          .askForMediaAccess("microphone")
-          .then(callback, () => callback(false));
+        void resolveMicrophonePermissionRequest({
+          status,
+          askForAccess: () => systemPreferences.askForMediaAccess("microphone"),
+        }).then((allowed) => {
+          console.info(
+            `[desktop-media] Microphone permission request status=${status} allowed=${String(allowed)}.`,
+          );
+          callback(allowed);
+        });
         return;
       }
 

@@ -24,6 +24,14 @@ const targetAppPath = "/Applications/Penkra (Dev).app";
 const previousTargetAppPath = "/Applications/Penkra Dev.app";
 const bundleIdentifier = "com.penkra.app.dev.launcher";
 const executableName = "Penkra (Dev)";
+const microphoneUsageDescription =
+  "Penkra needs microphone access so you can record voice notes and transcribe them into the chat composer.";
+const launcherEntitlementsPath = join(
+  repoRoot,
+  "scripts",
+  "resources",
+  "penkra-dev-launcher.entitlements.plist",
+);
 
 function resolveBunExecutable(): string {
   const configured = process.env.BUN_EXECUTABLE?.trim();
@@ -53,6 +61,25 @@ export function resolvePenkraDevLauncherCompileArgs(input: {
     input.launcherScriptPath,
     "--outfile",
     input.executablePath,
+  ];
+}
+
+export function resolvePenkraDevLauncherSignArgs(input: {
+  readonly entitlementsPath: string;
+  readonly signingIdentity: string;
+  readonly stagedAppPath: string;
+}): string[] {
+  return [
+    "--force",
+    "--deep",
+    "--options",
+    "runtime",
+    "--timestamp=none",
+    "--entitlements",
+    input.entitlementsPath,
+    "--sign",
+    input.signingIdentity,
+    input.stagedAppPath,
   ];
 }
 
@@ -91,6 +118,8 @@ export function makeInfoPlist(): string {
   <string>${APP_DATA_USAGE_DESCRIPTION}</string>
   <key>NSHighResolutionCapable</key>
   <true/>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>${microphoneUsageDescription}</string>
 </dict>
 </plist>
 `;
@@ -159,16 +188,11 @@ function install(): void {
 
     const sign = spawnSync(
       "/usr/bin/codesign",
-      [
-        "--force",
-        "--deep",
-        "--options",
-        "runtime",
-        "--timestamp=none",
-        "--sign",
+      resolvePenkraDevLauncherSignArgs({
+        entitlementsPath: launcherEntitlementsPath,
         signingIdentity,
         stagedAppPath,
-      ],
+      }),
       { encoding: "utf8" },
     );
     if (sign.status !== 0) {
