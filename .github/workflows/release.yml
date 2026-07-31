@@ -146,6 +146,11 @@ jobs:
         run: |
           set -euo pipefail
           bun run release:smoke:mac-update -- --artifact-dir release
+          node scripts/verify-packaged-desktop-startup.ts \
+            --assets-dir release \
+            --platform mac \
+            --arch arm64 \
+            --version "${{ needs.preflight.outputs.version }}"
           if ditto -l -k release/*.zip | grep -q '/Contents/Resources/penkra-cli/'; then
             echo "Public desktop artifact contains the private Penkra CLI." >&2
             exit 1

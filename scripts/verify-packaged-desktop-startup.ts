@@ -196,20 +196,21 @@ export function createPackagedDesktopSmokeEnvironment(
   options: Pick<PackagedDesktopStartupOptions, "platform" | "version">,
   inheritedEnvironment: NodeJS.ProcessEnv = process.env,
 ): NodeJS.ProcessEnv {
+  const homeDirectory = join(root, "home");
   const env: NodeJS.ProcessEnv = {
     ...inheritedEnvironment,
-    HOME: join(root, "home"),
-    USERPROFILE: join(root, "home"),
+    HOME: homeDirectory,
+    USERPROFILE: homeDirectory,
     APPDATA: join(root, "appdata"),
     LOCALAPPDATA: join(root, "localappdata"),
     XDG_CONFIG_HOME: join(root, "xdg-config"),
     XDG_CACHE_HOME: join(root, "xdg-cache"),
     XDG_DATA_HOME: join(root, "xdg-data"),
-    SYNARA_HOME: join(root, "synara-home"),
     SYNARA_DISABLE_AUTO_UPDATE: "1",
     ELECTRON_ENABLE_LOGGING: "1",
   };
   delete env.SYNARA_AUTH_TOKEN;
+  delete env.SYNARA_HOME;
   delete env.ELECTRON_RUN_AS_NODE;
   for (const path of [
     env.HOME,
@@ -218,12 +219,25 @@ export function createPackagedDesktopSmokeEnvironment(
     env.XDG_CONFIG_HOME,
     env.XDG_CACHE_HOME,
     env.XDG_DATA_HOME,
-    env.SYNARA_HOME,
   ]) {
     if (path) mkdirSync(path, { recursive: true });
   }
+  const appDataBase =
+    options.platform === "mac"
+      ? join(homeDirectory, "Library", "Application Support")
+      : options.platform === "win"
+        ? env.APPDATA!
+        : env.XDG_CONFIG_HOME!;
+  const penkraRoot = resolvePackagedDesktopSmokePenkraRoot(root);
+  const pointerDirectory = join(appDataBase, "Penkra");
+  mkdirSync(pointerDirectory, { recursive: true });
+  mkdirSync(penkraRoot, { recursive: true });
+  writeFileSync(
+    join(pointerDirectory, "root.json"),
+    `${JSON.stringify({ root: penkraRoot }, null, 2)}\n`,
+  );
   if (options.platform === "mac") {
-    const userDataPath = join(env.HOME!, "Library", "Application Support", "penkra");
+    const userDataPath = join(appDataBase, "penkra");
     mkdirSync(userDataPath, { recursive: true });
     // Prevent the packaged app's update-only icon repair from registering this
     // temporary bundle in the runner's normal Launch Services database.
@@ -231,6 +245,20 @@ export function createPackagedDesktopSmokeEnvironment(
     writeFileSync(launchVersionPath, `${JSON.stringify({ version: options.version }, null, 2)}\n`);
   }
   return env;
+}
+
+export function resolvePackagedDesktopSmokePenkraRoot(root: string): string {
+  return join(root, "penkra-root");
+}
+
+export function resolvePackagedDesktopSmokeLogPath(root: string): string {
+  return join(
+    resolvePackagedDesktopSmokePenkraRoot(root),
+    ".penkra",
+    "userdata",
+    "logs",
+    "desktop-main.log",
+  );
 }
 
 function waitForExit(child: ChildProcess, timeoutMs: number): Promise<boolean> {
@@ -271,16 +299,31 @@ async function terminateProcessTree(child: ChildProcess): Promise<void> {
   await waitForExit(child, 2_000);
 }
 
-function hasStartupProof(logPath: string): boolean {
-  try {
-    const log = readFileSync(logPath, "utf8");
-    return (
+export function inspectPackagedDesktopStartupLog(log: string): {
+  readonly failure: string | null;
+  readonly hasProof: boolean;
+} {
+  const missingAccountAuthHandler = "No handler registered for 'desktop:account-auth-";
+  if (log.includes(missingAccountAuthHandler)) {
+    return {
+      failure: "Packaged desktop invoked account authentication before its IPC handler existed.",
+      hasProof: false,
+    };
+  }
+  return {
+    failure: null,
+    hasProof:
       log.includes("app ready") &&
       log.includes("bootstrap main window created") &&
-      log.includes("bootstrap backend ready source=")
-    );
+      log.includes("bootstrap backend ready source="),
+  };
+}
+
+function inspectStartupLog(logPath: string): ReturnType<typeof inspectPackagedDesktopStartupLog> {
+  try {
+    return inspectPackagedDesktopStartupLog(readFileSync(logPath, "utf8"));
   } catch {
-    return false;
+    return { failure: null, hasProof: false };
   }
 }
 
@@ -308,8 +351,9 @@ export async function verifyPackagedDesktopStartup(
   let child: ChildProcess | null = null;
   try {
     const launch = prepareLaunch(options, extractionRoot);
-    const env = createPackagedDesktopSmokeEnvironment(join(temporaryRoot, "state"), options);
-    const logPath = join(env.SYNARA_HOME!, "userdata", "logs", "desktop-main.log");
+    const stateRoot = join(temporaryRoot, "state");
+    const env = createPackagedDesktopSmokeEnvironment(stateRoot, options);
+    const logPath = resolvePackagedDesktopSmokeLogPath(stateRoot);
     child = spawn(launch.command, [...launch.args], {
       cwd: launch.cwd,
       env,
@@ -333,7 +377,11 @@ export async function verifyPackagedDesktopStartup(
 
     const deadline = Date.now() + options.timeoutMs;
     while (Date.now() < deadline) {
-      if (hasStartupProof(logPath)) {
+      const startupLog = inspectStartupLog(logPath);
+      if (startupLog.failure) {
+        throw new Error(startupLog.failure);
+      }
+      if (startupLog.hasProof) {
         console.log(
           `Packaged ${options.platform}/${options.arch} startup smoke passed from isolated state.`,
         );

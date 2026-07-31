@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -6,7 +6,10 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   createPackagedDesktopSmokeEnvironment,
+  inspectPackagedDesktopStartupLog,
   parsePackagedDesktopStartupArgs,
+  resolvePackagedDesktopSmokeLogPath,
+  resolvePackagedDesktopSmokePenkraRoot,
   resolveNativePackagedDesktopPlatform,
 } from "./verify-packaged-desktop-startup.ts";
 
@@ -79,16 +82,41 @@ describe("packaged desktop startup verification", () => {
       "XDG_CONFIG_HOME",
       "XDG_CACHE_HOME",
       "XDG_DATA_HOME",
-      "SYNARA_HOME",
     ] as const) {
       expect(env[name]?.startsWith(root)).toBe(true);
       expect(existsSync(env[name]!)).toBe(true);
     }
+    expect(env.SYNARA_HOME).toBeUndefined();
+    expect(
+      JSON.parse(readFileSync(join(env.XDG_CONFIG_HOME!, "Penkra", "root.json"), "utf8")),
+    ).toEqual({ root: resolvePackagedDesktopSmokePenkraRoot(root) });
+    expect(resolvePackagedDesktopSmokeLogPath(root)).toBe(
+      join(root, "penkra-root", ".penkra", "userdata", "logs", "desktop-main.log"),
+    );
   });
 
   it("maps Node host platforms to release platform names", () => {
     expect(resolveNativePackagedDesktopPlatform("darwin")).toBe("mac");
     expect(resolveNativePackagedDesktopPlatform("win32")).toBe("win");
     expect(resolveNativePackagedDesktopPlatform("linux")).toBe("linux");
+  });
+
+  it("requires complete startup proof and rejects missing account-auth IPC", () => {
+    expect(
+      inspectPackagedDesktopStartupLog(
+        ["app ready", "bootstrap main window created", "bootstrap backend ready source=http"].join(
+          "\n",
+        ),
+      ),
+    ).toEqual({ failure: null, hasProof: true });
+
+    expect(
+      inspectPackagedDesktopStartupLog(
+        "Error: No handler registered for 'desktop:account-auth-get-state'",
+      ),
+    ).toEqual({
+      failure: "Packaged desktop invoked account authentication before its IPC handler existed.",
+      hasProof: false,
+    });
   });
 });

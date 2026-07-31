@@ -193,6 +193,7 @@ import {
   resolveDesktopAppDataBase,
   resolveDesktopUserDataPath,
 } from "./desktopUserDataProfile";
+import { configurePenkraAccountAuth } from "./accountAuth";
 import { isBrokenPipeError } from "./desktopProcessErrors";
 import {
   createDesktopStaticProtocolResolver,
@@ -1508,7 +1509,11 @@ function configureApplicationMenu(): void {
     ? [
         { role: "resetZoom" },
         { role: "zoomIn", ...acceleratorProps("CmdOrCtrl+=") },
-        { role: "zoomIn", ...acceleratorProps("CmdOrCtrl+Plus"), visible: false },
+        {
+          role: "zoomIn",
+          ...acceleratorProps("CmdOrCtrl+Plus"),
+          visible: false,
+        },
         { role: "zoomOut" },
       ]
     : [
@@ -1941,7 +1946,9 @@ function refreshMacIconCacheOnVersionChange(): void {
     // Read-only bundle: fall through to lsregister.
   }
 
-  const child = ChildProcess.spawn(LSREGISTER_PATH, ["-f", bundlePath], { stdio: "ignore" });
+  const child = ChildProcess.spawn(LSREGISTER_PATH, ["-f", bundlePath], {
+    stdio: "ignore",
+  });
   child.unref();
   child.once("error", (error) => {
     console.warn("[desktop] Failed to refresh macOS icon cache after update", error);
@@ -3835,7 +3842,9 @@ function getIconOption(): { icon: string } | Record<string, never> {
 // (`show: false`), so this color is not expected to match a custom in-app theme exactly.
 function getWindowMaterialOptions(): BrowserWindowConstructorOptions {
   if (process.platform !== "darwin") {
-    return { backgroundColor: nativeTheme.shouldUseDarkColors ? "#181818" : "#ffffff" };
+    return {
+      backgroundColor: nativeTheme.shouldUseDarkColors ? "#181818" : "#ffffff",
+    };
   }
   return {
     vibrancy: "under-window",
@@ -4183,6 +4192,14 @@ function configureMediaPermissions(): void {
 // Must be called synchronously at the top level — before `app.whenReady()`.
 if (hasSingleInstanceLock) {
   repairBrowserProfileBeforeElectronReady(userDataPath);
+  configurePenkraAccountAuth({
+    accountAuthScheme: desktopIdentity.accountAuthScheme,
+    authBaseUrl: penkraAccountServices.authBaseUrl,
+    desktopFlavor,
+    getWindow: () => mainWindow,
+    ipcMain,
+    websiteOrigin: penkraAccountServices.websiteOrigin,
+  });
 }
 
 configureAppIdentity();
