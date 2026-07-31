@@ -5631,7 +5631,7 @@ export default function ChatView({
       const requestedAt = new Date().toISOString();
       setPendingFileUndo({
         threadId: activeThread.id,
-        turnCount,
+        turnCounts,
         existingFailureActivityIds: activeThread.activities
           .filter((activity) => activity.kind === "checkpoint.revert.failed")
           .map((activity) => activity.id),
@@ -8864,6 +8864,7 @@ export default function ChatView({
             envMode: activeThread.envMode ?? "local",
             branch: activeThread.branch,
             worktreePath: activeThread.worktreePath,
+            workingDirectory: activeThread.workingDirectory ?? null,
             ...(activeThread.lastKnownPr !== undefined
               ? { lastKnownPr: activeThread.lastKnownPr }
               : {}),

@@ -13,19 +13,59 @@ import {
   SETTINGS_CARD_ROW_TITLE_CLASS_NAME,
   SETTINGS_EMPTY_STATE_CLASS_NAME,
   SETTINGS_PANEL_SECTION_CLASS_NAME,
+  SETTINGS_SECTION_LABEL_CLASS_NAME,
+  SETTINGS_STACKED_ROWS_DIVIDER_CLASS_NAME,
 } from "~/settingsPanelStyles";
 import { SelectPopup } from "~/components/ui/select";
 import { composerPickerMenuShellClassName } from "~/components/chat/composerPickerSize";
 import { SettingRowShared } from "./setting-row-shared/SettingRowShared";
 import { SettingsSectionShared } from "./settings-section-shared/SettingsSectionShared";
 
-const settingsCardClassName = cn(
-  SETTINGS_CARD_CLASS_NAME,
-  "divide-y divide-[color:var(--color-border)]",
-);
+export function SettingsCard({
+  divided: dividedProp,
+  className,
+  children,
+}: {
+  divided?: boolean;
+  className?: string;
+  children: ReactNode;
+}) {
+  const divided = dividedProp ?? true;
+  return (
+    <div
+      className={cn(
+        SETTINGS_CARD_CLASS_NAME,
+        divided && SETTINGS_STACKED_ROWS_DIVIDER_CLASS_NAME,
+        className,
+      )}
+    >
+      {children}
+    </div>
+  );
+}
 
-export function SettingsCard({ children }: { children: ReactNode }) {
-  return <div className={settingsCardClassName}>{children}</div>;
+export function SettingsSectionShell({
+  title,
+  action,
+  children,
+}: {
+  title: string;
+  action?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <section className={SETTINGS_PANEL_SECTION_CLASS_NAME}>
+      {action != null ? (
+        <div className="flex items-center justify-between gap-2">
+          <h2 className={SETTINGS_SECTION_LABEL_CLASS_NAME}>{title}</h2>
+          {action}
+        </div>
+      ) : (
+        <h2 className={SETTINGS_SECTION_LABEL_CLASS_NAME}>{title}</h2>
+      )}
+      {children}
+    </section>
+  );
 }
 
 export function SettingsSection({ title, children }: { title: string; children: ReactNode }) {

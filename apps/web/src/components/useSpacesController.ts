@@ -24,6 +24,7 @@ import { readNativeApi } from "../nativeApi";
 import { useSpacesUiStore } from "../spacesUiStore";
 import { useStore } from "../store";
 import type { Project, SidebarThreadSummary, Space } from "../types";
+import { toSpaceIconName } from "../lib/spaceGrouping";
 import { useWorkspacePathsStore } from "../workspacePathsStore";
 import { sortThreadsForSidebar } from "./Sidebar.logic";
 import type { SpaceEditorValue } from "./SpaceEditorDialog";
@@ -212,7 +213,8 @@ export function useSpacesController(input: {
         // command — the server rejects no-op metadata updates.
         const currentSpace = spaces.find((space) => space.id === spaceEditorState.spaceId);
         const nextName = currentSpace?.name === value.name ? undefined : value.name;
-        const nextIcon = currentSpace?.icon === value.icon ? undefined : value.icon;
+        const submittedIcon = toSpaceIconName(value.icon);
+        const nextIcon = currentSpace?.icon === submittedIcon ? undefined : submittedIcon;
         if (nextName === undefined && nextIcon === undefined) {
           return;
         }
@@ -225,7 +227,11 @@ export function useSpacesController(input: {
         return;
       }
 
-      const { spaceId, sequence } = await createSpace({ api, name: value.name, icon: value.icon });
+      const { spaceId, sequence } = await createSpace({
+        api,
+        name: value.name,
+        icon: toSpaceIconName(value.icon),
+      });
       const projectId = spaceEditorState.projectIdAfterCreate;
       if (projectId) {
         try {

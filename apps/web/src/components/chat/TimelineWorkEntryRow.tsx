@@ -72,6 +72,7 @@ import {
   type SynaraMcpToolStatus,
 } from "../../lib/toolCallLabel";
 import { openWorkspaceFileReference, useWorkspaceFileOpener } from "../../lib/workspaceFileOpener";
+import type { TimestampFormat } from "../../appSettings";
 import {
   formatSubagentModelLabel,
   humanizeSubagentStatus,
@@ -511,6 +512,7 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
   onOpenAgentActivity?: (activityId: string) => void;
   onOpenThread?: (threadId: ThreadId) => void;
   subagentToolTraceByThreadId?: ReadonlyMap<string, SubagentToolTrace>;
+  timestampFormat?: TimestampFormat;
 }) {
   const {
     workEntry,
@@ -525,6 +527,7 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
     onOpenAgentActivity,
     onOpenThread,
     subagentToolTraceByThreadId,
+    timestampFormat = "locale",
   } = props;
   const compact = density === "compact";
   const isCodexStatusRow = isCodexActivityStatusWorkEntry(workEntry);
@@ -656,7 +659,9 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
                 <ToolDetailsDisclosure
                   key={`${workEntry.id}:${changedFilePath}`}
                   details={workEntry.toolDetails}
+                  activity={workEntry.liveActivity}
                   compact={compact}
+                  timestampFormat={timestampFormat}
                   tooltip={<span className="whitespace-pre-wrap">{changedFilePath}</span>}
                   summaryClassName={editedRowClassName}
                   dataFileChangeRow
@@ -936,7 +941,9 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
             return (
               <ToolDetailsDisclosure
                 details={workEntry.toolDetails}
+                activity={workEntry.liveActivity}
                 compact={compact}
+                timestampFormat={timestampFormat}
                 tooltip={toolRowTooltipContent(rawCommand, displayText, displayText)}
               >
                 {rowContentChildren}
@@ -1062,11 +1069,13 @@ function AgentActivityOpenSurface(props: {
 }
 
 function ToolDetailsDisclosure(props: {
+  activity?: TimelineWorkEntry["liveActivity"];
   children: ReactNode;
   compact: boolean;
   dataFileChangeRow?: boolean | undefined;
   details: NonNullable<TimelineWorkEntry["toolDetails"]>;
   summaryClassName?: string | undefined;
+  timestampFormat: TimestampFormat;
   tooltip?: ReactNode;
 }) {
   const summaryClassName =
@@ -1147,7 +1156,11 @@ function ToolDetailsDisclosure(props: {
           contentClassName={cn("min-w-0 pt-2", props.compact ? "ml-5" : "ml-7")}
         >
           <div data-tool-details-inline="true">
-            <ToolCallDetailsContent details={props.details} />
+            <ToolCallDetailsContent
+              details={props.details}
+              activity={props.activity}
+              timestampFormat={props.timestampFormat}
+            />
           </div>
         </DisclosureRegion>
       ) : null}
