@@ -15,10 +15,6 @@ import {
 } from "@synara/shared/desktopIdentity";
 
 import {
-  readReleaseUpdatePolicyConfig,
-  resolveReleaseUpdatePolicy,
-} from "./lib/release-update-policy.ts";
-import {
   RELEASE_LOCKFILE_PATH,
   RELEASE_PATCHES_PATH,
   RELEASE_WORKSPACE_MANIFEST_PATHS,
@@ -103,187 +99,79 @@ function verifyCanonicalIdentity(): void {
       "Expected the CLI to expose only the Synara entry point and migration recovery binary.",
     );
   }
-  if (SYNARA_PRODUCTION_BUNDLE_ID !== "com.emanueledipietro.synara") {
+  if (SYNARA_PRODUCTION_BUNDLE_ID !== "com.penkra.app") {
     throw new Error(`Unexpected production bundle ID: ${SYNARA_PRODUCTION_BUNDLE_ID}.`);
   }
-  if (SYNARA_DESKTOP_UPDATE_CHANNEL !== "synara") {
+  if (SYNARA_DESKTOP_UPDATE_CHANNEL !== "latest") {
     throw new Error(`Unexpected desktop update channel: ${SYNARA_DESKTOP_UPDATE_CHANNEL}.`);
-  }
-
-  const releasePolicy = readReleaseUpdatePolicyConfig(repoRoot);
-  const resolvedPolicy = resolveReleaseUpdatePolicy("9.9.9", releasePolicy);
-  if (
-    resolvedPolicy.lane !== "clean" ||
-    !resolvedPolicy.makeLatest ||
-    resolvedPolicy.mirrorToStableChannel
-  ) {
-    throw new Error("Expected stable clean Synara releases to publish on GitHub Latest.");
   }
 }
 
 function verifyReleaseWorkflowSafety(): void {
   const workflow = readFileSync(resolve(repoRoot, ".github/workflows/release.yml"), "utf8");
+  const ciWorkflow = readFileSync(resolve(repoRoot, ".github/workflows/ci.yml"), "utf8");
+  assertContains(ciWorkflow, "pull_request:", "Expected CI on pull requests.");
   assertContains(
-    workflow,
-    "publish_release:\n        description:",
-    "Expected a manual publication opt-in input.",
-  );
-  assertContains(
-    workflow,
-    "default: false\n        type: boolean",
-    "Expected manual release runs to default to build-only mode.",
+    ciWorkflow,
+    "push:\n    branches:\n      - main",
+    "Expected CI on pushes to main.",
   );
   assertContains(
     workflow,
-    "publish_release: ${{ steps.release_mode.outputs.publish_release }}",
-    "Expected preflight to expose the resolved publication mode.",
+    'tags:\n      - "v*.*.*"',
+    "Expected stable desktop releases to build from version tags.",
+  );
+  assertNotContains(workflow, "workflow_dispatch:", "Release creation must start from a tag.");
+  assertContains(
+    workflow,
+    '[[ ! "$version" =~ ^[0-9]+\\.[0-9]+\\.[0-9]+$ ]]',
+    "Expected release tags to require stable semantic versions.",
+  );
+  assertContains(workflow, "runs-on: macos-14", "Expected the release to run on macOS.");
+  assertContains(
+    workflow,
+    "environment: desktop-release",
+    "Expected signing secrets to be protected by the desktop release environment.",
+  );
+  assertContains(workflow, "--target dmg", "Expected a signed DMG and matching update ZIP.");
+  assertContains(workflow, "--arch arm64", "Expected the production release to be macOS arm64.");
+  assertContains(
+    workflow,
+    "--source-commit",
+    "Expected release artifacts to be bound to the tagged commit.",
   );
   assertContains(
     workflow,
-    "if: ${{ needs.preflight.outputs.publish_release == 'true' }}",
-    "Expected GitHub publication to require explicit publication mode.",
+    "--lockfile-sha256",
+    "Expected release artifacts to be bound to the repository lockfile.",
   );
   assertContains(
     workflow,
-    "needs.preflight.outputs.publish_release == 'true' && vars.SYNARA_PUBLISH_CLI == '1'",
-    "Expected CLI publication to require explicit publication mode.",
+    "uses: actions/attest@v4",
+    "Expected public release artifacts to carry GitHub build provenance.",
   );
+  assertContains(workflow, "--draft", "Expected an explicit draft-release review gate.");
+  assertContains(workflow, "--generate-notes", "Expected GitHub-generated release notes.");
   assertContains(
     workflow,
-    "needs.preflight.outputs.publish_release == 'true' && vars.SYNARA_FINALIZE_RELEASE == '1'",
-    "Expected release finalization to require explicit publication mode.",
+    "Public desktop artifact contains the private Penkra CLI.",
+    "Expected release verification to reject the private CLI.",
   );
-  assertContains(
-    workflow,
-    "SYNARA_PUBLISH_RELEASE: ${{ needs.preflight.outputs.publish_release }}",
-    "Expected artifact signing admission to know whether artifacts will be published.",
-  );
-  assertContains(
-    workflow,
-    "Publishing macOS artifacts requires every signing and notarization secret.",
-    "Expected macOS publication to fail closed when signing is unavailable.",
-  );
-  assertContains(
-    workflow,
-    "Publishing Windows artifacts requires every Azure Trusted Signing secret.",
-    "Expected Windows publication to fail closed when signing is unavailable.",
-  );
-  assertNotContains(
-    workflow,
-    "Windows signing is optional",
-    "Windows publication must not retain the unsigned-installer fallback.",
-  );
-  assertContains(
-    workflow,
-    "node scripts/verify-release-source-provenance.ts",
-    "Expected preflight to bind release source provenance before artifact jobs.",
-  );
-  assertContains(
-    workflow,
-    "source_commit: ${{ steps.source_provenance.outputs.source_commit }}",
-    "Expected the verified source commit to be a preflight output.",
-  );
-  assertContains(
-    workflow,
-    "lockfile_sha256: ${{ steps.source_provenance.outputs.lockfile_sha256 }}",
-    "Expected the verified lockfile digest to be a preflight output.",
-  );
-  assertContains(
-    workflow,
-    '--source-commit "$SOURCE_COMMIT"',
-    "Expected desktop packaging to revalidate the verified source commit.",
-  );
-  assertContains(
-    workflow,
-    '--lockfile-sha256 "$LOCKFILE_SHA256"',
-    "Expected desktop packaging to revalidate the verified lockfile digest.",
-  );
-  assertNotContains(
-    workflow,
-    "Align package versions to release version",
-    "Release jobs must not mutate package versions after source provenance is established.",
-  );
-  assertContains(
-    workflow,
-    "node scripts/write-release-artifact-provenance.ts",
-    "Expected every platform lane to prove collected artifacts before upload.",
-  );
-  assertContains(
-    workflow,
-    'mv release-publish/latest-mac.yml "release-publish/latest-mac-${{ matrix.arch }}.yml"',
-    "Expected the x64 macOS matrix lane to preserve a distinct updater manifest for merging.",
-  );
-  assertContains(
-    workflow,
-    "APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}",
-    "Expected macOS signing admission to pin the post-build Team ID.",
-  );
-  assertContains(
-    workflow,
-    "AZURE_TRUSTED_SIGNING_SUBJECT_DN: ${{ secrets.AZURE_TRUSTED_SIGNING_SUBJECT_DN }}",
-    "Expected Windows signing admission to require the exact certificate subject DN.",
-  );
-  assertContains(
-    workflow,
-    '--expected-windows-subject-dn "$EXPECTED_WINDOWS_SUBJECT_DN"',
-    "Expected Windows artifact provenance to verify the exact certificate subject DN.",
-  );
-  assertContains(
-    workflow,
-    "AZURE_TRUSTED_SIGNING_PUBLISHER_NAME: ${{ secrets.AZURE_TRUSTED_SIGNING_PUBLISHER_NAME }}",
-    "Expected the Windows build to receive the publisher identity that is pinned in the bundle.",
-  );
-  assertContains(
-    workflow,
-    "node scripts/verify-packaged-desktop-startup.ts",
-    "Expected every native payload to pass isolated packaged startup before upload.",
-  );
-
-  const cliScript = readFileSync(resolve(repoRoot, "apps/server/scripts/cli.ts"), "utf8");
-  assertContains(
-    cliScript,
-    "makeTempDirectoryScoped",
-    "Expected CLI publication to build an exclusively owned temporary package tree.",
-  );
-  assertContains(
-    cliScript,
-    "cwd: stagedPackageDir",
-    "Expected npm publication to run only from the isolated CLI stage.",
-  );
-  assertContains(
-    cliScript,
-    "Staged CLI bin target is missing its Node shebang",
-    "Expected staged CLI commands to remain executable npm bin entries.",
-  );
-  assertNotContains(
-    cliScript,
-    ".publish-bak",
-    "CLI publication must not mutate and restore source-tree assets.",
-  );
-
-  const desktopBuildConfig = readFileSync(
-    resolve(repoRoot, "apps/desktop/tsdown.config.mts"),
-    "utf8",
-  );
-  assertContains(
-    desktopBuildConfig,
-    "__SYNARA_WINDOWS_UPDATER_PUBLISHER__",
-    "Expected the Windows updater publisher identity to be compiled into the main bundle.",
-  );
-
-  const updaterSecurity = readFileSync(
-    resolve(repoRoot, "apps/desktop/src/electronUpdaterSecurity.ts"),
-    "utf8",
-  );
-  assertNotContains(
-    updaterSecurity,
-    "return feedPublisherNames",
-    "Runtime signature verification must not trust publisher names from mutable updater config.",
-  );
+  for (const forbidden of [
+    "BACKEND_REPOSITORY_TOKEN",
+    "penkra-backend",
+    "PENKRA_UPDATE_TOKEN",
+    "PENKRA_RELEASE_BUCKET",
+    "AWS_ACCESS_KEY_ID",
+    "release:publish:s3",
+  ]) {
+    assertNotContains(workflow, forbidden, `Release workflow must not contain ${forbidden}.`);
+  }
 }
 
 function verifyDesktopStageLockAuthority(): void {
   const buildScript = readFileSync(resolve(repoRoot, "scripts/build-desktop-artifact.ts"), "utf8");
+  const desktopMain = readFileSync(resolve(repoRoot, "apps/desktop/src/main.ts"), "utf8");
   const gitAttributes = readFileSync(resolve(repoRoot, ".gitattributes"), "utf8");
   assertContains(
     gitAttributes,
@@ -293,17 +181,7 @@ function verifyDesktopStageLockAuthority(): void {
   assertContains(
     buildScript,
     "bun install --frozen-lockfile --ignore-scripts --linker hoisted",
-    "Expected macOS and Linux desktop staging to install from the repository's frozen workspace lockfile.",
-  );
-  assertContains(
-    buildScript,
-    'if (platform === "win")',
-    "Expected Windows staging to use its explicit Bun lockfile-workaround path.",
-  );
-  assertContains(
-    buildScript,
-    "bun install --omit=dev --ignore-scripts --linker hoisted",
-    "Expected Windows staging to omit dev dependencies without Bun's implicitly frozen production mode.",
+    "Expected macOS desktop staging to install from the repository's frozen workspace lockfile.",
   );
   assertNotContains(
     buildScript,
@@ -313,17 +191,12 @@ function verifyDesktopStageLockAuthority(): void {
   assertNotContains(
     buildScript,
     "bun install --production",
-    "Windows staging must not use Bun's production flag because it implicitly forces frozen mode.",
+    "Desktop staging must not use Bun's production flag because it implicitly forces frozen mode.",
   );
   assertNotContains(
     buildScript,
     "--filter @synara/",
     "Desktop staging must not use Bun workspace filters because filtered hoisted installs can diverge from bun.lock.",
-  );
-  assertContains(
-    buildScript,
-    ")`npm rebuild node-pty --foreground-scripts`,",
-    "Expected Linux desktop staging to build only node-pty after the script-free frozen install.",
   );
   assertNotContains(
     buildScript,
@@ -337,7 +210,7 @@ function verifyDesktopStageLockAuthority(): void {
   );
   assertContains(
     buildScript,
-    'createRequire(new URL("./package.json", import.meta.url)',
+    'createRequire(new URL("./package.json", import.meta.url))',
     "Expected desktop packaging to resolve dependencies from the owning scripts workspace.",
   );
   assertContains(
@@ -355,6 +228,29 @@ function verifyDesktopStageLockAuthority(): void {
     "electron-builder.cmd",
     "Desktop packaging must not depend on a Windows bin shim that Bun may hoist elsewhere.",
   );
+  assertContains(buildScript, 'provider: "github"', "Expected GitHub Releases auto-updates.");
+  assertContains(buildScript, 'owner: "penkrahq"', "Expected the Penkra GitHub owner.");
+  assertContains(buildScript, 'repo: "penkra"', "Expected the public Penkra release repository.");
+  assertNotContains(
+    buildScript,
+    "PENKRA_CLI_BINARY",
+    "Public packaging must not require the private Penkra CLI.",
+  );
+  assertNotContains(
+    buildScript,
+    'from: "penkra-cli"',
+    "Public packaging must not stage the private Penkra CLI.",
+  );
+  assertContains(
+    buildScript,
+    "resolveUnusedClaudePlatformPackageName",
+    "Expected the unused Claude platform binary to be removed.",
+  );
+  assertContains(
+    desktopMain,
+    'process.platform === "darwin" || isArm64HostRunningIntelBuild(desktopRuntimeInfo)',
+    "Expected macOS updates to use the validated resumable full-archive path.",
+  );
   assertContains(
     buildScript,
     "synaraCommitHash: commitHash",
@@ -365,12 +261,6 @@ function verifyDesktopStageLockAuthority(): void {
     "synaraLockfileSha256: resolvedLockfileSha256",
     "Expected the staged package to carry its repository lockfile digest.",
   );
-  assertContains(
-    buildScript,
-    "synaraWindowsPublisherSubject: resolvedBuildConfig.windowsPublisherSubject",
-    "Expected signed Windows packages to carry the independently configured certificate subject DN.",
-  );
-
   const lockfile = readFileSync(resolve(repoRoot, RELEASE_LOCKFILE_PATH), "utf8");
   const packagesSectionOffset = lockfile.indexOf('\n  "packages": {');
   if (packagesSectionOffset < 0) {
