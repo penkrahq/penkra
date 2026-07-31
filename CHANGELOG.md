@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+## 0.8.1 - 2026-07-31
+
+### Fixed
+
+- Fixed microphone recording being rejected before macOS could request authorization, while limiting
+  media access to Penkra's live main renderer and audio-only requests.
+- Fixed development application signing so the launcher, Electron application, and renderer helpers
+  carry the microphone usage declaration and audio-input entitlement.
+- Fixed local desktop identity selection and launch arguments so Penkra Dev uses its dedicated
+  `com.penkra.app.dev` identity without relying on the renderer URL or opening Electron's default app.
+- Improved recording-start diagnostics for permission, missing-device, and unavailable-device errors.
+
+## 0.8.0 - 2026-07-31
+
 ### Removed
 
 - Removed the separate Canary desktop flavor, launcher, storage profile, trusted origin, and
