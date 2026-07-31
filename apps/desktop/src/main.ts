@@ -119,6 +119,7 @@ import {
 } from "./backendSupervisionPolicy";
 import { captureBackendProcessOutput } from "./backendProcessOutput";
 import { syncShellEnvironment } from "./syncShellEnvironment";
+import { resolvePenkraAccountServiceEndpoints } from "./accountServiceEndpoints";
 import {
   RENDERER_MAX_AUTOMATIC_RELOADS,
   RendererCrashPolicy,

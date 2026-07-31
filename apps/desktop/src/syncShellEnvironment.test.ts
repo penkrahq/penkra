@@ -10,11 +10,12 @@ describe("syncShellEnvironment", () => {
     };
     const readEnvironment = vi.fn(() => ({ PATH: "/unexpected" }));
 
-    syncShellEnvironment(env, {
+    const result = syncShellEnvironment(env, {
       platform: "darwin",
       readEnvironment,
     });
 
+    expect(result).toEqual({ pathHydrated: false });
     expect(readEnvironment).not.toHaveBeenCalled();
     expect(env.PATH).toBe("/opt/homebrew/bin:/usr/bin");
   });

@@ -81,7 +81,7 @@ export function syncShellEnvironment(
   // on macOS, can prompt for unrelated App Data touched by the user's shell
   // startup scripts.
   if (env.PENKRA_SKIP_LOGIN_SHELL_ENVIRONMENT === "1") {
-    return;
+    return { pathHydrated: false };
   }
 
   if (platform === "win32") {
