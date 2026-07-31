@@ -90,6 +90,32 @@ describe("Pencil onboarding", () => {
     expect(lightFrame).not.toBe(lightCanvas);
   });
 
+  it("keeps the initial account check visually quiet", async () => {
+    const bridge = {
+      accountAuth: {
+        getState: vi.fn(() => new Promise(() => undefined)),
+        requestSignIn: vi.fn(),
+        requestSignUp: vi.fn(),
+        signOut: vi.fn(),
+        onCallbackStarted: vi.fn(() => () => undefined),
+        onAuthenticated: vi.fn(() => () => undefined),
+        onUserUpdated: vi.fn(() => () => undefined),
+        onError: vi.fn(() => () => undefined),
+      },
+    } as unknown as DesktopBridge;
+
+    await render(
+      <DesktopOnboardingGate bridge={bridge}>
+        <p>Application shell</p>
+      </DesktopOnboardingGate>,
+    );
+
+    await expect.element(page.getByText("Preparing Penkra")).not.toBeInTheDocument();
+    await expect
+      .element(page.getByRole("status", { name: "Preparing Penkra" }))
+      .toHaveAttribute("aria-busy", "true");
+  });
+
   it("starts processing only after the sign-up callback returns", async () => {
     const requestSignUp = vi.fn().mockResolvedValue(undefined);
     let notifyCallbackStarted:

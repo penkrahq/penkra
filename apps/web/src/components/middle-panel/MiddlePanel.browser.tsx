@@ -37,6 +37,14 @@ describe("Pencil middle panel", () => {
     });
   });
 
+  it("shows the model selector in the default composer", async () => {
+    await render(<ComposerDefault aria-label="Message" />);
+
+    await expect
+      .element(page.getByRole("button", { name: "Claude Sonnet 5", exact: true }))
+      .toBeVisible();
+  });
+
   it("keeps the transcript in a real scroll region outside the fixed composer", async () => {
     const transcript = Array.from({ length: 12 }, (_, index) => (
       <div className="contents" key={index}>

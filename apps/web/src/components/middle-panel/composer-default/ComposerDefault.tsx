@@ -31,7 +31,7 @@ export const ComposerDefault = forwardRef<HTMLTextAreaElement, ComposerDefaultPr
       onKeyDown,
       onSend,
       placeholder = "Do anything",
-      showHarness = false,
+      showHarness = true,
       ...props
     },
     ref,

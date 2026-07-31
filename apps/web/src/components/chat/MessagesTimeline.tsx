@@ -191,6 +191,26 @@ const EMPTY_MESSAGE_MARKERS: readonly ThreadMarker[] = [];
 const EMPTY_THREAD_MARKERS_BY_MESSAGE_ID = new Map<MessageId, readonly ThreadMarker[]>();
 const EMPTY_MESSAGE_ID_SET: ReadonlySet<MessageId> = new Set();
 
+// Keep imperative list access opaque to React Compiler. The selected ref is
+// `listRef ?? fallbackListRef`; direct `.current` reads otherwise become
+// dependencies that manual callback dependency arrays cannot express.
+function scrollLegendListToEnd(listRef: RefObject<LegendListRef | null>): void {
+  void listRef.current?.scrollToEnd?.({ animated: false });
+}
+
+function scrollLegendListToIndex(
+  listRef: RefObject<LegendListRef | null>,
+  params: Parameters<LegendListRef["scrollToIndex"]>[0],
+): void {
+  void listRef.current?.scrollToIndex(params);
+}
+
+function readLegendListState(
+  listRef: RefObject<LegendListRef | null>,
+): ReturnType<NonNullable<LegendListRef["getState"]>> | undefined {
+  return listRef.current?.getState?.();
+}
+
 /**
  * Imperative handle the transcript exposes so the Environment panel's pinned-message
  * checklist can scroll the virtualized list to (and briefly flash) a specific message.
@@ -415,16 +435,16 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   isWorking,
   activeTurnInProgress,
   activeTurnStartedAt,
-  worktreeSetup = null,
-  followLiveOutput = false,
+  worktreeSetup: worktreeSetupProp,
+  followLiveOutput: followLiveOutputProp,
   listRef,
   controllerRef,
   pinnedMessageIds,
   canPinMessage,
   onTogglePinMessage,
-  threadMarkers = [],
-  enteringUserMessageIds = EMPTY_MESSAGE_ID_SET,
-  crossTaskOrigin = null,
+  threadMarkers: threadMarkersProp,
+  enteringUserMessageIds: enteringUserMessageIdsProp,
+  crossTaskOrigin: crossTaskOriginProp,
   timelineEntries,
   turnDiffSummaryByAssistantMessageId,
   nowIso,
@@ -455,15 +475,24 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   onMessagesWheel,
   markdownCwd,
   resolvedTheme,
-  chatFontSizePx = DEFAULT_CHAT_FONT_SIZE_PX,
+  chatFontSizePx: chatFontSizePxProp,
   timestampFormat,
   workspaceRoot,
   emptyStateContent,
   contentInsetRightPx,
 }: MessagesTimelineProps) {
+  // Assignment-pattern parameters make React Compiler silently skip the whole
+  // timeline, so resolve optional defaults in the body.
+  const worktreeSetup = worktreeSetupProp ?? null;
+  const followLiveOutput = followLiveOutputProp ?? false;
+  const threadMarkers = threadMarkersProp ?? EMPTY_MESSAGE_MARKERS;
+  const enteringUserMessageIds = enteringUserMessageIdsProp ?? EMPTY_MESSAGE_ID_SET;
+  const crossTaskOrigin = crossTaskOriginProp ?? null;
   const registerFindSurface = useOptionalFind()?.register;
   const transcriptFindSurfaceId = useId();
-  const normalizedChatFontSizePx = normalizeChatFontSizePx(chatFontSizePx);
+  const normalizedChatFontSizePx = normalizeChatFontSizePx(
+    chatFontSizePxProp ?? DEFAULT_CHAT_FONT_SIZE_PX,
+  );
   // Inset rows from the right (overriding the gutter's right padding) without moving the
   // scroll viewport, so the scrollbar stays pinned to the far right while content clears
   // any right-edge overlay. Kept stable so LegendList isn't re-rendered on unrelated updates.
@@ -645,8 +674,10 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   useEffect(() => {
     rowsRef.current = rows;
   }, [rows]);
-  const transcriptFindEntriesRef = useRef<readonly TimelineVirtualFindEntry[]>([]);
-  transcriptFindEntriesRef.current = rows.flatMap((row, index): TimelineVirtualFindEntry[] => {
+  // Keep the search projection as a normal render value so React Compiler can
+  // cache it from its inputs. Writing it to a ref during render bailed out the
+  // entire timeline and repeated every Markdown parse on unrelated updates.
+  const transcriptFindEntries = rows.flatMap((row, index): TimelineVirtualFindEntry[] => {
     if (row.kind === "message") {
       const sourceText =
         row.message.role === "assistant"
@@ -783,9 +814,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         // that this virtualized transcript belongs to the open view.
         isVisible: () =>
           isFindSurfaceVisible(root.querySelector<HTMLElement>("[data-find-row-id]")),
-        getEntries: () => transcriptFindEntriesRef.current,
+        getEntries: () => transcriptFindEntries,
         reveal: async (entry) => {
-          await resolvedListRef.current?.scrollToIndex({
+          scrollLegendListToIndex(resolvedListRef, {
             index: entry.index,
             animated: false,
             viewPosition: 0.5,
@@ -900,7 +931,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       if (index < 0) {
         return false;
       }
-      void resolvedListRef.current?.scrollToIndex({
+      scrollLegendListToIndex(resolvedListRef, {
         index,
         animated: true,
         viewPosition: 0.2,
@@ -995,7 +1026,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const scrollTailExpansionToEnd = useCallback(() => {
     clearTailExpansionScrollTimers();
     const scrollToEnd = () => {
-      void resolvedListRef.current?.scrollToEnd?.({ animated: false });
+      scrollLegendListToEnd(resolvedListRef);
     };
     tailScrollFrameRef.current = window.requestAnimationFrame(() => {
       tailScrollFrameRef.current = null;
@@ -1025,7 +1056,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     }
     onIsAtEndChange?.(true);
     const frameId = window.requestAnimationFrame(() => {
-      void resolvedListRef.current?.scrollToEnd?.({ animated: false });
+      scrollLegendListToEnd(resolvedListRef);
     });
     return () => {
       window.cancelAnimationFrame(frameId);
@@ -1061,7 +1092,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const handleListScroll = useCallback<NonNullable<MessagesTimelineProps["onMessagesScroll"]>>(
     (event) => {
       onMessagesScroll?.(event);
-      const state = resolvedListRef.current?.getState?.();
+      const state = readLegendListState(resolvedListRef);
       if (state) {
         onIsAtEndChange?.(state.isAtEnd);
         emitTrailHighlightsForViewport(state.start, state.end);
@@ -1090,7 +1121,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       return;
     }
     const frameId = window.requestAnimationFrame(() => {
-      const state = resolvedListRef.current?.getState?.();
+      const state = readLegendListState(resolvedListRef);
       if (state) {
         emitTrailHighlightsForViewport(state.start, state.end);
       }
@@ -2031,42 +2062,45 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                     const renderCheckpointFileRow = (
                       file: (typeof checkpointFiles)[number],
                       withFirstReset: boolean,
-                    ) => (
-                      <button
-                        key={file.path}
-                        type="button"
-                        className={cn(
-                          "group/file-row flex w-full items-center gap-2 border-t border-[color:var(--color-border-light)] bg-transparent px-3 py-2.5 text-left transition-colors hover:bg-[var(--color-background-button-secondary-hover)] dark:bg-transparent dark:hover:bg-transparent",
-                          withFirstReset && "first:border-t-0",
-                        )}
-                        onClick={() => onOpenTurnDiff(turnSummary.turnId, file.path)}
-                      >
-                        <FileEntryIcon
-                          pathValue={file.path}
-                          kind="file"
-                          theme={resolvedTheme}
-                          colorMode="inherit"
-                          className="size-4 shrink-0 text-[var(--color-text-foreground)] opacity-70 dark:opacity-80"
-                        />
+                    ) => {
+                      const additions = file.additions ?? 0;
+                      const deletions = file.deletions ?? 0;
+                      const hasDiffStats = additions + deletions > 0;
+                      const diffStats = hasDiffStats ? (
                         <span
-                          className="font-system-ui truncate font-normal text-[var(--color-text-foreground)] underline-offset-2 group-hover/file-row:underline group-focus-visible/file-row:underline"
+                          className="font-system-ui ml-auto shrink-0 tabular-nums"
                           style={{ fontSize: chatTypographyStyle.fontSize }}
                         >
-                          {file.path}
+                          <DiffStatLabel additions={additions} deletions={deletions} />
                         </span>
-                        {(file.additions ?? 0) + (file.deletions ?? 0) > 0 && (
+                      ) : null;
+                      return (
+                        <button
+                          key={file.path}
+                          type="button"
+                          className={cn(
+                            "group/file-row flex w-full items-center gap-2 border-t border-[color:var(--color-border-light)] bg-transparent px-3 py-2.5 text-left transition-colors hover:bg-[var(--color-background-button-secondary-hover)] dark:bg-transparent dark:hover:bg-transparent",
+                            withFirstReset && "first:border-t-0",
+                          )}
+                          onClick={() => onOpenTurnDiff(turnSummary.turnId, file.path)}
+                        >
+                          <FileEntryIcon
+                            pathValue={file.path}
+                            kind="file"
+                            theme={resolvedTheme}
+                            colorMode="inherit"
+                            className="size-4 shrink-0 text-[var(--color-text-foreground)] opacity-70 dark:opacity-80"
+                          />
                           <span
-                            className="font-system-ui ml-auto shrink-0 tabular-nums"
+                            className="font-system-ui truncate font-normal text-[var(--color-text-foreground)] underline-offset-2 group-hover/file-row:underline group-focus-visible/file-row:underline"
                             style={{ fontSize: chatTypographyStyle.fontSize }}
                           >
-                            <DiffStatLabel
-                              additions={file.additions ?? 0}
-                              deletions={file.deletions ?? 0}
-                            />
+                            {file.path}
                           </span>
-                        )}
-                      </button>
-                    );
+                          {diffStats}
+                        </button>
+                      );
+                    };
                     return (
                       <div className="mt-1 mb-4 overflow-hidden rounded-[0.65rem] border border-[color:var(--color-border-light)] dark:border-[color:color-mix(in_srgb,var(--color-border-light)_55%,transparent)]">
                         <div

@@ -44,6 +44,16 @@ export const Kilo: Story = { args: { harness: "kilo" } };
 export const Pi: Story = { args: { harness: "pi" } };
 export const GitHub: Story = { args: { harness: "github" } };
 export const OpenCode: Story = { args: { harness: "opencode" } };
+export const Nested: Story = { args: { level: "nested" } };
+export const Hover: Story = { args: { state: "hover" } };
+export const Active: Story = { args: { state: "active" } };
 export const Selected: Story = { args: { state: "selected" } };
-export const Refreshing: Story = { args: { refreshing: true } };
+export const Running: Story = { args: { children: "Work in progress", workStatus: "running" } };
+export const Done: Story = { args: { children: "Completed work", workStatus: "done" } };
+export const NeedsAttention: Story = {
+  args: { children: "Review requested", workStatus: "attention" },
+};
+export const HoverRunning: Story = {
+  args: { children: "Work in progress", state: "hover", workStatus: "running" },
+};
 export const Disabled: Story = { args: { disabled: true } };

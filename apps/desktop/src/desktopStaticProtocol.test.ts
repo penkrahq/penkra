@@ -18,11 +18,10 @@ function resolverWithExistingPaths(paths: ReadonlyArray<string>) {
 }
 
 describe("createDesktopStaticProtocolResolver", () => {
-  it("uses the source checkout for Canary while preserving packaged Stable resolution", () => {
+  it("uses the source checkout for Dev and the packaged root for Stable", () => {
     expect(
       resolveDesktopAppRoot({
-        isPackagedRuntime: true,
-        isSourceCanary: true,
+        isPackagedRuntime: false,
         sourceRoot: "/checkout",
         packagedAppRoot: "/Applications/Penkra.app",
       }),
@@ -30,7 +29,6 @@ describe("createDesktopStaticProtocolResolver", () => {
     expect(
       resolveDesktopAppRoot({
         isPackagedRuntime: true,
-        isSourceCanary: false,
         sourceRoot: "/checkout",
         packagedAppRoot: "/Applications/Penkra.app",
       }),

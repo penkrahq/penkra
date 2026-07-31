@@ -11,7 +11,6 @@ export interface SpaceViewportSharedProps extends Omit<
   activePageIndex: number;
   children: ReactNode;
   onActivePageIndexChange: (pageIndex: number) => void;
-  pageCount: number;
 }
 
 export function SpaceViewportShared({
@@ -19,33 +18,26 @@ export function SpaceViewportShared({
   children,
   className,
   onActivePageIndexChange,
-  pageCount,
   ...props
 }: SpaceViewportSharedProps) {
-  const { trackRef, viewportRef } = useSpacePager({
-    activePageIndex,
-    onActivePageIndexChange,
-    pageCount,
-  });
+  const { viewportRef } = useSpacePager({ activePageIndex, onActivePageIndexChange });
 
   return (
     <div
       aria-label="Spaces"
       aria-roledescription="carousel"
-      className={cn("min-h-0 w-60 flex-1 touch-pan-y overflow-hidden", className)}
+      className={cn(
+        "flex min-h-0 w-60 flex-1 snap-x snap-mandatory overflow-x-auto overflow-y-hidden overscroll-x-contain",
+        "[scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+        className,
+      )}
       data-pencil-component="yc0hr"
       data-slot="space-viewport"
       ref={viewportRef}
       role="group"
       {...props}
     >
-      <div
-        className="flex h-full w-max will-change-transform"
-        data-slot="space-track"
-        ref={trackRef}
-      >
-        {children}
-      </div>
+      {children}
     </div>
   );
 }

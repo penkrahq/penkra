@@ -14,7 +14,6 @@ function SwipePrototype() {
     <SpaceViewportShared
       activePageIndex={activePageIndex}
       onActivePageIndexChange={setActivePageIndex}
-      pageCount={2}
     >
       {["penkra", "prototype"].map((label, index) => (
         <SpacePageShared active={activePageIndex === index} key={label} label={label}>

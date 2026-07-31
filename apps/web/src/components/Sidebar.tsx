@@ -215,7 +215,6 @@ import {
   shouldToastDesktopUpdateActionResult,
 } from "./desktopUpdate.logic";
 import { subscribeToDesktopUpdateState } from "./desktopUpdate.subscription";
-import { FolderRowShared } from "./left-rail/folder-row-shared/FolderRowShared";
 import { FolderGroupShared } from "./left-rail/folder-group-shared/FolderGroupShared";
 import { AccountControlShared } from "./left-rail/account-control-shared/AccountControlShared";
 import { PopupLogoutConfirmation } from "./left-rail/popup-logout-confirmation/PopupLogoutConfirmation";
@@ -225,7 +224,10 @@ import { SidebarProjects } from "./left-rail/sidebar-projects/SidebarProjects";
 import { SidebarTopNavigation } from "./left-rail/sidebar-top-navigation/SidebarTopNavigation";
 import { SpacePageShared } from "./left-rail/space-page-shared/SpacePageShared";
 import { SpaceViewportShared } from "./left-rail/space-viewport-shared/SpaceViewportShared";
-import { ThreadRowShared } from "./left-rail/thread-row-shared/ThreadRowShared";
+import {
+  ThreadRowShared,
+  type ThreadWorkStatus,
+} from "./left-rail/thread-row-shared/ThreadRowShared";
 import { WorkspaceHeaderShared } from "./left-rail/workspace-header-shared/WorkspaceHeaderShared";
 import { DisclosureSection } from "./ui/DisclosureRegion";
 import { toDisplayName } from "./profile/profileFormatting";
@@ -272,7 +274,6 @@ const SIDEBAR_LIST_ANIMATION_OPTIONS = {
   easing: "ease-out",
 } as const;
 const EMPTY_THREAD_JUMP_LABELS = new Map<ThreadId, string>();
-const PROTOTYPE_SPACE_PAGE_COUNT = 2;
 const PROTOTYPE_SPACE_FOLDERS = [
   {
     label: "Research",
@@ -2412,54 +2413,53 @@ export default function Sidebar() {
       canShowLessThreads,
     } = projectSidebarData;
     const hasProjectContent = projectThreads.length > 0 || canShowMoreThreads || canShowLessThreads;
-    const state =
-      focusedProjectId === project.id ? "selected" : project.expanded ? "open" : "default";
-    const handleAddThread = () => {
-      void handleNewThread(project.id, {
-        envMode: resolveSidebarNewThreadEnvMode({
-          defaultEnvMode: appSettings.defaultThreadEnvMode,
-        }),
+    const headerState = focusedProjectId === project.id ? "selected" : "default";
+    const openProjectActions = (event: React.MouseEvent<HTMLButtonElement>) => {
+      const rect = event.currentTarget.getBoundingClientRect();
+      void handleProjectContextMenu(project.id, {
+        x: rect.left,
+        y: rect.bottom,
       });
     };
-    const rowProps = {
-      children: project.name,
-      expanded: project.expanded,
-      onAdd: handleAddThread,
-      onClick: () => toggleProject(project.id),
-      onContextMenu: (event: React.MouseEvent<HTMLButtonElement>) => {
-        event.preventDefault();
-        void handleProjectContextMenu(project.id, {
-          x: event.clientX,
-          y: event.clientY,
-        });
-      },
-      state,
-    } as const;
+    const openProjectContextMenu = (event: React.MouseEvent<HTMLButtonElement>) => {
+      event.preventDefault();
+      void handleProjectContextMenu(project.id, {
+        x: event.clientX,
+        y: event.clientY,
+      });
+    };
 
     return (
-      <DisclosureSection
+      <FolderGroupShared
         key={project.id}
-        className="w-full"
-        contentClassName="flex flex-col gap-0.5 pt-0.5"
-        data-pencil-project-id={project.id}
+        expanded={project.expanded}
+        headerState={headerState}
         hasContent={hasProjectContent}
-        header={<FolderRowShared {...rowProps} />}
-        open={project.expanded}
+        label={project.name}
+        onExpandedChange={() => toggleProject(project.id)}
+        onHeaderAction={openProjectActions}
+        onHeaderContextMenu={openProjectContextMenu}
       >
-        {visibleEntries.map((entry) =>
-          renderPencilThreadRow(entry.thread, orderedProjectThreadIds, entry.depth),
-        )}
-        {canShowMoreThreads ? (
-          <ShowMoreRow onClick={() => showMoreThreadsForProject(project.cwd, threadListExtraPages)}>
-            Show more
-          </ShowMoreRow>
-        ) : null}
-        {canShowLessThreads ? (
-          <ShowMoreRow onClick={() => showLessThreadsForProject(project.cwd, threadListExtraPages)}>
-            Show less
-          </ShowMoreRow>
-        ) : null}
-      </DisclosureSection>
+        <div className="flex flex-col gap-0.5" data-pencil-project-id={project.id}>
+          {visibleEntries.map((entry) =>
+            renderPencilThreadRow(entry.thread, orderedProjectThreadIds, entry.depth, "nested"),
+          )}
+          {canShowMoreThreads ? (
+            <ShowMoreRow
+              onClick={() => showMoreThreadsForProject(project.cwd, threadListExtraPages)}
+            >
+              Show more
+            </ShowMoreRow>
+          ) : null}
+          {canShowLessThreads ? (
+            <ShowMoreRow
+              onClick={() => showLessThreadsForProject(project.cwd, threadListExtraPages)}
+            >
+              Show less
+            </ShowMoreRow>
+          ) : null}
+        </div>
+      </FolderGroupShared>
     );
   }
 
@@ -2467,16 +2467,24 @@ export default function Sidebar() {
     thread: SidebarThreadSummary,
     orderedProjectThreadIds: readonly ThreadId[],
     depth = 0,
+    levelOverride?: "root" | "nested",
   ) {
     const isActive = visualActiveSidebarThreadId === thread.id;
     const isSelected = selectedThreadIds.has(thread.id);
     const threadStatus = resolveThreadStatusForSidebar(thread);
-    const isRefreshing = threadStatus?.label === "Working" || threadStatus?.label === "Connecting";
+    const workStatus: ThreadWorkStatus =
+      threadStatus?.label === "Working" || threadStatus?.label === "Connecting"
+        ? "running"
+        : threadStatus?.label === "Completed"
+          ? "done"
+          : threadStatus
+            ? "attention"
+            : "idle";
 
     return (
       <ThreadRowShared
         aria-label={thread.title}
-        className={cn(depth > 0 && "pl-6", isSelected && "ring-1 ring-[var(--color-border-focus)]")}
+        className={cn(isSelected && "ring-1 ring-[var(--color-border-focus)]")}
         data-thread-item
         draggable
         key={thread.id}
@@ -2517,8 +2525,9 @@ export default function Sidebar() {
         harness={
           thread.title.trim().toLowerCase() === "main" ? "github" : thread.modelSelection.provider
         }
-        refreshing={isRefreshing}
-        state={isActive ? "selected" : "default"}
+        level={levelOverride ?? (depth > 0 ? "nested" : "root")}
+        state={isActive ? "active" : "default"}
+        workStatus={workStatus}
       >
         {thread.title}
       </ThreadRowShared>
@@ -3181,6 +3190,25 @@ export default function Sidebar() {
       {headerControls}
     </div>
   );
+  const sidebarHeaderSurface = isElectron ? (
+    <SidebarHeader
+      className={cn(
+        "drag-region flex-row items-center p-0 font-system-ui",
+        CHAT_SURFACE_HEADER_HEIGHT_CLASS,
+        showMacTrafficLightAffordance && DESKTOP_TOP_BAR_TRAFFIC_LIGHT_GUTTER_CLASS,
+      )}
+    >
+      <SidebarHeaderShared
+        brand="Penkra"
+        className={cn("h-full w-full", showMacTrafficLightAffordance && "px-0")}
+        onSearch={() => setSearchPaletteOpen(true)}
+      />
+    </SidebarHeader>
+  ) : (
+    <SidebarHeader className="gap-3 px-3 py-2.5 font-system-ui sm:gap-2.5 sm:px-4 sm:py-3">
+      {wordmark}
+    </SidebarHeader>
+  );
   const renameProjectDialogProject = renameProjectDialogId
     ? (projectById.get(renameProjectDialogId) ?? null)
     : null;
@@ -3219,32 +3247,12 @@ export default function Sidebar() {
 
   return (
     <>
+      {sidebarHeaderSurface}
       <SpaceViewportShared
         activePageIndex={prototypeSpacePageIndex}
         onActivePageIndexChange={setPrototypeSpacePageIndex}
-        pageCount={PROTOTYPE_SPACE_PAGE_COUNT}
       >
         <SpacePageShared active={prototypeSpacePageIndex === 0} label="Current">
-          {isElectron ? (
-            <SidebarHeader
-              className={cn(
-                "drag-region flex-row items-center p-0 font-system-ui",
-                CHAT_SURFACE_HEADER_HEIGHT_CLASS,
-                showMacTrafficLightAffordance && DESKTOP_TOP_BAR_TRAFFIC_LIGHT_GUTTER_CLASS,
-              )}
-            >
-              <SidebarHeaderShared
-                brand="Penkra"
-                className={cn("h-full w-full", showMacTrafficLightAffordance && "px-0")}
-                onSearch={() => setSearchPaletteOpen(true)}
-              />
-            </SidebarHeader>
-          ) : (
-            <SidebarHeader className="gap-3 px-3 py-2.5 font-system-ui sm:gap-2.5 sm:px-4 sm:py-3">
-              {wordmark}
-            </SidebarHeader>
-          )}
-
           <SidebarTopNavigation
             {...(isOnApps ? { activeItemId: "apps" } : {})}
             disabledItemIds={["scheduled"]}
@@ -3295,7 +3303,7 @@ export default function Sidebar() {
               header={
                 <WorkspaceHeaderShared
                   expanded={chatSectionExpanded}
-                  onAdd={() => void handleCreateHomeChat()}
+                  onAction={() => void handleCreateHomeChat()}
                   onClick={() => setChatSectionExpanded((expanded) => !expanded)}
                 >
                   penkra
@@ -3357,25 +3365,6 @@ export default function Sidebar() {
         </SpacePageShared>
 
         <SpacePageShared active={prototypeSpacePageIndex === 1} label="Prototype">
-          {isElectron ? (
-            <SidebarHeader
-              className={cn(
-                "drag-region flex-row items-center p-0 font-system-ui",
-                CHAT_SURFACE_HEADER_HEIGHT_CLASS,
-                showMacTrafficLightAffordance && DESKTOP_TOP_BAR_TRAFFIC_LIGHT_GUTTER_CLASS,
-              )}
-            >
-              <SidebarHeaderShared
-                brand="Penkra"
-                className={cn("h-full w-full", showMacTrafficLightAffordance && "px-0")}
-                onSearch={() => setSearchPaletteOpen(true)}
-              />
-            </SidebarHeader>
-          ) : (
-            <SidebarHeader className="gap-3 px-3 py-2.5 font-system-ui sm:gap-2.5 sm:px-4 sm:py-3">
-              {wordmark}
-            </SidebarHeader>
-          )}
           <SidebarTopNavigation disabledItemIds={["new-chat", "apps", "scheduled"]} />
           <SidebarProjects className="font-system-ui">
             <WorkspaceHeaderShared expanded>prototype</WorkspaceHeaderShared>

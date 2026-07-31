@@ -77,6 +77,11 @@ const MANY_OPENCODE_MODELS = Array.from({ length: 16 }, (_, index) => ({
   upstreamProviderName: index % 2 === 0 ? "OpenAI" : "Anthropic",
 })) satisfies ReadonlyArray<ProviderModelOption & { slug: ModelSlug }>;
 
+const MANY_CLAUDE_MODELS = Array.from({ length: 16 }, (_, index) => ({
+  slug: `claude-model-${index + 1}` as ModelSlug,
+  name: `Claude Model ${index + 1}`,
+})) satisfies ReadonlyArray<ProviderModelOption & { slug: ModelSlug }>;
+
 const OPENCODE_FAVORITE_SORT_MODELS = [
   {
     slug: "anthropic/claude-favorite-sort" as ModelSlug,
@@ -310,6 +315,26 @@ describe("ProviderModelPicker", () => {
       modelOptionsByProvider: {
         ...MODEL_OPTIONS_BY_PROVIDER,
         opencode: MANY_OPENCODE_MODELS,
+      },
+    });
+
+    try {
+      await page.getByRole("button").click();
+
+      await expect.element(page.getByPlaceholder("Search models or providers")).toBeInTheDocument();
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("shows search for any provider with at least fifteen models", async () => {
+    const mounted = await mountPicker({
+      provider: "claudeAgent",
+      model: MANY_CLAUDE_MODELS[0]!.slug,
+      lockedProvider: "claudeAgent",
+      modelOptionsByProvider: {
+        ...MODEL_OPTIONS_BY_PROVIDER,
+        claudeAgent: MANY_CLAUDE_MODELS,
       },
     });
 

@@ -21,7 +21,7 @@ export function ComposerActions({
   onAttach,
   onMode,
   onVoice,
-  showHarness = false,
+  showHarness = true,
 }: ComposerActionsProps) {
   return (
     <div className="flex h-[26px] w-full items-center" data-pencil-component="JwTiI">

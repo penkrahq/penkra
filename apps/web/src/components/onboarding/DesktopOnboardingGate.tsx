@@ -93,9 +93,12 @@ export function DesktopOnboardingGate({
 
   if (state === "checking") {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-background text-foreground">
-        <p className="text-sm text-muted-foreground">Preparing Penkra…</p>
-      </div>
+      <div
+        aria-busy="true"
+        aria-label="Preparing Penkra"
+        className="min-h-screen bg-background"
+        role="status"
+      />
     );
   }
 

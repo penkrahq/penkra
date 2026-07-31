@@ -528,6 +528,7 @@ const EMPTY_ACTIVITIES: OrchestrationThreadActivity[] = [];
 const EMPTY_MESSAGES: ChatMessage[] = [];
 const EMPTY_PINNED_MESSAGES: readonly PinnedMessage[] = [];
 const EMPTY_THREAD_MARKERS: readonly ThreadMarker[] = [];
+const CAN_PIN_ANY_MESSAGE = () => true;
 const EMPTY_PINNED_TEXT: ReadonlyMap<MessageId, string> = new Map();
 const EMPTY_KEYBINDINGS: ResolvedKeybindingsConfig = [];
 const EMPTY_PROJECT_ENTRIES: ProjectEntry[] = [];
@@ -953,6 +954,19 @@ interface ChatViewProps {
   onCloseThreadPane?: () => void;
 }
 
+interface LateComposerSendHandlers {
+  readonly submitPlanFollowUp: (submission: {
+    text: string;
+    interactionMode: "default" | "plan";
+    dispatchMode: "queue" | "steer";
+    queuedTurn?: QueuedComposerPlanFollowUp;
+  }) => Promise<boolean>;
+  readonly advanceActivePendingUserInput: (
+    answerOverrides?: Record<string, PendingUserInputDraftAnswer>,
+  ) => boolean;
+  readonly handleStandaloneSlashCommand: (trimmedPrompt: string) => Promise<boolean>;
+}
+
 function normalizeRestoredQueuedPrompt(value: string): string {
   return value.trim().replace(/\s+/g, " ");
 }
@@ -981,10 +995,10 @@ function composerPromptStillMatchesRestoredQueuedDraft(
 
 export default function ChatView({
   threadId,
-  paneScopeId = SINGLE_CHAT_PANE_SCOPE_ID,
-  surfaceMode = "single",
-  presentationMode = "default",
-  isFocusedPane = true,
+  paneScopeId: paneScopeIdProp,
+  surfaceMode: surfaceModeProp,
+  presentationMode: presentationModeProp,
+  isFocusedPane: isFocusedPaneProp,
   panelState,
   onToggleDiffPanel,
   onToggleBrowserPanel,
@@ -992,10 +1006,18 @@ export default function ChatView({
   onOpenTurnDiffPanel,
   onSplitSurface,
   onMaximizeSurface,
-  viewModeAction = null,
+  viewModeAction: viewModeActionProp,
   onChangeThreadInSplitPane,
   onCloseThreadPane,
 }: ChatViewProps) {
+  // Keep defaults out of the parameter list. Assignment-pattern parameters make
+  // React Compiler skip this component, which turns every composer keystroke
+  // into a full long-thread render.
+  const paneScopeId = paneScopeIdProp ?? SINGLE_CHAT_PANE_SCOPE_ID;
+  const surfaceMode = surfaceModeProp ?? "single";
+  const presentationMode = presentationModeProp ?? "default";
+  const isFocusedPane = isFocusedPaneProp ?? true;
+  const viewModeAction = viewModeActionProp ?? null;
   const markThreadVisited = useStore((store) => store.markThreadVisited);
   const syncServerShellSnapshot = useStore((store) => store.syncServerShellSnapshot);
   const setStoreThreadError = useStore((store) => store.setError);
@@ -1610,6 +1632,7 @@ export default function ChatView({
   const resolvedDiffOpen = panelState ? panelState.panel === "diff" : diffOpen;
   const activeThreadId = activeThread?.id ?? null;
   const activeLatestTurn = activeThread?.latestTurn ?? null;
+  const activeLatestTurnId = activeLatestTurn?.turnId ?? null;
   const threadActivities = activeThread?.activities ?? EMPTY_ACTIVITIES;
   const hasLiveTurnTail = hasLiveTurnTailWork({
     latestTurn: activeLatestTurn,
@@ -1655,7 +1678,7 @@ export default function ChatView({
     async (terminalThreadId: ThreadId) => {
       const api = readNativeApi();
       if (!api) return;
-      try {
+      const deleteEmptyTerminalThread = async () => {
         await api.orchestration.dispatchCommand({
           type: "thread.delete",
           commandId: newCommandId(),
@@ -1685,6 +1708,10 @@ export default function ChatView({
           }
         }
         await handleNewChat({ fresh: true });
+      };
+
+      try {
+        await deleteEmptyTerminalThread();
       } catch (error) {
         console.error("Failed to delete empty terminal thread after closing its last terminal", {
           threadId: terminalThreadId,
@@ -2087,10 +2114,8 @@ export default function ChatView({
   const isConnecting = isLocalConnecting || phase === "connecting";
   // User messages intentionally have no turn id; assistant messages are the stable
   // bridge for deciding which historical work can fold into visible replies.
-  // Memoized on purpose: ChatView does not compile under React Compiler yet
-  // (hoisting blockers), so an inline Set would change identity every render
-  // and cascade through the memoized work-log/timeline chain into the
-  // virtualized list, which resets in a loop on unstable data.
+  // Memoized on purpose: an inline Set would change identity every render and
+  // cascade through the work-log/timeline chain into the virtualized list.
   const workLogVisibleTurnIds = useMemo(() => {
     const turnIds = new Set<TurnId>();
     for (const message of activeThread?.messages ?? []) {
@@ -2098,11 +2123,11 @@ export default function ChatView({
         turnIds.add(message.turnId);
       }
     }
-    if (activeLatestTurn?.turnId) {
-      turnIds.add(activeLatestTurn.turnId);
+    if (activeLatestTurnId) {
+      turnIds.add(activeLatestTurnId);
     }
     return turnIds;
-  }, [activeLatestTurn?.turnId, activeThread?.messages]);
+  }, [activeLatestTurnId, activeThread?.messages]);
   const rawWorkLogEntries = useMemo(
     () =>
       deriveWorkLogEntries(threadActivities, activeLatestTurn?.turnId ?? undefined, {
@@ -2262,6 +2287,9 @@ export default function ChatView({
     ],
   );
   const [openAgentActivityId, setOpenAgentActivityId] = useState<string | null>(null);
+  const closeAgentActivityDetail = () => {
+    setOpenAgentActivityId(null);
+  };
   const agentActivityTimelineState = useMemo(
     () => deriveAgentActivityTimelineState(workLogEntries),
     [workLogEntries],
@@ -2325,6 +2353,7 @@ export default function ChatView({
         : null,
     [activePendingDraftAnswers, activePendingQuestionIndex, activePendingUserInput],
   );
+  const activePendingQuestion = activePendingProgress?.activeQuestion ?? null;
   const activePendingResolvedAnswers = useMemo(
     () =>
       activePendingUserInput
@@ -3777,7 +3806,7 @@ export default function ChatView({
         updateSettings({ environmentPanelDefaultOpen: update.settingsDefaultOpen });
       }
     },
-    [updateSettings],
+    [setEnvironmentPanelPreferenceOpen, updateSettings],
   );
   const closeEnvironmentPanelAfterAction = useCallback(
     () => updateEnvironmentPanelPreference(false, false),
@@ -3841,8 +3870,10 @@ export default function ChatView({
       }
       requestTerminalFocus();
 
-      try {
-        const { metadata } = await runProjectCommandInTerminal({
+      // Keep value blocks out of the try body so React Compiler can transform
+      // this callback without bailing out of ChatView.
+      const runScriptInTargetTerminal = async () =>
+        runProjectCommandInTerminal({
           api,
           threadId: activeThreadId,
           terminalId: targetTerminalId,
@@ -3854,6 +3885,9 @@ export default function ChatView({
           worktreePath: options?.worktreePath ?? activeThread.worktreePath ?? null,
           ...(options?.env ? { env: options.env } : {}),
         });
+
+      try {
+        const { metadata } = await runScriptInTargetTerminal();
         if (metadata) {
           storeSetTerminalMetadata(activeThreadId, targetTerminalId, {
             cliKind: metadata.cliKind,
@@ -4034,6 +4068,7 @@ export default function ChatView({
       const nextScripts = activeProject.scripts.filter((script) => script.id !== scriptId);
 
       const deletedName = activeProject.scripts.find((s) => s.id === scriptId)?.name;
+      const deletedScriptToastTitle = `Deleted action "${deletedName ?? "Unknown"}"`;
 
       try {
         await persistProjectScripts({
@@ -4046,7 +4081,7 @@ export default function ChatView({
         });
         toastManager.add({
           type: "success",
-          title: `Deleted action "${deletedName ?? "Unknown"}"`,
+          title: deletedScriptToastTitle,
         });
       } catch (error) {
         toastManager.add({
@@ -5735,6 +5770,11 @@ export default function ChatView({
     [removeQueuedComposerTurnFromDraft, threadId],
   );
 
+  // These handlers are declared later because they depend on composer controls
+  // established below. Route event-time calls through a ref so the earlier send
+  // handler does not capture later-declared bindings and bail out React Compiler.
+  const lateComposerSendHandlersRef = useRef<LateComposerSendHandlers | null>(null);
+
   const onSend = async (
     e?: { preventDefault: () => void },
     dispatchMode: "queue" | "steer" = "queue",
@@ -5742,8 +5782,10 @@ export default function ChatView({
   ): Promise<boolean> => {
     e?.preventDefault();
     const api = readNativeApi();
+    const lateSendHandlers = lateComposerSendHandlersRef.current;
     if (
       !api ||
+      !lateSendHandlers ||
       !activeThread ||
       isSendBusy ||
       isConnecting ||
@@ -5786,7 +5828,7 @@ export default function ChatView({
           [activePendingUserInputKey]: nextRequestAnswers,
         }));
       }
-      return onAdvanceActivePendingUserInput(answerOverrides);
+      return lateSendHandlers.advanceActivePendingUserInput(answerOverrides);
     }
     const queuedChatTurn = queuedTurn ?? null;
     const liveComposerSnapshot =
@@ -5905,7 +5947,7 @@ export default function ChatView({
         }
         clearComposerInput(activeThread.id);
         scheduleComposerFocus();
-        return onSubmitPlanFollowUp({
+        return lateSendHandlers.submitPlanFollowUp({
           text: followUp.text,
           interactionMode: followUp.interactionMode,
           dispatchMode,
@@ -5923,7 +5965,8 @@ export default function ChatView({
       selectedComposerMentionsForSend.length === 0;
     const hasPromptOnlySendableContent = hasNoStructuredComposerContext;
     if (hasPromptOnlySendableContent) {
-      const handledSlashCommand = await handleStandaloneSlashCommand(trimmedPromptForSend);
+      const handledSlashCommand =
+        await lateSendHandlers.handleStandaloneSlashCommand(trimmedPromptForSend);
       if (handledSlashCommand) {
         return true;
       }
@@ -6135,6 +6178,8 @@ export default function ChatView({
       if (firstSendTarget.kind === "create-project") {
         const projectId = newProjectId();
         const createdAt = firstSendCreatedAt.toISOString();
+        const createProjectSpaceFields =
+          firstSendTarget.creation.kind === "project" ? { spaceId: activeSpaceIdForSend } : {};
         try {
           await api.orchestration.dispatchCommand({
             type: "project.create",
@@ -6145,11 +6190,8 @@ export default function ChatView({
             workspaceRoot: firstSendTarget.creation.workspaceRoot,
             createWorkspaceRootIfMissing: firstSendTarget.creation.createWorkspaceRootIfMissing,
             defaultModelSelection: firstSendTarget.creation.defaultModelSelection,
-            // Managed chat rows stay global; a folder mention creates an ordinary project
-            // and should inherit the Space where the first send originated.
-            ...(firstSendTarget.creation.kind === "project"
-              ? { spaceId: activeSpaceIdForSend }
-              : {}),
+            // Managed chat rows stay global; folder mentions create ordinary projects.
+            ...createProjectSpaceFields,
             createdAt,
           });
           targetProjectIdForSend = projectId;
@@ -6997,7 +7039,9 @@ export default function ChatView({
     ]);
     armTranscriptAutoFollow(threadIdForSend, true);
 
-    try {
+    // Keep value blocks out of the try body so React Compiler can transform
+    // the enclosing hot-path component.
+    const dispatchPlanFollowUpTurn = async () => {
       await persistThreadSettingsForNextTurn({
         threadId: threadIdForSend,
         createdAt: messageCreatedAt,
@@ -7068,6 +7112,10 @@ export default function ChatView({
         planSidebarDismissedForTurnRef.current = null;
         setPlanSidebarOpen(true);
       }
+    };
+
+    try {
+      await dispatchPlanFollowUpTurn();
       sendInFlightRef.current = false;
       return true;
     } catch (err) {
@@ -8235,6 +8283,14 @@ export default function ChatView({
     editorActions: slashEditorActions,
   });
 
+  useLayoutEffect(() => {
+    lateComposerSendHandlersRef.current = {
+      submitPlanFollowUp: onSubmitPlanFollowUp,
+      advanceActivePendingUserInput: onAdvanceActivePendingUserInput,
+      handleStandaloneSlashCommand,
+    };
+  });
+
   const onSelectComposerItem = useCallback(
     (item: ComposerCommandItem) => {
       if (composerSelectLockRef.current) return;
@@ -8412,7 +8468,7 @@ export default function ChatView({
       cursorAdjacentToMention: boolean,
       terminalContextIds: string[],
     ) => {
-      if (activePendingProgress?.activeQuestion && activePendingUserInput) {
+      if (activePendingQuestion && activePendingUserInput) {
         const interruptedNavigation = promptHistoryNavigationRef.current;
         if (interruptedNavigation !== null) {
           // An active question ended the history browse while the persisted
@@ -8424,7 +8480,7 @@ export default function ChatView({
         }
         expectedPromptHistoryPromptRef.current = null;
         onChangeActivePendingUserInputCustomAnswer(
-          activePendingProgress.activeQuestion.id,
+          activePendingQuestion.id,
           nextPrompt,
           nextCursor,
           expandedCursor,
@@ -8485,7 +8541,7 @@ export default function ChatView({
       );
     },
     [
-      activePendingProgress?.activeQuestion,
+      activePendingQuestion,
       activePendingUserInput,
       composerTerminalContexts,
       composerCommandPicker,
@@ -9742,7 +9798,7 @@ export default function ChatView({
                     listRef={legendListRef}
                     timelineControllerRef={timelineControllerRef}
                     pinnedMessageIds={pinnedMessageIds}
-                    canPinMessage={() => true}
+                    canPinMessage={CAN_PIN_ANY_MESSAGE}
                     onTogglePinMessage={handleTogglePinMessageGuarded}
                     threadMarkers={threadMarkers}
                     enteringUserMessageIds={enteringUserMessageIds}
@@ -9778,7 +9834,7 @@ export default function ChatView({
                     onMessagesTouchMove={onMessagesTouchMove}
                     onMessagesTouchEnd={onMessagesTouchEnd}
                     onOpenAgentActivity={setOpenAgentActivityId}
-                    onCloseAgentActivityDetail={() => setOpenAgentActivityId(null)}
+                    onCloseAgentActivityDetail={closeAgentActivityDetail}
                     scrollButtonVisible={showScrollToBottom}
                     onScrollToBottom={onScrollToBottom}
                     contentInsetRightPx={
