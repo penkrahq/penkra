@@ -176,6 +176,7 @@ export interface AcpSpawnInput {
 export interface AcpSessionRuntimeOptions {
   readonly spawn: AcpSpawnInput;
   readonly cwd: string;
+  readonly penkraThreadId?: string;
   readonly resumeSessionId?: string;
   readonly clientCapabilities?: Acp.InitializeRequest["clientCapabilities"];
   /** Provider-specific metadata sent on session/new, session/load, and session/resume. */
@@ -758,6 +759,14 @@ const makeAcpSessionRuntime = (
     const env = buildProviderChildEnvironment({
       provider: "acp",
       baseEnv: options.spawn.env ? { ...options.spawn.env } : process.env,
+      ...(options.penkraThreadId
+        ? {
+            penkraContext: {
+              threadId: options.penkraThreadId,
+              workspace: options.cwd,
+            },
+          }
+        : {}),
     });
     const prepared = prepareWindowsSafeProcess(options.spawn.command, options.spawn.args, {
       cwd: options.spawn.cwd,
