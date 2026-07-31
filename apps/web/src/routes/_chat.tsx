@@ -260,37 +260,34 @@ function ChatRouteGlobalShortcuts() {
   // Deliberately unscoped: the persisted id is only cleared once the project is gone from
   // the app entirely, not merely absent from the Space you happen to be in.
   const persistedLatestProjectStillExists = resolveLatestProjectTargetId(projects, latestProjectId);
-  const handleNewChatForActiveSurface = useCallback(
-    () => {
-      if (newChatInFlightRef.current) {
-        return newChatInFlightRef.current;
-      }
-      const operation = startFreshChatForActiveSurface({
-        activeProject,
-        isStudioRoute,
-        paths: { homeDir, chatWorkspaceRoot, studioWorkspaceRoot },
-        handleNewChat,
-        handleNewStudioChat,
-      });
-      newChatInFlightRef.current = operation;
-      const clearOperation = () => {
-        if (newChatInFlightRef.current === operation) {
-          newChatInFlightRef.current = null;
-        }
-      };
-      void operation.then(clearOperation, clearOperation);
-      return operation;
-    },
-    [
+  const handleNewChatForActiveSurface = useCallback(() => {
+    if (newChatInFlightRef.current) {
+      return newChatInFlightRef.current;
+    }
+    const operation = startFreshChatForActiveSurface({
       activeProject,
-      chatWorkspaceRoot,
+      isStudioRoute,
+      paths: { homeDir, chatWorkspaceRoot, studioWorkspaceRoot },
       handleNewChat,
       handleNewStudioChat,
-      homeDir,
-      isStudioRoute,
-      studioWorkspaceRoot,
-    ],
-  );
+    });
+    newChatInFlightRef.current = operation;
+    const clearOperation = () => {
+      if (newChatInFlightRef.current === operation) {
+        newChatInFlightRef.current = null;
+      }
+    };
+    void operation.then(clearOperation, clearOperation);
+    return operation;
+  }, [
+    activeProject,
+    chatWorkspaceRoot,
+    handleNewChat,
+    handleNewStudioChat,
+    homeDir,
+    isStudioRoute,
+    studioWorkspaceRoot,
+  ]);
 
   useEffect(() => {
     if (!currentProjectId) {

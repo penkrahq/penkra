@@ -42,7 +42,8 @@ export function ThreadRowShared({
       className={cn(
         "relative gap-3 pr-2.5",
         level === "nested" ? "pl-6" : "pl-2.5",
-        workStatus === "running" && "[&_[data-slot=thread-status]]:text-[var(--color-text-foreground-secondary)]",
+        workStatus === "running" &&
+          "[&_[data-slot=thread-status]]:text-[var(--color-text-foreground-secondary)]",
         workStatus === "done" && "[&_[data-slot=thread-status]]:text-[var(--color-text-accent)]",
         workStatus === "attention" && "[&_[data-slot=thread-status]]:text-orange-500",
         className,

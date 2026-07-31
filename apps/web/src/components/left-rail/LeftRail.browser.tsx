@@ -149,19 +149,23 @@ describe("Pencil left rail", () => {
     const rootLabel = root.querySelector<HTMLElement>("[data-slot='left-rail-label']")!;
     const nestedLabel = nested.querySelector<HTMLElement>("[data-slot='left-rail-label']")!;
 
-    expect(Math.abs(rootLeading.getBoundingClientRect().left - root.getBoundingClientRect().left - 10))
-      .toBeLessThan(1);
-    expect(Math.abs(rootLabel.getBoundingClientRect().left - root.getBoundingClientRect().left - 36))
-      .toBeLessThan(1);
     expect(
-      Math.abs(nestedLeading.getBoundingClientRect().left - nested.getBoundingClientRect().left - 24),
+      Math.abs(rootLeading.getBoundingClientRect().left - root.getBoundingClientRect().left - 10),
+    ).toBeLessThan(1);
+    expect(
+      Math.abs(rootLabel.getBoundingClientRect().left - root.getBoundingClientRect().left - 36),
+    ).toBeLessThan(1);
+    expect(
+      Math.abs(
+        nestedLeading.getBoundingClientRect().left - nested.getBoundingClientRect().left - 24,
+      ),
     ).toBeLessThan(1);
     expect(
       Math.abs(nestedLabel.getBoundingClientRect().left - nested.getBoundingClientRect().left - 50),
     ).toBeLessThan(1);
-    expect(Math.abs(showMore.getBoundingClientRect().left - nested.getBoundingClientRect().left)).toBe(
-      0,
-    );
+    expect(
+      Math.abs(showMore.getBoundingClientRect().left - nested.getBoundingClientRect().left),
+    ).toBe(0);
     expect(getComputedStyle(showMore).paddingLeft).toBe("24px");
   });
 

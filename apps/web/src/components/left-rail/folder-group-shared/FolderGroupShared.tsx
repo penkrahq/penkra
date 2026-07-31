@@ -8,10 +8,7 @@ import { DisclosureSection } from "~/components/ui/DisclosureRegion";
 import { FolderRowShared } from "../folder-row-shared/FolderRowShared";
 import type { LeftRailRowState } from "../row-shared/LeftRailRow";
 import { ShowMoreRow } from "../show-more-row/ShowMoreRow";
-import {
-  ThreadRowShared,
-  type ThreadWorkStatus,
-} from "../thread-row-shared/ThreadRowShared";
+import { ThreadRowShared, type ThreadWorkStatus } from "../thread-row-shared/ThreadRowShared";
 
 export interface FolderGroupThread {
   id: string;
@@ -75,9 +72,7 @@ export function FolderGroupShared({
           state={headerState}
           {...(hasContent ? { onClick: () => setExpanded(!expanded) } : {})}
           {...(onHeaderAction === undefined ? {} : { onAction: onHeaderAction })}
-          {...(onHeaderContextMenu === undefined
-            ? {}
-            : { onContextMenu: onHeaderContextMenu })}
+          {...(onHeaderContextMenu === undefined ? {} : { onContextMenu: onHeaderContextMenu })}
         >
           {label}
         </FolderRowShared>

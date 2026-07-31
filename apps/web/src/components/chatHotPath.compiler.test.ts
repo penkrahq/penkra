@@ -50,26 +50,22 @@ const HOT_PATH_MODULES = [
 
 describe("chat hot-path React Compiler coverage", () => {
   for (const module of HOT_PATH_MODULES) {
-    it(
-      `compiles ${module.relativePath} without unexpected bailouts`,
-      () => {
-        const events = compileEvents(join(import.meta.dirname, module.relativePath));
-        const bailoutReasons = events
-          .filter((event) => event.kind === "CompileError")
-          .map((event) => event.detail?.reason ?? event.detail?.description ?? "unknown")
-          .sort();
+    it(`compiles ${module.relativePath} without unexpected bailouts`, () => {
+      const events = compileEvents(join(import.meta.dirname, module.relativePath));
+      const bailoutReasons = events
+        .filter((event) => event.kind === "CompileError")
+        .map((event) => event.detail?.reason ?? event.detail?.description ?? "unknown")
+        .sort();
 
-        expect(
-          bailoutReasons,
-          JSON.stringify(
-            events.filter((event) => event.kind === "CompileError"),
-            null,
-            2,
-          ),
-        ).toEqual([...module.allowedBailoutReasons].sort());
-        expect(events.some((event) => event.kind === "CompileSuccess")).toBe(true);
-      },
-      240_000,
-    );
+      expect(
+        bailoutReasons,
+        JSON.stringify(
+          events.filter((event) => event.kind === "CompileError"),
+          null,
+          2,
+        ),
+      ).toEqual([...module.allowedBailoutReasons].sort());
+      expect(events.some((event) => event.kind === "CompileSuccess")).toBe(true);
+    }, 240_000);
   }
 });

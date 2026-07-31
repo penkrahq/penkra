@@ -651,9 +651,7 @@ export const resolveProviderMaintenanceCapabilitiesEffect = Effect.fn(
     ...(options?.env === undefined ? {} : { env: options.env }),
     allowExtensionlessOnWindows: true,
   })) {
-    const exists = yield* fileSystem
-      .exists(candidate.path)
-      .pipe(Effect.orElseSucceed(() => false));
+    const exists = yield* fileSystem.exists(candidate.path).pipe(Effect.orElseSucceed(() => false));
     if (!exists) {
       continue;
     }

@@ -3556,9 +3556,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
     });
 
     try {
-      const { path: newThreadPath, threadId: newThreadId } =
-        await createProjectThreadWithShortcut(
-          mounted,
+      const { path: newThreadPath, threadId: newThreadId } = await createProjectThreadWithShortcut(
+        mounted,
         "Global New thread should create a draft in the latest ordinary project.",
       );
       expect(useComposerDraftStore.getState().getDraftThread(newThreadId)?.projectId).toBe(
@@ -5176,8 +5175,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
       const { path: promotedThreadPath, threadId: promotedThreadId } =
         await createProjectThreadWithShortcut(
           mounted,
-        "Route should have changed to a promoted draft thread UUID.",
-      );
+          "Route should have changed to a promoted draft thread UUID.",
+        );
 
       const { syncServerReadModel } = useStore.getState();
       syncServerReadModel(addThreadToSnapshot(fixture.snapshot, promotedThreadId));
