@@ -2,13 +2,22 @@ import { forwardRef, type ButtonHTMLAttributes, type ReactNode } from "react";
 
 import { cn } from "~/lib/utils";
 
-export type LeftRailRowState = "default" | "selected" | "open";
+export type LeftRailRowState =
+  | "default"
+  | "hover"
+  | "active"
+  | "selected"
+  | "open"
+  | "disabled"
+  | "focus"
+  | "error";
 
 export interface LeftRailRowProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   leading?: ReactNode;
   leadingClassName?: string;
   state?: LeftRailRowState;
   trailing?: ReactNode;
+  trailingClassName?: string;
 }
 
 export const LeftRailRow = forwardRef<HTMLButtonElement, LeftRailRowProps>(function LeftRailRow(
@@ -20,6 +29,7 @@ export const LeftRailRow = forwardRef<HTMLButtonElement, LeftRailRowProps>(funct
     leadingClassName,
     state = "default",
     trailing,
+    trailingClassName,
     type = "button",
     ...props
   },
@@ -29,16 +39,22 @@ export const LeftRailRow = forwardRef<HTMLButtonElement, LeftRailRowProps>(funct
     <button
       className={cn(
         "group/left-rail-row flex h-[27px] w-full min-w-0 cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent px-2.5 font-sans text-[13px] leading-4 font-normal text-[var(--color-text-foreground-secondary)] outline-none transition-colors",
-        "hover:bg-[var(--color-background-button-secondary-hover)] hover:text-[var(--color-text-foreground)] active:bg-[var(--color-background-button-secondary-active)] active:text-[var(--color-text-foreground)] focus-visible:ring-1 focus-visible:ring-[var(--color-border-focus)]",
-        state === "selected" &&
-          "bg-[var(--color-background-button-secondary-active)] text-[var(--color-text-foreground)]",
+        "hover:bg-[var(--color-background-button-secondary-hover)] hover:text-[var(--color-text-foreground)] active:bg-transparent active:text-[var(--color-text-foreground)] focus-visible:ring-1 focus-visible:ring-[var(--color-border-focus)]",
+        state === "hover" &&
+          "bg-[var(--color-background-button-secondary-hover)] text-[var(--color-text-foreground)]",
+        (state === "active" || state === "selected") &&
+          "bg-transparent text-[var(--color-text-foreground)]",
         state === "open" && "text-[var(--color-text-foreground-secondary)]",
-        disabled &&
+        (disabled || state === "disabled") &&
           "cursor-not-allowed bg-transparent text-[var(--color-text-foreground-tertiary)] hover:bg-transparent hover:text-[var(--color-text-foreground-tertiary)]",
+        state === "focus" &&
+          "bg-[var(--color-background-button-secondary-hover)] text-[var(--color-text-foreground)] ring-1 ring-[var(--color-border-focus)]",
+        state === "error" &&
+          "bg-[var(--color-background-button-secondary-hover)] text-[var(--color-text-foreground)]",
         className,
       )}
       data-state={state}
-      disabled={disabled}
+      disabled={disabled || state === "disabled"}
       ref={ref}
       type={type}
       {...props}
@@ -58,7 +74,12 @@ export const LeftRailRow = forwardRef<HTMLButtonElement, LeftRailRowProps>(funct
         {children}
       </span>
       {trailing ? (
-        <span className="inline-flex shrink-0 items-center justify-center">{trailing}</span>
+        <span
+          className={cn("inline-flex shrink-0 items-center justify-center", trailingClassName)}
+          data-slot="left-rail-trailing"
+        >
+          {trailing}
+        </span>
       ) : null}
     </button>
   );

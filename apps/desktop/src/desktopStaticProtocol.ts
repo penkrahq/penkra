@@ -11,13 +11,10 @@ type PathExists = (path: string) => boolean;
 
 export function resolveDesktopAppRoot(input: {
   readonly isPackagedRuntime: boolean;
-  readonly isSourceCanary: boolean;
   readonly sourceRoot: string;
   readonly packagedAppRoot: string;
 }): string {
-  return !input.isPackagedRuntime || input.isSourceCanary
-    ? input.sourceRoot
-    : input.packagedAppRoot;
+  return input.isPackagedRuntime ? input.packagedAppRoot : input.sourceRoot;
 }
 
 export function createDesktopStaticProtocolResolver(

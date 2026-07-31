@@ -1,6 +1,7 @@
-import { IconChevronDown, IconSearch } from "@tabler/icons-react";
+import { IconChevronDown } from "@tabler/icons-react";
 import type { HTMLAttributes, ReactNode } from "react";
 
+import { SearchIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
 
 export interface SidebarHeaderSharedProps extends HTMLAttributes<HTMLElement> {
@@ -46,7 +47,7 @@ export function SidebarHeaderShared({
         onClick={onSearch}
         type="button"
       >
-        <IconSearch className="size-4" />
+        <SearchIcon className="size-4" />
       </button>
     </header>
   );

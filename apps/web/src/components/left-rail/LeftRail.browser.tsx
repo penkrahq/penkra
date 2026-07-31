@@ -9,8 +9,11 @@ import { DisclosureSection } from "../ui/DisclosureRegion";
 import { AccountRowShared } from "./account-row-shared/AccountRowShared";
 import { AccountControlShared } from "./account-control-shared/AccountControlShared";
 import { FolderGroupShared } from "./folder-group-shared/FolderGroupShared";
+import { ShowMoreRow } from "./show-more-row/ShowMoreRow";
 import { SidebarHeaderShared } from "./sidebar-header-shared/SidebarHeaderShared";
 import { SidebarProjects } from "./sidebar-projects/SidebarProjects";
+import { ThreadRowShared } from "./thread-row-shared/ThreadRowShared";
+import { WorkspaceHeaderShared } from "./workspace-header-shared/WorkspaceHeaderShared";
 
 const threads = Array.from({ length: 12 }, (_, index) => ({
   id: `thread-${index}`,
@@ -38,6 +41,11 @@ describe("Pencil left rail", () => {
     expect(threadHeader).not.toBeNull();
     expect(sidebarHeader!.getBoundingClientRect().height).toBe(46);
     expect(threadHeader!.getBoundingClientRect().height).toBe(46);
+
+    const search = page.getByRole("button", { name: "Search" }).element();
+    const searchGlyph = search.querySelector<HTMLElement>("[data-slot='central-icon']");
+    expect(searchGlyph).not.toBeNull();
+    expect(searchGlyph!.style.mask).toContain("magnifying-glass.svg");
   });
 
   it("uses a real bounded vertical scroll viewport for overflowing projects", async () => {
@@ -58,7 +66,7 @@ describe("Pencil left rail", () => {
     expect(viewport!.scrollTop).toBeGreaterThan(0);
   });
 
-  it("keeps folder disclosure state native and observable", async () => {
+  it("keeps folder expansion independent from header hover", async () => {
     await render(<FolderGroupShared label="penut" threads={threads.slice(0, 2)} />);
 
     const disclosure = page.getByRole("button", { name: "penut" });
@@ -76,10 +84,11 @@ describe("Pencil left rail", () => {
       .getBoundingClientRect();
     expect(leadingRect.width).toBe(14);
     expect(Math.abs(leadingRect.left - rowRect.left - 10)).toBeLessThan(1);
-    expect(Math.abs(labelRect.left - leadingRect.right - 6)).toBeLessThan(1);
+    expect(Math.abs(labelRect.left - leadingRect.right - 12)).toBeLessThan(1);
+    expect(Math.abs(labelRect.left - rowRect.left - 36)).toBeLessThan(1);
     await disclosure.hover();
-    expect(disclosure.element().querySelector("[data-folder-state='closed']")).not.toBeVisible();
-    expect(disclosure.element().querySelector("[data-folder-state='open']")).toBeVisible();
+    expect(disclosure.element().querySelector("[data-folder-state='closed']")).toBeVisible();
+    expect(disclosure.element().querySelector("[data-folder-state='open']")).not.toBeVisible();
     await disclosure.click();
     await expect.element(disclosure).toHaveAttribute("aria-expanded", "true");
     expect(disclosure.element().querySelector("[data-folder-state='closed']")).not.toBeVisible();
@@ -94,6 +103,134 @@ describe("Pencil left rail", () => {
           2,
       ),
     ).toBeLessThan(1);
+  });
+
+  it("keeps an expanded folder surface distinct from its hover state", async () => {
+    await render(
+      <>
+        <div className="w-56">
+          <FolderGroupShared
+            expanded
+            headerState="open"
+            label="Open folder"
+            onHeaderAction={vi.fn()}
+            threads={threads.slice(0, 1)}
+          />
+        </div>
+        <button className="fixed right-0 bottom-0" type="button">
+          Outside folder
+        </button>
+      </>,
+    );
+
+    await page.getByRole("button", { name: "Outside folder" }).hover();
+    const folder = page.getByRole("button", { name: "Open folder" }).element();
+    const action = page.getByRole("button", { name: "Folder actions" }).element();
+
+    expect(getComputedStyle(folder).backgroundColor).toBe("rgba(0, 0, 0, 0)");
+    expect(folder.querySelector("[data-folder-state='open']")).toBeVisible();
+    expect(getComputedStyle(action).opacity).toBe("0");
+  });
+
+  it("uses the Pencil root and nested thread columns", async () => {
+    await render(
+      <div className="w-56">
+        <ThreadRowShared level="root">Root thread</ThreadRowShared>
+        <ThreadRowShared level="nested">Nested thread</ThreadRowShared>
+        <ShowMoreRow>Show more</ShowMoreRow>
+      </div>,
+    );
+
+    const root = page.getByRole("button", { name: "Root thread" }).element();
+    const nested = page.getByRole("button", { name: "Nested thread" }).element();
+    const showMore = page.getByRole("button", { name: "Show more" }).element();
+    const rootLeading = root.querySelector<HTMLElement>("[data-slot='left-rail-leading']")!;
+    const nestedLeading = nested.querySelector<HTMLElement>("[data-slot='left-rail-leading']")!;
+    const rootLabel = root.querySelector<HTMLElement>("[data-slot='left-rail-label']")!;
+    const nestedLabel = nested.querySelector<HTMLElement>("[data-slot='left-rail-label']")!;
+
+    expect(Math.abs(rootLeading.getBoundingClientRect().left - root.getBoundingClientRect().left - 10))
+      .toBeLessThan(1);
+    expect(Math.abs(rootLabel.getBoundingClientRect().left - root.getBoundingClientRect().left - 36))
+      .toBeLessThan(1);
+    expect(
+      Math.abs(nestedLeading.getBoundingClientRect().left - nested.getBoundingClientRect().left - 24),
+    ).toBeLessThan(1);
+    expect(
+      Math.abs(nestedLabel.getBoundingClientRect().left - nested.getBoundingClientRect().left - 50),
+    ).toBeLessThan(1);
+    expect(Math.abs(showMore.getBoundingClientRect().left - nested.getBoundingClientRect().left)).toBe(
+      0,
+    );
+    expect(getComputedStyle(showMore).paddingLeft).toBe("24px");
+  });
+
+  it("reveals workspace affordances and shifts its title from the default edge", async () => {
+    const onAction = vi.fn();
+    await render(
+      <>
+        <div className="w-56">
+          <WorkspaceHeaderShared onAction={onAction}>penkra</WorkspaceHeaderShared>
+        </div>
+        <button className="fixed right-0 bottom-0" type="button">
+          Outside workspace
+        </button>
+      </>,
+    );
+
+    const row = page.getByRole("button", { name: "penkra" });
+    const action = page.getByRole("button", { name: "Workspace actions" });
+    await page.getByRole("button", { name: "Outside workspace" }).hover();
+    const leading = row.element().querySelector<HTMLElement>("[data-slot='left-rail-leading']")!;
+    const label = row.element().querySelector<HTMLElement>("[data-slot='left-rail-label']")!;
+    const defaultRowRect = row.element().getBoundingClientRect();
+    const defaultLabelRect = label.getBoundingClientRect();
+
+    expect(leading.getBoundingClientRect().width).toBe(0);
+    expect(Math.abs(defaultLabelRect.left - defaultRowRect.left - 10)).toBeLessThan(1);
+    expect(getComputedStyle(action.element()).opacity).toBe("0");
+
+    await row.hover();
+
+    const hoverRowRect = row.element().getBoundingClientRect();
+    const hoverLeadingRect = leading.getBoundingClientRect();
+    const hoverLabelRect = label.getBoundingClientRect();
+    expect(hoverLeadingRect.width).toBe(14);
+    expect(Math.abs(hoverLeadingRect.left - hoverRowRect.left - 10)).toBeLessThan(1);
+    expect(Math.abs(hoverLabelRect.left - hoverLeadingRect.right - 12)).toBeLessThan(1);
+    expect(Math.abs(hoverLabelRect.left - hoverRowRect.left - 36)).toBeLessThan(1);
+    expect(getComputedStyle(action.element()).opacity).toBe("1");
+
+    await action.click();
+    expect(onAction).toHaveBeenCalledOnce();
+  });
+
+  it("renders the complete thread work-status lifecycle without changing row geometry", async () => {
+    const { rerender } = await render(
+      <div className="w-56">
+        <ThreadRowShared workStatus="idle">Lifecycle thread</ThreadRowShared>
+      </div>,
+    );
+
+    const row = page.getByRole("button", { name: "Lifecycle thread" });
+    const initialRect = row.element().getBoundingClientRect();
+    expect(row.element().querySelector("[data-slot='thread-status']")).toBeNull();
+
+    for (const [workStatus, label] of [
+      ["running", "Working"],
+      ["done", "Done"],
+      ["attention", "Needs attention"],
+    ] as const) {
+      await rerender(
+        <div className="w-56">
+          <ThreadRowShared workStatus={workStatus}>Lifecycle thread</ThreadRowShared>
+        </div>,
+      );
+      const current = page.getByRole("button", { name: "Lifecycle thread" }).element();
+      expect(current.querySelector(`[aria-label='${label}']`)).not.toBeNull();
+      expect(current.getBoundingClientRect().width).toBe(initialRect.width);
+      expect(current.getBoundingClientRect().height).toBe(initialRect.height);
+    }
   });
 
   it("keeps an empty shared disclosure at zero layout height", async () => {
@@ -130,7 +267,7 @@ describe("Pencil left rail", () => {
     expect(sibling.getBoundingClientRect().top).toBe(siblingTop);
   });
 
-  it("does not move the next row when an empty folder is expanded", async () => {
+  it("keeps an empty folder closed without moving the next row", async () => {
     await render(
       <div className="flex flex-col gap-0.5">
         <FolderGroupShared label="Empty folder" />
@@ -144,7 +281,9 @@ describe("Pencil left rail", () => {
 
     await disclosure.click();
 
-    await expect.element(disclosure).toHaveAttribute("aria-expanded", "true");
+    await expect.element(disclosure).toHaveAttribute("aria-expanded", "false");
+    expect(disclosure.element().querySelector("[data-folder-state='closed']")).toBeVisible();
+    expect(disclosure.element().querySelector("[data-folder-state='open']")).not.toBeVisible();
     expect(document.querySelector("[data-slot='folder-content']")).toBeNull();
     expect(sibling.getBoundingClientRect().top).toBe(siblingTop);
   });

@@ -20,7 +20,10 @@ export function SpacePageShared({
       aria-hidden={!active}
       aria-label={label}
       aria-roledescription="space"
-      className={cn("flex h-full w-60 shrink-0 flex-col overflow-hidden", className)}
+      className={cn(
+        "flex h-full w-60 shrink-0 snap-start snap-always flex-col overflow-hidden",
+        className,
+      )}
       data-pencil-component="tssws"
       inert={!active}
       role="group"

@@ -23,10 +23,7 @@ import { APP_DATA_USAGE_DESCRIPTION } from "../../../scripts/lib/macos-privacy.t
 import { resolveMacDevelopmentSigningIdentity } from "../../../scripts/lib/macos-dev-signing.ts";
 
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
-const desktopFlavor = resolveSynaraDesktopFlavor({
-  isDevelopment,
-  requestedFlavor: process.env.SYNARA_DESKTOP_FLAVOR,
-});
+const desktopFlavor = resolveSynaraDesktopFlavor({ isDevelopment });
 const desktopIdentity = synaraDesktopIdentity(desktopFlavor);
 const APP_DISPLAY_NAME = desktopIdentity.displayName;
 const APP_BUNDLE_ID = desktopIdentity.bundleId;

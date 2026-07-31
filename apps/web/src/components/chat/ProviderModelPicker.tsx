@@ -284,12 +284,7 @@ export const ProviderModelMenuItems = function ProviderModelMenuItems(
     }
 
     const providerOptions = props.modelOptionsByProvider[provider];
-    const shouldShowSearch =
-      (provider === "kilo" ||
-        provider === "opencode" ||
-        provider === "cursor" ||
-        provider === "pi") &&
-      providerOptions.length >= SEARCHABLE_MODEL_PICKER_THRESHOLD;
+    const shouldShowSearch = providerOptions.length >= SEARCHABLE_MODEL_PICKER_THRESHOLD;
     const normalizedModelSearchQuery = deferredModelSearchQuery.trim().toLowerCase();
     const filteredOptions =
       shouldShowSearch && normalizedModelSearchQuery.length > 0

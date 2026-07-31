@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Removed
+
+- Removed the separate Canary desktop flavor, launcher, storage profile, trusted origin, and
+  checkout-management workflow. Penkra now has only Stable and Penkra Dev; signed draft releases
+  are the release-candidate boundary.
+
 ## 0.6.0 - 2026-07-24
 
 ### Added

@@ -3,9 +3,9 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { FolderGroupShared } from "./FolderGroupShared";
 
 const threads = [
-  { id: "main", label: "Main", provider: "codex" as const, state: "selected" as const },
-  { id: "metrics", label: "Analyze PostHog metrics…", provider: "claudeAgent" as const },
-  { id: "search", label: "Add user to Search…", provider: "codex" as const },
+  { id: "main", label: "Main", provider: "codex" as const, state: "active" as const },
+  { id: "metrics", label: "Analyze PostHog metrics", provider: "claudeAgent" as const },
+  { id: "search", label: "Add user to Search Console", provider: "codex" as const },
   { id: "discord", label: "Set up Penut Discord", provider: "cursor" as const },
 ];
 
@@ -27,3 +27,24 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 export const Open: Story = {};
 export const Closed: Story = { args: { defaultExpanded: false } };
+export const Running: Story = {
+  args: {
+    threads: threads.map((thread, index) =>
+      index === 1 ? { ...thread, workStatus: "running" as const } : thread,
+    ),
+  },
+};
+export const Done: Story = {
+  args: {
+    threads: threads.map((thread, index) =>
+      index === 1 ? { ...thread, workStatus: "done" as const } : thread,
+    ),
+  },
+};
+export const NeedsAttention: Story = {
+  args: {
+    threads: threads.map((thread, index) =>
+      index === 1 ? { ...thread, workStatus: "attention" as const } : thread,
+    ),
+  },
+};

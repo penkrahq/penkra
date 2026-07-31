@@ -46,7 +46,7 @@ describe("trustedOrigins", () => {
         requestOrigin: "http://127.0.0.1:58090",
         config,
       }),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it("rejects unrelated browser origins but allows non-browser requests without Origin", () => {
@@ -114,7 +114,7 @@ describe("trustedOrigins", () => {
 
   it("normalizes desktop origins with trailing slashes", () => {
     expect(normalizeCorsOrigin("penkra://app/")).toBe("penkra://app");
-    expect(normalizeCorsOrigin("penkra-canary://app/")).toBe("penkra-canary://app");
+    expect(normalizeCorsOrigin("penkra-canary://app/")).toBeNull();
   });
 
   it("rejects present but untrusted request origins for websocket-style gates", () => {

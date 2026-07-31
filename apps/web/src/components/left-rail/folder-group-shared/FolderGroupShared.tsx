@@ -1,27 +1,36 @@
 "use client";
 
 import type { ProviderKind } from "@synara/contracts";
-import { useState } from "react";
+import { type MouseEvent, type ReactNode, useState } from "react";
 
 import { DisclosureSection } from "~/components/ui/DisclosureRegion";
 
-import { FolderStateIcon } from "../folder-state-icon/FolderStateIcon";
-import { LeftRailRow, type LeftRailRowState } from "../row-shared/LeftRailRow";
+import { FolderRowShared } from "../folder-row-shared/FolderRowShared";
+import type { LeftRailRowState } from "../row-shared/LeftRailRow";
 import { ShowMoreRow } from "../show-more-row/ShowMoreRow";
-import { ThreadRowShared } from "../thread-row-shared/ThreadRowShared";
+import {
+  ThreadRowShared,
+  type ThreadWorkStatus,
+} from "../thread-row-shared/ThreadRowShared";
 
 export interface FolderGroupThread {
   id: string;
   label: string;
-  provider?: ProviderKind;
+  provider?: ProviderKind | "github";
   state?: LeftRailRowState;
+  workStatus?: ThreadWorkStatus;
 }
 
 export interface FolderGroupSharedProps {
+  children?: ReactNode;
   defaultExpanded?: boolean;
   expanded?: boolean;
+  hasContent?: boolean;
+  headerState?: LeftRailRowState;
   label?: string;
   onExpandedChange?: (expanded: boolean) => void;
+  onHeaderAction?: (event: MouseEvent<HTMLButtonElement>) => void;
+  onHeaderContextMenu?: (event: MouseEvent<HTMLButtonElement>) => void;
   onShowMore?: () => void;
   onThreadSelect?: (id: string) => void;
   showMore?: boolean;
@@ -29,24 +38,30 @@ export interface FolderGroupSharedProps {
 }
 
 export function FolderGroupShared({
+  children,
   defaultExpanded = false,
   expanded: expandedProp,
+  hasContent: hasContentProp,
+  headerState = "default",
   label = "penut",
   onExpandedChange,
+  onHeaderAction,
+  onHeaderContextMenu,
   onShowMore,
   onThreadSelect,
   showMore = false,
   threads = [],
 }: FolderGroupSharedProps) {
   const [uncontrolledExpanded, setUncontrolledExpanded] = useState(defaultExpanded);
-  const expanded = expandedProp ?? uncontrolledExpanded;
+  const requestedExpanded = expandedProp ?? uncontrolledExpanded;
+  const hasContent = hasContentProp ?? (children != null || threads.length > 0 || showMore);
+  const expanded = hasContent && requestedExpanded;
 
   const setExpanded = (nextExpanded: boolean) => {
+    if (!hasContent) return;
     if (expandedProp === undefined) setUncontrolledExpanded(nextExpanded);
     onExpandedChange?.(nextExpanded);
   };
-
-  const hasContent = threads.length > 0 || showMore;
 
   return (
     <DisclosureSection
@@ -55,26 +70,30 @@ export function FolderGroupShared({
       data-pencil-component="Shahm"
       hasContent={hasContent}
       header={
-        <LeftRailRow
-          aria-expanded={expanded}
-          className="gap-1.5"
-          leading={<FolderStateIcon open={expanded} />}
-          leadingClassName="size-3.5"
-          onClick={() => setExpanded(!expanded)}
-          state={expanded ? "open" : "default"}
+        <FolderRowShared
+          expanded={expanded}
+          state={headerState}
+          {...(hasContent ? { onClick: () => setExpanded(!expanded) } : {})}
+          {...(onHeaderAction === undefined ? {} : { onAction: onHeaderAction })}
+          {...(onHeaderContextMenu === undefined
+            ? {}
+            : { onContextMenu: onHeaderContextMenu })}
         >
-          <span className="font-medium">{label}</span>
-        </LeftRailRow>
+          {label}
+        </FolderRowShared>
       }
       open={expanded}
     >
       <div className="flex flex-col gap-0.5" data-slot="folder-content">
+        {children}
         {threads.map((thread) => (
           <ThreadRowShared
             key={thread.id}
+            level="nested"
             onClick={() => onThreadSelect?.(thread.id)}
             {...(thread.provider === undefined ? {} : { harness: thread.provider })}
             {...(thread.state === undefined ? {} : { state: thread.state })}
+            {...(thread.workStatus === undefined ? {} : { workStatus: thread.workStatus })}
           >
             {thread.label}
           </ThreadRowShared>

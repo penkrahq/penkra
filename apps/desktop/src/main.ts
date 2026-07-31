@@ -183,9 +183,7 @@ import {
   resolveDesktopAppRoot,
 } from "./desktopStaticProtocol";
 import {
-  readCanaryRootArgument,
   readPenkraRootPointer,
-  resolveConfiguredPenkraRoot,
   resolvePenkraRuntime,
   resolvePenkraRootPointerPath,
   writePenkraRootPointer,
@@ -228,20 +226,10 @@ const penkraAccountServices = resolvePenkraAccountServiceEndpoints({
   configuredApiUrl: process.env.PENKRA_API_URL,
   configuredWebsiteOrigin: process.env.PENKRA_WEBSITE_ORIGIN,
 });
-const desktopFlavor = resolveSynaraDesktopFlavor({
-  isDevelopment,
-  requestedFlavor: process.env.SYNARA_DESKTOP_FLAVOR,
-});
+const desktopFlavor = resolveSynaraDesktopFlavor({ isDevelopment });
 const penkraRuntime = resolvePenkraRuntime({
   isDevelopment,
-  allowConfiguredRoot: desktopFlavor === "canary",
-  configuredRoot: resolveConfiguredPenkraRoot({
-    desktopFlavor,
-    canaryRootArgument: readCanaryRootArgument(process.argv),
-    canaryHome: process.env.SYNARA_CANARY_HOME,
-    penkraRoot: process.env.PENKRA_ROOT,
-    synaraHome: process.env.SYNARA_HOME,
-  }),
+  configuredRoot: process.env.PENKRA_ROOT,
   configuredApiUrl: penkraAccountServices.apiUrl,
   persistedProductionRoot: isDevelopment ? null : readPenkraRootPointer(penkraRootPointerPath),
 });
@@ -281,8 +269,8 @@ const LOG_FILE_MAX_FILES = 10;
 const APP_RUN_ID = Crypto.randomBytes(6).toString("hex");
 const DESKTOP_BACKEND_SHUTDOWN_TOKEN = Crypto.randomBytes(32).toString("hex");
 // Electron's single-instance lock is scoped through userData on Windows/Linux.
-// Set the flavor-specific profile first so Stable, Dev, and Canary never contend
-// for the same lock even when they use the same Electron executable.
+// Set the flavor-specific profile first so Stable and Dev never contend for the
+// same lock even when they use the same Electron executable.
 const userDataPath = resolveUserDataPath();
 FS.mkdirSync(userDataPath, { recursive: true, mode: 0o700 });
 app.setPath("userData", userDataPath);
@@ -892,7 +880,6 @@ protocol.registerSchemesAsPrivileged([
 function resolveAppRoot(): string {
   return resolveDesktopAppRoot({
     isPackagedRuntime,
-    isSourceCanary: desktopFlavor === "canary",
     sourceRoot: ROOT_DIR,
     packagedAppRoot: app.getAppPath(),
   });
@@ -1370,8 +1357,7 @@ function resolveAutoUpdateDisabledReason(): string | null {
     isPackaged: isPackagedRuntime,
     platform: process.platform,
     appImage: process.env.APPIMAGE,
-    disabledByEnv:
-      desktopIdentity.usesScriptedUpdates || process.env.SYNARA_DISABLE_AUTO_UPDATE === "1",
+    disabledByEnv: process.env.SYNARA_DISABLE_AUTO_UPDATE === "1",
     hasUpdateFeedConfig: hasConfiguredUpdateFeed(),
   });
 }

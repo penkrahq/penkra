@@ -19,4 +19,4 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 export const Empty: Story = {};
 export const Filled: Story = { args: { defaultValue: "Continue with the implementation." } };
-export const WithHarness: Story = { args: { showHarness: true } };
+export const WithoutModelSelector: Story = { args: { showHarness: false } };

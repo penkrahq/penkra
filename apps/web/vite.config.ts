@@ -11,6 +11,7 @@ import babel from "@rolldown/plugin-babel";
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import { defineConfig, type Plugin } from "vite";
 import pkg from "./package.json" with { type: "json" };
+import { reactRefreshHookTopologyGuard } from "./viteReactRefreshGuard";
 
 const port = Number(process.env.PORT ?? 5733);
 const sourcemapEnv = process.env.SYNARA_WEB_SOURCEMAP?.trim().toLowerCase();
@@ -106,6 +107,7 @@ export default defineConfig({
       target: "react",
       autoCodeSplitting: true,
     }),
+    reactRefreshHookTopologyGuard(),
     react(),
     babel({
       // We need to be explicit about the parser options after moving to @vitejs/plugin-react v6.0.0

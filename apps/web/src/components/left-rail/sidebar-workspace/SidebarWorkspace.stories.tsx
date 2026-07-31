@@ -15,9 +15,9 @@ const meta = {
           label="penut"
           showMore
           threads={[
-            { id: "main", label: "Main", provider: "codex", state: "selected" },
-            { id: "metrics", label: "Analyze PostHog metrics…", provider: "claudeAgent" },
-            { id: "search", label: "Add user to Search…", provider: "codex" },
+            { id: "main", label: "Main", provider: "codex", state: "active" },
+            { id: "metrics", label: "Analyze PostHog metrics", provider: "claudeAgent" },
+            { id: "search", label: "Add user to Search Console", provider: "codex" },
             { id: "discord", label: "Set up Penut Discord", provider: "cursor" },
           ]}
         />
@@ -26,7 +26,7 @@ const meta = {
           label="Atferd"
           threads={[
             { id: "audit", label: "Audit HIPAA compliance", provider: "claudeAgent" },
-            { id: "prune", label: "Prune database & local…", provider: "codex" },
+            { id: "prune", label: "Prune database and local data", provider: "codex" },
           ]}
         />
       </>

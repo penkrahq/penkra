@@ -17,6 +17,8 @@ const meta = {
 
 export default meta;
 type Story = StoryObj<typeof meta>;
-export const Open: Story = {};
+export const Default: Story = {};
+export const Hover: Story = { args: { state: "hover" } };
+export const Active: Story = { args: { state: "active" } };
 export const Closed: Story = { args: { expanded: false } };
 export const Disabled: Story = { args: { disabled: true } };

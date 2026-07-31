@@ -342,7 +342,7 @@ describe("authEffectRouteLayer", () => {
 });
 
 describe("binaryUploadEffectRouteLayer", () => {
-  it("allows credentialed Canary attachment upload preflights", async () => {
+  it("allows credentialed Penkra desktop attachment upload preflights", async () => {
     const config = {
       host: "127.0.0.1",
       attachmentsDir: fs.mkdtempSync(path.join(os.tmpdir(), "synara-upload-cors-")),
@@ -355,14 +355,14 @@ describe("binaryUploadEffectRouteLayer", () => {
           const response = await fetch(`${serverOrigin}${ATTACHMENT_UPLOAD_ROUTE_PATH}`, {
             method: "OPTIONS",
             headers: {
-              Origin: "penkra-canary://app",
+              Origin: "penkra://app",
               "Access-Control-Request-Method": "POST",
               "Access-Control-Request-Headers": "content-type",
             },
           });
 
           expect(response.status).toBe(204);
-          expect(response.headers.get("access-control-allow-origin")).toBe("penkra-canary://app");
+          expect(response.headers.get("access-control-allow-origin")).toBe("penkra://app");
           expect(response.headers.get("access-control-allow-credentials")).toBe("true");
           expect(response.headers.get("access-control-allow-methods")).toContain("POST");
           expect(response.headers.get("access-control-allow-headers")?.toLowerCase()).toContain(

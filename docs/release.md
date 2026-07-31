@@ -17,6 +17,8 @@ Penkra has one published channel: `stable`.
 - Security or updater recovery releases may bypass the normal cadence.
 - Releases are never created automatically from a schedule.
 - `Penkra (Dev)` is a local development application, not a release channel.
+- Release candidates use the signed draft-release workflow; Penkra has no separate Canary app or
+  data profile.
 
 ## Version authority
 
