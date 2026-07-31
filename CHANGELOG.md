@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.8.2 - 2026-07-31
+
+### Fixed
+
+- Fixed packaged microphone recording being denied when Electron reports Penkra's custom-scheme
+  main document with an `embeddingOrigin`. Penkra now uses Electron's explicit main-frame signal
+  and verifies every reported URL against the live renderer origin.
+
 ## 0.8.1 - 2026-07-31
 
 ### Fixed
