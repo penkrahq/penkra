@@ -37,6 +37,7 @@ import type {
 } from "electron";
 import * as Effect from "effect/Effect";
 import type {
+  DesktopSpacesMenuInput,
   DesktopTheme,
   DesktopUpdateActionResult,
   DesktopUpdateState,
@@ -79,6 +80,7 @@ import {
 } from "./bundleSwapDetection";
 import { waitForBackendStartupReady } from "./backendStartupReadiness";
 import { showDesktopConfirmDialog } from "./confirmDialog";
+import { normalizeDesktopSpacesMenuInput } from "./spacesMenu";
 import {
   makeUpdateInstallPreparationCoordinator,
   type UpdateInstallPreparationAttempt,
@@ -338,6 +340,7 @@ const browserPerfLoggingEnabled = process.env.SYNARA_BROWSER_PERF === "1";
 type DesktopUpdateErrorContext = DesktopUpdateState["errorContext"];
 
 let mainWindow: BrowserWindow | null = null;
+let spacesMenuState: DesktopSpacesMenuInput = { activeSpaceId: null, spaces: [] };
 let backendProcess: ChildProcess.ChildProcess | null = null;
 let backendPort = 0;
 let backendAuthToken = "";
@@ -1608,6 +1611,31 @@ function configureApplicationMenu(): void {
         ...zoomMenuItems,
         { type: "separator" },
         { role: "togglefullscreen" },
+      ],
+    },
+    {
+      label: "Spaces",
+      submenu: [
+        {
+          label: "New Space...",
+          click: () => dispatchMenuAction("space:new"),
+        },
+        ...(spacesMenuState.spaces.length > 0
+          ? [
+              { type: "separator" as const },
+              ...spacesMenuState.spaces.map((space) => ({
+                label: space.name,
+                type: "checkbox" as const,
+                checked: space.id === spacesMenuState.activeSpaceId,
+                click: () => dispatchMenuAction(`space:focus:${space.id}`),
+              })),
+            ]
+          : []),
+        { type: "separator" },
+        {
+          label: "Manage Spaces...",
+          click: () => dispatchMenuAction("space:manage"),
+        },
       ],
     },
     { role: "windowMenu" },
@@ -3582,13 +3610,18 @@ function registerIpcHandlers(): void {
   });
 
   ipcMain.removeHandler(IPC.confirm);
-  ipcMain.handle(IPC.confirm, async (_event, message: unknown) => {
-    if (typeof message !== "string") {
+  ipcMain.handle(IPC.confirm, async (_event, input: unknown) => {
+    if (
+      typeof input !== "string" &&
+      (!input ||
+        typeof input !== "object" ||
+        typeof (input as { message?: unknown }).message !== "string")
+    ) {
       return false;
     }
 
     const owner = BrowserWindow.getFocusedWindow() ?? mainWindow;
-    return showDesktopConfirmDialog(message, owner);
+    return showDesktopConfirmDialog(input as Parameters<typeof showDesktopConfirmDialog>[0], owner);
   });
 
   ipcMain.removeHandler(IPC.setTheme);
@@ -3599,6 +3632,14 @@ function registerIpcHandlers(): void {
     }
 
     nativeTheme.themeSource = theme;
+  });
+
+  ipcMain.removeHandler(IPC.setSpacesMenu);
+  ipcMain.handle(IPC.setSpacesMenu, async (_event, input: unknown) => {
+    const nextState = normalizeDesktopSpacesMenuInput(input);
+    if (!nextState) return;
+    spacesMenuState = nextState;
+    configureApplicationMenu();
   });
 
   ipcMain.removeHandler(IPC.contextMenu);

@@ -471,6 +471,23 @@ export interface SynaraStorageSnapshot {
   readonly entries: Readonly<Record<string, string>>;
 }
 
+export interface DesktopConfirmOptions {
+  cancelLabel?: string;
+  confirmLabel?: string;
+  detail?: string;
+  message: string;
+  title?: string;
+  type?: "question" | "warning";
+}
+
+export interface DesktopSpacesMenuInput {
+  activeSpaceId: string | null;
+  spaces: ReadonlyArray<{
+    id: string;
+    name: string;
+  }>;
+}
+
 export interface DesktopBridge {
   getWsUrl: () => string | null;
   /**
@@ -487,8 +504,9 @@ export interface DesktopBridge {
       extensions: ReadonlyArray<string>;
     }>;
   }) => Promise<string | null>;
-  confirm: (message: string) => Promise<boolean>;
+  confirm: (input: string | DesktopConfirmOptions) => Promise<boolean>;
   setTheme: (theme: DesktopTheme) => Promise<void>;
+  setSpacesMenu?: (input: DesktopSpacesMenuInput) => Promise<void>;
   showContextMenu: <T extends string>(
     items: readonly ContextMenuItem<T>[],
     position?: { x: number; y: number },

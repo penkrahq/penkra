@@ -2,6 +2,7 @@ import {
   IconApps,
   IconBrush,
   IconKey,
+  IconFolders,
   IconPlug,
   IconRobot,
   IconSettings,
@@ -18,20 +19,21 @@ import { SettingRowShared } from "../setting-row-shared/SettingRowShared";
 import { SettingsHeader } from "../settings-header/SettingsHeader";
 import { SettingsSectionShared } from "../settings-section-shared/SettingsSectionShared";
 
-export type SettingsPage =
+export type SettingsPageId =
   | "general"
   | "permissions"
+  | "spaces"
   | "agents"
   | "apps"
   | "connectors"
   | "appearance"
   | "account";
 
-export interface ModalSettingsProps {
+export interface SettingsPageProps {
   children?: ReactNode;
   className?: string;
-  onPageChange?: (page: SettingsPage) => void;
-  page?: SettingsPage;
+  onPageChange?: (page: SettingsPageId) => void;
+  page?: SettingsPageId;
 }
 
 const pages = [
@@ -46,6 +48,12 @@ const pages = [
     id: "permissions",
     label: "Permissions",
     subtitle: "Review pending access requests and manage alerts.",
+  },
+  {
+    icon: IconFolders,
+    id: "spaces",
+    label: "Spaces",
+    subtitle: "Create, rename, and organize the Spaces in your left rail.",
   },
   {
     icon: IconRobot,
@@ -79,21 +87,22 @@ const pages = [
   },
 ] as const;
 
-export function ModalSettings({
+export function SettingsPage({
   children,
   className,
   onPageChange,
   page = "general",
-}: ModalSettingsProps) {
+}: SettingsPageProps) {
   const activePage = pages.find((item) => item.id === page) ?? pages[0];
+
   return (
-    <section
+    <main
       aria-label="Settings"
       className={cn(
-        "flex h-[640px] w-[880px] overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-background-surface)]",
+        "flex h-full min-h-0 w-full overflow-hidden bg-[var(--color-background-surface)]",
         className,
       )}
-      data-pencil-component="BvoZF"
+      data-pencil-surface="settings-page"
     >
       <nav
         aria-label="Settings pages"
@@ -116,7 +125,7 @@ export function ModalSettings({
         data-pencil-region="settings-content"
         scrollFade
       >
-        <div className="mx-auto flex w-[440px] flex-col gap-7 py-8">
+        <div className="mx-auto flex w-full max-w-[680px] flex-col gap-7 px-8 py-8">
           <SettingsHeader subtitle={activePage.subtitle} title={activePage.label} />
           {children ?? (
             <SettingsSectionShared>
@@ -137,6 +146,6 @@ export function ModalSettings({
           )}
         </div>
       </ScrollArea>
-    </section>
+    </main>
   );
 }

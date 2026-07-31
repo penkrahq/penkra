@@ -66,7 +66,7 @@ describe("AdvancedSettingsPanel", () => {
     const disclosureButton = page.getByRole("button", { name: "What this does" });
     expect(disclosureButton.element().getAttribute("aria-expanded")).toBe("false");
     const disclosureShell = disclosureButton.element().parentElement?.querySelector("div[inert]");
-    expect(disclosureShell?.className).toContain("duration-220");
+    expect(disclosureShell?.className).toContain("duration-150");
     await disclosureButton.click();
     await vi.waitFor(() =>
       expect(disclosureButton.element().getAttribute("aria-expanded")).toBe("true"),

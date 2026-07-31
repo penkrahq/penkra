@@ -1,6 +1,6 @@
 import type { ComponentProps, MouseEvent } from "react";
 
-import { EllipsisIcon } from "~/lib/icons";
+import { NewThreadIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
 import { FolderStateIcon } from "../folder-state-icon/FolderStateIcon";
 import { LeftRailRow } from "../row-shared/LeftRailRow";
@@ -10,30 +10,30 @@ export interface FolderRowSharedProps extends Omit<
   "leading" | "trailing"
 > {
   expanded?: boolean;
+  actionLabel?: string;
   onAction?: (event: MouseEvent<HTMLButtonElement>) => void;
 }
 
 export function FolderRowShared({
   children = "penut",
+  actionLabel,
   disabled,
   expanded = false,
   onAction,
   state = "default",
   ...props
 }: FolderRowSharedProps) {
-  const showAction =
-    state === "hover" ||
-    state === "active" ||
-    state === "selected" ||
-    state === "focus" ||
-    state === "error";
+  const showAction = state === "hover" || state === "focus" || state === "error";
 
   return (
     <div className="group/folder-row relative w-full">
       <LeftRailRow
         aria-expanded={expanded}
         className={cn(
-          "gap-3 pr-2.5 active:bg-[var(--color-background-button-secondary-hover)]",
+          "gap-3 pr-2.5 active:bg-[var(--color-background-button-secondary-hover)] group-hover/folder-row:bg-[var(--color-background-button-secondary-hover)] group-hover/folder-row:text-[var(--color-text-foreground)] group-focus-within/folder-row:bg-[var(--color-background-button-secondary-hover)] group-focus-within/folder-row:text-[var(--color-text-foreground)]",
+          onAction &&
+            "group-hover/folder-row:pr-9 group-focus-within/folder-row:pr-9",
+          showAction && onAction && "pr-9",
           state === "selected" &&
             "bg-[var(--color-background-button-secondary-active)] text-[var(--color-text-foreground)]",
           (state === "focus" || state === "error") &&
@@ -49,9 +49,12 @@ export function FolderRowShared({
       </LeftRailRow>
       {onAction ? (
         <button
-          aria-label="Folder actions"
+          aria-label={
+            actionLabel ??
+            `Create thread in ${typeof children === "string" ? children : "this folder"}`
+          }
           className={cn(
-            "absolute top-1/2 right-2.5 inline-flex size-3.5 -translate-y-1/2 cursor-pointer items-center justify-center border-0 bg-[var(--color-background-button-secondary-hover)] p-0 text-[var(--color-text-foreground-secondary)] opacity-0 outline-none",
+            "absolute top-1/2 right-2.5 inline-flex size-3.5 -translate-y-1/2 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-[var(--color-text-foreground-secondary)] opacity-0 outline-none",
             "group-hover/folder-row:opacity-100 hover:text-[var(--color-text-foreground)] focus-visible:opacity-100 focus-visible:ring-1 focus-visible:ring-[var(--color-border-focus)]",
             showAction && "opacity-100",
           )}
@@ -61,7 +64,7 @@ export function FolderRowShared({
           }}
           type="button"
         >
-          <EllipsisIcon className="size-3.5" />
+          <NewThreadIcon className="size-3.5" />
         </button>
       ) : null}
     </div>

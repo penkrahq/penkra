@@ -14,6 +14,7 @@ import {
 } from "../lib/composerDropPaths";
 import { VOID_SPACE_KEY, spaceKey, toSpaceIconName } from "../lib/spaceGrouping";
 import { createSpace } from "../lib/spaces";
+import { suggestSpaceIcon } from "../lib/spaceIconSuggestion";
 import { readNativeApi } from "../nativeApi";
 import type { Space } from "../types";
 import { useVoidSpace } from "../voidSpaceStore";
@@ -21,8 +22,8 @@ import { cn } from "~/lib/utils";
 
 import { FolderClosed } from "./FolderClosed";
 import { describeAddProjectError } from "./Sidebar.logic";
-import { SpaceEditorDialog, type SpaceEditorValue } from "./SpaceEditorDialog";
 import { SpaceIcon } from "./SpaceIcon";
+import { SpaceHeaderInlineEdit } from "./left-rail/space-header-inline-edit/SpaceHeaderInlineEdit";
 import { Button } from "./ui/button";
 import {
   Dialog,
@@ -105,7 +106,8 @@ export function CreateProjectDialog(props: {
   const errorId = `${fieldId}-error`;
 
   useEffect(() => {
-    // Seed on the closed -> open transition only, mirroring SpaceEditorDialog.
+    // Seed only on the closed -> open transition so background snapshot updates
+    // cannot reset a form the user is already editing.
     if (props.open === openedRef.current) return;
     openedRef.current = props.open;
     if (!props.open) return;
@@ -241,7 +243,7 @@ export function CreateProjectDialog(props: {
 
   // The space is created right away (same command the sidebar uses) and picked
   // as the destination, so one Create click ships the project into it.
-  const handleCreateSpace = async (value: SpaceEditorValue) => {
+  const handleCreateSpace = async (value: { name: string; icon: string }) => {
     const api = readNativeApi();
     if (!api) throw new Error("The app server is unavailable.");
     const icon = toSpaceIconName(value.icon);
@@ -395,6 +397,18 @@ export function CreateProjectDialog(props: {
                 <CentralIcon name="plus-medium" className="size-4" aria-hidden="true" />
               </Button>
             </div>
+            {spaceEditorOpen ? (
+              <SpaceHeaderInlineEdit
+                className="mt-2"
+                existingNames={[...spaces.map((space) => space.name), voidSpace.name]}
+                mode="create"
+                onCancel={() => setSpaceEditorOpen(false)}
+                onSubmit={async (name) => {
+                  await handleCreateSpace({ name, icon: suggestSpaceIcon(name) });
+                  setSpaceEditorOpen(false);
+                }}
+              />
+            ) : null}
           </div>
 
           {formError ? (
@@ -430,13 +444,6 @@ export function CreateProjectDialog(props: {
             {submitting ? "Creating…" : "Create project"}
           </Button>
         </DialogFooter>
-        <SpaceEditorDialog
-          open={spaceEditorOpen}
-          mode="create"
-          existingNames={[...spaces.map((space) => space.name), voidSpace.name]}
-          onOpenChange={setSpaceEditorOpen}
-          onSubmit={handleCreateSpace}
-        />
       </DialogPopup>
     </Dialog>
   );

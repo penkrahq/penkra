@@ -467,6 +467,9 @@ export function createWsNativeApi(): NativeApi {
         return null;
       },
       confirm: async (message) => {
+        if (window.desktopBridge) {
+          return window.desktopBridge.confirm(message);
+        }
         return showConfirmDialogFallback(message);
       },
     },

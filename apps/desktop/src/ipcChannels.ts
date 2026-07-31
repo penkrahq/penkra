@@ -7,6 +7,7 @@ export const DESKTOP_IPC_CHANNELS = {
   saveFile: "desktop:save-file",
   confirm: "desktop:confirm",
   setTheme: "desktop:set-theme",
+  setSpacesMenu: "desktop:set-spaces-menu",
   contextMenu: "desktop:context-menu",
   openExternal: "desktop:open-external",
   showInFolder: "desktop:show-in-folder",

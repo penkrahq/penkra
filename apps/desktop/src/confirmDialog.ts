@@ -1,23 +1,27 @@
 import { type BrowserWindow, dialog } from "electron";
+import type { DesktopConfirmOptions } from "@synara/contracts";
 
 const CONFIRM_BUTTON_INDEX = 1;
 
 export async function showDesktopConfirmDialog(
-  message: string,
+  input: string | DesktopConfirmOptions,
   ownerWindow: BrowserWindow | null,
 ): Promise<boolean> {
-  const normalizedMessage = message.trim();
+  const normalizedInput = typeof input === "string" ? { message: input } : input;
+  const normalizedMessage = normalizedInput.message.trim();
   if (normalizedMessage.length === 0) {
     return false;
   }
 
   const options = {
-    type: "question" as const,
-    buttons: ["No", "Yes"],
+    type: normalizedInput.type ?? ("question" as const),
+    buttons: [normalizedInput.cancelLabel ?? "No", normalizedInput.confirmLabel ?? "Yes"],
     defaultId: CONFIRM_BUTTON_INDEX,
     cancelId: 0,
     noLink: true,
     message: normalizedMessage,
+    ...(normalizedInput.title ? { title: normalizedInput.title } : {}),
+    ...(normalizedInput.detail ? { detail: normalizedInput.detail } : {}),
   };
   const result = ownerWindow
     ? await dialog.showMessageBox(ownerWindow, options)

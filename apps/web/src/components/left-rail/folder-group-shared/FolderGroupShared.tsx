@@ -68,6 +68,7 @@ export function FolderGroupShared({
       hasContent={hasContent}
       header={
         <FolderRowShared
+          actionLabel={`Create thread in ${label}`}
           expanded={expanded}
           state={headerState}
           {...(hasContent ? { onClick: () => setExpanded(!expanded) } : {})}

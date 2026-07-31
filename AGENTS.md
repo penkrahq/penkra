@@ -98,9 +98,9 @@ Treat the active Penkra `.pen` file as the authority for the component catalog a
 
 ### Open/close (toggle) animations — single source
 
-Any UI element with an open/close toggle (expand/collapse, show/hide, disclosure) MUST reuse the shared disclosure motion in `apps/web/src/lib/disclosureMotion.ts`. Never write bespoke height/opacity transitions or one-off `@keyframes` for a toggle — use the same logic and the same functions everywhere so every toggle feels identical (220ms `ease-out`, with `motion-reduce` fallbacks).
+Any UI element with an open/close toggle (expand/collapse, show/hide, disclosure) MUST reuse the shared disclosure motion in `apps/web/src/lib/disclosureMotion.ts`. Never write bespoke height/opacity transitions or one-off `@keyframes` for a toggle. Vertical disclosures use native intrinsic-size interpolation (`height: 0` to `height: auto`) with the productive expansion motion token and `motion-reduce` fallback; do not reintroduce measured-height, grid-row, content-count, or cleanup-buffer heuristics.
 
-- Shell + content (used by open/close project, sidebar sections, composer suggestions): `disclosureShellClassName(open)` on the grid shell, `DISCLOSURE_INNER_CLASS` on the inner wrapper, `disclosureContentClassName(open)` on the content — or the ready-made `DisclosureRegion` component (`apps/web/src/components/ui/DisclosureRegion.tsx`).
+- Shell + content (used by open/close project, sidebar sections, composer suggestions): `disclosureShellClassName(open)` on the intrinsic-height shell, `DISCLOSURE_INNER_CLASS` on the inner wrapper, `disclosureContentClassName(open)` on the content — or the ready-made `DisclosureRegion` component (`apps/web/src/components/ui/DisclosureRegion.tsx`).
 - Base UI `<Collapsible>` panels: wrap with `CollapsiblePanel` (`apps/web/src/components/ui/collapsible.tsx`), which applies `DISCLOSURE_COLLAPSIBLE_PANEL_CLASS`.
 - Rotating chevron affordance: `DisclosureChevron` / `disclosureChevronClassName(open)`.
 

@@ -25,6 +25,7 @@ export function ThreadRowShared({
   className,
   harness = "claudeAgent",
   level = "root",
+  state = "default",
   workStatus = "idle",
   ...props
 }: ThreadRowSharedProps) {
@@ -42,6 +43,8 @@ export function ThreadRowShared({
       className={cn(
         "relative gap-3 pr-2.5",
         level === "nested" ? "pl-6" : "pl-2.5",
+        state === "active" &&
+          "bg-[var(--color-background-button-secondary-hover)] text-[var(--color-text-foreground)]",
         workStatus === "running" &&
           "[&_[data-slot=thread-status]]:text-[var(--color-text-foreground-secondary)]",
         workStatus === "done" && "[&_[data-slot=thread-status]]:text-[var(--color-text-accent)]",
@@ -58,17 +61,17 @@ export function ThreadRowShared({
       leadingClassName="size-3.5"
       data-thread-level={level}
       data-work-status={workStatus}
+      state={state}
       trailing={
         trailing ? (
           <span
-            className="inline-flex size-6 shrink-0 items-center justify-end bg-sidebar group-hover/left-rail-row:bg-[var(--sidebar-accent)]"
+            className="inline-flex size-3.5 shrink-0 items-center justify-center"
             data-slot="thread-status"
           >
             {trailing}
           </span>
         ) : null
       }
-      trailingClassName="absolute top-1/2 right-2.5 -translate-y-1/2"
       {...props}
     >
       {children}

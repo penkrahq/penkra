@@ -2,7 +2,6 @@
 // Purpose: Renders the project/thread sidebar, including row status, sorting, and thread actions.
 // Exports: Sidebar
 
-import { autoAnimate } from "@formkit/auto-animate";
 import {
   MAX_PINNED_PROJECTS,
   PROVIDER_DISPLAY_NAMES,
@@ -10,7 +9,6 @@ import {
   SpaceId,
   ThreadId,
   type DesktopUpdateState,
-  type GitStatusResult,
   type OrchestrationShellSnapshot,
   type ProviderKind,
   type ResolvedKeybindingsConfig,
@@ -111,6 +109,7 @@ import {
   spaceKey,
 } from "../lib/spaceGrouping";
 import { isOrdinarySpaceProject } from "../lib/spaces";
+import { suggestSpaceIcon } from "../lib/spaceIconSuggestion";
 import { collectStudioProjectIds } from "../lib/studioProjects";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import {
@@ -135,14 +134,14 @@ import {
   createSidebarThreadSummariesSelector,
   createSidebarTreeThreadsSelector,
 } from "../storeSelectors";
-import { useTemporaryThreadStore } from "../temporaryThreadStore";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
 import { getThreadFromState } from "../threadDerivation";
 import { useThreadDetailPrewarm } from "../threadDetailPrewarm";
 import { retainThreadDetailSubscription } from "../threadDetailSubscriptionRetention";
 import { useThreadSelectionStore } from "../threadSelectionStore";
-import type { SidebarThreadSummary, Thread } from "../types";
+import type { Project, SidebarThreadSummary, Space, Thread } from "../types";
 import { useWorkspacePathsStore } from "../workspacePathsStore";
+import { subscribeToSpaceUiActions } from "../spaceUiEvents";
 import { shouldRenderTerminalWorkspace } from "./ChatView.logic";
 import { CreateProjectDialog, type CreateProjectSubmitValue } from "./CreateProjectDialog";
 import { RenameDialog } from "./RenameDialog";
@@ -163,7 +162,6 @@ import {
   orderPinnedProjectsForSidebar,
   pruneProjectThreadListPagingForCollapsedProjects,
   recoverExistingAddProjectTarget,
-  resolveProjectEmptyState,
   resolveSidebarNewThreadEnvMode,
   resolveSidebarThreadListPaging,
   resolveThreadStatusPill,
@@ -190,10 +188,7 @@ import type {
   SidebarSearchProject,
   SidebarSearchThread,
 } from "./SidebarSearchPalette.logic";
-import { SpaceEditorDialog } from "./SpaceEditorDialog";
-import { SpaceEmptyState } from "./SpaceEmptyState";
 import { SpaceIcon } from "./SpaceIcon";
-import { SpaceProjectPickerDialog } from "./SpaceProjectPickerDialog";
 import { THREAD_DRAG_MIME } from "./chat-drop-overlay/ChatPaneDropOverlay";
 import {
   ComposerPickerMenuPopup,
@@ -217,19 +212,17 @@ import {
 import { subscribeToDesktopUpdateState } from "./desktopUpdate.subscription";
 import { FolderGroupShared } from "./left-rail/folder-group-shared/FolderGroupShared";
 import { AccountControlShared } from "./left-rail/account-control-shared/AccountControlShared";
-import { PopupLogoutConfirmation } from "./left-rail/popup-logout-confirmation/PopupLogoutConfirmation";
 import { ShowMoreRow } from "./left-rail/show-more-row/ShowMoreRow";
 import { SidebarHeaderShared } from "./left-rail/sidebar-header-shared/SidebarHeaderShared";
 import { SidebarProjects } from "./left-rail/sidebar-projects/SidebarProjects";
 import { SidebarTopNavigation } from "./left-rail/sidebar-top-navigation/SidebarTopNavigation";
-import { SpacePageShared } from "./left-rail/space-page-shared/SpacePageShared";
-import { SpaceViewportShared } from "./left-rail/space-viewport-shared/SpaceViewportShared";
+import { LeftRailContentShared } from "./left-rail/left-rail-content-shared/LeftRailContentShared";
+import { SpaceGroupShared } from "./left-rail/space-group-shared/SpaceGroupShared";
+import { SpaceHeaderInlineEdit } from "./left-rail/space-header-inline-edit/SpaceHeaderInlineEdit";
 import {
   ThreadRowShared,
   type ThreadWorkStatus,
 } from "./left-rail/thread-row-shared/ThreadRowShared";
-import { WorkspaceHeaderShared } from "./left-rail/workspace-header-shared/WorkspaceHeaderShared";
-import { DisclosureSection } from "./ui/DisclosureRegion";
 import { toDisplayName } from "./profile/profileFormatting";
 import { useProfileName } from "./profile/useProfileName";
 import {
@@ -269,38 +262,7 @@ const EMPTY_KEYBINDINGS: ResolvedKeybindingsConfig = [];
 const THREAD_PREVIEW_LIMIT = 5;
 // Each "Show more" click reveals this many extra rows; "Show less" hides them again page by page.
 const THREAD_PREVIEW_PAGE_SIZE = 5;
-const SIDEBAR_LIST_ANIMATION_OPTIONS = {
-  duration: 180,
-  easing: "ease-out",
-} as const;
 const EMPTY_THREAD_JUMP_LABELS = new Map<ThreadId, string>();
-const PROTOTYPE_SPACE_FOLDERS = [
-  {
-    label: "Research",
-    threads: [
-      {
-        id: "prototype-space-research-arc",
-        label: "Study Arc space switching",
-        provider: "claudeAgent" as const,
-      },
-      {
-        id: "prototype-space-research-zen",
-        label: "Compare Zen gesture behavior",
-        provider: "codex" as const,
-      },
-    ],
-  },
-  {
-    label: "Experiments",
-    threads: [
-      {
-        id: "prototype-space-experiment-snap",
-        label: "Tune momentum and snapping",
-        provider: "codex" as const,
-      },
-    ],
-  },
-] as const;
 const ADD_PROJECT_SNAPSHOT_CATCH_UP_MAX_ATTEMPTS = 6;
 const ADD_PROJECT_SNAPSHOT_CATCH_UP_DELAY_MS = 50;
 const DebugFeatureFlagsMenu = import.meta.env.DEV
@@ -408,10 +370,7 @@ function buildThreadJumpLabelMap(input: {
   return mapping.size > 0 ? mapping : EMPTY_THREAD_JUMP_LABELS;
 }
 
-type ThreadPr = GitStatusResult["pr"];
-
 export default function Sidebar() {
-  const [prototypeSpacePageIndex, setPrototypeSpacePageIndex] = useState(0);
   const [showDebugFeatureFlagsMenu, setShowDebugFeatureFlagsMenu] = useState(
     readDebugFeatureFlagsMenuVisibility,
   );
@@ -430,9 +389,6 @@ export default function Sidebar() {
   const markThreadUnread = useStore((store) => store.markThreadUnread);
   const toggleProject = useStore((store) => store.toggleProject);
   const setProjectExpanded = useStore((store) => store.setProjectExpanded);
-  const setAllProjectsExpanded = useStore((store) => store.setAllProjectsExpanded);
-  const collapseProjectsExcept = useStore((store) => store.collapseProjectsExcept);
-  const reorderProjects = useStore((store) => store.reorderProjects);
   const renameProjectLocally = useStore((store) => store.renameProjectLocally);
   const removeDeletedProjectFromClientState = useStore(
     (store) => store.removeDeletedProjectFromClientState,
@@ -443,14 +399,13 @@ export default function Sidebar() {
   const openTerminalThreadPage = useTerminalStateStore((state) => state.openTerminalThreadPage);
   const clearProjectDraftThreads = useComposerDraftStore((store) => store.clearProjectDraftThreads);
   const draftThreadsByThreadId = useComposerDraftStore((store) => store.draftThreadsByThreadId);
-  const temporaryThreadIds = useTemporaryThreadStore((store) => store.temporaryThreadIds);
   const persistedPinnedProjectIds = usePinnedProjectsStore((store) => store.pinnedProjectIds);
   const pinProjectLocally = usePinnedProjectsStore((store) => store.pinProject);
   const unpinProject = usePinnedProjectsStore((store) => store.unpinProject);
   const prunePinnedProjects = usePinnedProjectsStore((store) => store.prunePinnedProjects);
   const homeDir = useWorkspacePathsStore((store) => store.homeDir);
   const defaultProfileName = toDisplayName(
-    (homeDir ?? "").split(/[\\/]/).filter(Boolean).at(-1) ?? "",
+    (homeDir ?? "").split(/[\\/]/).findLast((segment) => segment.length > 0) ?? "",
   );
   const { name: profileName } = useProfileName(defaultProfileName);
   const chatWorkspaceRoot = useWorkspacePathsStore((store) => store.chatWorkspaceRoot);
@@ -461,7 +416,7 @@ export default function Sidebar() {
     select: (loc) => loc.pathname === "/settings",
   });
   const isOnWorkspace = false;
-  const { settings: appSettings, updateSettings } = useAppSettings();
+  const { settings: appSettings } = useAppSettings();
   const { handleNewThread } = useHandleNewThread();
   const { handleNewChat } = useHandleNewChat();
   const { createThreadHandoff } = useThreadHandoff();
@@ -473,7 +428,6 @@ export default function Sidebar() {
     [queryClient],
   );
   const [penkraCreateClientOpen, setPenkraCreateClientOpen] = useState(false);
-  const [logoutConfirmationOpen, setLogoutConfirmationOpen] = useState(false);
   const routeThreadId = useParams({
     strict: false,
     select: (params) => (params.threadId ? ThreadId.makeUnsafe(params.threadId) : null),
@@ -496,6 +450,37 @@ export default function Sidebar() {
       openRightDockPane(result.threadId, { kind: "apps" });
     }
   }, [handleNewChat, openRightDockPane, routeThreadId]);
+  const handleAccountLogout = useCallback(async () => {
+    const accountAuth = window.desktopBridge?.accountAuth;
+    if (!accountAuth) {
+      toastManager.add({ type: "error", title: "Account authentication is unavailable" });
+      return;
+    }
+
+    const confirmed = window.desktopBridge
+      ? await window.desktopBridge.confirm({
+          type: "warning",
+          title: "Penkra",
+          message: "Log out of Penkra?",
+          detail: "You’ll need to sign in again to access your account.",
+          cancelLabel: "Cancel",
+          confirmLabel: "Log Out",
+        })
+      : await ensureNativeApi().dialogs.confirm(
+          "Log out of Penkra?\nYou’ll need to sign in again to access your account.",
+        );
+    if (!confirmed) return;
+
+    try {
+      await accountAuth.signOut();
+    } catch (error) {
+      toastManager.add({
+        type: "error",
+        title: "Unable to log out",
+        description: error instanceof Error ? error.message : undefined,
+      });
+    }
+  }, []);
   const routeSearch = useDiffRouteSearch();
   const activeSplitView = useSplitViewStore(
     useMemo(() => selectSplitView(routeSearch.splitViewId ?? null), [routeSearch.splitViewId]),
@@ -598,8 +583,8 @@ export default function Sidebar() {
   const [threadListExtraPagesByProjectCwd, setThreadListExtraPagesByProjectCwd] = useState<
     ReadonlyMap<string, number>
   >(() => new Map(Object.entries(readSidebarUiState().projectThreadListExtraPagesByCwd)));
-  const [chatSectionExpanded, setChatSectionExpanded] = useState(
-    () => readSidebarUiState().chatSectionExpanded,
+  const [collapsedSpaceIds, setCollapsedSpaceIds] = useState<ReadonlySet<string>>(
+    () => new Set(readSidebarUiState().collapsedSpaceIds),
   );
   const [chatThreadListExtraPages, setChatThreadListExtraPages] = useState(
     () => readSidebarUiState().chatThreadListExtraPages,
@@ -758,7 +743,6 @@ export default function Sidebar() {
     deleteThread,
     confirmAndDeleteThread,
     archiveThread,
-    archiveThreadWithUndo,
     confirmAndArchiveThread,
     archiveAllThreadsInProject,
     deleteProjectThreads,
@@ -1811,7 +1795,7 @@ export default function Sidebar() {
     (nextLastThreadRoute: LastThreadRoute) => {
       setLastThreadRoute(nextLastThreadRoute);
       persistSidebarUiState({
-        chatSectionExpanded,
+        collapsedSpaceIds: [...collapsedSpaceIds],
         chatThreadListExtraPages,
         projectThreadListExtraPagesByCwd: Object.fromEntries(threadListExtraPagesByProjectCwd),
         dismissedThreadStatusKeyByThreadId,
@@ -1819,7 +1803,7 @@ export default function Sidebar() {
       });
     },
     [
-      chatSectionExpanded,
+      collapsedSpaceIds,
       chatThreadListExtraPages,
       dismissedThreadStatusKeyByThreadId,
       threadListExtraPagesByProjectCwd,
@@ -1854,25 +1838,17 @@ export default function Sidebar() {
 
   const handleCloseProjectContextMenu = useCallback(() => setProjectContextMenuState(null), []);
   const {
-    activeSpace,
     editedSpace,
     spaceEditorOpen,
     spaceEditorMode,
     spaceEditorExistingNames,
-    spaceProjectPickerTarget,
     openSpaceCreator,
     openSpaceEditor,
     closeSpaceEditor,
-    openSpaceProjectPicker,
-    closeSpaceProjectPicker,
     handleSelectSpace,
     handleSelectSpaceForIncomingProject,
-    handleReorderSpaces,
-    handleRenameSpace,
-    handleDeleteSpace,
     handleMoveProjectToSpace,
     handleSpaceEditorSubmit,
-    handleBulkMoveProjects,
   } = useSpacesController({
     ordinarySpaceProjects,
     projectById,
@@ -1884,6 +1860,91 @@ export default function Sidebar() {
     activateThreadFromSidebarIntent,
     onCloseProjectContextMenu: handleCloseProjectContextMenu,
   });
+
+  useEffect(
+    () =>
+      subscribeToSpaceUiActions((action) => {
+        if (action.type === "create") {
+          openSpaceCreator();
+          return;
+        }
+        if (action.type === "rename") {
+          openSpaceEditor(action.spaceId);
+          return;
+        }
+        handleSelectSpace(action.spaceId);
+      }),
+    [handleSelectSpace, openSpaceCreator, openSpaceEditor],
+  );
+
+  useEffect(() => {
+    void window.desktopBridge?.setSpacesMenu?.({
+      activeSpaceId,
+      spaces: spaces.map((space) => ({ id: space.id, name: space.name })),
+    });
+  }, [activeSpaceId, spaces]);
+
+  useEffect(() => {
+    const onMenuAction = window.desktopBridge?.onMenuAction;
+    if (typeof onMenuAction !== "function") return;
+    return onMenuAction((action) => {
+      if (action === "space:new") {
+        openSpaceCreator();
+        return;
+      }
+      if (action === "space:manage") {
+        void navigate({ to: "/settings", search: { section: "spaces" } });
+        return;
+      }
+      if (!action.startsWith("space:focus:")) return;
+      const spaceId = action.slice("space:focus:".length);
+      if (!spaces.some((space) => space.id === spaceId)) return;
+      handleSelectSpace(SpaceId.makeUnsafe(spaceId));
+    });
+  }, [handleSelectSpace, navigate, openSpaceCreator, spaces]);
+
+  const handleSpaceHeaderContextMenu = useCallback(
+    async (event: MouseEvent<HTMLButtonElement>, space: Space) => {
+      event.preventDefault();
+      const api = readNativeApi();
+      if (!api) return;
+      const expanded = !collapsedSpaceIds.has(space.id);
+      const clicked = await api.contextMenu.show(
+        [
+          { id: "new-thread", label: `New thread in ${space.name}` },
+          { id: "rename", label: "Rename Space", separatorBefore: true },
+          {
+            id: "toggle-expanded",
+            label: expanded ? "Collapse Space" : "Expand Space",
+          },
+        ],
+        { x: event.clientX, y: event.clientY },
+      );
+      if (clicked === "new-thread") {
+        handleSelectSpace(space.id);
+        await handleCreateHomeChat();
+        return;
+      }
+      if (clicked === "rename") {
+        openSpaceEditor(space.id);
+        return;
+      }
+      if (clicked === "toggle-expanded") {
+        setCollapsedSpaceIds((current) => {
+          const next = new Set(current);
+          if (expanded) next.add(space.id);
+          else next.delete(space.id);
+          return next;
+        });
+      }
+    },
+    [
+      collapsedSpaceIds,
+      handleCreateHomeChat,
+      handleSelectSpace,
+      openSpaceEditor,
+    ],
+  );
   const handleCreateProjectSubmit = useCallback(
     async (value: CreateProjectSubmitValue) => {
       const previousSpaceId = activeSpaceId;
@@ -2033,7 +2094,6 @@ export default function Sidebar() {
       deleteProjectThreads,
       handleOpenProjectRunServer,
       handleStopProjectRun,
-      navigate,
       openProjectRunDialog,
       projectById,
       removeDeletedProjectFromClientState,
@@ -2050,15 +2110,6 @@ export default function Sidebar() {
     },
     [projectById],
   );
-
-  const animatedProjectListsRef = useRef(new WeakSet<HTMLElement>());
-  const attachProjectListAutoAnimateRef = useCallback((node: HTMLElement | null) => {
-    if (!node || animatedProjectListsRef.current.has(node)) {
-      return;
-    }
-    autoAnimate(node, SIDEBAR_LIST_ANIMATION_OPTIONS);
-    animatedProjectListsRef.current.add(node);
-  }, []);
 
   // Trees need child (subagent) threads too; the flat display list stays
   // root-only for pinned rows and other non-tree consumers.
@@ -2171,8 +2222,8 @@ export default function Sidebar() {
     [chatWorkspaceRoot, homeDir, sortedProjects, studioWorkspaceRoot],
   );
   const standardProjectsBase = useMemo(
-    () => allStandardProjectsBase.filter((project) => (project.spaceId ?? null) === activeSpaceId),
-    [activeSpaceId, allStandardProjectsBase],
+    () => allStandardProjectsBase,
+    [allStandardProjectsBase],
   );
   const pinnedProjectIds = useMemo(
     () =>
@@ -2188,11 +2239,29 @@ export default function Sidebar() {
     () => orderPinnedProjectsForSidebar(standardProjectsBase, pinnedProjectIds),
     [pinnedProjectIds, standardProjectsBase],
   );
-  const projectEmptyState = resolveProjectEmptyState({
-    projectCount: standardProjects.length,
-    shouldShowProjectPathEntry: createProjectDialogOpen,
-    threadsHydrated,
-  });
+  const sidebarSpaceSections = useMemo(() => {
+    const sections: Array<{
+      key: string;
+      label: string;
+      space: Space | null;
+      projects: Project[];
+    }> = spaces.map((space) => ({
+      key: space.id as string,
+      label: space.name,
+      space,
+      projects: standardProjects.filter((project) => project.spaceId === space.id),
+    }));
+    const unassignedProjects = standardProjects.filter((project) => project.spaceId == null);
+    if (unassignedProjects.length > 0 || sections.length === 0) {
+      sections.push({
+        key: VOID_SPACE_KEY,
+        label: VOID_SPACE_NAME,
+        space: null,
+        projects: unassignedProjects,
+      });
+    }
+    return sections;
+  }, [spaces, standardProjects]);
   const standardProjectSidebarDataById = useMemo<ReadonlyMap<ProjectId, SidebarDerivedProjectData>>(
     () =>
       deriveSidebarProjectData({
@@ -2257,14 +2326,14 @@ export default function Sidebar() {
 
   useEffect(() => {
     persistSidebarUiState({
-      chatSectionExpanded,
+      collapsedSpaceIds: [...collapsedSpaceIds],
       chatThreadListExtraPages,
       projectThreadListExtraPagesByCwd: Object.fromEntries(threadListExtraPagesByProjectCwd),
       dismissedThreadStatusKeyByThreadId,
       lastThreadRoute,
     });
   }, [
-    chatSectionExpanded,
+    collapsedSpaceIds,
     chatThreadListExtraPages,
     dismissedThreadStatusKeyByThreadId,
     threadListExtraPagesByProjectCwd,
@@ -2413,12 +2482,12 @@ export default function Sidebar() {
       canShowLessThreads,
     } = projectSidebarData;
     const hasProjectContent = projectThreads.length > 0 || canShowMoreThreads || canShowLessThreads;
-    const headerState = focusedProjectId === project.id ? "selected" : "default";
-    const openProjectActions = (event: React.MouseEvent<HTMLButtonElement>) => {
-      const rect = event.currentTarget.getBoundingClientRect();
-      void handleProjectContextMenu(project.id, {
-        x: rect.left,
-        y: rect.bottom,
+    const createProjectThread = () => {
+      prefetchModelsForProjectNewThread(project.id, { includeDroid: true });
+      void handleNewThread(project.id, {
+        envMode: resolveSidebarNewThreadEnvMode({
+          defaultEnvMode: appSettings.defaultThreadEnvMode,
+        }),
       });
     };
     const openProjectContextMenu = (event: React.MouseEvent<HTMLButtonElement>) => {
@@ -2433,11 +2502,10 @@ export default function Sidebar() {
       <FolderGroupShared
         key={project.id}
         expanded={project.expanded}
-        headerState={headerState}
         hasContent={hasProjectContent}
         label={project.name}
         onExpandedChange={() => toggleProject(project.id)}
-        onHeaderAction={openProjectActions}
+        onHeaderAction={createProjectThread}
         onHeaderContextMenu={openProjectContextMenu}
       >
         <div className="flex flex-col gap-0.5" data-pencil-project-id={project.id}>
@@ -3260,139 +3328,147 @@ export default function Sidebar() {
   return (
     <>
       {sidebarHeaderSurface}
-      <SpaceViewportShared
-        activePageIndex={prototypeSpacePageIndex}
-        onActivePageIndexChange={setPrototypeSpacePageIndex}
-      >
-        <SpacePageShared active={prototypeSpacePageIndex === 0} label="Current">
-          <SidebarTopNavigation
-            {...(isOnApps ? { activeItemId: "apps" } : {})}
-            disabledItemIds={["scheduled"]}
-            onSelect={(itemId) => {
-              switch (itemId) {
-                case "new-chat":
-                  void handleCreateHomeChat();
-                  break;
-                case "scheduled":
-                  break;
-                case "apps":
-                  void handleOpenApps();
-                  break;
-              }
-            }}
-          />
+      <LeftRailContentShared>
+        <SidebarTopNavigation
+          {...(isOnApps ? { activeItemId: "apps" } : {})}
+          disabledItemIds={["scheduled"]}
+          onSelect={(itemId) => {
+            switch (itemId) {
+              case "scheduled":
+                break;
+              case "apps":
+                void handleOpenApps();
+                break;
+            }
+          }}
+        />
 
-          {showArm64IntelBuildWarning && arm64IntelBuildWarningDescription ? (
-            <div className="px-2 pt-2">
-              <Alert variant="warning" className="rounded-2xl border-warning/40 bg-warning/8">
-                <TriangleAlertIcon />
-                <AlertTitle>Intel build on Apple Silicon</AlertTitle>
-                <AlertDescription>{arm64IntelBuildWarningDescription}</AlertDescription>
-                {desktopUpdateButtonAction !== "none" ? (
-                  <AlertAction>
-                    <Button
-                      size="xs"
-                      variant="outline"
-                      disabled={desktopUpdateButtonDisabled}
-                      onClick={handleDesktopUpdateButtonClick}
-                    >
-                      {desktopUpdateButtonAction === "download"
+        {showArm64IntelBuildWarning && arm64IntelBuildWarningDescription ? (
+          <div className="px-2 pt-2">
+            <Alert variant="warning" className="rounded-2xl border-warning/40 bg-warning/8">
+              <TriangleAlertIcon />
+              <AlertTitle>Intel build on Apple Silicon</AlertTitle>
+              <AlertDescription>{arm64IntelBuildWarningDescription}</AlertDescription>
+              {desktopUpdateButtonAction !== "none" ? (
+                <AlertAction>
+                  <Button
+                    size="xs"
+                    variant="outline"
+                    disabled={desktopUpdateButtonDisabled}
+                    onClick={handleDesktopUpdateButtonClick}
+                  >
+                    {desktopUpdateButtonAction === "download"
+                      ? "Update ARM build"
+                      : desktopUpdateButtonAction === "install"
                         ? "Update ARM build"
-                        : desktopUpdateButtonAction === "install"
-                          ? "Update ARM build"
-                          : "Check for ARM build update"}
-                    </Button>
-                  </AlertAction>
-                ) : null}
-              </Alert>
-            </div>
+                        : "Check for ARM build update"}
+                  </Button>
+                </AlertAction>
+              ) : null}
+            </Alert>
+          </div>
+        ) : null}
+        <SidebarProjects className="sidebar-surface-enter font-system-ui">
+          {spaceEditorOpen && spaceEditorMode === "create" ? (
+            <SpaceHeaderInlineEdit
+              existingNames={spaceEditorExistingNames}
+              mode="create"
+              onCancel={closeSpaceEditor}
+              onSubmit={async (name) => {
+                await handleSpaceEditorSubmit({ name, icon: suggestSpaceIcon(name) });
+                closeSpaceEditor();
+              }}
+            />
           ) : null}
-          <SidebarProjects className="sidebar-surface-enter font-system-ui">
-            <DisclosureSection
-              className="w-full"
-              contentClassName="flex flex-col gap-0.5 pt-0.5"
-              hasContent={hasChatContent}
-              header={
-                <WorkspaceHeaderShared
-                  expanded={chatSectionExpanded}
-                  onAction={() => void handleCreateHomeChat()}
-                  onClick={() => setChatSectionExpanded((expanded) => !expanded)}
-                >
-                  penkra
-                </WorkspaceHeaderShared>
-              }
-              open={chatSectionExpanded}
-            >
-              {renderedChatEntries.map((entry) =>
-                renderPencilThreadRow(
-                  entry.row.thread,
-                  visibleChatOrderedThreadIds,
-                  entry.row.depth,
-                ),
-              )}
-              {canShowMoreChatThreads ? (
-                <ShowMoreRow
-                  onClick={() => setChatThreadListExtraPages(chatThreadListEffectiveExtraPages + 1)}
-                >
-                  Show more
-                </ShowMoreRow>
-              ) : null}
-              {canShowLessChatThreads ? (
-                <ShowMoreRow
-                  onClick={() =>
-                    setChatThreadListExtraPages(Math.max(0, chatThreadListEffectiveExtraPages - 1))
-                  }
-                >
-                  Show less
-                </ShowMoreRow>
-              ) : null}
-            </DisclosureSection>
-            <div ref={attachProjectListAutoAnimateRef} className="flex flex-col gap-0.5">
-              {standardProjects.map((project) => renderPencilProjectItem(project))}
-            </div>
-
-            {projectEmptyState === "loading" && (
-              <div className="space-y-2 px-2 pt-4" aria-live="polite" aria-label="Loading projects">
-                <div className="text-center text-[length:var(--app-font-size-ui,12px)] text-muted-foreground/58">
-                  Loading projects...
+          <div className="flex flex-col gap-4" data-slot="space-list">
+            {sidebarSpaceSections.map((section, sectionIndex) => {
+              const includesHomeChats = sectionIndex === 0;
+              const expanded = !collapsedSpaceIds.has(section.key);
+              const hasContent =
+                section.projects.length > 0 || (includesHomeChats && hasChatContent);
+              const editingThisSpace =
+                section.space !== null &&
+                spaceEditorOpen &&
+                spaceEditorMode === "edit" &&
+                editedSpace?.id === section.space.id;
+              return (
+                <div data-space-id={section.space?.id ?? "void"} key={section.key}>
+                  <SpaceGroupShared
+                    expanded={expanded}
+                    hasContent={hasContent}
+                    header={
+                      editingThisSpace && editedSpace ? (
+                        <SpaceHeaderInlineEdit
+                          defaultValue={editedSpace.name}
+                          existingNames={spaceEditorExistingNames}
+                          mode="rename"
+                          onCancel={closeSpaceEditor}
+                          onSubmit={async (name) => {
+                            await handleSpaceEditorSubmit({ name, icon: editedSpace.icon });
+                            closeSpaceEditor();
+                          }}
+                        />
+                      ) : undefined
+                    }
+                    label={section.label}
+                    onExpandedChange={(nextExpanded) => {
+                      setCollapsedSpaceIds((current) => {
+                        const next = new Set(current);
+                        if (nextExpanded) next.delete(section.key);
+                        else next.add(section.key);
+                        return next;
+                      });
+                    }}
+                    onHeaderAction={() => {
+                      handleSelectSpace(section.space?.id ?? null);
+                      void handleCreateHomeChat();
+                    }}
+                    {...(section.space
+                      ? {
+                          onHeaderContextMenu: (event: MouseEvent<HTMLButtonElement>) =>
+                            void handleSpaceHeaderContextMenu(event, section.space as Space),
+                        }
+                      : {})}
+                  >
+                    {includesHomeChats
+                      ? renderedChatEntries.map((entry) =>
+                          renderPencilThreadRow(
+                            entry.row.thread,
+                            visibleChatOrderedThreadIds,
+                            entry.row.depth,
+                          ),
+                        )
+                      : null}
+                    {includesHomeChats && canShowMoreChatThreads ? (
+                      <ShowMoreRow
+                        onClick={() =>
+                          setChatThreadListExtraPages(chatThreadListEffectiveExtraPages + 1)
+                        }
+                      >
+                        Show more
+                      </ShowMoreRow>
+                    ) : null}
+                    {includesHomeChats && canShowLessChatThreads ? (
+                      <ShowMoreRow
+                        onClick={() =>
+                          setChatThreadListExtraPages(
+                            Math.max(0, chatThreadListEffectiveExtraPages - 1),
+                          )
+                        }
+                      >
+                        Show less
+                      </ShowMoreRow>
+                    ) : null}
+                    <div className="flex flex-col gap-0.5">
+                      {section.projects.map((project) => renderPencilProjectItem(project))}
+                    </div>
+                  </SpaceGroupShared>
                 </div>
-                <div className="mx-auto grid w-full max-w-42 gap-1.5 opacity-70">
-                  <div className="h-2 rounded-full bg-muted/55 animate-pulse" />
-                  <div className="mx-auto h-2 w-4/5 rounded-full bg-muted/40 animate-pulse" />
-                  <div className="mx-auto h-2 w-3/5 rounded-full bg-muted/30 animate-pulse" />
-                </div>
-              </div>
-            )}
-
-            {projectEmptyState === "empty" && (
-              <SpaceEmptyState
-                space={activeSpace}
-                hasProjectsElsewhere={allStandardProjectsBase.length > 0}
-                onMoveProjects={() => {
-                  if (activeSpace) openSpaceProjectPicker(activeSpace.id);
-                }}
-              />
-            )}
-          </SidebarProjects>
-        </SpacePageShared>
-
-        <SpacePageShared active={prototypeSpacePageIndex === 1} label="Prototype">
-          <SidebarTopNavigation disabledItemIds={["new-chat", "apps", "scheduled"]} />
-          <SidebarProjects className="font-system-ui">
-            <WorkspaceHeaderShared expanded>prototype</WorkspaceHeaderShared>
-            <ThreadRowShared harness="claudeAgent">Test the swipe interaction</ThreadRowShared>
-            <ThreadRowShared harness="codex">Tune momentum and snapping</ThreadRowShared>
-            {PROTOTYPE_SPACE_FOLDERS.map((folder) => (
-              <FolderGroupShared
-                defaultExpanded
-                key={folder.label}
-                label={folder.label}
-                threads={[...folder.threads]}
-              />
-            ))}
-          </SidebarProjects>
-        </SpacePageShared>
-      </SpaceViewportShared>
+              );
+            })}
+          </div>
+        </SidebarProjects>
+      </LeftRailContentShared>
 
       <SidebarFooter className="gap-1 p-0 font-system-ui">
         {DebugFeatureFlagsMenu && showDebugFeatureFlagsMenu && !isOnSettings ? (
@@ -3405,7 +3481,7 @@ export default function Sidebar() {
         <AccountControlShared
           accountName={profileName}
           onFeedback={() => openFeedbackDialog()}
-          onLogout={() => setLogoutConfirmationOpen(true)}
+          onLogout={() => void handleAccountLogout()}
           onSettings={() => void navigate({ to: "/settings" })}
           onSupport={() => openFeedbackDialog()}
           updateAvailable={showDesktopUpdateButton}
@@ -3426,33 +3502,6 @@ export default function Sidebar() {
         activeSpaceId={activeSpaceId}
         onOpenChange={setCreateProjectDialogOpen}
         onSubmit={handleCreateProjectSubmit}
-      />
-
-      <SpaceEditorDialog
-        open={spaceEditorOpen}
-        mode={spaceEditorMode}
-        {...(editedSpace
-          ? { initialValue: { name: editedSpace.name, icon: editedSpace.icon } }
-          : {})}
-        existingNames={spaceEditorExistingNames}
-        onOpenChange={(open) => {
-          if (!open) closeSpaceEditor();
-        }}
-        onSubmit={handleSpaceEditorSubmit}
-      />
-
-      <SpaceProjectPickerDialog
-        open={spaceProjectPickerTarget !== null}
-        targetSpace={spaceProjectPickerTarget}
-        projects={allStandardProjectsBase}
-        spaces={spaces}
-        onOpenChange={(open) => {
-          if (!open) closeSpaceProjectPicker();
-        }}
-        onSubmit={(projectIds) => {
-          if (!spaceProjectPickerTarget) return;
-          return handleBulkMoveProjects(projectIds, spaceProjectPickerTarget.id);
-        }}
       />
 
       {projectContextMenuState && projectContextMenuProject && projectContextMenuAnchor ? (
@@ -3759,18 +3808,6 @@ export default function Sidebar() {
       <PenkraCreateClientDialog
         open={penkraCreateClientOpen}
         onOpenChange={setPenkraCreateClientOpen}
-      />
-
-      <PopupLogoutConfirmation
-        onConfirm={async () => {
-          const accountAuth = window.desktopBridge?.accountAuth;
-          if (!accountAuth) {
-            throw new Error("Account authentication is unavailable.");
-          }
-          await accountAuth.signOut();
-        }}
-        onOpenChange={setLogoutConfirmationOpen}
-        open={logoutConfirmationOpen}
       />
 
       {searchPaletteOpen ? (
