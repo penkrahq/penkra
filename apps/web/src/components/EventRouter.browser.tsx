@@ -24,6 +24,7 @@ import { render } from "vitest-browser-react";
 import { useComposerDraftStore } from "../composerDraftStore";
 import { getRouter } from "../router";
 import { useStore } from "../store";
+import { initialState } from "../storeState";
 import {
   createShellSnapshotFromReadModel,
   flattenEffectRpcRequestPayload,
@@ -325,6 +326,7 @@ async function mountApp(options?: {
 
   const routeThreadId = options?.routeThreadId ?? THREAD_ID;
   const router = getRouter(createMemoryHistory({ initialEntries: [`/${routeThreadId}`] }));
+  await router.load();
   const screen = await render(<RouterProvider router={router} />, { container: host });
 
   try {
@@ -346,9 +348,10 @@ async function mountApp(options?: {
           expectedThread.messages.every((message) => hydratedMessageIdSet.has(message.id)),
         ).toBe(true);
       },
-      // The first Chromium/MSW mount can spend more than 40 seconds compiling
-      // the full desktop route graph on a cold Windows dev cache.
-      { timeout: 60_000, interval: 16 },
+      // Vitest's first Chromium/MSW mount can spend over a minute compiling the
+      // full desktop route graph on a cold cache. Keep hydration's bound aligned
+      // with this browser project's 90-second per-test budget.
+      { timeout: 90_000, interval: 16 },
     );
   } catch (cause) {
     await screen.unmount();
@@ -441,23 +444,7 @@ describe("EventRouter scoped orchestration sync", () => {
       draftThreadsByThreadId: {},
       projectDraftThreadIdByProjectId: {},
     });
-    useStore.setState({
-      projects: [],
-      threadIds: [],
-      threadShellById: {},
-      threadSessionById: {},
-      threadTurnStateById: {},
-      messageIdsByThreadId: {},
-      messageByThreadId: {},
-      activityIdsByThreadId: {},
-      activityByThreadId: {},
-      proposedPlanIdsByThreadId: {},
-      proposedPlanByThreadId: {},
-      turnDiffIdsByThreadId: {},
-      turnDiffSummaryByThreadId: {},
-      sidebarThreadSummaryById: {},
-      threadsHydrated: false,
-    });
+    useStore.setState({ ...initialState });
     useWorkspacePathsStore.setState({
       homeDir: null,
       chatWorkspaceRoot: null,

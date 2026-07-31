@@ -46,6 +46,7 @@ import { getRouter } from "../router";
 import { useSplitViewStore } from "../splitViewStore";
 import { useSpacesUiStore } from "../spacesUiStore";
 import { useStore } from "../store";
+import { initialState } from "../storeState";
 import {
   createShellSnapshotFromReadModel,
   flattenEffectRpcRequestPayload,
@@ -57,6 +58,7 @@ import { createBrowserTestServerConfig, createFullscreenTestHost } from "../test
 import { useTemporaryThreadStore } from "../temporaryThreadStore";
 import { useTerminalStateStore } from "../terminalStateStore";
 import { resetRetainedThreadDetailSubscriptionsForTests } from "../threadDetailSubscriptionRetention";
+import { useWorkspacePathsStore } from "../workspacePathsStore";
 import { resetWsNativeApiForTest } from "../wsNativeApi";
 // Pre-transform the compiler-heavy component outside the first case's timeout.
 // The router's auto-split route otherwise requests this module on first mount.
@@ -446,6 +448,7 @@ function findThreadDetailFromFixtureSnapshot(
 function addThreadToSnapshot(
   snapshot: OrchestrationReadModel,
   threadId: ThreadId,
+  options?: { title?: string },
 ): OrchestrationReadModel {
   return {
     ...snapshot,
@@ -455,7 +458,7 @@ function addThreadToSnapshot(
       {
         id: threadId,
         projectId: PROJECT_ID,
-        title: "New thread",
+        title: options?.title ?? "New thread",
         modelSelection: {
           provider: "codex",
           model: "gpt-5",
@@ -1433,16 +1436,24 @@ async function dispatchModelCycleShortcutWhenReady(
 
 function dispatchConfiguredShortcut(
   target: EventTarget,
-  input: { key: string; shiftKey?: boolean; altKey?: boolean },
+  input: {
+    key: string;
+    shiftKey?: boolean;
+    altKey?: boolean;
+    ctrlKey?: boolean;
+    metaKey?: boolean;
+    modKey?: boolean;
+  },
 ): void {
   const useMetaForMod = isMacPlatform(navigator.platform);
+  const modKey = input.modKey ?? true;
   target.dispatchEvent(
     new KeyboardEvent("keydown", {
       key: input.key,
       shiftKey: input.shiftKey ?? false,
       altKey: input.altKey ?? false,
-      metaKey: useMetaForMod,
-      ctrlKey: !useMetaForMod,
+      metaKey: (input.metaKey ?? false) || (modKey && useMetaForMod),
+      ctrlKey: (input.ctrlKey ?? false) || (modKey && !useMetaForMod),
       bubbles: true,
       cancelable: true,
     }),
@@ -1473,19 +1484,23 @@ async function waitForComposerPickerSurfaceOpen(): Promise<void> {
 }
 
 function dispatchChatNewShortcut(): void {
-  dispatchThreadShortcut("o");
+  dispatchThreadShortcut("n");
+}
+
+function dispatchAddProjectShortcut(): void {
+  dispatchThreadShortcut("o", true);
 }
 
 function dispatchTerminalThreadShortcut(): void {
-  dispatchThreadShortcut("t");
+  dispatchThreadShortcut("t", true);
 }
 
-function dispatchThreadShortcut(key: string): void {
+function dispatchThreadShortcut(key: string, shiftKey = false): void {
   const useMetaForMod = isMacPlatform(navigator.platform);
   window.dispatchEvent(
     new KeyboardEvent("keydown", {
       key,
-      shiftKey: true,
+      shiftKey,
       metaKey: useMetaForMod,
       ctrlKey: !useMetaForMod,
       bubbles: true,
@@ -1535,9 +1550,22 @@ async function triggerThreadShortcutUntilPath(
 }
 
 async function waitForNewThreadShortcutLabel(): Promise<void> {
-  const newThreadButton = page.getByTestId("new-thread-button");
-  await expect.element(newThreadButton).toBeInTheDocument();
+  await waitForServerConfigToApply();
+  await waitForComposerEditor();
   await waitForLayout();
+}
+
+async function createProjectThreadWithShortcut(
+  mounted: MountedChatView,
+  errorMessage = "Route should have changed to a new draft thread UUID.",
+): Promise<{ path: string; threadId: ThreadId }> {
+  await waitForNewThreadShortcutLabel();
+  const path = await triggerChatNewShortcutUntilPath(
+    mounted.router,
+    (pathname) => UUID_ROUTE_RE.test(pathname),
+    errorMessage,
+  );
+  return { path, threadId: path.slice(1) as ThreadId };
 }
 
 async function waitForImagesToLoad(scope: ParentNode): Promise<void> {
@@ -1695,6 +1723,7 @@ async function mountChatView(options: {
       initialEntries: [initialEntry],
     }),
   );
+  await router.load();
 
   const screen = await render(<RouterProvider router={router} />, {
     container: host,
@@ -1791,23 +1820,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       stickyModelSelectionByProvider: {},
       stickyActiveProvider: null,
     });
-    useStore.setState({
-      projects: [],
-      threadIds: [],
-      threadShellById: {},
-      threadSessionById: {},
-      threadTurnStateById: {},
-      messageIdsByThreadId: {},
-      messageByThreadId: {},
-      activityIdsByThreadId: {},
-      activityByThreadId: {},
-      proposedPlanIdsByThreadId: {},
-      proposedPlanByThreadId: {},
-      turnDiffIdsByThreadId: {},
-      turnDiffSummaryByThreadId: {},
-      sidebarThreadSummaryById: {},
-      threadsHydrated: false,
-    });
+    useStore.setState({ ...initialState });
     useTemporaryThreadStore.setState({
       temporaryThreadIds: {},
     });
@@ -1817,6 +1830,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
     useSplitViewStore.setState({
       splitViewsById: {},
       splitViewIdBySourceThreadId: {},
+    });
+    useWorkspacePathsStore.setState({
+      homeDir: null,
+      chatWorkspaceRoot: null,
+      studioWorkspaceRoot: null,
     });
   });
 
@@ -1952,7 +1970,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     expect(ratio).toBeLessThan(1.35);
   });
 
-  it("[geometry:linux] collapses header actions into overflow before they can overlap the thread title", async () => {
+  it("[geometry:linux] truncates the Pencil header title before its controls can overlap", async () => {
     const longTitle =
       'remove "ago" from the sidebar while the diff panel stays open on smaller viewports';
     const headerOverflowSnapshot = (() => {
@@ -1993,16 +2011,21 @@ describe("ChatView timeline estimator parity (full app)", () => {
     try {
       await vi.waitFor(
         () => {
-          const title = document.querySelector<HTMLElement>(`h2[title='${longTitle}']`);
-          const overflowButton = document.querySelector<HTMLButtonElement>(
-            'button[aria-label="Toggle environment panel"]',
+          const header = document.querySelector<HTMLElement>(
+            "header[data-pencil-component='Kpx7i']",
+          );
+          const title = [...(header?.querySelectorAll<HTMLElement>("span") ?? [])].find(
+            (candidate) => candidate.textContent === longTitle,
+          );
+          const menuButton = header?.querySelector<HTMLButtonElement>(
+            'button[aria-label="Thread menu"]',
           );
 
           expect(title, "Unable to find the chat header title.").toBeTruthy();
-          expect(overflowButton, "Unable to find the header overflow trigger.").toBeTruthy();
+          expect(menuButton, "Unable to find the thread menu trigger.").toBeTruthy();
 
           const titleRight = title!.getBoundingClientRect().right;
-          const actionsLeft = overflowButton!.getBoundingClientRect().left;
+          const actionsLeft = menuButton!.getBoundingClientRect().left;
           expect(titleRight).toBeLessThanOrEqual(actionsLeft + 1);
         },
         { timeout: 8_000, interval: 16 },
@@ -2501,17 +2524,29 @@ describe("ChatView timeline estimator parity (full app)", () => {
           runOnWorktreeCreate: false,
         },
       ]),
+      configureFixture: (nextFixture) => {
+        nextFixture.serverConfig = {
+          ...nextFixture.serverConfig,
+          keybindings: [
+            {
+              command: "script.lint.run",
+              shortcut: {
+                key: "l",
+                metaKey: false,
+                ctrlKey: false,
+                shiftKey: false,
+                altKey: true,
+                modKey: false,
+              },
+            },
+          ],
+        };
+      },
     });
 
     try {
-      const runButton = await waitForElement(
-        () =>
-          Array.from(document.querySelectorAll("button")).find(
-            (button) => button.title === "Run Lint",
-          ) as HTMLButtonElement | null,
-        "Unable to find Run Lint button.",
-      );
-      runButton.click();
+      await waitForServerConfigToApply();
+      dispatchConfiguredShortcut(window, { key: "l", altKey: true, modKey: false });
 
       await vi.waitFor(
         () => {
@@ -2579,17 +2614,29 @@ describe("ChatView timeline estimator parity (full app)", () => {
           runOnWorktreeCreate: false,
         },
       ]),
+      configureFixture: (nextFixture) => {
+        nextFixture.serverConfig = {
+          ...nextFixture.serverConfig,
+          keybindings: [
+            {
+              command: "script.test.run",
+              shortcut: {
+                key: "t",
+                metaKey: false,
+                ctrlKey: false,
+                shiftKey: false,
+                altKey: true,
+                modKey: false,
+              },
+            },
+          ],
+        };
+      },
     });
 
     try {
-      const runButton = await waitForElement(
-        () =>
-          Array.from(document.querySelectorAll("button")).find(
-            (button) => button.title === "Run Test",
-          ) as HTMLButtonElement | null,
-        "Unable to find Run Test button.",
-      );
-      runButton.click();
+      await waitForServerConfigToApply();
+      dispatchConfiguredShortcut(window, { key: "t", altKey: true, modKey: false });
 
       await vi.waitFor(
         () => {
@@ -3056,8 +3103,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("steers a running turn when Follow-up behavior is set to Steer", async () => {
-    localStorage.setItem("synara:app-settings:v1", JSON.stringify({ followUpBehavior: "steer" }));
+  it("steers a running turn with the modifier-key submit shortcut", async () => {
     useComposerDraftStore.getState().setPrompt(THREAD_ID, "steer this running turn");
 
     const mounted = await mountChatView({
@@ -3070,11 +3116,17 @@ describe("ChatView timeline estimator parity (full app)", () => {
     });
 
     try {
-      const composerForm = await waitForElement(
-        () => document.querySelector<HTMLFormElement>('form[data-chat-composer-form="true"]'),
-        "Unable to find composer form.",
+      const composerEditor = await waitForComposerEditor();
+      const useMetaForMod = isMacPlatform(navigator.platform);
+      composerEditor.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Enter",
+          metaKey: useMetaForMod,
+          ctrlKey: !useMetaForMod,
+          bubbles: true,
+          cancelable: true,
+        }),
       );
-      composerForm.requestSubmit();
 
       await vi.waitFor(
         () => {
@@ -3451,7 +3503,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("keeps the new thread selected after clicking the new-thread button", async () => {
+  it("keeps the new thread selected after creating it from the global shortcut", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
       snapshot: createSnapshotForTargetUser({
@@ -3461,19 +3513,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
     });
 
     try {
-      // Wait for the sidebar to render with the project.
-      const newThreadButton = page.getByLabelText("Create new thread in Project");
-      await expect.element(newThreadButton).toBeInTheDocument();
-
-      await newThreadButton.click();
-
-      // The route should change to a new draft thread ID.
-      const newThreadPath = await waitForURL(
-        mounted.router,
-        (path) => UUID_ROUTE_RE.test(path),
-        "Route should have changed to a new draft thread UUID.",
-      );
-      const newThreadId = newThreadPath.slice(1) as ThreadId;
+      const { path: newThreadPath, threadId: newThreadId } =
+        await createProjectThreadWithShortcut(mounted);
 
       // The composer editor should be present for the new draft thread.
       await waitForComposerEditor();
@@ -3502,7 +3543,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("uses the latest ordinary project from Home when the global New thread button is clicked", async () => {
+  it("uses the latest ordinary project from Home for the global new-thread shortcut", async () => {
     useLatestProjectStore.setState({ latestProjectId: PROJECT_ID });
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
@@ -3515,16 +3556,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
     });
 
     try {
-      const newThreadButton = page.getByRole("button", { name: "New thread", exact: true });
-      await expect.element(newThreadButton).toBeInTheDocument();
-      await newThreadButton.click();
-
-      const newThreadPath = await waitForURL(
-        mounted.router,
-        (path) => UUID_ROUTE_RE.test(path),
+      const { path: newThreadPath, threadId: newThreadId } =
+        await createProjectThreadWithShortcut(
+          mounted,
         "Global New thread should create a draft in the latest ordinary project.",
       );
-      const newThreadId = newThreadPath.slice(1) as ThreadId;
       expect(useComposerDraftStore.getState().getDraftThread(newThreadId)?.projectId).toBe(
         PROJECT_ID,
       );
@@ -3544,17 +3580,29 @@ describe("ChatView timeline estimator parity (full app)", () => {
           targetText: "palette new thread latest project",
         }),
       ),
+      configureFixture: (nextFixture) => {
+        nextFixture.serverConfig = {
+          ...nextFixture.serverConfig,
+          keybindings: [
+            {
+              command: "sidebar.search",
+              shortcut: {
+                key: "k",
+                metaKey: false,
+                ctrlKey: false,
+                shiftKey: false,
+                altKey: false,
+                modKey: true,
+              },
+            },
+          ],
+        };
+      },
     });
 
     try {
-      const searchButton = await waitForElement(
-        () =>
-          Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((button) =>
-            button.textContent?.trim().startsWith("Search"),
-          ) ?? null,
-        "Unable to find the global Search button.",
-      );
-      searchButton.click();
+      await waitForServerConfigToApply();
+      dispatchConfiguredShortcut(window, { key: "k" });
       const paletteNewThreadAction = await waitForElement(
         () =>
           Array.from(document.querySelectorAll<HTMLElement>('[data-slot="command-item"]')).find(
@@ -3596,9 +3644,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
     try {
       const initialPath = mounted.router.state.location.pathname;
-      const newThreadButton = page.getByRole("button", { name: "New thread", exact: true });
-      await expect.element(newThreadButton).toBeInTheDocument();
-      await newThreadButton.click();
+      await waitForNewThreadShortcutLabel();
+      dispatchChatNewShortcut();
 
       await expect
         .element(page.getByRole("heading", { name: "Create project" }))
@@ -3625,9 +3672,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
       useStore.setState({ projects: [], threadsHydrated: false });
       await waitForLayout();
       const initialPath = mounted.router.state.location.pathname;
-      const newThreadButton = page.getByRole("button", { name: "New thread", exact: true });
-      await expect.element(newThreadButton).toBeInTheDocument();
-      await newThreadButton.click();
+      await waitForServerConfigToApply();
+      dispatchChatNewShortcut();
       await waitForLayout();
 
       await expect
@@ -3651,16 +3697,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
     });
 
     try {
-      const newThreadButton = page.getByLabelText("Create new thread in Project");
-      await expect.element(newThreadButton).toBeInTheDocument();
-      await newThreadButton.click();
-
-      const newThreadPath = await waitForURL(
-        mounted.router,
-        (path) => UUID_ROUTE_RE.test(path),
-        "Route should have changed to a new draft thread UUID.",
-      );
-      const newThreadId = newThreadPath.slice(1) as ThreadId;
+      const { path: newThreadPath, threadId: newThreadId } =
+        await createProjectThreadWithShortcut(mounted);
 
       useComposerDraftStore.getState().setDraftThreadContext(newThreadId, {
         envMode: "worktree",
@@ -3766,12 +3804,9 @@ describe("ChatView timeline estimator parity (full app)", () => {
     });
 
     try {
-      const newStudioChatButton = await waitForElement(
-        () => document.querySelector<HTMLButtonElement>('button[aria-label="New studio chat"]'),
-        "Unable to find the Studio new-chat action.",
-      );
-      newStudioChatButton.click();
-      newStudioChatButton.click();
+      await waitForServerConfigToApply();
+      dispatchConfiguredShortcut(window, { key: "n", altKey: true });
+      dispatchConfiguredShortcut(window, { key: "n", altKey: true });
 
       const newThreadPath = await waitForURL(
         mounted.router,
@@ -3790,33 +3825,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
             worktreePath: null,
             workingDirectory: null,
           });
-          expect(document.querySelector('[data-testid="workspace-picker-trigger"]')).not.toBeNull();
           expect(
             useComposerDraftStore.getState().projectDraftThreadIdByProjectId[HOME_PROJECT_ID],
           ).toBeUndefined();
           expect(mounted.router.state.location.pathname).toBe(newThreadPath);
-        },
-        { timeout: 8_000, interval: 16 },
-      );
-
-      await page.getByTestId("workspace-picker-trigger").click();
-      const projectFolderOption = await waitForElement(
-        () =>
-          Array.from(document.querySelectorAll<HTMLElement>('[data-slot="combobox-item"]')).find(
-            (item) => item.textContent?.trim() === "project",
-          ) ?? null,
-        "Unable to find the reference folder option.",
-      );
-      projectFolderOption.click();
-      await vi.waitFor(
-        () => {
-          expect(useComposerDraftStore.getState().getDraftThread(newThreadId)).toMatchObject({
-            projectId: STUDIO_PROJECT_ID,
-            envMode: "local",
-            branch: null,
-            worktreePath: null,
-            workingDirectory: "/repo/project",
-          });
         },
         { timeout: 8_000, interval: 16 },
       );
@@ -3864,16 +3876,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     });
 
     try {
-      const newThreadButton = page.getByLabelText("Create new thread in Project");
-      await expect.element(newThreadButton).toBeInTheDocument();
-      await newThreadButton.click();
-
-      const newThreadPath = await waitForURL(
-        mounted.router,
-        (path) => UUID_ROUTE_RE.test(path),
-        "Route should have changed to a new draft thread UUID.",
-      );
-      const newThreadId = newThreadPath.slice(1) as ThreadId;
+      const { threadId: newThreadId } = await createProjectThreadWithShortcut(mounted);
 
       const projectPickerTrigger = page.getByTestId("project-picker-trigger");
       await expect.element(projectPickerTrigger).toBeInTheDocument();
@@ -3882,7 +3885,12 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
       await vi.waitFor(
         () => {
-          expect(useComposerDraftStore.getState().getDraftThread(newThreadId)).toMatchObject({
+          const pickerText =
+            document.querySelector<HTMLElement>('[data-slot="combobox-popup"]')?.textContent ?? "";
+          expect(
+            useComposerDraftStore.getState().getDraftThread(newThreadId),
+            `Project reset did not complete. Picker content: ${pickerText}`,
+          ).toMatchObject({
             projectId: HOME_PROJECT_ID,
             envMode: "local",
             branch: null,
@@ -3935,12 +3943,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
     try {
       const workspacePickerTrigger = page.getByTestId("workspace-picker-trigger");
       await expect.element(workspacePickerTrigger).toBeInTheDocument();
-      const controlsBefore = document.querySelector<HTMLElement>(
-        'form[data-chat-composer-form="true"] + .chat-composer-shell',
-      );
       const composerBlockBefore = document.querySelector<HTMLElement>(
         '[data-empty-landing-composer-block="true"]',
       );
+      const controlsBefore =
+        composerBlockBefore?.querySelector<HTMLElement>(".chat-composer-shell") ?? null;
       expect(controlsBefore).not.toBeNull();
       expect(composerBlockBefore).not.toBeNull();
       const beforeRect = controlsBefore!.getBoundingClientRect();
@@ -3972,12 +3979,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await new Promise<void>((resolve) => {
         requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
       });
-      const controlsAfter = document.querySelector<HTMLElement>(
-        'form[data-chat-composer-form="true"] + .chat-composer-shell',
-      );
       const composerBlockAfter = document.querySelector<HTMLElement>(
         '[data-empty-landing-composer-block="true"]',
       );
+      const controlsAfter =
+        composerBlockAfter?.querySelector<HTMLElement>(".chat-composer-shell") ?? null;
       expect(controlsAfter).not.toBeNull();
       expect(composerBlockAfter).not.toBeNull();
       const afterRect = controlsAfter!.getBoundingClientRect();
@@ -4040,16 +4046,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     });
 
     try {
-      const newThreadButton = page.getByLabelText("Create new thread in Project");
-      await expect.element(newThreadButton).toBeInTheDocument();
-      await newThreadButton.click();
-
-      const newThreadPath = await waitForURL(
-        mounted.router,
-        (path) => UUID_ROUTE_RE.test(path),
-        "Route should have changed to a new draft thread UUID.",
-      );
-      const newThreadId = newThreadPath.slice(1) as ThreadId;
+      const { threadId: newThreadId } = await createProjectThreadWithShortcut(mounted);
 
       const projectPickerTrigger = page.getByTestId("project-picker-trigger");
       await expect.element(projectPickerTrigger).toBeInTheDocument();
@@ -4089,7 +4086,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
         },
         { timeout: 8_000, interval: 16 },
       );
-      expect(mounted.router.state.location.pathname).toBe(newThreadPath);
+      expect(mounted.router.state.location.pathname).toBe(`/${newThreadId}`);
     } finally {
       if (previousNativeApi) {
         Object.defineProperty(window, "nativeApi", {
@@ -4113,7 +4110,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
     });
 
     try {
-      await page.getByRole("button", { name: "Add project", exact: true }).click();
+      await waitForServerConfigToApply();
+      dispatchAddProjectShortcut();
       await expect
         .element(page.getByRole("heading", { name: "Create project" }))
         .toBeInTheDocument();
@@ -4176,7 +4174,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
         .findLast(Boolean);
 
     try {
-      await page.getByRole("button", { name: "Add project", exact: true }).click();
+      await waitForServerConfigToApply();
+      dispatchAddProjectShortcut();
       await expect
         .element(page.getByRole("heading", { name: "Create project" }))
         .toBeInTheDocument();
@@ -4286,7 +4285,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
     });
 
     try {
-      await page.getByRole("button", { name: "Add project", exact: true }).click();
+      await waitForServerConfigToApply();
+      dispatchAddProjectShortcut();
       await page.getByLabelText("Project folder path").fill("/repo/failing-project");
       const spaceTrigger = await waitForElement(
         () =>
@@ -4351,17 +4351,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     });
 
     try {
-      const newThreadButton = page.getByTestId("new-thread-button");
-      await expect.element(newThreadButton).toBeInTheDocument();
-
-      await newThreadButton.click();
-
-      const newThreadPath = await waitForURL(
-        mounted.router,
-        (path) => UUID_ROUTE_RE.test(path),
-        "Route should have changed to a new draft thread UUID.",
-      );
-      const newThreadId = newThreadPath.slice(1) as ThreadId;
+      const { threadId: newThreadId } = await createProjectThreadWithShortcut(mounted);
 
       expect(useComposerDraftStore.getState().draftsByThreadId[newThreadId]).toMatchObject({
         modelSelectionByProvider: {
@@ -4390,16 +4380,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
     });
 
     try {
-      const newThreadButton = page.getByTestId("new-thread-button");
-      await expect.element(newThreadButton).toBeInTheDocument();
-      await newThreadButton.click();
-
-      const newThreadPath = await waitForURL(
-        mounted.router,
-        (path) => UUID_ROUTE_RE.test(path),
-        "Route should have changed to a new draft thread UUID.",
-      );
-      const newThreadId = newThreadPath.slice(1) as ThreadId;
+      const { path: newThreadPath, threadId: newThreadId } =
+        await createProjectThreadWithShortcut(mounted);
 
       await vi.waitFor(
         () => {
@@ -4442,16 +4424,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
     });
 
     try {
-      const newThreadButton = page.getByTestId("new-thread-button");
-      await expect.element(newThreadButton).toBeInTheDocument();
-      await newThreadButton.click();
-
-      const newThreadPath = await waitForURL(
-        mounted.router,
-        (path) => UUID_ROUTE_RE.test(path),
-        "Route should have changed to a new draft thread UUID.",
-      );
-      const newThreadId = newThreadPath.slice(1) as ThreadId;
+      const { path: newThreadPath, threadId: newThreadId } =
+        await createProjectThreadWithShortcut(mounted);
 
       await vi.waitFor(
         () => {
@@ -4557,16 +4531,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
     });
 
     try {
-      const newThreadButton = page.getByTestId("new-thread-button");
-      await expect.element(newThreadButton).toBeInTheDocument();
-      await newThreadButton.click();
-
-      const newThreadPath = await waitForURL(
-        mounted.router,
-        (path) => UUID_ROUTE_RE.test(path),
-        "Route should have changed to a new draft thread UUID.",
-      );
-      const newThreadId = newThreadPath.slice(1) as ThreadId;
+      const { path: newThreadPath, threadId: newThreadId } =
+        await createProjectThreadWithShortcut(mounted);
 
       await vi.waitFor(
         () => {
@@ -4733,17 +4699,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
     });
 
     try {
-      const newThreadButton = page.getByTestId("new-thread-button");
-      await expect.element(newThreadButton).toBeInTheDocument();
-
-      await newThreadButton.click();
-
-      const newThreadPath = await waitForURL(
-        mounted.router,
-        (path) => UUID_ROUTE_RE.test(path),
+      const { threadId: newThreadId } = await createProjectThreadWithShortcut(
+        mounted,
         "Route should have changed to a new sticky claude draft thread UUID.",
       );
-      const newThreadId = newThreadPath.slice(1) as ThreadId;
 
       expect(useComposerDraftStore.getState().draftsByThreadId[newThreadId]).toMatchObject({
         modelSelectionByProvider: {
@@ -4773,17 +4732,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     });
 
     try {
-      const newThreadButton = page.getByTestId("new-thread-button");
-      await expect.element(newThreadButton).toBeInTheDocument();
-
-      await newThreadButton.click();
-
-      const newThreadPath = await waitForURL(
-        mounted.router,
-        (path) => UUID_ROUTE_RE.test(path),
-        "Route should have changed to a new draft thread UUID.",
-      );
-      const newThreadId = newThreadPath.slice(1) as ThreadId;
+      const { threadId: newThreadId } = await createProjectThreadWithShortcut(mounted);
 
       expect(useComposerDraftStore.getState().draftsByThreadId[newThreadId]).toBeUndefined();
     } finally {
@@ -4815,17 +4764,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
     });
 
     try {
-      const newThreadButton = page.getByTestId("new-thread-button");
-      await expect.element(newThreadButton).toBeInTheDocument();
-
-      await newThreadButton.click();
-
-      const threadPath = await waitForURL(
-        mounted.router,
-        (path) => UUID_ROUTE_RE.test(path),
+      const { path: threadPath, threadId } = await createProjectThreadWithShortcut(
+        mounted,
         "Route should have changed to a sticky draft thread UUID.",
       );
-      const threadId = threadPath.slice(1) as ThreadId;
 
       expect(useComposerDraftStore.getState().draftsByThreadId[threadId]).toMatchObject({
         modelSelectionByProvider: {
@@ -4867,7 +4809,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
         { timeout: 8_000, interval: 16 },
       );
 
-      await newThreadButton.click();
+      dispatchChatNewShortcut();
       await new Promise<void>((resolve) => {
         window.setTimeout(resolve, 64);
       });
@@ -4895,10 +4837,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
             {
               command: "chat.new",
               shortcut: {
-                key: "o",
+                key: "n",
                 metaKey: false,
                 ctrlKey: false,
-                shiftKey: true,
+                shiftKey: false,
                 altKey: false,
                 modKey: true,
               },
@@ -4990,16 +4932,20 @@ describe("ChatView timeline estimator parity (full app)", () => {
         { timeout: 8_000, interval: 16 },
       );
 
-      useStore.getState().syncServerReadModel(addThreadToSnapshot(fixture.snapshot, newThreadId));
+      useStore
+        .getState()
+        .syncServerReadModel(
+          addThreadToSnapshot(fixture.snapshot, newThreadId, { title: "New terminal" }),
+        );
       useComposerDraftStore.getState().clearDraftThread(newThreadId);
 
       await vi.waitFor(
         () => {
-          const terminalThreadRow = document.querySelector<HTMLElement>(
-            '[data-thread-entry-point="terminal"]',
-          );
+          const terminalThreadRow = Array.from(
+            document.querySelectorAll<HTMLElement>("[data-thread-level]"),
+          ).find((row) => row.textContent?.includes("New terminal"));
           expect(terminalThreadRow).not.toBeNull();
-          expect(terminalThreadRow?.textContent).toContain("New thread");
+          expect(terminalThreadRow?.textContent).toContain("New terminal");
         },
         { timeout: 8_000, interval: 16 },
       );
@@ -5207,10 +5153,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
             {
               command: "chat.new",
               shortcut: {
-                key: "o",
+                key: "n",
                 metaKey: false,
                 ctrlKey: false,
-                shiftKey: true,
+                shiftKey: false,
                 altKey: false,
                 modKey: true,
               },
@@ -5225,18 +5171,13 @@ describe("ChatView timeline estimator parity (full app)", () => {
     });
 
     try {
-      const newThreadButton = page.getByTestId("new-thread-button");
-      await expect.element(newThreadButton).toBeInTheDocument();
       await waitForNewThreadShortcutLabel();
       await waitForServerConfigToApply();
-      await newThreadButton.click();
-
-      const promotedThreadPath = await waitForURL(
-        mounted.router,
-        (path) => UUID_ROUTE_RE.test(path),
+      const { path: promotedThreadPath, threadId: promotedThreadId } =
+        await createProjectThreadWithShortcut(
+          mounted,
         "Route should have changed to a promoted draft thread UUID.",
       );
-      const promotedThreadId = promotedThreadPath.slice(1) as ThreadId;
 
       const { syncServerReadModel } = useStore.getState();
       syncServerReadModel(addThreadToSnapshot(fixture.snapshot, promotedThreadId));

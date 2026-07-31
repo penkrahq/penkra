@@ -37,6 +37,11 @@ export default mergeConfig(
       // on a cold Windows cache before an individual browser test can proceed.
       testTimeout: 90_000,
       hookTimeout: 90_000,
+      // A worker per browser file can launch dozens of Chromium renderers at
+      // once, starving interaction timers and making the suite slower and
+      // nondeterministic. Keep enough parallelism for throughput without
+      // overcommitting developer machines or CI runners.
+      maxWorkers: 4,
     },
   }),
 );

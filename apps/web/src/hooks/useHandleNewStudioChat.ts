@@ -9,11 +9,14 @@ import { useComposerDraftStore } from "../composerDraftStore";
 import { useWorkspacePathsStore } from "../workspacePathsStore";
 import { useHandleNewThread } from "./useHandleNewThread";
 
-export function useHandleNewStudioChat() {
+export function useHandleNewStudioChat(
+  handleNewThreadOverride?: ReturnType<typeof useHandleNewThread>["handleNewThread"],
+) {
   const homeDir = useWorkspacePathsStore((state) => state.homeDir);
   const chatWorkspaceRoot = useWorkspacePathsStore((state) => state.chatWorkspaceRoot);
   const studioWorkspaceRoot = useWorkspacePathsStore((state) => state.studioWorkspaceRoot);
-  const { handleNewThread } = useHandleNewThread();
+  const { handleNewThread: defaultHandleNewThread } = useHandleNewThread();
+  const handleNewThread = handleNewThreadOverride ?? defaultHandleNewThread;
 
   const handleNewStudioChat = async (options?: {
     fresh?: boolean;

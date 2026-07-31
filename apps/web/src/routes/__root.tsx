@@ -1156,6 +1156,9 @@ function EventRouter() {
     };
 
     const loadShellSnapshotOnce = async () => {
+      if (disposed) {
+        return;
+      }
       const snapshot = await api.orchestration.getShellSnapshot();
       if (!shouldApplyBootstrapShellSnapshot(snapshot)) {
         return;
@@ -1170,7 +1173,11 @@ function EventRouter() {
     const ensureScopedSubscriptions = async () => {
       shellSnapshotSequence = -1;
       pendingShellEvents = [];
-      await api.orchestration.subscribeShell().catch(() => loadShellSnapshotOnce());
+      await api.orchestration.subscribeShell().catch(async () => {
+        if (!disposed) {
+          await loadShellSnapshotOnce();
+        }
+      });
       await enqueueThreadSubscriptionOperation(async () => {
         threadSnapshotSequenceById.clear();
         pendingThreadEventsById.clear();
@@ -1735,7 +1742,7 @@ function EventRouter() {
       });
     });
     subscribed = true;
-    void ensureScopedSubscriptions();
+    void ensureScopedSubscriptions().catch(() => undefined);
     // The shell stream normally delivers the sidebar snapshot. If it fails before
     // the first event, use the same lightweight query instead of the full history.
     const shellBootstrapFallbackTimer = window.setTimeout(() => {

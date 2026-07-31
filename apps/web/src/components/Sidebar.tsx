@@ -142,7 +142,7 @@ import { useThreadDetailPrewarm } from "../threadDetailPrewarm";
 import { retainThreadDetailSubscription } from "../threadDetailSubscriptionRetention";
 import { useThreadSelectionStore } from "../threadSelectionStore";
 import type { SidebarThreadSummary, Thread } from "../types";
-import { useWorkspaceStore } from "../workspaceStore";
+import { useWorkspacePathsStore } from "../workspacePathsStore";
 import { shouldRenderTerminalWorkspace } from "./ChatView.logic";
 import { CreateProjectDialog, type CreateProjectSubmitValue } from "./CreateProjectDialog";
 import { RenameDialog } from "./RenameDialog";
@@ -448,13 +448,13 @@ export default function Sidebar() {
   const pinProjectLocally = usePinnedProjectsStore((store) => store.pinProject);
   const unpinProject = usePinnedProjectsStore((store) => store.unpinProject);
   const prunePinnedProjects = usePinnedProjectsStore((store) => store.prunePinnedProjects);
-  const homeDir = useWorkspaceStore((store) => store.homeDir);
+  const homeDir = useWorkspacePathsStore((store) => store.homeDir);
   const defaultProfileName = toDisplayName(
     (homeDir ?? "").split(/[\\/]/).filter(Boolean).at(-1) ?? "",
   );
   const { name: profileName } = useProfileName(defaultProfileName);
-  const chatWorkspaceRoot = useWorkspaceStore((store) => store.chatWorkspaceRoot);
-  const studioWorkspaceRoot = useWorkspaceStore((store) => store.studioWorkspaceRoot);
+  const chatWorkspaceRoot = useWorkspacePathsStore((store) => store.chatWorkspaceRoot);
+  const studioWorkspaceRoot = useWorkspacePathsStore((store) => store.studioWorkspaceRoot);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const isOnSettings = useLocation({
@@ -2613,6 +2613,16 @@ export default function Sidebar() {
         setCreateProjectDialogOpen(true);
         return;
       }
+      // The route-level new-thread handler owns normal creation. When no project
+      // exists it deliberately leaves the event untouched so the sidebar can
+      // surface the project prerequisite instead of turning the shortcut into a
+      // silent no-op.
+      if (command === "chat.new" && threadsHydrated && !primaryNewThreadTarget) {
+        event.preventDefault();
+        event.stopPropagation();
+        setCreateProjectDialogOpen(true);
+        return;
+      }
       if (command === "sidebar.importThread") {
         event.preventDefault();
         event.stopPropagation();
@@ -2732,10 +2742,12 @@ export default function Sidebar() {
     isOnSettings,
     isOnWorkspace,
     navigate,
+    primaryNewThreadTarget,
     searchPaletteMode,
     spaces,
     threadJumpCommandByThreadId,
     threadJumpThreadIds,
+    threadsHydrated,
     visibleSidebarThreadIds,
   ]);
 

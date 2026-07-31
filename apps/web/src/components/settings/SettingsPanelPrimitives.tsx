@@ -11,6 +11,7 @@ import {
   SETTINGS_CARD_ROW_CLASS_NAME,
   SETTINGS_CARD_ROW_DESCRIPTION_CLASS_NAME,
   SETTINGS_CARD_ROW_TITLE_CLASS_NAME,
+  SETTINGS_EMPTY_STATE_CLASS_NAME,
   SETTINGS_PANEL_SECTION_CLASS_NAME,
 } from "~/settingsPanelStyles";
 import { SelectPopup } from "~/components/ui/select";
@@ -32,6 +33,36 @@ export function SettingsSection({ title, children }: { title: string; children: 
     <SettingsSectionShared className={SETTINGS_PANEL_SECTION_CLASS_NAME} title={title}>
       {children}
     </SettingsSectionShared>
+  );
+}
+
+export function SettingsEmptyState({
+  layout: layoutProp,
+  tone: toneProp,
+  className,
+  children,
+}: {
+  layout?: "block" | "status";
+  tone?: "muted" | "destructive";
+  className?: string;
+  children: ReactNode;
+}) {
+  const layout = layoutProp ?? "block";
+  const tone = toneProp ?? "muted";
+  return (
+    <div
+      className={cn(
+        SETTINGS_EMPTY_STATE_CLASS_NAME,
+        "px-4 text-sm",
+        layout === "block" ? "py-10 text-center" : "py-6",
+        tone === "destructive"
+          ? "border-destructive/30 bg-destructive/5 text-destructive"
+          : "text-muted-foreground",
+        className,
+      )}
+    >
+      {children}
+    </div>
   );
 }
 

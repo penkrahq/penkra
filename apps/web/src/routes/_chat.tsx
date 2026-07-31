@@ -15,6 +15,7 @@ import { FindProvider } from "../components/find/FindProvider";
 import ThreadSidebar from "../components/Sidebar";
 import { isElectron } from "../env";
 import { useHandleNewChat } from "../hooks/useHandleNewChat";
+import { useHandleNewStudioChat } from "../hooks/useHandleNewStudioChat";
 import { useTemporaryThreadLifecycle } from "../hooks/useTemporaryThreadLifecycle";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useRecentViewSwitcher } from "../hooks/useRecentViewSwitcher";
@@ -26,6 +27,7 @@ import {
   resolveNewThreadTarget,
 } from "../lib/projectShortcutTargets";
 import { resolveInheritedThreadContext } from "../lib/threadBootstrap";
+import { startFreshChatForActiveSurface } from "../lib/startContainerChat";
 import { serverConfigQueryOptions } from "../lib/serverReactQuery";
 import { isOrdinarySpaceProject } from "../lib/spaces";
 import { resolveShortcutCommand } from "../keybindings";
@@ -33,7 +35,7 @@ import { useStore } from "../store";
 import { useSpacesUiStore } from "../spacesUiStore";
 import { useThreadSelectionStore } from "../threadSelectionStore";
 import { onServerMaintenanceUpdated } from "../wsNativeApi";
-import { useWorkspaceStore } from "../workspaceStore";
+import { useWorkspacePathsStore } from "../workspacePathsStore";
 import { useProviderStatusesForLocalConfig } from "~/hooks/useProviderStatusesForLocalConfig";
 import { useRefreshProviderStatusesNow } from "~/hooks/useProviderStatusRefresh";
 import { resolveProviderSendAvailabilityWithRefresh } from "~/lib/providerAvailability";
@@ -208,10 +210,14 @@ function ChatRouteGlobalShortcuts() {
     activeDraftThread,
     projects,
   });
-  const { handleNewChat } = useHandleNewChat();
-  const homeDir = useWorkspaceStore((state) => state.homeDir);
-  const chatWorkspaceRoot = useWorkspaceStore((state) => state.chatWorkspaceRoot);
-  const studioWorkspaceRoot = useWorkspaceStore((state) => state.studioWorkspaceRoot);
+  const { handleNewChat } = useHandleNewChat(handleNewThread);
+  const { handleNewStudioChat } = useHandleNewStudioChat(handleNewThread);
+  const homeDir = useWorkspacePathsStore((state) => state.homeDir);
+  const chatWorkspaceRoot = useWorkspacePathsStore((state) => state.chatWorkspaceRoot);
+  const studioWorkspaceRoot = useWorkspacePathsStore((state) => state.studioWorkspaceRoot);
+  const isStudioRoute = useLocation({
+    select: (location) => location.pathname === "/studio",
+  });
   const latestProjectId = useLatestProjectStore((state) => state.latestProjectId);
   const setLatestProjectId = useLatestProjectStore((state) => state.setLatestProjectId);
   const clearLatestProjectId = useLatestProjectStore((state) => state.clearLatestProjectId);
@@ -223,6 +229,7 @@ function ChatRouteGlobalShortcuts() {
   const platform = typeof navigator === "undefined" ? "" : navigator.platform;
   const providerStatuses = useProviderStatusesForLocalConfig();
   const refreshProviderStatuses = useRefreshProviderStatusesNow();
+  const newChatInFlightRef = useRef<Promise<unknown> | null>(null);
   const activeProject =
     activeProjectId !== null
       ? (projects.find((project) => project.id === activeProjectId) ?? null)
@@ -253,7 +260,37 @@ function ChatRouteGlobalShortcuts() {
   // Deliberately unscoped: the persisted id is only cleared once the project is gone from
   // the app entirely, not merely absent from the Space you happen to be in.
   const persistedLatestProjectStillExists = resolveLatestProjectTargetId(projects, latestProjectId);
-  const handleNewChatForActiveSurface = useCallback(() => handleNewChat(), [handleNewChat]);
+  const handleNewChatForActiveSurface = useCallback(
+    () => {
+      if (newChatInFlightRef.current) {
+        return newChatInFlightRef.current;
+      }
+      const operation = startFreshChatForActiveSurface({
+        activeProject,
+        isStudioRoute,
+        paths: { homeDir, chatWorkspaceRoot, studioWorkspaceRoot },
+        handleNewChat,
+        handleNewStudioChat,
+      });
+      newChatInFlightRef.current = operation;
+      const clearOperation = () => {
+        if (newChatInFlightRef.current === operation) {
+          newChatInFlightRef.current = null;
+        }
+      };
+      void operation.then(clearOperation, clearOperation);
+      return operation;
+    },
+    [
+      activeProject,
+      chatWorkspaceRoot,
+      handleNewChat,
+      handleNewStudioChat,
+      homeDir,
+      isStudioRoute,
+      studioWorkspaceRoot,
+    ],
+  );
 
   useEffect(() => {
     if (!currentProjectId) {
@@ -403,6 +440,20 @@ function ChatRouteGlobalShortcuts() {
               : {}),
           });
         })();
+        return;
+      }
+
+      if (command === "chat.newTerminal") {
+        const target = resolveNewThreadTarget({ currentProjectId, latestUsableProjectId });
+        if (!target) return;
+        event.preventDefault();
+        event.stopPropagation();
+        void handleNewThread(target.projectId, {
+          entryPoint: "terminal",
+          ...(target.inheritContext
+            ? resolveInheritedThreadContext({ activeThread, activeDraftThread })
+            : {}),
+        });
         return;
       }
 
