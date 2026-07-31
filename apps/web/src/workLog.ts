@@ -187,6 +187,17 @@ export function orderedActivities(
   return ordered;
 }
 
+export function isRoutedSubagentWorkEntry(entry: Pick<WorkLogEntry, "itemType" | "subagents">) {
+  return entry.itemType === "collab_agent_tool_call" && (entry.subagents?.length ?? 0) > 0;
+}
+
+export function omitRoutedSubagentWorkEntries<Entry extends WorkLogEntry>(
+  entries: ReadonlyArray<Entry>,
+): ReadonlyArray<Entry> {
+  const kept = entries.filter((entry) => !isRoutedSubagentWorkEntry(entry));
+  return kept.length === entries.length ? entries : kept;
+}
+
 function shouldOmitRoutedCollabAgentToolActivity(activity: OrchestrationThreadActivity): boolean {
   const payload = asRecord(activity.payload);
   if (asTrimmedString(payload?.itemType) !== "collab_agent_tool_call") {

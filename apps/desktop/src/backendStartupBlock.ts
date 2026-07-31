@@ -1,5 +1,5 @@
 // FILE: backendStartupBlock.ts
-// Purpose: Classifies backend startup failures that require user action.
+// Purpose: Classifies expected backend startup blocks that need user action, not crash retries.
 
 const MAX_STARTUP_OUTPUT_CHARS = 16_384;
 

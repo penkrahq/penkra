@@ -10,18 +10,11 @@ if (process.platform === "darwin") {
 const childEnv = { ...process.env };
 delete childEnv.ELECTRON_RUN_AS_NODE;
 
-const canaryRootArgument = process.argv.find((argument) =>
-  argument.startsWith("--penkra-canary-root="),
-);
-const child = spawn(
-  resolveElectronPath(),
-  ["dist-electron/main.js", ...(canaryRootArgument ? [canaryRootArgument] : [])],
-  {
-    stdio: "inherit",
-    cwd: desktopDir,
-    env: childEnv,
-  },
-);
+const child = spawn(resolveElectronPath(), ["dist-electron/main.js"], {
+  stdio: "inherit",
+  cwd: desktopDir,
+  env: childEnv,
+});
 
 let forwardedSignal = null;
 for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {

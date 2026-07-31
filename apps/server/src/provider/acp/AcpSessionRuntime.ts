@@ -4,7 +4,7 @@
 // Exports: AcpSessionRuntime and its typed runtime factory contracts.
 
 import { randomUUID } from "node:crypto";
-import * as Acp from "@agentclientprotocol/sdk";
+import type * as Acp from "@agentclientprotocol/sdk";
 import { prepareWindowsSafeProcess } from "@synara/shared/windowsProcess";
 import {
   Cause,
@@ -22,6 +22,7 @@ import {
 } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import * as AcpErrors from "./AcpErrors.ts";
+import { loadAcpSdk, type AcpSdkModule } from "./AcpSdk.ts";
 import { SetSessionConfigOptionResponse as SetSessionConfigOptionResponseCodec } from "./AcpExtensions.ts";
 
 import { buildProviderChildEnvironment } from "../../providerChildEnvironment.ts";
@@ -45,6 +46,74 @@ import {
 const CONFIG_OPTION_UPDATE_TIMEOUT = "5 seconds";
 const ACP_INCOMING_CHUNK_QUEUE_CAPACITY = 64;
 export const ACP_MAX_INCOMING_FRAME_BYTES = 8 * 1024 * 1024;
+
+export type AcpSessionStartupStep =
+  | "initialize"
+  | "authenticate"
+  | "session/new"
+  | "session/load"
+  | "session/resume"
+  | "startup";
+
+export interface AcpSessionStartupTimeouts {
+  readonly initializeMs: number;
+  readonly authenticateMs: number;
+  readonly sessionSetupMs: number;
+  /** Aggregate cap; deliberately lower than the sum of the per-step budgets. */
+  readonly totalMs: number;
+}
+
+// Every startup step is bounded because an agent can block indefinitely without
+// ever failing: `cursor-agent` authenticates through the macOS Keychain, whose
+// `security` call legitimately takes >10s and hangs forever when a Keychain
+// prompt cannot be displayed. Budgets are generous so slow-but-healthy
+// handshakes still succeed; adapters override them via `startupTimeouts`.
+export const DEFAULT_ACP_SESSION_STARTUP_TIMEOUTS: AcpSessionStartupTimeouts = {
+  initializeMs: 20_000,
+  authenticateMs: 30_000,
+  sessionSetupMs: 20_000,
+  totalMs: 60_000,
+};
+
+/** JSON-RPC implementation-defined server error; not produced by ACP agents. */
+export const ACP_STARTUP_TIMEOUT_ERROR_CODE = -32001;
+
+export interface AcpStartupTimeoutData {
+  readonly reason: "acp-startup-timeout";
+  readonly step: AcpSessionStartupStep;
+  readonly timeoutMs: number;
+}
+
+export function acpStartupTimeoutError(
+  step: AcpSessionStartupStep,
+  timeoutMs: number,
+): AcpErrors.AcpRequestError {
+  const seconds = Math.round(timeoutMs / 1000);
+  return new AcpErrors.AcpRequestError({
+    code: ACP_STARTUP_TIMEOUT_ERROR_CODE,
+    errorMessage:
+      step === "startup"
+        ? `ACP agent did not finish session startup within ${seconds}s.`
+        : `ACP agent did not respond to ${step} within ${seconds}s.`,
+    data: {
+      reason: "acp-startup-timeout",
+      step,
+      timeoutMs,
+    } satisfies AcpStartupTimeoutData,
+  });
+}
+
+export function isAcpStartupTimeoutError(
+  error: unknown,
+): error is AcpErrors.AcpRequestError & { readonly data: AcpStartupTimeoutData } {
+  return (
+    Schema.is(AcpErrors.AcpRequestError)(error) &&
+    error.code === ACP_STARTUP_TIMEOUT_ERROR_CODE &&
+    typeof error.data === "object" &&
+    error.data !== null &&
+    (error.data as { reason?: unknown }).reason === "acp-startup-timeout"
+  );
+}
 
 export interface AcpProtocolLogEvent {
   readonly direction: "incoming" | "outgoing";
@@ -107,10 +176,9 @@ export interface AcpSpawnInput {
 export interface AcpSessionRuntimeOptions {
   readonly spawn: AcpSpawnInput;
   readonly cwd: string;
-  readonly penkraThreadId?: string;
   readonly resumeSessionId?: string;
   readonly clientCapabilities?: Acp.InitializeRequest["clientCapabilities"];
-  /** Provider-specific metadata sent on session/new and session/resume. */
+  /** Provider-specific metadata sent on session/new, session/load, and session/resume. */
   readonly sessionMeta?: Record<string, unknown>;
   readonly clientInfo: {
     readonly name: string;
@@ -123,10 +191,12 @@ export interface AcpSessionRuntimeOptions {
   /**
    * MCP servers to attach to the session. Invoked after `initialize` so the
    * builder can pick a transport based on the agent's advertised
-   * `mcpCapabilities` (e.g. HTTP vs stdio for the Penkra agent gateway).
+   * `mcpCapabilities` (e.g. HTTP vs stdio for the Synara agent gateway).
    */
   readonly buildMcpServers?: (initializeResult: Acp.InitializeResponse) => Array<Acp.McpServer>;
   readonly authenticateMeta?: Record<string, unknown>;
+  /** Overrides for {@link DEFAULT_ACP_SESSION_STARTUP_TIMEOUTS}. */
+  readonly startupTimeouts?: Partial<AcpSessionStartupTimeouts>;
   readonly requestLogger?: (event: AcpSessionRequestLogEvent) => Effect.Effect<void, never>;
   readonly protocolLogging?: {
     readonly logIncoming?: boolean;
@@ -148,9 +218,13 @@ export interface AcpSessionRequestLogEvent {
 export interface AcpSessionRuntimeStartResult {
   readonly sessionId: string;
   readonly initializeResult: Acp.InitializeResponse;
-  readonly sessionSetupResult: Acp.NewSessionResponse | Acp.ResumeSessionResponse;
+  readonly sessionSetupResult:
+    | Acp.LoadSessionResponse
+    | Acp.NewSessionResponse
+    | Acp.ResumeSessionResponse;
   readonly modelConfigId: string | undefined;
-  readonly sessionSetupMethod: "new" | "resume";
+  /** `session/resume` does not replay transcript updates; `session/load` may. */
+  readonly sessionSetupMethod: "new" | "load" | "resume";
 }
 
 export interface AcpSessionRuntimeShape {
@@ -264,7 +338,7 @@ export const awaitAcpChildExit = (child: AcpOwnedChildProcess): Effect.Effect<vo
   child.exitCode.pipe(Effect.exit, Effect.asVoid);
 
 /**
- * Bridges Effect's child-process exit signal into Penkra's process-tree proof. This is deliberately
+ * Bridges Effect's child-process exit signal into Synara's process-tree proof. This is deliberately
  * a finalizer defect on failure: adapter scope cleanup may ignore typed failures, but it must never
  * publish a successful stop when the ACP process tree has not been proven gone.
  */
@@ -279,8 +353,8 @@ export const teardownAcpChildProcess = (
     }).pipe(Effect.orDie);
   });
 
-function officialSdkError(error: unknown): AcpErrors.AcpError {
-  return error instanceof Acp.RequestError
+function officialSdkError(acpSdk: AcpSdkModule, error: unknown): AcpErrors.AcpError {
+  return error instanceof acpSdk.RequestError
     ? new AcpErrors.AcpRequestError({
         code: error.code,
         errorMessage: error.message,
@@ -322,6 +396,9 @@ const makeOfficialSdkClient = Effect.fnUntraced(function* (
   let terminalRelease: TerminalReleaseHandler | undefined;
   const sessionUpdateHandlers: SessionUpdateHandler[] = [];
   const elicitationCompleteHandlers: ElicitationCompleteHandler[] = [];
+  // The ACP SDK is only needed once a provider process is actually spawned, so
+  // it is imported here instead of at module scope (see AcpSdk.ts).
+  const acpSdk = yield* Effect.promise(() => loadAcpSdk());
   const logProtocol = (
     direction: "incoming" | "outgoing",
     stage: "raw" | "decoded",
@@ -360,7 +437,7 @@ const makeOfficialSdkClient = Effect.fnUntraced(function* (
   const runHandler = <A>(effect: Effect.Effect<A, AcpErrors.AcpError>): Promise<A> =>
     Effect.runPromise(effect).catch((error) => {
       if (error instanceof AcpErrors.AcpRequestError) {
-        throw new Acp.RequestError(error.code, error.errorMessage, error.data);
+        throw new acpSdk.RequestError(error.code, error.errorMessage, error.data);
       }
       throw error;
     });
@@ -371,7 +448,7 @@ const makeOfficialSdkClient = Effect.fnUntraced(function* (
   ) =>
     handler
       ? runHandler(handler(payload as never))
-      : Promise.reject(Acp.RequestError.methodNotFound(method));
+      : Promise.reject(acpSdk.RequestError.methodNotFound(method));
 
   const outgoing = yield* Queue.bounded<Uint8Array>(256);
   yield* Stream.fromQueue(outgoing).pipe(Stream.run(child.stdin), Effect.forkIn(runtimeScope));
@@ -427,48 +504,50 @@ const makeOfficialSdkClient = Effect.fnUntraced(function* (
     },
   });
 
-  const clientApp = Acp.client({ name: "synara" })
-    .onRequest(Acp.methods.client.session.requestPermission, ({ params }) =>
+  const clientApp = acpSdk
+    .client({ name: "synara" })
+    .onRequest(acpSdk.methods.client.session.requestPermission, ({ params }) =>
       requireHandler("session/request_permission", requestPermission, params),
     )
-    .onRequest(Acp.methods.client.fs.readTextFile, ({ params }) =>
+    .onRequest(acpSdk.methods.client.fs.readTextFile, ({ params }) =>
       requireHandler("fs/read_text_file", readTextFile, params),
     )
-    .onRequest(Acp.methods.client.fs.writeTextFile, ({ params }) =>
+    .onRequest(acpSdk.methods.client.fs.writeTextFile, ({ params }) =>
       requireHandler("fs/write_text_file", writeTextFile, params),
     )
-    .onRequest(Acp.methods.client.terminal.create, ({ params }) =>
+    .onRequest(acpSdk.methods.client.terminal.create, ({ params }) =>
       requireHandler("terminal/create", createTerminal, params),
     )
-    .onRequest(Acp.methods.client.terminal.output, ({ params }) =>
+    .onRequest(acpSdk.methods.client.terminal.output, ({ params }) =>
       requireHandler("terminal/output", terminalOutput, params),
     )
-    .onRequest(Acp.methods.client.terminal.waitForExit, ({ params }) =>
+    .onRequest(acpSdk.methods.client.terminal.waitForExit, ({ params }) =>
       requireHandler("terminal/wait_for_exit", terminalWait, params),
     )
-    .onRequest(Acp.methods.client.terminal.kill, ({ params }) =>
+    .onRequest(acpSdk.methods.client.terminal.kill, ({ params }) =>
       requireHandler("terminal/kill", terminalKill, params),
     )
-    .onRequest(Acp.methods.client.terminal.release, ({ params }) =>
+    .onRequest(acpSdk.methods.client.terminal.release, ({ params }) =>
       requireHandler("terminal/release", terminalRelease, params),
     )
-    .onRequest(Acp.methods.client.elicitation.create, async ({ params }) => {
+    .onRequest(acpSdk.methods.client.elicitation.create, async ({ params }) => {
       return requireHandler("elicitation/create", elicitation, params);
     })
-    .onNotification(Acp.methods.client.session.update, ({ params }) =>
+    .onNotification(acpSdk.methods.client.session.update, ({ params }) =>
       dispatchSessionUpdate(params),
     )
-    .onNotification(Acp.methods.client.elicitation.complete, ({ params }) =>
+    .onNotification(acpSdk.methods.client.elicitation.complete, ({ params }) =>
       Promise.all(elicitationCompleteHandlers.map((handler) => runHandler(handler(params)))).then(
         () => undefined,
       ),
     );
   let connection: Acp.ClientConnection | undefined;
-  const getConnection = () => (connection ??= clientApp.connect(Acp.ndJsonStream(output, input)));
+  const getConnection = () =>
+    (connection ??= clientApp.connect(acpSdk.ndJsonStream(output, input)));
   const fromPromise = <A>(
     thunk: (signal: AbortSignal) => Promise<A>,
   ): Effect.Effect<A, AcpErrors.AcpError> =>
-    Effect.tryPromise({ try: thunk, catch: officialSdkError });
+    Effect.tryPromise({ try: thunk, catch: (error) => officialSdkError(acpSdk, error) });
   const request = <Method extends Acp.AgentRequestMethod>(
     method: Method,
     payload: Acp.AgentRequestParamsByMethod[Method],
@@ -512,30 +591,34 @@ const makeOfficialSdkClient = Effect.fnUntraced(function* (
     },
     agent: {
       initialize: (payload: Acp.InitializeRequest) =>
-        request(Acp.methods.agent.initialize, payload),
+        request(acpSdk.methods.agent.initialize, payload),
       authenticate: (payload: Acp.AuthenticateRequest) =>
-        request(Acp.methods.agent.authenticate, payload),
-      logout: (payload: Acp.LogoutRequest) => request(Acp.methods.agent.logout, payload),
+        request(acpSdk.methods.agent.authenticate, payload),
+      logout: (payload: Acp.LogoutRequest) => request(acpSdk.methods.agent.logout, payload),
       createSession: (payload: Acp.NewSessionRequest) =>
-        request(Acp.methods.agent.session.new, payload),
+        request(acpSdk.methods.agent.session.new, payload),
+      loadSession: (payload: Acp.LoadSessionRequest) =>
+        request(acpSdk.methods.agent.session.load, payload).pipe(
+          Effect.map((response) => response ?? {}),
+        ),
       listSessions: (payload: Acp.ListSessionsRequest) =>
-        request(Acp.methods.agent.session.list, payload),
+        request(acpSdk.methods.agent.session.list, payload),
       forkSession: (payload: Acp.ForkSessionRequest) =>
-        request(Acp.methods.agent.session.fork, payload),
+        request(acpSdk.methods.agent.session.fork, payload),
       resumeSession: (payload: Acp.ResumeSessionRequest) =>
-        request(Acp.methods.agent.session.resume, payload),
+        request(acpSdk.methods.agent.session.resume, payload),
       closeSession: (payload: Acp.CloseSessionRequest) =>
-        request(Acp.methods.agent.session.close, payload).pipe(
+        request(acpSdk.methods.agent.session.close, payload).pipe(
           Effect.map((response) => response ?? {}),
         ),
       setSessionConfigOption: (payload: Acp.SetSessionConfigOptionRequest) =>
-        request(Acp.methods.agent.session.setConfigOption, payload),
+        request(acpSdk.methods.agent.session.setConfigOption, payload),
       prompt: (payload: Acp.PromptRequest) =>
-        request(Acp.methods.agent.session.prompt, payload).pipe(
+        request(acpSdk.methods.agent.session.prompt, payload).pipe(
           Effect.tap(() => fromPromise(awaitSessionUpdateDrain)),
         ),
       cancel: (payload: Acp.CancelNotification) =>
-        notifyStandard(Acp.methods.agent.session.cancel, payload),
+        notifyStandard(acpSdk.methods.agent.session.cancel, payload),
     },
     handleRequestPermission: (handler: RequestPermissionHandler) =>
       register(() => void (requestPermission = handler)),
@@ -621,6 +704,13 @@ const makeAcpSessionRuntime = (
       [],
     );
     const startStateRef = yield* Ref.make<AcpStartState>({ _tag: "NotStarted" });
+    // session/load can replay a large history before the consumer attaches; drop
+    // those notifications so they never accumulate in the unbounded queue. For
+    // resumed sessions the gate stays closed past start() and only opens once the
+    // adapter attaches a consumer via getEvents(), because the agent may keep
+    // replaying after replying to session/load. Plain mutable state (not a Ref)
+    // so getEvents() can open the gate synchronously at attach time.
+    let acceptingSessionUpdates = false;
     // Counts every parsed event offered into eventQueue (see
     // sessionUpdatesEnqueuedCount on the shape). Plain mutable state: single
     // writer per offer, and readers only need a monotonic snapshot.
@@ -668,14 +758,6 @@ const makeAcpSessionRuntime = (
     const env = buildProviderChildEnvironment({
       provider: "acp",
       baseEnv: options.spawn.env ? { ...options.spawn.env } : process.env,
-      ...(options.penkraThreadId
-        ? {
-            penkraContext: {
-              threadId: options.penkraThreadId,
-              workspace: options.cwd,
-            },
-          }
-        : {}),
     });
     const prepared = prepareWindowsSafeProcess(options.spawn.command, options.spawn.args, {
       cwd: options.spawn.cwd,
@@ -742,6 +824,12 @@ const makeAcpSessionRuntime = (
               )
             : Effect.void;
         const rememberBoundedState = rememberCommands.pipe(Effect.andThen(rememberConfigOptions));
+        if (!acceptingSessionUpdates) {
+          // Command and configuration inventories are bounded state, not
+          // transcript replay; retain them even while historical session
+          // updates are being suppressed.
+          return rememberBoundedState;
+        }
         return rememberBoundedState.pipe(
           Effect.andThen(
             handleSessionUpdate({
@@ -834,6 +922,7 @@ const makeAcpSessionRuntime = (
     const updateConfigOptions = (
       response:
         | Acp.SetSessionConfigOptionResponse
+        | Acp.LoadSessionResponse
         | Acp.NewSessionResponse
         | Acp.ResumeSessionResponse,
     ): Effect.Effect<void> => Ref.set(configOptionsRef, sessionConfigOptionsFromSetup(response));
@@ -928,6 +1017,26 @@ const makeAcpSessionRuntime = (
         ),
       );
 
+    const startupTimeouts: AcpSessionStartupTimeouts = {
+      ...DEFAULT_ACP_SESSION_STARTUP_TIMEOUTS,
+      ...options.startupTimeouts,
+    };
+
+    const withStartupTimeout = <A>(
+      step: AcpSessionStartupStep,
+      timeoutMs: number,
+      effect: Effect.Effect<A, AcpErrors.AcpError>,
+    ): Effect.Effect<A, AcpErrors.AcpError> =>
+      effect.pipe(
+        Effect.timeoutOption(timeoutMs),
+        Effect.flatMap(
+          Option.match({
+            onNone: () => Effect.fail(acpStartupTimeoutError(step, timeoutMs)),
+            onSome: Effect.succeed,
+          }),
+        ),
+      );
+
     const startOnce = Effect.gen(function* () {
       const initializePayload = {
         protocolVersion: 1,
@@ -935,10 +1044,10 @@ const makeAcpSessionRuntime = (
         clientInfo: options.clientInfo,
       } satisfies Acp.InitializeRequest;
 
-      const initializeResult = yield* runLoggedRequest(
+      const initializeResult = yield* withStartupTimeout(
         "initialize",
-        initializePayload,
-        acp.agent.initialize(initializePayload),
+        startupTimeouts.initializeMs,
+        runLoggedRequest("initialize", initializePayload, acp.agent.initialize(initializePayload)),
       );
       const authMethodId =
         options.resolveAuthMethodId !== undefined
@@ -958,16 +1067,24 @@ const makeAcpSessionRuntime = (
         ...(options.authenticateMeta ? { _meta: options.authenticateMeta } : {}),
       } satisfies Acp.AuthenticateRequest;
 
-      yield* runLoggedRequest(
+      yield* withStartupTimeout(
         "authenticate",
-        authenticatePayload,
-        acp.agent.authenticate(authenticatePayload),
+        startupTimeouts.authenticateMs,
+        runLoggedRequest(
+          "authenticate",
+          authenticatePayload,
+          acp.agent.authenticate(authenticatePayload),
+        ),
       );
 
       const mcpServers = options.buildMcpServers?.(initializeResult) ?? [];
 
       let sessionId: string;
-      let sessionSetupResult: Acp.NewSessionResponse | Acp.ResumeSessionResponse;
+      let sessionSetupResult:
+        | Acp.LoadSessionResponse
+        | Acp.NewSessionResponse
+        | Acp.ResumeSessionResponse;
+      let resumedExistingSession = false;
       let sessionSetupMethod: AcpSessionRuntimeStartResult["sessionSetupMethod"] = "new";
       if (options.resumeSessionId) {
         const resumePayload = {
@@ -985,26 +1102,30 @@ const makeAcpSessionRuntime = (
               "This ACP agent version cannot reopen Penkra sessions because it does not advertise session/resume. Update the provider to a version that supports no-replay resume.",
           });
         }
-        const resumed = yield* runLoggedRequest(
+        const resumed = yield* withStartupTimeout(
           "session/resume",
-          resumePayload,
-          acp.agent.resumeSession(resumePayload),
+          startupTimeouts.sessionSetupMs,
+          runLoggedRequest("session/resume", resumePayload, acp.agent.resumeSession(resumePayload)),
         );
         // Resume failure is terminal. Retrying as session/new would create a second
         // conversation and make delivery outcome ambiguous.
         sessionId = options.resumeSessionId;
         sessionSetupResult = resumed;
+        resumedExistingSession = true;
         sessionSetupMethod = "resume";
       } else {
+        // Fresh session: accept updates from before session/new so any early
+        // agent output emitted while the request is in flight is buffered.
+        acceptingSessionUpdates = true;
         const createPayload = {
           cwd: options.cwd,
           mcpServers,
           ...(options.sessionMeta ? { _meta: options.sessionMeta } : {}),
         } satisfies Acp.NewSessionRequest;
-        const created = yield* runLoggedRequest(
+        const created = yield* withStartupTimeout(
           "session/new",
-          createPayload,
-          acp.agent.createSession(createPayload),
+          startupTimeouts.sessionSetupMs,
+          runLoggedRequest("session/new", createPayload, acp.agent.createSession(createPayload)),
         );
         sessionId = created.sessionId;
         sessionSetupResult = created;
@@ -1015,6 +1136,15 @@ const makeAcpSessionRuntime = (
       yield* Ref.update(configOptionsRef, (current) =>
         sessionConfigOptionsFromSetup(sessionSetupResult, current),
       );
+      // Fresh sessions accept session/update while session/new is in flight, and
+      // those events are already in the queue; resetting the merge/segment state
+      // they created would orphan their continuations (new segment ids, unmerged
+      // tool updates). Only the resumed replay-dropping path starts clean.
+      if (resumedExistingSession) {
+        yield* Ref.set(toolCallsRef, new Map());
+        yield* Ref.set(assistantSegmentRef, { nextSegmentIndex: 0 });
+      }
+
       const nextState = {
         sessionId,
         initializeResult,
@@ -1024,6 +1154,10 @@ const makeAcpSessionRuntime = (
       } satisfies AcpStartedState;
       return nextState;
     });
+
+    // Backstop for a step that stays under its own budget while the handshake as
+    // a whole never settles (e.g. an agent that keeps answering slowly).
+    const boundedStartOnce = withStartupTimeout("startup", startupTimeouts.totalMs, startOnce);
 
     const start = Effect.gen(function* () {
       const deferred = yield* Deferred.make<AcpSessionRuntimeStartResult, AcpErrors.AcpError>();
@@ -1035,7 +1169,7 @@ const makeAcpSessionRuntime = (
             return [Deferred.await(state.deferred), state] as const;
           case "NotStarted":
             return [
-              startOnce.pipe(
+              boundedStartOnce.pipe(
                 Effect.tap((result) =>
                   Ref.set(startStateRef, { _tag: "Started", result }).pipe(
                     Effect.andThen(Deferred.succeed(deferred, result)),
@@ -1070,7 +1204,13 @@ const makeAcpSessionRuntime = (
       handleExtNotification: acp.handleExtNotification,
       start: () => start,
       awaitExit: awaitAcpChildExit(child),
-      getEvents: () => Stream.fromQueue(eventQueue),
+      getEvents: () => {
+        // Attaching a consumer opens the session/update gate: from here on the
+        // queue is drained, so accepting notifications can no longer grow it
+        // without bound (see acceptingSessionUpdates above).
+        acceptingSessionUpdates = true;
+        return Stream.fromQueue(eventQueue);
+      },
       sessionUpdatesEnqueuedCount: Effect.sync(() => sessionUpdatesEnqueued),
       getModeState: Ref.get(modeStateRef),
       getConfigOptions: Ref.get(configOptionsRef),

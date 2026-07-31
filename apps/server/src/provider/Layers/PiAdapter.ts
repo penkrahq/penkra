@@ -7,9 +7,9 @@ import {
 } from "node:child_process";
 
 import type {
-  AuthStorage,
   BashOperations,
   ModelRegistry,
+  ModelRuntime,
   SessionManager,
   AgentSession as PiAgentSession,
   AgentSessionEvent,
@@ -57,6 +57,7 @@ import {
 } from "../../agentGateway/sessionLease.ts";
 import { resolveProviderAttachmentPath } from "../providerAttachmentPaths.ts";
 import { ServerConfig } from "../../config.ts";
+import { lazyModule } from "../../lazyModule.ts";
 import { buildProviderChildEnvironment } from "../../providerChildEnvironment.ts";
 import {
   ProviderAdapterRequestError,
@@ -313,7 +314,12 @@ export function makePiBashProcessSupervisor(
   };
 }
 
-let piCodingAgentModulePromise: Promise<PiCodingAgentModule> | undefined;
+// Loads the Pi SDK only when the Pi provider is actually used. The SDK brings in
+// a native clipboard module, so importing it during Synara startup can bloat the
+// desktop backend before any Pi session exists.
+const loadPiCodingAgentModule: () => Promise<PiCodingAgentModule> = lazyModule(
+  () => import("@earendil-works/pi-coding-agent"),
+);
 
 interface PiSessionContext {
   harnessPolicyDelivered?: boolean;
@@ -403,7 +409,7 @@ function piGatewayToolResult(result: unknown): AgentToolResult<unknown> {
           )
           .join("\n")
       : "";
-    throw new Error(message || "Penkra gateway tool failed.");
+    throw new Error(message || "Synara gateway tool failed.");
   }
   const content =
     isRecord(result) && Array.isArray(result.content)
@@ -446,7 +452,7 @@ export async function buildPiAgentGatewayCustomTools(input: {
     ...(input.fetch === undefined ? {} : { fetch: input.fetch }),
   });
   if (tools.length === 0) {
-    throw new Error("Penkra MCP returned an empty tool catalog.");
+    throw new Error("Synara MCP returned an empty tool catalog.");
   }
   return tools.map((tool) =>
     input.defineTool({
@@ -493,14 +499,6 @@ function isPiThinkingLevel(value: string | null | undefined): value is ThinkingL
 
 function normalizePiThinkingLevel(value: string | null | undefined): ThinkingLevel | undefined {
   return isPiThinkingLevel(value) ? value : undefined;
-}
-
-// Loads the Pi SDK only when the Pi provider is actually used. The SDK brings in
-// a native clipboard module, so importing it during Penkra startup can bloat the
-// desktop backend before any Pi session exists.
-async function loadPiCodingAgentModule(): Promise<PiCodingAgentModule> {
-  piCodingAgentModulePromise ??= import("@earendil-works/pi-coding-agent");
-  return piCodingAgentModulePromise;
 }
 
 function getLocalSupportedThinkingLevels(
@@ -1163,20 +1161,23 @@ function makeAgentDir(
   return trimToUndefined(agentDir) ?? piSdk.getAgentDir();
 }
 
-// Keep discovery registries isolated so extension provider registrations reflect
-// the current agent dir + project cwd instead of stale state from prior listings.
-function createPiModelRegistry(
+// Keep session runtimes isolated so project extension provider registrations
+// cannot leak between threads that share an agent directory.
+export async function createPiModelRuntime(
   agentDir: string,
-  piSdk: Pick<PiCodingAgentModule, "AuthStorage" | "ModelRegistry">,
-): {
-  readonly authStorage: AuthStorage;
-  readonly registry: ModelRegistry;
-} {
-  const authStorage = piSdk.AuthStorage.create(path.join(agentDir, "auth.json"));
-  return {
-    authStorage,
-    registry: piSdk.ModelRegistry.create(authStorage, path.join(agentDir, "models.json")),
-  };
+  piSdk: Pick<PiCodingAgentModule, "ModelRuntime">,
+): Promise<ModelRuntime> {
+  return piSdk.ModelRuntime.create({
+    authPath: path.join(agentDir, "auth.json"),
+    modelsPath: path.join(agentDir, "models.json"),
+  });
+}
+
+function modelRegistryFacade(
+  modelRuntime: ModelRuntime,
+  piSdk: Pick<PiCodingAgentModule, "ModelRegistry">,
+): ModelRegistry {
+  return new piSdk.ModelRegistry(modelRuntime);
 }
 
 function extensionDisplayName(extension: {
@@ -1274,7 +1275,6 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
       PROVIDER_ADAPTER_RUNTIME_EVENT_BUFFER_CAPACITY,
     );
     const sessions = new Map<ThreadId, PiSessionContext>();
-    const modelRegistries = new Map<string, ModelRegistry>();
     const ownsNativeEventLogger = options?.nativeEventLogger === undefined;
     const nativeEventLogger =
       options?.nativeEventLogger ??
@@ -1311,17 +1311,6 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
             cause,
           }),
       });
-
-    const getModelRegistry = async (
-      agentDir: string,
-      piSdk: Pick<PiCodingAgentModule, "AuthStorage" | "ModelRegistry">,
-    ): Promise<ModelRegistry> => {
-      const existing = modelRegistries.get(agentDir);
-      if (existing) return existing;
-      const { registry } = createPiModelRegistry(agentDir, piSdk);
-      modelRegistries.set(agentDir, registry);
-      return registry;
-    };
 
     const makeEventBase = makePiRuntimeEventBase;
 
@@ -1434,7 +1423,7 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
       });
     };
 
-    // Bridges the common Pi extension UI primitives onto Penkra's existing
+    // Bridges the common Pi extension UI primitives onto Synara's existing
     // pending user-input flow; terminal/TUI-only APIs remain no-op by design.
     const makePiExtensionUIContext = (context: PiSessionContext): ExtensionUIContext => {
       const unsupportedWarnings = new Set<string>();
@@ -1447,7 +1436,7 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
           ...makeEventBase(context, { includeTurnId: false }),
           type: "runtime.warning",
           payload: {
-            message: `Pi extension UI API '${method}' is not supported in Penkra yet.`,
+            message: `Pi extension UI API '${method}' is not supported in Synara yet.`,
             detail: { method },
           },
           raw: {
@@ -1609,7 +1598,7 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
           return undefined;
         },
         setTheme() {
-          return { success: false, error: "Penkra does not expose Pi themes." };
+          return { success: false, error: "Synara does not expose Pi themes." };
         },
         getToolsExpanded() {
           return false;
@@ -2017,7 +2006,7 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
       processSupervisor: PiBashProcessSupervisor;
       gatewayTools?: ReadonlyArray<ToolDefinition>;
     }) => {
-      const registry = await getModelRegistry(input.agentDir, input.sdk);
+      const modelRuntime = await createPiModelRuntime(input.agentDir, input.sdk);
       const createRuntime: CreateAgentSessionRuntimeFactory = async ({
         cwd,
         agentDir,
@@ -2027,9 +2016,10 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
         const services = await input.sdk.createAgentSessionServices({
           cwd,
           agentDir,
-          modelRegistry: registry,
+          modelRuntime,
         });
-        const model = findModelInRegistry(services.modelRegistry, input.modelId);
+        const registry = modelRegistryFacade(services.modelRuntime, input.sdk);
+        const model = findModelInRegistry(registry, input.modelId);
         if (input.modelId && !model) {
           throw new Error(
             `Pi model '${input.modelId}' is not available. Use a discovered model or a provider-qualified custom model slug like 'openai/gpt-5.5'.`,
@@ -2065,7 +2055,10 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
         agentDir: input.agentDir,
         sessionManager: input.sessionManager,
       });
-      return { runtime, modelRegistry: runtime.services.modelRegistry };
+      return {
+        runtime,
+        modelRegistry: modelRegistryFacade(runtime.services.modelRuntime, input.sdk),
+      };
     };
 
     const startSession: PiAdapterShape["startSession"] = (input) =>
@@ -2131,7 +2124,7 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
                 Effect.sync(() => agentGatewaySessionLease?.release()).pipe(
                   Effect.andThen(
                     Effect.logWarning(
-                      "Pi could not install thread-scoped Penkra gateway tools",
+                      "Pi could not install thread-scoped Synara gateway tools",
                       cause,
                     ),
                   ),
@@ -2253,7 +2246,7 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
             type: "runtime.warning",
             payload: {
               message:
-                "Pi extensions are loaded with Penkra's limited UI bridge. select/confirm/input/notify/status are supported; TUI-only widgets and editor hooks are ignored.",
+                "Pi extensions are loaded with Synara's limited UI bridge. select/confirm/input/notify/status are supported; TUI-only widgets and editor hooks are ignored.",
               detail: {
                 extensionCount: loadedExtensions.length,
                 extensions: extensionNames,
@@ -2524,7 +2517,7 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
         new ProviderAdapterRequestError({
           provider: PROVIDER,
           method,
-          detail: `Pi does not expose Penkra approval/user-input requests for thread ${threadId}.`,
+          detail: `Pi does not expose Synara approval/user-input requests for thread ${threadId}.`,
         }),
       );
 
@@ -2547,9 +2540,7 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
     const stopSession: PiAdapterShape["stopSession"] = (threadId) =>
       Effect.gen(function* () {
         const context = sessions.get(threadId);
-        if (!context) {
-          return yield* new ProviderAdapterSessionNotFoundError({ provider: PROVIDER, threadId });
-        }
+        if (!context) return;
         yield* Effect.tryPromise({
           try: () => disposeSessionContext(context),
           catch: (cause) =>
@@ -2653,21 +2644,21 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
           const piSdk = await loadPiCodingAgentModule();
           const agentDir = makeAgentDir(input.agentDir, piSdk);
           const cwd = trimToUndefined(input.cwd) ?? serverConfig.cwd;
-          const { authStorage, registry } = createPiModelRegistry(agentDir, piSdk);
+          const modelRuntime = await createPiModelRuntime(agentDir, piSdk);
           const services = await piSdk.createAgentSessionServices({
             cwd,
             agentDir,
-            authStorage,
-            modelRegistry: registry,
+            modelRuntime,
           });
+          const registry = modelRegistryFacade(services.modelRuntime, piSdk);
           const extensionCount = services.resourceLoader.getExtensions().extensions.length;
-          const models = getPiDiscoverableModels(services.modelRegistry).map((model) => {
+          const models = getPiDiscoverableModels(registry).map((model) => {
             const supportedThinkingOptions = getPiSupportedThinkingOptions(model);
             return {
               slug: `${model.provider}/${model.id}`,
               name: model.name,
               upstreamProviderId: model.provider,
-              upstreamProviderName: services.modelRegistry.getProviderDisplayName(model.provider),
+              upstreamProviderName: registry.getProviderDisplayName(model.provider),
               ...(supportedThinkingOptions.length > 0
                 ? {
                     supportedReasoningEfforts: supportedThinkingOptions.map((option) => ({

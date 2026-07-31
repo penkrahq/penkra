@@ -49,24 +49,27 @@ import {
 } from "electron-updater";
 
 import type { ContextMenuItem } from "@synara/contracts";
+import { isKeyboardShortcutsHelpChord } from "@synara/shared/browserShortcuts";
+import { getMacTrafficLightPosition } from "@synara/shared/desktopChrome";
 import {
-  CHAT_SURFACE_HEADER_HEIGHT_PX,
-  getMacTrafficLightPosition,
-} from "@synara/shared/desktopChrome";
-import {
-  LEGACY_SYNARA_DESKTOP_SCHEME,
   SYNARA_DESKTOP_UPDATE_CHANNEL,
   resolveSynaraDesktopFlavor,
   synaraDesktopIdentity,
 } from "@synara/shared/desktopIdentity";
 import { NetService } from "@synara/shared/Net";
+import { applyShellEnvironmentHydrationMarker } from "@synara/shared/shell";
 import { RotatingFileSink } from "@synara/shared/logging";
 import { ensureStaticSnapshot, findAsarArchivePath } from "@synara/shared/staticSnapshot";
 import { isBackendReadinessAborted, waitForHttpReady } from "./backendReadiness";
 import { resolveBackendNodeArgs } from "./backendNodeOptions";
-import { captureBackendProcessOutput } from "./backendProcessOutput";
-import { runAfterDesktopShutdown } from "./backendShutdown";
-import { type BackendStartupBlock, BackendStartupBlockDetector } from "./backendStartupBlock";
+import {
+  retainLiveBackendAfterShutdownFailure,
+  requireWindowsBackendExit,
+  runAfterDesktopShutdown,
+  shouldDeferDesktopWindowClose,
+  stopPosixBackendAndWait,
+  stopWindowsBackendAndWait,
+} from "./backendShutdown";
 import {
   bundleSignatureFromStats,
   isBundleStable,
@@ -75,12 +78,6 @@ import {
   type BundleSignature,
 } from "./bundleSwapDetection";
 import { waitForBackendStartupReady } from "./backendStartupReadiness";
-import {
-  BACKEND_MAX_CONSECUTIVE_START_FAILURES,
-  BackendOutputTailDetector,
-  BackendSupervisionPolicy,
-  summarizeBackendFailureOutput,
-} from "./backendSupervisionPolicy";
 import { showDesktopConfirmDialog } from "./confirmDialog";
 import {
   makeUpdateInstallPreparationCoordinator,
@@ -88,9 +85,13 @@ import {
 } from "./updateInstallPreparation";
 import {
   hasPendingDesktopMigrationRecovery,
+  requiresDesktopMigrationRecovery,
   recoverDesktopMigrationIfRequired,
   resolveDesktopMigrationRecoveryPaths,
   restoreDesktopMigrationBackup,
+  type DesktopMigrationRecoveryDecision,
+  type DesktopMigrationRecoveryOutcome,
+  type DesktopMigrationRecoveryPaths,
 } from "./desktopMigrationRecovery";
 import {
   LSREGISTER_PATH,
@@ -109,7 +110,20 @@ import {
 } from "./resumableUpdateDownload";
 import { hardenElectronUpdater } from "./electronUpdaterSecurity";
 import { ServerListeningDetector } from "./serverListeningDetector";
+import { BackendStartupBlockDetector, type BackendStartupBlock } from "./backendStartupBlock";
+import {
+  BACKEND_MAX_CONSECUTIVE_START_FAILURES,
+  BackendOutputTailDetector,
+  BackendSupervisionPolicy,
+  summarizeBackendFailureOutput,
+} from "./backendSupervisionPolicy";
+import { captureBackendProcessOutput } from "./backendProcessOutput";
 import { syncShellEnvironment } from "./syncShellEnvironment";
+import {
+  RENDERER_MAX_AUTOMATIC_RELOADS,
+  RendererCrashPolicy,
+  type RendererCrashResponse,
+} from "./rendererCrashRecovery";
 import {
   type DownloadProgressSample,
   getAutoUpdateDisabledReason,
@@ -121,11 +135,10 @@ import {
   shouldCheckForUpdatesOnForeground,
 } from "./updateState";
 import { registerDesktopVoiceTranscriptionHandler } from "./voiceTranscription";
-import { configurePenkraAccountAuth } from "./accountAuth";
-import { resolvePenkraAccountServiceEndpoints } from "./accountServiceEndpoints";
-import { PENKRA_VOICE_QA_WAV_ENV, resolveVoiceQaAudioInput } from "./voiceQaAudioInput";
 import {
+  applyDesktopPhysicalZoomAction,
   resolveDesktopMenuAccelerator,
+  resolveDesktopPhysicalZoomAction,
   resolveKeyboardShortcutsMenuAccelerator,
   shouldUseNativeZoomMenuRoles,
 } from "./menuShortcuts";
@@ -145,6 +158,7 @@ import {
 import {
   PendingUpdateCacheClearQueue,
   resolveElectronUpdaterCacheDirName,
+  resolveElectronUpdaterLegacyZipPath,
   resolveElectronUpdaterPendingCacheDir,
 } from "./updatePendingCache";
 import {
@@ -176,6 +190,7 @@ import { normalizeDesktopWsUrl, resolveDesktopWsUrlFromEnv } from "./desktopWsBr
 import {
   repairBrowserProfileFromBridgeManifest,
   resolveDesktopAppDataBase,
+  resolveDesktopUserDataPath,
 } from "./desktopUserDataProfile";
 import { isBrokenPipeError } from "./desktopProcessErrors";
 import {
@@ -183,9 +198,7 @@ import {
   resolveDesktopAppRoot,
 } from "./desktopStaticProtocol";
 import {
-  readCanaryRootArgument,
   readPenkraRootPointer,
-  resolveConfiguredPenkraRoot,
   resolvePenkraRuntime,
   resolvePenkraRootPointerPath,
   writePenkraRootPointer,
@@ -199,7 +212,6 @@ import {
   acknowledgeSynaraStorageSnapshot,
   readSynaraStorageSnapshot,
   resolveSynaraStorageSnapshotPath,
-  saveSynaraStorageSnapshot,
 } from "./desktopStorageMigration";
 import { DESKTOP_IPC_CHANNELS } from "./ipcChannels";
 import { DesktopAppSnapManager } from "./appSnapManager";
@@ -210,38 +222,38 @@ import {
   sendAppSnapState,
 } from "./appSnapIpc";
 
-const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
-const isPackagedRuntime = app.isPackaged && !isDevelopment;
-
 // Capture the real archive identity before any explicit app.asar lookup. Static
 // snapshotting and the runtime watcher both use this same generation as their
 // baseline, so a replacement during startup cannot silently become "normal."
 const startupBundleIdentity = captureStartupBundleIdentity();
 
-syncShellEnvironment();
+// Deliberately still on the pre-`whenReady()` path. On posix it is normally a cache read
+// (see `createCachedLoginShellEnvironmentReader`); only a first launch, a changed shell
+// startup file, or an aged-out entry pays the ~1s login-shell probe again.
+// The reads a few lines below decide where this install's data lives, and two of them
+// depend on what this probe brings in: `resolveUserDataPath()` takes the Electron profile
+// directory from XDG_CONFIG_HOME on Linux, which the login-shell probe captures, and
+// `BASE_DIR` prefers SYNARA_HOME, which the Windows registry read hydrates whenever the
+// user set it persistently. Resolving either against an unhydrated environment would
+// silently relocate an existing user's profile and data directory.
+// (The probe also carries PATH, SSH_AUTH_SOCK and HOMEBREW_* for later provider spawns.
+// APPDATA on Windows is inherited from the process env, not hydrated here.)
+const shellEnvironmentSync = syncShellEnvironment();
 
 const IPC = DESKTOP_IPC_CHANNELS;
 const MAX_CLIPBOARD_IMAGE_DATA_URL_LENGTH = 16 * 1024 * 1024;
+const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
+const isPackagedRuntime = app.isPackaged && !isDevelopment;
 const penkraAppDataBase = resolveDesktopAppDataBase();
 const penkraRootPointerPath = resolvePenkraRootPointerPath(penkraAppDataBase);
 const penkraAccountServices = resolvePenkraAccountServiceEndpoints({
   configuredApiUrl: process.env.PENKRA_API_URL,
   configuredWebsiteOrigin: process.env.PENKRA_WEBSITE_ORIGIN,
 });
-const desktopFlavor = resolveSynaraDesktopFlavor({
-  isDevelopment,
-  requestedFlavor: process.env.SYNARA_DESKTOP_FLAVOR,
-});
+const desktopFlavor = resolveSynaraDesktopFlavor({ isDevelopment });
 const penkraRuntime = resolvePenkraRuntime({
   isDevelopment,
-  allowConfiguredRoot: desktopFlavor === "canary",
-  configuredRoot: resolveConfiguredPenkraRoot({
-    desktopFlavor,
-    canaryRootArgument: readCanaryRootArgument(process.argv),
-    canaryHome: process.env.SYNARA_CANARY_HOME,
-    penkraRoot: process.env.PENKRA_ROOT,
-    synaraHome: process.env.SYNARA_HOME,
-  }),
+  configuredRoot: process.env.PENKRA_ROOT,
   configuredApiUrl: penkraAccountServices.apiUrl,
   persistedProductionRoot: isDevelopment ? null : readPenkraRootPointer(penkraRootPointerPath),
 });
@@ -265,26 +277,22 @@ const BASE_DIR =
 const STATE_DIR = Path.join(BASE_DIR, "userdata");
 const DESKTOP_WINDOW_STATE_PATH = Path.join(STATE_DIR, "desktop-window-state.json");
 const DESKTOP_SCHEME = desktopIdentity.scheme;
-const LEGACY_STORAGE_EXPORT_PATH = "/__penkra_storage_export__.html";
-const LEGACY_STORAGE_MIGRATION_MARKER_PATH = Path.join(
-  STATE_DIR,
-  "penkra-origin-migration-v1.complete",
-);
 const ROOT_DIR = Path.resolve(__dirname, "../../..");
 const APP_DISPLAY_NAME = desktopIdentity.displayName;
 const APP_USER_MODEL_ID = desktopIdentity.bundleId;
 const COMMIT_HASH_PATTERN = /^[0-9a-f]{7,40}$/i;
 const COMMIT_HASH_DISPLAY_LENGTH = 12;
 const LOG_DIR = Path.join(STATE_DIR, "logs");
+const DESKTOP_LOG_FILE_NAME = "desktop-main.log";
+const BACKEND_LOG_FILE_NAME = "server-child.log";
 const LOG_FILE_MAX_BYTES = 10 * 1024 * 1024;
 const LOG_FILE_MAX_FILES = 10;
 const APP_RUN_ID = Crypto.randomBytes(6).toString("hex");
 const DESKTOP_BACKEND_SHUTDOWN_TOKEN = Crypto.randomBytes(32).toString("hex");
 // Electron's single-instance lock is scoped through userData on Windows/Linux.
-// Set the flavor-specific profile first so Stable, Dev, and Canary never contend
-// for the same lock even when they use the same Electron executable.
+// Set the flavor-specific profile first so Stable and Dev never contend for the
+// same lock even when they use the same Electron executable.
 const userDataPath = resolveUserDataPath();
-FS.mkdirSync(userDataPath, { recursive: true, mode: 0o700 });
 app.setPath("userData", userDataPath);
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 const AUTO_UPDATE_STARTUP_DELAY_MS = 15_000;
@@ -302,6 +310,9 @@ const AUTO_UPDATE_STALLED_DOWNLOAD_CANCELLATION_SUPPRESSION_MS = 2 * 60 * 1000;
 // install dir, blocked NSIS run) and surface the manual-download fallback.
 const AUTO_UPDATE_INSTALL_WATCHDOG_MS = 15 * 1000;
 const AUTO_UPDATE_DIAGNOSTICS_TIMEOUT_MS = 2_800;
+// User-driven like the menu and renderer reasons, so it must not be filtered
+// out by the automatic-activity suppression a previous install failure arms.
+const UPDATE_CHECK_REASON_MIGRATION_RECOVERY = "migration recovery";
 const UPDATE_INSTALL_MARKER_FILE_NAME = "pending-update-install.json";
 const BACKEND_FORCE_KILL_DELAY_MS = 8_000;
 const BACKEND_SHUTDOWN_TIMEOUT_MS = 10_000;
@@ -311,13 +322,12 @@ const BROWSER_PERF_SAMPLE_INTERVAL_MS = 5_000;
 const DESKTOP_MENU_ZOOM_FACTOR_STEP = 1.1;
 const DESKTOP_MENU_MIN_ZOOM_FACTOR = 0.25;
 const DESKTOP_MENU_MAX_ZOOM_FACTOR = 5;
-const SYNARA_BROWSER_LABEL = "Penkra browser";
+const SYNARA_BROWSER_LABEL = "Synara browser";
 const browserPerfLoggingEnabled = process.env.SYNARA_BROWSER_PERF === "1";
 
 type DesktopUpdateErrorContext = DesktopUpdateState["errorContext"];
 
 let mainWindow: BrowserWindow | null = null;
-let hasCreatedMainWindow = false;
 let backendProcess: ChildProcess.ChildProcess | null = null;
 let backendPort = 0;
 let backendAuthToken = "";
@@ -325,9 +335,15 @@ let backendHttpUrl = "";
 let backendWsUrl = "";
 let backendReadinessAbortController: AbortController | null = null;
 let backendInitialWindowOpenInFlight: Promise<void> | null = null;
+// Guards every blocking backend-lifecycle dialog (startup block, give-up) so a
+// crash loop can never stack modal windows on top of each other.
 let backendLifecycleDialogInFlight: Promise<void> | null = null;
 let backendListeningDetector: ServerListeningDetector | null = null;
 const backendSupervision = new BackendSupervisionPolicy();
+// Survives window recreation on purpose: a renderer that keeps dying must not refill
+// its reload budget just because the crash produced a new window.
+const rendererCrashPolicy = new RendererCrashPolicy();
+let rendererCrashDialogInFlight: Promise<void> | null = null;
 let lastBackendFailureDetail: string | null = null;
 let restartTimer: ReturnType<typeof setTimeout> | null = null;
 let isQuitting = false;
@@ -345,20 +361,38 @@ let backendLogSink: RotatingFileSink | null = null;
 let restoreStdIoCapture: (() => void) | null = null;
 let unreadBackgroundNotificationCount = 0;
 let browserPerfInterval: ReturnType<typeof setInterval> | null = null;
-const browserManager = new DesktopBrowserManager();
+const browserManager = new DesktopBrowserManager({
+  beforeInputEvent: (event, input) => {
+    if (
+      isKeyboardShortcutsHelpChord(
+        {
+          type: input.type,
+          key: input.key,
+          code: input.code,
+          meta: input.meta,
+          ctrl: input.control,
+          shift: input.shift,
+          alt: input.alt,
+          repeat: input.isAutoRepeat,
+        },
+        {
+          isMac: process.platform === "darwin",
+          isWindows: process.platform === "win32",
+        },
+      )
+    ) {
+      event.preventDefault();
+      dispatchMenuAction("show-shortcuts");
+      return true;
+    }
+
+    const target = resolveMenuTargetWindow()?.webContents;
+    return target ? handleDesktopPhysicalZoomShortcut(event, input, target) : false;
+  },
+});
 let browserUsePipeServer: BrowserUsePipeServer | null = null;
 let appSnapManager: DesktopAppSnapManager | null = null;
-let configuredGitHubUpdateSource: ReturnType<typeof resolveGitHubUpdateSource> = null;
 let configuredUpdaterCacheDirName: string | null = null;
-
-configurePenkraAccountAuth({
-  accountAuthScheme: desktopIdentity.accountAuthScheme,
-  authBaseUrl: penkraAccountServices.authBaseUrl,
-  desktopFlavor,
-  getWindow: () => mainWindow,
-  ipcMain,
-  websiteOrigin: penkraAccountServices.websiteOrigin,
-});
 
 browserManager.subscribe((state) => {
   sendBrowserState(mainWindow?.webContents, state);
@@ -635,7 +669,7 @@ function writeDesktopStreamChunk(
 }
 
 function installStdIoCapture(): void {
-  if (!isPackagedRuntime || desktopLogSink === null || restoreStdIoCapture !== null) {
+  if (!app.isPackaged || desktopLogSink === null || restoreStdIoCapture !== null) {
     return;
   }
 
@@ -674,15 +708,15 @@ function installStdIoCapture(): void {
 }
 
 function initializePackagedLogging(): void {
-  if (!isPackagedRuntime) return;
+  if (!app.isPackaged) return;
   try {
     desktopLogSink = new RotatingFileSink({
-      filePath: Path.join(LOG_DIR, "desktop-main.log"),
+      filePath: Path.join(LOG_DIR, DESKTOP_LOG_FILE_NAME),
       maxBytes: LOG_FILE_MAX_BYTES,
       maxFiles: LOG_FILE_MAX_FILES,
     });
     backendLogSink = new RotatingFileSink({
-      filePath: Path.join(LOG_DIR, "server-child.log"),
+      filePath: Path.join(LOG_DIR, BACKEND_LOG_FILE_NAME),
       maxBytes: LOG_FILE_MAX_BYTES,
       maxFiles: LOG_FILE_MAX_FILES,
     });
@@ -722,6 +756,9 @@ let updatePollTimer: ReturnType<typeof setInterval> | null = null;
 let updateStartupTimer: ReturnType<typeof setTimeout> | null = null;
 let updateCheckInFlight = false;
 let updateDownloadInFlight = false;
+let activeUpdateCheck: Promise<void> | null = null;
+let settleActiveUpdateCheck: (() => void) | null = null;
+let activeUpdatePreparation: Promise<void> | null = null;
 let updaterConfigured = false;
 let updateState: DesktopUpdateState = initialUpdateState();
 let updateBackgroundedAtMs: number | null = null;
@@ -880,19 +917,11 @@ protocol.registerSchemesAsPrivileged([
       corsEnabled: true,
     },
   },
-  {
-    scheme: LEGACY_SYNARA_DESKTOP_SCHEME,
-    privileges: {
-      standard: true,
-      secure: true,
-    },
-  },
 ]);
 
 function resolveAppRoot(): string {
   return resolveDesktopAppRoot({
     isPackagedRuntime,
-    isSourceCanary: desktopFlavor === "canary",
     sourceRoot: ROOT_DIR,
     packagedAppRoot: app.getAppPath(),
   });
@@ -915,7 +944,7 @@ function parseAppUpdateYml(): Record<string, string> | null {
   try {
     // electron-updater reads from process.resourcesPath in packaged builds,
     // or dev-app-update.yml via app.getAppPath() in dev.
-    const ymlPath = isPackagedRuntime
+    const ymlPath = app.isPackaged
       ? Path.join(process.resourcesPath, "app-update.yml")
       : Path.join(app.getAppPath(), "dev-app-update.yml");
     const raw = FS.readFileSync(ymlPath, "utf-8");
@@ -958,6 +987,17 @@ function resolveEmbeddedCommitHash(): string | null {
   }
 }
 
+declare const __SYNARA_WINDOWS_UPDATER_PUBLISHER__: string;
+
+function resolveEmbeddedWindowsPublisherSubjects(): string[] {
+  if (!app.isPackaged || process.platform !== "win32") {
+    return [];
+  }
+
+  const subject = __SYNARA_WINDOWS_UPDATER_PUBLISHER__.trim();
+  return subject ? [subject] : [];
+}
+
 function resolveAboutCommitHash(): string | null {
   if (aboutCommitHashCache !== undefined) {
     return aboutCommitHashCache;
@@ -970,7 +1010,7 @@ function resolveAboutCommitHash(): string | null {
   }
 
   // Only packaged builds are required to expose commit metadata.
-  if (!isPackagedRuntime) {
+  if (!app.isPackaged) {
     aboutCommitHashCache = null;
     return aboutCommitHashCache;
   }
@@ -985,22 +1025,28 @@ function resolveBackendEntry(): string {
 }
 
 function resolveBackendCwd(): string {
-  if (!isPackagedRuntime) {
+  if (!app.isPackaged) {
     return resolveAppRoot();
   }
   return OS.homedir();
 }
 
+function desktopMigrationRecoveryPaths(): DesktopMigrationRecoveryPaths {
+  return resolveDesktopMigrationRecoveryPaths({
+    baseDir: BASE_DIR,
+    appRoot: resolveAppRoot(),
+    isDevelopment,
+  });
+}
+
 function isDesktopMigrationRecoveryPending(): boolean {
   try {
-    return hasPendingDesktopMigrationRecovery(
-      resolveDesktopMigrationRecoveryPaths({
-        baseDir: BASE_DIR,
-        appRoot: resolveAppRoot(),
-        isDevelopment,
-      }),
-    );
+    // Deliberately not "a marker exists": while the backend still has resume
+    // attempts left, a failed start is an ordinary restart, not a recovery
+    // prompt. Escalating early would bury the self-heal under a dialog.
+    return requiresDesktopMigrationRecovery(desktopMigrationRecoveryPaths());
   } catch (error) {
+    // An unreadable marker path must not break crash supervision.
     writeDesktopLogHeader(
       `migration recovery marker check failed message=${formatErrorMessage(error)}`,
     );
@@ -1008,34 +1054,93 @@ function isDesktopMigrationRecoveryPending(): boolean {
   }
 }
 
-async function handleDesktopMigrationRecovery(): Promise<
-  "continue" | "restart-requested" | "quit-requested"
-> {
-  const paths = resolveDesktopMigrationRecoveryPaths({
-    baseDir: BASE_DIR,
-    appRoot: resolveAppRoot(),
-    isDevelopment,
-  });
+/** Joins user-facing options as "a, b or c". */
+function formatRecoveryOptionList(options: ReadonlyArray<string>): string {
+  if (options.length <= 1) return options[0] ?? "";
+  return `${options.slice(0, -1).join(", ")} or ${options[options.length - 1]}`;
+}
+
+async function handleDesktopMigrationRecovery(): Promise<DesktopMigrationRecoveryOutcome> {
+  const paths = desktopMigrationRecoveryPaths();
   desktopStartupBlockedForMigrationRecovery = true;
   const outcome = await recoverDesktopMigrationIfRequired({
-    markerExists: () => hasPendingDesktopMigrationRecovery(paths),
+    // The gate opens only once the backend has spent its resume budget, while
+    // the post-restore verification checks the marker file itself.
+    requiresRecovery: () => requiresDesktopMigrationRecovery(paths),
+    markerRemains: () => hasPendingDesktopMigrationRecovery(paths),
     choose: async ({ previousFailure }) => {
-      const failed = previousFailure !== null;
+      // The user is here because Synara cannot open its database, so the
+      // in-app update button is unreachable by definition. A newer build is
+      // often the actual fix, and this dialog is the only surface left to
+      // offer it from: installing it in place when the updater can reach the
+      // feed, and handing over the download page otherwise.
+      const releaseUrl = updateState.releaseUrl;
+      const canInstallUpdate = canInstallUpdateFromRecovery();
+      const restoreFailed = previousFailure?.attempt === "restore";
+      const choices: Array<{
+        readonly label: string;
+        readonly detail: string;
+        readonly decision: DesktopMigrationRecoveryDecision;
+      }> = [
+        restoreFailed
+          ? {
+              label: "Try restore again",
+              detail: "retry the verified backup restore",
+              decision: "restore",
+            }
+          : {
+              label: "Restore backup and restart",
+              detail: "restore the verified pre-migration backup and restart",
+              decision: "restore",
+            },
+      ];
+      if (canInstallUpdate) {
+        choices.push({
+          label: "Update Synara and restart",
+          detail: "install the newest Synara release, which may already contain the fix",
+          decision: "install-update",
+        });
+      }
+      if (releaseUrl !== null) {
+        choices.push({
+          label: "Download latest release",
+          detail: `${canInstallUpdate ? "download that release" : "download the latest Synara release"} in a browser`,
+          decision: "open-release-page",
+        });
+      }
+      choices.push({
+        label: "Quit",
+        detail: "quit without opening the database",
+        decision: "quit",
+      });
+
+      const options = formatRecoveryOptionList(choices.map((choice) => choice.detail));
       const result = await dialog.showMessageBox({
-        type: failed ? "error" : "warning",
-        title: failed ? "Migration recovery failed" : "Penkra needs to recover its database",
-        message: failed
-          ? "The saved database backup could not be restored."
-          : "Penkra stopped a database migration before it could finish safely.",
-        detail: failed
-          ? `${previousFailure}\n\nYou can retry the verified backup restore or quit without opening the database.`
-          : "Restore the verified pre-migration backup and restart Penkra. No provider or chat process will start until recovery succeeds.",
-        buttons: [failed ? "Try restore again" : "Restore backup and restart", "Quit"],
+        type: previousFailure === null ? "warning" : "error",
+        title:
+          previousFailure === null
+            ? "Synara needs to recover its database"
+            : restoreFailed
+              ? "Migration recovery failed"
+              : "Synara could not update itself",
+        message:
+          previousFailure === null
+            ? "Synara stopped a database migration before it could finish safely."
+            : restoreFailed
+              ? "The saved database backup could not be restored."
+              : "The newest Synara release could not be installed.",
+        detail: `${previousFailure === null ? "" : `${previousFailure.message}\n\n`}You can ${options}. No provider or chat process will start until recovery succeeds.`,
+        buttons: choices.map((choice) => choice.label),
         defaultId: 0,
-        cancelId: 1,
+        cancelId: choices.length - 1,
         noLink: true,
       });
-      return result.response === 0 ? "restore" : "quit";
+      return choices[result.response]?.decision ?? "quit";
+    },
+    installUpdate: installLatestUpdateForMigrationRecovery,
+    openReleasePage: () => {
+      const releaseUrl = updateState.releaseUrl;
+      if (releaseUrl !== null) void shell.openExternal(releaseUrl);
     },
     restore: () =>
       restoreDesktopMigrationBackup({
@@ -1198,7 +1303,11 @@ function handleFatalStartupError(stage: string, error: unknown): void {
   console.error(`[desktop] fatal startup error (${stage})`, error);
   if (!isQuitting) {
     isQuitting = true;
-    dialog.showErrorBox("Penkra failed to start", `Stage: ${stage}\n${message}${detail}`);
+    dialog.showErrorBox("Synara failed to start", `Stage: ${stage}\n${message}${detail}`);
+  }
+  if (process.platform === "win32") {
+    requestGracefulAppQuit(`fatal startup (${stage})`);
+    return;
   }
   stopBackend();
   restoreStdIoCapture?.();
@@ -1226,82 +1335,12 @@ function registerDesktopProtocol(): void {
   }
 
   const resolveStaticRequest = createDesktopStaticProtocolResolver(staticRoot);
-  const legacyStorageExportFile = Path.join(
-    app.getPath("userData"),
-    "penkra-origin-migration-export.html",
-  );
-  FS.writeFileSync(legacyStorageExportFile, '<!doctype html><meta charset="utf-8">\n', {
-    mode: 0o600,
-  });
 
-  const handleDesktopProtocol: Parameters<typeof protocol.registerFileProtocol>[1] = (
-    request,
-    callback,
-  ) => {
-    const parsedUrl = new URL(request.url);
-    if (
-      parsedUrl.protocol === `${LEGACY_SYNARA_DESKTOP_SCHEME}:` &&
-      parsedUrl.pathname === LEGACY_STORAGE_EXPORT_PATH
-    ) {
-      callback({ path: legacyStorageExportFile });
-      return;
-    }
+  protocol.registerFileProtocol(DESKTOP_SCHEME, (request, callback) => {
     callback(resolveStaticRequest(request.url));
-  };
-
-  protocol.registerFileProtocol(DESKTOP_SCHEME, handleDesktopProtocol);
-  protocol.registerFileProtocol(LEGACY_SYNARA_DESKTOP_SCHEME, handleDesktopProtocol);
+  });
 
   desktopProtocolRegistered = true;
-}
-
-async function migrateLegacyDesktopStorage(): Promise<void> {
-  if (isDevelopment || FS.existsSync(LEGACY_STORAGE_MIGRATION_MARKER_PATH)) return;
-
-  const migrationWindow = new BrowserWindow({
-    show: false,
-    webPreferences: {
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-    },
-  });
-  try {
-    await migrationWindow.loadURL(
-      `${LEGACY_SYNARA_DESKTOP_SCHEME}://app${LEGACY_STORAGE_EXPORT_PATH}`,
-    );
-    const snapshot = (await migrationWindow.webContents.executeJavaScript(`(() => {
-      const entries = {};
-      for (let index = 0; index < localStorage.length; index += 1) {
-        const key = localStorage.key(index);
-        if (
-          !key ||
-          (!key.startsWith("penkra:") &&
-            !key.startsWith("synara:") &&
-            !key.startsWith("synara."))
-        ) {
-          continue;
-        }
-        const value = localStorage.getItem(key);
-        if (value !== null) entries[key] = value;
-      }
-      return { version: 1, exportedAt: new Date().toISOString(), entries };
-    })()`)) as unknown;
-    const entries =
-      typeof snapshot === "object" && snapshot !== null && "entries" in snapshot
-        ? Object.keys((snapshot as { entries?: object }).entries ?? {})
-        : [];
-    if (entries.length === 0) {
-      FS.writeFileSync(LEGACY_STORAGE_MIGRATION_MARKER_PATH, "complete\n", { mode: 0o600 });
-      return;
-    }
-    const snapshotPath = resolveSynaraStorageSnapshotPath(app.getPath("userData"));
-    if (!(await saveSynaraStorageSnapshot(snapshotPath, snapshot))) {
-      throw new Error("Legacy renderer storage did not pass snapshot validation.");
-    }
-  } finally {
-    if (!migrationWindow.isDestroyed()) migrationWindow.destroy();
-  }
 }
 
 function dispatchMenuAction(action: string): void {
@@ -1344,6 +1383,35 @@ function attachDesktopZoomFactorSync(window: BrowserWindow): void {
   window.webContents.on("did-finish-load", notify);
 }
 
+function adjustWebContentsZoom(webContents: Electron.WebContents, multiplier: number): void {
+  const nextZoomFactor = Math.min(
+    DESKTOP_MENU_MAX_ZOOM_FACTOR,
+    Math.max(DESKTOP_MENU_MIN_ZOOM_FACTOR, webContents.getZoomFactor() * multiplier),
+  );
+  webContents.setZoomFactor(nextZoomFactor);
+}
+
+function handleDesktopPhysicalZoomShortcut(
+  event: Electron.Event,
+  input: Electron.Input,
+  target: Electron.WebContents,
+): boolean {
+  const action = resolveDesktopPhysicalZoomAction(process.platform, input);
+  if (!action || target.isDestroyed()) {
+    return false;
+  }
+
+  event.preventDefault();
+  applyDesktopPhysicalZoomAction(target, action);
+  return true;
+}
+
+function attachDesktopPhysicalZoomShortcuts(window: BrowserWindow): void {
+  window.webContents.on("before-input-event", (event, input) => {
+    handleDesktopPhysicalZoomShortcut(event, input, window.webContents);
+  });
+}
+
 function resetWindowZoomFromMenu(): void {
   resolveMenuTargetWindow()?.webContents.setZoomFactor(1);
 }
@@ -1351,11 +1419,7 @@ function resetWindowZoomFromMenu(): void {
 function adjustWindowZoomFromMenu(multiplier: number): void {
   const webContents = resolveMenuTargetWindow()?.webContents;
   if (!webContents) return;
-  const nextZoomFactor = Math.min(
-    DESKTOP_MENU_MAX_ZOOM_FACTOR,
-    Math.max(DESKTOP_MENU_MIN_ZOOM_FACTOR, webContents.getZoomFactor() * multiplier),
-  );
-  webContents.setZoomFactor(nextZoomFactor);
+  adjustWebContentsZoom(webContents, multiplier);
 }
 
 // A configured app-update.yml (or the mock-updates flag) is the prerequisite for any
@@ -1367,11 +1431,10 @@ function hasConfiguredUpdateFeed(): boolean {
 function resolveAutoUpdateDisabledReason(): string | null {
   return getAutoUpdateDisabledReason({
     isDevelopment,
-    isPackaged: isPackagedRuntime,
+    isPackaged: app.isPackaged,
     platform: process.platform,
     appImage: process.env.APPIMAGE,
-    disabledByEnv:
-      desktopIdentity.usesScriptedUpdates || process.env.SYNARA_DISABLE_AUTO_UPDATE === "1",
+    disabledByEnv: process.env.SYNARA_DISABLE_AUTO_UPDATE === "1",
     hasUpdateFeedConfig: hasConfiguredUpdateFeed(),
   });
 }
@@ -1403,14 +1466,14 @@ async function checkForUpdatesFromMenu(): Promise<void> {
     void dialog.showMessageBox({
       type: "info",
       title: "You're up to date!",
-      message: `Penkra ${updateState.currentVersion} is currently the newest version available.`,
+      message: `Synara ${updateState.currentVersion} is currently the newest version available.`,
       buttons: ["OK"],
     });
   } else if (updateState.status === "downloading" || updateState.status === "available") {
     void dialog.showMessageBox({
       type: "info",
       title: "Update found",
-      message: "Penkra is preparing the update in the background.",
+      message: "Synara is preparing the update in the background.",
       buttons: ["OK"],
     });
   } else if (updateState.status === "downloaded") {
@@ -1571,12 +1634,22 @@ function resolveResourcePath(fileName: string): string | null {
   return null;
 }
 
+function resolveIconPath(ext: "ico" | "icns" | "png"): string | null {
+  return resolveResourcePath(`icon.${ext}`);
+}
+
 function resolveNotificationIconPath(): string | null {
-  return null;
+  if (process.platform === "darwin") {
+    return null;
+  }
+  if (process.platform === "win32") {
+    return resolveResourcePath("synara.png") ?? resolveIconPath("ico");
+  }
+  return resolveResourcePath("synara.png") ?? resolveIconPath("png");
 }
 
 function resolveAppSnapHelperPath(): string {
-  if (isPackagedRuntime) {
+  if (app.isPackaged) {
     return Path.resolve(process.resourcesPath, "..", "Helpers", "synara-appsnap-helper");
   }
   return Path.resolve(__dirname, "..", ".electron-runtime", "appsnap", "synara-appsnap-helper");
@@ -1742,23 +1815,26 @@ function showDesktopNotification(input: {
  * Resolve the Electron userData directory path.
  *
  * Electron derives the default userData path from `productName` in
- * package.json. Penkra keeps this under the operator-selected workspace root.
+ * package.json. We override it to a clean lowercase Synara name.
  */
 function resolveUserDataPath(): string {
-  if (needsPenkraRootPicker) return PENKRA_PICKER_USER_DATA;
-  return Path.join(PENKRA_ROOT, ".penkra", "electron");
+  const appDataBase = resolveDesktopAppDataBase();
+  return resolveDesktopUserDataPath({
+    appDataBase,
+    userDataDirectoryName: desktopIdentity.userDataDirectoryName,
+  });
 }
 
 function repairBrowserProfileBeforeElectronReady(userDataPath: string): void {
   const browserProfileRepair = repairBrowserProfileFromBridgeManifest(userDataPath);
   if (browserProfileRepair.status === "repaired") {
-    console.info("[desktop] Completed Penkra browser profile bridge repair", {
+    console.info("[desktop] Completed Synara browser profile bridge repair", {
       sourcePath: browserProfileRepair.sourcePath,
       targetPath: browserProfileRepair.targetPath,
       copiedEntries: browserProfileRepair.copiedEntries,
     });
   } else if (browserProfileRepair.status === "repair-failed") {
-    console.warn("[desktop] Failed to complete Penkra browser profile bridge repair", {
+    console.warn("[desktop] Failed to complete Synara browser profile bridge repair", {
       sourcePath: browserProfileRepair.sourcePath,
       targetPath: browserProfileRepair.targetPath,
       error: browserProfileRepair.error,
@@ -1773,8 +1849,12 @@ function configureAppIdentity(): void {
     applicationName: APP_DISPLAY_NAME,
     applicationVersion: app.getVersion(),
     version: commitHash ?? "unknown",
-    copyright: `© ${new Date().getFullYear()} Emmanuel Gyekye Atta-Penkra`,
+    copyright: `© ${new Date().getFullYear()} Emanuele Di Pietro`,
   });
+
+  if (process.platform === "win32") {
+    app.setAppUserModelId(APP_USER_MODEL_ID);
+  }
 }
 
 // The packaged bundle icon is a solid, pre-rounded ICNS so Tahoe does not reinterpret
@@ -1829,7 +1909,7 @@ function persistLastLaunchVersion(version: string): void {
 // changes across launches, force Launch Services to re-read the bundle so the
 // new icon shows on every surface. Best-effort: never blocks startup.
 function refreshMacIconCacheOnVersionChange(): void {
-  if (process.platform !== "darwin" || !isPackagedRuntime) {
+  if (process.platform !== "darwin" || !app.isPackaged) {
     return;
   }
 
@@ -1889,7 +1969,7 @@ function readBundleSignature(bundlePath: string): BundleSignature | null {
 }
 
 function captureStartupBundleIdentity(): BundleIdentity | null {
-  if (!isPackagedRuntime) {
+  if (!app.isPackaged) {
     return null;
   }
   const bundlePath = app.getAppPath();
@@ -1910,11 +1990,11 @@ function restartAfterStartupBundleSwap(error: BundleChangedDuringStartupError): 
   void dialog
     .showMessageBox({
       type: "warning",
-      title: "Penkra needs to restart",
-      message: "Penkra changed while it was opening.",
+      title: "Synara needs to restart",
+      message: "Synara changed while it was opening.",
       detail:
-        "The current process cannot safely read the replaced application bundle. Restart Penkra to finish opening with one consistent version.",
-      buttons: ["Restart Penkra"],
+        "The current process cannot safely read the replaced application bundle. Restart Synara to finish opening with one consistent version.",
+      buttons: ["Restart Synara"],
       defaultId: 0,
     })
     .catch(() => undefined)
@@ -1931,7 +2011,7 @@ function restartAfterStartupBundleSwap(error: BundleChangedDuringStartupError): 
 // returns the wrong bytes. Detect the swap and offer a restart; continuing is
 // never safe.
 function startBundleSwapWatcher(): void {
-  if (!isPackagedRuntime || bundleSwapPollTimer) {
+  if (!app.isPackaged || bundleSwapPollTimer) {
     return;
   }
   const bundlePath = app.getAppPath();
@@ -1966,8 +2046,8 @@ function startBundleSwapWatcher(): void {
     void dialog
       .showMessageBox({
         type: "warning",
-        title: "Penkra was replaced on disk",
-        message: "The installed Penkra app changed while it was running.",
+        title: "Synara was replaced on disk",
+        message: "The installed Synara app changed while it was running.",
         detail:
           "The interface keeps running from a safeguarded copy, but parts of the app loaded later can still read the replaced file. Restart now to pick up the new version safely.",
         buttons: ["Restart Now", "Later"],
@@ -2013,7 +2093,9 @@ function scheduleUpdatePoll(): void {
 }
 
 function isExplicitUpdateCheckReason(reason: string): boolean {
-  return reason === "menu" || reason === "renderer";
+  return (
+    reason === "menu" || reason === "renderer" || reason === UPDATE_CHECK_REASON_MIGRATION_RECOVERY
+  );
 }
 
 function emitUpdateState(): void {
@@ -2056,6 +2138,21 @@ function getPendingUpdateCacheDir(): string | null {
   return resolveElectronUpdaterPendingCacheDir(getUpdaterCachePathArgs());
 }
 
+function clearLegacyUpdaterZipAfterVerifiedInstall(): void {
+  const legacyZipPath = resolveElectronUpdaterLegacyZipPath(getUpdaterCachePathArgs());
+  if (!legacyZipPath) {
+    return;
+  }
+  try {
+    FS.rmSync(legacyZipPath, { force: true });
+    console.info("[desktop-updater] Cleared legacy top-level update.zip after verified install.");
+  } catch (error) {
+    console.warn(
+      `[desktop-updater] Failed to clear legacy top-level update.zip: ${formatErrorMessage(error)}`,
+    );
+  }
+}
+
 function quarantineInstallMarker(reason: string): void {
   console.warn(`[desktop-updater] Discarding update install marker (${reason}).`);
   try {
@@ -2092,8 +2189,7 @@ function processInstallMarkerOnStartup(): void {
         `[desktop-updater] Failed to clear successful update install marker: ${formatErrorMessage(error)}`,
       );
     }
-    // Preserve electron-updater's verified archive so the next macOS update can
-    // reuse it as the differential-download source.
+    clearLegacyUpdaterZipAfterVerifiedInstall();
     return;
   }
   if (outcome === "stale" || outcome === "invalid") {
@@ -2120,7 +2216,7 @@ function processInstallMarkerOnStartup(): void {
   }
 
   automaticUpdateActivitySuppressed = true;
-  const message = `Penkra restarted, but update ${marker.toVersion} was not installed. Try again.`;
+  const message = `Synara restarted, but update ${marker.toVersion} was not installed. Try again.`;
   setUpdateState(
     reduceDesktopUpdateStateOnInstallRestartFailure(
       updateState,
@@ -2183,6 +2279,9 @@ function armUpdateCheckTimeout(reason: string): void {
       return;
     }
     updateCheckInFlight = false;
+    // electron-updater may never settle its own promise, so this is also where
+    // anyone awaiting the check has to be released.
+    settleActiveUpdateCheck?.();
     setUpdateState(
       reduceDesktopUpdateStateOnCheckFailure(
         updateState,
@@ -2302,6 +2401,33 @@ function handleDesktopAppForegrounded(): void {
   void checkForUpdates("foreground");
 }
 
+/**
+ * Publishes the running check so a caller that needs its *outcome* — migration
+ * recovery — can join it. `checkForUpdates` is a deliberate no-op while another
+ * check holds the lock, and without this the caller would read the intermediate
+ * "checking" state as a failed download.
+ *
+ * The returned finish is idempotent and only clears state it still owns, so the
+ * check-timeout path can settle a stuck check without stranding a later one.
+ */
+function beginActiveUpdateCheck(): () => void {
+  // Assigned by the executor, which runs before the constructor returns.
+  let settle!: () => void;
+  const check = new Promise<void>((resolve) => {
+    settle = resolve;
+  });
+  const finish = (): void => {
+    settle();
+    if (activeUpdateCheck === check) {
+      activeUpdateCheck = null;
+      settleActiveUpdateCheck = null;
+    }
+  };
+  activeUpdateCheck = check;
+  settleActiveUpdateCheck = finish;
+  return finish;
+}
+
 async function checkForUpdates(reason: string): Promise<void> {
   if (isQuitting || isUpdaterInstallPreparing || !updaterConfigured || updateCheckInFlight) return;
   if (automaticUpdateActivitySuppressed) {
@@ -2328,6 +2454,7 @@ async function checkForUpdates(reason: string): Promise<void> {
     return;
   }
   updateCheckInFlight = true;
+  const finishCheck = beginActiveUpdateCheck();
   setUpdateState(reduceDesktopUpdateStateOnCheckStart(updateState, new Date().toISOString()));
   armUpdateCheckTimeout(reason);
   console.info(`[desktop-updater] Checking for updates (${reason})...`);
@@ -2343,6 +2470,7 @@ async function checkForUpdates(reason: string): Promise<void> {
     console.error(`[desktop-updater] Failed to check for updates: ${message}`);
   } finally {
     updateCheckInFlight = false;
+    finishCheck();
   }
 }
 
@@ -2358,10 +2486,7 @@ async function downloadAvailableUpdate(): Promise<{
     updateState.availableVersion !== null
   ) {
     await checkForUpdates("renderer");
-    const refreshedState = updateState as DesktopUpdateState;
-    if (refreshedState.status !== "available") {
-      return { accepted: true, completed: false };
-    }
+    return { accepted: true, completed: false };
   }
   if (!updaterConfigured || updateDownloadInFlight || updateState.status !== "available") {
     return { accepted: false, completed: false };
@@ -2444,6 +2569,112 @@ async function downloadAvailableUpdate(): Promise<{
       await clearPendingUpdateCache(pendingCacheClearReason);
     }
   }
+}
+
+// Starts the automatic prepare step after a successful update check; install
+// stays user-controlled so active agent work is not interrupted by a restart.
+function prepareAvailableUpdateInBackground(reason: string): void {
+  if (updateDownloadInFlight || updateState.status !== "available") {
+    return;
+  }
+  const preparation = downloadAvailableUpdate()
+    .then((result) => {
+      if (result.accepted && result.completed) {
+        console.info(`[desktop-updater] Background update download completed (${reason}).`);
+      }
+    })
+    .catch((error) => {
+      console.error(
+        `[desktop-updater] Background update download crashed (${reason}): ${formatErrorMessage(error)}`,
+      );
+    })
+    .finally(() => {
+      if (activeUpdatePreparation === preparation) {
+        activeUpdatePreparation = null;
+      }
+    });
+  // Published so a caller that needs the download finished — migration
+  // recovery — can await this one instead of racing a second download
+  // against it.
+  activeUpdatePreparation = preparation;
+}
+
+/**
+ * Whether the recovery prompt can offer an in-place update.
+ *
+ * Deliberately permissive about the current status: the check has usually not
+ * run yet at this point in startup, so "we do not know of an update" is not a
+ * reason to hide the option. Only a completed check that found nothing newer
+ * is, because then updating provably cannot repair anything.
+ */
+function canInstallUpdateFromRecovery(): boolean {
+  return updaterConfigured && updateState.status !== "up-to-date";
+}
+
+/**
+ * Drives check → download → install for an install whose database is wedged.
+ *
+ * This is the only recovery option that needs nothing from the user afterwards,
+ * so it runs the whole updater sequence rather than stopping at "an update is
+ * available". Resolves to a message to show in the next prompt when the update
+ * could not be installed, or to null once the install handoff has started.
+ */
+async function installLatestUpdateForMigrationRecovery(): Promise<string | null> {
+  if (!updaterConfigured) {
+    return resolveAutoUpdateDisabledReason() ?? "Automatic updates are not available.";
+  }
+
+  if (updateState.status !== "downloaded") {
+    // The automatic startup check is armed before this prompt appears, so one
+    // may already be running. Joining it is what gets a real answer: starting a
+    // second check here would return without doing anything and leave the
+    // status at "checking", which reads as a download failure below.
+    const inFlightCheck = activeUpdateCheck;
+    if (inFlightCheck === null) {
+      await checkForUpdates(UPDATE_CHECK_REASON_MIGRATION_RECOVERY);
+    } else {
+      await inFlightCheck;
+    }
+    // A successful check starts the download itself; await that one rather
+    // than starting a competing transfer.
+    const preparation = activeUpdatePreparation;
+    if (preparation !== null) {
+      await preparation;
+    } else if (updateState.status === "available") {
+      await downloadAvailableUpdate();
+    }
+  }
+
+  if (updateState.status === "up-to-date") {
+    return `Synara ${app.getVersion()} is already the newest release, so updating cannot repair this database.`;
+  }
+  if (updateState.status !== "downloaded") {
+    return updateState.message ?? "The update could not be downloaded.";
+  }
+
+  await installDownloadedUpdate();
+  // quitAndInstall never resolves — the process exits under it. A handoff that
+  // silently fails is cleared by the install watchdog instead, and waiting for
+  // that verdict is what keeps a failed install from leaving a live app with
+  // no window and no way back to this prompt.
+  await waitForMigrationRecoveryInstallHandoff();
+  if (isUpdaterQuitAndInstallInFlight) {
+    return null;
+  }
+  return updateState.message ?? "The downloaded update could not be installed.";
+}
+
+/**
+ * Waits out the install watchdog window, which is the earliest a failed handoff
+ * can be known: nothing else clears `isUpdaterQuitAndInstallInFlight`, so there
+ * is nothing to poll for. A successful handoff exits the process well before
+ * this resolves.
+ */
+async function waitForMigrationRecoveryInstallHandoff(): Promise<void> {
+  if (!isUpdaterQuitAndInstallInFlight) return;
+  await new Promise<void>((resolve) => {
+    setTimeout(resolve, AUTO_UPDATE_INSTALL_WATCHDOG_MS + 2_000).unref();
+  });
 }
 
 async function runDownloadedUpdateInstall(
@@ -2603,36 +2834,42 @@ async function recordDownloadedUpdateIdentity(info: UpdateDownloadedEvent): Prom
 function configureAutoUpdater(): void {
   const appUpdateYml = readAppUpdateYml();
   configuredUpdaterCacheDirName = resolveElectronUpdaterCacheDirName(appUpdateYml, app.getName());
+  const githubUpdateSource = resolveGitHubUpdateSource(appUpdateYml);
+  const releaseUrl =
+    githubUpdateSource === null ? null : buildGitHubReleasesPageUrl(githubUpdateSource);
   const enabled = shouldEnableAutoUpdates();
   setUpdateState({
     ...createInitialDesktopUpdateState(app.getVersion(), desktopRuntimeInfo),
     enabled,
     status: enabled ? "idle" : "disabled",
+    releaseUrl,
   });
   processInstallMarkerOnStartup();
   if (!enabled) {
-    configuredGitHubUpdateSource = null;
     configuredUpdaterCacheDirName = null;
     return;
   }
   updaterConfigured = true;
-  hardenElectronUpdater({ BaseUpdater }, autoUpdater, process.platform, []);
-  configuredGitHubUpdateSource = resolveGitHubUpdateSource(appUpdateYml);
-  if (configuredGitHubUpdateSource !== null) {
-    // The updater itself uses app-update.yml; this URL is only the human fallback.
-    setUpdateState({ releaseUrl: buildGitHubReleasesPageUrl(configuredGitHubUpdateSource) });
-  }
+  hardenElectronUpdater(
+    { BaseUpdater },
+    autoUpdater,
+    process.platform,
+    app.isPackaged ? resolveEmbeddedWindowsPublisherSubjects() : null,
+  );
 
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = false;
-  // Stable desktop builds use the public GitHub Releases provider configured at packaging time.
+  // The dedicated channel keeps the permanent compatibility release on the
+  // default feed while Synara versions advance independently.
   autoUpdater.channel = SYNARA_DESKTOP_UPDATE_CHANNEL;
   autoUpdater.allowPrerelease = DESKTOP_UPDATE_ALLOW_PRERELEASE;
   autoUpdater.allowDowngrade = false;
-  // Native-architecture releases publish a blockmap regenerated from the final,
-  // verified Squirrel ZIP. Only an Intel build switching to arm64 under Rosetta
-  // must bypass differential reuse of the old architecture's archive.
-  autoUpdater.disableDifferentialDownload = isArm64HostRunningIntelBuild(desktopRuntimeInfo);
+  // Match electron-updater's native GitHub provider path; the packaged
+  // app-update.yml owns the production feed, and generic feeds stay mock-only.
+  // macOS release builds repack and validate the Squirrel update zip, then omit
+  // the stale zip blockmap so ShipIt always installs the exact signed payload.
+  autoUpdater.disableDifferentialDownload =
+    process.platform === "darwin" || isArm64HostRunningIntelBuild(desktopRuntimeInfo);
   // electron-updater has no working idle timeout on macOS (its socket timeout is
   // wired to a `socket` event Electron's net.request never emits) and never
   // resumes from a byte offset, so a stalled CDN transfer hangs for minutes
@@ -2677,6 +2914,7 @@ function configureAutoUpdater(): void {
     );
     lastLoggedDownloadMilestone = -1;
     console.info(`[desktop-updater] Update available: ${info.version}`);
+    prepareAvailableUpdateInBackground(`available ${info.version}`);
   });
   autoUpdater.on("update-not-available", () => {
     clearUpdateCheckTimeoutTimer();
@@ -2770,7 +3008,7 @@ function configureAutoUpdater(): void {
 
   scheduleUpdatePoll();
 }
-// Builds process-local Node args so provider/tool children do not inherit Penkra's heap guard.
+// Builds process-local Node args so provider/tool children do not inherit Synara's heap guard.
 function backendNodeArgs(): string[] {
   const configuredMaxOldSpaceMb =
     BACKEND_MAX_OLD_SPACE_ENV_KEYS.map((key) => process.env[key]).find(
@@ -2785,7 +3023,7 @@ function backendNodeArgs(): string[] {
 
 function backendEnv(): NodeJS.ProcessEnv {
   const servedStaticRoot = resolveServedStaticRoot();
-  return {
+  const env: NodeJS.ProcessEnv = {
     ...resolveBrowserUsePipeBackendEnv(
       process.env,
       browserUsePipeServer ? SYNARA_BROWSER_USE_PIPE_PATH : null,
@@ -2799,8 +3037,12 @@ function backendEnv(): NodeJS.ProcessEnv {
     SYNARA_HOME: BASE_DIR,
     SYNARA_AUTH_TOKEN: backendAuthToken,
     SYNARA_DESKTOP_SHUTDOWN_TOKEN: DESKTOP_BACKEND_SHUTDOWN_TOKEN,
-    SYNARA_DESKTOP_PARENT_PID: String(process.pid),
   };
+  // The backend runs the same login-shell probe at startup and does not begin listening
+  // until it returns, so an unmarked child serializes a second ~1s hydration behind ours.
+  // Written explicitly in both directions: an inherited marker must never suppress a
+  // probe when our own hydration failed and the child's PATH is the raw launch one.
+  return applyShellEnvironmentHydrationMarker(env, shellEnvironmentSync.pathHydrated);
 }
 
 function scheduleBackendRestart(reason: string): void {
@@ -2814,8 +3056,14 @@ function scheduleBackendRestart(reason: string): void {
     case "ignore":
       return;
     case "recover-migration":
+      // The marker is written mid-session by the migration that just killed the
+      // backend, so bootstrap's one-shot check never saw it. Recovery owns the
+      // process from here; respawning would only repeat the failed migration.
       writeDesktopLogHeader(
         `migration recovery marker detected after backend failure reason=${sanitizeLogValue(reason)}`,
+      );
+      safeConsoleError(
+        `[desktop] backend failed with a pending migration recovery (${reason}); opening recovery`,
       );
       void runMidSessionMigrationRecovery(reason);
       return;
@@ -2840,9 +3088,14 @@ function scheduleBackendRestart(reason: string): void {
   }
 }
 
+// Runs the same recovery flow bootstrap uses, but for a marker that appeared while
+// the app was already running. Shown once per app run — the policy owns that latch.
 async function runMidSessionMigrationRecovery(reason: string): Promise<void> {
   const outcome = await handleDesktopMigrationRecovery();
   if (outcome !== "continue") return;
+
+  // The marker vanished between the crash check and the recovery run (another
+  // process cleared it), so fall back to the normal supervised restart.
   await restartBackendAfterCrash(reason);
 }
 
@@ -2851,8 +3104,8 @@ function backendFailureDialogDetail(reason: string): string {
   const cause = summary.length > 0 ? summary : reason;
   return [
     cause,
-    "Penkra paused automatic restarts so a failing backend cannot keep respawning in the background.",
-    `Log folder:\n${LOG_DIR}`,
+    "Synara paused automatic restarts so a failing backend can't keep respawning in the background.",
+    `Log file:\n${Path.join(LOG_DIR, BACKEND_LOG_FILE_NAME)}`,
   ].join("\n\n");
 }
 
@@ -2868,6 +3121,10 @@ async function openDesktopLogDirectory(): Promise<void> {
   }
 }
 
+/**
+ * Replaces the eternal loading skeleton with a blocking, actionable window once
+ * supervision stops respawning the backend.
+ */
 function presentBackendStartupGiveUp(reason: string): void {
   if (isQuitting || backendLifecycleDialogInFlight) return;
 
@@ -2876,8 +3133,8 @@ function presentBackendStartupGiveUp(reason: string): void {
     for (;;) {
       const result = await dialog.showMessageBox({
         type: "error",
-        title: "Penkra's backend didn't start",
-        message: `Penkra's backend failed to start ${BACKEND_MAX_CONSECUTIVE_START_FAILURES} times in a row.`,
+        title: "Synara's backend didn't start",
+        message: `Synara's backend failed to start ${BACKEND_MAX_CONSECUTIVE_START_FAILURES} times in a row.`,
         detail,
         buttons: ["Try again", "Open logs", "Quit"],
         defaultId: 0,
@@ -2889,7 +3146,9 @@ function presentBackendStartupGiveUp(reason: string): void {
         await openDesktopLogDirectory();
         continue;
       }
+
       if (result.response === 0) {
+        // A user-driven retry is a fresh lifecycle start, not another crash cycle.
         backendLifecycleDialogInFlight = null;
         await restartBackendAfterCrash("manual retry after backend startup failure", "lifecycle");
         return;
@@ -2913,10 +3172,10 @@ function handleBackendStartupBlock(block: BackendStartupBlock): void {
     if (block.kind === "migration-recovery-required") {
       const result = await dialog.showMessageBox({
         type: "warning",
-        title: "Penkra needs to recover its database",
+        title: "Synara needs to recover its database",
         message: "A database migration did not finish safely.",
         detail:
-          "Restart Penkra to open the verified backup recovery flow. Provider and chat processes will remain stopped until recovery completes.",
+          "Restart Synara to open the verified backup recovery flow. Provider and chat processes will remain stopped until recovery completes.",
         buttons: ["Restart and recover", "Quit"],
         defaultId: 0,
         cancelId: 1,
@@ -2933,30 +3192,25 @@ function handleBackendStartupBlock(block: BackendStartupBlock): void {
 
     const processDetail =
       block.ownerPid === null
-        ? "Another Penkra backend is already using this database."
-        : `Another Penkra backend (process ${block.ownerPid}) is already using this database.`;
-    for (;;) {
-      const result = await dialog.showMessageBox({
-        type: "warning",
-        title: "Penkra is already running elsewhere",
-        message: "Your local Penkra data is in use by another process.",
-        detail: `${processDetail}\n\nStop the other Penkra app or development server, then try again. Your data has not been changed.`,
-        buttons: ["Try again", "Open logs", "Quit"],
-        defaultId: 0,
-        cancelId: 2,
-        noLink: true,
-      });
-      if (result.response === 1) {
-        await openDesktopLogDirectory();
-        continue;
-      }
-      if (result.response === 0) {
-        backendLifecycleDialogInFlight = null;
-        await restartBackendAfterCrash("database lifecycle lock retry", "lifecycle");
-      } else {
-        requestGracefulAppQuit("database lifecycle lock");
-      }
-      return;
+        ? "Another Synara server is already using this database."
+        : `Another Synara server (process ${block.ownerPid}) is already using this database.`;
+    const result = await dialog.showMessageBox({
+      type: "warning",
+      title: "Synara is already running elsewhere",
+      message: "Your local Synara data is in use by another process.",
+      detail: `${processDetail}\n\nStop the other Synara app or development server, then try again. Your data has not been changed.`,
+      buttons: ["Try again", "Quit"],
+      defaultId: 0,
+      cancelId: 1,
+      noLink: true,
+    });
+    if (result.response === 0) {
+      // Let a fast failed retry present the block again instead of racing this
+      // dialog task's finalizer and leaving the window inert.
+      backendLifecycleDialogInFlight = null;
+      await restartBackendAfterCrash("database lifecycle lock retry", "lifecycle");
+    } else {
+      requestGracefulAppQuit("database lifecycle lock");
     }
   })().finally(() => {
     if (backendLifecycleDialogInFlight === task) {
@@ -2965,8 +3219,6 @@ function handleBackendStartupBlock(block: BackendStartupBlock): void {
   });
   backendLifecycleDialogInFlight = task;
 }
-
-type BackendStartTrigger = "lifecycle" | "crash-restart";
 
 async function restartBackendAfterCrash(
   reason: string,
@@ -2977,6 +3229,8 @@ async function restartBackendAfterCrash(
   }
 
   if (trigger === "lifecycle") {
+    // Reset before reserving the port so a user-driven retry gets a full restart
+    // budget even when the retry itself fails before the process is spawned.
     backendSupervision.reset();
   }
 
@@ -2994,9 +3248,22 @@ async function restartBackendAfterCrash(
   ensureInitialBackendWindowOpen(backendHttpUrl);
 }
 
+/**
+ * "lifecycle" covers every deliberate start — bootstrap, a failed update install
+ * handing the backend back, or a user-driven retry — and clears the crash backoff
+ * and circuit breaker. Only the supervised crash path keeps the failure count.
+ */
+type BackendStartTrigger = "lifecycle" | "crash-restart";
+
 function startBackend(trigger: BackendStartTrigger = "lifecycle"): void {
   if (isQuitting || backendProcess) return;
-  if (desktopStartupBlockedForMigrationRecovery) return;
+  // Recovery owns the database until it clears the marker. Callers that restart
+  // the backend after an unrelated failure — a given-up update install, say —
+  // must not hand it a database the user is being asked how to repair.
+  if (desktopStartupBlockedForMigrationRecovery) {
+    writeDesktopLogHeader("backend start suppressed while migration recovery is pending");
+    return;
+  }
 
   if (trigger === "lifecycle") {
     backendSupervision.reset();
@@ -3017,11 +3284,9 @@ function startBackend(trigger: BackendStartTrigger = "lifecycle"): void {
       ELECTRON_RUN_AS_NODE: "1",
       SYNARA_SERVER_ENTRY: backendEntry,
     },
-    // Keep output piped in development and production so startup blockers and
-    // readiness remain observable before the backend begins listening.
-    // IPC and the expected parent PID bind the backend lifetime to Electron. If
-    // Electron is force-killed or crashes, the child releases its database.
-    stdio: ["ignore", "pipe", "pipe", "ipc"],
+    // Keep output piped in every environment so startup blockers and readiness
+    // are observable even when packaged log setup is unavailable.
+    stdio: ["ignore", "pipe", "pipe"],
   });
   const listeningDetector = new ServerListeningDetector();
   const startupBlockDetector = new BackendStartupBlockDetector();
@@ -3052,8 +3317,9 @@ function startBackend(trigger: BackendStartTrigger = "lifecycle"): void {
     detectors: [listeningDetector, startupBlockDetector, outputTailDetector],
   });
 
-  // Attach both branches immediately so a failed restart can never produce an
-  // unhandled readiness rejection. Readiness, not spawn, resets supervision.
+  // A successful spawn only proves that Electron created the process. Reset the
+  // crash backoff and the circuit breaker after the backend actually listens;
+  // otherwise a startup error becomes a permanent 500 ms restart loop.
   void listeningDetector.promise.then(
     () => {
       if (backendListeningDetector === listeningDetector) {
@@ -3138,44 +3404,35 @@ async function stopBackendAndWaitForExit(timeoutMs = BACKEND_SHUTDOWN_TIMEOUT_MS
   const backendChild = child;
   if (backendChild.exitCode !== null || backendChild.signalCode !== null) return;
 
-  await new Promise<void>((resolve) => {
-    let settled = false;
-    let forceKillTimer: ReturnType<typeof setTimeout> | null = null;
-    let exitTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
-
-    function settle(): void {
-      if (settled) return;
-      settled = true;
-      backendChild.off("exit", onExit);
-      if (forceKillTimer) {
-        clearTimeout(forceKillTimer);
-      }
-      if (exitTimeoutTimer) {
-        clearTimeout(exitTimeoutTimer);
-      }
-      resolve();
+  if (process.platform === "win32") {
+    const forceKillDelayMs = Math.min(BACKEND_FORCE_KILL_DELAY_MS, Math.max(0, timeoutMs - 500));
+    try {
+      const result = await stopWindowsBackendAndWait({
+        child: backendChild,
+        backendHttpUrl,
+        shutdownToken: DESKTOP_BACKEND_SHUTDOWN_TOKEN,
+        forceKillDelayMs,
+        timeoutMs,
+      });
+      requireWindowsBackendExit(result);
+    } catch (error) {
+      backendProcess = retainLiveBackendAfterShutdownFailure(backendProcess, backendChild);
+      throw error;
     }
+    return;
+  }
 
-    function onExit(): void {
-      settle();
-    }
-
-    backendChild.once("exit", onExit);
-    backendChild.kill("SIGTERM");
-
-    const forceKillDelayMs = Math.min(BACKEND_FORCE_KILL_DELAY_MS, Math.max(1, timeoutMs - 500));
-    forceKillTimer = setTimeout(() => {
-      if (backendChild.exitCode === null && backendChild.signalCode === null) {
-        backendChild.kill("SIGKILL");
-      }
-    }, forceKillDelayMs);
-    forceKillTimer.unref();
-
-    exitTimeoutTimer = setTimeout(() => {
-      settle();
-    }, timeoutMs);
-    exitTimeoutTimer.unref();
-  });
+  const forceKillDelayMs = Math.min(BACKEND_FORCE_KILL_DELAY_MS, Math.max(0, timeoutMs - 500));
+  try {
+    await stopPosixBackendAndWait({
+      child: backendChild,
+      forceKillDelayMs,
+      timeoutMs,
+    });
+  } catch (error) {
+    backendProcess = retainLiveBackendAfterShutdownFailure(backendProcess, backendChild);
+    throw error;
+  }
 }
 
 async function disposeBrowserUsePipeServerForShutdown(reason: string): Promise<void> {
@@ -3200,19 +3457,23 @@ async function shutdownDesktopRuntime(reason: string): Promise<void> {
 
   isQuitting = true;
   writeDesktopLogHeader(`${reason} shutdown start`);
-  const shutdown = runAfterDesktopShutdown(stopBackendAndWaitForExit(), async () => {
-    clearUpdateBackgroundBlurTimer();
-    clearUpdateCheckTimeoutTimer();
-    clearUpdatePollTimer();
-    cancelBackendReadinessWait();
-    appSnapManager?.dispose();
-    appSnapManager = null;
-    await disposeBrowserUsePipeServerForShutdown(reason);
-    browserManager.dispose();
-    restoreStdIoCapture?.();
-    desktopShutdownComplete = true;
-    writeDesktopLogHeader(`${reason} shutdown complete`);
-  });
+  const shutdown = runAfterDesktopShutdown(
+    stopBackendAndWaitForExit(),
+    async () => {
+      clearUpdateBackgroundBlurTimer();
+      clearUpdateCheckTimeoutTimer();
+      clearUpdatePollTimer();
+      cancelBackendReadinessWait();
+      appSnapManager?.dispose();
+      appSnapManager = null;
+      await disposeBrowserUsePipeServerForShutdown(reason);
+      browserManager.dispose();
+      restoreStdIoCapture?.();
+      desktopShutdownComplete = true;
+      writeDesktopLogHeader(`${reason} shutdown complete`);
+    },
+    { runAfterShutdownFailure: true },
+  );
   desktopShutdownPromise = shutdown;
 
   try {
@@ -3221,7 +3482,6 @@ async function shutdownDesktopRuntime(reason: string): Promise<void> {
     if (desktopShutdownPromise === shutdown) {
       desktopShutdownPromise = null;
     }
-    isQuitting = false;
     throw error;
   }
 }
@@ -3237,6 +3497,7 @@ function requestGracefulAppQuit(reason: string): void {
       const message = formatErrorMessage(error);
       writeDesktopLogHeader(`${reason} shutdown failed message=${message}`);
       console.warn(`[desktop] Shutdown failed during ${reason}: ${message}`);
+      app.exit(1);
     },
   );
 }
@@ -3252,7 +3513,6 @@ function registerIpcHandlers(): void {
   ipcMain.removeHandler(IPC.storageMigration.acknowledge);
   ipcMain.handle(IPC.storageMigration.acknowledge, async () => {
     await acknowledgeSynaraStorageSnapshot(storageSnapshotPath);
-    FS.writeFileSync(LEGACY_STORAGE_MIGRATION_MARKER_PATH, "complete\n", { mode: 0o600 });
   });
 
   ipcMain.removeAllListeners(IPC.wsUrl);
@@ -3559,7 +3819,10 @@ function registerIpcHandlers(): void {
 }
 
 function getIconOption(): { icon: string } | Record<string, never> {
-  return {}; // macOS uses .icns from the app bundle
+  if (process.platform === "darwin") return {}; // macOS uses .icns from app bundle
+  const ext = process.platform === "win32" ? "ico" : "png";
+  const iconPath = resolveIconPath(ext);
+  return iconPath ? { icon: iconPath } : {};
 }
 
 // macOS backs the translucent shell with window vibrancy, so the window is created
@@ -3570,6 +3833,9 @@ function getIconOption(): { icon: string } | Record<string, never> {
 // a bright flash before the renderer paints — the window is shown only after first paint
 // (`show: false`), so this color is not expected to match a custom in-app theme exactly.
 function getWindowMaterialOptions(): BrowserWindowConstructorOptions {
+  if (process.platform !== "darwin") {
+    return { backgroundColor: nativeTheme.shouldUseDarkColors ? "#181818" : "#ffffff" };
+  }
   return {
     vibrancy: "under-window",
     // "followWindow" lets macOS drop vibrancy blending to inactive when the
@@ -3584,14 +3850,14 @@ function getWindowMaterialOptions(): BrowserWindowConstructorOptions {
 // uses a fully frameless shell and renderer-owned minimize/maximize/close controls,
 // so the toolbar can occupy the top edge instead of sitting below a native title bar.
 function getTitleBarOptions(): BrowserWindowConstructorOptions {
+  if (process.platform === "win32") {
+    return { frame: false };
+  }
+  if (process.platform !== "darwin") {
+    return {};
+  }
   return {
     titleBarStyle: "hiddenInset",
-    // Enables Electron's standard Window Controls Overlay geometry APIs and
-    // titlebar-area-* CSS environment variables. The renderer uses the live safe
-    // area instead of assuming the native control cluster is always 90px wide.
-    titleBarOverlay: {
-      height: CHAT_SURFACE_HEADER_HEIGHT_PX,
-    },
     // Derived from the shared chat-surface header geometry (@synara/shared/desktopChrome)
     // so the native lights and the renderer's leading toggle/arrow controls always share
     // the same vertical center. Tune the height/radius there, never the raw px here.
@@ -3632,14 +3898,14 @@ function createWindow(): BrowserWindow {
       nodeIntegration: false,
       sandbox: true,
       webviewTag: true,
-      // Fake-mic QA must keep consuming its real-time fixture while automation
-      // inspects other processes. Normal desktop windows retain power-saving.
-      backgroundThrottling: !voiceQaAudioInput,
+      // Let Chromium throttle renderer timers/rAF when the window is hidden.
+      backgroundThrottling: true,
     },
   });
-  hasCreatedMainWindow = true;
   browserManager.setWindow(window);
   attachDesktopZoomFactorSync(window);
+  attachRendererCrashRecovery(window);
+  attachDesktopPhysicalZoomShortcuts(window);
 
   window.webContents.on("context-menu", (event, params) => {
     event.preventDefault();
@@ -3693,16 +3959,6 @@ function createWindow(): BrowserWindow {
     window.setTitle(APP_DISPLAY_NAME);
     emitUpdateState();
   });
-  window.webContents.on("did-fail-load", (_event, code, description, validatedUrl) => {
-    console.error(
-      `[desktop] Renderer failed to load (${code}: ${description}) url=${validatedUrl}`,
-    );
-  });
-  window.webContents.on("render-process-gone", (_event, details) => {
-    console.error(
-      `[desktop] Renderer process exited reason=${details.reason} code=${details.exitCode}`,
-    );
-  });
   window.once("ready-to-show", () => {
     // Preserve the original first-launch behavior, then respect the state saved
     // by subsequent closes. Normal bounds are restored before maximizing so the
@@ -3718,7 +3974,7 @@ function createWindow(): BrowserWindow {
   window.on("unmaximize", () => emitDesktopWindowState(window));
   window.on("enter-full-screen", () => emitDesktopWindowState(window));
   window.on("leave-full-screen", () => emitDesktopWindowState(window));
-  window.on("close", () => {
+  window.on("close", (event) => {
     try {
       writeDesktopWindowState(DESKTOP_WINDOW_STATE_PATH, {
         version: 1,
@@ -3728,16 +3984,24 @@ function createWindow(): BrowserWindow {
     } catch (error) {
       console.warn(`[desktop] Failed to persist window state: ${formatErrorMessage(error)}`);
     }
+
+    if (
+      shouldDeferDesktopWindowClose({
+        platform: process.platform,
+        shutdownComplete: desktopShutdownComplete,
+        updaterHandoffActive: isUpdaterQuitAndInstallInFlight,
+      })
+    ) {
+      event.preventDefault();
+      requestGracefulAppQuit("window-close");
+    }
   });
 
   if (isDevelopment) {
-    void window.loadURL(process.env.VITE_DEV_SERVER_URL as string).catch((error) => {
-      console.error(`[desktop] Failed to load development renderer: ${formatErrorMessage(error)}`);
-    });
+    void window.loadURL(process.env.VITE_DEV_SERVER_URL as string);
+    window.webContents.openDevTools({ mode: "detach" });
   } else {
-    void window.loadURL(desktopIdentity.entryUrl).catch((error) => {
-      console.error(`[desktop] Failed to load renderer: ${formatErrorMessage(error)}`);
-    });
+    void window.loadURL(desktopIdentity.entryUrl);
   }
 
   window.on("closed", () => {
@@ -3750,6 +4014,129 @@ function createWindow(): BrowserWindow {
   return window;
 }
 
+/**
+ * Renderer crashes used to be entirely invisible to the main process: no listener, no
+ * log line, no telemetry, and no way back — a renderer OOM kill just left the user
+ * staring at a blank window. Recovery is deliberately narrow: only reasons the renderer
+ * can actually come back from reload, and only a few times, because a deterministic
+ * crash reloading forever is worse than one blank window.
+ */
+function attachRendererCrashRecovery(window: BrowserWindow): void {
+  let reloadTimer: ReturnType<typeof setTimeout> | null = null;
+  const clearReloadTimer = (): void => {
+    if (reloadTimer === null) return;
+    clearTimeout(reloadTimer);
+    reloadTimer = null;
+  };
+
+  window.webContents.on("render-process-gone", (_event, details) => {
+    const description = `reason=${details.reason} exitCode=${details.exitCode}`;
+    writeDesktopLogHeader(`renderer process gone ${description}`);
+    safeConsoleError(`[desktop] renderer process gone (${description})`);
+
+    const response = rendererCrashPolicy.respondToCrash({
+      reason: details.reason,
+      quitting: isQuitting,
+      nowMs: Date.now(),
+    });
+
+    switch (response.kind) {
+      case "ignore":
+        return;
+      case "reload":
+        writeDesktopLogHeader(
+          `renderer reload scheduled attempt=${response.attempt}/${RENDERER_MAX_AUTOMATIC_RELOADS} delayMs=${response.delayMs}`,
+        );
+        clearReloadTimer();
+        reloadTimer = setTimeout(() => {
+          reloadTimer = null;
+          if (isQuitting || window.isDestroyed()) return;
+          window.webContents.reload();
+        }, response.delayMs);
+        return;
+      case "prompt":
+        writeDesktopLogHeader(
+          `renderer recovery prompt cause=${response.cause} crashes=${response.crashes}`,
+        );
+        presentRendererCrashRecovery(window, details.reason, response);
+        return;
+    }
+  });
+
+  // A hung renderer is not a crash — Chromium keeps the process alive — so it never
+  // reaches the listener above. Logging both edges makes a freeze that the user
+  // reports as "the app died" distinguishable from an actual crash in the same log.
+  window.webContents.on("unresponsive", () => {
+    writeDesktopLogHeader("renderer unresponsive");
+  });
+  window.webContents.on("responsive", () => {
+    writeDesktopLogHeader("renderer responsive");
+  });
+
+  window.on("closed", clearReloadTimer);
+}
+
+/**
+ * Replaces the blank window with a blocking, actionable one once automatic recovery
+ * stops (or was never allowed for this crash reason).
+ */
+function presentRendererCrashRecovery(
+  window: BrowserWindow,
+  reason: string,
+  response: Extract<RendererCrashResponse, { kind: "prompt" }>,
+): void {
+  if (isQuitting || rendererCrashDialogInFlight) return;
+
+  const message =
+    response.cause === "reload-budget-exhausted"
+      ? `Synara's window crashed ${response.crashes} times in a row.`
+      : "Synara's window stopped unexpectedly.";
+  const detail = [
+    `The window's renderer process exited (${reason}).`,
+    response.cause === "reload-budget-exhausted"
+      ? "Synara paused automatic reloads so a repeating crash can't keep reloading in the background."
+      : "This exit reason repeats on reload, so Synara did not retry automatically.",
+    `Log file:\n${Path.join(LOG_DIR, DESKTOP_LOG_FILE_NAME)}`,
+  ].join("\n\n");
+
+  const task = (async () => {
+    for (;;) {
+      const result = await dialog.showMessageBox({
+        type: "error",
+        title: "Synara's window stopped",
+        message,
+        detail,
+        buttons: ["Reload", "Open logs", "Quit"],
+        defaultId: 0,
+        cancelId: 2,
+        noLink: true,
+      });
+
+      if (result.response === 1) {
+        await openDesktopLogDirectory();
+        continue;
+      }
+
+      if (result.response === 0) {
+        // A user-driven reload is a fresh start, not a continuation of the streak.
+        rendererCrashPolicy.reset();
+        if (!window.isDestroyed()) {
+          window.webContents.reload();
+        }
+        return;
+      }
+
+      requestGracefulAppQuit("renderer crashed");
+      return;
+    }
+  })().finally(() => {
+    if (rendererCrashDialogInFlight === task) {
+      rendererCrashDialogInFlight = null;
+    }
+  });
+  rendererCrashDialogInFlight = task;
+}
+
 function configureMediaPermissions(): void {
   for (const targetSession of [
     session.defaultSession,
@@ -3759,9 +4146,6 @@ function configureMediaPermissions(): void {
 
     targetSession.setPermissionCheckHandler((_webContents, permission) => {
       if (permission === "media") {
-        if (voiceQaAudioInput) {
-          return true;
-        }
         return process.platform === "darwin"
           ? systemPreferences.getMediaAccessStatus("microphone") === "granted"
           : false;
@@ -3772,11 +4156,6 @@ function configureMediaPermissions(): void {
     targetSession.setPermissionRequestHandler((_webContents, permission, callback, details) => {
       if (permission !== "media" || !shouldAllowMediaPermissionRequest(details)) {
         callback(false);
-        return;
-      }
-
-      if (voiceQaAudioInput) {
-        callback(true);
         return;
       }
 
@@ -3801,19 +4180,8 @@ function configureMediaPermissions(): void {
 // Override Electron's userData path before the `ready` event so that
 // Chromium session data uses a filesystem-friendly directory name.
 // Must be called synchronously at the top level — before `app.whenReady()`.
-if (hasSingleInstanceLock && !isDevelopment) {
+if (hasSingleInstanceLock) {
   repairBrowserProfileBeforeElectronReady(userDataPath);
-}
-
-const voiceQaAudioInput = resolveVoiceQaAudioInput(process.env[PENKRA_VOICE_QA_WAV_ENV]);
-if (voiceQaAudioInput) {
-  // Chromium's out-of-process audio service cannot read arbitrary fixture
-  // paths inside its sandbox. This switch is reachable only through the
-  // explicit on-demand QA environment variable.
-  app.commandLine.appendSwitch("no-sandbox");
-  app.commandLine.appendSwitch("use-fake-device-for-media-stream");
-  app.commandLine.appendSwitch("use-fake-ui-for-media-stream");
-  app.commandLine.appendSwitch("use-file-for-fake-audio-capture", voiceQaAudioInput);
 }
 
 configureAppIdentity();
@@ -3828,12 +4196,18 @@ if (!hasSingleInstanceLock) {
 
 async function bootstrap(): Promise<void> {
   writeDesktopLogHeader("bootstrap start");
+  // Ahead of the recovery gate on purpose. A startup that blocks below returns
+  // early, and every path that could ship the fix for whatever blocked it lives
+  // after that return: an install wedged on a bad migration would be unable to
+  // update out of it, which is exactly how 0.6.0 stranded its users. The
+  // updater touches no database state, so configuring it first is safe.
+  configureAutoUpdater();
+
   const migrationRecoveryOutcome = await handleDesktopMigrationRecovery();
   if (migrationRecoveryOutcome !== "continue") {
     return;
   }
 
-  configureAutoUpdater();
   backendAuthToken = Crypto.randomBytes(24).toString("hex");
   await reserveBackendEndpoint("bootstrap");
 
@@ -3842,7 +4216,7 @@ async function bootstrap(): Promise<void> {
   try {
     await ensureBrowserUsePipeServer();
   } catch (error) {
-    console.warn("[Penkra browser] Failed to start browser-use native pipe", error);
+    console.warn("[Synara browser] Failed to start browser-use native pipe", error);
   }
   startBackend();
   writeDesktopLogHeader("bootstrap backend start requested");
@@ -3927,42 +4301,10 @@ app.on("before-quit", (event) => {
   requestGracefulAppQuit("before-quit");
 });
 
-app.on("window-all-closed", () => {
-  // The fresh-profile storage migration owns a hidden BrowserWindow before the
-  // real app window exists. Closing that helper must not terminate startup.
-  if (!hasCreatedMainWindow || process.platform === "darwin") {
-    return;
-  }
-  requestGracefulAppQuit("window-all-closed");
-});
-
 if (hasSingleInstanceLock) {
   app
     .whenReady()
     .then(() => {
-      if (needsPenkraRootPicker) {
-        const defaultRoot = Path.join(OS.homedir(), "Penkra");
-        FS.mkdirSync(defaultRoot, { recursive: true, mode: 0o700 });
-        const selected = dialog.showOpenDialogSync({
-          title: "Choose your Penkra workspace",
-          defaultPath: defaultRoot,
-          properties: ["openDirectory", "createDirectory"],
-        });
-        const selectedRoot = selected?.[0];
-        if (!selectedRoot) {
-          app.quit();
-          return;
-        }
-        const root = Path.resolve(selectedRoot);
-        FS.mkdirSync(root, { recursive: true, mode: 0o700 });
-        writePenkraRootPointer(penkraRootPointerPath, root);
-        app.relaunch();
-        app.exit(0);
-        return;
-      }
-      if (FS.existsSync(PENKRA_PICKER_USER_DATA)) {
-        FS.rmSync(PENKRA_PICKER_USER_DATA, { recursive: true, force: true });
-      }
       writeDesktopLogHeader("app ready");
       configureAppIdentity();
       applyLegacyMacDockIcon();
@@ -3980,14 +4322,9 @@ if (hasSingleInstanceLock) {
         throw error;
       }
       startBundleSwapWatcher();
-      void migrateLegacyDesktopStorage()
-        .catch((error) => {
-          console.warn("[desktop] Failed to migrate legacy renderer storage", error);
-        })
-        .then(() => bootstrap())
-        .catch((error) => {
-          handleFatalStartupError("bootstrap", error);
-        });
+      void bootstrap().catch((error) => {
+        handleFatalStartupError("bootstrap", error);
+      });
 
       app.on("browser-window-blur", () => {
         markDesktopAppBackgrounded();
@@ -4032,23 +4369,48 @@ if (hasSingleInstanceLock) {
     });
 }
 
-process.on("uncaughtException", (error: unknown) => {
-  if (!isBrokenPipeError(error)) {
-    throw error;
+// GPU, utility, and pepper process failures never reach the window's renderer listener,
+// so without this they are invisible too. Chromium respawns these itself — the value is
+// the log line that explains a sudden loss of GPU acceleration or a dead audio/network
+// service. Clean exits are routine teardown, so they stay out of the log.
+app.on("child-process-gone", (_event, details) => {
+  if (details.reason === "clean-exit") return;
+  const attributes = [
+    `type=${details.type}`,
+    `reason=${details.reason}`,
+    `exitCode=${details.exitCode}`,
+    ...(details.serviceName ? [`service=${details.serviceName}`] : []),
+    ...(details.name ? [`name=${sanitizeLogValue(details.name)}`] : []),
+  ].join(" ");
+  writeDesktopLogHeader(`child process gone ${attributes}`);
+  safeConsoleError(`[desktop] child process gone (${attributes})`);
+});
+
+app.on("window-all-closed", () => {
+  if (process.platform !== "darwin") {
+    app.quit();
   }
-  if (desktopShutdownPromise) return;
-  writeDesktopLogHeader("EPIPE received");
-  requestGracefulAppQuit("EPIPE");
 });
 
-process.on("SIGINT", () => {
-  if (desktopShutdownPromise) return;
-  writeDesktopLogHeader("SIGINT received");
-  requestGracefulAppQuit("SIGINT");
-});
+if (process.platform !== "win32") {
+  process.on("uncaughtException", (error: unknown) => {
+    if (!isBrokenPipeError(error)) {
+      throw error;
+    }
+    if (desktopShutdownPromise) return;
+    writeDesktopLogHeader("EPIPE received");
+    requestGracefulAppQuit("EPIPE");
+  });
 
-process.on("SIGTERM", () => {
-  if (desktopShutdownPromise) return;
-  writeDesktopLogHeader("SIGTERM received");
-  requestGracefulAppQuit("SIGTERM");
-});
+  process.on("SIGINT", () => {
+    if (desktopShutdownPromise) return;
+    writeDesktopLogHeader("SIGINT received");
+    requestGracefulAppQuit("SIGINT");
+  });
+
+  process.on("SIGTERM", () => {
+    if (desktopShutdownPromise) return;
+    writeDesktopLogHeader("SIGTERM received");
+    requestGracefulAppQuit("SIGTERM");
+  });
+}

@@ -1,6 +1,6 @@
 import {
-  createPinnedLookup,
   encodeOutboundMultipart,
+  invokePinnedDnsLookup,
   OutboundHttpError,
 } from "@synara/shared/outboundHttp";
 import {
@@ -12,23 +12,6 @@ import {
 import { describe, expect, it } from "vitest";
 
 describe("outbound HTTP policy", () => {
-  it("returns the pinned address shape requested by Node's connection strategy", async () => {
-    const lookup = createPinnedLookup({ address: "8.8.8.8", family: 4 });
-    const lookupWithOptions = (all: boolean) =>
-      new Promise<string | Array<{ address: string; family: number }>>((resolve, reject) => {
-        lookup("example.test", { all }, (error, address) => {
-          if (error) {
-            reject(error);
-            return;
-          }
-          resolve(address);
-        });
-      });
-
-    await expect(lookupWithOptions(false)).resolves.toBe("8.8.8.8");
-    await expect(lookupWithOptions(true)).resolves.toEqual([{ address: "8.8.8.8", family: 4 }]);
-  });
-
   it.each([
     "127.0.0.1",
     "10.0.0.1",
@@ -91,7 +74,7 @@ describe("outbound HTTP policy", () => {
       { maxBytes: 1_024 },
     );
     const body = new TextDecoder().decode(multipart.body);
-    expect(multipart.contentType).toMatch(/^multipart\/form-data; boundary=Penkra-/u);
+    expect(multipart.contentType).toMatch(/^multipart\/form-data; boundary=Synara-/u);
     expect(body).toContain('name="file"; filename="voice.wav"');
     expect(() =>
       encodeOutboundMultipart([{ name: "file", body: "oversize" }], { maxBytes: 4 }),
@@ -102,5 +85,29 @@ describe("outbound HTTP policy", () => {
         { maxBytes: 1_024 },
       ),
     ).toThrowError(/content type is invalid/u);
+  });
+});
+
+describe("invokePinnedDnsLookup", () => {
+  const pinned = { address: "1.2.3.4", family: 4 as const };
+
+  it("returns the legacy single-address form when all is not requested", () => {
+    let result: unknown;
+    invokePinnedDnsLookup(pinned, {}, (err, address, family) => {
+      result = { err, address, family };
+    });
+    expect(result).toEqual({ err: null, address: "1.2.3.4", family: 4 });
+  });
+
+  it("returns the array form when Happy Eyeballs requests all addresses", () => {
+    let result: unknown;
+    invokePinnedDnsLookup(pinned, { all: true }, (err, address, family) => {
+      result = { err, address, family };
+    });
+    expect(result).toEqual({
+      err: null,
+      address: [{ address: "1.2.3.4", family: 4 }],
+      family: undefined,
+    });
   });
 });

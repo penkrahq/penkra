@@ -91,6 +91,8 @@ import Migration0072 from "./Migrations/072_AgentGatewayOperationRetention.ts";
 import Migration0073 from "./Migrations/073_OperationalDiagnostics.ts";
 import Migration0079 from "./Migrations/079_Spaces.ts";
 import Migration0080 from "./Migrations/080_PruneRejectedSynaraSurfaces.ts";
+import Migration0086 from "./Migrations/086_NormalizeStudioThreadWorkspaces.ts";
+import Migration0087 from "./Migrations/087_DropUnusedOrchestrationEventIndexes.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -181,6 +183,8 @@ export const migrationEntries = [
   [73, "OperationalDiagnostics", Migration0073],
   [79, "Spaces", Migration0079],
   [80, "PruneRejectedSynaraSurfaces", Migration0080],
+  [86, "NormalizeStudioThreadWorkspaces", Migration0086],
+  [87, "DropUnusedOrchestrationEventIndexes", Migration0087],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>
@@ -198,8 +202,78 @@ export const makeMigrationLoader = (throughId?: number) =>
  * means the database does not come from any known lineage, so re-running
  * migrations could destroy data — refuse to start instead.
  */
-const LAST_SHARED_LINEAGE_MIGRATION_ID = 16;
+export const LAST_SHARED_LINEAGE_MIGRATION_ID = 16;
 const LATEST_MIGRATION_ID = Math.max(...migrationEntries.map(([id]) => id));
+
+const canonicalMigrationNamesById: ReadonlyMap<number, string> = new Map(
+  migrationEntries.map(([id, name]) => [id, name] as const),
+);
+
+/**
+ * Finds the first canonical Penkra migration whose tracker identity differs.
+ * Migration backup planning and runtime reconciliation share this predicate so
+ * they cannot disagree about whether a database will be replayed.
+ */
+export const findFirstMigrationLineageDivergence = (
+  recordedNamesById: ReadonlyMap<number, string>,
+  highWaterMark: number,
+) =>
+  migrationEntries.find(([id, name]) => id <= highWaterMark && recordedNamesById.get(id) !== name);
+
+export interface MigrationLineageAlias {
+  readonly historicalId: number;
+  readonly historicalName: string;
+  readonly currentId: number;
+  readonly historicalSlotRequiresRerun: boolean;
+}
+
+/**
+ * Released tracker identities that moved to a new canonical ID.
+ *
+ * v0.5.5 recorded ProjectPullRequestPins at 54. The canonical migration now
+ * lives at 69 while 54 is a no-op reservation, so the old tracker row can be
+ * renamed in place without replaying already-applied schema.
+ */
+export const MIGRATION_LINEAGE_ALIASES: readonly MigrationLineageAlias[] = [
+  {
+    historicalId: 54,
+    historicalName: "ProjectPullRequestPins",
+    currentId: 69,
+    historicalSlotRequiresRerun: false,
+  },
+];
+
+export type MigrationLineageAliasRepair =
+  | { readonly kind: "rename"; readonly migrationId: number; readonly name: string }
+  | { readonly kind: "remove"; readonly migrationId: number };
+
+export const planMigrationLineageAliasRepairs = (
+  recordedNamesById: ReadonlyMap<number, string>,
+): readonly MigrationLineageAliasRepair[] => {
+  const applicable = MIGRATION_LINEAGE_ALIASES.filter(
+    (alias) =>
+      recordedNamesById.get(alias.historicalId) === alias.historicalName &&
+      canonicalMigrationNamesById.get(alias.historicalId) !== alias.historicalName &&
+      canonicalMigrationNamesById.get(alias.currentId) === alias.historicalName,
+  );
+  if (applicable.length === 0) return [];
+
+  const repaired = new Map(recordedNamesById);
+  const repairs: MigrationLineageAliasRepair[] = [];
+  for (const alias of applicable) {
+    const canonicalName = canonicalMigrationNamesById.get(alias.historicalId);
+    if (alias.historicalSlotRequiresRerun || canonicalName === undefined) {
+      repaired.delete(alias.historicalId);
+      repairs.push({ kind: "remove", migrationId: alias.historicalId });
+      continue;
+    }
+    repaired.set(alias.historicalId, canonicalName);
+    repairs.push({ kind: "rename", migrationId: alias.historicalId, name: canonicalName });
+  }
+
+  const highWaterMark = Math.max(...repaired.keys(), 0);
+  return findFirstMigrationLineageDivergence(repaired, highWaterMark) === undefined ? repairs : [];
+};
 
 /**
  * Repairs the migration tracker of an imported legacy database before the
@@ -257,15 +331,46 @@ export const reconcileMigrationLineage = Effect.gen(function* () {
       SELECT migration_id, name FROM effect_sql_migrations ORDER BY migration_id ASC
     `;
   }
+
+  const aliasRepairs = planMigrationLineageAliasRepairs(
+    new Map(recorded.map((row) => [row.migration_id, row.name])),
+  );
+  if (aliasRepairs.length > 0) {
+    yield* Effect.logInfo(
+      "Migration tracker records a renumbered Penkra migration; repairing tracker metadata in place",
+    ).pipe(
+      Effect.annotateLogs({
+        repairs: aliasRepairs.map((repair) =>
+          repair.kind === "rename"
+            ? `rename ${repair.migrationId} -> ${repair.name}`
+            : `remove ${repair.migrationId}`,
+        ),
+      }),
+    );
+    yield* Effect.forEach(
+      aliasRepairs,
+      (repair) =>
+        repair.kind === "rename"
+          ? sql`
+              UPDATE effect_sql_migrations
+              SET name = ${repair.name}
+              WHERE migration_id = ${repair.migrationId}
+            `
+          : sql`DELETE FROM effect_sql_migrations WHERE migration_id = ${repair.migrationId}`,
+      { discard: true },
+    );
+    recorded = yield* sql<{ readonly migration_id: number; readonly name: string }>`
+      SELECT migration_id, name FROM effect_sql_migrations ORDER BY migration_id ASC
+    `;
+  }
+
   const highWaterMark = recorded[recorded.length - 1]?.migration_id;
   if (highWaterMark === undefined) {
     return;
   }
 
   const recordedNamesById = new Map(recorded.map((row) => [row.migration_id, row.name]));
-  const diverged = migrationEntries.find(
-    ([id, name]) => id <= highWaterMark && recordedNamesById.get(id) !== name,
-  );
+  const diverged = findFirstMigrationLineageDivergence(recordedNamesById, highWaterMark);
   if (diverged === undefined) {
     // An exact known prefix followed by unknown migrations is a database from
     // a newer Penkra build. Continuing would expose it to stale writable

@@ -8,6 +8,7 @@ import {
   PendingUpdateCacheClearQueue,
   resolveElectronUpdaterCacheDir,
   resolveElectronUpdaterCacheDirName,
+  resolveElectronUpdaterLegacyZipPath,
   resolveElectronUpdaterPendingCacheDir,
 } from "./updatePendingCache";
 
@@ -87,14 +88,17 @@ describe("resolveElectronUpdaterPendingCacheDir", () => {
 });
 
 describe("resolveElectronUpdaterCacheDir", () => {
-  it("exposes the shared cache root", () => {
-    expect(
-      resolveElectronUpdaterCacheDir({
-        cacheDirName: "Penkra-updater",
-        platform: "darwin",
-        homeDir: "/Users/test",
-      }),
-    ).toBe("/Users/test/Library/Caches/Penkra-updater");
+  it("exposes the shared cache root and legacy top-level zip path", () => {
+    const args = {
+      cacheDirName: "Penkra-updater",
+      platform: "darwin" as const,
+      homeDir: "/Users/test",
+    };
+
+    expect(resolveElectronUpdaterCacheDir(args)).toBe("/Users/test/Library/Caches/Penkra-updater");
+    expect(resolveElectronUpdaterLegacyZipPath(args)).toBe(
+      "/Users/test/Library/Caches/Penkra-updater/update.zip",
+    );
   });
 });
 

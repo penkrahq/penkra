@@ -48,12 +48,13 @@ const alertDialogPopupClassName =
 function AlertDialogPopup({
   backdropClassName,
   className,
-  bottomStickOnMobile = true,
+  bottomStickOnMobile: bottomStickOnMobileProp,
   ...props
 }: AlertDialogPrimitive.Popup.Props & {
   backdropClassName?: string;
   bottomStickOnMobile?: boolean;
 }) {
+  const bottomStickOnMobile = bottomStickOnMobileProp ?? true;
   return (
     <AlertDialogPortal>
       <AlertDialogBackdrop className={backdropClassName} />
@@ -87,11 +88,12 @@ function AlertDialogHeader({ className, ...props }: React.ComponentProps<"div">)
 
 function AlertDialogFooter({
   className,
-  variant = "default",
+  variant: variantProp,
   ...props
 }: React.ComponentProps<"div"> & {
   variant?: "default" | "bare";
 }) {
+  const variant = variantProp ?? "default";
   return (
     <div
       className={cn(

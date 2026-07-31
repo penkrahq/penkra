@@ -5,18 +5,12 @@
 // Exports: normalizeCorsOrigin, isTrustedAppOrigin,
 //          shouldRejectUntrustedRequestOrigin
 
-import {
-  SYNARA_CANARY_DESKTOP_ORIGIN,
-  SYNARA_DESKTOP_ORIGIN,
-} from "@synara/shared/desktopIdentity";
+import { SYNARA_DESKTOP_ORIGIN } from "@synara/shared/desktopIdentity";
 
 import type { ServerConfigShape } from "./config";
 import { isLoopbackHost, isWildcardHost } from "./startupAccess";
 
-export const DESKTOP_APP_CORS_ORIGINS: ReadonlySet<string> = new Set([
-  SYNARA_DESKTOP_ORIGIN,
-  SYNARA_CANARY_DESKTOP_ORIGIN,
-]);
+export const DESKTOP_APP_CORS_ORIGINS: ReadonlySet<string> = new Set([SYNARA_DESKTOP_ORIGIN]);
 
 export function normalizeCorsOrigin(rawOrigin: string | ReadonlyArray<string> | undefined) {
   const value = Array.isArray(rawOrigin) ? rawOrigin[0] : rawOrigin;

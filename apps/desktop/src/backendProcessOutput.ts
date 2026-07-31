@@ -1,5 +1,5 @@
 // FILE: backendProcessOutput.ts
-// Purpose: Tee piped backend output into startup detectors and configured logs.
+// Purpose: Tee piped backend output into startup detectors and the configured log destination.
 
 export interface BackendOutputDetector {
   push(chunk: Buffer): void;
@@ -15,7 +15,10 @@ export interface CaptureBackendProcessOutputInput {
 }
 
 export interface BackendProcessOutputCapture {
-  /** Resolves after both child streams have delivered all buffered output. */
+  /**
+   * Resolves after both child streams have closed, so detectors have consumed
+   * every buffered chunk before callers classify a process exit.
+   */
   readonly drained: Promise<void>;
 }
 
@@ -49,6 +52,8 @@ export function captureBackendProcessOutput(
       };
       stream.once("end", resolveOnce);
       stream.once("close", resolveOnce);
+      // Child stdio closes after an error; consume the error without treating
+      // it as proof that all buffered data events have already been delivered.
       stream.once("error", () => undefined);
     });
   };

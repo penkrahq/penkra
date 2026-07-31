@@ -76,14 +76,16 @@ function DialogPopup({
   backdropClassName,
   className,
   children,
-  showCloseButton = true,
-  bottomStickOnMobile = true,
+  showCloseButton: showCloseButtonProp,
+  bottomStickOnMobile: bottomStickOnMobileProp,
   ...props
 }: DialogPrimitive.Popup.Props & {
   backdropClassName?: string;
   showCloseButton?: boolean;
   bottomStickOnMobile?: boolean;
 }) {
+  const showCloseButton = showCloseButtonProp ?? true;
+  const bottomStickOnMobile = bottomStickOnMobileProp ?? true;
   return (
     <DialogPortal>
       <DialogBackdrop className={backdropClassName} />
@@ -131,11 +133,12 @@ function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
 
 function DialogFooter({
   className,
-  variant = "default",
+  variant: variantProp,
   ...props
 }: React.ComponentProps<"div"> & {
   variant?: "default" | "bare";
 }) {
+  const variant = variantProp ?? "default";
   return (
     <div
       className={cn(
@@ -175,9 +178,10 @@ function DialogDescription({ className, ...props }: DialogPrimitive.Description.
 
 function DialogPanel({
   className,
-  scrollFade = true,
+  scrollFade: scrollFadeProp,
   ...props
 }: React.ComponentProps<"div"> & { scrollFade?: boolean }) {
+  const scrollFade = scrollFadeProp ?? true;
   return (
     <ScrollArea scrollFade={scrollFade}>
       <div

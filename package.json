@@ -41,6 +41,7 @@
     "lint": "oxlint --report-unused-disable-directives",
     "test": "turbo run test",
     "brand:check": "node scripts/check-brand-identity.ts",
+    "migrations:check": "node scripts/check-migration-lineage.ts",
     "test:desktop-smoke": "turbo run smoke-test --filter=@synara/desktop",
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",
@@ -56,12 +57,6 @@
     "release:install:local": "node scripts/penkra-install-local.mjs",
     "release:publish:local": "node scripts/penkra-publish-local.mjs",
     "qa:voice:prepare": "node scripts/prepare-voice-qa-fixture.ts",
-    "canary:setup": "node scripts/canary.ts setup",
-    "canary:update": "node scripts/canary.ts update",
-    "canary:start": "node scripts/canary.ts start",
-    "canary:stop": "node scripts/canary.ts stop",
-    "canary:status": "node scripts/canary.ts status",
-    "canary:rollback": "node scripts/canary.ts rollback",
     "clean": "rm -rf node_modules apps/*/node_modules packages/*/node_modules scripts/node_modules apps/*/dist apps/*/dist-electron packages/*/dist .turbo apps/*/.turbo packages/*/.turbo"
   },
   "devDependencies": {

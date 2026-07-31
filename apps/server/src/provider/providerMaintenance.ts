@@ -7,10 +7,11 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 
+import { executableCandidates, hasPathSeparator } from "../executableLookup.ts";
+
 const LATEST_VERSION_CACHE_TTL_MS = 60 * 60 * 1_000;
 const LATEST_VERSION_TIMEOUT_MS = 4_000;
 const PROVIDER_UPDATE_ACTION_MESSAGE = "Install the update now or review provider settings.";
-const WINDOWS_EXECUTABLE_EXTENSIONS = ["", ".exe", ".cmd", ".bat"] as const;
 
 type ProviderInstallSource = "npm" | "bun" | "pnpm" | "homebrew" | "native" | "unknown";
 
@@ -218,10 +219,6 @@ export function deriveNpmGlobalPrefix(commandPath: string): string | null {
     return commandPath.slice(0, windowsIndex + "/npm".length);
   }
   return null;
-}
-
-function hasPathSeparator(value: string): boolean {
-  return value.includes("/") || value.includes("\\");
 }
 
 export function makeProviderMaintenanceCapabilities(input: {
@@ -646,39 +643,38 @@ export const resolveProviderMaintenanceCapabilitiesEffect = Effect.fn(
     });
   }
 
-  const pathEntries = (options?.env?.PATH ?? process.env.PATH ?? "")
-    .split(options?.platform === "win32" ? ";" : ":")
-    .filter(Boolean);
-  const executableCandidates =
-    options?.platform === "win32"
-      ? WINDOWS_EXECUTABLE_EXTENSIONS.map((extension) => `${binaryPath}${extension}`)
-      : [binaryPath];
-  for (const entry of pathEntries) {
-    for (const executableCandidate of executableCandidates) {
-      const candidate = `${entry}/${executableCandidate}`;
-      const exists = yield* fileSystem.exists(candidate).pipe(Effect.orElseSucceed(() => false));
-      if (!exists) {
-        continue;
-      }
-      const realCommandPath = yield* fileSystem
-        .realPath(candidate)
-        .pipe(Effect.catch(() => Effect.succeed(candidate)));
-      const receiptPath = homebrewReceiptPath(realCommandPath);
-      const verifiedHomebrewName =
-        receiptPath && definition.homebrew
-          ? yield* fileSystem.readFileString(receiptPath).pipe(
-              Effect.map((receiptText) => resolveHomebrewNameFromReceipt(definition, receiptText)),
-              Effect.catch(() => Effect.succeed(null)),
-            )
-          : null;
-      return resolvePackageManagedProviderMaintenance(definition, {
-        ...options,
-        binaryPath,
-        realCommandPath,
-        commandDirectory: entry,
-        verifiedHomebrewName,
-      });
+  // Locate the installation in the exact child environment the caller supplied.
+  // The shared candidate generator preserves PATH order and platform-native
+  // PATHEXT precedence while still recognizing extensionless Windows installs.
+  for (const candidate of executableCandidates(binaryPath, {
+    ...(options?.platform === undefined ? {} : { platform: options.platform }),
+    ...(options?.env === undefined ? {} : { env: options.env }),
+    allowExtensionlessOnWindows: true,
+  })) {
+    const exists = yield* fileSystem
+      .exists(candidate.path)
+      .pipe(Effect.orElseSucceed(() => false));
+    if (!exists) {
+      continue;
     }
+    const realCommandPath = yield* fileSystem
+      .realPath(candidate.path)
+      .pipe(Effect.catch(() => Effect.succeed(candidate.path)));
+    const receiptPath = homebrewReceiptPath(realCommandPath);
+    const verifiedHomebrewName =
+      receiptPath && definition.homebrew
+        ? yield* fileSystem.readFileString(receiptPath).pipe(
+            Effect.map((receiptText) => resolveHomebrewNameFromReceipt(definition, receiptText)),
+            Effect.catch(() => Effect.succeed(null)),
+          )
+        : null;
+    return resolvePackageManagedProviderMaintenance(definition, {
+      ...options,
+      binaryPath,
+      realCommandPath,
+      commandDirectory: candidate.directory,
+      verifiedHomebrewName,
+    });
   }
 
   return resolvePackageManagedProviderMaintenance(definition, {

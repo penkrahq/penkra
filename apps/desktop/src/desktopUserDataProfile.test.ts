@@ -33,9 +33,6 @@ describe("desktopUserDataProfile", () => {
     expect(resolveDesktopUserDataPath({ appDataBase, userDataDirectoryName: "synara" })).toBe(
       "/Users/tester/Library/Application Support/synara",
     );
-    expect(
-      resolveDesktopUserDataPath({ appDataBase, userDataDirectoryName: "synara-canary" }),
-    ).toBe("/Users/tester/Library/Application Support/synara-canary");
   });
 
   it("uses XDG_CONFIG_HOME on Linux when available", () => {

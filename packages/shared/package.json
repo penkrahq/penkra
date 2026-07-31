@@ -32,6 +32,14 @@
       "types": "./src/shell.ts",
       "import": "./src/shell.ts"
     },
+    "./loginShellEnvironment": {
+      "types": "./src/loginShellEnvironment.ts",
+      "import": "./src/loginShellEnvironment.ts"
+    },
+    "./synaraHome": {
+      "types": "./src/synaraHome.ts",
+      "import": "./src/synaraHome.ts"
+    },
     "./staticSnapshot": {
       "types": "./src/staticSnapshot.ts",
       "import": "./src/staticSnapshot.ts"
@@ -211,6 +219,14 @@
     "./threadMentions": {
       "types": "./src/threadMentions.ts",
       "import": "./src/threadMentions.ts"
+    },
+    "./unifiedPatchStats": {
+      "types": "./src/unifiedPatchStats.ts",
+      "import": "./src/unifiedPatchStats.ts"
+    },
+    "./providerDeliveryBlock": {
+      "types": "./src/providerDeliveryBlock.ts",
+      "import": "./src/providerDeliveryBlock.ts"
     }
   },
   "scripts": {

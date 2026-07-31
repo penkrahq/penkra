@@ -8,7 +8,9 @@ import {
   ProjectId,
   ThreadId,
   TurnId,
+  type ModelSelection,
   type OrchestrationThreadShell,
+  type ProviderInteractionMode,
   type ProviderKind,
   type SynaraCreateThreadsInput,
   type SynaraCreateThreadsResult,
@@ -43,6 +45,16 @@ import { ToolInputError, errorText } from "./toolInput.ts";
 import { GatewayToolError, gatewayToolErrorResult } from "./toolRuntime.ts";
 
 const CREATION_REPLAY_WAIT_MS = 60_000;
+
+function interactionModeForGatewayTarget(target: ModelSelection): ProviderInteractionMode {
+  if (
+    (target.provider === "opencode" || target.provider === "kilo") &&
+    target.options?.agent === "plan"
+  ) {
+    return "plan";
+  }
+  return "default";
+}
 
 interface PullRequestSelector {
   readonly number: number;
@@ -930,6 +942,7 @@ export const makeCreateThreadsHandler = Effect.fn(function* (
                     associatedWorktreeRef = created.worktree.ref;
                   }
 
+                  const interactionMode = interactionModeForGatewayTarget(entry.target);
                   yield* context.assertAuthority();
                   yield* orchestrationEngine
                     .dispatch({
@@ -940,7 +953,7 @@ export const makeCreateThreadsHandler = Effect.fn(function* (
                       title: entry.title,
                       modelSelection: entry.target,
                       runtimeMode: entry.runtimeMode,
-                      interactionMode: "default",
+                      interactionMode,
                       envMode: entry.environment,
                       branch,
                       worktreePath,
@@ -978,7 +991,7 @@ export const makeCreateThreadsHandler = Effect.fn(function* (
                     dispatchMode: "queue",
                     dispatchOrigin: "agent",
                     runtimeMode: entry.runtimeMode,
-                    interactionMode: "default",
+                    interactionMode,
                     createdAt: gatewayIsoNow(),
                   });
                   // The dispatch can outlive the caller turn. Recheck after it returns so

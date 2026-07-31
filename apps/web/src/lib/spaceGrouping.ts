@@ -5,13 +5,43 @@
 //      rebuilt "active space first, then Void, then the rest" plus the `Name · Active` label by
 //      hand. Three copies drift; this is the single source they all read from.
 
-import { RESERVED_VOID_SPACE_ID, type SpaceIconName, type SpaceId } from "@synara/contracts";
+import {
+  RESERVED_VOID_SPACE_ID,
+  SPACE_ICON_NAMES,
+  type SpaceIconName,
+  type SpaceId,
+} from "@synara/contracts";
 
 import type { Space } from "~/types";
 
 /** Void is not a stored Space, so its name and icon live here rather than in a row. */
 export const VOID_SPACE_NAME = "Void";
 export const VOID_SPACE_ICON = "black-hole";
+export const DEFAULT_VOID_SPACE_NAME = VOID_SPACE_NAME;
+export const DEFAULT_VOID_SPACE_ICON = VOID_SPACE_ICON;
+export const DEFAULT_SPACE_ICON: SpaceIconName = "bag";
+
+export type VoidSpaceIconName = SpaceIconName | typeof DEFAULT_VOID_SPACE_ICON;
+
+export interface VoidSpacePresentation {
+  readonly name: string;
+  readonly icon: VoidSpaceIconName;
+}
+
+export const DEFAULT_VOID_SPACE: VoidSpacePresentation = {
+  name: DEFAULT_VOID_SPACE_NAME,
+  icon: DEFAULT_VOID_SPACE_ICON,
+};
+
+export function isVoidSpaceIconName(value: string): value is VoidSpaceIconName {
+  return (
+    value === DEFAULT_VOID_SPACE_ICON || (SPACE_ICON_NAMES as ReadonlyArray<string>).includes(value)
+  );
+}
+
+export function toSpaceIconName(icon: VoidSpaceIconName): SpaceIconName {
+  return icon === DEFAULT_VOID_SPACE_ICON ? DEFAULT_SPACE_ICON : icon;
+}
 /**
  * Void's stand-in wherever a `SpaceId | null` has to survive as a plain string — React
  * keys, menu radio values, storage records. `null` cannot fill any of those roles, and a
@@ -46,7 +76,7 @@ const UNKNOWN_SPACE_NAME = "Unknown space";
 export interface SpaceGroup<T> {
   readonly spaceId: SpaceId | null;
   readonly name: string;
-  readonly icon: SpaceIconName | typeof VOID_SPACE_ICON;
+  readonly icon: VoidSpaceIconName;
   readonly isActive: boolean;
   /** Group heading copy, including the active-space marker. */
   readonly label: string;
@@ -58,17 +88,19 @@ export interface SpaceGroup<T> {
 export function spaceDisplayName(
   spaceId: SpaceId | null | undefined,
   spaces: ReadonlyArray<Space>,
+  voidSpace: VoidSpacePresentation = DEFAULT_VOID_SPACE,
 ): string {
-  if (!spaceId) return VOID_SPACE_NAME;
+  if (!spaceId) return voidSpace.name;
   return spaces.find((space) => space.id === spaceId)?.name ?? UNKNOWN_SPACE_NAME;
 }
 
 export function spaceDisplayIcon(
   spaceId: SpaceId | null | undefined,
   spaces: ReadonlyArray<Space>,
-): SpaceIconName | typeof VOID_SPACE_ICON {
-  if (!spaceId) return VOID_SPACE_ICON;
-  return spaces.find((space) => space.id === spaceId)?.icon ?? VOID_SPACE_ICON;
+  voidSpace: VoidSpacePresentation = DEFAULT_VOID_SPACE,
+): VoidSpaceIconName {
+  if (!spaceId) return voidSpace.icon;
+  return spaces.find((space) => space.id === spaceId)?.icon ?? voidSpace.icon;
 }
 
 /**
@@ -91,8 +123,10 @@ export function groupItemsBySpace<T>(input: {
   spaces: ReadonlyArray<Space>;
   activeSpaceId: SpaceId | null;
   spaceIdOf: (item: T) => SpaceId | null;
+  voidSpace?: VoidSpacePresentation;
 }): ReadonlyArray<SpaceGroup<T>> {
   const { activeSpaceId, items, spaceIdOf, spaces } = input;
+  const voidSpace = input.voidSpace ?? DEFAULT_VOID_SPACE;
 
   // Bucket in one pass, preserving each item's incoming order within its group. Insertion
   // order also records the orphans (see below) in the order they were met, so the ordered
@@ -118,12 +152,12 @@ export function groupItemsBySpace<T>(input: {
     const groupItems = itemsBySpaceId.get(spaceId);
     if (!groupItems) return [];
     const isActive = spaceId === activeSpaceId;
-    const name = spaceDisplayName(spaceId, spaces);
+    const name = spaceDisplayName(spaceId, spaces, voidSpace);
     return [
       {
         spaceId,
         name,
-        icon: spaceDisplayIcon(spaceId, spaces),
+        icon: spaceDisplayIcon(spaceId, spaces, voidSpace),
         isActive,
         label: isActive ? `${name} · Active` : name,
         items: groupItems,

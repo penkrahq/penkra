@@ -1,11 +1,14 @@
 import { describe, it, assert } from "@effect/vitest";
+import { join } from "node:path";
+
+import { Effect, FileSystem } from "effect";
 
 import {
   createProviderVersionAdvisory,
   deriveNpmGlobalPrefix,
   parseGenericCliVersion,
-  resolveHomebrewNameFromReceipt,
   resolvePackageManagedProviderMaintenance,
+  resolveProviderMaintenanceCapabilitiesEffect,
   type PackageManagedProviderMaintenanceDefinition,
 } from "./providerMaintenance";
 
@@ -21,18 +24,24 @@ const OPENCODE_DEFINITION = {
   provider: "opencode",
   binaryName: "opencode",
   npmPackageName: "opencode-ai",
-  homebrew: {
-    name: "opencode",
-    kind: "formula",
-    alternatives: ["anomalyco/tap/opencode"],
-  },
+  homebrew: { name: "anomalyco/tap/opencode", kind: "formula" },
+  latestVersionSource: { kind: "npm", name: "opencode-ai" },
   nativeUpdate: {
     executable: "opencode",
-    args: () => ["upgrade"],
+    args: (installSource) =>
+      installSource === "unknown" || installSource === "native"
+        ? ["upgrade"]
+        : ["upgrade", "--method", installSource],
     lockKey: "opencode-native",
-    strategy: "matching-path",
+    strategy: "always",
+    excludedInstallSources: ["homebrew"],
   },
 } as const satisfies PackageManagedProviderMaintenanceDefinition;
+
+/** The trailing name of a probed path, whichever separator the host joined it with. */
+function fileNameOf(probedPath: string): string {
+  return probedPath.slice(Math.max(probedPath.lastIndexOf("/"), probedPath.lastIndexOf("\\")) + 1);
+}
 
 describe("providerMaintenance", () => {
   it("parses generic CLI versions", () => {
@@ -57,7 +66,7 @@ describe("providerMaintenance", () => {
 
   it("pins the npm global prefix that owns the detected binary", () => {
     // npm's global prefix follows the node that runs it, so without --prefix a
-    // second node install (e.g. nvm) would receive the update while Penkra
+    // second node install (e.g. nvm) would receive the update while Synara
     // keeps checking the copy it originally detected.
     assert.strictEqual(
       deriveNpmGlobalPrefix("/opt/homebrew/lib/node_modules/@openai/codex/bin/codex.js"),
@@ -110,17 +119,17 @@ describe("providerMaintenance", () => {
     assert.strictEqual(capabilities.packageName, null);
   });
 
-  it("updates package-managed OpenCode through the manager that owns it", () => {
+  it("uses provider-native update commands with detected install method", () => {
     const capabilities = resolvePackageManagedProviderMaintenance(OPENCODE_DEFINITION, {
       binaryPath: "opencode",
       realCommandPath: "/Users/test/.local/share/pnpm/opencode",
     });
 
     assert.deepStrictEqual(capabilities.update, {
-      command: "pnpm add -g opencode-ai@latest",
-      executable: "pnpm",
-      args: ["add", "-g", "opencode-ai@latest"],
-      lockKey: "pnpm-global",
+      command: "opencode upgrade --method pnpm",
+      executable: "opencode",
+      args: ["upgrade", "--method", "pnpm"],
+      lockKey: "opencode-native",
     });
     assert.deepStrictEqual(capabilities.latestVersionSource, {
       kind: "npm",
@@ -128,37 +137,117 @@ describe("providerMaintenance", () => {
     });
   });
 
-  it("treats Homebrew's nested npm payload as owned by Homebrew", () => {
+  it("uses Homebrew updates but keeps npm latest metadata for tapped OpenCode installs", () => {
     const capabilities = resolvePackageManagedProviderMaintenance(OPENCODE_DEFINITION, {
       binaryPath: "opencode",
-      realCommandPath:
-        "/usr/local/Cellar/opencode/1.17.15/libexec/lib/node_modules/opencode-ai/bin/opencode.exe",
+      realCommandPath: "/opt/homebrew/Cellar/opencode/1.14.46/bin/opencode",
     });
 
     assert.deepStrictEqual(capabilities.update, {
-      command: "brew upgrade opencode",
+      command: "brew upgrade anomalyco/tap/opencode",
       executable: "brew",
-      args: ["upgrade", "opencode"],
+      args: ["upgrade", "anomalyco/tap/opencode"],
       lockKey: "homebrew",
     });
     assert.deepStrictEqual(capabilities.latestVersionSource, {
-      kind: "homebrew",
-      name: "opencode",
-      homebrewKind: "formula",
+      kind: "npm",
+      name: "opencode-ai",
     });
   });
 
-  it("keeps the upstream OpenCode tap distinct from Homebrew Core", () => {
-    const receipt = JSON.stringify({ source: { tap: "anomalyco/tap" } });
-    const verifiedHomebrewName = resolveHomebrewNameFromReceipt(OPENCODE_DEFINITION, receipt);
-    const capabilities = resolvePackageManagedProviderMaintenance(OPENCODE_DEFINITION, {
-      binaryPath: "opencode",
-      realCommandPath: "/opt/homebrew/Cellar/opencode/1.18.0/bin/opencode",
-      verifiedHomebrewName,
+  describe("resolveProviderMaintenanceCapabilitiesEffect", () => {
+    function runWithVirtualFileSystem(
+      presentPaths: ReadonlySet<string>,
+      options: Parameters<typeof resolveProviderMaintenanceCapabilitiesEffect>[1],
+    ) {
+      const probed: string[] = [];
+      const layer = FileSystem.layerNoop({
+        exists: (probedPath: string) =>
+          Effect.sync(() => {
+            probed.push(probedPath);
+            return presentPaths.has(probedPath);
+          }),
+        realPath: (probedPath: string) => Effect.succeed(probedPath),
+      });
+      return Effect.runPromise(
+        resolveProviderMaintenanceCapabilitiesEffect(CODEX_DEFINITION, options).pipe(
+          Effect.provide(layer),
+          Effect.map((capabilities) => ({ capabilities, probed })),
+        ),
+      );
+    }
+
+    it("walks PATH in order and reports the first directory that holds the binary", async () => {
+      const { capabilities, probed } = await runWithVirtualFileSystem(
+        new Set([join("/second", "codex")]),
+        {
+          binaryPath: "codex",
+          platform: "darwin",
+          env: { PATH: "/first:/second:/third" },
+        },
+      );
+
+      assert.deepStrictEqual(probed, [join("/first", "codex"), join("/second", "codex")]);
+      // Resolution stops at the hit, so /third is never touched, and the detected directory is
+      // the PATH entry rather than anything derived from the command name.
+      assert.strictEqual(capabilities.update, null);
     });
 
-    assert.strictEqual(verifiedHomebrewName, "anomalyco/tap/opencode");
-    assert.strictEqual(capabilities.update?.command, "brew upgrade anomalyco/tap/opencode");
+    it("tries the extensionless name before PATHEXT variants on Windows", async () => {
+      const { probed } = await runWithVirtualFileSystem(new Set(), {
+        binaryPath: "codex",
+        platform: "win32",
+        env: { PATH: "C:\\bin", PATHEXT: ".EXE;.CMD" },
+      });
+
+      // An installation can be an extensionless file that nothing could spawn directly; this
+      // resolver is reporting on what is installed, not picking something to run.
+      // Candidates are joined with the host separator, so compare file names rather than paths.
+      assert.deepStrictEqual(probed.map(fileNameOf), [
+        "codex",
+        "codex.EXE",
+        "codex.exe",
+        "codex.CMD",
+        "codex.cmd",
+      ]);
+    });
+
+    it("prefers .BAT over .CMD, matching Windows' own PATHEXT precedence", async () => {
+      // The list this replaced was ["", ".exe", ".cmd", ".bat"], which resolved this pair the
+      // wrong way round whenever both shims existed.
+      const { probed } = await runWithVirtualFileSystem(new Set(), {
+        binaryPath: "codex",
+        platform: "win32",
+        env: { PATH: "C:\\bin" },
+      });
+
+      const batIndex = probed.findIndex((entry) => entry.endsWith("codex.BAT"));
+      const cmdIndex = probed.findIndex((entry) => entry.endsWith("codex.CMD"));
+      assert.ok(batIndex >= 0 && cmdIndex >= 0);
+      assert.ok(batIndex < cmdIndex);
+    });
+
+    it("never touches the filesystem for a binary path that already names a location", async () => {
+      const { probed } = await runWithVirtualFileSystem(new Set(), {
+        binaryPath: "/opt/homebrew/bin/codex",
+        platform: "darwin",
+        env: { PATH: "/first" },
+      });
+
+      assert.deepStrictEqual(probed, []);
+    });
+
+    it("probes nothing when the supplied environment carries no PATH", async () => {
+      // Deliberately no fallback to process.env: the caller is asking about a child environment,
+      // and this process seeing a binary says nothing about whether that child would.
+      const { probed } = await runWithVirtualFileSystem(new Set(), {
+        binaryPath: "codex",
+        platform: "darwin",
+        env: { HOME: "/home/test" },
+      });
+
+      assert.deepStrictEqual(probed, []);
+    });
   });
 
   it("marks older semver versions as behind latest", () => {

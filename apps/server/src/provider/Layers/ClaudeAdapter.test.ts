@@ -4044,6 +4044,63 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
     );
   });
 
+  it.effect("invalidates a missing resumed conversation reported by the async stream", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const runtimeEventsFiber = yield* Stream.take(adapter.streamEvents, 7).pipe(
+        Stream.runCollect,
+        Effect.forkChild,
+      );
+
+      yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: "claudeAgent",
+        resumeCursor: {
+          threadId: THREAD_ID,
+          resume: "44c0b890-8775-4f30-b47f-0709d29cc9e1",
+          resumeSessionAt: "assistant-stale",
+          turnCount: 2,
+        },
+        runtimeMode: "full-access",
+      });
+      const turn = yield* adapter.sendTurn({
+        threadId: THREAD_ID,
+        input: "continue",
+        attachments: [],
+      });
+
+      harness.query.fail(
+        new Error("No conversation found with session ID: 44c0b890-8775-4f30-b47f-0709d29cc9e1"),
+      );
+
+      const runtimeEvents = Array.from(yield* Fiber.join(runtimeEventsFiber));
+      assert.deepEqual(
+        runtimeEvents.map((event) => event.type),
+        [
+          "session.started",
+          "session.configured",
+          "session.state.changed",
+          "turn.started",
+          "runtime.error",
+          "turn.completed",
+          "session.exited",
+        ],
+      );
+      const turnCompleted = runtimeEvents[5];
+      assert.equal(turnCompleted?.type, "turn.completed");
+      if (turnCompleted?.type === "turn.completed") {
+        assert.equal(String(turnCompleted.turnId), String(turn.turnId));
+        assert.equal(turnCompleted.payload.state, "failed");
+        assert.equal(turnCompleted.providerRefs?.providerThreadId, undefined);
+      }
+      assert.equal(yield* adapter.hasSession(THREAD_ID), false);
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
   it.effect("retains Claude session ownership until subprocess-tree exit is proven", () => {
     const query = new FakeClaudeQuery();
     let proveExit: (() => void) | undefined;
@@ -4101,6 +4158,268 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
       Effect.provide(layer),
     );
   });
+
+  it.effect("retains Claude ownership and retries when teardown proof fails", () => {
+    const query = new FakeClaudeQuery();
+    let teardownCalls = 0;
+    const ownedProcess = {
+      pid: 73_312,
+      exitCode: 0,
+      signalCode: null,
+    } as unknown as ClaudeOwnedProcess;
+    const layer = makeClaudeAdapterLive({
+      spawnClaudeCodeProcess: () => ownedProcess,
+      teardownProcessTree: async () => {
+        teardownCalls += 1;
+        if (teardownCalls === 1) {
+          throw new Error("rootExited=false; surviving process remains");
+        }
+        return { escalated: true, signalErrors: [] };
+      },
+      createQuery: (input) => {
+        input.options.spawnClaudeCodeProcess?.({
+          command: "claude",
+          args: [],
+          env: {},
+          signal: new AbortController().signal,
+        });
+        return query;
+      },
+    }).pipe(
+      Layer.provideMerge(ServerConfig.layerTest("/tmp/claude-adapter-test", "/tmp")),
+      Layer.provideMerge(NodeServices.layer),
+    );
+
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: "claudeAgent",
+        runtimeMode: "full-access",
+      });
+
+      const failedStop = yield* Effect.exit(adapter.stopSession(THREAD_ID));
+      assert.isTrue(Exit.isFailure(failedStop));
+      assert.equal(yield* adapter.hasSession(THREAD_ID), false);
+      assert.equal((yield* adapter.listSessions()).length, 1);
+
+      yield* adapter.stopSession(THREAD_ID);
+      assert.equal(teardownCalls, 2);
+      assert.equal((yield* adapter.listSessions()).length, 0);
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(layer),
+    );
+  });
+
+  it.effect("blocks a retry when createQuery spawned before failing cleanup", () => {
+    const query = new FakeClaudeQuery();
+    let allowStart = false;
+    let createCalls = 0;
+    let spawnCalls = 0;
+    let teardownCalls = 0;
+    const ownedProcess = {
+      pid: 73_313,
+      exitCode: null,
+      signalCode: null,
+      once: () => undefined,
+      removeListener: () => undefined,
+    } as unknown as ClaudeOwnedProcess;
+    const layer = makeClaudeAdapterLive({
+      spawnClaudeCodeProcess: () => {
+        spawnCalls += 1;
+        return ownedProcess;
+      },
+      teardownProcessTree: async () => {
+        teardownCalls += 1;
+        if (teardownCalls < 3) {
+          throw new Error("rootExited=false; surviving process remains");
+        }
+        return { escalated: true, signalErrors: [] };
+      },
+      createQuery: (input) => {
+        createCalls += 1;
+        input.options.spawnClaudeCodeProcess?.({
+          command: "claude",
+          args: [],
+          env: {},
+          signal: new AbortController().signal,
+        });
+        if (!allowStart) {
+          throw new Error("simulated failure after spawn");
+        }
+        return query;
+      },
+    }).pipe(
+      Layer.provideMerge(ServerConfig.layerTest("/tmp/claude-adapter-test", "/tmp")),
+      Layer.provideMerge(NodeServices.layer),
+    );
+
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const input = {
+        threadId: THREAD_ID,
+        provider: "claudeAgent" as const,
+        runtimeMode: "full-access" as const,
+      };
+
+      assert.isTrue(Exit.isFailure(yield* Effect.exit(adapter.startSession(input))));
+      assert.equal(createCalls, 1);
+      assert.equal(spawnCalls, 1);
+      assert.equal(teardownCalls, 1);
+
+      // The second attempt retries teardown and fails before createQuery can
+      // spawn another process.
+      assert.isTrue(Exit.isFailure(yield* Effect.exit(adapter.startSession(input))));
+      assert.equal(createCalls, 1);
+      assert.equal(spawnCalls, 1);
+      assert.equal(teardownCalls, 2);
+
+      allowStart = true;
+      yield* adapter.startSession(input);
+      assert.equal(createCalls, 2);
+      assert.equal(spawnCalls, 2);
+      assert.equal(teardownCalls, 3);
+
+      yield* adapter.stopSession(THREAD_ID);
+      assert.equal(teardownCalls, 4);
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(layer),
+    );
+  });
+
+  it.effect("blocks command rediscovery until an unproven process tree is reaped", () => {
+    const query = new FakeClaudeQuery();
+    let spawnCalls = 0;
+    let teardownCalls = 0;
+    const ownedProcess = {
+      pid: 73_314,
+      exitCode: null,
+      signalCode: null,
+      once: () => undefined,
+      removeListener: () => undefined,
+    } as unknown as ClaudeOwnedProcess;
+    const layer = makeClaudeAdapterLive({
+      spawnClaudeCodeProcess: () => {
+        spawnCalls += 1;
+        return ownedProcess;
+      },
+      teardownProcessTree: async () => {
+        teardownCalls += 1;
+        if (teardownCalls < 3) {
+          throw new Error("rootExited=false; discovery process remains");
+        }
+        return { escalated: true, signalErrors: [] };
+      },
+      createQuery: (input) => {
+        input.options.spawnClaudeCodeProcess?.({
+          command: "claude",
+          args: [],
+          env: {},
+          signal: new AbortController().signal,
+        });
+        return query;
+      },
+    }).pipe(
+      Layer.provideMerge(ServerConfig.layerTest("/tmp/claude-adapter-test", "/tmp")),
+      Layer.provideMerge(NodeServices.layer),
+    );
+
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const listCommands = adapter.listCommands;
+      if (!listCommands) {
+        assert.fail("Expected Claude adapter to support command discovery.");
+      }
+      const input = {
+        provider: "claudeAgent" as const,
+        cwd: "/tmp/project",
+        forceReload: true,
+      };
+
+      assert.isTrue(Exit.isFailure(yield* Effect.exit(listCommands(input))));
+      assert.equal(spawnCalls, 1);
+      assert.equal(teardownCalls, 1);
+
+      // The retry must fail while reaping the retained owner, before another
+      // temporary process can be spawned.
+      assert.isTrue(Exit.isFailure(yield* Effect.exit(listCommands(input))));
+      assert.equal(spawnCalls, 1);
+      assert.equal(teardownCalls, 2);
+
+      yield* adapter.stopAll();
+      assert.equal(teardownCalls, 3);
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect(
+    "retains command discovery ownership when query construction throws after spawn",
+    () => {
+      let spawnCalls = 0;
+      let createCalls = 0;
+      let teardownCalls = 0;
+      const ownedProcess = {
+        pid: 73_315,
+        exitCode: null,
+        signalCode: null,
+        once: () => undefined,
+        removeListener: () => undefined,
+      } as unknown as ClaudeOwnedProcess;
+      const layer = makeClaudeAdapterLive({
+        spawnClaudeCodeProcess: () => {
+          spawnCalls += 1;
+          return ownedProcess;
+        },
+        teardownProcessTree: async () => {
+          teardownCalls += 1;
+          if (teardownCalls < 3) {
+            throw new Error("rootExited=false; discovery construction process remains");
+          }
+          return { escalated: true, signalErrors: [] };
+        },
+        createQuery: (input) => {
+          createCalls += 1;
+          input.options.spawnClaudeCodeProcess?.({
+            command: "claude",
+            args: [],
+            env: {},
+            signal: new AbortController().signal,
+          });
+          throw new Error("simulated discovery construction failure after spawn");
+        },
+      }).pipe(
+        Layer.provideMerge(ServerConfig.layerTest("/tmp/claude-adapter-test", "/tmp")),
+        Layer.provideMerge(NodeServices.layer),
+      );
+
+      return Effect.gen(function* () {
+        const adapter = yield* ClaudeAdapter;
+        const listCommands = adapter.listCommands;
+        if (!listCommands) {
+          assert.fail("Expected Claude adapter to support command discovery.");
+        }
+        const input = {
+          provider: "claudeAgent" as const,
+          cwd: "/tmp/project",
+          forceReload: true,
+        };
+
+        assert.isTrue(Exit.isFailure(yield* Effect.exit(listCommands(input))));
+        assert.equal(createCalls, 1);
+        assert.equal(spawnCalls, 1);
+        assert.equal(teardownCalls, 1);
+
+        assert.isTrue(Exit.isFailure(yield* Effect.exit(listCommands(input))));
+        assert.equal(createCalls, 1);
+        assert.equal(spawnCalls, 1);
+        assert.equal(teardownCalls, 2);
+
+        yield* adapter.stopAll();
+        assert.equal(teardownCalls, 3);
+      }).pipe(Effect.provide(layer));
+    },
+  );
 
   it.effect("stopSession does not throw into the SDK prompt consumer", () => {
     // The SDK consumes user messages via `for await (... of prompt)`.

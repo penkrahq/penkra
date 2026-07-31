@@ -4,9 +4,7 @@ import * as Path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
-  readCanaryRootArgument,
   readPenkraRootPointer,
-  resolveConfiguredPenkraRoot,
   resolvePenkraRoot,
   resolvePenkraRootPointerPath,
   resolvePenkraRuntime,
@@ -21,57 +19,9 @@ afterEach(() => {
 });
 
 describe("Penkra root pointer", () => {
-  it("accepts only an absolute Canary root launcher argument", () => {
-    expect(
-      readCanaryRootArgument([
-        "/Applications/Penkra Canary",
-        "--penkra-canary-root=/Users/tester/.synara-canary",
-      ]),
-    ).toBe("/Users/tester/.synara-canary");
-    expect(readCanaryRootArgument(["--penkra-canary-root=relative"])).toBeUndefined();
-  });
-
-  it("uses the isolated Canary home without changing Stable or Dev root precedence", () => {
-    expect(
-      resolveConfiguredPenkraRoot({
-        desktopFlavor: "canary",
-        canaryRootArgument: "/Users/tester/.synara-canary-argument",
-        canaryHome: "/Users/tester/.synara-canary-explicit",
-        penkraRoot: "/Users/tester/Penkra",
-        synaraHome: "/Users/tester/.synara-canary",
-      }),
-    ).toBe("/Users/tester/.synara-canary-argument");
-    expect(
-      resolveConfiguredPenkraRoot({
-        desktopFlavor: "production",
-        penkraRoot: "/Users/tester/Penkra",
-        synaraHome: "/Users/tester/.synara-canary",
-      }),
-    ).toBe("/Users/tester/Penkra");
-    expect(
-      resolveConfiguredPenkraRoot({
-        desktopFlavor: "development",
-        penkraRoot: "/Users/tester/Penkra_Dev",
-        synaraHome: "/Users/tester/.synara-canary",
-      }),
-    ).toBe("/Users/tester/Penkra_Dev");
-  });
-
-  it("uses a configured packaged root only when the caller explicitly allows it", () => {
+  it("does not let a configured root bypass the Stable root picker", () => {
     const base = temporaryDirectory();
-    const configuredRoot = Path.join(base, "canary");
-    expect(
-      resolvePenkraRuntime({
-        isDevelopment: false,
-        allowConfiguredRoot: true,
-        homeDir: base,
-        configuredRoot,
-      }),
-    ).toEqual({
-      root: configuredRoot,
-      apiUrl: "https://api.penkra.com",
-      needsRootPicker: false,
-    });
+    const configuredRoot = Path.join(base, "configured");
     expect(
       resolvePenkraRuntime({
         isDevelopment: false,

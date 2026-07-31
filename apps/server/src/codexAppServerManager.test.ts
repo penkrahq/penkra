@@ -24,6 +24,7 @@ import {
   buildCodexInitializeParams,
   CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS,
   CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS,
+  __codexCliVersionGateTesting,
   CodexAppServerManager,
   classifyCodexStderrLine,
   normalizeCodexModelSlug,
@@ -123,6 +124,8 @@ function createSendTurnHarness(runtimeMode: "approval-required" | "full-access" 
       planType: null,
       sparkEnabled: true,
     },
+    pendingApprovals: new Map(),
+    pendingUserInputs: new Map(),
     collabReceiverTurns: new Map(),
     collabReceiverParents: new Map(),
     reviewTurnIds: new Set<string>(),
@@ -166,6 +169,8 @@ function createThreadControlHarness() {
       createdAt: "2026-02-10T00:00:00.000Z",
       updatedAt: "2026-02-10T00:00:00.000Z",
     },
+    pendingApprovals: new Map(),
+    pendingUserInputs: new Map(),
     collabReceiverTurns: new Map(),
     collabReceiverParents: new Map(),
     reviewTurnIds: new Set<string>(),
@@ -205,6 +210,7 @@ function createPendingUserInputHarness() {
       createdAt: "2026-02-10T00:00:00.000Z",
       updatedAt: "2026-02-10T00:00:00.000Z",
     },
+    pendingApprovals: new Map(),
     pendingUserInputs: new Map([
       [
         ApprovalRequestId.makeUnsafe("req-user-input-1"),
@@ -429,7 +435,62 @@ function createProcessOutputHarness() {
 }
 
 describe("Codex app-server teardown", () => {
-  it("keeps the session owned until shared process-tree exit proof resolves", async () => {
+  it("keeps a live process routable when only the last turn status is error", () => {
+    class FakeCodexChild extends EventEmitter {
+      readonly pid = 5050;
+      exitCode: number | null = null;
+      signalCode: NodeJS.Signals | null = null;
+      killed = false;
+      readonly stdin = new PassThrough();
+      readonly stdout = new PassThrough();
+      readonly stderr = new PassThrough();
+    }
+    const child = new FakeCodexChild();
+    const manager = new CodexAppServerManager();
+    const threadId = asThreadId("thread-codex-failed-turn");
+    const context = {
+      session: {
+        provider: "codex",
+        status: "error",
+        threadId,
+        runtimeMode: "full-access",
+        lastError: "Turn failed",
+        createdAt: "2026-07-14T00:00:00.000Z",
+        updatedAt: "2026-07-14T00:00:00.000Z",
+      },
+      account: { type: "unknown", planType: null, sparkEnabled: true },
+      child,
+      stdoutFramer: new CodexJsonlFramer(),
+      stdinWriter: new CodexJsonlWriter(child.stdin),
+      pending: new Map(),
+      pendingApprovals: new Map(),
+      pendingUserInputs: new Map(),
+      collabReceiverTurns: new Map(),
+      collabReceiverParents: new Map(),
+      reviewTurnIds: new Set(),
+      nextRequestId: 1,
+      stopping: false,
+    };
+    const internals = manager as unknown as {
+      sessions: Map<ThreadId, unknown>;
+      requireSession: (threadId: ThreadId) => unknown;
+    };
+    internals.sessions.set(threadId, context);
+
+    expect(manager.hasSession(threadId)).toBe(true);
+    expect(manager.listSessions()).toEqual([
+      expect.objectContaining({ threadId, status: "error" }),
+    ]);
+    expect(internals.requireSession(threadId)).toBe(context);
+
+    child.stdin.end();
+
+    expect(manager.hasSession(threadId)).toBe(false);
+    expect(manager.listSessions()).toEqual([]);
+    expect(() => internals.requireSession(threadId)).toThrow("Session is closed");
+  });
+
+  it("makes the session unroutable immediately while stop awaits exit proof", async () => {
     class FakeCodexChild extends EventEmitter {
       readonly pid = 5151;
       exitCode: number | null = null;
@@ -495,7 +556,9 @@ describe("Codex app-server teardown", () => {
     await Promise.resolve();
     expect(revokeSessionToken).toHaveBeenCalledOnce();
     expect(teardownProcessTree).toHaveBeenCalledTimes(1);
-    expect(manager.hasSession(threadId)).toBe(true);
+    // Unroutable immediately: follow-ups must fall through to thread/resume
+    // instead of writing into the dying process's stdin.
+    expect(manager.hasSession(threadId)).toBe(false);
     expect(exitProven).toBe(false);
 
     child.exitCode = 0;
@@ -611,6 +674,188 @@ describe("classifyCodexStderrLine", () => {
     expect(classifyCodexStderrLine(line)).toEqual({
       message: "Tool call failed because the same argument was sent twice (yield_time_ms).",
     });
+  });
+});
+
+describe("codex CLI version gate", () => {
+  it("memoizes the version probe per binary and shares concurrent probes", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "synara-codex-version-"));
+    const homePath = path.join(dir, "codex-home");
+    mkdirSync(homePath, { recursive: true });
+    vi.stubEnv("SYNARA_HOME", path.join(dir, "runtime"));
+
+    const isWindows = process.platform === "win32";
+    const counterPath = path.join(dir, "calls.log");
+    const binaryPath = path.join(dir, isWindows ? "codex.cmd" : "codex.sh");
+    writeFileSync(
+      binaryPath,
+      isWindows
+        ? `@echo off\r\necho x>>"${counterPath}"\r\necho codex-cli 9.9.9\r\n`
+        : `#!/bin/sh\necho x >> "${counterPath}"\necho "codex-cli 9.9.9"\n`,
+      { mode: 0o755 },
+    );
+    const probeCount = () => {
+      try {
+        return readFileSync(counterPath, "utf8").split("\n").filter(Boolean).length;
+      } catch {
+        return 0;
+      }
+    };
+
+    const { assertSupportedCodexCliVersion, reset } = __codexCliVersionGateTesting;
+    reset();
+    try {
+      // Concurrent session starts must share one in-flight probe.
+      await Promise.all([
+        assertSupportedCodexCliVersion({ binaryPath, cwd: dir, homePath }),
+        assertSupportedCodexCliVersion({ binaryPath, cwd: dir, homePath }),
+      ]);
+      expect(probeCount()).toBe(1);
+
+      // A later start/resume reuses the cached verdict instead of spawning again.
+      await assertSupportedCodexCliVersion({ binaryPath, cwd: dir, homePath });
+      expect(probeCount()).toBe(1);
+
+      // The per-call working-directory precondition is never served from the cache.
+      await expect(
+        assertSupportedCodexCliVersion({
+          binaryPath,
+          cwd: path.join(dir, "missing"),
+          homePath,
+        }),
+      ).rejects.toThrow(formatMissingCodexWorkingDirectoryError(path.join(dir, "missing")));
+      expect(probeCount()).toBe(1);
+
+      // An expired verdict re-probes.
+      reset();
+      await assertSupportedCodexCliVersion({ binaryPath, cwd: dir, homePath });
+      expect(probeCount()).toBe(2);
+    } finally {
+      reset();
+      vi.unstubAllEnvs();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("re-probes when the binary behind an unchanged path is replaced", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "synara-codex-version-swap-"));
+    const homePath = path.join(dir, "codex-home");
+    mkdirSync(homePath, { recursive: true });
+    vi.stubEnv("SYNARA_HOME", path.join(dir, "runtime"));
+
+    const isWindows = process.platform === "win32";
+    const binaryPath = path.join(dir, isWindows ? "codex.cmd" : "codex.sh");
+    // The trailing filler keeps the two revisions different in size, so the swap is detected
+    // even on a filesystem whose timestamps are too coarse to separate two writes this close.
+    const writeBinary = (version: string, filler: string) => {
+      writeFileSync(
+        binaryPath,
+        isWindows
+          ? `@echo off\r\nrem ${filler}\r\necho codex-cli ${version}\r\n`
+          : `#!/bin/sh\n# ${filler}\necho "codex-cli ${version}"\n`,
+        { mode: 0o755 },
+      );
+    };
+
+    const { assertSupportedCodexCliVersion, reset } = __codexCliVersionGateTesting;
+    reset();
+    try {
+      writeBinary("9.9.9", "original");
+      await assertSupportedCodexCliVersion({ binaryPath, cwd: dir, homePath });
+
+      // An in-place downgrade must not keep riding the cached pass for the rest of the TTL.
+      writeBinary("0.1.0", "replaced-in-place-by-a-downgrade");
+      await expect(
+        assertSupportedCodexCliVersion({ binaryPath, cwd: dir, homePath }),
+      ).rejects.toThrow(/too old for Penkra/);
+    } finally {
+      reset();
+      vi.unstubAllEnvs();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("re-probes when a PATH-resolved codex is replaced behind the same bare name", async () => {
+    // The production default is the bare name `codex`, so the fingerprint is only useful if it
+    // survives PATH resolution. It is taken from the same env object handed to the spawn a few
+    // lines later, which is what keeps it pointed at the binary actually being probed even when
+    // that env carries a login-shell PATH the process itself never had.
+    const dir = mkdtempSync(path.join(os.tmpdir(), "synara-codex-version-path-"));
+    const homePath = path.join(dir, "codex-home");
+    mkdirSync(homePath, { recursive: true });
+    vi.stubEnv("SYNARA_HOME", path.join(dir, "runtime"));
+
+    const isWindows = process.platform === "win32";
+    const binaryPath = path.join(dir, isWindows ? "codex.cmd" : "codex");
+    const writeBinary = (version: string, filler: string) => {
+      writeFileSync(
+        binaryPath,
+        isWindows
+          ? `@echo off\r\nrem ${filler}\r\necho codex-cli ${version}\r\n`
+          : `#!/bin/sh\n# ${filler}\necho "codex-cli ${version}"\n`,
+        { mode: 0o755 },
+      );
+    };
+    // Prepended, so this copy wins over any real codex on the machine.
+    vi.stubEnv("PATH", `${dir}${path.delimiter}${process.env.PATH ?? ""}`);
+
+    const { assertSupportedCodexCliVersion, reset } = __codexCliVersionGateTesting;
+    reset();
+    try {
+      writeBinary("9.9.9", "original");
+      await assertSupportedCodexCliVersion({ binaryPath: "codex", cwd: dir, homePath });
+
+      writeBinary("0.1.0", "replaced-in-place-by-a-downgrade");
+      await expect(
+        assertSupportedCodexCliVersion({ binaryPath: "codex", cwd: dir, homePath }),
+      ).rejects.toThrow(/too old for Penkra/);
+    } finally {
+      reset();
+      vi.unstubAllEnvs();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects an unsupported codex version without caching the failure", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "synara-codex-version-old-"));
+    const homePath = path.join(dir, "codex-home");
+    mkdirSync(homePath, { recursive: true });
+    vi.stubEnv("SYNARA_HOME", path.join(dir, "runtime"));
+
+    const isWindows = process.platform === "win32";
+    const counterPath = path.join(dir, "calls.log");
+    const binaryPath = path.join(dir, isWindows ? "codex.cmd" : "codex.sh");
+    writeFileSync(
+      binaryPath,
+      isWindows
+        ? `@echo off\r\necho x>>"${counterPath}"\r\necho codex-cli 0.1.0\r\n`
+        : `#!/bin/sh\necho x >> "${counterPath}"\necho "codex-cli 0.1.0"\n`,
+      { mode: 0o755 },
+    );
+    const probeCount = () => {
+      try {
+        return readFileSync(counterPath, "utf8").split("\n").filter(Boolean).length;
+      } catch {
+        return 0;
+      }
+    };
+
+    const { assertSupportedCodexCliVersion, reset } = __codexCliVersionGateTesting;
+    reset();
+    try {
+      await expect(
+        assertSupportedCodexCliVersion({ binaryPath, cwd: dir, homePath }),
+      ).rejects.toThrow(/too old for Penkra/);
+      await expect(
+        assertSupportedCodexCliVersion({ binaryPath, cwd: dir, homePath }),
+      ).rejects.toThrow(/too old for Penkra/);
+      // Failures are re-probed so installing or upgrading Codex takes effect at once.
+      expect(probeCount()).toBe(2);
+    } finally {
+      reset();
+      vi.unstubAllEnvs();
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
@@ -1758,6 +2003,48 @@ describe("CodexAppServerManager discovery", () => {
     });
   });
 
+  it("skips a dead replacement barrier in the cwd-less discovery fallback", async () => {
+    const manager = new CodexAppServerManager();
+    const deadContext = {
+      session: {
+        provider: "codex",
+        status: "closed",
+        threadId: "thread_dead",
+        runtimeMode: "full-access",
+      },
+      child: {
+        exitCode: null,
+        signalCode: null,
+        killed: true,
+        stdin: new PassThrough(),
+      },
+      stopping: true,
+    };
+    const discoveryContext = { discovery: true };
+    (
+      manager as unknown as {
+        sessions: Map<string, unknown>;
+      }
+    ).sessions.set("thread_dead", deadContext);
+    const getOrCreateDiscoverySession = vi
+      .spyOn(
+        manager as unknown as {
+          getOrCreateDiscoverySession: (cwd: string) => Promise<unknown>;
+        },
+        "getOrCreateDiscoverySession",
+      )
+      .mockResolvedValue(discoveryContext);
+
+    await expect(
+      (
+        manager as unknown as {
+          resolveContextForDiscovery: () => Promise<unknown>;
+        }
+      ).resolveContextForDiscovery(),
+    ).resolves.toBe(discoveryContext);
+    expect(getOrCreateDiscoverySession).toHaveBeenCalledWith(process.cwd());
+  });
+
   it("retries skills/list with cwd when a runtime rejects cwds", async () => {
     const manager = new CodexAppServerManager();
     const context = {
@@ -2146,6 +2433,8 @@ describe("thread checkpoint control", () => {
   it("emits compaction progress before waiting for thread/compact/start", async () => {
     const { manager, context, sendRequest, updateSession, emitEvent } =
       createThreadControlHarness();
+    context.session.status = "running";
+    context.session.activeTurnId = "turn_compact";
     let resolveRequest: (() => void) | undefined;
     sendRequest.mockImplementation(
       () =>
@@ -2180,6 +2469,29 @@ describe("thread checkpoint control", () => {
 
     resolveRequest?.();
     await compactPromise;
+  });
+
+  it("does not claim running status when compacting outside an active turn", async () => {
+    const { manager, context, sendRequest, updateSession, emitEvent } =
+      createThreadControlHarness();
+    sendRequest.mockResolvedValue({});
+
+    await manager.compactThread(asThreadId("thread_1"));
+
+    expect(sendRequest).toHaveBeenCalledWith(context, "thread/compact/start", {
+      threadId: "thread_1",
+    });
+    expect(updateSession).not.toHaveBeenCalled();
+    expect(emitEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: "thread/compacting",
+        message: "Compacting context",
+        payload: {
+          threadId: "thread_1",
+          state: "compacting",
+        },
+      }),
+    );
   });
 });
 
@@ -2632,7 +2944,14 @@ describe("collab child conversation routing", () => {
         threadId: "child_provider_unmapped",
         turnId: "turn_child_unmapped",
         itemId: "tool_child_unmapped",
-        questions: [],
+        questions: [
+          {
+            id: "scope",
+            header: "Scope",
+            question: "Which scope should this change target?",
+            options: [{ label: "child", description: "Only the child thread" }],
+          },
+        ],
       },
     });
 
@@ -3220,7 +3539,7 @@ describe("handleServerNotification error normalization", () => {
 });
 
 describe("CodexAppServerManager process teardown", () => {
-  it("keeps one stop in flight and publishes closed only after exit proof", async () => {
+  it("keeps one stop in flight and publishes closed eagerly", async () => {
     let proveExit: (() => void) | undefined;
     const exitProof = new Promise<void>((resolve) => {
       proveExit = resolve;
@@ -3275,15 +3594,87 @@ describe("CodexAppServerManager process teardown", () => {
     const concurrentStop = manager.stopSession(threadId);
 
     expect(teardownProcessTree).toHaveBeenCalledTimes(1);
-    expect(closedEvents).toHaveLength(0);
-    expect(manager.hasSession(threadId)).toBe(true);
-    expect(manager.listSessions()[0]).toMatchObject({ status: "ready" });
+    // Closed publishes eagerly: the session must become unroutable the moment
+    // stop begins, with teardown proof continuing behind the returned promise.
+    expect(closedEvents).toEqual(["session/closed"]);
+    expect(manager.hasSession(threadId)).toBe(false);
+    expect(manager.listSessions()).toHaveLength(0);
+    expect(
+      (
+        manager as unknown as {
+          sessions: Map<ThreadId, unknown>;
+        }
+      ).sessions.has(threadId),
+    ).toBe(true);
 
     proveExit?.();
     await Promise.all([firstStop, concurrentStop]);
 
     expect(closedEvents).toEqual(["session/closed"]);
     expect(manager.hasSession(threadId)).toBe(false);
+    expect(manager.listSessions()).toHaveLength(0);
+  });
+
+  it("retains the replacement barrier and retries after teardown proof fails", async () => {
+    const teardownProcessTree = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("rootExited=false; surviving process remains"))
+      .mockResolvedValueOnce({
+        escalated: true,
+        signalErrors: [],
+      });
+    const manager = new CodexAppServerManager(undefined, { teardownProcessTree });
+    const threadId = asThreadId("thread-stop-proof-retry");
+    const closedEvents: string[] = [];
+    manager.on("event", (event) => {
+      if (event.method === "session/closed") {
+        closedEvents.push(event.method);
+      }
+    });
+    const context = {
+      session: {
+        provider: "codex",
+        status: "ready",
+        threadId,
+        runtimeMode: "full-access",
+        model: "gpt-5.3-codex",
+        createdAt: "2026-02-10T00:00:00.000Z",
+        updatedAt: "2026-02-10T00:00:00.000Z",
+      },
+      account: { type: "unknown", planType: null, sparkEnabled: true },
+      child: {
+        pid: 42_425,
+        exitCode: null,
+        signalCode: null,
+        once: vi.fn(),
+        removeListener: vi.fn(),
+      },
+      pending: new Map(),
+      pendingApprovals: new Map(),
+      pendingUserInputs: new Map(),
+      collabReceiverTurns: new Map(),
+      collabReceiverParents: new Map(),
+      reviewTurnIds: new Set(),
+      nextRequestId: 1,
+      stopping: false,
+    };
+    (
+      manager as unknown as {
+        sessions: Map<ThreadId, unknown>;
+      }
+    ).sessions.set(threadId, context);
+
+    await expect(manager.stopSession(threadId)).rejects.toThrow(
+      "Failed to prove Codex app-server process-tree exit",
+    );
+    expect(manager.hasSession(threadId)).toBe(false);
+    expect(manager.listSessions()).toHaveLength(0);
+    expect(closedEvents).toEqual(["session/closed"]);
+
+    await manager.stopSession(threadId);
+    expect(teardownProcessTree).toHaveBeenCalledTimes(2);
+    expect(manager.listSessions()).toHaveLength(0);
+    expect(closedEvents).toEqual(["session/closed"]);
   });
 });
 

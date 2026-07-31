@@ -3,6 +3,7 @@
 // Layer: Shared Node/Electron network security boundary
 
 import { randomUUID } from "node:crypto";
+import type { LookupAddress } from "node:dns";
 import * as Dns from "node:dns/promises";
 import * as Http from "node:http";
 import * as Https from "node:https";
@@ -100,7 +101,7 @@ export function encodeOutboundMultipart(
   if (!Number.isSafeInteger(options.maxBytes) || options.maxBytes <= 0) {
     throw new OutboundHttpError("request", "Multipart byte limit must be a positive integer.");
   }
-  const boundary = `Penkra-${randomUUID()}`;
+  const boundary = `Synara-${randomUUID()}`;
   const chunks: Uint8Array[] = [];
   const encoder = new TextEncoder();
   let size = 0;
@@ -297,17 +298,27 @@ async function resolvePinnedAddress(
   return selected;
 }
 
-export function createPinnedLookup(pinned: {
-  readonly address: string;
-  readonly family: 4 | 6;
-}): Net.LookupFunction {
-  return (_hostname, options, callback) => {
-    if (options.all) {
-      callback(null, [pinned]);
-      return;
-    }
-    callback(null, pinned.address, pinned.family);
-  };
+/**
+ * Custom `http`/`https` lookup that always returns the already-pinned address.
+ * Modern Node/Bun Happy Eyeballs pass `{ all: true }` and expect the array
+ * callback form; the legacy single-address form alone crashes those runtimes.
+ */
+export function invokePinnedDnsLookup(
+  pinned: { readonly address: string; readonly family: 4 | 6 },
+  options: { readonly all?: boolean | undefined } | undefined,
+  // Match Node/Bun's Happy Eyeballs lookup callback shape (`LookupAddress[]`, not
+  // a readonly structural twin) so `http.request({ lookup })` typechecks.
+  callback: (
+    err: NodeJS.ErrnoException | null,
+    address: string | LookupAddress[],
+    family?: number,
+  ) => void,
+): void {
+  if (options?.all) {
+    callback(null, [{ address: pinned.address, family: pinned.family }]);
+    return;
+  }
+  callback(null, pinned.address, pinned.family);
 }
 
 async function requestHop(input: {
@@ -336,7 +347,9 @@ async function requestHop(input: {
         method: input.method,
         headers: requestHeaders(input.headers),
         signal: input.signal,
-        lookup: createPinnedLookup(pinned),
+        lookup: (_hostname, options, callback) => {
+          invokePinnedDnsLookup(pinned, options, callback);
+        },
       },
       (response) => {
         const headers = responseHeaders(response.headers);
