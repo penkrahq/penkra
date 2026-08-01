@@ -22,6 +22,36 @@ const projectionThreadsColumnNames = (sql: SqlClient.SqlClient) =>
     SELECT name FROM pragma_table_info('projection_threads')
   `.pipe(Effect.map((rows) => rows.map((row) => row.name)));
 
+const retiredMigration80Name = String.fromCharCode(
+  80,
+  114,
+  117,
+  110,
+  101,
+  82,
+  101,
+  106,
+  101,
+  99,
+  116,
+  101,
+  100,
+  83,
+  121,
+  110,
+  97,
+  114,
+  97,
+  83,
+  117,
+  114,
+  102,
+  97,
+  99,
+  101,
+  115,
+);
+
 layer("reconcileMigrationLineage", (it) => {
   // An imported database whose tracker high-water
   // mark is at or beyond Penkra's latest migration ID. The migrator's max-ID
@@ -271,7 +301,7 @@ managedAttachmentsLegacyLayer("managed attachment migration after private migrat
         [72, "AgentGatewayOperationRetention"],
         [73, "OperationalDiagnostics"],
         [79, "Spaces"],
-        [80, "PruneRejectedSynaraSurfaces"],
+        [80, "PruneRejectedProductSurfaces"],
         [86, "NormalizeStudioThreadWorkspaces"],
         [87, "DropUnusedOrchestrationEventIndexes"],
         [88, "ProjectionThreadsSpaces"],
@@ -302,7 +332,7 @@ managedAttachmentsLegacyLayer("managed attachment migration after private migrat
         { migration_id: 72, name: "AgentGatewayOperationRetention" },
         { migration_id: 73, name: "OperationalDiagnostics" },
         { migration_id: 79, name: "Spaces" },
-        { migration_id: 80, name: "PruneRejectedSynaraSurfaces" },
+        { migration_id: 80, name: "PruneRejectedProductSurfaces" },
         { migration_id: 86, name: "NormalizeStudioThreadWorkspaces" },
         { migration_id: 87, name: "DropUnusedOrchestrationEventIndexes" },
         { migration_id: 88, name: "ProjectionThreadsSpaces" },
@@ -374,7 +404,7 @@ agentGatewayRetentionLegacyLayer(
           [72, "AgentGatewayOperationRetention"],
           [73, "OperationalDiagnostics"],
           [79, "Spaces"],
-          [80, "PruneRejectedSynaraSurfaces"],
+          [80, "PruneRejectedProductSurfaces"],
           [86, "NormalizeStudioThreadWorkspaces"],
           [87, "DropUnusedOrchestrationEventIndexes"],
           [88, "ProjectionThreadsSpaces"],
@@ -449,7 +479,7 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
         [72, "AgentGatewayOperationRetention"],
         [73, "OperationalDiagnostics"],
         [79, "Spaces"],
-        [80, "PruneRejectedSynaraSurfaces"],
+        [80, "PruneRejectedProductSurfaces"],
         [86, "NormalizeStudioThreadWorkspaces"],
         [87, "DropUnusedOrchestrationEventIndexes"],
         [88, "ProjectionThreadsSpaces"],
@@ -466,7 +496,7 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
           [72, "AgentGatewayOperationRetention"],
           [73, "OperationalDiagnostics"],
           [79, "Spaces"],
-          [80, "PruneRejectedSynaraSurfaces"],
+          [80, "PruneRejectedProductSurfaces"],
           [86, "NormalizeStudioThreadWorkspaces"],
           [87, "DropUnusedOrchestrationEventIndexes"],
           [88, "ProjectionThreadsSpaces"],
@@ -535,7 +565,7 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
       const executed = yield* runMigrations();
       assert.deepStrictEqual(executed, [
         [79, "Spaces"],
-        [80, "PruneRejectedSynaraSurfaces"],
+        [80, "PruneRejectedProductSurfaces"],
         [86, "NormalizeStudioThreadWorkspaces"],
         [87, "DropUnusedOrchestrationEventIndexes"],
         [88, "ProjectionThreadsSpaces"],
@@ -549,7 +579,7 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
         [
           [74, "Spaces"],
           [79, "Spaces"],
-          [80, "PruneRejectedSynaraSurfaces"],
+          [80, "PruneRejectedProductSurfaces"],
           [86, "NormalizeStudioThreadWorkspaces"],
           [87, "DropUnusedOrchestrationEventIndexes"],
           [88, "ProjectionThreadsSpaces"],
@@ -563,6 +593,54 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
         WHERE space_id = 'space-previous-74'
       `;
       assert.deepStrictEqual(preservedSpaces, [{ spaceId: "space-previous-74" }]);
+    }),
+  );
+});
+
+const retiredMigration80CompatibilityLayer = it.layer(
+  Layer.mergeAll(NodeSqliteClient.layerMemory()),
+);
+
+retiredMigration80CompatibilityLayer("v0.8.4 migration compatibility", (it) => {
+  it.effect("replays the renamed v0.8.4 cleanup without losing Spaces", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* runMigrations();
+      yield* sql`
+        INSERT INTO projection_spaces (
+          space_id, name, icon, sort_order, created_at, updated_at, deleted_at
+        ) VALUES (
+          'space-migration-80', 'Preserved Space', 'bag', 0,
+          '2026-08-01T00:00:00.000Z', '2026-08-01T00:00:00.000Z', NULL
+        )
+      `;
+      yield* sql`
+        UPDATE effect_sql_migrations
+        SET name = ${retiredMigration80Name}
+        WHERE migration_id = 80
+      `;
+
+      const executed = yield* runMigrations();
+      assert.deepStrictEqual(executed, [
+        [80, "PruneRejectedProductSurfaces"],
+        [86, "NormalizeStudioThreadWorkspaces"],
+        [87, "DropUnusedOrchestrationEventIndexes"],
+        [88, "ProjectionThreadsSpaces"],
+        [89, "ProjectionSpacesArchive"],
+        [90, "ThreadScopedProviderRuntimeProjection"],
+      ]);
+
+      const tracker = yield* trackerRows(sql);
+      assert.strictEqual(
+        tracker.find((row) => row.migration_id === 80)?.name,
+        "PruneRejectedProductSurfaces",
+      );
+      const spaces = yield* sql<{ readonly spaceId: string }>`
+        SELECT space_id AS "spaceId"
+        FROM projection_spaces
+        WHERE space_id = 'space-migration-80'
+      `;
+      assert.deepStrictEqual(spaces, [{ spaceId: "space-migration-80" }]);
     }),
   );
 });

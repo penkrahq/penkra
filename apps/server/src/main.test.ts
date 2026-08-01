@@ -270,7 +270,7 @@ it.layer(testLayer)("server CLI command", (it) => {
   it.effect("consumes desktop shutdown authority before generic child launches", () =>
     Effect.gen(function* () {
       const canonicalKey = "PENKRA_DESKTOP_SHUTDOWN_TOKEN";
-      const mixedCaseKey = "sYnArA_dEsKtOp_ShUtDoWn_ToKeN";
+      const mixedCaseKey = "pEnKrA_dEsKtOp_ShUtDoWn_ToKeN";
       const liveToken = "live-process-shutdown-token";
       const injectedToken = "injected-shutdown-token";
       const posixCaseSensitiveSentinel = "posix-case-sensitive-sentinel";

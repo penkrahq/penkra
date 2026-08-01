@@ -1,4 +1,4 @@
-// FILE: 080_PruneRejectedSynaraSurfaces.ts
+// FILE: 080_PruneRejectedProductSurfaces.ts
 // Purpose: Removes Penkra Automation and External MCP persistence from Penkra.
 // Layer: SQLite migration
 

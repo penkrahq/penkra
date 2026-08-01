@@ -30,6 +30,7 @@ import {
 import { PROVIDER_DELIVERY_BLOCK_SUMMARY } from "@penkra/shared/providerDeliveryBlock";
 import {
   Duration,
+  Deferred,
   Effect,
   Exit,
   Layer,
@@ -865,6 +866,76 @@ describe("ProviderCommandReactor", () => {
       }),
     );
     expect(Option.isNone(projectDelivery)).toBe(true);
+  });
+
+  it("REL-01B gate: drain waits for an accepted external command to settle durably", async () => {
+    const acceptance = Effect.runSync(Deferred.make<void>());
+    const harness = await createHarness({
+      interruptTurn: () => Deferred.await(acceptance),
+    });
+    const now = new Date().toISOString();
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const turnId = asTurnId("turn-shutdown-drain");
+
+    harness.setRuntimeSessionTurnState({
+      threadId,
+      status: "running",
+      activeTurnId: turnId,
+    });
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.makeUnsafe("cmd-shutdown-drain-session"),
+        threadId,
+        session: {
+          threadId,
+          status: "running",
+          providerName: "codex",
+          runtimeMode: "approval-required",
+          activeTurnId: turnId,
+          lastError: null,
+          updatedAt: now,
+        },
+        createdAt: now,
+      }),
+    );
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.interrupt",
+        commandId: CommandId.makeUnsafe("cmd-shutdown-drain-interrupt"),
+        threadId,
+        turnId,
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.interruptTurn.mock.calls.length === 1);
+    let drainSettled = false;
+    const drain = harness.drain().then(() => {
+      drainSettled = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(drainSettled).toBe(false);
+
+    await Effect.runPromise(Deferred.succeed(acceptance, undefined));
+    await drain;
+    expect(drainSettled).toBe(true);
+
+    const events = await Effect.runPromise(
+      Stream.runCollect(harness.engine.readEvents(0)).pipe(
+        Effect.map((chunk) => Array.from(chunk)),
+      ),
+    );
+    const interruptRequested = events.find(
+      (event) => event.type === "thread.turn-interrupt-requested",
+    )!;
+    const delivery = await Effect.runPromise(
+      harness.deliveryRepository.getDelivery({
+        consumerName: PROVIDER_COMMAND_REACTOR_CONSUMER,
+        eventSequence: interruptRequested.sequence,
+      }),
+    );
+    expect(delivery.pipe(Option.getOrThrow).state).toBe("succeeded");
   });
 
   it("REL-01B gate: reclaims an expired safe claim during startup replay", async () => {

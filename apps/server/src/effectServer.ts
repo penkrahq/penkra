@@ -26,6 +26,10 @@ import {
   type OrchestrationEngineShape,
 } from "./orchestration/Services/OrchestrationEngine";
 import { OrchestrationReactor } from "./orchestration/Services/OrchestrationReactor";
+import {
+  ProviderCommandReactor,
+  type ProviderCommandReactorShape,
+} from "./orchestration/Services/ProviderCommandReactor";
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
 import { ThreadDeletionReactor } from "./orchestration/Services/ThreadDeletionReactor";
 import { reconcileRestartStuckTurns } from "./orchestration/startupTurnReconciliation";
@@ -55,6 +59,7 @@ export interface ServerShape {
     | ServerLifecycleEvents
     | OrchestrationEngineService
     | OrchestrationReactor
+    | ProviderCommandReactor
     | ProjectionSnapshotQuery
     | ProviderSessionReaper
     | ProviderRuntimeReconciler
@@ -81,15 +86,21 @@ export class ServerLifecycleError extends Schema.TaggedErrorClass<ServerLifecycl
 
 export function closeServerRuntimePipeline(input: {
   readonly orchestrationEngine: Pick<OrchestrationEngineShape, "quiesce" | "drain" | "stop">;
+  readonly providerCommandReactor: Pick<ProviderCommandReactorShape, "drain">;
   readonly providerService: Pick<ProviderServiceShape, "closeRuntimeEvents">;
   readonly managedAttachmentCleanup: Pick<ManagedAttachmentCleanupShape, "drain">;
   readonly subscriptionsScope: Scope.Closeable;
 }): Effect.Effect<void> {
   return input.orchestrationEngine.quiesce.pipe(
-    // Drain already-admitted commands while every subscriber is live. Provider
-    // close then fences terminal runtime events into subscriber workers; scope
-    // close drains those workers before the engine accepts its final stop.
+    // Drain already-admitted commands while every subscriber is live, then wait
+    // for provider-side delivery claims to reach a durable settlement. Closing
+    // the reactor scope before this second drain can interrupt the narrow window
+    // between an external command being claimed and its acceptance being
+    // recorded, which quarantines the thread after restart.
     Effect.andThen(input.orchestrationEngine.drain),
+    Effect.andThen(input.providerCommandReactor.drain),
+    // Provider close now fences terminal runtime events into subscriber workers;
+    // scope close drains those workers before the engine accepts its final stop.
     Effect.andThen(input.providerService.closeRuntimeEvents),
     Effect.andThen(Scope.close(input.subscriptionsScope, Exit.void)),
     Effect.andThen(input.managedAttachmentCleanup.drain),
@@ -114,6 +125,7 @@ export const createEffectServer = Effect.fn(function* (
   const lifecycleEvents = yield* ServerLifecycleEvents;
   const orchestrationEngine = yield* OrchestrationEngineService;
   const orchestrationReactor = yield* OrchestrationReactor;
+  const providerCommandReactor = yield* ProviderCommandReactor;
   const providerService = yield* ProviderService;
   const providerSessionReaper = yield* ProviderSessionReaper;
   const providerRuntimeReconciler = yield* ProviderRuntimeReconciler;
@@ -182,6 +194,7 @@ export const createEffectServer = Effect.fn(function* (
   yield* Effect.addFinalizer(() =>
     closeServerRuntimePipeline({
       orchestrationEngine,
+      providerCommandReactor,
       providerService,
       managedAttachmentCleanup,
       subscriptionsScope,

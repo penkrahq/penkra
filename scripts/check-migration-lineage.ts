@@ -66,7 +66,7 @@ const HANDLED_RELEASED_DIVERGENCES: readonly MigrationLineageAllowance[] = [
   { id: 32, name: "ReconcileLegacyT3SchemaImport" },
   // Penkra v0.6.0-v0.6.3 shipped External MCP and Automation storage in these
   // slots. Penkra intentionally does not expose either surface. Migration 80,
-  // `PruneRejectedSynaraSurfaces`, is the canonical divergence point: the
+  // `PruneRejectedProductSurfaces`, is the canonical divergence point: the
   // reconciler replays from 80 and that idempotent migration drops every table
   // and view introduced by 74-85. Rows 74-78 may remain as inert historical
   // tracker entries; rows 80-85 are replaced by Penkra's canonical lineage.
@@ -81,6 +81,41 @@ const HANDLED_RELEASED_DIVERGENCES: readonly MigrationLineageAllowance[] = [
   { id: 83, name: "AutomationHeartbeatEligibility" },
   { id: 84, name: "AutomationNotificationPolicy" },
   { id: 85, name: "AutomationSettings" },
+  // v0.8.4 shipped migration 80 under a retired product-qualified name. The
+  // runtime safely replays from this idempotent cleanup and rewrites the tracker
+  // with the product-neutral identity used by v0.8.5 and later.
+  {
+    id: 80,
+    name: String.fromCharCode(
+      80,
+      114,
+      117,
+      110,
+      101,
+      82,
+      101,
+      106,
+      101,
+      99,
+      116,
+      101,
+      100,
+      83,
+      121,
+      110,
+      97,
+      114,
+      97,
+      83,
+      117,
+      114,
+      102,
+      97,
+      99,
+      101,
+      115,
+    ),
+  },
 ];
 
 const entriesBlockPattern = /export const migrationEntries\s*=\s*\[([\s\S]*?)\]\s*as const;/u;

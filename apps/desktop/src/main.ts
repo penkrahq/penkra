@@ -321,6 +321,11 @@ const UPDATE_CHECK_REASON_MIGRATION_RECOVERY = "migration recovery";
 const UPDATE_INSTALL_MARKER_FILE_NAME = "pending-update-install.json";
 const BACKEND_FORCE_KILL_DELAY_MS = 8_000;
 const BACKEND_SHUTDOWN_TIMEOUT_MS = 10_000;
+// Update installation is a controlled handoff, so it must give the server's
+// 120-second provider-command deadline enough time to settle a claimed external
+// command durably. Ordinary app quit keeps the short shutdown budget below.
+const UPDATE_BACKEND_FORCE_KILL_DELAY_MS = 125_000;
+const UPDATE_BACKEND_SHUTDOWN_TIMEOUT_MS = 130_000;
 const BACKEND_MAX_OLD_SPACE_ENV_KEYS = ["PENKRA_BACKEND_MAX_OLD_SPACE_MB"] as const;
 const DESKTOP_UPDATE_ALLOW_PRERELEASE = false;
 const BROWSER_PERF_SAMPLE_INTERVAL_MS = 5_000;
@@ -2692,7 +2697,10 @@ async function runDownloadedUpdateInstall(
   try {
     isQuitting = true;
     clearUpdatePollTimer();
-    await stopBackendAndWaitForExit();
+    await stopBackendAndWaitForExit({
+      forceKillDelayMs: UPDATE_BACKEND_FORCE_KILL_DELAY_MS,
+      timeoutMs: UPDATE_BACKEND_SHUTDOWN_TIMEOUT_MS,
+    });
     updateInstallPreparation.requireActive(preparationAttempt);
     await logMacUpdateDiagnostics("before install handoff");
     updateInstallPreparation.requireActive(preparationAttempt);
@@ -3362,14 +3370,19 @@ function stopBackend(): void {
   }
 }
 
-async function stopBackendAndWaitForExit(timeoutMs = BACKEND_SHUTDOWN_TIMEOUT_MS): Promise<void> {
+async function stopBackendAndWaitForExit(options?: {
+  readonly forceKillDelayMs?: number;
+  readonly timeoutMs?: number;
+}): Promise<void> {
+  const timeoutMs = options?.timeoutMs ?? BACKEND_SHUTDOWN_TIMEOUT_MS;
+  const requestedForceKillDelayMs = options?.forceKillDelayMs ?? BACKEND_FORCE_KILL_DELAY_MS;
   const child = takeBackendProcessForShutdown();
   if (!child) return;
   const backendChild = child;
   if (backendChild.exitCode !== null || backendChild.signalCode !== null) return;
 
   if (process.platform === "win32") {
-    const forceKillDelayMs = Math.min(BACKEND_FORCE_KILL_DELAY_MS, Math.max(0, timeoutMs - 500));
+    const forceKillDelayMs = Math.min(requestedForceKillDelayMs, Math.max(0, timeoutMs - 500));
     try {
       const result = await stopWindowsBackendAndWait({
         child: backendChild,
@@ -3386,7 +3399,7 @@ async function stopBackendAndWaitForExit(timeoutMs = BACKEND_SHUTDOWN_TIMEOUT_MS
     return;
   }
 
-  const forceKillDelayMs = Math.min(BACKEND_FORCE_KILL_DELAY_MS, Math.max(0, timeoutMs - 500));
+  const forceKillDelayMs = Math.min(requestedForceKillDelayMs, Math.max(0, timeoutMs - 500));
   try {
     await stopPosixBackendAndWait({
       child: backendChild,

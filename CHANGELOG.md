@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+## 0.8.5 - 2026-08-01
+
+### Changed
+
+- Removed the remaining retired product identity from tracked build configuration, migration
+  metadata, test fixtures, ignored paths, and design-source provenance while preserving safe
+  upgrades from 0.8.4 databases.
+
+### Fixed
+
+- Fixed controlled desktop updates shutting down the provider-command reactor before an accepted
+  external command reached durable settlement, which could quarantine an active thread after the
+  application restarted.
+- Fixed the Windows updater publisher build define so its compiled symbol matches the Penkra
+  runtime declaration.
+
 ## 0.8.4 - 2026-08-01
 
 ### Added

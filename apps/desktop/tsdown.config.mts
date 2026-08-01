@@ -5,7 +5,7 @@
 
 import { defineConfig } from "tsdown";
 
-const sourcemapEnv = process.env.SYNARA_DESKTOP_SOURCEMAP?.trim().toLowerCase();
+const sourcemapEnv = process.env.PENKRA_DESKTOP_SOURCEMAP?.trim().toLowerCase();
 const buildSourcemap = sourcemapEnv === "1" || sourcemapEnv === "true";
 const windowsUpdaterPublisher = process.env.AZURE_TRUSTED_SIGNING_SUBJECT_DN?.trim() ?? "";
 
@@ -25,7 +25,7 @@ export default defineConfig([
     // asking Rolldown to resolve a package that intentionally does not exist.
     external: ["original-fs"],
     define: {
-      __SYNARA_WINDOWS_UPDATER_PUBLISHER__: JSON.stringify(windowsUpdaterPublisher),
+      __PENKRA_WINDOWS_UPDATER_PUBLISHER__: JSON.stringify(windowsUpdaterPublisher),
     },
     noExternal: (id) => id.startsWith("@penkra/"),
   },

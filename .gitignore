@@ -14,13 +14,8 @@ build/
 release/
 release-[0-9]*/
 release-*-candidate/
-.synara
-/.synara/electron-dev
-/.synara/backups
-/.synara-*/
-/apps/server/.synara-*/
-/.synara/
-/.synara-*/
+/.penkra-*/
+/apps/server/.penkra-*/
 .idea/
 apps/web/.playwright
 apps/web/playwright-report
