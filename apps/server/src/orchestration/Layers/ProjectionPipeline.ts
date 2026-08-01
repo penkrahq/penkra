@@ -142,6 +142,8 @@ const PROJECT_EVENT_TYPES = new Set<OrchestrationEvent["type"]>([
   "space.created",
   "space.meta-updated",
   "space.order-updated",
+  "space.archived",
+  "space.restored",
   "space.deleted",
   "project.created",
   "project.meta-updated",
@@ -485,6 +487,8 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
       case "space.created":
       case "space.meta-updated":
       case "space.order-updated":
+      case "space.archived":
+      case "space.restored":
         return applySpaceMetadataProjection({ event, projectionSpaceRepository }).pipe(
           Effect.asVoid,
         );
@@ -492,6 +496,12 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
         return applySpaceMetadataProjection({ event, projectionSpaceRepository }).pipe(
           Effect.andThen(
             projectionProjectRepository.clearSpaceAssignments({
+              spaceId: event.payload.spaceId,
+              updatedAt: event.payload.deletedAt,
+            }),
+          ),
+          Effect.andThen(
+            projectionThreadRepository.clearSpaceAssignments({
               spaceId: event.payload.spaceId,
               updatedAt: event.payload.deletedAt,
             }),
@@ -524,6 +534,7 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
           yield* projectionThreadRepository.upsert({
             threadId: event.payload.threadId,
             projectId: event.payload.projectId,
+            spaceId: event.payload.spaceId ?? null,
             title: event.payload.title,
             modelSelection: event.payload.modelSelection,
             runtimeMode: event.payload.runtimeMode,
@@ -2111,11 +2122,19 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
       case "space.created":
       case "space.meta-updated":
       case "space.order-updated":
+      case "space.archived":
+      case "space.restored":
         return applySpaceMetadataProjection({ event, projectionSpaceRepository });
       case "space.deleted":
         return applySpaceMetadataProjection({ event, projectionSpaceRepository }).pipe(
           Effect.andThen(
             projectionProjectRepository.clearSpaceAssignments({
+              spaceId: event.payload.spaceId,
+              updatedAt: event.payload.deletedAt,
+            }),
+          ),
+          Effect.andThen(
+            projectionThreadRepository.clearSpaceAssignments({
               spaceId: event.payload.spaceId,
               updatedAt: event.payload.deletedAt,
             }),

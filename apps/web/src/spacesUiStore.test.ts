@@ -61,6 +61,7 @@ describe("spacesUiStore", () => {
         [voidThreadId, voidProjectId],
         [removedThreadId, removedProjectId],
       ]),
+      threadSpaceById: new Map(),
     });
 
     expect(useSpacesUiStore.getState().activeSpaceId).toBeNull();
@@ -77,6 +78,7 @@ describe("spacesUiStore", () => {
         snapshotSequence,
         projectSpaceById: new Map(),
         threadProjectById: new Map(),
+        threadSpaceById: new Map(),
       });
 
     reconcile(11, new Set());
@@ -96,6 +98,7 @@ describe("spacesUiStore", () => {
       snapshotSequence: 12,
       projectSpaceById: new Map(),
       threadProjectById: new Map(),
+      threadSpaceById: new Map(),
     });
 
     expect(useSpacesUiStore.getState().activeSpaceId).toBeNull();

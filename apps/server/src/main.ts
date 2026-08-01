@@ -47,6 +47,7 @@ import { formatHostForUrl, isLoopbackHost, isWildcardHost } from "./startupAcces
 import { AnalyticsServiceLayerLive } from "./telemetry/Layers/AnalyticsService";
 import { AnalyticsService } from "./telemetry/Services/AnalyticsService";
 import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine";
+import { ensureDefaultSpaces } from "./orchestration/defaultSpacesBootstrap";
 import { startThreadRetentionJob } from "./threadRetention";
 import { PenkraRegistry } from "./penkra/layer";
 import {
@@ -397,6 +398,8 @@ const makeServerProgram = (input: CliInput) => {
       );
     }
 
+    const orchestrationEngine = yield* OrchestrationEngineService;
+    yield* ensureDefaultSpaces(orchestrationEngine);
     yield* start;
 
     const localUrl = `http://localhost:${config.port}`;
@@ -418,7 +421,6 @@ const makeServerProgram = (input: CliInput) => {
           )
         : undefined;
 
-    const orchestrationEngine = yield* OrchestrationEngineService;
     const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
     const penkraRegistry = yield* PenkraRegistry;
     // Start the retention loop after the server is live so startup can serve

@@ -14,6 +14,7 @@ import {
   ProviderSkillReference,
   ProviderStartOptions,
   RuntimeMode,
+  SpaceId,
   ThreadId,
 } from "@synara/contracts";
 import * as Schema from "effect/Schema";
@@ -260,6 +261,7 @@ type LegacyPersistedComposerDraftStoreState = PersistedComposerDraftStoreState &
 
 const PersistedDraftThreadState = Schema.Struct({
   projectId: ProjectId,
+  spaceId: Schema.optionalKey(Schema.NullOr(SpaceId)),
   createdAt: Schema.String,
   runtimeMode: RuntimeMode,
   interactionMode: ProviderInteractionMode,
@@ -700,6 +702,10 @@ function normalizePersistedDraftThreads(
       }
       draftThreadsByThreadId[threadId as ThreadId] = {
         projectId: projectId as ProjectId,
+        spaceId:
+          typeof candidateDraftThread.spaceId === "string"
+            ? SpaceId.makeUnsafe(candidateDraftThread.spaceId)
+            : null,
         createdAt:
           typeof createdAt === "string" && createdAt.length > 0
             ? createdAt
@@ -746,6 +752,7 @@ function normalizePersistedDraftThreads(
         if (!draftThreadsByThreadId[threadId as ThreadId]) {
           draftThreadsByThreadId[threadId as ThreadId] = {
             projectId: projectId as ProjectId,
+            spaceId: null,
             createdAt: new Date().toISOString(),
             runtimeMode: DEFAULT_RUNTIME_MODE,
             interactionMode: DEFAULT_INTERACTION_MODE,

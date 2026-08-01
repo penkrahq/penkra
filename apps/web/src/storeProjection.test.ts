@@ -300,6 +300,80 @@ describe("store projection", () => {
     });
   });
 
+  it("keeps archived Spaces lightweight and restores them without losing assignments", () => {
+    const spaceId = SpaceId.makeUnsafe("space-shell-archive");
+    const space = {
+      id: spaceId,
+      name: "Work",
+      icon: "bag" as const,
+      sortOrder: 0,
+      createdAt: "2026-07-15T10:00:00.000Z",
+      updatedAt: "2026-07-15T10:00:00.000Z",
+    };
+    const initialState: AppState = {
+      spaces: [space],
+      archivedSpaces: [],
+      projects: [makeProject({ spaceId })],
+      sidebarThreadSummaryById: {},
+      threadsHydrated: true,
+    };
+
+    const archived = applyShellEvent(initialState, {
+      kind: "space-removed",
+      sequence: 2,
+      spaceId,
+      updatedAt: "2026-07-15T10:00:01.000Z",
+      preserveAssignments: true,
+    });
+
+    expect(archived.spaces).toEqual([]);
+    expect(archived.archivedSpaces).toEqual([space]);
+    expect(archived.projects[0]?.spaceId).toBe(spaceId);
+
+    const restored = applyShellEvent(archived, {
+      kind: "space-upserted",
+      sequence: 3,
+      space: { ...space, updatedAt: "2026-07-15T10:00:02.000Z" },
+    });
+
+    expect(restored.spaces).toEqual([{ ...space, updatedAt: "2026-07-15T10:00:02.000Z" }]);
+    expect(restored.archivedSpaces).toEqual([]);
+    expect(restored.projects[0]?.spaceId).toBe(spaceId);
+  });
+
+  it("permanently removes an archived Space and clears its assignments", () => {
+    const spaceId = SpaceId.makeUnsafe("space-shell-archived-delete");
+    const initialState: AppState = {
+      spaces: [],
+      archivedSpaces: [
+        {
+          id: spaceId,
+          name: "Archived",
+          icon: "book",
+          sortOrder: 0,
+          createdAt: "2026-07-15T10:00:00.000Z",
+          updatedAt: "2026-07-15T10:00:01.000Z",
+        },
+      ],
+      projects: [makeProject({ spaceId })],
+      sidebarThreadSummaryById: {},
+      threadsHydrated: true,
+    };
+
+    const next = applyShellEvent(initialState, {
+      kind: "space-removed",
+      sequence: 4,
+      spaceId,
+      updatedAt: "2026-07-15T10:00:02.000Z",
+    });
+
+    expect(next.archivedSpaces).toEqual([]);
+    expect(next.projects[0]).toMatchObject({
+      spaceId: null,
+      updatedAt: "2026-07-15T10:00:02.000Z",
+    });
+  });
+
   it("drops descendant thread state when a shell project removal arrives", () => {
     const initialState = syncServerReadModel(
       {

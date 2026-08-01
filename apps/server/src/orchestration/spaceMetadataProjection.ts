@@ -7,7 +7,13 @@ import type { ProjectionSpaceRepositoryShape } from "../persistence/Services/Pro
 export type SpaceMetadataOrchestrationEvent = Extract<
   OrchestrationEvent,
   {
-    type: "space.created" | "space.meta-updated" | "space.order-updated" | "space.deleted";
+    type:
+      | "space.created"
+      | "space.meta-updated"
+      | "space.order-updated"
+      | "space.archived"
+      | "space.restored"
+      | "space.deleted";
   }
 >;
 
@@ -25,6 +31,7 @@ export const applySpaceMetadataProjection = (input: {
           sortOrder: input.event.payload.sortOrder,
           createdAt: input.event.payload.createdAt,
           updatedAt: input.event.payload.updatedAt,
+          archivedAt: null,
           deletedAt: null,
         });
         return;
@@ -78,6 +85,25 @@ export const applySpaceMetadataProjection = (input: {
             ...existing.value,
             updatedAt: input.event.payload.deletedAt,
             deletedAt: input.event.payload.deletedAt,
+          });
+        }
+        return;
+      }
+
+      case "space.archived":
+      case "space.restored": {
+        const existing = yield* input.projectionSpaceRepository.getById({
+          spaceId: input.event.payload.spaceId,
+        });
+        if (Option.isSome(existing)) {
+          const archived = input.event.type === "space.archived";
+          const updatedAt = archived
+            ? input.event.payload.archivedAt
+            : input.event.payload.restoredAt;
+          yield* input.projectionSpaceRepository.upsert({
+            ...existing.value,
+            archivedAt: archived ? updatedAt : null,
+            updatedAt,
           });
         }
       }

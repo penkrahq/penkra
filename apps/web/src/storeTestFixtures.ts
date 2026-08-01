@@ -117,6 +117,7 @@ export function makeState(thread: Thread): AppState {
   } = thread;
   return {
     spaces: [],
+    archivedSpaces: [],
     projects: [makeProject()],
     sidebarThreadSummaryById: {},
     threadsHydrated: true,

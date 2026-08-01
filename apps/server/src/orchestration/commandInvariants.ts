@@ -114,7 +114,7 @@ export function listActiveSpaces(
   readModel: OrchestrationReadModel,
 ): ReadonlyArray<OrchestrationSpace> {
   return readModel.spaces
-    .filter((space) => space.deletedAt === null)
+    .filter((space) => space.deletedAt === null && space.archivedAt === null)
     .toSorted((left, right) => left.sortOrder - right.sortOrder || left.id.localeCompare(right.id));
 }
 
@@ -124,14 +124,14 @@ export function requireSpace(input: {
   readonly spaceId: SpaceId;
 }): Effect.Effect<OrchestrationSpace, OrchestrationCommandInvariantError> {
   const space = findSpaceById(input.readModel, input.spaceId);
-  if (space && space.deletedAt === null) {
+  if (space && space.deletedAt === null && space.archivedAt === null) {
     return Effect.succeed(space);
   }
   return Effect.fail(
     invariantError(
       input.command.type,
       space
-        ? `Space '${input.spaceId}' was deleted and cannot handle command '${input.command.type}'.`
+        ? `Space '${input.spaceId}' is archived or deleted and cannot handle command '${input.command.type}'.`
         : `Space '${input.spaceId}' does not exist for command '${input.command.type}'.`,
     ),
   );

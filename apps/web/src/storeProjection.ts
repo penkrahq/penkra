@@ -73,6 +73,7 @@ function toThreadShell(thread: Thread): ThreadShell {
     id: thread.id,
     codexThreadId: thread.codexThreadId,
     projectId: thread.projectId,
+    spaceId: thread.spaceId ?? null,
     title: thread.title,
     modelSelection: thread.modelSelection,
     runtimeMode: thread.runtimeMode,
@@ -247,10 +248,20 @@ export function upsertSpace(
   state: AppState,
   incoming: OrchestrationReadModel["spaces"][number] | OrchestrationSpaceShell,
 ): AppState {
-  const existing = state.spaces.find((space) => space.id === incoming.id);
+  const currentArchivedSpaces = state.archivedSpaces ?? [];
+  const existing =
+    state.spaces.find((space) => space.id === incoming.id) ??
+    currentArchivedSpaces.find((space) => space.id === incoming.id);
   const nextSpace = normalizeSpace(incoming, existing);
-  if (existing === nextSpace) return state;
-  const spaces = existing
+  const existingActive = state.spaces.some((space) => space.id === incoming.id);
+  const existingArchived = currentArchivedSpaces.some((space) => space.id === incoming.id);
+  if (existingActive && existing === nextSpace && !existingArchived) {
+    return state;
+  }
+  const archivedSpaces = existingArchived
+    ? currentArchivedSpaces.filter((space) => space.id !== incoming.id)
+    : currentArchivedSpaces;
+  const spaces = existingActive
     ? state.spaces.map((space) => (space.id === incoming.id ? nextSpace : space))
     : [...state.spaces, nextSpace];
   return {
@@ -258,6 +269,7 @@ export function upsertSpace(
     spaces: spaces.toSorted(
       (left, right) => left.sortOrder - right.sortOrder || left.id.localeCompare(right.id),
     ),
+    archivedSpaces,
   };
 }
 
@@ -265,8 +277,25 @@ export function removeSpace(
   state: AppState,
   spaceId: Space["id"],
   assignmentUpdatedAt?: string,
+  preserveAssignments = false,
 ): AppState {
+  const currentArchivedSpaces = state.archivedSpaces ?? [];
   const spaces = state.spaces.filter((space) => space.id !== spaceId);
+  if (preserveAssignments) {
+    const archivedSpace = state.spaces.find((space) => space.id === spaceId);
+    if (!archivedSpace) return state;
+    return {
+      ...state,
+      spaces,
+      archivedSpaces: [
+        ...currentArchivedSpaces.filter((space) => space.id !== spaceId),
+        archivedSpace,
+      ].toSorted(
+        (left, right) => left.sortOrder - right.sortOrder || left.id.localeCompare(right.id),
+      ),
+    };
+  }
+  const archivedSpaces = currentArchivedSpaces.filter((space) => space.id !== spaceId);
   let projectsChanged = false;
   const projects = state.projects.map((project) => {
     if ((project.spaceId ?? null) !== spaceId) return project;
@@ -284,8 +313,39 @@ export function removeSpace(
         : {}),
     };
   });
-  if (spaces.length === state.spaces.length && !projectsChanged) return state;
-  return { ...state, spaces, projects: projectsChanged ? projects : state.projects };
+  let threadShellsChanged = false;
+  const threadShellById = Object.fromEntries(
+    Object.entries(state.threadShellById ?? {}).map(([threadId, thread]) => {
+      if ((thread.spaceId ?? null) !== spaceId) return [threadId, thread];
+      threadShellsChanged = true;
+      return [threadId, { ...thread, spaceId: null }];
+    }),
+  ) as AppState["threadShellById"];
+  let threadSummariesChanged = false;
+  const sidebarThreadSummaryById = Object.fromEntries(
+    Object.entries(state.sidebarThreadSummaryById).map(([threadId, thread]) => {
+      if ((thread.spaceId ?? null) !== spaceId) return [threadId, thread];
+      threadSummariesChanged = true;
+      return [threadId, { ...thread, spaceId: null }];
+    }),
+  );
+  if (
+    spaces.length === state.spaces.length &&
+    archivedSpaces.length === currentArchivedSpaces.length &&
+    !projectsChanged &&
+    !threadShellsChanged &&
+    !threadSummariesChanged
+  ) {
+    return state;
+  }
+  return {
+    ...state,
+    spaces,
+    archivedSpaces,
+    projects: projectsChanged ? projects : state.projects,
+    ...(threadShellsChanged ? { threadShellById } : {}),
+    ...(threadSummariesChanged ? { sidebarThreadSummaryById } : {}),
+  };
 }
 
 export function applySpaceOrder(
@@ -354,6 +414,7 @@ function buildSidebarThreadSummary(
   const nextSummary: SidebarThreadSummary = {
     id: thread.id,
     projectId: thread.projectId,
+    spaceId: thread.spaceId ?? null,
     title: thread.title,
     modelSelection: thread.modelSelection,
     interactionMode: thread.interactionMode,
@@ -1223,6 +1284,7 @@ export function syncServerShellSnapshot(
     (project) => deletedProjectIdsById[project.id] === undefined,
   );
   const spaces = mapSpaces(snapshot.spaces ?? [], state.spaces ?? []);
+  const archivedSpaces = mapSpaces(snapshot.archivedSpaces ?? [], state.archivedSpaces ?? []);
   const projects = mapProjects(snapshotProjects, state.projects);
   const nextThreadIds = new Set(snapshotThreads.map((thread) => thread.id));
 
@@ -1266,6 +1328,7 @@ export function syncServerShellSnapshot(
       ...normalizedState,
       shellSnapshotSequence: Math.max(state.shellSnapshotSequence ?? 0, snapshot.snapshotSequence),
       spaces,
+      archivedSpaces,
       projects,
       sidebarThreadSummaryById,
       threadsHydrated: true,
@@ -1329,7 +1392,12 @@ export function applyShellEvent(state: AppState, event: OrchestrationShellStream
     case "space-upserted":
       return upsertSpace(state, event.space);
     case "space-removed":
-      return removeSpace(state, event.spaceId, event.updatedAt);
+      return removeSpace(
+        state,
+        event.spaceId,
+        event.updatedAt,
+        event.preserveAssignments ?? false,
+      );
     case "space-order-updated":
       return applySpaceOrder(state, event.orderedSpaceIds);
     case "project-upserted":
@@ -1372,8 +1440,16 @@ export function syncServerReadModel(state: AppState, readModel: OrchestrationRea
     readModel.projects.filter((project) => project.deletedAt === null).map((project) => project.id),
   );
   const spaces = mapSpaces(
-    (readModel.spaces ?? []).filter((space) => space.deletedAt === null),
+    (readModel.spaces ?? []).filter(
+      (space) => space.deletedAt === null && space.archivedAt === null,
+    ),
     state.spaces ?? [],
+  );
+  const archivedSpaces = mapSpaces(
+    (readModel.spaces ?? []).filter(
+      (space) => space.deletedAt === null && space.archivedAt !== null,
+    ),
+    state.archivedSpaces ?? [],
   );
   const projects = mapProjects(
     readModel.projects.filter(
@@ -1440,6 +1516,7 @@ export function syncServerReadModel(state: AppState, readModel: OrchestrationRea
     : nextSidebarThreadSummaryById;
   if (
     spaces === state.spaces &&
+    archivedSpaces === state.archivedSpaces &&
     projects === state.projects &&
     sidebarThreadSummaryById === state.sidebarThreadSummaryById &&
     normalizedState.threadIds === state.threadIds &&
@@ -1477,6 +1554,7 @@ export function syncServerReadModel(state: AppState, readModel: OrchestrationRea
       ...normalizedState,
       shellSnapshotSequence: Math.max(state.shellSnapshotSequence ?? 0, readModel.snapshotSequence),
       spaces,
+      archivedSpaces,
       projects,
       sidebarThreadSummaryById,
       threadsHydrated: true,

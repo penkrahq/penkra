@@ -110,6 +110,8 @@ function commandToAggregateRef(command: OrchestrationCommand): {
     case "space.create":
     case "space.meta.update":
     case "space.reorder":
+    case "space.archive":
+    case "space.restore":
     case "space.delete":
     case "space.projects.assign":
       return {
@@ -138,6 +140,8 @@ function isShellMetadataEvent(event: OrchestrationEvent): event is ShellMetadata
     event.type === "space.created" ||
     event.type === "space.meta-updated" ||
     event.type === "space.order-updated" ||
+    event.type === "space.archived" ||
+    event.type === "space.restored" ||
     event.type === "space.deleted" ||
     event.type === "project.created" ||
     event.type === "project.meta-updated" ||

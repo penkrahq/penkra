@@ -4,7 +4,7 @@
 // Layer: Web orchestration helper
 // Exports: Container-chat startup plus segment-aware fresh-chat dispatch.
 
-import type { ProjectId, ThreadId } from "@synara/contracts";
+import type { ProjectId, SpaceId, ThreadId } from "@synara/contracts";
 import type { Project } from "../types";
 import { isStudioContainerProject } from "./studioProjects";
 import type { ServerWorkspacePaths } from "./serverWorkspacePaths";
@@ -46,6 +46,7 @@ export async function startContainerChat(input: {
     options?: NewThreadOptions,
   ) => Promise<ThreadId | null>;
   readonly fresh?: boolean | undefined;
+  readonly spaceId?: SpaceId | null | undefined;
   readonly forceLocalWorkspace?: boolean | undefined;
   readonly errorLabel: string;
 }): Promise<StartContainerChatResult> {
@@ -55,9 +56,10 @@ export async function startContainerChat(input: {
       return { ok: false, error: input.errorLabel };
     }
     const threadOptions: NewThreadOptions | undefined =
-      input.fresh === true || input.forceLocalWorkspace === true
+      input.fresh === true || input.forceLocalWorkspace === true || input.spaceId !== undefined
         ? {
             ...(input.fresh === true ? { fresh: true } : {}),
+            ...(input.spaceId !== undefined ? { spaceId: input.spaceId } : {}),
             envMode: "local",
             branch: null,
             worktreePath: null,

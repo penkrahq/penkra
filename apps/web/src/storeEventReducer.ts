@@ -769,6 +769,13 @@ function applyOrchestrationEvent(
     case "space.order-updated":
       return applySpaceOrder(state, event.payload.orderedSpaceIds, event.payload.updatedAt);
 
+    case "space.archived":
+      return removeSpace(state, event.payload.spaceId, event.payload.archivedAt, true);
+
+    case "space.restored":
+      // The shell stream supplies the restored row with its full name/icon/order metadata.
+      return state;
+
     case "space.deleted":
       return removeSpace(state, event.payload.spaceId, event.payload.deletedAt);
 

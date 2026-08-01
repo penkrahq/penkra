@@ -31,6 +31,7 @@ function modelSelection(
 function makeDraftThread(partial?: Partial<DraftThreadState>): DraftThreadState {
   return {
     projectId: PROJECT_ID,
+    spaceId: null,
     createdAt: "2026-04-05T10:00:00.000Z",
     runtimeMode: "approval-required",
     interactionMode: "default",
@@ -248,6 +249,7 @@ describe("threadBootstrap", () => {
       }),
     ).toEqual({
       createdAt: "2026-04-05T10:00:00.000Z",
+      spaceId: null,
       branch: "feature/new-terminal",
       worktreePath: "/repo/.worktrees/new-terminal",
       workingDirectory: null,
@@ -268,6 +270,7 @@ describe("threadBootstrap", () => {
       }),
     ).toEqual({
       createdAt: "2026-04-05T10:00:00.000Z",
+      spaceId: null,
       branch: null,
       worktreePath: null,
       workingDirectory: null,
@@ -295,6 +298,7 @@ describe("threadBootstrap", () => {
         projectId: PROJECT_ID,
       }),
     ).toEqual({
+      spaceId: null,
       modelSelection: modelSelection("claudeAgent", "claude-opus-4-6", {
         effort: "max",
       }),

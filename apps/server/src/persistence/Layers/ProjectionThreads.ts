@@ -5,6 +5,7 @@ import * as SchemaGetter from "effect/SchemaGetter";
 
 import { toPersistenceSqlError } from "../Errors.ts";
 import {
+  ClearProjectionThreadSpaceAssignmentsInput,
   DeleteProjectionThreadInput,
   GetProjectionThreadInput,
   ListProjectionThreadsByProjectInput,
@@ -50,6 +51,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
         INSERT INTO projection_threads (
           thread_id,
           project_id,
+          space_id,
           title,
           model_selection_json,
           runtime_mode,
@@ -92,6 +94,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
         VALUES (
           ${row.threadId},
           ${row.projectId},
+          ${row.spaceId ?? null},
           ${row.title},
           ${JSON.stringify(row.modelSelection)},
           ${row.runtimeMode},
@@ -134,6 +137,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
         ON CONFLICT (thread_id)
         DO UPDATE SET
           project_id = excluded.project_id,
+          space_id = excluded.space_id,
           title = excluded.title,
           model_selection_json = excluded.model_selection_json,
           runtime_mode = excluded.runtime_mode,
@@ -183,6 +187,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
         SELECT
           thread_id AS "threadId",
           project_id AS "projectId",
+          space_id AS "spaceId",
           title,
           model_selection_json AS "modelSelection",
           runtime_mode AS "runtimeMode",
@@ -234,6 +239,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
         SELECT
           thread_id AS "threadId",
           project_id AS "projectId",
+          space_id AS "spaceId",
           title,
           model_selection_json AS "modelSelection",
           runtime_mode AS "runtimeMode",
@@ -287,6 +293,16 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
       `,
   });
 
+  const clearSpaceAssignmentsRows = SqlSchema.void({
+    Request: ClearProjectionThreadSpaceAssignmentsInput,
+    execute: ({ spaceId, updatedAt }) => sql`
+      UPDATE projection_threads
+      SET space_id = NULL,
+          updated_at = CASE WHEN updated_at > ${updatedAt} THEN updated_at ELSE ${updatedAt} END
+      WHERE space_id = ${spaceId}
+    `,
+  });
+
   const upsert: ProjectionThreadRepositoryShape["upsert"] = (row) =>
     upsertProjectionThreadRow(row).pipe(
       Effect.mapError(toPersistenceSqlError("ProjectionThreadRepository.upsert:query")),
@@ -308,6 +324,12 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
     );
 
   return {
+    clearSpaceAssignments: (input) =>
+      clearSpaceAssignmentsRows(input).pipe(
+        Effect.mapError(
+          toPersistenceSqlError("ProjectionThreadRepository.clearSpaceAssignments:query"),
+        ),
+      ),
     upsert,
     getById,
     listByProjectId,

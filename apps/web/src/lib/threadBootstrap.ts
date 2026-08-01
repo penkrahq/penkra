@@ -11,6 +11,7 @@ import {
   type ProviderInteractionMode,
   type ProviderKind,
   type RuntimeMode,
+  type SpaceId,
   type ThreadEnvironmentMode,
   type ThreadId,
 } from "@synara/contracts";
@@ -24,6 +25,7 @@ import {
 import { DEFAULT_INTERACTION_MODE, type Thread, type ThreadPrimarySurface } from "../types";
 
 export interface NewThreadOptions {
+  spaceId?: SpaceId | null;
   branch?: string | null;
   worktreePath?: string | null;
   workingDirectory?: string | null;
@@ -113,6 +115,7 @@ interface ResolveTerminalThreadCreationStateInput {
 }
 
 export interface TerminalThreadCreationState {
+  spaceId: SpaceId | null;
   branch: string | null;
   envMode: DraftThreadEnvMode;
   interactionMode: ProviderInteractionMode;
@@ -161,6 +164,7 @@ export function createActiveDraftThreadSnapshot(
   }
   return {
     projectId: activeDraftThread.projectId,
+    spaceId: activeDraftThread.spaceId ?? null,
     createdAt: activeDraftThread.createdAt,
     runtimeMode: activeDraftThread.runtimeMode,
     interactionMode: activeDraftThread.interactionMode,
@@ -214,6 +218,7 @@ export function createFreshDraftThreadSeed(input: {
 }): Omit<DraftThreadState, "projectId" | "interactionMode"> {
   return {
     createdAt: input.createdAt,
+    spaceId: input.options?.spaceId ?? null,
     branch: input.options?.branch ?? null,
     worktreePath: input.options?.worktreePath ?? null,
     workingDirectory: input.options?.workingDirectory ?? null,
@@ -228,6 +233,7 @@ export function createFreshDraftThreadSeed(input: {
 export function hasDraftContextOverrides(options?: NewThreadOptions): boolean {
   return (
     options?.branch !== undefined ||
+    options?.spaceId !== undefined ||
     options?.worktreePath !== undefined ||
     options?.workingDirectory !== undefined ||
     options?.envMode !== undefined
@@ -240,6 +246,7 @@ export function buildDraftThreadContextPatch(
   options?: NewThreadOptions,
 ): {
   branch?: string | null;
+  spaceId?: SpaceId | null;
   entryPoint: ThreadPrimarySurface;
   envMode?: DraftThreadEnvMode;
   worktreePath?: string | null;
@@ -251,6 +258,7 @@ export function buildDraftThreadContextPatch(
   const shouldClearWorktreeForLocalMode =
     options?.envMode === "local" && options?.worktreePath === undefined;
   return {
+    ...(options?.spaceId !== undefined ? { spaceId: options.spaceId ?? null } : {}),
     ...(options?.branch !== undefined ? { branch: options.branch ?? null } : {}),
     ...(options?.worktreePath !== undefined || shouldClearWorktreeForLocalMode
       ? { worktreePath: options?.worktreePath ?? null }
@@ -302,6 +310,7 @@ export function resolveTerminalThreadCreationState(
           : undefined;
 
   return {
+    spaceId: input.options?.spaceId ?? input.draftThread?.spaceId ?? null,
     modelSelection: resolvePreferredComposerModelSelection({
       draft: input.draftComposerState,
       threadModelSelection:

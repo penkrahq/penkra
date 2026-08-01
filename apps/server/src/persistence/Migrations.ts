@@ -93,6 +93,8 @@ import Migration0079 from "./Migrations/079_Spaces.ts";
 import Migration0080 from "./Migrations/080_PruneRejectedSynaraSurfaces.ts";
 import Migration0086 from "./Migrations/086_NormalizeStudioThreadWorkspaces.ts";
 import Migration0087 from "./Migrations/087_DropUnusedOrchestrationEventIndexes.ts";
+import Migration0088 from "./Migrations/088_ProjectionThreadsSpaces.ts";
+import Migration0089 from "./Migrations/089_ProjectionSpacesArchive.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -185,6 +187,8 @@ export const migrationEntries = [
   [80, "PruneRejectedSynaraSurfaces", Migration0080],
   [86, "NormalizeStudioThreadWorkspaces", Migration0086],
   [87, "DropUnusedOrchestrationEventIndexes", Migration0087],
+  [88, "ProjectionThreadsSpaces", Migration0088],
+  [89, "ProjectionSpacesArchive", Migration0089],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

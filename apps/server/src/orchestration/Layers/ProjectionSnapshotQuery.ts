@@ -442,6 +442,7 @@ function toProjectedProject(row: ProjectionProjectDbRow): OrchestrationProject {
     spaceId: row.spaceId,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
+    archivedAt: row.archivedAt ?? null,
     deletedAt: row.deletedAt,
   };
 }
@@ -454,6 +455,7 @@ function toProjectedSpace(row: ProjectionSpaceDbRow) {
     sortOrder: row.sortOrder,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
+    archivedAt: row.archivedAt ?? null,
     deletedAt: row.deletedAt,
   } as const;
 }
@@ -613,6 +615,7 @@ function toProjectedThreadShellFromStoredSummary(input: {
   return {
     id: threadRow.threadId,
     projectId: threadRow.projectId,
+    spaceId: threadRow.spaceId ?? null,
     title: threadRow.title,
     modelSelection: threadRow.modelSelection,
     runtimeMode: threadRow.runtimeMode,
@@ -666,6 +669,7 @@ function toProjectedThread(input: {
   return {
     id: threadRow.threadId,
     projectId: threadRow.projectId,
+    spaceId: threadRow.spaceId ?? null,
     title: threadRow.title,
     modelSelection: threadRow.modelSelection,
     runtimeMode: threadRow.runtimeMode,
@@ -764,6 +768,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           sort_order AS "sortOrder",
           created_at AS "createdAt",
           updated_at AS "updatedAt",
+          archived_at AS "archivedAt",
           deleted_at AS "deletedAt"
         FROM projection_spaces
         ORDER BY sort_order ASC, space_id ASC
@@ -800,6 +805,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         SELECT
           thread_id AS "threadId",
           project_id AS "projectId",
+          space_id AS "spaceId",
           title,
           model_selection_json AS "modelSelection",
           runtime_mode AS "runtimeMode",
@@ -851,6 +857,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         SELECT
           thread_id AS "threadId",
           project_id AS "projectId",
+          space_id AS "spaceId",
           title,
           model_selection_json AS "modelSelection",
           runtime_mode AS "runtimeMode",
@@ -1289,10 +1296,12 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           sort_order AS "sortOrder",
           created_at AS "createdAt",
           updated_at AS "updatedAt",
+          archived_at AS "archivedAt",
           deleted_at AS "deletedAt"
         FROM projection_spaces
         WHERE space_id = ${spaceId}
           AND deleted_at IS NULL
+          AND archived_at IS NULL
         LIMIT 1
       `,
   });
@@ -1344,6 +1353,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         SELECT
           thread_id AS "threadId",
           project_id AS "projectId",
+          space_id AS "spaceId",
           title,
           model_selection_json AS "modelSelection",
           runtime_mode AS "runtimeMode",
@@ -1397,6 +1407,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         SELECT
           thread_id AS "threadId",
           project_id AS "projectId",
+          space_id AS "spaceId",
           title,
           model_selection_json AS "modelSelection",
           runtime_mode AS "runtimeMode",
@@ -2246,7 +2257,12 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
 
           const snapshot = {
             snapshotSequence: computeSnapshotSequence(stateRows),
-            spaces: spaceRows.filter((row) => row.deletedAt === null).map(toProjectedSpaceShell),
+            spaces: spaceRows
+              .filter((row) => row.deletedAt === null && row.archivedAt === null)
+              .map(toProjectedSpaceShell),
+            archivedSpaces: spaceRows
+              .filter((row) => row.deletedAt === null && row.archivedAt !== null)
+              .map(toProjectedSpaceShell),
             projects: projectRows
               .filter((row) => row.deletedAt === null)
               .map((row) => toProjectedProjectShell(row)),

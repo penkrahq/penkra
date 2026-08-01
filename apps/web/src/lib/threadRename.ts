@@ -10,6 +10,7 @@ import {
   type ProjectId,
   type ProviderInteractionMode,
   type RuntimeMode,
+  type SpaceId,
   type ThreadId,
 } from "@synara/contracts";
 import { type DraftThreadEnvMode } from "../composerDraftStore";
@@ -26,6 +27,7 @@ export async function dispatchThreadRename(input: {
   createIfMissing?:
     | {
         projectId: ProjectId;
+        spaceId?: SpaceId | null;
         modelSelection: ModelSelection;
         runtimeMode: RuntimeMode;
         interactionMode: ProviderInteractionMode;
@@ -58,6 +60,7 @@ export async function dispatchThreadRename(input: {
         commandId: newCommandId(),
         threadId: input.threadId,
         projectId: input.createIfMissing.projectId,
+        spaceId: input.createIfMissing.spaceId ?? null,
         title: trimmed,
         modelSelection: input.createIfMissing.modelSelection,
         runtimeMode: input.createIfMissing.runtimeMode,
