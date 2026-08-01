@@ -23,7 +23,7 @@ import {
 import { RouterProvider, createMemoryHistory } from "@tanstack/react-router";
 import { HttpResponse, http, ws } from "msw";
 import { setupWorker } from "msw/browser";
-import { page } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
@@ -4180,15 +4180,14 @@ describe("ChatView timeline estimator parity (full app)", () => {
         .toBeInTheDocument();
 
       await page.getByRole("button", { name: "New space", exact: true }).click();
-      await expect.element(page.getByRole("heading", { name: "New space" })).toBeInTheDocument();
-      await page.getByLabelText("Name").fill("Focus");
-      await page.getByRole("button", { name: "Create space", exact: true }).click();
+      const inlineSpaceName = page.getByLabelText("New Space name");
+      await expect.element(inlineSpaceName).toBeInTheDocument();
+      await inlineSpaceName.fill("Focus");
+      await userEvent.keyboard("{Enter}");
 
-      // The nested editor closes, the space.create command is dispatched, and
+      // The inline editor closes, the space.create command is dispatched, and
       // the fresh space is preselected as the project's destination.
-      await expect
-        .element(page.getByRole("heading", { name: "New space" }))
-        .not.toBeInTheDocument();
+      await expect.element(inlineSpaceName).not.toBeInTheDocument();
       let createdSpaceId: unknown;
       await vi.waitFor(
         () => {
