@@ -442,7 +442,6 @@ function toProjectedProject(row: ProjectionProjectDbRow): OrchestrationProject {
     spaceId: row.spaceId,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
-    archivedAt: row.archivedAt ?? null,
     deletedAt: row.deletedAt,
   };
 }

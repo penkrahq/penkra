@@ -1,4 +1,4 @@
-import type { OrchestrationCommand } from "@synara/contracts";
+import { SpaceId, type OrchestrationCommand } from "@synara/contracts";
 import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
@@ -39,7 +39,7 @@ describe("default Spaces bootstrap", () => {
 
   it("does not recreate defaults when Space history already exists", async () => {
     const existing = {
-      id: "existing",
+      id: SpaceId.makeUnsafe("existing"),
       name: "Existing",
       icon: "star",
       sortOrder: 0,
