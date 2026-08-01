@@ -4126,7 +4126,20 @@ describe("ProviderCommandReactor", () => {
       }),
     );
 
-    await waitFor(async () => (await readHarnessThread(harness))?.session?.status === "error");
+    await waitFor(async () => {
+      const thread = await readHarnessThread(harness);
+      return (
+        thread?.session?.status === "error" &&
+        thread.activities.some((activity) => {
+          const payload = activity.payload;
+          const settlementStatus =
+            typeof payload === "object" && payload !== null && !Array.isArray(payload)
+              ? (payload as Record<string, unknown>)["settlementStatus"]
+              : undefined;
+          return activity.kind === "provider.turn.start.failed" && settlementStatus === "uncertain";
+        })
+      );
+    });
     const thread = await readHarnessThread(harness);
     expect(thread?.session?.activeTurnId).toBeNull();
     expect(thread?.session?.lastError).toContain("did not respond within 25ms");
