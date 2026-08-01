@@ -12,8 +12,9 @@ import { FolderGroupShared } from "./folder-group-shared/FolderGroupShared";
 import { ShowMoreRow } from "./show-more-row/ShowMoreRow";
 import { SidebarHeaderShared } from "./sidebar-header-shared/SidebarHeaderShared";
 import { SidebarProjects } from "./sidebar-projects/SidebarProjects";
+import { SidebarTopNavigation } from "./sidebar-top-navigation/SidebarTopNavigation";
+import { SpaceHeaderShared } from "./space-header-shared/SpaceHeaderShared";
 import { ThreadRowShared } from "./thread-row-shared/ThreadRowShared";
-import { WorkspaceHeaderShared } from "./workspace-header-shared/WorkspaceHeaderShared";
 
 const threads = Array.from({ length: 12 }, (_, index) => ({
   id: `thread-${index}`,
@@ -74,6 +75,12 @@ describe("Pencil left rail", () => {
     expect(disclosure.element().querySelector("[data-folder-state='closed']")).toBeVisible();
     expect(disclosure.element().querySelector("[data-folder-state='open']")).not.toBeVisible();
     const rowRect = disclosure.element().getBoundingClientRect();
+    const disclosureShell = document.querySelector<HTMLElement>("[data-slot='disclosure-region']");
+    expect(disclosureShell).not.toBeNull();
+    expect(getComputedStyle(disclosureShell!).interpolateSize).toBe("allow-keywords");
+    expect(getComputedStyle(disclosureShell!).transitionProperty).toBe("height");
+    expect(getComputedStyle(disclosureShell!).transitionDuration).toBe("0.15s");
+    expect(getComputedStyle(disclosureShell!).transitionTimingFunction).toBe("ease");
     const leadingRect = disclosure
       .element()
       .querySelector<HTMLElement>("[data-slot='left-rail-leading']")!
@@ -124,12 +131,101 @@ describe("Pencil left rail", () => {
     );
 
     await page.getByRole("button", { name: "Outside folder" }).hover();
-    const folder = page.getByRole("button", { name: "Open folder" }).element();
-    const action = page.getByRole("button", { name: "Folder actions" }).element();
+    const folder = page.getByRole("button", { name: "Open folder", exact: true }).element();
+    const action = page.getByRole("button", { name: "Create thread in Open folder" }).element();
 
-    expect(getComputedStyle(folder).backgroundColor).toBe("rgba(0, 0, 0, 0)");
+    await vi.waitFor(() => {
+      expect(getComputedStyle(folder).backgroundColor).toBe("rgba(0, 0, 0, 0)");
+    });
     expect(folder.querySelector("[data-folder-state='open']")).toBeVisible();
     expect(getComputedStyle(action).opacity).toBe("0");
+  });
+
+  it("keeps the folder surface highlighted and its label clear of the hovered action", async () => {
+    await render(
+      <div className="w-56">
+        <FolderGroupShared
+          label="A very long project folder name that must yield"
+          onHeaderAction={vi.fn()}
+          threads={threads.slice(0, 1)}
+        />
+      </div>,
+    );
+
+    const folder = page
+      .getByRole("button", { name: "A very long project folder name that must yield", exact: true })
+      .element();
+    const action = page
+      .getByRole("button", {
+        name: "Create thread in A very long project folder name that must yield",
+      })
+      .element();
+    const label = folder.querySelector<HTMLElement>("[data-slot='left-rail-label']")!;
+
+    await page
+      .getByRole("button", {
+        name: "Create thread in A very long project folder name that must yield",
+      })
+      .hover();
+
+    expect(getComputedStyle(folder).backgroundColor).not.toBe("rgba(0, 0, 0, 0)");
+    expect(getComputedStyle(action).opacity).toBe("1");
+    expect(
+      action.getBoundingClientRect().left - label.getBoundingClientRect().right,
+    ).toBeGreaterThanOrEqual(11);
+  });
+
+  it("does not promote an active folder or reveal its create action", async () => {
+    await render(
+      <>
+        <div className="w-56">
+          <FolderGroupShared
+            expanded
+            headerState="active"
+            label="Active folder"
+            onHeaderAction={vi.fn()}
+            threads={threads.slice(0, 1)}
+          />
+        </div>
+        <button className="fixed right-0 bottom-0" type="button">
+          Outside active folder
+        </button>
+      </>,
+    );
+
+    await page.getByRole("button", { name: "Outside active folder" }).hover();
+    await new Promise((resolve) => window.setTimeout(resolve, 200));
+    const folder = page.getByRole("button", { name: "Active folder", exact: true }).element();
+    const action = page.getByRole("button", { name: "Create thread in Active folder" }).element();
+
+    expect(getComputedStyle(folder).backgroundColor).toBe("rgba(0, 0, 0, 0)");
+    expect(getComputedStyle(action).opacity).toBe("0");
+  });
+
+  it("puts active treatment on the thread without selecting its folder", async () => {
+    await render(
+      <div className="w-56">
+        <FolderGroupShared
+          expanded
+          label="Work folder"
+          threads={[{ id: "active", label: "Active thread", state: "active" }]}
+        />
+      </div>,
+    );
+
+    const folder = page.getByRole("button", { name: "Work folder", exact: true }).element();
+    const thread = page.getByRole("button", { name: "Active thread", exact: true }).element();
+
+    expect(getComputedStyle(folder).backgroundColor).toBe("rgba(0, 0, 0, 0)");
+    expect(getComputedStyle(thread).backgroundColor).not.toBe("rgba(0, 0, 0, 0)");
+  });
+
+  it("starts direct threads from Space headers rather than a global New chat row", async () => {
+    await render(<SidebarTopNavigation />);
+
+    expect(page.getByRole("button", { name: "New chat" }).query()).toBeNull();
+    await expect.element(page.getByRole("button", { name: "Apps" })).toBeVisible();
+    await expect.element(page.getByRole("button", { name: "Scheduled" })).toBeVisible();
   });
 
   it("uses the Pencil root and nested thread columns", async () => {
@@ -169,22 +265,22 @@ describe("Pencil left rail", () => {
     expect(getComputedStyle(showMore).paddingLeft).toBe("24px");
   });
 
-  it("reveals workspace affordances and shifts its title from the default edge", async () => {
+  it("reveals space affordances and shifts its title from the default edge", async () => {
     const onAction = vi.fn();
     await render(
       <>
         <div className="w-56">
-          <WorkspaceHeaderShared onAction={onAction}>penkra</WorkspaceHeaderShared>
+          <SpaceHeaderShared onAction={onAction}>Personal</SpaceHeaderShared>
         </div>
         <button className="fixed right-0 bottom-0" type="button">
-          Outside workspace
+          Outside space
         </button>
       </>,
     );
 
-    const row = page.getByRole("button", { name: "penkra" });
-    const action = page.getByRole("button", { name: "Workspace actions" });
-    await page.getByRole("button", { name: "Outside workspace" }).hover();
+    const row = page.getByRole("button", { name: "Personal", exact: true });
+    const action = page.getByRole("button", { name: "Create thread in Personal" });
+    await page.getByRole("button", { name: "Outside space" }).hover();
     const leading = row.element().querySelector<HTMLElement>("[data-slot='left-rail-leading']")!;
     const label = row.element().querySelector<HTMLElement>("[data-slot='left-rail-label']")!;
     const defaultRowRect = row.element().getBoundingClientRect();

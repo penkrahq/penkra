@@ -17,7 +17,7 @@ export function SidebarProjects({ children, className }: SidebarProjectsProps) {
       hideScrollbars
       scrollFade
     >
-      <div className="flex min-h-full w-full flex-col gap-0.5 p-2">{children}</div>
+      <div className="flex min-h-full w-full flex-col gap-3 p-2">{children}</div>
     </ScrollArea>
   );
 }

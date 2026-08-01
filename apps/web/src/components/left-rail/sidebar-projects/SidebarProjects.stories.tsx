@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import { FolderGroupShared } from "../folder-group-shared/FolderGroupShared";
-import { WorkspaceHeaderShared } from "../workspace-header-shared/WorkspaceHeaderShared";
+import { SpaceGroupShared } from "../space-group-shared/SpaceGroupShared";
 import { SidebarProjects } from "./SidebarProjects";
 
 const threads = Array.from({ length: 7 }, (_, index) => ({
@@ -29,10 +29,17 @@ export const Overflowing: Story = {
   args: {
     children: (
       <>
-        <WorkspaceHeaderShared>penkra</WorkspaceHeaderShared>
-        {["penut", "Borge", "Atferd"].map((label) => (
-          <FolderGroupShared defaultExpanded key={label} label={label} showMore threads={threads} />
-        ))}
+        <SpaceGroupShared label="Personal">
+          {["penut", "Borge", "Atferd"].map((label) => (
+            <FolderGroupShared
+              defaultExpanded
+              key={label}
+              label={label}
+              showMore
+              threads={threads}
+            />
+          ))}
+        </SpaceGroupShared>
       </>
     ),
   },

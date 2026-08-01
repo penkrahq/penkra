@@ -136,11 +136,7 @@ import { DisclosureRegion } from "../ui/DisclosureRegion";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
 import { MessageUserAdapter } from "../middle-panel/message-user/MessageUserAdapter";
 import { MessageAssistantAdapter } from "../middle-panel/message-assistant/MessageAssistantAdapter";
-import {
-  DISCLOSURE_CLEANUP_BUFFER_MS,
-  DISCLOSURE_TRANSITION_MS,
-  disclosureContentClassName,
-} from "~/lib/disclosureMotion";
+import { DISCLOSURE_TRANSITION_MS, disclosureContentClassName } from "~/lib/disclosureMotion";
 import { getAppTypographyScale } from "../../lib/appTypography";
 import type { SubagentToolTrace } from "./subagentToolTrace.logic";
 import {
@@ -2533,7 +2529,7 @@ function reconcileWorktreeSetupPresentation(params: {
     cleanupTimeoutRef.current = window.setTimeout(() => {
       cleanupTimeoutRef.current = null;
       setPresented(null);
-    }, DISCLOSURE_TRANSITION_MS + DISCLOSURE_CLEANUP_BUFFER_MS);
+    }, DISCLOSURE_TRANSITION_MS);
   });
 }
 
@@ -2591,7 +2587,7 @@ function useSettledTurnCollapseTransitions(
             delete next[messageId];
             return next;
           });
-        }, DISCLOSURE_TRANSITION_MS + DISCLOSURE_CLEANUP_BUFFER_MS);
+        }, DISCLOSURE_TRANSITION_MS);
         timersRef.current.set(messageId, { closeFrame: null, cleanupTimeout });
       });
       timersRef.current.set(messageId, { closeFrame, cleanupTimeout: null });

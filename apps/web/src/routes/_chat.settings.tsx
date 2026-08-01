@@ -1,18 +1,21 @@
 // FILE: _chat.settings.tsx
-// Purpose: Route the Settings dialog and its Pencil-defined page components.
+// Purpose: Route the Pencil-defined Settings page components.
 // Layer: Route screen
 // Exports: Settings route component for `/settings`
 
 import { createFileRoute, useNavigate, useSearch } from "@tanstack/react-router";
 
-import type { SettingsPage } from "../components/settings/modal-settings/ModalSettings";
-import { SettingsDialog } from "../components/settings/modal-settings/SettingsDialog";
 import { SettingsPageContent } from "../components/settings/pages/SettingsPageContent";
+import {
+  SettingsPage,
+  type SettingsPageId,
+} from "../components/settings/settings-page/SettingsPage";
 import { normalizeSettingsSection, type SettingsSectionId } from "../settingsNavigation";
 
-const SETTINGS_SECTION_BY_PAGE: Readonly<Record<SettingsPage, SettingsSectionId>> = {
+const SETTINGS_SECTION_BY_PAGE: Readonly<Record<SettingsPageId, SettingsSectionId>> = {
   general: "general",
   permissions: "behavior",
+  spaces: "spaces",
   agents: "providers",
   apps: "appsnap",
   connectors: "integrations",
@@ -20,7 +23,8 @@ const SETTINGS_SECTION_BY_PAGE: Readonly<Record<SettingsPage, SettingsSectionId>
   account: "profile",
 };
 
-function settingsPageFromSection(section: SettingsSectionId): SettingsPage {
+function settingsPageFromSection(section: SettingsSectionId): SettingsPageId {
+  if (section === "spaces") return "spaces";
   if (section === "appearance") return "appearance";
   if (section === "profile") return "account";
   if (
@@ -43,10 +47,7 @@ function SettingsRouteView() {
   const activePage = settingsPageFromSection(normalizeSettingsSection(routeSearch.section));
 
   return (
-    <SettingsDialog
-      onClose={() => {
-        void navigate({ to: "/" });
-      }}
+    <SettingsPage
       onPageChange={(page) => {
         const section = SETTINGS_SECTION_BY_PAGE[page];
         void navigate({
@@ -59,7 +60,7 @@ function SettingsRouteView() {
       page={activePage}
     >
       <SettingsPageContent page={activePage} />
-    </SettingsDialog>
+    </SettingsPage>
   );
 }
 

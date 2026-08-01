@@ -54,4 +54,31 @@ describe("showDesktopConfirmDialog", () => {
       }),
     );
   });
+
+  it("supports contextual labels and warning details", async () => {
+    showMessageBoxMock.mockResolvedValue({ response: 1 });
+
+    const result = await showDesktopConfirmDialog(
+      {
+        type: "warning",
+        title: "Penkra",
+        message: "Log out of Penkra?",
+        detail: "You’ll need to sign in again to access your account.",
+        cancelLabel: "Cancel",
+        confirmLabel: "Log Out",
+      },
+      null,
+    );
+
+    expect(result).toBe(true);
+    expect(showMessageBoxMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "warning",
+        title: "Penkra",
+        message: "Log out of Penkra?",
+        detail: "You’ll need to sign in again to access your account.",
+        buttons: ["Cancel", "Log Out"],
+      }),
+    );
+  });
 });

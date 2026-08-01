@@ -9,6 +9,7 @@ export const SETTINGS_SECTION_IDS = [
   "appearance",
   "notifications",
   "behavior",
+  "spaces",
   "appsnap",
   "shortcuts",
   "worktrees",
@@ -92,6 +93,14 @@ export const SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
     description: "Streaming, diff handling, and destructive confirmations.",
     icon: "settings-slider-hor",
     eyebrow: "Interaction rules",
+  },
+  {
+    id: "spaces",
+    group: "app",
+    label: "Spaces",
+    description: "Create, rename, and organize your Spaces.",
+    icon: "layers",
+    eyebrow: "Sidebar organization",
   },
   {
     id: "appsnap",

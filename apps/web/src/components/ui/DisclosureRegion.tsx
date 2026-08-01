@@ -8,6 +8,7 @@ import type { ComponentPropsWithoutRef, ReactNode } from "react";
 
 import {
   DISCLOSURE_INNER_CLASS,
+  DISCLOSURE_INTRINSIC_SIZE_STYLE,
   disclosureContentClassName,
   disclosureShellClassName,
 } from "~/lib/disclosureMotion";
@@ -24,7 +25,9 @@ export function DisclosureRegion(props: {
     <div
       className={disclosureShellClassName(open, className)}
       aria-hidden={open ? undefined : true}
+      data-slot="disclosure-region"
       inert={!open}
+      style={DISCLOSURE_INTRINSIC_SIZE_STYLE}
     >
       <div className={DISCLOSURE_INNER_CLASS}>
         <div className={disclosureContentClassName(open, contentClassName)}>{children}</div>

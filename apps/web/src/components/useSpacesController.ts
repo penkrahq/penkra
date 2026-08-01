@@ -16,7 +16,6 @@ import {
   deleteSpace,
   isOrdinarySpaceProject,
   moveProjectToSpace,
-  moveProjectsToSpace,
   reorderSpaces,
   updateSpace,
 } from "../lib/spaces";
@@ -27,13 +26,17 @@ import type { Project, SidebarThreadSummary, Space } from "../types";
 import { toSpaceIconName } from "../lib/spaceGrouping";
 import { useWorkspacePathsStore } from "../workspacePathsStore";
 import { sortThreadsForSidebar } from "./Sidebar.logic";
-import type { SpaceEditorValue } from "./SpaceEditorDialog";
 import { useRouteSpaceSync } from "./useRouteSpaceSync";
 import { toastManager } from "./ui/toast";
 
 type SpaceEditorState =
   | { mode: "create"; projectIdAfterCreate: ProjectId | null }
   | { mode: "edit"; spaceId: SpaceId };
+
+type SpaceEditorValue = {
+  name: string;
+  icon: string;
+};
 
 export function useSpacesController(input: {
   /** Ordinary (space-assignable) projects; computed by Sidebar because its own memos need it too. */
@@ -87,9 +90,6 @@ export function useSpacesController(input: {
   const routeSpaceId = routeSpaceContext ? routeSpaceContext.spaceId : undefined;
 
   const [spaceEditorState, setSpaceEditorState] = useState<SpaceEditorState | null>(null);
-  const [spaceProjectPickerTargetId, setSpaceProjectPickerTargetId] = useState<SpaceId | null>(
-    null,
-  );
 
   useEffect(() => {
     if (!threadsHydrated) return;
@@ -254,7 +254,6 @@ export function useSpacesController(input: {
 
       handleSelectSpace(spaceId);
       setOptimisticActiveSpaceId(spaceId, sequence);
-      setSpaceProjectPickerTargetId(spaceId);
     },
     [
       activeRouteProjectId,
@@ -354,16 +353,6 @@ export function useSpacesController(input: {
     [reorderSpacesLocally],
   );
 
-  const handleBulkMoveProjects = useCallback(
-    async (projectIds: ReadonlyArray<ProjectId>, spaceId: SpaceId) => {
-      const api = readNativeApi();
-      if (!api) throw new Error("The app server is unavailable.");
-      const result = await moveProjectsToSpace({ api, projectIds, spaceId });
-      return result.failedProjectIds;
-    },
-    [],
-  );
-
   const handleMoveProjectToSpace = useCallback(
     async (projectId: ProjectId, spaceId: SpaceId | null) => {
       const api = readNativeApi();
@@ -393,11 +382,6 @@ export function useSpacesController(input: {
     setSpaceEditorState({ mode: "edit", spaceId });
   }, []);
   const closeSpaceEditor = useCallback(() => setSpaceEditorState(null), []);
-  const openSpaceProjectPicker = useCallback(
-    (spaceId: SpaceId) => setSpaceProjectPickerTargetId(spaceId),
-    [],
-  );
-  const closeSpaceProjectPicker = useCallback(() => setSpaceProjectPickerTargetId(null), []);
 
   const activeSpace: Space | null = activeSpaceId
     ? (spaces.find((space) => space.id === activeSpaceId) ?? null)
@@ -406,9 +390,6 @@ export function useSpacesController(input: {
     spaceEditorState?.mode === "edit"
       ? (spaces.find((space) => space.id === spaceEditorState.spaceId) ?? null)
       : null;
-  const spaceProjectPickerTarget: Space | null = spaceProjectPickerTargetId
-    ? (spaces.find((space) => space.id === spaceProjectPickerTargetId) ?? null)
-    : null;
   const spaceEditorExistingNames = spaces
     .filter((space) => space.id !== editedSpace?.id)
     .map((space) => space.name);
@@ -421,12 +402,9 @@ export function useSpacesController(input: {
       (spaceEditorState?.mode === "edit" && editedSpace !== null),
     spaceEditorMode: spaceEditorState?.mode ?? ("create" as const),
     spaceEditorExistingNames,
-    spaceProjectPickerTarget,
     openSpaceCreator,
     openSpaceEditor,
     closeSpaceEditor,
-    openSpaceProjectPicker,
-    closeSpaceProjectPicker,
     handleSelectSpace,
     handleSelectSpaceForIncomingProject,
     handleReorderSpaces,
@@ -434,6 +412,5 @@ export function useSpacesController(input: {
     handleDeleteSpace,
     handleMoveProjectToSpace,
     handleSpaceEditorSubmit,
-    handleBulkMoveProjects,
   };
 }

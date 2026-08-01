@@ -27,8 +27,8 @@ describe("EnvironmentCollapsibleSection", () => {
     const chevron = trigger?.querySelector<SVGElement>("svg");
 
     expect(trigger?.getAttribute("aria-expanded")).toBe("true");
-    expect(panel?.className).toContain("duration-220");
-    expect(chevron?.getAttribute("class")).toContain("duration-220");
+    expect(panel?.className).toContain("duration-150");
+    expect(chevron?.getAttribute("class")).toContain("duration-150");
     expect(chevron?.getAttribute("class")).toContain("rotate-90");
 
     await page.getByRole("button", { name: "Pinned" }).click();

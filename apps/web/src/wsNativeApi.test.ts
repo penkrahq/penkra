@@ -809,6 +809,21 @@ describe("wsNativeApi", () => {
     );
   });
 
+  it("uses the native desktop confirmation when the bridge is available", async () => {
+    const confirm = vi.fn().mockResolvedValue(true);
+    Object.defineProperty(getWindowForTest(), "desktopBridge", {
+      configurable: true,
+      writable: true,
+      value: { confirm },
+    });
+
+    const { createWsNativeApi } = await import("./wsNativeApi");
+    const api = createWsNativeApi();
+    await expect(api.dialogs.confirm("Log out of Penkra?")).resolves.toBe(true);
+
+    expect(confirm).toHaveBeenCalledWith("Log out of Penkra?");
+  });
+
   it("uses the desktop voice bridge when available", async () => {
     const transcribeVoice = vi.fn().mockResolvedValue({ text: "hello" });
     Object.defineProperty(getWindowForTest(), "desktopBridge", {

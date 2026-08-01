@@ -9,7 +9,7 @@ import { useEffect, useState, type ReactNode } from "react";
 
 import { DisclosureChevron } from "../ui/DisclosureChevron";
 import { DisclosureRegion } from "../ui/DisclosureRegion";
-import { DISCLOSURE_CLEANUP_BUFFER_MS, DISCLOSURE_TRANSITION_MS } from "~/lib/disclosureMotion";
+import { DISCLOSURE_TRANSITION_MS } from "~/lib/disclosureMotion";
 import { extractWebFetchUrl } from "../../lib/toolCallLabel";
 import { LinkChipIcon } from "../LinkChipIcon";
 import type { ToolCallGroupSummary } from "./toolCallGroup.logic";
@@ -33,7 +33,7 @@ export function ToolCallGroupSummaryRow(props: {
     if (!keepChildrenMounted) return;
     const cleanup = window.setTimeout(
       () => setKeepChildrenMounted(false),
-      DISCLOSURE_TRANSITION_MS + DISCLOSURE_CLEANUP_BUFFER_MS,
+      DISCLOSURE_TRANSITION_MS,
     );
     return () => window.clearTimeout(cleanup);
   }, [keepChildrenMounted, open]);

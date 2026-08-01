@@ -17,6 +17,7 @@ import {
 } from "react";
 
 import { basenameOfPath } from "~/file-icons";
+import { DISCLOSURE_TRANSITION_MS } from "~/lib/disclosureMotion";
 import {
   ArrowUpCircleIcon,
   BackgroundTrayIcon,
@@ -80,8 +81,6 @@ import {
   resolveSubagentPresentation,
 } from "../../lib/subagentPresentation";
 
-const TRANSCRIPT_DISCLOSURE_TRANSITION_MS = 220;
-const TRANSCRIPT_DISCLOSURE_CLEANUP_BUFFER_MS = 40;
 const WORK_ROW_MUTED_HOVER_TONE: Record<"tool-row" | "file-row", string> = {
   "tool-row":
     "text-muted-foreground/70 transition-colors group-hover/tool-row:text-foreground group-focus-visible/tool-row:text-foreground",
@@ -1121,7 +1120,7 @@ function ToolDetailsDisclosure(props: {
       cleanupTimeoutRef.current = window.setTimeout(() => {
         cleanupTimeoutRef.current = null;
         setRenderDetails(false);
-      }, TRANSCRIPT_DISCLOSURE_TRANSITION_MS + TRANSCRIPT_DISCLOSURE_CLEANUP_BUFFER_MS);
+      }, DISCLOSURE_TRANSITION_MS);
     },
     [clearMotionTimers],
   );

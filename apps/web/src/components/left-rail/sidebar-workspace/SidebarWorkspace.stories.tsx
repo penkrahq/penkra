@@ -1,15 +1,13 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import { FolderGroupShared } from "../folder-group-shared/FolderGroupShared";
-import { WorkspaceHeaderShared } from "../workspace-header-shared/WorkspaceHeaderShared";
+import { SpaceGroupShared } from "../space-group-shared/SpaceGroupShared";
 import { SidebarWorkspace } from "./SidebarWorkspace";
 
 const meta = {
   args: {
-    activeNavigationItemId: "new-chat",
     children: (
-      <>
-        <WorkspaceHeaderShared>penkra</WorkspaceHeaderShared>
+      <SpaceGroupShared label="Personal">
         <FolderGroupShared
           defaultExpanded
           label="penut"
@@ -29,7 +27,7 @@ const meta = {
             { id: "prune", label: "Prune database and local data", provider: "codex" },
           ]}
         />
-      </>
+      </SpaceGroupShared>
     ),
   },
   component: SidebarWorkspace,

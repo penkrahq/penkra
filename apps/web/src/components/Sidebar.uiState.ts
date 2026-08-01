@@ -9,7 +9,7 @@ import type { LastThreadRoute } from "../chatRouteRestore";
 const SIDEBAR_UI_STATE_STORAGE_KEY = "synara:sidebar-ui:v1";
 
 export type SidebarUiState = {
-  chatSectionExpanded: boolean;
+  collapsedSpaceIds: string[];
   chatThreadListExtraPages: number;
   projectThreadListExtraPagesByCwd: Record<string, number>;
   dismissedThreadStatusKeyByThreadId: Record<string, string>;
@@ -17,7 +17,7 @@ export type SidebarUiState = {
 };
 
 const DEFAULT_SIDEBAR_UI_STATE: SidebarUiState = {
-  chatSectionExpanded: false,
+  collapsedSpaceIds: [],
   chatThreadListExtraPages: 0,
   projectThreadListExtraPagesByCwd: {},
   dismissedThreadStatusKeyByThreadId: {},
@@ -71,6 +71,7 @@ export function readSidebarUiState(): SidebarUiState {
 
     const parsed = JSON.parse(raw) as {
       chatSectionExpanded?: boolean;
+      collapsedSpaceIds?: unknown[];
       chatThreadListExtraPages?: number;
       projectThreadListExtraPagesByCwd?: Record<string, unknown>;
       /** Legacy (pre-paging) all-or-nothing "Show more" flags, migrated to one extra page. */
@@ -112,7 +113,9 @@ export function readSidebarUiState(): SidebarUiState {
     }
 
     return {
-      chatSectionExpanded: parsed.chatSectionExpanded === true,
+      collapsedSpaceIds: (parsed.collapsedSpaceIds ?? []).filter(
+        (spaceId): spaceId is string => typeof spaceId === "string" && spaceId.length > 0,
+      ),
       chatThreadListExtraPages:
         parsed.chatThreadListExtraPages === undefined && parsed.chatThreadListExpanded === true
           ? 1
@@ -143,7 +146,7 @@ export function persistSidebarUiState(input: SidebarUiState): void {
     window.localStorage.setItem(
       SIDEBAR_UI_STATE_STORAGE_KEY,
       JSON.stringify({
-        chatSectionExpanded: input.chatSectionExpanded,
+        collapsedSpaceIds: input.collapsedSpaceIds.filter((spaceId) => spaceId.length > 0),
         chatThreadListExtraPages: sanitizeThreadListExtraPages(input.chatThreadListExtraPages),
         projectThreadListExtraPagesByCwd: sanitizeProjectThreadListExtraPagesByCwd(
           input.projectThreadListExtraPagesByCwd,

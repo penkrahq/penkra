@@ -23,23 +23,21 @@ vi.mock("~/nativeApi", async () => {
   };
 });
 
-import { ModalSettings } from "./modal-settings/ModalSettings";
-import { SettingsDialog } from "./modal-settings/SettingsDialog";
-import type { SettingsPage } from "./modal-settings/ModalSettings";
 import { OpenWithRowShared } from "./open-with-row-shared/OpenWithRowShared";
 import { SettingsPageContent } from "./pages/SettingsPageContent";
+import { SettingsPage, type SettingsPageId } from "./settings-page/SettingsPage";
 import { ThemePanelShared } from "./theme-panel-shared/ThemePanelShared";
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 
-function SettingsDialogHarness() {
-  const [activePage, setActivePage] = useState<SettingsPage>("general");
+function SettingsPageHarness() {
+  const [activePage, setActivePage] = useState<SettingsPageId>("general");
 
   return (
     <QueryClientProvider client={queryClient}>
-      <SettingsDialog onClose={() => undefined} onPageChange={setActivePage} page={activePage}>
+      <SettingsPage onPageChange={setActivePage} page={activePage}>
         <SettingsPageContent page={activePage} />
-      </SettingsDialog>
+      </SettingsPage>
     </QueryClientProvider>
   );
 }
@@ -52,7 +50,7 @@ describe("Pencil settings structure", () => {
 
   it("keeps navigation interactive and content independently scrollable", async () => {
     const onPageChange = vi.fn();
-    await render(<ModalSettings className="h-80" onPageChange={onPageChange} />);
+    await render(<SettingsPage className="h-80" onPageChange={onPageChange} />);
 
     await page.getByRole("button", { name: "Appearance" }).click();
     expect(onPageChange).toHaveBeenCalledWith("appearance");
@@ -64,24 +62,22 @@ describe("Pencil settings structure", () => {
     expect(viewport!.scrollHeight).toBeGreaterThan(viewport!.clientHeight);
   });
 
-  it("presents settings as the full-shell Pencil dialog", async () => {
-    const onClose = vi.fn();
-    const rendered = await render(<SettingsDialog onClose={onClose} />);
+  it("presents settings as a route-native page without dialog chrome", async () => {
+    const rendered = await render(
+      <div className="h-[640px] w-[880px]">
+        <SettingsPage />
+      </div>,
+    );
 
     try {
-      const dialog = page.getByRole("dialog", { name: "Settings" });
-      await expect.element(dialog).toBeVisible();
+      const settingsPage = page.getByRole("main", { name: "Settings" });
+      await expect.element(settingsPage).toBeVisible();
 
-      const popup = document.querySelector<HTMLElement>("[data-slot='dialog-popup']");
       const backdrop = document.querySelector<HTMLElement>("[data-slot='dialog-backdrop']");
-      expect(popup).not.toBeNull();
-      expect(backdrop).not.toBeNull();
-      expect(popup!.getBoundingClientRect().width).toBe(Math.min(880, window.innerWidth - 48));
-      expect(popup!.getBoundingClientRect().height).toBe(Math.min(640, window.innerHeight - 48));
-      expect(getComputedStyle(backdrop!).backgroundColor).toBe("rgba(0, 0, 0, 0.7)");
-
-      document.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "Escape" }));
-      await vi.waitFor(() => expect(onClose).toHaveBeenCalledOnce());
+      expect(document.querySelector("[role='dialog']")).toBeNull();
+      expect(backdrop).toBeNull();
+      expect(settingsPage.element().getBoundingClientRect().width).toBe(880);
+      expect(settingsPage.element().getBoundingClientRect().height).toBe(640);
     } finally {
       rendered.unmount();
     }
@@ -108,7 +104,7 @@ describe("Pencil settings structure", () => {
   });
 
   it("renders the Pencil-defined Settings pages without legacy controls", async () => {
-    await render(<SettingsDialogHarness />);
+    await render(<SettingsPageHarness />);
 
     await expect.element(page.getByText("Defaults and updates for Penkra.")).toBeVisible();
     await expect.element(page.getByText("Open with", { exact: true })).toBeVisible();
