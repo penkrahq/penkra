@@ -3,24 +3,25 @@
 // Layer: Server infrastructure
 
 import path from "node:path";
+import { watch, type FSWatcher } from "node:fs";
 
-import watcher from "@parcel/watcher";
 import type { ProjectWorkspaceChangeEvent } from "@penkra/contracts";
 import { Effect, Fiber, Layer, PubSub, ServiceMap, Stream } from "effect";
 
 import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine";
 
-const WATCH_IGNORES = [
-  "**/.git/objects/**",
-  "**/.git/subtree-cache/**",
-  "**/node_modules/**",
-  "**/dist/**",
-  "**/.turbo/**",
-  "**/*.tmp",
-] as const;
 const CHANGE_DEBOUNCE_MS = 150;
 
-type Subscription = Awaited<ReturnType<typeof watcher.subscribe>>;
+interface WorkspaceWatchSubscription {
+  readonly close: () => void;
+}
+
+type CreateWorkspaceWatch = (
+  watchRoot: string,
+  onPathChange: (changedPath: string) => void,
+  onLostSync: () => void,
+) => WorkspaceWatchSubscription;
+
 type PendingChange = ProjectWorkspaceChangeEvent & { timer: ReturnType<typeof setTimeout> };
 
 export interface WorkspaceWatcherShape {
@@ -52,9 +53,43 @@ function isGitMetadataPath(projectRoot: string, changedPath: string): boolean {
   return relative === ".git" || relative.startsWith(`.git${path.sep}`);
 }
 
-class WorkspaceWatcherManager {
+export function shouldIgnoreWorkspaceWatchPath(watchRoot: string, changedPath: string): boolean {
+  const relative = path.relative(watchRoot, changedPath);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) return true;
+  const segments = relative.split(path.sep);
+  if (
+    segments.includes("node_modules") ||
+    segments.includes("dist") ||
+    segments.includes(".turbo")
+  ) {
+    return true;
+  }
+  if (segments[0] === ".git" && (segments[1] === "objects" || segments[1] === "subtree-cache")) {
+    return true;
+  }
+  return path.basename(relative).endsWith(".tmp");
+}
+
+function createNodeWorkspaceWatch(
+  watchRoot: string,
+  onPathChange: (changedPath: string) => void,
+  onLostSync: () => void,
+): FSWatcher {
+  const subscription = watch(watchRoot, { recursive: true }, (_eventType, filename) => {
+    if (filename === null) {
+      onLostSync();
+      return;
+    }
+    const changedPath = path.resolve(watchRoot, filename.toString());
+    if (!shouldIgnoreWorkspaceWatchPath(watchRoot, changedPath)) onPathChange(changedPath);
+  });
+  subscription.on("error", onLostSync);
+  return subscription;
+}
+
+export class WorkspaceWatcherManager {
   private projectRoots: string[] = [];
-  private subscriptions = new Map<string, Subscription>();
+  private subscriptions = new Map<string, WorkspaceWatchSubscription>();
   private pending = new Map<string, PendingChange>();
   private reconcileRunning: Promise<void> | null = null;
   private closeRunning: Promise<void> | null = null;
@@ -64,6 +99,7 @@ class WorkspaceWatcherManager {
   constructor(
     private readonly readProjectRoots: () => Promise<string[]>,
     private readonly publish: (event: ProjectWorkspaceChangeEvent) => void,
+    private readonly createWorkspaceWatch: CreateWorkspaceWatch = createNodeWorkspaceWatch,
   ) {}
 
   start(): Promise<void> {
@@ -95,26 +131,20 @@ class WorkspaceWatcherManager {
 
     for (const [watchRoot, subscription] of this.subscriptions) {
       if (desiredWatchRoots.has(watchRoot)) continue;
-      await subscription.unsubscribe();
+      subscription.close();
       this.subscriptions.delete(watchRoot);
     }
 
     for (const watchRoot of desiredWatchRoots) {
       if (this.subscriptions.has(watchRoot)) continue;
       try {
-        const subscription = await watcher.subscribe(
+        const subscription = this.createWorkspaceWatch(
           watchRoot,
-          (error, events) => {
-            if (error) {
-              this.queueLostSync(watchRoot);
-              return;
-            }
-            for (const event of events) this.queuePathChange(watchRoot, path.resolve(event.path));
-          },
-          { ignore: [...WATCH_IGNORES] },
+          (changedPath) => this.queuePathChange(watchRoot, changedPath),
+          () => this.queueLostSync(watchRoot),
         );
         if (this.closed) {
-          await subscription.unsubscribe();
+          subscription.close();
           return;
         }
         this.subscriptions.set(watchRoot, subscription);
@@ -172,13 +202,11 @@ class WorkspaceWatcherManager {
     this.closeRunning = (async () => {
       for (const change of this.pending.values()) clearTimeout(change.timer);
       this.pending.clear();
-      // A subscribe may already be in flight. Wait for reconciliation to observe
-      // `closed` and unsubscribe that late result before declaring the native
+      // Reconciliation may already be reading the project roots. Wait for it to
+      // observe `closed` and close any late watcher before declaring the file
       // watcher fully drained.
       await this.reconcileRunning;
-      await Promise.all(
-        [...this.subscriptions.values()].map((subscription) => subscription.unsubscribe()),
-      );
+      for (const subscription of this.subscriptions.values()) subscription.close();
       this.subscriptions.clear();
     })();
     return this.closeRunning;
