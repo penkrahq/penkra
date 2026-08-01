@@ -1938,12 +1938,7 @@ export default function Sidebar() {
         });
       }
     },
-    [
-      collapsedSpaceIds,
-      handleCreateHomeChat,
-      handleSelectSpace,
-      openSpaceEditor,
-    ],
+    [collapsedSpaceIds, handleCreateHomeChat, handleSelectSpace, openSpaceEditor],
   );
   const handleCreateProjectSubmit = useCallback(
     async (value: CreateProjectSubmitValue) => {
@@ -2221,10 +2216,7 @@ export default function Sidebar() {
       ),
     [chatWorkspaceRoot, homeDir, sortedProjects, studioWorkspaceRoot],
   );
-  const standardProjectsBase = useMemo(
-    () => allStandardProjectsBase,
-    [allStandardProjectsBase],
-  );
+  const standardProjectsBase = useMemo(() => allStandardProjectsBase, [allStandardProjectsBase]);
   const pinnedProjectIds = useMemo(
     () =>
       derivePinnedProjectIdsForSidebar({

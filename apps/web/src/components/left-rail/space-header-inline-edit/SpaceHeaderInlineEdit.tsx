@@ -35,11 +35,7 @@ export function SpaceHeaderInlineEdit({
     (name) => name.trim().toLocaleLowerCase() === trimmedValue.toLocaleLowerCase(),
   );
   const validationError =
-    trimmedValue.length === 0
-      ? "Enter a name."
-      : duplicate
-        ? "That name is already taken."
-        : null;
+    trimmedValue.length === 0 ? "Enter a name." : duplicate ? "That name is already taken." : null;
   const visibleError = submitError ?? (value.length > 0 ? validationError : null);
 
   const submit = async () => {

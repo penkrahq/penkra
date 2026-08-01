@@ -31,8 +31,7 @@ export function FolderRowShared({
         aria-expanded={expanded}
         className={cn(
           "gap-3 pr-2.5 active:bg-[var(--color-background-button-secondary-hover)] group-hover/folder-row:bg-[var(--color-background-button-secondary-hover)] group-hover/folder-row:text-[var(--color-text-foreground)] group-focus-within/folder-row:bg-[var(--color-background-button-secondary-hover)] group-focus-within/folder-row:text-[var(--color-text-foreground)]",
-          onAction &&
-            "group-hover/folder-row:pr-9 group-focus-within/folder-row:pr-9",
+          onAction && "group-hover/folder-row:pr-9 group-focus-within/folder-row:pr-9",
           showAction && onAction && "pr-9",
           state === "selected" &&
             "bg-[var(--color-background-button-secondary-active)] text-[var(--color-text-foreground)]",
