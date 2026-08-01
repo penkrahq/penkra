@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## 0.8.3 - 2026-07-31
+
+### Fixed
+
+- Fixed packaged microphone recording being rejected during Electron's permission-check phase when
+  Electron omits the requesting `WebContents`. Penkra now accepts that documented callback shape
+  only for explicit audio-only requests from the live main renderer's exact origin, while retaining
+  exact renderer identity checks during the permission-request phase.
+- Fixed the desktop smoke test to use the development identity and fail on uncaught-exception
+  dialogs, and stabilized the large-thread timeline test's initial module compilation.
+
 ## 0.8.2 - 2026-07-31
 
 ### Fixed
