@@ -53,7 +53,7 @@ import { ManagedAttachmentRepository } from "./persistence/Services/ManagedAttac
 import {
   authorizeDesktopShutdown,
   DESKTOP_SHUTDOWN_ROUTE_PATH,
-  runAfterNodeResponseSettles,
+  runAfterNodeConnectionCloses,
   type ServerShutdownController,
 } from "./serverShutdown";
 import { resolveFavicon, tryParseHost } from "./siteFaviconCache";
@@ -223,23 +223,32 @@ export function makeDesktopShutdownEffectRouteLayer(shutdownController: ServerSh
       }
 
       const nodeResponse = NodeHttpServerRequest.toServerResponse(request);
+      const connection = nodeResponse.socket;
+      if (!connection) {
+        return HttpServerResponse.jsonUnsafe(
+          { error: "Shutdown connection unavailable" },
+          { status: 503 },
+        );
+      }
       yield* Effect.sync(() => {
-        runAfterNodeResponseSettles(nodeResponse, () => {
+        runAfterNodeConnectionCloses(connection, () => {
           Effect.runFork(
             shutdownController.requestStop.pipe(
               Effect.tap((firstRequest) =>
-                Effect.logInfo("desktop shutdown response settled", { firstRequest }),
+                Effect.logInfo("desktop shutdown connection closed", { firstRequest }),
               ),
             ),
           );
         });
-        // Closing the application scope from inside this request can interrupt
-        // the response writer before it calls `end()`, leaving Node's HTTP
-        // server waiting forever for the very request that initiated shutdown.
-        // Arm shutdown only after the accepted response has finished, or after
-        // its client has disconnected.
+        // Closing the application scope while this connection is still active
+        // can make Node's HTTP server wait forever for its own shutdown request.
+        // The response explicitly closes this one-shot connection; only that
+        // socket's close event is strong enough to release the server scope.
       });
-      return HttpServerResponse.jsonUnsafe({ accepted: true }, { status: 202 });
+      return HttpServerResponse.jsonUnsafe(
+        { accepted: true },
+        { status: 202, headers: { Connection: "close" } },
+      );
     }),
   );
 }

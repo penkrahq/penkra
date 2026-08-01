@@ -222,6 +222,7 @@ describe("production Effect HTTP routes", () => {
             headers: { Authorization: `Bearer ${shutdownToken}` },
           });
           expect(response.status).toBe(202);
+          expect(response.headers.get("connection")).toBe("close");
           await expect(response.json()).resolves.toEqual({ accepted: true });
         }
       },

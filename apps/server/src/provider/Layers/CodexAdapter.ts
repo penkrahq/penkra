@@ -1686,17 +1686,7 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
           })
         );
       }),
-      (manager) =>
-        Effect.logInfo("Codex adapter shutdown stage started", {
-          stage: "manager.stop-all",
-        }).pipe(
-          Effect.andThen(Effect.promise(() => manager.stopAll())),
-          Effect.andThen(
-            Effect.logInfo("Codex adapter shutdown stage completed", {
-              stage: "manager.stop-all",
-            }),
-          ),
-        ),
+      (manager) => Effect.promise(() => manager.stopAll()),
     );
 
     // Idle-progress backstop for codex turns. Same semantics as
@@ -2175,27 +2165,13 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
       }),
       ({ ingress, listener, watchdogTicker }) =>
         Effect.gen(function* () {
-          yield* Effect.logInfo("Codex adapter shutdown stage started", {
-            stage: "event-ingress.stop",
-            status: ingress.status(),
-          });
           yield* Effect.sync(() => {
             clearInterval(watchdogTicker);
             turnWatchdogs.clear();
             manager.off("event", listener);
           });
           yield* ingress.stop;
-          yield* Effect.logInfo("Codex adapter shutdown stage completed", {
-            stage: "event-ingress.stop",
-            status: ingress.status(),
-          });
-          yield* Effect.logInfo("Codex adapter shutdown stage started", {
-            stage: "runtime-event-queue.shutdown",
-          });
           yield* Queue.shutdown(runtimeEventQueue);
-          yield* Effect.logInfo("Codex adapter shutdown stage completed", {
-            stage: "runtime-event-queue.shutdown",
-          });
         }),
     );
 

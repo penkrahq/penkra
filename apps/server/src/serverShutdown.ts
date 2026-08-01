@@ -14,26 +14,28 @@ export interface ServerShutdownController {
   readonly stopSignal: Effect.Effect<void, never>;
 }
 
-export interface NodeResponseSettlementEmitter {
-  once(event: "finish" | "close", listener: () => void): unknown;
-  off(event: "finish" | "close", listener: () => void): unknown;
+export interface NodeConnectionSettlementEmitter {
+  readonly destroyed: boolean;
+  once(event: "close", listener: () => void): unknown;
+  off(event: "close", listener: () => void): unknown;
 }
 
-/** Run exactly once after Node finishes the response or the client disconnects. */
-export function runAfterNodeResponseSettles(
-  response: NodeResponseSettlementEmitter,
+/** Run exactly once after Node closes the HTTP connection that requested shutdown. */
+export function runAfterNodeConnectionCloses(
+  connection: NodeConnectionSettlementEmitter,
   onSettled: () => void,
 ): void {
   let settled = false;
   const settle = () => {
     if (settled) return;
     settled = true;
-    response.off("finish", settle);
-    response.off("close", settle);
+    connection.off("close", settle);
     onSettled();
   };
-  response.once("finish", settle);
-  response.once("close", settle);
+  connection.once("close", settle);
+  // Register first so a connection destroyed between capture and inspection
+  // cannot lose the close notification.
+  if (connection.destroyed) settle();
 }
 
 export const makeServerShutdownController = Effect.fn(function* () {

@@ -10,7 +10,7 @@ import {
   isDesktopShutdownLoopbackPeer,
   makeServerShutdownController,
   matchesDesktopShutdownToken,
-  runAfterNodeResponseSettles,
+  runAfterNodeConnectionCloses,
 } from "./serverShutdown";
 
 const SHUTDOWN_TOKEN = "a".repeat(64);
@@ -29,20 +29,34 @@ const desktopConfig: ShutdownConfig = {
 };
 
 describe("server shutdown controller", () => {
-  it("waits for the initiating Node response and settles exactly once", () => {
-    const response = new EventEmitter();
+  it("waits for the initiating Node connection to close and settles exactly once", () => {
+    const connection = Object.assign(new EventEmitter(), { destroyed: false });
     let settlementCount = 0;
 
-    runAfterNodeResponseSettles(response, () => {
+    runAfterNodeConnectionCloses(connection, () => {
       settlementCount += 1;
     });
 
     expect(settlementCount).toBe(0);
-    response.emit("finish");
-    response.emit("close");
+    connection.emit("finish");
+    expect(settlementCount).toBe(0);
+    connection.emit("close");
+    connection.emit("close");
     expect(settlementCount).toBe(1);
-    expect(response.listenerCount("finish")).toBe(0);
-    expect(response.listenerCount("close")).toBe(0);
+    expect(connection.listenerCount("close")).toBe(0);
+  });
+
+  it("settles an already-destroyed initiating connection without losing the event", () => {
+    const connection = Object.assign(new EventEmitter(), { destroyed: true });
+    let settlementCount = 0;
+
+    runAfterNodeConnectionCloses(connection, () => {
+      settlementCount += 1;
+    });
+
+    connection.emit("close");
+    expect(settlementCount).toBe(1);
+    expect(connection.listenerCount("close")).toBe(0);
   });
 
   it("atomically accepts one request and makes duplicates idempotent", async () => {
