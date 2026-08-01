@@ -46,7 +46,10 @@ import {
   takePenkraHarnessPolicyTextPartForProviderSession,
 } from "../../agentGateway/harnessPolicy.ts";
 import { AgentGatewayCredentials } from "../../agentGateway/Services/AgentGatewayCredentials.ts";
-import { PROVIDER_ADAPTER_RUNTIME_EVENT_BUFFER_CAPACITY } from "../Services/ProviderAdapter.ts";
+import {
+  awaitProviderRuntimeEventsDrained,
+  PROVIDER_ADAPTER_RUNTIME_EVENT_BUFFER_CAPACITY,
+} from "../Services/ProviderAdapter.ts";
 import {
   acquireAgentGatewaySessionLease,
   startAgentGatewaySessionLeaseExitWatcher,
@@ -1685,6 +1688,7 @@ export function makeCursorAdapter(
       listModels,
       hasSession,
       stopAll,
+      drainRuntimeEvents: awaitProviderRuntimeEventsDrained(PubSub.isEmpty(runtimeEventPubSub)),
       streamEvents,
     } satisfies CursorAdapterShape;
   });

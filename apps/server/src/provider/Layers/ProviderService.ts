@@ -2306,6 +2306,7 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
             markThreadStopped(threadId, stoppedAt, activeSessionByThreadId.get(threadId)),
         );
         yield* Effect.forEach(adapters, (adapter) => adapter.stopAll());
+        yield* Effect.forEach(adapters, (adapter) => adapter.drainRuntimeEvents);
         yield* analytics.record("provider.sessions.stopped_all", {
           sessionCount: threadIds.length,
         });

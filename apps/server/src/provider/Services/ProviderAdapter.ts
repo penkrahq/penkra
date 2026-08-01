@@ -39,7 +39,7 @@ import type {
   ProviderTurnStartResult,
   TurnId,
 } from "@penkra/contracts";
-import type { Effect } from "effect";
+import { Effect } from "effect";
 import type { Stream } from "effect";
 
 export type ProviderSessionModelSwitchMode = "in-session" | "restart-session" | "unsupported";
@@ -50,6 +50,20 @@ export type ProviderSessionModelSwitchMode = "in-session" | "restart-session" | 
  * without limit during a persistence outage.
  */
 export const PROVIDER_ADAPTER_RUNTIME_EVENT_BUFFER_CAPACITY = 2_048;
+
+/** Wait until an adapter's already-admitted runtime events reach its stream consumer. */
+export const awaitProviderRuntimeEventsDrained = (
+  isEmpty: Effect.Effect<boolean>,
+): Effect.Effect<void> =>
+  Effect.suspend(() =>
+    isEmpty.pipe(
+      Effect.flatMap((empty) =>
+        empty
+          ? Effect.void
+          : Effect.yieldNow.pipe(Effect.andThen(awaitProviderRuntimeEventsDrained(isEmpty))),
+      ),
+    ),
+  );
 
 /**
  * Structured payload for steering a running subagent. Mirrors the turn-input
@@ -236,6 +250,12 @@ export interface ProviderAdapterShape<TError> {
    * Stop all sessions owned by this adapter.
    */
   readonly stopAll: () => Effect.Effect<void, TError>;
+
+  /**
+   * Stop callback admission and drain every accepted runtime event into the
+   * stream while its server-side consumer is still alive.
+   */
+  readonly drainRuntimeEvents: Effect.Effect<void, TError>;
 
   /**
    * Canonical runtime event stream emitted by this adapter.

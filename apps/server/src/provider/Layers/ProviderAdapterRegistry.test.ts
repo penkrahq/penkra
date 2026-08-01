@@ -32,6 +32,7 @@ const fakeCodexAdapter: CodexAdapterShape = {
   readThread: vi.fn(),
   rollbackThread: vi.fn(),
   stopAll: vi.fn(),
+  drainRuntimeEvents: Effect.void,
   streamEvents: Stream.empty,
 };
 
@@ -52,6 +53,7 @@ const fakeClaudeAdapter: ClaudeAdapterShape = {
   readThread: vi.fn(),
   rollbackThread: vi.fn(),
   stopAll: vi.fn(),
+  drainRuntimeEvents: Effect.void,
   streamEvents: Stream.empty,
 };
 
@@ -69,6 +71,7 @@ const fakeCursorAdapter: CursorAdapterShape = {
   readThread: vi.fn(),
   rollbackThread: vi.fn(),
   stopAll: vi.fn(),
+  drainRuntimeEvents: Effect.void,
   streamEvents: Stream.empty,
 };
 
@@ -86,6 +89,7 @@ const fakeGrokAdapter: GrokAdapterShape = {
   readThread: vi.fn(),
   rollbackThread: vi.fn(),
   stopAll: vi.fn(),
+  drainRuntimeEvents: Effect.void,
   streamEvents: Stream.empty,
 };
 
@@ -103,6 +107,7 @@ const fakeDroidAdapter: DroidAdapterShape = {
   readThread: vi.fn(),
   rollbackThread: vi.fn(),
   stopAll: vi.fn(),
+  drainRuntimeEvents: Effect.void,
   streamEvents: Stream.empty,
 };
 
@@ -120,6 +125,7 @@ const fakeOpenCodeAdapter: OpenCodeAdapterShape = {
   readThread: vi.fn(),
   rollbackThread: vi.fn(),
   stopAll: vi.fn(),
+  drainRuntimeEvents: Effect.void,
   streamEvents: Stream.empty,
 };
 
@@ -137,6 +143,7 @@ const fakeKiloAdapter: KiloAdapterShape = {
   readThread: vi.fn(),
   rollbackThread: vi.fn(),
   stopAll: vi.fn(),
+  drainRuntimeEvents: Effect.void,
   streamEvents: Stream.empty,
 };
 
@@ -154,6 +161,7 @@ const fakePiAdapter: PiAdapterShape = {
   readThread: vi.fn(),
   rollbackThread: vi.fn(),
   stopAll: vi.fn(),
+  drainRuntimeEvents: Effect.void,
   streamEvents: Stream.empty,
 };
 
@@ -171,6 +179,7 @@ const fakeAntigravityAdapter: AntigravityAdapterShape = {
   readThread: vi.fn(),
   rollbackThread: vi.fn(),
   stopAll: vi.fn(),
+  drainRuntimeEvents: Effect.void,
   streamEvents: Stream.empty,
 };
 

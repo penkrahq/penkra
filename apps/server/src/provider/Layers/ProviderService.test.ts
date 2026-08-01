@@ -244,6 +244,7 @@ function makeFakeCodexAdapter(
         sessions.clear();
       }),
   );
+  const drainRuntimeEvents = vi.fn((): Effect.Effect<void, ProviderAdapterError> => Effect.void);
 
   const adapter: ProviderAdapterShape<ProviderAdapterError> = {
     provider,
@@ -268,6 +269,7 @@ function makeFakeCodexAdapter(
     rollbackThread,
     compactThread,
     stopAll,
+    drainRuntimeEvents: Effect.suspend(() => drainRuntimeEvents()),
     streamEvents: Stream.fromPubSub(runtimeEventPubSub),
   };
 
@@ -313,6 +315,7 @@ function makeFakeCodexAdapter(
     rollbackThread,
     compactThread,
     stopAll,
+    drainRuntimeEvents,
   };
 }
 
@@ -4074,6 +4077,40 @@ validation.layer("ProviderServiceLive validation", (it) => {
 });
 
 const boundedFanout = makeProviderServiceLayer({ runtimeEventBufferCapacity: 1 });
+const shutdownDrain = makeProviderServiceLayer();
+shutdownDrain.layer("ProviderServiceLive shutdown drain", (it) => {
+  it.effect("drains adapter events before closing their consumers", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService;
+      const threadId = asThreadId("thread-shutdown-drain");
+      yield* shutdownDrain.codex.waitForRuntimeSubscribers();
+
+      const received = yield* Stream.take(provider.streamEvents, 1).pipe(
+        Stream.runCollect,
+        Effect.forkChild,
+      );
+      yield* sleep(20);
+      shutdownDrain.codex.drainRuntimeEvents.mockImplementation(() =>
+        Effect.sync(() => {
+          shutdownDrain.codex.emit({
+            type: "runtime.warning",
+            eventId: asEventId("evt-shutdown-drain"),
+            provider: "codex",
+            createdAt: new Date().toISOString(),
+            threadId,
+            payload: { message: "drained before consumer shutdown" },
+          });
+        }),
+      );
+
+      yield* provider.closeRuntimeEvents;
+      const events = yield* Fiber.join(received);
+      assert.equal(events.length, 1);
+      assert.equal(events[0]?.eventId, asEventId("evt-shutdown-drain"));
+    }),
+  );
+});
+
 it.effect("ProviderServiceLive backpressures slow subscribers and completes fanout shutdown", () =>
   Effect.gen(function* () {
     const scope = yield* Scope.make("sequential");

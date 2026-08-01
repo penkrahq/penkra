@@ -45,7 +45,10 @@ import {
 } from "../../agentGateway/sessionLease.ts";
 import { KiloAdapter, type KiloAdapterShape } from "../Services/KiloAdapter.ts";
 import { OpenCodeAdapter, type OpenCodeAdapterShape } from "../Services/OpenCodeAdapter.ts";
-import { PROVIDER_ADAPTER_RUNTIME_EVENT_BUFFER_CAPACITY } from "../Services/ProviderAdapter.ts";
+import {
+  awaitProviderRuntimeEventsDrained,
+  PROVIDER_ADAPTER_RUNTIME_EVENT_BUFFER_CAPACITY,
+} from "../Services/ProviderAdapter.ts";
 import {
   buildOpenCodePermissionRules,
   KILO_CLI_SPEC,
@@ -4450,6 +4453,9 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
         compactThread,
         forkThread,
         stopAll,
+        drainRuntimeEvents: awaitProviderRuntimeEventsDrained(
+          Queue.size(runtimeEvents).pipe(Effect.map((size) => size === 0)),
+        ),
         listModels,
         listAgents,
         ...(provider === "opencode" ? { listCommands } : {}),

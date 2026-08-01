@@ -67,6 +67,7 @@ import {
 } from "../Errors.ts";
 import { PiAdapter, type PiAdapterShape } from "../Services/PiAdapter.ts";
 import {
+  awaitProviderRuntimeEventsDrained,
   PROVIDER_ADAPTER_RUNTIME_EVENT_BUFFER_CAPACITY,
   type ProviderThreadSnapshot,
 } from "../Services/ProviderAdapter.ts";
@@ -2860,6 +2861,13 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
       rollbackThread,
       compactThread,
       stopAll,
+      drainRuntimeEvents: runtimeEventIngress.stop.pipe(
+        Effect.andThen(
+          awaitProviderRuntimeEventsDrained(
+            Queue.size(runtimeEventQueue).pipe(Effect.map((size) => size === 0)),
+          ),
+        ),
+      ),
       listModels,
       listSkills,
       listCommands,

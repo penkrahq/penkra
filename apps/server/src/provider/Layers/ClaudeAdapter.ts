@@ -91,7 +91,10 @@ import {
 import { buildClaudeMcpServers } from "../../agentGateway/mcpInjection.ts";
 import { renderPenkraHarnessPolicy } from "../../agentGateway/harnessPolicy.ts";
 import { AgentGatewayCredentials } from "../../agentGateway/Services/AgentGatewayCredentials.ts";
-import { PROVIDER_ADAPTER_RUNTIME_EVENT_BUFFER_CAPACITY } from "../Services/ProviderAdapter.ts";
+import {
+  awaitProviderRuntimeEventsDrained,
+  PROVIDER_ADAPTER_RUNTIME_EVENT_BUFFER_CAPACITY,
+} from "../Services/ProviderAdapter.ts";
 import {
   acquireAgentGatewaySessionLease,
   type AgentGatewaySessionLease,
@@ -5707,6 +5710,9 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
       listSessions,
       hasSession,
       stopAll,
+      drainRuntimeEvents: awaitProviderRuntimeEventsDrained(
+        Queue.size(runtimeEventQueue).pipe(Effect.map((size) => size === 0)),
+      ),
       getComposerCapabilities,
       listCommands,
       listSkills,

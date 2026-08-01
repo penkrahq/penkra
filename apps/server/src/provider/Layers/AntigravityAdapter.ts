@@ -29,6 +29,7 @@ import {
   type AntigravityAdapterShape,
 } from "../Services/AntigravityAdapter.ts";
 import {
+  awaitProviderRuntimeEventsDrained,
   PROVIDER_ADAPTER_RUNTIME_EVENT_BUFFER_CAPACITY,
   type ProviderThreadSnapshot,
 } from "../Services/ProviderAdapter.ts";
@@ -1141,6 +1142,13 @@ const makeAntigravityAdapter = Effect.gen(function* () {
     readThread: (threadId) => requireSession(threadId).pipe(Effect.map(snapshot)),
     rollbackThread,
     stopAll,
+    drainRuntimeEvents: eventIngress.stop.pipe(
+      Effect.andThen(
+        awaitProviderRuntimeEventsDrained(
+          Queue.size(eventQueue).pipe(Effect.map((size) => size === 0)),
+        ),
+      ),
+    ),
     listModels,
     getComposerCapabilities: () =>
       Effect.succeed({

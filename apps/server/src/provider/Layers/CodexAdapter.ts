@@ -51,7 +51,10 @@ import {
   type ProviderAdapterError,
 } from "../Errors.ts";
 import { CodexAdapter, type CodexAdapterShape } from "../Services/CodexAdapter.ts";
-import { PROVIDER_ADAPTER_RUNTIME_EVENT_BUFFER_CAPACITY } from "../Services/ProviderAdapter.ts";
+import {
+  awaitProviderRuntimeEventsDrained,
+  PROVIDER_ADAPTER_RUNTIME_EVENT_BUFFER_CAPACITY,
+} from "../Services/ProviderAdapter.ts";
 import {
   CodexAppServerManager,
   parseCodexUserInputQuestions,
@@ -2095,7 +2098,7 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
       PROVIDER_ADAPTER_RUNTIME_EVENT_BUFFER_CAPACITY,
     );
 
-    yield* Effect.acquireRelease(
+    const runtimeEventIngress = yield* Effect.acquireRelease(
       Effect.gen(function* () {
         const writeNativeEvent = (event: ProviderEvent) =>
           Effect.gen(function* () {
@@ -2204,6 +2207,13 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
       listSessions,
       hasSession,
       stopAll,
+      drainRuntimeEvents: runtimeEventIngress.ingress.stop.pipe(
+        Effect.andThen(
+          awaitProviderRuntimeEventsDrained(
+            Queue.size(runtimeEventQueue).pipe(Effect.map((size) => size === 0)),
+          ),
+        ),
+      ),
       getComposerCapabilities,
       listSkills,
       listPlugins,
