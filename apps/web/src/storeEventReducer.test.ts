@@ -213,6 +213,7 @@ describe("store event reducer", () => {
     const next = applyOrchestrationEvents(
       {
         spaces: [],
+        archivedSpaces: [],
         projects: [],
         sidebarThreadSummaryById: {},
         threadsHydrated: false,
@@ -252,6 +253,7 @@ describe("store event reducer", () => {
   it("updates existing projects immediately from live project.meta-updated events", () => {
     const initialState: AppState = {
       spaces: [],
+      archivedSpaces: [],
       projects: [
         makeProject({
           id: ProjectId.makeUnsafe("project-live"),
@@ -316,6 +318,7 @@ describe("store event reducer", () => {
     const next = applyOrchestrationEvents(
       {
         spaces: [],
+        archivedSpaces: [],
         projects: [makeProject({ id: ProjectId.makeUnsafe("project-live") })],
         sidebarThreadSummaryById: {},
         threadsHydrated: true,

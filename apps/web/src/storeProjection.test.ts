@@ -225,6 +225,7 @@ describe("store projection", () => {
   it("reuses the existing project slot for shell upserts that keep the same workspace root", () => {
     const initialState: AppState = {
       spaces: [],
+      archivedSpaces: [],
       projects: [
         makeProject({
           id: ProjectId.makeUnsafe("project-old"),
@@ -275,6 +276,7 @@ describe("store projection", () => {
           updatedAt: "2026-07-15T10:00:00.000Z",
         },
       ],
+      archivedSpaces: [],
       projects: [
         makeProject({
           id: ProjectId.makeUnsafe("project-shell-space"),
@@ -378,6 +380,7 @@ describe("store projection", () => {
     const initialState = syncServerReadModel(
       {
         spaces: [],
+        archivedSpaces: [],
         projects: [
           makeProject({
             id: ProjectId.makeUnsafe("project-shell"),

@@ -1877,11 +1877,10 @@ function DesktopProjectBootstrap() {
           hasLiveThreadsWithMissingProjects(snapshot);
         if (!needsRepair) {
           useStore.getState().syncServerShellSnapshot(snapshot);
-          return snapshot;
+          return;
         }
         return api.orchestration.repairState().then((repairedSnapshot) => {
           syncServerReadModel(repairedSnapshot);
-          return repairedSnapshot;
         });
       })
       .catch(() => {

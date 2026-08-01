@@ -320,7 +320,7 @@ export function removeSpace(
       threadShellsChanged = true;
       return [threadId, { ...thread, spaceId: null }];
     }),
-  ) as AppState["threadShellById"];
+  ) as NonNullable<AppState["threadShellById"]>;
   let threadSummariesChanged = false;
   const sidebarThreadSummaryById = Object.fromEntries(
     Object.entries(state.sidebarThreadSummaryById).map(([threadId, thread]) => {

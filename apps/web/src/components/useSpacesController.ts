@@ -111,8 +111,8 @@ export function useSpacesController(input: {
       ),
       threadSpaceById: new Map(
         sidebarThreads
-          .filter((thread) => thread.archivedAt == null && thread.spaceId != null)
-          .map((thread) => [thread.id, thread.spaceId] as const),
+          .filter((thread) => thread.archivedAt == null)
+          .map((thread) => [thread.id, thread.spaceId ?? null] as const),
       ),
     });
   }, [
