@@ -104,6 +104,7 @@ import {
 import { collectMacUpdateDiagnostics } from "./macUpdateDiagnostics";
 import { openInitialBackendWindow } from "./initialBackendWindowOpen";
 import {
+  isTrustedMediaPermissionCheck,
   isTrustedMediaPermissionRequest,
   resolveMicrophonePermissionRequest,
 } from "./mediaPermissions";
@@ -4169,9 +4170,20 @@ function configureMediaPermissions(): void {
     if (!targetSession) continue;
 
     targetSession.setPermissionCheckHandler(
-      (webContents, permission, requestingOrigin, details) =>
-        permission === "media" &&
-        isTrustedMediaPermissionRequest(webContents, trustedRequester(), details, requestingOrigin),
+      (webContents, permission, requestingOrigin, details) => {
+        if (permission !== "media") return false;
+        const trusted = trustedRequester();
+        const allowed = isTrustedMediaPermissionCheck(
+          webContents,
+          trusted,
+          details,
+          requestingOrigin,
+        );
+        console.info(
+          `[desktop-media] Permission check allowed=${String(allowed)} requesterPresent=${String(webContents !== null)} trustedRequesterPresent=${String(trusted !== null)} isMainFrame=${String(details.isMainFrame)} mediaType=${details.mediaType ?? "unspecified"}.`,
+        );
+        return allowed;
+      },
     );
 
     targetSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
@@ -4179,6 +4191,9 @@ function configureMediaPermissions(): void {
         permission !== "media" ||
         !isTrustedMediaPermissionRequest(webContents, trustedRequester(), details)
       ) {
+        if (permission === "media") {
+          console.info("[desktop-media] Permission request rejected by renderer policy.");
+        }
         callback(false);
         return;
       }

@@ -67,7 +67,7 @@ function matchMedia() {
   };
 }
 
-beforeAll(() => {
+beforeAll(async () => {
   const classList = {
     add: () => {},
     remove: () => {},
@@ -97,6 +97,10 @@ beforeAll(() => {
     callback(0);
     return 0;
   });
+
+  // Compile the large timeline dependency during suite setup so transform time
+  // is not charged to whichever render test happens to import it first.
+  await import("./MessagesTimeline");
 });
 
 describe("MessagesTimeline", () => {

@@ -6,6 +6,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  isTrustedMediaPermissionCheck,
   isTrustedMediaPermissionRequest,
   resolveMicrophonePermissionRequest,
   shouldAllowMediaPermissionRequest,
@@ -109,6 +110,82 @@ describe("isTrustedMediaPermissionRequest", () => {
         embeddingOrigin: "https://untrusted.example/frame",
         isMainFrame: true,
         mediaType: "audio",
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("isTrustedMediaPermissionCheck", () => {
+  const trusted = {
+    isDestroyed: () => false,
+    getURL: () => "penkra://app/index.html",
+  };
+
+  it("accepts Electron's packaged main-frame check when WebContents is omitted", () => {
+    expect(
+      isTrustedMediaPermissionCheck(
+        null,
+        trusted,
+        {
+          embeddingOrigin: "penkra://app/index.html",
+          isMainFrame: true,
+          mediaType: "audio",
+          requestingUrl: "",
+        },
+        "",
+      ),
+    ).toBe(true);
+  });
+
+  it("requires explicit audio, main-frame, and trusted-origin evidence without WebContents", () => {
+    expect(isTrustedMediaPermissionCheck(null, trusted, {}, "")).toBe(false);
+    expect(
+      isTrustedMediaPermissionCheck(
+        null,
+        { isDestroyed: () => false },
+        {
+          embeddingOrigin: "penkra://app/index.html",
+          isMainFrame: true,
+          mediaType: "audio",
+        },
+      ),
+    ).toBe(false);
+    expect(
+      isTrustedMediaPermissionCheck(null, trusted, {
+        embeddingOrigin: "penkra://app/index.html",
+        isMainFrame: false,
+        mediaType: "audio",
+      }),
+    ).toBe(false);
+    expect(
+      isTrustedMediaPermissionCheck(null, trusted, {
+        embeddingOrigin: "penkra://app/index.html",
+        isMainFrame: true,
+        mediaType: "video",
+      }),
+    ).toBe(false);
+    expect(
+      isTrustedMediaPermissionCheck(null, trusted, {
+        embeddingOrigin: "https://untrusted.example/frame",
+        isMainFrame: true,
+        mediaType: "audio",
+      }),
+    ).toBe(false);
+  });
+
+  it("retains exact renderer identity when Electron supplies WebContents", () => {
+    expect(
+      isTrustedMediaPermissionCheck(trusted, trusted, {
+        isMainFrame: true,
+        mediaType: "audio",
+        requestingUrl: "penkra://app/index.html",
+      }),
+    ).toBe(true);
+    expect(
+      isTrustedMediaPermissionCheck(requester(), trusted, {
+        isMainFrame: true,
+        mediaType: "audio",
+        requestingUrl: "penkra://app/index.html",
       }),
     ).toBe(false);
   });

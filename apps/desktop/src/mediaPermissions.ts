@@ -39,9 +39,10 @@ function comparableOrigin(value: string): string | null {
 }
 
 function hasTrustedMainFrameOrigin(
-  requester: MediaPermissionRequester,
+  trustedRequester: MediaPermissionRequester,
   details: unknown,
   requestingOrigin?: string,
+  requireExplicitEvidence = false,
 ): boolean {
   if (typeof details !== "object" || details === null) return true;
   const record = details as Record<string, unknown>;
@@ -51,8 +52,10 @@ function hasTrustedMainFrameOrigin(
   // every reported URL is still required to match the live renderer below.
   if (record.isMainFrame === false) return false;
 
-  const rendererOrigin = requester.getURL ? comparableOrigin(requester.getURL()) : null;
-  if (!rendererOrigin) return true;
+  const rendererOrigin = trustedRequester.getURL
+    ? comparableOrigin(trustedRequester.getURL())
+    : null;
+  if (!rendererOrigin) return !requireExplicitEvidence;
   const reportedOrigins = [
     requestingOrigin,
     record.requestingUrl,
@@ -61,7 +64,42 @@ function hasTrustedMainFrameOrigin(
   ]
     .filter((value): value is string => typeof value === "string" && value.length > 0)
     .map(comparableOrigin);
-  return reportedOrigins.every((origin) => origin === rendererOrigin);
+  return (
+    (!requireExplicitEvidence || reportedOrigins.length > 0) &&
+    reportedOrigins.every((origin) => origin === rendererOrigin)
+  );
+}
+
+function explicitlyReportsAudioOnly(details: unknown): boolean {
+  if (typeof details !== "object" || details === null) return false;
+  const record = details as Record<string, unknown>;
+  if (Array.isArray(record.mediaTypes) && record.mediaTypes.length > 0) {
+    return record.mediaTypes.every((mediaType) => mediaType === "audio");
+  }
+  return record.mediaType === "audio";
+}
+
+// Electron documents that permission checks may omit WebContents. In that
+// case, accept only a fully evidenced audio-only main-frame check whose
+// reported origin matches Penkra's live renderer. Permission requests retain
+// the stricter object-identity requirement below.
+export function isTrustedMediaPermissionCheck(
+  requester: MediaPermissionRequester | null,
+  trustedRequester: MediaPermissionRequester | null,
+  details: unknown,
+  requestingOrigin?: string,
+): boolean {
+  if (!trustedRequester || trustedRequester.isDestroyed()) return false;
+  if (requester) {
+    return isTrustedMediaPermissionRequest(requester, trustedRequester, details, requestingOrigin);
+  }
+  if (typeof details !== "object" || details === null) return false;
+  const record = details as Record<string, unknown>;
+  return (
+    record.isMainFrame === true &&
+    explicitlyReportsAudioOnly(details) &&
+    hasTrustedMainFrameOrigin(trustedRequester, details, requestingOrigin, true)
+  );
 }
 
 export function isTrustedMediaPermissionRequest(
@@ -73,7 +111,7 @@ export function isTrustedMediaPermissionRequest(
   if (!requester || requester !== trustedRequester || requester.isDestroyed()) return false;
   return (
     shouldAllowMediaPermissionRequest(details) &&
-    hasTrustedMainFrameOrigin(requester, details, requestingOrigin)
+    hasTrustedMainFrameOrigin(trustedRequester, details, requestingOrigin)
   );
 }
 

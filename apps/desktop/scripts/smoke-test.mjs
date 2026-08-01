@@ -13,6 +13,7 @@ const child = spawn(electronBin, [mainJs], {
   stdio: ["pipe", "pipe", "pipe"],
   env: {
     ...process.env,
+    PENKRA_DESKTOP_FLAVOR: "development",
     VITE_DEV_SERVER_URL: "",
     ELECTRON_ENABLE_LOGGING: "1",
   },
@@ -38,6 +39,7 @@ child.on("exit", () => {
     "MODULE_NOT_FOUND",
     "Refused to execute",
     "Uncaught Error",
+    "Uncaught Exception",
     "Uncaught TypeError",
     "Uncaught ReferenceError",
   ];
