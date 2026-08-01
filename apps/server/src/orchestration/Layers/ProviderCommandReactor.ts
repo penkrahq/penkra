@@ -234,11 +234,6 @@ const runBoundedProviderCall = <E, R>(input: {
     );
   });
 
-export function isSafeLegacyProviderBlocker(lastError: string | null): boolean {
-  const normalized = lastError?.toLowerCase() ?? "";
-  return normalized.includes("stdin closed before the frame was written");
-}
-
 function toNonEmptyProviderInput(value: string | undefined): string | undefined {
   const normalized = value?.trim();
   return normalized && normalized.length > 0 ? normalized : undefined;
@@ -3499,6 +3494,108 @@ const make = Effect.gen(function* () {
       return true;
     });
 
+    /**
+     * A terminal delivery means Penkra cannot prove whether the provider saw
+     * the command. Never retry that command. Instead, stop the owning provider
+     * session as an execution barrier and durably abandon every blocker for
+     * the thread. Later provider intents are safe to run because their source
+     * events were only skipped locally while the quarantine was in force.
+     */
+    const fenceAndAbandonThreadBlockers = Effect.fnUntraced(function* (threadId: ThreadId) {
+      const firstBlocker = yield* deliveryRepository.firstBlockingDeliveryForThread({
+        consumerName: PROVIDER_COMMAND_REACTOR_CONSUMER,
+        threadId,
+      });
+      if (Option.isNone(firstBlocker)) {
+        quarantinedThreads.delete(threadId);
+        return null;
+      }
+
+      const providerThread = yield* resolveProviderSessionThread(threadId);
+      const providerThreadId = providerThread?.id ?? threadId;
+      const stopped = yield* runBoundedProviderCall({
+        label: "The provider recovery stop",
+        timeout: PROVIDER_COMMAND_STOP_TIMEOUT,
+        call: providerService.stopSession({ threadId: providerThreadId }),
+      });
+      if (stopped._tag !== "ok") {
+        yield* Effect.logWarning("provider delivery recovery could not prove runtime stop", {
+          threadId,
+          providerThreadId,
+          detail: stopped._tag === "timeout" ? stopped.detail : stopped.outcome.detail,
+        });
+        quarantinedThreads.add(threadId);
+        return null;
+      }
+
+      let earliestSequence: number | null = null;
+      while (true) {
+        const blocker = yield* deliveryRepository.firstBlockingDeliveryForThread({
+          consumerName: PROVIDER_COMMAND_REACTOR_CONSUMER,
+          threadId,
+        });
+        if (Option.isNone(blocker)) break;
+        if (blocker.value.state !== "dead" && blocker.value.state !== "uncertain") {
+          return yield* Effect.die(
+            new Error(
+              `Provider delivery ${blocker.value.eventSequence} was returned as a blocker in state ${blocker.value.state}`,
+            ),
+          );
+        }
+        earliestSequence ??= blocker.value.eventSequence;
+        const reconciledAt = new Date().toISOString();
+        const reconciled = yield* deliveryRepository.reconcile({
+          reconciliationId: crypto.randomUUID(),
+          consumerName: PROVIDER_COMMAND_REACTOR_CONSUMER,
+          eventSequence: blocker.value.eventSequence,
+          threadId,
+          expectedState: blocker.value.state,
+          outcome: "abandon",
+          reconciledBy: "system:provider-command-reactor",
+          note: "The owning provider runtime was stopped before this acceptance-ambiguous command was abandoned. The ambiguous command was not replayed.",
+          reconciledAt,
+        });
+        if (Option.isNone(reconciled)) continue;
+        yield* Effect.logInfo("provider delivery blocker recovered automatically", {
+          eventSequence: blocker.value.eventSequence,
+          threadId,
+          providerThreadId,
+          previousState: blocker.value.state,
+        });
+      }
+      quarantinedThreads.delete(threadId);
+
+      const thread = yield* resolveThread(threadId);
+      const session = thread?.session ?? null;
+      if (
+        thread !== undefined &&
+        session !== null &&
+        (session.status === "starting" ||
+          session.status === "running" ||
+          session.status === "error")
+      ) {
+        const settledAt = new Date().toISOString();
+        yield* setThreadSession({
+          threadId,
+          session: {
+            threadId,
+            status: "interrupted",
+            providerName: session.providerName ?? thread.modelSelection.provider,
+            runtimeMode: session.runtimeMode,
+            activeTurnId: null,
+            lastError: null,
+            updatedAt: settledAt,
+          },
+          expectedSession: session,
+          createdAt: settledAt,
+        }).pipe(
+          // A newer provider event won the race; its session is authoritative.
+          Effect.catchTag("OrchestrationCommandInvariantError", () => Effect.void),
+        );
+      }
+      return earliestSequence;
+    });
+
     const settleTerminalFailure = Effect.fnUntraced(function* (input: {
       readonly event: ProviderIntentEvent;
       readonly claimOwner: string;
@@ -3540,6 +3637,18 @@ const make = Effect.gen(function* () {
         !(yield* isThreadQuarantined(event.payload.threadId))
       ) {
         return false;
+      }
+      // A newly accepted turn is an exact, durable signal that the user still
+      // wants this thread to continue. Recover before processing it; no button,
+      // timeout guess, or error-text classification participates in the decision.
+      if (
+        event.type === "thread.turn-start-requested" ||
+        event.type === "thread.message-edit-resend-requested"
+      ) {
+        const recoveredAfter = yield* fenceAndAbandonThreadBlockers(event.payload.threadId);
+        if (recoveredAfter !== null) {
+          return false;
+        }
       }
       yield* Effect.logWarning("provider command skipped for quarantined thread", {
         eventType: event.type,
@@ -3622,6 +3731,9 @@ const make = Effect.gen(function* () {
               detail:
                 "External provider command claim expired without a durable acceptance result; execution was not replayed.",
             });
+            // This state is produced locally after process loss, so recovery
+            // begins immediately instead of waiting for another user action.
+            yield* fenceAndAbandonThreadBlockers(threadId);
             return;
           }
           const requeued = yield* deliveryRepository.requeueExpired({
@@ -3887,84 +3999,31 @@ const make = Effect.gen(function* () {
         ),
       ) as ReturnType<ProviderCommandReactorShape["reconcileDelivery"]>;
 
-    const countSkippedPrompts = (input: {
-      readonly threadId: ThreadId;
-      readonly afterSequence: number;
-    }) => {
-      if (cursor <= input.afterSequence) return Effect.succeed(0);
-      return orchestrationEngine.readEventsThrough(input.afterSequence, cursor).pipe(
-        Stream.runFold(
-          () => 0,
-          (count: number, event) =>
-            isProviderIntentEvent(event) &&
-            event.payload.threadId === input.threadId &&
-            (event.type === "thread.turn-start-requested" ||
-              event.type === "thread.message-edit-resend-requested")
-              ? count + 1
-              : count,
-        ),
-      );
-    };
-
-    // Self-heal only legacy quarantines whose recorded details prove the
-    // command frame was never written. Exit-unproven process failures remain
-    // quarantined because the old provider may still be running.
-    // Skipped prompts are not replayed at startup; instead, surface a durable
-    // activity asking the user to resend them.
-    const startupRecoveryNotifiedThreads = new Set<ThreadId>();
+    // Every durable blocker is recovered at startup by first fencing the
+    // provider runtime. The acceptance-ambiguous command itself is abandoned;
+    // only later intents that Penkra provably skipped are replayed.
     yield* Effect.gen(function* () {
       const pageSize = 100;
-      let afterEventSequence: number | undefined;
+      const failedThreads = new Set<ThreadId>();
       while (true) {
         const startupBlockers = yield* deliveryRepository.listBlockingDeliveries({
           consumerName: PROVIDER_COMMAND_REACTOR_CONSUMER,
-          ...(afterEventSequence === undefined ? {} : { afterEventSequence }),
           limit: pageSize,
         });
-        for (const blocker of startupBlockers) {
-          if (!isSafeLegacyProviderBlocker(blocker.lastError)) continue;
-          const reconciled = yield* deliveryRepository.reconcile({
-            reconciliationId: crypto.randomUUID(),
-            consumerName: PROVIDER_COMMAND_REACTOR_CONSUMER,
-            eventSequence: blocker.eventSequence,
-            threadId: blocker.threadId,
-            expectedState: blocker.state,
-            outcome: "abandon",
-            reconciledBy: "system:provider-command-reactor",
-            note: "Recorded failure proves the provider never executed this command; settled at startup.",
-            reconciledAt: new Date().toISOString(),
-          });
-          if (Option.isNone(reconciled)) continue;
-
-          quarantinedThreads.delete(blocker.threadId);
-          if (!startupRecoveryNotifiedThreads.has(blocker.threadId)) {
-            const skippedPromptCount = yield* countSkippedPrompts({
-              threadId: blocker.threadId,
-              afterSequence: blocker.eventSequence,
-            });
-            if (skippedPromptCount > 0) {
-              const noun = skippedPromptCount === 1 ? "message was" : "messages were";
-              const createdAt = new Date().toISOString();
-              yield* appendProviderFailureActivity({
-                threadId: blocker.threadId,
-                kind: "provider.turn.start.failed",
-                summary: "Previous messages were not sent",
-                detail: `Penkra recovered an earlier provider failure, but ${skippedPromptCount} ${noun} skipped while the thread was blocked. Resend ${skippedPromptCount === 1 ? "it" : "them"} to continue.`,
-                turnId: null,
-                createdAt,
-              });
-              startupRecoveryNotifiedThreads.add(blocker.threadId);
-            }
+        if (startupBlockers.length === 0) break;
+        const threadIds = new Set(startupBlockers.map((blocker) => blocker.threadId));
+        let recoveredAny = false;
+        for (const threadId of threadIds) {
+          if (failedThreads.has(threadId)) continue;
+          const recoveredAfter = yield* fenceAndAbandonThreadBlockers(threadId);
+          if (recoveredAfter === null) {
+            failedThreads.add(threadId);
+            continue;
           }
-          yield* Effect.logInfo("provider delivery blocker auto-healed at startup", {
-            eventSequence: blocker.eventSequence,
-            threadId: blocker.threadId,
-            lastError: blocker.lastError,
-          });
+          recoveredAny = true;
+          yield* replayQuarantinedThreadSideEffects({ threadId, afterSequence: recoveredAfter });
         }
-        if (startupBlockers.length < pageSize) break;
-        afterEventSequence = startupBlockers[startupBlockers.length - 1]?.eventSequence;
-        if (afterEventSequence === undefined) break;
+        if (!recoveredAny) break;
       }
     }).pipe(
       Effect.catchCause((cause) =>

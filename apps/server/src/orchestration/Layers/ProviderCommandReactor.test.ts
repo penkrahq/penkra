@@ -74,7 +74,6 @@ import { OrchestrationProjectionPipelineLive } from "./ProjectionPipeline.ts";
 import { OrchestrationProjectionSnapshotQueryLive } from "./ProjectionSnapshotQuery.ts";
 import {
   classifyProviderAttemptOutcome,
-  isSafeLegacyProviderBlocker,
   makeProviderCommandReactorLive,
 } from "./ProviderCommandReactor.ts";
 import {
@@ -104,7 +103,7 @@ const asEventId = (value: string): EventId => EventId.makeUnsafe(value);
 const asMessageId = (value: string): MessageId => MessageId.makeUnsafe(value);
 const asTurnId = (value: string): TurnId => TurnId.makeUnsafe(value);
 
-describe("legacy provider blocker recovery", () => {
+describe("provider attempt classification", () => {
   it("keeps process lifecycle failures uncertain", () => {
     const outcome = classifyProviderAttemptOutcome(
       Exit.fail(
@@ -117,29 +116,6 @@ describe("legacy provider blocker recovery", () => {
     );
 
     expect(outcome._tag).toBe("uncertain");
-  });
-
-  it("accepts only failures that prove the command frame was not written", () => {
-    expect(
-      isSafeLegacyProviderBlocker(
-        "Provider process tree 66212 did not prove exit (rootExited=true, captureComplete=false; no captured descendants remain).",
-      ),
-    ).toBe(false);
-    expect(
-      isSafeLegacyProviderBlocker("Codex app-server stdin closed before the frame was written."),
-    ).toBe(true);
-    expect(
-      isSafeLegacyProviderBlocker(
-        "Provider process tree did not prove exit (rootExited=false, captureComplete=true).",
-      ),
-    ).toBe(false);
-    expect(
-      isSafeLegacyProviderBlocker(
-        "Provider process tree did not prove exit (rootExited=true, captureComplete=false; captured descendants remain).",
-      ),
-    ).toBe(false);
-    expect(isSafeLegacyProviderBlocker("Provider process tree did not prove exit.")).toBe(false);
-    expect(isSafeLegacyProviderBlocker("The provider rejected the prompt.")).toBe(false);
   });
 });
 
@@ -203,6 +179,7 @@ describe("ProviderCommandReactor", () => {
     readonly forkThreadResult?: ProviderForkThreadResult | null;
     readonly startReactor?: boolean;
     readonly interruptTurn?: ProviderServiceShape["interruptTurn"];
+    readonly stopSession?: ProviderServiceShape["stopSession"];
     readonly commandEventTimeout?: Duration.Duration;
     readonly queuedTurnRecoveryInterval?: Duration.Duration;
   }) {
@@ -355,7 +332,7 @@ describe("ProviderCommandReactor", () => {
       deleteCheckpointRefs: () => Effect.void,
       ...input?.checkpointStore,
     };
-    const stopSession = vi.fn((input: unknown) =>
+    const defaultStopSession = (input: unknown) =>
       Effect.sync(() => {
         const threadId =
           typeof input === "object" && input !== null && "threadId" in input
@@ -368,8 +345,8 @@ describe("ProviderCommandReactor", () => {
         if (index >= 0) {
           runtimeSessions.splice(index, 1);
         }
-      }),
-    );
+      });
+    const stopSession = vi.fn(input?.stopSession ?? defaultStopSession);
     const stopRuntimeSession = vi.fn((input: unknown) =>
       Effect.sync(() => {
         const threadId =
@@ -970,7 +947,7 @@ describe("ProviderCommandReactor", () => {
     });
   });
 
-  it("REL-01B gate: quarantines an expired external claim without replaying it", async () => {
+  it("REL-01B gate: fences and abandons an expired external claim at startup", async () => {
     const harness = await createHarness({ startReactor: false });
     const now = new Date().toISOString();
     await Effect.runPromise(
@@ -1021,6 +998,9 @@ describe("ProviderCommandReactor", () => {
     await harness.startReactor();
 
     expect(harness.interruptTurn).not.toHaveBeenCalled();
+    expect(harness.stopSession).toHaveBeenCalledWith({
+      threadId: ThreadId.makeUnsafe("thread-1"),
+    });
     const delivery = await Effect.runPromise(
       harness.deliveryRepository.getDelivery({
         consumerName: "provider-command-reactor.v1",
@@ -1028,7 +1008,7 @@ describe("ProviderCommandReactor", () => {
       }),
     );
     expect(delivery.pipe(Option.getOrThrow)).toMatchObject({
-      state: "uncertain",
+      state: "succeeded",
       attemptCount: 1,
     });
     const consumerState = await Effect.runPromise(
@@ -1243,10 +1223,10 @@ describe("ProviderCommandReactor", () => {
     ).toBe(true);
   });
 
-  // Recovery contract behind the web "Unblock thread" action: abandoning the
-  // blocker never replays the ambiguous command itself, but the turn starts the
-  // quarantine skipped afterwards were provably never sent, so they are replayed.
-  it("REL-01B gate: abandoning a blocker replays turn starts skipped while quarantined", async () => {
+  // Recovery fences the old provider session and never retries the ambiguous
+  // command itself. A later turn-start event is durable proof of work Penkra
+  // skipped locally, so it is dispatched automatically after the barrier.
+  it("REL-01B gate: a new turn automatically recovers a quarantined thread", async () => {
     const harness = await createHarness({
       interruptTurn: () =>
         Effect.fail(
@@ -1346,37 +1326,90 @@ describe("ProviderCommandReactor", () => {
       );
       return state.pipe(Option.getOrThrow).lastAckedSequence >= skippedTurn.sequence;
     });
-    expect(harness.sendTurn.mock.calls.length).toBe(0);
-    expect((await readHarnessThread(harness))?.session?.lastError).toContain(
-      PROVIDER_DELIVERY_BLOCK_SUMMARY,
-    );
-
-    const blocker = (
-      await Effect.runPromise(
-        harness.deliveryRepository.firstBlockingDeliveryForThread({
-          consumerName: PROVIDER_COMMAND_REACTOR_CONSUMER,
-          threadId,
-        }),
-      )
-    ).pipe(Option.getOrThrow);
-    const reconciled = await Effect.runPromise(
-      harness.reactor.reconcileDelivery({
-        eventSequence: blocker.eventSequence,
-        threadId,
-        expectedState: "uncertain",
-        outcome: "abandon",
-        reconciledBy: "local-loopback:local-loopback",
-        note: "Unblocked from the thread error banner.",
-      }),
-    );
-
-    expect(reconciled).toMatchObject({ outcome: "abandon", state: "succeeded" });
-    // The abandoned rollback is never retried; the skipped message is.
+    // The abandoned rollback is never retried; the new message proceeds only
+    // after the owning provider runtime has been stopped successfully.
     expect(harness.interruptTurn.mock.calls.length).toBe(1);
     expect(harness.rollbackConversation.mock.calls.length).toBe(0);
     await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    expect(harness.stopSession).toHaveBeenCalledWith({ threadId });
     expect(
       Option.isNone(
+        await Effect.runPromise(
+          harness.deliveryRepository.firstBlockingDeliveryForThread({
+            consumerName: PROVIDER_COMMAND_REACTOR_CONSUMER,
+            threadId,
+          }),
+        ),
+      ),
+    ).toBe(true);
+  });
+
+  it("REL-01B gate: keeps quarantine when provider fencing cannot be proven", async () => {
+    const harness = await createHarness({
+      startReactor: false,
+      stopSession: ({ threadId }) =>
+        Effect.fail(
+          new ProviderAdapterProcessError({
+            provider: "codex",
+            threadId,
+            detail: "Provider process tree did not prove exit.",
+          }),
+        ),
+    });
+    const now = new Date().toISOString();
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const requested = await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.interrupt",
+        commandId: CommandId.makeUnsafe("cmd-fence-failure-source"),
+        threadId,
+        turnId: asTurnId("turn-fence-failure-source"),
+        createdAt: now,
+      }),
+    );
+    await Effect.runPromise(
+      harness.deliveryRepository.claim({
+        consumerName: PROVIDER_COMMAND_REACTOR_CONSUMER,
+        eventSequence: requested.sequence,
+        threadId,
+        claimOwner: "lost-owner",
+        claimedAt: "2020-01-01T00:00:00.000Z",
+        claimExpiresAt: "2020-01-01T00:01:00.000Z",
+      }),
+    );
+    await Effect.runPromise(
+      harness.deliveryRepository.markTerminalFailure({
+        consumerName: PROVIDER_COMMAND_REACTOR_CONSUMER,
+        eventSequence: requested.sequence,
+        expectedClaimOwner: "lost-owner",
+        state: "uncertain",
+        error: "provider acceptance is unknown",
+        updatedAt: now,
+      }),
+    );
+    await harness.startReactor();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-fence-failure-follow-up"),
+        threadId,
+        message: {
+          messageId: asMessageId("message-fence-failure-follow-up"),
+          role: "user",
+          text: "continue only after a proven fence",
+          attachments: [],
+        },
+        runtimeMode: "approval-required",
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.stopSession.mock.calls.length > 0);
+    expect(harness.sendTurn).not.toHaveBeenCalled();
+    expect(
+      Option.isSome(
         await Effect.runPromise(
           harness.deliveryRepository.firstBlockingDeliveryForThread({
             consumerName: PROVIDER_COMMAND_REACTOR_CONSUMER,

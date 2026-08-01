@@ -19,6 +19,7 @@ import {
   WsBootstrapRpcGroup,
   WsCompatibilityError,
   WsFeatureRpcGroup,
+  WsRpcError,
   type GitActionProgressEvent,
   type GitRunStackedActionResult,
   type OrchestrationEvent,
@@ -68,6 +69,8 @@ export class WsTransportRequestInterruptedError extends Data.TaggedError(
 export interface WsRequestOptions {
   readonly timeoutMs?: number | null;
   readonly signal?: AbortSignal;
+  /** Retry the identical request after a transport reconnect. */
+  readonly retryOnReconnect?: boolean;
 }
 
 interface RequestAbortScope {
@@ -499,7 +502,7 @@ export class WsTransport {
         return undefined as T;
       }
 
-      const client = await awaitWithAbort(this.getClient(), abortScope.signal);
+      let client = await awaitWithAbort(this.getClient(), abortScope.signal);
 
       if (method === WS_METHODS.gitRunStackedAction) {
         return (await this.runGitActionStream(client, params, abortScope.signal)) as T;
@@ -528,18 +531,36 @@ export class WsTransport {
           ? (params as { command: unknown }).command
           : (params ?? {});
       const normalizedRpcInput = omitNullUserInputAnswers(rpcInput);
-      const call = (
-        client as unknown as Record<
-          string,
-          (input: unknown) => Effect.Effect<unknown, WsTransportRpcError, never>
-        >
-      )[method];
-      if (!call) throw new WsTransportRpcError({ message: `Unknown RPC method: ${method}` });
-      const clientRuntime = this.getClientRuntime(client);
-      return (await clientRuntime.runPromise(
-        call(normalizedRpcInput),
-        abortScope.signal ? { signal: abortScope.signal } : undefined,
-      )) as T;
+      while (true) {
+        const call = (
+          client as unknown as Record<
+            string,
+            (input: unknown) => Effect.Effect<unknown, WsTransportRpcError, never>
+          >
+        )[method];
+        if (!call) throw new WsTransportRpcError({ message: `Unknown RPC method: ${method}` });
+        const clientRuntime = this.getClientRuntime(client);
+        try {
+          return (await clientRuntime.runPromise(
+            call(normalizedRpcInput),
+            abortScope.signal ? { signal: abortScope.signal } : undefined,
+          )) as T;
+        } catch (error) {
+          // Orchestration commands carry a durable command ID and fingerprint.
+          // Reissuing the identical request after connection loss is therefore
+          // safe whether the old server committed before its response or died
+          // before acceptance. Explicit server rejections are final and never
+          // enter this branch.
+          if (
+            requestOptions.retryOnReconnect !== true ||
+            Schema.is(WsRpcError)(error) ||
+            isTerminalCompatibilityFailure(error)
+          ) {
+            throw error;
+          }
+          client = await awaitWithAbort(this.reconnect(), abortScope.signal);
+        }
+      }
     } catch (error) {
       if (abortScope.didTimeout()) {
         throw new WsTransportRequestInterruptedError({

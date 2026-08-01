@@ -21,16 +21,6 @@ import type { ProviderRuntimeBinding } from "./Services/ProviderSessionDirectory
 
 export const DEFAULT_RUNTIME_RECONCILIATION_STALE_AFTER_MS = 15_000;
 
-/**
- * Absolute upper bound on a single turn. Past this the turn is settled even
- * when the live runtime still claims to be running, because every other signal
- * this planner trusts (a settled session, a missing session, a failed binding)
- * can be absent when a provider wedges mid-turn. `thread.updatedAt` advances on
- * every appended message, so a legitimately long-running turn keeps resetting
- * this clock and is never affected.
- */
-export const RUNTIME_RECONCILIATION_MAX_TURN_AGE_MS = 45 * 60_000;
-
 export type ProviderRuntimeReconciliationPlan =
   | {
       readonly action: "align-running-turn";
@@ -146,12 +136,6 @@ function projectedLifecycleAgeMs(thread: OrchestrationThreadShell, nowMs: number
   return Number.isFinite(observedAt) ? Math.max(0, nowMs - observedAt) : Number.POSITIVE_INFINITY;
 }
 
-/** Time since anything at all was projected onto the thread (messages included). */
-function threadActivityAgeMs(thread: OrchestrationThreadShell, nowMs: number): number {
-  const observedAt = Date.parse(thread.updatedAt);
-  return Number.isFinite(observedAt) ? Math.max(0, nowMs - observedAt) : Number.POSITIVE_INFINITY;
-}
-
 function pumpDetail(
   provider: ProviderRuntimeBinding["provider"],
   healthByProvider: ReadonlyMap<ProviderRuntimeBinding["provider"], ProviderRuntimeEventPumpHealth>,
@@ -188,15 +172,10 @@ export function planProviderRuntimeReconciliation(input: {
   readonly pumpHealth: ReadonlyArray<ProviderRuntimeEventPumpHealth>;
   readonly nowMs: number;
   readonly staleAfterMs?: number;
-  readonly maxTurnAgeMs?: number;
 }): ReadonlyArray<ProviderRuntimeReconciliationPlan> {
   const staleAfterMs = Math.max(
     1,
     input.staleAfterMs ?? DEFAULT_RUNTIME_RECONCILIATION_STALE_AFTER_MS,
-  );
-  const maxTurnAgeMs = Math.max(
-    staleAfterMs,
-    input.maxTurnAgeMs ?? RUNTIME_RECONCILIATION_MAX_TURN_AGE_MS,
   );
   const bindingByThreadId = new Map(input.bindings.map((binding) => [binding.threadId, binding]));
   const liveSessionByThreadId = new Map(
@@ -217,19 +196,15 @@ export function planProviderRuntimeReconciliation(input: {
     // provider instead of dropping the candidate.
     const provider = binding?.provider ?? thread.modelSelection.provider;
     const detail = pumpDetail(provider, healthByProvider);
-    const abandoned =
-      lifecycleAgeMs >= maxTurnAgeMs && threadActivityAgeMs(thread, input.nowMs) >= maxTurnAgeMs;
-    const abandonedDetail = ` Nothing has progressed on this thread for over ${Math.round(maxTurnAgeMs / 60_000)} minutes.${detail}`;
-
     // Native child threads share a parent session and intentionally have no
     // directory binding of their own; their parent's terminal events settle
-    // them. Only step in once the turn is abandoned outright.
-    if (!binding && !abandoned) continue;
+    // them. Absence of a child binding is not evidence that its turn stopped.
+    if (!binding) continue;
 
     const projectedTurnId = projectedInFlightTurnId(thread);
     const liveTurnId = turnIdOrNull(liveSession?.activeTurnId);
 
-    if (liveSession?.status === "running" && liveTurnId !== null && !abandoned) {
+    if (liveSession?.status === "running" && liveTurnId !== null) {
       if (liveTurnId === projectedTurnId) continue;
       plans.push({
         action: "align-running-turn",
@@ -246,30 +221,20 @@ export function planProviderRuntimeReconciliation(input: {
 
     // Every settlement below depends on the absence of runtime evidence. When
     // that provider's event pump is unhealthy, absence is not trustworthy. The
-    // abandoned-turn bound remains the escape hatch if the pump never recovers.
+    // A duration is never evidence that a provider stopped. If the pump is not
+    // healthy, wait for authoritative runtime or binding state.
     const pumpHealth = healthByProvider.get(provider);
-    if (pumpHealth !== undefined && pumpHealth.status !== "healthy" && !abandoned) continue;
+    if (pumpHealth !== undefined && pumpHealth.status !== "healthy") continue;
 
     // Settling a projection is normally only safe when it names a concrete
     // in-flight turn; ProviderCommandReactor owns failures before a start
-    // acquires one. An abandoned lifecycle is the exception: a session pinned in
-    // `starting`/`running` with no turn to name hangs the UI just as hard.
+    // acquires one. No elapsed-time exception is safe: a provider may be doing
+    // legitimate long-running work without emitting transcript output.
     if (projectedTurnId === null) {
-      const session = thread.session;
-      if (!abandoned || session === null) continue;
-      if (session.status !== "starting" && session.status !== "running") continue;
-      plans.push({
-        action: "settle-interrupted",
-        threadId: thread.id,
-        provider,
-        projectedTurnId: null,
-        runtimeTurnId: null,
-        reason: `The session is stuck in '${session.status}' with no provider turn to settle.${abandonedDetail}`,
-      });
       continue;
     }
 
-    if (liveSession?.status === "connecting" && !abandoned) continue;
+    if (liveSession?.status === "connecting") continue;
 
     const liveSessionSettled =
       liveSession !== undefined &&
@@ -282,7 +247,7 @@ export function planProviderRuntimeReconciliation(input: {
       binding !== undefined &&
       (binding.status === "stopped" || binding.status === "error");
 
-    if (!liveSessionSettled && !missingLiveSession && !bindingSettled && !abandoned) continue;
+    if (!liveSessionSettled && !missingLiveSession && !bindingSettled) continue;
 
     if (liveSession?.status === "error" || (missingLiveSession && binding?.status === "error")) {
       const errorTurnId =
@@ -341,7 +306,7 @@ export function planProviderRuntimeReconciliation(input: {
         projectedTurnId,
         runtimeTurnId: null,
         terminalSession,
-        reason: `${settledEvidenceDetail}, but terminal projection '${terminalSession.status}' still has a running turn.${liveSessionSettled || bindingSettled || missingLiveSession ? detail : abandonedDetail}`,
+        reason: `${settledEvidenceDetail}, but terminal projection '${terminalSession.status}' still has a running turn.${detail}`,
       });
       continue;
     }
@@ -352,7 +317,7 @@ export function planProviderRuntimeReconciliation(input: {
       provider,
       projectedTurnId,
       runtimeTurnId: null,
-      reason: `${settledEvidenceDetail}, but the projection is still running.${liveSessionSettled || bindingSettled || missingLiveSession ? detail : abandonedDetail}`,
+      reason: `${settledEvidenceDetail}, but the projection is still running.${detail}`,
     });
   }
 

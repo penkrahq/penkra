@@ -157,6 +157,12 @@ const make = (options?: ProviderRuntimeReconcilerLiveOptions) =>
         commandId: CommandId.makeUnsafe(`${attemptKey}:session`),
         threadId: plan.threadId,
         session,
+        ...(thread.session === null
+          ? {}
+          : {
+              expectedSessionStatus: thread.session.status,
+              expectedSessionUpdatedAt: thread.session.updatedAt,
+            }),
         createdAt: now,
       });
       yield* orchestrationEngine.dispatch({

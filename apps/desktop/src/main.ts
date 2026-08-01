@@ -199,6 +199,7 @@ import {
   resolveDesktopUserDataPath,
 } from "./desktopUserDataProfile";
 import { configurePenkraAccountAuth } from "./accountAuth";
+import { createDesktopPrivilegedSchemes } from "./desktopProtocolSchemes";
 import { isBrokenPipeError } from "./desktopProcessErrors";
 import {
   createDesktopStaticProtocolResolver,
@@ -285,6 +286,7 @@ const DESKTOP_SCHEME = desktopIdentity.scheme;
 const ROOT_DIR = Path.resolve(__dirname, "../../..");
 const APP_DISPLAY_NAME = desktopIdentity.displayName;
 const APP_USER_MODEL_ID = desktopIdentity.bundleId;
+const desktopSmokeUserDataPath = process.env.PENKRA_DESKTOP_SMOKE_USER_DATA?.trim();
 const COMMIT_HASH_PATTERN = /^[0-9a-f]{7,40}$/i;
 const COMMIT_HASH_DISPLAY_LENGTH = 12;
 const LOG_DIR = Path.join(STATE_DIR, "logs");
@@ -297,7 +299,14 @@ const DESKTOP_BACKEND_SHUTDOWN_TOKEN = Crypto.randomBytes(32).toString("hex");
 // Electron's single-instance lock is scoped through userData on Windows/Linux.
 // Set the flavor-specific profile first so Stable and Dev never contend for the
 // same lock even when they use the same Electron executable.
-const userDataPath = resolveUserDataPath();
+if (desktopSmokeUserDataPath && Path.isAbsolute(desktopSmokeUserDataPath)) {
+  // Keep smoke launches isolated from a developer's running Penkra instance.
+  app.setName(`${APP_DISPLAY_NAME} Smoke ${process.pid}`);
+}
+const userDataPath =
+  desktopSmokeUserDataPath && Path.isAbsolute(desktopSmokeUserDataPath)
+    ? Path.resolve(desktopSmokeUserDataPath)
+    : resolveUserDataPath();
 app.setPath("userData", userDataPath);
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 const AUTO_UPDATE_STARTUP_DELAY_MS = 15_000;
@@ -917,17 +926,7 @@ function armInstallWatchdog(): void {
   }, AUTO_UPDATE_INSTALL_WATCHDOG_MS);
 }
 
-protocol.registerSchemesAsPrivileged([
-  {
-    scheme: DESKTOP_SCHEME,
-    privileges: {
-      standard: true,
-      secure: true,
-      supportFetchAPI: true,
-      corsEnabled: true,
-    },
-  },
-]);
+protocol.registerSchemesAsPrivileged([...createDesktopPrivilegedSchemes(desktopIdentity)]);
 
 function resolveAppRoot(): string {
   return resolveDesktopAppRoot({
@@ -1325,7 +1324,7 @@ function handleFatalStartupError(stage: string, error: unknown): void {
 }
 
 function registerDesktopProtocol(): void {
-  if (isDevelopment || desktopProtocolRegistered) return;
+  if ((isDevelopment && !desktopSmokeUserDataPath) || desktopProtocolRegistered) return;
 
   // An unreadable first observation cannot be replaced by a later baseline:
   // Electron may already hold the header for the generation that disappeared.
@@ -3966,6 +3965,15 @@ function createWindow(): BrowserWindow {
   window.webContents.on("did-finish-load", () => {
     window.setTitle(APP_DISPLAY_NAME);
     emitUpdateState();
+    if (desktopSmokeUserDataPath) {
+      void window.webContents
+        .executeJavaScript(
+          "({ location: location.href, isSecureContext, hasMediaDevices: typeof navigator.mediaDevices !== 'undefined', hasGetUserMedia: typeof navigator.mediaDevices?.getUserMedia === 'function' })",
+        )
+        .then((capabilities) => {
+          console.info(`[desktop-smoke] renderer-capabilities ${JSON.stringify(capabilities)}`);
+        });
+    }
   });
   window.once("ready-to-show", () => {
     // Preserve the original first-launch behavior, then respect the state saved
@@ -4005,7 +4013,7 @@ function createWindow(): BrowserWindow {
     }
   });
 
-  if (isDevelopment) {
+  if (isDevelopment && process.env.VITE_DEV_SERVER_URL) {
     void window.loadURL(process.env.VITE_DEV_SERVER_URL as string);
     window.webContents.openDevTools({ mode: "detach" });
   } else {
@@ -4203,6 +4211,7 @@ if (hasSingleInstanceLock) {
     desktopFlavor,
     getWindow: () => mainWindow,
     ipcMain,
+    registerAsDefaultProtocolClient: !desktopSmokeUserDataPath,
     websiteOrigin: penkraAccountServices.websiteOrigin,
   });
 }

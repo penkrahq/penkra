@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { isPenkraAccountAuthCallbackUrl } from "./accountAuthCallback";
+import {
+  isPenkraAccountAuthCallbackUrl,
+  readPenkraAccountAuthCallbackToken,
+} from "./accountAuthCallback";
 import { resolvePenkraWebsiteOrigin } from "./accountWebsiteOrigin";
 
 describe("Penkra account website origin", () => {
@@ -30,6 +33,14 @@ describe("Penkra account auth callback", () => {
     const devCallback = "com.penkra.app.dev://auth/callback#token=encoded-auth-return";
     expect(isPenkraAccountAuthCallbackUrl(devCallback, "com.penkra.app.dev")).toBe(true);
     expect(isPenkraAccountAuthCallbackUrl(devCallback)).toBe(false);
+  });
+
+  it("returns the callback token for Penkra-owned authentication handling", () => {
+    expect(
+      readPenkraAccountAuthCallbackToken(
+        "com.penkra.app://auth/callback#token=encoded%2Fauth%2Breturn",
+      ),
+    ).toBe("encoded%2Fauth%2Breturn");
   });
 
   it("rejects unrelated, malformed, and incomplete URLs", () => {

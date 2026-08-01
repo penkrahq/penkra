@@ -119,8 +119,8 @@ describe("ProviderRuntimeReconcilerLive", () => {
         Effect.succeed([
           {
             provider: "codex" as const,
-            status: "recovering" as const,
-            consecutiveFailures: 1,
+            status: "healthy" as const,
+            consecutiveFailures: 0,
             updatedAt: "2026-07-23T20:00:00.000Z",
           },
         ]),
@@ -172,6 +172,10 @@ describe("ProviderRuntimeReconcilerLive", () => {
     const sessionCommand = commands[0];
     expect(sessionCommand?.type).toBe("thread.session.set");
     if (sessionCommand?.type === "thread.session.set") {
+      expect(sessionCommand).toMatchObject({
+        expectedSessionStatus: "ready",
+        expectedSessionUpdatedAt: "2026-07-23T19:00:00.000Z",
+      });
       expect(sessionCommand.session).toMatchObject({
         status: "ready",
         activeTurnId: null,

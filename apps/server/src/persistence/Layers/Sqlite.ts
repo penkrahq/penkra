@@ -18,6 +18,7 @@ import {
 
 type RuntimeSqliteLayerConfig = {
   readonly filename: string;
+  readonly onFatalError?: (cause: unknown) => void;
 };
 
 type Loader = {
@@ -131,9 +132,20 @@ export const makeSqlitePersistenceLive = (dbPath: string) =>
         const pendingRecovery = yield* inspectPendingMigrationRecovery(dbPath);
         yield* Effect.sync(() => ensurePrivateFileSync(dbPath));
 
+        let fatalRestartScheduled = false;
+        const onFatalError = (cause: unknown) => {
+          if (fatalRestartScheduled) return;
+          fatalRestartScheduled = true;
+          console.error(
+            "Fatal SQLite I/O failure; exiting so the desktop supervisor can reopen the database.",
+            cause,
+          );
+          setImmediate(() => process.exit(1));
+        };
+
         return Layer.provideMerge(
           makeSetup(dbPath, pendingRecovery),
-          makeRuntimeSqliteLayer({ filename: dbPath }),
+          makeRuntimeSqliteLayer({ filename: dbPath, onFatalError }),
         );
       }),
     ),

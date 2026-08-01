@@ -444,9 +444,11 @@ describe("wsNativeApi", () => {
     } as const;
     await api.orchestration.dispatchCommand(command);
 
-    expect(requestMock).toHaveBeenCalledWith(ORCHESTRATION_WS_METHODS.dispatchCommand, {
-      command,
-    });
+    expect(requestMock).toHaveBeenCalledWith(
+      ORCHESTRATION_WS_METHODS.dispatchCommand,
+      { command },
+      { timeoutMs: null, retryOnReconnect: true },
+    );
   });
 
   it("forwards terminal output ACKs to the websocket transport", async () => {
@@ -479,14 +481,18 @@ describe("wsNativeApi", () => {
     } as const;
     await api.orchestration.dispatchCommand(command);
 
-    expect(requestMock).toHaveBeenCalledWith(ORCHESTRATION_WS_METHODS.dispatchCommand, {
-      command: {
-        ...command,
-        answers: {
-          Runtime: "Bun",
+    expect(requestMock).toHaveBeenCalledWith(
+      ORCHESTRATION_WS_METHODS.dispatchCommand,
+      {
+        command: {
+          ...command,
+          answers: {
+            Runtime: "Bun",
+          },
         },
       },
-    });
+      { timeoutMs: null, retryOnReconnect: true },
+    );
   });
 
   it("forwards workspace file writes to the websocket project method", async () => {

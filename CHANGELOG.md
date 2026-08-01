@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### Changed
+
+- Replaced manual provider-delivery unblocking with automatic, state-driven recovery that fences
+  the old provider runtime before abandoning an acceptance-ambiguous command and replaying only
+  later locally skipped work.
+
+### Fixed
+
+- Fixed packaged macOS builds losing secure-context media APIs when account authentication replaced
+  the `penkra` privileged-scheme registration; desktop schemes are now registered once before startup.
+- Fixed long-running provider turns being marked interrupted after 45 minutes despite authoritative
+  live runtime state, and prevented stale reconciliation plans from overwriting newer terminal state.
+- Fixed fatal SQLite I/O failures leaving the orchestration worker alive but unable to accept
+  messages; the desktop backend now reopens the database and retries the identical idempotent
+  command after reconnect.
+
 ## 0.8.5 - 2026-08-01
 
 ### Changed

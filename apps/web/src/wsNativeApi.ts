@@ -683,9 +683,16 @@ export function createWsNativeApi(): NativeApi {
       getThreadDetailSnapshot: (input) =>
         transport.request(ORCHESTRATION_WS_METHODS.getThreadDetailSnapshot, input),
       dispatchCommand: (command) => {
-        return transport.request(ORCHESTRATION_WS_METHODS.dispatchCommand, {
-          command: omitNullUserInputAnswers(command),
-        });
+        return transport.request(
+          ORCHESTRATION_WS_METHODS.dispatchCommand,
+          {
+            command: omitNullUserInputAnswers(command),
+          },
+          {
+            timeoutMs: null,
+            retryOnReconnect: true,
+          },
+        );
       },
       importThread: (input) => transport.request(ORCHESTRATION_WS_METHODS.importThread, input),
       repairState: () => transport.request(ORCHESTRATION_WS_METHODS.repairState),

@@ -45,6 +45,8 @@ export interface SqliteClientConfig {
   readonly spanAttributes?: Record<string, unknown> | undefined;
   readonly transformResultNames?: ((str: string) => string) | undefined;
   readonly transformQueryNames?: ((str: string) => string) | undefined;
+  /** Called once when SQLite reports a connection-invalidating I/O failure. */
+  readonly onFatalError?: ((cause: unknown) => void) | undefined;
 }
 
 export interface SqliteMemoryClientConfig extends Omit<
@@ -74,6 +76,28 @@ const checkNodeSqliteCompat = () => {
   return Effect.void;
 };
 
+const SQLITE_PRIMARY_CODE_MASK = 0xff;
+const SQLITE_IOERR = 10;
+
+/** Uses SQLite's numeric result code; error messages never participate. */
+export function isSqliteIoError(cause: unknown): boolean {
+  const seen = new Set<unknown>();
+  let current: unknown = cause;
+  while (current && typeof current === "object" && !seen.has(current)) {
+    seen.add(current);
+    const errcode = (current as { readonly errcode?: unknown }).errcode;
+    if (
+      typeof errcode === "number" &&
+      Number.isInteger(errcode) &&
+      (errcode & SQLITE_PRIMARY_CODE_MASK) === SQLITE_IOERR
+    ) {
+      return true;
+    }
+    current = (current as { readonly cause?: unknown }).cause;
+  }
+  return false;
+}
+
 const makeWithDatabase = (
   options: SqliteClientConfig,
   openDatabase: () => DatabaseSync,
@@ -95,6 +119,16 @@ const makeWithDatabase = (
       );
 
       const statementReaderCache = new WeakMap<StatementSync, boolean>();
+      let fatalSqlError: SqlError | null = null;
+      const makeSqlError = (cause: unknown, message: string): SqlError => {
+        if (fatalSqlError !== null) return fatalSqlError;
+        const error = new SqlError({ cause, message });
+        if (isSqliteIoError(cause)) {
+          fatalSqlError = error;
+          options.onFatalError?.(cause);
+        }
+        return error;
+      };
       const hasRows = (statement: StatementSync): boolean => {
         const cached = statementReaderCache.get(statement);
         if (cached !== undefined) {
@@ -111,7 +145,7 @@ const makeWithDatabase = (
         lookup: (sql: string) =>
           Effect.try({
             try: () => db.prepare(sql),
-            catch: (cause) => new SqlError({ cause, message: "Failed to prepare statement" }),
+            catch: (cause) => makeSqlError(cause, "Failed to prepare statement"),
           }),
       });
 
@@ -121,6 +155,7 @@ const makeWithDatabase = (
         raw: boolean,
       ) =>
         Effect.withFiber<ReadonlyArray<any>, SqlError>((fiber) => {
+          if (fatalSqlError !== null) return Effect.fail(fatalSqlError);
           statement.setReadBigInts(Boolean(ServiceMap.get(fiber.services, Client.SafeIntegers)));
           try {
             if (hasRows(statement)) {
@@ -129,7 +164,7 @@ const makeWithDatabase = (
             const result = statement.run(...(params as any));
             return Effect.succeed(raw ? (result as unknown as ReadonlyArray<any>) : []);
           } catch (cause) {
-            return Effect.fail(new SqlError({ cause, message: "Failed to execute statement" }));
+            return Effect.fail(makeSqlError(cause, "Failed to execute statement"));
           }
         });
 
@@ -142,6 +177,7 @@ const makeWithDatabase = (
           (statement) =>
             Effect.try({
               try: () => {
+                if (fatalSqlError !== null) throw fatalSqlError;
                 if (hasRows(statement)) {
                   statement.setReturnArrays(true);
                   // Safe to cast to array after we've setReturnArrays(true)
@@ -152,7 +188,7 @@ const makeWithDatabase = (
                 statement.run(...(params as any));
                 return [];
               },
-              catch: (cause) => new SqlError({ cause, message: "Failed to execute statement" }),
+              catch: (cause) => makeSqlError(cause, "Failed to execute statement"),
             }),
           (statement) =>
             Effect.sync(() => {
@@ -173,7 +209,13 @@ const makeWithDatabase = (
           return runValues(sql, params);
         },
         executeUnprepared(sql, params, rowTransform) {
-          const effect = runStatement(db.prepare(sql), params ?? [], false);
+          const effect = Effect.flatMap(
+            Effect.try({
+              try: () => db.prepare(sql),
+              catch: (cause) => makeSqlError(cause, "Failed to prepare statement"),
+            }),
+            (statement) => runStatement(statement, params ?? [], false),
+          );
           return rowTransform ? Effect.map(effect, rowTransform) : effect;
         },
         executeStream(_sql, _params) {

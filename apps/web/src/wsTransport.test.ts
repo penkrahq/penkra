@@ -13,6 +13,7 @@ import {
   WS_PROTOCOL_MAX_REVISION,
   WS_PROTOCOL_MIN_REVISION,
   WsCompatibilityError,
+  WsRpcError,
 } from "@penkra/contracts";
 
 import {
@@ -607,5 +608,64 @@ describe("WsTransport", () => {
     await transport.dispose();
 
     expect(listener).not.toHaveBeenCalled();
+  });
+
+  it("retries an idempotent orchestration command after reconnect", async () => {
+    const transport = new WsTransport();
+    const method = ORCHESTRATION_WS_METHODS.dispatchCommand;
+    const firstClient = { [method]: vi.fn(() => ({ attempt: 1 })) };
+    const secondClient = { [method]: vi.fn(() => ({ attempt: 2 })) };
+    const firstRuntime = {
+      runPromise: vi.fn().mockRejectedValue(new Error("socket closed")),
+    };
+    const secondRuntime = {
+      runPromise: vi.fn().mockResolvedValue({ sequence: 42 }),
+    };
+    const reconnect = vi.fn().mockResolvedValue(secondClient);
+    const internals = transport as unknown as {
+      getClient: () => Promise<typeof firstClient>;
+      getClientRuntime: (client: unknown) => typeof firstRuntime | typeof secondRuntime;
+      reconnect: () => Promise<typeof secondClient>;
+    };
+    internals.getClient = vi.fn().mockResolvedValue(firstClient);
+    internals.getClientRuntime = vi.fn((client) =>
+      client === firstClient ? firstRuntime : secondRuntime,
+    );
+    internals.reconnect = reconnect;
+
+    await expect(
+      transport.request(
+        method,
+        { command: { commandId: "stable-command-id" } },
+        { timeoutMs: null, retryOnReconnect: true },
+      ),
+    ).resolves.toEqual({ sequence: 42 });
+    expect(reconnect).toHaveBeenCalledTimes(1);
+    expect(firstClient[method]).toHaveBeenCalledTimes(1);
+    expect(secondClient[method]).toHaveBeenCalledTimes(1);
+    await transport.dispose();
+  });
+
+  it("does not retry an explicit orchestration rejection", async () => {
+    const transport = new WsTransport();
+    const method = ORCHESTRATION_WS_METHODS.dispatchCommand;
+    const client = { [method]: vi.fn(() => ({})) };
+    const rejection = new WsRpcError({ message: "command rejected", retryable: false });
+    const runtime = { runPromise: vi.fn().mockRejectedValue(rejection) };
+    const reconnect = vi.fn();
+    const internals = transport as unknown as {
+      getClient: () => Promise<typeof client>;
+      getClientRuntime: () => typeof runtime;
+      reconnect: () => Promise<typeof client>;
+    };
+    internals.getClient = vi.fn().mockResolvedValue(client);
+    internals.getClientRuntime = vi.fn(() => runtime);
+    internals.reconnect = reconnect;
+
+    await expect(
+      transport.request(method, { command: {} }, { timeoutMs: null, retryOnReconnect: true }),
+    ).rejects.toBe(rejection);
+    expect(reconnect).not.toHaveBeenCalled();
+    await transport.dispose();
   });
 });
