@@ -27,6 +27,7 @@ import {
   __codexCliVersionGateTesting,
   CodexAppServerManager,
   classifyCodexStderrLine,
+  inspectCodexThreadActivity,
   normalizeCodexModelSlug,
   readCodexAccountSnapshot,
   resumeCodexThreadWithoutHistoryReplay,
@@ -1413,6 +1414,24 @@ describe("startSession", () => {
       threadId: "provider-thread",
       excludeTurns: true,
     });
+  });
+
+  it("recovers the active turn id from a resumed Codex thread snapshot", () => {
+    expect(
+      inspectCodexThreadActivity({
+        thread: {
+          id: "provider-thread",
+          status: { type: "active" },
+          turns: [
+            { id: "turn-done", status: "completed", items: [] },
+            { id: "turn-live", status: "inProgress", items: [] },
+          ],
+        },
+      }),
+    ).toEqual({ active: true, activeTurnId: "turn-live" });
+    expect(
+      inspectCodexThreadActivity({ thread: { id: "provider-thread", status: "idle" } }),
+    ).toEqual({ active: false });
   });
 
   it("propagates Codex resume failure without issuing a replacement request", async () => {
@@ -3127,6 +3146,34 @@ describe("collab child conversation routing", () => {
       context,
       expect.objectContaining({ status: "running", activeTurnId: "turn_parent" }),
     );
+  });
+
+  it("reconstructs a missing turn start from resumed live item activity", () => {
+    const { manager, context, emitEvent, updateSession } = createCollabNotificationHarness();
+    context.session.status = "ready";
+    context.session.activeTurnId = undefined as unknown as string;
+
+    handleServerNotificationForTest(manager, context, {
+      method: "item/started",
+      params: {
+        threadId: "provider_parent",
+        turnId: "turn-resumed-live",
+        item: { id: "item-live", type: "reasoning" },
+      },
+    });
+
+    expect(updateSession).toHaveBeenCalledWith(
+      context,
+      expect.objectContaining({ status: "running", activeTurnId: "turn-resumed-live" }),
+    );
+    expect(emitEvent.mock.calls.map(([event]) => event)).toEqual([
+      expect.objectContaining({
+        method: "turn/started",
+        turnId: "turn-resumed-live",
+        payload: expect.objectContaining({ recoveredFrom: "item/started" }),
+      }),
+      expect.objectContaining({ method: "item/started", turnId: "turn-resumed-live" }),
+    ]);
   });
 
   it("suppresses child lifecycle notifications when only the provider parent is known", () => {

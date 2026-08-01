@@ -47,7 +47,10 @@ import { recoverGitHandoffOperations } from "./gitHandoffOperations";
 
 export interface ServerShape {
   readonly start: Effect.Effect<
-    http.Server,
+    {
+      readonly nodeServer: http.Server;
+      readonly shutdown: Effect.Effect<void>;
+    },
     ServerLifecycleError | ServerSettingsError,
     | Scope.Scope
     | ServerConfig
@@ -191,7 +194,7 @@ export const createEffectServer = Effect.fn(function* (
   yield* readiness.markHttpListening;
 
   const subscriptionsScope = yield* Scope.make("sequential");
-  yield* Effect.addFinalizer(() =>
+  const shutdown = yield* Effect.cached(
     closeServerRuntimePipeline({
       orchestrationEngine,
       providerCommandReactor,
@@ -200,6 +203,10 @@ export const createEffectServer = Effect.fn(function* (
       subscriptionsScope,
     }),
   );
+  // The main program runs this explicitly before the application layer begins
+  // releasing SQLite and provider services. Keep the finalizer as an idempotent
+  // fallback for startup failures and abrupt parent disconnects.
+  yield* Effect.addFinalizer(() => shutdown);
   yield* Scope.provide(orchestrationReactor.start, subscriptionsScope);
   yield* Scope.provide(threadDeletionReactor.start(), subscriptionsScope);
   yield* Scope.provide(providerSessionReaper.start(), subscriptionsScope);
@@ -240,7 +247,7 @@ export const createEffectServer = Effect.fn(function* (
   if (!nodeServer) {
     return yield* new ServerLifecycleError({ operation: "httpServerListen" });
   }
-  return nodeServer as http.Server;
+  return { nodeServer: nodeServer as http.Server, shutdown };
 });
 
 export const ServerLive = Layer.effect(

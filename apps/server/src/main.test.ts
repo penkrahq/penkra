@@ -52,6 +52,7 @@ function getResolvedConfig(): ServerConfigShape | null {
 let serverStopSignal: Effect.Effect<void> = Effect.void;
 let retainedSqlClient: SqlClient.SqlClient | null = null;
 let releaseServerRuntime = (_sql: SqlClient.SqlClient): Effect.Effect<void, never> => Effect.void;
+let explicitServerShutdown: Effect.Effect<void> = Effect.void;
 const serverStart = Effect.acquireRelease(
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
@@ -68,7 +69,12 @@ const serverStart = Effect.acquireRelease(
         }),
       ),
     ),
-).pipe(Effect.map(({ server }) => server));
+).pipe(
+  Effect.map(({ server }) => ({
+    nodeServer: server,
+    shutdown: Effect.suspend(() => explicitServerShutdown),
+  })),
+);
 const findAvailablePort = vi.fn((preferred: number) => Effect.succeed(preferred));
 let defaultPenkraHome = "";
 const tempHomes = new Set<string>();
@@ -133,6 +139,7 @@ beforeEach(() => {
   serverStopSignal = Effect.void;
   retainedSqlClient = null;
   releaseServerRuntime = () => Effect.void;
+  explicitServerShutdown = Effect.void;
   start.mockImplementation(() => undefined);
   stop.mockImplementation(() => undefined);
   findAvailablePort.mockImplementation((preferred: number) => Effect.succeed(preferred));
@@ -377,6 +384,29 @@ it.layer(testLayer)("server CLI command", (it) => {
       if (Exit.isFailure(postReleaseExit)) {
         assert.match(Cause.pretty(postReleaseExit.cause), /database is not open/i);
       }
+    }),
+  );
+
+  it.effect("runs the explicit runtime drain before releasing the SQLite layer", () =>
+    Effect.gen(function* () {
+      const order: string[] = [];
+      explicitServerShutdown = Effect.gen(function* () {
+        const sql = retainedSqlClient;
+        if (!sql) {
+          return yield* Effect.die(new Error("Expected SQLite to be live during explicit drain"));
+        }
+        const rows = yield* sql<{ readonly live: number }>`SELECT 1 AS live`.pipe(Effect.orDie);
+        assert.deepEqual(rows, [{ live: 1 }]);
+        order.push("runtime-drained");
+      });
+      releaseServerRuntime = () =>
+        Effect.sync(() => {
+          order.push("server-scope-released");
+        });
+
+      yield* runCli([]);
+
+      assert.deepEqual(order, ["runtime-drained", "server-scope-released"]);
     }),
   );
 

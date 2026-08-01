@@ -3403,6 +3403,8 @@ async function stopBackendAndWaitForExit(options?: {
   try {
     await stopPosixBackendAndWait({
       child: backendChild,
+      backendHttpUrl,
+      shutdownToken: DESKTOP_BACKEND_SHUTDOWN_TOKEN,
       forceKillDelayMs,
       timeoutMs,
     });

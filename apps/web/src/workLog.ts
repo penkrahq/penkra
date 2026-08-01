@@ -1189,8 +1189,10 @@ function reconcileSettledLiveActivities(
 
     const terminal = entry.turnId ? terminalByTurnId.get(entry.turnId) : undefined;
     if (terminal) {
+      const toolTitle = deriveSettledToolTitle(entry, terminal.state);
       return {
         ...entry,
+        ...(toolTitle ? { toolTitle } : {}),
         toolStatus:
           terminal.state === "failed"
             ? "failed"
@@ -1221,8 +1223,10 @@ function reconcileSettledLiveActivities(
       latestTurnId && entry.turnId === latestTurnId && latestTerminalState
         ? latestTerminalState
         : "cancelled";
+    const toolTitle = deriveSettledToolTitle(entry, settledState);
     return {
       ...entry,
+      ...(toolTitle ? { toolTitle } : {}),
       toolStatus:
         settledState === "failed"
           ? "failed"
@@ -1238,6 +1242,27 @@ function reconcileSettledLiveActivities(
       ),
     };
   });
+}
+
+function deriveSettledToolTitle(
+  entry: Pick<DerivedWorkLogEntry, "command" | "rawCommand" | "toolTitle" | "label">,
+  state: Extract<WorkLogLiveActivityState, "completed" | "failed" | "cancelled">,
+): string | undefined {
+  const lead = state === "completed" ? "Completed" : state === "failed" ? "Failed" : "Cancelled";
+  const command = entry.rawCommand ?? entry.command;
+  if (command) {
+    return lead;
+  }
+
+  const current = (entry.toolTitle ?? entry.label).trim();
+  if (!current) {
+    return undefined;
+  }
+  const subject = current.replace(
+    /^(?:Running|Reading|Searching|Editing|Generating|Viewing|Creating|Opening|Executing|Waiting on|Updating)\s+/i,
+    "",
+  );
+  return subject ? `${lead} ${subject}` : lead;
 }
 
 function isInProgressLiveActivityState(state: WorkLogLiveActivityState): boolean {

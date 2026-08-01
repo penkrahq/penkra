@@ -44,15 +44,32 @@ a release tag from an uncommitted or unreviewed worktree.
 ## Creating a release
 
 1. Merge the intended release changes into `main` and confirm CI passes.
-2. Update every product package to the intended version and merge that version commit.
-3. Create and push the exact stable tag, for example:
+2. Update every product package to the intended version and commit the exact release source locally.
+3. Build and verify the production artifact from that clean commit:
+
+   ```sh
+   bun run release:qa:local -- "$approved_version"
+   ```
+
+4. Install the verified artifact with `bun run release:install:local -- release-local`, then manually
+   exercise the installed production application, including the changed behavior, normal
+   message dispatch, an active-task interruption/relaunch, and a post-restart message. Inspect the
+   desktop/backend logs and run SQLite integrity checking. Do not change the source or artifacts
+   after this test. Record the result only after every check passes:
+
+   ```sh
+   bun run release:qa:approve -- "$approved_version"
+   bun run release:qa:check -- "$approved_version"
+   ```
+
+5. Create and push the exact stable tag from the same approved commit, for example:
 
    ```sh
    git tag -a "v$approved_version" -m "Penkra v$approved_version"
    git push origin "v$approved_version"
    ```
 
-4. The `Release Penkra Desktop` workflow:
+6. The `Release Penkra Desktop` workflow:
    - verifies the tag and package versions;
    - runs formatting, linting, typechecking, tests, and release contract checks;
    - builds macOS arm64 on a standard GitHub-hosted runner;
@@ -61,13 +78,13 @@ a release tag from an uncommitted or unreviewed worktree.
    - rejects any package containing the private `penkra-cli`;
    - records SHA-256 checksums and GitHub artifact attestations;
    - creates or refreshes a draft GitHub Release.
-5. Download the draft DMG, install it on a clean Mac account or test Mac, and verify:
+7. Download the draft DMG, install it on a clean Mac account or test Mac, and verify:
    - Gatekeeper accepts the application;
    - onboarding and account authentication complete;
    - the local desktop runtime starts;
    - the packaged version and source commit are correct;
    - update checks do not surface draft or prerelease builds.
-6. Publish the draft from GitHub only after those checks pass.
+8. Publish the draft from GitHub only after those checks pass.
 
 Draft releases are invisible to stable desktop update checks. Publishing the draft makes the
 installer, update payload, and matching manifest available as one reviewed release.
@@ -111,6 +128,20 @@ The complete local quality pass remains:
 ```sh
 bun run release:verify
 ```
+
+Before creating a stable tag, the mandatory local production-artifact gate is:
+
+```sh
+bun run release:qa:local -- "$approved_version"
+# Complete manual QA in the installed production app.
+bun run release:qa:approve -- "$approved_version"
+bun run release:qa:check -- "$approved_version"
+```
+
+This gate fails closed unless the worktree is clean, `main` is not behind `origin/main`, all product
+manifests match the exact approved version, and the installed artifact's hashes still match the QA
+receipt. The receipt is stored in Git metadata and is bound to the exact commit and lockfile; any
+source or artifact change invalidates it.
 
 An already-built artifact can be validated with:
 

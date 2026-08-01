@@ -946,6 +946,67 @@ function createSnapshotWithInlineToolOverflow(options: {
   };
 }
 
+function createSnapshotWithInterruptedCommand(): OrchestrationReadModel {
+  const snapshot = createSnapshotForTargetUser({
+    targetMessageId: "msg-user-interrupted-command" as MessageId,
+    targetText: "run the lifecycle check",
+    sessionStatus: "stopped",
+  });
+  const turnId = TurnId.makeUnsafe("turn-interrupted-command");
+  const settledAt = isoAt(1_120);
+
+  return {
+    ...snapshot,
+    threads: snapshot.threads.map((thread) =>
+      thread.id === THREAD_ID
+        ? {
+            ...thread,
+            latestTurn: {
+              turnId,
+              state: "interrupted",
+              requestedAt: isoAt(1_100),
+              startedAt: isoAt(1_101),
+              completedAt: settledAt,
+              assistantMessageId: null,
+            },
+            activities: [
+              {
+                id: EventId.makeUnsafe("activity-interrupted-command"),
+                createdAt: isoAt(1_102),
+                kind: "tool.started",
+                summary: "Ran command started",
+                tone: "tool",
+                turnId,
+                payload: {
+                  itemType: "command_execution",
+                  status: "inProgress",
+                  detail: "/bin/zsh -lc 'sleep 45'",
+                  data: {
+                    item: {
+                      id: "command-interrupted",
+                      type: "commandExecution",
+                      command: "/bin/zsh -lc 'sleep 45'",
+                      status: "inProgress",
+                    },
+                  },
+                },
+              },
+            ],
+            session: thread.session
+              ? {
+                  ...thread.session,
+                  status: "stopped",
+                  activeTurnId: null,
+                  updatedAt: settledAt,
+                }
+              : null,
+            updatedAt: settledAt,
+          }
+        : thread,
+    ),
+  };
+}
+
 function recordProjectCreateCommand(command: unknown): boolean {
   if (
     !command ||
@@ -5525,6 +5586,40 @@ describe("ChatView timeline estimator parity (full app)", () => {
           expect(
             document.querySelector<HTMLButtonElement>('button[aria-label="Stop generation"]'),
           ).toBeNull();
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("settles an orphaned running command when its turn was interrupted", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotWithInterruptedCommand(),
+    });
+
+    try {
+      await vi.waitFor(
+        () => {
+          expect(document.body.textContent).not.toContain("Running sleep 45");
+          expect(
+            document.querySelector<HTMLButtonElement>('button[aria-label="Stop generation"]'),
+          ).toBeNull();
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      const settledTrigger = Array.from(
+        document.querySelectorAll<HTMLButtonElement>("button"),
+      ).find((element) => element.textContent?.includes("Worked for"));
+      expect(settledTrigger).not.toBeUndefined();
+      settledTrigger!.click();
+      await vi.waitFor(
+        () => {
+          expect(document.body.textContent).toContain("Cancelled sleep 45");
+          expect(document.body.textContent).not.toContain("Running sleep 45");
         },
         { timeout: 8_000, interval: 16 },
       );

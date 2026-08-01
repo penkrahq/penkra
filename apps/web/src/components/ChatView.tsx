@@ -1609,6 +1609,11 @@ export default function ChatView({
   const activeThreadId = activeThread?.id ?? null;
   const activeLatestTurn = activeThread?.latestTurn ?? null;
   const activeLatestTurnId = activeLatestTurn?.turnId ?? null;
+  const activeSessionTurnId = activeThread?.session?.activeTurnId ?? null;
+  const activeSessionTurnStartedAt =
+    activeLatestTurn && activeSessionTurnId === activeLatestTurn.turnId
+      ? (activeLatestTurn.startedAt ?? null)
+      : null;
   const threadActivities = activeThread?.activities ?? EMPTY_ACTIVITIES;
   const hasLiveTurnTail = hasLiveTurnTailWork({
     latestTurn: activeLatestTurn,
@@ -2108,8 +2113,18 @@ export default function ChatView({
     () =>
       deriveWorkLogEntries(threadActivities, activeLatestTurn?.turnId ?? undefined, {
         visibleTurnIds: workLogVisibleTurnIds,
+        activeTurnId: activeSessionTurnId,
+        activeTurnStartedAt: activeSessionTurnStartedAt,
+        latestTurnState: activeLatestTurn?.state ?? null,
+        latestTurnCompletedAt: activeLatestTurn?.completedAt ?? null,
       }),
-    [activeLatestTurn?.turnId, threadActivities, workLogVisibleTurnIds],
+    [
+      activeLatestTurn,
+      activeSessionTurnId,
+      activeSessionTurnStartedAt,
+      threadActivities,
+      workLogVisibleTurnIds,
+    ],
   );
   const hasWorkLogSubagents = useMemo(
     () => rawWorkLogEntries.some((entry) => (entry.subagents?.length ?? 0) > 0),
@@ -2198,6 +2213,13 @@ export default function ChatView({
   const stripSourceLatestTurnId = stripParentThread
     ? (stripParentThread.latestTurn?.turnId ?? null)
     : (activeLatestTurn?.turnId ?? null);
+  const stripSourceLatestTurn = stripParentThread?.latestTurn ?? activeLatestTurn;
+  const stripSourceSession = stripParentThread?.session ?? activeThread?.session;
+  const stripSourceActiveTurnId = stripSourceSession?.activeTurnId ?? null;
+  const stripSourceActiveTurnStartedAt =
+    stripSourceLatestTurn && stripSourceActiveTurnId === stripSourceLatestTurn.turnId
+      ? (stripSourceLatestTurn.startedAt ?? null)
+      : null;
   const stripVisibleTurnIds = useMemo(() => {
     if (!stripParentThread) {
       return workLogVisibleTurnIds;
@@ -2228,8 +2250,19 @@ export default function ChatView({
       deriveWorkLogEntries(stripSourceActivities, stripSourceLatestTurnId ?? undefined, {
         visibleTurnIds: stripVisibleTurnIds,
         includeRoutedSubagentActivities: true,
+        activeTurnId: stripSourceActiveTurnId,
+        activeTurnStartedAt: stripSourceActiveTurnStartedAt,
+        latestTurnState: stripSourceLatestTurn?.state ?? null,
+        latestTurnCompletedAt: stripSourceLatestTurn?.completedAt ?? null,
       }),
-    [stripSourceActivities, stripSourceLatestTurnId, stripVisibleTurnIds],
+    [
+      stripSourceActivities,
+      stripSourceActiveTurnId,
+      stripSourceActiveTurnStartedAt,
+      stripSourceLatestTurn,
+      stripSourceLatestTurnId,
+      stripVisibleTurnIds,
+    ],
   );
   const hasStripWorkLogSubagents = useMemo(
     () => stripRawWorkLogEntries.some((entry) => (entry.subagents?.length ?? 0) > 0),

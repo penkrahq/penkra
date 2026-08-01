@@ -169,6 +169,38 @@ function verifyReleaseWorkflowSafety(): void {
   }
 }
 
+function verifyLocalProductionQaGate(): void {
+  const packageJson = readFileSync(resolve(repoRoot, "package.json"), "utf8");
+  const qaScript = readFileSync(
+    resolve(repoRoot, "scripts/penkra-local-production-qa.mjs"),
+    "utf8",
+  );
+  const releaseGuide = readFileSync(resolve(repoRoot, "docs/release.md"), "utf8");
+  for (const command of ["release:qa:local", "release:qa:approve", "release:qa:check"]) {
+    assertContains(packageJson, `"${command}"`, `Expected the ${command} release gate.`);
+  }
+  assertContains(
+    qaScript,
+    'status: "built-awaiting-installed-manual-qa"',
+    "Expected local production QA to require explicit approval after installation and testing.",
+  );
+  assertContains(
+    qaScript,
+    'status: "manual-qa-approved"',
+    "Expected local production QA to record explicit manual approval.",
+  );
+  assertContains(
+    qaScript,
+    'run("git", ["status", "--porcelain=v1"])',
+    "Expected local production QA to reject a dirty release source.",
+  );
+  assertContains(
+    releaseGuide,
+    'bun run release:qa:check -- "$approved_version"',
+    "Expected release instructions to verify local manual QA before tagging.",
+  );
+}
+
 function verifyDesktopStageLockAuthority(): void {
   const buildScript = readFileSync(resolve(repoRoot, "scripts/build-desktop-artifact.ts"), "utf8");
   const desktopMain = readFileSync(resolve(repoRoot, "apps/desktop/src/main.ts"), "utf8");
@@ -280,6 +312,7 @@ const tempRoot = mkdtempSync(join(tmpdir(), "penkra-release-smoke-"));
 try {
   verifyCanonicalIdentity();
   verifyReleaseWorkflowSafety();
+  verifyLocalProductionQaGate();
   verifyDesktopStageLockAuthority();
   copyWorkspaceManifestFixture(tempRoot);
 

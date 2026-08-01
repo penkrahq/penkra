@@ -400,7 +400,7 @@ const makeServerProgram = (input: CliInput) => {
 
     const orchestrationEngine = yield* OrchestrationEngineService;
     yield* ensureDefaultSpaces(orchestrationEngine);
-    yield* start;
+    const startedServer = yield* start;
 
     const localUrl = `http://localhost:${config.port}`;
     const bindUrl =
@@ -499,7 +499,10 @@ const makeServerProgram = (input: CliInput) => {
       );
     }
 
-    return yield* stopSignal;
+    // Drain the runtime while the provided application layer (especially
+    // SQLite) is still alive. `ensuring` also covers parent-disconnect races
+    // that interrupt this fiber before the HTTP stop signal arrives.
+    return yield* stopSignal.pipe(Effect.ensuring(startedServer.shutdown));
   });
 
   return Effect.raceFirst(serverProgram, parentDisconnect).pipe(

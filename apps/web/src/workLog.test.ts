@@ -107,6 +107,45 @@ describe("deriveWorkLogEntries", () => {
     expect(entries.map((entry) => entry.id)).toEqual(["turn-2"]);
   });
 
+  it("settles an orphaned running tool from an interrupted latest turn", () => {
+    const turnId = TurnId.makeUnsafe("turn-interrupted");
+    const entries = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "tool-interrupted",
+          createdAt: "2026-02-23T00:00:01.000Z",
+          turnId,
+          kind: "tool.started",
+          summary: "Ran command started",
+          payload: {
+            itemType: "command_execution",
+            status: "inProgress",
+            detail: "/bin/zsh -lc 'sleep 45'",
+            data: {
+              item: {
+                id: "command-interrupted",
+                type: "commandExecution",
+                command: "/bin/zsh -lc 'sleep 45'",
+                status: "inProgress",
+              },
+            },
+          },
+        }),
+      ],
+      turnId,
+      {
+        activeTurnId: null,
+        latestTurnState: "interrupted",
+        latestTurnCompletedAt: "2026-02-23T00:00:05.000Z",
+      },
+    );
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.toolStatus).toBe("cancelled");
+    expect(entries[0]?.toolTitle).toBe("Cancelled");
+    expect(entries[0]?.liveActivity?.state).toBe("cancelled");
+  });
+
   it("keeps work for every visible transcript turn when requested", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({ id: "turn-1", turnId: "turn-1", summary: "First tool", kind: "tool.started" }),

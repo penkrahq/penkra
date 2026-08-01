@@ -810,6 +810,34 @@ export function resumeCodexThreadWithoutHistoryReplay(input: {
   });
 }
 
+export function inspectCodexThreadActivity(response: unknown): {
+  readonly active: boolean;
+  readonly activeTurnId?: TurnId;
+} {
+  const responseRecord = asObject(response);
+  const thread = asObject(responseRecord?.thread) ?? responseRecord;
+  const statusValue = thread?.status;
+  const status =
+    asString(statusValue) ??
+    asString(asObject(statusValue)?.type) ??
+    asString(responseRecord?.status);
+  const turns = Array.isArray(thread?.turns)
+    ? thread.turns
+    : Array.isArray(responseRecord?.turns)
+      ? responseRecord.turns
+      : [];
+  const activeTurn = turns.toReversed().find((value) => {
+    const turnStatusValue = asObject(value)?.status;
+    const turnStatus = asString(turnStatusValue) ?? asString(asObject(turnStatusValue)?.type) ?? "";
+    return ["inProgress", "in_progress", "running", "active"].includes(turnStatus);
+  });
+  const activeTurnId = toTurnId(asString(asObject(activeTurn)?.id));
+  return {
+    active: status === "active" || activeTurnId !== undefined,
+    ...(activeTurnId ? { activeTurnId } : {}),
+  };
+}
+
 export interface CodexAppServerManagerEvents {
   event: [event: ProviderEvent];
 }
@@ -1078,6 +1106,26 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         threadOpenResponse = await this.sendRequest(context, "thread/start", threadStartParams);
       }
 
+      let resumedActivity = inspectCodexThreadActivity(threadOpenResponse);
+      if (
+        threadOpenMethod === "thread/resume" &&
+        resumedActivity.active &&
+        resumedActivity.activeTurnId === undefined &&
+        context.session.activeTurnId === undefined
+      ) {
+        // `thread/resume` may omit turns while still reporting an active thread.
+        // Read once to recover the running turn id; without it Penkra cannot
+        // associate subsequent deltas or render a controllable live turn.
+        if (!resumeThreadId) {
+          throw new Error("Active thread/resume response is missing its requested thread id.");
+        }
+        const activeThreadResponse = await this.sendRequest(context, "thread/read", {
+          threadId: resumeThreadId,
+          includeTurns: true,
+        });
+        resumedActivity = inspectCodexThreadActivity(activeThreadResponse);
+      }
+
       const threadOpenRecord = this.readObject(threadOpenResponse);
       const threadIdRaw =
         this.readString(this.readObject(threadOpenRecord, "thread"), "id") ??
@@ -1087,9 +1135,14 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       }
       const providerThreadId = threadIdRaw;
 
+      const activeTurnAlreadyObserved = context.session.activeTurnId;
+      const resumedActiveTurnId = activeTurnAlreadyObserved ?? resumedActivity.activeTurnId;
+      const shouldEmitRecoveredTurnStart =
+        activeTurnAlreadyObserved === undefined && resumedActivity.activeTurnId !== undefined;
       this.updateSession(context, {
-        status: "ready",
+        status: resumedActiveTurnId ? "running" : "ready",
         resumeCursor: { threadId: providerThreadId },
+        activeTurnId: resumedActiveTurnId,
       });
       this.emitLifecycleEvent(
         context,
@@ -1103,6 +1156,25 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         resolvedThreadId: providerThreadId,
         requestedRuntimeMode: input.runtimeMode,
       }).pipe(this.runPromise);
+      if (resumedActiveTurnId && shouldEmitRecoveredTurnStart) {
+        this.emitEvent({
+          id: EventId.makeUnsafe(randomUUID()),
+          kind: "notification",
+          provider: "codex",
+          threadId: context.session.threadId,
+          createdAt: new Date().toISOString(),
+          ...(context.lifecycleGeneration !== undefined
+            ? { lifecycleGeneration: context.lifecycleGeneration }
+            : {}),
+          method: "turn/started",
+          turnId: resumedActiveTurnId,
+          message: "Recovered active Codex turn while resuming the thread.",
+          payload: {
+            turn: { id: resumedActiveTurnId, status: "inProgress" },
+            recoveredFrom: "thread/resume",
+          },
+        });
+      }
       this.emitLifecycleEvent(context, "session/ready", `Connected to thread ${providerThreadId}`);
       return { ...context.session };
     } catch (error) {
@@ -2650,6 +2722,40 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       this.shouldSuppressChildConversationNotification(notification.method)
     ) {
       return;
+    }
+    const isLiveTurnEvidence =
+      rawRoute.turnId !== undefined &&
+      !isChildConversation &&
+      (notification.method.startsWith("item/") ||
+        notification.method.endsWith("/delta") ||
+        notification.method === "turn/diff/updated");
+    if (isLiveTurnEvidence && context.session.activeTurnId === undefined) {
+      // A resumed app-server can continue an existing turn without replaying
+      // turn/started. Promote the first live, ordered notification to the
+      // missing lifecycle edge before forwarding its payload.
+      this.clearTaskCompleteFallback(context);
+      this.updateSession(context, {
+        status: "running",
+        activeTurnId: rawRoute.turnId,
+        lastError: undefined,
+      });
+      this.emitEvent({
+        id: EventId.makeUnsafe(randomUUID()),
+        kind: "notification",
+        provider: "codex",
+        threadId: context.session.threadId,
+        createdAt: new Date().toISOString(),
+        ...(context.lifecycleGeneration !== undefined
+          ? { lifecycleGeneration: context.lifecycleGeneration }
+          : {}),
+        method: "turn/started",
+        turnId: rawRoute.turnId,
+        message: "Recovered active Codex turn from live runtime activity.",
+        payload: {
+          turn: { id: rawRoute.turnId, status: "inProgress" },
+          recoveredFrom: notification.method,
+        },
+      });
     }
     const textDelta =
       notification.method === "item/agentMessage/delta"

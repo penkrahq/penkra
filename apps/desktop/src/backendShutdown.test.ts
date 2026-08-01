@@ -86,6 +86,13 @@ describe("retainLiveBackendAfterShutdownFailure", () => {
 });
 
 describe("stopPosixBackendAndWait", () => {
+  const gracefulRequest = () => makePendingRequest();
+  const connection = {
+    backendHttpUrl: "http://127.0.0.1:3773",
+    shutdownToken: "test-shutdown-token",
+    startRequest: gracefulRequest,
+  };
+
   beforeEach(() => {
     vi.useFakeTimers();
   });
@@ -98,30 +105,57 @@ describe("stopPosixBackendAndWait", () => {
     const child = makeTestBackendShutdownProcess();
     const shutdown = stopPosixBackendAndWait({
       child,
+      ...connection,
       forceKillDelayMs: 8_000,
       timeoutMs: 10_000,
     });
 
-    expect(child.killSignals).toEqual(["SIGTERM"]);
+    expect(child.killSignals).toEqual([]);
     await vi.advanceTimersByTimeAsync(7_999);
     await expectPromisePending(shutdown);
 
     child.exit(0);
 
     await expect(shutdown).resolves.toBeUndefined();
-    expect(child.killSignals).toEqual(["SIGTERM"]);
+    expect(child.killSignals).toEqual([]);
+  });
+
+  it("uses authenticated HTTP for graceful shutdown without interrupting the runtime", async () => {
+    const child = makeTestBackendShutdownProcess();
+    const pendingRequest = makePendingRequest(
+      Promise.resolve({ type: "response", statusCode: 202 }),
+    );
+    const startRequest = vi.fn(() => pendingRequest);
+    const shutdown = stopPosixBackendAndWait({
+      child,
+      backendHttpUrl: connection.backendHttpUrl,
+      shutdownToken: connection.shutdownToken,
+      startRequest,
+      forceKillDelayMs: 8_000,
+      timeoutMs: 10_000,
+    });
+
+    expect(startRequest).toHaveBeenCalledWith({
+      backendHttpUrl: connection.backendHttpUrl,
+      shutdownToken: connection.shutdownToken,
+    });
+    expect(child.killSignals).toEqual([]);
+    child.exit(0);
+    await expect(shutdown).resolves.toBeUndefined();
+    expect(pendingRequest.cancel).toHaveBeenCalledOnce();
   });
 
   it("force-kills a surviving child and still requires an exit event", async () => {
     const child = makeTestBackendShutdownProcess();
     const shutdown = stopPosixBackendAndWait({
       child,
+      ...connection,
       forceKillDelayMs: 8_000,
       timeoutMs: 10_000,
     });
 
     await vi.advanceTimersByTimeAsync(8_000);
-    expect(child.killSignals).toEqual(["SIGTERM", "SIGKILL"]);
+    expect(child.killSignals).toEqual(["SIGKILL"]);
     await expectPromisePending(shutdown);
 
     child.exit(null, "SIGKILL");
@@ -132,6 +166,7 @@ describe("stopPosixBackendAndWait", () => {
     const child = makeTestBackendShutdownProcess();
     const shutdown = stopPosixBackendAndWait({
       child,
+      ...connection,
       forceKillDelayMs: 8_000,
       timeoutMs: 10_000,
     });
@@ -142,13 +177,14 @@ describe("stopPosixBackendAndWait", () => {
     });
     await vi.advanceTimersByTimeAsync(10_000);
     await rejection;
-    expect(child.killSignals).toEqual(["SIGTERM", "SIGKILL"]);
+    expect(child.killSignals).toEqual(["SIGKILL"]);
   });
 
   it("shares duplicate shutdown calls for the same process", async () => {
     const child = makeTestBackendShutdownProcess();
     const input = {
       child,
+      ...connection,
       forceKillDelayMs: 8_000,
       timeoutMs: 10_000,
     };
@@ -156,7 +192,7 @@ describe("stopPosixBackendAndWait", () => {
     const first = stopPosixBackendAndWait(input);
     const second = stopPosixBackendAndWait(input);
     expect(second).toBe(first);
-    expect(child.killSignals).toEqual(["SIGTERM"]);
+    expect(child.killSignals).toEqual([]);
 
     child.exit(0);
     await expect(first).resolves.toBeUndefined();
@@ -168,6 +204,7 @@ describe("stopPosixBackendAndWait", () => {
     await expect(
       stopPosixBackendAndWait({
         child,
+        ...connection,
         forceKillDelayMs: 10_000,
         timeoutMs: 10_000,
       }),
@@ -179,6 +216,7 @@ describe("stopPosixBackendAndWait", () => {
     const child = makeTestBackendShutdownProcess();
     const shutdown = stopPosixBackendAndWait({
       child,
+      ...connection,
       forceKillDelayMs: 8_000,
       timeoutMs: 10_000,
     });
