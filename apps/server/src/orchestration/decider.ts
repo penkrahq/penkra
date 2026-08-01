@@ -498,8 +498,62 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
-    case "space.delete": {
+    case "space.archive": {
       yield* requireSpace({ readModel, command, spaceId: command.spaceId });
+      const occurredAt = nowIso();
+      return {
+        ...withEventBase({
+          aggregateKind: "space",
+          aggregateId: command.spaceId,
+          occurredAt,
+          commandId: command.commandId,
+        }),
+        type: "space.archived",
+        payload: { spaceId: command.spaceId, archivedAt: occurredAt },
+      };
+    }
+
+    case "space.restore": {
+      const existingSpace = findSpaceById(readModel, command.spaceId);
+      if (!existingSpace || existingSpace.deletedAt !== null || existingSpace.archivedAt === null) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Space '${command.spaceId}' is not available to restore.`,
+        });
+      }
+      if (listActiveSpaces(readModel).length >= SPACES_MAX_COUNT) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `A maximum of ${SPACES_MAX_COUNT} active custom spaces is supported.`,
+        });
+      }
+      yield* requireSpaceNameAvailable({
+        readModel,
+        command,
+        name: existingSpace.name,
+        excludeSpaceId: existingSpace.id,
+      });
+      const occurredAt = nowIso();
+      return {
+        ...withEventBase({
+          aggregateKind: "space",
+          aggregateId: command.spaceId,
+          occurredAt,
+          commandId: command.commandId,
+        }),
+        type: "space.restored",
+        payload: { spaceId: command.spaceId, restoredAt: occurredAt },
+      };
+    }
+
+    case "space.delete": {
+      const existingSpace = findSpaceById(readModel, command.spaceId);
+      if (!existingSpace || existingSpace.deletedAt !== null) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Space '${command.spaceId}' does not exist or was already deleted.`,
+        });
+      }
       const occurredAt = nowIso();
       // The deletion event owns the re-filing invariant. Projectors clear every matching
       // assignment in one pass, avoiding an unbounded event fanout for large spaces while
@@ -864,6 +918,10 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
+      const directSpaceId = project.kind === "chat" ? (command.spaceId ?? null) : null;
+      if (directSpaceId !== null) {
+        yield* requireSpace({ readModel, command, spaceId: directSpaceId });
+      }
       return {
         ...withEventBase({
           aggregateKind: "thread",
@@ -875,6 +933,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         payload: {
           threadId: command.threadId,
           projectId: command.projectId,
+          spaceId: directSpaceId,
           title: command.title,
           modelSelection: command.modelSelection,
           runtimeMode: command.runtimeMode,
@@ -951,6 +1010,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         payload: {
           threadId: command.threadId,
           projectId: command.projectId,
+          spaceId: project.kind === "chat" ? sourceThread.spaceId : null,
           title: command.title,
           modelSelection: command.modelSelection,
           runtimeMode: command.runtimeMode,
@@ -1046,6 +1106,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         payload: {
           threadId: command.threadId,
           projectId: command.projectId,
+          spaceId: project.kind === "chat" ? sourceThread.spaceId : null,
           title: command.title,
           modelSelection: command.modelSelection,
           runtimeMode: command.runtimeMode,

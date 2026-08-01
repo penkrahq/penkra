@@ -108,7 +108,7 @@ import {
   spaceDisplayName,
   spaceKey,
 } from "../lib/spaceGrouping";
-import { isOrdinarySpaceProject } from "../lib/spaces";
+import { archiveSpace, isOrdinarySpaceProject } from "../lib/spaces";
 import { suggestSpaceIcon } from "../lib/spaceIconSuggestion";
 import { collectStudioProjectIds } from "../lib/studioProjects";
 import { isTerminalFocused } from "../lib/terminalFocus";
@@ -1175,8 +1175,8 @@ export default function Sidebar() {
 
   // Opens a fresh home-chat draft directly on the draft thread route so the first send
   // does not need a second route swap from "/" to "/$threadId".
-  const handleCreateHomeChat = useCallback(async () => {
-    await handleNewChat({ fresh: true });
+  const handleCreateHomeChat = useCallback(async (spaceId: SpaceId | null) => {
+    await handleNewChat({ fresh: true, spaceId });
   }, [handleNewChat]);
 
   const addProjectFromPath = useCallback(
@@ -1917,16 +1917,21 @@ export default function Sidebar() {
             id: "toggle-expanded",
             label: expanded ? "Collapse Space" : "Expand Space",
           },
+          { id: "archive", label: "Archive Space", separatorBefore: true },
         ],
         { x: event.clientX, y: event.clientY },
       );
       if (clicked === "new-thread") {
         handleSelectSpace(space.id);
-        await handleCreateHomeChat();
+        await handleCreateHomeChat(space.id);
         return;
       }
       if (clicked === "rename") {
         openSpaceEditor(space.id);
+        return;
+      }
+      if (clicked === "archive") {
+        await archiveSpace({ api, spaceId: space.id });
         return;
       }
       if (clicked === "toggle-expanded") {
@@ -2172,39 +2177,6 @@ export default function Sidebar() {
       })),
     [visibleChatThreadRows],
   );
-  const activeChatPreviewEntry =
-    activeSidebarThreadId === undefined
-      ? null
-      : (visibleChatPreviewEntries.find((entry) => entry.rowId === activeSidebarThreadId) ?? null);
-  const {
-    canShowLessChatThreads,
-    canShowMoreChatThreads,
-    chatThreadListEffectiveExtraPages,
-    renderedChatEntries,
-  } = useMemo(() => {
-    const paging = resolveSidebarThreadListPaging({
-      totalCount: visibleChatPreviewEntries.length,
-      baseLimit: THREAD_PREVIEW_LIMIT,
-      pageSize: THREAD_PREVIEW_PAGE_SIZE,
-      requestedExtraPages: chatThreadListExtraPages,
-    });
-    const { visibleEntries } = getVisibleSidebarEntriesForPreview({
-      entries: visibleChatPreviewEntries,
-      activeEntryId: activeChatPreviewEntry?.rowId,
-      previewLimit: paging.previewLimit,
-    });
-    return {
-      // Mirror deriveSidebarProjectData: the active-chat reveal can force rows past the page
-      // cap, so only offer "Show more" while rows are genuinely hidden.
-      canShowMoreChatThreads:
-        paging.canShowMore && visibleEntries.length < visibleChatPreviewEntries.length,
-      canShowLessChatThreads: paging.canShowLess,
-      chatThreadListEffectiveExtraPages: paging.effectiveExtraPages,
-      renderedChatEntries: visibleEntries,
-    };
-  }, [activeChatPreviewEntry?.rowId, chatThreadListExtraPages, visibleChatPreviewEntries]);
-  const hasChatContent =
-    renderedChatEntries.length > 0 || canShowMoreChatThreads || canShowLessChatThreads;
   const allStandardProjectsBase = useMemo(
     () =>
       sortedProjects.filter((project) =>
@@ -2232,16 +2204,45 @@ export default function Sidebar() {
     [pinnedProjectIds, standardProjectsBase],
   );
   const sidebarSpaceSections = useMemo(() => {
+    const defaultSpaceId = spaces[0]?.id ?? null;
+    const buildChatData = (spaceId: SpaceId | null) => {
+      const entries = visibleChatPreviewEntries.filter(
+        (entry) => (entry.row.thread.spaceId ?? defaultSpaceId) === spaceId,
+      );
+      const activeEntry =
+        activeSidebarThreadId === undefined
+          ? null
+          : (entries.find((entry) => entry.rowId === activeSidebarThreadId) ?? null);
+      const paging = resolveSidebarThreadListPaging({
+        totalCount: entries.length,
+        baseLimit: THREAD_PREVIEW_LIMIT,
+        pageSize: THREAD_PREVIEW_PAGE_SIZE,
+        requestedExtraPages: chatThreadListExtraPages,
+      });
+      const { visibleEntries } = getVisibleSidebarEntriesForPreview({
+        entries,
+        activeEntryId: activeEntry?.rowId,
+        previewLimit: paging.previewLimit,
+      });
+      return {
+        entries: visibleEntries,
+        effectiveExtraPages: paging.effectiveExtraPages,
+        canShowMore: paging.canShowMore && visibleEntries.length < entries.length,
+        canShowLess: paging.canShowLess,
+      };
+    };
     const sections: Array<{
       key: string;
       label: string;
       space: Space | null;
       projects: Project[];
+      chatData: ReturnType<typeof buildChatData>;
     }> = spaces.map((space) => ({
       key: space.id as string,
       label: space.name,
       space,
       projects: standardProjects.filter((project) => project.spaceId === space.id),
+      chatData: buildChatData(space.id),
     }));
     const unassignedProjects = standardProjects.filter((project) => project.spaceId == null);
     if (unassignedProjects.length > 0 || sections.length === 0) {
@@ -2250,10 +2251,17 @@ export default function Sidebar() {
         label: VOID_SPACE_NAME,
         space: null,
         projects: unassignedProjects,
+        chatData: buildChatData(null),
       });
     }
     return sections;
-  }, [spaces, standardProjects]);
+  }, [
+    activeSidebarThreadId,
+    chatThreadListExtraPages,
+    spaces,
+    standardProjects,
+    visibleChatPreviewEntries,
+  ]);
   const standardProjectSidebarDataById = useMemo<ReadonlyMap<ProjectId, SidebarDerivedProjectData>>(
     () =>
       deriveSidebarProjectData({
@@ -3373,11 +3381,13 @@ export default function Sidebar() {
             />
           ) : null}
           <div className="flex flex-col gap-4" data-slot="space-list">
-            {sidebarSpaceSections.map((section, sectionIndex) => {
-              const includesHomeChats = sectionIndex === 0;
+            {sidebarSpaceSections.map((section) => {
               const expanded = !collapsedSpaceIds.has(section.key);
               const hasContent =
-                section.projects.length > 0 || (includesHomeChats && hasChatContent);
+                section.projects.length > 0 ||
+                section.chatData.entries.length > 0 ||
+                section.chatData.canShowMore ||
+                section.chatData.canShowLess;
               const editingThisSpace =
                 section.space !== null &&
                 spaceEditorOpen &&
@@ -3413,7 +3423,7 @@ export default function Sidebar() {
                     }}
                     onHeaderAction={() => {
                       handleSelectSpace(section.space?.id ?? null);
-                      void handleCreateHomeChat();
+                      void handleCreateHomeChat(section.space?.id ?? null);
                     }}
                     {...(section.space
                       ? {
@@ -3422,29 +3432,27 @@ export default function Sidebar() {
                         }
                       : {})}
                   >
-                    {includesHomeChats
-                      ? renderedChatEntries.map((entry) =>
-                          renderPencilThreadRow(
-                            entry.row.thread,
-                            visibleChatOrderedThreadIds,
-                            entry.row.depth,
-                          ),
-                        )
-                      : null}
-                    {includesHomeChats && canShowMoreChatThreads ? (
+                    {section.chatData.entries.map((entry) =>
+                      renderPencilThreadRow(
+                        entry.row.thread,
+                        visibleChatOrderedThreadIds,
+                        entry.row.depth,
+                      ),
+                    )}
+                    {section.chatData.canShowMore ? (
                       <ShowMoreRow
                         onClick={() =>
-                          setChatThreadListExtraPages(chatThreadListEffectiveExtraPages + 1)
+                          setChatThreadListExtraPages(section.chatData.effectiveExtraPages + 1)
                         }
                       >
                         Show more
                       </ShowMoreRow>
                     ) : null}
-                    {includesHomeChats && canShowLessChatThreads ? (
+                    {section.chatData.canShowLess ? (
                       <ShowMoreRow
                         onClick={() =>
                           setChatThreadListExtraPages(
-                            Math.max(0, chatThreadListEffectiveExtraPages - 1),
+                            Math.max(0, section.chatData.effectiveExtraPages - 1),
                           )
                         }
                       >
@@ -3816,7 +3824,7 @@ export default function Sidebar() {
           actions={searchPaletteActions}
           projects={searchPaletteProjects}
           projectById={projectById}
-          onCreateChat={() => void handleCreateHomeChat()}
+          onCreateChat={() => void handleCreateHomeChat(activeSpaceId)}
           onCreateThread={handlePrimaryNewThread}
           onAddProjectPath={addProjectFromPath}
           homeDir={homeDir}

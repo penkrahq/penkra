@@ -16,6 +16,7 @@ import {
   ThreadMarkers,
   ThreadHandoff,
   ProjectId,
+  SpaceId,
   ProviderInteractionMode,
   RuntimeMode,
   ThreadEnvironmentMode,
@@ -30,6 +31,9 @@ import type { ProjectionRepositoryError } from "../Errors.ts";
 export const ProjectionThread = Schema.Struct({
   threadId: ThreadId,
   projectId: ProjectId,
+  spaceId: Schema.optional(Schema.NullOr(SpaceId)).pipe(
+    Schema.withDecodingDefault(() => null),
+  ),
   title: Schema.String,
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,
@@ -83,6 +87,13 @@ export const ProjectionThread = Schema.Struct({
 });
 export type ProjectionThread = typeof ProjectionThread.Type;
 
+export const ClearProjectionThreadSpaceAssignmentsInput = Schema.Struct({
+  spaceId: SpaceId,
+  updatedAt: IsoDateTime,
+});
+export type ClearProjectionThreadSpaceAssignmentsInput =
+  typeof ClearProjectionThreadSpaceAssignmentsInput.Type;
+
 export const GetProjectionThreadInput = Schema.Struct({
   threadId: ThreadId,
 });
@@ -102,6 +113,9 @@ export type ListProjectionThreadsByProjectInput = typeof ListProjectionThreadsBy
  * ProjectionThreadRepositoryShape - Service API for projected thread records.
  */
 export interface ProjectionThreadRepositoryShape {
+  readonly clearSpaceAssignments: (
+    input: ClearProjectionThreadSpaceAssignmentsInput,
+  ) => Effect.Effect<void, ProjectionRepositoryError>;
   /**
    * Insert or replace a projected thread row.
    *

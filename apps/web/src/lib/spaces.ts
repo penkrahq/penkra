@@ -79,6 +79,22 @@ export async function deleteSpace(input: { api: NativeApi; spaceId: SpaceId }): 
   });
 }
 
+export async function archiveSpace(input: { api: NativeApi; spaceId: SpaceId }): Promise<void> {
+  await input.api.orchestration.dispatchCommand({
+    type: "space.archive",
+    commandId: newCommandId(),
+    spaceId: input.spaceId,
+  });
+}
+
+export async function restoreSpace(input: { api: NativeApi; spaceId: SpaceId }): Promise<void> {
+  await input.api.orchestration.dispatchCommand({
+    type: "space.restore",
+    commandId: newCommandId(),
+    spaceId: input.spaceId,
+  });
+}
+
 export async function reorderSpaces(input: {
   api: NativeApi;
   movedSpaceId: SpaceId;

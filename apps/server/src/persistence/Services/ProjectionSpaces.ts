@@ -12,6 +12,9 @@ export const ProjectionSpace = Schema.Struct({
   sortOrder: NonNegativeInt,
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
+  archivedAt: Schema.optional(Schema.NullOr(IsoDateTime)).pipe(
+    Schema.withDecodingDefault(() => null),
+  ),
   deletedAt: Schema.NullOr(IsoDateTime),
 });
 export type ProjectionSpace = typeof ProjectionSpace.Type;

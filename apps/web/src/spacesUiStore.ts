@@ -81,6 +81,7 @@ interface SpacesUiState extends PersistedSpacesUiState {
     snapshotSequence: number;
     projectSpaceById: ReadonlyMap<ProjectId, SpaceId | null>;
     threadProjectById: ReadonlyMap<ThreadId, ProjectId>;
+    threadSpaceById: ReadonlyMap<ThreadId, SpaceId | null>;
   }) => void;
 }
 
@@ -122,7 +123,13 @@ export const useSpacesUiStore = create<SpacesUiState>((set, get) => ({
   },
   getLastThreadId: (spaceId) => get().lastThreadIdBySpace[spaceKey(spaceId)] ?? null,
   getLastProjectId: (spaceId) => get().lastProjectIdBySpace[spaceKey(spaceId)] ?? null,
-  reconcile: ({ activeSpaceIds, snapshotSequence, projectSpaceById, threadProjectById }) => {
+  reconcile: ({
+    activeSpaceIds,
+    snapshotSequence,
+    projectSpaceById,
+    threadProjectById,
+    threadSpaceById,
+  }) => {
     const current = get();
     const pendingActiveSpace =
       current.pendingActiveSpace !== null &&
@@ -143,7 +150,9 @@ export const useSpacesUiStore = create<SpacesUiState>((set, get) => ({
     for (const [key, threadId] of Object.entries(current.lastThreadIdBySpace)) {
       const projectId = threadProjectById.get(threadId);
       if (!projectId) continue;
-      const assignedSpaceId = projectSpaceById.get(projectId) ?? null;
+      const assignedSpaceId = threadSpaceById.has(threadId)
+        ? (threadSpaceById.get(threadId) ?? null)
+        : (projectSpaceById.get(projectId) ?? null);
       if (spaceKey(assignedSpaceId) === key) {
         lastThreadIdBySpace[key] = threadId;
       }

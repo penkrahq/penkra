@@ -17,10 +17,10 @@ const makeProjectionSpaceRepository = Effect.gen(function* () {
     Request: ProjectionSpace,
     execute: (row) => sql`
       INSERT INTO projection_spaces (
-        space_id, name, icon, sort_order, created_at, updated_at, deleted_at
+        space_id, name, icon, sort_order, created_at, updated_at, archived_at, deleted_at
       ) VALUES (
         ${row.spaceId}, ${row.name}, ${row.icon}, ${row.sortOrder},
-        ${row.createdAt}, ${row.updatedAt}, ${row.deletedAt}
+        ${row.createdAt}, ${row.updatedAt}, ${row.archivedAt ?? null}, ${row.deletedAt}
       )
       ON CONFLICT (space_id) DO UPDATE SET
         name = excluded.name,
@@ -28,6 +28,7 @@ const makeProjectionSpaceRepository = Effect.gen(function* () {
         sort_order = excluded.sort_order,
         created_at = excluded.created_at,
         updated_at = excluded.updated_at,
+        archived_at = excluded.archived_at,
         deleted_at = excluded.deleted_at
     `,
   });
@@ -43,6 +44,7 @@ const makeProjectionSpaceRepository = Effect.gen(function* () {
         sort_order AS "sortOrder",
         created_at AS "createdAt",
         updated_at AS "updatedAt",
+        archived_at AS "archivedAt",
         deleted_at AS "deletedAt"
       FROM projection_spaces
       WHERE space_id = ${spaceId}
@@ -60,6 +62,7 @@ const makeProjectionSpaceRepository = Effect.gen(function* () {
         sort_order AS "sortOrder",
         created_at AS "createdAt",
         updated_at AS "updatedAt",
+        archived_at AS "archivedAt",
         deleted_at AS "deletedAt"
       FROM projection_spaces
       ORDER BY sort_order ASC, space_id ASC

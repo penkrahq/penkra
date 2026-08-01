@@ -25,6 +25,7 @@ export interface AppState {
   /** Highest authoritative snapshot integrated by this store instance. */
   shellSnapshotSequence?: number;
   spaces: Space[];
+  archivedSpaces: Space[];
   projects: Project[];
   sidebarThreadSummaryById: Record<string, SidebarThreadSummary>;
   threadsHydrated: boolean;
@@ -80,6 +81,7 @@ export const EMPTY_TURN_DIFF_BY_THREAD: Record<
 export const initialState: AppState = {
   shellSnapshotSequence: 0,
   spaces: [],
+  archivedSpaces: [],
   projects: [],
   sidebarThreadSummaryById: {},
   threadsHydrated: false,

@@ -416,6 +416,9 @@ export const OrchestrationSpace = Schema.Struct({
   sortOrder: NonNegativeInt,
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
+  archivedAt: Schema.optional(Schema.NullOr(IsoDateTime)).pipe(
+    Schema.withDecodingDefault(() => null),
+  ),
   deletedAt: Schema.NullOr(IsoDateTime),
 });
 export type OrchestrationSpace = typeof OrchestrationSpace.Type;
@@ -696,6 +699,7 @@ export type OrchestrationPendingInteraction = typeof OrchestrationPendingInterac
 export const OrchestrationThread = Schema.Struct({
   id: ThreadId,
   projectId: ProjectId,
+  spaceId: Schema.optional(Schema.NullOr(SpaceId)).pipe(Schema.withDecodingDefault(() => null)),
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,
@@ -780,6 +784,7 @@ export type OrchestrationThread = typeof OrchestrationThread.Type;
 export const OrchestrationThreadShell = Schema.Struct({
   id: ThreadId,
   projectId: ProjectId,
+  spaceId: Schema.optional(Schema.NullOr(SpaceId)).pipe(Schema.withDecodingDefault(() => null)),
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,
@@ -864,6 +869,9 @@ export type OrchestrationReadModel = typeof OrchestrationReadModel.Type;
 export const OrchestrationShellSnapshot = Schema.Struct({
   snapshotSequence: NonNegativeInt,
   spaces: Schema.Array(OrchestrationSpaceShell),
+  archivedSpaces: Schema.optional(Schema.Array(OrchestrationSpaceShell)).pipe(
+    Schema.withDecodingDefault(() => []),
+  ),
   projects: Schema.Array(OrchestrationProjectShell),
   threads: Schema.Array(OrchestrationThreadShell),
   updatedAt: IsoDateTime,
@@ -881,6 +889,9 @@ export const OrchestrationShellStreamEvent = Schema.Union([
     sequence: NonNegativeInt,
     spaceId: SpaceId,
     updatedAt: IsoDateTime,
+    preserveAssignments: Schema.optional(Schema.Boolean).pipe(
+      Schema.withDecodingDefault(() => false),
+    ),
   }),
   Schema.Struct({
     kind: Schema.Literal("space-order-updated"),
@@ -949,6 +960,18 @@ export const SpaceDeleteCommand = Schema.Struct({
   spaceId: SpaceId,
 });
 
+export const SpaceArchiveCommand = Schema.Struct({
+  type: Schema.Literal("space.archive"),
+  commandId: CommandId,
+  spaceId: SpaceId,
+});
+
+export const SpaceRestoreCommand = Schema.Struct({
+  type: Schema.Literal("space.restore"),
+  commandId: CommandId,
+  spaceId: SpaceId,
+});
+
 /**
  * Bulk assignment into one target space, applied atomically in a single transaction.
  * Moving projects out to Void stays per-project via `project.meta.update` — the only
@@ -1012,6 +1035,8 @@ const ThreadCreateCommand = Schema.Struct({
   commandId: CommandId,
   threadId: ThreadId,
   projectId: ProjectId,
+  /** Direct Space ownership for loose chats. Project-backed threads inherit their project. */
+  spaceId: Schema.optional(Schema.NullOr(SpaceId)),
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,
@@ -1414,6 +1439,8 @@ const DispatchableClientOrchestrationCommand = Schema.Union([
   SpaceCreateCommand,
   SpaceMetaUpdateCommand,
   SpaceReorderCommand,
+  SpaceArchiveCommand,
+  SpaceRestoreCommand,
   SpaceDeleteCommand,
   SpaceProjectsAssignCommand,
   ProjectCreateCommand,
@@ -1454,6 +1481,8 @@ export const ClientOrchestrationCommand = Schema.Union([
   SpaceCreateCommand,
   SpaceMetaUpdateCommand,
   SpaceReorderCommand,
+  SpaceArchiveCommand,
+  SpaceRestoreCommand,
   SpaceDeleteCommand,
   SpaceProjectsAssignCommand,
   ProjectCreateCommand,
@@ -1592,6 +1621,8 @@ export const OrchestrationEventType = Schema.Literals([
   "space.created",
   "space.meta-updated",
   "space.order-updated",
+  "space.archived",
+  "space.restored",
   "space.deleted",
   "project.created",
   "project.meta-updated",
@@ -1664,6 +1695,16 @@ export const SpaceDeletedPayload = Schema.Struct({
   deletedAt: IsoDateTime,
 });
 
+export const SpaceArchivedPayload = Schema.Struct({
+  spaceId: SpaceId,
+  archivedAt: IsoDateTime,
+});
+
+export const SpaceRestoredPayload = Schema.Struct({
+  spaceId: SpaceId,
+  restoredAt: IsoDateTime,
+});
+
 export const ProjectCreatedPayload = Schema.Struct({
   projectId: ProjectId,
   kind: Schema.optional(ProjectKind).pipe(Schema.withDecodingDefault(() => "project")),
@@ -1697,6 +1738,7 @@ export const ProjectDeletedPayload = Schema.Struct({
 export const ThreadCreatedPayload = Schema.Struct({
   threadId: ThreadId,
   projectId: ProjectId,
+  spaceId: Schema.optional(Schema.NullOr(SpaceId)).pipe(Schema.withDecodingDefault(() => null)),
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(() => DEFAULT_RUNTIME_MODE)),
@@ -2043,6 +2085,16 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("space.order-updated"),
     payload: SpaceOrderUpdatedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("space.archived"),
+    payload: SpaceArchivedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("space.restored"),
+    payload: SpaceRestoredPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,

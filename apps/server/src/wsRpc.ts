@@ -254,6 +254,8 @@ function isShellRelevantEvent(event: OrchestrationEvent): boolean {
     event.type === "space.created" ||
     event.type === "space.meta-updated" ||
     event.type === "space.order-updated" ||
+    event.type === "space.archived" ||
+    event.type === "space.restored" ||
     event.type === "space.deleted" ||
     event.type === "project.created" ||
     event.type === "project.meta-updated" ||
@@ -658,6 +660,7 @@ const makeWsRpcHandlersLayer = () =>
         switch (event.type) {
           case "space.created":
           case "space.meta-updated":
+          case "space.restored":
             return projectionReadModelQuery.getSpaceShellById(event.payload.spaceId).pipe(
               Effect.map((space) =>
                 Option.map(space, (nextSpace) => ({
@@ -677,12 +680,17 @@ const makeWsRpcHandlersLayer = () =>
               }),
             );
           case "space.deleted":
+          case "space.archived":
             return Effect.succeed(
               Option.some({
                 kind: "space-removed" as const,
                 sequence: event.sequence,
                 spaceId: event.payload.spaceId,
-                updatedAt: event.payload.deletedAt,
+                updatedAt:
+                  event.type === "space.deleted"
+                    ? event.payload.deletedAt
+                    : event.payload.archivedAt,
+                preserveAssignments: event.type === "space.archived",
               }),
             );
           case "project.created":

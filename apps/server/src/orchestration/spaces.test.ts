@@ -37,6 +37,48 @@ describe("Spaces", () => {
     ).rejects.toThrow(/reserved Void identity/i);
   });
 
+  it("archives and restores a Space without changing its assignments", async () => {
+    const createdAt = "2026-07-31T10:00:00.000Z";
+    const spaceId = SpaceId.makeUnsafe("space-lifecycle");
+    const projectId = ProjectId.makeUnsafe("project-lifecycle");
+    let readModel = createEmptyReadModel(createdAt);
+
+    ({ readModel } = await dispatch(readModel, {
+      type: "space.create",
+      commandId: CommandId.makeUnsafe("cmd-space-lifecycle-create"),
+      spaceId,
+      name: "Lifecycle",
+      icon: "star",
+      createdAt,
+    }));
+    ({ readModel } = await dispatch(readModel, {
+      type: "project.create",
+      commandId: CommandId.makeUnsafe("cmd-space-lifecycle-project"),
+      projectId,
+      title: "Assigned project",
+      workspaceRoot: "/tmp/assigned-project",
+      spaceId,
+      createdAt,
+    }));
+    ({ readModel } = await dispatch(readModel, {
+      type: "space.archive",
+      commandId: CommandId.makeUnsafe("cmd-space-lifecycle-archive"),
+      spaceId,
+    }));
+
+    expect(readModel.spaces[0]?.archivedAt).not.toBeNull();
+    expect(readModel.projects[0]?.spaceId).toBe(spaceId);
+
+    ({ readModel } = await dispatch(readModel, {
+      type: "space.restore",
+      commandId: CommandId.makeUnsafe("cmd-space-lifecycle-restore"),
+      spaceId,
+    }));
+
+    expect(readModel.spaces[0]?.archivedAt).toBeNull();
+    expect(readModel.projects[0]?.spaceId).toBe(spaceId);
+  });
+
   it("orders custom spaces, assigns projects, and moves them to Void on deletion", async () => {
     const createdAt = "2026-07-15T10:00:00.000Z";
     const workSpaceId = SpaceId.makeUnsafe("space-work");

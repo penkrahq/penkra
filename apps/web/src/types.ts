@@ -219,6 +219,7 @@ export interface Thread extends ThreadWorkspaceState {
   id: ThreadId;
   codexThreadId: string | null;
   projectId: ProjectId;
+  spaceId?: SpaceId | null;
   title: string;
   modelSelection: ModelSelection;
   runtimeMode: RuntimeMode;
@@ -260,6 +261,7 @@ export interface ThreadShell extends ThreadWorkspaceState {
   id: ThreadId;
   codexThreadId: string | null;
   projectId: ProjectId;
+  spaceId?: SpaceId | null;
   title: string;
   modelSelection: ModelSelection;
   runtimeMode: RuntimeMode;
@@ -302,6 +304,7 @@ export interface ThreadTurnState {
 export interface SidebarThreadSummary {
   id: ThreadId;
   projectId: ProjectId;
+  spaceId?: SpaceId | null;
   title: string;
   modelSelection: ModelSelection;
   interactionMode: ProviderInteractionMode;

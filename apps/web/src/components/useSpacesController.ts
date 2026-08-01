@@ -83,9 +83,14 @@ export function useSpacesController(input: {
   );
 
   const routeSpaceProject = activeRouteProject;
+  const routeThread = routeThreadId
+    ? (sidebarThreads.find((thread) => thread.id === routeThreadId) ?? null)
+    : null;
   const routeSpaceContext = isOrdinarySpaceProject(routeSpaceProject, workspacePaths)
     ? { projectId: routeSpaceProject.id, spaceId: routeSpaceProject.spaceId ?? null }
-    : null;
+    : routeThread?.spaceId != null
+      ? { projectId: routeThread.projectId, spaceId: routeThread.spaceId }
+      : null;
   const routeSpaceProjectId = routeSpaceContext?.projectId ?? null;
   const routeSpaceId = routeSpaceContext ? routeSpaceContext.spaceId : undefined;
 
@@ -103,6 +108,11 @@ export function useSpacesController(input: {
         sidebarThreads
           .filter((thread) => thread.archivedAt == null)
           .map((thread) => [thread.id, thread.projectId] as const),
+      ),
+      threadSpaceById: new Map(
+        sidebarThreads
+          .filter((thread) => thread.archivedAt == null && thread.spaceId != null)
+          .map((thread) => [thread.id, thread.spaceId] as const),
       ),
     });
   }, [
@@ -130,10 +140,16 @@ export function useSpacesController(input: {
   // Bookmark the context being left so returning to that space restores it.
   const rememberDepartingSpaceContext = useCallback(() => {
     const currentRouteSpaceProject = activeRouteProject;
-    if (routeThreadId && isOrdinarySpaceProject(currentRouteSpaceProject, workspacePaths)) {
+    if (!routeThreadId) return;
+    if (isOrdinarySpaceProject(currentRouteSpaceProject, workspacePaths)) {
       rememberSpaceThread(currentRouteSpaceProject.spaceId ?? null, routeThreadId);
+      return;
     }
-  }, [activeRouteProject, rememberSpaceThread, routeThreadId, workspacePaths]);
+    const currentThread = sidebarThreads.find((thread) => thread.id === routeThreadId);
+    if (currentThread?.spaceId != null) {
+      rememberSpaceThread(currentThread.spaceId, routeThreadId);
+    }
+  }, [activeRouteProject, rememberSpaceThread, routeThreadId, sidebarThreads, workspacePaths]);
 
   /**
    * Switch spaces without restoring the target space's last context. Used when the
@@ -162,6 +178,7 @@ export function useSpacesController(input: {
       const availableThreads = sidebarThreads.filter((thread) => {
         if (thread.archivedAt != null) return false;
         const project = projectById.get(thread.projectId);
+        if (thread.spaceId != null) return thread.spaceId === spaceId;
         return (
           isOrdinarySpaceProject(project, workspacePaths) && (project.spaceId ?? null) === spaceId
         );

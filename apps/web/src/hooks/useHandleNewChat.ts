@@ -1,3 +1,4 @@
+import type { SpaceId } from "@synara/contracts";
 import { ensureHomeChatProject } from "../lib/chatProjects";
 import { startContainerChat, type StartContainerChatResult } from "../lib/startContainerChat";
 import { useWorkspacePathsStore } from "../workspacePathsStore";
@@ -13,6 +14,7 @@ export function useHandleNewChat(
 
   const handleNewChat = async (options?: {
     fresh?: boolean;
+    spaceId?: SpaceId | null;
   }): Promise<StartContainerChatResult> => {
     if (!homeDir) {
       return {
@@ -25,6 +27,7 @@ export function useHandleNewChat(
       ensureProjectId: () => ensureHomeChatProject({ homeDir, chatWorkspaceRoot }),
       handleNewThread,
       fresh: options?.fresh,
+      spaceId: options?.spaceId,
       errorLabel: "Unable to prepare a new chat.",
     });
   };

@@ -40,10 +40,14 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       yield* sql`DELETE FROM projection_state`;
       yield* sql`
         INSERT INTO projection_spaces (
-          space_id, name, icon, sort_order, created_at, updated_at, deleted_at
+          space_id, name, icon, sort_order, created_at, updated_at, archived_at, deleted_at
         ) VALUES (
           'space-snapshot', 'Snapshot Space', 'bag', 0,
-          '2026-07-20T00:00:00.000Z', '2026-07-20T00:00:01.000Z', NULL
+          '2026-07-20T00:00:00.000Z', '2026-07-20T00:00:01.000Z', NULL, NULL
+        ), (
+          'space-archived-snapshot', 'Archived Snapshot Space', 'book', 1,
+          '2026-07-20T00:00:00.000Z', '2026-07-20T00:00:02.000Z',
+          '2026-07-20T00:00:02.000Z', NULL
         )
       `;
       yield* sql`
@@ -66,8 +70,16 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       const shell = yield* snapshotQuery.getShellSnapshot();
       const full = yield* snapshotQuery.getSnapshot();
       assert.equal(shell.spaces[0]?.id, SpaceId.makeUnsafe("space-snapshot"));
+      assert.equal(
+        shell.archivedSpaces[0]?.id,
+        SpaceId.makeUnsafe("space-archived-snapshot"),
+      );
       assert.equal(shell.projects[0]?.spaceId, SpaceId.makeUnsafe("space-snapshot"));
       assert.equal(full.spaces[0]?.id, SpaceId.makeUnsafe("space-snapshot"));
+      assert.equal(
+        full.spaces.find((space) => space.id === "space-archived-snapshot")?.archivedAt,
+        "2026-07-20T00:00:02.000Z",
+      );
       assert.equal(full.projects[0]?.spaceId, SpaceId.makeUnsafe("space-snapshot"));
 
       yield* sql`DELETE FROM projection_projects`;
@@ -364,6 +376,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         {
           id: ThreadId.makeUnsafe("thread-1"),
           projectId: asProjectId("project-1"),
+          spaceId: null,
           title: "Thread 1",
           modelSelection: {
             provider: "codex",
@@ -1663,6 +1676,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         {
           id: ThreadId.makeUnsafe("thread-shell"),
           projectId: asProjectId("project-shell"),
+          spaceId: null,
           title: "Shell Thread",
           modelSelection: {
             provider: "codex",

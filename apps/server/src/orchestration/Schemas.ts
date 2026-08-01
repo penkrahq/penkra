@@ -2,6 +2,8 @@ import {
   SpaceCreatedPayload as ContractsSpaceCreatedPayloadSchema,
   SpaceMetaUpdatedPayload as ContractsSpaceMetaUpdatedPayloadSchema,
   SpaceOrderUpdatedPayload as ContractsSpaceOrderUpdatedPayloadSchema,
+  SpaceArchivedPayload as ContractsSpaceArchivedPayloadSchema,
+  SpaceRestoredPayload as ContractsSpaceRestoredPayloadSchema,
   SpaceDeletedPayload as ContractsSpaceDeletedPayloadSchema,
   ProjectCreatedPayload as ContractsProjectCreatedPayloadSchema,
   ProjectMetaUpdatedPayload as ContractsProjectMetaUpdatedPayloadSchema,
@@ -41,6 +43,8 @@ import {
 export const SpaceCreatedPayload = ContractsSpaceCreatedPayloadSchema;
 export const SpaceMetaUpdatedPayload = ContractsSpaceMetaUpdatedPayloadSchema;
 export const SpaceOrderUpdatedPayload = ContractsSpaceOrderUpdatedPayloadSchema;
+export const SpaceArchivedPayload = ContractsSpaceArchivedPayloadSchema;
+export const SpaceRestoredPayload = ContractsSpaceRestoredPayloadSchema;
 export const SpaceDeletedPayload = ContractsSpaceDeletedPayloadSchema;
 export const ProjectCreatedPayload = ContractsProjectCreatedPayloadSchema;
 export const ProjectMetaUpdatedPayload = ContractsProjectMetaUpdatedPayloadSchema;

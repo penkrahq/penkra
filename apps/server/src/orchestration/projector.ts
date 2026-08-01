@@ -23,9 +23,11 @@ import { toProjectorDecodeError, type OrchestrationProjectorDecodeError } from "
 import {
   MessageSentPayloadSchema,
   SpaceCreatedPayload,
+  SpaceArchivedPayload,
   SpaceDeletedPayload,
   SpaceMetaUpdatedPayload,
   SpaceOrderUpdatedPayload,
+  SpaceRestoredPayload,
   ProjectCreatedPayload,
   ProjectDeletedPayload,
   ProjectMetaUpdatedPayload,
@@ -328,6 +330,7 @@ export function projectEvent(
             sortOrder: payload.sortOrder,
             createdAt: payload.createdAt,
             updatedAt: payload.updatedAt,
+            archivedAt: null,
             deletedAt: null,
           };
           return {
@@ -394,6 +397,40 @@ export function projectEvent(
                     project.updatedAt > payload.deletedAt ? project.updatedAt : payload.deletedAt,
                 }
               : project,
+          ),
+          threads: nextBase.threads.map((thread) =>
+            thread.spaceId === payload.spaceId
+              ? {
+                  ...thread,
+                  spaceId: null,
+                  updatedAt:
+                    thread.updatedAt > payload.deletedAt ? thread.updatedAt : payload.deletedAt,
+                }
+              : thread,
+          ),
+        })),
+      );
+
+    case "space.archived":
+      return decodeForEvent(SpaceArchivedPayload, event.payload, event.type, "payload").pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          spaces: nextBase.spaces.map((space) =>
+            space.id === payload.spaceId
+              ? { ...space, archivedAt: payload.archivedAt, updatedAt: payload.archivedAt }
+              : space,
+          ),
+        })),
+      );
+
+    case "space.restored":
+      return decodeForEvent(SpaceRestoredPayload, event.payload, event.type, "payload").pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          spaces: nextBase.spaces.map((space) =>
+            space.id === payload.spaceId
+              ? { ...space, archivedAt: null, updatedAt: payload.restoredAt }
+              : space,
           ),
         })),
       );
@@ -484,6 +521,7 @@ export function projectEvent(
           {
             id: payload.threadId,
             projectId: payload.projectId,
+            spaceId: payload.spaceId ?? null,
             title: payload.title,
             modelSelection: payload.modelSelection,
             runtimeMode: payload.runtimeMode,

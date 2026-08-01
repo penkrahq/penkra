@@ -14,6 +14,7 @@ import {
   type ProviderSkillReference,
   type ProviderStartOptions,
   type RuntimeMode,
+  type SpaceId,
   type ThreadId,
 } from "@synara/contracts";
 import * as Equal from "effect/Equal";
@@ -184,6 +185,7 @@ export interface ComposerThreadDraftState {
 
 export interface DraftThreadState {
   projectId: ProjectId;
+  spaceId?: SpaceId | null;
   createdAt: string;
   runtimeMode: RuntimeMode;
   interactionMode: ProviderInteractionMode;
@@ -198,6 +200,7 @@ export interface DraftThreadState {
 }
 
 interface DraftThreadMutationOptions {
+  spaceId?: SpaceId | null;
   branch?: string | null;
   worktreePath?: string | null;
   workingDirectory?: string | null;
@@ -246,6 +249,7 @@ export interface ComposerDraftStoreState {
     threadId: ThreadId,
     options: {
       projectId: ProjectId;
+      spaceId?: SpaceId | null;
       createdAt?: string;
       branch?: string | null;
       worktreePath?: string | null;
@@ -422,6 +426,10 @@ export function buildDraftThreadState(input: {
 
   return {
     projectId: input.projectId,
+    spaceId:
+      options?.spaceId === undefined
+        ? (existingThread?.spaceId ?? null)
+        : (options.spaceId ?? null),
     createdAt: resolveDraftThreadCreatedAt({
       createdAt: options?.createdAt,
       existingThread,
@@ -459,6 +467,7 @@ export function draftThreadStatesEqual(
 
   return (
     left.projectId === right.projectId &&
+    left.spaceId === right.spaceId &&
     left.createdAt === right.createdAt &&
     left.runtimeMode === right.runtimeMode &&
     left.interactionMode === right.interactionMode &&
