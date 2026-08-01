@@ -126,6 +126,7 @@ function prepareMacLaunch(assetsDirectory: string, extractionRoot: string): Laun
     throw new Error(`Expected one packaged macOS app in ${basename(archive)}.`);
   }
   const appBundle = join(extractionRoot, appBundles[0]!);
+  runCommand("codesign", ["--verify", "--deep", "--strict", "--verbose=4", appBundle]);
   const executables = findFiles(join(appBundle, "Contents", "MacOS"), (candidate) =>
     statSync(candidate).isFile(),
   );
