@@ -334,6 +334,41 @@ async function terminateMacApplication(executablePath: string): Promise<void> {
   }
 }
 
+async function terminateProcessesInsideRoot(root: string): Promise<void> {
+  if (process.platform === "win32") return;
+  const findPids = (): number[] => {
+    const result = spawnSync("pgrep", ["-f", root], {
+      encoding: "utf8",
+      shell: false,
+    });
+    if (result.status !== 0) return [];
+    return result.stdout
+      .split(/\s+/)
+      .map(Number)
+      .filter((pid) => Number.isInteger(pid) && pid > 1 && pid !== process.pid);
+  };
+  for (const signal of ["SIGTERM", "SIGKILL"] as const) {
+    const pids = findPids();
+    if (pids.length === 0) return;
+    for (const pid of pids) {
+      try {
+        process.kill(pid, signal);
+      } catch {
+        // A process may exit between discovery and signalling.
+      }
+    }
+    await new Promise((resolveDelay) =>
+      setTimeout(resolveDelay, signal === "SIGTERM" ? 1_000 : 250),
+    );
+  }
+  const survivors = findPids();
+  if (survivors.length > 0) {
+    throw new Error(
+      `Packaged desktop smoke left processes running inside its temporary root: ${survivors.join(", ")}.`,
+    );
+  }
+}
+
 export function inspectPackagedDesktopStartupLog(log: string): {
   readonly failure: string | null;
   readonly hasProof: boolean;
@@ -359,6 +394,38 @@ function inspectStartupLog(logPath: string): ReturnType<typeof inspectPackagedDe
     return inspectPackagedDesktopStartupLog(readFileSync(logPath, "utf8"));
   } catch {
     return { failure: null, hasProof: false };
+  }
+}
+
+export function extractPackagedDesktopBackendPort(log: string): number | null {
+  const match = /bootstrap resolved backend endpoint port=(\d+)/.exec(log);
+  if (!match) return null;
+  const port = Number(match[1]);
+  return Number.isInteger(port) && port > 0 && port <= 65_535 ? port : null;
+}
+
+async function hasPackagedDesktopHttpProof(logPath: string): Promise<boolean> {
+  let log: string;
+  try {
+    log = readFileSync(logPath, "utf8");
+  } catch {
+    return false;
+  }
+  if (!log.includes("app ready") || !log.includes("bootstrap main window created")) {
+    return false;
+  }
+  const port = extractPackagedDesktopBackendPort(log);
+  if (port === null) return false;
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/health`, {
+      redirect: "manual",
+      signal: AbortSignal.timeout(1_000),
+    });
+    if (!response.ok) return false;
+    const payload = (await response.json()) as { startupReady?: unknown };
+    return payload.startupReady === true;
+  } catch {
+    return false;
   }
 }
 
@@ -433,6 +500,12 @@ export async function verifyPackagedDesktopStartup(
         );
         return;
       }
+      if (await hasPackagedDesktopHttpProof(logPath)) {
+        console.log(
+          `Packaged ${options.platform}/${options.arch} startup smoke passed from isolated state.`,
+        );
+        return;
+      }
       if (childOutcome.launchError) {
         throw new Error(`Packaged app could not start: ${childOutcome.launchError.message}`);
       }
@@ -463,6 +536,7 @@ export async function verifyPackagedDesktopStartup(
     if (child) {
       await terminateProcessTree(child);
     }
+    await terminateProcessesInsideRoot(temporaryRoot);
     rmSync(temporaryRoot, { recursive: true, force: true });
   }
 }

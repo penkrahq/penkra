@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   createPackagedDesktopSmokeEnvironment,
+  extractPackagedDesktopBackendPort,
   inspectPackagedDesktopStartupLog,
   parsePackagedDesktopStartupArgs,
   resolvePackagedDesktopSmokeLogPath,
@@ -118,5 +119,15 @@ describe("packaged desktop startup verification", () => {
       failure: "Packaged desktop invoked account authentication before its IPC handler existed.",
       hasProof: false,
     });
+  });
+
+  it("extracts only a valid reserved backend port from the desktop log", () => {
+    expect(
+      extractPackagedDesktopBackendPort("[desktop] bootstrap resolved backend endpoint port=64748"),
+    ).toBe(64748);
+    expect(extractPackagedDesktopBackendPort("port=0")).toBeNull();
+    expect(
+      extractPackagedDesktopBackendPort("bootstrap resolved backend endpoint port=99999"),
+    ).toBeNull();
   });
 });
