@@ -350,11 +350,14 @@ export async function verifyPackagedDesktopStartup(
   mkdirSync(extractionRoot, { recursive: true });
 
   let child: ChildProcess | null = null;
+  let logPath: string | null = null;
+  let childStdout = "";
+  let childStderr = "";
   try {
     const launch = prepareLaunch(options, extractionRoot);
     const stateRoot = join(temporaryRoot, "state");
     const env = createPackagedDesktopSmokeEnvironment(stateRoot, options);
-    const logPath = resolvePackagedDesktopSmokeLogPath(stateRoot);
+    logPath = resolvePackagedDesktopSmokeLogPath(stateRoot);
     child = spawn(launch.command, [...launch.args], {
       cwd: launch.cwd,
       env,
@@ -373,8 +376,14 @@ export async function verifyPackagedDesktopStartup(
     child.once("error", (error) => {
       childOutcome.launchError = error;
     });
-    child.stdout?.resume();
-    child.stderr?.resume();
+    child.stdout?.setEncoding("utf8");
+    child.stderr?.setEncoding("utf8");
+    child.stdout?.on("data", (chunk: string) => {
+      childStdout += chunk;
+    });
+    child.stderr?.on("data", (chunk: string) => {
+      childStderr += chunk;
+    });
 
     const deadline = Date.now() + options.timeoutMs;
     while (Date.now() < deadline) {
@@ -399,6 +408,18 @@ export async function verifyPackagedDesktopStartup(
       await new Promise((resolveDelay) => setTimeout(resolveDelay, 200));
     }
     throw new Error(`Packaged startup proof timed out after ${options.timeoutMs}ms.`);
+  } catch (cause) {
+    const log = logPath && existsSync(logPath) ? readFileSync(logPath, "utf8") : "<missing>";
+    const serverLogPath = logPath ? join(dirname(logPath), "server-child.log") : null;
+    const serverLog =
+      serverLogPath && existsSync(serverLogPath)
+        ? readFileSync(serverLogPath, "utf8")
+        : "<missing>";
+    const message = cause instanceof Error ? cause.message : String(cause);
+    throw new Error(
+      `${message}\nPackaged desktop log:\n${log.slice(-16_000)}\nPackaged server log:\n${serverLog.slice(-16_000)}\nstdout:\n${childStdout.slice(-4_000)}\nstderr:\n${childStderr.slice(-4_000)}`,
+      { cause },
+    );
   } finally {
     if (child) {
       await terminateProcessTree(child);

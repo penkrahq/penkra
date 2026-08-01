@@ -82,6 +82,7 @@ interface BuildCliInput {
   readonly skipBuild: Option.Option<boolean>;
   readonly keepStage: Option.Option<boolean>;
   readonly signed: Option.Option<boolean>;
+  readonly localSign: Option.Option<boolean>;
   readonly verbose: Option.Option<boolean>;
   readonly mockUpdates: Option.Option<boolean>;
   readonly mockUpdateServerPort: Option.Option<string>;
@@ -146,6 +147,7 @@ interface ResolvedBuildOptions {
   readonly skipBuild: boolean;
   readonly keepStage: boolean;
   readonly signed: boolean;
+  readonly localSign: boolean;
   readonly verbose: boolean;
   readonly mockUpdates: boolean;
   readonly mockUpdateServerPort: string | undefined;
@@ -182,6 +184,7 @@ const BuildEnvConfig = Config.all({
   skipBuild: Config.string("PENKRA_DESKTOP_SKIP_BUILD").pipe(Config.option),
   keepStage: Config.string("PENKRA_DESKTOP_KEEP_STAGE").pipe(Config.option),
   signed: Config.string("PENKRA_DESKTOP_SIGNED").pipe(Config.option),
+  localSign: Config.string("PENKRA_DESKTOP_LOCAL_SIGN").pipe(Config.option),
   verbose: Config.string("PENKRA_DESKTOP_VERBOSE").pipe(Config.option),
   mockUpdates: Config.string("PENKRA_DESKTOP_MOCK_UPDATES").pipe(Config.option),
   mockUpdateServerPort: Config.string("PENKRA_DESKTOP_MOCK_UPDATE_SERVER_PORT").pipe(Config.option),
@@ -233,6 +236,7 @@ export const resolveBuildOptions = Effect.fn("resolveBuildOptions")(function* (
   const envSkipBuild = yield* resolveBooleanEnv("PENKRA_DESKTOP_SKIP_BUILD", env.skipBuild);
   const envKeepStage = yield* resolveBooleanEnv("PENKRA_DESKTOP_KEEP_STAGE", env.keepStage);
   const envSigned = yield* resolveBooleanEnv("PENKRA_DESKTOP_SIGNED", env.signed);
+  const envLocalSign = yield* resolveBooleanEnv("PENKRA_DESKTOP_LOCAL_SIGN", env.localSign);
   const envVerbose = yield* resolveBooleanEnv("PENKRA_DESKTOP_VERBOSE", env.verbose);
   const envMockUpdates = yield* resolveBooleanEnv("PENKRA_DESKTOP_MOCK_UPDATES", env.mockUpdates);
   const releaseDir = resolveBooleanFlag(input.mockUpdates, envMockUpdates)
@@ -246,6 +250,12 @@ export const resolveBuildOptions = Effect.fn("resolveBuildOptions")(function* (
   const skipBuild = resolveBooleanFlag(input.skipBuild, envSkipBuild);
   const keepStage = resolveBooleanFlag(input.keepStage, envKeepStage);
   const signed = resolveBooleanFlag(input.signed, envSigned);
+  const localSign = resolveBooleanFlag(input.localSign, envLocalSign);
+  if (signed && localSign) {
+    return yield* new BuildScriptError({
+      message: "Use either --signed or --local-sign, not both.",
+    });
+  }
   const verbose = resolveBooleanFlag(input.verbose, envVerbose);
   const mockUpdates = resolveBooleanFlag(input.mockUpdates, envMockUpdates);
   const mockUpdateServerPort = mergeOptions(
@@ -266,6 +276,7 @@ export const resolveBuildOptions = Effect.fn("resolveBuildOptions")(function* (
     skipBuild,
     keepStage,
     signed,
+    localSign,
     verbose,
     mockUpdates,
     mockUpdateServerPort,
@@ -541,6 +552,7 @@ const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   target: string,
   productName: string,
   signed: boolean,
+  notarize: boolean,
   mockUpdates: boolean,
   mockUpdateServerPort: string | undefined,
 ) {
@@ -579,6 +591,7 @@ const createBuildConfig = Effect.fn("createBuildConfig")(function* (
     platform,
     target,
     signed,
+    notarize,
   } as const;
 
   Object.assign(buildConfig, createDesktopPlatformBuildConfig(platformBuildConfigInput));
@@ -763,10 +776,12 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   // electron-builder is filtering out stageResourcesDir directory in the AppImage for production
   yield* fs.copy(stageResourcesDir, path.join(stageAppDir, "apps/desktop/prod-resources"));
 
+  const codeSigned = options.signed || options.localSign;
   const resolvedBuildConfig = yield* createBuildConfig(
     options.platform,
     options.target,
     desktopPackageJson.productName ?? "Penkra",
+    codeSigned,
     options.signed,
     options.mockUpdates,
     options.mockUpdateServerPort,
@@ -830,7 +845,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
       delete buildEnv[key];
     }
   }
-  if (!options.signed) {
+  if (!codeSigned) {
     buildEnv.CSC_IDENTITY_AUTO_DISCOVERY = "false";
     delete buildEnv.CSC_LINK;
     delete buildEnv.CSC_KEY_PASSWORD;
@@ -885,7 +900,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     try: () =>
       finalizeMacUpdateZip({
         stageDistDir,
-        signed: options.signed,
+        signed: codeSigned,
         verbose: options.verbose,
       }),
     catch: (cause) =>
@@ -979,6 +994,12 @@ const buildDesktopArtifactCli = Command.make("build-desktop-artifact", {
   signed: Flag.boolean("signed").pipe(
     Flag.withDescription(
       "Enable macOS signing and notarization discovery (env: PENKRA_DESKTOP_SIGNED).",
+    ),
+    Flag.optional,
+  ),
+  localSign: Flag.boolean("local-sign").pipe(
+    Flag.withDescription(
+      "Sign with the production Developer ID identity without notarizing (env: PENKRA_DESKTOP_LOCAL_SIGN).",
     ),
     Flag.optional,
   ),

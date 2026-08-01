@@ -136,6 +136,7 @@ if (mode === "prepare") {
       "dmg",
       "--arch",
       "arm64",
+      "--local-sign",
       "--build-version",
       source.version,
       "--source-commit",

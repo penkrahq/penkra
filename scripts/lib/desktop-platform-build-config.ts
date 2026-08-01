@@ -30,6 +30,7 @@ export interface CreateDesktopPlatformBuildConfigInput {
   readonly platform: "mac";
   readonly target: string;
   readonly signed?: boolean;
+  readonly notarize?: boolean;
 }
 
 export function createDesktopPlatformBuildConfig(
@@ -49,7 +50,7 @@ export function createDesktopPlatformBuildConfig(
     // invalidate macOS privacy grants across relaunches.
     identity: input.signed === true ? MAC_RELEASE_SIGNING_IDENTITY : null,
     hardenedRuntime: input.signed === true,
-    notarize: input.signed === true,
+    notarize: input.notarize === true,
     entitlements: MAC_ENTITLEMENTS_PATH,
     entitlementsInherit: MAC_INHERITED_ENTITLEMENTS_PATH,
     extendInfo: {

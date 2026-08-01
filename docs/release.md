@@ -139,9 +139,10 @@ bun run release:qa:check -- "$approved_version"
 ```
 
 This gate fails closed unless the worktree is clean, `main` is not behind `origin/main`, all product
-manifests match the exact approved version, and the installed artifact's hashes still match the QA
-receipt. The receipt is stored in Git metadata and is bound to the exact commit and lockfile; any
-source or artifact change invalidates it.
+manifests match the exact approved version, the local macOS artifacts pass production Developer ID
+signing without notarization, and the installed artifact's hashes still match the QA receipt. The
+receipt is stored in Git metadata and is bound to the exact commit and lockfile; any source or
+artifact change invalidates it.
 
 An already-built artifact can be validated with:
 

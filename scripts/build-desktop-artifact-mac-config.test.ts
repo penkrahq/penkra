@@ -18,6 +18,7 @@ describe("createDesktopPlatformBuildConfig", () => {
       platform: "mac",
       target: "dmg",
       signed: true,
+      notarize: true,
     });
     const mac = config.mac as Record<string, unknown>;
     const dmg = config.dmg as Record<string, unknown>;
@@ -39,6 +40,22 @@ describe("createDesktopPlatformBuildConfig", () => {
     assert.equal(extendInfo.NSAppDataUsageDescription, APP_DATA_USAGE_DESCRIPTION);
     assert.equal(extendInfo.NSMicrophoneUsageDescription, MICROPHONE_USAGE_DESCRIPTION);
     assert.equal(extendInfo.NSScreenCaptureUsageDescription, undefined);
+  });
+
+  it("supports production Developer ID signing without notarization for local QA", () => {
+    const config = createDesktopPlatformBuildConfig({
+      platform: "mac",
+      target: "dmg",
+      signed: true,
+      notarize: false,
+    });
+    const mac = config.mac as Record<string, unknown>;
+    const dmg = config.dmg as Record<string, unknown>;
+
+    assert.equal(mac.identity, MAC_RELEASE_SIGNING_IDENTITY);
+    assert.equal(mac.hardenedRuntime, true);
+    assert.equal(mac.notarize, false);
+    assert.equal(dmg.sign, true);
   });
 
   it("leaves the DMG container unsigned for build-only macOS artifacts", () => {

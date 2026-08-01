@@ -175,17 +175,6 @@ export async function finalizeMacUpdateZip(
   const appBundleName = basename(appBundlePath);
   const appBundleParent = dirname(appBundlePath);
 
-  // Unsigned local production builds still need a complete bundle signature.
-  // Electron's linker signatures do not seal Info.plist or resources, so the
-  // strict local installer rejects them and manual QA would exercise different
-  // bytes from the recorded update artifact. Ad-hoc signing keeps local builds
-  // credential-free while making the final ZIP installable and verifiable.
-  if (!options.signed) {
-    runTextCommand("codesign", ["--force", "--deep", "--sign", "-", appBundlePath], {
-      verbose,
-    });
-  }
-
   rmSync(zipPath, { force: true });
   runTextCommand("ditto", ["-c", "-k", "--sequesterRsrc", "--keepParent", appBundleName, zipPath], {
     cwd: appBundleParent,
