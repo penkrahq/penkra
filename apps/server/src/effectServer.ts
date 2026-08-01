@@ -94,20 +94,28 @@ export function closeServerRuntimePipeline(input: {
   readonly managedAttachmentCleanup: Pick<ManagedAttachmentCleanupShape, "drain">;
   readonly subscriptionsScope: Scope.Closeable;
 }): Effect.Effect<void> {
-  return input.orchestrationEngine.quiesce.pipe(
+  const runStage = (stage: string, effect: Effect.Effect<void>) =>
+    Effect.logInfo("server shutdown stage started", { stage }).pipe(
+      Effect.andThen(effect),
+      Effect.andThen(Effect.logInfo("server shutdown stage completed", { stage })),
+    );
+
+  return runStage("orchestration.quiesce", input.orchestrationEngine.quiesce).pipe(
     // Drain already-admitted commands while every subscriber is live, then wait
     // for provider-side delivery claims to reach a durable settlement. Closing
     // the reactor scope before this second drain can interrupt the narrow window
     // between an external command being claimed and its acceptance being
     // recorded, which quarantines the thread after restart.
-    Effect.andThen(input.orchestrationEngine.drain),
-    Effect.andThen(input.providerCommandReactor.drain),
+    Effect.andThen(runStage("orchestration.drain", input.orchestrationEngine.drain)),
+    Effect.andThen(runStage("provider-command-reactor.drain", input.providerCommandReactor.drain)),
     // Provider close now fences terminal runtime events into subscriber workers;
     // scope close drains those workers before the engine accepts its final stop.
-    Effect.andThen(input.providerService.closeRuntimeEvents),
-    Effect.andThen(Scope.close(input.subscriptionsScope, Exit.void)),
-    Effect.andThen(input.managedAttachmentCleanup.drain),
-    Effect.andThen(input.orchestrationEngine.stop),
+    Effect.andThen(runStage("provider-runtime.close", input.providerService.closeRuntimeEvents)),
+    Effect.andThen(
+      runStage("subscriptions.close", Scope.close(input.subscriptionsScope, Exit.void)),
+    ),
+    Effect.andThen(runStage("managed-attachments.drain", input.managedAttachmentCleanup.drain)),
+    Effect.andThen(runStage("orchestration.stop", input.orchestrationEngine.stop)),
   );
 }
 

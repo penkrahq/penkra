@@ -1,6 +1,7 @@
 import nodePath from "node:path";
 
 import Mime from "@effect/platform-node/Mime";
+import * as NodeHttpServerRequest from "@effect/platform-node/NodeHttpServerRequest";
 import {
   AuthBootstrapInput,
   AuthCreatePairingCredentialInput,
@@ -52,6 +53,7 @@ import { ManagedAttachmentRepository } from "./persistence/Services/ManagedAttac
 import {
   authorizeDesktopShutdown,
   DESKTOP_SHUTDOWN_ROUTE_PATH,
+  runAfterNodeResponseSettles,
   type ServerShutdownController,
 } from "./serverShutdown";
 import { resolveFavicon, tryParseHost } from "./siteFaviconCache";
@@ -220,7 +222,23 @@ export function makeDesktopShutdownEffectRouteLayer(shutdownController: ServerSh
         );
       }
 
-      yield* shutdownController.requestStop;
+      const nodeResponse = NodeHttpServerRequest.toServerResponse(request);
+      yield* Effect.sync(() => {
+        runAfterNodeResponseSettles(nodeResponse, () => {
+          Effect.runFork(
+            shutdownController.requestStop.pipe(
+              Effect.tap((firstRequest) =>
+                Effect.logInfo("desktop shutdown response settled", { firstRequest }),
+              ),
+            ),
+          );
+        });
+        // Closing the application scope from inside this request can interrupt
+        // the response writer before it calls `end()`, leaving Node's HTTP
+        // server waiting forever for the very request that initiated shutdown.
+        // Arm shutdown only after the accepted response has finished, or after
+        // its client has disconnected.
+      });
       return HttpServerResponse.jsonUnsafe({ accepted: true }, { status: 202 });
     }),
   );

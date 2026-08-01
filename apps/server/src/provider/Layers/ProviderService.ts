@@ -2324,16 +2324,31 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
 
     const closeRuntimeEvents = yield* Effect.cached(
       Effect.uninterruptible(
-        Effect.sync(() => {
-          for (const timer of runtimeIdleTimers.values()) {
-            clearTimeout(timer);
-          }
-          runtimeIdleTimers.clear();
-          liveRuntimeTaskIds.clear();
-          runtimeIdleGenerations.clear();
-          runtimeIdleStopsInFlight.clear();
-          stopIdleRuntimeSession = null;
+        Effect.logInfo("provider runtime shutdown stage started", {
+          stage: "runtime-state.quiesce",
         }).pipe(
+          Effect.andThen(
+            Effect.sync(() => {
+              for (const timer of runtimeIdleTimers.values()) {
+                clearTimeout(timer);
+              }
+              runtimeIdleTimers.clear();
+              liveRuntimeTaskIds.clear();
+              runtimeIdleGenerations.clear();
+              runtimeIdleStopsInFlight.clear();
+              stopIdleRuntimeSession = null;
+            }),
+          ),
+          Effect.andThen(
+            Effect.logInfo("provider runtime shutdown stage completed", {
+              stage: "runtime-state.quiesce",
+            }),
+          ),
+          Effect.andThen(
+            Effect.logInfo("provider runtime shutdown stage started", {
+              stage: "adapters.stop-all",
+            }),
+          ),
           Effect.andThen(
             runStopAll().pipe(
               Effect.catchCause((cause) =>
@@ -2343,13 +2358,38 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
               ),
             ),
           ),
+          Effect.andThen(
+            Effect.logInfo("provider runtime shutdown stage completed", {
+              stage: "adapters.stop-all",
+            }),
+          ),
           // Keep subscriptions alive until adapters have emitted terminal
           // events. Closing waits for an in-flight canonical event because its
           // persistence and publication section is uninterruptible.
+          Effect.andThen(
+            Effect.logInfo("provider runtime shutdown stage started", {
+              stage: "event-producers.close",
+            }),
+          ),
           Effect.andThen(Scope.close(runtimeEventProducerScope, Exit.void)),
+          Effect.andThen(
+            Effect.logInfo("provider runtime shutdown stage completed", {
+              stage: "event-producers.close",
+            }),
+          ),
           // Downstream subscribers transfer every published event into their
           // own drainable workers before the publication owner is shut down.
+          Effect.andThen(
+            Effect.logInfo("provider runtime shutdown stage started", {
+              stage: "event-fanout.drain",
+            }),
+          ),
           Effect.andThen(awaitRuntimeEventFanoutDrained),
+          Effect.andThen(
+            Effect.logInfo("provider runtime shutdown stage completed", {
+              stage: "event-fanout.drain",
+            }),
+          ),
           Effect.andThen(PubSub.shutdown(runtimeEventPubSub)),
         ),
       ),

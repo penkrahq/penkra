@@ -1,3 +1,5 @@
+import { EventEmitter } from "node:events";
+
 import { Effect, Fiber } from "effect";
 import { describe, expect, it } from "vitest";
 
@@ -8,6 +10,7 @@ import {
   isDesktopShutdownLoopbackPeer,
   makeServerShutdownController,
   matchesDesktopShutdownToken,
+  runAfterNodeResponseSettles,
 } from "./serverShutdown";
 
 const SHUTDOWN_TOKEN = "a".repeat(64);
@@ -26,6 +29,22 @@ const desktopConfig: ShutdownConfig = {
 };
 
 describe("server shutdown controller", () => {
+  it("waits for the initiating Node response and settles exactly once", () => {
+    const response = new EventEmitter();
+    let settlementCount = 0;
+
+    runAfterNodeResponseSettles(response, () => {
+      settlementCount += 1;
+    });
+
+    expect(settlementCount).toBe(0);
+    response.emit("finish");
+    response.emit("close");
+    expect(settlementCount).toBe(1);
+    expect(response.listenerCount("finish")).toBe(0);
+    expect(response.listenerCount("close")).toBe(0);
+  });
+
   it("atomically accepts one request and makes duplicates idempotent", async () => {
     const results = await Effect.runPromise(
       Effect.gen(function* () {
