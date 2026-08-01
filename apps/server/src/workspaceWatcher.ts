@@ -6,7 +6,7 @@ import path from "node:path";
 
 import watcher from "@parcel/watcher";
 import type { ProjectWorkspaceChangeEvent } from "@penkra/contracts";
-import { Effect, Layer, PubSub, ServiceMap, Stream } from "effect";
+import { Effect, Fiber, Layer, PubSub, ServiceMap, Stream } from "effect";
 
 import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine";
 
@@ -25,6 +25,7 @@ type PendingChange = ProjectWorkspaceChangeEvent & { timer: ReturnType<typeof se
 
 export interface WorkspaceWatcherShape {
   readonly stream: Stream.Stream<ProjectWorkspaceChangeEvent>;
+  readonly close: Effect.Effect<void>;
 }
 
 export class WorkspaceWatcher extends ServiceMap.Service<WorkspaceWatcher, WorkspaceWatcherShape>()(
@@ -56,6 +57,7 @@ class WorkspaceWatcherManager {
   private subscriptions = new Map<string, Subscription>();
   private pending = new Map<string, PendingChange>();
   private reconcileRunning: Promise<void> | null = null;
+  private closeRunning: Promise<void> | null = null;
   private reconcileAgain = false;
   private closed = false;
 
@@ -165,13 +167,21 @@ class WorkspaceWatcherManager {
   }
 
   async close(): Promise<void> {
+    if (this.closeRunning) return this.closeRunning;
     this.closed = true;
-    for (const change of this.pending.values()) clearTimeout(change.timer);
-    this.pending.clear();
-    await Promise.all(
-      [...this.subscriptions.values()].map((subscription) => subscription.unsubscribe()),
-    );
-    this.subscriptions.clear();
+    this.closeRunning = (async () => {
+      for (const change of this.pending.values()) clearTimeout(change.timer);
+      this.pending.clear();
+      // A subscribe may already be in flight. Wait for reconciliation to observe
+      // `closed` and unsubscribe that late result before declaring the native
+      // watcher fully drained.
+      await this.reconcileRunning;
+      await Promise.all(
+        [...this.subscriptions.values()].map((subscription) => subscription.unsubscribe()),
+      );
+      this.subscriptions.clear();
+    })();
+    return this.closeRunning;
   }
 }
 
@@ -203,7 +213,7 @@ export const WorkspaceWatcherLive = Layer.effect(
       Effect.promise(() => manager.start()),
       () => Effect.promise(() => manager.close()),
     );
-    yield* engine.streamDomainEvents.pipe(
+    const domainEventsFiber = yield* engine.streamDomainEvents.pipe(
       Stream.filter((event) => event.type.startsWith("project.")),
       Stream.runForEach(() =>
         Effect.promise(() => manager.reconcile()).pipe(
@@ -215,6 +225,14 @@ export const WorkspaceWatcherLive = Layer.effect(
       Effect.forkScoped,
     );
 
-    return { stream: Stream.fromPubSub(changes) } satisfies WorkspaceWatcherShape;
+    const close = yield* Effect.cached(
+      Effect.uninterruptible(
+        Fiber.interrupt(domainEventsFiber).pipe(
+          Effect.andThen(Effect.promise(() => manager.close())),
+        ),
+      ),
+    );
+
+    return { stream: Stream.fromPubSub(changes), close } satisfies WorkspaceWatcherShape;
   }),
 );

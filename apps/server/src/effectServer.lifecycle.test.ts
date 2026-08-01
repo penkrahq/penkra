@@ -10,6 +10,7 @@ describe("server runtime pipeline shutdown", () => {
     let providerCommandsSettled = false;
     let terminalPersisted = false;
     let attachmentsDrained = false;
+    let workspaceWatcherClosed = false;
     const subscriptionsScope = await Effect.runPromise(Scope.make("sequential"));
     await Effect.runPromise(
       Scope.addFinalizer(
@@ -30,6 +31,7 @@ describe("server runtime pipeline shutdown", () => {
           stop: Effect.sync(() => {
             expect(terminalPersisted).toBe(true);
             expect(attachmentsDrained).toBe(true);
+            expect(workspaceWatcherClosed).toBe(true);
             order.push("engine-stopped");
           }),
         },
@@ -50,8 +52,16 @@ describe("server runtime pipeline shutdown", () => {
         managedAttachmentCleanup: {
           drain: Effect.sync(() => {
             expect(terminalPersisted).toBe(true);
+            expect(workspaceWatcherClosed).toBe(true);
             attachmentsDrained = true;
             order.push("managed-attachments-drained");
+          }),
+        },
+        workspaceWatcher: {
+          close: Effect.sync(() => {
+            expect(terminalPersisted).toBe(true);
+            workspaceWatcherClosed = true;
+            order.push("workspace-watcher-closed");
           }),
         },
         subscriptionsScope,
@@ -64,6 +74,7 @@ describe("server runtime pipeline shutdown", () => {
       "provider-commands-settled",
       "provider-terminal-events-fenced",
       "reactors-drained-and-persisted",
+      "workspace-watcher-closed",
       "managed-attachments-drained",
       "engine-stopped",
     ]);

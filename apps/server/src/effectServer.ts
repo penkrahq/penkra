@@ -44,6 +44,7 @@ import { makeServerShutdownController, type ServerShutdownController } from "./s
 import { makeBoundedNodeHttpServer } from "./nodeHttpServer";
 import { websocketRpcRouteLayer } from "./wsRpc";
 import { recoverGitHandoffOperations } from "./gitHandoffOperations";
+import { WorkspaceWatcher, type WorkspaceWatcherShape } from "./workspaceWatcher";
 
 export interface ServerShape {
   readonly start: Effect.Effect<
@@ -70,6 +71,7 @@ export interface ServerShape {
     | ServerRuntimeStartup
     | ServerSettingsService
     | ThreadDeletionReactor
+    | WorkspaceWatcher
     | SqlClient.SqlClient
   >;
   readonly stopSignal: Effect.Effect<void, never>;
@@ -92,6 +94,7 @@ export function closeServerRuntimePipeline(input: {
   readonly providerCommandReactor: Pick<ProviderCommandReactorShape, "drain">;
   readonly providerService: Pick<ProviderServiceShape, "closeRuntimeEvents">;
   readonly managedAttachmentCleanup: Pick<ManagedAttachmentCleanupShape, "drain">;
+  readonly workspaceWatcher: Pick<WorkspaceWatcherShape, "close">;
   readonly subscriptionsScope: Scope.Closeable;
 }): Effect.Effect<void> {
   const runStage = (stage: string, effect: Effect.Effect<void>) =>
@@ -114,6 +117,7 @@ export function closeServerRuntimePipeline(input: {
     Effect.andThen(
       runStage("subscriptions.close", Scope.close(input.subscriptionsScope, Exit.void)),
     ),
+    Effect.andThen(runStage("workspace-watcher.close", input.workspaceWatcher.close)),
     Effect.andThen(runStage("managed-attachments.drain", input.managedAttachmentCleanup.drain)),
     Effect.andThen(runStage("orchestration.stop", input.orchestrationEngine.stop)),
   );
@@ -133,6 +137,7 @@ export const createEffectServer = Effect.fn(function* (
   const agentGatewayCredentials = yield* AgentGatewayCredentials;
   const keybindings = yield* Keybindings;
   const managedAttachmentCleanup = yield* ManagedAttachmentCleanup;
+  const workspaceWatcher = yield* WorkspaceWatcher;
   const lifecycleEvents = yield* ServerLifecycleEvents;
   const orchestrationEngine = yield* OrchestrationEngineService;
   const orchestrationReactor = yield* OrchestrationReactor;
@@ -208,6 +213,7 @@ export const createEffectServer = Effect.fn(function* (
       providerCommandReactor,
       providerService,
       managedAttachmentCleanup,
+      workspaceWatcher,
       subscriptionsScope,
     }),
   );
