@@ -2,10 +2,44 @@
 
 ## Unreleased
 
+## 0.8.4 - 2026-08-01
+
+### Added
+
+- Added explicit native macOS microphone authorization before renderer capture, including desktop
+  IPC coverage and actionable diagnostics for the packaged permission flow.
+- Added thread-scoped provider-runtime recovery so a failed projection can be retried or
+  quarantined without freezing unrelated conversations.
+
+### Changed
+
+- Completed the Penkra identity migration across application packages, runtime paths, protocols,
+  assets, documentation, and release tooling.
+- Made the canonical browser release gate run browser files in a stable sequence to prevent large
+  route suites from starving Vite's transform server under workstation or CI load.
+
 ### Removed
 
 - Removed AppSnap, including its macOS capture helper, desktop bridge, settings and shortcut
   controls, composer presentation, and packaged runtime resources.
+
+### Fixed
+
+- Fixed newly dispatched threads briefly appearing idle while the provider start event was still
+  converging, and surfaced quarantined or errored sessions as requiring attention.
+- Fixed transition-sensitive left-rail and grouped-tool browser checks so they wait for completed
+  visual state and retained disclosure content correctly.
+
+## 0.8.3 - 2026-07-31
+
+### Fixed
+
+- Fixed packaged microphone recording being rejected during Electron's permission-check phase when
+  Electron omits the requesting `WebContents`. Penkra now accepts that documented callback shape
+  only for explicit audio-only requests from the live main renderer's exact origin, while retaining
+  exact renderer identity checks during the permission-request phase.
+- Fixed the desktop smoke test to use the development identity and fail on uncaught-exception
+  dialogs, and stabilized the large-thread timeline test's initial module compilation.
 
 ## 0.8.2 - 2026-07-31
 
