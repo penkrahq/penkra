@@ -232,6 +232,25 @@ export function makeDesktopShutdownEffectRouteLayer(shutdownController: ServerSh
       }
       yield* Effect.sync(() => {
         runAfterNodeConnectionCloses(connection, () => {
+          const diagnosticTimer = setTimeout(() => {
+            const activeHandles = (
+              process as typeof process & { _getActiveHandles(): ReadonlyArray<unknown> }
+            )._getActiveHandles();
+            process.stderr.write(
+              `[shutdown-handles] ${activeHandles
+                .map((handle) => {
+                  const record = handle as {
+                    constructor?: { name?: string };
+                    pid?: number;
+                    destroyed?: boolean;
+                    listening?: boolean;
+                  };
+                  return `${record.constructor?.name ?? "unknown"}(pid=${record.pid ?? "-"},destroyed=${record.destroyed ?? "-"},listening=${record.listening ?? "-"})`;
+                })
+                .join(",")}\n`,
+            );
+          }, 1_000);
+          diagnosticTimer.unref();
           Effect.runFork(
             shutdownController.requestStop.pipe(
               Effect.tap((firstRequest) =>
