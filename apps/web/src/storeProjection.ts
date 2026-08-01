@@ -1392,12 +1392,7 @@ export function applyShellEvent(state: AppState, event: OrchestrationShellStream
     case "space-upserted":
       return upsertSpace(state, event.space);
     case "space-removed":
-      return removeSpace(
-        state,
-        event.spaceId,
-        event.updatedAt,
-        event.preserveAssignments ?? false,
-      );
+      return removeSpace(state, event.spaceId, event.updatedAt, event.preserveAssignments ?? false);
     case "space-order-updated":
       return applySpaceOrder(state, event.orderedSpaceIds);
     case "project-upserted":

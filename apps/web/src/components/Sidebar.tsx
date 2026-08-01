@@ -1175,9 +1175,12 @@ export default function Sidebar() {
 
   // Opens a fresh home-chat draft directly on the draft thread route so the first send
   // does not need a second route swap from "/" to "/$threadId".
-  const handleCreateHomeChat = useCallback(async (spaceId: SpaceId | null) => {
-    await handleNewChat({ fresh: true, spaceId });
-  }, [handleNewChat]);
+  const handleCreateHomeChat = useCallback(
+    async (spaceId: SpaceId | null) => {
+      await handleNewChat({ fresh: true, spaceId });
+    },
+    [handleNewChat],
+  );
 
   const addProjectFromPath = useCallback(
     async (

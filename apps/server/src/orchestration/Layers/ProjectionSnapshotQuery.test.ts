@@ -70,10 +70,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       const shell = yield* snapshotQuery.getShellSnapshot();
       const full = yield* snapshotQuery.getSnapshot();
       assert.equal(shell.spaces[0]?.id, SpaceId.makeUnsafe("space-snapshot"));
-      assert.equal(
-        shell.archivedSpaces[0]?.id,
-        SpaceId.makeUnsafe("space-archived-snapshot"),
-      );
+      assert.equal(shell.archivedSpaces[0]?.id, SpaceId.makeUnsafe("space-archived-snapshot"));
       assert.equal(shell.projects[0]?.spaceId, SpaceId.makeUnsafe("space-snapshot"));
       assert.equal(full.spaces[0]?.id, SpaceId.makeUnsafe("space-snapshot"));
       assert.equal(
