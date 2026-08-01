@@ -116,6 +116,7 @@ interface LaunchCommand {
   readonly command: string;
   readonly args: ReadonlyArray<string>;
   readonly cwd: string;
+  readonly macAppExecutable?: string;
 }
 
 function prepareMacLaunch(assetsDirectory: string, extractionRoot: string): LaunchCommand {
@@ -133,7 +134,12 @@ function prepareMacLaunch(assetsDirectory: string, extractionRoot: string): Laun
   if (executables.length !== 1) {
     throw new Error(`Expected one macOS main executable, found ${executables.length}.`);
   }
-  return { command: executables[0]!, args: [], cwd: appBundle };
+  return {
+    command: "open",
+    args: ["-n", "-W", "-g", appBundle],
+    cwd: appBundle,
+    macAppExecutable: executables[0]!,
+  };
 }
 
 function prepareLinuxLaunch(assetsDirectory: string, extractionRoot: string): LaunchCommand {
@@ -300,6 +306,34 @@ async function terminateProcessTree(child: ChildProcess): Promise<void> {
   await waitForExit(child, 2_000);
 }
 
+async function terminateMacApplication(executablePath: string): Promise<void> {
+  const findPids = (): number[] => {
+    const result = spawnSync("pgrep", ["-f", "-x", executablePath], {
+      encoding: "utf8",
+      shell: false,
+    });
+    if (result.status !== 0) return [];
+    return result.stdout
+      .split(/\s+/)
+      .map(Number)
+      .filter((pid) => Number.isInteger(pid) && pid > 1);
+  };
+  for (const signal of ["SIGTERM", "SIGKILL"] as const) {
+    const pids = findPids();
+    if (pids.length === 0) return;
+    for (const pid of pids) {
+      try {
+        process.kill(pid, signal);
+      } catch {
+        // A process may exit between discovery and signalling.
+      }
+    }
+    await new Promise((resolveDelay) =>
+      setTimeout(resolveDelay, signal === "SIGTERM" ? 1_000 : 250),
+    );
+  }
+}
+
 export function inspectPackagedDesktopStartupLog(log: string): {
   readonly failure: string | null;
   readonly hasProof: boolean;
@@ -353,8 +387,10 @@ export async function verifyPackagedDesktopStartup(
   let logPath: string | null = null;
   let childStdout = "";
   let childStderr = "";
+  let macAppExecutable: string | null = null;
   try {
     const launch = prepareLaunch(options, extractionRoot);
+    macAppExecutable = launch.macAppExecutable ?? null;
     const stateRoot = join(temporaryRoot, "state");
     const env = createPackagedDesktopSmokeEnvironment(stateRoot, options);
     logPath = resolvePackagedDesktopSmokeLogPath(stateRoot);
@@ -421,6 +457,9 @@ export async function verifyPackagedDesktopStartup(
       { cause },
     );
   } finally {
+    if (macAppExecutable) {
+      await terminateMacApplication(macAppExecutable);
+    }
     if (child) {
       await terminateProcessTree(child);
     }
