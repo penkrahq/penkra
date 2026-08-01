@@ -77,7 +77,9 @@ describe("Pencil left rail", () => {
     const rowRect = disclosure.element().getBoundingClientRect();
     const disclosureShell = document.querySelector<HTMLElement>("[data-slot='disclosure-region']");
     expect(disclosureShell).not.toBeNull();
-    expect(getComputedStyle(disclosureShell!).interpolateSize).toBe("allow-keywords");
+    expect(getComputedStyle(disclosureShell!).getPropertyValue("interpolate-size")).toBe(
+      "allow-keywords",
+    );
     expect(getComputedStyle(disclosureShell!).transitionProperty).toBe("height");
     expect(getComputedStyle(disclosureShell!).transitionDuration).toBe("0.15s");
     expect(getComputedStyle(disclosureShell!).transitionTimingFunction).toBe("ease");

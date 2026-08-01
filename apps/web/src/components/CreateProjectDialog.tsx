@@ -4,7 +4,7 @@
 // Layer: Web UI dialog
 // Exports: CreateProjectDialog, CreateProjectSubmitValue
 
-import { type SpaceId } from "@synara/contracts";
+import { type SpaceIconName, type SpaceId } from "@synara/contracts";
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 
 import { isElectron } from "../env";
@@ -243,7 +243,7 @@ export function CreateProjectDialog(props: {
 
   // The space is created right away (same command the sidebar uses) and picked
   // as the destination, so one Create click ships the project into it.
-  const handleCreateSpace = async (value: { name: string; icon: string }) => {
+  const handleCreateSpace = async (value: { name: string; icon: SpaceIconName }) => {
     const api = readNativeApi();
     if (!api) throw new Error("The app server is unavailable.");
     const icon = toSpaceIconName(value.icon);

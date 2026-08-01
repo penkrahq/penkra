@@ -6,7 +6,7 @@
 //      (inputs in, handlers out) keeps it reviewable instead of interleaved through an
 //      8k-line component.
 
-import type { ProjectId, SpaceId, ThreadId } from "@synara/contracts";
+import type { ProjectId, SpaceIconName, SpaceId, ThreadId } from "@synara/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import { startTransition, useCallback, useEffect, useMemo, useState } from "react";
 
@@ -35,7 +35,7 @@ type SpaceEditorState =
 
 type SpaceEditorValue = {
   name: string;
-  icon: string;
+  icon: SpaceIconName;
 };
 
 export function useSpacesController(input: {

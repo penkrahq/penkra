@@ -51,10 +51,10 @@ export function SpaceGroupShared({
           <SpaceHeaderShared
             actionLabel={`Create thread in ${label}`}
             expanded={expanded}
-            onAction={onHeaderAction}
-            onContextMenu={onHeaderContextMenu}
             onClick={() => setExpanded(!expanded)}
             state={headerState}
+            {...(onHeaderAction ? { onAction: onHeaderAction } : {})}
+            {...(onHeaderContextMenu ? { onContextMenu: onHeaderContextMenu } : {})}
           >
             {label}
           </SpaceHeaderShared>
