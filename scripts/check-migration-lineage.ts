@@ -66,7 +66,7 @@ const HANDLED_RELEASED_DIVERGENCES: readonly MigrationLineageAllowance[] = [
   { id: 32, name: "ReconcileLegacyT3SchemaImport" },
   // Penkra v0.6.0-v0.6.3 shipped External MCP and Automation storage in these
   // slots. Penkra intentionally does not expose either surface. Migration 80,
-  // `PruneRejectedPenkraSurfaces`, is the canonical divergence point: the
+  // `PruneRejectedSynaraSurfaces`, is the canonical divergence point: the
   // reconciler replays from 80 and that idempotent migration drops every table
   // and view introduced by 74-85. Rows 74-78 may remain as inert historical
   // tracker entries; rows 80-85 are replaced by Penkra's canonical lineage.
