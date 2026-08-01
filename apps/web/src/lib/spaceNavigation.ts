@@ -6,7 +6,7 @@
 //      "/" restore landing both make that judgement, and spelling it out separately is exactly
 //      how selecting an empty Space ended up restoring another Space's thread.
 
-import type { ProjectId, SpaceId, ThreadId } from "@synara/contracts";
+import type { ProjectId, SpaceId, ThreadId } from "@penkra/contracts";
 
 import type { ServerWorkspacePaths } from "~/lib/serverWorkspacePaths";
 import { isOrdinarySpaceProject } from "~/lib/spaces";

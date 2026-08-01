@@ -5,7 +5,7 @@ import {
   ProjectId,
   ThreadId,
   ThreadMarkerId,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 import { Effect, Layer, ManagedRuntime, Option } from "effect";
 import { describe, expect, it } from "vitest";
 
@@ -22,7 +22,7 @@ import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts"
 
 async function createSystem() {
   const ServerConfigLayer = ServerConfig.layerTest(process.cwd(), {
-    prefix: "synara-pinned-roundtrip-test-",
+    prefix: "penkra-pinned-roundtrip-test-",
   });
   const layer = OrchestrationEngineLive.pipe(
     Layer.provideMerge(OrchestrationProjectionPipelineLive),

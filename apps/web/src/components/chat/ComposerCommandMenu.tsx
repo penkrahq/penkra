@@ -7,7 +7,7 @@ import {
   type ProviderPluginDescriptor,
   type ProviderSkillDescriptor,
   type PenkraSkillSummary,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 import { memo, useEffect, useRef, type ReactNode } from "react";
 import { type ComposerTriggerKind } from "../../composer-logic";
 import { type ComposerSlashCommand } from "../../composerSlashCommands";

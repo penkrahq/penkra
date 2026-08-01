@@ -2,7 +2,7 @@
 // Purpose: Verify tree-aware split view state operations: drop creation, perpendicular subdivision,
 // pane focus/ratio mutations, deleted-thread collapse semantics, and v1 -> v2 persisted-state migration.
 
-import { ProjectId, ThreadId, TurnId } from "@synara/contracts";
+import { ProjectId, ThreadId, TurnId } from "@penkra/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { collectLeaves, findParentSplitNode } from "./splitView.logic";
@@ -114,9 +114,9 @@ describe("splitViewStore", () => {
       ownerProjectId: PROJECT_ID,
     });
 
-    const persisted = globalThis.localStorage.getItem("synara:split-view-state:v1");
+    const persisted = globalThis.localStorage.getItem("penkra:split-view-state:v1");
     expect(persisted).not.toBeNull();
-    expect(globalThis.localStorage.getItem("synara:split-view-state:v2")).toBeNull();
+    expect(globalThis.localStorage.getItem("penkra:split-view-state:v2")).toBeNull();
     expect(JSON.parse(persisted ?? "{}")).toMatchObject({ version: 2 });
   });
 
@@ -149,7 +149,7 @@ describe("splitViewStore", () => {
     vi.resetModules();
     globalThis.localStorage = createMemoryStorage();
     globalThis.localStorage.setItem(
-      "synara:split-view-state:v1",
+      "penkra:split-view-state:v1",
       JSON.stringify({
         state: {
           splitViewsById: {

@@ -3,7 +3,7 @@
 // Layer: Web chat presentation component
 // Exports: TimelineWorkEntryRow, EditedFileRowContent, prefersCompactWorkEntryRow
 
-import { ThreadId, type TurnId } from "@synara/contracts";
+import { ThreadId, type TurnId } from "@penkra/contracts";
 import {
   createElement,
   memo,
@@ -65,12 +65,12 @@ import {
 } from "../../lib/toolArgumentSummary";
 import {
   deriveReadableCommandDisplay,
-  deriveSynaraMcpToolTitle,
+  derivePenkraMcpToolTitle,
   extractWebFetchUrl,
   normalizeToolTextForComparison,
   resolveCommandVisualKind,
-  sanitizeSynaraMcpToolPreview,
-  type SynaraMcpToolStatus,
+  sanitizePenkraMcpToolPreview,
+  type PenkraMcpToolStatus,
 } from "../../lib/toolCallLabel";
 import { openWorkspaceFileReference, useWorkspaceFileOpener } from "../../lib/workspaceFileOpener";
 import type { TimestampFormat } from "../../appSettings";
@@ -94,7 +94,7 @@ type TimelineWorkEntry = WorkLogEntry;
 
 const AgentTaskIcon: LucideIcon = (props) => <BotIcon {...props} />;
 
-const SynaraToolIcon: LucideIcon = ({ className, ...props }) => (
+const PenkraToolIcon: LucideIcon = ({ className, ...props }) => (
   <PenkraMark monochrome {...props} className={cn("text-current", className)} />
 );
 
@@ -286,7 +286,7 @@ export function renderWorkEntryIcon(Icon: LucideIcon, className: string): ReactE
 // summary row, which borrows its first entry's icon.
 export function workEntryLeftIcon(workEntry: TimelineWorkEntry): LucideIcon {
   if (isGitHubMcpToolCall(workEntry)) return GitHubIcon;
-  if (isSynaraToolCall(workEntry)) return SynaraToolIcon;
+  if (isPenkraToolCall(workEntry)) return PenkraToolIcon;
   if (workEntry.itemType === "mcp_tool_call") return McpIcon;
   return workEntryIcon(workEntry);
 }
@@ -296,21 +296,21 @@ function isGitHubMcpToolCall(workEntry: TimelineWorkEntry): boolean {
   return Boolean(toolName?.startsWith("mcp__codex_apps__github"));
 }
 
-// Penkra's own agent-gateway tools (synara_list_threads, synara_create_thread,
+// Penkra's own agent-gateway tools (penkra_list_threads, penkra_create_thread,
 // ...) get the Penkra mark instead of the generic MCP glyph. Providers report
-// the call differently: Claude prefixes the MCP server (mcp__synara__*), ACP
-// agents surface the bare tool name (synara_*), and Codex reports server/tool
+// the call differently: Claude prefixes the MCP server (mcp__penkra__*), ACP
+// agents surface the bare tool name (penkra_*), and Codex reports server/tool
 // pairs that the label humanizer renders as "Penkra: ...".
-function toolWorkEntryStatus(workEntry: TimelineWorkEntry): SynaraMcpToolStatus {
+function toolWorkEntryStatus(workEntry: TimelineWorkEntry): PenkraMcpToolStatus {
   if (workEntry.toolStatus) return workEntry.toolStatus;
   return workEntry.activityKind !== undefined && workEntry.activityKind !== "tool.completed"
     ? "running"
     : "completed";
 }
 
-function isSynaraToolCall(workEntry: TimelineWorkEntry): boolean {
+function isPenkraToolCall(workEntry: TimelineWorkEntry): boolean {
   return (
-    deriveSynaraMcpToolTitle({
+    derivePenkraMcpToolTitle({
       toolName: workEntry.toolName,
       title: workEntry.toolTitle,
       fallbackLabel: workEntry.label,
@@ -353,14 +353,14 @@ function capitalizePhrase(value: string): string {
 }
 
 function toolWorkEntryHeading(workEntry: TimelineWorkEntry): string {
-  const synaraTitle = deriveSynaraMcpToolTitle({
+  const penkraTitle = derivePenkraMcpToolTitle({
     toolName: workEntry.toolName,
     title: workEntry.toolTitle,
     fallbackLabel: workEntry.label,
     status: toolWorkEntryStatus(workEntry),
   });
-  if (synaraTitle) {
-    return synaraTitle;
+  if (penkraTitle) {
+    return penkraTitle;
   }
   if (!workEntry.toolTitle) {
     return capitalizePhrase(normalizeCompactToolLabel(workEntry.label));
@@ -538,23 +538,23 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
   // Standard tool rows keep one discoverable left glyph. Codex status rows
   // deliberately skip it and reuse only the shared tool-label typography.
   const isGitHubToolRow = isGitHubMcpToolCall(workEntry);
-  const isSynaraToolRow = !isGitHubToolRow && isSynaraToolCall(workEntry);
+  const isPenkraToolRow = !isGitHubToolRow && isPenkraToolCall(workEntry);
   const isMcpToolRow =
-    workEntry.itemType === "mcp_tool_call" && !isGitHubToolRow && !isSynaraToolRow;
+    workEntry.itemType === "mcp_tool_call" && !isGitHubToolRow && !isPenkraToolRow;
   const LeftIcon = workEntryLeftIcon(workEntry);
   const leftIconKind = webFetchUrl
     ? "web-fetch"
     : isGitHubToolRow || EntryIcon === GitHubIcon
       ? "github"
-      : isSynaraToolRow
-        ? "synara"
+      : isPenkraToolRow
+        ? "penkra"
         : isMcpToolRow
           ? "mcp"
           : undefined;
   const heading = toolWorkEntryHeading(workEntry);
   const rawPreview = workEntryPreview(workEntry);
-  const preview = isSynaraToolRow
-    ? sanitizeSynaraMcpToolPreview({
+  const preview = isPenkraToolRow
+    ? sanitizePenkraMcpToolPreview({
         preview: rawPreview,
         heading,
         status: toolWorkEntryStatus(workEntry),

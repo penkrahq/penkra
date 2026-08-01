@@ -42,7 +42,7 @@ describe("Pi native Penkra gateway tools", () => {
             ? {
                 tools: [
                   {
-                    name: "synara_list_threads",
+                    name: "penkra_list_threads",
                     description: "List Penkra threads.",
                     inputSchema: {
                       type: "object",
@@ -99,7 +99,7 @@ describe("Pi native Penkra gateway tools", () => {
           result: {
             tools: [
               {
-                name: "synara_create_threads",
+                name: "penkra_create_threads",
                 description: "Create Penkra threads.",
                 inputSchema: { type: "object", properties: {} },
               },
@@ -205,7 +205,7 @@ function makePiModel(input: {
 
 describe("getPiDiscoverableModels", () => {
   it("isolates extension providers between sessions that share an agent directory", async () => {
-    const agentDir = mkdtempSync(path.join(tmpdir(), "synara-pi-runtime-isolation-"));
+    const agentDir = mkdtempSync(path.join(tmpdir(), "penkra-pi-runtime-isolation-"));
 
     try {
       const firstRuntime = await createPiModelRuntime(agentDir, { ModelRuntime });
@@ -238,7 +238,7 @@ describe("getPiDiscoverableModels", () => {
   });
 
   it("includes custom-provider models authenticated through auth.json semantics", async () => {
-    const agentDir = mkdtempSync(path.join(tmpdir(), "synara-pi-models-"));
+    const agentDir = mkdtempSync(path.join(tmpdir(), "penkra-pi-models-"));
     const modelsPath = path.join(agentDir, "models.json");
     const authPath = path.join(agentDir, "auth.json");
 
@@ -280,7 +280,7 @@ describe("getPiDiscoverableModels", () => {
   });
 
   it("restores Fable 5 and Opus 4.8 after an extension replaces the Anthropic catalog", async () => {
-    const agentDir = mkdtempSync(path.join(tmpdir(), "synara-pi-anthropic-"));
+    const agentDir = mkdtempSync(path.join(tmpdir(), "penkra-pi-anthropic-"));
     const modelsPath = path.join(agentDir, "models.json");
     const authPath = path.join(agentDir, "auth.json");
 

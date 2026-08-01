@@ -7,7 +7,7 @@ import {
   type TerminalEvent,
   type TerminalOpenInput,
   type TerminalRestartInput,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -237,7 +237,7 @@ describe("TerminalManager", () => {
       prepareLogs?: (logsDir: string) => void;
     } = {},
   ) {
-    const logsDir = fs.mkdtempSync(path.join(os.tmpdir(), "synara-terminal-"));
+    const logsDir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-terminal-"));
     tempDirs.push(logsDir);
     options.prepareLogs?.(logsDir);
     const ptyAdapter = options.ptyAdapter ?? new FakePtyAdapter();
@@ -326,7 +326,7 @@ describe("TerminalManager", () => {
     if (!process) return;
 
     const snapshot = await manager.open(
-      openInput({ cwd: logsDir, env: { SYNARA_TERMINAL_TEST: "changed" } }),
+      openInput({ cwd: logsDir, env: { PENKRA_TERMINAL_TEST: "changed" } }),
     );
 
     expect(snapshot.cwd).toBe(globalThis.process.cwd());
@@ -1280,7 +1280,7 @@ describe("TerminalManager", () => {
     };
 
     setEnv("PORT", "5173");
-    setEnv("SYNARA_PORT", "3773");
+    setEnv("PENKRA_PORT", "3773");
     setEnv("VITE_DEV_SERVER_URL", "http://localhost:5173");
     setEnv("TEST_TERMINAL_KEEP", "keep-me");
 
@@ -1292,7 +1292,7 @@ describe("TerminalManager", () => {
       if (!spawnInput) return;
 
       expect(spawnInput.env.PORT).toBeUndefined();
-      expect(spawnInput.env.SYNARA_PORT).toBeUndefined();
+      expect(spawnInput.env.PENKRA_PORT).toBeUndefined();
       expect(spawnInput.env.VITE_DEV_SERVER_URL).toBeUndefined();
       expect(spawnInput.env.TEST_TERMINAL_KEEP).toBe("keep-me");
 
@@ -1395,8 +1395,8 @@ describe("TerminalManager", () => {
     await manager.open(
       openInput({
         env: {
-          SYNARA_PROJECT_ROOT: "/repo",
-          SYNARA_WORKTREE_PATH: "/repo/worktree-a",
+          PENKRA_PROJECT_ROOT: "/repo",
+          PENKRA_WORKTREE_PATH: "/repo/worktree-a",
           CUSTOM_FLAG: "1",
         },
       }),
@@ -1405,8 +1405,8 @@ describe("TerminalManager", () => {
     expect(spawnInput).toBeDefined();
     if (!spawnInput) return;
 
-    expect(spawnInput.env.SYNARA_PROJECT_ROOT).toBe("/repo");
-    expect(spawnInput.env.SYNARA_WORKTREE_PATH).toBe("/repo/worktree-a");
+    expect(spawnInput.env.PENKRA_PROJECT_ROOT).toBe("/repo");
+    expect(spawnInput.env.PENKRA_WORKTREE_PATH).toBe("/repo/worktree-a");
     expect(spawnInput.env.CUSTOM_FLAG).toBe("1");
 
     manager.dispose();

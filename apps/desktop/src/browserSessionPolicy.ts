@@ -13,9 +13,9 @@ import {
   buildAcceptLanguageHeader,
   buildChromeClientHints,
   deriveChromeUserAgent,
-} from "@synara/shared/browserSession";
+} from "@penkra/shared/browserSession";
 
-export const BROWSER_SESSION_PARTITION = "persist:synara-browser";
+export const BROWSER_SESSION_PARTITION = "persist:penkra-browser";
 
 function replaceRequestHeadersCaseInsensitive(
   headers: Record<string, string>,

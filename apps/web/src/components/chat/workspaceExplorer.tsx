@@ -5,7 +5,7 @@
 // Exports: WorkspaceFilesSidebar, WorkspaceSearchSidebar, WorkspaceExplorerSidebar,
 //          ExplorerActivityBarButton, useExplorerEntryPrefetch, setFileReferenceDragData.
 
-import type { ProjectEntry, ProjectFileSystemEntry } from "@synara/contracts";
+import type { ProjectEntry, ProjectFileSystemEntry } from "@penkra/contracts";
 import { useDebouncedValue } from "@tanstack/react-pacer";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -82,7 +82,7 @@ function shouldShowExplorerEntry(entry: ProjectFileSystemEntry): boolean {
   if (entry.kind !== "directory") {
     return true;
   }
-  if (entry.name.startsWith(".synara")) {
+  if (entry.name.startsWith(".penkra")) {
     return false;
   }
   return !EXPLORER_HIDDEN_DIRECTORY_NAMES.has(entry.name);

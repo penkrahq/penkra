@@ -42,7 +42,7 @@ const artifact = {
 } as const;
 
 function createMarkerPath(): string {
-  const directory = FS.mkdtempSync(Path.join(OS.tmpdir(), "synara-update-marker-"));
+  const directory = FS.mkdtempSync(Path.join(OS.tmpdir(), "penkra-update-marker-"));
   temporaryDirectories.push(directory);
   return Path.join(directory, "pending-update-install.json");
 }

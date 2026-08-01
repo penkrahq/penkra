@@ -6,7 +6,7 @@
 
 import * as nodePath from "node:path";
 
-import type { ProviderSkillDescriptor } from "@synara/contracts";
+import type { ProviderSkillDescriptor } from "@penkra/contracts";
 
 import { collectSkillsFromRoots, providerNativeSkillRoots } from "./skillsCatalog.ts";
 
@@ -22,7 +22,7 @@ export async function discoverCursorSkills(
     providerNativeSkillRoots({
       cwd: input.cwd,
       homeDir: input.homeDir,
-      synaraBaseDir: nodePath.join(input.homeDir, ".synara"),
+      penkraBaseDir: nodePath.join(input.homeDir, ".penkra"),
       provider: "cursor",
     }),
   );

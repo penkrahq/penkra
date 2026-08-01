@@ -2,7 +2,7 @@
 // Purpose: Locks down server React Query polling profiles and cache options.
 // Layer: Web data-fetching unit tests
 
-import type { ServerConfig, ServerProviderStatus } from "@synara/contracts";
+import type { ServerConfig, ServerProviderStatus } from "@penkra/contracts";
 import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it } from "vitest";
 
@@ -27,12 +27,12 @@ const READY_CODEX_STATUS = {
 
 function makeServerConfig(providers: readonly ServerProviderStatus[]): ServerConfig {
   return {
-    cwd: "G:\\synara",
+    cwd: "G:\\penkra",
     homeDir: "C:\\Users\\tester",
-    chatWorkspaceRoot: "C:\\Users\\tester\\Documents\\Synara",
-    studioWorkspaceRoot: "C:\\Users\\tester\\Documents\\Synara\\Studio",
-    worktreesDir: "C:\\SynaraDev\\worktrees",
-    keybindingsConfigPath: "C:\\SynaraDev\\keybindings.json",
+    chatWorkspaceRoot: "C:\\Users\\tester\\Documents\\Penkra",
+    studioWorkspaceRoot: "C:\\Users\\tester\\Documents\\Penkra\\Studio",
+    worktreesDir: "C:\\PenkraDev\\worktrees",
+    keybindingsConfigPath: "C:\\PenkraDev\\keybindings.json",
     keybindings: [],
     issues: [],
     providers,

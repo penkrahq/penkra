@@ -11,7 +11,7 @@ import type {
   OrchestrationGetFullThreadDiffResult,
   OrchestrationGetTurnDiffInput,
   OrchestrationGetTurnDiffResult,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 import { ServiceMap } from "effect";
 import type { Effect } from "effect";
 
@@ -46,4 +46,4 @@ export interface CheckpointDiffQueryShape {
 export class CheckpointDiffQuery extends ServiceMap.Service<
   CheckpointDiffQuery,
   CheckpointDiffQueryShape
->()("synara/checkpointing/Services/CheckpointDiffQuery") {}
+>()("penkra/checkpointing/Services/CheckpointDiffQuery") {}

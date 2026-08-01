@@ -12,7 +12,7 @@ import {
   type OrchestrationReadModel,
   type OrchestrationShellStreamEvent,
   type ThreadMarker,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -52,7 +52,7 @@ describe("store projection", () => {
       makeState(initialThread),
       makeReadModel(
         makeReadModelThread({
-          branch: "synara/abc123ef",
+          branch: "penkra/abc123ef",
           updatedAt: "2026-02-27T00:05:00.000Z",
         }),
       ),
@@ -225,6 +225,7 @@ describe("store projection", () => {
   it("reuses the existing project slot for shell upserts that keep the same workspace root", () => {
     const initialState: AppState = {
       spaces: [],
+      archivedSpaces: [],
       projects: [
         makeProject({
           id: ProjectId.makeUnsafe("project-old"),
@@ -275,6 +276,7 @@ describe("store projection", () => {
           updatedAt: "2026-07-15T10:00:00.000Z",
         },
       ],
+      archivedSpaces: [],
       projects: [
         makeProject({
           id: ProjectId.makeUnsafe("project-shell-space"),
@@ -378,6 +380,7 @@ describe("store projection", () => {
     const initialState = syncServerReadModel(
       {
         spaces: [],
+        archivedSpaces: [],
         projects: [
           makeProject({
             id: ProjectId.makeUnsafe("project-shell"),
@@ -614,7 +617,7 @@ describe("store projection", () => {
     const initialState = makeState(makeThread());
     const readModel = makeReadModel(
       makeReadModelThread({
-        creationSource: "synara_mcp",
+        creationSource: "penkra_mcp",
         sourceThreadId,
       }),
     );
@@ -622,7 +625,7 @@ describe("store projection", () => {
     const next = syncServerReadModel(initialState, readModel);
     const thread = getThreadFromState(next, ThreadId.makeUnsafe("thread-1"));
 
-    expect(thread?.creationSource).toBe("synara_mcp");
+    expect(thread?.creationSource).toBe("penkra_mcp");
     expect(thread?.sourceThreadId).toBe(sourceThreadId);
   });
 
@@ -665,7 +668,7 @@ describe("store projection", () => {
   it("adds the desktop bridge token to server attachment preview URLs", () => {
     const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
     const testWindow = {
-      location: { origin: "synara://app" },
+      location: { origin: "penkra://app" },
       desktopBridge: {
         getWsUrl: () => "ws://127.0.0.1:53036/?token=desktop-secret",
       },
@@ -1368,7 +1371,7 @@ describe("store projection", () => {
     const liveState = makeState(
       makeThread({
         id: threadId,
-        branch: "synara/tmp-working",
+        branch: "penkra/tmp-working",
         worktreePath: "/tmp/worktrees/thread-hot-path-branch-flow",
         createBranchFlowCompleted: true,
       }),
@@ -1378,7 +1381,7 @@ describe("store projection", () => {
       liveState,
       makeReadModelThread({
         id: threadId,
-        branch: "synara/tmp-working",
+        branch: "penkra/tmp-working",
         worktreePath: "/tmp/worktrees/thread-hot-path-branch-flow",
         createBranchFlowCompleted: false,
       }),

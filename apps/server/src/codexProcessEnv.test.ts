@@ -13,7 +13,7 @@ describe("linkOrCopyCodexOverlayEntry", () => {
       {
         entryName: "auth.json",
         sourcePath: "C:\\Users\\test\\.codex\\auth.json",
-        targetPath: "C:\\Users\\test\\.synara\\codex-home-overlay\\auth.json",
+        targetPath: "C:\\Users\\test\\.penkra\\codex-home-overlay\\auth.json",
         type: "file",
       },
       { symlink, copyFile },
@@ -21,12 +21,12 @@ describe("linkOrCopyCodexOverlayEntry", () => {
 
     expect(symlink).toHaveBeenCalledWith(
       "C:\\Users\\test\\.codex\\auth.json",
-      "C:\\Users\\test\\.synara\\codex-home-overlay\\auth.json",
+      "C:\\Users\\test\\.penkra\\codex-home-overlay\\auth.json",
       "file",
     );
     expect(copyFile).toHaveBeenCalledWith(
       "C:\\Users\\test\\.codex\\auth.json",
-      "C:\\Users\\test\\.synara\\codex-home-overlay\\auth.json",
+      "C:\\Users\\test\\.penkra\\codex-home-overlay\\auth.json",
     );
   });
 
@@ -40,7 +40,7 @@ describe("linkOrCopyCodexOverlayEntry", () => {
         {
           entryName: "sessions",
           sourcePath: "C:\\Users\\test\\.codex\\sessions",
-          targetPath: "C:\\Users\\test\\.synara\\codex-home-overlay\\sessions",
+          targetPath: "C:\\Users\\test\\.penkra\\codex-home-overlay\\sessions",
           type: "dir",
         },
         { symlink, copyFile: vi.fn(async () => undefined) },

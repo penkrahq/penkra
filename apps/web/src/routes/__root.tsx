@@ -8,8 +8,8 @@ import {
   type ServerConfig,
   type ServerProviderStatus,
   type WsCompatibilityError,
-} from "@synara/contracts";
-import { defaultTerminalTitleForCliKind } from "@synara/shared/terminalThreads";
+} from "@penkra/contracts";
+import { defaultTerminalTitleForCliKind } from "@penkra/shared/terminalThreads";
 import {
   Outlet,
   createRootRouteWithContext,
@@ -24,8 +24,6 @@ import { Throttler } from "@tanstack/react-pacer";
 
 import { APP_DISPLAY_NAME, APP_VERSION } from "../branding";
 import { DesktopWindowControls } from "../components/DesktopWindowControls";
-import { AppSnapCoordinator } from "../components/AppSnapCoordinator";
-import { AppSnapWelcomeDialog } from "../components/AppSnapWelcomeDialog";
 import { DesktopOnboardingGate } from "../components/onboarding/DesktopOnboardingGate";
 import { FeedbackDialog } from "../components/FeedbackDialog";
 import { SETTINGS_TARGETS } from "../settingsNavigation";
@@ -241,8 +239,6 @@ function RootRouteView() {
             <GlobalFeedbackDialog />
             <GlobalWhatsNewSurface />
             <TaskCompletionNotifications />
-            <AppSnapWelcomeDialog />
-            <AppSnapCoordinator />
             <ProviderUpdateNotifications />
             <DesktopProjectBootstrap />
             <Outlet />
@@ -342,7 +338,11 @@ async function runProviderUpdateAll(params: {
           : `Updating ${providers.length} providers.`,
       timeout: 0,
     });
-  activeToastRef.current = { kind: "update", key: activeNotificationKey, toastId };
+  activeToastRef.current = {
+    kind: "update",
+    key: activeNotificationKey,
+    toastId,
+  };
   const dismissProgressToast = () => {
     progressToastDismissedRef.current = true;
     if (activeToastRef.current?.toastId === toastId) {
@@ -555,7 +555,10 @@ function ProviderUpdateNotifications() {
           }
           void navigate({
             to: "/settings",
-            search: { section: "providers", target: SETTINGS_TARGETS.providerUpdates },
+            search: {
+              section: "providers",
+              target: SETTINGS_TARGETS.providerUpdates,
+            },
           });
         },
       },
@@ -936,10 +939,12 @@ function EventRouter() {
     (store) => store.removeOrphanedTerminalStates,
   );
   const setServerWorkspacePaths = useWorkspacePathsStore((store) => store.setServerWorkspacePaths);
-  const serverThreads = useStore(selectAllThreads);
+  const serverThreadIdList = useStore((store) => store.threadIds);
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const pathname = useRouterState({
+    select: (state) => state.location.pathname,
+  });
   const routeThreadId = useParams({
     strict: false,
     select: (params) => (params.threadId ? ThreadId.makeUnsafe(params.threadId) : null),
@@ -948,18 +953,26 @@ function EventRouter() {
   const activeSplitView = useSplitViewStore(
     useMemo(() => selectSplitView(routeSearch.splitViewId ?? null), [routeSearch.splitViewId]),
   );
-  const visibleThreadIds = activeSplitView
-    ? resolveSplitViewThreadIds(activeSplitView)
-    : routeThreadId
-      ? [routeThreadId]
-      : [];
+  const visibleThreadIds = useMemo(
+    () =>
+      activeSplitView
+        ? resolveSplitViewThreadIds(activeSplitView)
+        : routeThreadId
+          ? [routeThreadId]
+          : [],
+    [activeSplitView, routeThreadId],
+  );
   const retainedThreadIds = useRetainedThreadDetailIds();
-  const serverThreadIds = new Set(serverThreads.map((thread) => thread.id));
-  const subscribedThreadIds = resolveThreadDetailSubscriptionLeaseIds({
-    visibleThreadIds,
-    retainedThreadIds,
-    serverThreadIds,
-  });
+  const serverThreadIds = useMemo(() => new Set(serverThreadIdList ?? []), [serverThreadIdList]);
+  const subscribedThreadIds = useMemo(
+    () =>
+      resolveThreadDetailSubscriptionLeaseIds({
+        visibleThreadIds,
+        retainedThreadIds,
+        serverThreadIds,
+      }),
+    [retainedThreadIds, serverThreadIds, visibleThreadIds],
+  );
   const pathnameRef = useRef(pathname);
   const handledBootstrapThreadIdRef = useRef<string | null>(null);
   const visibleThreadIdsRef = useRef(subscribedThreadIds);
@@ -1004,6 +1017,16 @@ function EventRouter() {
     const nextThreadProjectionReconcileAtById = new Map<ThreadId, number>();
     let nextThreadSubscriptionGeneration = 0;
     let reconcileThreadSubscriptionsChain = Promise.resolve();
+
+    const isDraftThreadAwaitingProjection = (threadId: ThreadId): boolean => {
+      if (useComposerDraftStore.getState().draftThreadsByThreadId[threadId] === undefined) {
+        return false;
+      }
+      return (
+        !threadSnapshotSequenceById.has(threadId) ||
+        getThreadFromState(useStore.getState(), threadId) === undefined
+      );
+    };
 
     const beginThreadSubscription = (threadId: ThreadId) => {
       threadSnapshotSequenceById.delete(threadId);
@@ -1348,12 +1371,17 @@ function EventRouter() {
       threadProjectionReconcileInFlight.set(threadId, subscriptionGeneration);
       let projectionConfirmed = false;
       try {
-        const snapshot = await api.orchestration.getThreadDetailSnapshot({ threadId });
+        const snapshot = await api.orchestration.getThreadDetailSnapshot({
+          threadId,
+        });
         if (
           snapshot === null ||
           disposed ||
           threadSubscriptionGenerationById.get(threadId) !== subscriptionGeneration ||
-          !canApplyThreadSnapshot({ threadId, leasedThreadIds: subscribedThreadIds })
+          !canApplyThreadSnapshot({
+            threadId,
+            leasedThreadIds: subscribedThreadIds,
+          })
         ) {
           return;
         }
@@ -1402,7 +1430,8 @@ function EventRouter() {
           }
           if (
             threadProjectionTerminalFencePending.has(threadId) ||
-            shouldReconcileThreadProjection(threadId)
+            shouldReconcileThreadProjection(threadId) ||
+            isDraftThreadAwaitingProjection(threadId)
           ) {
             nextThreadProjectionReconcileAtById.set(
               threadId,
@@ -1428,6 +1457,10 @@ function EventRouter() {
 
     reconcileThreadSubscriptionsRef.current = (threadIds) =>
       enqueueThreadSubscriptionReconcile(threadIds);
+    // The layout effect runs before this passive effect on the initial mount, so
+    // its first read of the ref is necessarily null. Subscribe the initial visible
+    // set here; subsequent route/retention changes are handled by the layout effect.
+    void reconcileThreadSubscriptionsRef.current(visibleThreadIdsRef.current);
 
     const unsubShellEvent = api.orchestration.onShellEvent((item) => {
       if (item.kind === "snapshot") {
@@ -1481,7 +1514,12 @@ function EventRouter() {
         // The lease can drop while its refreshed snapshot is in flight. Applying it
         // then would restore detail slices that no retention entry owns, and since
         // eviction only runs from retention entries nothing would ever free them.
-        if (!canApplyThreadSnapshot({ threadId, leasedThreadIds: subscribedThreadIds })) {
+        if (
+          !canApplyThreadSnapshot({
+            threadId,
+            leasedThreadIds: subscribedThreadIds,
+          })
+        ) {
           threadSnapshotSequenceById.delete(threadId);
           pendingThreadEventsById.delete(threadId);
           return;
@@ -1579,7 +1617,9 @@ function EventRouter() {
     // client store so the sidebar indicator survives reconnects and stays consistent
     // across tabs without owning any thread/terminal state.
     const invalidateLocalServers = () => {
-      void queryClient.invalidateQueries({ queryKey: serverQueryKeys.localServers() });
+      void queryClient.invalidateQueries({
+        queryKey: serverQueryKeys.localServers(),
+      });
     };
     const unsubDevServerEvent = api.projects.onDevServerEvent((event) => {
       const store = useProjectRunStore.getState();
@@ -1655,7 +1695,9 @@ function EventRouter() {
     // don't produce duplicate toasts.
     let subscribed = false;
     const unsubServerConfigUpdated = onServerConfigUpdated((payload) => {
-      void queryClient.invalidateQueries({ queryKey: serverQueryKeys.config() });
+      void queryClient.invalidateQueries({
+        queryKey: serverQueryKeys.config(),
+      });
       if (!subscribed) return;
       const issue = payload.issues.find((entry) => entry.kind.startsWith("keybindings."));
       if (!issue) {
@@ -1755,6 +1797,7 @@ function EventRouter() {
         THREAD_DETAIL_PROJECTION_RECONCILE_MAX_CONCURRENCY - threadProjectionReconcileInFlight.size,
       );
       for (const threadId of subscribedThreadIds) {
+        const draftThreadAwaitingProjection = isDraftThreadAwaitingProjection(threadId);
         if (shouldPollThreadDetailCatchup(threadId)) {
           if (!threadSnapshotSequenceById.has(threadId)) {
             void requestThreadSnapshot(threadId);
@@ -1764,16 +1807,16 @@ function EventRouter() {
         }
         if (
           !threadProjectionTerminalFencePending.has(threadId) &&
-          !shouldReconcileThreadProjection(threadId)
+          !shouldReconcileThreadProjection(threadId) &&
+          !draftThreadAwaitingProjection
         ) {
           nextThreadProjectionReconcileAtById.delete(threadId);
           continue;
         }
-        const nextProjectionReconcileAt = nextThreadProjectionReconcileAtById.get(threadId);
+        const nextProjectionReconcileAt = nextThreadProjectionReconcileAtById.get(threadId) ?? now;
         if (
           availableProjectionReconcileSlots > 0 &&
           !threadProjectionReconcileInFlight.has(threadId) &&
-          nextProjectionReconcileAt !== undefined &&
           now >= nextProjectionReconcileAt
         ) {
           availableProjectionReconcileSlots -= 1;
@@ -1877,11 +1920,10 @@ function DesktopProjectBootstrap() {
           hasLiveThreadsWithMissingProjects(snapshot);
         if (!needsRepair) {
           useStore.getState().syncServerShellSnapshot(snapshot);
-          return snapshot;
+          return;
         }
         return api.orchestration.repairState().then((repairedSnapshot) => {
           syncServerReadModel(repairedSnapshot);
-          return repairedSnapshot;
         });
       })
       .catch(() => {

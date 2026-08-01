@@ -2,18 +2,18 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { ThreadId } from "@synara/contracts";
+import { ThreadId } from "@penkra/contracts";
 import { assert, describe, it } from "@effect/vitest";
 import { Effect } from "effect";
 
-import { SYNARA_AGENT_GATEWAY_TOKEN_ENV } from "../../agentGateway/mcpInjection.ts";
+import { PENKRA_AGENT_GATEWAY_TOKEN_ENV } from "../../agentGateway/mcpInjection.ts";
 import { makeEventNdjsonLogger } from "../Layers/EventNdjsonLogger.ts";
 import { ACP_LOG_REDACTED_VALUE, makeAcpNativeLoggers } from "./AcpNativeLogging.ts";
 
 describe("AcpNativeLogging", () => {
   it.effect("redacts gateway credentials from request and protocol NDJSON logs", () =>
     Effect.gen(function* () {
-      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "synara-acp-secret-log-"));
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-acp-secret-log-"));
       const basePath = path.join(tempDir, "provider-native.ndjson");
       const threadId = ThreadId.makeUnsafe("thread-secret-redaction");
       const sentinelToken = "sagw_session_SENTINEL_MUST_NEVER_REACH_NDJSON";
@@ -51,7 +51,7 @@ describe("AcpNativeLogging", () => {
               },
               {
                 env: [
-                  { name: SYNARA_AGENT_GATEWAY_TOKEN_ENV, value: sentinelToken },
+                  { name: PENKRA_AGENT_GATEWAY_TOKEN_ENV, value: sentinelToken },
                   { name: "SAFE_ENV", value: "kept" },
                 ],
               },
@@ -64,7 +64,7 @@ describe("AcpNativeLogging", () => {
           stage: "raw",
           payload: JSON.stringify({
             headers: [{ name: "Authorization", value: `Bearer ${sentinelToken}` }],
-            env: [{ name: SYNARA_AGENT_GATEWAY_TOKEN_ENV, value: sentinelToken }],
+            env: [{ name: PENKRA_AGENT_GATEWAY_TOKEN_ENV, value: sentinelToken }],
           }),
         });
         yield* nativeEventLogger.close();

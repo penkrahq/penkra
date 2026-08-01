@@ -11,7 +11,7 @@ import {
   type DroidModelOptions,
   type ProviderListModelsResult,
   type ProviderModelDescriptor,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 import { Effect, Layer, Scope, ServiceMap } from "effect";
 import * as AcpErrors from "./AcpErrors.ts";
 import type * as Acp from "@agentclientprotocol/sdk";

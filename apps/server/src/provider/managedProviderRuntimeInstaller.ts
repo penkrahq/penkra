@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import type { ProviderKind } from "@synara/contracts";
-import { prepareWindowsSafeProcess } from "@synara/shared/windowsProcess";
+import type { ProviderKind } from "@penkra/contracts";
+import { prepareWindowsSafeProcess } from "@penkra/shared/windowsProcess";
 import { Duration, Effect, FileSystem, Option, Path, Stream } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 

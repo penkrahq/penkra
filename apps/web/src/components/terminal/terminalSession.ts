@@ -5,7 +5,7 @@
 // Layer: Web terminal runtime helpers
 // Depends on: terminalRuntimeRegistry (xterm instances), NativeApi terminal channel.
 
-import { type NativeApi } from "@synara/contracts";
+import { type NativeApi } from "@penkra/contracts";
 
 import { randomUUID } from "~/lib/utils";
 import { terminalRuntimeRegistry } from "./terminalRuntimeRegistry";

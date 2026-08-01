@@ -53,7 +53,7 @@ The server endpoint is stateless: it receives a previous recap, new compact mate
 2. `useThreadRecap` waits 60 seconds after the latest settled message signature, skips active assistant streaming/running turns, and ignores stale provider responses if a newer message arrives.
 3. `server.generateThreadRecap` forwards the compact input to the shared `TextGeneration` service using the configured text-generation model selection when the client does not override it.
 4. Provider implementations share `buildThreadRecapPrompt`, which asks for a JSON object with only `recap`, max 220 characters, no markdown, and no `recap:` prefix.
-5. A successful recap is saved under `synara:thread-recaps:v1` with its covered message id, source signature, and update time. The cache is sanitized on read and pruned to the freshest 80 threads so localStorage stays bounded.
+5. A successful recap is saved under `penkra:thread-recaps:v1` with its covered message id, source signature, and update time. The cache is sanitized on read and pruned to the freshest 80 threads so localStorage stays bounded.
 6. `EnvironmentPanel` displays the result as compact inline `Recap · text`, clamps text to four lines, and only shows pending shimmer while the first recap is being generated.
 
 ### Tradeoffs & Edge Cases

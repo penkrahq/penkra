@@ -1,10 +1,10 @@
 import {
   DEFAULT_MODEL_BY_PROVIDER,
-  SynaraCreateThreadsInput,
-  SynaraWaitForThreadsInput,
+  PenkraCreateThreadsInput,
+  PenkraWaitForThreadsInput,
   type ModelSelection,
   type ProviderKind,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 import { Schema } from "effect";
 
 import { AGENT_GATEWAY_TARGET_OPTIONS_DESCRIPTION } from "./targetResolver.ts";
@@ -28,7 +28,7 @@ export const MODEL_SELECTION_INPUT_SCHEMA = {
     provider: { type: "string", enum: [...PROVIDER_KINDS] },
     model: {
       type: "string",
-      description: "Exact model slug from synara_capabilities providers[].models[].slug.",
+      description: "Exact model slug from penkra_capabilities providers[].models[].slug.",
     },
     options: {
       type: "object",
@@ -146,7 +146,7 @@ export function buildModelSelection(
 
 export function decodeCreateThreadsInput(value: unknown) {
   try {
-    return Schema.decodeUnknownSync(SynaraCreateThreadsInput)(value);
+    return Schema.decodeUnknownSync(PenkraCreateThreadsInput)(value);
   } catch (error) {
     throw new ToolInputError(`Invalid Penkra creation plan: ${errorText(error)}`);
   }
@@ -154,7 +154,7 @@ export function decodeCreateThreadsInput(value: unknown) {
 
 export function decodeWaitForThreadsInput(value: unknown) {
   try {
-    return Schema.decodeUnknownSync(SynaraWaitForThreadsInput)(value);
+    return Schema.decodeUnknownSync(PenkraWaitForThreadsInput)(value);
   } catch (error) {
     throw new ToolInputError(`Invalid Penkra wait request: ${errorText(error)}`);
   }

@@ -1,4 +1,4 @@
-import { CheckpointRef, ProjectId, ThreadId, TurnId, type ProjectKind } from "@synara/contracts";
+import { CheckpointRef, ProjectId, ThreadId, TurnId, type ProjectKind } from "@penkra/contracts";
 import { Effect, Layer, Option } from "effect";
 import { describe, expect, it } from "vitest";
 
@@ -75,7 +75,7 @@ describe("CheckpointDiffQueryLive", () => {
     const projectId = ProjectId.makeUnsafe("project-1");
     const threadId = ThreadId.makeUnsafe("thread-1");
     const toCheckpointRef = CheckpointRef.makeUnsafe(
-      checkpointRefForThreadTurn(threadId, 1).replace("refs/synara/", "refs/historical/"),
+      checkpointRefForThreadTurn(threadId, 1).replace("refs/penkra/", "refs/historical/"),
     );
     const hasCheckpointRefCalls: Array<CheckpointRef> = [];
     const diffCheckpointsCalls: Array<{
@@ -154,7 +154,7 @@ describe("CheckpointDiffQueryLive", () => {
 
     const expectedFromRef = CheckpointRef.makeUnsafe(
       checkpointRefForThreadTurnStart(threadId, TurnId.makeUnsafe("turn-1")).replace(
-        "refs/synara/",
+        "refs/penkra/",
         "refs/historical/",
       ),
     );
@@ -180,7 +180,7 @@ describe("CheckpointDiffQueryLive", () => {
     const threadId = ThreadId.makeUnsafe("thread-full-diff");
     const toCheckpointRef = checkpointRefForThreadTurn(threadId, 2);
     const historicalBaselineRef = CheckpointRef.makeUnsafe(
-      checkpointRefForThreadTurn(threadId, 1).replace("refs/synara/", "refs/historical/"),
+      checkpointRefForThreadTurn(threadId, 1).replace("refs/penkra/", "refs/historical/"),
     );
     const diffCheckpointsCalls: Array<{
       readonly fromCheckpointRef: CheckpointRef;

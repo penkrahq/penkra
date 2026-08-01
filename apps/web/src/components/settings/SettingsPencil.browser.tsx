@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
 vi.mock("~/nativeApi", async () => {
-  const { DEFAULT_SERVER_SETTINGS_VIEW } = await import("@synara/contracts");
+  const { DEFAULT_SERVER_SETTINGS_VIEW } = await import("@penkra/contracts");
   const api = {
     server: {
       getSettings: async () => DEFAULT_SERVER_SETTINGS_VIEW,

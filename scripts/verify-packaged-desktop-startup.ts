@@ -170,10 +170,10 @@ function prepareWindowsLaunch(assetsDirectory: string, extractionRoot: string): 
   }
   runCommand("7z", ["x", "-y", `-o${applicationRoot}`, applicationArchives[0]!]);
   const executables = findFiles(applicationRoot, (candidate) =>
-    /[/\\]Synara\.exe$/i.test(candidate),
+    /[/\\]Penkra\.exe$/i.test(candidate),
   );
   if (executables.length !== 1) {
-    throw new Error(`Expected one extracted Synara.exe, found ${executables.length}.`);
+    throw new Error(`Expected one extracted Penkra.exe, found ${executables.length}.`);
   }
   return { command: executables[0]!, args: [], cwd: dirname(executables[0]!) };
 }
@@ -206,11 +206,11 @@ export function createPackagedDesktopSmokeEnvironment(
     XDG_CONFIG_HOME: join(root, "xdg-config"),
     XDG_CACHE_HOME: join(root, "xdg-cache"),
     XDG_DATA_HOME: join(root, "xdg-data"),
-    SYNARA_DISABLE_AUTO_UPDATE: "1",
+    PENKRA_DISABLE_AUTO_UPDATE: "1",
     ELECTRON_ENABLE_LOGGING: "1",
   };
-  delete env.SYNARA_AUTH_TOKEN;
-  delete env.SYNARA_HOME;
+  delete env.PENKRA_AUTH_TOKEN;
+  delete env.PENKRA_HOME;
   delete env.ELECTRON_RUN_AS_NODE;
   for (const path of [
     env.HOME,
@@ -344,7 +344,7 @@ export async function verifyPackagedDesktopStartup(
       `Packaged ${options.platform} startup smoke must run on its native host, not ${process.platform}.`,
     );
   }
-  const temporaryRoot = mkdtempSync(join(tmpdir(), `synara-packaged-smoke-${options.platform}-`));
+  const temporaryRoot = mkdtempSync(join(tmpdir(), `penkra-packaged-smoke-${options.platform}-`));
   const extractionRoot = join(temporaryRoot, "payload");
   mkdirSync(extractionRoot, { recursive: true });
 

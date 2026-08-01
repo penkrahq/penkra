@@ -40,7 +40,7 @@ const browser = await chromium.launch({ headed: options.headed });
 try {
   const page = await browser.newPage();
   await page.addInitScript(() => {
-    window.__synaraLcpAudit = {
+    window.__penkraLcpAudit = {
       largestContentfulPaint: [],
       longTasks: [],
     };
@@ -48,7 +48,7 @@ try {
     new PerformanceObserver((list) => {
       for (const entry of list.getEntries()) {
         const element = entry.element;
-        window.__synaraLcpAudit.largestContentfulPaint.push({
+        window.__penkraLcpAudit.largestContentfulPaint.push({
           startTime: entry.startTime,
           renderTime: entry.renderTime,
           loadTime: entry.loadTime,
@@ -63,7 +63,7 @@ try {
 
     new PerformanceObserver((list) => {
       for (const entry of list.getEntries()) {
-        window.__synaraLcpAudit.longTasks.push({
+        window.__penkraLcpAudit.longTasks.push({
           startTime: entry.startTime,
           duration: entry.duration,
           name: entry.name,
@@ -78,7 +78,7 @@ try {
 
   const result = await page.evaluate(() => {
     const navigation = performance.getEntriesByType("navigation")[0];
-    const audit = window.__synaraLcpAudit;
+    const audit = window.__penkraLcpAudit;
     const finalLcp = audit.largestContentfulPaint.at(-1) ?? null;
     const longTasks = audit.longTasks;
 

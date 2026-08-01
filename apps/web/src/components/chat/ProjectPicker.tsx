@@ -13,7 +13,7 @@ import {
   useState,
   type ReactElement,
 } from "react";
-import { type ProjectDirectoryEntry, type ProjectId, type SpaceId } from "@synara/contracts";
+import { type ProjectDirectoryEntry, type ProjectId, type SpaceId } from "@penkra/contracts";
 import { readNativeApi } from "../../nativeApi";
 import { useStore } from "../../store";
 import { createSidebarDisplayThreadsSelector } from "../../storeSelectors";

@@ -28,7 +28,7 @@ const TestLayer = Layer.empty.pipe(
 
 const makeTempDir = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
-  return yield* fileSystem.makeTempDirectoryScoped({ prefix: "synara-workspace-files-" });
+  return yield* fileSystem.makeTempDirectoryScoped({ prefix: "penkra-workspace-files-" });
 });
 
 const writeTextFile = Effect.fn(function* (cwd: string, relativePath: string, contents = "") {

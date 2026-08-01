@@ -7,10 +7,10 @@
 import type {
   ServerVoiceTranscriptionInput,
   ServerVoiceTranscriptionResult,
-} from "@synara/contracts";
-import { requestChatGptVoiceTranscription } from "@synara/shared/chatGptVoiceTranscription";
-import { decodeOutboundJson, type OutboundHttpResponse } from "@synara/shared/outboundHttp";
-import { decodeVoiceTranscriptionAudio } from "@synara/shared/voiceTranscriptionAudio";
+} from "@penkra/contracts";
+import { requestChatGptVoiceTranscription } from "@penkra/shared/chatGptVoiceTranscription";
+import { decodeOutboundJson, type OutboundHttpResponse } from "@penkra/shared/outboundHttp";
+import { decodeVoiceTranscriptionAudio } from "@penkra/shared/voiceTranscriptionAudio";
 
 export interface ChatGptVoiceAuthContext {
   readonly token: string;

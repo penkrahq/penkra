@@ -1,4 +1,4 @@
-import type { DesktopUpdateState } from "@synara/contracts";
+import type { DesktopUpdateState } from "@penkra/contracts";
 
 type DesktopUpdateBridge = Pick<
   NonNullable<Window["desktopBridge"]>,

@@ -6,7 +6,7 @@
 import { Schema } from "effect";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
 
-const PROFILE_AVATAR_COLOR_STORAGE_KEY = "synara:profile:avatarColor:v1";
+const PROFILE_AVATAR_COLOR_STORAGE_KEY = "penkra:profile:avatarColor:v1";
 
 // A compact palette of solid avatar accents. The first entry is the default.
 export const PROFILE_AVATAR_COLORS: readonly string[] = [

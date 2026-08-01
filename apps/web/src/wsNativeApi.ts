@@ -38,8 +38,8 @@ import {
   WS_CHANNELS,
   WS_METHODS,
   type WsWelcomePayload,
-} from "@synara/contracts";
-import { VOICE_TRANSCRIPTION_UPLOAD_ROUTE_PATH } from "@synara/shared/binaryTransfer";
+} from "@penkra/contracts";
+import { VOICE_TRANSCRIPTION_UPLOAD_ROUTE_PATH } from "@penkra/shared/binaryTransfer";
 
 import { showConfirmDialogFallback } from "./confirmDialogFallback";
 import { showContextMenuFallback } from "./contextMenuFallback";

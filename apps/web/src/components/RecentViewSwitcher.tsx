@@ -3,7 +3,7 @@
 // Layer: UI component
 // Exports: RecentViewSwitcher plus item shape used by the chat route shell.
 
-import type { KeybindingShortcut } from "@synara/contracts";
+import type { KeybindingShortcut } from "@penkra/contracts";
 
 import { formatShortcutLabel } from "../keybindings";
 import { MessageCircleIcon, PanelLeftIcon, PinFilledIcon, SettingsIcon } from "../lib/icons";

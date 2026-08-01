@@ -320,72 +320,6 @@ export interface BrowserCaptureScreenshotResult {
   bytes: Uint8Array;
 }
 
-export type DesktopAppSnapPlatform = "macos" | "windows" | "linux" | "other";
-export type DesktopAppSnapPermission =
-  | "granted"
-  | "denied"
-  | "not-determined"
-  | "restricted"
-  | "unknown";
-export type DesktopAppSnapStatus =
-  | "unsupported"
-  | "disabled"
-  | "permission-required"
-  | "starting"
-  | "ready"
-  | "error";
-
-export type DesktopAppSnapShortcutModifier = "command" | "control" | "option" | "shift";
-
-export interface DesktopAppSnapKeyChord {
-  kind: "key-chord";
-  modifier: DesktopAppSnapShortcutModifier;
-  /** A physical DOM KeyboardEvent.code, such as `KeyS` or `Space`. */
-  key: string;
-}
-
-export type DesktopAppSnapShortcut = { kind: "both-option-keys" } | DesktopAppSnapKeyChord;
-
-export interface DesktopAppSnapShortcutAvailability {
-  available: boolean;
-  reason: string | null;
-}
-
-export interface DesktopAppSnapShortcutUpdateResult {
-  state: DesktopAppSnapState;
-  availability: DesktopAppSnapShortcutAvailability;
-}
-
-export interface DesktopAppSnapState {
-  platform: DesktopAppSnapPlatform;
-  supported: boolean;
-  enabled: boolean;
-  status: DesktopAppSnapStatus;
-  shortcut: DesktopAppSnapShortcut | null;
-  inputMonitoringPermission: DesktopAppSnapPermission;
-  screenRecordingPermission: DesktopAppSnapPermission;
-  message: string | null;
-}
-
-export interface DesktopAppSnapCapture {
-  id: string;
-  capturedAt: string;
-  name: string;
-  mimeType: "image/png";
-  sizeBytes: number;
-  bytes: Uint8Array;
-  sourceAppName: string | null;
-  sourceBundleIdentifier: string | null;
-  sourceAppIconDataUrl: string | null;
-  sourceWindowTitle: string | null;
-}
-
-export interface DesktopAppSnapErrorEvent {
-  code: string;
-  message: string;
-  capturedAt: string;
-}
-
 export interface BrowserExecuteCdpInput extends BrowserTabInput {
   method: string;
   params?: Record<string, unknown>;
@@ -465,7 +399,7 @@ export interface DesktopAccountAuthCallback {
   intent: "sign-in" | "sign-up" | null;
 }
 
-export interface SynaraStorageSnapshot {
+export interface PenkraStorageSnapshot {
   readonly version: 1;
   readonly exportedAt: string;
   readonly entries: Readonly<Record<string, string>>;
@@ -539,6 +473,10 @@ export interface DesktopBridge {
     isSupported: () => Promise<boolean>;
     show: (input: DesktopNotificationInput) => Promise<boolean>;
   };
+  media?: {
+    /** Resolve the native OS grant before Chromium opens the audio device. */
+    requestMicrophoneAccess: () => Promise<boolean>;
+  };
   accountAuth?: {
     getState: () => Promise<DesktopAccountAuthState>;
     requestSignIn: () => Promise<void>;
@@ -549,22 +487,8 @@ export interface DesktopBridge {
     onUserUpdated: (listener: (user: DesktopAccountUser | null) => void) => () => void;
     onError: (listener: (error: DesktopAccountAuthError) => void) => () => void;
   };
-  appSnap: {
-    getState: () => Promise<DesktopAppSnapState>;
-    setEnabled: (enabled: boolean) => Promise<DesktopAppSnapState>;
-    checkShortcut: (
-      shortcut: DesktopAppSnapShortcut,
-    ) => Promise<DesktopAppSnapShortcutAvailability>;
-    setShortcut: (shortcut: DesktopAppSnapShortcut) => Promise<DesktopAppSnapShortcutUpdateResult>;
-    requestPermissions: () => Promise<DesktopAppSnapState>;
-    listPendingCaptures: () => Promise<DesktopAppSnapCapture[]>;
-    acknowledgeCapture: (captureId: string) => Promise<void>;
-    onCaptured: (listener: (capture: DesktopAppSnapCapture) => void) => () => void;
-    onError: (listener: (error: DesktopAppSnapErrorEvent) => void) => () => void;
-    onState: (listener: (state: DesktopAppSnapState) => void) => () => void;
-  };
   storageMigration: {
-    readSnapshot: () => SynaraStorageSnapshot | null;
+    readSnapshot: () => PenkraStorageSnapshot | null;
     acknowledgeSnapshot: () => Promise<void>;
   };
   server?: {

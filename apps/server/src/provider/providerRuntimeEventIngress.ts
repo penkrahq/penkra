@@ -1,4 +1,4 @@
-import type { ProviderRuntimeEvent } from "@synara/contracts";
+import type { ProviderRuntimeEvent } from "@penkra/contracts";
 
 export const PROVIDER_RUNTIME_CALLBACK_BUFFER_MAX_BYTES = 32 * 1024 * 1024;
 export const PROVIDER_RUNTIME_CALLBACK_TERMINAL_RESERVE = 64;
@@ -34,7 +34,7 @@ export function compactProviderRuntimeEventForIngress(
       ...(event.raw.method !== undefined ? { method: event.raw.method } : {}),
       ...(event.raw.messageType !== undefined ? { messageType: event.raw.messageType } : {}),
       payload: {
-        synaraTruncated: true,
+        penkraTruncated: true,
         reason: "provider runtime event exceeded the callback ingress size limit",
         originalBytes,
       },

@@ -2,7 +2,7 @@ import * as fs from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 
-import type { OrchestrationThread } from "@synara/contracts";
+import type { OrchestrationThread } from "@penkra/contracts";
 import { Effect } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -18,11 +18,11 @@ import {
 const temporaryRoots: string[] = [];
 
 async function makeManagedRoot(count: number) {
-  const root = await fs.mkdtemp(path.join(tmpdir(), "synara-managed-worktrees-"));
+  const root = await fs.mkdtemp(path.join(tmpdir(), "penkra-managed-worktrees-"));
   temporaryRoots.push(root);
   const paths: string[] = [];
   for (let index = 0; index < count; index += 1) {
-    const worktreePath = path.join(root, `task-${index}`, "synara");
+    const worktreePath = path.join(root, `task-${index}`, "penkra");
     await fs.mkdir(worktreePath, { recursive: true });
     await fs.writeFile(path.join(worktreePath, ".git"), "gitdir: /tmp/repo/.git/worktrees/test\n");
     paths.push(await fs.realpath(worktreePath));
@@ -101,7 +101,7 @@ describe("managed worktrees", () => {
     const count = MANAGED_WORKTREE_RETENTION_COUNT + 1;
     const { root, paths } = await makeManagedRoot(count);
     const canonicalRoot = await fs.realpath(root);
-    const linkRoot = await fs.mkdtemp(path.join(tmpdir(), "synara-managed-worktrees-link-"));
+    const linkRoot = await fs.mkdtemp(path.join(tmpdir(), "penkra-managed-worktrees-link-"));
     temporaryRoots.push(linkRoot);
     const symlinkedRoot = path.join(linkRoot, "worktrees");
     await fs.symlink(canonicalRoot, symlinkedRoot);

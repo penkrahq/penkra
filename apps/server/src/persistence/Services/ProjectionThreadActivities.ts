@@ -13,7 +13,7 @@ import {
   OrchestrationThreadActivityTone,
   ThreadId,
   TurnId,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 import { Schema, ServiceMap } from "effect";
 import type { Effect } from "effect";
 
@@ -80,4 +80,4 @@ export interface ProjectionThreadActivityRepositoryShape {
 export class ProjectionThreadActivityRepository extends ServiceMap.Service<
   ProjectionThreadActivityRepository,
   ProjectionThreadActivityRepositoryShape
->()("synara/persistence/Services/ProjectionThreadActivities/ProjectionThreadActivityRepository") {}
+>()("penkra/persistence/Services/ProjectionThreadActivities/ProjectionThreadActivityRepository") {}

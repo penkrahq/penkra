@@ -8,7 +8,7 @@
  *
  * @module StudioOutputReactor
  */
-import type { ThreadId } from "@synara/contracts";
+import type { ThreadId } from "@penkra/contracts";
 import { ServiceMap } from "effect";
 import type { Effect, Scope } from "effect";
 
@@ -53,4 +53,4 @@ export interface StudioOutputReactorShape {
 export class StudioOutputReactor extends ServiceMap.Service<
   StudioOutputReactor,
   StudioOutputReactorShape
->()("synara/orchestration/Services/StudioOutputReactor") {}
+>()("penkra/orchestration/Services/StudioOutputReactor") {}

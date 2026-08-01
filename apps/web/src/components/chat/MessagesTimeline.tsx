@@ -9,9 +9,9 @@ import {
   ThreadId,
   type ThreadMarker,
   type TurnId,
-} from "@synara/contracts";
-import { resolveLatestTailUserMessageEditTarget } from "@synara/shared/conversationEdit";
-import { pluralize } from "@synara/shared/text";
+} from "@penkra/contracts";
+import { resolveLatestTailUserMessageEditTarget } from "@penkra/shared/conversationEdit";
+import { pluralize } from "@penkra/shared/text";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
 import {
   memo,
@@ -59,7 +59,7 @@ import {
 import { pinActionLabel } from "~/lib/pin";
 import { Button } from "../ui/button";
 import { CrossTaskOriginLabel, type CrossTaskOrigin } from "./CrossTaskOriginLabel";
-import { SynaraThreadCreationCard } from "./SynaraThreadCreationCard";
+import { PenkraThreadCreationCard } from "./PenkraThreadCreationCard";
 import { buildExpandedImagePreview, ExpandedImagePreview } from "./ExpandedImagePreview";
 import { ProposedPlanCard } from "./ProposedPlanCard";
 import { DiffStatLabel } from "./DiffStatLabel";
@@ -684,7 +684,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         workGroupId: string | null,
         placement: "leading" | "inline",
       ): string[] => {
-        const displayEntries = workEntries.filter((entry) => !entry.synaraThreadCreation);
+        const displayEntries = workEntries.filter((entry) => !entry.penkraThreadCreation);
         const toolEntries = displayEntries.filter((entry) => entry.tone === "tool");
         const statusEntries = displayEntries.filter((entry) => entry.tone !== "tool");
         const hasGenericFileChangeEntry = toolEntries.some(
@@ -729,7 +729,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       };
       const hasCollapsedWork = Boolean(
         row.collapsedTurnItems?.some(
-          (item) => item.kind !== "work" || !item.entry.synaraThreadCreation,
+          (item) => item.kind !== "work" || !item.entry.penkraThreadCreation,
         ),
       );
       const leadingWorkText =
@@ -762,7 +762,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       ];
     }
     if (row.kind !== "work") return [];
-    const displayEntries = row.groupedEntries.filter((entry) => !entry.synaraThreadCreation);
+    const displayEntries = row.groupedEntries.filter((entry) => !entry.penkraThreadCreation);
     const isLiveGroup = row.id === lastLiveWorkGroupId && (activeTurnInProgress || isWorking);
     const renderPlan = capOpenWorkEntryRenderChunks(
       planWorkEntryRenderChunks(displayEntries, { tailIsLive: isLiveGroup }),
@@ -1202,7 +1202,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             // Creation milestones are reserved for the end-of-turn recap card.
             // The provider's actual Penkra MCP tool rows remain visible here.
             const groupedEntries = row.groupedEntries.filter(
-              (workEntry) => !workEntry.synaraThreadCreation,
+              (workEntry) => !workEntry.penkraThreadCreation,
             );
             if (groupedEntries.length === 0) {
               return null;
@@ -1545,7 +1545,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             const messageMarkers =
               threadMarkersByMessageId.get(row.message.id) ?? EMPTY_MESSAGE_MARKERS;
             const buildWorkDisplay = (workEntries: WorkLogEntry[], workGroupId: string | null) => {
-              const displayEntries = workEntries.filter((entry) => !entry.synaraThreadCreation);
+              const displayEntries = workEntries.filter((entry) => !entry.penkraThreadCreation);
               const toolEntries = displayEntries.filter((entry) => entry.tone === "tool");
               const statusEntries = displayEntries.filter((entry) => entry.tone !== "tool");
               const toolGroupId = toolEntries.length > 0 ? workGroupId : null;
@@ -1639,14 +1639,14 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                 item.kind === "work" ? [item.entry] : [],
               ),
             ];
-            const synaraThreadCreationRecaps = [
+            const penkraThreadCreationRecaps = [
               ...new Map(
                 allTurnWorkEntries.flatMap((entry) =>
-                  entry.synaraThreadCreation
+                  entry.penkraThreadCreation
                     ? [
                         [
-                          entry.synaraThreadCreation.operationId,
-                          entry.synaraThreadCreation,
+                          entry.penkraThreadCreation.operationId,
+                          entry.penkraThreadCreation,
                         ] as const,
                       ]
                     : [],
@@ -1654,7 +1654,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
               ).values(),
             ];
             const collapsedTurnItems = row.collapsedTurnItems?.filter(
-              (item) => item.kind !== "work" || !item.entry.synaraThreadCreation,
+              (item) => item.kind !== "work" || !item.entry.penkraThreadCreation,
             );
             const hasCollapsedWork = Boolean(collapsedTurnItems && collapsedTurnItems.length > 0);
             const isCollapsedWorkExpanded = hasCollapsedWork
@@ -2001,9 +2001,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                     </div>
                   )}
                   {!row.assistantTurnInProgress && row.showAssistantCopyButton
-                    ? synaraThreadCreationRecaps.map((creation) => (
+                    ? penkraThreadCreationRecaps.map((creation) => (
                         <div key={creation.operationId} className="mt-2 mb-4">
-                          <SynaraThreadCreationCard
+                          <PenkraThreadCreationCard
                             creation={creation}
                             {...(onOpenThread
                               ? {

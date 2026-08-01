@@ -6,27 +6,27 @@ import {
   type ProviderKind,
   type ToolLifecycleItemType,
   type TurnId,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 import {
   decodeSubagentAgentStates,
   extractSubagentIdentityHints,
   decodeSubagentReceiverAgents,
   decodeSubagentReceiverThreadIds,
-} from "@synara/shared/subagents";
+} from "@penkra/shared/subagents";
 import {
   approvalRequestKindFromRequestType,
   type ApprovalRequestKind,
-} from "@synara/shared/threadSummary";
-import { summarizeToolRawOutput } from "@synara/shared/toolOutputSummary";
-import { pluralize } from "@synara/shared/text";
-import { PROVIDER_DESCRIPTORS } from "@synara/shared/providerMetadata";
+} from "@penkra/shared/threadSummary";
+import { summarizeToolRawOutput } from "@penkra/shared/toolOutputSummary";
+import { pluralize } from "@penkra/shared/text";
+import { PROVIDER_DESCRIPTORS } from "@penkra/shared/providerMetadata";
 import {
   deriveReadableToolTitle,
-  deriveSynaraMcpToolTitle,
+  derivePenkraMcpToolTitle,
   isGenericToolTitle,
   normalizeCompactToolLabel,
   normalizeToolTextForComparison,
-  type SynaraMcpToolStatus,
+  type PenkraMcpToolStatus,
 } from "./lib/toolCallLabel";
 import { toolArgumentSummaryToolName } from "./lib/toolArgumentSummary";
 import {
@@ -59,7 +59,7 @@ export interface WorkLogEntry {
   toolTitle?: string;
   toolName?: string;
   toolCallId?: string;
-  toolStatus?: SynaraMcpToolStatus;
+  toolStatus?: PenkraMcpToolStatus;
   liveActivity?: WorkLogLiveActivity;
   toolDetails?: WorkLogToolDetails;
   itemType?: ToolLifecycleItemType;
@@ -67,7 +67,7 @@ export interface WorkLogEntry {
   subagents?: ReadonlyArray<WorkLogSubagent>;
   subagentAction?: WorkLogSubagentAction;
   automation?: WorkLogAutomation;
-  synaraThreadCreation?: WorkLogSynaraThreadCreation;
+  penkraThreadCreation?: WorkLogPenkraThreadCreation;
   // Source activity kind, kept so the timeline can pick a kind-specific icon
   // (e.g. user-input.requested -> question glyph) instead of the generic
   // tone fallback. Same rationale as `toolName` below.
@@ -106,7 +106,7 @@ export interface WorkLogAutomation {
   proposalState?: "pending" | "accepted" | "dismissed";
 }
 
-export interface WorkLogSynaraCreatedThread {
+export interface WorkLogPenkraCreatedThread {
   threadId: string;
   title: string;
   provider: ProviderKind;
@@ -115,11 +115,11 @@ export interface WorkLogSynaraCreatedThread {
   status: string;
 }
 
-export interface WorkLogSynaraThreadCreation {
+export interface WorkLogPenkraThreadCreation {
   operationId: string;
   requestedCount: number;
   createdCount: number;
-  threads: ReadonlyArray<WorkLogSynaraCreatedThread>;
+  threads: ReadonlyArray<WorkLogPenkraCreatedThread>;
 }
 
 export interface WorkLogSubagent {
@@ -403,9 +403,9 @@ function extractWorkLogAutomation(
   };
 }
 
-function extractWorkLogSynaraThreadCreation(
+function extractWorkLogPenkraThreadCreation(
   payload: Record<string, unknown> | null,
-): WorkLogSynaraThreadCreation | null {
+): WorkLogPenkraThreadCreation | null {
   if (!payload) {
     return null;
   }
@@ -414,7 +414,7 @@ function extractWorkLogSynaraThreadCreation(
   if (!operationId || rawThreads.length === 0) {
     return null;
   }
-  const threads = rawThreads.flatMap((value): WorkLogSynaraCreatedThread[] => {
+  const threads = rawThreads.flatMap((value): WorkLogPenkraCreatedThread[] => {
     const thread = asRecord(value);
     const threadId = asTrimmedString(thread?.threadId);
     const title = asTrimmedString(thread?.title);
@@ -547,15 +547,15 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
       entry.automation = automation;
     }
   }
-  if (activity.kind === "synara.threads.created") {
-    const synaraThreadCreation = extractWorkLogSynaraThreadCreation(payload);
-    if (synaraThreadCreation) {
-      entry.synaraThreadCreation = synaraThreadCreation;
+  if (activity.kind === "penkra.threads.created") {
+    const penkraThreadCreation = extractWorkLogPenkraThreadCreation(payload);
+    if (penkraThreadCreation) {
+      entry.penkraThreadCreation = penkraThreadCreation;
     }
   }
   const readableTitle =
     extractCollabActionTitle(payload) ??
-    deriveSynaraMcpToolTitle({
+    derivePenkraMcpToolTitle({
       toolName,
       title: commandActionDisplay?.title ?? title,
       fallbackLabel: activity.summary,
@@ -644,7 +644,7 @@ function deriveProviderRuntimeReconciliationCollapseKey(
 function deriveToolLifecycleStatus(
   activityKind: OrchestrationThreadActivity["kind"],
   payload: Record<string, unknown> | null,
-): SynaraMcpToolStatus | undefined {
+): PenkraMcpToolStatus | undefined {
   if (!isRenderableToolLifecycleActivity(activityKind)) return undefined;
   if (isFailedToolLifecyclePayload(payload)) return "failed";
   if (isCancelledToolLifecyclePayload(payload)) return "cancelled";
@@ -1028,7 +1028,7 @@ function mergeDerivedWorkLogEntries(
     : (next.requestKind ?? previous.requestKind);
   const subagents = next.subagents ?? previous.subagents;
   const subagentAction = next.subagentAction ?? previous.subagentAction;
-  const synaraThreadCreation = next.synaraThreadCreation ?? previous.synaraThreadCreation;
+  const penkraThreadCreation = next.penkraThreadCreation ?? previous.penkraThreadCreation;
   const collapseKey = next.collapseKey ?? previous.collapseKey;
   const toolName = next.toolName ?? previous.toolName;
   const toolCallId = next.toolCallId ?? previous.toolCallId;
@@ -1057,7 +1057,7 @@ function mergeDerivedWorkLogEntries(
     ...(requestKind ? { requestKind } : {}),
     ...(subagents ? { subagents } : {}),
     ...(subagentAction ? { subagentAction } : {}),
-    ...(synaraThreadCreation ? { synaraThreadCreation } : {}),
+    ...(penkraThreadCreation ? { penkraThreadCreation } : {}),
     ...(collapseKey ? { collapseKey } : {}),
     ...(toolName ? { toolName } : {}),
     ...(toolCallId ? { toolCallId } : {}),

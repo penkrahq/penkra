@@ -6,7 +6,7 @@
 import { Duration, Effect, Exit, Fiber, Layer, Scope, Sink, Stream } from "effect";
 import { ChildProcessSpawner } from "effect/unstable/process";
 import { TestClock } from "effect/testing";
-import type { ChatAttachment } from "@synara/contracts";
+import type { ChatAttachment } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -153,14 +153,14 @@ describe("toOpenCodeFileParts", () => {
     expect(
       toOpenCodeFileParts({
         attachments: [attachment],
-        resolveAttachmentPath: () => "/tmp/synara-attachments/screenshot.png",
+        resolveAttachmentPath: () => "/tmp/penkra-attachments/screenshot.png",
       }),
     ).toEqual([
       {
         type: "file",
         mime: "image/png",
         filename: "screenshot.png",
-        url: "file:///tmp/synara-attachments/screenshot.png",
+        url: "file:///tmp/penkra-attachments/screenshot.png",
       },
     ]);
   });
@@ -177,7 +177,7 @@ describe("toOpenCodeFileParts", () => {
     expect(
       toOpenCodeFileParts({
         attachments: [attachment],
-        resolveAttachmentPath: () => "/tmp/synara-attachments/notes.docx",
+        resolveAttachmentPath: () => "/tmp/penkra-attachments/notes.docx",
       }),
     ).toEqual([]);
   });
@@ -209,14 +209,14 @@ describe("buildOpenCodeServerProcessEnv", () => {
     const env = buildOpenCodeServerProcessEnv({
       baseEnv: {
         OPENAI_API_KEY: "provider-key",
-        SYNARA_AUTH_TOKEN: "server-secret",
-        SYNARA_BROWSER_USE_PIPE_PATH: "/tmp/browser.sock",
+        PENKRA_AUTH_TOKEN: "server-secret",
+        PENKRA_BROWSER_USE_PIPE_PATH: "/tmp/browser.sock",
       },
     });
 
     expect(env.OPENAI_API_KEY).toBe("provider-key");
-    expect(env.SYNARA_AUTH_TOKEN).toBeUndefined();
-    expect(env.SYNARA_BROWSER_USE_PIPE_PATH).toBeUndefined();
+    expect(env.PENKRA_AUTH_TOKEN).toBeUndefined();
+    expect(env.PENKRA_BROWSER_USE_PIPE_PATH).toBeUndefined();
   });
 });
 
@@ -414,14 +414,14 @@ describe("OpenCodeRuntime local server pool", () => {
             .connectToOpenCodeServer({
               binaryPath: "opencode",
               cwd: "/repo",
-              poolIsolationKey: "synara-thread-a",
+              poolIsolationKey: "penkra-thread-a",
             })
             .pipe(Effect.provideService(Scope.Scope, firstScope));
           const second = yield* runtime
             .connectToOpenCodeServer({
               binaryPath: "opencode",
               cwd: "/repo",
-              poolIsolationKey: "synara-thread-b",
+              poolIsolationKey: "penkra-thread-b",
             })
             .pipe(Effect.provideService(Scope.Scope, secondScope));
 

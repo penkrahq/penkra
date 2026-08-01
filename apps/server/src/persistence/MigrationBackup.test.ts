@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { Effect, Layer } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
-import { MIGRATION_RECOVERY_MAX_RESUME_ATTEMPTS } from "@synara/shared/migrationRecovery";
+import { MIGRATION_RECOVERY_MAX_RESUME_ATTEMPTS } from "@penkra/shared/migrationRecovery";
 
 import {
   FAILED_MIGRATION_BUNDLE_RETENTION,
@@ -40,7 +40,7 @@ afterEach(async () => {
 });
 
 async function makeDbPath(): Promise<string> {
-  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "synara-migration-backup-"));
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "penkra-migration-backup-"));
   tempDirectories.push(directory);
   return path.join(directory, "state.sqlite");
 }

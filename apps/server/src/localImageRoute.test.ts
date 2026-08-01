@@ -38,7 +38,7 @@ function makeTempDir(prefix: string): string {
 }
 
 function makeServerConfig(overrides: Partial<ServerConfigShape> = {}): ServerConfigShape {
-  const baseDir = makeTempDir("synara-effect-route-");
+  const baseDir = makeTempDir("penkra-effect-route-");
   return {
     mode: "web",
     port: 0,
@@ -70,7 +70,7 @@ function makeFakeServerAuth(): ServerAuthShape {
     policy: "loopback-browser" as const,
     bootstrapMethods: ["one-time-token" as const],
     sessionMethods: ["browser-session-cookie" as const, "bearer-session-token" as const],
-    sessionCookieName: "synara_session",
+    sessionCookieName: "penkra_session",
   };
   const session = {
     sessionId: "session-id" as never,
@@ -163,7 +163,7 @@ async function withEffectServer(
 
 describe("localImageEffectRouteLayer", () => {
   it("serves an allowlisted workspace image and signals downloads via Content-Disposition", async () => {
-    const workspace = makeTempDir("synara-effect-image-workspace-");
+    const workspace = makeTempDir("penkra-effect-image-workspace-");
     writeFileSync(path.join(workspace, ".git"), "gitdir: .git");
     const imagePath = path.join(workspace, "hero.png");
     writeFileSync(imagePath, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
@@ -184,9 +184,9 @@ describe("localImageEffectRouteLayer", () => {
   });
 
   it("serves an absolute local image outside the workspace for file-panel previews", async () => {
-    const workspace = makeTempDir("synara-effect-image-workspace-");
+    const workspace = makeTempDir("penkra-effect-image-workspace-");
     writeFileSync(path.join(workspace, ".git"), "gitdir: .git");
-    const externalRoot = makeTempDir("synara-effect-external-preview-");
+    const externalRoot = makeTempDir("penkra-effect-external-preview-");
     const imagePath = path.join(externalRoot, "downloads-file.pdf");
     writeFileSync(imagePath, Buffer.from("%PDF-1.7"));
     const config = makeServerConfig({ cwd: workspace });
@@ -206,7 +206,7 @@ describe("localImageEffectRouteLayer", () => {
   });
 
   it("serves an allowlisted workspace PDF and only allows the desktop app origin to read it", async () => {
-    const workspace = makeTempDir("synara-effect-pdf-workspace-");
+    const workspace = makeTempDir("penkra-effect-pdf-workspace-");
     writeFileSync(path.join(workspace, ".git"), "gitdir: .git");
     const pdfPath = path.join(workspace, "spec.pdf");
     writeFileSync(pdfPath, Buffer.from("%PDF-1.4"));
@@ -235,7 +235,7 @@ describe("localImageEffectRouteLayer", () => {
   });
 
   it("allows the configured Vite dev origin to read PDF bytes", async () => {
-    const workspace = makeTempDir("synara-effect-pdf-dev-origin-");
+    const workspace = makeTempDir("penkra-effect-pdf-dev-origin-");
     writeFileSync(path.join(workspace, ".git"), "gitdir: .git");
     const pdfPath = path.join(workspace, "spec.pdf");
     writeFileSync(pdfPath, Buffer.from("%PDF-1.4"));
@@ -256,7 +256,7 @@ describe("localImageEffectRouteLayer", () => {
   });
 
   it("does not expose local preview bytes to untrusted web origins through CORS", async () => {
-    const workspace = makeTempDir("synara-effect-pdf-untrusted-origin-");
+    const workspace = makeTempDir("penkra-effect-pdf-untrusted-origin-");
     writeFileSync(path.join(workspace, ".git"), "gitdir: .git");
     const pdfPath = path.join(workspace, "spec.pdf");
     writeFileSync(pdfPath, Buffer.from("%PDF-1.4"));
@@ -275,7 +275,7 @@ describe("localImageEffectRouteLayer", () => {
   });
 
   it("returns 404 when the requested path has an unsupported extension", async () => {
-    const workspace = makeTempDir("synara-effect-image-bad-ext-");
+    const workspace = makeTempDir("penkra-effect-image-bad-ext-");
     writeFileSync(path.join(workspace, ".git"), "gitdir: .git");
     const docPath = path.join(workspace, "notes.txt");
     writeFileSync(docPath, "hello");
@@ -289,7 +289,7 @@ describe("localImageEffectRouteLayer", () => {
   });
 
   it("returns 404 for missing files", async () => {
-    const workspace = makeTempDir("synara-effect-image-missing-");
+    const workspace = makeTempDir("penkra-effect-image-missing-");
     writeFileSync(path.join(workspace, ".git"), "gitdir: .git");
     const ghostPath = path.join(workspace, "does-not-exist.png");
     const config = makeServerConfig({ cwd: workspace });

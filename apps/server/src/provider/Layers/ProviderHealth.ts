@@ -16,11 +16,11 @@ import type {
   ServerProviderStatus,
   ServerProviderStatusState,
   ServerProviderUpdateState,
-} from "@synara/contracts";
-import { ServerProviderUpdateError } from "@synara/contracts";
-import { parseCodexConfigModelProvider } from "@synara/shared/codexConfig";
-import { decodeJsonResult } from "@synara/shared/schemaJson";
-import { prepareWindowsSafeProcess } from "@synara/shared/windowsProcess";
+} from "@penkra/contracts";
+import { ServerProviderUpdateError } from "@penkra/contracts";
+import { parseCodexConfigModelProvider } from "@penkra/shared/codexConfig";
+import { decodeJsonResult } from "@penkra/shared/schemaJson";
+import { prepareWindowsSafeProcess } from "@penkra/shared/windowsProcess";
 import type { SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import {
   Array,

@@ -10,7 +10,7 @@ import {
   SPACE_ICON_NAMES,
   type SpaceIconName,
   type SpaceId,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 
 import type { Space } from "~/types";
 
@@ -39,8 +39,11 @@ export function isVoidSpaceIconName(value: string): value is VoidSpaceIconName {
   );
 }
 
-export function toSpaceIconName(icon: VoidSpaceIconName): SpaceIconName {
-  return icon === DEFAULT_VOID_SPACE_ICON ? DEFAULT_SPACE_ICON : icon;
+export function toSpaceIconName(icon: string): SpaceIconName {
+  if (icon === DEFAULT_VOID_SPACE_ICON) return DEFAULT_SPACE_ICON;
+  return (SPACE_ICON_NAMES as ReadonlyArray<string>).includes(icon)
+    ? (icon as SpaceIconName)
+    : DEFAULT_SPACE_ICON;
 }
 /**
  * Void's stand-in wherever a `SpaceId | null` has to survive as a plain string — React

@@ -49,7 +49,7 @@ function makeTempDir(prefix: string): string {
 }
 
 function makeConfig(overrides: Partial<ServerConfigShape> = {}): ServerConfigShape {
-  const baseDir = makeTempDir("synara-effect-http-");
+  const baseDir = makeTempDir("penkra-effect-http-");
   return {
     mode: "web",
     port: 0,
@@ -187,7 +187,7 @@ describe("production Effect HTTP routes", () => {
     ).toBe(false);
     expect(
       isLegacyTokenAuthorized({
-        config: { ...loopback, publicUrl: new URL("https://synara.example.test/") },
+        config: { ...loopback, publicUrl: new URL("https://penkra.example.test/") },
         url: new URL("http://127.0.0.1/attachments/id?token=desktop-secret"),
       }),
     ).toBe(false);
@@ -247,7 +247,7 @@ describe("production Effect HTTP routes", () => {
           { method: "POST", headers: { Authorization: `Bearer ${"b".repeat(64)}` } },
           { method: "POST", headers: { Authorization: "Basic browser-token" } },
           { method: "POST", headers: { Authorization: "Bearer browser-token" } },
-          { method: "POST", headers: { Cookie: "synara_session=browser-session" } },
+          { method: "POST", headers: { Cookie: "penkra_session=browser-session" } },
         ];
 
         for (const request of requests) {
@@ -271,7 +271,7 @@ describe("production Effect HTTP routes", () => {
       { mode: "web" },
       { mode: "desktop", host: "0.0.0.0", allowInsecureRemote: true },
       { mode: "desktop", host: "192.168.1.50", allowInsecureRemote: true },
-      { mode: "desktop", publicUrl: new URL("https://synara.example.test/") },
+      { mode: "desktop", publicUrl: new URL("https://penkra.example.test/") },
       { mode: "desktop", desktopShutdownToken: undefined },
     ];
 
@@ -318,14 +318,14 @@ describe("production Effect HTTP routes", () => {
       },
     );
 
-    const staticDir = makeTempDir("synara-effect-static-");
+    const staticDir = makeTempDir("penkra-effect-static-");
     mkdirSync(path.join(staticDir, "assets"), { recursive: true });
     writeFileSync(path.join(staticDir, "index.html"), "<main>Penkra shell</main>");
-    writeFileSync(path.join(staticDir, "assets", "app.js"), "globalThis.synara = true;");
+    writeFileSync(path.join(staticDir, "assets", "app.js"), "globalThis.penkra = true;");
     await withEffectServer(makeConfig({ staticDir }), { kind: "static" }, async (origin) => {
       const asset = await fetch(`${origin}/assets/app.js`);
       expect(asset.status).toBe(200);
-      await expect(asset.text()).resolves.toContain("globalThis.synara");
+      await expect(asset.text()).resolves.toContain("globalThis.penkra");
 
       const fallback = await fetch(`${origin}/chat/thread-id`);
       expect(fallback.status).toBe(200);

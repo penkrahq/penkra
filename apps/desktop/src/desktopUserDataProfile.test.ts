@@ -12,7 +12,7 @@ import {
 const tempDirs = new Set<string>();
 
 function makeTempDir(): string {
-  const directory = FS.mkdtempSync(Path.join(OS.tmpdir(), "synara-profile-test-"));
+  const directory = FS.mkdtempSync(Path.join(OS.tmpdir(), "penkra-profile-test-"));
   tempDirs.add(directory);
   return directory;
 }
@@ -27,11 +27,11 @@ afterEach(() => {
 describe("desktopUserDataProfile", () => {
   it("resolves the canonical Penkra profile names", () => {
     const appDataBase = "/Users/tester/Library/Application Support";
-    expect(resolveDesktopUserDataPath({ appDataBase, userDataDirectoryName: "synara-dev" })).toBe(
-      "/Users/tester/Library/Application Support/synara-dev",
+    expect(resolveDesktopUserDataPath({ appDataBase, userDataDirectoryName: "penkra-dev" })).toBe(
+      "/Users/tester/Library/Application Support/penkra-dev",
     );
-    expect(resolveDesktopUserDataPath({ appDataBase, userDataDirectoryName: "synara" })).toBe(
-      "/Users/tester/Library/Application Support/synara",
+    expect(resolveDesktopUserDataPath({ appDataBase, userDataDirectoryName: "penkra" })).toBe(
+      "/Users/tester/Library/Application Support/penkra",
     );
   });
 
@@ -47,10 +47,10 @@ describe("desktopUserDataProfile", () => {
 
   it("repairs missing browser data from the profile recorded by the bridge", () => {
     const appDataBase = makeTempDir();
-    const targetPath = Path.join(appDataBase, "synara");
+    const targetPath = Path.join(appDataBase, "penkra");
     const sourcePath = Path.join(appDataBase, "previous-profile");
     const sourcePartitionPath = Path.join(sourcePath, "Partitions", "previous-browser");
-    const targetPartitionPath = Path.join(targetPath, "Partitions", "synara-browser");
+    const targetPartitionPath = Path.join(targetPath, "Partitions", "penkra-browser");
     FS.mkdirSync(Path.join(sourcePartitionPath, "Local Storage"), { recursive: true });
     FS.writeFileSync(Path.join(sourcePartitionPath, "Cookies"), "bridge-cookie");
     FS.writeFileSync(Path.join(sourcePartitionPath, "Cookies-journal"), "bridge-journal");
@@ -58,7 +58,7 @@ describe("desktopUserDataProfile", () => {
     FS.mkdirSync(Path.join(targetPartitionPath, "Local Storage"), { recursive: true });
     FS.writeFileSync(Path.join(targetPartitionPath, "Local Storage", "state"), "current-state");
     FS.writeFileSync(
-      Path.join(targetPath, "synara-profile-seed.json"),
+      Path.join(targetPath, "penkra-profile-seed.json"),
       JSON.stringify({ sourcePath }),
     );
 
@@ -79,16 +79,16 @@ describe("desktopUserDataProfile", () => {
     expect(FS.readFileSync(Path.join(targetPartitionPath, "Local Storage", "state"), "utf8")).toBe(
       "current-state",
     );
-    expect(FS.existsSync(Path.join(targetPath, "synara-profile-seed.json"))).toBe(false);
+    expect(FS.existsSync(Path.join(targetPath, "penkra-profile-seed.json"))).toBe(false);
   });
 
   it("rejects bridge manifests that point outside the Penkra profile parent", () => {
     const appDataBase = makeTempDir();
     const unrelatedBase = makeTempDir();
-    const targetPath = Path.join(appDataBase, "synara");
+    const targetPath = Path.join(appDataBase, "penkra");
     FS.mkdirSync(targetPath, { recursive: true });
     FS.writeFileSync(
-      Path.join(targetPath, "synara-profile-seed.json"),
+      Path.join(targetPath, "penkra-profile-seed.json"),
       JSON.stringify({ sourcePath: Path.join(unrelatedBase, "previous-profile") }),
     );
 
@@ -101,17 +101,17 @@ describe("desktopUserDataProfile", () => {
 
   it("never adds a foreign SQLite sidecar beside an existing Penkra database", () => {
     const appDataBase = makeTempDir();
-    const targetPath = Path.join(appDataBase, "synara");
+    const targetPath = Path.join(appDataBase, "penkra");
     const sourcePath = Path.join(appDataBase, "previous-profile");
     const sourcePartitionPath = Path.join(sourcePath, "Partitions", "previous-browser");
-    const targetPartitionPath = Path.join(targetPath, "Partitions", "synara-browser");
+    const targetPartitionPath = Path.join(targetPath, "Partitions", "penkra-browser");
     FS.mkdirSync(sourcePartitionPath, { recursive: true });
     FS.mkdirSync(targetPartitionPath, { recursive: true });
     FS.writeFileSync(Path.join(sourcePartitionPath, "Cookies"), "bridge-cookie");
     FS.writeFileSync(Path.join(sourcePartitionPath, "Cookies-journal"), "bridge-journal");
     FS.writeFileSync(Path.join(targetPartitionPath, "Cookies"), "current-cookie");
     FS.writeFileSync(
-      Path.join(targetPath, "synara-profile-seed.json"),
+      Path.join(targetPath, "penkra-profile-seed.json"),
       JSON.stringify({ sourcePath }),
     );
 
@@ -123,15 +123,15 @@ describe("desktopUserDataProfile", () => {
       "current-cookie",
     );
     expect(FS.existsSync(Path.join(targetPartitionPath, "Cookies-journal"))).toBe(false);
-    expect(FS.existsSync(Path.join(targetPath, "synara-profile-seed.json"))).toBe(false);
+    expect(FS.existsSync(Path.join(targetPath, "penkra-profile-seed.json"))).toBe(false);
   });
 
   it("replaces an orphaned target sidecar with one from the repaired database generation", () => {
     const appDataBase = makeTempDir();
-    const targetPath = Path.join(appDataBase, "synara");
+    const targetPath = Path.join(appDataBase, "penkra");
     const sourcePath = Path.join(appDataBase, "previous-profile");
     const sourcePartitionPath = Path.join(sourcePath, "Partitions", "previous-browser");
-    const targetPartitionPath = Path.join(targetPath, "Partitions", "synara-browser");
+    const targetPartitionPath = Path.join(targetPath, "Partitions", "penkra-browser");
     FS.mkdirSync(sourcePartitionPath, { recursive: true });
     FS.mkdirSync(targetPartitionPath, { recursive: true });
     FS.writeFileSync(Path.join(sourcePartitionPath, "Cookies"), "bridge-cookie");
@@ -142,7 +142,7 @@ describe("desktopUserDataProfile", () => {
     FS.writeFileSync(Path.join(targetPartitionPath, "Cookies-wal"), "orphaned-wal");
     FS.writeFileSync(Path.join(targetPartitionPath, "Cookies-shm"), "orphaned-shm");
     FS.writeFileSync(
-      Path.join(targetPath, "synara-profile-seed.json"),
+      Path.join(targetPath, "penkra-profile-seed.json"),
       JSON.stringify({ sourcePath }),
     );
 
@@ -164,14 +164,14 @@ describe("desktopUserDataProfile", () => {
     );
     expect(
       FS.readdirSync(targetPartitionPath).some((entryName) =>
-        entryName.startsWith(".synara-bridge-"),
+        entryName.startsWith(".penkra-bridge-"),
       ),
     ).toBe(false);
   });
 
   it("copies from only the newest browser partition recorded under the bridge profile", () => {
     const appDataBase = makeTempDir();
-    const targetPath = Path.join(appDataBase, "synara");
+    const targetPath = Path.join(appDataBase, "penkra");
     const sourcePath = Path.join(appDataBase, "previous-profile");
     const olderPartitionPath = Path.join(sourcePath, "Partitions", "older-browser");
     const newerPartitionPath = Path.join(sourcePath, "Partitions", "newer-browser");
@@ -184,12 +184,12 @@ describe("desktopUserDataProfile", () => {
     FS.utimesSync(newerPartitionPath, new Date(2_000), new Date(2_000));
     FS.mkdirSync(targetPath, { recursive: true });
     FS.writeFileSync(
-      Path.join(targetPath, "synara-profile-seed.json"),
+      Path.join(targetPath, "penkra-profile-seed.json"),
       JSON.stringify({ sourcePath }),
     );
 
     const result = repairBrowserProfileFromBridgeManifest(targetPath);
-    const targetPartitionPath = Path.join(targetPath, "Partitions", "synara-browser");
+    const targetPartitionPath = Path.join(targetPath, "Partitions", "penkra-browser");
 
     expect(result).toMatchObject({ status: "repaired", copiedEntries: ["Cookies"] });
     expect(FS.readFileSync(Path.join(targetPartitionPath, "Cookies"), "utf8")).toBe("newer-cookie");
@@ -198,15 +198,15 @@ describe("desktopUserDataProfile", () => {
 
   it("ignores a malformed bridge manifest without attempting a repair", () => {
     const appDataBase = makeTempDir();
-    const targetPath = Path.join(appDataBase, "synara");
+    const targetPath = Path.join(appDataBase, "penkra");
     FS.mkdirSync(targetPath, { recursive: true });
-    FS.writeFileSync(Path.join(targetPath, "synara-profile-seed.json"), "{");
+    FS.writeFileSync(Path.join(targetPath, "penkra-profile-seed.json"), "{");
 
     expect(repairBrowserProfileFromBridgeManifest(targetPath)).toMatchObject({
       status: "bridge-unavailable",
       sourcePath: null,
       copiedEntries: [],
     });
-    expect(FS.existsSync(Path.join(targetPath, "synara-profile-seed.json"))).toBe(false);
+    expect(FS.existsSync(Path.join(targetPath, "penkra-profile-seed.json"))).toBe(false);
   });
 });

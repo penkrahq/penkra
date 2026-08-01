@@ -37,10 +37,10 @@ import {
   type ThreadTokenUsageSnapshot,
   TurnId,
   type UserInputQuestion,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 import { Effect, FileSystem, Layer, Option, Queue, Stream } from "effect";
 
-import { takeSynaraHarnessPolicyForProviderSession } from "../../agentGateway/harnessPolicy.ts";
+import { takePenkraHarnessPolicyForProviderSession } from "../../agentGateway/harnessPolicy.ts";
 import {
   callAgentGatewayMcpTool,
   listAgentGatewayMcpTools,
@@ -315,7 +315,7 @@ export function makePiBashProcessSupervisor(
 }
 
 // Loads the Pi SDK only when the Pi provider is actually used. The SDK brings in
-// a native clipboard module, so importing it during Synara startup can bloat the
+// a native clipboard module, so importing it during Penkra startup can bloat the
 // desktop backend before any Pi session exists.
 const loadPiCodingAgentModule: () => Promise<PiCodingAgentModule> = lazyModule(
   () => import("@earendil-works/pi-coding-agent"),
@@ -409,7 +409,7 @@ function piGatewayToolResult(result: unknown): AgentToolResult<unknown> {
           )
           .join("\n")
       : "";
-    throw new Error(message || "Synara gateway tool failed.");
+    throw new Error(message || "Penkra gateway tool failed.");
   }
   const content =
     isRecord(result) && Array.isArray(result.content)
@@ -452,7 +452,7 @@ export async function buildPiAgentGatewayCustomTools(input: {
     ...(input.fetch === undefined ? {} : { fetch: input.fetch }),
   });
   if (tools.length === 0) {
-    throw new Error("Synara MCP returned an empty tool catalog.");
+    throw new Error("Penkra MCP returned an empty tool catalog.");
   }
   return tools.map((tool) =>
     input.defineTool({
@@ -1423,7 +1423,7 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
       });
     };
 
-    // Bridges the common Pi extension UI primitives onto Synara's existing
+    // Bridges the common Pi extension UI primitives onto Penkra's existing
     // pending user-input flow; terminal/TUI-only APIs remain no-op by design.
     const makePiExtensionUIContext = (context: PiSessionContext): ExtensionUIContext => {
       const unsupportedWarnings = new Set<string>();
@@ -1436,7 +1436,7 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
           ...makeEventBase(context, { includeTurnId: false }),
           type: "runtime.warning",
           payload: {
-            message: `Pi extension UI API '${method}' is not supported in Synara yet.`,
+            message: `Pi extension UI API '${method}' is not supported in Penkra yet.`,
             detail: { method },
           },
           raw: {
@@ -1598,7 +1598,7 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
           return undefined;
         },
         setTheme() {
-          return { success: false, error: "Synara does not expose Pi themes." };
+          return { success: false, error: "Penkra does not expose Pi themes." };
         },
         getToolsExpanded() {
           return false;
@@ -2124,7 +2124,7 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
                 Effect.sync(() => agentGatewaySessionLease?.release()).pipe(
                   Effect.andThen(
                     Effect.logWarning(
-                      "Pi could not install thread-scoped Synara gateway tools",
+                      "Pi could not install thread-scoped Penkra gateway tools",
                       cause,
                     ),
                   ),
@@ -2246,7 +2246,7 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
             type: "runtime.warning",
             payload: {
               message:
-                "Pi extensions are loaded with Synara's limited UI bridge. select/confirm/input/notify/status are supported; TUI-only widgets and editor hooks are ignored.",
+                "Pi extensions are loaded with Penkra's limited UI bridge. select/confirm/input/notify/status are supported; TUI-only widgets and editor hooks are ignored.",
               detail: {
                 extensionCount: loadedExtensions.length,
                 extensions: extensionNames,
@@ -2436,7 +2436,7 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
             resumeCursor: getSessionFile(context.runtime.session),
           };
         }
-        const harnessPolicy = takeSynaraHarnessPolicyForProviderSession(context, {
+        const harnessPolicy = takePenkraHarnessPolicyForProviderSession(context, {
           provider: PROVIDER,
           scopedGatewayConnectionAvailable: context.gatewayControlAvailable,
         });
@@ -2457,7 +2457,7 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
       Effect.gen(function* () {
         const context = yield* requireSession(input.threadId);
         const payload = yield* buildPromptPayload(input);
-        const harnessPolicy = takeSynaraHarnessPolicyForProviderSession(context, {
+        const harnessPolicy = takePenkraHarnessPolicyForProviderSession(context, {
           provider: PROVIDER,
           scopedGatewayConnectionAvailable: context.gatewayControlAvailable,
         });
@@ -2517,7 +2517,7 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
         new ProviderAdapterRequestError({
           provider: PROVIDER,
           method,
-          detail: `Pi does not expose Synara approval/user-input requests for thread ${threadId}.`,
+          detail: `Pi does not expose Penkra approval/user-input requests for thread ${threadId}.`,
         }),
       );
 

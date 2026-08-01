@@ -16,16 +16,17 @@ import {
   type OrchestrationThreadShell,
   type ProviderRuntimeEvent,
   type RuntimeMode,
-} from "@synara/contracts";
+} from "@penkra/contracts";
+import { createHash } from "node:crypto";
 import { Cache, Cause, Deferred, Duration, Effect, Layer, Option, Ref, Stream } from "effect";
 import * as Semaphore from "effect/Semaphore";
-import { makeDrainableWorker, startDrainableWorkerProducers } from "@synara/shared/DrainableWorker";
+import { makeDrainableWorker, startDrainableWorkerProducers } from "@penkra/shared/DrainableWorker";
 import {
   buildSubagentIdentityDirectory,
   collectSubagentProviderThreadIds,
   extractSubagentIdentityHints,
   resolveSubagentIdentityFromDirectory,
-} from "@synara/shared/subagents";
+} from "@penkra/shared/subagents";
 
 import {
   generatedImageMarkdown,
@@ -112,7 +113,7 @@ const MAX_BUFFERED_TOOL_OUTPUT_CHARS = 24_000;
 const MAX_BUFFERED_REASONING_SUMMARY_CHARS = 8_000;
 const MAX_BUFFERED_REASONING_SUMMARY_PARTS = 24;
 const BUFFERED_TEXT_TRUNCATION_MARKER = "... [truncated]";
-const STRICT_PROVIDER_LIFECYCLE_GUARD = process.env.SYNARA_STRICT_PROVIDER_LIFECYCLE_GUARD !== "0";
+const STRICT_PROVIDER_LIFECYCLE_GUARD = process.env.PENKRA_STRICT_PROVIDER_LIFECYCLE_GUARD !== "0";
 
 type RuntimeIngestionDomainEvent = Extract<
   OrchestrationEvent,
@@ -2500,8 +2501,8 @@ const make = Effect.gen(function* () {
     input.source === "runtime"
       ? processRuntimeEvent(input.event).pipe(
           Effect.andThen(
-            runtimeEvents.advanceConsumerCursor({
-              consumerName: PROVIDER_RUNTIME_INGESTION_CONSUMER,
+            runtimeEvents.advanceThreadCursor({
+              threadId: input.event.threadId,
               eventSequence: input.sequence,
               updatedAt: new Date().toISOString(),
             }),
@@ -2511,34 +2512,132 @@ const make = Effect.gen(function* () {
               ? Effect.void
               : Effect.die(
                   new Error(
-                    `Provider runtime cursor could not advance through event ${input.sequence}`,
+                    `Provider runtime thread cursor could not advance through event ${input.sequence}`,
                   ),
                 ),
           ),
         )
       : processDomainEvent(input.event);
 
-  // A failed journal row blocks later runtime rows in the same page. Domain
-  // inputs still drain, and the durable poll retries from the exact cursor.
-  let runtimeJournalPageBlocked = false;
+  const projectionFailureFingerprint = (event: ProviderRuntimeEvent, detail: string) =>
+    createHash("sha256")
+      .update(`${event.type}\n${detail.slice(0, 16_384)}`)
+      .digest("hex");
+
+  const projectQuarantineAttention = (input: {
+    readonly event: ProviderRuntimeEvent;
+    readonly sequence: number;
+    readonly errorFingerprint: string;
+    readonly occurredAt: string;
+  }) => {
+    const quarantineEvent: ProviderRuntimeEvent = {
+      type: "runtime.error",
+      eventId: EventId.makeUnsafe(`projection-quarantine:${input.event.eventId}`),
+      provider: input.event.provider,
+      createdAt: input.occurredAt,
+      threadId: input.event.threadId,
+      ...(input.event.turnId !== undefined ? { turnId: input.event.turnId } : {}),
+      payload: {
+        message:
+          "Penkra paused this thread after a runtime event repeatedly failed to load. Other threads can continue safely.",
+        class: "validation_error",
+        detail: {
+          sequence: input.sequence,
+          eventId: input.event.eventId,
+          eventType: input.event.type,
+          errorFingerprint: input.errorFingerprint,
+        },
+      },
+    };
+    return processRuntimeEvent(quarantineEvent).pipe(
+      Effect.catchCause((cause) =>
+        Effect.logError("provider runtime quarantine attention projection failed", {
+          threadId: input.event.threadId,
+          sequence: input.sequence,
+          cause: Cause.pretty(cause),
+        }),
+      ),
+    );
+  };
+
+  // One failed thread head may be attempted only once per drain invocation.
+  // That gives transient dependencies time to recover while allowing every
+  // unrelated thread head in the same journal window to make progress.
+  let runtimeThreadsBlockedThisDrain = new Set<string>();
 
   const processInputSafely = (input: RuntimeIngestionInput) =>
-    input.source === "runtime" && runtimeJournalPageBlocked
+    input.source === "runtime" && runtimeThreadsBlockedThisDrain.has(input.event.threadId)
       ? Effect.void
       : processInput(input).pipe(
           Effect.catchCause((cause) => {
             if (Cause.hasInterruptsOnly(cause)) {
               return Effect.failCause(cause);
             }
-            if (input.source === "runtime") {
-              runtimeJournalPageBlocked = true;
+            if (input.source !== "runtime") {
+              return Effect.logWarning("provider runtime ingestion failed to process event", {
+                source: input.source,
+                eventId: input.event.eventId,
+                eventType: input.event.type,
+                cause: Cause.pretty(cause),
+              });
             }
-            return Effect.logWarning("provider runtime ingestion failed to process event", {
-              source: input.source,
-              eventId: input.event.eventId,
-              eventType: input.event.type,
-              cause: Cause.pretty(cause),
-            });
+            runtimeThreadsBlockedThisDrain.add(input.event.threadId);
+            const failedAt = new Date().toISOString();
+            const errorDetail = Cause.pretty(cause);
+            const errorFingerprint = projectionFailureFingerprint(input.event, errorDetail);
+            return runtimeEvents
+              .recordProjectionFailure({
+                sequence: input.sequence,
+                errorFingerprint,
+                errorDetail,
+                failedAt,
+              })
+              .pipe(
+                Effect.flatMap((failure) =>
+                  (failure.status === "quarantined"
+                    ? projectQuarantineAttention({
+                        event: input.event,
+                        sequence: input.sequence,
+                        errorFingerprint,
+                        occurredAt: failure.quarantinedAt ?? failedAt,
+                      })
+                    : Effect.void
+                  ).pipe(
+                    Effect.andThen(
+                      failure.status === "quarantined"
+                        ? Effect.logError("provider runtime projection quarantined a thread head", {
+                            threadId: input.event.threadId,
+                            turnId: input.event.turnId,
+                            sequence: input.sequence,
+                            eventId: input.event.eventId,
+                            eventType: input.event.type,
+                            attemptCount: failure.attemptCount,
+                            errorFingerprint,
+                          })
+                        : Effect.logWarning(
+                            "provider runtime projection will retry a failed thread head",
+                            {
+                              threadId: input.event.threadId,
+                              turnId: input.event.turnId,
+                              sequence: input.sequence,
+                              eventId: input.event.eventId,
+                              eventType: input.event.type,
+                              attemptCount: failure.attemptCount,
+                              errorFingerprint,
+                            },
+                          ),
+                    ),
+                  ),
+                ),
+                Effect.catchCause((recordCause) =>
+                  Effect.logError("provider runtime projection failure could not be recorded", {
+                    threadId: input.event.threadId,
+                    sequence: input.sequence,
+                    originalCause: errorDetail,
+                    recordCause: Cause.pretty(recordCause),
+                  }),
+                ),
+              );
           }),
         );
 
@@ -2551,25 +2650,20 @@ const make = Effect.gen(function* () {
     runtimeJournalDrainLock.withPermits(1)(
       Effect.gen(function* () {
         const replayFence = throughSequenceInclusive ?? (yield* runtimeEvents.getHighWaterSequence);
+        runtimeThreadsBlockedThisDrain = new Set<string>();
         while (true) {
-          const cursor = yield* runtimeEvents.getConsumerCursor(
-            PROVIDER_RUNTIME_INGESTION_CONSUMER,
-          );
-          if (cursor >= replayFence) return;
-
-          const page = yield* runtimeEvents.readAfter({
-            sequenceExclusive: cursor,
+          const page = yield* runtimeEvents.readPendingThreadHeads({
             throughSequenceInclusive: replayFence,
             limit: PROVIDER_RUNTIME_REPLAY_PAGE_SIZE,
           });
-          if (page.length === 0) {
-            return yield* Effect.die(
-              new Error(`Provider runtime journal is missing rows after cursor ${cursor}`),
-            );
-          }
+          if (page.length === 0) return;
 
-          runtimeJournalPageBlocked = false;
-          yield* Effect.forEach(page, (entry) =>
+          const processablePage = page.filter(
+            (entry) => !runtimeThreadsBlockedThisDrain.has(entry.event.threadId),
+          );
+          if (processablePage.length === 0) return;
+
+          yield* Effect.forEach(processablePage, (entry) =>
             worker.enqueue({
               source: "runtime",
               sequence: entry.sequence,
@@ -2577,16 +2671,6 @@ const make = Effect.gen(function* () {
             }),
           );
           yield* worker.drain;
-          if (runtimeJournalPageBlocked) return;
-
-          const advancedCursor = yield* runtimeEvents.getConsumerCursor(
-            PROVIDER_RUNTIME_INGESTION_CONSUMER,
-          );
-          if (advancedCursor <= cursor) {
-            return yield* Effect.die(
-              new Error(`Provider runtime journal made no progress after cursor ${cursor}`),
-            );
-          }
         }
       }),
     );
@@ -2657,6 +2741,39 @@ const make = Effect.gen(function* () {
       if (page.length < PROVIDER_RUNTIME_REPLAY_PAGE_SIZE) return;
     }
   });
+
+  const restoreQuarantinedThreadAttention = Effect.gen(function* () {
+    const failures = yield* runtimeEvents.listQuarantinedProjectionFailures;
+    yield* Effect.forEach(
+      failures,
+      (failure) =>
+        runtimeEvents
+          .readAfter({
+            sequenceExclusive: Math.max(0, failure.sequence - 1),
+            throughSequenceInclusive: failure.sequence,
+            limit: 1,
+          })
+          .pipe(
+            Effect.flatMap((rows) => {
+              const persisted = rows.find((row) => row.sequence === failure.sequence);
+              if (!persisted) {
+                return Effect.logError("provider runtime quarantined event is missing", {
+                  threadId: failure.threadId,
+                  sequence: failure.sequence,
+                  eventId: failure.eventId,
+                });
+              }
+              return projectQuarantineAttention({
+                event: persisted.event,
+                sequence: failure.sequence,
+                errorFingerprint: failure.errorFingerprint,
+                occurredAt: failure.quarantinedAt ?? failure.lastFailedAt,
+              });
+            }),
+          ),
+      { concurrency: 1 },
+    );
+  });
   const startupRuntimeReplayComplete = yield* Deferred.make<void>();
 
   const start: ProviderRuntimeIngestionShape["start"] = startDrainableWorkerProducers(
@@ -2703,6 +2820,7 @@ const make = Effect.gen(function* () {
       // process-local state.
       yield* runtimeEvents.pruneSettledOpenTurns;
       yield* rebuildAcceptedOpenTurnState;
+      yield* restoreQuarantinedThreadAttention;
       yield* drainRuntimeJournal;
       yield* Deferred.succeed(startupRuntimeReplayComplete, undefined);
       yield* Effect.forkScoped(
@@ -2718,14 +2836,6 @@ const make = Effect.gen(function* () {
     const replayFence = yield* runtimeEvents.getHighWaterSequence;
     yield* drainRuntimeJournalThrough(replayFence);
     yield* worker.drain;
-    const cursor = yield* runtimeEvents.getConsumerCursor(PROVIDER_RUNTIME_INGESTION_CONSUMER);
-    if (cursor < replayFence) {
-      return yield* Effect.die(
-        new Error(
-          `Provider runtime journal stopped at ${cursor} before drain fence ${replayFence}`,
-        ),
-      );
-    }
   }).pipe(Effect.orDie);
 
   return {

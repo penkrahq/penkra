@@ -1,4 +1,4 @@
-import { KeybindingCommand, KeybindingRule, KeybindingsConfig } from "@synara/contracts";
+import { KeybindingCommand, KeybindingRule, KeybindingsConfig } from "@penkra/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import { assertFailure } from "@effect/vitest/utils";
@@ -22,7 +22,7 @@ const makeKeybindingsLayer = () => {
     Layer.provideMerge(
       Layer.fresh(
         ServerConfig.layerTest(process.cwd(), {
-          prefix: "synara-keybindings-test-",
+          prefix: "penkra-keybindings-test-",
         }),
       ),
     ),

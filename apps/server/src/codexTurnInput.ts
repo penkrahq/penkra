@@ -1,4 +1,4 @@
-import type { ProviderMentionReference, ProviderSkillReference } from "@synara/contracts";
+import type { ProviderMentionReference, ProviderSkillReference } from "@penkra/contracts";
 
 export type CodexTurnInputItem =
   | { readonly type: "text"; readonly text: string; readonly text_elements: [] }

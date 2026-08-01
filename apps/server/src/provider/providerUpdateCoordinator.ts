@@ -11,7 +11,7 @@ import type {
   OrchestrationThreadShell,
   ProviderKind,
   ServerProviderStatus,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 import {
   Cause,
   Duration,

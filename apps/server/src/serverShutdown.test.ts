@@ -93,7 +93,7 @@ describe("desktop shutdown authorization", () => {
     ["a wildcard IPv4 bind", { host: "0.0.0.0" }],
     ["a wildcard IPv6 bind", { host: "::" }],
     ["a non-loopback bind", { host: "192.168.1.50" }],
-    ["a public URL", { publicUrl: new URL("https://synara.example.test/") }],
+    ["a public URL", { publicUrl: new URL("https://penkra.example.test/") }],
     ["a missing token", { desktopShutdownToken: undefined }],
     ["an empty token", { desktopShutdownToken: "   " }],
   ] satisfies ReadonlyArray<readonly [string, Partial<ShutdownConfig>]>)(
@@ -141,11 +141,11 @@ describe("desktop shutdown authorization", () => {
       provider: "codex",
       baseEnv: {
         PATH: process.env.PATH,
-        SYNARA_DESKTOP_SHUTDOWN_TOKEN: SHUTDOWN_TOKEN,
+        PENKRA_DESKTOP_SHUTDOWN_TOKEN: SHUTDOWN_TOKEN,
       },
     });
 
     expect(providerEnvironment.PATH).toBe(process.env.PATH);
-    expect(providerEnvironment.SYNARA_DESKTOP_SHUTDOWN_TOKEN).toBeUndefined();
+    expect(providerEnvironment.PENKRA_DESKTOP_SHUTDOWN_TOKEN).toBeUndefined();
   });
 });

@@ -15,15 +15,11 @@ import desktopPackageJson from "../apps/desktop/package.json" with { type: "json
 import serverPackageJson from "../apps/server/package.json" with { type: "json" };
 
 import { BRAND_ASSET_PATHS } from "./lib/brand-assets.ts";
-import {
-  createDesktopPlatformBuildConfig,
-  MAC_APPSNAP_HELPER_STAGE_PATH,
-  validateDesktopNativeBuildHost,
-} from "./lib/desktop-platform-build-config.ts";
+import { createDesktopPlatformBuildConfig } from "./lib/desktop-platform-build-config.ts";
 import {
   PENKRA_ACCOUNT_AUTH_SCHEME,
-  SYNARA_PRODUCTION_BUNDLE_ID,
-} from "@synara/shared/desktopIdentity";
+  PENKRA_PRODUCTION_BUNDLE_ID,
+} from "@penkra/shared/desktopIdentity";
 import { parseBooleanEnvValue } from "./lib/env-bool.ts";
 import { finalizeSignedMacDmg } from "./lib/mac-dmg-finalize.ts";
 import { finalizeMacUpdateZip } from "./lib/mac-update-zip-finalize.ts";
@@ -57,11 +53,6 @@ const ProductionMacLegacyIconSource = Effect.zipWith(
   RepoRoot,
   Effect.service(Path.Path),
   (repoRoot, path) => path.join(repoRoot, BRAND_ASSET_PATHS.productionMacLegacyIconPng),
-);
-const AppSnapHelperBuildScript = Effect.zipWith(
-  RepoRoot,
-  Effect.service(Path.Path),
-  (repoRoot, path) => path.join(repoRoot, "apps/desktop/scripts/build-appsnap-helper.mjs"),
 );
 const encodeJsonString = Schema.encodeEffect(Schema.UnknownFromJsonString);
 
@@ -164,9 +155,9 @@ interface StagePackageJson {
   readonly name: string;
   readonly version: string;
   readonly buildVersion: string;
-  readonly synaraCommitHash: string;
-  readonly synaraLockfileSha256: string;
-  readonly synaraSourceTag: string | null;
+  readonly penkraCommitHash: string;
+  readonly penkraLockfileSha256: string;
+  readonly penkraSourceTag: string | null;
   readonly private: true;
   readonly description: string;
   readonly author: string;
@@ -180,20 +171,20 @@ interface StagePackageJson {
 }
 
 const BuildEnvConfig = Config.all({
-  platform: Config.schema(BuildPlatform, "SYNARA_DESKTOP_PLATFORM").pipe(Config.option),
-  target: Config.string("SYNARA_DESKTOP_TARGET").pipe(Config.option),
-  arch: Config.schema(BuildArch, "SYNARA_DESKTOP_ARCH").pipe(Config.option),
-  version: Config.string("SYNARA_DESKTOP_VERSION").pipe(Config.option),
-  sourceCommit: Config.string("SYNARA_SOURCE_COMMIT").pipe(Config.option),
-  sourceTag: Config.string("SYNARA_SOURCE_TAG").pipe(Config.option),
-  lockfileSha256: Config.string("SYNARA_LOCKFILE_SHA256").pipe(Config.option),
-  outputDir: Config.string("SYNARA_DESKTOP_OUTPUT_DIR").pipe(Config.option),
-  skipBuild: Config.string("SYNARA_DESKTOP_SKIP_BUILD").pipe(Config.option),
-  keepStage: Config.string("SYNARA_DESKTOP_KEEP_STAGE").pipe(Config.option),
-  signed: Config.string("SYNARA_DESKTOP_SIGNED").pipe(Config.option),
-  verbose: Config.string("SYNARA_DESKTOP_VERBOSE").pipe(Config.option),
-  mockUpdates: Config.string("SYNARA_DESKTOP_MOCK_UPDATES").pipe(Config.option),
-  mockUpdateServerPort: Config.string("SYNARA_DESKTOP_MOCK_UPDATE_SERVER_PORT").pipe(Config.option),
+  platform: Config.schema(BuildPlatform, "PENKRA_DESKTOP_PLATFORM").pipe(Config.option),
+  target: Config.string("PENKRA_DESKTOP_TARGET").pipe(Config.option),
+  arch: Config.schema(BuildArch, "PENKRA_DESKTOP_ARCH").pipe(Config.option),
+  version: Config.string("PENKRA_DESKTOP_VERSION").pipe(Config.option),
+  sourceCommit: Config.string("PENKRA_SOURCE_COMMIT").pipe(Config.option),
+  sourceTag: Config.string("PENKRA_SOURCE_TAG").pipe(Config.option),
+  lockfileSha256: Config.string("PENKRA_LOCKFILE_SHA256").pipe(Config.option),
+  outputDir: Config.string("PENKRA_DESKTOP_OUTPUT_DIR").pipe(Config.option),
+  skipBuild: Config.string("PENKRA_DESKTOP_SKIP_BUILD").pipe(Config.option),
+  keepStage: Config.string("PENKRA_DESKTOP_KEEP_STAGE").pipe(Config.option),
+  signed: Config.string("PENKRA_DESKTOP_SIGNED").pipe(Config.option),
+  verbose: Config.string("PENKRA_DESKTOP_VERBOSE").pipe(Config.option),
+  mockUpdates: Config.string("PENKRA_DESKTOP_MOCK_UPDATES").pipe(Config.option),
+  mockUpdateServerPort: Config.string("PENKRA_DESKTOP_MOCK_UPDATE_SERVER_PORT").pipe(Config.option),
 });
 
 const resolveBooleanFlag = (flag: Option.Option<boolean>, envValue: boolean) =>
@@ -239,11 +230,11 @@ export const resolveBuildOptions = Effect.fn("resolveBuildOptions")(function* (
   const sourceCommit = mergeOptions(input.sourceCommit, env.sourceCommit, undefined);
   const sourceTag = mergeOptions(input.sourceTag, env.sourceTag, undefined);
   const lockfileSha256 = mergeOptions(input.lockfileSha256, env.lockfileSha256, undefined);
-  const envSkipBuild = yield* resolveBooleanEnv("SYNARA_DESKTOP_SKIP_BUILD", env.skipBuild);
-  const envKeepStage = yield* resolveBooleanEnv("SYNARA_DESKTOP_KEEP_STAGE", env.keepStage);
-  const envSigned = yield* resolveBooleanEnv("SYNARA_DESKTOP_SIGNED", env.signed);
-  const envVerbose = yield* resolveBooleanEnv("SYNARA_DESKTOP_VERBOSE", env.verbose);
-  const envMockUpdates = yield* resolveBooleanEnv("SYNARA_DESKTOP_MOCK_UPDATES", env.mockUpdates);
+  const envSkipBuild = yield* resolveBooleanEnv("PENKRA_DESKTOP_SKIP_BUILD", env.skipBuild);
+  const envKeepStage = yield* resolveBooleanEnv("PENKRA_DESKTOP_KEEP_STAGE", env.keepStage);
+  const envSigned = yield* resolveBooleanEnv("PENKRA_DESKTOP_SIGNED", env.signed);
+  const envVerbose = yield* resolveBooleanEnv("PENKRA_DESKTOP_VERBOSE", env.verbose);
+  const envMockUpdates = yield* resolveBooleanEnv("PENKRA_DESKTOP_MOCK_UPDATES", env.mockUpdates);
   const releaseDir = resolveBooleanFlag(input.mockUpdates, envMockUpdates)
     ? "release-mock"
     : "release";
@@ -353,7 +344,7 @@ function stageMacIcons(stageResourcesDir: string, verbose: boolean) {
     }
 
     const tmpRoot = yield* fs.makeTempDirectoryScoped({
-      prefix: "synara-icon-build-",
+      prefix: "penkra-icon-build-",
     });
 
     const iconPngPath = path.join(stageResourcesDir, "icon.png");
@@ -554,7 +545,7 @@ const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   mockUpdateServerPort: string | undefined,
 ) {
   const buildConfig: Record<string, unknown> = {
-    appId: SYNARA_PRODUCTION_BUNDLE_ID,
+    appId: PENKRA_PRODUCTION_BUNDLE_ID,
     productName,
     artifactName: "Penkra-${version}-${arch}.${ext}",
     protocols: [
@@ -603,32 +594,6 @@ const assertPlatformBuildResources = Effect.fn("assertPlatformBuildResources")(f
   yield* stageMacIcons(stageResourcesDir, verbose);
 });
 
-const stageMacAppSnapHelper = Effect.fn("stageMacAppSnapHelper")(function* (
-  stageAppDir: string,
-  arch: typeof BuildArch.Type,
-  verbose: boolean,
-) {
-  const path = yield* Path.Path;
-  const fs = yield* FileSystem.FileSystem;
-  const buildScript = yield* AppSnapHelperBuildScript;
-  const outputPath = path.join(stageAppDir, MAC_APPSNAP_HELPER_STAGE_PATH);
-
-  yield* fs.makeDirectory(path.dirname(outputPath), { recursive: true });
-  yield* Effect.log(`[desktop-artifact] Building native AppSnap helper (${arch})...`);
-  yield* runCommand(
-    ChildProcess.make({
-      cwd: stageAppDir,
-      ...commandOutputOptions(verbose),
-    })`node ${buildScript} --arch ${arch} --release --output ${outputPath}`,
-  );
-
-  if (!(yield* fs.exists(outputPath))) {
-    return yield* new BuildScriptError({
-      message: `AppSnap helper build completed but output was not found at ${outputPath}`,
-    });
-  }
-});
-
 const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   options: ResolvedBuildOptions,
 ) {
@@ -642,18 +607,6 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
       message: `Unsupported platform '${options.platform}'.`,
     });
   }
-  const nativeBuildHostIssue = validateDesktopNativeBuildHost({
-    platform: options.platform,
-    arch: options.arch,
-    hostPlatform: process.platform,
-    hostArch: process.arch,
-  });
-  if (nativeBuildHostIssue) {
-    return yield* new BuildScriptError({
-      message: nativeBuildHostIssue,
-    });
-  }
-
   const electronVersion = desktopPackageJson.dependencies.electron;
 
   const serverDependencies = serverPackageJson.dependencies;
@@ -761,7 +714,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   }
   const mkdir = options.keepStage ? fs.makeTempDirectory : fs.makeTempDirectoryScoped;
   const stageRoot = yield* mkdir({
-    prefix: `synara-desktop-${options.platform}-stage-`,
+    prefix: `penkra-desktop-${options.platform}-stage-`,
   });
 
   const stageAppDir = path.join(stageRoot, "app");
@@ -807,8 +760,6 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   yield* fs.copy(distDirs.serverDist, path.join(stageAppDir, "apps/server/dist"));
   yield* assertPlatformBuildResources(options.platform, stageResourcesDir, options.verbose);
 
-  yield* stageMacAppSnapHelper(stageAppDir, options.arch, options.verbose);
-
   // electron-builder is filtering out stageResourcesDir directory in the AppImage for production
   yield* fs.copy(stageResourcesDir, path.join(stageAppDir, "apps/desktop/prod-resources"));
 
@@ -825,9 +776,9 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     name: "penkra-desktop",
     version: appVersion,
     buildVersion: appVersion,
-    synaraCommitHash: commitHash,
-    synaraLockfileSha256: resolvedLockfileSha256,
-    synaraSourceTag: options.sourceTag ?? null,
+    penkraCommitHash: commitHash,
+    penkraLockfileSha256: resolvedLockfileSha256,
+    penkraSourceTag: options.sourceTag ?? null,
     private: true,
     description: "Penkra desktop build",
     author: "Penkra",
@@ -984,63 +935,63 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
 
 const buildDesktopArtifactCli = Command.make("build-desktop-artifact", {
   platform: Flag.choice("platform", BuildPlatform.literals).pipe(
-    Flag.withDescription("Build platform (env: SYNARA_DESKTOP_PLATFORM)."),
+    Flag.withDescription("Build platform (env: PENKRA_DESKTOP_PLATFORM)."),
     Flag.optional,
   ),
   target: Flag.string("target").pipe(
-    Flag.withDescription("Artifact target, for example dmg (env: SYNARA_DESKTOP_TARGET)."),
+    Flag.withDescription("Artifact target, for example dmg (env: PENKRA_DESKTOP_TARGET)."),
     Flag.optional,
   ),
   arch: Flag.choice("arch", BuildArch.literals).pipe(
-    Flag.withDescription("Build arch, for example arm64/x64/universal (env: SYNARA_DESKTOP_ARCH)."),
+    Flag.withDescription("Build arch, for example arm64/x64/universal (env: PENKRA_DESKTOP_ARCH)."),
     Flag.optional,
   ),
   buildVersion: Flag.string("build-version").pipe(
-    Flag.withDescription("Artifact version metadata (env: SYNARA_DESKTOP_VERSION)."),
+    Flag.withDescription("Artifact version metadata (env: PENKRA_DESKTOP_VERSION)."),
     Flag.optional,
   ),
   sourceCommit: Flag.string("source-commit").pipe(
-    Flag.withDescription("Expected full source commit (env: SYNARA_SOURCE_COMMIT)."),
+    Flag.withDescription("Expected full source commit (env: PENKRA_SOURCE_COMMIT)."),
     Flag.optional,
   ),
   sourceTag: Flag.string("source-tag").pipe(
-    Flag.withDescription("Exact source tag when building a release (env: SYNARA_SOURCE_TAG)."),
+    Flag.withDescription("Exact source tag when building a release (env: PENKRA_SOURCE_TAG)."),
     Flag.optional,
   ),
   lockfileSha256: Flag.string("lockfile-sha256").pipe(
-    Flag.withDescription("Expected bun.lock SHA-256 (env: SYNARA_LOCKFILE_SHA256)."),
+    Flag.withDescription("Expected bun.lock SHA-256 (env: PENKRA_LOCKFILE_SHA256)."),
     Flag.optional,
   ),
   outputDir: Flag.string("output-dir").pipe(
-    Flag.withDescription("Output directory for artifacts (env: SYNARA_DESKTOP_OUTPUT_DIR)."),
+    Flag.withDescription("Output directory for artifacts (env: PENKRA_DESKTOP_OUTPUT_DIR)."),
     Flag.optional,
   ),
   skipBuild: Flag.boolean("skip-build").pipe(
     Flag.withDescription(
-      "Skip `bun run build:desktop` and use existing dist artifacts (env: SYNARA_DESKTOP_SKIP_BUILD).",
+      "Skip `bun run build:desktop` and use existing dist artifacts (env: PENKRA_DESKTOP_SKIP_BUILD).",
     ),
     Flag.optional,
   ),
   keepStage: Flag.boolean("keep-stage").pipe(
-    Flag.withDescription("Keep temporary staging files (env: SYNARA_DESKTOP_KEEP_STAGE)."),
+    Flag.withDescription("Keep temporary staging files (env: PENKRA_DESKTOP_KEEP_STAGE)."),
     Flag.optional,
   ),
   signed: Flag.boolean("signed").pipe(
     Flag.withDescription(
-      "Enable macOS signing and notarization discovery (env: SYNARA_DESKTOP_SIGNED).",
+      "Enable macOS signing and notarization discovery (env: PENKRA_DESKTOP_SIGNED).",
     ),
     Flag.optional,
   ),
   verbose: Flag.boolean("verbose").pipe(
-    Flag.withDescription("Stream subprocess stdout (env: SYNARA_DESKTOP_VERBOSE)."),
+    Flag.withDescription("Stream subprocess stdout (env: PENKRA_DESKTOP_VERBOSE)."),
     Flag.optional,
   ),
   mockUpdates: Flag.boolean("mock-updates").pipe(
-    Flag.withDescription("Enable mock updates (env: SYNARA_DESKTOP_MOCK_UPDATES)."),
+    Flag.withDescription("Enable mock updates (env: PENKRA_DESKTOP_MOCK_UPDATES)."),
     Flag.optional,
   ),
   mockUpdateServerPort: Flag.string("mock-update-server-port").pipe(
-    Flag.withDescription("Mock update server port (env: SYNARA_DESKTOP_MOCK_UPDATE_SERVER_PORT)."),
+    Flag.withDescription("Mock update server port (env: PENKRA_DESKTOP_MOCK_UPDATE_SERVER_PORT)."),
     Flag.optional,
   ),
 }).pipe(

@@ -26,5 +26,5 @@ export interface CodexAdapterShape extends ProviderAdapterShape<ProviderAdapterE
  * CodexAdapter - Service tag for Codex provider adapter operations.
  */
 export class CodexAdapter extends ServiceMap.Service<CodexAdapter, CodexAdapterShape>()(
-  "synara/provider/Services/CodexAdapter",
+  "penkra/provider/Services/CodexAdapter",
 ) {}

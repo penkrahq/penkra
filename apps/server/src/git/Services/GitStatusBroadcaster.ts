@@ -3,7 +3,7 @@ import type {
   GitStatusLocalResult,
   GitStatusResult,
   GitStatusStreamEvent,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 import { ServiceMap } from "effect";
 import type { Effect, Stream } from "effect";
 import type { GitManagerServiceError } from "../Errors";
@@ -24,4 +24,4 @@ export interface GitStatusBroadcasterShape {
 export class GitStatusBroadcaster extends ServiceMap.Service<
   GitStatusBroadcaster,
   GitStatusBroadcasterShape
->()("synara/git/Services/GitStatusBroadcaster") {}
+>()("penkra/git/Services/GitStatusBroadcaster") {}

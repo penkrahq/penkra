@@ -1,10 +1,10 @@
 // FILE: SkillsSettingsPanel.tsx
 // Purpose: Settings → Skills panel. Lists every skill from the unified cross-provider
-// catalog (~/.synara/skills plus each provider's skills folder), shows which provider
+// catalog (~/.penkra/skills plus each provider's skills folder), shows which provider
 // a skill comes from, and lets the user enable/disable each one. Disabled skills are
 // hidden from the composer skill picker on every provider.
 
-import type { ProviderKind, ServerSettings } from "@synara/contracts";
+import type { ProviderKind, ServerSettings } from "@penkra/contracts";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { ProviderIcon } from "~/components/ProviderIcon";
@@ -95,7 +95,7 @@ export function SkillsSettingsPanel() {
 
   const totalSkills = skillGroups.length;
   const enabledSkills = skillGroups.filter((group) => !disabledSkillNames.has(group.key)).length;
-  const synaraSkillsDir = catalogQuery.data?.synaraSkillsDir;
+  const penkraSkillsDir = catalogQuery.data?.penkraSkillsDir;
 
   return (
     <div className="space-y-8">
@@ -104,8 +104,8 @@ export function SkillsSettingsPanel() {
           title="Penkra skills folder"
           description="Skills placed here are available on every provider. When a provider already ships its own copy of a skill, that copy is used; otherwise Penkra's copy is the fallback."
           status={
-            synaraSkillsDir ? (
-              <code className="break-all text-[11px] text-muted-foreground">{synaraSkillsDir}</code>
+            penkraSkillsDir ? (
+              <code className="break-all text-[11px] text-muted-foreground">{penkraSkillsDir}</code>
             ) : null
           }
           control={

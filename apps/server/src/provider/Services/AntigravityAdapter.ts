@@ -11,4 +11,4 @@ export interface AntigravityAdapterShape extends ProviderAdapterShape<ProviderAd
 export class AntigravityAdapter extends ServiceMap.Service<
   AntigravityAdapter,
   AntigravityAdapterShape
->()("synara/provider/Services/AntigravityAdapter") {}
+>()("penkra/provider/Services/AntigravityAdapter") {}

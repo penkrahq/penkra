@@ -14,7 +14,7 @@ import type {
   ProviderForkThreadResult,
   ProviderRuntimeEvent,
   ProviderSession,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 import {
   ApprovalRequestId,
   type ChatAttachment,
@@ -26,8 +26,8 @@ import {
   ProjectId,
   ThreadId,
   TurnId,
-} from "@synara/contracts";
-import { PROVIDER_DELIVERY_BLOCK_SUMMARY } from "@synara/shared/providerDeliveryBlock";
+} from "@penkra/contracts";
+import { PROVIDER_DELIVERY_BLOCK_SUMMARY } from "@penkra/shared/providerDeliveryBlock";
 import {
   Duration,
   Effect,
@@ -203,9 +203,10 @@ describe("ProviderCommandReactor", () => {
     readonly startReactor?: boolean;
     readonly interruptTurn?: ProviderServiceShape["interruptTurn"];
     readonly commandEventTimeout?: Duration.Duration;
+    readonly queuedTurnRecoveryInterval?: Duration.Duration;
   }) {
     const now = new Date().toISOString();
-    const baseDir = input?.baseDir ?? fs.mkdtempSync(path.join(os.tmpdir(), "synara-reactor-"));
+    const baseDir = input?.baseDir ?? fs.mkdtempSync(path.join(os.tmpdir(), "penkra-reactor-"));
     createdBaseDirs.add(baseDir);
     const { stateDir } = deriveServerPathsSync(baseDir, undefined);
     createdStateDirs.add(stateDir);
@@ -489,11 +490,14 @@ describe("ProviderCommandReactor", () => {
       Layer.provide(OrchestrationEventStoreLive),
       Layer.provide(OrchestrationCommandReceiptRepositoryLive),
     );
-    const layer = makeProviderCommandReactorLive(
-      input?.commandEventTimeout === undefined
-        ? undefined
-        : { commandEventTimeout: input.commandEventTimeout },
-    ).pipe(
+    const layer = makeProviderCommandReactorLive({
+      ...(input?.commandEventTimeout !== undefined
+        ? { commandEventTimeout: input.commandEventTimeout }
+        : {}),
+      ...(input?.queuedTurnRecoveryInterval !== undefined
+        ? { queuedTurnRecoveryInterval: input.queuedTurnRecoveryInterval }
+        : {}),
+    }).pipe(
       Layer.provideMerge(orchestrationLayer),
       Layer.provideMerge(OrchestrationProjectionSnapshotQueryLive),
       Layer.provideMerge(TurnCheckpointCoordinatorLive),
@@ -4027,6 +4031,46 @@ describe("ProviderCommandReactor", () => {
     });
   });
 
+  it("surfaces a timed-out fresh turn start instead of leaving the thread starting", async () => {
+    const harness = await createHarness({
+      commandEventTimeout: Duration.millis(25),
+    });
+    const now = new Date().toISOString();
+    harness.startSession.mockImplementationOnce(() => Effect.never);
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-times-out"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-start-times-out"),
+          role: "user",
+          text: "hello stalled provider",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(async () => (await readHarnessThread(harness))?.session?.status === "error");
+    const thread = await readHarnessThread(harness);
+    expect(thread?.session?.activeTurnId).toBeNull();
+    expect(thread?.session?.lastError).toContain("did not respond within 25ms");
+    expect(
+      thread?.activities.some((activity) => {
+        const payload = activity.payload;
+        const settlementStatus =
+          typeof payload === "object" && payload !== null && !Array.isArray(payload)
+            ? (payload as Record<string, unknown>)["settlementStatus"]
+            : undefined;
+        return activity.kind === "provider.turn.start.failed" && settlementStatus === "uncertain";
+      }),
+    ).toBe(true);
+  });
+
   it("uses the runtime mode requested by thread.turn.start when starting the provider session", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
@@ -4281,11 +4325,11 @@ describe("ProviderCommandReactor", () => {
         commandId: CommandId.makeUnsafe("cmd-thread-worktree-bootstrap"),
         threadId: ThreadId.makeUnsafe("thread-1"),
         envMode: "worktree",
-        branch: "synara/cb661f0d",
+        branch: "penkra/cb661f0d",
         worktreePath: "/tmp/provider-project/.worktrees/cb661f0d",
         associatedWorktreePath: "/tmp/provider-project/.worktrees/cb661f0d",
-        associatedWorktreeBranch: "synara/cb661f0d",
-        associatedWorktreeRef: "synara/cb661f0d",
+        associatedWorktreeBranch: "penkra/cb661f0d",
+        associatedWorktreeRef: "penkra/cb661f0d",
       }),
     );
 
@@ -4313,19 +4357,19 @@ describe("ProviderCommandReactor", () => {
     await waitFor(async () => {
       const thread = await readHarnessThread(harness);
       return (
-        thread?.branch === "synara/app-startup-crash" &&
-        thread.associatedWorktreeBranch === "synara/app-startup-crash" &&
-        thread.associatedWorktreeRef === "synara/app-startup-crash"
+        thread?.branch === "penkra/app-startup-crash" &&
+        thread.associatedWorktreeBranch === "penkra/app-startup-crash" &&
+        thread.associatedWorktreeRef === "penkra/app-startup-crash"
       );
     });
 
     const thread = await readHarnessThread(harness);
     expect(thread).toMatchObject({
-      branch: "synara/app-startup-crash",
+      branch: "penkra/app-startup-crash",
       worktreePath: "/tmp/provider-project/.worktrees/cb661f0d",
       associatedWorktreePath: "/tmp/provider-project/.worktrees/cb661f0d",
-      associatedWorktreeBranch: "synara/app-startup-crash",
-      associatedWorktreeRef: "synara/app-startup-crash",
+      associatedWorktreeBranch: "penkra/app-startup-crash",
+      associatedWorktreeRef: "penkra/app-startup-crash",
     });
   });
 
@@ -4339,11 +4383,11 @@ describe("ProviderCommandReactor", () => {
         commandId: CommandId.makeUnsafe("cmd-thread-worktree-bootstrap-antigravity"),
         threadId: ThreadId.makeUnsafe("thread-1"),
         envMode: "worktree",
-        branch: "synara/cb661f0d",
+        branch: "penkra/cb661f0d",
         worktreePath: "/tmp/provider-project/.worktrees/cb661f0d",
         associatedWorktreePath: "/tmp/provider-project/.worktrees/cb661f0d",
-        associatedWorktreeBranch: "synara/cb661f0d",
-        associatedWorktreeRef: "synara/cb661f0d",
+        associatedWorktreeBranch: "penkra/cb661f0d",
+        associatedWorktreeRef: "penkra/cb661f0d",
       }),
     );
 
@@ -4371,13 +4415,13 @@ describe("ProviderCommandReactor", () => {
     await waitFor(() => harness.renameBranch.mock.calls.length === 1);
     expect(harness.generateBranchName).not.toHaveBeenCalled();
     expect(harness.renameBranch.mock.calls[0]?.[0]).toMatchObject({
-      oldBranch: "synara/cb661f0d",
-      newBranch: "synara/fix-provider-startup-timeouts",
+      oldBranch: "penkra/cb661f0d",
+      newBranch: "penkra/fix-provider-startup-timeouts",
     });
 
     await waitFor(
       async () =>
-        (await readHarnessThread(harness))?.branch === "synara/fix-provider-startup-timeouts",
+        (await readHarnessThread(harness))?.branch === "penkra/fix-provider-startup-timeouts",
     );
   });
 
@@ -4616,6 +4660,52 @@ describe("ProviderCommandReactor", () => {
       providerRefs: {},
     } as ProviderRuntimeEvent);
   };
+
+  it("promotes queued work when the provider session exits without a turn terminal event", async () => {
+    const harness = await createHarness();
+    await seedQueuedTurnBehindLiveTurn(harness, {
+      liveTurnId: asTurnId("turn-provider-exited"),
+      messageId: asMessageId("msg-after-provider-exit"),
+      text: "continue after the provider exits",
+    });
+
+    harness.setRuntimeSessionTurnState({ threadId: "thread-1", status: "ready" });
+    await harness.emitRuntimeEvent({
+      type: "session.exited",
+      eventId: asEventId("evt-provider-session-exited"),
+      provider: "codex",
+      threadId: ThreadId.makeUnsafe("thread-1"),
+      createdAt: new Date().toISOString(),
+      payload: { reason: "provider process disappeared" },
+    } as ProviderRuntimeEvent);
+
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    expect(harness.sendTurn.mock.calls[0]?.[0]).toMatchObject({
+      threadId: ThreadId.makeUnsafe("thread-1"),
+      input: "continue after the provider exits",
+    });
+  });
+
+  it("periodically recovers queued work when every terminal runtime event is missed", async () => {
+    const harness = await createHarness({
+      queuedTurnRecoveryInterval: Duration.millis(10),
+    });
+    await seedQueuedTurnBehindLiveTurn(harness, {
+      liveTurnId: asTurnId("turn-runtime-vanished"),
+      messageId: asMessageId("msg-after-runtime-vanished"),
+      text: "continue after a silent runtime loss",
+    });
+
+    // Reproduce the production failure: the provider is gone, but no
+    // turn.completed, turn.aborted, session.exited, or runtime.error arrives.
+    harness.setRuntimeSessionTurnState({ threadId: "thread-1", status: "ready" });
+
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    expect(harness.sendTurn.mock.calls[0]?.[0]).toMatchObject({
+      threadId: ThreadId.makeUnsafe("thread-1"),
+      input: "continue after a silent runtime loss",
+    });
+  });
 
   it("drains a thread again after a promotion dispatch failed", async () => {
     const harness = await createHarness();
@@ -8209,5 +8299,48 @@ describe("ProviderCommandReactor", () => {
     );
     expect(thread?.session?.status).toBe("interrupted");
     expect(thread?.session?.activeTurnId).toBe("turn-child-stop");
+  });
+
+  it("defers a runtime-mode change while a turn is active", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+    const threadId = ThreadId.makeUnsafe("thread-1");
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.makeUnsafe("cmd-mode-session-running"),
+        threadId,
+        session: {
+          threadId,
+          status: "running",
+          providerName: "codex",
+          runtimeMode: "approval-required",
+          activeTurnId: asTurnId("turn-mode-active"),
+          lastError: null,
+          updatedAt: now,
+        },
+        createdAt: now,
+      }),
+    );
+
+    const modeChange = await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.runtime-mode.set",
+        commandId: CommandId.makeUnsafe("cmd-mode-set-mid-turn"),
+        threadId,
+        runtimeMode: "full-access",
+        createdAt: now,
+      }),
+    );
+    await waitFor(async () => {
+      const state = await Effect.runPromise(
+        harness.deliveryRepository.getConsumerState(PROVIDER_COMMAND_REACTOR_CONSUMER),
+      );
+      return state.pipe(Option.getOrThrow).lastAckedSequence >= modeChange.sequence;
+    });
+
+    expect(harness.startSession).not.toHaveBeenCalled();
+    expect(harness.stopSession).not.toHaveBeenCalled();
   });
 });

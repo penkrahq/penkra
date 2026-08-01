@@ -11,7 +11,7 @@ import { PRIVATE_FILE_MODE } from "./privatePathPermissions";
 
 describe.skipIf(process.platform === "win32")("private atomic writes", () => {
   it("creates and replaces files with owner-only permissions", async () => {
-    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "synara-atomic-private-"));
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-atomic-private-"));
     const filePath = path.join(directory, "state.json");
     fs.writeFileSync(filePath, "old", { mode: 0o644 });
     fs.chmodSync(filePath, 0o644);
@@ -33,7 +33,7 @@ describe.skipIf(process.platform === "win32")("private atomic writes", () => {
   });
 
   it("allows concurrent writers without sharing temporary files", async () => {
-    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "synara-atomic-concurrent-"));
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-atomic-concurrent-"));
     const filePath = path.join(directory, "state.json");
     const contents = Array.from({ length: 32 }, (_, index) => `value-${index}`);
     const reusableWrite = writeFileStringAtomically({ filePath, contents: contents[0]! });
@@ -57,7 +57,7 @@ describe.skipIf(process.platform === "win32")("private atomic writes", () => {
   });
 
   it("replaces a final symlink without changing its outside target", async () => {
-    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "synara-atomic-symlink-"));
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-atomic-symlink-"));
     const outsidePath = path.join(directory, "outside.json");
     const filePath = path.join(directory, "state.json");
     const hostileTempPath = `${filePath}.${process.pid}.hostile.tmp`;
@@ -82,7 +82,7 @@ describe.skipIf(process.platform === "win32")("private atomic writes", () => {
   });
 
   it("rejects a symlinked parent directory without changing its outside target", async () => {
-    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "synara-atomic-parent-"));
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-atomic-parent-"));
     const outsideDirectory = path.join(directory, "outside");
     const linkedDirectory = path.join(directory, "linked");
     const outsidePath = path.join(outsideDirectory, "state.json");
@@ -106,7 +106,7 @@ describe.skipIf(process.platform === "win32")("private atomic writes", () => {
   });
 
   it("rejects a parent directory writable by other users", async () => {
-    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "synara-atomic-parent-mode-"));
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-atomic-parent-mode-"));
     const filePath = path.join(directory, "state.json");
     fs.chmodSync(directory, 0o777);
 
@@ -126,7 +126,7 @@ describe.skipIf(process.platform === "win32")("private atomic writes", () => {
   });
 
   it("enforces the requested mode even under a restrictive umask", async () => {
-    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "synara-atomic-umask-"));
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-atomic-umask-"));
     const filePath = path.join(directory, "state.json");
     const previousUmask = process.umask(0o777);
 
@@ -148,7 +148,7 @@ describe.skipIf(process.platform === "win32")("private atomic writes", () => {
   });
 
   it("repairs a newly created parent chain under a restrictive umask", async () => {
-    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "synara-atomic-parent-umask-"));
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-atomic-parent-umask-"));
     const parentPath = path.join(directory, "new", "nested");
     const filePath = path.join(parentPath, "state.json");
     const previousUmask = process.umask(0o777);
@@ -174,7 +174,7 @@ describe.skipIf(process.platform === "win32")("private atomic writes", () => {
   });
 
   it("finishes an in-flight commit before interruption is observed", async () => {
-    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "synara-atomic-interrupt-"));
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-atomic-interrupt-"));
     const filePath = path.join(directory, "state.bin");
     const contents = "x".repeat(32 * 1024 * 1024);
 
@@ -210,7 +210,7 @@ describe.skipIf(process.platform === "win32")("private atomic writes", () => {
   });
 
   it("removes its temporary file when replacement fails", async () => {
-    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "synara-atomic-cleanup-"));
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-atomic-cleanup-"));
     const filePath = path.join(directory, "state.json");
     fs.mkdirSync(filePath);
 

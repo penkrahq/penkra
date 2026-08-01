@@ -3,12 +3,12 @@
 // Layer: Web UI state store
 // Exports: useProjectInstructionsStore, mergeProjectInstructionsIntoThreadNotes
 
-import type { ProjectId } from "@synara/contracts";
-import { clampThreadNotes } from "@synara/shared/pinnedMessages";
+import type { ProjectId } from "@penkra/contracts";
+import { clampThreadNotes } from "@penkra/shared/pinnedMessages";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
-const PROJECT_INSTRUCTIONS_STORAGE_KEY = "synara:project-instructions:v1";
+const PROJECT_INSTRUCTIONS_STORAGE_KEY = "penkra:project-instructions:v1";
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

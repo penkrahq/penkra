@@ -2,8 +2,8 @@
 // Purpose: Constructs the ComposerDraftStoreState actions while preserving granular thread identity.
 // Exports: Zustand state creator consumed by the public facade.
 
-import { type ModelSelection, type ProviderKind, ThreadId } from "@synara/contracts";
-import { getDefaultModel, normalizeModelSlug } from "@synara/shared/model";
+import { type ModelSelection, type ProviderKind, ThreadId } from "@penkra/contracts";
+import { getDefaultModel, normalizeModelSlug } from "@penkra/shared/model";
 import * as Equal from "effect/Equal";
 import type { StateCreator } from "zustand";
 
@@ -57,7 +57,6 @@ import {
   reconcileProviderScopedModelSelection,
   stripNonStickyModelOptions,
 } from "./composerDraftModels";
-import { isComposerAppSnapCaptureSource } from "./lib/composerImageSource";
 import { ensureInlineTerminalContextPlaceholders } from "./lib/terminalContext";
 import { buildModelSelection } from "./providerModelOptions";
 import { DEFAULT_INTERACTION_MODE, DEFAULT_RUNTIME_MODE } from "./types";
@@ -1117,93 +1116,6 @@ export const createComposerDraftStoreState =
           nextDraftsByThreadId[threadId] = nextDraft;
         }
         return { draftsByThreadId: nextDraftsByThreadId };
-      });
-    },
-    removeAppSnapCapture: (captureId) => {
-      if (captureId.length === 0) return;
-
-      const currentDrafts = get().draftsByThreadId;
-      const removedImages: ComposerImageAttachment[] = [];
-      const removedAttachments: PersistedComposerImageAttachment[] = [];
-      for (const draft of Object.values(currentDrafts)) {
-        removedImages.push(
-          ...draft.images.filter((image) =>
-            isComposerAppSnapCaptureSource(image.source, captureId),
-          ),
-          ...(draft.promptHistorySavedDraft?.images.filter((image) =>
-            isComposerAppSnapCaptureSource(image.source, captureId),
-          ) ?? []),
-        );
-        removedAttachments.push(
-          ...draft.persistedAttachments.filter((attachment) =>
-            isComposerAppSnapCaptureSource(attachment.source, captureId),
-          ),
-          ...(draft.promptHistorySavedDraft?.persistedAttachments.filter((attachment) =>
-            isComposerAppSnapCaptureSource(attachment.source, captureId),
-          ) ?? []),
-        );
-      }
-      for (const image of removedImages) {
-        revokeObjectPreviewUrl(image.previewUrl);
-      }
-      deletePersistedComposerImageBlobs(removedAttachments, () => get().draftsByThreadId);
-
-      set((state) => {
-        let changed = false;
-        const nextDraftsByThreadId = { ...state.draftsByThreadId };
-        for (const [rawThreadId, current] of Object.entries(state.draftsByThreadId)) {
-          const removedCurrentIds = new Set([
-            ...current.images
-              .filter((image) => isComposerAppSnapCaptureSource(image.source, captureId))
-              .map((image) => image.id),
-            ...current.persistedAttachments
-              .filter((attachment) => isComposerAppSnapCaptureSource(attachment.source, captureId))
-              .map((attachment) => attachment.id),
-          ]);
-          const savedDraft = current.promptHistorySavedDraft;
-          const removedSavedIds = new Set([
-            ...(savedDraft?.images
-              .filter((image) => isComposerAppSnapCaptureSource(image.source, captureId))
-              .map((image) => image.id) ?? []),
-            ...(savedDraft?.persistedAttachments
-              .filter((attachment) => isComposerAppSnapCaptureSource(attachment.source, captureId))
-              .map((attachment) => attachment.id) ?? []),
-          ]);
-          if (removedCurrentIds.size === 0 && removedSavedIds.size === 0) continue;
-
-          changed = true;
-          const nextDraft: ComposerThreadDraftState = {
-            ...current,
-            images: current.images.filter((image) => !removedCurrentIds.has(image.id)),
-            persistedAttachments: current.persistedAttachments.filter(
-              (attachment) => !removedCurrentIds.has(attachment.id),
-            ),
-            nonPersistedImageIds: current.nonPersistedImageIds.filter(
-              (imageId) => !removedCurrentIds.has(imageId),
-            ),
-            ...(savedDraft
-              ? {
-                  promptHistorySavedDraft: {
-                    ...savedDraft,
-                    images: savedDraft.images.filter((image) => !removedSavedIds.has(image.id)),
-                    persistedAttachments: savedDraft.persistedAttachments.filter(
-                      (attachment) => !removedSavedIds.has(attachment.id),
-                    ),
-                    nonPersistedImageIds: savedDraft.nonPersistedImageIds.filter(
-                      (imageId) => !removedSavedIds.has(imageId),
-                    ),
-                  },
-                }
-              : {}),
-          };
-          const threadId = rawThreadId as ThreadId;
-          if (shouldRemoveDraft(nextDraft)) {
-            delete nextDraftsByThreadId[threadId];
-          } else {
-            nextDraftsByThreadId[threadId] = nextDraft;
-          }
-        }
-        return changed ? { draftsByThreadId: nextDraftsByThreadId } : state;
       });
     },
     addFiles: (threadId, files) => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { DesktopUpdateActionResult, DesktopUpdateState } from "@synara/contracts";
+import type { DesktopUpdateActionResult, DesktopUpdateState } from "@penkra/contracts";
 
 import {
   getArm64IntelBuildWarningDescription,

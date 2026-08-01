@@ -4,7 +4,7 @@ import {
   type ProviderStartOptions,
   type ServerSettings,
   type ServerSettingsPatch,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 import { deepMerge, type DeepPartial } from "./Struct";
 
 function shouldReplaceTextGenerationModelSelection(

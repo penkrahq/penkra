@@ -1,15 +1,15 @@
 {
-  "name": "@synara/cli",
+  "name": "@penkra/cli",
   "version": "0.8.2",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Emanuele-web04/Synara.git",
+    "url": "git+https://github.com/Emanuele-web04/Penkra.git",
     "directory": "apps/server"
   },
   "bin": {
-    "synara": "dist/index.mjs",
-    "synara-restore-migration-backup": "dist/restoreMigrationBackup.mjs"
+    "penkra": "dist/index.mjs",
+    "penkra-restore-migration-backup": "dist/restoreMigrationBackup.mjs"
   },
   "files": [
     "dist"
@@ -46,9 +46,9 @@
   "devDependencies": {
     "@effect/language-service": "catalog:",
     "@effect/vitest": "catalog:",
-    "@synara/contracts": "workspace:*",
-    "@synara/shared": "workspace:*",
-    "@synara/web": "workspace:*",
+    "@penkra/contracts": "workspace:*",
+    "@penkra/shared": "workspace:*",
+    "@penkra/web": "workspace:*",
     "@types/bun": "catalog:",
     "@types/node": "catalog:",
     "@types/ws": "^8.5.13",

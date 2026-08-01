@@ -1,4 +1,4 @@
-import type { ProviderKind } from "@synara/contracts";
+import type { ProviderKind } from "@penkra/contracts";
 import { forwardRef, type ButtonHTMLAttributes, type ReactNode } from "react";
 
 import { ProviderIcon } from "~/components/ProviderIcon";

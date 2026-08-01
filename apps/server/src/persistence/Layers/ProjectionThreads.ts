@@ -19,7 +19,7 @@ import {
   ThreadPinnedMessages,
   ThreadMarkers,
   ThreadHandoff,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 
 const SqliteBoolean = Schema.Number.pipe(
   Schema.decodeTo(Schema.Boolean, {

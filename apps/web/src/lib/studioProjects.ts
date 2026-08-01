@@ -3,8 +3,8 @@
 // Layer: Web orchestration helper
 // Exports: Studio project lookup, creation, and prewarm helpers.
 
-import { type ProjectId, type ThreadId } from "@synara/contracts";
-import { isWorkspaceRootWithin, workspaceRootsEqual } from "@synara/shared/threadWorkspace";
+import { type ProjectId, type ThreadId } from "@penkra/contracts";
+import { isWorkspaceRootWithin, workspaceRootsEqual } from "@penkra/shared/threadWorkspace";
 import type { DraftThreadState } from "../composerDraftStore";
 import { readNativeApi } from "../nativeApi";
 import {

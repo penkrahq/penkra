@@ -4,7 +4,7 @@
 // Layer: Web UI dialog
 // Exports: CreateProjectDialog, CreateProjectSubmitValue
 
-import { type SpaceId } from "@synara/contracts";
+import { type SpaceId } from "@penkra/contracts";
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 
 import { isElectron } from "../env";
@@ -58,7 +58,9 @@ function resolveDroppedFolder(dataTransfer: DataTransfer): DroppedFolderResult |
   }
   const absolutePath = resolveDroppedFileAbsolutePath(file);
   if (!absolutePath) {
-    return { error: "Could not read the folder's path. Use browse or type it instead." };
+    return {
+      error: "Could not read the folder's path. Use browse or type it instead.",
+    };
   }
   return { path: absolutePath };
 }
@@ -399,14 +401,20 @@ export function CreateProjectDialog(props: {
             </div>
             {spaceEditorOpen ? (
               <SpaceHeaderInlineEdit
+                accessibleHeading="New space"
                 className="mt-2"
                 existingNames={[...spaces.map((space) => space.name), voidSpace.name]}
+                inputLabel="Name"
                 mode="create"
                 onCancel={() => setSpaceEditorOpen(false)}
                 onSubmit={async (name) => {
-                  await handleCreateSpace({ name, icon: suggestSpaceIcon(name) });
+                  await handleCreateSpace({
+                    name,
+                    icon: suggestSpaceIcon(name),
+                  });
                   setSpaceEditorOpen(false);
                 }}
+                submitLabel="Create space"
               />
             ) : null}
           </div>

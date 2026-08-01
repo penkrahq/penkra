@@ -12,11 +12,11 @@ import {
   type OrchestrationThreadShell,
   type ProviderInteractionMode,
   type ProviderKind,
-  type SynaraCreateThreadsInput,
-  type SynaraCreateThreadsResult,
-} from "@synara/contracts";
-import { buildPromptThreadTitleFallback } from "@synara/shared/chatThreads";
-import { parseGitHubRepositoryNameWithOwnerFromPullRequestUrl } from "@synara/shared/githubRepository";
+  type PenkraCreateThreadsInput,
+  type PenkraCreateThreadsResult,
+} from "@penkra/contracts";
+import { buildPromptThreadTitleFallback } from "@penkra/shared/chatThreads";
+import { parseGitHubRepositoryNameWithOwnerFromPullRequestUrl } from "@penkra/shared/githubRepository";
 import { Cause, Effect, Option, Semaphore } from "effect";
 
 import type { ServerConfigShape } from "../config.ts";
@@ -244,7 +244,7 @@ export const makeCreateThreadsHandler = Effect.fn(function* (
   const appendThreadCreationRecap = (input: {
     readonly callerThreadId: string;
     readonly callerTurnId: string;
-    readonly result: SynaraCreateThreadsResult;
+    readonly result: PenkraCreateThreadsResult;
   }) => {
     const marker = stableGatewayDigest({
       operationId: input.result.operationId,
@@ -260,10 +260,10 @@ export const makeCreateThreadsHandler = Effect.fn(function* (
         activity: {
           id: EventId.makeUnsafe(`gateway:${marker}:threads-created-recap`),
           tone: "info",
-          kind: "synara.threads.created",
+          kind: "penkra.threads.created",
           summary: `Created ${input.result.createdCount} Penkra ${threadLabel}`,
           payload: {
-            source: "synara_mcp",
+            source: "penkra_mcp",
             operationId: input.result.operationId,
             requestId: input.result.requestId,
             requestedCount: input.result.requestedCount,
@@ -286,7 +286,7 @@ export const makeCreateThreadsHandler = Effect.fn(function* (
       );
   };
 
-  const run = (input: typeof SynaraCreateThreadsInput.Type, context: GatewayCreationContext) => {
+  const run = (input: typeof PenkraCreateThreadsInput.Type, context: GatewayCreationContext) => {
     return Effect.gen(function* () {
       if (context.callerTurnId === null) {
         return yield* Effect.fail(
@@ -957,7 +957,7 @@ export const makeCreateThreadsHandler = Effect.fn(function* (
                       envMode: entry.environment,
                       branch,
                       worktreePath,
-                      creationSource: "synara_mcp",
+                      creationSource: "penkra_mcp",
                       sourceThreadId: ThreadId.makeUnsafe(context.callerThreadId),
                       sourceTurnId: TurnId.makeUnsafe(callerTurnId),
                       gatewayOperationId: operationId,
@@ -1026,7 +1026,7 @@ export const makeCreateThreadsHandler = Effect.fn(function* (
             createdCount: results.length,
             threadIds: results.map((entry) => entry.threadId),
             threads: results,
-          } satisfies SynaraCreateThreadsResult;
+          } satisfies PenkraCreateThreadsResult;
           // Once every deterministic dispatch succeeded, durable completion is
           // the commit point. A late client cancellation must not roll back a
           // fully-created operation or strand it between dispatching/completed.

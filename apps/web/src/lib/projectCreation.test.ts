@@ -8,20 +8,20 @@ import {
   type OrchestrationShellSnapshot,
   type ProjectId,
   SpaceId,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { useSpacesUiStore } from "../spacesUiStore";
 import { createOrRecoverProjectFromPath } from "./projectCreation";
 
 const NOW_ISO = "2026-06-26T20:00:00.000Z";
-const WORKSPACE_ROOT = "/Users/tester/Developer/synara";
+const WORKSPACE_ROOT = "/Users/tester/Developer/penkra";
 
 function makeProject(id: string, workspaceRoot = WORKSPACE_ROOT) {
   return {
     id: id as ProjectId,
     kind: "project" as const,
-    title: "synara",
+    title: "penkra",
     workspaceRoot,
     defaultModelSelection: {
       provider: "codex" as const,
@@ -78,7 +78,7 @@ describe("createOrRecoverProjectFromPath", () => {
       expect.objectContaining({
         type: "project.create",
         kind: "project",
-        title: "synara",
+        title: "penkra",
         workspaceRoot: WORKSPACE_ROOT,
         createWorkspaceRootIfMissing: false,
       }),
@@ -95,7 +95,7 @@ describe("createOrRecoverProjectFromPath", () => {
     const existingProject = makeProject("project-existing");
     const dispatchCommand = vi.fn(async () => {
       throw new Error(
-        "Orchestration command invariant failed (project.create): Project 'project-existing' already uses workspace root '/Users/tester/Developer/synara'.",
+        "Orchestration command invariant failed (project.create): Project 'project-existing' already uses workspace root '/Users/tester/Developer/penkra'.",
       );
     });
     const loadSnapshot = vi.fn(async () => makeSnapshot([existingProject]));

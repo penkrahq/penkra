@@ -1,4 +1,4 @@
-import { outboundHttp, type OutboundHttpResponse } from "@synara/shared/outboundHttp";
+import { outboundHttp, type OutboundHttpResponse } from "@penkra/shared/outboundHttp";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("electron", () => ({

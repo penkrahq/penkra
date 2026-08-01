@@ -16,7 +16,7 @@ import {
   RuntimeMode,
   SpaceId,
   ThreadId,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 import * as Schema from "effect/Schema";
 import type { DeepMutable } from "effect/Types";
 

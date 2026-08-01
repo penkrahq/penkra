@@ -12,7 +12,7 @@ import {
   PenkraSnapshot,
   PenkraUpdateTodoInput,
   PenkraUpdateClientInput,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 import { Schema } from "effect";
 
 export type PenkraClientRecord = {

@@ -25,7 +25,7 @@ import {
   type ServerDiagnosticsResult,
   type ServerLifecycleStreamEvent,
   ServerProviderUpdateError,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 import { clamp } from "effect/Number";
 import { Effect, FileSystem, Layer, Option, Path, Queue, Schema, Scope, Stream } from "effect";
 import { Headers, HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
@@ -80,7 +80,7 @@ import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnap
 import { hasActiveProviderThread } from "./provider/providerUpdateCoordinator";
 import { shouldPublishThreadShellForEvent } from "./orchestration/threadShellEvents";
 import { ProviderDiscoveryService } from "./provider/Services/ProviderDiscoveryService";
-import { discoverSkillsCatalog, synaraSkillsDir } from "./provider/skillsCatalog";
+import { discoverSkillsCatalog, penkraSkillsDir } from "./provider/skillsCatalog";
 import { ProviderAdapterRegistry } from "./provider/Services/ProviderAdapterRegistry";
 import { ProviderHealth } from "./provider/Services/ProviderHealth";
 import { ProviderService } from "./provider/Services/ProviderService";
@@ -127,7 +127,7 @@ const MAX_DIAGNOSTIC_CHILD_PROCESSES = 80;
 const MAX_DIAGNOSTIC_ARGS_CHARS = 500;
 
 class WsRequestAdmissionMiddleware extends RpcMiddleware.Service<WsRequestAdmissionMiddleware>()(
-  "synara/WsRequestAdmissionMiddleware",
+  "penkra/WsRequestAdmissionMiddleware",
   { error: WsRpcError, requiredForClient: false },
 ) {}
 
@@ -1596,13 +1596,13 @@ const makeWsRpcHandlersLayer = () =>
               discoverSkillsCatalog({
                 cwd: input.cwd ?? null,
                 homeDir: config.homeDir,
-                synaraBaseDir: config.baseDir,
+                penkraBaseDir: config.baseDir,
                 includeDuplicateOrigins: true,
               }),
             ).pipe(
               Effect.map((skills) => ({
                 skills,
-                synaraSkillsDir: synaraSkillsDir(config.baseDir),
+                penkraSkillsDir: penkraSkillsDir(config.baseDir),
               })),
             ),
             "Failed to list the skills catalog",

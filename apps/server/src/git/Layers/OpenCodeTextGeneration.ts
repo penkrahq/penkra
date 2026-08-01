@@ -12,10 +12,10 @@ import type {
   OpenCodeModelSelection,
   OpenCodeModelOptions,
   ProviderStartOptions,
-} from "@synara/contracts";
-import { sanitizeGeneratedThreadTitle } from "@synara/shared/chatThreads";
-import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@synara/shared/git";
-import { getModelSelectionStringOptionValue } from "@synara/shared/model";
+} from "@penkra/contracts";
+import { sanitizeGeneratedThreadTitle } from "@penkra/shared/chatThreads";
+import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@penkra/shared/git";
+import { getModelSelectionStringOptionValue } from "@penkra/shared/model";
 
 import { resolveProviderAttachmentPath } from "../../provider/providerAttachmentPaths.ts";
 import { ServerConfig } from "../../config.ts";

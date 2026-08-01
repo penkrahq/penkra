@@ -3,65 +3,65 @@ import { describe, expect, it } from "vitest";
 import {
   PENKRA_DEVELOPMENT_ACCOUNT_AUTH_SCHEME,
   PENKRA_PRODUCTION_ACCOUNT_AUTH_SCHEME,
-  resolveSynaraDesktopFlavor,
-  SYNARA_DESKTOP_ENTRY_URL,
-  SYNARA_DESKTOP_ORIGIN,
-  SYNARA_DESKTOP_UPDATE_CHANNEL,
-  SYNARA_DEVELOPMENT_BUNDLE_ID,
-  SYNARA_PRODUCTION_BUNDLE_ID,
-  LEGACY_SYNARA_DESKTOP_SCHEME,
-  synaraBundleId,
-  synaraDesktopIdentity,
+  resolvePenkraDesktopFlavor,
+  PENKRA_DESKTOP_ENTRY_URL,
+  PENKRA_DESKTOP_ORIGIN,
+  PENKRA_DESKTOP_UPDATE_CHANNEL,
+  PENKRA_DEVELOPMENT_BUNDLE_ID,
+  PENKRA_PRODUCTION_BUNDLE_ID,
+  LEGACY_PENKRA_DESKTOP_SCHEME,
+  penkraBundleId,
+  penkraDesktopIdentity,
 } from "./desktopIdentity";
 
 describe("desktopIdentity", () => {
   it("uses the exact canonical production and development bundle IDs", () => {
-    expect(SYNARA_PRODUCTION_BUNDLE_ID).toBe("com.penkra.app");
-    expect(SYNARA_DEVELOPMENT_BUNDLE_ID).toBe("com.penkra.app.dev");
-    expect(synaraBundleId(false)).toBe(SYNARA_PRODUCTION_BUNDLE_ID);
-    expect(synaraBundleId(true)).toBe(SYNARA_DEVELOPMENT_BUNDLE_ID);
+    expect(PENKRA_PRODUCTION_BUNDLE_ID).toBe("com.penkra.app");
+    expect(PENKRA_DEVELOPMENT_BUNDLE_ID).toBe("com.penkra.app.dev");
+    expect(penkraBundleId(false)).toBe(PENKRA_PRODUCTION_BUNDLE_ID);
+    expect(penkraBundleId(true)).toBe(PENKRA_DEVELOPMENT_BUNDLE_ID);
   });
 
   it("gives Stable and Dev distinct account-auth callback schemes", () => {
     expect(PENKRA_PRODUCTION_ACCOUNT_AUTH_SCHEME).toBe("com.penkra.app");
     expect(PENKRA_DEVELOPMENT_ACCOUNT_AUTH_SCHEME).toBe("com.penkra.app.dev");
-    expect(synaraDesktopIdentity("production").accountAuthScheme).toBe(
+    expect(penkraDesktopIdentity("production").accountAuthScheme).toBe(
       PENKRA_PRODUCTION_ACCOUNT_AUTH_SCHEME,
     );
-    expect(synaraDesktopIdentity("development").accountAuthScheme).toBe(
+    expect(penkraDesktopIdentity("development").accountAuthScheme).toBe(
       PENKRA_DEVELOPMENT_ACCOUNT_AUTH_SCHEME,
     );
   });
 
   it("uses the exact packaged renderer origin and entry URL", () => {
-    expect(SYNARA_DESKTOP_ORIGIN).toBe("penkra://app");
-    expect(SYNARA_DESKTOP_ENTRY_URL).toBe("penkra://app/index.html");
-    expect(LEGACY_SYNARA_DESKTOP_SCHEME).toBe("synara");
+    expect(PENKRA_DESKTOP_ORIGIN).toBe("penkra://app");
+    expect(PENKRA_DESKTOP_ENTRY_URL).toBe("penkra://app/index.html");
+    expect(LEGACY_PENKRA_DESKTOP_SCHEME).toBe("penkra");
   });
 
   it("uses the standard channel for Penkra's generic update feed", () => {
-    expect(SYNARA_DESKTOP_UPDATE_CHANNEL).toBe("latest");
+    expect(PENKRA_DESKTOP_UPDATE_CHANNEL).toBe("latest");
   });
 
   it("selects only Stable or Dev from the runtime mode", () => {
-    expect(resolveSynaraDesktopFlavor({ isPackaged: true })).toBe("production");
-    expect(resolveSynaraDesktopFlavor({ isPackaged: false, requestedFlavor: "development" })).toBe(
+    expect(resolvePenkraDesktopFlavor({ isPackaged: true })).toBe("production");
+    expect(resolvePenkraDesktopFlavor({ isPackaged: false, requestedFlavor: "development" })).toBe(
       "development",
     );
   });
 
   it("requires explicit local identity and honors it for branded Dev bundles", () => {
-    expect(() => resolveSynaraDesktopFlavor({ isPackaged: false })).toThrow(
+    expect(() => resolvePenkraDesktopFlavor({ isPackaged: false })).toThrow(
       "PENKRA_DESKTOP_FLAVOR=development",
     );
     expect(() =>
-      resolveSynaraDesktopFlavor({ isPackaged: false, requestedFlavor: "production" }),
+      resolvePenkraDesktopFlavor({ isPackaged: false, requestedFlavor: "production" }),
     ).toThrow("Unsupported Penkra desktop flavor");
-    expect(resolveSynaraDesktopFlavor({ isPackaged: true, requestedFlavor: "development" })).toBe(
+    expect(resolvePenkraDesktopFlavor({ isPackaged: true, requestedFlavor: "development" })).toBe(
       "development",
     );
     expect(() =>
-      resolveSynaraDesktopFlavor({ isPackaged: true, requestedFlavor: "production" }),
+      resolvePenkraDesktopFlavor({ isPackaged: true, requestedFlavor: "production" }),
     ).toThrow("Unsupported Penkra desktop flavor");
   });
 });

@@ -15,7 +15,7 @@ export const StudioListThreadOutputsInput = Schema.Struct({
 export type StudioListThreadOutputsInput = typeof StudioListThreadOutputsInput.Type;
 
 export const StudioOutputEntry = Schema.Struct({
-  /** File name, e.g. "2026-06-09_synara_local_dev_server_x_posts.md". */
+  /** File name, e.g. "2026-06-09_penkra_local_dev_server_x_posts.md". */
   name: TrimmedNonEmptyString,
   /** Path relative to the Studio workspace root, e.g. "Outbox/Content/2026-06-09_....md". */
   relativePath: TrimmedNonEmptyString,

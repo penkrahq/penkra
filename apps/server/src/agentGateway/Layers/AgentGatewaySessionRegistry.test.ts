@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest";
-import { ThreadId } from "@synara/contracts";
+import { ThreadId } from "@penkra/contracts";
 
 import { makeAgentGatewaySessionRegistry } from "./AgentGatewaySessionRegistry.ts";
 

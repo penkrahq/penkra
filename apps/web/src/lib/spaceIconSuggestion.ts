@@ -6,7 +6,7 @@
 //      so the same name always lands on the same icon) removes the second decision
 //      while the grid stays available as a manual override.
 
-import { SPACE_ICON_NAMES, type SpaceIconName } from "@synara/contracts";
+import { SPACE_ICON_NAMES, type SpaceIconName } from "@penkra/contracts";
 
 /**
  * Keyword sets per icon, matched by substring against the lowercased name. Order is the

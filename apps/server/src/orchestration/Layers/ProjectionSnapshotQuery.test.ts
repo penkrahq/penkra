@@ -8,7 +8,7 @@ import {
   SpaceId,
   ThreadId,
   TurnId,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 import { assert, it } from "@effect/vitest";
 import { Effect, Layer, Option } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -70,10 +70,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       const shell = yield* snapshotQuery.getShellSnapshot();
       const full = yield* snapshotQuery.getSnapshot();
       assert.equal(shell.spaces[0]?.id, SpaceId.makeUnsafe("space-snapshot"));
-      assert.equal(
-        shell.archivedSpaces[0]?.id,
-        SpaceId.makeUnsafe("space-archived-snapshot"),
-      );
+      assert.equal(shell.archivedSpaces?.[0]?.id, SpaceId.makeUnsafe("space-archived-snapshot"));
       assert.equal(shell.projects[0]?.spaceId, SpaceId.makeUnsafe("space-snapshot"));
       assert.equal(full.spaces[0]?.id, SpaceId.makeUnsafe("space-snapshot"));
       assert.equal(
@@ -1356,7 +1353,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           'project-pr',
           'Thread with PR',
           '{"provider":"codex","model":"gpt-5-codex"}',
-          '{"number":1,"title":"Add placeholder temp files","url":"https://github.com/Emanuele-web04/openclap/pull/1","baseBranch":"main","headBranch":"synara/greeting-1","state":"open"}',
+          '{"number":1,"title":"Add placeholder temp files","url":"https://github.com/Emanuele-web04/openclap/pull/1","baseBranch":"main","headBranch":"penkra/greeting-1","state":"open"}',
           '2026-02-25T00:00:02.000Z',
           '2026-02-25T00:00:03.000Z',
           NULL
@@ -1369,7 +1366,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
 
       const shellSnapshot = yield* snapshotQuery.getShellSnapshot();
       assert.equal(shellSnapshot.threads[0]?.lastKnownPr?.number, 1);
-      assert.equal(shellSnapshot.threads[0]?.lastKnownPr?.headBranch, "synara/greeting-1");
+      assert.equal(shellSnapshot.threads[0]?.lastKnownPr?.headBranch, "penkra/greeting-1");
     }),
   );
 

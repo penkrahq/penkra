@@ -5,10 +5,10 @@
 // Layer: Web UI state utilities
 // Exports: load/save helpers for the confirmed-path record.
 
-import type { ProviderKind } from "@synara/contracts";
+import type { ProviderKind } from "@penkra/contracts";
 import { isPlainObject } from "./persistedRecord";
 
-const STORAGE_KEY = "synara:confirmed-custom-binary-paths:v1";
+const STORAGE_KEY = "penkra:confirmed-custom-binary-paths:v1";
 
 // Mirror of the ProviderKind literal union; the explicit annotation makes the
 // compiler reject this list if a new provider is added without updating it.

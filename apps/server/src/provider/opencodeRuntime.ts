@@ -7,7 +7,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import type { ChatAttachment, ProviderApprovalDecision, RuntimeMode } from "@synara/contracts";
+import type { ChatAttachment, ProviderApprovalDecision, RuntimeMode } from "@penkra/contracts";
 import {
   type ConsoleState,
   createOpencodeClient,
@@ -38,8 +38,8 @@ import {
 import * as Semaphore from "effect/Semaphore";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
-import { NetService, type NetServiceShape } from "@synara/shared/Net";
-import { prepareWindowsSafeProcess } from "@synara/shared/windowsProcess";
+import { NetService, type NetServiceShape } from "@penkra/shared/Net";
+import { prepareWindowsSafeProcess } from "@penkra/shared/windowsProcess";
 import { buildProviderChildEnvironment } from "../providerChildEnvironment.ts";
 import {
   teardownEffectProcessTree,
@@ -1493,7 +1493,7 @@ const makeOpenCodeRuntime = (options?: OpenCodeRuntimeLiveOptions) =>
   });
 
 export class OpenCodeRuntime extends ServiceMap.Service<OpenCodeRuntime, OpenCodeRuntimeShape>()(
-  "synara/provider/opencodeRuntime",
+  "penkra/provider/opencodeRuntime",
 ) {}
 
 export const makeOpenCodeRuntimeLive = (options?: OpenCodeRuntimeLiveOptions) =>

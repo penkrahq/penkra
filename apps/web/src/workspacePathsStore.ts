@@ -21,8 +21,8 @@ interface WorkspacePathsStoreState {
   setServerWorkspacePaths: (paths: ServerWorkspacePaths) => void;
 }
 
-const WORKSPACE_PATHS_STORAGE_KEY = "synara:workspace-paths:v1";
-const LEGACY_WORKSPACE_PAGES_STORAGE_KEY = "synara:workspace-pages:v2";
+const WORKSPACE_PATHS_STORAGE_KEY = "penkra:workspace-paths:v1";
+const LEGACY_WORKSPACE_PAGES_STORAGE_KEY = "penkra:workspace-pages:v2";
 
 function createWorkspacePathsStorage(): StateStorage {
   return {

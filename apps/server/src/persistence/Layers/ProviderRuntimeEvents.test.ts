@@ -4,7 +4,7 @@ import {
   ThreadId,
   TurnId,
   type ProviderRuntimeEvent,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 import { assert, it } from "@effect/vitest";
 import { Effect, Layer } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -37,7 +37,7 @@ const runtimeEvent = (eventId: string, delta: string): ProviderRuntimeEvent => (
 });
 
 layer("ProviderRuntimeEventRepository", (it) => {
-  it.effect("journals exact events and advances its consumer cursor contiguously", () =>
+  it.effect("journals exact events and advances its thread cursor contiguously", () =>
     Effect.gen(function* () {
       const repository = yield* ProviderRuntimeEventRepository;
       const first = yield* repository.append(runtimeEvent("runtime-event-1", "hello"));
@@ -77,20 +77,20 @@ layer("ProviderRuntimeEventRepository", (it) => {
         ["runtime-event-1"],
       );
 
-      const skipped = yield* repository.advanceConsumerCursor({
-        consumerName: PROVIDER_RUNTIME_INGESTION_CONSUMER,
+      const skipped = yield* repository.advanceThreadCursor({
+        threadId: "thread-runtime-journal",
         eventSequence: second.sequence,
         updatedAt: "2026-07-14T00:00:01.000Z",
       });
       assert.isFalse(skipped);
-      const advanced = yield* repository.advanceConsumerCursor({
-        consumerName: PROVIDER_RUNTIME_INGESTION_CONSUMER,
+      const advanced = yield* repository.advanceThreadCursor({
+        threadId: "thread-runtime-journal",
         eventSequence: first.sequence,
         updatedAt: "2026-07-14T00:00:01.000Z",
       });
       assert.isTrue(advanced);
       assert.strictEqual(
-        yield* repository.getConsumerCursor(PROVIDER_RUNTIME_INGESTION_CONSUMER),
+        yield* repository.getThreadCursor("thread-runtime-journal"),
         first.sequence,
       );
       assert.deepStrictEqual(
@@ -103,8 +103,8 @@ layer("ProviderRuntimeEventRepository", (it) => {
       );
 
       assert.isTrue(
-        yield* repository.advanceConsumerCursor({
-          consumerName: PROVIDER_RUNTIME_INGESTION_CONSUMER,
+        yield* repository.advanceThreadCursor({
+          threadId: "thread-runtime-journal",
           eventSequence: second.sequence,
           updatedAt: "2026-07-14T00:00:02.000Z",
         }),
@@ -119,8 +119,8 @@ layer("ProviderRuntimeEventRepository", (it) => {
         payload: { state: "completed" },
       });
       assert.isTrue(
-        yield* repository.advanceConsumerCursor({
-          consumerName: PROVIDER_RUNTIME_INGESTION_CONSUMER,
+        yield* repository.advanceThreadCursor({
+          threadId: "thread-runtime-journal",
           eventSequence: terminal.sequence,
           updatedAt: "2026-07-14T00:00:03.000Z",
         }),
@@ -149,8 +149,8 @@ layer("ProviderRuntimeEventRepository", (it) => {
       const persisted = yield* repository.append(event);
 
       assert.isTrue(
-        yield* repository.advanceConsumerCursor({
-          consumerName: PROVIDER_RUNTIME_INGESTION_CONSUMER,
+        yield* repository.advanceThreadCursor({
+          threadId: event.threadId,
           eventSequence: persisted.sequence,
           updatedAt: "2026-07-14T00:01:00.000Z",
         }),
@@ -192,6 +192,117 @@ layer("ProviderRuntimeEventRepository", (it) => {
     }),
   );
 
+  it.effect("isolates a quarantined thread while preserving its raw events for replay", () =>
+    Effect.gen(function* () {
+      const repository = yield* ProviderRuntimeEventRepository;
+      const threadA = ThreadId.makeUnsafe("thread-runtime-isolation-a");
+      const threadB = ThreadId.makeUnsafe("thread-runtime-isolation-b");
+      const eventA1 = yield* repository.append({
+        ...runtimeEvent("runtime-isolation-a-1", "a1"),
+        threadId: threadA,
+      });
+      const eventA2 = yield* repository.append({
+        ...runtimeEvent("runtime-isolation-a-2", "a2"),
+        threadId: threadA,
+      });
+      const eventB1 = yield* repository.append({
+        ...runtimeEvent("runtime-isolation-b-1", "b1"),
+        threadId: threadB,
+      });
+
+      const initialHeads = yield* repository.readPendingThreadHeads({
+        throughSequenceInclusive: eventB1.sequence,
+        limit: 10,
+      });
+      assert.deepStrictEqual(
+        initialHeads.map((entry) => entry.event.eventId),
+        ["runtime-isolation-a-1", "runtime-isolation-b-1"],
+      );
+
+      // B can commit even while A's earlier global sequence remains pending.
+      assert.isTrue(
+        yield* repository.advanceThreadCursor({
+          threadId: threadB,
+          eventSequence: eventB1.sequence,
+          updatedAt: "2026-07-14T00:10:00.000Z",
+        }),
+      );
+      assert.strictEqual(yield* repository.getThreadCursor(threadA), 0);
+      assert.strictEqual(yield* repository.getThreadCursor(threadB), eventB1.sequence);
+
+      const firstFailure = yield* repository.recordProjectionFailure({
+        sequence: eventA1.sequence,
+        errorFingerprint: "stable-projection-error",
+        errorDetail: "deterministic failure",
+        failedAt: "2026-07-14T00:10:01.000Z",
+        attemptLimit: 2,
+        minBlockedMs: 0,
+      });
+      assert.strictEqual(firstFailure.status, "active");
+      const quarantine = yield* repository.recordProjectionFailure({
+        sequence: eventA1.sequence,
+        errorFingerprint: "stable-projection-error",
+        errorDetail: "deterministic failure",
+        failedAt: "2026-07-14T00:10:02.000Z",
+        attemptLimit: 2,
+        minBlockedMs: 0,
+      });
+      assert.strictEqual(quarantine.status, "quarantined");
+      assert.strictEqual(quarantine.attemptCount, 2);
+
+      assert.lengthOf(
+        yield* repository.readPendingThreadHeads({
+          throughSequenceInclusive: eventB1.sequence,
+          limit: 10,
+        }),
+        0,
+      );
+      assert.deepStrictEqual(
+        (yield* repository.listQuarantinedProjectionFailures).map((failure) => [
+          failure.threadId,
+          failure.sequence,
+        ]),
+        [[threadA, eventA1.sequence]],
+      );
+      assert.deepStrictEqual(
+        (yield* repository.readThreadEvents({
+          threadId: threadA,
+          throughSequenceInclusive: eventA2.sequence,
+          limit: 10,
+        })).map((entry) => entry.event.eventId),
+        ["runtime-isolation-a-2", "runtime-isolation-a-1"],
+      );
+
+      assert.isTrue(
+        yield* repository.releaseQuarantinedThread({
+          threadId: threadA,
+          releasedAt: "2026-07-14T00:11:00.000Z",
+        }),
+      );
+      assert.deepStrictEqual(
+        (yield* repository.readPendingThreadHeads({
+          throughSequenceInclusive: eventB1.sequence,
+          limit: 10,
+        })).map((entry) => entry.event.eventId),
+        ["runtime-isolation-a-1"],
+      );
+      assert.isTrue(
+        yield* repository.advanceThreadCursor({
+          threadId: threadA,
+          eventSequence: eventA1.sequence,
+          updatedAt: "2026-07-14T00:11:01.000Z",
+        }),
+      );
+      assert.deepStrictEqual(
+        (yield* repository.readPendingThreadHeads({
+          throughSequenceInclusive: eventB1.sequence,
+          limit: 10,
+        })).map((entry) => entry.event.eventId),
+        ["runtime-isolation-a-2"],
+      );
+    }),
+  );
+
   it.effect("compacts oversized raw provider payloads without losing the canonical event", () =>
     Effect.gen(function* () {
       const repository = yield* ProviderRuntimeEventRepository;
@@ -217,13 +328,13 @@ layer("ProviderRuntimeEventRepository", (it) => {
       assert.deepStrictEqual(persisted.event.payload, oversized.payload);
       const compactedRaw = rows[0]?.event.raw?.payload as
         | {
-            readonly synaraTruncated?: unknown;
+            readonly penkraTruncated?: unknown;
             readonly reason?: unknown;
             readonly originalBytes?: unknown;
           }
         | undefined;
       assert.deepInclude(compactedRaw, {
-        synaraTruncated: true,
+        penkraTruncated: true,
         reason: "provider runtime event exceeded the durable journal size limit",
       });
       assert.isNumber(compactedRaw?.originalBytes);
@@ -311,8 +422,8 @@ retentionLayer("ProviderRuntimeEventRepository retention", (it) => {
       const acceptEvent = (event: ProviderRuntimeEvent) =>
         Effect.gen(function* () {
           const persisted = yield* repository.append(event);
-          const accepted = yield* repository.advanceConsumerCursor({
-            consumerName: PROVIDER_RUNTIME_INGESTION_CONSUMER,
+          const accepted = yield* repository.advanceThreadCursor({
+            threadId: event.threadId,
             eventSequence: persisted.sequence,
             updatedAt: event.createdAt,
           });

@@ -1,10 +1,10 @@
 import {
-  SYNARA_GATEWAY_MAX_THREADS_PER_OPERATION,
+  PENKRA_GATEWAY_MAX_THREADS_PER_OPERATION,
   ThreadId,
   TurnId,
   type OrchestrationThreadShell,
   type ProviderKind,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 import { Effect, Option } from "effect";
 
 import {
@@ -14,7 +14,7 @@ import {
 import type { ProjectionSnapshotQueryShape } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import type { ProjectionTurnRepositoryShape } from "../persistence/Services/ProjectionTurns.ts";
 import type { ProviderDiscoveryServiceShape } from "../provider/Services/ProviderDiscoveryService.ts";
-import { SYNARA_HARNESS_POLICY_VERSION } from "./harnessPolicy.ts";
+import { PENKRA_HARNESS_POLICY_VERSION } from "./harnessPolicy.ts";
 import { mcpToolResultError, mcpToolResultJson } from "./protocol.ts";
 import {
   AGENT_GATEWAY_TARGET_OPTIONS_DESCRIPTION,
@@ -77,7 +77,7 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
   const contextTool: ToolEntry = {
     requiredCapability: "thread:read",
     definition: {
-      name: "synara_context",
+      name: "penkra_context",
       description:
         "Inspect the current Penkra harness identity, caller thread/turn, and authorized coordination capabilities.",
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
@@ -94,7 +94,7 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
         const caller = yield* requireThreadShell(context.callerThreadId);
         const turnId = caller.latestTurn?.state === "running" ? caller.latestTurn.turnId : null;
         return mcpToolResultJson({
-          harness: { name: "Penkra", policyVersion: SYNARA_HARNESS_POLICY_VERSION },
+          harness: { name: "Penkra", policyVersion: PENKRA_HARNESS_POLICY_VERSION },
           caller: {
             threadId: caller.id,
             turnId,
@@ -114,7 +114,7 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
   const capabilitiesTool: ToolEntry = {
     requiredCapability: "thread:read",
     definition: {
-      name: "synara_capabilities",
+      name: "penkra_capabilities",
       description: `List canonical Penkra provider/model targets, exact provider option keys, examples, and gateway limits used to validate thread creation. ${AGENT_GATEWAY_TARGET_OPTIONS_DESCRIPTION}`,
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
       annotations: {
@@ -162,7 +162,7 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
           targetConstruction,
           providers,
           limits: {
-            maxThreadsPerOperation: SYNARA_GATEWAY_MAX_THREADS_PER_OPERATION,
+            maxThreadsPerOperation: PENKRA_GATEWAY_MAX_THREADS_PER_OPERATION,
             maxWaitMs: 60_000,
             oneCreationPlanPerActiveTurn: true,
           },
@@ -173,7 +173,7 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
   const listProjects: ToolEntry = {
     requiredCapability: "thread:read",
     definition: {
-      name: "synara_list_projects",
+      name: "penkra_list_projects",
       description:
         "List Penkra projects (id, title, workspace root). System-managed containers (the Chats and Studio surfaces) are not projects and are excluded. Use before creating a thread in another project.",
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
@@ -207,7 +207,7 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
   const listThreads: ToolEntry = {
     requiredCapability: "thread:read",
     definition: {
-      name: "synara_list_threads",
+      name: "penkra_list_threads",
       description:
         "Discover Penkra threads by project, hierarchy, provider, model, status, title, creation source, or update window. Archived threads are hidden unless includeArchived is true.",
       inputSchema: {
@@ -284,7 +284,7 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
   const readThread: ToolEntry = {
     requiredCapability: "thread:read",
     definition: {
-      name: "synara_read_thread",
+      name: "penkra_read_thread",
       description:
         "Read one Penkra thread's status and recent messages (newest last, truncated). Pass the returned nextCursor as cursor to page older messages.",
       inputSchema: {
@@ -332,7 +332,7 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
   const waitForThreads: ToolEntry = {
     requiredCapability: "thread:read",
     definition: {
-      name: "synara_wait_for_threads",
+      name: "penkra_wait_for_threads",
       description: `Wait for the pinned turns of 1–20 Penkra threads and return every outcome in input order. Assistant summaries are capped at ${WAIT_THREAD_SUMMARY_MAX_CHARS} characters; use each result's readThread call to page the full transcript. Timeouts only report progress; they never retry, replace, cancel, or create work.`,
       inputSchema: {
         type: "object",
@@ -340,12 +340,12 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
           threadIds: {
             type: "array",
             minItems: 1,
-            maxItems: SYNARA_GATEWAY_MAX_THREADS_PER_OPERATION,
+            maxItems: PENKRA_GATEWAY_MAX_THREADS_PER_OPERATION,
             items: { type: "string" },
           },
           runIds: {
             type: "array",
-            maxItems: SYNARA_GATEWAY_MAX_THREADS_PER_OPERATION,
+            maxItems: PENKRA_GATEWAY_MAX_THREADS_PER_OPERATION,
             items: { type: ["string", "null"] },
             description: "Optional pinned turn ids from a prior wait. Must match threadIds length.",
           },
@@ -455,7 +455,7 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
                       summaryTruncated: false,
                       error: null as string | null,
                       readThread: {
-                        tool: "synara_read_thread" as const,
+                        tool: "penkra_read_thread" as const,
                         arguments: { threadId: pin.threadId },
                       },
                     };

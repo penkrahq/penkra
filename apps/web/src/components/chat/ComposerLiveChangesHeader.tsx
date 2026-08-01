@@ -6,7 +6,7 @@
 // Layer: Chat composer UI
 // Exports: ComposerLiveChangesHeader
 
-import { pluralize } from "@synara/shared/text";
+import { pluralize } from "@penkra/shared/text";
 
 import { ChangesIcon } from "~/lib/icons";
 import {

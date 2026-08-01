@@ -8,7 +8,7 @@ import type {
   ProfileStats,
   ProfileTokenStats,
   ProviderKind,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 
 export interface ProfileHeatmapSelection {
   readonly cells: ReadonlyArray<ProfileHeatmapCell>;

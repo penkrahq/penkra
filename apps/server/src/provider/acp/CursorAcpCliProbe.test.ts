@@ -1,6 +1,6 @@
 /**
  * Optional integration check against a real `cursor-agent acp` install.
- * Enable with: SYNARA_CURSOR_ACP_PROBE=1 bun run test --filter CursorAcpCliProbe
+ * Enable with: PENKRA_CURSOR_ACP_PROBE=1 bun run test --filter CursorAcpCliProbe
  */
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it } from "@effect/vitest";
@@ -20,7 +20,7 @@ function flattenSelectOptionValues(
   );
 }
 
-describe.runIf(process.env.SYNARA_CURSOR_ACP_PROBE === "1")("Cursor ACP CLI probe", () => {
+describe.runIf(process.env.PENKRA_CURSOR_ACP_PROBE === "1")("Cursor ACP CLI probe", () => {
   it.effect("initialize and authenticate against real cursor-agent acp", () =>
     Effect.gen(function* () {
       const runtime = yield* AcpSessionRuntime;
@@ -40,7 +40,7 @@ describe.runIf(process.env.SYNARA_CURSOR_ACP_PROBE === "1")("Cursor ACP CLI prob
               parameterizedModelPicker: true,
             },
           },
-          clientInfo: { name: "synara-probe", version: "0.0.0" },
+          clientInfo: { name: "penkra-probe", version: "0.0.0" },
           authMethodId: "cursor_login",
         }),
       ),
@@ -92,7 +92,7 @@ describe.runIf(process.env.SYNARA_CURSOR_ACP_PROBE === "1")("Cursor ACP CLI prob
               parameterizedModelPicker: true,
             },
           },
-          clientInfo: { name: "synara-probe", version: "0.0.0" },
+          clientInfo: { name: "penkra-probe", version: "0.0.0" },
         }),
       ),
       Effect.scoped,
@@ -150,7 +150,7 @@ describe.runIf(process.env.SYNARA_CURSOR_ACP_PROBE === "1")("Cursor ACP CLI prob
               parameterizedModelPicker: true,
             },
           },
-          clientInfo: { name: "synara-probe", version: "0.0.0" },
+          clientInfo: { name: "penkra-probe", version: "0.0.0" },
         }),
       ),
       Effect.scoped,

@@ -15,7 +15,7 @@ import {
   type ToolLifecycleItemType,
   TurnId,
   type UserInputQuestion,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 import { Cause, Deferred, Effect, Exit, Layer, Option, Queue, Ref, Scope, Stream } from "effect";
 import type {
   AssistantMessage,
@@ -36,8 +36,8 @@ import {
   ProviderAdapterSessionNotFoundError,
   ProviderAdapterValidationError,
 } from "../Errors.ts";
-import { takeSynaraHarnessPolicyForProviderSession } from "../../agentGateway/harnessPolicy.ts";
-import { buildOpenCodeMcpServer, SYNARA_MCP_SERVER_NAME } from "../../agentGateway/mcpInjection.ts";
+import { takePenkraHarnessPolicyForProviderSession } from "../../agentGateway/harnessPolicy.ts";
+import { buildOpenCodeMcpServer, PENKRA_MCP_SERVER_NAME } from "../../agentGateway/mcpInjection.ts";
 import { AgentGatewayCredentials } from "../../agentGateway/Services/AgentGatewayCredentials.ts";
 import {
   acquireAgentGatewaySessionLease,
@@ -157,7 +157,7 @@ interface OpenCodeSessionContext {
   readonly directory: string;
   readonly openCodeSessionId: string;
   readonly pendingPermissions: Map<string, PermissionRequest>;
-  /** Permission request ids resolved by Synara policy and never surfaced to the UI. */
+  /** Permission request ids resolved by Penkra policy and never surfaced to the UI. */
   readonly policyResolvedPermissionIds: Set<string>;
   readonly pendingQuestions: Map<string, QuestionRequest>;
   readonly pendingTextDeltasByPartId: Map<string, string>;
@@ -1581,7 +1581,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                   turnId,
                   messageId: deferredFinalAssistantMessageId,
                   raw: {
-                    source: "synara.opencode.deferred-idle-completion",
+                    source: "penkra.opencode.deferred-idle-completion",
                     event: raw,
                   },
                 }))
@@ -1598,7 +1598,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                 yield* completeOpenCodeTurn(context, {
                   turnId,
                   raw: {
-                    source: "synara.opencode.deferred-idle-local-part",
+                    source: "penkra.opencode.deferred-idle-local-part",
                     event: raw,
                   },
                   totalCostUsd: context.latestTurnCostUsd,
@@ -1625,7 +1625,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                   turnId,
                   messageId: retriedFinalAssistantMessageId,
                   raw: {
-                    source: "synara.opencode.deferred-idle-completion-retry",
+                    source: "penkra.opencode.deferred-idle-completion-retry",
                     event: raw,
                   },
                 }))
@@ -1639,7 +1639,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                 yield* completeOpenCodeTurn(context, {
                   turnId,
                   raw: {
-                    source: "synara.opencode.deferred-idle-local-part-retry",
+                    source: "penkra.opencode.deferred-idle-local-part-retry",
                     event: raw,
                   },
                   totalCostUsd: context.latestTurnCostUsd,
@@ -1654,7 +1654,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
             const completed = yield* completeOpenCodeTurn(context, {
               turnId,
               raw: {
-                source: "synara.opencode.idle-after-tool-calls",
+                source: "penkra.opencode.idle-after-tool-calls",
                 event: raw,
               },
               errorMessage: message,
@@ -1665,7 +1665,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                 threadId: context.session.threadId,
                 turnId,
                 raw: {
-                  source: "synara.opencode.idle-after-tool-calls",
+                  source: "penkra.opencode.idle-after-tool-calls",
                   event: raw,
                 },
               }),
@@ -1836,7 +1836,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
             turnId: input.turnId,
             assistantEntry,
             raw: {
-              source: "synara.opencode.prompt.recovery",
+              source: "penkra.opencode.prompt.recovery",
               message: assistantEntry,
             },
           });
@@ -1909,7 +1909,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                 "OpenCode did not produce any activity for this prompt. The session may be stuck; try sending again or restart OpenCode.";
               const completed = yield* completeOpenCodeTurn(context, {
                 turnId: input.turnId,
-                raw: { source: "synara.opencode.prompt.watchdog" },
+                raw: { source: "penkra.opencode.prompt.watchdog" },
                 errorMessage: message,
               });
               if (!completed) return;
@@ -1917,7 +1917,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                 ...buildEventBase({
                   threadId: context.session.threadId,
                   turnId: input.turnId,
-                  raw: { source: "synara.opencode.prompt.watchdog" },
+                  raw: { source: "penkra.opencode.prompt.watchdog" },
                 }),
                 type: "runtime.error",
                 payload: {
@@ -1967,7 +1967,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                   turnId: input.turnId,
                   assistantEntry,
                   raw: {
-                    source: "synara.opencode.prompt.response",
+                    source: "penkra.opencode.prompt.response",
                     message: assistantEntry,
                   },
                 });
@@ -2446,7 +2446,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
 
           case "permission.replied": {
             if (context.policyResolvedPermissionIds.delete(event.properties.requestID)) {
-              // Synara policy resolved this request; nothing was surfaced to the UI.
+              // Penkra policy resolved this request; nothing was surfaced to the UI.
               break;
             }
             const request = context.pendingPermissions.get(event.properties.requestID);
@@ -2593,7 +2593,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
           }
 
           // Newer OpenCode servers can emit session.next.* events for the active
-          // agent loop. Mirror them into Synara's canonical transcript stream.
+          // agent loop. Mirror them into Penkra's canonical transcript stream.
           case "session.next.text.delta": {
             if (!turnId || event.properties.delta.length === 0) {
               break;
@@ -3409,7 +3409,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
           const resumedSessionId = extractResumeSessionId(input.resumeCursor);
           // OpenCode's MCP registry is process/directory scoped, not session
           // scoped. A gateway token is therefore issued only for a managed
-          // server that this runtime isolates to the exact Synara thread.
+          // server that this runtime isolates to the exact Penkra thread.
           const agentGatewaySessionLease = serverUrl
             ? undefined
             : acquireAgentGatewaySessionLease(agentGatewayCredentials, input.threadId, provider);
@@ -3443,12 +3443,12 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                       ? yield* runOpenCodeSdk("mcp.add", () =>
                           client.mcp.add({
                             directory,
-                            name: SYNARA_MCP_SERVER_NAME,
+                            name: PENKRA_MCP_SERVER_NAME,
                             config: buildOpenCodeMcpServer(agentGatewayConnection),
                           }),
                         ).pipe(
                           Effect.flatMap((result) => {
-                            const status = result.data?.[SYNARA_MCP_SERVER_NAME];
+                            const status = result.data?.[PENKRA_MCP_SERVER_NAME];
                             return status?.status === "connected"
                               ? Effect.void
                               : Effect.fail(
@@ -3456,8 +3456,8 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                                     operation: "mcp.add",
                                     detail:
                                       status?.status === "failed"
-                                        ? `${adapterConfig.displayName} Synara MCP connection failed: ${status.error}`
-                                        : `${adapterConfig.displayName} Synara MCP connection did not become ready.`,
+                                        ? `${adapterConfig.displayName} Penkra MCP connection failed: ${status.error}`
+                                        : `${adapterConfig.displayName} Penkra MCP connection did not become ready.`,
                                   }),
                                 );
                           }),
@@ -3466,7 +3466,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                             Effect.sync(() => agentGatewaySessionLease?.release()).pipe(
                               Effect.andThen(
                                 Effect.logWarning(
-                                  `${adapterConfig.displayName} could not install thread-scoped Synara MCP control`,
+                                  `${adapterConfig.displayName} could not install thread-scoped Penkra MCP control`,
                                   Cause.squash(cause),
                                 ),
                               ),
@@ -3477,10 +3477,10 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                       : false;
                     const createSessionId = resumedSessionId
                       ? // A resumed provider may still be executing an interrupted Plan turn.
-                        // Install the read-only ruleset until Synara dispatches a new turn with a
+                        // Install the read-only ruleset until Penkra dispatches a new turn with a
                         // known interaction mode. This must succeed before the event pump starts:
                         // otherwise an already-running Full Access session could mutate state
-                        // without ever emitting a permission request for Synara to reject.
+                        // without ever emitting a permission request for Penkra to reject.
                         runOpenCodeSdk("session.update", () =>
                           client.session.update({
                             sessionID: resumedSessionId,
@@ -3719,7 +3719,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
             issue: `${adapterConfig.displayName} turns require text input or at least one attachment.`,
           });
         }
-        const harnessPolicy = takeSynaraHarnessPolicyForProviderSession(context, {
+        const harnessPolicy = takePenkraHarnessPolicyForProviderSession(context, {
           provider,
           scopedGatewayConnectionAvailable: context.gatewayControlAvailable,
         });
@@ -3746,9 +3746,9 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
         context.activeTurnFinalAssistantMessageId = undefined;
         context.activeTurnToolCallIdleWatchdogStarted = false;
         context.activeInteractionMode = interactionMode;
-        // Always pin Synara's interaction mode to OpenCode's primary agent.
+        // Always pin Penkra's interaction mode to OpenCode's primary agent.
         // Otherwise a user config with default agent=plan (or a stale options.agent=plan
-        // after leaving Synara plan mode) can trap default turns in plan mode.
+        // after leaving Penkra plan mode) can trap default turns in plan mode.
         const modePinnedAgent =
           interactionMode === "plan" ? adapterConfig.planAgent : adapterConfig.defaultAgent;
         context.activeAgent =

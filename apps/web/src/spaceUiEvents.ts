@@ -1,4 +1,4 @@
-import type { SpaceId } from "@synara/contracts";
+import type { SpaceId } from "@penkra/contracts";
 
 const SPACE_UI_EVENT = "penkra:space-ui-action";
 

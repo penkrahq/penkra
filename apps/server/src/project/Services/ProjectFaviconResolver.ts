@@ -7,4 +7,4 @@ export interface ProjectFaviconResolverShape {
 export class ProjectFaviconResolver extends ServiceMap.Service<
   ProjectFaviconResolver,
   ProjectFaviconResolverShape
->()("synara/project/Services/ProjectFaviconResolver") {}
+>()("penkra/project/Services/ProjectFaviconResolver") {}

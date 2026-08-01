@@ -120,15 +120,17 @@ export const AccountRowShared = forwardRef<HTMLDivElement, AccountRowSharedProps
             )}
           </div>
         ) : null}
-        <button
-          aria-label="Help"
-          className="inline-flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-[6px] border-0 bg-transparent p-0 text-[var(--color-text-foreground-tertiary)] outline-none hover:text-[var(--color-text-foreground)] focus-visible:ring-1 focus-visible:ring-[var(--color-border-focus)]"
-          disabled={disabled}
-          onClick={onHelp}
-          type="button"
-        >
-          <CircleQuestionIcon className="size-3.5" />
-        </button>
+        {!showUpdate ? (
+          <button
+            aria-label="Help"
+            className="inline-flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-[6px] border-0 bg-transparent p-0 text-[var(--color-text-foreground-tertiary)] outline-none hover:text-[var(--color-text-foreground)] focus-visible:ring-1 focus-visible:ring-[var(--color-border-focus)]"
+            disabled={disabled}
+            onClick={onHelp}
+            type="button"
+          >
+            <CircleQuestionIcon className="size-3.5" />
+          </button>
+        ) : null}
       </div>
     );
   },

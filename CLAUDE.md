@@ -9,9 +9,9 @@
 
 ## Project Snapshot
 
-Synara is a minimal web GUI for using coding agents. It is multi-provider: `ProviderKind` currently spans 9 providers — Codex, Claude (`claudeAgent`), Cursor, Antigravity, Grok, Factory Droid (`droid`), Kilo, OpenCode, and Pi. Each provider has its own model options and capabilities (reasoning effort, thinking budget/level, context window, fast mode), defined in `packages/contracts` and resolved in `packages/shared/src/model.ts`.
+Penkra is a minimal web GUI for using coding agents. It is multi-provider: `ProviderKind` currently spans 9 providers — Codex, Claude (`claudeAgent`), Cursor, Antigravity, Grok, Factory Droid (`droid`), Kilo, OpenCode, and Pi. Each provider has its own model options and capabilities (reasoning effort, thinking budget/level, context window, fast mode), defined in `packages/contracts` and resolved in `packages/shared/src/model.ts`.
 
-Codex was the first integration and remains the most fleshed-out reference (see the Codex App Server section), but Synara is not Codex-only.
+Codex was the first integration and remains the most fleshed-out reference (see the Codex App Server section), but Penkra is not Codex-only.
 
 This repository is a VERY EARLY WIP. Proposing sweeping changes that improve long-term maintainability is encouraged.
 
@@ -84,7 +84,7 @@ Reference usage: opening/closing a project and the sidebar sections in `apps/web
 - `apps/server`: Node.js WebSocket server. Wraps Codex app-server (JSON-RPC over stdio), serves the React web app, and manages provider sessions.
 - `apps/web`: React/Vite UI. Owns session UX, conversation/event rendering, and client-side state. Connects to the server via WebSocket.
 - `packages/contracts`: Shared effect/Schema schemas and TypeScript contracts for provider events, WebSocket protocol, and model/session types. Keep this package schema-only — no runtime logic.
-- `packages/shared`: Shared runtime utilities consumed by both server and web. Uses explicit subpath exports (e.g. `@synara/shared/git`) — no barrel index.
+- `packages/shared`: Shared runtime utilities consumed by both server and web. Uses explicit subpath exports (e.g. `@penkra/shared/git`) — no barrel index.
 
 ## Codex App Server (Important)
 

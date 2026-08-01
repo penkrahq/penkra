@@ -8,7 +8,7 @@ import {
   TurnId,
   type OrchestrationCommand,
   type OrchestrationEvent,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 import { Effect, Layer, ManagedRuntime, Option, Queue, Stream } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
@@ -82,7 +82,7 @@ const asTurnId = (value: string): TurnId => TurnId.makeUnsafe(value);
 const asCheckpointRef = (value: string): CheckpointRef => CheckpointRef.makeUnsafe(value);
 
 const TestServerConfigLayer = ServerConfig.layerTest(process.cwd(), {
-  prefix: "synara-orchestration-engine-test-",
+  prefix: "penkra-orchestration-engine-test-",
 });
 
 async function createOrchestrationSystem() {
@@ -637,7 +637,7 @@ describe("OrchestrationEngine", () => {
         threadId: ThreadId.makeUnsafe("thread-turn-diff"),
         turnId: asTurnId("turn-1"),
         completedAt: createdAt,
-        checkpointRef: asCheckpointRef("refs/synara/checkpoints/thread-turn-diff/turn/1"),
+        checkpointRef: asCheckpointRef("refs/penkra/checkpoints/thread-turn-diff/turn/1"),
         status: "ready",
         files: [],
         checkpointTurnCount: 1,
@@ -652,7 +652,7 @@ describe("OrchestrationEngine", () => {
       {
         turnId: asTurnId("turn-1"),
         checkpointTurnCount: 1,
-        checkpointRef: asCheckpointRef("refs/synara/checkpoints/thread-turn-diff/turn/1"),
+        checkpointRef: asCheckpointRef("refs/penkra/checkpoints/thread-turn-diff/turn/1"),
         status: "ready",
         files: [],
         assistantMessageId: null,
@@ -1445,7 +1445,7 @@ describe("OrchestrationEngine", () => {
         projectId: asProjectId("project-studio"),
         kind: "studio",
         title: "Studio",
-        workspaceRoot: "/tmp/synara-studio",
+        workspaceRoot: "/tmp/penkra-studio",
         defaultModelSelection: null,
         createdAt,
       }),
@@ -1459,7 +1459,7 @@ describe("OrchestrationEngine", () => {
           projectId: asProjectId("project-studio-duplicate"),
           kind: "studio",
           title: "Studio",
-          workspaceRoot: "/tmp/synara-studio",
+          workspaceRoot: "/tmp/penkra-studio",
           defaultModelSelection: null,
           createdAt,
         }),
@@ -1481,7 +1481,7 @@ describe("OrchestrationEngine", () => {
         projectId: asProjectId("project-cross-kind-studio"),
         kind: "studio",
         title: "Studio",
-        workspaceRoot: "/tmp/synara-cross-kind-studio",
+        workspaceRoot: "/tmp/penkra-cross-kind-studio",
         defaultModelSelection: null,
         createdAt,
       }),
@@ -1493,7 +1493,7 @@ describe("OrchestrationEngine", () => {
         projectId: asProjectId("project-cross-kind-app"),
         kind: "project",
         title: "App",
-        workspaceRoot: "/tmp/synara-cross-kind-app",
+        workspaceRoot: "/tmp/penkra-cross-kind-app",
         defaultModelSelection: null,
         createdAt,
       }),
@@ -1509,7 +1509,7 @@ describe("OrchestrationEngine", () => {
           projectId: asProjectId("project-on-studio-root"),
           kind: "project",
           title: "Studio folder",
-          workspaceRoot: "/tmp/synara-cross-kind-studio",
+          workspaceRoot: "/tmp/penkra-cross-kind-studio",
           defaultModelSelection: null,
           createdAt,
         }),
@@ -1525,7 +1525,7 @@ describe("OrchestrationEngine", () => {
           projectId: asProjectId("project-studio-on-project-root"),
           kind: "studio",
           title: "Studio",
-          workspaceRoot: "/tmp/synara-cross-kind-app",
+          workspaceRoot: "/tmp/penkra-cross-kind-app",
           defaultModelSelection: null,
           createdAt,
         }),
@@ -1539,7 +1539,7 @@ describe("OrchestrationEngine", () => {
           type: "project.meta.update",
           commandId: CommandId.makeUnsafe("cmd-cross-kind-project-root-update"),
           projectId: asProjectId("project-cross-kind-app"),
-          workspaceRoot: "/tmp/synara-cross-kind-studio",
+          workspaceRoot: "/tmp/penkra-cross-kind-studio",
         }),
       ),
     ).rejects.toThrow("already uses workspace root");
@@ -1560,7 +1560,7 @@ describe("OrchestrationEngine", () => {
           commandId: CommandId.makeUnsafe("cmd-cross-kind-pinned-kind-change"),
           projectId: asProjectId("project-cross-kind-app"),
           kind: "studio",
-          workspaceRoot: "/tmp/synara-cross-kind-pinned-studio",
+          workspaceRoot: "/tmp/penkra-cross-kind-pinned-studio",
         }),
       ),
     ).rejects.toThrow("Only projects can be pinned.");
@@ -1574,7 +1574,7 @@ describe("OrchestrationEngine", () => {
         projectId: asProjectId("project-cross-kind-chat"),
         kind: "chat",
         title: "Home",
-        workspaceRoot: "/tmp/synara-cross-kind-studio",
+        workspaceRoot: "/tmp/penkra-cross-kind-studio",
         defaultModelSelection: null,
         createdAt,
       }),
@@ -1605,7 +1605,7 @@ describe("OrchestrationEngine", () => {
         projectId: asProjectId("project-studio-source"),
         kind: "studio",
         title: "Studio",
-        workspaceRoot: "/tmp/synara-studio-source",
+        workspaceRoot: "/tmp/penkra-studio-source",
         defaultModelSelection: null,
         createdAt,
       }),
@@ -1617,7 +1617,7 @@ describe("OrchestrationEngine", () => {
         projectId: asProjectId("project-studio-target"),
         kind: "studio",
         title: "Studio",
-        workspaceRoot: "/tmp/synara-studio-target",
+        workspaceRoot: "/tmp/penkra-studio-target",
         defaultModelSelection: null,
         createdAt,
       }),
@@ -1629,7 +1629,7 @@ describe("OrchestrationEngine", () => {
           type: "project.meta.update",
           commandId: CommandId.makeUnsafe("cmd-studio-target-root-update"),
           projectId: asProjectId("project-studio-target"),
-          workspaceRoot: "/tmp/synara-studio-source",
+          workspaceRoot: "/tmp/penkra-studio-source",
         }),
       ),
     ).rejects.toThrow("already uses workspace root");

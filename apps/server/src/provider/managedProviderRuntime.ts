@@ -2,7 +2,7 @@ import {
   DEFAULT_SERVER_SETTINGS,
   type ProviderKind,
   type ProviderStartOptions,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 import { Effect, FileSystem, Path } from "effect";
 
 import { writeFileStringAtomically } from "../atomicWrite";

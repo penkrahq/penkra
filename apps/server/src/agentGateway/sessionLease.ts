@@ -1,4 +1,4 @@
-import type { ProviderKind, ThreadId } from "@synara/contracts";
+import type { ProviderKind, ThreadId } from "@penkra/contracts";
 import { Effect } from "effect";
 
 import type {

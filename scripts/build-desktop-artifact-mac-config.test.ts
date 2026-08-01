@@ -2,16 +2,12 @@ import { assert, describe, it } from "@effect/vitest";
 
 import {
   createDesktopPlatformBuildConfig,
-  MAC_APPSNAP_HELPER_ASAR_EXCLUSION,
-  MAC_APPSNAP_HELPER_BUNDLE_PATH,
-  MAC_APPSNAP_HELPER_STAGE_PATH,
   MAC_ENTITLEMENTS_PATH,
   MAC_INHERITED_ENTITLEMENTS_PATH,
   MAC_RELEASE_SIGNING_IDENTITY,
   MICROPHONE_USAGE_DESCRIPTION,
   NODE_PTY_ASAR_UNPACK_GLOBS,
   PARCEL_WATCHER_ASAR_UNPACK_GLOBS,
-  validateDesktopNativeBuildHost,
 } from "./lib/desktop-platform-build-config.ts";
 import { BRAND_ASSET_PATHS } from "./lib/brand-assets.ts";
 import { APP_DATA_USAGE_DESCRIPTION } from "./lib/macos-privacy.ts";
@@ -40,21 +36,6 @@ describe("createDesktopPlatformBuildConfig", () => {
     assert.equal(dmg.writeUpdateInfo, false);
     assert.equal(mac.entitlements, MAC_ENTITLEMENTS_PATH);
     assert.equal(mac.entitlementsInherit, MAC_INHERITED_ENTITLEMENTS_PATH);
-    assert.equal(MAC_APPSNAP_HELPER_BUNDLE_PATH, "Contents/Helpers/synara-appsnap-helper");
-    assert.deepStrictEqual(mac.binaries, ["Contents/Helpers/synara-appsnap-helper"]);
-    assert.equal(mac.x64ArchFiles, "Contents/Helpers/synara-appsnap-helper");
-    assert.equal(
-      MAC_APPSNAP_HELPER_STAGE_PATH,
-      "apps/desktop/native/appsnap/build/synara-appsnap-helper",
-    );
-    assert.equal(MAC_APPSNAP_HELPER_ASAR_EXCLUSION, "!apps/desktop/native/appsnap/build/**");
-    assert.deepStrictEqual(config.files, ["**/*", MAC_APPSNAP_HELPER_ASAR_EXCLUSION]);
-    assert.deepStrictEqual(config.extraFiles, [
-      {
-        from: "apps/desktop/native/appsnap/build/synara-appsnap-helper",
-        to: "Helpers/synara-appsnap-helper",
-      },
-    ]);
     assert.equal(extendInfo.NSAppDataUsageDescription, APP_DATA_USAGE_DESCRIPTION);
     assert.equal(extendInfo.NSMicrophoneUsageDescription, MICROPHONE_USAGE_DESCRIPTION);
     assert.equal(extendInfo.NSScreenCaptureUsageDescription, undefined);
@@ -82,26 +63,6 @@ describe("createDesktopPlatformBuildConfig", () => {
       ...NODE_PTY_ASAR_UNPACK_GLOBS,
       ...PARCEL_WATCHER_ASAR_UNPACK_GLOBS,
     ]);
-  });
-
-  it("requires a macOS host for the native Swift AppSnap helper", () => {
-    assert.equal(
-      validateDesktopNativeBuildHost({
-        platform: "mac",
-        arch: "universal",
-        hostPlatform: "darwin",
-        hostArch: "arm64",
-      }),
-      null,
-    );
-
-    const issue = validateDesktopNativeBuildHost({
-      platform: "mac",
-      arch: "arm64",
-      hostPlatform: "linux",
-      hostArch: "arm64",
-    });
-    assert.ok(issue?.includes("Build mac/arm64 on macOS"));
   });
 
   it("uses the canonical Pencil-derived Penkra artwork for every macOS icon path", () => {

@@ -3,11 +3,11 @@ import {
   type OrchestrationPendingInteraction,
   type OrchestrationThreadActivity,
   type UserInputQuestion,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 import {
   approvalRequestKindFromRequestType,
   pendingRequestInstanceKey,
-} from "@synara/shared/threadSummary";
+} from "@penkra/shared/threadSummary";
 
 import { isStalePendingRequestFailureDetail } from "./lib/pendingInteraction";
 import { orderedActivities } from "./workLog";

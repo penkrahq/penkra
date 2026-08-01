@@ -10,8 +10,8 @@ import { electronClient } from "@better-auth/electron/client";
 import { storage } from "@better-auth/electron/storage";
 import { createAuthClient } from "better-auth/client";
 
-import type { DesktopAccountAuthState, DesktopAccountUser } from "@synara/contracts";
-import type { SynaraDesktopFlavor } from "@synara/shared/desktopIdentity";
+import type { DesktopAccountAuthState, DesktopAccountUser } from "@penkra/contracts";
+import type { PenkraDesktopFlavor } from "@penkra/shared/desktopIdentity";
 import {
   isPenkraAccountAuthCallbackUrl,
   PENKRA_ACCOUNT_AUTH_CALLBACK_PATH,
@@ -35,7 +35,7 @@ type PenkraElectronAuthClient = ReturnType<typeof createAuthClient> & {
 export function configurePenkraAccountAuth(input: {
   accountAuthScheme: string;
   authBaseUrl: string;
-  desktopFlavor: SynaraDesktopFlavor;
+  desktopFlavor: PenkraDesktopFlavor;
   getWindow: () => BrowserWindow | null;
   ipcMain: IpcMain;
   websiteOrigin: string;

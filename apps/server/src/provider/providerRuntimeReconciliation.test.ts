@@ -7,7 +7,7 @@ import {
   type OrchestrationSession,
   type OrchestrationThreadShell,
   type ProviderSession,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
 
@@ -143,8 +143,8 @@ describe("planProviderRuntimeReconciliation", () => {
         pumpHealth: [
           {
             provider: "claudeAgent",
-            status: "recovering",
-            consecutiveFailures: 1,
+            status: "healthy",
+            consecutiveFailures: 0,
             updatedAt: "2026-07-23T20:00:29.000Z",
           },
         ],
@@ -562,7 +562,7 @@ describe("planProviderRuntimeReconciliation", () => {
           id: "provider-runtime-reconcile:activity",
           tone: "info",
           kind: "provider.runtime.reconciled",
-          summary: "Synara recovered a stale running state",
+          summary: "Penkra recovered a stale running state",
           payload: {
             provider: plan.provider,
             action: plan.action,
@@ -660,7 +660,7 @@ describe("planProviderRuntimeReconciliation", () => {
     });
   });
 
-  it("records degraded pump evidence in the reconciliation reason", () => {
+  it("does not settle while the provider runtime-event pump is unhealthy", () => {
     const plans = planProviderRuntimeReconciliation({
       threads: [threadShell()],
       bindings: [binding(null)],
@@ -677,6 +677,56 @@ describe("planProviderRuntimeReconciliation", () => {
       staleAfterMs: 10_000,
     });
 
+    expect(plans).toEqual([]);
+  });
+
+  it("still settles an abandoned thread despite an unhealthy pump", () => {
+    const abandonedAt = "2026-07-23T19:00:00.000Z";
+    const plans = planProviderRuntimeReconciliation({
+      threads: [
+        threadShell({
+          updatedAt: abandonedAt,
+          session: {
+            ...threadShell().session!,
+            updatedAt: abandonedAt,
+          },
+        }),
+      ],
+      bindings: [binding(null)],
+      liveSessions: [],
+      pumpHealth: [
+        {
+          provider: "codex",
+          status: "recovering",
+          consecutiveFailures: 2,
+          updatedAt: "2026-07-23T20:00:29.000Z",
+        },
+      ],
+      nowMs: NOW,
+      staleAfterMs: 10_000,
+      maxTurnAgeMs: 30 * 60_000,
+    });
+
+    expect(plans).toEqual([
+      expect.objectContaining({
+        action: "settle-interrupted",
+        threadId: THREAD_ID,
+        projectedTurnId: OLD_TURN_ID,
+      }),
+    ]);
     expect(plans[0]?.reason).toContain("runtime-event pump is recovering");
+  });
+
+  it("does not treat an actively streaming turn as stale when only the session row is quiet", () => {
+    const plans = planProviderRuntimeReconciliation({
+      threads: [threadShell({ updatedAt: "2026-07-23T20:00:28.000Z" })],
+      bindings: [binding(null)],
+      liveSessions: [liveSession({ status: "ready" })],
+      pumpHealth: [],
+      nowMs: NOW,
+      staleAfterMs: 10_000,
+    });
+
+    expect(plans).toEqual([]);
   });
 });

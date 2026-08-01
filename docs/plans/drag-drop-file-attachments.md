@@ -42,7 +42,7 @@ drop a small `.zip` and a `.txt`, send a turn to BOTH Claude and Codex asking th
 the attached file, and confirm the agent can open it.
 
 **Fallback if a provider's sandbox blocks the read:** stage the file into a workspace‑relative
-dir instead (e.g. `<threadWorkspaceRoot>/.synara/attachments/<id>.<ext>`) and reference that
+dir instead (e.g. `<threadWorkspaceRoot>/.penkra/attachments/<id>.<ext>`) and reference that
 relative path. Implement the fallback ONLY if verification shows the absolute path is unreadable;
 document whichever path is chosen in code comments. Do not pollute the repo unless required.
 

@@ -2,12 +2,12 @@
 // Purpose: Persists project-only renderer preferences without depending on the Zustand facade.
 // Exports: Persistence I/O plus read-only remembered project UI state.
 
-import { normalizeWorkspaceRootForComparison } from "@synara/shared/threadWorkspace";
+import { normalizeWorkspaceRootForComparison } from "@penkra/shared/threadWorkspace";
 
 import type { AppState } from "./storeState";
 import type { Project } from "./types";
 
-const PERSISTED_STATE_KEY = "synara:renderer-state:v8";
+const PERSISTED_STATE_KEY = "penkra:renderer-state:v8";
 const persistedExpandedProjectCwds = new Set<string>();
 const persistedProjectOrderCwds: string[] = [];
 const persistedProjectOrderByCwd = new Map<string, number>();

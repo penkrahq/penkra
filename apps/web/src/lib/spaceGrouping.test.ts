@@ -1,4 +1,4 @@
-import { SpaceId } from "@synara/contracts";
+import { SpaceId } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 
 import type { Space } from "~/types";

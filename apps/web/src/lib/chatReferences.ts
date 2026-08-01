@@ -3,7 +3,7 @@
 //          thread's composer draft so panels outside ChatView can talk to the chatbox.
 // Layer: Web UI utility
 
-import { CHAT_ASSISTANT_SELECTION_TEXT_MAX_CHARS, type ThreadId } from "@synara/contracts";
+import { CHAT_ASSISTANT_SELECTION_TEXT_MAX_CHARS, type ThreadId } from "@penkra/contracts";
 
 import { useComposerDraftStore } from "../composerDraftStore";
 import { requestComposerFocus } from "../composerFocusRequestStore";
@@ -28,7 +28,7 @@ export interface ChatFileReference {
 
 // DataTransfer type used when dragging a file row toward the composer. The
 // payload is the already-formatted reference text (mention token).
-export const CHAT_FILE_REFERENCE_DRAG_TYPE = "application/x-synara-file-reference";
+export const CHAT_FILE_REFERENCE_DRAG_TYPE = "application/x-penkra-file-reference";
 
 export function formatLineRangeLabel(startLine: number, endLine: number): string {
   return endLine !== startLine ? `lines ${startLine}-${endLine}` : `line ${startLine}`;

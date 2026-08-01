@@ -12,10 +12,10 @@ import {
   type OrchestrationShellSnapshot,
   type ProviderKind,
   type ResolvedKeybindingsConfig,
-} from "@synara/contracts";
-import { getDefaultModel } from "@synara/shared/model";
-import { pluralize } from "@synara/shared/text";
-import { resolveThreadWorkspaceCwd } from "@synara/shared/threadEnvironment";
+} from "@penkra/contracts";
+import { getDefaultModel } from "@penkra/shared/model";
+import { pluralize } from "@penkra/shared/text";
+import { resolveThreadWorkspaceCwd } from "@penkra/shared/threadEnvironment";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate, useParams } from "@tanstack/react-router";
 import {
@@ -153,7 +153,6 @@ import {
   deriveSidebarProjectData,
   findWorkspaceRootMatch,
   getNextVisibleSidebarThreadId,
-  getPinnedThreadsForSidebar,
   getSidebarThreadIdsToPrewarm,
   getVisibleSidebarEntriesForPreview,
   groupSidebarThreadsByProjectId,
@@ -163,6 +162,7 @@ import {
   pruneProjectThreadListPagingForCollapsedProjects,
   recoverExistingAddProjectTarget,
   resolveSidebarNewThreadEnvMode,
+  resolveSidebarWorkStatus,
   resolveSidebarThreadListPaging,
   resolveThreadStatusPill,
   shouldClearThreadSelectionOnMouseDown,
@@ -301,8 +301,8 @@ function ProjectContextMenuIcon({ icon }: { icon: LucideIcon }) {
 }
 
 type DebugFeatureFlagsWindow = Window & {
-  synaraShowFeatureFlags?: () => void;
-  synaraHideFeatureFlags?: () => void;
+  penkraShowFeatureFlags?: () => void;
+  penkraHideFeatureFlags?: () => void;
 };
 
 function readDebugFeatureFlagsMenuVisibility(): boolean {
@@ -543,18 +543,18 @@ export default function Sidebar() {
       updateVisibility();
     };
 
-    debugWindow.synaraShowFeatureFlags = showFeatureFlags;
-    debugWindow.synaraHideFeatureFlags = hideFeatureFlags;
+    debugWindow.penkraShowFeatureFlags = showFeatureFlags;
+    debugWindow.penkraHideFeatureFlags = hideFeatureFlags;
     window.addEventListener("storage", updateVisibility);
     updateVisibility();
 
     return () => {
       window.removeEventListener("storage", updateVisibility);
-      if (debugWindow.synaraShowFeatureFlags === showFeatureFlags) {
-        delete debugWindow.synaraShowFeatureFlags;
+      if (debugWindow.penkraShowFeatureFlags === showFeatureFlags) {
+        delete debugWindow.penkraShowFeatureFlags;
       }
-      if (debugWindow.synaraHideFeatureFlags === hideFeatureFlags) {
-        delete debugWindow.synaraHideFeatureFlags;
+      if (debugWindow.penkraHideFeatureFlags === hideFeatureFlags) {
+        delete debugWindow.penkraHideFeatureFlags;
       }
     };
   }, []);
@@ -799,31 +799,6 @@ export default function Sidebar() {
     [chatWorkspaceRoot, homeDir, projects, studioWorkspaceRoot],
   );
 
-  const activeSpaceNonStudioSidebarTreeThreads = useMemo(
-    () =>
-      nonStudioSidebarTreeThreads.filter((thread) => {
-        const project = projectById.get(thread.projectId);
-        return (
-          !isOrdinarySpaceProject(project, {
-            homeDir,
-            chatWorkspaceRoot,
-            studioWorkspaceRoot,
-          }) || (project.spaceId ?? null) === activeSpaceId
-        );
-      }),
-    [
-      activeSpaceId,
-      chatWorkspaceRoot,
-      homeDir,
-      nonStudioSidebarTreeThreads,
-      projectById,
-      studioWorkspaceRoot,
-    ],
-  );
-  const pinnedThreads = useMemo(
-    () => getPinnedThreadsForSidebar(activeSpaceNonStudioSidebarTreeThreads, pinnedThreadIds),
-    [activeSpaceNonStudioSidebarTreeThreads, pinnedThreadIds],
-  );
   const projectCwdById = useMemo(
     () => new Map(projects.map((project) => [project.id, project.cwd] as const)),
     [projects],
@@ -1175,9 +1150,12 @@ export default function Sidebar() {
 
   // Opens a fresh home-chat draft directly on the draft thread route so the first send
   // does not need a second route swap from "/" to "/$threadId".
-  const handleCreateHomeChat = useCallback(async (spaceId: SpaceId | null) => {
-    await handleNewChat({ fresh: true, spaceId });
-  }, [handleNewChat]);
+  const handleCreateHomeChat = useCallback(
+    async (spaceId: SpaceId | null) => {
+      await handleNewChat({ fresh: true, spaceId });
+    },
+    [handleNewChat],
+  );
 
   const addProjectFromPath = useCallback(
     async (
@@ -1943,12 +1921,7 @@ export default function Sidebar() {
         });
       }
     },
-    [
-      collapsedSpaceIds,
-      handleCreateHomeChat,
-      handleSelectSpace,
-      openSpaceEditor,
-    ],
+    [collapsedSpaceIds, handleCreateHomeChat, handleSelectSpace, openSpaceEditor],
   );
   const handleCreateProjectSubmit = useCallback(
     async (value: CreateProjectSubmitValue) => {
@@ -2162,11 +2135,13 @@ export default function Sidebar() {
         appSettings.sidebarThreadSortOrder,
       ),
       forceVisibleThreadId: activeSidebarThreadId ?? undefined,
+      pinnedThreadIds,
     });
   }, [
     activeSidebarThreadId,
     appSettings.sidebarThreadSortOrder,
     chatProjects,
+    pinnedThreadIds,
     sortedSidebarThreadsByProjectId,
   ]);
   const visibleChatOrderedThreadIds = useMemo(
@@ -2193,10 +2168,7 @@ export default function Sidebar() {
       ),
     [chatWorkspaceRoot, homeDir, sortedProjects, studioWorkspaceRoot],
   );
-  const standardProjectsBase = useMemo(
-    () => allStandardProjectsBase,
-    [allStandardProjectsBase],
-  );
+  const standardProjectsBase = useMemo(() => allStandardProjectsBase, [allStandardProjectsBase]);
   const pinnedProjectIds = useMemo(
     () =>
       derivePinnedProjectIdsForSidebar({
@@ -2400,30 +2372,32 @@ export default function Sidebar() {
       visibleThreadIdSet.add(threadId);
     };
 
-    for (const thread of pinnedThreads) {
-      addVisibleThreadId(thread.id);
-    }
-
-    for (const project of surfaceProjects) {
-      const projectSidebarData = surfaceProjectSidebarDataById.get(project.id);
-      if (!projectSidebarData) {
-        continue;
-      }
-
-      if (!project.expanded) {
-        if (projectSidebarData.activeEntryId) {
-          addVisibleThreadId(projectSidebarData.activeEntryId);
-        }
-        continue;
-      }
-
-      for (const entry of projectSidebarData.visibleEntries) {
+    for (const section of sidebarSpaceSections) {
+      for (const entry of section.chatData.entries) {
         addVisibleThreadId(entry.rowId);
+      }
+
+      for (const project of section.projects) {
+        const projectSidebarData = surfaceProjectSidebarDataById.get(project.id);
+        if (!projectSidebarData) {
+          continue;
+        }
+
+        if (!project.expanded) {
+          if (projectSidebarData.activeEntryId) {
+            addVisibleThreadId(projectSidebarData.activeEntryId);
+          }
+          continue;
+        }
+
+        for (const entry of projectSidebarData.visibleEntries) {
+          addVisibleThreadId(entry.rowId);
+        }
       }
     }
 
     return [...visibleThreadIdSet];
-  }, [pinnedThreads, surfaceProjectSidebarDataById, surfaceProjects]);
+  }, [sidebarSpaceSections, surfaceProjectSidebarDataById]);
   const threadJumpCommandByThreadId = useMemo(() => {
     const mapping = new Map<ThreadId, NonNullable<ReturnType<typeof threadJumpCommandForIndex>>>();
     for (const [visibleThreadIndex, threadId] of visibleSidebarThreadIds.entries()) {
@@ -2483,6 +2457,7 @@ export default function Sidebar() {
     }
     const {
       orderedProjectThreadIds,
+      projectStatus,
       projectThreads,
       visibleEntries,
       threadListExtraPages,
@@ -2515,6 +2490,8 @@ export default function Sidebar() {
         onExpandedChange={() => toggleProject(project.id)}
         onHeaderAction={createProjectThread}
         onHeaderContextMenu={openProjectContextMenu}
+        pinned={pinnedProjectIdSet.has(project.id)}
+        workStatus={resolveSidebarWorkStatus(projectStatus)}
       >
         <div className="flex flex-col gap-0.5" data-pencil-project-id={project.id}>
           {visibleEntries.map((entry) =>
@@ -2548,14 +2525,7 @@ export default function Sidebar() {
     const isActive = visualActiveSidebarThreadId === thread.id;
     const isSelected = selectedThreadIds.has(thread.id);
     const threadStatus = resolveThreadStatusForSidebar(thread);
-    const workStatus: ThreadWorkStatus =
-      threadStatus?.label === "Working" || threadStatus?.label === "Connecting"
-        ? "running"
-        : threadStatus?.label === "Completed"
-          ? "done"
-          : threadStatus
-            ? "attention"
-            : "idle";
+    const workStatus: ThreadWorkStatus = resolveSidebarWorkStatus(threadStatus);
 
     return (
       <ThreadRowShared
@@ -2602,6 +2572,7 @@ export default function Sidebar() {
           thread.title.trim().toLowerCase() === "main" ? "github" : thread.modelSelection.provider
         }
         level={levelOverride ?? (depth > 0 ? "nested" : "root")}
+        pinned={pinnedThreadIdSet.has(thread.id)}
         state={isActive ? "active" : "default"}
         workStatus={workStatus}
       >
@@ -3009,7 +2980,7 @@ export default function Sidebar() {
         id: "feedback",
         label: "Feedback Penkra",
         description: "Send feedback or report an issue to the Penkra team.",
-        keywords: ["feedback", "bug", "issue", "problem", "report", "support", "synara"],
+        keywords: ["feedback", "bug", "issue", "problem", "report", "support", "penkra"],
       },
       {
         id: "settings",

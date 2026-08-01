@@ -4,7 +4,7 @@
 // Layer: Web chat presentation tests
 // Depends on: deriveSubagentToolTrace and deriveSubagentToolTraceByThreadId
 
-import { EventId, ThreadId, type OrchestrationThreadActivity } from "@synara/contracts";
+import { EventId, ThreadId, type OrchestrationThreadActivity } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 
 import type { WorkLogEntry } from "../../session-logic";

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { ServerLocalServerProcess } from "@synara/contracts";
+import type { ServerLocalServerProcess } from "@penkra/contracts";
 
 import {
   localServerAddressLabel,
@@ -61,14 +61,14 @@ describe("localServerPrimaryLabel", () => {
 
 describe("localServerFolderLabel", () => {
   it("returns the final segment of a POSIX cwd", () => {
-    expect(localServerFolderLabel(makeServer({ cwd: "/Users/me/Developer/synara-website" }))).toBe(
-      "synara-website",
+    expect(localServerFolderLabel(makeServer({ cwd: "/Users/me/Developer/penkra-website" }))).toBe(
+      "penkra-website",
     );
   });
 
   it("ignores a trailing separator", () => {
-    expect(localServerFolderLabel(makeServer({ cwd: "/Users/me/Developer/synara/" }))).toBe(
-      "synara",
+    expect(localServerFolderLabel(makeServer({ cwd: "/Users/me/Developer/penkra/" }))).toBe(
+      "penkra",
     );
   });
 

@@ -14,7 +14,7 @@ import {
   RuntimeItemId,
   ThreadId,
   TurnId,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 import { Effect, Layer, Queue, Stream } from "effect";
 
 import { ServerConfig } from "../../config.ts";
@@ -145,9 +145,9 @@ export function buildAntigravityCaptureCommand(
 ): string {
   const invocation = `${shellQuote(executablePath, platform)} ${shellQuote(scriptPath, platform)} ${shellQuote(event, platform)}`;
   if (platform === "win32") {
-    return `if not defined SYNARA_ANTIGRAVITY_EVENTS (more >nul 2>nul & echo {}) else (set "ELECTRON_RUN_AS_NODE=1" && ${invocation})`;
+    return `if not defined PENKRA_ANTIGRAVITY_EVENTS (more >nul 2>nul & echo {}) else (set "ELECTRON_RUN_AS_NODE=1" && ${invocation})`;
   }
-  return `if [ -z "\${SYNARA_ANTIGRAVITY_EVENTS:-}" ]; then cat >/dev/null 2>&1 || :; printf '%s\\n' '{}'; else ELECTRON_RUN_AS_NODE=1 ${invocation}; fi`;
+  return `if [ -z "\${PENKRA_ANTIGRAVITY_EVENTS:-}" ]; then cat >/dev/null 2>&1 || :; printf '%s\\n' '{}'; else ELECTRON_RUN_AS_NODE=1 ${invocation}; fi`;
 }
 
 export function hookScriptSource(): string {
@@ -157,14 +157,14 @@ let payload = "";
 process.stdin.setEncoding("utf8");
 process.stdin.on("data", (chunk) => { payload += chunk; });
 process.stdin.on("end", () => {
-  const target = process.env.SYNARA_ANTIGRAVITY_EVENTS;
+  const target = process.env.PENKRA_ANTIGRAVITY_EVENTS;
   if (!target) {
     process.stdout.write("{}\\n");
     return;
   }
   fs.appendFileSync(target, event + "\\t" + payload.trim() + "\\n");
   if (event === "pre-tool") {
-    const decision = process.env.SYNARA_ANTIGRAVITY_HOOK_DECISION === "allow" ? "allow" : "ask";
+    const decision = process.env.PENKRA_ANTIGRAVITY_HOOK_DECISION === "allow" ? "allow" : "ask";
     process.stdout.write(JSON.stringify({ decision }) + "\\n");
   } else if (event === "stop") {
     process.stdout.write('{"decision":"stop"}\\n');
@@ -180,7 +180,7 @@ export function buildAntigravityHookConfig(
 ): Record<string, unknown> {
   const hook = (event: string) => ({ type: "command", command: command(event) });
   return {
-    "synara-capture": {
+    "penkra-capture": {
       PreToolUse: [{ matcher: "*", hooks: [hook("pre-tool")] }],
       PostToolUse: [{ matcher: "*", hooks: [hook("post-tool")] }],
       PreInvocation: [hook("pre-invocation")],
@@ -273,7 +273,7 @@ async function ensureCapturePlugin(binaryPath: string): Promise<void> {
     ".gemini",
     "antigravity-cli",
     "plugins",
-    "synara-capture",
+    "penkra-capture",
   );
   const scriptPath = path.join(pluginDir, "capture.cjs");
   await fs.mkdir(pluginDir, { recursive: true });
@@ -282,7 +282,7 @@ async function ensureCapturePlugin(binaryPath: string): Promise<void> {
     `${JSON.stringify(
       {
         $schema: "https://antigravity.google/schemas/v1/plugin.json",
-        name: "synara-capture",
+        name: "penkra-capture",
         description: "Streams Antigravity CLI lifecycle events to Penkra when requested.",
       },
       null,
@@ -855,7 +855,7 @@ const makeAntigravityAdapter = Effect.gen(function* () {
         defaultEffortByModel.get(model),
       );
       const runDir = yield* Effect.tryPromise({
-        try: () => fs.mkdtemp(path.join(os.tmpdir(), "synara-antigravity-")),
+        try: () => fs.mkdtemp(path.join(os.tmpdir(), "penkra-antigravity-")),
         catch: (cause) =>
           new ProviderAdapterRequestError({
             provider: PROVIDER,
@@ -925,10 +925,10 @@ const makeAntigravityAdapter = Effect.gen(function* () {
             threadId: input.threadId,
             workspace: context.session.cwd ?? serverConfig.cwd,
           },
-          inheritedSynaraKeys: ["SYNARA_ANTIGRAVITY_EVENTS", "SYNARA_ANTIGRAVITY_HOOK_DECISION"],
+          inheritedPenkraKeys: ["PENKRA_ANTIGRAVITY_EVENTS", "PENKRA_ANTIGRAVITY_HOOK_DECISION"],
           overrides: {
-            SYNARA_ANTIGRAVITY_EVENTS: eventFile,
-            SYNARA_ANTIGRAVITY_HOOK_DECISION: "allow",
+            PENKRA_ANTIGRAVITY_EVENTS: eventFile,
+            PENKRA_ANTIGRAVITY_HOOK_DECISION: "allow",
           },
         }),
         stdio: ["ignore", "pipe", "pipe"],

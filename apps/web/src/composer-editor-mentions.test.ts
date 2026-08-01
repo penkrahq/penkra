@@ -271,8 +271,8 @@ describe("splitPromptIntoDisplaySegments", () => {
 
   it("converts a trailing URL into a link segment for read-only rendering", () => {
     expect(
-      splitPromptIntoDisplaySegments("https://github.com/Emanuele-web04/synara/pull/155"),
-    ).toEqual([{ type: "link", url: "https://github.com/Emanuele-web04/synara/pull/155" }]);
+      splitPromptIntoDisplaySegments("https://github.com/Emanuele-web04/penkra/pull/155"),
+    ).toEqual([{ type: "link", url: "https://github.com/Emanuele-web04/penkra/pull/155" }]);
   });
 
   it("converts a trailing bare domain into a normalized link segment for read-only rendering", () => {
@@ -284,10 +284,10 @@ describe("splitPromptIntoDisplaySegments", () => {
   it("renders a URL on its own line followed by trailing prose", () => {
     expect(
       splitPromptIntoDisplaySegments(
-        "https://github.com/Emanuele-web04/synara/pull/155\nfix the conflicts",
+        "https://github.com/Emanuele-web04/penkra/pull/155\nfix the conflicts",
       ),
     ).toEqual([
-      { type: "link", url: "https://github.com/Emanuele-web04/synara/pull/155" },
+      { type: "link", url: "https://github.com/Emanuele-web04/penkra/pull/155" },
       { type: "text", text: "\nfix the conflicts" },
     ]);
   });

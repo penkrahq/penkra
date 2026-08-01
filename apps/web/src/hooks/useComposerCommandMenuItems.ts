@@ -7,8 +7,8 @@ import type {
   ProviderPluginDescriptor,
   ProviderSkillDescriptor,
   PenkraSkillSummary,
-} from "@synara/contracts";
-import { getAgentMentionAutocompleteAliases } from "@synara/contracts";
+} from "@penkra/contracts";
+import { getAgentMentionAutocompleteAliases } from "@penkra/contracts";
 import {
   buildCommandSearchFields,
   buildPluginSearchFields,
@@ -29,7 +29,7 @@ import {
   getProviderNativeSlashCommandSearchTerms,
   shouldHideProviderNativeCommandFromComposerMenu,
 } from "../composerSlashCommands";
-import { threadMentionPathForThreadId } from "@synara/shared/threadMentions";
+import { threadMentionPathForThreadId } from "@penkra/shared/threadMentions";
 
 import type { ComposerCommandItem } from "../components/chat/ComposerCommandMenu";
 import type { ProviderModelOption } from "../providerModelOptions";

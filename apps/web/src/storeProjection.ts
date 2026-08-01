@@ -10,8 +10,8 @@ import {
   type OrchestrationSpaceShell,
   type ThreadId,
   type TurnId,
-} from "@synara/contracts";
-import { deriveThreadSummaryMetadata } from "@synara/shared/threadSummary";
+} from "@penkra/contracts";
+import { deriveThreadSummaryMetadata } from "@penkra/shared/threadSummary";
 
 import { getThreadFromState, getThreadsFromState } from "./threadDerivation";
 import {
@@ -320,7 +320,7 @@ export function removeSpace(
       threadShellsChanged = true;
       return [threadId, { ...thread, spaceId: null }];
     }),
-  ) as AppState["threadShellById"];
+  ) as NonNullable<AppState["threadShellById"]>;
   let threadSummariesChanged = false;
   const sidebarThreadSummaryById = Object.fromEntries(
     Object.entries(state.sidebarThreadSummaryById).map(([threadId, thread]) => {
@@ -1392,12 +1392,7 @@ export function applyShellEvent(state: AppState, event: OrchestrationShellStream
     case "space-upserted":
       return upsertSpace(state, event.space);
     case "space-removed":
-      return removeSpace(
-        state,
-        event.spaceId,
-        event.updatedAt,
-        event.preserveAssignments ?? false,
-      );
+      return removeSpace(state, event.spaceId, event.updatedAt, event.preserveAssignments ?? false);
     case "space-order-updated":
       return applySpaceOrder(state, event.orderedSpaceIds);
     case "project-upserted":

@@ -8,8 +8,8 @@ import { PROTOCOL_VERSION, agent, methods, ndJsonStream } from "@agentclientprot
 import { z } from "zod";
 
 const sessionId = "official-sdk-session-1";
-const logPath = process.env.SYNARA_ACP_CONFORMANCE_LOG_PATH;
-const malformedPrefix = process.env.SYNARA_ACP_CONFORMANCE_MALFORMED_PREFIX === "1";
+const logPath = process.env.PENKRA_ACP_CONFORMANCE_LOG_PATH;
+const malformedPrefix = process.env.PENKRA_ACP_CONFORMANCE_MALFORMED_PREFIX === "1";
 
 function log(type: string, payload: unknown): void {
   if (logPath) {
@@ -26,7 +26,7 @@ if (malformedPrefix) {
   process.stdout.write("{not-json}\n");
 }
 
-const app = agent({ name: "synara-official-sdk-conformance-agent" })
+const app = agent({ name: "penkra-official-sdk-conformance-agent" })
   .onRequest(methods.agent.initialize, (ctx) => {
     log("initialize", ctx.params);
     return {

@@ -3,7 +3,7 @@
 // Layer: Client utility
 // Exports: recap source derivation plus per-thread localStorage cache helpers.
 
-import type { ThreadId } from "@synara/contracts";
+import type { ThreadId } from "@penkra/contracts";
 import type { Thread, ChatMessage } from "~/types";
 import { isPlainObject, sanitizeStringKeyedRecord } from "~/persistedRecord";
 
@@ -17,7 +17,7 @@ const MAX_PERSISTED_RECAPS = 80;
 const MAX_PERSISTED_RECAP_TEXT_CHARS = 280;
 export const DEFAULT_INITIAL_THREAD_RECAP_IDLE_MS = 12_000;
 export const DEFAULT_REFRESH_THREAD_RECAP_IDLE_MS = 35_000;
-export const THREAD_RECAP_STORAGE_KEY = "synara:thread-recaps:v1";
+export const THREAD_RECAP_STORAGE_KEY = "penkra:thread-recaps:v1";
 
 interface ThreadRecapStorage {
   getItem: (key: string) => string | null;

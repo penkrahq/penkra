@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "@synara/monorepo",
+      "name": "@penkra/monorepo",
       "devDependencies": {
         "@types/node": "catalog:",
         "oxfmt": "^0.40.0",
@@ -13,7 +13,7 @@
       },
     },
     "apps/desktop": {
-      "name": "@synara/desktop",
+      "name": "@penkra/desktop",
       "version": "0.8.2",
       "dependencies": {
         "@better-auth/electron": "1.6.25",
@@ -24,8 +24,8 @@
         "electron-updater": "^6.6.2",
       },
       "devDependencies": {
-        "@synara/contracts": "workspace:*",
-        "@synara/shared": "workspace:*",
+        "@penkra/contracts": "workspace:*",
+        "@penkra/shared": "workspace:*",
         "@types/node": "catalog:",
         "tsdown": "catalog:",
         "typescript": "catalog:",
@@ -34,7 +34,7 @@
       },
     },
     "apps/marketing": {
-      "name": "@synara/marketing",
+      "name": "@penkra/marketing",
       "version": "0.0.0",
       "dependencies": {
         "astro": "^6.4.6",
@@ -45,11 +45,11 @@
       },
     },
     "apps/server": {
-      "name": "@synara/cli",
+      "name": "@penkra/cli",
       "version": "0.8.2",
       "bin": {
-        "synara": "dist/index.mjs",
-        "synara-restore-migration-backup": "dist/restoreMigrationBackup.mjs",
+        "penkra": "dist/index.mjs",
+        "penkra-restore-migration-backup": "dist/restoreMigrationBackup.mjs",
       },
       "dependencies": {
         "@agentclientprotocol/sdk": "1.2.1",
@@ -74,9 +74,9 @@
       "devDependencies": {
         "@effect/language-service": "catalog:",
         "@effect/vitest": "catalog:",
-        "@synara/contracts": "workspace:*",
-        "@synara/shared": "workspace:*",
-        "@synara/web": "workspace:*",
+        "@penkra/contracts": "workspace:*",
+        "@penkra/shared": "workspace:*",
+        "@penkra/web": "workspace:*",
         "@types/bun": "catalog:",
         "@types/node": "catalog:",
         "@types/ws": "^8.5.13",
@@ -88,7 +88,7 @@
       },
     },
     "apps/web": {
-      "name": "@synara/web",
+      "name": "@penkra/web",
       "version": "0.8.2",
       "dependencies": {
         "@base-ui/react": "^1.5.0",
@@ -101,8 +101,8 @@
         "@legendapp/list": "3.0.0-beta.44",
         "@lexical/react": "^0.41.0",
         "@pierre/diffs": "^1.2.12",
-        "@synara/contracts": "workspace:*",
-        "@synara/shared": "workspace:*",
+        "@penkra/contracts": "workspace:*",
+        "@penkra/shared": "workspace:*",
         "@tabler/icons-react": "^3.44.0",
         "@tanstack/react-pacer": "^0.19.4",
         "@tanstack/react-query": "^5.90.0",
@@ -165,7 +165,7 @@
       },
     },
     "packages/contracts": {
-      "name": "@synara/contracts",
+      "name": "@penkra/contracts",
       "version": "0.8.2",
       "dependencies": {
         "effect": "catalog:",
@@ -179,10 +179,10 @@
       },
     },
     "packages/shared": {
-      "name": "@synara/shared",
+      "name": "@penkra/shared",
       "version": "0.0.0-alpha.1",
       "dependencies": {
-        "@synara/contracts": "workspace:*",
+        "@penkra/contracts": "workspace:*",
         "effect": "catalog:",
       },
       "devDependencies": {
@@ -194,12 +194,12 @@
       },
     },
     "scripts": {
-      "name": "@synara/scripts",
+      "name": "@penkra/scripts",
       "dependencies": {
         "@anthropic-ai/claude-agent-sdk": "^0.3.207",
         "@effect/platform-node": "catalog:",
-        "@synara/contracts": "workspace:*",
-        "@synara/shared": "workspace:*",
+        "@penkra/contracts": "workspace:*",
+        "@penkra/shared": "workspace:*",
         "effect": "catalog:",
       },
       "devDependencies": {
@@ -1123,19 +1123,19 @@
 
     "@storybook/react-vite": ["@storybook/react-vite@10.5.5", "", { "dependencies": { "@joshwooding/vite-plugin-react-docgen-typescript": "^0.7.0", "@rollup/pluginutils": "^5.0.2", "@storybook/builder-vite": "10.5.5", "@storybook/react": "10.5.5", "empathic": "^2.0.0", "magic-string": "^0.30.0", "react-docgen": "^8.0.2", "resolve": "^1.22.8", "tsconfig-paths": "^4.2.0" }, "peerDependencies": { "react": "^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0", "react-dom": "^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0", "storybook": "^10.5.5", "typescript": ">= 4.9.x", "vite": "^5.0.0 || ^6.0.0 || ^7.0.0 || ^8.0.0" }, "optionalPeers": ["typescript"] }, "sha512-Uy7VV72kVSkw6aDTAPQupXUeZX5LF6e4zqNvTZ+36qxsXAkaFgw7HPEm7L1tsaRfiV+s9anU7UvX47tfJpYGuQ=="],
 
-    "@synara/cli": ["@synara/cli@workspace:apps/server"],
+    "@penkra/cli": ["@penkra/cli@workspace:apps/server"],
 
-    "@synara/contracts": ["@synara/contracts@workspace:packages/contracts"],
+    "@penkra/contracts": ["@penkra/contracts@workspace:packages/contracts"],
 
-    "@synara/desktop": ["@synara/desktop@workspace:apps/desktop"],
+    "@penkra/desktop": ["@penkra/desktop@workspace:apps/desktop"],
 
-    "@synara/marketing": ["@synara/marketing@workspace:apps/marketing"],
+    "@penkra/marketing": ["@penkra/marketing@workspace:apps/marketing"],
 
-    "@synara/scripts": ["@synara/scripts@workspace:scripts"],
+    "@penkra/scripts": ["@penkra/scripts@workspace:scripts"],
 
-    "@synara/shared": ["@synara/shared@workspace:packages/shared"],
+    "@penkra/shared": ["@penkra/shared@workspace:packages/shared"],
 
-    "@synara/web": ["@synara/web@workspace:apps/web"],
+    "@penkra/web": ["@penkra/web@workspace:apps/web"],
 
     "@szmarczak/http-timer": ["@szmarczak/http-timer@4.0.6", "", { "dependencies": { "defer-to-connect": "^2.0.0" } }, "sha512-4BAffykYOgO+5nzBWYwE3W90sBgLJoUPRWWcL8wlyiM8IB8ipJz3UMJ9KXQd1RKQXpKp8Tutn80HZtWsu2u76w=="],
 

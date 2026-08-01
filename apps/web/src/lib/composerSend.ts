@@ -14,12 +14,12 @@ import {
   type ClaudeCodeEffort,
   type ProviderKind,
   type UploadChatAttachment,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 import {
   ATTACHMENT_CANCEL_ROUTE_PATH,
   ATTACHMENT_UPLOAD_ROUTE_PATH,
-} from "@synara/shared/binaryTransfer";
-import { applyClaudePromptEffortPrefix, getModelCapabilities } from "@synara/shared/model";
+} from "@penkra/shared/binaryTransfer";
+import { applyClaudePromptEffortPrefix, getModelCapabilities } from "@penkra/shared/model";
 
 import {
   cloneComposerImageAttachment,
@@ -29,7 +29,6 @@ import {
   type PersistedComposerImageAttachment,
 } from "../composerDraftDomain";
 import { readComposerImageBlob } from "./composerImageBlobStore";
-import { normalizeComposerImageSource } from "./composerImageSource";
 import { randomUUID } from "./utils";
 import { resolveWsHttpUrl } from "./wsHttpUrl";
 
@@ -362,7 +361,7 @@ interface EffectiveComposerAttachmentCountDraft {
 
 /**
  * Attachment count a draft must be checked against for the per-turn attachment
- * limit (AppSnap capture, manual image attach, manual file attach). Counts live
+ * limit (image attach, file attach). Counts live
  * images/files/assistantSelections plus any `persistedAttachments` rows not yet
  * represented in `images` — persisted rows are common right after a restart,
  * while blob hydration is still pending, and omitting them would let the limit
@@ -385,10 +384,8 @@ export function effectiveComposerAttachmentCount(
 }
 
 /**
- * Persisted image attachments that still back a blob (AppSnap captures) but
- * have not yet hydrated into the live `images` array. Right after a reload,
- * `AppSnapCoordinator` hydrates these asynchronously from IndexedDB; sending
- * before that finishes must not silently drop them.
+ * Persisted image attachments that still back a blob but have not hydrated
+ * into the live `images` array. Sending must not silently drop them.
  */
 export function findPendingBlobComposerAttachments(input: {
   persistedAttachments: ReadonlyArray<PersistedComposerImageAttachment>;
@@ -416,7 +413,6 @@ export async function hydratePendingBlobComposerAttachments(
       try {
         const file = await readComposerImageBlob(attachment.blobKey);
         if (!file) return null;
-        const source = normalizeComposerImageSource(attachment.source);
         return {
           type: "image",
           id: attachment.id,
@@ -425,7 +421,6 @@ export async function hydratePendingBlobComposerAttachments(
           sizeBytes: attachment.sizeBytes,
           previewUrl: URL.createObjectURL(file),
           file,
-          ...(source ? { source } : {}),
         };
       } catch (error) {
         console.warn("[composer-send] Could not hydrate a pending attachment before send", error);

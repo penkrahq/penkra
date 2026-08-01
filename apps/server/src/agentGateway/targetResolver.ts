@@ -10,7 +10,7 @@ import {
   type ProviderListModelsResult,
   type ProviderModelDescriptor,
   type ServerProviderAuthStatus,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 import { Effect } from "effect";
 
 import type { ProviderDiscoveryServiceShape } from "../provider/Services/ProviderDiscoveryService.ts";
@@ -635,7 +635,7 @@ export function resolveAgentGatewayTarget(input: {
       return yield* Effect.fail(
         new AgentGatewayTargetError(
           "model_unavailable",
-          `Model "${input.target.model}" is not available for ${input.target.provider}. Use an exact slug from synara_capabilities.`,
+          `Model "${input.target.model}" is not available for ${input.target.provider}. Use an exact slug from penkra_capabilities.`,
           {
             provider: input.target.provider,
             requestedModel: input.target.model,

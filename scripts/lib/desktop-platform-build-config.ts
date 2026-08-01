@@ -10,10 +10,6 @@ export const MICROPHONE_USAGE_DESCRIPTION =
 export const MAC_ENTITLEMENTS_PATH = "apps/desktop/resources/entitlements.mac.plist";
 export const MAC_INHERITED_ENTITLEMENTS_PATH =
   "apps/desktop/resources/entitlements.mac.inherit.plist";
-export const MAC_APPSNAP_HELPER_STAGE_PATH =
-  "apps/desktop/native/appsnap/build/synara-appsnap-helper";
-export const MAC_APPSNAP_HELPER_ASAR_EXCLUSION = "!apps/desktop/native/appsnap/build/**";
-export const MAC_APPSNAP_HELPER_BUNDLE_PATH = "Contents/Helpers/synara-appsnap-helper";
 export const MAC_RELEASE_SIGNING_IDENTITY = "Developer ID Application";
 const MAC_DMG_ICON_PATH = "icon.icns";
 export const NODE_PTY_ASAR_UNPACK_GLOBS = ["node_modules/node-pty/**"] as const;
@@ -36,24 +32,6 @@ export interface CreateDesktopPlatformBuildConfigInput {
   readonly signed?: boolean;
 }
 
-export interface DesktopNativeBuildHostInput {
-  readonly arch: "arm64" | "x64" | "universal";
-  readonly hostArch: string;
-  readonly hostPlatform: NodeJS.Platform;
-  readonly platform: "mac";
-}
-
-export function validateDesktopNativeBuildHost(input: DesktopNativeBuildHostInput): string | null {
-  if (input.platform === "mac" && input.hostPlatform !== "darwin") {
-    return [
-      "macOS desktop artifacts include the native Swift AppSnap helper.",
-      `Build mac/${input.arch} on macOS so the helper can be compiled and signed.`,
-      `Current host is ${input.hostPlatform}/${input.hostArch}.`,
-    ].join(" ");
-  }
-  return null;
-}
-
 export function createDesktopPlatformBuildConfig(
   input: CreateDesktopPlatformBuildConfigInput,
 ): DesktopPlatformBuildConfig {
@@ -74,10 +52,6 @@ export function createDesktopPlatformBuildConfig(
     notarize: input.signed === true,
     entitlements: MAC_ENTITLEMENTS_PATH,
     entitlementsInherit: MAC_INHERITED_ENTITLEMENTS_PATH,
-    binaries: [MAC_APPSNAP_HELPER_BUNDLE_PATH],
-    // The universal build stages the same pre-lipo'd helper in both app trees.
-    // @electron/universal needs this pattern to preserve that existing fat binary.
-    x64ArchFiles: MAC_APPSNAP_HELPER_BUNDLE_PATH,
     extendInfo: {
       NSAppDataUsageDescription: APP_DATA_USAGE_DESCRIPTION,
       NSMicrophoneUsageDescription: MICROPHONE_USAGE_DESCRIPTION,
@@ -93,13 +67,6 @@ export function createDesktopPlatformBuildConfig(
       // macOS auto-updates use the separately finalized ZIP artifact.
       writeUpdateInfo: false,
     },
-    files: ["**/*", MAC_APPSNAP_HELPER_ASAR_EXCLUSION],
-    extraFiles: [
-      {
-        from: MAC_APPSNAP_HELPER_STAGE_PATH,
-        to: "Helpers/synara-appsnap-helper",
-      },
-    ],
     mac,
   };
 }

@@ -30,7 +30,7 @@ import type {
   ProviderStopTaskInput,
   ThreadId,
   ProviderTurnStartResult,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 import { ServiceMap } from "effect";
 import type { Effect, Stream } from "effect";
 
@@ -224,5 +224,5 @@ export interface ProviderServiceShape {
  * ProviderService - Service tag for provider orchestration.
  */
 export class ProviderService extends ServiceMap.Service<ProviderService, ProviderServiceShape>()(
-  "synara/provider/Services/ProviderService",
+  "penkra/provider/Services/ProviderService",
 ) {}

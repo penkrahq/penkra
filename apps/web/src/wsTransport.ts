@@ -36,7 +36,7 @@ import {
   type WsPushChannel,
   type WsPushMessage,
   type WsBootstrapNegotiateResult,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 import { Cause, Data, Effect, Exit, Layer, ManagedRuntime, Schema, Scope, Stream } from "effect";
 import { RpcClient, RpcSerialization } from "effect/unstable/rpc";
 import * as Socket from "effect/unstable/socket/Socket";
@@ -197,8 +197,7 @@ function causeToError(cause: Cause.Cause<unknown>): Error {
   return error instanceof Error ? error : new Error(String(error));
 }
 
-const STREAM_ADMISSION_ERROR_CODES = new Set([
-  "STREAM_DUPLICATE_SUBSCRIPTION",
+const STREAM_FAILURES_THAT_MUST_NOT_RECONNECT = new Set([
   "STREAM_CAPACITY_EXCEEDED",
   "THREAD_STREAM_CAPACITY_EXCEEDED",
   "THREAD_SNAPSHOT_NOT_FOUND",
@@ -233,7 +232,7 @@ export function shouldReconnectAfterStreamFailure(cause: Cause.Cause<unknown>): 
     const error = reason.error;
     if (!error || typeof error !== "object") return false;
     const code = "code" in error ? error.code : undefined;
-    return typeof code === "string" && STREAM_ADMISSION_ERROR_CODES.has(code);
+    return typeof code === "string" && STREAM_FAILURES_THAT_MUST_NOT_RECONNECT.has(code);
   });
 }
 
@@ -280,7 +279,9 @@ export const MAX_THREAD_SNAPSHOT_BOOTSTRAP_RETRY_ATTEMPTS = 12;
  * not hold two leases for the same stream. A cancel→fast-resubscribe still
  * races the server-side lease release (the lease frees only when the server
  * stream scope closes), so a bounded in-place retry is required to let the
- * stale lease drain instead of leaving the stream permanently dead.
+ * stale lease drain. If all bounded retries fail, the caller reconnects the
+ * socket: a fresh client identity releases the orphaned lease and prevents the
+ * thread stream from remaining permanently dead.
  */
 export function getStreamDuplicateRetryDelayMs(
   cause: Cause.Cause<unknown>,

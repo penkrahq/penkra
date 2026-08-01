@@ -9,18 +9,18 @@ import { app, ipcMain } from "electron";
 import type {
   ServerVoiceTranscriptionInput,
   ServerVoiceTranscriptionResult,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 import {
   CHATGPT_VOICE_TRANSCRIPTION_URL,
   requestChatGptVoiceTranscription,
-} from "@synara/shared/chatGptVoiceTranscription";
+} from "@penkra/shared/chatGptVoiceTranscription";
 import {
   decodeOutboundJson,
   decodeOutboundText,
   type OutboundHttpResponse,
-} from "@synara/shared/outboundHttp";
-import { prepareWindowsSafeProcess } from "@synara/shared/windowsProcess";
-import { decodeVoiceTranscriptionAudio } from "@synara/shared/voiceTranscriptionAudio";
+} from "@penkra/shared/outboundHttp";
+import { prepareWindowsSafeProcess } from "@penkra/shared/windowsProcess";
+import { decodeVoiceTranscriptionAudio } from "@penkra/shared/voiceTranscriptionAudio";
 import { SERVER_TRANSCRIBE_VOICE_CHANNEL } from "./ipcChannels";
 
 function readNonEmptyString(value: unknown): string | null {
@@ -136,7 +136,7 @@ async function resolveDesktopVoiceAuth(
         method: "initialize",
         params: {
           clientInfo: {
-            name: "synara-desktop",
+            name: "penkra-desktop",
             title: "Penkra Desktop",
             version: app.getVersion(),
           },

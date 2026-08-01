@@ -6,7 +6,7 @@ import type {
   PenkraSnapshot,
   PenkraUpdateTodoInput,
   PenkraUpdateClientInput,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 import { Effect, Layer, PubSub, ServiceMap, Stream } from "effect";
 
 import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine";

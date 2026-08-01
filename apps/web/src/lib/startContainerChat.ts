@@ -4,7 +4,7 @@
 // Layer: Web orchestration helper
 // Exports: Container-chat startup plus segment-aware fresh-chat dispatch.
 
-import type { ProjectId, SpaceId, ThreadId } from "@synara/contracts";
+import type { ProjectId, SpaceId, ThreadId } from "@penkra/contracts";
 import type { Project } from "../types";
 import { isStudioContainerProject } from "./studioProjects";
 import type { ServerWorkspacePaths } from "./serverWorkspacePaths";

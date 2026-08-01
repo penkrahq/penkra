@@ -7,7 +7,7 @@
 //          ToolCallGroupSummary, isSummarizableToolCallEntry,
 //          classifyToolCallSummaryCategory, summarizeToolCallGroup
 
-import { pluralize } from "@synara/shared/text";
+import { pluralize } from "@penkra/shared/text";
 import { isFileChangeWorkLogEntry, type WorkLogEntry } from "../../session-logic";
 import { deriveReadableCommandDisplay } from "../../lib/toolCallLabel";
 
@@ -46,7 +46,7 @@ export interface ToolCallGroupSummary {
 export function isSummarizableToolCallEntry(entry: WorkLogEntry): boolean {
   return (
     entry.tone === "tool" &&
-    !entry.synaraThreadCreation &&
+    !entry.penkraThreadCreation &&
     !entry.subagentAction &&
     (entry.subagents?.length ?? 0) === 0
   );

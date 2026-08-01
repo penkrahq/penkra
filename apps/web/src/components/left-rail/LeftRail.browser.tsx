@@ -77,7 +77,9 @@ describe("Pencil left rail", () => {
     const rowRect = disclosure.element().getBoundingClientRect();
     const disclosureShell = document.querySelector<HTMLElement>("[data-slot='disclosure-region']");
     expect(disclosureShell).not.toBeNull();
-    expect(getComputedStyle(disclosureShell!).interpolateSize).toBe("allow-keywords");
+    expect(getComputedStyle(disclosureShell!).getPropertyValue("interpolate-size")).toBe(
+      "allow-keywords",
+    );
     expect(getComputedStyle(disclosureShell!).transitionProperty).toBe("height");
     expect(getComputedStyle(disclosureShell!).transitionDuration).toBe("0.15s");
     expect(getComputedStyle(disclosureShell!).transitionTimingFunction).toBe("ease");
@@ -110,6 +112,39 @@ describe("Pencil left rail", () => {
           2,
       ),
     ).toBeLessThan(1);
+  });
+
+  it("retains the last open rows until a pruned folder finishes closing", async () => {
+    const renderFolder = (expanded: boolean) => (
+      <FolderGroupShared
+        expanded={expanded}
+        hasContent
+        label="Lifecycle folder"
+        threads={expanded ? threads.slice(0, 2) : []}
+      />
+    );
+    const { rerender } = await render(renderFolder(true));
+    const disclosureShell = document.querySelector<HTMLElement>("[data-slot='disclosure-region']");
+
+    expect(disclosureShell).not.toBeNull();
+    await expect.element(page.getByRole("button", { name: "Thread 1" })).toBeVisible();
+    await rerender(renderFolder(false));
+
+    expect(disclosureShell!.getAttribute("aria-hidden")).toBe("true");
+    expect(disclosureShell!.textContent).toContain("Thread 1");
+    expect(disclosureShell!.textContent).toContain("Thread 2");
+
+    disclosureShell!.dispatchEvent(
+      new TransitionEvent("transitionend", {
+        bubbles: true,
+        propertyName: "height",
+      }),
+    );
+
+    await vi.waitFor(() => {
+      expect(disclosureShell!.textContent).not.toContain("Thread 1");
+      expect(disclosureShell!.textContent).not.toContain("Thread 2");
+    });
   });
 
   it("keeps an expanded folder surface distinct from its hover state", async () => {
@@ -168,11 +203,13 @@ describe("Pencil left rail", () => {
       })
       .hover();
 
-    expect(getComputedStyle(folder).backgroundColor).not.toBe("rgba(0, 0, 0, 0)");
-    expect(getComputedStyle(action).opacity).toBe("1");
-    expect(
-      action.getBoundingClientRect().left - label.getBoundingClientRect().right,
-    ).toBeGreaterThanOrEqual(11);
+    await vi.waitFor(() => {
+      expect(getComputedStyle(folder).backgroundColor).not.toBe("rgba(0, 0, 0, 0)");
+      expect(getComputedStyle(action).opacity).toBe("1");
+      expect(
+        action.getBoundingClientRect().left - label.getBoundingClientRect().right,
+      ).toBeGreaterThanOrEqual(11);
+    });
   });
 
   it("does not promote an active folder or reveal its create action", async () => {
@@ -265,6 +302,31 @@ describe("Pencil left rail", () => {
     expect(getComputedStyle(showMore).paddingLeft).toBe("24px");
   });
 
+  it("overlays reusable pin badges without changing thread or folder row geometry", async () => {
+    await render(
+      <div className="w-56">
+        <ThreadRowShared pinned>Pinned thread</ThreadRowShared>
+        <FolderGroupShared label="Pinned folder" pinned />
+      </div>,
+    );
+
+    const thread = page.getByRole("button", { name: "Pinned thread" }).element();
+    const folder = page.getByRole("button", { name: "Pinned folder" }).element();
+
+    for (const row of [thread, folder]) {
+      const leading = row.querySelector<HTMLElement>("[data-slot='left-rail-leading']")!;
+      const badge = row.querySelector<HTMLElement>("[data-slot='pin-badge']")!;
+      const leadingRect = leading.getBoundingClientRect();
+      const badgeRect = badge.getBoundingClientRect();
+
+      expect(row.dataset.pinned).toBe("true");
+      expect(row.getBoundingClientRect().height).toBe(27);
+      expect(leadingRect.width).toBe(14);
+      expect(badgeRect.left).toBeGreaterThan(leadingRect.left + leadingRect.width / 2);
+      expect(badgeRect.top).toBeGreaterThan(leadingRect.top + leadingRect.height / 2);
+    }
+  });
+
   it("reveals space affordances and shifts its title from the default edge", async () => {
     const onAction = vi.fn();
     await render(
@@ -284,25 +346,107 @@ describe("Pencil left rail", () => {
     const leading = row.element().querySelector<HTMLElement>("[data-slot='left-rail-leading']")!;
     const label = row.element().querySelector<HTMLElement>("[data-slot='left-rail-label']")!;
     const defaultRowRect = row.element().getBoundingClientRect();
-    const defaultLabelRect = label.getBoundingClientRect();
 
-    expect(leading.getBoundingClientRect().width).toBe(0);
+    await vi.waitFor(() => {
+      expect(leading.getBoundingClientRect().width).toBeCloseTo(0, 0);
+      expect(getComputedStyle(action.element()).opacity).toBe("0");
+    });
+    const defaultLabelRect = label.getBoundingClientRect();
     expect(Math.abs(defaultLabelRect.left - defaultRowRect.left - 10)).toBeLessThan(1);
     expect(getComputedStyle(action.element()).opacity).toBe("0");
+    expect(getComputedStyle(leading).transitionProperty).toContain("width");
+    expect(getComputedStyle(leading).transitionDuration).toBe("0.14s");
 
     await row.hover();
 
+    await vi.waitFor(() => {
+      expect(leading.getBoundingClientRect().width).toBeCloseTo(14, 2);
+      expect(getComputedStyle(action.element()).opacity).toBe("1");
+    });
     const hoverRowRect = row.element().getBoundingClientRect();
     const hoverLeadingRect = leading.getBoundingClientRect();
     const hoverLabelRect = label.getBoundingClientRect();
-    expect(hoverLeadingRect.width).toBe(14);
+    expect(hoverLeadingRect.width).toBeCloseTo(14, 2);
     expect(Math.abs(hoverLeadingRect.left - hoverRowRect.left - 10)).toBeLessThan(1);
     expect(Math.abs(hoverLabelRect.left - hoverLeadingRect.right - 12)).toBeLessThan(1);
     expect(Math.abs(hoverLabelRect.left - hoverRowRect.left - 36)).toBeLessThan(1);
+    expect(getComputedStyle(label).color).toBe(getComputedStyle(row.element()).color);
     expect(getComputedStyle(action.element()).opacity).toBe("1");
 
+    const highlightedBackground = getComputedStyle(row.element()).backgroundColor;
+    await action.hover();
+    expect(getComputedStyle(row.element()).backgroundColor).toBe(highlightedBackground);
+    expect(getComputedStyle(leading).color).toBe(getComputedStyle(row.element()).color);
+    expect(getComputedStyle(action.element()).opacity).toBe("1");
+
+    await row.click();
+    await page.getByRole("button", { name: "Outside space" }).click();
+    await vi.waitFor(() => {
+      expect(leading.getBoundingClientRect().width).toBeCloseTo(0, 0);
+      expect(getComputedStyle(action.element()).opacity).toBe("0");
+    });
+    expect(getComputedStyle(action.element()).opacity).toBe("0");
+
+    await row.hover();
     await action.click();
     expect(onAction).toHaveBeenCalledOnce();
+    await page.getByRole("button", { name: "Outside space" }).click();
+    await vi.waitFor(() => {
+      expect(leading.getBoundingClientRect().width).toBeCloseTo(0, 0);
+      expect(getComputedStyle(action.element()).opacity).toBe("0");
+    });
+    expect(getComputedStyle(action.element()).opacity).toBe("0");
+  });
+
+  it("moves aggregate work status between collapsed folders and their visible threads", async () => {
+    const { rerender } = await render(
+      <div className="w-56">
+        <FolderGroupShared
+          expanded={false}
+          label="Status folder"
+          onHeaderAction={vi.fn()}
+          threads={[{ id: "running", label: "Running thread", workStatus: "running" }]}
+          workStatus="running"
+        />
+      </div>,
+    );
+
+    const collapsedFolder = page
+      .getByRole("button", { name: "Status folder Working", exact: true })
+      .element();
+    expect(collapsedFolder.querySelector("[data-slot='work-status']")).not.toBeNull();
+    expect(collapsedFolder.querySelector("[aria-label='Working']")).not.toBeNull();
+    expect(
+      document.querySelector("[data-slot='folder-content']")?.closest("[aria-hidden='true']"),
+    ).not.toBeNull();
+
+    const action = page.getByRole("button", { name: "Create thread in Status folder" });
+    await action.hover();
+    await vi.waitFor(() => {
+      const statusRect = collapsedFolder
+        .querySelector<HTMLElement>("[data-slot='work-status']")!
+        .getBoundingClientRect();
+      const actionRect = action.element().getBoundingClientRect();
+      expect(actionRect.left - statusRect.right).toBeGreaterThanOrEqual(11);
+      expect(collapsedFolder.querySelector("[aria-label='Working']")).not.toBeNull();
+    });
+
+    await rerender(
+      <div className="w-56">
+        <FolderGroupShared
+          expanded
+          label="Status folder"
+          onHeaderAction={vi.fn()}
+          threads={[{ id: "attention", label: "Attention thread", workStatus: "attention" }]}
+          workStatus="attention"
+        />
+      </div>,
+    );
+
+    const openFolder = page.getByRole("button", { name: "Status folder", exact: true }).element();
+    expect(openFolder.querySelector("[data-slot='work-status']")).toBeNull();
+    await expect.element(page.getByRole("button", { name: /Attention thread/u })).toBeVisible();
+    expect(document.querySelector("[aria-label='Needs attention']")).not.toBeNull();
   });
 
   it("renders the complete thread work-status lifecycle without changing row geometry", async () => {
@@ -447,6 +591,7 @@ describe("Pencil left rail", () => {
     const row = preparing.element().closest<HTMLElement>(".h-11");
     await expect.element(preparing).toBeDisabled();
     expect(preparing.element().querySelector(".animate-spin")).not.toBeNull();
+    expect(page.getByRole("button", { name: "Help" }).query()).toBeNull();
 
     await rerender(
       <AccountRowShared
@@ -489,9 +634,7 @@ describe("Pencil left rail", () => {
     expect(installing.element().querySelector(".animate-spin")).not.toBeNull();
     expect(row?.getBoundingClientRect().height).toBe(44);
     expect(row?.getBoundingClientRect().width).toBe(240);
-    expect(page.getByRole("button", { name: "Help" }).element().getBoundingClientRect().width).toBe(
-      28,
-    );
+    expect(page.getByRole("button", { name: "Help" }).query()).toBeNull();
   });
 
   it("opens the shared account popup from its semantic menu trigger", async () => {

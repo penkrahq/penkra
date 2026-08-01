@@ -1,4 +1,4 @@
-import type { ProviderKind } from "@synara/contracts";
+import type { ProviderKind } from "@penkra/contracts";
 
 import { ProviderIcon } from "~/components/ProviderIcon";
 import { cn } from "~/lib/utils";

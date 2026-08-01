@@ -22,16 +22,16 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
     const globalEnv = new Set(turboConfig.globalEnv ?? []);
 
     for (const name of [
-      "SYNARA_MODE",
-      "SYNARA_PORT",
-      "SYNARA_HOME",
-      "SYNARA_NO_BROWSER",
-      "SYNARA_AUTH_TOKEN",
-      "SYNARA_PUBLIC_URL",
-      "SYNARA_ALLOW_INSECURE_REMOTE",
-      "SYNARA_HOST",
-      "SYNARA_LOG_WS_EVENTS",
-      "SYNARA_AUTO_BOOTSTRAP_PROJECT_FROM_CWD",
+      "PENKRA_MODE",
+      "PENKRA_PORT",
+      "PENKRA_HOME",
+      "PENKRA_NO_BROWSER",
+      "PENKRA_AUTH_TOKEN",
+      "PENKRA_PUBLIC_URL",
+      "PENKRA_ALLOW_INSECURE_REMOTE",
+      "PENKRA_HOST",
+      "PENKRA_LOG_WS_EVENTS",
+      "PENKRA_AUTO_BOOTSTRAP_PROJECT_FROM_CWD",
       "VITE_WS_URL",
       "VITE_DEV_SERVER_URL",
     ]) {
@@ -40,12 +40,12 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
   });
 
   describe("resolveOffset", () => {
-    it.effect("uses explicit SYNARA_PORT_OFFSET when provided", () =>
+    it.effect("uses explicit PENKRA_PORT_OFFSET when provided", () =>
       Effect.sync(() => {
         const result = resolveOffset({ portOffset: 12, devInstance: undefined });
         assert.deepStrictEqual(result, {
           offset: 12,
-          source: "SYNARA_PORT_OFFSET=12",
+          source: "PENKRA_PORT_OFFSET=12",
         });
       }),
     );
@@ -67,7 +67,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           }),
         );
 
-        assert.ok(error.includes("Invalid SYNARA_PORT_OFFSET"));
+        assert.ok(error.includes("Invalid PENKRA_PORT_OFFSET"));
       }),
     );
   });
@@ -122,7 +122,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
     it.effect("rejects invalid boolean environment values", () =>
       Effect.gen(function* () {
         const error = yield* Effect.flip(
-          readDevRunnerBooleanEnvironment({ SYNARA_LOG_WS_EVENTS: "sometimes" }),
+          readDevRunnerBooleanEnvironment({ PENKRA_LOG_WS_EVENTS: "sometimes" }),
         );
 
         assert.match(String(error), /Failed to read boolean development-runner configuration/);
@@ -131,14 +131,14 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
   });
 
   describe("createDevRunnerEnv", () => {
-    it.effect("defaults SYNARA_HOME to ~/.synara when not provided", () =>
+    it.effect("defaults PENKRA_HOME to ~/.penkra when not provided", () =>
       Effect.gen(function* () {
         const env = yield* createDevRunnerEnv({
           mode: "dev",
           baseEnv: {},
           serverOffset: 0,
           webOffset: 0,
-          synaraHome: undefined,
+          penkraHome: undefined,
           authToken: undefined,
           noBrowser: undefined,
           autoBootstrapProjectFromCwd: undefined,
@@ -148,8 +148,8 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           devUrl: undefined,
         });
 
-        assert.equal(env.SYNARA_HOME, resolve(homedir(), ".synara"));
-        assert.equal(env.SYNARA_HOST, "127.0.0.1");
+        assert.equal(env.PENKRA_HOME, resolve(homedir(), ".penkra"));
+        assert.equal(env.PENKRA_HOST, "127.0.0.1");
         assert.equal(env.VITE_WS_URL, "ws://127.0.0.1:3773");
       }),
     );
@@ -161,7 +161,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           baseEnv: {},
           serverOffset: 0,
           webOffset: 0,
-          synaraHome: undefined,
+          penkraHome: undefined,
           authToken: undefined,
           noBrowser: undefined,
           autoBootstrapProjectFromCwd: undefined,
@@ -171,7 +171,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           devUrl: undefined,
         });
 
-        assert.equal(env.SYNARA_HOST, "::1");
+        assert.equal(env.PENKRA_HOST, "::1");
         assert.equal(env.VITE_WS_URL, "ws://[::1]:3773");
       }),
     );
@@ -183,7 +183,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           baseEnv: {},
           serverOffset: 0,
           webOffset: 0,
-          synaraHome: "/tmp/custom-synara",
+          penkraHome: "/tmp/custom-penkra",
           authToken: "secret",
           noBrowser: true,
           autoBootstrapProjectFromCwd: false,
@@ -193,12 +193,12 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           devUrl: new URL("http://localhost:7331"),
         });
 
-        assert.equal(env.SYNARA_HOME, resolve("/tmp/custom-synara"));
-        assert.equal(env.SYNARA_PORT, "4222");
-        assert.equal(env.SYNARA_NO_BROWSER, "1");
-        assert.equal(env.SYNARA_AUTO_BOOTSTRAP_PROJECT_FROM_CWD, "0");
-        assert.equal(env.SYNARA_LOG_WS_EVENTS, "1");
-        assert.equal(env.SYNARA_HOST, "0.0.0.0");
+        assert.equal(env.PENKRA_HOME, resolve("/tmp/custom-penkra"));
+        assert.equal(env.PENKRA_PORT, "4222");
+        assert.equal(env.PENKRA_NO_BROWSER, "1");
+        assert.equal(env.PENKRA_AUTO_BOOTSTRAP_PROJECT_FROM_CWD, "0");
+        assert.equal(env.PENKRA_LOG_WS_EVENTS, "1");
+        assert.equal(env.PENKRA_HOST, "0.0.0.0");
         assert.equal(env.VITE_WS_URL, "ws://127.0.0.1:4222");
         assert.equal(env.VITE_DEV_SERVER_URL, "http://localhost:7331/");
       }),
@@ -209,11 +209,11 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
         const env = yield* createDevRunnerEnv({
           mode: "dev",
           baseEnv: {
-            SYNARA_LOG_WS_EVENTS: "keep-me-out",
+            PENKRA_LOG_WS_EVENTS: "keep-me-out",
           },
           serverOffset: 0,
           webOffset: 0,
-          synaraHome: undefined,
+          penkraHome: undefined,
           authToken: undefined,
           noBrowser: undefined,
           autoBootstrapProjectFromCwd: undefined,
@@ -223,8 +223,8 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           devUrl: undefined,
         });
 
-        assert.equal(env.SYNARA_MODE, "web");
-        assert.equal(env.SYNARA_LOG_WS_EVENTS, undefined);
+        assert.equal(env.PENKRA_MODE, "web");
+        assert.equal(env.PENKRA_LOG_WS_EVENTS, undefined);
       }),
     );
 
@@ -235,7 +235,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           baseEnv: {},
           serverOffset: 0,
           webOffset: 0,
-          synaraHome: undefined,
+          penkraHome: undefined,
           authToken: undefined,
           noBrowser: undefined,
           autoBootstrapProjectFromCwd: undefined,
@@ -245,18 +245,18 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           devUrl: undefined,
         });
 
-        assert.equal(env.SYNARA_LOG_WS_EVENTS, "0");
+        assert.equal(env.PENKRA_LOG_WS_EVENTS, "0");
       }),
     );
 
-    it.effect("uses custom synaraHome when provided", () =>
+    it.effect("uses custom penkraHome when provided", () =>
       Effect.gen(function* () {
         const env = yield* createDevRunnerEnv({
           mode: "dev",
           baseEnv: {},
           serverOffset: 0,
           webOffset: 0,
-          synaraHome: "/tmp/my-synara",
+          penkraHome: "/tmp/my-penkra",
           authToken: undefined,
           noBrowser: undefined,
           autoBootstrapProjectFromCwd: undefined,
@@ -266,9 +266,9 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           devUrl: undefined,
         });
 
-        assert.equal(env.SYNARA_HOME, resolve("/tmp/my-synara"));
-        assert.equal(env.SYNARA_HOME, resolve("/tmp/my-synara"));
-        assert.equal(env.SYNARA_HOME, resolve("/tmp/my-synara"));
+        assert.equal(env.PENKRA_HOME, resolve("/tmp/my-penkra"));
+        assert.equal(env.PENKRA_HOME, resolve("/tmp/my-penkra"));
+        assert.equal(env.PENKRA_HOME, resolve("/tmp/my-penkra"));
       }),
     );
   });

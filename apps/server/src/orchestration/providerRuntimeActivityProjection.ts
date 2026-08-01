@@ -6,14 +6,14 @@ import {
   type ProviderRuntimeEvent,
   ThreadId,
   TurnId,
-} from "@synara/contracts";
-import { nonEmptyTrimmed } from "@synara/shared/text";
+} from "@penkra/contracts";
+import { nonEmptyTrimmed } from "@penkra/shared/text";
 
 const MAX_ACTIVITY_DATA_JSON_CHARS = 16_000;
 const MAX_ACTIVITY_DATA_STRING_CHARS = 2_000;
 const MAX_ACTIVITY_DATA_ARRAY_ITEMS = 24;
 const MAX_ACTIVITY_DATA_OBJECT_KEYS = 64;
-const ACTIVITY_DATA_TRUNCATION_MARKER = "__synaraTruncated";
+const ACTIVITY_DATA_TRUNCATION_MARKER = "__penkraTruncated";
 
 type ActivityPayload = OrchestrationThreadActivity["payload"];
 

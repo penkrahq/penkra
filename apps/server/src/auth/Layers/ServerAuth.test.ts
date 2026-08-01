@@ -30,7 +30,7 @@ const testLayer = ServerAuthLive.pipe(
   Layer.provide(ServerSecretStoreLive),
   Layer.provide(
     ServerConfig.layerTest(process.cwd(), {
-      prefix: "synara-auth-server-test-",
+      prefix: "penkra-auth-server-test-",
     }),
   ),
   Layer.provide(NodeServices.layer),
@@ -47,7 +47,7 @@ function makeCookieRequest(sessionToken: string): AuthRequest {
   return {
     headers: {},
     cookies: {
-      synara_session: sessionToken,
+      penkra_session: sessionToken,
     },
   };
 }
@@ -220,7 +220,7 @@ describe("ServerAuthLive", () => {
 
         const authenticated = yield* serverAuth.authenticateHttpRequest({
           headers: { authorization: `Bearer ${bearerSession.sessionToken}` },
-          cookies: { synara_session: cookieSession.sessionToken },
+          cookies: { penkra_session: cookieSession.sessionToken },
         });
 
         expect(authenticated.credentialSource).toBe("bearer");

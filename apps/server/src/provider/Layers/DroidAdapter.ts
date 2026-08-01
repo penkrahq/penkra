@@ -19,7 +19,7 @@ import {
   RuntimeTaskId,
   ThreadId,
   TurnId,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 import {
   Cause,
   DateTime,
@@ -39,10 +39,10 @@ import {
 import { ChildProcessSpawner } from "effect/unstable/process";
 import type * as Acp from "@agentclientprotocol/sdk";
 
-import { buildAcpSynaraMcpServers } from "../../agentGateway/mcpInjection.ts";
+import { buildAcpPenkraMcpServers } from "../../agentGateway/mcpInjection.ts";
 import {
-  type SynaraHarnessPolicyDeliveryState,
-  takeSynaraHarnessPolicyTextPartForProviderSession,
+  type PenkraHarnessPolicyDeliveryState,
+  takePenkraHarnessPolicyTextPartForProviderSession,
 } from "../../agentGateway/harnessPolicy.ts";
 import { AgentGatewayCredentials } from "../../agentGateway/Services/AgentGatewayCredentials.ts";
 import { PROVIDER_ADAPTER_RUNTIME_EVENT_BUFFER_CAPACITY } from "../Services/ProviderAdapter.ts";
@@ -121,27 +121,27 @@ import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogg
 
 const PROVIDER = "droid" as const;
 
-export const takeDroidSynaraHarnessPolicyTextPart = (
-  state: SynaraHarnessPolicyDeliveryState,
+export const takeDroidPenkraHarnessPolicyTextPart = (
+  state: PenkraHarnessPolicyDeliveryState,
   scopedGatewayConnectionAvailable: boolean,
 ) =>
-  takeSynaraHarnessPolicyTextPartForProviderSession(state, {
+  takePenkraHarnessPolicyTextPartForProviderSession(state, {
     provider: PROVIDER,
     scopedGatewayConnectionAvailable,
   });
 const DROID_RESUME_VERSION = 1 as const;
 const DROID_ACP_TRANSPORT_DEBUG_MARKER = "droid-acp-meta-stripper-v2";
 const DROID_ACP_LOG_PAYLOAD_LIMIT = 4_000;
-const DROID_ACP_DEBUG_ENV = "SYNARA_DROID_ACP_DEBUG";
+const DROID_ACP_DEBUG_ENV = "PENKRA_DROID_ACP_DEBUG";
 const LEGACY_DROID_ACP_DEBUG_ENV = "DP_DROID_ACP_DEBUG";
 const DROID_TURN_SETTLE_DRAIN_MAX_WAIT_MS = 1_000;
 const DROID_TURN_SETTLE_DRAIN_POLL_MS = 25;
 // Backstop for an alive-but-silent droid child: if a turn produces no ACP
 // activity for this long, force-fail it instead of showing "Working" forever.
 // Generous by design so legitimate long, quiet tool runs are not killed;
-// override with SYNARA_DROID_TURN_IDLE_TIMEOUT_MS when a workload needs longer.
+// override with PENKRA_DROID_TURN_IDLE_TIMEOUT_MS when a workload needs longer.
 const DROID_TURN_IDLE_TIMEOUT_MS = resolveAcpTurnIdleTimeoutMs({
-  envVar: "SYNARA_DROID_TURN_IDLE_TIMEOUT_MS",
+  envVar: "PENKRA_DROID_TURN_IDLE_TIMEOUT_MS",
   defaultMs: 600_000,
 });
 const DROID_TURN_WATCHDOG_INTERVAL_MS = 15_000;
@@ -807,7 +807,7 @@ export function makeDroidAdapter(
             ...(agentGatewayCredentials
               ? {
                   buildMcpServers: (initializeResult: Acp.InitializeResponse) =>
-                    buildAcpSynaraMcpServers({
+                    buildAcpPenkraMcpServers({
                       connection: gatewaySessionLease!.connection,
                       initializeResult,
                       stdioProxy: agentGatewayCredentials.stdioProxy,
@@ -1474,7 +1474,7 @@ export function makeDroidAdapter(
             issue: "Turn requires non-empty text or attachments.",
           });
         }
-        const harnessPolicy = takeDroidSynaraHarnessPolicyTextPart(
+        const harnessPolicy = takeDroidPenkraHarnessPolicyTextPart(
           ctx,
           agentGatewayCredentials !== undefined,
         );

@@ -5,7 +5,7 @@ import type {
   AuthPairingCredentialResult,
   AuthSessionState,
   AuthWebSocketTokenResult,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 import { DateTime, Effect, Layer } from "effect";
 
 import { AuthControlPlane } from "../Services/AuthControlPlane";

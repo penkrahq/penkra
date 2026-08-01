@@ -2,7 +2,7 @@
 // Purpose: Locks the shared provider-model catalog's memoization and discovery policy.
 // Layer: Web hook tests
 
-import type { ProviderKind, ProviderModelDescriptor } from "@synara/contracts";
+import type { ProviderKind, ProviderModelDescriptor } from "@penkra/contracts";
 import { useState } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";

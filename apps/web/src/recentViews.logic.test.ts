@@ -3,7 +3,7 @@
 // Layer: UI state logic test
 
 import { describe, expect, it } from "vitest";
-import { ProjectId, ThreadId } from "@synara/contracts";
+import { ProjectId, ThreadId } from "@penkra/contracts";
 import {
   buildRecentViewDisplayEntries,
   deriveCurrentRecentView,

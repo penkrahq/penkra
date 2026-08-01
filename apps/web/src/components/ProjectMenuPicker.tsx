@@ -1,7 +1,7 @@
 // FILE: ProjectMenuPicker.tsx
 // Purpose: Shared searchable project picker, grouped by the active and other Spaces.
 
-import type { ProjectId, SpaceId } from "@synara/contracts";
+import type { ProjectId, SpaceId } from "@penkra/contracts";
 import { Fragment, type ReactElement, type ReactNode, useMemo, useState } from "react";
 
 import { ComposerPickerMenuPopup } from "~/components/chat/ComposerPickerMenuPopup";

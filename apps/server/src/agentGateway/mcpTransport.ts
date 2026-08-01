@@ -1,4 +1,4 @@
-import { ThreadId, type OrchestrationThreadShell } from "@synara/contracts";
+import { ThreadId, type OrchestrationThreadShell } from "@penkra/contracts";
 import { Effect, Option } from "effect";
 
 import type { ProjectionSnapshotQueryShape } from "../orchestration/Services/ProjectionSnapshotQuery.ts";

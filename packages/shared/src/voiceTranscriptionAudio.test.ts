@@ -1,7 +1,7 @@
 // FILE: voiceTranscriptionAudio.test.ts
 // Purpose: Verifies shared server/desktop WAV chunk validation without an audio-duration ceiling.
 
-import type { ServerVoiceTranscriptionInput } from "@synara/contracts";
+import type { ServerVoiceTranscriptionInput } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 
 import { decodeVoiceTranscriptionAudio } from "./voiceTranscriptionAudio";

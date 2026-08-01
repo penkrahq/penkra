@@ -11,7 +11,7 @@ import {
   TurnId,
   type OrchestrationCommand,
   type ProviderRuntimeEvent,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 import { Effect, Exit, Layer, ManagedRuntime, Option, PubSub, Scope, Stream } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -60,7 +60,7 @@ describe("StudioOutputReactor", () => {
   });
 
   it("uses the pre-dispatch baseline and captures files when the provider session exits", async () => {
-    const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "synara-studio-reactor-"));
+    const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "penkra-studio-reactor-"));
     temporaryRoots.push(workspaceRoot);
     const threadId = ThreadId.makeUnsafe("studio-thread");
     const projectId = ProjectId.makeUnsafe("studio-project");

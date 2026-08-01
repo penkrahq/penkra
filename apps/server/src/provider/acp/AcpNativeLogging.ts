@@ -1,4 +1,4 @@
-import type { ProviderKind, ThreadId } from "@synara/contracts";
+import type { ProviderKind, ThreadId } from "@penkra/contracts";
 import { Cause, Effect } from "effect";
 
 import type { EventNdjsonLogger } from "../Layers/EventNdjsonLogger.ts";
@@ -10,15 +10,15 @@ import type {
 
 export const ACP_LOG_REDACTED_VALUE = "[REDACTED]";
 
-const SENSITIVE_ENTRY_NAMES = new Set(["authorization", "synara_agent_gateway_token"]);
+const SENSITIVE_ENTRY_NAMES = new Set(["authorization", "penkra_agent_gateway_token"]);
 
 function redactSecretString(value: string): string {
   return value
     .replace(/(\bBearer\s+)[^\s"',}\]]+/gi, `$1${ACP_LOG_REDACTED_VALUE}`)
-    .replace(/(SYNARA_AGENT_GATEWAY_TOKEN\s*=\s*)[^\s"',}\]]+/g, `$1${ACP_LOG_REDACTED_VALUE}`)
-    .replace(/("SYNARA_AGENT_GATEWAY_TOKEN"\s*:\s*")[^"]*/g, `$1${ACP_LOG_REDACTED_VALUE}`)
+    .replace(/(PENKRA_AGENT_GATEWAY_TOKEN\s*=\s*)[^\s"',}\]]+/g, `$1${ACP_LOG_REDACTED_VALUE}`)
+    .replace(/("PENKRA_AGENT_GATEWAY_TOKEN"\s*:\s*")[^"]*/g, `$1${ACP_LOG_REDACTED_VALUE}`)
     .replace(
-      /("name"\s*:\s*"SYNARA_AGENT_GATEWAY_TOKEN"\s*,\s*"value"\s*:\s*")[^"]*/g,
+      /("name"\s*:\s*"PENKRA_AGENT_GATEWAY_TOKEN"\s*,\s*"value"\s*:\s*")[^"]*/g,
       `$1${ACP_LOG_REDACTED_VALUE}`,
     );
 }

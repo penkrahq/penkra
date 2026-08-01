@@ -5,7 +5,7 @@ import type {
   OrchestrationThread,
   ProjectKind,
   ThreadMarker,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 import {
   EventId,
   MAX_PINNED_PROJECTS,
@@ -14,17 +14,17 @@ import {
   SPACES_MAX_COUNT,
   THREAD_MARKERS_MAX_COUNT,
   TurnId,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 import {
   deriveAssociatedWorktreeMetadata,
   deriveAssociatedWorktreeMetadataPatch,
   workspaceRootsEqual,
-} from "@synara/shared/threadWorkspace";
-import { doThreadMarkerRangesOverlap } from "@synara/shared/threadMarkers";
+} from "@penkra/shared/threadWorkspace";
+import { doThreadMarkerRangesOverlap } from "@penkra/shared/threadMarkers";
 import {
   collectTailTurnIds,
   resolveTailUserMessageEditTarget,
-} from "@synara/shared/conversationEdit";
+} from "@penkra/shared/conversationEdit";
 import { Effect } from "effect";
 
 import { OrchestrationCommandInvariantError } from "./Errors.ts";
@@ -2074,11 +2074,22 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.session.set": {
-      yield* requireThread({
+      const thread = yield* requireThread({
         readModel,
         command,
         threadId: command.threadId,
       });
+      const sessionChanged =
+        (command.expectedSessionStatus !== undefined &&
+          thread.session?.status !== command.expectedSessionStatus) ||
+        (command.expectedSessionUpdatedAt !== undefined &&
+          thread.session?.updatedAt !== command.expectedSessionUpdatedAt);
+      if (sessionChanged) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Thread '${command.threadId}' session changed before the conditional update.`,
+        });
+      }
       return {
         ...withEventBase({
           aggregateKind: "thread",

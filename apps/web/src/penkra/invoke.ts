@@ -2,7 +2,7 @@ import {
   ProviderKind,
   type PenkraTodoSummary,
   type ProviderKind as ProviderKindType,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 import { Schema } from "effect";
 
 export function penkraProjectId(clientId: string): string {

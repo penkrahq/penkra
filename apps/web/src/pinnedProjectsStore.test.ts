@@ -3,7 +3,7 @@
 // Layer: UI state store test
 
 import { beforeEach, describe, expect, it } from "vitest";
-import { ProjectId } from "@synara/contracts";
+import { ProjectId } from "@penkra/contracts";
 import { usePinnedProjectsStore } from "./pinnedProjectsStore";
 
 describe("usePinnedProjectsStore", () => {

@@ -101,8 +101,8 @@ function writeFakePowerShellAppxRegistration(input: {
 
 describe("resolveCachedEditorIcon", () => {
   it("copies a macOS app PNG icon into the cache", async () => {
-    const homeDir = makeTempDir("synara-editor-icon-home-");
-    const cacheDir = makeTempDir("synara-editor-icon-cache-");
+    const homeDir = makeTempDir("penkra-editor-icon-home-");
+    const cacheDir = makeTempDir("penkra-editor-icon-cache-");
     const bytes = new Uint8Array([137, 80, 78, 71, 1, 2, 3]);
     writeFakeMacAppIcon({
       homeDir,
@@ -124,8 +124,8 @@ describe("resolveCachedEditorIcon", () => {
   });
 
   it("resolves a Linux desktop icon by icon name", async () => {
-    const homeDir = makeTempDir("synara-editor-icon-linux-home-");
-    const cacheDir = makeTempDir("synara-editor-icon-linux-cache-");
+    const homeDir = makeTempDir("penkra-editor-icon-linux-home-");
+    const cacheDir = makeTempDir("penkra-editor-icon-linux-cache-");
     const bytes = new Uint8Array([137, 80, 78, 71, 4, 5, 6]);
     writeFakeLinuxDesktopIcon({
       homeDir,
@@ -153,10 +153,10 @@ describe("resolveCachedEditorIcon", () => {
   });
 
   it("copies a Windows Store package PNG icon for VS Code", async () => {
-    const programFilesDir = makeTempDir("synara-editor-icon-win-program-files-");
-    const cacheDir = makeTempDir("synara-editor-icon-win-cache-");
-    const powershellBinDir = makeTempDir("synara-editor-icon-win-powershell-");
-    const localAppData = makeTempDir("synara-editor-icon-win-local-appdata-");
+    const programFilesDir = makeTempDir("penkra-editor-icon-win-program-files-");
+    const cacheDir = makeTempDir("penkra-editor-icon-win-cache-");
+    const powershellBinDir = makeTempDir("penkra-editor-icon-win-powershell-");
+    const localAppData = makeTempDir("penkra-editor-icon-win-local-appdata-");
     const packageDirName = "Microsoft.VisualStudioCode_1.0.0.0_x64__8wekyb3d8bbwe";
     const installLocation = path.join(programFilesDir, "WindowsApps", packageDirName);
     const bytes = new Uint8Array([137, 80, 78, 71, 20, 21, 22]);
@@ -197,8 +197,8 @@ describe("resolveCachedEditorIcon", () => {
   });
 
   it("does not match Linux desktop files from unrelated comments", async () => {
-    const homeDir = makeTempDir("synara-editor-icon-linux-comment-home-");
-    const cacheDir = makeTempDir("synara-editor-icon-linux-comment-cache-");
+    const homeDir = makeTempDir("penkra-editor-icon-linux-comment-home-");
+    const cacheDir = makeTempDir("penkra-editor-icon-linux-comment-cache-");
     writeFakeLinuxDesktopIcon({
       homeDir,
       desktopFileName: "notes.desktop",
@@ -224,8 +224,8 @@ describe("resolveCachedEditorIcon", () => {
   });
 
   it("does not match short Linux editor ids inside unrelated words", async () => {
-    const homeDir = makeTempDir("synara-editor-icon-linux-short-home-");
-    const cacheDir = makeTempDir("synara-editor-icon-linux-short-cache-");
+    const homeDir = makeTempDir("penkra-editor-icon-linux-short-home-");
+    const cacheDir = makeTempDir("penkra-editor-icon-linux-short-cache-");
     writeFakeLinuxDesktopIcon({
       homeDir,
       desktopFileName: "good-ideas.desktop",
@@ -251,8 +251,8 @@ describe("resolveCachedEditorIcon", () => {
   });
 
   it("short-circuits repeated missing native icon lookups briefly", async () => {
-    const homeDir = makeTempDir("synara-editor-icon-linux-negative-home-");
-    const cacheDir = makeTempDir("synara-editor-icon-linux-negative-cache-");
+    const homeDir = makeTempDir("penkra-editor-icon-linux-negative-home-");
+    const cacheDir = makeTempDir("penkra-editor-icon-linux-negative-cache-");
     const lookup = {
       editorId: "ghostty",
       cacheDir,
@@ -288,9 +288,9 @@ describe("resolveCachedEditorIcon", () => {
     await expect(
       resolveCachedEditorIcon({
         editorId: "missing-editor",
-        cacheDir: makeTempDir("synara-editor-icon-missing-cache-"),
+        cacheDir: makeTempDir("penkra-editor-icon-missing-cache-"),
         platform: "darwin",
-        env: { HOME: makeTempDir("synara-editor-icon-missing-home-"), PATH: "" },
+        env: { HOME: makeTempDir("penkra-editor-icon-missing-home-"), PATH: "" },
       }),
     ).resolves.toBeNull();
   });

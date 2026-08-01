@@ -1,4 +1,4 @@
-import { EventId, type ModelSelection, type OrchestrationThreadActivity } from "@synara/contracts";
+import { EventId, type ModelSelection, type OrchestrationThreadActivity } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 import {
   buildThreadHandoffImportedActivities,

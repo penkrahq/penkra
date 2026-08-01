@@ -4,13 +4,13 @@
 // Exports: ChatPaneDropOverlay component, drag MIME constant, drop-zone helpers used by tests
 
 import { useEffect, useRef, type DragEvent as ReactDragEvent, type ReactNode } from "react";
-import { type ThreadId } from "@synara/contracts";
+import { type ThreadId } from "@penkra/contracts";
 
 import { type SplitDirection, type SplitDropSide } from "../../splitViewStore";
 import { cn } from "../../lib/utils";
 
 // Custom MIME so external file drops on the composer (which listen for `Files`) cannot trigger us.
-export const THREAD_DRAG_MIME = "application/x-synara-thread";
+export const THREAD_DRAG_MIME = "application/x-penkra-thread";
 
 export interface ThreadDragPayload {
   threadId: ThreadId;

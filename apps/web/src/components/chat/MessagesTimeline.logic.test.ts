@@ -1,4 +1,4 @@
-import { CheckpointRef, MessageId, OrchestrationProposedPlanId, TurnId } from "@synara/contracts";
+import { CheckpointRef, MessageId, OrchestrationProposedPlanId, TurnId } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 import {
   buildTurnDiffSummaryByAssistantMessageId,
@@ -1152,20 +1152,20 @@ describe("deriveMessagesTimelineRows", () => {
 
   it("preserves Penkra tool calls when a separate creation recap is present", () => {
     const createTool = workEntry(
-      "synara-create-tool",
+      "penkra-create-tool",
       "2026-01-01T00:00:01Z",
       "Penkra created threads",
     );
     const creationRecap: TimelineEntry = {
-      id: "entry-synara-create-recap",
+      id: "entry-penkra-create-recap",
       kind: "work",
       createdAt: "2026-01-01T00:00:02Z",
       entry: {
-        id: "synara-create-recap",
+        id: "penkra-create-recap",
         createdAt: "2026-01-01T00:00:02Z",
         label: "Created 2 Penkra threads",
         tone: "info",
-        synaraThreadCreation: {
+        penkraThreadCreation: {
           operationId: "gateway:create:two",
           requestedCount: 2,
           createdCount: 2,
@@ -1205,8 +1205,8 @@ describe("deriveMessagesTimelineRows", () => {
     });
 
     expect(collapsedSignature(messageRow(rows, "a1")!)).toEqual([
-      "work:synara-create-tool",
-      "work:synara-create-recap",
+      "work:penkra-create-tool",
+      "work:penkra-create-recap",
     ]);
   });
 

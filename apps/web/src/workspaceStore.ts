@@ -2,7 +2,7 @@
 // Purpose: Persist terminal-only workspace pages plus their stable synthetic terminal scopes.
 // Layer: Workspace view-model state
 
-import { type ThreadId } from "@synara/contracts";
+import { type ThreadId } from "@penkra/contracts";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import {
@@ -40,7 +40,7 @@ interface WorkspaceStoreState {
   reorderWorkspace: (workspaceId: string, nextIndex: number) => void;
 }
 
-const WORKSPACE_STORE_STORAGE_KEY = "synara:workspace-pages:v2";
+const WORKSPACE_STORE_STORAGE_KEY = "penkra:workspace-pages:v2";
 
 function randomWorkspaceId(): string {
   if (typeof crypto.randomUUID === "function") {

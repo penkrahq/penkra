@@ -95,4 +95,4 @@ export interface AgentGatewayOperationRepositoryShape {
 export class AgentGatewayOperationRepository extends ServiceMap.Service<
   AgentGatewayOperationRepository,
   AgentGatewayOperationRepositoryShape
->()("synara/agentGateway/Services/AgentGatewayOperationRepository") {}
+>()("penkra/agentGateway/Services/AgentGatewayOperationRepository") {}

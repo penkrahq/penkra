@@ -5,7 +5,7 @@
 
 import { randomUUID } from "node:crypto";
 import type * as Acp from "@agentclientprotocol/sdk";
-import { prepareWindowsSafeProcess } from "@synara/shared/windowsProcess";
+import { prepareWindowsSafeProcess } from "@penkra/shared/windowsProcess";
 import {
   Cause,
   Deferred,
@@ -192,7 +192,7 @@ export interface AcpSessionRuntimeOptions {
   /**
    * MCP servers to attach to the session. Invoked after `initialize` so the
    * builder can pick a transport based on the agent's advertised
-   * `mcpCapabilities` (e.g. HTTP vs stdio for the Synara agent gateway).
+   * `mcpCapabilities` (e.g. HTTP vs stdio for the Penkra agent gateway).
    */
   readonly buildMcpServers?: (initializeResult: Acp.InitializeResponse) => Array<Acp.McpServer>;
   readonly authenticateMeta?: Record<string, unknown>;
@@ -339,7 +339,7 @@ export const awaitAcpChildExit = (child: AcpOwnedChildProcess): Effect.Effect<vo
   child.exitCode.pipe(Effect.exit, Effect.asVoid);
 
 /**
- * Bridges Effect's child-process exit signal into Synara's process-tree proof. This is deliberately
+ * Bridges Effect's child-process exit signal into Penkra's process-tree proof. This is deliberately
  * a finalizer defect on failure: adapter scope cleanup may ignore typed failures, but it must never
  * publish a successful stop when the ACP process tree has not been proven gone.
  */
@@ -506,7 +506,7 @@ const makeOfficialSdkClient = Effect.fnUntraced(function* (
   });
 
   const clientApp = acpSdk
-    .client({ name: "synara" })
+    .client({ name: "penkra" })
     .onRequest(acpSdk.methods.client.session.requestPermission, ({ params }) =>
       requireHandler("session/request_permission", requestPermission, params),
     )
@@ -674,7 +674,7 @@ const makeOfficialSdkClient = Effect.fnUntraced(function* (
 export class AcpSessionRuntime extends ServiceMap.Service<
   AcpSessionRuntime,
   AcpSessionRuntimeShape
->()("synara/provider/acp/AcpSessionRuntime") {
+>()("penkra/provider/acp/AcpSessionRuntime") {
   static layer(
     options: AcpSessionRuntimeOptions,
   ): Layer.Layer<AcpSessionRuntime, AcpErrors.AcpError, ChildProcessSpawner.ChildProcessSpawner> {

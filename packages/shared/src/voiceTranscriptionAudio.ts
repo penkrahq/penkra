@@ -7,7 +7,7 @@ import { Buffer } from "node:buffer";
 import {
   SERVER_VOICE_TRANSCRIPTION_MAX_AUDIO_BYTES,
   type ServerVoiceTranscriptionInput,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 
 export function decodeVoiceTranscriptionAudio(input: ServerVoiceTranscriptionInput): Buffer {
   if (input.mimeType !== "audio/wav") {

@@ -33,7 +33,7 @@ import {
   type OrchestrationThreadActivity,
   ThreadHandoff,
   ModelSelection,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 import { Effect, Layer, Option, Schema, Struct } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
@@ -46,7 +46,7 @@ import {
   type ProjectionRepositoryError,
 } from "../../persistence/Errors.ts";
 import { normalizePersistedModelSelection } from "../../persistence/modelSelectionCompatibility.ts";
-import { deriveThreadSummaryMetadata } from "@synara/shared/threadSummary";
+import { deriveThreadSummaryMetadata } from "@penkra/shared/threadSummary";
 import { ProjectionCheckpoint } from "../../persistence/Services/ProjectionCheckpoints.ts";
 import { ProjectionProject } from "../../persistence/Services/ProjectionProjects.ts";
 import { ProjectionSpace } from "../../persistence/Services/ProjectionSpaces.ts";
@@ -442,7 +442,6 @@ function toProjectedProject(row: ProjectionProjectDbRow): OrchestrationProject {
     spaceId: row.spaceId,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
-    archivedAt: row.archivedAt ?? null,
     deletedAt: row.deletedAt,
   };
 }
@@ -942,8 +941,11 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             OR latest_turn.state = 'running'
             OR json_extract(runtime.runtime_payload_json, '$.activeTurnId') IS NOT NULL
           )
-          AND COALESCE(sessions.updated_at, threads.updated_at) <= ${updatedBefore}
-        ORDER BY COALESCE(sessions.updated_at, threads.updated_at) ASC, threads.thread_id ASC
+          -- Use the latest lifecycle or projected-output timestamp. Streaming
+          -- output advances threads.updated_at even when the session row stays
+          -- unchanged for the full turn.
+          AND MAX(COALESCE(sessions.updated_at, threads.updated_at), threads.updated_at) <= ${updatedBefore}
+        ORDER BY MAX(COALESCE(sessions.updated_at, threads.updated_at), threads.updated_at) ASC, threads.thread_id ASC
         LIMIT ${Math.max(1, Math.min(1_000, Math.floor(limit)))}
       `,
   });

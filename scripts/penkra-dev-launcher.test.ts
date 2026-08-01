@@ -8,6 +8,8 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   isExpectedPenkraDevSupervisorCommand,
+  resolveOrphanedDesktopBackendPids,
+  resolveOrphanedWorkspaceProcessRoots,
   resolvePenkraDevLauncherPaths,
   resolvePenkraDevWorkspaceCommand,
   shouldRunPenkraDevLauncher,
@@ -169,6 +171,51 @@ describe("Penkra Dev launcher", () => {
       ],
       cwd: "/repositories/backend-checkout",
     });
+  });
+
+  it("reaps only reparented workspace process trees", () => {
+    expect(
+      resolveOrphanedWorkspaceProcessRoots(
+        [
+          { pid: 10, parentPid: 1, command: "node pnpm dev" },
+          { pid: 11, parentPid: 10, command: "node /workspace/backend/src/server.ts" },
+          { pid: 20, parentPid: 2, command: "node pnpm dev" },
+          { pid: 21, parentPid: 20, command: "node /workspace/website/next dev" },
+          { pid: 30, parentPid: 1, command: "node /unrelated/server.ts" },
+        ],
+        ["/workspace/backend", "/workspace/website"],
+      ),
+    ).toEqual([10]);
+  });
+
+  it("reaps only an orphaned embedded backend from the active desktop checkout", () => {
+    const desktopRoot = "/workspace/penkra";
+    const executable = `${desktopRoot}/apps/desktop/.electron-runtime/Penkra (Dev).app/Contents/MacOS/Penkra (Dev)`;
+    const backendEntry = `${desktopRoot}/apps/server/dist/index.mjs`;
+
+    expect(
+      resolveOrphanedDesktopBackendPids(
+        [
+          {
+            pid: 10,
+            parentPid: 1,
+            command: `${executable} --max-old-space-size=4096 ${backendEntry}`,
+          },
+          { pid: 11, parentPid: 9, command: `${executable} ${backendEntry}` },
+          {
+            pid: 12,
+            parentPid: 1,
+            command: `/Applications/Pen.app/Contents/MacOS/Pen ${desktopRoot}/penkra.pen`,
+          },
+          {
+            pid: 13,
+            parentPid: 1,
+            command: `${executable} /other/checkout/apps/server/dist/index.mjs`,
+          },
+        ],
+        desktopRoot,
+      ),
+    ).toEqual([10]);
   });
 
   it("keeps repository topology in local launcher state", () => {

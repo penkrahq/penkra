@@ -25,6 +25,7 @@ export const DESKTOP_IPC_CHANNELS = {
   updateInstall: "desktop:update-install",
   notificationsIsSupported: "desktop:notifications-is-supported",
   notificationsShow: "desktop:notifications-show",
+  mediaRequestMicrophoneAccess: "desktop:media-request-microphone-access",
   accountAuth: {
     getState: "desktop:account-auth-get-state",
     requestSignIn: "desktop:account-auth-request-sign-in",
@@ -42,18 +43,6 @@ export const DESKTOP_IPC_CHANNELS = {
   storageMigration: {
     read: "desktop:storage-migration-read",
     acknowledge: "desktop:storage-migration-acknowledge",
-  },
-  appSnap: {
-    getState: "desktop:appsnap-get-state",
-    setEnabled: "desktop:appsnap-set-enabled",
-    checkShortcut: "desktop:appsnap-check-shortcut",
-    setShortcut: "desktop:appsnap-set-shortcut",
-    requestPermissions: "desktop:appsnap-request-permissions",
-    listPendingCaptures: "desktop:appsnap-list-pending-captures",
-    acknowledgeCapture: "desktop:appsnap-acknowledge-capture",
-    captured: "desktop:appsnap-captured",
-    error: "desktop:appsnap-error",
-    state: "desktop:appsnap-state",
   },
   browser: {
     state: "desktop:browser-state",
@@ -84,6 +73,5 @@ export const DESKTOP_IPC_CHANNELS = {
 } as const;
 
 export const BROWSER_IPC_CHANNELS = DESKTOP_IPC_CHANNELS.browser;
-export const APPSNAP_IPC_CHANNELS = DESKTOP_IPC_CHANNELS.appSnap;
 export const DESKTOP_WS_URL_CHANNEL = DESKTOP_IPC_CHANNELS.wsUrl;
 export const SERVER_TRANSCRIBE_VOICE_CHANNEL = DESKTOP_IPC_CHANNELS.transcribeVoice;

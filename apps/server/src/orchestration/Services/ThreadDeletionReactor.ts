@@ -8,4 +8,4 @@ export interface ThreadDeletionReactorShape {
 export class ThreadDeletionReactor extends ServiceMap.Service<
   ThreadDeletionReactor,
   ThreadDeletionReactorShape
->()("synara/orchestration/Services/ThreadDeletionReactor") {}
+>()("penkra/orchestration/Services/ThreadDeletionReactor") {}

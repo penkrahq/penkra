@@ -5,7 +5,7 @@
  * bearer token) into every provider's native MCP configuration format so the
  * injection rules cannot drift between adapters:
  *
- * - Codex: `[mcp_servers.synara]` TOML block (streamable HTTP +
+ * - Codex: `[mcp_servers.penkra]` TOML block (streamable HTTP +
  *   `bearer_token_env_var` resolved from the per-session process env).
  * - Claude Agent SDK: `mcpServers` record with an HTTP entry.
  * - ACP agents (cursor/grok/droid): `mcpServers` session entries; HTTP when
@@ -18,9 +18,9 @@ import type * as Acp from "@agentclientprotocol/sdk";
 
 import type { AgentGatewayMcpConnection } from "./Services/AgentGatewayCredentials";
 
-export const SYNARA_MCP_SERVER_NAME = "synara";
-export const SYNARA_AGENT_GATEWAY_TOKEN_ENV = "SYNARA_AGENT_GATEWAY_TOKEN";
-export const SYNARA_AGENT_GATEWAY_URL_ENV = "SYNARA_AGENT_GATEWAY_URL";
+export const PENKRA_MCP_SERVER_NAME = "penkra";
+export const PENKRA_AGENT_GATEWAY_TOKEN_ENV = "PENKRA_AGENT_GATEWAY_TOKEN";
+export const PENKRA_AGENT_GATEWAY_URL_ENV = "PENKRA_AGENT_GATEWAY_URL";
 
 /**
  * Codex reads MCP servers from `config.toml`; the config file is shared by all
@@ -35,12 +35,12 @@ export const SYNARA_AGENT_GATEWAY_URL_ENV = "SYNARA_AGENT_GATEWAY_URL";
  */
 export function buildCodexMcpConfigToml(endpointUrl: string): string {
   return [
-    `[mcp_servers.${SYNARA_MCP_SERVER_NAME}]`,
+    `[mcp_servers.${PENKRA_MCP_SERVER_NAME}]`,
     `url = ${JSON.stringify(endpointUrl)}`,
-    `bearer_token_env_var = ${JSON.stringify(SYNARA_AGENT_GATEWAY_TOKEN_ENV)}`,
+    `bearer_token_env_var = ${JSON.stringify(PENKRA_AGENT_GATEWAY_TOKEN_ENV)}`,
     "",
     "[shell_environment_policy]",
-    `exclude = [${JSON.stringify(SYNARA_AGENT_GATEWAY_TOKEN_ENV)}]`,
+    `exclude = [${JSON.stringify(PENKRA_AGENT_GATEWAY_TOKEN_ENV)}]`,
   ].join("\n");
 }
 
@@ -199,7 +199,7 @@ export function buildClaudeMcpServers(
   connection: AgentGatewayMcpConnection,
 ): Record<string, ClaudeMcpHttpServerConfig> {
   return {
-    [SYNARA_MCP_SERVER_NAME]: {
+    [PENKRA_MCP_SERVER_NAME]: {
       type: "http",
       url: connection.url,
       headers: { Authorization: `Bearer ${connection.bearerToken}` },
@@ -233,7 +233,7 @@ export interface AcpInitializeCapabilitiesView {
  * falls back to the stdio->HTTP proxy script otherwise (stdio is the ACP
  * baseline every agent must accept).
  */
-export function buildAcpSynaraMcpServers(input: {
+export function buildAcpPenkraMcpServers(input: {
   readonly connection: AgentGatewayMcpConnection;
   readonly initializeResult: AcpInitializeCapabilitiesView;
   readonly stdioProxy: AcpStdioProxySpawn;
@@ -243,7 +243,7 @@ export function buildAcpSynaraMcpServers(input: {
     return [
       {
         type: "http",
-        name: SYNARA_MCP_SERVER_NAME,
+        name: PENKRA_MCP_SERVER_NAME,
         url: input.connection.url,
         headers: [{ name: "Authorization", value: `Bearer ${input.connection.bearerToken}` }],
       },
@@ -251,12 +251,12 @@ export function buildAcpSynaraMcpServers(input: {
   }
   return [
     {
-      name: SYNARA_MCP_SERVER_NAME,
+      name: PENKRA_MCP_SERVER_NAME,
       command: input.stdioProxy.command,
       args: [...input.stdioProxy.args],
       env: [
-        { name: SYNARA_AGENT_GATEWAY_URL_ENV, value: input.connection.url },
-        { name: SYNARA_AGENT_GATEWAY_TOKEN_ENV, value: input.connection.bearerToken },
+        { name: PENKRA_AGENT_GATEWAY_URL_ENV, value: input.connection.url },
+        { name: PENKRA_AGENT_GATEWAY_TOKEN_ENV, value: input.connection.bearerToken },
       ],
     },
   ];

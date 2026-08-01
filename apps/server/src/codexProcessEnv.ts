@@ -7,21 +7,21 @@
 import * as fs from "node:fs/promises";
 import path from "node:path";
 
-import { readActiveCodexProviderEnvKey } from "@synara/shared/codexConfig";
+import { readActiveCodexProviderEnvKey } from "@penkra/shared/codexConfig";
 import {
   readEnvironmentFromLoginShell,
   resolveLoginShell,
   type ShellEnvironmentReader,
-} from "@synara/shared/shell";
+} from "@penkra/shared/shell";
 
-import { resolveBaseCodexHomePath, resolveSynaraCodexHomeOverlayPath } from "./codexHomePaths.ts";
+import { resolveBaseCodexHomePath, resolvePenkraCodexHomeOverlayPath } from "./codexHomePaths.ts";
 import { buildProviderChildEnvironment } from "./providerChildEnvironment.ts";
 
 const CODEX_PROCESS_SHELL_ENV_NAMES = ["PATH", "SSH_AUTH_SOCK"] as const;
 const NODE_REPL_SANDBOX_ALLOWED_UNIX_SOCKETS = "NODE_REPL_SANDBOX_ALLOWED_UNIX_SOCKETS";
 const NODE_REPL_MCP_SERVER_HEADER = "[mcp_servers.node_repl]";
 const CODEX_OVERLAY_SHARED_STATE_FILES = new Set(["auth.json"]);
-const SYNARA_CONFIG_SUPPRESSIONS_FILE = "synara-config-suppressions-v1.json";
+const PENKRA_CONFIG_SUPPRESSIONS_FILE = "penkra-config-suppressions-v1.json";
 const MAX_CONFIG_SUPPRESSION_SECTIONS = 32;
 const MAX_CONFIG_SUPPRESSION_HEADER_LENGTH = 256;
 const codexOverlayPreparationQueues = new Map<string, Promise<void>>();
@@ -42,7 +42,7 @@ export function resolveCodexBrowserUsePipePath(
   } = {},
 ): string {
   const env = input.env ?? process.env;
-  const configured = env.SYNARA_BROWSER_USE_PIPE_PATH?.trim();
+  const configured = env.PENKRA_BROWSER_USE_PIPE_PATH?.trim();
   if (configured) {
     return configured;
   }
@@ -59,7 +59,7 @@ function isSafePluginSectionHeader(value: unknown): value is string {
   );
 }
 
-export async function readSynaraConfigSuppressions(markerPath: string): Promise<readonly string[]> {
+export async function readPenkraConfigSuppressions(markerPath: string): Promise<readonly string[]> {
   try {
     const parsed = JSON.parse(await fs.readFile(markerPath, "utf8")) as unknown;
     if (typeof parsed !== "object" || parsed === null) return [];
@@ -136,7 +136,7 @@ export function disableCodexConfigSections(
   return output.join("\n");
 }
 
-async function writeSynaraConfigSuppressions(
+async function writePenkraConfigSuppressions(
   markerPath: string,
   sectionHeaders: readonly string[],
 ): Promise<void> {
@@ -237,16 +237,16 @@ export function appendCodexConfigSection(config: string, section: string): strin
   return base.length > 0 ? `${base}\n\n${trimmedSection}\n` : `${trimmedSection}\n`;
 }
 
-export const SYNARA_MANAGED_CODEX_CONFIG_BEGIN = "# >>> synara managed config >>>";
-export const SYNARA_MANAGED_CODEX_CONFIG_END = "# <<< synara managed config <<<";
+export const PENKRA_MANAGED_CODEX_CONFIG_BEGIN = "# >>> penkra managed config >>>";
+export const PENKRA_MANAGED_CODEX_CONFIG_END = "# <<< penkra managed config <<<";
 
 export function extractManagedCodexConfigSection(config: string): string | undefined {
-  const begin = config.indexOf(SYNARA_MANAGED_CODEX_CONFIG_BEGIN);
+  const begin = config.indexOf(PENKRA_MANAGED_CODEX_CONFIG_BEGIN);
   if (begin === -1) {
     return undefined;
   }
-  const contentStart = begin + SYNARA_MANAGED_CODEX_CONFIG_BEGIN.length;
-  const end = config.indexOf(SYNARA_MANAGED_CODEX_CONFIG_END, contentStart);
+  const contentStart = begin + PENKRA_MANAGED_CODEX_CONFIG_BEGIN.length;
+  const end = config.indexOf(PENKRA_MANAGED_CODEX_CONFIG_END, contentStart);
   if (end === -1) {
     return undefined;
   }
@@ -526,7 +526,7 @@ function appendManagedCodexConfigSection(config: string, section: string): strin
   }
   return appendCodexConfigSection(
     config,
-    `${SYNARA_MANAGED_CODEX_CONFIG_BEGIN}\n${tables.join("\n\n")}\n${SYNARA_MANAGED_CODEX_CONFIG_END}`,
+    `${PENKRA_MANAGED_CODEX_CONFIG_BEGIN}\n${tables.join("\n\n")}\n${PENKRA_MANAGED_CODEX_CONFIG_END}`,
   );
 }
 
@@ -550,13 +550,13 @@ async function serializeCodexOverlayPreparation<A>(
   }
 }
 
-async function prepareSynaraCodexHomeOverlayUnlocked(input: {
+async function preparePenkraCodexHomeOverlayUnlocked(input: {
   readonly env: NodeJS.ProcessEnv;
   readonly homePath?: string;
   readonly appendConfigToml?: string;
 }): Promise<string | undefined> {
   const sourceHomePath = resolveBaseCodexHomePath(input.env, input.homePath);
-  const overlayHomePath = resolveSynaraCodexHomeOverlayPath(input.env, sourceHomePath);
+  const overlayHomePath = resolvePenkraCodexHomeOverlayPath(input.env, sourceHomePath);
   if (path.resolve(sourceHomePath) === path.resolve(overlayHomePath)) {
     return undefined;
   }
@@ -592,11 +592,11 @@ async function prepareSynaraCodexHomeOverlayUnlocked(input: {
     }
     throw cause;
   });
-  const suppressionMarkerPath = path.join(overlayHomePath, SYNARA_CONFIG_SUPPRESSIONS_FILE);
+  const suppressionMarkerPath = path.join(overlayHomePath, PENKRA_CONFIG_SUPPRESSIONS_FILE);
   const suppressedSections = [
     ...new Set([
       ...findConflictingLocalBrowserPluginSections(sourceConfig),
-      ...(await readSynaraConfigSuppressions(suppressionMarkerPath)),
+      ...(await readPenkraConfigSuppressions(suppressionMarkerPath)),
     ]),
   ].slice(0, MAX_CONFIG_SUPPRESSION_SECTIONS);
   const overlayConfigPath = path.join(overlayHomePath, "config.toml");
@@ -628,23 +628,23 @@ async function prepareSynaraCodexHomeOverlayUnlocked(input: {
     [NODE_REPL_SANDBOX_ALLOWED_UNIX_SOCKETS],
   );
   await fs.writeFile(overlayConfigPath, overlayConfig, "utf8");
-  await writeSynaraConfigSuppressions(suppressionMarkerPath, suppressedSections);
+  await writePenkraConfigSuppressions(suppressionMarkerPath, suppressedSections);
 
   return overlayHomePath;
 }
 
-async function prepareSynaraCodexHomeOverlay(input: {
+async function preparePenkraCodexHomeOverlay(input: {
   readonly env: NodeJS.ProcessEnv;
   readonly homePath?: string;
   readonly appendConfigToml?: string;
 }): Promise<string | undefined> {
   const sourceHomePath = resolveBaseCodexHomePath(input.env, input.homePath);
-  const overlayHomePath = resolveSynaraCodexHomeOverlayPath(input.env, sourceHomePath);
+  const overlayHomePath = resolvePenkraCodexHomeOverlayPath(input.env, sourceHomePath);
   if (path.resolve(sourceHomePath) === path.resolve(overlayHomePath)) {
     return undefined;
   }
   return serializeCodexOverlayPreparation(overlayHomePath, () =>
-    prepareSynaraCodexHomeOverlayUnlocked(input),
+    preparePenkraCodexHomeOverlayUnlocked(input),
   );
 }
 
@@ -658,7 +658,7 @@ export async function buildCodexProcessEnv(
   } = {},
 ): Promise<NodeJS.ProcessEnv> {
   const baseEnv = { ...(input.env ?? process.env) };
-  const overlayHomePath = await prepareSynaraCodexHomeOverlay({
+  const overlayHomePath = await preparePenkraCodexHomeOverlay({
     env: baseEnv,
     ...(input.homePath ? { homePath: input.homePath } : {}),
     ...(input.appendConfigToml ? { appendConfigToml: input.appendConfigToml } : {}),

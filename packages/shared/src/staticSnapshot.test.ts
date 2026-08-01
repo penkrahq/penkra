@@ -20,7 +20,7 @@ describe("findAsarArchivePath", () => {
   });
 
   it("returns null for plain directories", () => {
-    expect(findAsarArchivePath("/Users/me/dev/synara/apps/web/dist")).toBeNull();
+    expect(findAsarArchivePath("/Users/me/dev/penkra/apps/web/dist")).toBeNull();
   });
 });
 

@@ -1,10 +1,10 @@
-import type { ProviderKind } from "@synara/contracts";
+import type { ProviderKind } from "@penkra/contracts";
 
 /** Canonical, versioned host policy delivered to every supported provider. */
-export const SYNARA_HARNESS_POLICY_VERSION = "2026-07-23.7";
-export const SYNARA_HARNESS_POLICY_MARKER = `[Penkra harness policy ${SYNARA_HARNESS_POLICY_VERSION}]`;
+export const PENKRA_HARNESS_POLICY_VERSION = "2026-07-23.7";
+export const PENKRA_HARNESS_POLICY_MARKER = `[Penkra harness policy ${PENKRA_HARNESS_POLICY_VERSION}]`;
 
-export interface SynaraHarnessCapabilities {
+export interface PenkraHarnessCapabilities {
   readonly gatewayControlAvailable: boolean;
 }
 
@@ -13,21 +13,21 @@ export interface SynaraHarnessCapabilities {
  * connection still receive host identity, but are never told they can mutate
  * Penkra resources.
  */
-export function renderSynaraHarnessPolicy(capabilities: SynaraHarnessCapabilities): string {
+export function renderPenkraHarnessPolicy(capabilities: PenkraHarnessCapabilities): string {
   const controlPolicy = capabilities.gatewayControlAvailable
     ? [
-        "Use the synara_* tools for Penkra threads, projects, and coordination.",
-        "For thread discovery and diagnosis, use synara_list_threads, synara_read_thread, synara_read_thread_activity, synara_read_thread_events, synara_read_thread_runtime_events, and synara_diagnose_thread before inspecting Penkra's SQLite files or process logs. Fall back to host storage only when a tool's coverage metadata says the required evidence is unavailable.",
+        "Use the penkra_* tools for Penkra threads, projects, and coordination.",
+        "For thread discovery and diagnosis, use penkra_list_threads, penkra_read_thread, penkra_read_thread_activity, penkra_read_thread_events, penkra_read_thread_runtime_events, and penkra_diagnose_thread before inspecting Penkra's SQLite files or process logs. Fall back to host storage only when a tool's coverage metadata says the required evidence is unavailable.",
         "Provider-native subagent or Task tools are implementation details: they do not create Penkra threads and must not substitute for an explicit request to create Penkra threads.",
-        "For a plural thread request, submit one exact synara_create_threads plan. The array length is the exact requested count.",
+        "For a plural thread request, submit one exact penkra_create_threads plan. The array length is the exact requested count.",
         "Give every planned thread a 3–8 word outcome-oriented task label and self-contained instructions with no assumed chat context.",
-        "If synara_create_threads rejects the plan during validation or preflight before returning an operationId, correct that same plan and retry it with the same requestId. This is safe because no durable operation, thread, or worktree was created.",
-        "Use synara_capabilities to select canonical provider, model, and option values. Never guess a model slug or silently substitute a provider or model.",
-        "Provider option keys are not interchangeable: Codex uses options.reasoningEffort and Claude Agent uses options.effort. Follow synara_capabilities.targetConstruction for every provider instead of inspecting Penkra source code.",
-        "When results are requested, call synara_wait_for_threads for the created thread ids, wait for every requested result, then synthesize all outcomes.",
-        'Use synara_send_message for a later manual follow-up such as "continue" on an existing thread. Never call this tool for a manual follow-up turn that belongs in the current conversation.',
+        "If penkra_create_threads rejects the plan during validation or preflight before returning an operationId, correct that same plan and retry it with the same requestId. This is safe because no durable operation, thread, or worktree was created.",
+        "Use penkra_capabilities to select canonical provider, model, and option values. Never guess a model slug or silently substitute a provider or model.",
+        "Provider option keys are not interchangeable: Codex uses options.reasoningEffort and Claude Agent uses options.effort. Follow penkra_capabilities.targetConstruction for every provider instead of inspecting Penkra source code.",
+        "When results are requested, call penkra_wait_for_threads for the created thread ids, wait for every requested result, then synthesize all outcomes.",
+        'Use penkra_send_message for a later manual follow-up such as "continue" on an existing thread. Never call this tool for a manual follow-up turn that belongs in the current conversation.',
         "When coordinating background work, make a deliberate choice between notifying the user versus staying silent until a meaningful result is ready.",
-        "After synara_create_threads returns an operationId, retries must keep the same requestId and exact plan. Report terminal operation failures as outcomes; do not create replacement threads unless the user gives a new instruction.",
+        "After penkra_create_threads returns an operationId, retries must keep the same requestId and exact plan. Report terminal operation failures as outcomes; do not create replacement threads unless the user gives a new instruction.",
       ]
     : [
         "Penkra MCP control is unavailable in this provider session. Do not claim that Penkra threads or projects were created or changed.",
@@ -35,25 +35,25 @@ export function renderSynaraHarnessPolicy(capabilities: SynaraHarnessCapabilitie
       ];
 
   return [
-    SYNARA_HARNESS_POLICY_MARKER,
+    PENKRA_HARNESS_POLICY_MARKER,
     "You are running inside Penkra. Penkra is the host and harness for this session.",
     ...controlPolicy,
   ].join("\n");
 }
 
-export const SYNARA_GATEWAY_HARNESS_POLICY = renderSynaraHarnessPolicy({
+export const PENKRA_GATEWAY_HARNESS_POLICY = renderPenkraHarnessPolicy({
   gatewayControlAvailable: true,
 });
 
-export const SYNARA_IDENTITY_ONLY_HARNESS_POLICY = renderSynaraHarnessPolicy({
+export const PENKRA_IDENTITY_ONLY_HARNESS_POLICY = renderPenkraHarnessPolicy({
   gatewayControlAvailable: false,
 });
 
-export interface SynaraHarnessPolicyDeliveryState {
+export interface PenkraHarnessPolicyDeliveryState {
   harnessPolicyDelivered?: boolean;
 }
 
-const PROVIDERS_WITH_THREAD_SCOPED_SYNARA_MCP = new Set<ProviderKind>([
+const PROVIDERS_WITH_THREAD_SCOPED_PENKRA_MCP = new Set<ProviderKind>([
   "codex",
   "claudeAgent",
   "cursor",
@@ -64,27 +64,27 @@ const PROVIDERS_WITH_THREAD_SCOPED_SYNARA_MCP = new Set<ProviderKind>([
   "pi",
 ]);
 
-export function providerHasSynaraGatewayControl(input: {
+export function providerHasPenkraGatewayControl(input: {
   readonly provider: ProviderKind;
   readonly scopedGatewayConnectionAvailable: boolean;
 }): boolean {
   return (
     input.scopedGatewayConnectionAvailable &&
-    PROVIDERS_WITH_THREAD_SCOPED_SYNARA_MCP.has(input.provider)
+    PROVIDERS_WITH_THREAD_SCOPED_PENKRA_MCP.has(input.provider)
   );
 }
 
 /** Return the private host-context block exactly once for one provider session. */
-export function takeSynaraHarnessPolicyForSession(
-  state: SynaraHarnessPolicyDeliveryState,
-  capabilities: SynaraHarnessCapabilities,
+export function takePenkraHarnessPolicyForSession(
+  state: PenkraHarnessPolicyDeliveryState,
+  capabilities: PenkraHarnessCapabilities,
 ): string | null {
   if (state.harnessPolicyDelivered === true) return null;
   state.harnessPolicyDelivered = true;
   return [
-    "<synara_host_context>",
-    renderSynaraHarnessPolicy(capabilities),
-    "</synara_host_context>",
+    "<penkra_host_context>",
+    renderPenkraHarnessPolicy(capabilities),
+    "</penkra_host_context>",
   ].join("\n");
 }
 
@@ -92,25 +92,25 @@ export function takeSynaraHarnessPolicyForSession(
  * Provider-aware delivery guard. The transport flag must only become true
  * after a provider has installed thread-scoped gateway tools successfully.
  */
-export function takeSynaraHarnessPolicyForProviderSession(
-  state: SynaraHarnessPolicyDeliveryState,
+export function takePenkraHarnessPolicyForProviderSession(
+  state: PenkraHarnessPolicyDeliveryState,
   input: {
     readonly provider: ProviderKind;
     readonly scopedGatewayConnectionAvailable: boolean;
   },
 ): string | null {
-  return takeSynaraHarnessPolicyForSession(state, {
-    gatewayControlAvailable: providerHasSynaraGatewayControl(input),
+  return takePenkraHarnessPolicyForSession(state, {
+    gatewayControlAvailable: providerHasPenkraGatewayControl(input),
   });
 }
 
-export function takeSynaraHarnessPolicyTextPartForProviderSession(
-  state: SynaraHarnessPolicyDeliveryState,
+export function takePenkraHarnessPolicyTextPartForProviderSession(
+  state: PenkraHarnessPolicyDeliveryState,
   input: {
     readonly provider: ProviderKind;
     readonly scopedGatewayConnectionAvailable: boolean;
   },
 ): { readonly type: "text"; readonly text: string } | null {
-  const text = takeSynaraHarnessPolicyForProviderSession(state, input);
+  const text = takePenkraHarnessPolicyForProviderSession(state, input);
   return text === null ? null : { type: "text", text };
 }

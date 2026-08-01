@@ -1,4 +1,4 @@
-import type { DesktopBridge } from "@synara/contracts";
+import type { DesktopBridge } from "@penkra/contracts";
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 

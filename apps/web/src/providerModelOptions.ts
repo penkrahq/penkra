@@ -2,7 +2,7 @@ import {
   formatModelDisplayName,
   humanizeModelSlug,
   normalizeModelSlug,
-} from "@synara/shared/model";
+} from "@penkra/shared/model";
 import type {
   AntigravityModelOptions,
   AntigravityModelSelection,
@@ -24,7 +24,7 @@ import type {
   PiModelSelection,
   ProviderKind,
   ProviderModelOptions,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 import { normalizeCursorModelVariantBaseId } from "./cursorModelVariants";
 
 export type ProviderOptions = ProviderModelOptions[ProviderKind];

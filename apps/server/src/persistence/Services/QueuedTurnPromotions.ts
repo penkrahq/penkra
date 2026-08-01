@@ -65,4 +65,4 @@ export interface QueuedTurnPromotionRepositoryShape {
 export class QueuedTurnPromotionRepository extends ServiceMap.Service<
   QueuedTurnPromotionRepository,
   QueuedTurnPromotionRepositoryShape
->()("synara/persistence/Services/QueuedTurnPromotions/QueuedTurnPromotionRepository") {}
+>()("penkra/persistence/Services/QueuedTurnPromotions/QueuedTurnPromotionRepository") {}

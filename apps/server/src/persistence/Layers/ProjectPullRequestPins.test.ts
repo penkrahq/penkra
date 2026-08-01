@@ -1,4 +1,4 @@
-import { ProjectId } from "@synara/contracts";
+import { ProjectId } from "@penkra/contracts";
 import { assert, it } from "@effect/vitest";
 import { Effect, Exit, Layer } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -27,13 +27,13 @@ layer("ProjectPullRequestPins", (it) => {
 
       yield* pins.setPinned({
         projectId: projectA,
-        repositoryKey: "acme/synara",
+        repositoryKey: "acme/penkra",
         number: 42,
         isPinned: true,
       });
       yield* pins.setPinned({
         projectId: projectB,
-        repositoryKey: "acme/synara",
+        repositoryKey: "acme/penkra",
         number: 42,
         isPinned: true,
       });
@@ -41,14 +41,14 @@ layer("ProjectPullRequestPins", (it) => {
       assert.deepStrictEqual(yield* pins.listByProjectIds({ projectIds: [projectA] }), [
         {
           projectId: projectA,
-          repositoryKey: "acme/synara",
+          repositoryKey: "acme/penkra",
           number: 42,
         },
       ]);
       assert.deepStrictEqual(yield* pins.listByProjectIds({ projectIds: [projectB] }), [
         {
           projectId: projectB,
-          repositoryKey: "acme/synara",
+          repositoryKey: "acme/penkra",
           number: 42,
         },
       ]);

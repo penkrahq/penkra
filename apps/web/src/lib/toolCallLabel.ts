@@ -2,9 +2,9 @@
 // Purpose: Normalizes generic tool-call titles and humanizes command executions for timeline rows.
 // Layer: UI utility
 // Exports: deriveReadableToolTitle, deriveReadableCommandDisplay, command icon classifiers, deriveInlineCommandCall, normalizeCompactToolLabel, isGenericToolTitle, extractWebFetchUrl
-// Depends on: @synara/contracts tool lifecycle item types
+// Depends on: @penkra/contracts tool lifecycle item types
 
-import type { ToolLifecycleItemType } from "@synara/contracts";
+import type { ToolLifecycleItemType } from "@penkra/contracts";
 import { basenameOfPath } from "../file-icons";
 import { extractToolArgumentField } from "./toolArgumentSummary";
 
@@ -108,163 +108,163 @@ export interface ReadableToolTitleInput {
   readonly isRunning?: boolean;
 }
 
-interface SynaraMcpToolPresentation {
+interface PenkraMcpToolPresentation {
   readonly running: string;
   readonly completed: string;
   readonly failed: string;
 }
 
-const SYNARA_MCP_TOOL_PRESENTATIONS = {
-  synara_context: {
+const PENKRA_MCP_TOOL_PRESENTATIONS = {
+  penkra_context: {
     running: "Penkra is checking its context",
     completed: "Penkra checked its context",
     failed: "Penkra couldn't check its context",
   },
-  synara_capabilities: {
+  penkra_capabilities: {
     running: "Penkra is checking available agents",
     completed: "Penkra checked available agents",
     failed: "Penkra couldn't check available agents",
   },
-  synara_overview: {
+  penkra_overview: {
     running: "Penkra is gathering an overview",
     completed: "Penkra gathered an overview",
     failed: "Penkra couldn't gather an overview",
   },
-  synara_list_allowed_projects: {
+  penkra_list_allowed_projects: {
     running: "Penkra is listing allowed projects",
     completed: "Penkra listed allowed projects",
     failed: "Penkra couldn't list allowed projects",
   },
-  synara_create_task: {
+  penkra_create_task: {
     running: "Penkra is creating a task",
     completed: "Penkra created a task",
     failed: "Penkra couldn't create a task",
   },
-  synara_wait_for_task: {
+  penkra_wait_for_task: {
     running: "Penkra is waiting for a task",
     completed: "Penkra finished waiting for a task",
     failed: "Penkra couldn't wait for a task",
   },
-  synara_read_task: {
+  penkra_read_task: {
     running: "Penkra is reading a task",
     completed: "Penkra read a task",
     failed: "Penkra couldn't read a task",
   },
-  synara_list_projects: {
+  penkra_list_projects: {
     running: "Penkra is listing projects",
     completed: "Penkra listed projects",
     failed: "Penkra couldn't list projects",
   },
-  synara_list_threads: {
+  penkra_list_threads: {
     running: "Penkra is listing threads",
     completed: "Penkra listed threads",
     failed: "Penkra couldn't list threads",
   },
-  synara_read_thread: {
+  penkra_read_thread: {
     running: "Penkra is reading a thread",
     completed: "Penkra read a thread",
     failed: "Penkra couldn't read a thread",
   },
-  synara_read_thread_activity: {
+  penkra_read_thread_activity: {
     running: "Penkra is reading thread activity",
     completed: "Penkra read thread activity",
     failed: "Penkra couldn't read thread activity",
   },
-  synara_read_thread_events: {
+  penkra_read_thread_events: {
     running: "Penkra is reading thread events",
     completed: "Penkra read thread events",
     failed: "Penkra couldn't read thread events",
   },
-  synara_read_thread_runtime_events: {
+  penkra_read_thread_runtime_events: {
     running: "Penkra is reading thread runtime events",
     completed: "Penkra read thread runtime events",
     failed: "Penkra couldn't read thread runtime events",
   },
-  synara_diagnose_thread: {
+  penkra_diagnose_thread: {
     running: "Penkra is diagnosing a thread",
     completed: "Penkra diagnosed a thread",
     failed: "Penkra couldn't diagnose a thread",
   },
-  synara_create_thread: {
+  penkra_create_thread: {
     running: "Penkra is creating a thread",
     completed: "Penkra created a thread",
     failed: "Penkra couldn't create a thread",
   },
-  synara_create_threads: {
+  penkra_create_threads: {
     running: "Penkra is creating threads",
     completed: "Penkra created threads",
     failed: "Penkra couldn't create threads",
   },
-  synara_wait_for_threads: {
+  penkra_wait_for_threads: {
     running: "Penkra is waiting for threads",
     completed: "Penkra finished waiting for threads",
     failed: "Penkra couldn't wait for threads",
   },
-  synara_send_message: {
+  penkra_send_message: {
     running: "Penkra is sending a message",
     completed: "Penkra sent a message",
     failed: "Penkra couldn't send a message",
   },
-  synara_interrupt_thread: {
+  penkra_interrupt_thread: {
     running: "Penkra is interrupting a thread",
     completed: "Penkra interrupted a thread",
     failed: "Penkra couldn't interrupt a thread",
   },
-  synara_set_thread_title: {
+  penkra_set_thread_title: {
     running: "Penkra is renaming a thread",
     completed: "Penkra renamed a thread",
     failed: "Penkra couldn't rename a thread",
   },
-  synara_set_thread_archived: {
+  penkra_set_thread_archived: {
     running: "Penkra is updating a thread",
     completed: "Penkra updated a thread",
     failed: "Penkra couldn't update a thread",
   },
-} as const satisfies Record<string, SynaraMcpToolPresentation>;
+} as const satisfies Record<string, PenkraMcpToolPresentation>;
 
-function normalizeSynaraMcpIdentifier(value: string): string {
+function normalizePenkraMcpIdentifier(value: string): string {
   return value
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "_")
     .replace(/^_+|_+$/g, "");
 }
 
-const SYNARA_MCP_TOOL_PRESENTATION_ENTRIES = Object.entries(SYNARA_MCP_TOOL_PRESENTATIONS).map(
+const PENKRA_MCP_TOOL_PRESENTATION_ENTRIES = Object.entries(PENKRA_MCP_TOOL_PRESENTATIONS).map(
   ([toolName, presentation]) => ({
     toolName,
     presentation,
-    normalizedRunning: normalizeSynaraMcpIdentifier(presentation.running),
-    normalizedCompleted: normalizeSynaraMcpIdentifier(presentation.completed),
-    normalizedFailed: normalizeSynaraMcpIdentifier(presentation.failed),
+    normalizedRunning: normalizePenkraMcpIdentifier(presentation.running),
+    normalizedCompleted: normalizePenkraMcpIdentifier(presentation.completed),
+    normalizedFailed: normalizePenkraMcpIdentifier(presentation.failed),
   }),
 );
 
-function extractSynaraMcpToolName(normalizedCandidate: string): string | null {
+function extractPenkraMcpToolName(normalizedCandidate: string): string | null {
   if (normalizedCandidate.startsWith("penkra_penkra_")) {
-    return `synara_${normalizedCandidate.slice("penkra_penkra_".length)}`;
+    return `penkra_${normalizedCandidate.slice("penkra_penkra_".length)}`;
   }
   if (normalizedCandidate.startsWith("penkra_")) {
-    return `synara_${normalizedCandidate.slice("penkra_".length)}`;
+    return `penkra_${normalizedCandidate.slice("penkra_".length)}`;
   }
-  if (normalizedCandidate.startsWith("mcp_synara_synara_")) {
-    return normalizedCandidate.slice("mcp_synara_".length);
+  if (normalizedCandidate.startsWith("mcp_penkra_penkra_")) {
+    return normalizedCandidate.slice("mcp_penkra_".length);
   }
-  if (normalizedCandidate.startsWith("mcp_synara_")) {
-    return `synara_${normalizedCandidate.slice("mcp_synara_".length)}`;
+  if (normalizedCandidate.startsWith("mcp_penkra_")) {
+    return `penkra_${normalizedCandidate.slice("mcp_penkra_".length)}`;
   }
-  if (normalizedCandidate.startsWith("synara_synara_")) {
-    return normalizedCandidate.slice("synara_".length);
+  if (normalizedCandidate.startsWith("penkra_penkra_")) {
+    return normalizedCandidate.slice("penkra_".length);
   }
-  if (normalizedCandidate.startsWith("synara_")) {
+  if (normalizedCandidate.startsWith("penkra_")) {
     return normalizedCandidate;
   }
   return null;
 }
 
-function fallbackSynaraMcpToolPresentation(toolName: string): SynaraMcpToolPresentation {
+function fallbackPenkraMcpToolPresentation(toolName: string): PenkraMcpToolPresentation {
   const action =
     toolName
-      .replace(/^synara_/, "")
+      .replace(/^penkra_/, "")
       .replace(/_+/g, " ")
       .trim() || "an action";
   return {
@@ -274,15 +274,15 @@ function fallbackSynaraMcpToolPresentation(toolName: string): SynaraMcpToolPrese
   };
 }
 
-function resolveSynaraMcpToolPresentation(
+function resolvePenkraMcpToolPresentation(
   candidates: ReadonlyArray<string | null | undefined>,
-): SynaraMcpToolPresentation | null {
+): PenkraMcpToolPresentation | null {
   for (const candidate of candidates) {
     if (!candidate) {
       continue;
     }
-    const normalizedCandidate = normalizeSynaraMcpIdentifier(candidate);
-    for (const entry of SYNARA_MCP_TOOL_PRESENTATION_ENTRIES) {
+    const normalizedCandidate = normalizePenkraMcpIdentifier(candidate);
+    for (const entry of PENKRA_MCP_TOOL_PRESENTATION_ENTRIES) {
       if (
         normalizedCandidate === entry.normalizedRunning ||
         normalizedCandidate === entry.normalizedCompleted ||
@@ -292,46 +292,46 @@ function resolveSynaraMcpToolPresentation(
       }
     }
     if (normalizedCandidate.startsWith("penkra_is_handling_")) {
-      return fallbackSynaraMcpToolPresentation(
-        `synara_${normalizedCandidate.slice("penkra_is_handling_".length)}`,
+      return fallbackPenkraMcpToolPresentation(
+        `penkra_${normalizedCandidate.slice("penkra_is_handling_".length)}`,
       );
     }
     if (normalizedCandidate.startsWith("penkra_handled_")) {
-      return fallbackSynaraMcpToolPresentation(
-        `synara_${normalizedCandidate.slice("penkra_handled_".length)}`,
+      return fallbackPenkraMcpToolPresentation(
+        `penkra_${normalizedCandidate.slice("penkra_handled_".length)}`,
       );
     }
     if (normalizedCandidate.startsWith("penkra_couldn_t_handle_")) {
-      return fallbackSynaraMcpToolPresentation(
-        `synara_${normalizedCandidate.slice("penkra_couldn_t_handle_".length)}`,
+      return fallbackPenkraMcpToolPresentation(
+        `penkra_${normalizedCandidate.slice("penkra_couldn_t_handle_".length)}`,
       );
     }
-    const toolName = extractSynaraMcpToolName(normalizedCandidate);
+    const toolName = extractPenkraMcpToolName(normalizedCandidate);
     if (!toolName) {
       continue;
     }
-    const knownPresentation = SYNARA_MCP_TOOL_PRESENTATIONS[
-      toolName as keyof typeof SYNARA_MCP_TOOL_PRESENTATIONS
-    ] as SynaraMcpToolPresentation | undefined;
-    return knownPresentation ?? fallbackSynaraMcpToolPresentation(toolName);
+    const knownPresentation = PENKRA_MCP_TOOL_PRESENTATIONS[
+      toolName as keyof typeof PENKRA_MCP_TOOL_PRESENTATIONS
+    ] as PenkraMcpToolPresentation | undefined;
+    return knownPresentation ?? fallbackPenkraMcpToolPresentation(toolName);
   }
   return null;
 }
 
-export type SynaraMcpToolStatus = "running" | "completed" | "failed" | "cancelled";
+export type PenkraMcpToolStatus = "running" | "completed" | "failed" | "cancelled";
 
-export interface SynaraMcpToolTitleInput {
+export interface PenkraMcpToolTitleInput {
   readonly toolName?: string | null | undefined;
   readonly title?: string | null | undefined;
   readonly fallbackLabel?: string | null | undefined;
-  readonly status?: SynaraMcpToolStatus | undefined;
+  readonly status?: PenkraMcpToolStatus | undefined;
 }
 
 // Every provider exposes Penkra's MCP tools differently: MCP, dynamic, and even
 // file-change rows can all represent the same gateway action. Normalize by tool
 // identity instead of provider item type so transport details never reach the UI.
-export function deriveSynaraMcpToolTitle(input: SynaraMcpToolTitleInput): string | null {
-  const presentation = resolveSynaraMcpToolPresentation([
+export function derivePenkraMcpToolTitle(input: PenkraMcpToolTitleInput): string | null {
+  const presentation = resolvePenkraMcpToolPresentation([
     input.toolName,
     input.title,
     input.fallbackLabel,
@@ -353,17 +353,17 @@ export function deriveSynaraMcpToolTitle(input: SynaraMcpToolTitleInput): string
   }
 }
 
-export function sanitizeSynaraMcpToolPreview(input: {
+export function sanitizePenkraMcpToolPreview(input: {
   readonly preview?: string | null | undefined;
   readonly heading: string;
-  readonly status?: SynaraMcpToolStatus | undefined;
+  readonly status?: PenkraMcpToolStatus | undefined;
 }): string | null {
   const preview = input.preview?.trim();
   if (!preview) return null;
-  const previewTitle = deriveSynaraMcpToolTitle({ title: preview, status: input.status });
+  const previewTitle = derivePenkraMcpToolTitle({ title: preview, status: input.status });
   if (
     previewTitle &&
-    normalizeSynaraMcpIdentifier(previewTitle) === normalizeSynaraMcpIdentifier(input.heading)
+    normalizePenkraMcpIdentifier(previewTitle) === normalizePenkraMcpIdentifier(input.heading)
   ) {
     return null;
   }

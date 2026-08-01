@@ -2,7 +2,7 @@
 
 ## Summary
 
-Implemented Grok as a first-class Synara provider using xAI's ACP entrypoint, `grok agent --no-leader stdio`. Full-access sessions add Grok's `--always-approve` agent flag before `stdio`, matching the CLI's flag parsing. The integration follows the same provider architecture used by the existing agent backends: server-side adapter registration, persisted resume state, model selection, approval handling, transcript event projection, UI provider selection, settings, icons, handoff, and focused test coverage.
+Implemented Grok as a first-class Penkra provider using xAI's ACP entrypoint, `grok agent --no-leader stdio`. Full-access sessions add Grok's `--always-approve` agent flag before `stdio`, matching the CLI's flag parsing. The integration follows the same provider architecture used by the existing agent backends: server-side adapter registration, persisted resume state, model selection, approval handling, transcript event projection, UI provider selection, settings, icons, handoff, and focused test coverage.
 
 ## Files Affected
 
@@ -18,9 +18,9 @@ Implemented Grok as a first-class Synara provider using xAI's ACP entrypoint, `g
 
 ## Logic Explanation
 
-Grok sessions now start through the shared ACP runtime with the command `grok agent --no-leader stdio`, plus `--always-approve` for Synara full-access sessions and `-m <model>` / `--reasoning-effort <effort>` when selected. During ACP initialization, Synara chooses the best auth method exposed by the CLI: `xai.api_key` when `GROK_CODE_XAI_API_KEY` is present, otherwise `cached_token` when the user has already logged in through the CLI. The adapter stores the Grok ACP session id in the existing provider resume cursor so Synara can resume the same conversation after restarts.
+Grok sessions now start through the shared ACP runtime with the command `grok agent --no-leader stdio`, plus `--always-approve` for Penkra full-access sessions and `-m <model>` / `--reasoning-effort <effort>` when selected. During ACP initialization, Penkra chooses the best auth method exposed by the CLI: `xai.api_key` when `GROK_CODE_XAI_API_KEY` is present, otherwise `cached_token` when the user has already logged in through the CLI. The adapter stores the Grok ACP session id in the existing provider resume cursor so Penkra can resume the same conversation after restarts.
 
-The Grok adapter maps ACP session updates into Synara runtime events for assistant text, tool activity, plans, approvals, usage, cancellation, and completion. Permission requests are routed through the existing approval flow, with full-access sessions also auto-allowing the ACP allow option if Grok asks anyway. If a tool fails and Grok reports the prompt as cancelled, Synara now marks the turn failed with the tool error instead of showing a silent cancelled turn. Model selection displays as `Grok 4.3` while using the CLI slug `grok-build`, supports known aliases, discovers the CLI's model list through `grok models`, and passes model plus reasoning effort as `grok agent` startup options. Current Grok CLI ACP (`0.1.210`) advertises model state but does not implement `session/set_config_option`, so Synara restarts the session when Grok model options change instead of attempting an unsupported in-session config switch.
+The Grok adapter maps ACP session updates into Penkra runtime events for assistant text, tool activity, plans, approvals, usage, cancellation, and completion. Permission requests are routed through the existing approval flow, with full-access sessions also auto-allowing the ACP allow option if Grok asks anyway. If a tool fails and Grok reports the prompt as cancelled, Penkra now marks the turn failed with the tool error instead of showing a silent cancelled turn. Model selection displays as `Grok 4.3` while using the CLI slug `grok-build`, supports known aliases, discovers the CLI's model list through `grok models`, and passes model plus reasoning effort as `grok agent` startup options. Current Grok CLI ACP (`0.1.210`) advertises model state but does not implement `session/set_config_option`, so Penkra restarts the session when Grok model options change instead of attempting an unsupported in-session config switch.
 
 The web app treats Grok like the other provider choices: it appears in provider pickers, settings, plugin/provider panels, sidebar/header badges, custom models, custom binary path settings, runtime model loading, and thread handoff targets.
 
@@ -36,10 +36,10 @@ flowchart TD
   CLI --> Runtime
   Runtime --> Adapter
   Adapter --> Events[Canonical provider runtime events]
-  Events --> Transcript[Synara transcript and activity timeline]
+  Events --> Transcript[Penkra transcript and activity timeline]
   Adapter --> Resume[Persist Grok ACP session id]
 ```
 
 ## High School Explanation
 
-Synara can now talk to Grok the same way it talks to other coding agents. When you pick Grok, the server starts the Grok command-line tool in its official agent mode, sends your prompt to it, listens for text and tool updates, and shows those updates in the normal chat UI. If Grok asks for permission to run something, Synara uses the same approval controls you already see for other providers. If the app restarts, Synara keeps enough session information to reconnect to the same Grok conversation when possible.
+Penkra can now talk to Grok the same way it talks to other coding agents. When you pick Grok, the server starts the Grok command-line tool in its official agent mode, sends your prompt to it, listens for text and tool updates, and shows those updates in the normal chat UI. If Grok asks for permission to run something, Penkra uses the same approval controls you already see for other providers. If the app restarts, Penkra keeps enough session information to reconnect to the same Grok conversation when possible.

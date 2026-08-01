@@ -2,7 +2,7 @@ import {
   ThreadId,
   type OrchestrationEvent,
   type OrchestrationThreadShell,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 import { Effect, Option } from "effect";
 
 import type { ProjectionSnapshotQueryShape } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
@@ -36,7 +36,11 @@ import {
   readStringArrayArg,
   ToolInputError,
 } from "./toolInput.ts";
-import { READ_ONLY_TOOL_ANNOTATIONS, type ToolEntry } from "./toolRuntime.ts";
+import {
+  READ_ONLY_TOOL_ANNOTATIONS,
+  WRITE_TOOL_ANNOTATIONS,
+  type ToolEntry,
+} from "./toolRuntime.ts";
 
 const DIAGNOSTIC_EVENT_SCAN_CHUNK_SIZE = 250;
 const DIAGNOSTIC_EVENT_MAX_COALESCING_SCAN = 10_000;
@@ -54,7 +58,7 @@ export function makeThreadDiagnosticTools(input: {
   const readActivity: ToolEntry = {
     requiredCapability: "diagnostics:read",
     definition: {
-      name: "synara_read_thread_activity",
+      name: "penkra_read_thread_activity",
       description:
         "Read a stable, paginated page of projected thread activity. Returns newest-last rows and an opaque cursor for older evidence.",
       inputSchema: {
@@ -143,7 +147,7 @@ export function makeThreadDiagnosticTools(input: {
   const readEvents: ToolEntry = {
     requiredCapability: "diagnostics:read",
     definition: {
-      name: "synara_read_thread_events",
+      name: "penkra_read_thread_events",
       description:
         "Read a stable, paginated page from the durable orchestration event journal. Consecutive updates for the same message are coalesced without crossing intervening events.",
       inputSchema: {
@@ -248,7 +252,7 @@ export function makeThreadDiagnosticTools(input: {
   const readRuntimeEvents: ToolEntry = {
     requiredCapability: "diagnostics:read",
     definition: {
-      name: "synara_read_thread_runtime_events",
+      name: "penkra_read_thread_runtime_events",
       description:
         "Read retained provider-runtime events for one thread. This source has a global accepted-event retention cap; inspect coverage before treating absence as evidence.",
       inputSchema: {
@@ -340,7 +344,7 @@ export function makeThreadDiagnosticTools(input: {
   const diagnoseThread: ToolEntry = {
     requiredCapability: "diagnostics:read",
     definition: {
-      name: "synara_diagnose_thread",
+      name: "penkra_diagnose_thread",
       description:
         "Build one bounded forensic snapshot from projected status/messages/activity, durable events, provider delivery blockers, and operational stream incidents.",
       inputSchema: {
@@ -366,18 +370,27 @@ export function makeThreadDiagnosticTools(input: {
               }),
             ),
           );
-        const [activityCoverage, eventHighWater, runtimeCoverage, blockers, incidents] =
-          yield* Effect.all([
-            input.diagnostics.getActivityCoverage(threadId),
-            input.eventStore.getThreadHighWaterSequence(threadId),
-            input.providerRuntimeEvents.getThreadCoverage(threadId),
-            input.eventDeliveries.listBlockingDeliveries({
-              consumerName: PROVIDER_COMMAND_REACTOR_CONSUMER,
-              threadId,
-              limit: 20,
-            }),
-            input.diagnostics.listOperationalDiagnostics({ threadId, limit: 50 }),
-          ]);
+        const [
+          activityCoverage,
+          eventHighWater,
+          runtimeCoverage,
+          runtimeThreadCursor,
+          runtimeProjectionFailure,
+          blockers,
+          incidents,
+        ] = yield* Effect.all([
+          input.diagnostics.getActivityCoverage(threadId),
+          input.eventStore.getThreadHighWaterSequence(threadId),
+          input.providerRuntimeEvents.getThreadCoverage(threadId),
+          input.providerRuntimeEvents.getThreadCursor(threadId),
+          input.providerRuntimeEvents.getThreadProjectionFailure(threadId),
+          input.eventDeliveries.listBlockingDeliveries({
+            consumerName: PROVIDER_COMMAND_REACTOR_CONSUMER,
+            threadId,
+            limit: 20,
+          }),
+          input.diagnostics.listOperationalDiagnostics({ threadId, limit: 50 }),
+        ]);
         const [activities, events, runtimeEvents] = yield* Effect.all([
           input.diagnostics.listActivities({
             threadId,
@@ -410,6 +423,15 @@ export function makeThreadDiagnosticTools(input: {
             code: "provider_delivery_blocked",
             detail: `Event ${blocker.eventSequence} is ${blocker.state} after ${blocker.attemptCount} attempt(s).`,
           })),
+          ...(runtimeProjectionFailure
+            ? [
+                {
+                  severity: runtimeProjectionFailure.status === "quarantined" ? "error" : "warning",
+                  code: `provider_runtime_projection_${runtimeProjectionFailure.status}`,
+                  detail: `Runtime event ${runtimeProjectionFailure.sequence} (${runtimeProjectionFailure.eventType}) failed projection ${runtimeProjectionFailure.attemptCount} time(s).`,
+                },
+              ]
+            : []),
           ...incidents
             .filter((incident) => incident.severity !== "info")
             .map((incident) => ({
@@ -453,6 +475,15 @@ export function makeThreadDiagnosticTools(input: {
             lastError: sanitizeDiagnosticValue(blocker.lastError),
             lastReconciliationNote: sanitizeDiagnosticValue(blocker.lastReconciliationNote),
           })),
+          providerRuntimeProjection: {
+            threadCursor: runtimeThreadCursor,
+            failure: runtimeProjectionFailure
+              ? {
+                  ...runtimeProjectionFailure,
+                  errorDetail: sanitizeDiagnosticValue(runtimeProjectionFailure.errorDetail),
+                }
+              : null,
+          },
           operationalIncidents: incidents.map((incident) => ({
             ...incident,
             detail: sanitizeDiagnosticValue(incident.detail),
@@ -486,12 +517,44 @@ export function makeThreadDiagnosticTools(input: {
               globalAcceptedEventCap: PROVIDER_RUNTIME_EVENT_RETAIN_ACCEPTED,
               sourceComplete: false,
               reason:
-                "Provider runtime events have bounded global retention; absence is not proof that an event never occurred.",
+                "Accepted provider runtime events have bounded global retention. Quarantined thread heads are retained, but absence is not proof that an event never occurred.",
             },
           },
         });
       }).pipe(Effect.catch((error) => Effect.succeed(mcpToolResultError(errorText(error))))),
   };
 
-  return [readActivity, readEvents, readRuntimeEvents, diagnoseThread];
+  const retryThreadProjection: ToolEntry = {
+    requiredCapability: "thread:write",
+    definition: {
+      name: "penkra_retry_thread_projection",
+      description:
+        "Release one quarantined provider-runtime event for the thread so Penkra retries the original preserved event. This never skips or deletes the event.",
+      inputSchema: {
+        type: "object",
+        properties: { threadId: { type: "string" } },
+        required: ["threadId"],
+        additionalProperties: false,
+      },
+      annotations: { title: "Retry thread projection", ...WRITE_TOOL_ANNOTATIONS },
+    },
+    handler: (args) =>
+      Effect.gen(function* () {
+        const threadId = readStringArg(args, "threadId", { required: true })!;
+        yield* input.requireThreadShell(threadId);
+        const released = yield* input.providerRuntimeEvents.releaseQuarantinedThread({
+          threadId,
+          releasedAt: new Date().toISOString(),
+        });
+        return mcpToolResultJson({
+          threadId,
+          released,
+          outcome: released
+            ? "The preserved runtime event was released for retry."
+            : "The thread has no quarantined runtime projection event.",
+        });
+      }).pipe(Effect.catch((error) => Effect.succeed(mcpToolResultError(errorText(error))))),
+  };
+
+  return [readActivity, readEvents, readRuntimeEvents, diagnoseThread, retryThreadProjection];
 }

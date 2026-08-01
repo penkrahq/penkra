@@ -5,11 +5,11 @@ import path from "node:path";
 
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { AuthSessionId } from "@synara/contracts";
+import { AuthSessionId } from "@penkra/contracts";
 import {
   ATTACHMENT_CANCEL_ROUTE_PATH,
   ATTACHMENT_UPLOAD_ROUTE_PATH,
-} from "@synara/shared/binaryTransfer";
+} from "@penkra/shared/binaryTransfer";
 import { DateTime, Effect, Exit, Layer, Scope } from "effect";
 import { HttpRouter } from "effect/unstable/http";
 import { describe, expect, it } from "vitest";
@@ -34,7 +34,7 @@ const otherSessionId = AuthSessionId.makeUnsafe("22222222-2222-4222-8222-2222222
 
 function makeSessionCredentialService(): SessionCredentialServiceShape {
   return {
-    cookieName: "synara_session",
+    cookieName: "penkra_session",
   } as SessionCredentialServiceShape;
 }
 
@@ -44,7 +44,7 @@ function makeServerAuth(sideEffects: { count: number }): ServerAuthShape {
     policy: "remote-reachable" as const,
     bootstrapMethods: ["one-time-token" as const],
     sessionMethods: ["browser-session-cookie" as const, "bearer-session-token" as const],
-    sessionCookieName: "synara_session",
+    sessionCookieName: "penkra_session",
   };
   const mutate = <A>(value: A) =>
     Effect.sync(() => {
@@ -82,7 +82,7 @@ function makeServerAuth(sideEffects: { count: number }): ServerAuthShape {
     logoutSession: () => mutate(true),
     authenticateHttpRequest: (request) => {
       const bearer = request.headers.authorization === "Bearer bearer-token";
-      const cookie = request.cookies.synara_session === "cookie-token";
+      const cookie = request.cookies.penkra_session === "cookie-token";
       if (!bearer && !cookie) {
         return Effect.fail(new AuthError({ message: "Authentication required.", status: 401 }));
       }
@@ -99,7 +99,7 @@ function makeServerAuth(sideEffects: { count: number }): ServerAuthShape {
       Effect.fail(new AuthError({ message: "Not used in auth route tests.", status: 401 })),
     issueWebSocketToken: () => mutate({ token: "ws-token", expiresAt }),
     issueStartupPairingUrl: () =>
-      Effect.succeed("https://synara.example.test/pair#token=PAIRINGTOKEN"),
+      Effect.succeed("https://penkra.example.test/pair#token=PAIRINGTOKEN"),
   } satisfies ServerAuthShape;
 }
 
@@ -177,7 +177,7 @@ function mutationRequest(input: {
       ...(input.origin === undefined ? {} : { Origin: input.origin }),
       ...(input.credential === "bearer"
         ? { Authorization: "Bearer bearer-token" }
-        : { Cookie: "synara_session=cookie-token" }),
+        : { Cookie: "penkra_session=cookie-token" }),
       ...(input.body === undefined ? {} : { "Content-Type": "application/json" }),
     },
     ...(input.body === undefined ? {} : { body: JSON.stringify(input.body) }),
@@ -247,7 +247,7 @@ describe("authEffectRouteLayer", () => {
     const sideEffects = { count: 0 };
     const config = {
       host: "0.0.0.0",
-      publicUrl: new URL("https://synara.example.test/"),
+      publicUrl: new URL("https://penkra.example.test/"),
     } as ServerConfigShape;
     await withAuthEffectServer(config, makeServerAuth(sideEffects), async (serverOrigin) => {
       for (const route of mutationRoutes) {
@@ -315,13 +315,13 @@ describe("authEffectRouteLayer", () => {
     const sideEffects = { count: 0 };
     const config = {
       host: "0.0.0.0",
-      publicUrl: new URL("https://synara.example.test/"),
+      publicUrl: new URL("https://penkra.example.test/"),
     } as ServerConfigShape;
     await withAuthEffectServer(config, makeServerAuth(sideEffects), async (serverOrigin) => {
       const response = await fetch(
         `${serverOrigin}/api/auth/logout`,
         mutationRequest({
-          origin: "https://synara.example.test",
+          origin: "https://penkra.example.test",
           credential: "cookie",
         }),
       );
@@ -329,7 +329,7 @@ describe("authEffectRouteLayer", () => {
       expect(response.status).toBe(200);
       await expect(response.json()).resolves.toEqual({ revoked: true });
       const cookie = response.headers.get("set-cookie") ?? "";
-      expect(cookie).toContain("synara_session=");
+      expect(cookie).toContain("penkra_session=");
       expect(cookie).toContain("Expires=Thu, 01 Jan 1970 00:00:00 GMT");
       expect(cookie).toContain("Max-Age=0");
       expect(cookie).toContain("HttpOnly");
@@ -345,7 +345,7 @@ describe("binaryUploadEffectRouteLayer", () => {
   it("allows credentialed Penkra desktop attachment upload preflights", async () => {
     const config = {
       host: "127.0.0.1",
-      attachmentsDir: fs.mkdtempSync(path.join(os.tmpdir(), "synara-upload-cors-")),
+      attachmentsDir: fs.mkdtempSync(path.join(os.tmpdir(), "penkra-upload-cors-")),
     } as ServerConfigShape;
     try {
       await withAuthEffectServer(
@@ -377,10 +377,10 @@ describe("binaryUploadEffectRouteLayer", () => {
   });
 
   it("rejects ambient cookie uploads without an origin and accepts explicit bearer auth", async () => {
-    const attachmentsDir = fs.mkdtempSync(path.join(os.tmpdir(), "synara-upload-route-"));
+    const attachmentsDir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-upload-route-"));
     const config = {
       host: "0.0.0.0",
-      publicUrl: new URL("https://synara.example.test/"),
+      publicUrl: new URL("https://penkra.example.test/"),
       attachmentsDir,
     } as ServerConfigShape;
     try {
@@ -397,7 +397,7 @@ describe("binaryUploadEffectRouteLayer", () => {
           const url = `${serverOrigin}${ATTACHMENT_UPLOAD_ROUTE_PATH}?${params.toString()}`;
           const cookieResponse = await fetch(url, {
             method: "POST",
-            headers: { Cookie: "synara_session=cookie-token" },
+            headers: { Cookie: "penkra_session=cookie-token" },
             body: Uint8Array.from([1]),
           });
           expect(cookieResponse.status).toBe(403);

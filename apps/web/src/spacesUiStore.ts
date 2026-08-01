@@ -1,12 +1,12 @@
 // FILE: spacesUiStore.ts
 // Purpose: Keeps per-window Space selection and last working-context restoration.
 
-import type { ProjectId, SpaceId, ThreadId } from "@synara/contracts";
+import type { ProjectId, SpaceId, ThreadId } from "@penkra/contracts";
 import { create } from "zustand";
 
 import { spaceKey } from "~/lib/spaceGrouping";
 
-const STORAGE_KEY = "synara:spaces-ui:v1";
+const STORAGE_KEY = "penkra:spaces-ui:v1";
 
 interface PersistedSpacesUiState {
   activeSpaceId: SpaceId | null;

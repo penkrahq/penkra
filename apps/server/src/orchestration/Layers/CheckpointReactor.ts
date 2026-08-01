@@ -11,9 +11,9 @@ import {
   type OrchestrationThread,
   type ProviderSession,
   type ProviderRuntimeEvent,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 import { Cause, Deferred, Effect, Fiber, Layer, Option, Schedule, Stream } from "effect";
-import { makeDrainableWorker, startDrainableWorkerProducers } from "@synara/shared/DrainableWorker";
+import { makeDrainableWorker, startDrainableWorkerProducers } from "@penkra/shared/DrainableWorker";
 
 import { parseCheckpointFilesFromUnifiedDiff } from "../../checkpointing/Diffs.ts";
 import {

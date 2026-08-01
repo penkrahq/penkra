@@ -3,7 +3,7 @@
 // Layer: Web subscription retention utility
 // Exports: retain/release helpers, the connection lease selector, and a React listener.
 
-import { WS_STREAM_LIMITS, type ThreadId } from "@synara/contracts";
+import { WS_STREAM_LIMITS, type ThreadId } from "@penkra/contracts";
 import { useSyncExternalStore } from "react";
 import { useStore } from "./store";
 import { getThreadFromState } from "./threadDerivation";

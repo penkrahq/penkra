@@ -10,11 +10,11 @@ import {
   migrationBackupDirectory,
   migrationRecoveryMarkerPath,
   parseMigrationRecoveryResumeState,
-} from "@synara/shared/migrationRecovery";
+} from "@penkra/shared/migrationRecovery";
 export {
   migrationBackupDirectory,
   migrationRecoveryMarkerPath,
-} from "@synara/shared/migrationRecovery";
+} from "@penkra/shared/migrationRecovery";
 
 import { ensurePrivateDirectorySync, repairPrivateFile } from "../privatePathPermissions.ts";
 import { withDatabaseLifecycleLock } from "./DatabaseLifecycleLock.ts";
@@ -43,7 +43,7 @@ export class MigrationRecoveryRequiredError extends Error {
     detail?: string,
   ) {
     super(
-      `Migration recovery is required for ${dbPath}.${detail ? ` ${detail}` : ""} Stop every Synara process, then run: synara-restore-migration-backup ${shellQuote(dbPath)}`,
+      `Migration recovery is required for ${dbPath}.${detail ? ` ${detail}` : ""} Stop every Penkra process, then run: penkra-restore-migration-backup ${shellQuote(dbPath)}`,
     );
     this.name = "MigrationRecoveryRequiredError";
   }
@@ -77,7 +77,7 @@ export class InsufficientMigrationBackupSpaceError extends Error {
     super(
       `Not enough free disk space to back up the database before upgrading it. ` +
         `About ${formatBytes(requiredBytes)} is needed in ${directory}, but only ` +
-        `${formatBytes(availableBytes)} is free. Free up disk space and start Synara again.`,
+        `${formatBytes(availableBytes)} is free. Free up disk space and start Penkra again.`,
     );
     this.name = "InsufficientMigrationBackupSpaceError";
   }
@@ -744,7 +744,7 @@ const writeRecoveryMarker = (dbPath: string, backup: MigrationBackupResult) =>
       createdAt: new Date().toISOString(),
       resumeAttempts: 0,
       recovery:
-        "Synara retries an interrupted migration a bounded number of times on startup. Once that budget is spent it refuses to open this database until an operator stops every Synara process and runs the explicit migration-backup restore command.",
+        "Penkra retries an interrupted migration a bounded number of times on startup. Once that budget is spent it refuses to open this database until an operator stops every Penkra process and runs the explicit migration-backup restore command.",
     });
   });
 
@@ -1083,7 +1083,7 @@ export const resumeMarkedMigration = <A, E, R>(
   });
 
 /**
- * Explicit one-shot recovery path. The operator must stop every Synara process
+ * Explicit one-shot recovery path. The operator must stop every Penkra process
  * before invoking it; startup itself deliberately never calls this function.
  */
 export const restoreMarkedMigrationBackup = (dbPath: string) =>

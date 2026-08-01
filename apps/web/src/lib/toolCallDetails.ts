@@ -4,8 +4,8 @@
 // Exports: deriveWorkLogToolDetails, mergeWorkLogToolDetails
 // Depends on: provider runtime item metadata already truncated by server ingestion
 
-import type { ToolLifecycleItemType } from "@synara/contracts";
-import { extractToolRawOutputText } from "@synara/shared/toolOutputSummary";
+import type { ToolLifecycleItemType } from "@penkra/contracts";
+import { extractToolRawOutputText } from "@penkra/shared/toolOutputSummary";
 
 type WorkLogRequestKind = "command" | "file-read" | "file-change";
 
@@ -206,7 +206,7 @@ function extractToolOutputDetails(input: {
     result?.exitCode,
     outputExitCode(input.detail),
   );
-  const truncated = rawOutput?.truncated === true || data?.__synaraTruncated === true;
+  const truncated = rawOutput?.truncated === true || data?.__penkraTruncated === true;
   if (!stdout && !stderr && !output && exitCode === undefined && !truncated) {
     return undefined;
   }

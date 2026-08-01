@@ -137,7 +137,7 @@ export interface ManagedAttachmentCleanupShape {
 export class ManagedAttachmentCleanup extends ServiceMap.Service<
   ManagedAttachmentCleanup,
   ManagedAttachmentCleanupShape
->()("synara/ManagedAttachmentCleanup") {}
+>()("penkra/ManagedAttachmentCleanup") {}
 
 const drainCleanupBatches = <E, R>(
   runBatch: Effect.Effect<number, E, R>,

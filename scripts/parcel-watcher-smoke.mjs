@@ -8,7 +8,7 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-const requireRoot = process.env.SYNARA_PARCEL_WATCHER_SMOKE_REQUIRE_ROOT?.trim() || process.cwd();
+const requireRoot = process.env.PENKRA_PARCEL_WATCHER_SMOKE_REQUIRE_ROOT?.trim() || process.cwd();
 const requireFromTarget = createRequire(resolve(requireRoot, "package.json"));
 const watcher = requireFromTarget("@parcel/watcher");
 const directory = await mkdtemp(join(tmpdir(), "penkra-parcel-watcher-"));

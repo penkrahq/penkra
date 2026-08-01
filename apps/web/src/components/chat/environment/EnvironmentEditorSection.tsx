@@ -5,7 +5,7 @@
 //          editor (same entries as the header OpenInPicker).
 // Layer: Environment panel section
 
-import type { EditorId, ResolvedKeybindingsConfig } from "@synara/contracts";
+import type { EditorId, ResolvedKeybindingsConfig } from "@penkra/contracts";
 
 import { useEditorLaunchers } from "~/hooks/useEditorLaunchers";
 import { LayoutSidebarIcon } from "~/lib/icons";

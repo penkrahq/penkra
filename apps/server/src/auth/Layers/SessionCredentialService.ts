@@ -1,4 +1,4 @@
-import { AuthSessionId, type AuthClientMetadata, type AuthClientSession } from "@synara/contracts";
+import { AuthSessionId, type AuthClientMetadata, type AuthClientSession } from "@penkra/contracts";
 import * as Crypto from "node:crypto";
 import {
   Clock,

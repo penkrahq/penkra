@@ -19,7 +19,7 @@ describe("remote access policy", () => {
     expect(
       remoteAccessPolicyError({
         ...remoteBase,
-        publicUrl: new URL("https://synara.example.test/"),
+        publicUrl: new URL("https://penkra.example.test/"),
       }),
     ).toBeNull();
     expect(remoteAccessPolicyError({ ...remoteBase, allowInsecureRemote: true })).toBeNull();
@@ -31,15 +31,15 @@ describe("remote access policy", () => {
         ...remoteBase,
         host: "127.0.0.1",
         authToken: undefined,
-        publicUrl: new URL("https://synara.example.test/"),
+        publicUrl: new URL("https://penkra.example.test/"),
       }),
-    ).toContain("without SYNARA_AUTH_TOKEN");
+    ).toContain("without PENKRA_AUTH_TOKEN");
   });
 
   it("rejects invalid public URLs in the shared embedded-server policy", () => {
     for (const publicUrl of [
-      new URL("http://synara.example.test/"),
-      new URL("https://synara.example.test/app"),
+      new URL("http://penkra.example.test/"),
+      new URL("https://penkra.example.test/app"),
     ]) {
       expect(
         remoteAccessPolicyError({
@@ -57,21 +57,21 @@ describe("remote access policy", () => {
         ...remoteBase,
         host: "127.0.0.1",
         devUrl: new URL("http://localhost:5173/"),
-        publicUrl: new URL("https://synara.example.test/"),
+        publicUrl: new URL("https://penkra.example.test/"),
       }),
     ).toContain("cannot be combined with VITE_DEV_SERVER_URL");
   });
 
   it("accepts only credential-free HTTPS root origins", () => {
-    expect(normalizeHttpsPublicOrigin(new URL("https://synara.example.test/"))?.origin).toBe(
-      "https://synara.example.test",
+    expect(normalizeHttpsPublicOrigin(new URL("https://penkra.example.test/"))?.origin).toBe(
+      "https://penkra.example.test",
     );
     for (const value of [
-      "http://synara.example.test/",
-      "https://user:pass@synara.example.test/",
-      "https://synara.example.test/app",
-      "https://synara.example.test/?query=1",
-      "https://synara.example.test/#fragment",
+      "http://penkra.example.test/",
+      "https://user:pass@penkra.example.test/",
+      "https://penkra.example.test/app",
+      "https://penkra.example.test/?query=1",
+      "https://penkra.example.test/#fragment",
     ]) {
       expect(normalizeHttpsPublicOrigin(new URL(value))).toBeNull();
     }

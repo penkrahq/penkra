@@ -7,19 +7,14 @@ import {
   type KeybindingCommand,
   type ProjectId,
   type ThreadId,
-} from "@synara/contracts";
-import { resolveThreadEnvironmentMode } from "@synara/shared/threadEnvironment";
-import { isWorkspaceRootWithin, workspaceRootsEqual } from "@synara/shared/threadWorkspace";
+} from "@penkra/contracts";
+import { resolveThreadEnvironmentMode } from "@penkra/shared/threadEnvironment";
+import { isWorkspaceRootWithin, workspaceRootsEqual } from "@penkra/shared/threadWorkspace";
 import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "../appSettings";
 import { resolveRestorableThreadRoute, type LastThreadRoute } from "../chatRouteRestore";
 import type { ChatMessage, Project, SidebarThreadSummary, Thread } from "../types";
 import { cn } from "../lib/utils";
-import {
-  derivePinnedIds,
-  getPinnedItems,
-  isLatestPinMutation,
-  orderPinnedItemsFirst,
-} from "../pinning.logic";
+import { derivePinnedIds, isLatestPinMutation, orderPinnedItemsFirst } from "../pinning.logic";
 import {
   SIDEBAR_ROW_ACTIVE_CLASS_NAME,
   SIDEBAR_ROW_HOVER_CLASS_NAME,
@@ -43,7 +38,7 @@ export {
 
 export const THREAD_SELECTION_SAFE_SELECTOR = "[data-thread-item], [data-thread-selection-safe]";
 export const SIDEBAR_THREAD_PREWARM_LIMIT = 10;
-export const DEBUG_FEATURE_FLAGS_MENU_STORAGE_KEY = "synara:show-debug-feature-flags-menu";
+export const DEBUG_FEATURE_FLAGS_MENU_STORAGE_KEY = "penkra:show-debug-feature-flags-menu";
 export type SidebarNewThreadEnvMode = "local" | "worktree";
 export type SidebarView = "threads" | "studio" | "workspace";
 
@@ -198,7 +193,8 @@ export interface ThreadStatusPill {
     | "Completed"
     | "Pending Approval"
     | "Awaiting Input"
-    | "Plan Ready";
+    | "Plan Ready"
+    | "Needs Attention";
   colorClass: string;
   dotClass: string;
   pulse: boolean;
@@ -208,12 +204,22 @@ export interface ThreadStatusPill {
 
 const THREAD_STATUS_PRIORITY: Record<ThreadStatusPill["label"], number> = {
   "Pending Approval": 5,
-  "Awaiting Input": 4,
+  "Awaiting Input": 5,
+  "Plan Ready": 5,
+  "Needs Attention": 6,
   Working: 3,
   Connecting: 3,
-  "Plan Ready": 2,
   Completed: 1,
 };
+
+export type SidebarWorkStatus = "idle" | "running" | "done" | "attention";
+
+export function resolveSidebarWorkStatus(status: ThreadStatusPill | null): SidebarWorkStatus {
+  if (status === null) return "idle";
+  if (status.label === "Working" || status.label === "Connecting") return "running";
+  if (status.label === "Completed") return "done";
+  return "attention";
+}
 
 type ThreadStatusInput = Pick<
   Thread,
@@ -415,6 +421,13 @@ export function isThreadActivelyWorking(thread: {
     return true;
   }
   const session = thread.session ?? null;
+  // `starting` is already durable evidence that a turn was dispatched, but the
+  // provider's turn.started event may not have been projected yet. Treat that
+  // hand-off window as active so the row does not briefly (or, under delayed
+  // projection, indefinitely) fall back to idle behind an older settled turn.
+  if (session?.orchestrationStatus === "starting") {
+    return true;
+  }
   return (
     session?.status === "running" &&
     (thread.latestTurn == null || hasLiveLatestTurn(thread.latestTurn, session))
@@ -461,6 +474,16 @@ export function resolveThreadStatusPill(input: {
       pulse: false,
       dismissible: true,
       dismissalKey,
+    };
+  }
+
+  if (thread.session?.status === "error") {
+    return {
+      label: "Needs Attention",
+      colorClass: "text-orange-600 dark:text-orange-300/90",
+      dotClass: "bg-orange-500 dark:bg-orange-300/90",
+      pulse: false,
+      dismissible: false,
     };
   }
 
@@ -724,8 +747,9 @@ export function buildProjectThreadTree<
 >(input: {
   threads: readonly T[];
   forceVisibleThreadId?: T["id"] | undefined;
+  pinnedThreadIds?: readonly T["id"][];
 }): SidebarThreadTreeRow<T>[] {
-  const { forceVisibleThreadId, threads } = input;
+  const { forceVisibleThreadId, pinnedThreadIds = [], threads } = input;
   const threadById = new Map(threads.map((thread) => [thread.id, thread] as const));
   const childrenByParentId = new Map<T["id"], T[]>();
   const roots: T[] = [];
@@ -745,7 +769,10 @@ export function buildProjectThreadTree<
   const orderedRows: SidebarThreadTreeRow<T>[] = [];
 
   const visit = (thread: T, depth: number, rootThreadId: T["id"]) => {
-    const childThreads = childrenByParentId.get(thread.id) ?? [];
+    const childThreads = orderPinnedItemsFirst(
+      childrenByParentId.get(thread.id) ?? [],
+      pinnedThreadIds,
+    );
     const revealsActiveDescendant =
       childThreads.length > 0 && activeThreadAncestorIds.has(thread.id);
 
@@ -764,7 +791,7 @@ export function buildProjectThreadTree<
     }
   };
 
-  for (const root of roots) {
+  for (const root of orderPinnedItemsFirst(roots, pinnedThreadIds)) {
     visit(root, 0, root.id);
   }
 
@@ -834,13 +861,6 @@ export function getVisibleSidebarEntriesForPreview<
   };
 }
 
-export function getPinnedThreadsForSidebar<T extends Pick<Thread, "id">>(
-  threads: readonly T[],
-  pinnedThreadIds: readonly T["id"][],
-): T[] {
-  return getPinnedItems(threads, pinnedThreadIds);
-}
-
 // Resolve the visible pinned ids from server state, local legacy pins, and pending user clicks.
 export function derivePinnedThreadIdsForSidebar<T extends Pick<Thread, "id" | "isPinned">>(input: {
   readonly threads: readonly T[];
@@ -899,33 +919,6 @@ export function orderPinnedProjectsForSidebar<T extends Pick<Project, "id">>(
   pinnedProjectIds: readonly T["id"][],
 ): T[] {
   return orderPinnedItemsFirst(projects, pinnedProjectIds);
-}
-
-// Hide globally pinned rows from the per-project lists so the sidebar doesn't duplicate chats.
-// Exception: a pinned parent whose children are in the list stays in the tree.
-// The pinned section renders flat rows only, and buildProjectThreadTree
-// promotes children with a missing parent to top-level rows — hiding such a
-// parent would either orphan its children as project roots or (if the
-// descendants were hidden too) make them unreachable anywhere in the sidebar.
-export function getUnpinnedThreadsForSidebar<
-  T extends Pick<Thread, "id"> & Partial<Pick<SidebarThreadSummary, "parentThreadId">>,
->(threads: readonly T[], pinnedThreadIds: readonly T["id"][]): T[] {
-  if (pinnedThreadIds.length === 0) {
-    return [...threads];
-  }
-
-  const parentThreadIds = new Set<T["id"]>();
-  for (const thread of threads) {
-    const parentThreadId = thread.parentThreadId ?? null;
-    if (parentThreadId !== null) {
-      parentThreadIds.add(parentThreadId as T["id"]);
-    }
-  }
-
-  const hiddenThreadIds = new Set(
-    pinnedThreadIds.filter((threadId) => !parentThreadIds.has(threadId)),
-  );
-  return threads.filter((thread) => !hiddenThreadIds.has(thread.id));
 }
 
 // Only prune persisted pins after the thread snapshot has hydrated.
@@ -1364,7 +1357,7 @@ export function deriveSidebarProjectData(input: {
 
   for (const project of input.projects) {
     const allProjectThreads = input.sortedSidebarThreadsByProjectId.get(project.id) ?? [];
-    const projectThreads = getUnpinnedThreadsForSidebar(allProjectThreads, input.pinnedThreadIds);
+    const projectThreads = [...allProjectThreads];
     const projectStatus = resolveProjectStatusIndicator(
       allProjectThreads.map((thread) =>
         input.resolveThreadStatus
@@ -1378,7 +1371,9 @@ export function deriveSidebarProjectData(input: {
     );
     const requestedExtraPages =
       input.threadListExtraPagesByProjectCwd.get(input.normalizeProjectCwd(project.cwd)) ?? 0;
-    const orderedProjectThreadIds = projectThreads.map((thread) => thread.id);
+    let orderedProjectThreadIds = orderPinnedItemsFirst(projectThreads, input.pinnedThreadIds).map(
+      (thread) => thread.id,
+    );
 
     // Collapsed folders should not build or render their full tree; large projects can
     // contain hundreds of rows and folder toggles are on the sidebar hot path.
@@ -1418,7 +1413,9 @@ export function deriveSidebarProjectData(input: {
     const projectThreadTree = buildProjectThreadTree({
       threads: projectThreads,
       forceVisibleThreadId: input.activeSidebarThreadId,
+      pinnedThreadIds: input.pinnedThreadIds,
     });
+    orderedProjectThreadIds = projectThreadTree.map(({ thread }) => thread.id);
     const orderedEntries: SidebarProjectEntry[] = projectThreadTree.map(
       ({ thread, depth, rootThreadId }) => ({
         kind: "thread",

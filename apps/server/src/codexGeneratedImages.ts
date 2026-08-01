@@ -11,8 +11,8 @@ import {
   type CodexGeneratedImageArtifact,
   type ProviderRuntimeEvent,
   type ThreadId,
-} from "@synara/contracts";
-import { isSupportedLocalImagePath as isSupportedLocalImagePathShared } from "@synara/shared/localPreviewFiles";
+} from "@penkra/contracts";
+import { isSupportedLocalImagePath as isSupportedLocalImagePathShared } from "@penkra/shared/localPreviewFiles";
 
 import {
   resolveActiveCodexHomeWritePath,
@@ -84,7 +84,7 @@ export function resolveCodexGeneratedImagesRoot(homePath?: string): string {
 /**
  * All generated-images directories the local-image route should treat as
  * legitimate. Includes both the source `~/.codex/generated_images` and the
- * overlay `<SYNARA_HOME>/codex-home-overlay/generated_images` so we serve
+ * overlay `<PENKRA_HOME>/codex-home-overlay/generated_images` so we serve
  * images regardless of which home Codex wrote them under.
  */
 export function resolveCodexGeneratedImagesRoots(homePath?: string): readonly string[] {

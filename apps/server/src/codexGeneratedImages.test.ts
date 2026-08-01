@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import { afterEach, describe, it } from "vitest";
 
-import type { ProviderRuntimeEvent } from "@synara/contracts";
+import type { ProviderRuntimeEvent } from "@penkra/contracts";
 
 import {
   CODEX_GENERATED_IMAGE_ARTIFACT_KIND,
@@ -73,36 +73,36 @@ describe("generatedImagePathFromRuntimeEvent", () => {
 });
 
 describe("resolveCodexGeneratedImagesRoot(s)", () => {
-  const previousSynaraHome = process.env.SYNARA_HOME;
+  const previousPenkraHome = process.env.PENKRA_HOME;
 
   afterEach(() => {
-    if (previousSynaraHome === undefined) delete process.env.SYNARA_HOME;
-    else process.env.SYNARA_HOME = previousSynaraHome;
+    if (previousPenkraHome === undefined) delete process.env.PENKRA_HOME;
+    else process.env.PENKRA_HOME = previousPenkraHome;
   });
 
   it("returns the overlay generated_images directory as the active write root by default", () => {
-    process.env.SYNARA_HOME = "/synara-test/runtime";
+    process.env.PENKRA_HOME = "/penkra-test/runtime";
     assert.equal(
       resolveCodexGeneratedImagesRoot("/codex-test/.codex"),
-      path.join("/synara-test/runtime", "codex-home-overlay", "generated_images"),
+      path.join("/penkra-test/runtime", "codex-home-overlay", "generated_images"),
     );
   });
 
   it("returns both source and overlay generated_images roots for the allowlist", () => {
-    process.env.SYNARA_HOME = "/synara-test/runtime";
+    process.env.PENKRA_HOME = "/penkra-test/runtime";
     assert.deepEqual(resolveCodexGeneratedImagesRoots("/codex-test/.codex"), [
       path.join("/codex-test/.codex", "generated_images"),
-      path.join("/synara-test/runtime", "codex-home-overlay", "generated_images"),
+      path.join("/penkra-test/runtime", "codex-home-overlay", "generated_images"),
     ]);
   });
 
   it("collapses to a single root when overlay equals source", () => {
-    delete process.env.SYNARA_HOME;
-    // The overlay falls under `<dirname(source)>/.synara/runtime/codex-home-overlay`,
+    delete process.env.PENKRA_HOME;
+    // The overlay falls under `<dirname(source)>/.penkra/runtime/codex-home-overlay`,
     // which is always distinct from `<source>` itself, so the helper still returns
     // both candidates; this test guards the dedupe path with an artificial home
     // whose dirname happens to equal the overlay root.
-    const homePath = "/runtime/.synara/runtime/codex-home-overlay";
+    const homePath = "/runtime/.penkra/runtime/codex-home-overlay";
     const roots = resolveCodexGeneratedImagesRoots(homePath);
     assert.ok(roots.length >= 1 && roots.length <= 2, `expected 1-2 roots, got ${roots.length}`);
     assert.ok(roots.includes(path.join(homePath, "generated_images")));

@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 
-import { ThreadId } from "@synara/contracts";
+import { ThreadId } from "@penkra/contracts";
 import type { BrowserWindow, WebContents } from "electron";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -228,7 +228,7 @@ describe("DesktopBrowserManager repeated workflow characterization", () => {
       const beforeSchemeDenial = afterTabOpen.tabs.length;
       expect(
         handler({
-          url: "synara://unsafe",
+          url: "penkra://unsafe",
           frameName: "",
           features: "",
           disposition: "foreground-tab",

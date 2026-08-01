@@ -3,7 +3,7 @@
 // token telemetry.
 // Layer: web profile feature tests.
 
-import type { ProfileStats, ProfileTokenStats } from "@synara/contracts";
+import type { ProfileStats, ProfileTokenStats } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -29,7 +29,7 @@ const tokenHeatmapCell = {
 const baseStats = {
   generatedAt: "2026-07-02T10:00:00.000Z",
   timezone: { utcOffsetMinutes: 0, today: "2026-07-02" },
-  identity: { homeDirBasename: "synara", initials: "S", defaultHandle: "@synara" },
+  identity: { homeDirBasename: "penkra", initials: "S", defaultHandle: "@penkra" },
   activity: {
     currentStreakDays: 0,
     longestStreakDays: 0,

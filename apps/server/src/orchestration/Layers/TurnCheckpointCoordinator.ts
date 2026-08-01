@@ -1,4 +1,4 @@
-import type { ThreadId } from "@synara/contracts";
+import type { ThreadId } from "@penkra/contracts";
 import { Effect, Layer, Semaphore } from "effect";
 
 import {

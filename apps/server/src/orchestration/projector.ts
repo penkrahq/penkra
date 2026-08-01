@@ -1,22 +1,22 @@
-import type { OrchestrationEvent, OrchestrationReadModel, ThreadId } from "@synara/contracts";
+import type { OrchestrationEvent, OrchestrationReadModel, ThreadId } from "@penkra/contracts";
 import {
   OrchestrationCheckpointSummary,
   OrchestrationMessage,
   OrchestrationSession,
   OrchestrationThread,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 import {
   addPinnedMessage,
   removePinnedMessage,
   setPinnedMessageDone,
   setPinnedMessageLabel,
-} from "@synara/shared/pinnedMessages";
+} from "@penkra/shared/pinnedMessages";
 import {
   addThreadMarker,
   removeThreadMarker,
   setThreadMarkerDone,
   setThreadMarkerLabel,
-} from "@synara/shared/threadMarkers";
+} from "@penkra/shared/threadMarkers";
 import { Effect, Schema } from "effect";
 
 import { toProjectorDecodeError, type OrchestrationProjectorDecodeError } from "./Errors.ts";

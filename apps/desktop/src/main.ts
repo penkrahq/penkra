@@ -17,7 +17,6 @@ import {
   BrowserWindow,
   clipboard,
   dialog,
-  globalShortcut,
   ipcMain,
   Menu,
   Notification,
@@ -41,7 +40,7 @@ import type {
   DesktopTheme,
   DesktopUpdateActionResult,
   DesktopUpdateState,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 import {
   autoUpdater,
   BaseUpdater,
@@ -49,18 +48,19 @@ import {
   type UpdateDownloadedEvent,
 } from "electron-updater";
 
-import type { ContextMenuItem } from "@synara/contracts";
-import { isKeyboardShortcutsHelpChord } from "@synara/shared/browserShortcuts";
-import { getMacTrafficLightPosition } from "@synara/shared/desktopChrome";
+import type { ContextMenuItem } from "@penkra/contracts";
+import { isKeyboardShortcutsHelpChord } from "@penkra/shared/browserShortcuts";
+import { getMacTrafficLightPosition } from "@penkra/shared/desktopChrome";
 import {
-  SYNARA_DESKTOP_UPDATE_CHANNEL,
-  resolveSynaraDesktopFlavor,
-  synaraDesktopIdentity,
-} from "@synara/shared/desktopIdentity";
-import { NetService } from "@synara/shared/Net";
-import { applyShellEnvironmentHydrationMarker } from "@synara/shared/shell";
-import { RotatingFileSink } from "@synara/shared/logging";
-import { ensureStaticSnapshot, findAsarArchivePath } from "@synara/shared/staticSnapshot";
+  PENKRA_DESKTOP_UPDATE_CHANNEL,
+  resolvePenkraDesktopFlavor,
+  penkraDesktopIdentity,
+} from "@penkra/shared/desktopIdentity";
+import { bindDesktopParentPid } from "@penkra/shared/desktopParentLifecycle";
+import { NetService } from "@penkra/shared/Net";
+import { applyShellEnvironmentHydrationMarker } from "@penkra/shared/shell";
+import { RotatingFileSink } from "@penkra/shared/logging";
+import { ensureStaticSnapshot, findAsarArchivePath } from "@penkra/shared/staticSnapshot";
 import { isBackendReadinessAborted, waitForHttpReady } from "./backendReadiness";
 import { resolveBackendNodeArgs } from "./backendNodeOptions";
 import {
@@ -189,7 +189,7 @@ import { BROWSER_SESSION_PARTITION, DesktopBrowserManager } from "./browserManag
 import { registerBrowserIpcHandlers, sendBrowserCopyLink, sendBrowserState } from "./browserIpc";
 import {
   BrowserUsePipeServer,
-  SYNARA_BROWSER_USE_PIPE_PATH,
+  PENKRA_BROWSER_USE_PIPE_PATH,
   resolveBrowserUsePipeBackendEnv,
 } from "./browserUsePipeServer";
 import { normalizeDesktopWsUrl, resolveDesktopWsUrlFromEnv } from "./desktopWsBridge";
@@ -216,18 +216,11 @@ import {
   writeDesktopWindowState,
 } from "./windowState";
 import {
-  acknowledgeSynaraStorageSnapshot,
-  readSynaraStorageSnapshot,
-  resolveSynaraStorageSnapshotPath,
+  acknowledgePenkraStorageSnapshot,
+  readPenkraStorageSnapshot,
+  resolvePenkraStorageSnapshotPath,
 } from "./desktopStorageMigration";
 import { DESKTOP_IPC_CHANNELS } from "./ipcChannels";
-import { DesktopAppSnapManager } from "./appSnapManager";
-import {
-  registerAppSnapIpcHandlers,
-  sendAppSnapCaptured,
-  sendAppSnapError,
-  sendAppSnapState,
-} from "./appSnapIpc";
 
 // Capture the real archive identity before any explicit app.asar lookup. Static
 // snapshotting and the runtime watcher both use this same generation as their
@@ -240,7 +233,7 @@ const startupBundleIdentity = captureStartupBundleIdentity();
 // The reads a few lines below decide where this install's data lives, and two of them
 // depend on what this probe brings in: `resolveUserDataPath()` takes the Electron profile
 // directory from XDG_CONFIG_HOME on Linux, which the login-shell probe captures, and
-// `BASE_DIR` prefers SYNARA_HOME, which the Windows registry read hydrates whenever the
+// `BASE_DIR` prefers PENKRA_HOME, which the Windows registry read hydrates whenever the
 // user set it persistently. Resolving either against an unhydrated environment would
 // silently relocate an existing user's profile and data directory.
 // (The probe also carries PATH, SSH_AUTH_SOCK and HOMEBREW_* for later provider spawns.
@@ -249,7 +242,7 @@ const shellEnvironmentSync = syncShellEnvironment();
 
 const IPC = DESKTOP_IPC_CHANNELS;
 const MAX_CLIPBOARD_IMAGE_DATA_URL_LENGTH = 16 * 1024 * 1024;
-const desktopFlavor = resolveSynaraDesktopFlavor({
+const desktopFlavor = resolvePenkraDesktopFlavor({
   isPackaged: app.isPackaged,
   ...(process.env.PENKRA_DESKTOP_FLAVOR
     ? { requestedFlavor: process.env.PENKRA_DESKTOP_FLAVOR }
@@ -275,16 +268,16 @@ const PENKRA_PICKER_USER_DATA = Path.join(penkraAppDataBase, "Penkra", "picker-u
 const PENKRA_API_URL = penkraRuntime.apiUrl;
 process.env.PENKRA_ROOT = PENKRA_ROOT;
 process.env.PENKRA_API_URL = PENKRA_API_URL;
-process.env.SYNARA_HOME = Path.join(PENKRA_ROOT, ".penkra");
+process.env.PENKRA_HOME = Path.join(PENKRA_ROOT, ".penkra");
 const PENKRA_CLI_BIN_DIR = Path.join(PENKRA_ROOT, ".penkra", "bin");
 const inheritedPathEntries = (process.env.PATH ?? "").split(Path.delimiter).filter(Boolean);
 process.env.PATH = [
   PENKRA_CLI_BIN_DIR,
   ...inheritedPathEntries.filter((entry) => Path.resolve(entry) !== PENKRA_CLI_BIN_DIR),
 ].join(Path.delimiter);
-const desktopIdentity = synaraDesktopIdentity(desktopFlavor);
+const desktopIdentity = penkraDesktopIdentity(desktopFlavor);
 const BASE_DIR =
-  process.env.SYNARA_HOME?.trim() ||
+  process.env.PENKRA_HOME?.trim() ||
   Path.join(OS.homedir(), desktopIdentity.defaultHomeDirectoryName);
 const STATE_DIR = Path.join(BASE_DIR, "userdata");
 const DESKTOP_WINDOW_STATE_PATH = Path.join(STATE_DIR, "desktop-window-state.json");
@@ -328,14 +321,14 @@ const UPDATE_CHECK_REASON_MIGRATION_RECOVERY = "migration recovery";
 const UPDATE_INSTALL_MARKER_FILE_NAME = "pending-update-install.json";
 const BACKEND_FORCE_KILL_DELAY_MS = 8_000;
 const BACKEND_SHUTDOWN_TIMEOUT_MS = 10_000;
-const BACKEND_MAX_OLD_SPACE_ENV_KEYS = ["SYNARA_BACKEND_MAX_OLD_SPACE_MB"] as const;
+const BACKEND_MAX_OLD_SPACE_ENV_KEYS = ["PENKRA_BACKEND_MAX_OLD_SPACE_MB"] as const;
 const DESKTOP_UPDATE_ALLOW_PRERELEASE = false;
 const BROWSER_PERF_SAMPLE_INTERVAL_MS = 5_000;
 const DESKTOP_MENU_ZOOM_FACTOR_STEP = 1.1;
 const DESKTOP_MENU_MIN_ZOOM_FACTOR = 0.25;
 const DESKTOP_MENU_MAX_ZOOM_FACTOR = 5;
-const SYNARA_BROWSER_LABEL = "Synara browser";
-const browserPerfLoggingEnabled = process.env.SYNARA_BROWSER_PERF === "1";
+const PENKRA_BROWSER_LABEL = "Penkra browser";
+const browserPerfLoggingEnabled = process.env.PENKRA_BROWSER_PERF === "1";
 
 type DesktopUpdateErrorContext = DesktopUpdateState["errorContext"];
 
@@ -404,7 +397,6 @@ const browserManager = new DesktopBrowserManager({
   },
 });
 let browserUsePipeServer: BrowserUsePipeServer | null = null;
-let appSnapManager: DesktopAppSnapManager | null = null;
 let configuredUpdaterCacheDirName: string | null = null;
 
 browserManager.subscribe((state) => {
@@ -434,7 +426,7 @@ function startBrowserPerformanceLogging(): void {
         name: metric.name,
       }));
 
-    console.info(`[${SYNARA_BROWSER_LABEL} perf]`, {
+    console.info(`[${PENKRA_BROWSER_LABEL} perf]`, {
       ...snapshot.counters,
       trackedProcessIds: snapshot.trackedProcessIds,
       processes: processMetrics,
@@ -444,7 +436,7 @@ function startBrowserPerformanceLogging(): void {
 }
 
 async function ensureBrowserUsePipeServer(): Promise<void> {
-  if (browserUsePipeServer || !SYNARA_BROWSER_USE_PIPE_PATH) {
+  if (browserUsePipeServer || !PENKRA_BROWSER_USE_PIPE_PATH) {
     return;
   }
   const server = new BrowserUsePipeServer(browserManager, {
@@ -614,7 +606,7 @@ async function reserveBackendEndpoint(reason: string): Promise<void> {
   );
   backendHttpUrl = `http://127.0.0.1:${backendPort}`;
   backendWsUrl = `ws://127.0.0.1:${backendPort}/?token=${encodeURIComponent(backendAuthToken)}`;
-  process.env.SYNARA_DESKTOP_WS_URL = backendWsUrl;
+  process.env.PENKRA_DESKTOP_WS_URL = backendWsUrl;
   writeDesktopLogHeader(`${reason} resolved backend endpoint port=${backendPort}`);
 }
 
@@ -993,21 +985,21 @@ function resolveEmbeddedCommitHash(): string | null {
 
   try {
     const raw = FS.readFileSync(packageJsonPath, "utf8");
-    const parsed = JSON.parse(raw) as { synaraCommitHash?: unknown };
-    return normalizeCommitHash(parsed.synaraCommitHash);
+    const parsed = JSON.parse(raw) as { penkraCommitHash?: unknown };
+    return normalizeCommitHash(parsed.penkraCommitHash);
   } catch {
     return null;
   }
 }
 
-declare const __SYNARA_WINDOWS_UPDATER_PUBLISHER__: string;
+declare const __PENKRA_WINDOWS_UPDATER_PUBLISHER__: string;
 
 function resolveEmbeddedWindowsPublisherSubjects(): string[] {
   if (!app.isPackaged || process.platform !== "win32") {
     return [];
   }
 
-  const subject = __SYNARA_WINDOWS_UPDATER_PUBLISHER__.trim();
+  const subject = __PENKRA_WINDOWS_UPDATER_PUBLISHER__.trim();
   return subject ? [subject] : [];
 }
 
@@ -1016,7 +1008,7 @@ function resolveAboutCommitHash(): string | null {
     return aboutCommitHashCache;
   }
 
-  const envCommitHash = normalizeCommitHash(process.env.SYNARA_COMMIT_HASH);
+  const envCommitHash = normalizeCommitHash(process.env.PENKRA_COMMIT_HASH);
   if (envCommitHash) {
     aboutCommitHashCache = envCommitHash;
     return aboutCommitHashCache;
@@ -1082,7 +1074,7 @@ async function handleDesktopMigrationRecovery(): Promise<DesktopMigrationRecover
     requiresRecovery: () => requiresDesktopMigrationRecovery(paths),
     markerRemains: () => hasPendingDesktopMigrationRecovery(paths),
     choose: async ({ previousFailure }) => {
-      // The user is here because Synara cannot open its database, so the
+      // The user is here because Penkra cannot open its database, so the
       // in-app update button is unreachable by definition. A newer build is
       // often the actual fix, and this dialog is the only surface left to
       // offer it from: installing it in place when the updater can reach the
@@ -1109,15 +1101,15 @@ async function handleDesktopMigrationRecovery(): Promise<DesktopMigrationRecover
       ];
       if (canInstallUpdate) {
         choices.push({
-          label: "Update Synara and restart",
-          detail: "install the newest Synara release, which may already contain the fix",
+          label: "Update Penkra and restart",
+          detail: "install the newest Penkra release, which may already contain the fix",
           decision: "install-update",
         });
       }
       if (releaseUrl !== null) {
         choices.push({
           label: "Download latest release",
-          detail: `${canInstallUpdate ? "download that release" : "download the latest Synara release"} in a browser`,
+          detail: `${canInstallUpdate ? "download that release" : "download the latest Penkra release"} in a browser`,
           decision: "open-release-page",
         });
       }
@@ -1132,16 +1124,16 @@ async function handleDesktopMigrationRecovery(): Promise<DesktopMigrationRecover
         type: previousFailure === null ? "warning" : "error",
         title:
           previousFailure === null
-            ? "Synara needs to recover its database"
+            ? "Penkra needs to recover its database"
             : restoreFailed
               ? "Migration recovery failed"
-              : "Synara could not update itself",
+              : "Penkra could not update itself",
         message:
           previousFailure === null
-            ? "Synara stopped a database migration before it could finish safely."
+            ? "Penkra stopped a database migration before it could finish safely."
             : restoreFailed
               ? "The saved database backup could not be restored."
-              : "The newest Synara release could not be installed.",
+              : "The newest Penkra release could not be installed.",
         detail: `${previousFailure === null ? "" : `${previousFailure.message}\n\n`}You can ${options}. No provider or chat process will start until recovery succeeds.`,
         buttons: choices.map((choice) => choice.label),
         defaultId: 0,
@@ -1225,7 +1217,7 @@ let servedStaticRootCache: ServedStaticRoot | null | undefined;
 // being replaced beneath the running app (Electron caches the header per process,
 // so every later read returns bytes from the wrong offsets). Extract the client
 // to a per-archive snapshot on real disk and serve that instead — both for the
-// synara:// protocol here and, via SYNARA_STATIC_DIR, for the backend's HTTP static
+// penkra:// protocol here and, via PENKRA_STATIC_DIR, for the backend's HTTP static
 // route. Memoized so one app run serves one coherent asset generation.
 function resolveServedStaticRoot(): ServedStaticRoot | null {
   if (servedStaticRootCache === undefined) {
@@ -1316,7 +1308,7 @@ function handleFatalStartupError(stage: string, error: unknown): void {
   console.error(`[desktop] fatal startup error (${stage})`, error);
   if (!isQuitting) {
     isQuitting = true;
-    dialog.showErrorBox("Synara failed to start", `Stage: ${stage}\n${message}${detail}`);
+    dialog.showErrorBox("Penkra failed to start", `Stage: ${stage}\n${message}${detail}`);
   }
   if (process.platform === "win32") {
     requestGracefulAppQuit(`fatal startup (${stage})`);
@@ -1438,7 +1430,7 @@ function adjustWindowZoomFromMenu(multiplier: number): void {
 // A configured app-update.yml (or the mock-updates flag) is the prerequisite for any
 // auto-update activity; centralized so the menu and the enable check stay in lockstep.
 function hasConfiguredUpdateFeed(): boolean {
-  return readAppUpdateYml() !== null || Boolean(process.env.SYNARA_DESKTOP_MOCK_UPDATES);
+  return readAppUpdateYml() !== null || Boolean(process.env.PENKRA_DESKTOP_MOCK_UPDATES);
 }
 
 function resolveAutoUpdateDisabledReason(): string | null {
@@ -1447,7 +1439,7 @@ function resolveAutoUpdateDisabledReason(): string | null {
     isPackaged: app.isPackaged,
     platform: process.platform,
     appImage: process.env.APPIMAGE,
-    disabledByEnv: process.env.SYNARA_DISABLE_AUTO_UPDATE === "1",
+    disabledByEnv: process.env.PENKRA_DISABLE_AUTO_UPDATE === "1",
     hasUpdateFeedConfig: hasConfiguredUpdateFeed(),
   });
 }
@@ -1479,14 +1471,14 @@ async function checkForUpdatesFromMenu(): Promise<void> {
     void dialog.showMessageBox({
       type: "info",
       title: "You're up to date!",
-      message: `Synara ${updateState.currentVersion} is currently the newest version available.`,
+      message: `Penkra ${updateState.currentVersion} is currently the newest version available.`,
       buttons: ["OK"],
     });
   } else if (updateState.status === "downloading" || updateState.status === "available") {
     void dialog.showMessageBox({
       type: "info",
       title: "Update found",
-      message: "Synara is preparing the update in the background.",
+      message: "Penkra is preparing the update in the background.",
       buttons: ["OK"],
     });
   } else if (updateState.status === "downloaded") {
@@ -1685,83 +1677,9 @@ function resolveNotificationIconPath(): string | null {
     return null;
   }
   if (process.platform === "win32") {
-    return resolveResourcePath("synara.png") ?? resolveIconPath("ico");
+    return resolveResourcePath("penkra.png") ?? resolveIconPath("ico");
   }
-  return resolveResourcePath("synara.png") ?? resolveIconPath("png");
-}
-
-function resolveAppSnapHelperPath(): string {
-  if (app.isPackaged) {
-    return Path.resolve(process.resourcesPath, "..", "Helpers", "synara-appsnap-helper");
-  }
-  return Path.resolve(__dirname, "..", ".electron-runtime", "appsnap", "synara-appsnap-helper");
-}
-
-function ensureMainWindowForAppSnap(): BrowserWindow | null {
-  if (mainWindow?.isDestroyed()) {
-    mainWindow = null;
-  }
-  if (!mainWindow && backendPort > 0 && !isQuitting) {
-    mainWindow = createWindow();
-  }
-  if (!mainWindow || mainWindow.isDestroyed()) return null;
-  focusMainWindow({ stealAppFocus: true });
-  return mainWindow;
-}
-
-function canSendAppSnapEvent(window: BrowserWindow | null): window is BrowserWindow {
-  return Boolean(
-    window &&
-    !window.isDestroyed() &&
-    !window.webContents.isDestroyed() &&
-    !window.webContents.isLoadingMainFrame(),
-  );
-}
-
-function sendAppSnapEvent(
-  window: BrowserWindow | null,
-  send: (webContents: BrowserWindow["webContents"]) => void,
-): boolean {
-  if (!canSendAppSnapEvent(window)) return false;
-  send(window.webContents);
-  return true;
-}
-
-function initializeDesktopAppSnap(): void {
-  if (appSnapManager) return;
-  appSnapManager = new DesktopAppSnapManager({
-    platform: process.platform,
-    helperPath: resolveAppSnapHelperPath(),
-    captureDirectory: Path.join(app.getPath("userData"), "appsnap", "tmp"),
-    excludedBundleId: APP_USER_MODEL_ID,
-    shortcutRegistry: globalShortcut,
-    onState: (state) => {
-      sendAppSnapEvent(mainWindow, (webContents) => sendAppSnapState(webContents, state));
-    },
-    onCaptured: (capture) => {
-      const window = ensureMainWindowForAppSnap();
-      if (sendAppSnapEvent(window, (webContents) => sendAppSnapCaptured(webContents, capture))) {
-        return;
-      }
-      // The renderer is still loading: replay the event once the main frame is
-      // ready. The renderer dedupes by capture id, and the capture also stays
-      // in the pending queue as a fallback for the next mount.
-      if (window && !window.isDestroyed() && !window.webContents.isDestroyed()) {
-        window.webContents.once("did-finish-load", () => {
-          sendAppSnapEvent(window, (webContents) => sendAppSnapCaptured(webContents, capture));
-        });
-      }
-    },
-    onError: (error, focusApp) => {
-      const window = focusApp ? ensureMainWindowForAppSnap() : mainWindow;
-      if (!sendAppSnapEvent(window, (webContents) => sendAppSnapError(webContents, error))) {
-        showDesktopNotification({
-          title: error.code === "pending-capture-overflow" ? "AppSnap discarded" : "AppSnap failed",
-          body: error.message,
-        });
-      }
-    },
-  });
+  return resolveResourcePath("penkra.png") ?? resolveIconPath("png");
 }
 
 // Keep the app badge aligned with desktop notifications that arrive off-focus.
@@ -1804,9 +1722,8 @@ function focusMainWindow(options: { stealAppFocus?: boolean } = {}): void {
     mainWindow.show();
   }
   if (process.platform === "darwin" && options.stealAppFocus === true) {
-    // BrowserWindow.focus() alone does not activate an app while another macOS
-    // application owns focus. Only AppSnap is an explicit global user gesture;
-    // notification clicks and ordinary activation keep their existing focus policy.
+    // BrowserWindow.focus() alone does not activate a macOS app while another
+    // application owns focus.
     app.show();
     app.focus({ steal: true });
   }
@@ -1857,7 +1774,7 @@ function showDesktopNotification(input: {
  * Resolve the Electron userData directory path.
  *
  * Electron derives the default userData path from `productName` in
- * package.json. We override it to a clean lowercase Synara name.
+ * package.json. We override it to a clean lowercase Penkra name.
  */
 function resolveUserDataPath(): string {
   const appDataBase = resolveDesktopAppDataBase();
@@ -1870,13 +1787,13 @@ function resolveUserDataPath(): string {
 function repairBrowserProfileBeforeElectronReady(userDataPath: string): void {
   const browserProfileRepair = repairBrowserProfileFromBridgeManifest(userDataPath);
   if (browserProfileRepair.status === "repaired") {
-    console.info("[desktop] Completed Synara browser profile bridge repair", {
+    console.info("[desktop] Completed Penkra browser profile bridge repair", {
       sourcePath: browserProfileRepair.sourcePath,
       targetPath: browserProfileRepair.targetPath,
       copiedEntries: browserProfileRepair.copiedEntries,
     });
   } else if (browserProfileRepair.status === "repair-failed") {
-    console.warn("[desktop] Failed to complete Synara browser profile bridge repair", {
+    console.warn("[desktop] Failed to complete Penkra browser profile bridge repair", {
       sourcePath: browserProfileRepair.sourcePath,
       targetPath: browserProfileRepair.targetPath,
       error: browserProfileRepair.error,
@@ -1891,7 +1808,7 @@ function configureAppIdentity(): void {
     applicationName: APP_DISPLAY_NAME,
     applicationVersion: app.getVersion(),
     version: commitHash ?? "unknown",
-    copyright: `© ${new Date().getFullYear()} Emanuele Di Pietro`,
+    copyright: `© ${new Date().getFullYear()} Emmanuel Gyekye Atta-Penkra`,
   });
 
   if (process.platform === "win32") {
@@ -2034,11 +1951,11 @@ function restartAfterStartupBundleSwap(error: BundleChangedDuringStartupError): 
   void dialog
     .showMessageBox({
       type: "warning",
-      title: "Synara needs to restart",
-      message: "Synara changed while it was opening.",
+      title: "Penkra needs to restart",
+      message: "Penkra changed while it was opening.",
       detail:
-        "The current process cannot safely read the replaced application bundle. Restart Synara to finish opening with one consistent version.",
-      buttons: ["Restart Synara"],
+        "The current process cannot safely read the replaced application bundle. Restart Penkra to finish opening with one consistent version.",
+      buttons: ["Restart Penkra"],
       defaultId: 0,
     })
     .catch(() => undefined)
@@ -2050,7 +1967,7 @@ function restartAfterStartupBundleSwap(error: BundleChangedDuringStartupError): 
 
 // Electron caches the asar header per process, so once app.asar changes on disk
 // (updater retry racing a relaunch, a reinstall, a build copied over the bundle)
-// every archive read in this process — the synara:// protocol, the backend's static
+// every archive read in this process — the penkra:// protocol, the backend's static
 // files, lazily-loaded renderer chunks — resolves to stale offsets and silently
 // returns the wrong bytes. Detect the swap and offer a restart; continuing is
 // never safe.
@@ -2090,8 +2007,8 @@ function startBundleSwapWatcher(): void {
     void dialog
       .showMessageBox({
         type: "warning",
-        title: "Synara was replaced on disk",
-        message: "The installed Synara app changed while it was running.",
+        title: "Penkra was replaced on disk",
+        message: "The installed Penkra app changed while it was running.",
         detail:
           "The interface keeps running from a safeguarded copy, but parts of the app loaded later can still read the replaced file. Restart now to pick up the new version safely.",
         buttons: ["Restart Now", "Later"],
@@ -2260,7 +2177,7 @@ function processInstallMarkerOnStartup(): void {
   }
 
   automaticUpdateActivitySuppressed = true;
-  const message = `Synara restarted, but update ${marker.toVersion} was not installed. Try again.`;
+  const message = `Penkra restarted, but update ${marker.toVersion} was not installed. Try again.`;
   setUpdateState(
     reduceDesktopUpdateStateOnInstallRestartFailure(
       updateState,
@@ -2690,7 +2607,7 @@ async function installLatestUpdateForMigrationRecovery(): Promise<string | null>
   }
 
   if (updateState.status === "up-to-date") {
-    return `Synara ${app.getVersion()} is already the newest release, so updating cannot repair this database.`;
+    return `Penkra ${app.getVersion()} is already the newest release, so updating cannot repair this database.`;
   }
   if (updateState.status !== "downloaded") {
     return updateState.message ?? "The update could not be downloaded.";
@@ -2904,8 +2821,8 @@ function configureAutoUpdater(): void {
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = false;
   // The dedicated channel keeps the permanent compatibility release on the
-  // default feed while Synara versions advance independently.
-  autoUpdater.channel = SYNARA_DESKTOP_UPDATE_CHANNEL;
+  // default feed while Penkra versions advance independently.
+  autoUpdater.channel = PENKRA_DESKTOP_UPDATE_CHANNEL;
   autoUpdater.allowPrerelease = DESKTOP_UPDATE_ALLOW_PRERELEASE;
   autoUpdater.allowDowngrade = false;
   // Match electron-updater's native GitHub provider path; the packaged
@@ -3052,7 +2969,7 @@ function configureAutoUpdater(): void {
 
   scheduleUpdatePoll();
 }
-// Builds process-local Node args so provider/tool children do not inherit Synara's heap guard.
+// Builds process-local Node args so provider/tool children do not inherit Penkra's heap guard.
 function backendNodeArgs(): string[] {
   const configuredMaxOldSpaceMb =
     BACKEND_MAX_OLD_SPACE_ENV_KEYS.map((key) => process.env[key]).find(
@@ -3067,21 +2984,24 @@ function backendNodeArgs(): string[] {
 
 function backendEnv(): NodeJS.ProcessEnv {
   const servedStaticRoot = resolveServedStaticRoot();
-  const env: NodeJS.ProcessEnv = {
-    ...resolveBrowserUsePipeBackendEnv(
-      process.env,
-      browserUsePipeServer ? SYNARA_BROWSER_USE_PIPE_PATH : null,
-    ),
-    // Point the backend's HTTP static route at the same swap-immune snapshot the
-    // synara:// protocol serves, so both surfaces survive app.asar being replaced.
-    ...(servedStaticRoot?.snapshotted ? { SYNARA_STATIC_DIR: servedStaticRoot.dir } : {}),
-    SYNARA_MODE: "desktop",
-    SYNARA_NO_BROWSER: "1",
-    SYNARA_PORT: String(backendPort),
-    SYNARA_HOME: BASE_DIR,
-    SYNARA_AUTH_TOKEN: backendAuthToken,
-    SYNARA_DESKTOP_SHUTDOWN_TOKEN: DESKTOP_BACKEND_SHUTDOWN_TOKEN,
-  };
+  const env = bindDesktopParentPid(
+    {
+      ...resolveBrowserUsePipeBackendEnv(
+        process.env,
+        browserUsePipeServer ? PENKRA_BROWSER_USE_PIPE_PATH : null,
+      ),
+      // Point the backend's HTTP static route at the same swap-immune snapshot the
+      // penkra:// protocol serves, so both surfaces survive app.asar being replaced.
+      ...(servedStaticRoot?.snapshotted ? { PENKRA_STATIC_DIR: servedStaticRoot.dir } : {}),
+      PENKRA_MODE: "desktop",
+      PENKRA_NO_BROWSER: "1",
+      PENKRA_PORT: String(backendPort),
+      PENKRA_HOME: BASE_DIR,
+      PENKRA_AUTH_TOKEN: backendAuthToken,
+      PENKRA_DESKTOP_SHUTDOWN_TOKEN: DESKTOP_BACKEND_SHUTDOWN_TOKEN,
+    },
+    process.pid,
+  );
   // The backend runs the same login-shell probe at startup and does not begin listening
   // until it returns, so an unmarked child serializes a second ~1s hydration behind ours.
   // Written explicitly in both directions: an inherited marker must never suppress a
@@ -3148,7 +3068,7 @@ function backendFailureDialogDetail(reason: string): string {
   const cause = summary.length > 0 ? summary : reason;
   return [
     cause,
-    "Synara paused automatic restarts so a failing backend can't keep respawning in the background.",
+    "Penkra paused automatic restarts so a failing backend can't keep respawning in the background.",
     `Log file:\n${Path.join(LOG_DIR, BACKEND_LOG_FILE_NAME)}`,
   ].join("\n\n");
 }
@@ -3177,8 +3097,8 @@ function presentBackendStartupGiveUp(reason: string): void {
     for (;;) {
       const result = await dialog.showMessageBox({
         type: "error",
-        title: "Synara's backend didn't start",
-        message: `Synara's backend failed to start ${BACKEND_MAX_CONSECUTIVE_START_FAILURES} times in a row.`,
+        title: "Penkra's backend didn't start",
+        message: `Penkra's backend failed to start ${BACKEND_MAX_CONSECUTIVE_START_FAILURES} times in a row.`,
         detail,
         buttons: ["Try again", "Open logs", "Quit"],
         defaultId: 0,
@@ -3216,10 +3136,10 @@ function handleBackendStartupBlock(block: BackendStartupBlock): void {
     if (block.kind === "migration-recovery-required") {
       const result = await dialog.showMessageBox({
         type: "warning",
-        title: "Synara needs to recover its database",
+        title: "Penkra needs to recover its database",
         message: "A database migration did not finish safely.",
         detail:
-          "Restart Synara to open the verified backup recovery flow. Provider and chat processes will remain stopped until recovery completes.",
+          "Restart Penkra to open the verified backup recovery flow. Provider and chat processes will remain stopped until recovery completes.",
         buttons: ["Restart and recover", "Quit"],
         defaultId: 0,
         cancelId: 1,
@@ -3236,13 +3156,13 @@ function handleBackendStartupBlock(block: BackendStartupBlock): void {
 
     const processDetail =
       block.ownerPid === null
-        ? "Another Synara server is already using this database."
-        : `Another Synara server (process ${block.ownerPid}) is already using this database.`;
+        ? "Another Penkra server is already using this database."
+        : `Another Penkra server (process ${block.ownerPid}) is already using this database.`;
     const result = await dialog.showMessageBox({
       type: "warning",
-      title: "Synara is already running elsewhere",
-      message: "Your local Synara data is in use by another process.",
-      detail: `${processDetail}\n\nStop the other Synara app or development server, then try again. Your data has not been changed.`,
+      title: "Penkra is already running elsewhere",
+      message: "Your local Penkra data is in use by another process.",
+      detail: `${processDetail}\n\nStop the other Penkra app or development server, then try again. Your data has not been changed.`,
       buttons: ["Try again", "Quit"],
       defaultId: 0,
       cancelId: 1,
@@ -3326,7 +3246,7 @@ function startBackend(trigger: BackendStartTrigger = "lifecycle"): void {
     env: {
       ...backendEnv(),
       ELECTRON_RUN_AS_NODE: "1",
-      SYNARA_SERVER_ENTRY: backendEntry,
+      PENKRA_SERVER_ENTRY: backendEntry,
     },
     // Keep output piped in every environment so startup blockers and readiness
     // are observable even when packaged log setup is unavailable.
@@ -3508,8 +3428,6 @@ async function shutdownDesktopRuntime(reason: string): Promise<void> {
       clearUpdateCheckTimeoutTimer();
       clearUpdatePollTimer();
       cancelBackendReadinessWait();
-      appSnapManager?.dispose();
-      appSnapManager = null;
       await disposeBrowserUsePipeServerForShutdown(reason);
       browserManager.dispose();
       restoreStdIoCapture?.();
@@ -3547,16 +3465,16 @@ function requestGracefulAppQuit(reason: string): void {
 }
 
 function registerIpcHandlers(): void {
-  const storageSnapshotPath = resolveSynaraStorageSnapshotPath(app.getPath("userData"));
+  const storageSnapshotPath = resolvePenkraStorageSnapshotPath(app.getPath("userData"));
 
   ipcMain.removeAllListeners(IPC.storageMigration.read);
   ipcMain.on(IPC.storageMigration.read, (event: IpcMainEvent) => {
-    event.returnValue = readSynaraStorageSnapshot(storageSnapshotPath);
+    event.returnValue = readPenkraStorageSnapshot(storageSnapshotPath);
   });
 
   ipcMain.removeHandler(IPC.storageMigration.acknowledge);
   ipcMain.handle(IPC.storageMigration.acknowledge, async () => {
-    await acknowledgeSynaraStorageSnapshot(storageSnapshotPath);
+    await acknowledgePenkraStorageSnapshot(storageSnapshotPath);
   });
 
   ipcMain.removeAllListeners(IPC.wsUrl);
@@ -3867,9 +3785,25 @@ function registerIpcHandlers(): void {
         ...(typeof input?.threadId === "string" ? { threadId: input.threadId } : {}),
       }),
   );
-  if (appSnapManager) {
-    registerAppSnapIpcHandlers(ipcMain, appSnapManager);
-  }
+
+  ipcMain.removeHandler(IPC.mediaRequestMicrophoneAccess);
+  ipcMain.handle(IPC.mediaRequestMicrophoneAccess, async (event) => {
+    if (!mainWindow || event.sender !== mainWindow.webContents || event.sender.isDestroyed()) {
+      return false;
+    }
+    if (process.platform !== "darwin") {
+      return true;
+    }
+    const status = systemPreferences.getMediaAccessStatus("microphone");
+    const allowed = await resolveMicrophonePermissionRequest({
+      status,
+      askForAccess: () => systemPreferences.askForMediaAccess("microphone"),
+    });
+    console.info(
+      `[desktop-media] Explicit microphone access status=${status} allowed=${String(allowed)}.`,
+    );
+    return allowed;
+  });
   registerDesktopVoiceTranscriptionHandler();
   startBrowserPerformanceLogging();
   registerBrowserIpcHandlers(ipcMain, browserManager);
@@ -3917,7 +3851,7 @@ function getTitleBarOptions(): BrowserWindowConstructorOptions {
   }
   return {
     titleBarStyle: "hiddenInset",
-    // Derived from the shared chat-surface header geometry (@synara/shared/desktopChrome)
+    // Derived from the shared chat-surface header geometry (@penkra/shared/desktopChrome)
     // so the native lights and the renderer's leading toggle/arrow controls always share
     // the same vertical center. Tune the height/radius there, never the raw px here.
     trafficLightPosition: getMacTrafficLightPosition(),
@@ -4148,13 +4082,13 @@ function presentRendererCrashRecovery(
 
   const message =
     response.cause === "reload-budget-exhausted"
-      ? `Synara's window crashed ${response.crashes} times in a row.`
-      : "Synara's window stopped unexpectedly.";
+      ? `Penkra's window crashed ${response.crashes} times in a row.`
+      : "Penkra's window stopped unexpectedly.";
   const detail = [
     `The window's renderer process exited (${reason}).`,
     response.cause === "reload-budget-exhausted"
-      ? "Synara paused automatic reloads so a repeating crash can't keep reloading in the background."
-      : "This exit reason repeats on reload, so Synara did not retry automatically.",
+      ? "Penkra paused automatic reloads so a repeating crash can't keep reloading in the background."
+      : "This exit reason repeats on reload, so Penkra did not retry automatically.",
     `Log file:\n${Path.join(LOG_DIR, DESKTOP_LOG_FILE_NAME)}`,
   ].join("\n\n");
 
@@ -4162,7 +4096,7 @@ function presentRendererCrashRecovery(
     for (;;) {
       const result = await dialog.showMessageBox({
         type: "error",
-        title: "Synara's window stopped",
+        title: "Penkra's window stopped",
         message,
         detail,
         buttons: ["Reload", "Open logs", "Quit"],
@@ -4290,7 +4224,7 @@ async function bootstrap(): Promise<void> {
   try {
     await ensureBrowserUsePipeServer();
   } catch (error) {
-    console.warn("[Synara browser] Failed to start browser-use native pipe", error);
+    console.warn("[Penkra browser] Failed to start browser-use native pipe", error);
   }
   startBackend();
   writeDesktopLogHeader("bootstrap backend start requested");
@@ -4384,7 +4318,6 @@ if (hasSingleInstanceLock) {
       applyLegacyMacDockIcon();
       refreshMacIconCacheOnVersionChange();
       configureMediaPermissions();
-      initializeDesktopAppSnap();
       configureApplicationMenu();
       try {
         registerDesktopProtocol();

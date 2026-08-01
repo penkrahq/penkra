@@ -1,4 +1,4 @@
-import type { OrchestrationCommand } from "@synara/contracts";
+import { SpaceId, type OrchestrationCommand } from "@penkra/contracts";
 import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
@@ -13,7 +13,8 @@ function engineFor(spaces: ReturnType<typeof createEmptyReadModel>["spaces"]) {
     return Effect.succeed({ sequence: dispatched.length });
   });
   const engine = {
-    getReadModel: () => Effect.succeed({ ...createEmptyReadModel("2026-07-31T00:00:00.000Z"), spaces }),
+    getReadModel: () =>
+      Effect.succeed({ ...createEmptyReadModel("2026-07-31T00:00:00.000Z"), spaces }),
     dispatch,
   } as unknown as OrchestrationEngineShape;
   return { dispatch, dispatched, engine };
@@ -38,7 +39,7 @@ describe("default Spaces bootstrap", () => {
 
   it("does not recreate defaults when Space history already exists", async () => {
     const existing = {
-      id: "existing",
+      id: SpaceId.makeUnsafe("existing"),
       name: "Existing",
       icon: "star",
       sortOrder: 0,

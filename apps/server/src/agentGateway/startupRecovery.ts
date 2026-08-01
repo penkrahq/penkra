@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 
-import { CommandId, ThreadId } from "@synara/contracts";
+import { CommandId, ThreadId } from "@penkra/contracts";
 import { Effect, Option } from "effect";
 
 import type { GitCoreShape } from "../git/Services/GitCore.ts";
@@ -29,7 +29,7 @@ export function recoverInterruptedAgentGatewayOperations(input: {
       Error
     >;
   };
-  readonly creationSource?: "synara_mcp";
+  readonly creationSource?: "penkra_mcp";
   readonly retainOnMissingThreadProjection?: boolean;
   readonly snapshotQuery: ProjectionSnapshotQueryShape;
   readonly orchestrationEngine: OrchestrationEngineShape;
@@ -75,7 +75,7 @@ export function recoverInterruptedAgentGatewayOperations(input: {
                 );
                 if (Option.isSome(projected)) {
                   if (
-                    projected.value.creationSource !== (input.creationSource ?? "synara_mcp") ||
+                    projected.value.creationSource !== (input.creationSource ?? "penkra_mcp") ||
                     projected.value.gatewayOperationId !== operation.operationId
                   ) {
                     return yield* Effect.fail(

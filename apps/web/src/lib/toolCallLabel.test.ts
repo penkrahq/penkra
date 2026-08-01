@@ -3,12 +3,12 @@ import {
   deriveInlineCommandCall,
   deriveReadableCommandDisplay,
   deriveReadableToolTitle,
-  deriveSynaraMcpToolTitle,
+  derivePenkraMcpToolTitle,
   extractWebFetchUrl,
   isInspectCommand,
   normalizeCompactToolLabel,
   resolveCommandVisualKind,
-  sanitizeSynaraMcpToolPreview,
+  sanitizePenkraMcpToolPreview,
 } from "./toolCallLabel";
 
 describe("extractWebFetchUrl", () => {
@@ -59,64 +59,64 @@ describe("normalizeCompactToolLabel", () => {
   });
 });
 
-describe("deriveSynaraMcpToolTitle", () => {
+describe("derivePenkraMcpToolTitle", () => {
   it("has intentional running and completed copy for every Penkra gateway action", () => {
     const cases = [
-      ["synara_context", "Penkra is checking its context", "Penkra checked its context"],
+      ["penkra_context", "Penkra is checking its context", "Penkra checked its context"],
       [
-        "synara_capabilities",
+        "penkra_capabilities",
         "Penkra is checking available agents",
         "Penkra checked available agents",
       ],
-      ["synara_list_projects", "Penkra is listing projects", "Penkra listed projects"],
-      ["synara_list_threads", "Penkra is listing threads", "Penkra listed threads"],
-      ["synara_read_thread", "Penkra is reading a thread", "Penkra read a thread"],
+      ["penkra_list_projects", "Penkra is listing projects", "Penkra listed projects"],
+      ["penkra_list_threads", "Penkra is listing threads", "Penkra listed threads"],
+      ["penkra_read_thread", "Penkra is reading a thread", "Penkra read a thread"],
       [
-        "synara_read_thread_activity",
+        "penkra_read_thread_activity",
         "Penkra is reading thread activity",
         "Penkra read thread activity",
       ],
-      ["synara_read_thread_events", "Penkra is reading thread events", "Penkra read thread events"],
+      ["penkra_read_thread_events", "Penkra is reading thread events", "Penkra read thread events"],
       [
-        "synara_read_thread_runtime_events",
+        "penkra_read_thread_runtime_events",
         "Penkra is reading thread runtime events",
         "Penkra read thread runtime events",
       ],
-      ["synara_diagnose_thread", "Penkra is diagnosing a thread", "Penkra diagnosed a thread"],
-      ["synara_create_thread", "Penkra is creating a thread", "Penkra created a thread"],
-      ["synara_create_threads", "Penkra is creating threads", "Penkra created threads"],
+      ["penkra_diagnose_thread", "Penkra is diagnosing a thread", "Penkra diagnosed a thread"],
+      ["penkra_create_thread", "Penkra is creating a thread", "Penkra created a thread"],
+      ["penkra_create_threads", "Penkra is creating threads", "Penkra created threads"],
       [
-        "synara_wait_for_threads",
+        "penkra_wait_for_threads",
         "Penkra is waiting for threads",
         "Penkra finished waiting for threads",
       ],
-      ["synara_send_message", "Penkra is sending a message", "Penkra sent a message"],
-      ["synara_interrupt_thread", "Penkra is interrupting a thread", "Penkra interrupted a thread"],
-      ["synara_set_thread_title", "Penkra is renaming a thread", "Penkra renamed a thread"],
-      ["synara_set_thread_archived", "Penkra is updating a thread", "Penkra updated a thread"],
-      ["synara_overview", "Penkra is gathering an overview", "Penkra gathered an overview"],
+      ["penkra_send_message", "Penkra is sending a message", "Penkra sent a message"],
+      ["penkra_interrupt_thread", "Penkra is interrupting a thread", "Penkra interrupted a thread"],
+      ["penkra_set_thread_title", "Penkra is renaming a thread", "Penkra renamed a thread"],
+      ["penkra_set_thread_archived", "Penkra is updating a thread", "Penkra updated a thread"],
+      ["penkra_overview", "Penkra is gathering an overview", "Penkra gathered an overview"],
       [
-        "synara_list_allowed_projects",
+        "penkra_list_allowed_projects",
         "Penkra is listing allowed projects",
         "Penkra listed allowed projects",
       ],
-      ["synara_create_task", "Penkra is creating a task", "Penkra created a task"],
+      ["penkra_create_task", "Penkra is creating a task", "Penkra created a task"],
       [
-        "synara_wait_for_task",
+        "penkra_wait_for_task",
         "Penkra is waiting for a task",
         "Penkra finished waiting for a task",
       ],
-      ["synara_read_task", "Penkra is reading a task", "Penkra read a task"],
+      ["penkra_read_task", "Penkra is reading a task", "Penkra read a task"],
     ] as const;
 
     for (const [toolName, running, completed] of cases) {
-      expect(deriveSynaraMcpToolTitle({ toolName, status: "running" })).toBe(running);
-      expect(deriveSynaraMcpToolTitle({ toolName, status: "completed" })).toBe(completed);
+      expect(derivePenkraMcpToolTitle({ toolName, status: "running" })).toBe(running);
+      expect(derivePenkraMcpToolTitle({ toolName, status: "completed" })).toBe(completed);
     }
 
     expect(
-      deriveSynaraMcpToolTitle({
-        toolName: "synara_create_threads",
+      derivePenkraMcpToolTitle({
+        toolName: "penkra_create_threads",
         status: "failed",
       }),
     ).toBe("Penkra couldn't create threads");
@@ -124,31 +124,31 @@ describe("deriveSynaraMcpToolTitle", () => {
 
   it("turns provider-specific create-thread identifiers into activity sentences", () => {
     expect(
-      deriveSynaraMcpToolTitle({
-        toolName: "Synara__synara_create_thread",
+      derivePenkraMcpToolTitle({
+        toolName: "Penkra__penkra_create_thread",
         status: "running",
       }),
     ).toBe("Penkra is creating a thread");
     expect(
-      deriveSynaraMcpToolTitle({
-        toolName: "mcp__synara__synara_create_thread",
+      derivePenkraMcpToolTitle({
+        toolName: "mcp__penkra__penkra_create_thread",
         status: "completed",
       }),
     ).toBe("Penkra created a thread");
   });
 
   it("recognizes bare and already-humanized Penkra tool names", () => {
-    expect(deriveSynaraMcpToolTitle({ toolName: "synara_send_message", status: "running" })).toBe(
+    expect(derivePenkraMcpToolTitle({ toolName: "penkra_send_message", status: "running" })).toBe(
       "Penkra is sending a message",
     );
     expect(
-      deriveSynaraMcpToolTitle({ title: "Penkra: Penkra List Threads", status: "completed" }),
+      derivePenkraMcpToolTitle({ title: "Penkra: Penkra List Threads", status: "completed" }),
     ).toBe("Penkra listed threads");
   });
 
   it("ignores tools from other MCP servers", () => {
     expect(
-      deriveSynaraMcpToolTitle({
+      derivePenkraMcpToolTitle({
         toolName: "mcp__codex_apps__github_fetch_pr",
         status: "running",
       }),
@@ -157,25 +157,25 @@ describe("deriveSynaraMcpToolTitle", () => {
 
   it("keeps future Penkra actions branded without exposing raw identifiers", () => {
     expect(
-      deriveSynaraMcpToolTitle({
-        toolName: "mcp__synara__synara_delete_project",
+      derivePenkraMcpToolTitle({
+        toolName: "mcp__penkra__penkra_delete_project",
         status: "running",
       }),
     ).toBe("Penkra is handling delete project");
     expect(
-      deriveSynaraMcpToolTitle({
-        toolName: "Synara__synara_delete_project",
+      derivePenkraMcpToolTitle({
+        toolName: "Penkra__penkra_delete_project",
         status: "completed",
       }),
     ).toBe("Penkra handled delete project");
     expect(
-      deriveSynaraMcpToolTitle({
+      derivePenkraMcpToolTitle({
         title: "Penkra is handling delete project",
         status: "running",
       }),
     ).toBe("Penkra is handling delete project");
     expect(
-      deriveSynaraMcpToolTitle({
+      derivePenkraMcpToolTitle({
         title: "Penkra couldn't handle delete project",
         status: "failed",
       }),
@@ -184,14 +184,14 @@ describe("deriveSynaraMcpToolTitle", () => {
 
   it("removes transport identifiers without hiding meaningful Penkra details", () => {
     expect(
-      sanitizeSynaraMcpToolPreview({
-        preview: "Synara__synara_create_threads",
+      sanitizePenkraMcpToolPreview({
+        preview: "Penkra__penkra_create_threads",
         heading: "Penkra created threads",
         status: "completed",
       }),
     ).toBeNull();
     expect(
-      sanitizeSynaraMcpToolPreview({
+      sanitizePenkraMcpToolPreview({
         preview: 'Unexpected key "reasoningEffort" for Claude Agent',
         heading: "Penkra couldn't create threads",
         status: "failed",
@@ -378,13 +378,13 @@ describe("deriveReadableCommandDisplay", () => {
   it("removes env and timeout wrappers from inline command summaries", () => {
     expect(
       deriveReadableCommandDisplay(
-        "env -u SYNARA_AUTH_TOKEN SYNARA_PORT_OFFSET=3158 timeout 180s bun run dev",
+        "env -u PENKRA_AUTH_TOKEN PENKRA_PORT_OFFSET=3158 timeout 180s bun run dev",
         true,
       ),
     ).toEqual({
       verb: "Running",
       target: "bun run dev",
-      fullCommand: "env -u SYNARA_AUTH_TOKEN SYNARA_PORT_OFFSET=3158 timeout 180s bun run dev",
+      fullCommand: "env -u PENKRA_AUTH_TOKEN PENKRA_PORT_OFFSET=3158 timeout 180s bun run dev",
     });
   });
 

@@ -5,7 +5,7 @@
 
 import zlib from "node:zlib";
 
-import type { OrchestrationThread } from "@synara/contracts";
+import type { OrchestrationThread } from "@penkra/contracts";
 import { describe, expect, it } from "@effect/vitest";
 
 import {
@@ -191,12 +191,12 @@ describe("exportThreadArchive", () => {
   it("slugifies the title and stamps the date bucket into the filename", () => {
     expect(
       threadArchiveFileName({ title: "Fix: nasty bug!!", isoTimestamp: "2026-06-28T01:02:03Z" }),
-    ).toBe("synara-thread-fix-nasty-bug-20260628.zip");
+    ).toBe("penkra-thread-fix-nasty-bug-20260628.zip");
   });
 
   it("falls back to a generic slug when the title has no safe characters", () => {
     expect(threadArchiveFileName({ title: "   ", isoTimestamp: "2026-06-28T00:00:00Z" })).toBe(
-      "synara-thread-thread-20260628.zip",
+      "penkra-thread-thread-20260628.zip",
     );
   });
 });

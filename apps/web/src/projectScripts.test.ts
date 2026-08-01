@@ -53,8 +53,8 @@ describe("projectScripts helpers", () => {
     });
 
     expect(env).toMatchObject({
-      SYNARA_PROJECT_ROOT: "/repo",
-      SYNARA_WORKTREE_PATH: "/repo/worktree-a",
+      PENKRA_PROJECT_ROOT: "/repo",
+      PENKRA_WORKTREE_PATH: "/repo/worktree-a",
     });
   });
 
@@ -62,14 +62,14 @@ describe("projectScripts helpers", () => {
     const env = projectScriptRuntimeEnv({
       project: { cwd: "/repo" },
       extraEnv: {
-        SYNARA_PROJECT_ROOT: "/custom-root",
+        PENKRA_PROJECT_ROOT: "/custom-root",
         CUSTOM_FLAG: "1",
       },
     });
 
-    expect(env.SYNARA_PROJECT_ROOT).toBe("/custom-root");
+    expect(env.PENKRA_PROJECT_ROOT).toBe("/custom-root");
     expect(env.CUSTOM_FLAG).toBe("1");
-    expect(env.SYNARA_WORKTREE_PATH).toBeUndefined();
+    expect(env.PENKRA_WORKTREE_PATH).toBeUndefined();
   });
 
   it("prefers the worktree path for script cwd resolution", () => {

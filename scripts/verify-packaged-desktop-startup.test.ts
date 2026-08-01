@@ -59,7 +59,7 @@ describe("packaged desktop startup verification", () => {
   });
 
   it("isolates user state and removes inherited runtime authority", () => {
-    const root = mkdtempSync(join(tmpdir(), "synara-packaged-smoke-env-test-"));
+    const root = mkdtempSync(join(tmpdir(), "penkra-packaged-smoke-env-test-"));
     temporaryRoots.push(root);
 
     const env = createPackagedDesktopSmokeEnvironment(
@@ -67,12 +67,12 @@ describe("packaged desktop startup verification", () => {
       { platform: "linux", version: "1.2.3" },
       {
         PATH: process.env.PATH,
-        SYNARA_AUTH_TOKEN: "must-not-leak",
+        PENKRA_AUTH_TOKEN: "must-not-leak",
         ELECTRON_RUN_AS_NODE: "1",
       },
     );
 
-    expect(env.SYNARA_AUTH_TOKEN).toBeUndefined();
+    expect(env.PENKRA_AUTH_TOKEN).toBeUndefined();
     expect(env.ELECTRON_RUN_AS_NODE).toBeUndefined();
     for (const name of [
       "HOME",
@@ -86,7 +86,7 @@ describe("packaged desktop startup verification", () => {
       expect(env[name]?.startsWith(root)).toBe(true);
       expect(existsSync(env[name]!)).toBe(true);
     }
-    expect(env.SYNARA_HOME).toBeUndefined();
+    expect(env.PENKRA_HOME).toBeUndefined();
     expect(
       JSON.parse(readFileSync(join(env.XDG_CONFIG_HOME!, "Penkra", "root.json"), "utf8")),
     ).toEqual({ root: resolvePackagedDesktopSmokePenkraRoot(root) });

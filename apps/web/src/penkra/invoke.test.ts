@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { PenkraTodoSummary } from "@synara/contracts";
+import type { PenkraTodoSummary } from "@penkra/contracts";
 import { composePenkraTodoPrompt, penkraProjectId, resolvePenkraTodoProvider } from "./invoke";
 
 const todo: PenkraTodoSummary = {

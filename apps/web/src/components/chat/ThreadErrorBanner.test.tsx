@@ -3,7 +3,7 @@
 // Layer: Component rendering tests
 // Depends on: the banner component and React server rendering.
 
-import { formatProviderDeliveryBlockDetail } from "@synara/shared/providerDeliveryBlock";
+import { formatProviderDeliveryBlockDetail } from "@penkra/shared/providerDeliveryBlock";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 

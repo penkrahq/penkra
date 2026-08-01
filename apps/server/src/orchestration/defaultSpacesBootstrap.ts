@@ -1,7 +1,7 @@
 // FILE: defaultSpacesBootstrap.ts
 // Purpose: Creates the two first-run Spaces through the normal event-sourced command path.
 
-import { CommandId, SpaceId, type OrchestrationCommand } from "@synara/contracts";
+import { CommandId, SpaceId, type OrchestrationCommand } from "@penkra/contracts";
 import { Effect } from "effect";
 
 import type { OrchestrationEngineShape } from "./Services/OrchestrationEngine.ts";

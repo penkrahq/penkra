@@ -3,7 +3,7 @@ import type {
   PenkraClientSummary,
   PenkraProgramWarning,
   PenkraTodoSummary,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { CheckCircle2Icon, PlayIcon, TriangleAlertIcon } from "../lib/icons";

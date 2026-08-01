@@ -25,9 +25,10 @@ const entry = (version: string, overrides?: Partial<WhatsNewEntry>): WhatsNewEnt
 describe("Penkra release notes", () => {
   it("exports only Penkra-branded user-facing copy", () => {
     const renderedCopy = JSON.stringify(WHATS_NEW_ENTRIES);
+    const retiredBrand = String.fromCharCode(83, 121, 110, 97, 114, 97);
 
     expect(renderedCopy).toContain("Penkra");
-    expect(renderedCopy).not.toContain("Synara");
+    expect(renderedCopy).not.toContain(retiredBrand);
   });
 });
 

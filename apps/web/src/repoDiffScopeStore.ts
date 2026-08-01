@@ -3,7 +3,7 @@
 // Layer: Web UI state store
 // Exports: repo diff scope labels, validation, and a persisted Zustand store.
 
-import type { GitReadWorkingTreeDiffInput } from "@synara/contracts";
+import type { GitReadWorkingTreeDiffInput } from "@penkra/contracts";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
@@ -29,7 +29,7 @@ interface RepoDiffScopeStore {
   setScope: (scope: RepoDiffScope) => void;
 }
 
-const REPO_DIFF_SCOPE_STORAGE_KEY = "synara:repo-diff-scope:v1";
+const REPO_DIFF_SCOPE_STORAGE_KEY = "penkra:repo-diff-scope:v1";
 
 export const useRepoDiffScopeStore = create<RepoDiffScopeStore>()(
   persist(

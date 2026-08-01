@@ -5,7 +5,7 @@
 // Exports: Vitest coverage for ProfileStatsArchive.
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { MessageId, ThreadId, TurnId } from "@synara/contracts";
+import { MessageId, ThreadId, TurnId } from "@penkra/contracts";
 import { Effect, Layer } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -64,7 +64,7 @@ const testLayer = Layer.mergeAll(ProfileStatsQueryLive, ProfileStatsArchiveLive)
   Layer.provideMerge(SqlitePersistenceMemory),
   Layer.provide(
     ServerConfig.layerTest(process.cwd(), {
-      prefix: "synara-profile-stats-archive-test-",
+      prefix: "penkra-profile-stats-archive-test-",
     }),
   ),
   Layer.provide(NodeServices.layer),

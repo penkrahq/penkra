@@ -1,4 +1,4 @@
-import { ThreadId, TurnId, type ProviderSession } from "@synara/contracts";
+import { ThreadId, TurnId, type ProviderSession } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 
 import {

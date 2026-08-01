@@ -4,7 +4,7 @@
 // Exports: useVoiceRecorder, formatVoiceRecordingDuration
 // Depends on: browser media devices, Web Audio API, and FileReader for base64 encoding.
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   encodeVoiceChunkWav,
@@ -49,14 +49,14 @@ export function useVoiceRecorder() {
   const [durationMs, setDurationMs] = useState(0);
   const [waveformLevels, setWaveformLevels] = useState<number[]>([]);
 
-  const clearTimer = () => {
+  const clearTimer = useCallback(() => {
     if (timerRef.current !== null) {
       window.clearInterval(timerRef.current);
       timerRef.current = null;
     }
-  };
+  }, []);
 
-  const teardownRuntime = async () => {
+  const teardownRuntime = useCallback(async () => {
     const runtime = runtimeRef.current;
     runtimeRef.current = null;
     clearTimer();
@@ -85,9 +85,9 @@ export function useVoiceRecorder() {
       chunks: runtime.completedChunks,
       durationMs: Math.max(runtime.chunker.totalDurationMs, duration),
     };
-  };
+  }, [clearTimer]);
 
-  const startRecording = async () => {
+  const startRecording = useCallback(async () => {
     if (runtimeRef.current) {
       throw new Error("Voice recording is already running.");
     }
@@ -102,6 +102,10 @@ export function useVoiceRecorder() {
     let silentGainNode: GainNode | null = null;
 
     try {
+      const desktopMedia = window.desktopBridge?.media;
+      if (desktopMedia && !(await desktopMedia.requestMicrophoneAccess())) {
+        throw new DOMException("Microphone access was denied.", "NotAllowedError");
+      }
       stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           channelCount: 1,
@@ -192,9 +196,9 @@ export function useVoiceRecorder() {
       await audioContext?.close().catch(() => undefined);
       throw error;
     }
-  };
+  }, []);
 
-  const stopRecording = async (): Promise<VoiceRecordingPayload | null> => {
+  const stopRecording = useCallback(async (): Promise<VoiceRecordingPayload | null> => {
     const recorded = await teardownRuntime();
     if (!recorded) {
       return null;
@@ -219,14 +223,14 @@ export function useVoiceRecorder() {
       chunks: payloadChunks,
       durationMs: Math.max(1, Math.round(recorded.durationMs)),
     };
-  };
+  }, [teardownRuntime]);
 
-  const cancelRecording = async () => {
+  const cancelRecording = useCallback(async () => {
     await teardownRuntime();
     waveformLevelsRef.current = [];
     waveformLastEmitAtRef.current = 0;
     setWaveformLevels([]);
-  };
+  }, [teardownRuntime]);
 
   useEffect(
     () => () => {

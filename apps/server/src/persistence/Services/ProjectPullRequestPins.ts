@@ -4,7 +4,7 @@
  * Repository keys are canonical values supplied by callers. This service owns only
  * persistence and never derives or normalizes repository identity.
  */
-import { PositiveInt, ProjectId, TrimmedNonEmptyString } from "@synara/contracts";
+import { PositiveInt, ProjectId, TrimmedNonEmptyString } from "@penkra/contracts";
 import { Schema, ServiceMap } from "effect";
 import type { Effect } from "effect";
 
@@ -70,4 +70,4 @@ export interface ProjectPullRequestPinsShape {
 export class ProjectPullRequestPins extends ServiceMap.Service<
   ProjectPullRequestPins,
   ProjectPullRequestPinsShape
->()("synara/persistence/Services/ProjectPullRequestPins/ProjectPullRequestPins") {}
+>()("penkra/persistence/Services/ProjectPullRequestPins/ProjectPullRequestPins") {}

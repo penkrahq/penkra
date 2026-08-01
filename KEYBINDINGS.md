@@ -1,8 +1,8 @@
 # Keybindings
 
-Synara reads keybindings from:
+Penkra reads keybindings from:
 
-- `~/.synara/userdata/keybindings.json`
+- `~/.penkra/userdata/keybindings.json`
 
 The file must be a JSON array of rules:
 

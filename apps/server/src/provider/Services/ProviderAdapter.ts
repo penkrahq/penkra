@@ -38,7 +38,7 @@ import type {
   ThreadId,
   ProviderTurnStartResult,
   TurnId,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 import type { Effect } from "effect";
 import type { Stream } from "effect";
 

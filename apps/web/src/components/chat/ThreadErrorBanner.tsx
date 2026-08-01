@@ -3,7 +3,7 @@
 // Layer: Chat status presentation
 // Exports: ThreadErrorBanner
 
-import { isProviderDeliveryBlockDetail } from "@synara/shared/providerDeliveryBlock";
+import { isProviderDeliveryBlockDetail } from "@penkra/shared/providerDeliveryBlock";
 
 import { Alert, AlertAction, AlertDescription } from "../ui/alert";
 import { Button } from "../ui/button";

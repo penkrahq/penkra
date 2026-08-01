@@ -24,7 +24,7 @@ export function ComposerActions({
   showHarness = true,
 }: ComposerActionsProps) {
   return (
-    <div className="flex h-[26px] w-full items-center" data-pencil-component="JwTiI">
+    <div className="flex h-[26px] w-full items-center gap-1" data-pencil-component="JwTiI">
       <IconActionTooltip
         ariaLabel="Attach files"
         label="Attach files"

@@ -62,4 +62,4 @@ flowchart TD
 
 ## High School Explanation
 
-Imagine Droid gives Synara a menu for GPT-5.6 with choices like Low, Medium, High, and Extra High. Synara received that menu but forgot that Droid was allowed to use it, so it showed nothing. Now Droid is on the allowed list. Synara displays the choices and remembers the one you picked when it sends your message.
+Imagine Droid gives Penkra a menu for GPT-5.6 with choices like Low, Medium, High, and Extra High. Penkra received that menu but forgot that Droid was allowed to use it, so it showed nothing. Now Droid is on the allowed list. Penkra displays the choices and remembers the one you picked when it sends your message.

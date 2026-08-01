@@ -3,7 +3,7 @@ import type {
   PenkraCreateTodoInput,
   PenkraUpdateTodoInput,
   PenkraUpdateClientInput,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 import { queryOptions } from "@tanstack/react-query";
 
 import { ensureNativeApi } from "../nativeApi";

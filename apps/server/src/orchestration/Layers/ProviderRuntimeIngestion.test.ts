@@ -8,7 +8,7 @@ import type {
   ProviderKind,
   ProviderRuntimeEvent,
   ProviderSession,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 import {
   ApprovalRequestId,
   CommandId,
@@ -19,7 +19,7 @@ import {
   RuntimeItemId,
   ThreadId,
   TurnId,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 import { Effect, Exit, Layer, ManagedRuntime, PubSub, Scope, Stream } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -27,10 +27,7 @@ import { OrchestrationEventStoreLive } from "../../persistence/Layers/Orchestrat
 import { OrchestrationCommandReceiptRepositoryLive } from "../../persistence/Layers/OrchestrationCommandReceipts.ts";
 import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
 import { ProviderRuntimeEventRepositoryLive } from "../../persistence/Layers/ProviderRuntimeEvents.ts";
-import {
-  PROVIDER_RUNTIME_INGESTION_CONSUMER,
-  ProviderRuntimeEventRepository,
-} from "../../persistence/Services/ProviderRuntimeEvents.ts";
+import { ProviderRuntimeEventRepository } from "../../persistence/Services/ProviderRuntimeEvents.ts";
 import {
   ProviderService,
   type ProviderServiceShape,
@@ -209,7 +206,7 @@ describe("ProviderRuntimeIngestion", () => {
   });
 
   async function createHarness(options?: { readonly startIngestion?: boolean }) {
-    const workspaceRoot = makeTempDir("synara-provider-project-");
+    const workspaceRoot = makeTempDir("penkra-provider-project-");
     fs.mkdirSync(path.join(workspaceRoot, ".git"));
     const provider = createProviderServiceHarness();
     const orchestrationLayer = OrchestrationEngineLive.pipe(
@@ -360,9 +357,7 @@ describe("ProviderRuntimeIngestion", () => {
       thread.activities.some((activity) => activity.id === event.eventId),
     );
     expect(
-      await Effect.runPromise(
-        harness.runtimeEventRepository.getConsumerCursor(PROVIDER_RUNTIME_INGESTION_CONSUMER),
-      ),
+      await Effect.runPromise(harness.runtimeEventRepository.getThreadCursor(event.threadId)),
     ).toBe(persisted.sequence);
 
     const readModel = await Effect.runPromise(harness.engine.getReadModel());
@@ -371,9 +366,7 @@ describe("ProviderRuntimeIngestion", () => {
       ?.activities.filter((activity) => activity.id === event.eventId);
     expect(recoveredActivities).toHaveLength(1);
     expect(
-      await Effect.runPromise(
-        harness.runtimeEventRepository.getConsumerCursor(PROVIDER_RUNTIME_INGESTION_CONSUMER),
-      ),
+      await Effect.runPromise(harness.runtimeEventRepository.getThreadCursor(event.threadId)),
     ).toBe(persisted.sequence);
   });
 
@@ -397,8 +390,8 @@ describe("ProviderRuntimeIngestion", () => {
     const persisted = await Effect.runPromise(harness.runtimeEventRepository.append(bufferedEvent));
     expect(
       await Effect.runPromise(
-        harness.runtimeEventRepository.advanceConsumerCursor({
-          consumerName: PROVIDER_RUNTIME_INGESTION_CONSUMER,
+        harness.runtimeEventRepository.advanceThreadCursor({
+          threadId: bufferedEvent.threadId,
           eventSequence: persisted.sequence,
           updatedAt: "2026-07-14T00:01:01.000Z",
         }),
@@ -462,8 +455,8 @@ describe("ProviderRuntimeIngestion", () => {
     const persisted = await Effect.runPromise(harness.runtimeEventRepository.append(event));
     expect(
       await Effect.runPromise(
-        harness.runtimeEventRepository.advanceConsumerCursor({
-          consumerName: PROVIDER_RUNTIME_INGESTION_CONSUMER,
+        harness.runtimeEventRepository.advanceThreadCursor({
+          threadId: event.threadId,
           eventSequence: persisted.sequence,
           updatedAt: "2026-07-14T00:02:01.000Z",
         }),
@@ -489,6 +482,159 @@ describe("ProviderRuntimeIngestion", () => {
       entry.messages.some((message) => message.id === messageId && message.streaming === false),
     );
     expect(thread.messages.find((message) => message.id === messageId)?.text).toBe("streamed once");
+  });
+
+  it("isolates a failed thread head without blocking another thread", async () => {
+    const harness = await createHarness({ startIngestion: false });
+    const createdAt = new Date().toISOString();
+    const thread2 = asThreadId("thread-2");
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.create",
+        commandId: CommandId.makeUnsafe("cmd-thread-2-create"),
+        threadId: thread2,
+        projectId: asProjectId("project-1"),
+        title: "Independent Thread",
+        modelSelection: { provider: "codex", model: "gpt-5-codex" },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        branch: null,
+        worktreePath: null,
+        createdAt,
+      }),
+    );
+
+    const failedEvent: ProviderRuntimeEvent = {
+      type: "runtime.warning",
+      eventId: asEventId("evt-thread-1-projection-failure"),
+      provider: "codex",
+      createdAt,
+      threadId: asThreadId("thread-1"),
+      payload: { message: "This projection will conflict" },
+    };
+    const failedCommandId = CommandId.makeUnsafe(
+      `provider:${failedEvent.eventId}:thread-activity-append:thread-1:runtime.warning:${failedEvent.eventId}`,
+    );
+    // Reserve the deterministic command id with different content. Replaying
+    // the runtime event now fails after journaling, exactly like a deterministic
+    // projection incompatibility rather than an invalid event rejected upfront.
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.activity.append",
+        commandId: failedCommandId,
+        threadId: asThreadId("thread-1"),
+        activity: {
+          id: failedEvent.eventId,
+          createdAt,
+          tone: "info",
+          kind: "runtime.warning",
+          summary: "Conflicting prior projection",
+          payload: { message: "different durable content" },
+          turnId: null,
+        },
+        createdAt,
+      }),
+    );
+    const failed = await Effect.runPromise(harness.runtimeEventRepository.append(failedEvent));
+    const healthyEvent: ProviderRuntimeEvent = {
+      type: "runtime.warning",
+      eventId: asEventId("evt-thread-2-independent-progress"),
+      provider: "codex",
+      createdAt,
+      threadId: thread2,
+      payload: { message: "Independent progress" },
+    };
+    const healthy = await Effect.runPromise(harness.runtimeEventRepository.append(healthyEvent));
+
+    await harness.startIngestion();
+    await waitForThread(
+      harness.engine,
+      (thread) => thread.activities.some((activity) => activity.id === healthyEvent.eventId),
+      2000,
+      thread2,
+    );
+
+    expect(
+      await Effect.runPromise(harness.runtimeEventRepository.getThreadCursor(failedEvent.threadId)),
+    ).toBe(0);
+    expect(
+      await Effect.runPromise(
+        harness.runtimeEventRepository.getThreadCursor(healthyEvent.threadId),
+      ),
+    ).toBe(healthy.sequence);
+    const projectionFailure = await Effect.runPromise(
+      harness.runtimeEventRepository.getThreadProjectionFailure(failedEvent.threadId),
+    );
+    expect(projectionFailure).toMatchObject({
+      sequence: failed.sequence,
+      status: "active",
+      attemptCount: 1,
+    });
+    expect(Date.parse(projectionFailure?.nextRetryAt ?? "")).toBeGreaterThan(
+      Date.parse(projectionFailure?.lastFailedAt ?? ""),
+    );
+  });
+
+  it("restores durable quarantine as thread attention after restart", async () => {
+    const harness = await createHarness({ startIngestion: false });
+    const quarantinedTurnId = asTurnId("turn-quarantined-before-restart");
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.makeUnsafe("cmd-quarantined-turn-running"),
+        threadId: asThreadId("thread-1"),
+        session: {
+          threadId: asThreadId("thread-1"),
+          status: "running",
+          providerName: "codex",
+          runtimeMode: "approval-required",
+          activeTurnId: quarantinedTurnId,
+          lastError: null,
+          updatedAt: "2026-07-14T00:19:59.000Z",
+        },
+        createdAt: "2026-07-14T00:19:59.000Z",
+      }),
+    );
+    const event: ProviderRuntimeEvent = {
+      type: "runtime.warning",
+      eventId: asEventId("evt-quarantined-before-restart"),
+      provider: "codex",
+      createdAt: "2026-07-14T00:20:00.000Z",
+      threadId: asThreadId("thread-1"),
+      turnId: quarantinedTurnId,
+      payload: { message: "Unsupported historical payload" },
+    };
+    const persisted = await Effect.runPromise(harness.runtimeEventRepository.append(event));
+    await Effect.runPromise(
+      harness.runtimeEventRepository.recordProjectionFailure({
+        sequence: persisted.sequence,
+        errorFingerprint: "quarantine-restart-fingerprint",
+        errorDetail: "deterministic projection failure",
+        failedAt: "2026-07-14T00:20:01.000Z",
+        attemptLimit: 1,
+        minBlockedMs: 0,
+      }),
+    );
+
+    await harness.startIngestion();
+    const thread = await waitForThread(
+      harness.engine,
+      (entry) =>
+        entry.session?.status === "error" &&
+        entry.session.lastError?.includes("paused this thread") === true,
+    );
+    expect(thread.session?.activeTurnId).toBe(event.turnId);
+    expect(thread.latestTurn).toMatchObject({
+      turnId: quarantinedTurnId,
+      state: "error",
+    });
+    expect(thread.latestTurn?.completedAt).not.toBeNull();
+    expect(
+      await Effect.runPromise(harness.runtimeEventRepository.getThreadCursor(event.threadId)),
+    ).toBe(0);
+    expect(
+      await Effect.runPromise(harness.runtimeEventRepository.listQuarantinedProjectionFailures),
+    ).toHaveLength(1);
   });
 
   it("maps turn started/completed events into thread session updates", async () => {
@@ -4669,7 +4815,7 @@ describe("ProviderRuntimeIngestion", () => {
         ? (data.rawOutput as Record<string, unknown>)
         : {};
 
-    expect(data.__synaraTruncated).toBe(true);
+    expect(data.__penkraTruncated).toBe(true);
     expect(JSON.stringify(data).length).toBeLessThan(17_000);
     expect(rawInput.command).toBe("bun run something");
     expect(String(rawOutput.stdout ?? "").length).toBeLessThan(3_000);
@@ -4843,7 +4989,7 @@ describe("ProviderRuntimeIngestion", () => {
         ? (payload.data as Record<string, unknown>)
         : {};
 
-    expect(data.__synaraTruncated).toBe(true);
+    expect(data.__penkraTruncated).toBe(true);
     expect(typeof data.preview).toBe("string");
     expect(JSON.stringify(data).length).toBeLessThanOrEqual(16_000);
   });

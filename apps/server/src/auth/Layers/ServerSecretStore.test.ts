@@ -10,7 +10,7 @@ const makeLayer = () =>
   ServerSecretStoreLive.pipe(
     Layer.provide(
       ServerConfig.layerTest(process.cwd(), {
-        prefix: "synara-secret-store-test-",
+        prefix: "penkra-secret-store-test-",
       }),
     ),
     Layer.provide(NodeServices.layer),

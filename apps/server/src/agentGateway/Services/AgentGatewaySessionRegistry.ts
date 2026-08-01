@@ -1,4 +1,4 @@
-import type { ProviderKind, ThreadId } from "@synara/contracts";
+import type { ProviderKind, ThreadId } from "@penkra/contracts";
 import { ServiceMap } from "effect";
 
 export type AgentGatewayCapability = "thread:read" | "thread:write" | "diagnostics:read";
@@ -41,4 +41,4 @@ export interface AgentGatewaySessionRegistryShape {
 export class AgentGatewaySessionRegistry extends ServiceMap.Service<
   AgentGatewaySessionRegistry,
   AgentGatewaySessionRegistryShape
->()("synara/agentGateway/Services/AgentGatewaySessionRegistry") {}
+>()("penkra/agentGateway/Services/AgentGatewaySessionRegistry") {}

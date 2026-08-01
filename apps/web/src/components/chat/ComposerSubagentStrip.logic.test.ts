@@ -4,7 +4,7 @@
 // Layer: Web chat composer tests
 // Depends on: deriveComposerSubagentStripItems
 
-import { EventId, ThreadId, TurnId, type OrchestrationThreadActivity } from "@synara/contracts";
+import { EventId, ThreadId, TurnId, type OrchestrationThreadActivity } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 
 import { deriveWorkLogEntries, type WorkLogEntry, type WorkLogSubagent } from "../../session-logic";

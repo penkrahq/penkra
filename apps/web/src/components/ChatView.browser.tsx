@@ -15,11 +15,11 @@ import {
   type WsWelcomePayload,
   WS_METHODS,
   OrchestrationSessionStatus,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 import {
   ATTACHMENT_CANCEL_ROUTE_PATH,
   ATTACHMENT_UPLOAD_ROUTE_PATH,
-} from "@synara/shared/binaryTransfer";
+} from "@penkra/shared/binaryTransfer";
 import { RouterProvider, createMemoryHistory } from "@tanstack/react-router";
 import { HttpResponse, http, ws } from "msw";
 import { setupWorker } from "msw/browser";
@@ -1069,7 +1069,7 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
   if (tag === WS_METHODS.gitCreateDetachedWorktree) {
     return {
       worktree: {
-        path: "/repo/.codex/worktrees/generated/synara",
+        path: "/repo/.codex/worktrees/generated/penkra",
         ref: "0123456789abcdef0123456789abcdef01234567",
         branch: null,
       },
@@ -2559,7 +2559,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
             threadId: THREAD_ID,
             cwd: "/repo/project",
             env: {
-              SYNARA_PROJECT_ROOT: "/repo/project",
+              PENKRA_PROJECT_ROOT: "/repo/project",
             },
           });
         },
@@ -2650,8 +2650,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
             threadId: THREAD_ID,
             cwd: "/repo/worktrees/feature-draft",
             env: {
-              SYNARA_PROJECT_ROOT: "/repo/project",
-              SYNARA_WORKTREE_PATH: "/repo/worktrees/feature-draft",
+              PENKRA_PROJECT_ROOT: "/repo/project",
+              PENKRA_WORKTREE_PATH: "/repo/worktrees/feature-draft",
             },
           });
         },
@@ -4490,8 +4490,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
           expect(createThreadRequest?.command).toMatchObject({
             envMode: "worktree",
             branch: null,
-            worktreePath: "/repo/.codex/worktrees/generated/synara",
-            associatedWorktreePath: "/repo/.codex/worktrees/generated/synara",
+            worktreePath: "/repo/.codex/worktrees/generated/penkra",
+            associatedWorktreePath: "/repo/.codex/worktrees/generated/penkra",
             associatedWorktreeBranch: null,
             associatedWorktreeRef: "0123456789abcdef0123456789abcdef01234567",
           });
@@ -4606,7 +4606,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
         { timeout: 10_000, interval: 16 },
       );
       const createWorktreeIndex = wsRequests.indexOf(createWorktreeRequest);
-      const worktreePath = "/repo/.codex/worktrees/generated/synara";
+      const worktreePath = "/repo/.codex/worktrees/generated/penkra";
 
       const terminalOpenRequest = await vi.waitFor(
         () => {
@@ -4635,8 +4635,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
         _tag: WS_METHODS.terminalOpen,
         cwd: worktreePath,
         env: {
-          SYNARA_PROJECT_ROOT: "/repo/project",
-          SYNARA_WORKTREE_PATH: worktreePath,
+          PENKRA_PROJECT_ROOT: "/repo/project",
+          PENKRA_WORKTREE_PATH: worktreePath,
         },
       });
 

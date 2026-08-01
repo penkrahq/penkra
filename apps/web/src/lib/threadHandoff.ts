@@ -11,8 +11,8 @@ import {
   type ModelSelection,
   type ProviderKind,
   type ThreadHandoffImportedMessage,
-} from "@synara/contracts";
-import { getDefaultModel } from "@synara/shared/model";
+} from "@penkra/contracts";
+import { getDefaultModel } from "@penkra/shared/model";
 import { type Thread } from "../types";
 import { DEFAULT_PROVIDER_ORDER } from "../providerOrdering";
 import { stripEmbeddedAssistantSelections } from "./assistantSelections";

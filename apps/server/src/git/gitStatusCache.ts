@@ -2,7 +2,7 @@ import type {
   GitStatusLocalResult,
   GitStatusRemoteResult,
   GitStatusResult,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 
 import type { GitStatusDetails } from "./Services/GitCore";
 
@@ -22,7 +22,7 @@ export const REMOTE_STATUS_CACHE_TTL_MS = 30_000;
 /**
  * Upper bound on cached working directories.
  *
- * Synara creates a git worktree per thread, so `cwd` keys are effectively
+ * Penkra creates a git worktree per thread, so `cwd` keys are effectively
  * thread-scoped and unbounded over a long-lived server. The cache is a pure
  * optimization behind a 30 s TTL — a miss just re-runs git — so evicting the least
  * recently written directory is always safe, and it keeps the copy-on-write update

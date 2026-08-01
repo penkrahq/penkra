@@ -1,4 +1,4 @@
-import { MessageId, TurnId, type OrchestrationThreadActivity } from "@synara/contracts";
+import { MessageId, TurnId, type OrchestrationThreadActivity } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -159,10 +159,10 @@ describe("deriveWorkLogEntries", () => {
   it("exposes a provider-independent Penkra thread creation recap", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({
-        id: "synara-created-threads",
+        id: "penkra-created-threads",
         createdAt: "2026-02-23T00:00:05.000Z",
         turnId: "turn-1",
-        kind: "synara.threads.created",
+        kind: "penkra.threads.created",
         summary: "Created 2 Penkra threads",
         tone: "info",
         payload: {
@@ -192,7 +192,7 @@ describe("deriveWorkLogEntries", () => {
     ];
 
     const [entry] = deriveWorkLogEntries(activities, TurnId.makeUnsafe("turn-1"));
-    expect(entry?.synaraThreadCreation).toEqual({
+    expect(entry?.penkraThreadCreation).toEqual({
       operationId: "gateway:create:two-workers",
       requestedCount: 2,
       createdCount: 2,
@@ -951,7 +951,7 @@ describe("deriveWorkLogEntries", () => {
                   type: "read",
                   command: "sed -n '1,220p' README.md",
                   name: "README.md",
-                  path: "/Users/emanueledipietro/Developer/Testing/synara/README.md",
+                  path: "/Users/emanueledipietro/Developer/Testing/penkra/README.md",
                 },
               ],
             },
@@ -1060,7 +1060,7 @@ describe("deriveWorkLogEntries", () => {
               type: "commandExecution",
               id: "call_6OII41pekq8cFCpOCF9pbeMu",
               command: "/bin/zsh -lc 'git status --short'",
-              cwd: "/Users/emanueledipietro/Developer/Testing/synara",
+              cwd: "/Users/emanueledipietro/Developer/Testing/penkra",
               status: "completed",
               commandActions: [{ type: "unknown", command: "git status --short" }],
               aggregatedOutput: " M apps/desktop/src/main.ts\n...",
@@ -1573,39 +1573,39 @@ describe("deriveWorkLogEntries", () => {
   it("presents Penkra MCP activity consistently across provider item shapes", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({
-        id: "synara-mcp-create-thread-progress",
+        id: "penkra-mcp-create-thread-progress",
         kind: "tool.updated",
         summary: "MCP tool call",
         payload: {
           itemType: "mcp_tool_call",
           title: "MCP tool call",
           data: {
-            toolCallId: "synara-mcp-create",
-            toolName: "mcp__synara__synara_create_thread",
+            toolCallId: "penkra-mcp-create",
+            toolName: "mcp__penkra__penkra_create_thread",
           },
         },
       }),
       makeActivity({
-        id: "synara-dynamic-send-message-progress",
+        id: "penkra-dynamic-send-message-progress",
         kind: "tool.updated",
         summary: "Tool call",
         payload: {
           itemType: "dynamic_tool_call",
-          title: "Synara__synara_send_message",
+          title: "Penkra__penkra_send_message",
           data: {
-            toolCallId: "synara-dynamic-send",
+            toolCallId: "penkra-dynamic-send",
           },
         },
       }),
       makeActivity({
-        id: "synara-file-change-list-threads-progress",
+        id: "penkra-file-change-list-threads-progress",
         kind: "tool.updated",
         summary: "File change",
         payload: {
           itemType: "file_change",
-          title: "mcp__Synara__synara_list_threads",
+          title: "mcp__Penkra__penkra_list_threads",
           data: {
-            toolCallId: "synara-file-change-list",
+            toolCallId: "penkra-file-change-list",
           },
         },
       }),
@@ -1626,15 +1626,15 @@ describe("deriveWorkLogEntries", () => {
     const [entry] = deriveWorkLogEntries(
       [
         makeActivity({
-          id: "synara-create-threads-failed",
+          id: "penkra-create-threads-failed",
           kind: "tool.completed",
-          summary: "synara__synara_create_threads",
+          summary: "penkra__penkra_create_threads",
           payload: {
             itemType: "mcp_tool_call",
             status: "failed",
             data: {
-              toolCallId: "synara-create-failed",
-              toolName: "mcp__synara__synara_create_threads",
+              toolCallId: "penkra-create-failed",
+              toolName: "mcp__penkra__penkra_create_threads",
               rawOutput: {
                 is_error: 1,
                 output: { Error: "Invalid target options\n  at target.options" },
@@ -2517,7 +2517,7 @@ describe("deriveWorkLogEntries Codex find regression", () => {
               id: "call_UmQKQmLCCrj9PF82rupLIFDO",
               command:
                 "/bin/zsh -lc \"find apps packages -maxdepth 2 -name package.json -print -exec sed -n '1,120p' {} \\\\;\"",
-              cwd: "/Users/emanueledipietro/Developer/Testing/synara",
+              cwd: "/Users/emanueledipietro/Developer/Testing/penkra",
               processId: "38005",
               source: "unifiedExecStartup",
               status: "inProgress",
@@ -2555,7 +2555,7 @@ describe("deriveWorkLogEntries Codex find regression", () => {
               id: "call_UmQKQmLCCrj9PF82rupLIFDO",
               command:
                 "/bin/zsh -lc \"find apps packages -maxdepth 2 -name package.json -print -exec sed -n '1,120p' {} \\\\;\"",
-              cwd: "/Users/emanueledipietro/Developer/Testing/synara",
+              cwd: "/Users/emanueledipietro/Developer/Testing/penkra",
               processId: "38005",
               source: "unifiedExecStartup",
               status: "completed",

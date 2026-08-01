@@ -18,11 +18,11 @@ export const AGENT_GATEWAY_STDIO_PROXY_FILE_NAME = "agent-gateway-mcp-proxy.mjs"
 // Kept dependency-free and ES2022-compatible: it must run on whichever
 // node/bun binary happens to back `process.execPath`.
 const STDIO_PROXY_SCRIPT = `// Penkra agent gateway stdio<->HTTP MCP proxy (generated file, do not edit).
-const url = process.env.SYNARA_AGENT_GATEWAY_URL;
-const token = process.env.SYNARA_AGENT_GATEWAY_TOKEN;
+const url = process.env.PENKRA_AGENT_GATEWAY_URL;
+const token = process.env.PENKRA_AGENT_GATEWAY_TOKEN;
 
 if (!url || !token) {
-  process.stderr.write("SYNARA_AGENT_GATEWAY_URL and SYNARA_AGENT_GATEWAY_TOKEN are required.\\n");
+  process.stderr.write("PENKRA_AGENT_GATEWAY_URL and PENKRA_AGENT_GATEWAY_TOKEN are required.\\n");
   process.exit(1);
 }
 

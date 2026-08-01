@@ -5,7 +5,7 @@ import {
   ThreadId,
   type ClientOrchestrationCommand,
   type NativeApi,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 
 import { useComposerDraftStore } from "../composerDraftStore";
 import { useStore } from "../store";

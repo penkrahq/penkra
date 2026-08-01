@@ -18,10 +18,10 @@ export const WS_STREAM_LIMITS = {
 } as const;
 
 export const WS_COMPATIBILITY_QUERY = {
-  clientBuild: "x-synara-client-build",
-  protocolEpoch: "x-synara-protocol-epoch",
-  protocolRevision: "x-synara-protocol-revision",
-  serverInstanceId: "x-synara-server-instance",
+  clientBuild: "x-penkra-client-build",
+  protocolEpoch: "x-penkra-protocol-epoch",
+  protocolRevision: "x-penkra-protocol-revision",
+  serverInstanceId: "x-penkra-server-instance",
 } as const;
 
 export const WS_SERVER_CAPABILITIES = [

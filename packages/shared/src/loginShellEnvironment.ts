@@ -8,7 +8,7 @@ import * as OS from "node:os";
 import * as Path from "node:path";
 
 import { readEnvironmentFromLoginShell, type ShellEnvironmentReader } from "./shell";
-import { resolveSynaraHomeDirectory } from "./synaraHome";
+import { resolvePenkraHomeDirectory } from "./penkraHome";
 
 /**
  * The variables every probe captures, regardless of what the caller asked for.
@@ -52,7 +52,7 @@ export function loginShellEnvironmentCachePath(
   options: { readonly env?: NodeJS.ProcessEnv; readonly homeDirectory?: string } = {},
 ): string {
   return Path.join(
-    resolveSynaraHomeDirectory(options),
+    resolvePenkraHomeDirectory(options),
     "cache",
     LOGIN_SHELL_ENVIRONMENT_CACHE_FILE_NAME,
   );

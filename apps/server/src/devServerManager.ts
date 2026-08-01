@@ -21,8 +21,8 @@ import {
   type ProjectStopDevServerInput,
   type ProjectStopDevServerResult,
   type ServerLocalServerProcess,
-} from "@synara/contracts";
-import { localServerMatchesRun } from "@synara/shared/localServers";
+} from "@penkra/contracts";
+import { localServerMatchesRun } from "@penkra/shared/localServers";
 import { Effect, Layer, PubSub, Ref, ServiceMap, Stream } from "effect";
 
 import { TerminalManager, type TerminalError } from "./terminal/Services/Manager";
@@ -70,7 +70,7 @@ export interface DevServerManagerShape {
 }
 
 export class DevServerManager extends ServiceMap.Service<DevServerManager, DevServerManagerShape>()(
-  "synara/devServerManager",
+  "penkra/devServerManager",
 ) {}
 
 export const DevServerManagerLive = Layer.effect(

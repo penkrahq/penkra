@@ -4,7 +4,7 @@
 // Exports: useThreadHandoff
 
 import { useNavigate } from "@tanstack/react-router";
-import { type ProviderKind } from "@synara/contracts";
+import { type ProviderKind } from "@penkra/contracts";
 import { useComposerDraftStore } from "../composerDraftStore";
 import { useProviderStatusesForLocalConfig } from "./useProviderStatusesForLocalConfig";
 import { useRefreshProviderStatusesNow } from "./useProviderStatusRefresh";

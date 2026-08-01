@@ -1,5 +1,5 @@
-import type { ResolvedThreadWorkspaceState } from "@synara/shared/threadEnvironment";
-import type { ProviderInteractionMode } from "@synara/contracts";
+import type { ResolvedThreadWorkspaceState } from "@penkra/shared/threadEnvironment";
+import type { ProviderInteractionMode } from "@penkra/contracts";
 import type { DraftThreadEnvMode } from "../../composerDraftStore";
 import {
   type ContextWindowSnapshot,

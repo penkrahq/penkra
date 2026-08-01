@@ -91,12 +91,12 @@ describe("TerminalOpenInput", () => {
       cols: 100,
       rows: 24,
       env: {
-        SYNARA_PROJECT_ROOT: "/tmp/project",
+        PENKRA_PROJECT_ROOT: "/tmp/project",
         CUSTOM_FLAG: "1",
       },
     });
     expect(parsed.env).toMatchObject({
-      SYNARA_PROJECT_ROOT: "/tmp/project",
+      PENKRA_PROJECT_ROOT: "/tmp/project",
       CUSTOM_FLAG: "1",
     });
   });

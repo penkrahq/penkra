@@ -1,4 +1,4 @@
-import { AuthClientMetadataDeviceType, AuthSessionId } from "@synara/contracts";
+import { AuthClientMetadataDeviceType, AuthSessionId } from "@penkra/contracts";
 import { Option, Schema, ServiceMap } from "effect";
 import type { Effect } from "effect";
 
@@ -90,4 +90,4 @@ export interface AuthSessionRepositoryShape {
 export class AuthSessionRepository extends ServiceMap.Service<
   AuthSessionRepository,
   AuthSessionRepositoryShape
->()("synara/persistence/Services/AuthSessions/AuthSessionRepository") {}
+>()("penkra/persistence/Services/AuthSessions/AuthSessionRepository") {}

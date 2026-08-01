@@ -6,7 +6,7 @@
 
 ## Summary
 
-The public support links now direct Synara users to the project's GitHub Issues page, the active support surface for questions and bug reports.
+The public support links now direct Penkra users to the project's GitHub Issues page, the active support surface for questions and bug reports.
 
 ---
 
@@ -24,11 +24,11 @@ The public support links now direct Synara users to the project's GitHub Issues 
 
 ### Problem
 
-Both public support links pointed to an unowned destination. Presenting that destination as Synara support was misleading.
+Both public support links pointed to an unowned destination. Presenting that destination as Penkra support was misleading.
 
 ### Approach
 
-The links were replaced with the repository's GitHub Issues page because Issues is enabled, active, and already part of Synara's contribution workflow. The marketing footer derives the destination from the existing `REPO_URL` constant so the repository address remains centralized.
+The links were replaced with the repository's GitHub Issues page because Issues is enabled, active, and already part of Penkra's contribution workflow. The marketing footer derives the destination from the existing `REPO_URL` constant so the repository address remains centralized.
 
 ### Step-by-step
 
@@ -38,7 +38,7 @@ The links were replaced with the repository's GitHub Issues page because Issues 
 
 ### Tradeoffs & Edge Cases
 
-GitHub Issues is less conversational than chat, but it is the verified Synara-owned support surface currently available.
+GitHub Issues is less conversational than chat, but it is the verified Penkra-owned support surface currently available.
 
 ---
 
@@ -48,13 +48,13 @@ GitHub Issues is less conversational than chat, but it is the verified Synara-ow
 
 ```mermaid
 flowchart TD
-    A[User needs Synara support] -->|README support link| B[GitHub Issues]
+    A[User needs Penkra support] -->|README support link| B[GitHub Issues]
     A -->|Marketing footer Issues link| B
-    B -->|Creates or reads an issue| C[Synara repository support]
+    B -->|Creates or reads an issue| C[Penkra repository support]
 ```
 
 ---
 
 ## High School Explanation
 
-The old support sign pointed to the wrong place. We changed both signs so they now point to Synara's own GitHub Issues page, where users can report a problem or ask for help.
+The old support sign pointed to the wrong place. We changed both signs so they now point to Penkra's own GitHub Issues page, where users can report a problem or ask for help.

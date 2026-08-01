@@ -1,5 +1,5 @@
 import { type BrowserWindow, dialog } from "electron";
-import type { DesktopConfirmOptions } from "@synara/contracts";
+import type { DesktopConfirmOptions } from "@penkra/contracts";
 
 const CONFIRM_BUTTON_INDEX = 1;
 

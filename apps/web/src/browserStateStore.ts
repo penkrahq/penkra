@@ -5,12 +5,12 @@
  * state to render tabs/toolbars and survive thread switches predictably.
  */
 
-import type { ThreadBrowserState, ThreadId } from "@synara/contracts";
+import type { ThreadBrowserState, ThreadId } from "@penkra/contracts";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { isPlainObject, sanitizeStringKeyedRecord } from "./persistedRecord";
 
-const BROWSER_STATE_STORAGE_KEY = "synara:browser-state:v1";
+const BROWSER_STATE_STORAGE_KEY = "penkra:browser-state:v1";
 const BROWSER_HISTORY_LIMIT = 12;
 const EMPTY_BROWSER_HISTORY: BrowserHistoryEntry[] = [];
 

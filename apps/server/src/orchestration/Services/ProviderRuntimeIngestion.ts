@@ -43,4 +43,4 @@ export interface ProviderRuntimeIngestionShape {
 export class ProviderRuntimeIngestionService extends ServiceMap.Service<
   ProviderRuntimeIngestionService,
   ProviderRuntimeIngestionShape
->()("synara/orchestration/Services/ProviderRuntimeIngestion/ProviderRuntimeIngestionService") {}
+>()("penkra/orchestration/Services/ProviderRuntimeIngestion/ProviderRuntimeIngestionService") {}

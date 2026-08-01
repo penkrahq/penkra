@@ -2,8 +2,9 @@
 // Purpose: Bind a desktop backend's lifetime to its Electron parent.
 
 import { Effect } from "effect";
+import { DESKTOP_PARENT_PID_ENV_KEY } from "@penkra/shared/desktopParentLifecycle";
 
-export const DESKTOP_PARENT_PID_ENV_KEY = "SYNARA_DESKTOP_PARENT_PID";
+export { DESKTOP_PARENT_PID_ENV_KEY } from "@penkra/shared/desktopParentLifecycle";
 const PARENT_LIVENESS_INTERVAL_MS = 1_000;
 
 export interface DesktopParentProcess {

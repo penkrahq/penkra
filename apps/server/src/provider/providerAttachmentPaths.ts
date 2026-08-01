@@ -5,7 +5,7 @@
 
 import { statSync } from "node:fs";
 
-import type { ChatAttachment, ProviderKind, ThreadId } from "@synara/contracts";
+import type { ChatAttachment, ProviderKind, ThreadId } from "@penkra/contracts";
 import { Effect, Option } from "effect";
 
 import { resolveAttachmentRelativePath } from "../attachmentPaths.ts";
@@ -14,7 +14,7 @@ import type { ManagedAttachmentRepositoryShape } from "../persistence/Services/M
 import { ProviderAdapterValidationError } from "./Errors.ts";
 
 const MANAGED_ATTACHMENT_ID_PATTERN = /^att_v2_[0-9a-f]{32}$/u;
-const PROVIDER_ATTACHMENT_STORAGE_PATH = Symbol("synara.providerAttachmentStoragePath");
+const PROVIDER_ATTACHMENT_STORAGE_PATH = Symbol("penkra.providerAttachmentStoragePath");
 
 type ProviderResolvedAttachment = ChatAttachment & {
   readonly [PROVIDER_ATTACHMENT_STORAGE_PATH]?: string;

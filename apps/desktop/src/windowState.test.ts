@@ -43,7 +43,7 @@ describe("desktop window state", () => {
   });
 
   it("round-trips state through the filesystem", () => {
-    const directory = FS.mkdtempSync(Path.join(OS.tmpdir(), "synara-window-state-"));
+    const directory = FS.mkdtempSync(Path.join(OS.tmpdir(), "penkra-window-state-"));
     temporaryDirectories.push(directory);
     const filePath = Path.join(directory, "nested", "window-state.json");
     const state = {

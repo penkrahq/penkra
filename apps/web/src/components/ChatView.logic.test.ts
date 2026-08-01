@@ -1,4 +1,4 @@
-import { CheckpointRef, EventId, ThreadId, TurnId, type ModelSlug } from "@synara/contracts";
+import { CheckpointRef, EventId, ThreadId, TurnId, type ModelSlug } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -95,7 +95,7 @@ describe("file undo completion", () => {
     turnId: TurnId.makeUnsafe("turn-2"),
     checkpointTurnCount: 2,
     checkpointTurnCounts: [2],
-    checkpointRef: CheckpointRef.makeUnsafe("refs/synara/checkpoints/thread-file-undo/turn/2"),
+    checkpointRef: CheckpointRef.makeUnsafe("refs/penkra/checkpoints/thread-file-undo/turn/2"),
     status: "ready" as const,
     completedAt: "2026-07-12T17:59:00.000Z",
     files: [{ path: "src/file.ts", additions: 1, deletions: 0 }],
@@ -1672,6 +1672,7 @@ describe("worktree setup snapshots", () => {
     const current: LocalDispatchSnapshot = {
       startedAt: "2026-04-13T00:00:00.000Z",
       worktreeSetup: failWorktreeSetupSnapshot(createWorktreeSetupSnapshot("create-worktree")),
+      expectedUserMessageId: null,
       latestTurnTurnId: null,
       latestTurnRequestedAt: null,
       latestTurnStartedAt: null,
@@ -1693,6 +1694,7 @@ describe("worktree setup snapshots", () => {
     const current: LocalDispatchSnapshot = {
       startedAt: "2026-04-13T00:00:00.000Z",
       worktreeSetup: failWorktreeSetupSnapshot(createWorktreeSetupSnapshot("create-worktree")),
+      expectedUserMessageId: null,
       latestTurnTurnId: null,
       latestTurnRequestedAt: null,
       latestTurnStartedAt: null,
@@ -1720,6 +1722,7 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
   const localDispatch: LocalDispatchSnapshot = {
     startedAt: "2026-04-13T00:00:00.000Z",
     worktreeSetup: null,
+    expectedUserMessageId: "message-for-dispatch" as never,
     latestTurnTurnId: null,
     latestTurnRequestedAt: null,
     latestTurnStartedAt: null,
@@ -1730,6 +1733,7 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
   const firstTurnLocalDispatch: LocalDispatchSnapshot = {
     startedAt: "2026-04-13T00:00:00.000Z",
     worktreeSetup: null,
+    expectedUserMessageId: "message-first-send" as never,
     latestTurnTurnId: null,
     latestTurnRequestedAt: null,
     latestTurnStartedAt: null,
@@ -1744,6 +1748,7 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
         localDispatch,
         phase: "ready",
         latestTurn: null,
+        messages: [],
         session: {
           provider: "codex",
           status: "ready",
@@ -1772,6 +1777,7 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
           assistantMessageId: null,
           sourceProposedPlan: undefined,
         },
+        messages: [],
         session: {
           provider: "codex",
           status: "ready",
@@ -1792,6 +1798,7 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
         localDispatch: firstTurnLocalDispatch,
         phase: "ready",
         latestTurn: null,
+        messages: [],
         session: {
           provider: "claudeAgent",
           status: "ready",
@@ -1806,12 +1813,42 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
     ).toBe(false);
   });
 
+  it("acknowledges a send as soon as its user message is durable", () => {
+    expect(
+      hasServerAcknowledgedLocalDispatch({
+        localDispatch: firstTurnLocalDispatch,
+        phase: "ready",
+        latestTurn: null,
+        messages: [
+          {
+            id: "message-first-send" as never,
+            role: "user",
+            text: "Continue",
+            createdAt: "2026-04-13T00:00:01.000Z",
+            streaming: false,
+          },
+        ],
+        session: {
+          provider: "codex",
+          status: "ready",
+          orchestrationStatus: "ready",
+          createdAt: "2026-04-13T00:00:00.000Z",
+          updatedAt: "2026-04-13T00:00:01.000Z",
+        },
+        hasPendingApproval: false,
+        hasPendingUserInput: false,
+        threadError: null,
+      }),
+    ).toBe(true);
+  });
+
   it("still acknowledges non-ready session transitions without a latest turn snapshot", () => {
     expect(
       hasServerAcknowledgedLocalDispatch({
         localDispatch: firstTurnLocalDispatch,
         phase: "disconnected",
         latestTurn: null,
+        messages: [],
         session: null,
         hasPendingApproval: false,
         hasPendingUserInput: false,

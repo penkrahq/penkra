@@ -206,4 +206,4 @@ export interface ManagedAttachmentRepositoryShape {
 export class ManagedAttachmentRepository extends ServiceMap.Service<
   ManagedAttachmentRepository,
   ManagedAttachmentRepositoryShape
->()("synara/persistence/Services/ManagedAttachments/ManagedAttachmentRepository") {}
+>()("penkra/persistence/Services/ManagedAttachments/ManagedAttachmentRepository") {}

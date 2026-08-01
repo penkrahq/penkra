@@ -1,5 +1,5 @@
-import { type ProjectId, ThreadId } from "@synara/contracts";
-import { getDefaultModel } from "@synara/shared/model";
+import { type ProjectId, ThreadId } from "@penkra/contracts";
+import { getDefaultModel } from "@penkra/shared/model";
 import { useNavigate, useRouter } from "@tanstack/react-router";
 import { startTransition } from "react";
 import { useAppSettings } from "../appSettings";

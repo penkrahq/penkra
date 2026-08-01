@@ -18,12 +18,12 @@ import {
   ProviderItemId,
   ProviderRuntimeEvent,
   ThreadId,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, Exit, Fiber, Layer, Random, Stream } from "effect";
 
 import { attachmentRelativePath } from "../../attachmentStore.ts";
-import { SYNARA_HARNESS_POLICY_MARKER } from "../../agentGateway/harnessPolicy.ts";
+import { PENKRA_HARNESS_POLICY_MARKER } from "../../agentGateway/harnessPolicy.ts";
 import {
   AgentGatewayCredentials,
   type AgentGatewayCredentialsShape,
@@ -373,14 +373,14 @@ const RESUME_THREAD_ID = ThreadId.makeUnsafe("thread-claude-resume");
 describe("Claude Penkra harness policy", () => {
   it("advertises scoped MCP additively when credentials are available", () => {
     const text = buildEmbeddedClaudeSystemPromptAppend(true);
-    assert.include(text, SYNARA_HARNESS_POLICY_MARKER);
-    assert.include(text, "Use the synara_* tools");
+    assert.include(text, PENKRA_HARNESS_POLICY_MARKER);
+    assert.include(text, "Use the penkra_* tools");
     assert.notInclude(text, "Penkra MCP control is unavailable");
   });
 
   it("stays truthful when scoped MCP credentials are absent", () => {
     const text = buildEmbeddedClaudeSystemPromptAppend(false);
-    assert.include(text, SYNARA_HARNESS_POLICY_MARKER);
+    assert.include(text, PENKRA_HARNESS_POLICY_MARKER);
     assert.include(text, "Penkra MCP control is unavailable");
   });
 });
@@ -459,7 +459,7 @@ describe("ClaudeAdapterLive", () => {
       assert.equal(systemPrompt.excludeDynamicSections, true);
       assert.include(systemPrompt.append ?? "", "When spawning subagents");
       assert.include(systemPrompt.append ?? "", "worker-<tier>");
-      assert.include(systemPrompt.append ?? "", SYNARA_HARNESS_POLICY_MARKER);
+      assert.include(systemPrompt.append ?? "", PENKRA_HARNESS_POLICY_MARKER);
       assert.include(systemPrompt.append ?? "", "Penkra is the host and harness");
       // This characterization harness intentionally omits gateway credentials.
       assert.include(systemPrompt.append ?? "", "Penkra MCP control is unavailable");

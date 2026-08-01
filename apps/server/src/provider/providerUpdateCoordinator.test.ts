@@ -2,7 +2,7 @@ import {
   DEFAULT_SERVER_SETTINGS,
   type OrchestrationThreadShell,
   type ServerProviderStatus,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { Effect, FileSystem, Stream } from "effect";
 import { describe, expect, it, vi } from "vitest";

@@ -17,18 +17,13 @@ import {
   type ProviderStartOptions,
   type ServerSettingsView,
   type ServerSettingsPatch,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 import {
   getDefaultModel,
   getModelOptions,
   normalizeModelSlug,
   resolveSelectableModel,
-} from "@synara/shared/model";
-import {
-  APP_SNAP_SHORTCUT_KEYS,
-  APP_SNAP_SHORTCUT_MODIFIERS,
-  DEFAULT_APP_SNAP_SHORTCUT,
-} from "@synara/shared/appSnapShortcut";
+} from "@penkra/shared/model";
 import { useLocalStorage } from "./hooks/useLocalStorage";
 import { EnvMode } from "./components/BranchToolbar.logic";
 import { normalizeCursorModelVariantBaseId } from "./cursorModelVariants";
@@ -47,8 +42,8 @@ import {
   normalizeUiDensity as normalizeUiDensityValue,
 } from "./lib/appDensity";
 
-const APP_SETTINGS_STORAGE_KEY = "synara:app-settings:v1";
-const SERVER_SETTINGS_MIGRATION_STORAGE_KEY = "synara:server-settings-migrated:v1";
+const APP_SETTINGS_STORAGE_KEY = "penkra:app-settings:v1";
+const SERVER_SETTINGS_MIGRATION_STORAGE_KEY = "penkra:server-settings-migrated:v1";
 const MAX_CUSTOM_MODEL_COUNT = 32;
 export const MAX_CUSTOM_MODEL_LENGTH = 256;
 export const MIN_CHAT_FONT_SIZE_PX = 11;
@@ -91,15 +86,6 @@ export const DEFAULT_SIDEBAR_THREAD_SORT_ORDER: SidebarThreadSortOrder = "update
 export const UiDensity = Schema.Literals(UI_DENSITY_MODES);
 export type UiDensity = typeof UiDensity.Type;
 export { DEFAULT_UI_DENSITY };
-
-const AppSnapShortcut = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal("both-option-keys") }),
-  Schema.Struct({
-    kind: Schema.Literal("key-chord"),
-    modifier: Schema.Literals(APP_SNAP_SHORTCUT_MODIFIERS),
-    key: Schema.Literals(APP_SNAP_SHORTCUT_KEYS),
-  }),
-]);
 
 export function getDefaultNativeFontSmoothing(platform = globalThis.navigator?.platform ?? "") {
   return /mac|iphone|ipad|ipod/i.test(platform);
@@ -231,15 +217,6 @@ export const AppSettingsSchema = Schema.Struct({
   enableNativeFontSmoothing: Schema.Boolean.pipe(withDefaults(getDefaultNativeFontSmoothing)),
   enableTaskCompletionToasts: Schema.Boolean.pipe(withDefaults(() => true)),
   enableSystemTaskCompletionNotifications: Schema.Boolean.pipe(withDefaults(() => true)),
-  // Local desktop preference. Native capability/permission state remains owned by Electron.
-  // AppSnap is opt-in because enabling its Settings toggle requests macOS
-  // Input Monitoring and Screen Recording permissions.
-  enableAppSnap: Schema.Boolean.pipe(withDefaults(() => false)),
-  appSnapShortcut: AppSnapShortcut.pipe(withDefaults(() => DEFAULT_APP_SNAP_SHORTCUT)),
-  // Local desktop preference: play the shutter cue when an AppSnap lands in a composer.
-  appSnapPlaySound: Schema.Boolean.pipe(withDefaults(() => true)),
-  // Deprecated rename bridge. Normalization migrates this value and then omits the key.
-  enableAppshots: Schema.optionalKey(Schema.Boolean),
   sidebarProjectSortOrder: SidebarProjectSortOrder.pipe(
     withDefaults(() => DEFAULT_SIDEBAR_PROJECT_SORT_ORDER),
   ),
@@ -499,7 +476,6 @@ function normalizeProviderBinaryPathOverride(
 
 function normalizeAppSettings(settings: AppSettings): AppSettings {
   const {
-    enableAppshots: legacyEnableAppshots,
     enableProviderUpdateChecks: legacyEnableProviderUpdateChecks,
     geminiBinaryPath: legacyGeminiBinaryPath,
     customGeminiModels: legacyCustomGeminiModels,
@@ -509,7 +485,6 @@ function normalizeAppSettings(settings: AppSettings): AppSettings {
     ...currentSettings,
     providerUpdateMode:
       legacyEnableProviderUpdateChecks === false ? "notify" : settings.providerUpdateMode,
-    enableAppSnap: settings.enableAppSnap || legacyEnableAppshots === true,
     // Password fields are accepted only as write-only update patches. Never retain
     // reusable provider credentials in browser state or localStorage.
     kiloServerPassword: "",

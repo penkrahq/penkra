@@ -7,8 +7,8 @@ import {
   extractSubagentIdentityHints as extractParsedSubagentIdentityHints,
   isWorkerTierSubagentRole,
   resolveSubagentIdentityFromDirectory,
-} from "@synara/shared/subagents";
-import { formatModelDisplayName } from "@synara/shared/model";
+} from "@penkra/shared/subagents";
+import { formatModelDisplayName } from "@penkra/shared/model";
 
 const SUBAGENT_ACCENT_PALETTE = [
   "#b84e44",

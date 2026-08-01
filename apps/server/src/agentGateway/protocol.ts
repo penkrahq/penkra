@@ -148,7 +148,7 @@ export function buildMcpInitializeResult(input: {
       tools: { listChanged: false },
     },
     serverInfo: {
-      name: "synara",
+      name: "penkra",
       title: "Penkra App Control",
       version: input.serverVersion,
     },

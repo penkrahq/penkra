@@ -3,10 +3,10 @@
 // Layer: Provider adapter tests
 // Depends on: GrokAdapter helper exports and shared contract ids.
 
-import { TurnId } from "@synara/contracts";
+import { TurnId } from "@penkra/contracts";
 import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import { SYNARA_HARNESS_POLICY_MARKER } from "../../agentGateway/harnessPolicy.ts";
+import { PENKRA_HARNESS_POLICY_MARKER } from "../../agentGateway/harnessPolicy.ts";
 import {
   extractGrokUserInputQuestions,
   extractGrokExitPlanMarkdown,
@@ -30,16 +30,16 @@ import {
   resolveGrokPlanHookResponse,
   scopeGrokRuntimeItemIdForTurn,
   scopeGrokToolCallStateForTurn,
-  takeGrokSynaraHarnessPolicyTextPart,
+  takeGrokPenkraHarnessPolicyTextPart,
 } from "./GrokAdapter.ts";
 
 describe("Grok Penkra harness policy", () => {
   it("delivers private scoped host context once", () => {
     const state: { harnessPolicyDelivered?: boolean } = {};
-    expect(takeGrokSynaraHarnessPolicyTextPart(state, true)?.text).toContain(
-      SYNARA_HARNESS_POLICY_MARKER,
+    expect(takeGrokPenkraHarnessPolicyTextPart(state, true)?.text).toContain(
+      PENKRA_HARNESS_POLICY_MARKER,
     );
-    expect(takeGrokSynaraHarnessPolicyTextPart(state, true)).toBeNull();
+    expect(takeGrokPenkraHarnessPolicyTextPart(state, true)).toBeNull();
   });
 });
 
@@ -61,28 +61,28 @@ describe("Grok native plan approval", () => {
   it("backs native Plan mode with a fail-closed pre-tool hook", () => {
     expect(
       resolveGrokPlanHookResponse("plan", {
-        hookCallbackId: "synara-plan-guard",
+        hookCallbackId: "penkra-plan-guard",
         hookEventName: "pre_tool_use",
         toolName: "read_file",
       }),
     ).toEqual({});
     expect(
       resolveGrokPlanHookResponse("plan", {
-        hookCallbackId: "synara-plan-guard",
+        hookCallbackId: "penkra-plan-guard",
         hookEventName: "pre_tool_use",
         toolName: "run_terminal_cmd",
       }),
     ).toMatchObject({ decision: "deny" });
     expect(
       resolveGrokPlanHookResponse("plan", {
-        hookCallbackId: "synara-plan-guard",
+        hookCallbackId: "penkra-plan-guard",
         hookEventName: "pre_tool_use",
         toolName: "future_mutating_tool",
       }),
     ).toMatchObject({ decision: "deny" });
     expect(
       resolveGrokPlanHookResponse("default", {
-        hookCallbackId: "synara-plan-guard",
+        hookCallbackId: "penkra-plan-guard",
         hookEventName: "pre_tool_use",
         toolName: "run_terminal_cmd",
       }),

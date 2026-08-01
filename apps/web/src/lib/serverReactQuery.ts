@@ -5,7 +5,7 @@ import type {
   ServerProviderStatus,
   ServerStopLocalServerInput,
   ThreadId,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 import { mutationOptions, queryOptions, type QueryClient } from "@tanstack/react-query";
 import { ensureNativeApi } from "~/nativeApi";
 

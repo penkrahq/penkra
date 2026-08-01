@@ -208,7 +208,7 @@ const publishCmd = Command.make(
       };
 
       const stagedPackageDir = yield* fs.makeTempDirectoryScoped({
-        prefix: "synara-cli-publish-",
+        prefix: "penkra-cli-publish-",
       });
       yield* fs.copy(path.join(serverDir, "dist"), path.join(stagedPackageDir, "dist"));
       for (const binTarget of Object.values(pkg.bin)) {
@@ -267,7 +267,7 @@ const publishCmd = Command.make(
 // ---------------------------------------------------------------------------
 
 const cli = Command.make("cli").pipe(
-  Command.withDescription("Synara server build & publish CLI."),
+  Command.withDescription("Penkra server build & publish CLI."),
   Command.withSubcommands([buildCmd, publishCmd]),
 );
 

@@ -9,7 +9,7 @@ import * as Net from "node:net";
 import * as OS from "node:os";
 import * as Path from "node:path";
 
-import type { BrowserExecuteCdpInput, ThreadBrowserState, ThreadId } from "@synara/contracts";
+import type { BrowserExecuteCdpInput, ThreadBrowserState, ThreadId } from "@penkra/contracts";
 
 import type { DesktopBrowserManager } from "./browserManager";
 
@@ -23,10 +23,10 @@ const BROWSER_USE_PANEL_READY_TIMEOUT_MS = 2_000;
 const BROWSER_USE_PANEL_READY_POLL_MS = 50;
 // The Browser plugin scans this fixed directory; OS.tmpdir() differs on macOS.
 const BROWSER_USE_DISCOVERY_DIR = "/tmp/codex-browser-use";
-const BROWSER_USE_PIPE_NAME_PREFIX = "synara-iab";
+const BROWSER_USE_PIPE_NAME_PREFIX = "penkra-iab";
 // Production Browser plugins reject IAB backends from another build flavor.
 const BROWSER_USE_CODEX_APP_BUILD_FLAVOR = "prod";
-export const SYNARA_BROWSER_USE_PIPE_ENV = "SYNARA_BROWSER_USE_PIPE_PATH";
+export const PENKRA_BROWSER_USE_PIPE_ENV = "PENKRA_BROWSER_USE_PIPE_PATH";
 
 type BrowserUseRpcId = string | number;
 type BrowserUseWriteResult = "written" | "overflow" | "closed";
@@ -77,21 +77,21 @@ export function resolveConfiguredBrowserUsePipePath(
   platform = process.platform,
 ): string {
   if (platform === "win32") return "";
-  const configured = env[SYNARA_BROWSER_USE_PIPE_ENV]?.trim();
+  const configured = env[PENKRA_BROWSER_USE_PIPE_ENV]?.trim();
   return configured || resolveDefaultBrowserUsePipePath(platform);
 }
 
-export const SYNARA_BROWSER_USE_PIPE_PATH = resolveConfiguredBrowserUsePipePath();
+export const PENKRA_BROWSER_USE_PIPE_PATH = resolveConfiguredBrowserUsePipePath();
 
 export function resolveBrowserUsePipeBackendEnv(
   inheritedEnv: NodeJS.ProcessEnv,
   activePipePath: string | null | undefined,
 ): NodeJS.ProcessEnv {
   const backendEnv = { ...inheritedEnv };
-  delete backendEnv[SYNARA_BROWSER_USE_PIPE_ENV];
+  delete backendEnv[PENKRA_BROWSER_USE_PIPE_ENV];
   const pipePath = activePipePath?.trim();
   if (pipePath) {
-    backendEnv[SYNARA_BROWSER_USE_PIPE_ENV] = pipePath;
+    backendEnv[PENKRA_BROWSER_USE_PIPE_ENV] = pipePath;
   }
   return backendEnv;
 }
@@ -207,10 +207,10 @@ export class BrowserUsePipeServer {
 
   constructor(
     private readonly browserManager: DesktopBrowserManager,
-    options: BrowserUsePipeServerOptions | string = SYNARA_BROWSER_USE_PIPE_PATH,
+    options: BrowserUsePipeServerOptions | string = PENKRA_BROWSER_USE_PIPE_PATH,
   ) {
     this.pipePath =
-      typeof options === "string" ? options : (options.pipePath ?? SYNARA_BROWSER_USE_PIPE_PATH);
+      typeof options === "string" ? options : (options.pipePath ?? PENKRA_BROWSER_USE_PIPE_PATH);
     this.requestOpenPanel = typeof options === "string" ? undefined : options.requestOpenPanel;
     this.maxInFlightRequests =
       typeof options === "string"
@@ -245,7 +245,7 @@ export class BrowserUsePipeServer {
 
   async dispose(): Promise<void> {
     for (const client of this.clientBySocket.values()) {
-      client.disposeCdpListener?.();
+      this.disposeClientCdpListener(client);
     }
     for (const socket of this.sockets) {
       socket.destroy();
@@ -286,8 +286,7 @@ export class BrowserUsePipeServer {
   }
 
   private releaseClient(client: BrowserUseClient): void {
-    client.disposeCdpListener?.();
-    client.disposeCdpListener = null;
+    this.disposeClientCdpListener(client);
     client.outputBackpressured = false;
     client.cdpOutputOverflowed = false;
     this.sockets.delete(client.socket);
@@ -296,6 +295,21 @@ export class BrowserUsePipeServer {
       if (tracked.leaseId !== client.leaseId) continue;
       this.trackedTabById.delete(id);
       this.trackedTabByKey.delete(`${tracked.leaseId}:${tracked.threadId}:${tracked.tabId}`);
+    }
+  }
+
+  private disposeClientCdpListener(client: BrowserUseClient): void {
+    const dispose = client.disposeCdpListener;
+    // Clear ownership before invoking foreign cleanup code. Socket `error` and
+    // `close` may both release the same client, and a stale Electron debugger
+    // listener must never turn that harmless duplicate cleanup into a process crash.
+    client.disposeCdpListener = null;
+    if (!dispose) return;
+    try {
+      dispose();
+    } catch {
+      // The associated WebContents may already have been destroyed. Releasing a
+      // disconnected Browser Use client is best-effort and must remain terminal.
     }
   }
 
@@ -552,8 +566,7 @@ export class BrowserUsePipeServer {
   ): Promise<Record<string, never>> {
     const tracked = this.resolveTrackedTabForClient(client, params);
     client.selectedTrackedTabId = tracked.id;
-    client.disposeCdpListener?.();
-    client.disposeCdpListener = null;
+    this.disposeClientCdpListener(client);
     client.cdpOutputOverflowed = false;
     await this.browserManager.attachBrowserUseTab({
       threadId: tracked.threadId,
@@ -582,17 +595,15 @@ export class BrowserUsePipeServer {
         }
       },
     );
+    client.disposeCdpListener = dispose;
     if (client.cdpOutputOverflowed) {
-      dispose();
-    } else {
-      client.disposeCdpListener = dispose;
+      this.disposeClientCdpListener(client);
     }
     return {};
   }
 
   private async detachForClient(client: BrowserUseClient): Promise<Record<string, never>> {
-    client.disposeCdpListener?.();
-    client.disposeCdpListener = null;
+    this.disposeClientCdpListener(client);
     client.cdpOutputOverflowed = false;
     return {};
   }
@@ -617,8 +628,7 @@ export class BrowserUsePipeServer {
   private signalCdpOutputOverflow(client: BrowserUseClient, trackedTabId: number): void {
     if (client.cdpOutputOverflowed) return;
     client.cdpOutputOverflowed = true;
-    client.disposeCdpListener?.();
-    client.disposeCdpListener = null;
+    this.disposeClientCdpListener(client);
     this.writeToClient(
       client,
       {

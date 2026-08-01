@@ -8,7 +8,7 @@
 import * as fs from "node:fs/promises";
 import * as nodePath from "node:path";
 
-import type { ProviderKind, ProviderSkillReference } from "@synara/contracts";
+import type { ProviderKind, ProviderSkillReference } from "@penkra/contracts";
 
 // Per-skill cap keeps a single oversized SKILL.md from eating the turn budget.
 const MAX_INLINE_SKILL_CONTENT_CHARS = 24_000;
@@ -19,7 +19,7 @@ const INLINE_SKILLS_HEADER =
   '"dir" attribute.';
 
 const CROSS_PROVIDER_SKILL_DIR_NAMES = [
-  ".synara",
+  ".penkra",
   ".codex",
   ".cursor",
   ".claude",
@@ -37,14 +37,14 @@ export function shouldInlineSkillForProvider(provider: ProviderKind, skillPath: 
       return true;
     case "codex":
       // Codex injects structured skill items only from roots it knows: its own
-      // folders plus `~/.synara/skills`, which Penkra registers at session start
+      // folders plus `~/.penkra/skills`, which Penkra registers at session start
       // via skills/extraRoots/set. Skills resolved from other providers' folders
       // must be inlined.
       return [".claude", ".cursor", ".agents"].some((dir) => segments.has(dir));
     case "cursor":
       // cursor-agent natively scans .cursor/.agents/.claude/.codex skill roots;
       // only Penkra-owned paths need inlining.
-      return segments.has(".synara");
+      return segments.has(".penkra");
     case "claudeAgent":
       // Claude Code only loads skills from .claude/skills folders.
       return !segments.has(".claude");

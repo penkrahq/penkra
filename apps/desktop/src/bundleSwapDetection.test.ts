@@ -28,7 +28,7 @@ describe("isWatchableBundlePath", () => {
   });
 
   it("rejects an unpackaged directory app path", () => {
-    expect(isWatchableBundlePath("/Users/me/dev/synara/apps/desktop")).toBe(false);
+    expect(isWatchableBundlePath("/Users/me/dev/penkra/apps/desktop")).toBe(false);
   });
 });
 

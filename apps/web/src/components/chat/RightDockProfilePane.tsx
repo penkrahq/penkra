@@ -3,7 +3,7 @@
 // Layer: Chat right-dock UI
 // Exports: RightDockProfilePane
 
-import type { ProjectId } from "@synara/contracts";
+import type { ProjectId } from "@penkra/contracts";
 import { memo, useState } from "react";
 
 import { CheckCircle2Icon, TriangleAlertIcon } from "~/lib/icons";

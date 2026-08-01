@@ -2,7 +2,7 @@
 // Purpose: Identify the source thread for conversations created by another Penkra agent.
 // Layer: Chat transcript UI
 
-import { type ProviderKind, type ThreadId } from "@synara/contracts";
+import { type ProviderKind, type ThreadId } from "@penkra/contracts";
 import { memo, type ReactNode } from "react";
 
 import { PenkraMark } from "../foundations/penkra-mark-shared/PenkraMark";

@@ -12,8 +12,8 @@ describe("buildProviderChildEnvironment", () => {
         PATH: "/usr/bin",
         HOME: "/home/test",
         GEMINI_API_KEY: "provider-key",
-        SYNARA_AUTH_TOKEN: "control-plane-secret",
-        SYNARA_BROWSER_USE_PIPE_PATH: "/tmp/browser.sock",
+        PENKRA_AUTH_TOKEN: "control-plane-secret",
+        PENKRA_BROWSER_USE_PIPE_PATH: "/tmp/browser.sock",
         NODE_OPTIONS: "--require=/tmp/inject.js",
         NODE_REPL_SANDBOX_ALLOWED_UNIX_SOCKETS: "/tmp/other.sock",
       },
@@ -30,16 +30,16 @@ describe("buildProviderChildEnvironment", () => {
     const env = buildProviderChildEnvironment({
       provider: "codex",
       baseEnv: {
-        SYNARA_AUTH_TOKEN: "control-plane-secret",
-        SYNARA_BROWSER_USE_PIPE_PATH: "/tmp/browser.sock",
+        PENKRA_AUTH_TOKEN: "control-plane-secret",
+        PENKRA_BROWSER_USE_PIPE_PATH: "/tmp/browser.sock",
         NODE_REPL_SANDBOX_ALLOWED_UNIX_SOCKETS: "/tmp/browser.sock",
       },
-      inheritedSynaraKeys: ["SYNARA_BROWSER_USE_PIPE_PATH"],
+      inheritedPenkraKeys: ["PENKRA_BROWSER_USE_PIPE_PATH"],
       inheritedNativeCapabilityKeys: ["NODE_REPL_SANDBOX_ALLOWED_UNIX_SOCKETS"],
     });
 
     expect(env).toEqual({
-      SYNARA_BROWSER_USE_PIPE_PATH: "/tmp/browser.sock",
+      PENKRA_BROWSER_USE_PIPE_PATH: "/tmp/browser.sock",
       NODE_REPL_SANDBOX_ALLOWED_UNIX_SOCKETS: "/tmp/browser.sock",
     });
   });
@@ -50,7 +50,7 @@ describe("buildProviderChildEnvironment", () => {
       baseEnv: { PATH: "/usr/bin" },
       overrides: {
         OPENCODE_EXPERIMENTAL_WEBSOCKETS: "true",
-        SYNARA_AUTH_TOKEN: "overlaid-control-plane-secret",
+        PENKRA_AUTH_TOKEN: "overlaid-control-plane-secret",
         NODE_OPTIONS: "--require=/tmp/inject.js",
       },
     });
@@ -106,11 +106,11 @@ describe("buildProviderChildEnvironment", () => {
       baseEnv: {
         XAI_API_KEY: "grok-secret",
         ANTHROPIC_API_KEY: "unrelated-secret",
-        SYNARA_AUTH_TOKEN: "control-plane-secret",
+        PENKRA_AUTH_TOKEN: "control-plane-secret",
       },
     });
     const descendantScript =
-      "process.stdout.write(JSON.stringify({ xai: process.env.XAI_API_KEY, anthropic: process.env.ANTHROPIC_API_KEY, synara: process.env.SYNARA_AUTH_TOKEN }))";
+      "process.stdout.write(JSON.stringify({ xai: process.env.XAI_API_KEY, anthropic: process.env.ANTHROPIC_API_KEY, penkra: process.env.PENKRA_AUTH_TOKEN }))";
     const parentScript = `const { spawnSync } = require("node:child_process"); const result = spawnSync(process.execPath, ["-e", ${JSON.stringify(descendantScript)}], { env: process.env, encoding: "utf8" }); process.stdout.write(result.stdout); process.stderr.write(result.stderr); process.exit(result.status ?? 1);`;
     const result = spawnSync(process.execPath, ["-e", parentScript], {
       env,

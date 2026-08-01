@@ -8,7 +8,7 @@ import {
   type OrchestrationReadModel,
   type OrchestrationShellSnapshot,
   type ThreadId,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 import { Effect } from "effect";
 import { randomUUID } from "node:crypto";
 

@@ -13,7 +13,7 @@ import {
 const temporaryDirectories: string[] = [];
 
 function createPayload(contents = "signed update bytes"): string {
-  const directory = FS.mkdtempSync(Path.join(OS.tmpdir(), "synara-update-artifact-"));
+  const directory = FS.mkdtempSync(Path.join(OS.tmpdir(), "penkra-update-artifact-"));
   temporaryDirectories.push(directory);
   const filePath = Path.join(directory, "Penkra-update.zip");
   FS.writeFileSync(filePath, contents);

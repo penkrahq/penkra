@@ -3,7 +3,7 @@
 // Layer: Route utility unit tests
 // Depends on: rootEventInvalidation predicates and Vitest assertions.
 
-import { ProjectId, ThreadId, type OrchestrationEvent } from "@synara/contracts";
+import { ProjectId, ThreadId, type OrchestrationEvent } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -111,6 +111,7 @@ describe("root event invalidation", () => {
     });
     const state: AppState = {
       spaces: [],
+      archivedSpaces: [],
       projects: [{ id: projectId, cwd: "/repo/main" }] as AppState["projects"],
       sidebarThreadSummaryById: {},
       threadsHydrated: true,

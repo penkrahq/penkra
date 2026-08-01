@@ -35,13 +35,24 @@ describe("Pencil middle panel", () => {
     await vi.waitFor(() => {
       expect(getComputedStyle(form!).borderColor).not.toBe(unfocusedBorder);
     });
+
+    const formRect = form!.getBoundingClientRect();
+    const editorRect = element.getBoundingClientRect();
+    const actions = form!.querySelector<HTMLElement>("[data-pencil-component='JwTiI']")!;
+    const actionsRect = actions.getBoundingClientRect();
+    expect(formRect.height).toBeCloseTo(88.5, 0);
+    expect(getComputedStyle(element).fontSize).toBe("14px");
+    expect(getComputedStyle(element).lineHeight).toBe("16px");
+    expect(Math.abs(editorRect.left - formRect.left - 11)).toBeLessThan(1);
+    expect(Math.abs(actionsRect.left - formRect.left - 11)).toBeLessThan(1);
+    expect(Math.abs(actionsRect.top - formRect.top - 51.5)).toBeLessThan(1);
   });
 
   it("shows the model selector in the default composer", async () => {
     await render(<ComposerDefault aria-label="Message" />);
 
     await expect
-      .element(page.getByRole("button", { name: "Claude Sonnet 5", exact: true }))
+      .element(page.getByRole("button", { name: "Claude Sonnet 5 High", exact: true }))
       .toBeVisible();
   });
 

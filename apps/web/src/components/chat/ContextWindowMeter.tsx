@@ -4,6 +4,7 @@ import {
   formatContextWindowTokens,
   formatCostUsd,
 } from "~/lib/contextWindow";
+import { cn } from "~/lib/utils";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 
 export function ContextWindowMeter(props: {
@@ -11,8 +12,9 @@ export function ContextWindowMeter(props: {
   cumulativeCostUsd?: number | null | undefined;
   activeWindowLabel?: string | null | undefined;
   pendingWindowLabel?: string | null | undefined;
+  className?: string | undefined;
 }) {
-  const { usage, cumulativeCostUsd, activeWindowLabel, pendingWindowLabel } = props;
+  const { usage, cumulativeCostUsd, activeWindowLabel, pendingWindowLabel, className } = props;
   const display = deriveContextWindowMeterDisplay(usage);
   const radius = 6;
   const circumference = 2 * Math.PI * radius;
@@ -27,10 +29,13 @@ export function ContextWindowMeter(props: {
         render={
           <button
             type="button"
-            className="group inline-flex shrink-0 items-center justify-center rounded-full p-0.5 transition-opacity hover:opacity-80"
+            className={cn(
+              "group inline-flex shrink-0 items-center justify-center rounded-full p-0.5 transition-opacity hover:opacity-80",
+              className,
+            )}
             aria-label={display.ariaLabel}
           >
-            <span className="relative flex h-4 w-4 items-center justify-center">
+            <span className="relative flex size-[13px] items-center justify-center">
               <svg
                 viewBox="0 0 16 16"
                 className="-rotate-90 absolute inset-0 h-full w-full transform-gpu"

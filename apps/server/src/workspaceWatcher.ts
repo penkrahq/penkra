@@ -5,7 +5,7 @@
 import path from "node:path";
 
 import watcher from "@parcel/watcher";
-import type { ProjectWorkspaceChangeEvent } from "@synara/contracts";
+import type { ProjectWorkspaceChangeEvent } from "@penkra/contracts";
 import { Effect, Layer, PubSub, ServiceMap, Stream } from "effect";
 
 import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine";
@@ -28,7 +28,7 @@ export interface WorkspaceWatcherShape {
 }
 
 export class WorkspaceWatcher extends ServiceMap.Service<WorkspaceWatcher, WorkspaceWatcherShape>()(
-  "synara/workspaceWatcher",
+  "penkra/workspaceWatcher",
 ) {}
 
 function isWithin(root: string, target: string): boolean {

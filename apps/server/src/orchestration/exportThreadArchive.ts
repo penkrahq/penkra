@@ -10,12 +10,12 @@
 //          string or uncompressed buffer — peak memory is bounded by the
 //          compressed bytes of one entry.
 // Exports: threadArchiveChunks, buildThreadArchiveBytes, threadArchiveFileName.
-// The export-eligibility guard lives in @synara/shared/threadExport so the
+// The export-eligibility guard lives in @penkra/shared/threadExport so the
 // web composer and the HTTP route share one predicate.
 
 import zlib from "node:zlib";
 
-import type { OrchestrationMessage, OrchestrationThread } from "@synara/contracts";
+import type { OrchestrationMessage, OrchestrationThread } from "@penkra/contracts";
 
 export interface ThreadArchiveEntry {
   readonly name: string;
@@ -253,5 +253,5 @@ export function threadArchiveFileName(input: {
   readonly isoTimestamp: string;
 }): string {
   const dateBucket = input.isoTimestamp.slice(0, 10).replaceAll("-", "");
-  return `synara-thread-${slugifyTitle(input.title)}-${dateBucket}.zip`;
+  return `penkra-thread-${slugifyTitle(input.title)}-${dateBucket}.zip`;
 }

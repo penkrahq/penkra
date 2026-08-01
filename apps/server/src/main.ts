@@ -9,13 +9,13 @@
 import OS from "node:os";
 import { Config, Data, Effect, FileSystem, Layer, Option, Path, Schema, ServiceMap } from "effect";
 import { Command, Flag } from "effect/unstable/cli";
-import { NetService } from "@synara/shared/Net";
+import { NetService } from "@penkra/shared/Net";
 import {
   optionalBooleanEnvironmentConfig,
   optionalBooleanFlag,
   resolveBooleanConfig,
   type BooleanFlagInput,
-} from "@synara/shared/cli";
+} from "@penkra/shared/cli";
 import {
   DEFAULT_PORT,
   deriveServerPaths,
@@ -60,7 +60,7 @@ export class StartupError extends Data.TaggedError("StartupError")<{
   readonly cause?: unknown;
 }> {}
 
-const DESKTOP_SHUTDOWN_TOKEN_ENV_KEY = "SYNARA_DESKTOP_SHUTDOWN_TOKEN";
+const DESKTOP_SHUTDOWN_TOKEN_ENV_KEY = "PENKRA_DESKTOP_SHUTDOWN_TOKEN";
 
 function consumeDesktopShutdownTokenFromProcessEnvironment(): string | undefined {
   const matchingKeys =
@@ -83,7 +83,7 @@ interface CliInput {
   readonly mode: Option.Option<RuntimeMode>;
   readonly port: Option.Option<number>;
   readonly host: Option.Option<string>;
-  readonly synaraHome: Option.Option<string>;
+  readonly penkraHome: Option.Option<string>;
   readonly devUrl: Option.Option<URL>;
   readonly publicUrl: Option.Option<URL>;
   readonly allowInsecureRemote: BooleanFlagInput;
@@ -118,7 +118,7 @@ export interface CliConfigShape {
  * CliConfig - Service tag for startup CLI/runtime helpers.
  */
 export class CliConfig extends ServiceMap.Service<CliConfig, CliConfigShape>()(
-  "synara/main/CliConfig",
+  "penkra/main/CliConfig",
 ) {
   static readonly layer = Layer.effect(
     CliConfig,
@@ -138,7 +138,7 @@ export class CliConfig extends ServiceMap.Service<CliConfig, CliConfigShape>()(
 }
 
 const CliEnvConfig = Config.all({
-  mode: Config.string("SYNARA_MODE").pipe(
+  mode: Config.string("PENKRA_MODE").pipe(
     Config.option,
     Config.map(
       Option.match<RuntimeMode, string>({
@@ -147,26 +147,26 @@ const CliEnvConfig = Config.all({
       }),
     ),
   ),
-  port: Config.port("SYNARA_PORT").pipe(Config.option, Config.map(Option.getOrUndefined)),
-  host: Config.string("SYNARA_HOST").pipe(Config.option, Config.map(Option.getOrUndefined)),
-  synaraHome: Config.string("SYNARA_HOME").pipe(Config.option, Config.map(Option.getOrUndefined)),
+  port: Config.port("PENKRA_PORT").pipe(Config.option, Config.map(Option.getOrUndefined)),
+  host: Config.string("PENKRA_HOST").pipe(Config.option, Config.map(Option.getOrUndefined)),
+  penkraHome: Config.string("PENKRA_HOME").pipe(Config.option, Config.map(Option.getOrUndefined)),
   devUrl: Config.url("VITE_DEV_SERVER_URL").pipe(Config.option, Config.map(Option.getOrUndefined)),
-  publicUrl: Config.url("SYNARA_PUBLIC_URL").pipe(Config.option, Config.map(Option.getOrUndefined)),
-  allowInsecureRemote: optionalBooleanEnvironmentConfig("SYNARA_ALLOW_INSECURE_REMOTE"),
-  noBrowser: optionalBooleanEnvironmentConfig("SYNARA_NO_BROWSER"),
-  authToken: Config.string("SYNARA_AUTH_TOKEN").pipe(
+  publicUrl: Config.url("PENKRA_PUBLIC_URL").pipe(Config.option, Config.map(Option.getOrUndefined)),
+  allowInsecureRemote: optionalBooleanEnvironmentConfig("PENKRA_ALLOW_INSECURE_REMOTE"),
+  noBrowser: optionalBooleanEnvironmentConfig("PENKRA_NO_BROWSER"),
+  authToken: Config.string("PENKRA_AUTH_TOKEN").pipe(
     Config.option,
     Config.map(Option.getOrUndefined),
   ),
-  desktopShutdownToken: Config.string("SYNARA_DESKTOP_SHUTDOWN_TOKEN").pipe(
+  desktopShutdownToken: Config.string("PENKRA_DESKTOP_SHUTDOWN_TOKEN").pipe(
     Config.option,
     Config.map(Option.getOrUndefined),
   ),
   autoBootstrapProjectFromCwd: optionalBooleanEnvironmentConfig(
-    "SYNARA_AUTO_BOOTSTRAP_PROJECT_FROM_CWD",
+    "PENKRA_AUTO_BOOTSTRAP_PROJECT_FROM_CWD",
   ),
-  logProviderEvents: optionalBooleanEnvironmentConfig("SYNARA_LOG_PROVIDER_EVENTS"),
-  logWebSocketEvents: optionalBooleanEnvironmentConfig("SYNARA_LOG_WS_EVENTS"),
+  logProviderEvents: optionalBooleanEnvironmentConfig("PENKRA_LOG_PROVIDER_EVENTS"),
+  logWebSocketEvents: optionalBooleanEnvironmentConfig("PENKRA_LOG_WS_EVENTS"),
 });
 
 const ServerConfigLive = (input: CliInput) =>
@@ -208,7 +208,7 @@ const ServerConfigLive = (input: CliInput) =>
       if (configuredPublicUrl && publicUrl === undefined) {
         return yield* new StartupError({
           message:
-            "SYNARA_PUBLIC_URL/--public-url must be an HTTPS root origin without credentials, path, query, or fragment (for example https://synara.example.com).",
+            "PENKRA_PUBLIC_URL/--public-url must be an HTTPS root origin without credentials, path, query, or fragment (for example https://penkra.example.com).",
         });
       }
       const allowInsecureRemote = resolveBooleanConfig(
@@ -216,7 +216,7 @@ const ServerConfigLive = (input: CliInput) =>
         env.allowInsecureRemote,
         false,
       );
-      const configuredHome = Option.getOrUndefined(input.synaraHome) ?? env.synaraHome;
+      const configuredHome = Option.getOrUndefined(input.penkraHome) ?? env.penkraHome;
       const baseDir = yield* resolveBaseDir(configuredHome);
       const userHomeDir = OS.homedir();
       const derivedPaths = yield* deriveServerPaths(baseDir, devUrl);
@@ -446,7 +446,7 @@ const makeServerProgram = (input: CliInput) => {
     );
     // Optional Claude OAuth keepalive. Disabled by default because it touches
     // Claude Code auth data in the background; users can opt in with
-    // SYNARA_CLAUDE_KEEPALIVE=1.
+    // PENKRA_CLAUDE_KEEPALIVE=1.
     yield* Effect.forkChild(
       Effect.gen(function* () {
         const settings = yield* serverSettings.getSettings;
@@ -470,7 +470,7 @@ const makeServerProgram = (input: CliInput) => {
           "INSECURE REMOTE ACCESS ENABLED: credentials and session traffic are unencrypted",
           {
             pairingUrl: startupPairingUrl,
-            hint: "Use only on a trusted LAN. Configure SYNARA_PUBLIC_URL behind HTTPS for protected remote access.",
+            hint: "Use only on a trusted LAN. Configure PENKRA_PUBLIC_URL behind HTTPS for protected remote access.",
           },
         );
       }
@@ -525,8 +525,8 @@ const hostFlag = Flag.string("host").pipe(
   Flag.withDescription("Host/interface to bind (for example 127.0.0.1, 0.0.0.0, or a Tailnet IP)."),
   Flag.optional,
 );
-const synaraHomeFlag = Flag.string("home-dir").pipe(
-  Flag.withDescription("Base directory for all Penkra data (equivalent to SYNARA_HOME)."),
+const penkraHomeFlag = Flag.string("home-dir").pipe(
+  Flag.withDescription("Base directory for all Penkra data (equivalent to PENKRA_HOME)."),
   Flag.optional,
 );
 const devUrlFlag = Flag.string("dev-url").pipe(
@@ -537,13 +537,13 @@ const devUrlFlag = Flag.string("dev-url").pipe(
 const publicUrlFlag = Flag.string("public-url").pipe(
   Flag.withSchema(Schema.URLFromString),
   Flag.withDescription(
-    "HTTPS public root origin provided by a TLS-terminating reverse proxy (equivalent to SYNARA_PUBLIC_URL).",
+    "HTTPS public root origin provided by a TLS-terminating reverse proxy (equivalent to PENKRA_PUBLIC_URL).",
   ),
   Flag.optional,
 );
 const allowInsecureRemoteFlag = optionalBooleanFlag("allow-insecure-remote", {
   description:
-    "Explicitly allow unencrypted authenticated remote access on a trusted LAN (equivalent to SYNARA_ALLOW_INSECURE_REMOTE).",
+    "Explicitly allow unencrypted authenticated remote access on a trusted LAN (equivalent to PENKRA_ALLOW_INSECURE_REMOTE).",
 });
 const noBrowserFlag = optionalBooleanFlag("no-browser", {
   description: "Disable automatic browser opening.",
@@ -560,19 +560,19 @@ const autoBootstrapProjectFromCwdFlag = optionalBooleanFlag("auto-bootstrap-proj
 });
 const logProviderEventsFlag = optionalBooleanFlag("log-provider-events", {
   description:
-    "Emit native/canonical provider NDJSON logs for debugging (equivalent to SYNARA_LOG_PROVIDER_EVENTS).",
+    "Emit native/canonical provider NDJSON logs for debugging (equivalent to PENKRA_LOG_PROVIDER_EVENTS).",
 });
 const logWebSocketEventsFlag = optionalBooleanFlag("log-websocket-events", {
   description:
-    "Emit server-side logs for outbound WebSocket push traffic (equivalent to SYNARA_LOG_WS_EVENTS).",
+    "Emit server-side logs for outbound WebSocket push traffic (equivalent to PENKRA_LOG_WS_EVENTS).",
   aliases: ["log-ws-events"],
 });
 
-const baseServerCommand = Command.make("synara", {
+const baseServerCommand = Command.make("penkra", {
   mode: modeFlag,
   port: portFlag,
   host: hostFlag,
-  synaraHome: synaraHomeFlag,
+  penkraHome: penkraHomeFlag,
   devUrl: devUrlFlag,
   publicUrl: publicUrlFlag,
   allowInsecureRemote: allowInsecureRemoteFlag,
@@ -587,4 +587,4 @@ const serverCommand = baseServerCommand.pipe(
   Command.withHandler((input) => makeServerProgram(input)),
 );
 
-export const synaraCli = serverCommand;
+export const penkraCli = serverCommand;

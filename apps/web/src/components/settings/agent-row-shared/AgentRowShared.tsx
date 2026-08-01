@@ -1,4 +1,4 @@
-import type { ProviderKind } from "@synara/contracts";
+import type { ProviderKind } from "@penkra/contracts";
 import { IconChevronRight } from "@tabler/icons-react";
 
 import { ProviderIcon } from "~/components/ProviderIcon";

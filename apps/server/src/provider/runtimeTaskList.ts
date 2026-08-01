@@ -1,4 +1,4 @@
-import type { RuntimeTaskListItem, RuntimeTaskStatus } from "@synara/contracts";
+import type { RuntimeTaskListItem, RuntimeTaskStatus } from "@penkra/contracts";
 
 export function normalizeRuntimeTaskStatus(value: unknown): RuntimeTaskStatus {
   if (value === "completed") {

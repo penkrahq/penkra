@@ -27,6 +27,23 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 export const Open: Story = {};
 export const Closed: Story = { args: { defaultExpanded: false } };
+export const ClosedRunning: Story = {
+  args: { defaultExpanded: false, workStatus: "running" },
+};
+export const ClosedDone: Story = {
+  args: { defaultExpanded: false, workStatus: "done" },
+};
+export const ClosedNeedsAttention: Story = {
+  args: { defaultExpanded: false, workStatus: "attention" },
+};
+export const Pinned: Story = {
+  args: {
+    label: "Pinned folder",
+    pinned: true,
+    threads: threads.map((thread, index) => (index === 0 ? { ...thread, pinned: true } : thread)),
+  },
+  parameters: { pencil: { componentId: "D2SV3", pinBadgeComponentId: "dTHsB" } },
+};
 export const Running: Story = {
   args: {
     threads: threads.map((thread, index) =>

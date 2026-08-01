@@ -1,7 +1,7 @@
 // FILE: storageOriginMigration.ts
 // Purpose: Imports Penkra browser state before renderer stores hydrate after a desktop origin move.
 
-import type { SynaraStorageSnapshot } from "@synara/contracts";
+import type { PenkraStorageSnapshot } from "@penkra/contracts";
 
 const MAX_SNAPSHOT_ENTRIES = 2_048;
 const MAX_SNAPSHOT_KEY_LENGTH = 512;
@@ -9,7 +9,7 @@ const MAX_SNAPSHOT_VALUE_LENGTH = 16 * 1024 * 1024;
 const MAX_SNAPSHOT_BYTES = 16 * 1024 * 1024;
 
 function isCanonicalStorageKey(key: string): boolean {
-  return key.startsWith("penkra:") || key.startsWith("synara:") || key.startsWith("synara.");
+  return key.startsWith("penkra:") || key.startsWith("penkra:") || key.startsWith("penkra.");
 }
 
 function getLocalStorage(): Storage | null {
@@ -20,8 +20,8 @@ function getLocalStorage(): Storage | null {
   }
 }
 
-export function importSynaraStorageSnapshot(
-  snapshot: SynaraStorageSnapshot | null,
+export function importPenkraStorageSnapshot(
+  snapshot: PenkraStorageSnapshot | null,
   storage = getLocalStorage(),
 ): boolean {
   if (!snapshot || !storage || snapshot.version !== 1 || !snapshot.entries) return false;
@@ -54,13 +54,13 @@ export function importSynaraStorageSnapshot(
   }
 }
 
-export function bootstrapSynaraStorageOriginMigration(): void {
+export function bootstrapPenkraStorageOriginMigration(): void {
   const bridge = globalThis.window?.desktopBridge?.storageMigration;
   if (!bridge) return;
 
   try {
     const snapshot = bridge.readSnapshot();
-    if (snapshot && importSynaraStorageSnapshot(snapshot)) {
+    if (snapshot && importPenkraStorageSnapshot(snapshot)) {
       void bridge.acknowledgeSnapshot().catch(() => undefined);
     }
   } catch {
@@ -68,4 +68,4 @@ export function bootstrapSynaraStorageOriginMigration(): void {
   }
 }
 
-bootstrapSynaraStorageOriginMigration();
+bootstrapPenkraStorageOriginMigration();

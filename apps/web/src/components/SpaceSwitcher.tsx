@@ -10,7 +10,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { restrictToHorizontalAxis } from "@dnd-kit/modifiers";
-import { SPACE_NAME_MAX_LENGTH, type ProjectId, type SpaceId } from "@synara/contracts";
+import { SPACE_NAME_MAX_LENGTH, type ProjectId, type SpaceId } from "@penkra/contracts";
 import {
   useCallback,
   useEffect,
@@ -48,7 +48,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 export type SpaceActivityTone = "attention" | "running" | "completed";
 
 /** HTML5 drag payload for filing a project by dropping it onto a space tab. */
-export const PROJECT_SPACE_DRAG_MIME = "application/x-synara-project";
+export const PROJECT_SPACE_DRAG_MIME = "application/x-penkra-project";
 
 function readDraggedProjectId(event: DragEvent): ProjectId | null {
   try {

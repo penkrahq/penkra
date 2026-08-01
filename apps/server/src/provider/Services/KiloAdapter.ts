@@ -16,5 +16,5 @@ export interface KiloAdapterShape extends ProviderAdapterShape<ProviderAdapterEr
 }
 
 export class KiloAdapter extends ServiceMap.Service<KiloAdapter, KiloAdapterShape>()(
-  "synara/provider/Services/KiloAdapter",
+  "penkra/provider/Services/KiloAdapter",
 ) {}

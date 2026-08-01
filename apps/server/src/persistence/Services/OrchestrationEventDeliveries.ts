@@ -1,4 +1,4 @@
-import { EventId, IsoDateTime, NonNegativeInt, ThreadId } from "@synara/contracts";
+import { EventId, IsoDateTime, NonNegativeInt, ThreadId } from "@penkra/contracts";
 import { Option, Schema, ServiceMap } from "effect";
 import type { Effect } from "effect";
 
@@ -146,5 +146,5 @@ export class OrchestrationEventDeliveryRepository extends ServiceMap.Service<
   OrchestrationEventDeliveryRepository,
   OrchestrationEventDeliveryRepositoryShape
 >()(
-  "synara/persistence/Services/OrchestrationEventDeliveries/OrchestrationEventDeliveryRepository",
+  "penkra/persistence/Services/OrchestrationEventDeliveries/OrchestrationEventDeliveryRepository",
 ) {}

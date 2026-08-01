@@ -25,7 +25,7 @@ import {
   type ProviderSession,
   type RuntimeMode,
   TurnId,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 import {
   Cache,
   Cause,
@@ -44,19 +44,19 @@ import {
 import {
   buildPromptThreadTitleFallback,
   isGenericChatThreadTitle,
-} from "@synara/shared/chatThreads";
+} from "@penkra/shared/chatThreads";
 import {
   collectTailTurnIds,
   resolveTailUserMessageEditTarget,
-} from "@synara/shared/conversationEdit";
-import { isTemporaryWorktreeBranch, WORKTREE_BRANCH_PREFIX } from "@synara/shared/git";
-import { claudeSelectionRequiresRestart } from "@synara/shared/model";
+} from "@penkra/shared/conversationEdit";
+import { isTemporaryWorktreeBranch, WORKTREE_BRANCH_PREFIX } from "@penkra/shared/git";
+import { claudeSelectionRequiresRestart } from "@penkra/shared/model";
 import {
   formatProviderDeliveryBlockDetail,
   PROVIDER_DELIVERY_BLOCK_SUMMARY,
-} from "@synara/shared/providerDeliveryBlock";
-import { buildStalePendingRequestFailureDetail } from "@synara/shared/threadSummary";
-import { resolveThreadWorkspaceState } from "@synara/shared/threadEnvironment";
+} from "@penkra/shared/providerDeliveryBlock";
+import { buildStalePendingRequestFailureDetail } from "@penkra/shared/threadSummary";
+import { resolveThreadWorkspaceState } from "@penkra/shared/threadEnvironment";
 
 import {
   checkpointRefForThreadMessageStart,
@@ -96,7 +96,7 @@ import { QueuedTurnPromotionRepository } from "../../persistence/Services/Queued
 import { ManagedAttachmentRepository } from "../../persistence/Services/ManagedAttachments.ts";
 import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
-import { providerStartOptionsFromServerSettings } from "@synara/shared/serverSettings";
+import { providerStartOptionsFromServerSettings } from "@penkra/shared/serverSettings";
 import { clearWorkspaceIndexCache } from "../../workspaceEntries.ts";
 import {
   buildPriorTranscriptBootstrapText,
@@ -128,7 +128,7 @@ import { resolveProviderSessionThread as resolveProviderSessionThreadFromProject
 type ProviderQueueDrainEvent = Extract<
   ProviderRuntimeEvent,
   {
-    type: "turn.completed" | "turn.aborted";
+    type: "turn.completed" | "turn.aborted" | "session.exited" | "runtime.error";
   }
 >;
 
@@ -296,6 +296,7 @@ const PROVIDER_COMMAND_SAFE_RETRY_DELAY = Duration.millis(50);
 const PROVIDER_COMMAND_INTERRUPT_TIMEOUT = Duration.seconds(10);
 const PROVIDER_COMMAND_STOP_TIMEOUT = Duration.seconds(15);
 const PROVIDER_COMMAND_EVENT_TIMEOUT = Duration.seconds(120);
+const QUEUED_TURN_RECOVERY_INTERVAL = Duration.seconds(5);
 const PROVIDER_INPUT_SAFETY_MARGIN_CHARS = 1_000;
 const THREAD_MENTION_CONTEXT_SUFFIX_PREFIX_CHARS = 2;
 const DEFAULT_RUNTIME_MODE: RuntimeMode = "full-access";
@@ -416,7 +417,7 @@ function buildGeneratedWorktreeBranchName(raw: string): string {
     .replace(/^refs\/heads\//, "")
     .replace(/['"`]/g, "");
 
-  const withoutPrefix = normalized.replace(/^synara\//, "");
+  const withoutPrefix = normalized.replace(/^penkra\//, "");
 
   const branchFragment = withoutPrefix
     .replace(/[^a-z0-9/_-]+/g, "-")
@@ -432,19 +433,21 @@ function buildGeneratedWorktreeBranchName(raw: string): string {
 
 export interface ProviderCommandReactorLiveOptions {
   readonly commandEventTimeout?: Duration.Duration;
+  readonly queuedTurnRecoveryInterval?: Duration.Duration;
 }
 
 interface ProviderCommandReactorConfigShape {
   readonly commandEventTimeout: Duration.Duration;
+  readonly queuedTurnRecoveryInterval: Duration.Duration;
 }
 
 class ProviderCommandReactorConfig extends ServiceMap.Service<
   ProviderCommandReactorConfig,
   ProviderCommandReactorConfigShape
->()("synara/orchestration/Layers/ProviderCommandReactorConfig") {}
+>()("penkra/orchestration/Layers/ProviderCommandReactorConfig") {}
 
 const make = Effect.gen(function* () {
-  const { commandEventTimeout } = yield* ProviderCommandReactorConfig;
+  const { commandEventTimeout, queuedTurnRecoveryInterval } = yield* ProviderCommandReactorConfig;
   const orchestrationEngine = yield* OrchestrationEngineService;
   const deliveryRepository = yield* OrchestrationEventDeliveryRepository;
   const turnCheckpointCoordinator = yield* TurnCheckpointCoordinator;
@@ -671,6 +674,7 @@ const make = Effect.gen(function* () {
   const setThreadSession = (input: {
     readonly threadId: ThreadId;
     readonly session: OrchestrationSession;
+    readonly expectedSession?: Pick<OrchestrationSession, "status" | "updatedAt">;
     readonly createdAt: string;
   }) =>
     orchestrationEngine.dispatch({
@@ -678,6 +682,12 @@ const make = Effect.gen(function* () {
       commandId: serverCommandId("provider-session-set"),
       threadId: input.threadId,
       session: input.session,
+      ...(input.expectedSession !== undefined
+        ? {
+            expectedSessionStatus: input.expectedSession.status,
+            expectedSessionUpdatedAt: input.expectedSession.updatedAt,
+          }
+        : {}),
       createdAt: input.createdAt,
     });
 
@@ -685,6 +695,7 @@ const make = Effect.gen(function* () {
     readonly threadId: ThreadId;
     readonly runtimeMode?: RuntimeMode;
     readonly detail: string;
+    readonly expectedSession?: Pick<OrchestrationSession, "status" | "updatedAt">;
     readonly createdAt: string;
   }) {
     const thread = yield* resolveThread(input.threadId);
@@ -702,6 +713,7 @@ const make = Effect.gen(function* () {
         lastError: input.detail,
         updatedAt: input.createdAt,
       },
+      ...(input.expectedSession !== undefined ? { expectedSession: input.expectedSession } : {}),
       createdAt: input.createdAt,
     });
   });
@@ -1645,7 +1657,7 @@ const make = Effect.gen(function* () {
       ) =>
         Effect.gen(function* () {
           // Claude cannot continue from a missing native session; clear the
-          // dead cursor and replay once with Synara transcript context.
+          // dead cursor and replay once with Penkra transcript context.
           yield* clearStaleProviderResumeState({
             threadId: input.threadId,
             cause,
@@ -2433,6 +2445,12 @@ const make = Effect.gen(function* () {
 
   const processQueueDrainEvent = Effect.fnUntraced(function* (event: ProviderQueueDrainEvent) {
     observePendingContextBootstrapTerminalEvent(event);
+    // A runtime error may be emitted before an adapter has finished tearing
+    // down its active turn. Let that teardown complete; the recovery sweep will
+    // promote pending work as soon as no live provider turn remains.
+    if (event.type === "runtime.error" && (yield* hasLiveProviderTurn(event.threadId))) {
+      return;
+    }
     const sessionThreadId =
       (yield* resolveProviderSessionThread(event.threadId))?.id ?? event.threadId;
     const reservation = pendingQueuedDispatchBySessionThread.get(sessionThreadId);
@@ -2488,6 +2506,17 @@ const make = Effect.gen(function* () {
       }),
     );
   });
+
+  const recoverQueuedTurnPromotionsSafely = recoverQueuedTurnPromotions.pipe(
+    Effect.catchCause((cause) => {
+      if (Cause.hasInterruptsOnly(cause)) {
+        return Effect.failCause(cause);
+      }
+      return Effect.logWarning("provider command reactor failed to recover queued turns", {
+        cause: Cause.pretty(cause),
+      });
+    }),
+  );
 
   const interruptProviderTurn = Effect.fnUntraced(function* (input: {
     readonly threadId: ThreadId;
@@ -3211,6 +3240,37 @@ const make = Effect.gen(function* () {
       createdAt: event.payload.createdAt,
     });
 
+  const surfaceTimedOutTurnStart = Effect.fnUntraced(function* (
+    event: Extract<ProviderIntentEvent, { type: "thread.turn-start-requested" }>,
+    detail: string,
+  ) {
+    const session = (yield* resolveThread(event.payload.threadId))?.session;
+    if (session?.status !== "starting" || session.activeTurnId !== null) {
+      return;
+    }
+
+    const createdAt = new Date().toISOString();
+    yield* setThreadSessionError({
+      threadId: event.payload.threadId,
+      runtimeMode: event.payload.runtimeMode,
+      detail,
+      expectedSession: {
+        status: session.status,
+        updatedAt: session.updatedAt,
+      },
+      createdAt,
+    });
+    yield* appendProviderFailureActivity({
+      threadId: event.payload.threadId,
+      kind: "provider.turn.start.failed",
+      summary: "Provider turn start timed out",
+      detail,
+      turnId: null,
+      createdAt,
+      settlementStatus: "uncertain",
+    });
+  });
+
   const processDomainEvent = (event: ProviderIntentEvent) =>
     Effect.gen(function* () {
       switch (event.type) {
@@ -3279,6 +3339,11 @@ const make = Effect.gen(function* () {
         case "thread.runtime-mode-set": {
           const thread = yield* resolveThread(event.payload.threadId);
           if (!thread?.session || thread.session.status === "stopped") {
+            return;
+          }
+          if (thread.session.activeTurnId !== null) {
+            // Restarting to apply a runtime-mode change would kill the active
+            // turn. The next turn's normal session ensure applies the new mode.
             return;
           }
           const cachedProviderOptions = threadProviderOptions.get(event.payload.threadId);
@@ -3601,6 +3666,17 @@ const make = Effect.gen(function* () {
           // The delivery lock is single-permit and process-wide, so an attempt
           // that never returns is a total outage. Settle it as uncertain and
           // let the thread quarantine rather than block every other thread.
+          if (event.type === "thread.turn-start-requested") {
+            yield* surfaceTimedOutTurnStart(event, workerResult.detail).pipe(
+              Effect.catchCause((cause) =>
+                Effect.logError("failed to surface timed-out provider turn start", {
+                  eventSequence: event.sequence,
+                  threadId: event.payload.threadId,
+                  cause: Cause.pretty(cause),
+                }),
+              ),
+            );
+          }
           yield* settleTerminalFailure({
             event,
             claimOwner,
@@ -3873,7 +3949,7 @@ const make = Effect.gen(function* () {
                 threadId: blocker.threadId,
                 kind: "provider.turn.start.failed",
                 summary: "Previous messages were not sent",
-                detail: `Synara recovered an earlier provider failure, but ${skippedPromptCount} ${noun} skipped while the thread was blocked. Resend ${skippedPromptCount === 1 ? "it" : "them"} to continue.`,
+                detail: `Penkra recovered an earlier provider failure, but ${skippedPromptCount} ${noun} skipped while the thread was blocked. Resend ${skippedPromptCount === 1 ? "it" : "them"} to continue.`,
                 turnId: null,
                 createdAt,
               });
@@ -3926,13 +4002,23 @@ const make = Effect.gen(function* () {
   const start = seedThreadModelSelections.pipe(
     Effect.andThen(
       Effect.all([
-        startProviderIntentSource.pipe(Effect.andThen(recoverQueuedTurnPromotions)),
+        startProviderIntentSource.pipe(Effect.andThen(recoverQueuedTurnPromotionsSafely)),
         Stream.runForEach(providerService.streamEvents, (event) => {
-          if (event.type !== "turn.completed" && event.type !== "turn.aborted") {
+          if (
+            event.type !== "turn.completed" &&
+            event.type !== "turn.aborted" &&
+            event.type !== "session.exited" &&
+            event.type !== "runtime.error"
+          ) {
             return Effect.void;
           }
           return processQueueDrainEventSafely(event);
         }).pipe(Effect.forkScoped),
+        Effect.forever(
+          Effect.sleep(queuedTurnRecoveryInterval).pipe(
+            Effect.andThen(recoverQueuedTurnPromotionsSafely),
+          ),
+        ).pipe(Effect.forkScoped),
       ]).pipe(Effect.asVoid),
     ),
     Effect.orDie,
@@ -3978,6 +4064,8 @@ export const makeProviderCommandReactorLive = (options?: ProviderCommandReactorL
     Layer.provide(
       Layer.succeed(ProviderCommandReactorConfig, {
         commandEventTimeout: options?.commandEventTimeout ?? PROVIDER_COMMAND_EVENT_TIMEOUT,
+        queuedTurnRecoveryInterval:
+          options?.queuedTurnRecoveryInterval ?? QUEUED_TURN_RECOVERY_INTERVAL,
       }),
     ),
     Layer.provideMerge(OrchestrationEventDeliveryRepositoryLive),

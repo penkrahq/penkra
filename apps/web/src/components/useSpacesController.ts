@@ -6,7 +6,7 @@
 //      (inputs in, handlers out) keeps it reviewable instead of interleaved through an
 //      8k-line component.
 
-import type { ProjectId, SpaceId, ThreadId } from "@synara/contracts";
+import type { ProjectId, SpaceId, ThreadId } from "@penkra/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import { startTransition, useCallback, useEffect, useMemo, useState } from "react";
 
@@ -112,7 +112,7 @@ export function useSpacesController(input: {
       threadSpaceById: new Map(
         sidebarThreads
           .filter((thread) => thread.archivedAt == null && thread.spaceId != null)
-          .map((thread) => [thread.id, thread.spaceId] as const),
+          .map((thread) => [thread.id, thread.spaceId as SpaceId] as const),
       ),
     });
   }, [

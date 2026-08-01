@@ -14,8 +14,8 @@ import {
   type SpaceId,
   type ThreadEnvironmentMode,
   type ThreadId,
-} from "@synara/contracts";
-import { resolveThreadEnvironmentMode } from "@synara/shared/threadEnvironment";
+} from "@penkra/contracts";
+import { resolveThreadEnvironmentMode } from "@penkra/shared/threadEnvironment";
 import {
   type ComposerThreadDraftState,
   type DraftThreadEnvMode,

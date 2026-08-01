@@ -3,12 +3,12 @@
 // Layer: Web lib
 // Exports: cwd resolution, search normalization, and provider skill/plugin display helpers.
 
-import { resolveThreadBranchSourceCwd } from "@synara/shared/threadEnvironment";
+import { resolveThreadBranchSourceCwd } from "@penkra/shared/threadEnvironment";
 import type {
   ProviderNativeCommandDescriptor,
   ProviderPluginDescriptor,
   ProviderSkillDescriptor,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 
 // Prefer the most specific workspace context so discovery reflects the active thread first.
 export function resolveProviderDiscoveryCwd(options: {

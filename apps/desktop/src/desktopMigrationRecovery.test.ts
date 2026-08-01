@@ -4,7 +4,7 @@ import * as Path from "node:path";
 
 import { describe, expect, it, vi } from "vitest";
 
-import { MIGRATION_RECOVERY_MAX_RESUME_ATTEMPTS } from "@synara/shared/migrationRecovery";
+import { MIGRATION_RECOVERY_MAX_RESUME_ATTEMPTS } from "@penkra/shared/migrationRecovery";
 
 import {
   hasPendingDesktopMigrationRecovery,
@@ -19,16 +19,16 @@ describe("desktop migration recovery", () => {
   it("targets the same production database and bundled restore authority as the server", () => {
     expect(
       resolveDesktopMigrationRecoveryPaths({
-        baseDir: Path.join(Path.sep, "home", "synara"),
+        baseDir: Path.join(Path.sep, "home", "penkra"),
         appRoot: Path.join(Path.sep, "app"),
         isDevelopment: false,
       }),
     ).toEqual({
-      dbPath: Path.join(Path.sep, "home", "synara", "userdata", "state.sqlite"),
+      dbPath: Path.join(Path.sep, "home", "penkra", "userdata", "state.sqlite"),
       markerPath: Path.join(
         Path.sep,
         "home",
-        "synara",
+        "penkra",
         "userdata",
         "state.sqlite.migration-recovery.json",
       ),
@@ -45,16 +45,16 @@ describe("desktop migration recovery", () => {
 
   it("uses the isolated development database when the desktop backend receives a dev URL", () => {
     const paths = resolveDesktopMigrationRecoveryPaths({
-      baseDir: Path.join(Path.sep, "home", "synara"),
+      baseDir: Path.join(Path.sep, "home", "penkra"),
       appRoot: Path.join(Path.sep, "repo"),
       isDevelopment: true,
     });
 
-    expect(paths.dbPath).toBe(Path.join(Path.sep, "home", "synara", "dev", "state.sqlite"));
+    expect(paths.dbPath).toBe(Path.join(Path.sep, "home", "penkra", "dev", "state.sqlite"));
   });
 
   it("continues only when the server-owned command clears the durable marker", async () => {
-    const directory = await FS.mkdtemp(Path.join(OS.tmpdir(), "synara-desktop-recovery-"));
+    const directory = await FS.mkdtemp(Path.join(OS.tmpdir(), "penkra-desktop-recovery-"));
     const dbPath = Path.join(directory, "state.sqlite");
     const paths: DesktopMigrationRecoveryPaths = {
       dbPath,
@@ -81,7 +81,7 @@ describe("desktop migration recovery", () => {
   });
 
   it("fails closed when a successful command leaves the recovery marker behind", async () => {
-    const directory = await FS.mkdtemp(Path.join(OS.tmpdir(), "synara-desktop-recovery-"));
+    const directory = await FS.mkdtemp(Path.join(OS.tmpdir(), "penkra-desktop-recovery-"));
     const dbPath = Path.join(directory, "state.sqlite");
     const paths: DesktopMigrationRecoveryPaths = {
       dbPath,
@@ -281,7 +281,7 @@ describe("requiresDesktopMigrationRecovery", () => {
     contents: string | null,
     assert: (paths: DesktopMigrationRecoveryPaths) => void,
   ): Promise<void> {
-    const directory = await FS.mkdtemp(Path.join(OS.tmpdir(), "synara-recovery-gate-"));
+    const directory = await FS.mkdtemp(Path.join(OS.tmpdir(), "penkra-recovery-gate-"));
     try {
       const paths = resolveDesktopMigrationRecoveryPaths({
         baseDir: directory,

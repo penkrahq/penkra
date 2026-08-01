@@ -3,7 +3,7 @@
 // Layer: Persistence compatibility helper
 // Exports: normalizeLegacyModelSelection, normalizePersistedModelSelection
 
-import { MODEL_OPTIONS_BY_PROVIDER } from "@synara/contracts";
+import { MODEL_OPTIONS_BY_PROVIDER } from "@penkra/contracts";
 
 type ModelProviderKind =
   | "codex"

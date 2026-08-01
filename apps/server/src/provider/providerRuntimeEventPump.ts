@@ -7,7 +7,7 @@
  *
  * @module providerRuntimeEventPump
  */
-import type { ProviderKind, ProviderRuntimeEvent } from "@synara/contracts";
+import type { ProviderKind, ProviderRuntimeEvent } from "@penkra/contracts";
 import { Cause, Effect, Stream } from "effect";
 
 import type {
@@ -17,6 +17,7 @@ import type {
 
 const DEFAULT_RETRY_BASE_DELAY_MS = 25;
 const DEFAULT_RETRY_MAX_DELAY_MS = 2_000;
+const DEFAULT_DEGRADED_HEAL_AFTER_SUCCESSES = 100;
 
 export interface ProviderRuntimeEventPumpOptions<R> {
   readonly provider: ProviderKind;
@@ -30,6 +31,7 @@ export interface ProviderRuntimeEventPumpOptions<R> {
   ) => Effect.Effect<void, unknown, R>;
   readonly retryBaseDelayMs?: number;
   readonly retryMaxDelayMs?: number;
+  readonly degradedHealAfterSuccesses?: number;
 }
 
 export function makeProviderRuntimeEventPumpHealthRegistry(
@@ -121,10 +123,24 @@ export function runProviderRuntimeEventPump<R>(
     retryBaseDelayMs,
     Math.floor(options.retryMaxDelayMs ?? DEFAULT_RETRY_MAX_DELAY_MS),
   );
+  const degradedHealAfterSuccesses = Math.max(
+    1,
+    Math.floor(options.degradedHealAfterSuccesses ?? DEFAULT_DEGRADED_HEAL_AFTER_SUCCESSES),
+  );
   let lastEventAt: string | undefined;
   let quarantinedEvents = 0;
+  let successesSinceQuarantine = 0;
   let lastQuarantinedEventId: string | undefined;
   let lastQuarantinedAt: string | undefined;
+
+  const noteSuccessAndMaybeHeal = (): boolean => {
+    if (quarantinedEvents === 0) return false;
+    successesSinceQuarantine += 1;
+    if (successesSinceQuarantine < degradedHealAfterSuccesses) return false;
+    quarantinedEvents = 0;
+    successesSinceQuarantine = 0;
+    return true;
+  };
 
   const setHealth = (
     status: ProviderRuntimeEventPumpStatus,
@@ -187,9 +203,18 @@ export function runProviderRuntimeEventPump<R>(
     Effect.suspend(() =>
       options.processEvent(event).pipe(
         Effect.tap(() =>
-          Effect.sync(() => {
+          Effect.suspend(() => {
             lastEventAt = event.createdAt;
-          }).pipe(Effect.andThen(setHealth(quarantinedEvents > 0 ? "degraded" : "healthy", 0))),
+            const healed = noteSuccessAndMaybeHeal();
+            return (
+              healed
+                ? Effect.logInfo("provider.runtime_event_pump.recovered_from_degraded", {
+                    provider: options.provider,
+                    consecutiveSuccesses: degradedHealAfterSuccesses,
+                  })
+                : Effect.void
+            ).pipe(Effect.andThen(setHealth(quarantinedEvents > 0 ? "degraded" : "healthy", 0)));
+          }),
         ),
         Effect.catchCause((cause) => {
           if (Cause.hasInterruptsOnly(cause)) {
@@ -202,6 +227,7 @@ export function runProviderRuntimeEventPump<R>(
               Effect.andThen(
                 Effect.sync(() => {
                   quarantinedEvents += 1;
+                  successesSinceQuarantine = 0;
                   lastQuarantinedEventId = event.eventId;
                   lastQuarantinedAt = new Date().toISOString();
                 }),

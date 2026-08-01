@@ -102,7 +102,7 @@ describe("localServerMonitor", () => {
     expect(
       isLikelyDevServerProcess({
         command: "node",
-        args: "node /Users/emanueledipietro/Developer/synara/apps/web/node_modules/.bin/vite",
+        args: "node /Users/emanueledipietro/Developer/penkra/apps/web/node_modules/.bin/vite",
         ports: [5733],
       }),
     ).toBe(true);
@@ -224,7 +224,7 @@ describe("localServerMonitor", () => {
         {
           ppid: 12064,
           commandLine:
-            "node /Users/emanueledipietro/Developer/synara-website/node_modules/.bin/next dev",
+            "node /Users/emanueledipietro/Developer/penkra-website/node_modules/.bin/next dev",
         },
       ],
       [

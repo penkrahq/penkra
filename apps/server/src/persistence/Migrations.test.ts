@@ -35,8 +35,8 @@ layer("reconcileMigrationLineage", (it) => {
       yield* runMigrations({ toMigrationInclusive: 16 });
 
       // Record a foreign lineage from 17 through past Penkra's latest ID.
-      const latestSynaraId = Math.max(...migrationEntries.map(([id]) => id));
-      for (let id = 17; id <= latestSynaraId + 3; id++) {
+      const latestPenkraId = Math.max(...migrationEntries.map(([id]) => id));
+      for (let id = 17; id <= latestPenkraId + 3; id++) {
         yield* sql`
           INSERT INTO effect_sql_migrations (migration_id, name)
           VALUES (${id}, ${`ForeignMigration${id}`})
@@ -114,7 +114,7 @@ layer("reconcileMigrationLineage", (it) => {
       const futureId = Math.max(...migrationEntries.map(([id]) => id)) + 1;
       yield* sql`
         INSERT INTO effect_sql_migrations (migration_id, name)
-        VALUES (${futureId}, 'FutureSynaraMigration')
+        VALUES (${futureId}, 'FuturePenkraMigration')
       `;
 
       const rowsBefore = yield* trackerRows(sql);
@@ -271,15 +271,16 @@ managedAttachmentsLegacyLayer("managed attachment migration after private migrat
         [72, "AgentGatewayOperationRetention"],
         [73, "OperationalDiagnostics"],
         [79, "Spaces"],
-        [80, "PruneRejectedSynaraSurfaces"],
+        [80, "PruneRejectedPenkraSurfaces"],
         [86, "NormalizeStudioThreadWorkspaces"],
         [87, "DropUnusedOrchestrationEventIndexes"],
         [88, "ProjectionThreadsSpaces"],
         [89, "ProjectionSpacesArchive"],
+        [90, "ThreadScopedProviderRuntimeProjection"],
       ]);
 
       const tracker = yield* trackerRows(sql);
-      assert.deepStrictEqual(tracker.slice(-26), [
+      assert.deepStrictEqual(tracker.slice(-27), [
         { migration_id: 54, name: "DurableProviderCommandDelivery" },
         { migration_id: 55, name: "ManagedAttachments" },
         { migration_id: 56, name: "CommandReceiptFingerprints" },
@@ -301,11 +302,12 @@ managedAttachmentsLegacyLayer("managed attachment migration after private migrat
         { migration_id: 72, name: "AgentGatewayOperationRetention" },
         { migration_id: 73, name: "OperationalDiagnostics" },
         { migration_id: 79, name: "Spaces" },
-        { migration_id: 80, name: "PruneRejectedSynaraSurfaces" },
+        { migration_id: 80, name: "PruneRejectedPenkraSurfaces" },
         { migration_id: 86, name: "NormalizeStudioThreadWorkspaces" },
         { migration_id: 87, name: "DropUnusedOrchestrationEventIndexes" },
         { migration_id: 88, name: "ProjectionThreadsSpaces" },
         { migration_id: 89, name: "ProjectionSpacesArchive" },
+        { migration_id: 90, name: "ThreadScopedProviderRuntimeProjection" },
       ]);
       const preserved = yield* sql<{ readonly count: number }>`
         SELECT COUNT(*) AS count FROM orchestration_consumer_state
@@ -372,11 +374,12 @@ agentGatewayRetentionLegacyLayer(
           [72, "AgentGatewayOperationRetention"],
           [73, "OperationalDiagnostics"],
           [79, "Spaces"],
-          [80, "PruneRejectedSynaraSurfaces"],
+          [80, "PruneRejectedPenkraSurfaces"],
           [86, "NormalizeStudioThreadWorkspaces"],
           [87, "DropUnusedOrchestrationEventIndexes"],
           [88, "ProjectionThreadsSpaces"],
           [89, "ProjectionSpacesArchive"],
+          [90, "ThreadScopedProviderRuntimeProjection"],
         ]);
 
         const columns = yield* sql<{ readonly name: string }>`
@@ -446,27 +449,29 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
         [72, "AgentGatewayOperationRetention"],
         [73, "OperationalDiagnostics"],
         [79, "Spaces"],
-        [80, "PruneRejectedSynaraSurfaces"],
+        [80, "PruneRejectedPenkraSurfaces"],
         [86, "NormalizeStudioThreadWorkspaces"],
         [87, "DropUnusedOrchestrationEventIndexes"],
         [88, "ProjectionThreadsSpaces"],
         [89, "ProjectionSpacesArchive"],
+        [90, "ThreadScopedProviderRuntimeProjection"],
       ]);
 
       const tracker = yield* trackerRows(sql);
       assert.deepStrictEqual(
-        tracker.slice(-10).map((row) => [row.migration_id, row.name]),
+        tracker.slice(-11).map((row) => [row.migration_id, row.name]),
         [
           [70, "AgentGatewayOperations"],
           [71, "ProjectionThreadsGatewayProvenance"],
           [72, "AgentGatewayOperationRetention"],
           [73, "OperationalDiagnostics"],
           [79, "Spaces"],
-          [80, "PruneRejectedSynaraSurfaces"],
+          [80, "PruneRejectedPenkraSurfaces"],
           [86, "NormalizeStudioThreadWorkspaces"],
           [87, "DropUnusedOrchestrationEventIndexes"],
           [88, "ProjectionThreadsSpaces"],
           [89, "ProjectionSpacesArchive"],
+          [90, "ThreadScopedProviderRuntimeProjection"],
         ],
       );
 
@@ -530,24 +535,26 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
       const executed = yield* runMigrations();
       assert.deepStrictEqual(executed, [
         [79, "Spaces"],
-        [80, "PruneRejectedSynaraSurfaces"],
+        [80, "PruneRejectedPenkraSurfaces"],
         [86, "NormalizeStudioThreadWorkspaces"],
         [87, "DropUnusedOrchestrationEventIndexes"],
         [88, "ProjectionThreadsSpaces"],
         [89, "ProjectionSpacesArchive"],
+        [90, "ThreadScopedProviderRuntimeProjection"],
       ]);
 
       const tracker = yield* trackerRows(sql);
       assert.deepStrictEqual(
-        tracker.slice(-7).map((row) => [row.migration_id, row.name]),
+        tracker.slice(-8).map((row) => [row.migration_id, row.name]),
         [
           [74, "Spaces"],
           [79, "Spaces"],
-          [80, "PruneRejectedSynaraSurfaces"],
+          [80, "PruneRejectedPenkraSurfaces"],
           [86, "NormalizeStudioThreadWorkspaces"],
           [87, "DropUnusedOrchestrationEventIndexes"],
           [88, "ProjectionThreadsSpaces"],
           [89, "ProjectionSpacesArchive"],
+          [90, "ThreadScopedProviderRuntimeProjection"],
         ],
       );
       const preservedSpaces = yield* sql<{ readonly spaceId: string }>`

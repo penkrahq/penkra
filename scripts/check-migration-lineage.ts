@@ -11,7 +11,7 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const migrationsFile = "apps/server/src/persistence/Migrations.ts";
 
 /**
- * Every shipped Synara database records its applied migrations as (id, name)
+ * Every shipped Penkra database records its applied migrations as (id, name)
  * rows in `effect_sql_migrations`, and the runtime reconciler in
  * `Migrations.ts` treats a name that does not match the ID as a foreign
  * lineage: it truncates the tracker and replays the schema. Renumbering or
@@ -59,14 +59,14 @@ const HANDLED_RELEASED_DIVERGENCES: readonly MigrationLineageAllowance[] = [
   // past 16 is idempotent, so replaying 17.. over such a database is safe.
   { id: 17, name: "ProjectionThreadsArchivedAt" },
   { id: 18, name: "ProjectionThreadsArchivedAtIndex" },
-  // Renamed in place (not renumbered) during the Synara identity cutover, so
+  // Renamed in place (not renumbered) during the Penkra identity cutover, so
   // migration 32 is the same migration under a new name. `reconcileMigrationLineage`
   // renames the tracker row back to the canonical name whenever the rows below
   // it are canonical, which is the only way this pair can occur.
   { id: 32, name: "ReconcileLegacyT3SchemaImport" },
-  // Synara v0.6.0-v0.6.3 shipped External MCP and Automation storage in these
+  // Penkra v0.6.0-v0.6.3 shipped External MCP and Automation storage in these
   // slots. Penkra intentionally does not expose either surface. Migration 80,
-  // `PruneRejectedSynaraSurfaces`, is the canonical divergence point: the
+  // `PruneRejectedPenkraSurfaces`, is the canonical divergence point: the
   // reconciler replays from 80 and that idempotent migration drops every table
   // and view introduced by 74-85. Rows 74-78 may remain as inert historical
   // tracker entries; rows 80-85 are replaced by Penkra's canonical lineage.

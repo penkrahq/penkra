@@ -9,7 +9,7 @@ import {
   type GitPullRequestSnapshotResult,
   type GitResolvedPullRequest,
   type GitStatusResult,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
@@ -23,7 +23,7 @@ const threadId = ThreadId.makeUnsafe("thread-pr-fix-actions");
 const pullRequest = {
   number: 321,
   title: "Keep PR context visible",
-  url: "https://github.com/example/synara/pull/321",
+  url: "https://github.com/example/penkra/pull/321",
   baseBranch: "main",
   headBranch: "fix/pr-panel",
   state: "open",
@@ -100,7 +100,7 @@ describe("EnvironmentPullRequestSection", () => {
           enabled
           activeThreadId={threadId}
           projectId={null}
-          configuredRepositories={[{ nameWithOwner: "example/synara" }]}
+          configuredRepositories={[{ nameWithOwner: "example/penkra" }]}
           onOpenUrl={vi.fn()}
           onClose={onClose}
         />

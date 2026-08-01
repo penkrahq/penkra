@@ -1,4 +1,4 @@
-import type { ProjectId } from "@synara/contracts";
+import type { ProjectId } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 
 import type { Project } from "../types";

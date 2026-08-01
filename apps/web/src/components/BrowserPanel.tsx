@@ -13,7 +13,7 @@ import {
   PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
   type ServerLocalServerProcess,
   type ThreadId,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 import {
   ArrowLeftIcon,
   ArrowRightIcon,
@@ -29,16 +29,16 @@ import {
   XIcon,
 } from "~/lib/icons";
 
-import { localServerPrimaryLabel } from "@synara/shared/localServers";
+import { localServerPrimaryLabel } from "@penkra/shared/localServers";
 import {
   BROWSER_BLANK_URL,
   isBlankBrowserTabUrl,
   resolveCopyableBrowserTabUrl,
-} from "@synara/shared/browserSession";
+} from "@penkra/shared/browserSession";
 import {
   BROWSER_COPY_LINK_TOAST_TITLE,
   isBrowserCopyLinkChord,
-} from "@synara/shared/browserShortcuts";
+} from "@penkra/shared/browserShortcuts";
 
 import { isElectron } from "~/env";
 import { readNativeApi } from "~/nativeApi";
@@ -89,9 +89,9 @@ interface BrowserPanelProps {
 
 const BROWSER_BOUNDS_SYNC_BURST_FRAMES = 30;
 const BROWSER_BOUNDS_SYNC_STABLE_FRAME_TARGET = 2;
-const BROWSER_WEBVIEW_PARTITION = "persist:synara-browser";
+const BROWSER_WEBVIEW_PARTITION = "persist:penkra-browser";
 const BROWSER_PERF_SAMPLE_INTERVAL_MS = 5_000;
-const SYNARA_BROWSER_LABEL = "Penkra browser";
+const PENKRA_BROWSER_LABEL = "Penkra browser";
 // The address field and tab pills share one chrome-control surface so the whole row reads
 // as a single cohesive control: matching height, radius, border width, and type scale.
 const BROWSER_CHROME_CONTROL_CLASS_NAME = "h-8 rounded-lg border text-xs";
@@ -334,7 +334,7 @@ function isBrowserPerfLoggingEnabled(): boolean {
   }
 
   try {
-    return window.localStorage.getItem("synara:browser-perf") === "1";
+    return window.localStorage.getItem("penkra:browser-perf") === "1";
   } catch {
     return false;
   }
@@ -854,7 +854,7 @@ export function BrowserPanel({
     }
 
     const intervalId = window.setInterval(() => {
-      console.info(`[${SYNARA_BROWSER_LABEL} panel perf]`, {
+      console.info(`[${PENKRA_BROWSER_LABEL} panel perf]`, {
         threadId,
         ...perfCountersRef.current,
       });

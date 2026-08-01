@@ -3,7 +3,7 @@
 // message-content hits while still surfacing a useful snippet for chat matches.
 import type { ReactNode } from "react";
 
-import type { ProviderKind } from "@synara/contracts";
+import type { ProviderKind } from "@penkra/contracts";
 import { basenameOfPath } from "../file-icons";
 import type { ThemeMode, ThemeVariant } from "../theme/theme.logic";
 

@@ -9,6 +9,10 @@ import {
 } from "react";
 
 import { cn } from "~/lib/utils";
+import {
+  COMPOSER_EDITOR_MIN_HEIGHT_CLASS_NAME,
+  COMPOSER_EDITOR_TYPOGRAPHY_CLASS_NAME,
+} from "~/components/chat/composerPickerStyles";
 
 import { ComposerActions } from "../composer-actions/ComposerActions";
 
@@ -72,7 +76,7 @@ export const ComposerDefault = forwardRef<HTMLTextAreaElement, ComposerDefaultPr
     return (
       <form
         className={cn(
-          "flex min-h-[88px] w-full flex-col rounded-[18px] border border-[var(--color-border)] bg-[var(--color-background-control-opaque)] p-[11px] text-[var(--color-text-foreground-tertiary)] transition-colors data-[focused=true]:!border-[var(--color-border-focus)] data-[focused=true]:text-[var(--color-text-foreground)]",
+          "flex min-h-[88.5px] w-full flex-col rounded-[18px] border border-[var(--color-border)] bg-[var(--color-background-control-opaque)] p-2.5 transition-colors data-[focused=true]:!border-[var(--color-border-focus)]",
           className,
         )}
         data-focused={focused}
@@ -80,7 +84,11 @@ export const ComposerDefault = forwardRef<HTMLTextAreaElement, ComposerDefaultPr
         onSubmit={submit}
       >
         <textarea
-          className="min-h-9 w-full flex-1 resize-none border-0 bg-transparent p-0 font-sans text-sm text-[var(--color-text-foreground)] outline-none placeholder:text-current placeholder:opacity-100 disabled:cursor-not-allowed"
+          className={cn(
+            "w-full flex-1 resize-none border-0 bg-transparent p-0 text-[var(--color-text-foreground)] outline-none placeholder:text-[var(--color-text-foreground-tertiary)] placeholder:opacity-100 disabled:cursor-not-allowed",
+            COMPOSER_EDITOR_MIN_HEIGHT_CLASS_NAME,
+            COMPOSER_EDITOR_TYPOGRAPHY_CLASS_NAME,
+          )}
           disabled={disabled}
           onBlur={handleBlur}
           onFocus={handleFocus}

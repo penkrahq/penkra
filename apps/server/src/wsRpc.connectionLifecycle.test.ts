@@ -1,6 +1,6 @@
 import http from "node:http";
 
-import type { AuthSessionId } from "@synara/contracts";
+import type { AuthSessionId } from "@penkra/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { Duration, Effect, Exit, Layer, Schema, Scope } from "effect";
 import { HttpRouter, HttpServerRequest } from "effect/unstable/http";
@@ -168,7 +168,7 @@ function ping(socket: WebSocket, timeoutMs = 2_000): Promise<void> {
 
 async function startTestServer(): Promise<RunningTestServer> {
   const baseConfigLayer = ServerConfig.layerTest(process.cwd(), {
-    prefix: "synara-ws-lifecycle-test-",
+    prefix: "penkra-ws-lifecycle-test-",
   }).pipe(Layer.provide(NodeServices.layer));
   const configLayer = Layer.effect(
     ServerConfig,

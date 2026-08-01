@@ -5,7 +5,7 @@
  * and bulk actions on the selected set.
  */
 
-import type { ThreadId } from "@synara/contracts";
+import type { ThreadId } from "@penkra/contracts";
 import { create } from "zustand";
 
 export interface ThreadSelectionState {

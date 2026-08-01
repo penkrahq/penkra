@@ -1,4 +1,4 @@
-import type { OrchestrationProject, ProjectId, PullRequestsListResult } from "@synara/contracts";
+import type { OrchestrationProject, ProjectId, PullRequestsListResult } from "@penkra/contracts";
 import { Effect } from "effect";
 
 import type {

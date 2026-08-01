@@ -1,4 +1,4 @@
-import { SPACE_ICON_NAMES } from "@synara/contracts";
+import { SPACE_ICON_NAMES } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 
 import { suggestSpaceIcon } from "./spaceIconSuggestion";

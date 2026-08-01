@@ -8,7 +8,7 @@
  *
  * @module agentGateway/Services/AgentGatewayCredentials
  */
-import type { ProviderKind, ThreadId } from "@synara/contracts";
+import type { ProviderKind, ThreadId } from "@penkra/contracts";
 import { ServiceMap } from "effect";
 import type {
   AgentGatewaySessionIdentity,
@@ -58,4 +58,4 @@ export interface AgentGatewayCredentialsShape {
 export class AgentGatewayCredentials extends ServiceMap.Service<
   AgentGatewayCredentials,
   AgentGatewayCredentialsShape
->()("synara/agentGateway/Services/AgentGatewayCredentials") {}
+>()("penkra/agentGateway/Services/AgentGatewayCredentials") {}

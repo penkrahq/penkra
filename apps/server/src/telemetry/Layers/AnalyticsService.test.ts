@@ -39,7 +39,7 @@ it.layer(NodeServices.layer)("AnalyticsService test", (it) => {
     Effect.gen(function* () {
       const capturedRequests: Array<RecordedBatchRequest> = [];
       const serverConfigLayer = ServerConfig.layerTest(process.cwd(), {
-        prefix: "synara-telemetry-base-",
+        prefix: "penkra-telemetry-base-",
       });
 
       const telemetryLayer = AnalyticsServiceLayerLive.pipe(Layer.provideMerge(serverConfigLayer));

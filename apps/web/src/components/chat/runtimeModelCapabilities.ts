@@ -8,13 +8,13 @@ import type {
   ModelCapabilities,
   ProviderKind,
   ProviderModelDescriptor,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 import {
   getDefaultEffort,
   getModelCapabilities,
   normalizeModelSlug,
   trimOrNull,
-} from "@synara/shared/model";
+} from "@penkra/shared/model";
 import { normalizeCursorModelVariantBaseId } from "../../cursorModelVariants";
 
 function runtimeEffortLabel(value: string): string {

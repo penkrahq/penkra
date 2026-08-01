@@ -6,7 +6,7 @@
 // Layer: Server workspace helper
 // Exports: Pure attribution/scan-diff helpers + listStudioThreadOutputs (Effect I/O).
 
-import type { StudioOutputEntry } from "@synara/contracts";
+import type { StudioOutputEntry } from "@penkra/contracts";
 import { Effect, FileSystem, Path } from "effect";
 
 // Managed Studio subtrees that hold inputs or infrastructure, never produced content.

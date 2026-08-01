@@ -45,6 +45,10 @@ export const Pi: Story = { args: { harness: "pi" } };
 export const GitHub: Story = { args: { harness: "github" } };
 export const OpenCode: Story = { args: { harness: "opencode" } };
 export const Nested: Story = { args: { level: "nested" } };
+export const Pinned: Story = {
+  args: { children: "Pinned thread", pinned: true },
+  parameters: { pencil: { componentId: "fJt97", pinBadgeComponentId: "dTHsB" } },
+};
 export const Hover: Story = { args: { state: "hover" } };
 export const Active: Story = { args: { state: "active" } };
 export const Selected: Story = { args: { state: "selected" } };

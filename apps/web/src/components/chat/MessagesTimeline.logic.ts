@@ -3,7 +3,7 @@
 // Layer: Web chat presentation helpers
 // Exports: row derivation, structural sharing, copy/timer helpers
 
-import { type MessageId, type TurnId } from "@synara/contracts";
+import { type MessageId, type TurnId } from "@penkra/contracts";
 import { type TimelineEntry, type WorkLogEntry, formatElapsed } from "../../session-logic";
 import { normalizeCompactToolLabel as normalizeCompactToolLabelValue } from "../../lib/toolCallLabel";
 import {
@@ -884,9 +884,9 @@ function workLogSubagentsEqual(
   });
 }
 
-function workLogSynaraThreadCreationsEqual(
-  a: WorkLogEntry["synaraThreadCreation"],
-  b: WorkLogEntry["synaraThreadCreation"],
+function workLogPenkraThreadCreationsEqual(
+  a: WorkLogEntry["penkraThreadCreation"],
+  b: WorkLogEntry["penkraThreadCreation"],
 ) {
   if (a === b) return true;
   if (!a || !b) return false;
@@ -998,7 +998,7 @@ function workLogEntryContentEqual(a: WorkLogEntry, b: WorkLogEntry): boolean {
     stringArraysEqual(a.changedFiles, b.changedFiles) &&
     workLogSubagentActionsEqual(a.subagentAction, b.subagentAction) &&
     workLogSubagentsEqual(a.subagents, b.subagents) &&
-    workLogSynaraThreadCreationsEqual(a.synaraThreadCreation, b.synaraThreadCreation) &&
+    workLogPenkraThreadCreationsEqual(a.penkraThreadCreation, b.penkraThreadCreation) &&
     workLogLiveActivitiesEqual(a.liveActivity, b.liveActivity) &&
     workLogToolDetailsEqual(a.toolDetails, b.toolDetails)
   );

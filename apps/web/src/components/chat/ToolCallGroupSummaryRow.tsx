@@ -5,11 +5,10 @@
 // Exports: ToolCallGroupSummaryRow
 // Depends on: DisclosureRegion/DisclosureChevron (shared disclosure motion)
 
-import { useEffect, useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 
 import { DisclosureChevron } from "../ui/DisclosureChevron";
 import { DisclosureRegion } from "../ui/DisclosureRegion";
-import { DISCLOSURE_TRANSITION_MS } from "~/lib/disclosureMotion";
 import { extractWebFetchUrl } from "../../lib/toolCallLabel";
 import { LinkChipIcon } from "../LinkChipIcon";
 import type { ToolCallGroupSummary } from "./toolCallGroup.logic";
@@ -23,22 +22,6 @@ export function ToolCallGroupSummaryRow(props: {
   renderChildren: () => ReactNode;
 }) {
   const { summary, open, onToggle, fontSizePx, renderChildren } = props;
-  const [keepChildrenMounted, setKeepChildrenMounted] = useState(open);
-
-  useEffect(() => {
-    if (open) {
-      setKeepChildrenMounted(true);
-      return;
-    }
-    if (!keepChildrenMounted) return;
-    const cleanup = window.setTimeout(
-      () => setKeepChildrenMounted(false),
-      DISCLOSURE_TRANSITION_MS,
-    );
-    return () => window.clearTimeout(cleanup);
-  }, [keepChildrenMounted, open]);
-
-  const shouldRenderChildren = open || keepChildrenMounted;
 
   // The collapsed row wears its first entry's icon (favicon for web fetches),
   // so folding a run of tool calls keeps the leading glyph of the row it hides.
@@ -63,9 +46,7 @@ export function ToolCallGroupSummaryRow(props: {
         <span>{summary.label}</span>
         <DisclosureChevron open={open} className="text-muted-foreground/55" />
       </button>
-      <DisclosureRegion open={open}>
-        {shouldRenderChildren ? renderChildren() : null}
-      </DisclosureRegion>
+      <DisclosureRegion open={open}>{open ? renderChildren() : null}</DisclosureRegion>
     </div>
   );
 }

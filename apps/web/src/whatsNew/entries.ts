@@ -29,7 +29,7 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         id: "responsive-stop-controls",
         title: "Stop stays responsive under load",
         description:
-          "Interrupt and stop actions now take priority over new work, even when a busy Synara server has filled its ordinary command queue.",
+          "Interrupt and stop actions now take priority over new work, even when a busy Penkra server has filled its ordinary command queue.",
         details:
           "Control, user, and background commands now use separate admission priorities while preserving reserved capacity for recovery. Provider calls and lifecycle locks are bounded too, so one wedged session cannot hold every other task hostage, and failed stop requests now surface an actionable error instead of silently leaving the UI spinning.",
       },
@@ -47,7 +47,7 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         description:
           "Turns are less likely to remain stuck as running after terminal provider events, restarts, stale resumes, or delayed lifecycle updates.",
         details:
-          "Synara retains enough turn identity to settle late Claude results, fences stale lifecycle generations, reconciles durable provider commands and runtime events, and aligns Codex, Claude, Cursor, and ACP session ownership through start, stop, reconnect, and restart boundaries.",
+          "Penkra retains enough turn identity to settle late Claude results, fences stale lifecycle generations, reconciles durable provider commands and runtime events, and aligns Codex, Claude, Cursor, and ACP session ownership through start, stop, reconnect, and restart boundaries.",
       },
       {
         id: "safe-follow-up-queues",
@@ -77,7 +77,7 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         description:
           "Follow tools as they start, update, and finish across supported providers, with consistent labels and details directly in the transcript.",
         details:
-          "Synara now normalizes live and settled tool activity into one presentation model, preserves expandable tool details and interactions, and reconciles terminal states without leaving duplicate or permanently running work rows behind.",
+          "Penkra now normalizes live and settled tool activity into one presentation model, preserves expandable tool details and interactions, and reconciles terminal states without leaving duplicate or permanently running work rows behind.",
       },
       {
         id: "reliable-live-recovery",
@@ -101,7 +101,7 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         description:
           "When an uncertain provider delivery quarantines a thread, the error banner now offers a safe Unblock thread action.",
         details:
-          "Synara abandons ambiguous blockers oldest-first, then replays only the skipped turn starts. This restores the conversation without risking a duplicate resend of the command whose delivery could not be proven.",
+          "Penkra abandons ambiguous blockers oldest-first, then replays only the skipped turn starts. This restores the conversation without risking a duplicate resend of the command whose delivery could not be proven.",
       },
       {
         id: "automation-and-desktop-resilience",
@@ -115,7 +115,7 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         id: "faster-startup-and-diffs",
         title: "Startup and large diffs do less work",
         description:
-          "Synara loads expensive provider and diff machinery only when needed and computes working-tree statistics without transferring full patches.",
+          "Penkra loads expensive provider and diff machinery only when needed and computes working-tree statistics without transferring full patches.",
         details:
           "Shell environment probes and orchestration startup state are reused, route chunks are preloaded selectively, supervised process scans are throttled, and React Compiler coverage protects chat, picker, hook, and UI hot paths.",
       },
@@ -125,7 +125,7 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         description:
           "Exclusive SQLite locking and stricter migration-artifact cleanup reduce the chance of competing writers or abandoned update files.",
         details:
-          "Database access now proves exclusive ownership, migration backups and resumable artifacts receive broader retention and reclamation coverage, and orphan cleanup stays bounded to verified Synara-owned paths.",
+          "Database access now proves exclusive ownership, migration backups and resumable artifacts receive broader retention and reclamation coverage, and orphan cleanup stays bounded to verified Penkra-owned paths.",
       },
       {
         id: "custom-void-space",
@@ -153,7 +153,7 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         id: "database-recovery",
         title: "Updates recover safely from interrupted migrations",
         description:
-          "Synara now detects and repairs the database state that could leave some 0.6.0 installations stuck during startup.",
+          "Penkra now detects and repairs the database state that could leave some 0.6.0 installations stuck during startup.",
         details:
           "Migration lineage is validated before launch, recovery uses verified backups and resumable markers, and the desktop supervisor distinguishes recoverable migration failures from ordinary backend exits. The recovery path is covered on macOS, Linux, and Windows, including Windows-specific process and filesystem behavior.",
       },
@@ -196,7 +196,7 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
     date: "Jul 24",
     features: [
       {
-        id: "built-in-synara-mcp",
+        id: "built-in-penkra-mcp",
         title: "Penkra's agents can now operate Penkra",
         description:
           "Every supported agent running inside Penkra receives built-in tools to understand the app, delegate work, coordinate parallel tasks, and inspect failures.",
@@ -257,7 +257,7 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         description:
           "Sharper Markdown hierarchy, steadier pickers, better composer spacing, smarter sidebar priority, clearer Studio Git controls, and new shortcuts make daily work easier to scan.",
         details:
-          "This release also adds Commit and Push from the active task, configurable AppSnap shortcuts, a folder opener in Studio, a slimmer running indicator, reliable Cmd+K search on macOS, fixed PR review counts, safer file-icon lookup, cleaner stacked composer panels, and a global new-task flow that uses the latest project state.",
+          "This release also adds Commit and Push from the active task, a folder opener in Studio, a slimmer running indicator, reliable Cmd+K search on macOS, fixed PR review counts, safer file-icon lookup, cleaner stacked composer panels, and a global new-task flow that uses the latest project state.",
       },
     ],
   },
@@ -366,22 +366,6 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
     date: "Jul 14",
     features: [
       {
-        id: "appsnap-capture",
-        title: "Capture any Mac app straight into your task",
-        description:
-          "Press both Option keys to capture the window you are using and attach it to the current Penkra task.",
-        details:
-          "AppSnap is an opt-in macOS workflow with a dedicated setup panel, permission guidance, capture feedback, app icons, and a first-run introduction. Captures stay tied to the active task without stealing focus, and the desktop helper is included in packaged Mac builds.",
-      },
-      {
-        id: "durable-appsnap-drafts",
-        title: "AppSnaps wait safely until you send",
-        description:
-          "Captured windows remain available through navigation, restarts, retries, and manual attachment flows.",
-        details:
-          "Pending image blobs are persisted outside the lightweight draft record, restored into the composer on startup, counted against attachment limits, deduplicated across retry paths, and hydrated immediately before send. Failed or overlapping captures recover without duplicating attachments or replaying feedback sounds.",
-      },
-      {
         id: "clearer-long-messages",
         title: "Long messages are easier to scan",
         description:
@@ -464,12 +448,12 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
     date: "Jul 11",
     features: [
       {
-        id: "synara-identity",
+        id: "penkra-identity",
         title: "Penkra, all the way through",
         description:
           "The app now uses one identity everywhere, from its desktop installation and command line to packages, settings, diagnostics, and release artifacts.",
         details:
-          "The desktop bundle is now com.emanueledipietro.synara, the CLI is @synara/cli with the synara command, and every first-party runtime identifier uses the Penkra namespace. The 0.4.2 bridge preserves renderer state during the origin change.",
+          "The desktop bundle is now com.emanueledipietro.penkra, the CLI is @penkra/cli with the penkra command, and every first-party runtime identifier uses the Penkra namespace. The 0.4.2 bridge preserves renderer state during the origin change.",
       },
       {
         id: "claude-context-and-resume",
@@ -518,7 +502,7 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
     date: "Jul 9",
     features: [
       {
-        id: "synara-identity-bridge",
+        id: "penkra-identity-bridge",
         title: "Penkra is preparing a seamless identity upgrade",
         description:
           "Launch this version at least once before installing the next Penkra release so your drafts, pins, theme, browser state, and other local interface preferences move with you.",
@@ -1910,10 +1894,10 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
     date: "Jun 3",
     features: [
       {
-        id: "synara-home-migration",
+        id: "penkra-home-migration",
         title: "Penkra is now the default home",
         description:
-          "The app now starts from `~/.synara`, carries the Penkra environment variables through the desktop and server runtime, and safely imports data from previous installations on first launch.",
+          "The app now starts from `~/.penkra`, carries the Penkra environment variables through the desktop and server runtime, and safely imports data from previous installations on first launch.",
       },
       {
         id: "desktop-platform-polish",

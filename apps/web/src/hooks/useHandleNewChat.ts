@@ -1,4 +1,4 @@
-import type { SpaceId } from "@synara/contracts";
+import type { SpaceId } from "@penkra/contracts";
 import { ensureHomeChatProject } from "../lib/chatProjects";
 import { startContainerChat, type StartContainerChatResult } from "../lib/startContainerChat";
 import { useWorkspacePathsStore } from "../workspacePathsStore";

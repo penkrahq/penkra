@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron";
-import type { DesktopBridge } from "@synara/contracts";
+import type { DesktopBridge } from "@penkra/contracts";
 import { normalizeDesktopWsUrl, resolveDesktopWsUrlFromEnv } from "./desktopWsBridge";
 import { DESKTOP_IPC_CHANNELS } from "./ipcChannels";
 
@@ -101,6 +101,9 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     isSupported: () => ipcRenderer.invoke(IPC.notificationsIsSupported),
     show: (input) => ipcRenderer.invoke(IPC.notificationsShow, input),
   },
+  media: {
+    requestMicrophoneAccess: () => ipcRenderer.invoke(IPC.mediaRequestMicrophoneAccess),
+  },
   accountAuth: {
     getState: () => ipcRenderer.invoke(IPC.accountAuth.getState),
     requestSignIn: () => ipcRenderer.invoke(IPC.accountAuth.requestSignIn),
@@ -137,40 +140,6 @@ contextBridge.exposeInMainWorld("desktopBridge", {
       };
       ipcRenderer.on(IPC.accountAuth.error, wrappedListener);
       return () => ipcRenderer.removeListener(IPC.accountAuth.error, wrappedListener);
-    },
-  },
-  appSnap: {
-    getState: () => ipcRenderer.invoke(IPC.appSnap.getState),
-    setEnabled: (enabled) => ipcRenderer.invoke(IPC.appSnap.setEnabled, enabled),
-    checkShortcut: (shortcut) => ipcRenderer.invoke(IPC.appSnap.checkShortcut, shortcut),
-    setShortcut: (shortcut) => ipcRenderer.invoke(IPC.appSnap.setShortcut, shortcut),
-    requestPermissions: () => ipcRenderer.invoke(IPC.appSnap.requestPermissions),
-    listPendingCaptures: () => ipcRenderer.invoke(IPC.appSnap.listPendingCaptures),
-    acknowledgeCapture: (captureId) =>
-      ipcRenderer.invoke(IPC.appSnap.acknowledgeCapture, captureId),
-    onCaptured: (listener) => {
-      const wrappedListener = (_event: Electron.IpcRendererEvent, capture: unknown) => {
-        if (typeof capture !== "object" || capture === null) return;
-        listener(capture as Parameters<typeof listener>[0]);
-      };
-      ipcRenderer.on(IPC.appSnap.captured, wrappedListener);
-      return () => ipcRenderer.removeListener(IPC.appSnap.captured, wrappedListener);
-    },
-    onError: (listener) => {
-      const wrappedListener = (_event: Electron.IpcRendererEvent, error: unknown) => {
-        if (typeof error !== "object" || error === null) return;
-        listener(error as Parameters<typeof listener>[0]);
-      };
-      ipcRenderer.on(IPC.appSnap.error, wrappedListener);
-      return () => ipcRenderer.removeListener(IPC.appSnap.error, wrappedListener);
-    },
-    onState: (listener) => {
-      const wrappedListener = (_event: Electron.IpcRendererEvent, state: unknown) => {
-        if (typeof state !== "object" || state === null) return;
-        listener(state as Parameters<typeof listener>[0]);
-      };
-      ipcRenderer.on(IPC.appSnap.state, wrappedListener);
-      return () => ipcRenderer.removeListener(IPC.appSnap.state, wrappedListener);
     },
   },
   storageMigration: {

@@ -20,10 +20,10 @@ import {
 } from "./config";
 
 const tempDirs = new Set<string>();
-const originalSynaraStaticDir = process.env.SYNARA_STATIC_DIR;
+const originalPenkraStaticDir = process.env.PENKRA_STATIC_DIR;
 const originalPenkraRoot = process.env.PENKRA_ROOT;
 
-function makeTempDir(prefix = "synara-config-test-"): string {
+function makeTempDir(prefix = "penkra-config-test-"): string {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
   tempDirs.add(directory);
   return directory;
@@ -34,10 +34,10 @@ afterEach(() => {
     fs.rmSync(directory, { recursive: true, force: true });
   }
   tempDirs.clear();
-  if (originalSynaraStaticDir === undefined) {
-    delete process.env.SYNARA_STATIC_DIR;
+  if (originalPenkraStaticDir === undefined) {
+    delete process.env.PENKRA_STATIC_DIR;
   } else {
-    process.env.SYNARA_STATIC_DIR = originalSynaraStaticDir;
+    process.env.PENKRA_STATIC_DIR = originalPenkraStaticDir;
   }
   if (originalPenkraRoot === undefined) {
     delete process.env.PENKRA_ROOT;
@@ -48,9 +48,9 @@ afterEach(() => {
 
 describe("resolveStaticDir", () => {
   it("uses the desktop static snapshot exposed through the Penkra environment", async () => {
-    const snapshotDir = makeTempDir("synara-static-snapshot-test-");
+    const snapshotDir = makeTempDir("penkra-static-snapshot-test-");
     fs.writeFileSync(path.join(snapshotDir, "index.html"), "<main>Penkra</main>");
-    process.env.SYNARA_STATIC_DIR = snapshotDir;
+    process.env.PENKRA_STATIC_DIR = snapshotDir;
 
     const resolved = await Effect.runPromise(
       resolveStaticDir().pipe(Effect.provide(NodeServices.layer)),

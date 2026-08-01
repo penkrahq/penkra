@@ -7,7 +7,7 @@ import {
   defaultTerminalTitleForCliKind,
   type TerminalCliKind,
   type TerminalVisualState,
-} from "@synara/shared/terminalThreads";
+} from "@penkra/shared/terminalThreads";
 import type { Thread, ThreadSession } from "../types";
 import {
   derivePendingApprovals,

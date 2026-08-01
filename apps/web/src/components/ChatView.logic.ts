@@ -8,11 +8,11 @@ import {
   type RuntimeMode,
   type ServerProviderAuthStatus,
   type ThreadId as ThreadIdType,
-} from "@synara/contracts";
-import { normalizeModelSlug } from "@synara/shared/model";
-import { buildSynaraBranchName } from "@synara/shared/git";
-import { isGenericChatThreadTitle } from "@synara/shared/chatThreads";
-import { isGenericTerminalThreadTitle } from "@synara/shared/terminalThreads";
+} from "@penkra/contracts";
+import { normalizeModelSlug } from "@penkra/shared/model";
+import { buildPenkraBranchName } from "@penkra/shared/git";
+import { isGenericChatThreadTitle } from "@penkra/shared/chatThreads";
+import { isGenericTerminalThreadTitle } from "@penkra/shared/terminalThreads";
 import {
   type ChatMessage,
   type SessionPhase,
@@ -44,8 +44,8 @@ import {
 import { localSubagentThreadId } from "./ChatView.selectors";
 import type { ProviderModelOption } from "../providerModelOptions";
 
-export const LAST_INVOKED_SCRIPT_BY_PROJECT_KEY = "synara:last-invoked-script-by-project";
-export const DISMISSED_PROVIDER_HEALTH_BANNERS_KEY = "synara:dismissed-provider-health-banners";
+export const LAST_INVOKED_SCRIPT_BY_PROJECT_KEY = "penkra:last-invoked-script-by-project";
+export const DISMISSED_PROVIDER_HEALTH_BANNERS_KEY = "penkra:dismissed-provider-health-banners";
 export const PROMPT_HISTORY_MAX_ENTRIES = 100;
 
 export const LastInvokedScriptByProjectSchema = Schema.Record(ProjectId, Schema.String);
@@ -808,6 +808,7 @@ export interface WorktreeSetupSnapshotOptions {
 
 export interface WorktreeSetupDispatchOptions extends WorktreeSetupSnapshotOptions {
   worktreeSetupStepId?: WorktreeSetupStepId;
+  expectedUserMessageId?: ChatMessage["id"];
 }
 
 function worktreeSetupStepDefinitions(
@@ -866,6 +867,7 @@ export function worktreeSetupHasError(snapshot: WorktreeSetupSnapshot | null): b
 export interface LocalDispatchSnapshot {
   startedAt: string;
   worktreeSetup: WorktreeSetupSnapshot | null;
+  expectedUserMessageId: ChatMessage["id"] | null;
   latestTurnTurnId: Thread["latestTurn"] extends infer T
     ? T extends { turnId: infer U }
       ? U | null
@@ -893,6 +895,7 @@ export function createLocalDispatchSnapshot(
     worktreeSetup: options?.worktreeSetupStepId
       ? createWorktreeSetupSnapshot(options.worktreeSetupStepId, options)
       : null,
+    expectedUserMessageId: options?.expectedUserMessageId ?? null,
     latestTurnTurnId: latestTurn?.turnId ?? null,
     latestTurnRequestedAt: latestTurn?.requestedAt ?? null,
     latestTurnStartedAt: latestTurn?.startedAt ?? null,
@@ -934,6 +937,7 @@ export function hasServerAcknowledgedLocalDispatch(input: {
   phase: SessionPhase;
   latestTurn: Thread["latestTurn"] | null;
   session: Thread["session"] | null;
+  messages: readonly ChatMessage[];
   hasPendingApproval: boolean;
   hasPendingUserInput: boolean;
   threadError: string | null | undefined;
@@ -946,6 +950,15 @@ export function hasServerAcknowledgedLocalDispatch(input: {
     input.hasPendingApproval ||
     input.hasPendingUserInput ||
     Boolean(input.threadError)
+  ) {
+    return true;
+  }
+  if (
+    input.localDispatch.expectedUserMessageId !== null &&
+    input.messages.some(
+      (message) =>
+        message.role === "user" && message.id === input.localDispatch?.expectedUserMessageId,
+    )
   ) {
     return true;
   }
@@ -1071,7 +1084,7 @@ export function buildSuggestedWorktreeName(input: {
   associatedWorktreeBranch?: string | null;
   title?: string | null;
 }): string {
-  return buildSynaraBranchName(input.associatedWorktreeBranch ?? input.title);
+  return buildPenkraBranchName(input.associatedWorktreeBranch ?? input.title);
 }
 
 export function deriveComposerSendState(options: {

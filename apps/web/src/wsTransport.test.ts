@@ -13,7 +13,7 @@ import {
   WS_PROTOCOL_MAX_REVISION,
   WS_PROTOCOL_MIN_REVISION,
   WsCompatibilityError,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 
 import {
   shouldKeepServerLifecycleStream,
@@ -167,7 +167,7 @@ describe("WsTransport", () => {
       shouldReconnectAfterStreamFailure(
         Cause.fail({ code: "STREAM_DUPLICATE_SUBSCRIPTION", retryable: false }),
       ),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       shouldReconnectAfterStreamFailure(
         Cause.fail({ code: "THREAD_SNAPSHOT_NOT_FOUND", retryable: false }),

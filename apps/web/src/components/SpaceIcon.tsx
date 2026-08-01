@@ -1,7 +1,7 @@
 // FILE: SpaceIcon.tsx
 // Purpose: Renders built-in and custom Space icons through Penkra's Central asset renderer.
 
-import { SPACE_ICON_NAMES, type SpaceIconName } from "@synara/contracts";
+import { SPACE_ICON_NAMES, type SpaceIconName } from "@penkra/contracts";
 
 import { CentralIcon } from "~/lib/central-icons";
 import { DEFAULT_VOID_SPACE_ICON, type VoidSpaceIconName } from "~/lib/spaceGrouping";

@@ -1,6 +1,6 @@
 import { Effect, Schema } from "effect";
-import type { ChatAttachment } from "@synara/contracts";
-import { MAX_CHAT_THREAD_TITLE_WORDS } from "@synara/shared/chatThreads";
+import type { ChatAttachment } from "@penkra/contracts";
+import { MAX_CHAT_THREAD_TITLE_WORDS } from "@penkra/shared/chatThreads";
 
 import { TextGenerationError } from "./Errors.ts";
 

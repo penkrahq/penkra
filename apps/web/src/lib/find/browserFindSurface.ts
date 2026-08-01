@@ -3,7 +3,7 @@
 // Layer: Web application infrastructure
 // Exports: createBrowserFindSurface
 
-import type { BrowserControlMethods, BrowserTabInput } from "@synara/contracts";
+import type { BrowserControlMethods, BrowserTabInput } from "@penkra/contracts";
 import type { FindSurface } from "./findCoordinator";
 
 export function createBrowserFindSurface(input: {

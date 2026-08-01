@@ -3,7 +3,7 @@
 // Layer: Web UI state helper
 // Depends on: Desktop update IPC contracts.
 
-import type { DesktopUpdateActionResult, DesktopUpdateState } from "@synara/contracts";
+import type { DesktopUpdateActionResult, DesktopUpdateState } from "@penkra/contracts";
 
 export type DesktopUpdateButtonAction = "check" | "download" | "install" | "none";
 

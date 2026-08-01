@@ -10,7 +10,7 @@ export const SETTINGS_SECTION_IDS = [
   "notifications",
   "behavior",
   "spaces",
-  "appsnap",
+  "apps",
   "shortcuts",
   "worktrees",
   "archived",
@@ -23,7 +23,7 @@ export const SETTINGS_SECTION_IDS = [
 ] as const;
 
 export type SettingsSectionId = (typeof SETTINGS_SECTION_IDS)[number];
-export type SettingsNavGroupId = "app" | "synara";
+export type SettingsNavGroupId = "app" | "penkra";
 
 /**
  * Deep-link scroll targets inside settings panels. Each id is shared by its DOM owner and callers
@@ -50,7 +50,7 @@ export const SETTINGS_NAV_GROUPS: ReadonlyArray<{
   label: string;
 }> = [
   { id: "app", label: "App" },
-  { id: "synara", label: "Penkra" },
+  { id: "penkra", label: "Penkra" },
 ] as const;
 
 export const SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
@@ -103,12 +103,12 @@ export const SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
     eyebrow: "Sidebar organization",
   },
   {
-    id: "appsnap",
+    id: "apps",
     group: "app",
-    label: "AppSnap",
-    description: "Snap another app's window straight into a task with one key chord.",
-    icon: "screen-capture",
-    eyebrow: "Screen capture",
+    label: "Apps",
+    description: "Installed apps from the Penkra registry.",
+    icon: "apps",
+    eyebrow: "Installed apps",
   },
   {
     id: "shortcuts",
@@ -136,7 +136,7 @@ export const SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
   },
   {
     id: "models",
-    group: "synara",
+    group: "penkra",
     label: "Models",
     description: "Git writing defaults and custom model slugs.",
     icon: "brain",
@@ -144,7 +144,7 @@ export const SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
   },
   {
     id: "providers",
-    group: "synara",
+    group: "penkra",
     label: "Providers",
     description: "Choose visible providers, review CLI installs, and update provider tools.",
     icon: "puzzle",
@@ -152,7 +152,7 @@ export const SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
   },
   {
     id: "skills",
-    group: "synara",
+    group: "penkra",
     label: "Skills",
     description: "Every skill found across providers, with toggles to control availability.",
     icon: "building-blocks",
@@ -160,7 +160,7 @@ export const SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
   },
   {
     id: "usage",
-    group: "synara",
+    group: "penkra",
     label: "Usage",
     description: "Remaining quota and credits for each signed-in provider.",
     icon: "gauge",
@@ -168,7 +168,7 @@ export const SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
   },
   {
     id: "advanced",
-    group: "synara",
+    group: "penkra",
     label: "Advanced",
     description: "Keybindings, recovery, and version info.",
     icon: "toolbox",

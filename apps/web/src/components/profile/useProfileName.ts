@@ -6,7 +6,7 @@
 import { Schema } from "effect";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
 
-const PROFILE_NAME_STORAGE_KEY = "synara:profile:name:v1";
+const PROFILE_NAME_STORAGE_KEY = "penkra:profile:name:v1";
 
 // Empty string means "use the server default".
 const StoredNameSchema = Schema.String;

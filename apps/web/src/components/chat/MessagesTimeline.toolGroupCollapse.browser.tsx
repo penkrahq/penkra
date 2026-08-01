@@ -5,7 +5,7 @@
 
 import "../../index.css";
 
-import { MessageId } from "@synara/contracts";
+import { MessageId } from "@penkra/contracts";
 import { afterEach, describe, expect, it } from "vitest";
 import { render } from "vitest-browser-react";
 
@@ -162,7 +162,17 @@ describe("MessagesTimeline tool group collapse", () => {
       trigger.click();
 
       await expect.poll(() => trigger.getAttribute("aria-expanded")).toBe("false");
-      // Rows remain mounted only long enough for the shared 220ms close motion.
+      // Rows remain mounted and inert until the shared disclosure reports that
+      // its height transition completed, then the retained content is released.
+      const closingRegion = trigger.parentElement?.querySelector<HTMLElement>(
+        "[data-slot='disclosure-region']",
+      );
+      expect(closingRegion).not.toBeNull();
+      expect(closingRegion!.getAttribute("aria-hidden")).toBe("true");
+      expect(document.body.textContent ?? "").toContain(SETTLED_COMMANDS[0]!);
+      closingRegion!.dispatchEvent(
+        new TransitionEvent("transitionend", { bubbles: true, propertyName: "height" }),
+      );
       await expect
         .poll(() => (document.body.textContent ?? "").includes(SETTLED_COMMANDS[0]!))
         .toBe(false);

@@ -11,24 +11,24 @@ import * as OfficialAcp from "@agentclientprotocol/sdk";
 import * as Effect from "effect/Effect";
 import type * as AcpSchema from "@agentclientprotocol/sdk";
 
-const requestLogPath = process.env.SYNARA_ACP_REQUEST_LOG_PATH;
-const exitLogPath = process.env.SYNARA_ACP_EXIT_LOG_PATH;
-const emitToolCalls = process.env.SYNARA_ACP_EMIT_TOOL_CALLS === "1";
+const requestLogPath = process.env.PENKRA_ACP_REQUEST_LOG_PATH;
+const exitLogPath = process.env.PENKRA_ACP_EXIT_LOG_PATH;
+const emitToolCalls = process.env.PENKRA_ACP_EMIT_TOOL_CALLS === "1";
 const emitInterleavedAssistantToolCalls =
-  process.env.SYNARA_ACP_EMIT_INTERLEAVED_ASSISTANT_TOOL_CALLS === "1";
+  process.env.PENKRA_ACP_EMIT_INTERLEAVED_ASSISTANT_TOOL_CALLS === "1";
 const emitUpstreamAssistantMessageIds =
-  process.env.SYNARA_ACP_EMIT_UPSTREAM_ASSISTANT_MESSAGE_IDS === "1";
-const emitReasoningThenToolCall = process.env.SYNARA_ACP_EMIT_REASONING_THEN_TOOL_CALL === "1";
-const emitGenericToolPlaceholders = process.env.SYNARA_ACP_EMIT_GENERIC_TOOL_PLACEHOLDERS === "1";
-const emitAskQuestion = process.env.SYNARA_ACP_EMIT_ASK_QUESTION === "1";
-const failSetConfigOption = process.env.SYNARA_ACP_FAIL_SET_CONFIG_OPTION === "1";
-const exitOnSetConfigOption = process.env.SYNARA_ACP_EXIT_ON_SET_CONFIG_OPTION === "1";
-const promptResponseText = process.env.SYNARA_ACP_PROMPT_RESPONSE_TEXT;
-const supportsSessionResume = process.env.SYNARA_ACP_SUPPORT_SESSION_RESUME === "1";
-const supportsSessionLoad = process.env.SYNARA_ACP_SUPPORT_SESSION_LOAD !== "0";
-const supportsSessionFork = process.env.SYNARA_ACP_SUPPORT_SESSION_FORK === "1";
-const emitAvailableCommands = process.env.SYNARA_ACP_EMIT_AVAILABLE_COMMANDS === "1";
-const modeConfigId = process.env.SYNARA_ACP_MODE_CONFIG_ID || "mode";
+  process.env.PENKRA_ACP_EMIT_UPSTREAM_ASSISTANT_MESSAGE_IDS === "1";
+const emitReasoningThenToolCall = process.env.PENKRA_ACP_EMIT_REASONING_THEN_TOOL_CALL === "1";
+const emitGenericToolPlaceholders = process.env.PENKRA_ACP_EMIT_GENERIC_TOOL_PLACEHOLDERS === "1";
+const emitAskQuestion = process.env.PENKRA_ACP_EMIT_ASK_QUESTION === "1";
+const failSetConfigOption = process.env.PENKRA_ACP_FAIL_SET_CONFIG_OPTION === "1";
+const exitOnSetConfigOption = process.env.PENKRA_ACP_EXIT_ON_SET_CONFIG_OPTION === "1";
+const promptResponseText = process.env.PENKRA_ACP_PROMPT_RESPONSE_TEXT;
+const supportsSessionResume = process.env.PENKRA_ACP_SUPPORT_SESSION_RESUME === "1";
+const supportsSessionLoad = process.env.PENKRA_ACP_SUPPORT_SESSION_LOAD !== "0";
+const supportsSessionFork = process.env.PENKRA_ACP_SUPPORT_SESSION_FORK === "1";
+const emitAvailableCommands = process.env.PENKRA_ACP_EMIT_AVAILABLE_COMMANDS === "1";
+const modeConfigId = process.env.PENKRA_ACP_MODE_CONFIG_ID || "mode";
 const sessionId = "mock-session-1";
 
 let currentModeId = "ask";
@@ -262,7 +262,7 @@ function requestInput(): ReadableStream<Uint8Array> {
   );
 }
 
-const app = OfficialAcp.agent({ name: "synara-acp-mock" });
+const app = OfficialAcp.agent({ name: "penkra-acp-mock" });
 
 app.onRequest(OfficialAcp.methods.agent.initialize, ({ params: request }) =>
   runEffect(
@@ -606,7 +606,7 @@ app.onRequest(OfficialAcp.methods.agent.session.prompt, ({ client: context, para
             status: "completed",
             rawOutput: {
               exitCode: 0,
-              stdout: '{ "name": "synara" }',
+              stdout: '{ "name": "penkra" }',
               stderr: "",
             },
           },

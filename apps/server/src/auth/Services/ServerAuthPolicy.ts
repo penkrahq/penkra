@@ -1,4 +1,4 @@
-import type { ServerAuthDescriptor } from "@synara/contracts";
+import type { ServerAuthDescriptor } from "@penkra/contracts";
 import { Effect, ServiceMap } from "effect";
 
 export interface ServerAuthPolicyShape {
@@ -6,5 +6,5 @@ export interface ServerAuthPolicyShape {
 }
 
 export class ServerAuthPolicy extends ServiceMap.Service<ServerAuthPolicy, ServerAuthPolicyShape>()(
-  "synara/auth/Services/ServerAuthPolicy",
+  "penkra/auth/Services/ServerAuthPolicy",
 ) {}

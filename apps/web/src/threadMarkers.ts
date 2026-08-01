@@ -10,8 +10,8 @@ import {
   type ThreadMarkerColor,
   type ThreadMarkerId,
   type ThreadMarkerStyle,
-} from "@synara/contracts";
-import { normalizeThreadMarkerLabel } from "@synara/shared/threadMarkers";
+} from "@penkra/contracts";
+import { normalizeThreadMarkerLabel } from "@penkra/shared/threadMarkers";
 
 import { newCommandId } from "./lib/utils";
 import { readNativeApi } from "./nativeApi";

@@ -2,13 +2,13 @@ import {
   encodeOutboundMultipart,
   invokePinnedDnsLookup,
   OutboundHttpError,
-} from "@synara/shared/outboundHttp";
+} from "@penkra/shared/outboundHttp";
 import {
   assertJsonWithinLimits,
   assertOutboundUrlAllowed,
   isPublicIpAddress,
   OutboundPolicyError,
-} from "@synara/shared/outboundHttpPolicy";
+} from "@penkra/shared/outboundHttpPolicy";
 import { describe, expect, it } from "vitest";
 
 describe("outbound HTTP policy", () => {
@@ -74,7 +74,7 @@ describe("outbound HTTP policy", () => {
       { maxBytes: 1_024 },
     );
     const body = new TextDecoder().decode(multipart.body);
-    expect(multipart.contentType).toMatch(/^multipart\/form-data; boundary=Synara-/u);
+    expect(multipart.contentType).toMatch(/^multipart\/form-data; boundary=Penkra-/u);
     expect(body).toContain('name="file"; filename="voice.wav"');
     expect(() =>
       encodeOutboundMultipart([{ name: "file", body: "oversize" }], { maxBytes: 4 }),

@@ -5,8 +5,8 @@
 import * as OS from "node:os";
 import { execFileSync } from "node:child_process";
 
-const PATH_CAPTURE_START = "__SYNARA_PATH_START__";
-const PATH_CAPTURE_END = "__SYNARA_PATH_END__";
+const PATH_CAPTURE_START = "__PENKRA_PATH_START__";
+const PATH_CAPTURE_END = "__PENKRA_PATH_END__";
 const SHELL_ENV_NAME_PATTERN = /^[A-Z0-9_]+$/;
 
 type ExecFileSyncLike = (
@@ -29,7 +29,7 @@ function trimNonEmpty(value: string | null | undefined): string | undefined {
  * it spawns the backend, and the backend inherits the result — so without this marker
  * the same probe is serialized a second time before the server ever starts listening.
  */
-export const SHELL_ENVIRONMENT_HYDRATED_ENV_NAME = "SYNARA_PATH_HYDRATED";
+export const SHELL_ENVIRONMENT_HYDRATED_ENV_NAME = "PENKRA_PATH_HYDRATED";
 export const SHELL_ENVIRONMENT_HYDRATED_ENV_VALUE = "1";
 
 /**
@@ -169,11 +169,11 @@ export function mergePathEntries(
 }
 
 function envCaptureStart(name: string): string {
-  return `__SYNARA_ENV_${name}_START__`;
+  return `__PENKRA_ENV_${name}_START__`;
 }
 
 function envCaptureEnd(name: string): string {
-  return `__SYNARA_ENV_${name}_END__`;
+  return `__PENKRA_ENV_${name}_END__`;
 }
 
 function buildEnvironmentCaptureCommand(names: ReadonlyArray<string>): string {

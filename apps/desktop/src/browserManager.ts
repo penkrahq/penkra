@@ -31,15 +31,15 @@ import type {
   BrowserThreadInput,
   ThreadBrowserState,
   ThreadId,
-} from "@synara/contracts";
-import { isBrowserCopyLinkChord } from "@synara/shared/browserShortcuts";
+} from "@penkra/contracts";
+import { isBrowserCopyLinkChord } from "@penkra/shared/browserShortcuts";
 import {
   BROWSER_BLANK_URL as ABOUT_BLANK_URL,
   classifyBrowserWindowOpen,
   isBlankBrowserTabUrl,
   normalizeBrowserUrlInput as normalizeUrlInput,
   resolveCopyableBrowserTabUrl,
-} from "@synara/shared/browserSession";
+} from "@penkra/shared/browserSession";
 import { BROWSER_SESSION_PARTITION, BrowserSessionPolicy } from "./browserSessionPolicy";
 
 export { BROWSER_SESSION_PARTITION } from "./browserSessionPolicy";
@@ -1104,9 +1104,20 @@ export class DesktopBrowserManager {
       });
     };
 
-    runtime.webContents.debugger.on("message", handleMessage);
+    const webContents = runtime.webContents;
+    const debuggerSession = webContents.debugger;
+    debuggerSession.on("message", handleMessage);
+    let disposed = false;
     return () => {
-      runtime.webContents.debugger.removeListener("message", handleMessage);
+      if (disposed) return;
+      disposed = true;
+      if (webContents.isDestroyed()) return;
+      try {
+        debuggerSession.removeListener("message", handleMessage);
+      } catch {
+        // Destruction can race the check above. The listener belongs to the
+        // destroyed WebContents, so there is nothing left to detach safely.
+      }
     };
   }
 

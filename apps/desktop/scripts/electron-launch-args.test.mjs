@@ -6,7 +6,7 @@ describe("resolveDevElectronArgs", () => {
   it("passes the application entrypoint before Penkra's ownership marker", () => {
     expect(resolveDevElectronArgs("/workspace/apps/desktop")).toEqual([
       "dist-electron/main.js",
-      "--synara-dev-root=/workspace/apps/desktop",
+      "--penkra-dev-root=/workspace/apps/desktop",
     ]);
   });
 });

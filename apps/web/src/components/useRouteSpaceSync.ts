@@ -1,7 +1,7 @@
 // FILE: useRouteSpaceSync.ts
 // Purpose: Synchronize the selected Space only when route identity actually changes.
 
-import type { ProjectId, SpaceId, ThreadId } from "@synara/contracts";
+import type { ProjectId, SpaceId, ThreadId } from "@penkra/contracts";
 import { useEffect } from "react";
 
 import { useSpacesUiStore } from "../spacesUiStore";

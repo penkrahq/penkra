@@ -1,6 +1,6 @@
 "use client";
 
-import type { ProviderKind } from "@synara/contracts";
+import type { ProviderKind } from "@penkra/contracts";
 import { type MouseEvent, type ReactNode, useState } from "react";
 
 import { DisclosureSection } from "~/components/ui/DisclosureRegion";
@@ -14,6 +14,7 @@ export interface FolderGroupThread {
   id: string;
   label: string;
   provider?: ProviderKind | "github";
+  pinned?: boolean;
   state?: LeftRailRowState;
   workStatus?: ThreadWorkStatus;
 }
@@ -30,8 +31,10 @@ export interface FolderGroupSharedProps {
   onHeaderContextMenu?: (event: MouseEvent<HTMLButtonElement>) => void;
   onShowMore?: () => void;
   onThreadSelect?: (id: string) => void;
+  pinned?: boolean;
   showMore?: boolean;
   threads?: FolderGroupThread[];
+  workStatus?: ThreadWorkStatus;
 }
 
 export function FolderGroupShared({
@@ -46,8 +49,10 @@ export function FolderGroupShared({
   onHeaderContextMenu,
   onShowMore,
   onThreadSelect,
+  pinned = false,
   showMore = false,
   threads = [],
+  workStatus = "idle",
 }: FolderGroupSharedProps) {
   const [uncontrolledExpanded, setUncontrolledExpanded] = useState(defaultExpanded);
   const requestedExpanded = expandedProp ?? uncontrolledExpanded;
@@ -70,7 +75,9 @@ export function FolderGroupShared({
         <FolderRowShared
           actionLabel={`Create thread in ${label}`}
           expanded={expanded}
+          pinned={pinned}
           state={headerState}
+          workStatus={workStatus}
           {...(hasContent ? { onClick: () => setExpanded(!expanded) } : {})}
           {...(onHeaderAction === undefined ? {} : { onAction: onHeaderAction })}
           {...(onHeaderContextMenu === undefined ? {} : { onContextMenu: onHeaderContextMenu })}
@@ -88,6 +95,7 @@ export function FolderGroupShared({
             level="nested"
             onClick={() => onThreadSelect?.(thread.id)}
             {...(thread.provider === undefined ? {} : { harness: thread.provider })}
+            {...(thread.pinned === undefined ? {} : { pinned: thread.pinned })}
             {...(thread.state === undefined ? {} : { state: thread.state })}
             {...(thread.workStatus === undefined ? {} : { workStatus: thread.workStatus })}
           >

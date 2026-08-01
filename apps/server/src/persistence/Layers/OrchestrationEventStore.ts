@@ -10,7 +10,7 @@ import {
   ProjectId,
   SpaceId,
   ThreadId,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
 import { Effect, Layer, Schema, Stream } from "effect";

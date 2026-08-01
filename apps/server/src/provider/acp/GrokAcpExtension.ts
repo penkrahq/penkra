@@ -1,4 +1,4 @@
-import type { ProviderUserInputAnswers, UserInputQuestion } from "@synara/contracts";
+import type { ProviderUserInputAnswers, UserInputQuestion } from "@penkra/contracts";
 import { Schema } from "effect";
 
 export const GROK_ASK_USER_QUESTION_METHODS = [
@@ -84,7 +84,7 @@ export const GrokExitPlanModeRequest = Schema.Struct({
   planContent: Schema.NullOr(Schema.String),
 });
 
-const SYNARA_PLAN_REVIEW_FEEDBACK =
+const PENKRA_PLAN_REVIEW_FEEDBACK =
   "Penkra captured this plan for user review. Do not revise or implement it now. End this turn and wait for the user's next message.";
 
 export function extractGrokExitPlanMarkdown(
@@ -105,7 +105,7 @@ export function makeGrokExitPlanModeCapturedResponse(): {
 } {
   return {
     outcome: "cancelled",
-    feedback: SYNARA_PLAN_REVIEW_FEEDBACK,
+    feedback: PENKRA_PLAN_REVIEW_FEEDBACK,
   };
 }
 

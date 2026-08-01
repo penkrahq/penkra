@@ -1,4 +1,4 @@
-# Plan 006: Make Synara the Authoritative Agent Harness
+# Plan 006: Make Penkra the Authoritative Agent Harness
 
 > **Executor instructions**: Follow this plan step by step. Run every focused
 > verification command and confirm the expected result before moving on. If a
@@ -21,19 +21,19 @@
 
 ## Why this matters
 
-An explicit request to start two Synara threads produced six threads. The
+An explicit request to start two Penkra threads produced six threads. The
 parent Grok turn first chose its provider-native `spawn_subagent` tool, ended,
 and left background agents alive. Those detached agents later discovered
-`synara_create_thread`, tried several invalid provider/model combinations, and
+`penkra_create_thread`, tried several invalid provider/model combinations, and
 created a new durable thread on every retry. The parent therefore neither
 waited for the requested two results nor synthesized them.
 
 The fix must establish three independent layers:
 
 1. **Model awareness** — every provider is told, through its strongest native
-   instruction channel, that Synara is the hosting harness and that Synara
-   resources are controlled through `synara_*` tools.
-2. **Capability truth** — agents can ask Synara which providers, models,
+   instruction channel, that Penkra is the hosting harness and that Penkra
+   resources are controlled through `penkra_*` tools.
+2. **Capability truth** — agents can ask Penkra which providers, models,
    options, and orchestration operations are actually available; they do not
    guess model slugs or silently substitute providers.
 3. **Server authority** — detached sessions, duplicate calls, unsupported
@@ -44,32 +44,32 @@ The fix must establish three independent layers:
 The target interaction for the original request is:
 
 ```text
-user asks for exactly two Synara threads
-  -> parent reads synara_context / synara_capabilities
-  -> parent calls synara_create_threads once with exactly two entries
+user asks for exactly two Penkra threads
+  -> parent reads penkra_context / penkra_capabilities
+  -> parent calls penkra_create_threads once with exactly two entries
   -> gateway validates the entire batch before side effects
   -> gateway reserves one creation plan for this caller turn
   -> gateway creates exactly two threads with deterministic ids
-  -> parent calls synara_wait_for_threads until both runs are terminal
+  -> parent calls penkra_wait_for_threads until both runs are terminal
   -> parent reports both results, including any failure
   -> parent never creates a replacement unless the user sends a new instruction
 ```
 
 ## Architectural invariants
 
-- Synara is the harness; provider-native subagents are implementation details
-  inside a provider turn and never substitute for user-requested Synara
+- Penkra is the harness; provider-native subagents are implementation details
+  inside a provider turn and never substitute for user-requested Penkra
   threads.
 - All model-facing host text comes from one versioned
-  `SynaraHarnessPolicy`. Provider adapters only choose the delivery mechanism.
-- Every state-changing gateway call is bound to a live Synara provider session
+  `PenkraHarnessPolicy`. Provider adapters only choose the delivery mechanism.
+- Every state-changing gateway call is bound to a live Penkra provider session
   and its active caller turn. Read-only calls may remain available for the
   lifetime of the scoped provider session.
 - A caller turn can commit at most one distinct thread-creation plan. A plural
   request is one batch; a replay of that batch returns the same result; a
   different second plan returns `creation_plan_locked`.
 - Unsupported provider/model/options fail before `thread.create`, git branch,
-  worktree, or provider side effects. Synara never interprets `Low` as part of
+  worktree, or provider side effects. Penkra never interprets `Low` as part of
   a model slug: Codex Terra Low is `{ model: "gpt-5.6-terra", options:
 { reasoningEffort: "low" } }`.
 - A failed worker is reported as failed. The gateway and host policy do not
@@ -85,24 +85,24 @@ user asks for exactly two Synara threads
 ### Host identity is not authoritative
 
 - `apps/server/src/agentGateway/Layers/AgentGateway.ts:73-81` owns the only full
-  “Synara is hosting this session / use synara\_\*” policy, but
+  “Penkra is hosting this session / use penkra\_\*” policy, but
   `AgentGateway.ts:943-950` sends it only as MCP initialize metadata. MCP clients
   are not guaranteed to promote server instructions into the model's persistent
   system/developer context.
 - `apps/server/src/provider/Layers/ClaudeAdapter.ts:880-885` tells Claude it is
-  running inside Synara, but does not define Synara-thread versus native
+  running inside Penkra, but does not define Penkra-thread versus native
   subagent precedence.
 - `apps/server/src/codexAppServerManager.ts:475-486,620-648` sends Codex
   developer instructions for collaboration mode, but those instructions do not
-  include the Synara harness contract.
+  include the Penkra harness contract.
 - Cursor, Grok, and Droid receive MCP transport configuration and a
-  Synara `clientInfo`, but no shared model-facing host policy. See
+  Penkra `clientInfo`, but no shared model-facing host policy. See
   `apps/server/src/agentGateway/mcpInjection.ts:91-117` and the adapter startup
   paths.
 - `apps/server/src/provider/runtimeLayer.ts:54-70` explicitly excludes OpenCode
   and Kilo from MCP because their server process is pooled across threads. Pi
   has no MCP client support. These providers still need truthful host identity
-  and a clear “Synara control unavailable” capability instead of pretending
+  and a clear “Penkra control unavailable” capability instead of pretending
   parity.
 
 ### Thread creation is neither validated nor idempotent
@@ -132,7 +132,7 @@ user asks for exactly two Synara threads
   `callerThreadId`; it drops JSON-RPC request id, provider session, active turn,
   capabilities, and issuance/revocation state.
 - A background native agent that retains the same MCP connection can therefore
-  mutate Synara after the visible parent turn has completed.
+  mutate Penkra after the visible parent turn has completed.
 
 ### Coordination primitives are missing
 
@@ -165,7 +165,7 @@ Relevant reference points:
 Explicitly do **not** copy:
 
 - the full V2 migration or its provider adapter rewrite;
-- predecessor naming — Synara identity must remain consistent;
+- predecessor naming — Penkra identity must remain consistent;
 - client-request-id-only deduplication with a random fallback;
 - a ten-minute default HTTP wait; use bounded rolling waits;
 - an exclusive Claude `allowedTools: ["mcp__...__*"]` fallback, which can
@@ -180,11 +180,11 @@ Create `packages/contracts/src/agentGateway.ts`, export it from
 Do not keep hand-written, unvalidated `Record<string, unknown>` inputs for new
 tools.
 
-### `synara_context` (read-only, idempotent)
+### `penkra_context` (read-only, idempotent)
 
 ```ts
-type SynaraContextResult = {
-  harness: { name: "Synara"; policyVersion: string };
+type PenkraContextResult = {
+  harness: { name: "Penkra"; policyVersion: string };
   caller: {
     threadId: ThreadId;
     turnId: TurnId | null;
@@ -203,16 +203,16 @@ type SynaraContextResult = {
 This tool makes host identity inspectable. It is not a substitute for native
 system/developer instructions.
 
-### `synara_capabilities` (read-only, idempotent)
+### `penkra_capabilities` (read-only, idempotent)
 
 Returns supported provider targets with canonical model slugs, option
 descriptors, availability constraints, and gateway limits. It must expose the
 same model data used by target validation.
 
-### `synara_create_threads` (destructive, idempotent with request id)
+### `penkra_create_threads` (destructive, idempotent with request id)
 
 ```ts
-type SynaraCreateThreadsInput = {
+type PenkraCreateThreadsInput = {
   requestId: string; // required, max 256 chars
   threads: ReadonlyArray<{
     prompt: string;
@@ -241,14 +241,14 @@ Rules:
   `creation_plan_locked` and the existing operation summary.
 - No automatic provider/model substitution.
 
-Keep `synara_create_thread` as a backwards-compatible single-entry wrapper
+Keep `penkra_create_thread` as a backwards-compatible single-entry wrapper
 over the same service. Mark it inappropriate for plural requests in its tool
 description. It receives the same required `requestId` and creation-plan rules.
 
-### `synara_wait_for_threads` (read-only, idempotent)
+### `penkra_wait_for_threads` (read-only, idempotent)
 
 ```ts
-type SynaraWaitForThreadsInput = {
+type PenkraWaitForThreadsInput = {
   threadIds: ReadonlyArray<ThreadId>; // 1–20
   runIds?: ReadonlyArray<TurnId | null>;
   timeoutMs?: number; // default 30_000, max 60_000
@@ -334,23 +334,23 @@ in the implementation conversation.
 **Out of scope**:
 
 - Replacing the existing orchestration engine with the PR #2829 V2 design.
-- Rebranding or renaming `synara_*` tools.
+- Rebranding or renaming `penkra_*` tools.
 - Disabling provider-native subagents globally. They remain available for
   ordinary in-turn delegation; the host policy only establishes precedence for
-  explicit Synara-resource requests.
+  explicit Penkra-resource requests.
 - Making ordinary gateway-created threads appear as nested subagents in the
   sidebar.
 - Building a full app-owned subagent task graph or result context-transfer
   system. This plan adds operation provenance and batch wait only.
 - Granting MCP control to a pooled provider process by placing one thread's
   bearer token in shared configuration.
-- UI redesign. Existing Synara MCP logo/labels may consume tool annotations,
+- UI redesign. Existing Penkra MCP logo/labels may consume tool annotations,
   but UI work is not required to make backend behavior safe.
 - Auto-parsing arbitrary natural-language model aliases on the server.
 
 ## Git workflow
 
-- Branch from the current feature branch with `codex/synara-harness-control-plane`.
+- Branch from the current feature branch with `codex/penkra-harness-control-plane`.
 - Keep commits grouped by the milestones below: policy delivery, invocation
   scope, target resolution, operation/idempotency, coordination, verification.
 - Do not push or open a PR unless the operator requests it.
@@ -383,28 +383,28 @@ bounded creation plan per active caller turn.
 **Verify**: Run the gateway tests and confirm only the newly added regression
 cases fail for the expected missing safeguards.
 
-### Step 2: Centralize and deliver the Synara harness policy
+### Step 2: Centralize and deliver the Penkra harness policy
 
 Create a pure `harnessPolicy.ts` exporting:
 
-- `SYNARA_HARNESS_POLICY_VERSION`;
+- `PENKRA_HARNESS_POLICY_VERSION`;
 - one canonical identity/routing policy;
 - a capability-aware renderer that never claims unavailable MCP support; and
 - small provider delivery helpers, without duplicating policy text in adapters.
 
 The canonical policy must state:
 
-1. “You are running inside Synara. Synara is the host/harness for this
+1. “You are running inside Penkra. Penkra is the host/harness for this
    session.”
-2. Use `synara_*` for Synara threads, projects, automations, and coordination.
+2. Use `penkra_*` for Penkra threads, projects, automations, and coordination.
 3. Provider-native `spawn_subagent`/Task/collaboration tools do not create
-   Synara threads and must not substitute for an explicit request for Synara
+   Penkra threads and must not substitute for an explicit request for Penkra
    threads.
-4. Use one `synara_create_threads` call for plural requests; the array count is
+4. Use one `penkra_create_threads` call for plural requests; the array count is
    exact.
-5. Resolve canonical models/options through `synara_capabilities`; do not guess
+5. Resolve canonical models/options through `penkra_capabilities`; do not guess
    slugs or silently change provider/model.
-6. Wait with `synara_wait_for_threads`, then synthesize all results.
+6. Wait with `penkra_wait_for_threads`, then synthesize all results.
 7. Report failures; do not create replacements without a new user instruction.
 
 Deliver it through the strongest channel available:
@@ -414,21 +414,21 @@ Deliver it through the strongest channel available:
 - **Claude**: append it to the existing Claude system-prompt append. Add MCP
   configuration additively; never turn it into an exclusive allowed-tools
   list.
-- **Cursor/Grok/Droid ACP paths**: include consistent Synara clientInfo
+- **Cursor/Grok/Droid ACP paths**: include consistent Penkra clientInfo
   and inject a private host-context envelope on the first prompt for new/load/
   fork when ACP has no system-instruction field. Keep the envelope out of the
-  user-visible Synara message projection.
-- **OpenCode/Kilo**: deliver truthful host identity, but advertise Synara MCP
+  user-visible Penkra message projection.
+- **OpenCode/Kilo**: deliver truthful host identity, but advertise Penkra MCP
   mutation capability as false until a per-thread credential can be safely
   bound to the pooled runtime. If their session API supports per-session MCP,
   implement that binding; if it only supports shared server config, STOP and
   leave the capability false.
 - **Pi**: deliver host identity through its supported prompt/extension path and
-  explicitly advertise that Synara MCP control is unavailable. Do not simulate
-  successful Synara actions.
+  explicitly advertise that Penkra MCP control is unavailable. Do not simulate
+  successful Penkra actions.
 
 Keep MCP initialize `instructions` generated from the same policy. Add tool
-annotations and make every description begin with its user-facing Synara
+annotations and make every description begin with its user-facing Penkra
 purpose, not the literal transport name.
 
 **Verify**: provider tests assert the same policy version/marker appears exactly
@@ -441,7 +441,7 @@ Replace thread-only invocation identity with an in-memory
 `AgentGatewaySessionRegistry` that issues an opaque random token scoped to:
 
 - caller thread id;
-- a Synara-generated provider-session key (not an upstream provider id);
+- a Penkra-generated provider-session key (not an upstream provider id);
 - provider kind;
 - allowed capability set;
 - issue time and provider-session lifetime; and
@@ -486,7 +486,7 @@ Rules:
 - if model discovery is unsupported or temporarily unavailable, allow only the
   provider's configured default; require user intervention for an unverified
   custom model rather than agent opt-in;
-- return the same catalog from `synara_capabilities` that validation uses;
+- return the same catalog from `penkra_capabilities` that validation uses;
 - never rewrite a malformed slug into a guessed provider/model pair;
 - persist requested and effective selections when they differ for a documented
   provider normalization, and surface that difference in the result.
@@ -535,7 +535,7 @@ it must never generate fresh ids.
 Persist immutable provenance on created threads/events/projections:
 
 ```text
-creationSource = synara_mcp
+creationSource = penkra_mcp
 sourceThreadId = caller thread
 sourceTurnId = caller turn
 gatewayOperationId = operation id
@@ -550,7 +550,7 @@ worktree remains.
 
 ### Step 6: Add bounded batch waiting and result synthesis support
 
-Implement `synara_wait_for_threads` as a read-only long poll over projections:
+Implement `penkra_wait_for_threads` as a read-only long poll over projections:
 
 - select/pin each latest active turn at call time;
 - poll durable projection state, not provider process internals;
@@ -583,9 +583,9 @@ For provider-native collaboration ingestion:
 - add a conservative per-parent-turn native-child cap with one overflow
   activity rather than unbounded materialization.
 
-This cap protects Synara projections from provider fan-out, but it does not
+This cap protects Penkra projections from provider fan-out, but it does not
 disable native subagent execution. Keep native-child budgeting separate from
-the ordinary top-level `synara_create_threads` operation.
+the ordinary top-level `penkra_create_threads` operation.
 
 **Verify**: repeat one provider event after a simulated recovery and observe one
 projected effect; reuse a receiver id in a later turn and confirm it is not
@@ -605,7 +605,7 @@ multiple alternative model/provider creates through the retained MCP token.
 Expected result:
 
 - detached creates are rejected;
-- the active parent path uses one two-entry Synara batch;
+- the active parent path uses one two-entry Penkra batch;
 - exactly two durable threads exist for the gateway operation;
 - the Codex selection stores model `gpt-5.6-terra` plus
   `reasoningEffort: "low"`;
@@ -652,15 +652,15 @@ conversation; all three must pass before implementation is called complete.
 
 ## Done criteria
 
-- [x] Every provider receives the same versioned Synara host identity through
+- [x] Every provider receives the same versioned Penkra host identity through
       its strongest available instruction channel.
-- [x] Every provider truthfully reports whether it can call Synara MCP; no
+- [x] Every provider truthfully reports whether it can call Penkra MCP; no
       provider simulates unsupported host actions.
 - [x] MCP initialize identity, tool descriptions, and native host instructions
-      all say Synara, never a predecessor or provider-branded harness.
+      all say Penkra, never a predecessor or provider-branded harness.
 - [x] Every destructive call requires a live scoped provider session and active
       caller turn.
-- [x] A detached background agent cannot create or mutate Synara threads after
+- [x] A detached background agent cannot create or mutate Penkra threads after
       its parent turn completes.
 - [x] Plural thread requests use one batch with an exact count.
 - [x] The same creation request is idempotent; a different second plan in the
@@ -701,7 +701,7 @@ conversation; all three must pass before implementation is called complete.
 
 ## Maintenance notes
 
-- `SynaraHarnessPolicy` is the single source of truth. Any new provider must add
+- `PenkraHarnessPolicy` is the single source of truth. Any new provider must add
   an explicit delivery/capability test before it is considered supported.
 - Capability discovery and target validation must consume the same catalog;
   separate lists will drift and recreate late model failures.

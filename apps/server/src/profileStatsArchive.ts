@@ -11,8 +11,8 @@ import {
   ThreadId,
   TurnId,
   type ThreadEnvironmentMode,
-} from "@synara/contracts";
-import { resolveThreadWorkspaceCwd } from "@synara/shared/threadEnvironment";
+} from "@penkra/contracts";
+import { resolveThreadWorkspaceCwd } from "@penkra/shared/threadEnvironment";
 import { Cause, Effect, Layer, ServiceMap } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { redactCreationPlanForPurgedCaller } from "./agentGateway/operationPlan.ts";
@@ -386,7 +386,7 @@ export interface ProfileStatsArchiveShape {
 export class ProfileStatsArchive extends ServiceMap.Service<
   ProfileStatsArchive,
   ProfileStatsArchiveShape
->()("synara/profileStats/ProfileStatsArchive") {}
+>()("penkra/profileStats/ProfileStatsArchive") {}
 
 const makeProfileStatsArchive = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;

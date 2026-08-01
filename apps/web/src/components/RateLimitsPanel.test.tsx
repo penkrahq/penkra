@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { EventId, type OrchestrationThreadActivity, TurnId } from "@synara/contracts";
+import { EventId, type OrchestrationThreadActivity, TurnId } from "@penkra/contracts";
 
 import {
   deriveAccountRateLimits,

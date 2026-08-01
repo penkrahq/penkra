@@ -10,7 +10,7 @@ import {
   ProviderSessionRuntimeStatus,
   RuntimeMode,
   ThreadId,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 import { Option, Schema, ServiceMap } from "effect";
 import type { Effect } from "effect";
 
@@ -79,4 +79,4 @@ export interface ProviderSessionRuntimeRepositoryShape {
 export class ProviderSessionRuntimeRepository extends ServiceMap.Service<
   ProviderSessionRuntimeRepository,
   ProviderSessionRuntimeRepositoryShape
->()("synara/persistence/Services/ProviderSessionRuntime/ProviderSessionRuntimeRepository") {}
+>()("penkra/persistence/Services/ProviderSessionRuntime/ProviderSessionRuntimeRepository") {}

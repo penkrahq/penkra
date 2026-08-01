@@ -1,21 +1,21 @@
 // FILE: desktopIdentity.ts
 // Purpose: Defines the canonical desktop application identity across packaging and runtime.
 
-export const LEGACY_SYNARA_DESKTOP_SCHEME = "synara";
-export const SYNARA_DESKTOP_SCHEME = "penkra";
-export const SYNARA_DESKTOP_ORIGIN = `${SYNARA_DESKTOP_SCHEME}://app`;
-export const SYNARA_DESKTOP_ENTRY_URL = `${SYNARA_DESKTOP_ORIGIN}/index.html`;
+export const LEGACY_PENKRA_DESKTOP_SCHEME = "penkra";
+export const PENKRA_DESKTOP_SCHEME = "penkra";
+export const PENKRA_DESKTOP_ORIGIN = `${PENKRA_DESKTOP_SCHEME}://app`;
+export const PENKRA_DESKTOP_ENTRY_URL = `${PENKRA_DESKTOP_ORIGIN}/index.html`;
 export const PENKRA_PRODUCTION_ACCOUNT_AUTH_SCHEME = "com.penkra.app";
 export const PENKRA_DEVELOPMENT_ACCOUNT_AUTH_SCHEME = `${PENKRA_PRODUCTION_ACCOUNT_AUTH_SCHEME}.dev`;
 export const PENKRA_ACCOUNT_AUTH_SCHEME = PENKRA_PRODUCTION_ACCOUNT_AUTH_SCHEME;
-export const SYNARA_DESKTOP_UPDATE_CHANNEL = "latest";
-export const SYNARA_PRODUCTION_BUNDLE_ID = "com.penkra.app";
-export const SYNARA_DEVELOPMENT_BUNDLE_ID = `${SYNARA_PRODUCTION_BUNDLE_ID}.dev`;
+export const PENKRA_DESKTOP_UPDATE_CHANNEL = "latest";
+export const PENKRA_PRODUCTION_BUNDLE_ID = "com.penkra.app";
+export const PENKRA_DEVELOPMENT_BUNDLE_ID = `${PENKRA_PRODUCTION_BUNDLE_ID}.dev`;
 
-export type SynaraDesktopFlavor = "production" | "development";
+export type PenkraDesktopFlavor = "production" | "development";
 
-export interface SynaraDesktopIdentity {
-  readonly flavor: SynaraDesktopFlavor;
+export interface PenkraDesktopIdentity {
+  readonly flavor: PenkraDesktopFlavor;
   readonly displayName: string;
   readonly bundleId: string;
   readonly accountAuthScheme: string;
@@ -26,10 +26,10 @@ export interface SynaraDesktopIdentity {
   readonly defaultHomeDirectoryName: string;
 }
 
-export function resolveSynaraDesktopFlavor(input: {
+export function resolvePenkraDesktopFlavor(input: {
   readonly isPackaged: boolean;
   readonly requestedFlavor?: string;
-}): SynaraDesktopFlavor {
+}): PenkraDesktopFlavor {
   const requestedFlavor = input.requestedFlavor?.trim();
 
   if (requestedFlavor === "development") {
@@ -49,16 +49,16 @@ export function resolveSynaraDesktopFlavor(input: {
   );
 }
 
-export function synaraDesktopIdentity(flavor: SynaraDesktopFlavor): SynaraDesktopIdentity {
+export function penkraDesktopIdentity(flavor: PenkraDesktopFlavor): PenkraDesktopIdentity {
   if (flavor === "development") {
     return {
       flavor,
       displayName: "Penkra (Dev)",
-      bundleId: SYNARA_DEVELOPMENT_BUNDLE_ID,
+      bundleId: PENKRA_DEVELOPMENT_BUNDLE_ID,
       accountAuthScheme: PENKRA_DEVELOPMENT_ACCOUNT_AUTH_SCHEME,
-      scheme: SYNARA_DESKTOP_SCHEME,
-      origin: SYNARA_DESKTOP_ORIGIN,
-      entryUrl: SYNARA_DESKTOP_ENTRY_URL,
+      scheme: PENKRA_DESKTOP_SCHEME,
+      origin: PENKRA_DESKTOP_ORIGIN,
+      entryUrl: PENKRA_DESKTOP_ENTRY_URL,
       userDataDirectoryName: "penkra-dev",
       defaultHomeDirectoryName: ".penkra",
     };
@@ -66,16 +66,16 @@ export function synaraDesktopIdentity(flavor: SynaraDesktopFlavor): SynaraDeskto
   return {
     flavor,
     displayName: "Penkra",
-    bundleId: SYNARA_PRODUCTION_BUNDLE_ID,
+    bundleId: PENKRA_PRODUCTION_BUNDLE_ID,
     accountAuthScheme: PENKRA_PRODUCTION_ACCOUNT_AUTH_SCHEME,
-    scheme: SYNARA_DESKTOP_SCHEME,
-    origin: SYNARA_DESKTOP_ORIGIN,
-    entryUrl: SYNARA_DESKTOP_ENTRY_URL,
+    scheme: PENKRA_DESKTOP_SCHEME,
+    origin: PENKRA_DESKTOP_ORIGIN,
+    entryUrl: PENKRA_DESKTOP_ENTRY_URL,
     userDataDirectoryName: "penkra",
     defaultHomeDirectoryName: ".penkra",
   };
 }
 
-export function synaraBundleId(isDevelopment: boolean): string {
-  return synaraDesktopIdentity(isDevelopment ? "development" : "production").bundleId;
+export function penkraBundleId(isDevelopment: boolean): string {
+  return penkraDesktopIdentity(isDevelopment ? "development" : "production").bundleId;
 }

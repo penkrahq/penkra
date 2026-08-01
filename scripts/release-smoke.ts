@@ -10,9 +10,9 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
-  SYNARA_DESKTOP_UPDATE_CHANNEL,
-  SYNARA_PRODUCTION_BUNDLE_ID,
-} from "@synara/shared/desktopIdentity";
+  PENKRA_DESKTOP_UPDATE_CHANNEL,
+  PENKRA_PRODUCTION_BUNDLE_ID,
+} from "@penkra/shared/desktopIdentity";
 
 import {
   RELEASE_LOCKFILE_PATH,
@@ -46,10 +46,10 @@ function writeMacManifestFixtures(targetRoot: string): { arm64Path: string; x64P
     arm64Path,
     `version: 9.9.9-smoke.0
 files:
-  - url: Synara-9.9.9-smoke.0-arm64.zip
+  - url: Penkra-9.9.9-smoke.0-arm64.zip
     sha512: arm64zip
     size: 125621344
-path: Synara-9.9.9-smoke.0-arm64.zip
+path: Penkra-9.9.9-smoke.0-arm64.zip
 sha512: arm64zip
 releaseDate: '2026-03-08T10:32:14.587Z'
 `,
@@ -59,10 +59,10 @@ releaseDate: '2026-03-08T10:32:14.587Z'
     x64Path,
     `version: 9.9.9-smoke.0
 files:
-  - url: Synara-9.9.9-smoke.0-x64.zip
+  - url: Penkra-9.9.9-smoke.0-x64.zip
     sha512: x64zip
     size: 132000112
-path: Synara-9.9.9-smoke.0-x64.zip
+path: Penkra-9.9.9-smoke.0-x64.zip
 sha512: x64zip
 releaseDate: '2026-03-08T10:36:07.540Z'
 `,
@@ -87,23 +87,23 @@ function verifyCanonicalIdentity(): void {
   const serverPackage = JSON.parse(
     readFileSync(resolve(repoRoot, "apps/server/package.json"), "utf8"),
   ) as { name?: string; bin?: Record<string, string> };
-  if (serverPackage.name !== "@synara/cli") {
-    throw new Error(`Expected CLI package @synara/cli, got ${serverPackage.name ?? "<missing>"}.`);
+  if (serverPackage.name !== "@penkra/cli") {
+    throw new Error(`Expected CLI package @penkra/cli, got ${serverPackage.name ?? "<missing>"}.`);
   }
   const expectedBinaries = {
-    synara: "dist/index.mjs",
-    "synara-restore-migration-backup": "dist/restoreMigrationBackup.mjs",
+    penkra: "dist/index.mjs",
+    "penkra-restore-migration-backup": "dist/restoreMigrationBackup.mjs",
   };
   if (JSON.stringify(serverPackage.bin ?? {}) !== JSON.stringify(expectedBinaries)) {
     throw new Error(
-      "Expected the CLI to expose only the Synara entry point and migration recovery binary.",
+      "Expected the CLI to expose only the Penkra entry point and migration recovery binary.",
     );
   }
-  if (SYNARA_PRODUCTION_BUNDLE_ID !== "com.penkra.app") {
-    throw new Error(`Unexpected production bundle ID: ${SYNARA_PRODUCTION_BUNDLE_ID}.`);
+  if (PENKRA_PRODUCTION_BUNDLE_ID !== "com.penkra.app") {
+    throw new Error(`Unexpected production bundle ID: ${PENKRA_PRODUCTION_BUNDLE_ID}.`);
   }
-  if (SYNARA_DESKTOP_UPDATE_CHANNEL !== "latest") {
-    throw new Error(`Unexpected desktop update channel: ${SYNARA_DESKTOP_UPDATE_CHANNEL}.`);
+  if (PENKRA_DESKTOP_UPDATE_CHANNEL !== "latest") {
+    throw new Error(`Unexpected desktop update channel: ${PENKRA_DESKTOP_UPDATE_CHANNEL}.`);
   }
 }
 
@@ -195,7 +195,7 @@ function verifyDesktopStageLockAuthority(): void {
   );
   assertNotContains(
     buildScript,
-    "--filter @synara/",
+    "--filter @penkra/",
     "Desktop staging must not use Bun workspace filters because filtered hoisted installs can diverge from bun.lock.",
   );
   assertNotContains(
@@ -253,12 +253,12 @@ function verifyDesktopStageLockAuthority(): void {
   );
   assertContains(
     buildScript,
-    "synaraCommitHash: commitHash",
+    "penkraCommitHash: commitHash",
     "Expected the staged package to carry its exact source commit.",
   );
   assertContains(
     buildScript,
-    "synaraLockfileSha256: resolvedLockfileSha256",
+    "penkraLockfileSha256: resolvedLockfileSha256",
     "Expected the staged package to carry its repository lockfile digest.",
   );
   const lockfile = readFileSync(resolve(repoRoot, RELEASE_LOCKFILE_PATH), "utf8");
@@ -275,7 +275,7 @@ function verifyDesktopStageLockAuthority(): void {
   }
 }
 
-const tempRoot = mkdtempSync(join(tmpdir(), "synara-release-smoke-"));
+const tempRoot = mkdtempSync(join(tmpdir(), "penkra-release-smoke-"));
 
 try {
   verifyCanonicalIdentity();
@@ -322,12 +322,12 @@ try {
   const mergedManifest = readFileSync(arm64Path, "utf8");
   assertContains(
     mergedManifest,
-    "Synara-9.9.9-smoke.0-arm64.zip",
+    "Penkra-9.9.9-smoke.0-arm64.zip",
     "Merged manifest is missing the arm64 asset.",
   );
   assertContains(
     mergedManifest,
-    "Synara-9.9.9-smoke.0-x64.zip",
+    "Penkra-9.9.9-smoke.0-x64.zip",
     "Merged manifest is missing the x64 asset.",
   );
   assertNotContains(

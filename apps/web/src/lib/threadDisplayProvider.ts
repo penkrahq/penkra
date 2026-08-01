@@ -3,7 +3,7 @@
 // Layer: Web display helper
 // Exports: resolveThreadDisplayProvider
 
-import type { ProviderKind } from "@synara/contracts";
+import type { ProviderKind } from "@penkra/contracts";
 
 /** The live session's provider wins over the configured model selection. */
 export function resolveThreadDisplayProvider(thread: {

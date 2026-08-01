@@ -28,7 +28,7 @@ export interface ProviderCredentialsShape {
 export class ProviderCredentials extends ServiceMap.Service<
   ProviderCredentials,
   ProviderCredentialsShape
->()("synara/providerCredentials/ProviderCredentials") {}
+>()("penkra/providerCredentials/ProviderCredentials") {}
 
 export const resolveProviderServerPassword = (provider: ExternalProviderServer) =>
   Effect.gen(function* () {

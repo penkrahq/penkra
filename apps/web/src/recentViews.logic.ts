@@ -3,7 +3,7 @@
 // Layer: UI state logic
 // Exports: recent view types plus MRU update, pruning, and display derivation helpers
 
-import type { ProjectId, ProviderKind, ThreadId } from "@synara/contracts";
+import type { ProjectId, ProviderKind, ThreadId } from "@penkra/contracts";
 import type { Project, SidebarThreadSummary } from "./types";
 
 export const MAX_RECENT_VIEWS = 5;

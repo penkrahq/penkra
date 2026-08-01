@@ -3,7 +3,7 @@ import {
   ThreadId,
   type OrchestrationPendingInteraction,
   type OrchestrationThreadActivity,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 
 import { derivePendingApprovals, derivePendingUserInputs } from "./pendingInteractionDerivation";

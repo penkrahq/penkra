@@ -1,4 +1,4 @@
-import type { ResolvedKeybindingsConfig } from "@synara/contracts";
+import type { ResolvedKeybindingsConfig } from "@penkra/contracts";
 import { useQuery } from "@tanstack/react-query";
 import { Outlet, createFileRoute, useLocation, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";

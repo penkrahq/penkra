@@ -1,17 +1,17 @@
 // FILE: skillsCatalog.ts
 // Purpose: Generic Agent Skill discovery primitives (frontmatter parsing, SKILL.md
 //          walking) plus the unified cross-provider skills catalog backing Penkra
-//          portable skills. Aggregates `~/.synara/skills` with every provider-native
+//          portable skills. Aggregates `~/.penkra/skills` with every provider-native
 //          skills folder, deduping by name with provider-native copies winning for
 //          the active provider.
 // Layer: Server provider discovery helper
 // Exports: parseSkillFrontmatter, collectSkillsFromRoots, discoverSkillsCatalog,
-//          mergeSkillsIntoCatalog, filterDisabledSkills, ensureSynaraSkillsDir
+//          mergeSkillsIntoCatalog, filterDisabledSkills, ensurePenkraSkillsDir
 
 import * as fs from "node:fs/promises";
 import * as nodePath from "node:path";
 
-import type { ProviderKind, ProviderSkillDescriptor } from "@synara/contracts";
+import type { ProviderKind, ProviderSkillDescriptor } from "@penkra/contracts";
 
 type FrontmatterValue = string | boolean;
 
@@ -304,8 +304,8 @@ export interface SkillsCatalogDiscoveryInput {
   /** Optional workspace cwd; when present, project-level skill folders are included. */
   readonly cwd?: string | null;
   readonly homeDir: string;
-  /** Penkra base dir (usually `~/.synara`); skills live in `{base}/skills`. */
-  readonly synaraBaseDir: string;
+  /** Penkra base dir (usually `~/.penkra`); skills live in `{base}/skills`. */
+  readonly penkraBaseDir: string;
   /** Provider whose native copies should win when the same skill exists in several roots. */
   readonly provider?: ProviderKind | null;
   /** Settings needs every origin; composer/provider pickers keep one winner by name. */
@@ -316,11 +316,11 @@ export interface SkillsCatalogDiscoveryInput {
 
 export interface SkillsCatalogRootInput extends SkillsCatalogDiscoveryInput {
   /** Native provider scans can opt out; the catalog itself always includes Penkra. */
-  readonly includeSynaraRoot?: boolean;
+  readonly includePenkraRoot?: boolean;
 }
 
 const HOME_ORIGIN_ORDER = [
-  "synara",
+  "penkra",
   "codex",
   "claude",
   "cursor",
@@ -345,27 +345,27 @@ interface SkillsCatalogCacheEntry {
 
 const skillsCatalogCache = new Map<string, SkillsCatalogCacheEntry>();
 const skillsCatalogInflight = new Map<string, Promise<ReadonlyArray<ProviderSkillDescriptor>>>();
-const ensuredSynaraSkillsDirs = new Set<string>();
+const ensuredPenkraSkillsDirs = new Set<string>();
 
 export function clearSkillsCatalogCacheForTests(): void {
   skillsCatalogCache.clear();
   skillsCatalogInflight.clear();
-  ensuredSynaraSkillsDirs.clear();
+  ensuredPenkraSkillsDirs.clear();
 }
 
-export function synaraSkillsDir(synaraBaseDir: string): string {
-  return nodePath.join(synaraBaseDir, "skills");
+export function penkraSkillsDir(penkraBaseDir: string): string {
+  return nodePath.join(penkraBaseDir, "skills");
 }
 
 // Creates the portable skills folder on first use so users have a drop-in target.
-export async function ensureSynaraSkillsDir(synaraBaseDir: string): Promise<string> {
-  const dir = synaraSkillsDir(synaraBaseDir);
-  if (ensuredSynaraSkillsDirs.has(dir)) {
+export async function ensurePenkraSkillsDir(penkraBaseDir: string): Promise<string> {
+  const dir = penkraSkillsDir(penkraBaseDir);
+  if (ensuredPenkraSkillsDirs.has(dir)) {
     return dir;
   }
   try {
     await fs.mkdir(dir, { recursive: true });
-    ensuredSynaraSkillsDirs.add(dir);
+    ensuredPenkraSkillsDirs.add(dir);
   } catch {
     // Discovery still works without the folder; reads simply return nothing.
   }
@@ -380,9 +380,9 @@ interface SkillOriginRootSpec {
 }
 
 const SKILL_ORIGIN_ROOTS = {
-  synara: {
-    homeRoots: (input) => [synaraSkillsDir(input.synaraBaseDir)],
-    projectRootNames: [".synara"],
+  penkra: {
+    homeRoots: (input) => [penkraSkillsDir(input.penkraBaseDir)],
+    projectRootNames: [".penkra"],
   },
   codex: {
     // Keep Penkra's existing Codex-local root. Official Codex discovery uses
@@ -460,19 +460,19 @@ function preferredOriginsForProvider(
 
 function orderedOriginsForProvider(
   provider: ProviderKind | null | undefined,
-  includeSynaraRoot = true,
+  includePenkraRoot = true,
   includeRemainingOrigins = true,
 ): SkillsHomeOrigin[] {
   const preferred = preferredOriginsForProvider(provider);
   const ordered = [...preferred];
-  if (includeSynaraRoot && !ordered.includes("synara")) {
-    ordered.push("synara");
+  if (includePenkraRoot && !ordered.includes("penkra")) {
+    ordered.push("penkra");
   }
   if (!includeRemainingOrigins) {
-    return ordered.filter((origin) => includeSynaraRoot || origin !== "synara");
+    return ordered.filter((origin) => includePenkraRoot || origin !== "penkra");
   }
   for (const origin of HOME_ORIGIN_ORDER) {
-    if (!includeSynaraRoot && origin === "synara") {
+    if (!includePenkraRoot && origin === "penkra") {
       continue;
     }
     if (!ordered.includes(origin)) {
@@ -530,7 +530,7 @@ function rootsForOrderedOrigins(
 export function skillsCatalogRoots(input: SkillsCatalogRootInput): SkillRoot[] {
   return rootsForOrderedOrigins(
     input,
-    orderedOriginsForProvider(input.provider, input.includeSynaraRoot !== false),
+    orderedOriginsForProvider(input.provider, input.includePenkraRoot !== false),
   );
 }
 
@@ -545,7 +545,7 @@ export async function discoverSkillsCatalog(
     input.cwd?.trim() ?? "",
     input.provider ?? "",
     input.homeDir,
-    input.synaraBaseDir,
+    input.penkraBaseDir,
     input.includeDuplicateOrigins ? "all-origins" : "deduped",
   ].join("\u0000");
 
@@ -562,7 +562,7 @@ export async function discoverSkillsCatalog(
   }
 
   const scan = (async () => {
-    await ensureSynaraSkillsDir(input.synaraBaseDir);
+    await ensurePenkraSkillsDir(input.penkraBaseDir);
     const skills = input.includeDuplicateOrigins
       ? await collectSkillDescriptorsFromRoots(skillsCatalogRoots(input))
       : await collectSkillsFromRoots(skillsCatalogRoots(input));

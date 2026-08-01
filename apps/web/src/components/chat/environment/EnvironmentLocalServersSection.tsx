@@ -5,9 +5,9 @@
 
 import type { ReactNode } from "react";
 
-import type { ServerLocalServerProcess } from "@synara/contracts";
+import type { ServerLocalServerProcess } from "@penkra/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { localServerPrimaryLabel } from "@synara/shared/localServers";
+import { localServerPrimaryLabel } from "@penkra/shared/localServers";
 
 import { LocalServerIdentity } from "../../LocalServerIdentity";
 import { ComposerPickerMenuPopup } from "../ComposerPickerMenuPopup";

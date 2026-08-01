@@ -1,4 +1,4 @@
-# Synara Roadmap Execution Controller
+# Penkra Roadmap Execution Controller
 
 > **Purpose:** Keep execution prompts small. This file controls progress; the detailed,
 > evidence-backed specification remains in `audit/README.md`.
@@ -144,7 +144,7 @@ No roadmap scope was added. The checkpoint changed only the seven existing rows:
   are deleted; explicit extensions use SDK parsers and raw logging wraps bytes without a second
   parser. The mock agent now uses the official SDK too. The private `effect-acp` client, agent,
   protocol, RPC, terminal, stdio helpers, tests, examples, fixtures, generated compatibility schema,
-  and workspace package are deleted. `AcpErrors.ts` and `AcpExtensions.ts` retain only Synara-owned
+  and workspace package are deleted. `AcpErrors.ts` and `AcpExtensions.ts` retain only Penkra-owned
   runtime policy and non-standard extension decoding. Focused evidence: prior **40/40** and **48/48**
   sweeps plus the current **168/168** ACP/provider gates.
 - `P2-WEB-STATE-01`: normalized slices are the only runtime thread authority. The derived `threads`
@@ -243,7 +243,7 @@ recorded stdout backpressure gate remains open.
   package (about 13,123 non-test source/generator LOC), production imports, legacy conformance block,
   dependency, and lock entry. No runtime ACP code changed. Next: continue net-negative deletion in an
   evidenced hotspot; do not begin the canary during this checkpoint.
-- `PRUNE-09` — `ProviderService` no longer reads `SYNARA_PROVIDER_RUNTIME_IDLE_STOP_MS` twice through
+- `PRUNE-09` — `ProviderService` no longer reads `PENKRA_PROVIDER_RUNTIME_IDLE_STOP_MS` twice through
   a nullish fallback to the exact same expression. Net runtime change: **-2 LOC**. Direct inspection
   and `git diff --check` prove value equivalence; no test scaffold was added. Cumulative pruning runtime
   change: **-92 LOC**. Next: continue with an evidenced duplicate inside an existing hotspot.
@@ -1118,7 +1118,7 @@ recorded stdout backpressure gate remains open.
 `P2-ACP-01` is code-complete at the approved wire seam inside `AcpSessionRuntime`; no provider-level
 SDK facade exists. Grok, Droid, and Cursor all fail through the official SDK path—an operation is
 never retried through `effect-acp`. The official SDK owns validation, JSON-RPC correlation and
-cancellation, handler dispatch, and NDJSON encoding. Synara retains Effect lifecycle, bounded
+cancellation, handler dispatch, and NDJSON encoding. Penkra retains Effect lifecycle, bounded
 admission, process teardown, product/session policy, normalized events, three local Effect-native
 errors, and minimal non-standard extension codecs. No `effect-acp` package or import remains.
 

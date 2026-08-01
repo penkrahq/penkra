@@ -161,14 +161,14 @@ describe("Antigravity CLI integration helpers", () => {
 
   it("keeps the globally installed hook neutral outside Penkra sessions", () => {
     const command = buildAntigravityCaptureCommand(
-      "__synara_gui_must_not_launch__",
+      "__penkra_gui_must_not_launch__",
       "__capture_script_must_not_run__",
       "pre-tool",
     );
     const result = runCaptureCommand(
       command,
       JSON.stringify({ payload: "x".repeat(2 * 1024 * 1024) }),
-      { SYNARA_ANTIGRAVITY_EVENTS: "" },
+      { PENKRA_ANTIGRAVITY_EVENTS: "" },
     );
 
     expect(result.error).toBeUndefined();
@@ -177,7 +177,7 @@ describe("Antigravity CLI integration helpers", () => {
   });
 
   it("runs the capture script for Penkra-managed sessions", async () => {
-    const directory = await fs.mkdtemp(path.join(os.tmpdir(), "synara-antigravity-hook-test-"));
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), "penkra-antigravity-hook-test-"));
     const scriptPath = path.join(directory, "capture.cjs");
     const eventPath = path.join(directory, "events.ndjson");
     try {
@@ -185,8 +185,8 @@ describe("Antigravity CLI integration helpers", () => {
       const command = buildAntigravityCaptureCommand(process.execPath, scriptPath, "pre-tool");
       const payload = JSON.stringify({ tool: "shell" });
       const result = runCaptureCommand(command, payload, {
-        SYNARA_ANTIGRAVITY_EVENTS: eventPath,
-        SYNARA_ANTIGRAVITY_HOOK_DECISION: "allow",
+        PENKRA_ANTIGRAVITY_EVENTS: eventPath,
+        PENKRA_ANTIGRAVITY_HOOK_DECISION: "allow",
       });
 
       expect(result.error).toBeUndefined();
@@ -202,12 +202,12 @@ describe("Antigravity CLI integration helpers", () => {
     expect(
       buildAntigravityCaptureCommand(
         "/Applications/Penkra.app/Contents/MacOS/Penkra",
-        "/tmp/synara-capture/capture.cjs",
+        "/tmp/penkra-capture/capture.cjs",
         "pre-tool",
         "darwin",
       ),
     ).toBe(
-      `if [ -z "\${SYNARA_ANTIGRAVITY_EVENTS:-}" ]; then cat >/dev/null 2>&1 || :; printf '%s\\n' '{}'; else ELECTRON_RUN_AS_NODE=1 '/Applications/Penkra.app/Contents/MacOS/Penkra' '/tmp/synara-capture/capture.cjs' 'pre-tool'; fi`,
+      `if [ -z "\${PENKRA_ANTIGRAVITY_EVENTS:-}" ]; then cat >/dev/null 2>&1 || :; printf '%s\\n' '{}'; else ELECTRON_RUN_AS_NODE=1 '/Applications/Penkra.app/Contents/MacOS/Penkra' '/tmp/penkra-capture/capture.cjs' 'pre-tool'; fi`,
     );
     expect(
       buildAntigravityCaptureCommand(
@@ -217,7 +217,7 @@ describe("Antigravity CLI integration helpers", () => {
         "win32",
       ),
     ).toBe(
-      String.raw`if not defined SYNARA_ANTIGRAVITY_EVENTS (more >nul 2>nul & echo {}) else (set "ELECTRON_RUN_AS_NODE=1" && "C:\Program Files\Penkra\Penkra.exe" "C:\Users\test\.gemini\capture.cjs" "pre-tool")`,
+      String.raw`if not defined PENKRA_ANTIGRAVITY_EVENTS (more >nul 2>nul & echo {}) else (set "ELECTRON_RUN_AS_NODE=1" && "C:\Program Files\Penkra\Penkra.exe" "C:\Users\test\.gemini\capture.cjs" "pre-tool")`,
     );
   });
 
@@ -231,7 +231,7 @@ describe("Antigravity CLI integration helpers", () => {
 
   it("marks every generated hook as a command hook", () => {
     expect(buildAntigravityHookConfig((event) => `capture ${event}`)).toEqual({
-      "synara-capture": {
+      "penkra-capture": {
         PreToolUse: [
           {
             matcher: "*",
@@ -252,7 +252,7 @@ describe("Antigravity CLI integration helpers", () => {
   });
 
   it("advances file offsets only past complete JSONL records", async () => {
-    const directory = await fs.mkdtemp(path.join(os.tmpdir(), "synara-antigravity-test-"));
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), "penkra-antigravity-test-"));
     const file = path.join(directory, "events.ndjson");
     try {
       await fs.writeFile(file, '{"first":true}\n{"second"');

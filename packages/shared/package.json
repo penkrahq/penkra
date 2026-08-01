@@ -1,5 +1,5 @@
 {
-  "name": "@synara/shared",
+  "name": "@penkra/shared",
   "version": "0.0.0-alpha.1",
   "private": true,
   "type": "module",
@@ -36,9 +36,9 @@
       "types": "./src/loginShellEnvironment.ts",
       "import": "./src/loginShellEnvironment.ts"
     },
-    "./synaraHome": {
-      "types": "./src/synaraHome.ts",
-      "import": "./src/synaraHome.ts"
+    "./penkraHome": {
+      "types": "./src/penkraHome.ts",
+      "import": "./src/penkraHome.ts"
     },
     "./staticSnapshot": {
       "types": "./src/staticSnapshot.ts",
@@ -64,6 +64,10 @@
       "types": "./src/desktopIdentity.ts",
       "import": "./src/desktopIdentity.ts"
     },
+    "./desktopParentLifecycle": {
+      "types": "./src/desktopParentLifecycle.ts",
+      "import": "./src/desktopParentLifecycle.ts"
+    },
     "./Net": {
       "types": "./src/Net.ts",
       "import": "./src/Net.ts"
@@ -83,10 +87,6 @@
     "./browserShortcuts": {
       "types": "./src/browserShortcuts.ts",
       "import": "./src/browserShortcuts.ts"
-    },
-    "./appSnapShortcut": {
-      "types": "./src/appSnapShortcut.ts",
-      "import": "./src/appSnapShortcut.ts"
     },
     "./browserSession": {
       "types": "./src/browserSession.ts",
@@ -235,7 +235,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@synara/contracts": "workspace:*",
+    "@penkra/contracts": "workspace:*",
     "effect": "catalog:"
   },
   "devDependencies": {

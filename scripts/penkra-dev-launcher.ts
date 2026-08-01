@@ -111,6 +111,63 @@ export interface PenkraDevWorkspaceCommand {
   readonly cwd: string;
 }
 
+export interface ProcessSnapshotEntry {
+  readonly pid: number;
+  readonly parentPid: number;
+  readonly command: string;
+}
+
+export function resolveOrphanedWorkspaceProcessRoots(
+  processes: readonly ProcessSnapshotEntry[],
+  workspaceRoots: readonly string[],
+): number[] {
+  const processByPid = new Map(processes.map((entry) => [entry.pid, entry] as const));
+  const orphanedRoots = new Set<number>();
+
+  for (const processEntry of processes) {
+    if (!workspaceRoots.some((root) => processEntry.command.includes(root))) continue;
+
+    let root = processEntry;
+    const visited = new Set<number>();
+    while (root.parentPid > 1 && !visited.has(root.pid)) {
+      visited.add(root.pid);
+      const parent = processByPid.get(root.parentPid);
+      if (!parent) break;
+      root = parent;
+    }
+    if (root.parentPid === 1) orphanedRoots.add(root.pid);
+  }
+
+  return [...orphanedRoots].sort((left, right) => left - right);
+}
+
+export function resolveOrphanedDesktopBackendPids(
+  processes: readonly ProcessSnapshotEntry[],
+  desktopRoot: string,
+): number[] {
+  const backendEntry = join(desktopRoot, "apps", "server", "dist", "index.mjs");
+  const developmentExecutable = join(
+    desktopRoot,
+    "apps",
+    "desktop",
+    ".electron-runtime",
+    "Penkra (Dev).app",
+    "Contents",
+    "MacOS",
+    "Penkra (Dev)",
+  );
+
+  return processes
+    .filter(
+      (entry) =>
+        entry.parentPid === 1 &&
+        entry.command.includes(developmentExecutable) &&
+        entry.command.includes(backendEntry),
+    )
+    .map((entry) => entry.pid)
+    .sort((left, right) => left - right);
+}
+
 export function resolvePenkraDevWorkspaceCommand(
   runtimeExecutable: string,
   workspace: PenkraDevWorkspace,
@@ -161,7 +218,7 @@ function supervisorIsRunning(paths: PenkraDevLauncherPaths): boolean {
 }
 
 function developmentElectronIsRunning(): boolean {
-  const marker = `--synara-dev-root=${join(repoRoot, "apps", "desktop")}`;
+  const marker = `--penkra-dev-root=${join(repoRoot, "apps", "desktop")}`;
   const result = spawnSync("/bin/ps", ["-axo", "command="], {
     encoding: "utf8",
   });
@@ -403,6 +460,39 @@ function listDescendantPids(rootPid: number): number[] {
   return descendants;
 }
 
+function readProcessSnapshot(): ProcessSnapshotEntry[] {
+  const result = spawnSync("/bin/ps", ["-axo", "pid=,ppid=,command="], {
+    encoding: "utf8",
+  });
+  if (result.status !== 0) return [];
+
+  return result.stdout.split("\n").flatMap((line) => {
+    const match = /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(line);
+    if (!match) return [];
+    const pid = Number(match[1]);
+    const parentPid = Number(match[2]);
+    if (!Number.isSafeInteger(pid) || !Number.isSafeInteger(parentPid)) return [];
+    return [{ pid, parentPid, command: match[3] ?? "" } satisfies ProcessSnapshotEntry];
+  });
+}
+
+async function cleanupOrphanedWorkspaceProcesses(workspace: PenkraDevWorkspace): Promise<void> {
+  const processes = readProcessSnapshot();
+  const orphanedRoots = [
+    ...new Set([
+      ...resolveOrphanedWorkspaceProcessRoots(processes, [
+        workspace.backendRoot,
+        workspace.websiteRoot,
+      ]),
+      ...resolveOrphanedDesktopBackendPids(processes, workspace.desktopRoot),
+    ]),
+  ].filter((pid) => pid !== process.pid);
+
+  for (const pid of orphanedRoots) {
+    await terminateProcessTree(pid, "SIGTERM");
+  }
+}
+
 function signalProcesses(pids: readonly number[], signal: NodeJS.Signals): void {
   for (const pid of pids) {
     try {
@@ -481,14 +571,15 @@ async function supervise(bunExecutable: string): Promise<void> {
       PENKRA_DEV_FAILURE_PATH: paths.failurePath,
       PENKRA_DEV_ROOT: paths.developmentRoot,
       PENKRA_SKIP_LOGIN_SHELL_ENVIRONMENT: "1",
-      SYNARA_DEV_INSTANCE: DEV_INSTANCE_NAME,
+      PENKRA_DEV_INSTANCE: DEV_INSTANCE_NAME,
     };
-    delete environment.SYNARA_AUTH_TOKEN;
+    delete environment.PENKRA_AUTH_TOKEN;
 
     while (true) {
       try {
         writeLauncherStatus(paths, "starting", "Checking local development prerequisites.");
         await ensureDockerEngineReady(paths);
+        await cleanupOrphanedWorkspaceProcesses(workspace);
         writeLauncherStatus(paths, "starting-workspace", "Starting the local Penkra workspace.");
         rmSync(paths.failurePath, { force: true });
 

@@ -10,7 +10,7 @@ import {
   type ProviderListSkillsResult,
   ProviderReadPluginInput,
   type ProviderSkillDescriptor,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 import { Effect, Layer, Schema, SchemaIssue } from "effect";
 
 import { ServerConfig } from "../../config.ts";
@@ -108,13 +108,13 @@ const make = Effect.gen(function* () {
         discoverSkillsCatalog({
           cwd: parsed.cwd,
           homeDir: serverConfig.homeDir,
-          synaraBaseDir: serverConfig.baseDir,
+          penkraBaseDir: serverConfig.baseDir,
           provider: parsed.provider,
           ...(parsed.forceReload !== undefined ? { forceReload: parsed.forceReload } : {}),
         }),
       ).pipe(
         Effect.catchCause((cause) =>
-          Effect.logWarning("synara skills catalog discovery failed", {
+          Effect.logWarning("penkra skills catalog discovery failed", {
             provider: parsed.provider,
             cause,
           }).pipe(Effect.as([] as ProviderSkillDescriptor[])),
@@ -129,7 +129,7 @@ const make = Effect.gen(function* () {
       );
       return {
         skills: filterDisabledSkills(merged, settings.skills.disabled),
-        source: nativeResult?.source ? `${nativeResult.source}+synara.catalog` : "synara.catalog",
+        source: nativeResult?.source ? `${nativeResult.source}+penkra.catalog` : "penkra.catalog",
         cached: nativeResult?.cached ?? false,
       } satisfies ProviderListSkillsResult;
     });

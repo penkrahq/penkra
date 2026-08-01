@@ -12,7 +12,7 @@ import {
 } from "./serverRuntimeState";
 
 const serverConfigLayer = ServerConfig.layerTest(process.cwd(), {
-  prefix: "synara-runtime-state-",
+  prefix: "penkra-runtime-state-",
 }).pipe(Layer.provide(NodeServices.layer));
 const testLayer = Layer.merge(NodeServices.layer, serverConfigLayer);
 

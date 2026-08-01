@@ -11,7 +11,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   BrowserUsePipeServer,
-  SYNARA_BROWSER_USE_PIPE_ENV,
+  PENKRA_BROWSER_USE_PIPE_ENV,
   resolveBrowserUsePipeBackendEnv,
   resolveConfiguredBrowserUsePipePath,
   resolveDefaultBrowserUsePipePath,
@@ -70,7 +70,7 @@ async function withPipeServer(
   },
   run: (socket: Socket) => Promise<void>,
 ): Promise<void> {
-  const directory = await mkdtemp(join(tmpdir(), "synara-browser-pipe-test-"));
+  const directory = await mkdtemp(join(tmpdir(), "penkra-browser-pipe-test-"));
   const pipePath = join(directory, "browser.sock");
   const browserManager = options.browserManager ?? { getBrowserUseSnapshot: () => null };
   const server = new BrowserUsePipeServer(browserManager as never, {
@@ -98,38 +98,38 @@ describe("browser-use pipe path resolution", () => {
     const pipePath = resolveDefaultBrowserUsePipePath("darwin");
 
     expect(dirname(pipePath)).toBe("/tmp/codex-browser-use");
-    expect(basename(pipePath)).toMatch(/^synara-iab-\d+-[0-9a-f-]{36}\.sock$/);
+    expect(basename(pipePath)).toMatch(/^penkra-iab-\d+-[0-9a-f-]{36}\.sock$/);
   });
 
   it("prefers an explicit Penkra pipe path from the environment", () => {
     expect(
       resolveConfiguredBrowserUsePipePath(
         {
-          [SYNARA_BROWSER_USE_PIPE_ENV]: "/tmp/codex-browser-use/synara.sock",
+          [PENKRA_BROWSER_USE_PIPE_ENV]: "/tmp/codex-browser-use/penkra.sock",
         },
         "darwin",
       ),
-    ).toBe("/tmp/codex-browser-use/synara.sock");
+    ).toBe("/tmp/codex-browser-use/penkra.sock");
   });
 
   it("falls back to the generated path when the environment is empty", () => {
     expect(resolveConfiguredBrowserUsePipePath({}, "darwin")).toMatch(
-      /codex-browser-use\/synara-iab-\d+-[0-9a-f-]{36}\.sock$/,
+      /codex-browser-use\/penkra-iab-\d+-[0-9a-f-]{36}\.sock$/,
     );
   });
 
   it("publishes the browser-use pipe only after a listener becomes active", () => {
     const inheritedEnv = {
       KEEP_ME: "yes",
-      [SYNARA_BROWSER_USE_PIPE_ENV]: "/tmp/codex-browser-use/stale.sock",
+      [PENKRA_BROWSER_USE_PIPE_ENV]: "/tmp/codex-browser-use/stale.sock",
     };
     expect(resolveBrowserUsePipeBackendEnv(inheritedEnv, null)).toEqual({ KEEP_ME: "yes" });
     expect(resolveBrowserUsePipeBackendEnv(inheritedEnv, "  ")).toEqual({ KEEP_ME: "yes" });
     expect(
-      resolveBrowserUsePipeBackendEnv(inheritedEnv, "/tmp/codex-browser-use/synara.sock"),
+      resolveBrowserUsePipeBackendEnv(inheritedEnv, "/tmp/codex-browser-use/penkra.sock"),
     ).toEqual({
       KEEP_ME: "yes",
-      [SYNARA_BROWSER_USE_PIPE_ENV]: "/tmp/codex-browser-use/synara.sock",
+      [PENKRA_BROWSER_USE_PIPE_ENV]: "/tmp/codex-browser-use/penkra.sock",
     });
   });
 
@@ -143,7 +143,7 @@ describe("browser-use pipe path resolution", () => {
     expect(resolveDefaultBrowserUsePipePath("win32")).toBe("");
     expect(
       resolveConfiguredBrowserUsePipePath(
-        { [SYNARA_BROWSER_USE_PIPE_ENV]: String.raw`\\.\pipe\synara-browser` },
+        { [PENKRA_BROWSER_USE_PIPE_ENV]: String.raw`\\.\pipe\penkra-browser` },
         "win32",
       ),
     ).toBe("");
@@ -332,5 +332,56 @@ describe("browser-use pipe RPC compatibility", () => {
       expect(disposeCalls).toBe(1);
       expect(socket.destroyed).toBe(false);
     });
+  });
+
+  it("contains stale CDP cleanup failures when a Browser Use client disconnects", async () => {
+    let disposeCalls = 0;
+    const browserManager = {
+      getBrowserUseSnapshot: () => ({
+        threadId: "thread-1",
+        state: {
+          open: true,
+          activeTabId: "tab-1",
+          tabs: [
+            {
+              id: "tab-1",
+              title: "Tab",
+              url: "about:blank",
+              lastCommittedUrl: null,
+            },
+          ],
+        },
+      }),
+      attachBrowserUseTab: async () => {},
+      subscribeToCdpEvents: () => () => {
+        disposeCalls += 1;
+        throw new TypeError("Object has been destroyed");
+      },
+    };
+
+    await expect(
+      withPipeServer({ browserManager }, async (socket) => {
+        await request(socket, {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "getInfo",
+          params: { session_id: "codex-session-1" },
+        });
+        const tabs = await request(socket, {
+          jsonrpc: "2.0",
+          id: 2,
+          method: "getTabs",
+          params: { session_id: "codex-session-1" },
+        });
+        const tabId = (tabs.result as Array<{ id: number }>)[0]?.id;
+        await request(socket, {
+          jsonrpc: "2.0",
+          id: 3,
+          method: "attach",
+          params: { session_id: "codex-session-1", tabId },
+        });
+      }),
+    ).resolves.toBeUndefined();
+    expect(disposeCalls).toBe(1);
   });
 });

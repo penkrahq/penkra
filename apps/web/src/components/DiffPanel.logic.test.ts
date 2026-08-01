@@ -1,4 +1,4 @@
-import { ProjectId, ThreadId, TurnId } from "@synara/contracts";
+import { ProjectId, ThreadId, TurnId } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 
 import type { DraftThreadState } from "../composerDraftStore";

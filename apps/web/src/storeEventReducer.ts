@@ -6,20 +6,20 @@ import {
   type OrchestrationEvent,
   type OrchestrationPendingInteraction,
   type ThreadId,
-} from "@synara/contracts";
-import { resolveThreadBranchRegressionGuard } from "@synara/shared/git";
+} from "@penkra/contracts";
+import { resolveThreadBranchRegressionGuard } from "@penkra/shared/git";
 import {
   addPinnedMessage,
   removePinnedMessage,
   setPinnedMessageDone,
   setPinnedMessageLabel,
-} from "@synara/shared/pinnedMessages";
+} from "@penkra/shared/pinnedMessages";
 import {
   addThreadMarker,
   removeThreadMarker,
   setThreadMarkerDone,
   setThreadMarkerLabel,
-} from "@synara/shared/threadMarkers";
+} from "@penkra/shared/threadMarkers";
 
 import { isSessionRunningTurn } from "./session-logic";
 import {
@@ -68,7 +68,7 @@ export type ApplyOrchestrationEventOptions = {
   updateSidebarSummary?: boolean;
 };
 
-type ReadModelThread = import("@synara/contracts").OrchestrationReadModel["threads"][number];
+type ReadModelThread = import("@penkra/contracts").OrchestrationReadModel["threads"][number];
 
 const THREAD_SUMMARY_ACTIVITY_KINDS = new Set([
   "approval.requested",

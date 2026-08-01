@@ -1,4 +1,4 @@
-import type { DesktopUpdateState } from "@synara/contracts";
+import type { DesktopUpdateState } from "@penkra/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { subscribeToDesktopUpdateState } from "./desktopUpdate.subscription";
 

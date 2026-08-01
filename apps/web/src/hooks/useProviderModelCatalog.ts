@@ -8,7 +8,7 @@ import type {
   ProviderAgentDescriptor,
   ProviderKind,
   ProviderModelDescriptor,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 

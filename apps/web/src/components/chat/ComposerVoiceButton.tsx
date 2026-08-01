@@ -23,7 +23,7 @@ export const ComposerVoiceButton = function ComposerVoiceButton(props: {
     <Button
       size="icon-sm"
       variant="ghost"
-      className="shrink-0 rounded-md"
+      className="size-[26px] shrink-0 rounded-[13px] sm:size-[26px]"
       disabled={props.disabled || props.isTranscribing}
       aria-label={label}
       title={label}

@@ -85,7 +85,7 @@ describe("isSummarizableToolCallEntry", () => {
       isSummarizableToolCallEntry(
         workEntry({
           id: "threads",
-          synaraThreadCreation: {
+          penkraThreadCreation: {
             operationId: "op",
             requestedCount: 1,
             createdCount: 1,

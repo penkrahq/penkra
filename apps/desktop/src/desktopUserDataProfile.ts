@@ -5,8 +5,8 @@ import * as FS from "node:fs";
 import * as OS from "node:os";
 import * as Path from "node:path";
 
-const BRIDGE_PROFILE_MANIFEST_FILE_NAME = "synara-profile-seed.json";
-const CANONICAL_BROWSER_PARTITION_NAME = "synara-browser";
+const BRIDGE_PROFILE_MANIFEST_FILE_NAME = "penkra-profile-seed.json";
+const CANONICAL_BROWSER_PARTITION_NAME = "penkra-browser";
 const BROWSER_PARTITION_SEED_ENTRY_GROUPS = [
   ["Cookies", "Cookies-journal", "Cookies-wal", "Cookies-shm"],
   ["Local Storage"],
@@ -159,7 +159,7 @@ export function repairBrowserProfileFromBridgeManifest(
         FS.existsSync(Path.join(sourcePartitionPath, entryName)),
       );
       FS.mkdirSync(targetPartitionPath, { recursive: true });
-      const stagedGroupPath = FS.mkdtempSync(Path.join(targetPartitionPath, ".synara-bridge-"));
+      const stagedGroupPath = FS.mkdtempSync(Path.join(targetPartitionPath, ".penkra-bridge-"));
       const stagedSourcePath = Path.join(stagedGroupPath, "source");
       const stagedTargetBackupPath = Path.join(stagedGroupPath, "target-backup");
       try {

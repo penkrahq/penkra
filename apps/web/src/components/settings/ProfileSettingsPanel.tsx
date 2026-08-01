@@ -7,7 +7,7 @@
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { type ProfileStats, type ProfileTokenStats, type ProviderKind } from "@synara/contracts";
+import { type ProfileStats, type ProfileTokenStats, type ProviderKind } from "@penkra/contracts";
 import {
   serverProfileStatsQueryOptions,
   serverProfileTokenStatsQueryOptions,

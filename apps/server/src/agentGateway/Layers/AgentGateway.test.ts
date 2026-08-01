@@ -8,8 +8,8 @@ import type {
   ProviderKind,
   ServerProviderStatus,
   ThreadId as ThreadIdType,
-} from "@synara/contracts";
-import { EventId, MessageId, ModelSelection, ProjectId, ThreadId, TurnId } from "@synara/contracts";
+} from "@penkra/contracts";
+import { EventId, MessageId, ModelSelection, ProjectId, ThreadId, TurnId } from "@penkra/contracts";
 import { realpathSync } from "node:fs";
 import { homedir } from "node:os";
 
@@ -26,6 +26,7 @@ import { OrchestrationEventDeliveryRepository } from "../../persistence/Services
 import {
   ProviderRuntimeEventRepository,
   type PersistedProviderRuntimeEvent,
+  type ProviderRuntimeProjectionFailure,
 } from "../../persistence/Services/ProviderRuntimeEvents.ts";
 import { ThreadDiagnosticsQuery } from "../../diagnostics/Services/ThreadDiagnosticsQuery.ts";
 import type {
@@ -213,6 +214,7 @@ function makeHarnessLayer(
     readonly diagnosticActivities?: ReadonlyArray<DiagnosticThreadActivity>;
     readonly diagnosticEvents?: ReadonlyArray<OrchestrationEvent>;
     readonly providerRuntimeEvents?: ReadonlyArray<PersistedProviderRuntimeEvent>;
+    readonly providerRuntimeProjectionFailure?: ProviderRuntimeProjectionFailure;
     readonly operationalDiagnostics?: ReadonlyArray<OperationalDiagnostic>;
     readonly providerDeliveryBlockers?: ReadonlyArray<ProviderBlockingDeliveryEvidence>;
   } = {},
@@ -416,6 +418,18 @@ function makeHarnessLayer(
       ),
   } as unknown as (typeof OrchestrationEventDeliveryRepository)["Service"]);
   const providerRuntimeEventsLayer = Layer.succeed(ProviderRuntimeEventRepository, {
+    getThreadCursor: () => Effect.succeed(0),
+    getThreadProjectionFailure: (threadId: string) =>
+      Effect.succeed(
+        options.providerRuntimeProjectionFailure?.threadId === threadId
+          ? options.providerRuntimeProjectionFailure
+          : null,
+      ),
+    releaseQuarantinedThread: (input: { threadId: string }) =>
+      Effect.succeed(
+        options.providerRuntimeProjectionFailure?.threadId === input.threadId &&
+          options.providerRuntimeProjectionFailure.status === "quarantined",
+      ),
     getThreadCoverage: (threadId: string) => {
       const events = (options.providerRuntimeEvents ?? []).filter(
         (row) => row.event.threadId === threadId,
@@ -536,7 +550,7 @@ function makeHarnessLayer(
         }
         return {
           worktree: {
-            path: input.path ?? "/tmp/worktrees/generated/synara",
+            path: input.path ?? "/tmp/worktrees/generated/penkra",
             ref: input.ref,
             branch: null,
           },
@@ -1076,7 +1090,7 @@ describe("AgentGateway", () => {
           jsonrpc: "2.0",
           id: true,
           method: "tools/call",
-          params: { name: "synara_set_thread_title", arguments: { title: "Must not run" } },
+          params: { name: "penkra_set_thread_title", arguments: { title: "Must not run" } },
         },
       });
       assert.equal((response.body as { error?: { code: number } }).error?.code, -32600);
@@ -1133,7 +1147,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent-readonly",
-        name: "synara_create_threads",
+        name: "penkra_create_threads",
         args: {
           requestId: "readonly-create",
           threads: [
@@ -1158,7 +1172,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent-readonly",
-        name: "synara_diagnose_thread",
+        name: "penkra_diagnose_thread",
         args: { threadId: "thread-parent" },
       });
       const error = toolResultJson(response.result).error as {
@@ -1179,7 +1193,7 @@ describe("AgentGateway", () => {
         id,
         method: "tools/call",
         params: {
-          name: "synara_create_threads",
+          name: "penkra_create_threads",
           arguments: {
             requestId,
             threads: [
@@ -1244,31 +1258,32 @@ describe("AgentGateway", () => {
       ).result.tools;
       const names = tools.map((tool) => tool.name);
       assert.includeMembers(names, [
-        "synara_context",
-        "synara_capabilities",
-        "synara_list_projects",
-        "synara_list_threads",
-        "synara_read_thread",
-        "synara_read_thread_activity",
-        "synara_read_thread_events",
-        "synara_read_thread_runtime_events",
-        "synara_diagnose_thread",
-        "synara_wait_for_threads",
-        "synara_create_threads",
-        "synara_create_thread",
-        "synara_send_message",
-        "synara_interrupt_thread",
-        "synara_set_thread_title",
-        "synara_set_thread_archived",
+        "penkra_context",
+        "penkra_capabilities",
+        "penkra_list_projects",
+        "penkra_list_threads",
+        "penkra_read_thread",
+        "penkra_read_thread_activity",
+        "penkra_read_thread_events",
+        "penkra_read_thread_runtime_events",
+        "penkra_diagnose_thread",
+        "penkra_retry_thread_projection",
+        "penkra_wait_for_threads",
+        "penkra_create_threads",
+        "penkra_create_thread",
+        "penkra_send_message",
+        "penkra_interrupt_thread",
+        "penkra_set_thread_title",
+        "penkra_set_thread_archived",
       ]);
-      const createThreadProperties = tools.find((tool) => tool.name === "synara_create_thread")
+      const createThreadProperties = tools.find((tool) => tool.name === "penkra_create_thread")
         ?.inputSchema.properties;
       assert.property(createThreadProperties, "baseRef");
       assert.notProperty(createThreadProperties, "baseBranch");
       assert.notProperty(createThreadProperties, "branchName");
 
-      assert.notInclude(names, "synara_create_automation");
-      assert.notInclude(names, "synara_list_automations");
+      assert.notInclude(names, "penkra_create_automation");
+      assert.notInclude(names, "penkra_list_automations");
     }).pipe(Effect.provide(gatewayLayer));
   });
 
@@ -1282,7 +1297,7 @@ describe("AgentGateway", () => {
           ...makeProjectShell(),
           id: ProjectId.makeUnsafe("project-chat-container"),
           kind: "chat",
-          title: "che progetti ci sono in synara",
+          title: "che progetti ci sono in penkra",
           workspaceRoot: `${homeDir}/Documents/Penkra/2026-03-01/chat`,
         },
         {
@@ -1305,7 +1320,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_list_projects",
+        name: "penkra_list_projects",
         args: {},
       });
       const payload = toolResultJson(response.result);
@@ -1323,7 +1338,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_capabilities",
+        name: "penkra_capabilities",
         args: {},
       });
       const payload = toolResultJson(response.result);
@@ -1418,7 +1433,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_list_threads",
+        name: "penkra_list_threads",
         args: {},
       });
       const payload = toolResultJson(response.result);
@@ -1436,7 +1451,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_list_threads",
+        name: "penkra_list_threads",
         args: { limit: 1 },
       });
       const payload = toolResultJson(response.result);
@@ -1452,7 +1467,7 @@ describe("AgentGateway", () => {
       const threads = [
         makeThreadShell("thread-parent", {
           title: "Investigate stream gap",
-          creationSource: "synara_mcp",
+          creationSource: "penkra_mcp",
           updatedAt: "2026-03-02T10:00:00.000Z",
           latestTurn: {
             turnId: TurnId.makeUnsafe("turn-running"),
@@ -1474,12 +1489,12 @@ describe("AgentGateway", () => {
         const harness = yield* makeHarness;
         const response = yield* harness.callTool({
           token: "token-parent",
-          name: "synara_list_threads",
+          name: "penkra_list_threads",
           args: {
             provider: "codex",
             status: "working",
             titleContains: "STREAM",
-            creationSource: "synara_mcp",
+            creationSource: "penkra_mcp",
             updatedAfter: "2026-03-01T00:00:00.000Z",
             updatedBefore: "2026-03-03T00:00:00.000Z",
           },
@@ -1514,7 +1529,7 @@ describe("AgentGateway", () => {
       const first = toolResultJson(
         (yield* harness.callTool({
           token: "token-parent",
-          name: "synara_read_thread_activity",
+          name: "penkra_read_thread_activity",
           args: { threadId: "thread-parent", limit: 1, includeDetails: true },
         })).result,
       );
@@ -1523,7 +1538,7 @@ describe("AgentGateway", () => {
       const second = toolResultJson(
         (yield* harness.callTool({
           token: "token-parent",
-          name: "synara_read_thread_activity",
+          name: "penkra_read_thread_activity",
           args: { threadId: "thread-parent", limit: 1, cursor: first.nextCursor },
         })).result,
       );
@@ -1534,7 +1549,7 @@ describe("AgentGateway", () => {
       });
       const changedFilter = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_read_thread_activity",
+        name: "penkra_read_thread_activity",
         args: {
           threadId: "thread-parent",
           limit: 1,
@@ -1595,7 +1610,7 @@ describe("AgentGateway", () => {
       const first = toolResultJson(
         (yield* harness.callTool({
           token: "token-parent",
-          name: "synara_read_thread_events",
+          name: "penkra_read_thread_events",
           args: { threadId, limit: 1 },
         })).result,
       );
@@ -1608,7 +1623,7 @@ describe("AgentGateway", () => {
       const second = toolResultJson(
         (yield* harness.callTool({
           token: "token-parent",
-          name: "synara_read_thread_events",
+          name: "penkra_read_thread_events",
           args: { threadId, limit: 1, cursor: first.nextCursor },
         })).result,
       );
@@ -1652,6 +1667,22 @@ describe("AgentGateway", () => {
           },
         },
       ],
+      providerRuntimeProjectionFailure: {
+        sequence: 9,
+        eventId: "runtime-event-diagnostic-9",
+        threadId: "thread-parent",
+        turnId: "turn-parent",
+        eventType: "runtime.error",
+        errorFingerprint: "projection-fingerprint",
+        errorDetail: "projection failed deterministically",
+        attemptCount: 12,
+        firstFailedAt: NOW,
+        lastFailedAt: NOW,
+        nextRetryAt: NOW,
+        status: "quarantined",
+        quarantinedAt: NOW,
+        resolvedAt: null,
+      },
       operationalDiagnostics: [
         {
           sequence: 1,
@@ -1688,18 +1719,41 @@ describe("AgentGateway", () => {
       const payload = toolResultJson(
         (yield* harness.callTool({
           token: "token-parent",
-          name: "synara_diagnose_thread",
+          name: "penkra_diagnose_thread",
           args: { threadId: "thread-parent" },
         })).result,
       );
       assert.equal((payload.recentEvents as Array<{ sequence: number }>)[0]?.sequence, 7);
       assert.equal((payload.recentRuntimeEvents as Array<{ sequence: number }>)[0]?.sequence, 9);
       assert.lengthOf(payload.providerDeliveryBlockers as Array<unknown>, 1);
+      assert.deepInclude(payload.providerRuntimeProjection as Record<string, unknown>, {
+        threadCursor: 0,
+      });
+      assert.equal(
+        (
+          payload.providerRuntimeProjection as {
+            failure: { status: string; errorFingerprint: string };
+          }
+        ).failure.status,
+        "quarantined",
+      );
       assert.lengthOf(payload.operationalIncidents as Array<unknown>, 1);
       assert.includeMembers(
         (payload.findings as Array<{ code: string }>).map((finding) => finding.code),
-        ["provider_delivery_blocked", "THREAD_STREAM_CAPACITY_EXCEEDED"],
+        [
+          "provider_delivery_blocked",
+          "provider_runtime_projection_quarantined",
+          "THREAD_STREAM_CAPACITY_EXCEEDED",
+        ],
       );
+      const retryPayload = toolResultJson(
+        (yield* harness.callTool({
+          token: "token-parent",
+          name: "penkra_retry_thread_projection",
+          args: { threadId: "thread-parent" },
+        })).result,
+      );
+      assert.equal(retryPayload.released, true);
     }).pipe(Effect.provide(gatewayLayer));
   });
 
@@ -1709,7 +1763,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_create_thread",
+        name: "penkra_create_thread",
         args: { requestId: "create-grok", prompt: "analyze the feature", provider: "grok" },
       });
       assert.isFalse(isToolError(response.result), toolErrorText(response.result));
@@ -1747,7 +1801,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_create_thread",
+        name: "penkra_create_thread",
         args: {
           requestId: "create-worktree",
           prompt: "refactor module X",
@@ -1783,7 +1837,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_create_thread",
+        name: "penkra_create_thread",
         args: {
           requestId: "explicit-head-from-caller-worktree",
           prompt: "continue from this checkout",
@@ -1808,7 +1862,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_create_thread",
+        name: "penkra_create_thread",
         args: {
           requestId: "github-pr-head",
           prompt: "review the pull request",
@@ -1832,7 +1886,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_create_thread",
+        name: "penkra_create_thread",
         args: {
           requestId: "local-pull-path-ref",
           prompt: "continue from the local ref",
@@ -1862,7 +1916,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_create_thread",
+        name: "penkra_create_thread",
         args: { requestId: "create-crowded", prompt: "one more", provider: "codex" },
       });
       assert.isFalse(isToolError(response.result), toolErrorText(response.result));
@@ -1902,7 +1956,7 @@ describe("AgentGateway", () => {
       [
         ...baseThreads,
         makeThreadShell("agent:restart-child", {
-          creationSource: "synara_mcp",
+          creationSource: "penkra_mcp",
           sourceThreadId: ThreadId.makeUnsafe("thread-parent"),
           sourceTurnId: TurnId.makeUnsafe("turn-parent-active"),
           gatewayOperationId: "gateway:create:restart",
@@ -2287,7 +2341,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_create_threads",
+        name: "penkra_create_threads",
         args: {
           requestId: "pre-existing-branch",
           threads: [
@@ -2326,7 +2380,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_create_threads",
+        name: "penkra_create_threads",
         args: {
           requestId: "detached-attempt",
           threads: [
@@ -2364,7 +2418,7 @@ describe("AgentGateway", () => {
             id: 1,
             method: "tools/call",
             params: {
-              name: "synara_create_threads",
+              name: "penkra_create_threads",
               arguments: {
                 requestId: "turn-a-plan",
                 threads: [
@@ -2382,7 +2436,7 @@ describe("AgentGateway", () => {
             id: 2,
             method: "tools/call",
             params: {
-              name: "synara_create_threads",
+              name: "penkra_create_threads",
               arguments: {
                 requestId: "must-not-use-turn-b",
                 threads: [
@@ -2444,27 +2498,27 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const attempts = [
         {
-          name: "synara_create_threads",
+          name: "penkra_create_threads",
           args: {
             requestId: "late-batch",
             threads: [{ prompt: "late", target: { provider: "codex", model: "gpt-5.5" } }],
           },
         },
         {
-          name: "synara_create_thread",
+          name: "penkra_create_thread",
           args: { requestId: "late-single", prompt: "late", provider: "codex" },
         },
         {
-          name: "synara_send_message",
+          name: "penkra_send_message",
           args: { threadId: "thread-child", message: "late" },
         },
-        { name: "synara_interrupt_thread", args: { threadId: "thread-child" } },
+        { name: "penkra_interrupt_thread", args: { threadId: "thread-child" } },
         {
-          name: "synara_set_thread_title",
+          name: "penkra_set_thread_title",
           args: { threadId: "thread-child", title: "Late rename" },
         },
         {
-          name: "synara_set_thread_archived",
+          name: "penkra_set_thread_archived",
           args: { threadId: "thread-child", archived: true },
         },
       ];
@@ -2481,7 +2535,7 @@ describe("AgentGateway", () => {
 
       const read = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_list_threads",
+        name: "penkra_list_threads",
         args: {},
       });
       assert.isFalse(isToolError(read.result), toolErrorText(read.result));
@@ -2504,7 +2558,7 @@ describe("AgentGateway", () => {
       };
       const first = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_create_threads",
+        name: "penkra_create_threads",
         args,
       });
       harness.setProviderStatuses([
@@ -2527,7 +2581,7 @@ describe("AgentGateway", () => {
       ]);
       const replay = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_create_threads",
+        name: "penkra_create_threads",
         args,
       });
       assert.isFalse(isToolError(first.result), toolErrorText(first.result));
@@ -2547,7 +2601,7 @@ describe("AgentGateway", () => {
       const creationRecaps = harness.dispatched.filter(
         (command) =>
           command.type === "thread.activity.append" &&
-          command.activity.kind === "synara.threads.created",
+          command.activity.kind === "penkra.threads.created",
       );
       assert.equal(creationRecaps.length, 1);
       const creationRecap = creationRecaps[0];
@@ -2556,14 +2610,14 @@ describe("AgentGateway", () => {
         assert.equal(creationRecap.threadId, ThreadId.makeUnsafe("thread-parent"));
         assert.equal(creationRecap.activity.turnId, TurnId.makeUnsafe("turn-parent-active"));
         assert.deepInclude(creationRecap.activity.payload as Record<string, unknown>, {
-          source: "synara_mcp",
+          source: "penkra_mcp",
           requestedCount: 2,
           createdCount: 2,
         });
       }
       const conflict = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_create_threads",
+        name: "penkra_create_threads",
         args: {
           ...args,
           threads: [
@@ -2590,7 +2644,7 @@ describe("AgentGateway", () => {
           parentThreadId: command.parentThreadId,
         })),
         [0, 1].map((index) => ({
-          creationSource: "synara_mcp" as const,
+          creationSource: "penkra_mcp" as const,
           sourceThreadId: ThreadId.makeUnsafe("thread-parent"),
           sourceTurnId: TurnId.makeUnsafe("turn-parent-active"),
           gatewayOperationId: operationId,
@@ -2610,7 +2664,7 @@ describe("AgentGateway", () => {
       const call = () =>
         harness.callTool({
           token: "token-parent",
-          name: "synara_create_threads",
+          name: "penkra_create_threads",
           args: {
             requestId: "concurrent-exact-plan",
             threads: [
@@ -2651,7 +2705,7 @@ describe("AgentGateway", () => {
       const create = (requestId: string, prompt: string) =>
         harness.callTool({
           token: "token-parent",
-          name: "synara_create_threads",
+          name: "penkra_create_threads",
           args: {
             requestId,
             threads: [{ prompt, target: { provider: "codex", model: "gpt-5.5" } }],
@@ -2660,7 +2714,7 @@ describe("AgentGateway", () => {
       yield* create("first-plan", "first");
       const second = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_create_threads",
+        name: "penkra_create_threads",
         args: {
           requestId: "second-plan",
           threads: [
@@ -2689,7 +2743,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_create_threads",
+        name: "penkra_create_threads",
         args: {
           requestId: "bad-terra",
           threads: [
@@ -2726,7 +2780,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_create_threads",
+        name: "penkra_create_threads",
         args: {
           requestId: "unavailable-provider",
           threads: [
@@ -2752,7 +2806,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_create_threads",
+        name: "penkra_create_threads",
         args: {
           requestId: "terra-low",
           threads: [
@@ -2786,7 +2840,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_create_threads",
+        name: "penkra_create_threads",
         args: {
           requestId: "atomic-preflight",
           threads: [
@@ -2813,7 +2867,7 @@ describe("AgentGateway", () => {
         const harness = yield* makeHarness;
         const response = yield* harness.callTool({
           token: "token-parent",
-          name: "synara_create_threads",
+          name: "penkra_create_threads",
           args: {
             requestId: "ownership-marker-failure",
             threads: [
@@ -2848,7 +2902,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_create_threads",
+        name: "penkra_create_threads",
         args: {
           requestId: "ownership-marker-and-cleanup-failure",
           threads: [
@@ -2889,7 +2943,7 @@ describe("AgentGateway", () => {
       const requestFiber = yield* harness
         .callTool({
           token: "token-parent",
-          name: "synara_create_threads",
+          name: "penkra_create_threads",
           args: {
             requestId: "interrupt-after-reservation",
             threads: [
@@ -2931,7 +2985,7 @@ describe("AgentGateway", () => {
       const requestFiber = yield* harness
         .callTool({
           token: "token-parent",
-          name: "synara_create_threads",
+          name: "penkra_create_threads",
           args: {
             requestId: "interrupt-after-worktree-create",
             threads: [
@@ -2991,7 +3045,7 @@ describe("AgentGateway", () => {
       const requestFiber = yield* harness
         .callTool({
           token: "token-parent",
-          name: "synara_create_threads",
+          name: "penkra_create_threads",
           args: {
             requestId: "interrupt-during-setup-script",
             threads: [
@@ -3039,7 +3093,7 @@ describe("AgentGateway", () => {
       const requestFiber = yield* harness
         .callTool({
           token: "token-parent",
-          name: "synara_create_threads",
+          name: "penkra_create_threads",
           args: {
             requestId: "interrupt-after-thread-create",
             threads: [
@@ -3088,7 +3142,7 @@ describe("AgentGateway", () => {
     });
     const request = {
       token: "token-parent",
-      name: "synara_create_threads",
+      name: "penkra_create_threads",
       args: {
         requestId: "interrupt-after-operation-complete",
         threads: [
@@ -3145,7 +3199,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_create_threads",
+        name: "penkra_create_threads",
         args: {
           requestId: "compensated-batch",
           threads: [
@@ -3189,7 +3243,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_create_threads",
+        name: "penkra_create_threads",
         args: {
           requestId: "completion-persistence-failure",
           threads: [
@@ -3226,7 +3280,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_create_threads",
+        name: "penkra_create_threads",
         args: {
           requestId: "cleanup-failure",
           threads: [
@@ -3316,7 +3370,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_wait_for_threads",
+        name: "penkra_wait_for_threads",
         args: { threadIds: ["thread-result-a", "thread-result-b"], timeoutMs: 0 },
       });
       assert.isFalse(isToolError(response.result), toolErrorText(response.result));
@@ -3374,7 +3428,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_wait_for_threads",
+        name: "penkra_wait_for_threads",
         args: { threadIds: ["thread-long-result"], timeoutMs: 0 },
       });
       const result = (
@@ -3384,7 +3438,7 @@ describe("AgentGateway", () => {
       assert.match(result.summary as string, /\[\.\.\. truncated \d+ chars\]$/);
       assert.equal((result.summary as string).length, 2_000);
       assert.deepEqual(result.readThread, {
-        tool: "synara_read_thread",
+        tool: "penkra_read_thread",
         arguments: { threadId: "thread-long-result" },
       });
     }).pipe(Effect.provide(gatewayLayer));
@@ -3413,7 +3467,7 @@ describe("AgentGateway", () => {
         const harness = yield* makeHarness;
         const response = yield* harness.callTool({
           token: "token-parent",
-          name: "synara_wait_for_threads",
+          name: "penkra_wait_for_threads",
           args: { threadIds: pending.map((thread) => thread.id), timeoutMs: 0 },
         });
         assert.equal(toolResultJson(response.result).timedOut, true);
@@ -3442,7 +3496,7 @@ describe("AgentGateway", () => {
       const fiber = yield* harness
         .callTool({
           token: "token-parent",
-          name: "synara_wait_for_threads",
+          name: "penkra_wait_for_threads",
           args: { threadIds: ["thread-deleted-during-wait"], timeoutMs: 5_000 },
         })
         .pipe(Effect.forkChild);
@@ -3482,12 +3536,12 @@ describe("AgentGateway", () => {
       };
       const created = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_create_threads",
+        name: "penkra_create_threads",
         args,
       });
       const replay = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_create_threads",
+        name: "penkra_create_threads",
         args,
       });
       assert.isFalse(isToolError(created.result), toolErrorText(created.result));
@@ -3536,7 +3590,7 @@ describe("AgentGateway", () => {
 
       const waited = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_wait_for_threads",
+        name: "penkra_wait_for_threads",
         args: { threadIds, timeoutMs: 0 },
       });
       assert.deepEqual(
@@ -3562,7 +3616,7 @@ describe("AgentGateway", () => {
       );
       const detachedFallback = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_create_threads",
+        name: "penkra_create_threads",
         args: {
           requestId: "detached-opencode-fallback",
           threads: [
@@ -3634,7 +3688,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const first = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_wait_for_threads",
+        name: "penkra_wait_for_threads",
         args: {
           threadIds: ["thread-wait-idle", "thread-wait-failed", "thread-wait-running"],
           timeoutMs: 0,
@@ -3703,7 +3757,7 @@ describe("AgentGateway", () => {
       );
       const second = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_wait_for_threads",
+        name: "penkra_wait_for_threads",
         args: {
           threadIds: ["thread-wait-running"],
           runIds: ["turn-wait-pinned"],
@@ -3742,7 +3796,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_send_message",
+        name: "penkra_send_message",
         args: { threadId: "thread-child", message: "status check please", mode: "steer" },
       });
       assert.isFalse(isToolError(response.result), toolErrorText(response.result));
@@ -3762,7 +3816,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_send_message",
+        name: "penkra_send_message",
         args: { threadId: "thread-child", message: "status check please", mode: "steer" },
       });
       assert.isFalse(isToolError(response.result), toolErrorText(response.result));
@@ -3786,7 +3840,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_send_message",
+        name: "penkra_send_message",
         args: { threadId: "thread-full-access", message: "run something dangerous" },
       });
       assert.isTrue(isToolError(response.result));
@@ -3804,7 +3858,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_interrupt_thread",
+        name: "penkra_interrupt_thread",
         args: { threadId: "thread-full-access" },
       });
       assert.isTrue(isToolError(response.result));
@@ -3826,7 +3880,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_send_message",
+        name: "penkra_send_message",
         args: { threadId: "thread-local", message: "edit the main checkout" },
       });
       assert.isTrue(isToolError(response.result));
@@ -3860,7 +3914,7 @@ describe("AgentGateway", () => {
 
       const rejected = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_create_thread",
+        name: "penkra_create_thread",
         args: {
           requestId: "create-local-rejected",
           prompt: "touch the main checkout",
@@ -3875,7 +3929,7 @@ describe("AgentGateway", () => {
       // Omitting environment defaults to an isolated worktree, not local.
       const defaulted = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_create_thread",
+        name: "penkra_create_thread",
         args: { requestId: "create-isolated", prompt: "do isolated work", provider: "codex" },
       });
       assert.isFalse(isToolError(defaulted.result), toolErrorText(defaulted.result));
@@ -3894,7 +3948,7 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       const response = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_create_thread",
+        name: "penkra_create_thread",
         args: {
           requestId: "create-escalated",
           prompt: "escalate please",
@@ -3914,12 +3968,12 @@ describe("AgentGateway", () => {
       const harness = yield* makeHarness;
       yield* harness.callTool({
         token: "token-parent",
-        name: "synara_set_thread_title",
+        name: "penkra_set_thread_title",
         args: { threadId: "thread-child", title: "Renamed worker" },
       });
       yield* harness.callTool({
         token: "token-parent",
-        name: "synara_set_thread_archived",
+        name: "penkra_set_thread_archived",
         args: { threadId: "thread-child", archived: true },
       });
       assert.equal(harness.dispatched[0]?.type, "thread.meta.update");
@@ -3937,7 +3991,7 @@ describe("AgentGateway", () => {
 
       const rename = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_set_thread_title",
+        name: "penkra_set_thread_title",
         args: { threadId: "thread-elevated", title: "Hidden work" },
       });
       assert.isTrue(isToolError(rename.result));
@@ -3945,7 +3999,7 @@ describe("AgentGateway", () => {
 
       const archive = yield* harness.callTool({
         token: "token-parent",
-        name: "synara_set_thread_archived",
+        name: "penkra_set_thread_archived",
         args: { threadId: "thread-elevated", archived: true },
       });
       assert.isTrue(isToolError(archive.result));
@@ -3964,7 +4018,7 @@ describe("AgentGateway", () => {
           jsonrpc: "2.0",
           id: 9,
           method: "tools/call",
-          params: { name: "synara_unknown" },
+          params: { name: "penkra_unknown" },
         },
       });
       const error = (response.body as { error?: { code: number } }).error;

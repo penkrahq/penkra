@@ -15,8 +15,8 @@ import type {
   ProviderKind,
   StatsGetProfileStatsInput,
   StatsGetProfileTokenStatsInput,
-} from "@synara/contracts";
-import { isBuiltInComposerSlashCommandName } from "@synara/shared/composerSlashCommands";
+} from "@penkra/contracts";
+import { isBuiltInComposerSlashCommandName } from "@penkra/shared/composerSlashCommands";
 import { Effect, Layer, ServiceMap } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
@@ -611,7 +611,7 @@ export interface ProfileStatsQueryShape {
 export class ProfileStatsQuery extends ServiceMap.Service<
   ProfileStatsQuery,
   ProfileStatsQueryShape
->()("synara/profileStats/ProfileStatsQuery") {}
+>()("penkra/profileStats/ProfileStatsQuery") {}
 
 const makeProfileStatsQuery = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;

@@ -12,7 +12,7 @@ import {
   type RuntimeMode,
   type SpaceId,
   type ThreadId,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 import { type DraftThreadEnvMode } from "../composerDraftStore";
 import { readNativeApi } from "../nativeApi";
 import { promoteThreadCreate } from "./threadCreatePromotion";

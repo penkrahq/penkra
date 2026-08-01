@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import type { DesktopWindowState } from "@synara/contracts";
+import type { DesktopWindowState } from "@penkra/contracts";
 
 const DEFAULT_DESKTOP_WINDOW_STATE: DesktopWindowState = {
   isMaximized: false,

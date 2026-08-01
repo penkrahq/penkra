@@ -3,7 +3,7 @@
 // Layer: UI state store
 // Exports: pane/split types, tree-aware selectors, and id-based mutation helpers used by sidebar and route surfaces
 
-import { type ProjectId, type ThreadId, type TurnId } from "@synara/contracts";
+import { type ProjectId, type ThreadId, type TurnId } from "@penkra/contracts";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
@@ -113,10 +113,10 @@ interface SplitViewStore {
 }
 
 // Keep the v1 suffix stable while using the Penkra namespace; legacy
-// `synara:*` and `synara:*` keys are copied over by
+// `penkra:*` and `penkra:*` keys are copied over by
 // `storageKeyMigration` before this store hydrates, so older payloads still
 // flow through the v1 -> v2 schema migration below.
-const SPLIT_VIEW_STORAGE_KEY = "synara:split-view-state:v1";
+const SPLIT_VIEW_STORAGE_KEY = "penkra:split-view-state:v1";
 const SPLIT_VIEW_STORAGE_VERSION = 2;
 const DEFAULT_RATIO = 0.5;
 const MIN_RATIO = 0.25;

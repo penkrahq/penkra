@@ -1,15 +1,16 @@
-import type { ProviderKind } from "@synara/contracts";
+import type { ProviderKind } from "@penkra/contracts";
 import type { ComponentProps } from "react";
 import { FaGithub } from "react-icons/fa6";
 
 import { ProviderIcon } from "~/components/ProviderIcon";
-import { CircleAlertIcon, CircleCheckIcon, LoaderCircleIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
 
+import { PinBadgeShared } from "../pin-badge-shared/PinBadgeShared";
 import { LeftRailRow } from "../row-shared/LeftRailRow";
+import { WorkStatusShared, type WorkStatus } from "../work-status-shared/WorkStatusShared";
 
 export type ThreadRowLevel = "root" | "nested";
-export type ThreadWorkStatus = "idle" | "running" | "done" | "attention";
+export type ThreadWorkStatus = WorkStatus;
 
 export interface ThreadRowSharedProps extends Omit<
   ComponentProps<typeof LeftRailRow>,
@@ -17,6 +18,7 @@ export interface ThreadRowSharedProps extends Omit<
 > {
   harness?: ProviderKind | "github";
   level?: ThreadRowLevel;
+  pinned?: boolean;
   workStatus?: ThreadWorkStatus;
 }
 
@@ -25,18 +27,12 @@ export function ThreadRowShared({
   className,
   harness = "claudeAgent",
   level = "root",
+  pinned = false,
   state = "default",
   workStatus = "idle",
   ...props
 }: ThreadRowSharedProps) {
-  const trailing =
-    workStatus === "running" ? (
-      <LoaderCircleIcon aria-label="Working" className="size-[13px] animate-spin" />
-    ) : workStatus === "done" ? (
-      <CircleCheckIcon aria-label="Done" className="size-[13px]" />
-    ) : workStatus === "attention" ? (
-      <CircleAlertIcon aria-label="Needs attention" className="size-[13px]" />
-    ) : null;
+  const trailing = <WorkStatusShared status={workStatus} />;
 
   return (
     <LeftRailRow
@@ -45,25 +41,25 @@ export function ThreadRowShared({
         level === "nested" ? "pl-6" : "pl-2.5",
         state === "active" &&
           "bg-[var(--color-background-button-secondary-hover)] text-[var(--color-text-foreground)]",
-        workStatus === "running" &&
-          "[&_[data-slot=thread-status]]:text-[var(--color-text-foreground-secondary)]",
-        workStatus === "done" && "[&_[data-slot=thread-status]]:text-[var(--color-text-accent)]",
-        workStatus === "attention" && "[&_[data-slot=thread-status]]:text-orange-500",
         className,
       )}
       leading={
-        harness === "github" ? (
-          <FaGithub aria-hidden className="size-3.5" />
-        ) : (
-          <ProviderIcon className="size-3.5" provider={harness} />
-        )
+        <span className="relative inline-flex size-3.5 items-center justify-center">
+          {harness === "github" ? (
+            <FaGithub aria-hidden className="size-3.5" />
+          ) : (
+            <ProviderIcon className="size-3.5" provider={harness} />
+          )}
+          {pinned ? <PinBadgeShared /> : null}
+        </span>
       }
       leadingClassName="size-3.5"
+      data-pinned={pinned ? "true" : undefined}
       data-thread-level={level}
       data-work-status={workStatus}
       state={state}
       trailing={
-        trailing ? (
+        workStatus !== "idle" ? (
           <span
             className="inline-flex size-3.5 shrink-0 items-center justify-center"
             data-slot="thread-status"

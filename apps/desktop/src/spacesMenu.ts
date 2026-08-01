@@ -1,4 +1,4 @@
-import type { DesktopSpacesMenuInput } from "@synara/contracts";
+import type { DesktopSpacesMenuInput } from "@penkra/contracts";
 
 const MAX_SPACES_MENU_ITEMS = 100;
 const MAX_SPACE_ID_LENGTH = 128;

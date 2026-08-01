@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import type { ThreadId } from "@synara/contracts";
+import type { ThreadId } from "@penkra/contracts";
 import { Duration, Effect, Option } from "effect";
 import * as Semaphore from "effect/Semaphore";
 

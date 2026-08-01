@@ -17,17 +17,17 @@ import {
   TerminalWriteInput,
   type TerminalEvent,
   type TerminalSessionSnapshot,
-} from "@synara/contracts";
-import { describeErrorMessage } from "@synara/shared/errorMessages";
+} from "@penkra/contracts";
+import { describeErrorMessage } from "@penkra/shared/errorMessages";
 import {
   consumeTerminalIdentityInput,
   terminalCliKindFromValue,
-  SYNARA_TERMINAL_HOOK_OSC_PREFIX,
-  SYNARA_TERMINAL_CLI_KIND_ENV_KEY,
+  PENKRA_TERMINAL_HOOK_OSC_PREFIX,
+  PENKRA_TERMINAL_CLI_KIND_ENV_KEY,
   type TerminalActivityState,
   type TerminalAgentHookEventType,
   type TerminalCliKind,
-} from "@synara/shared/terminalThreads";
+} from "@penkra/shared/terminalThreads";
 import { Effect, Encoding, Layer, Schema } from "effect";
 
 import { createLogger } from "../../logger";
@@ -370,7 +370,7 @@ function shouldStripCsiSequence(body: string, finalByte: string): boolean {
 
 function shouldStripOscSequence(content: string): boolean {
   return (
-    /^(10|11|12);(?:\?|rgb:)/.test(content) || content.startsWith(SYNARA_TERMINAL_HOOK_OSC_PREFIX)
+    /^(10|11|12);(?:\?|rgb:)/.test(content) || content.startsWith(PENKRA_TERMINAL_HOOK_OSC_PREFIX)
   );
 }
 
@@ -380,10 +380,10 @@ function extractOscTitle(content: string): string | null {
 }
 
 function extractOscHookEvent(content: string): TerminalAgentHookEventType | null {
-  if (!content.startsWith(SYNARA_TERMINAL_HOOK_OSC_PREFIX)) {
+  if (!content.startsWith(PENKRA_TERMINAL_HOOK_OSC_PREFIX)) {
     return null;
   }
-  const eventType = content.slice(SYNARA_TERMINAL_HOOK_OSC_PREFIX.length).trim();
+  const eventType = content.slice(PENKRA_TERMINAL_HOOK_OSC_PREFIX.length).trim();
   return eventType === "Start" || eventType === "Stop" || eventType === "PermissionRequest"
     ? eventType
     : null;
@@ -643,7 +643,7 @@ function toSessionKey(threadId: string, terminalId: string): string {
 
 function shouldExcludeTerminalEnvKey(key: string): boolean {
   const normalizedKey = key.toUpperCase();
-  if (normalizedKey.startsWith("SYNARA_")) {
+  if (normalizedKey.startsWith("PENKRA_")) {
     return true;
   }
   if (normalizedKey.startsWith("VITE_")) {
@@ -693,7 +693,7 @@ function normalizedRuntimeEnv(
 function cliKindFromRuntimeEnv(
   runtimeEnv: Record<string, string> | null | undefined,
 ): TerminalCliKind | null {
-  return terminalCliKindFromValue(runtimeEnv?.[SYNARA_TERMINAL_CLI_KIND_ENV_KEY]);
+  return terminalCliKindFromValue(runtimeEnv?.[PENKRA_TERMINAL_CLI_KIND_ENV_KEY]);
 }
 
 function resetSessionHistory(session: TerminalSessionState): void {

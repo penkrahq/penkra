@@ -9,8 +9,8 @@ export type TerminalIconKey = "terminal" | "openai" | "claude" | "antigravity";
 export type TerminalActivityState = "running" | "attention" | "review";
 export type TerminalVisualState = "idle" | TerminalActivityState;
 export type TerminalAgentHookEventType = "Start" | "Stop" | "PermissionRequest";
-export const SYNARA_TERMINAL_CLI_KIND_ENV_KEY = "SYNARA_TERMINAL_CLI_KIND";
-export const SYNARA_TERMINAL_HOOK_OSC_PREFIX = "633;SYNARA_AGENT_EVENT=";
+export const PENKRA_TERMINAL_CLI_KIND_ENV_KEY = "PENKRA_TERMINAL_CLI_KIND";
+export const PENKRA_TERMINAL_HOOK_OSC_PREFIX = "633;PENKRA_AGENT_EVENT=";
 export type ManagedTerminalCliKind = Exclude<TerminalCliKind, "antigravity">;
 export const MANAGED_TERMINAL_COMMAND_NAME_BY_CLI_KIND: Record<ManagedTerminalCliKind, string> = {
   codex: "codex",

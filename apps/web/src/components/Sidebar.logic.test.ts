@@ -13,7 +13,6 @@ import {
   getFallbackThreadIdAfterDelete,
   getVisibleSidebarEntriesForPreview,
   orderPinnedProjectsForSidebar,
-  getPinnedThreadsForSidebar,
   getNextVisibleSidebarThreadId,
   getSidebarThreadIdForJumpCommand,
   getSidebarThreadIdsToPrewarm,
@@ -21,7 +20,6 @@ import {
   groupSidebarThreadsByProjectId,
   isLatestPinnedProjectMutation,
   isProjectsSidebarSurface,
-  getUnpinnedThreadsForSidebar,
   getVisibleSidebarThreadIds,
   getVisibleThreadsForProject,
   getProjectSortTimestamp,
@@ -37,6 +35,7 @@ import {
   resolveSettingsBackTarget,
   resolveProjectStatusIndicator,
   resolveSidebarNewThreadEnvMode,
+  resolveSidebarWorkStatus,
   resolveThreadHoverCardMetadata,
   resolveThreadRowClassName,
   resolveThreadStatusPill,
@@ -46,7 +45,7 @@ import {
   sortProjectsForSidebar,
   sortThreadsForSidebar,
 } from "./Sidebar.logic";
-import { ProjectId, ThreadId } from "@synara/contracts";
+import { ProjectId, ThreadId } from "@penkra/contracts";
 import {
   DEFAULT_INTERACTION_MODE,
   DEFAULT_RUNTIME_MODE,
@@ -172,23 +171,23 @@ describe("resolveThreadHoverCardMetadata", () => {
     const metadata = resolveThreadHoverCardMetadata({
       thread: makeSidebarThreadSummary({
         envMode: "worktree",
-        branch: "codex/synara-mobile",
+        branch: "codex/penkra-mobile",
         worktreePath: "/Users/me/.codex/worktrees/1234/Remodex",
         associatedWorktreePath: "/Users/me/.codex/worktrees/1234/Remodex",
-        associatedWorktreeBranch: "codex/synara-mobile",
+        associatedWorktreeBranch: "codex/penkra-mobile",
       }),
       project: {
-        name: "synara-mobile",
+        name: "penkra-mobile",
         folderName: "Remodex",
         cwd: "/Users/me/Developer/Remodex",
       },
     });
 
     expect(metadata).toEqual({
-      projectName: "synara-mobile",
+      projectName: "penkra-mobile",
       projectCwd: "/Users/me/Developer/Remodex",
       sourceProjectName: "Remodex",
-      branch: "codex/synara-mobile",
+      branch: "codex/penkra-mobile",
       worktreeName: "Remodex",
     });
   });
@@ -199,15 +198,15 @@ describe("resolveThreadHoverCardMetadata", () => {
         branch: "main",
       }),
       project: {
-        name: "synara",
-        folderName: "synara",
-        cwd: "/Users/me/Developer/synara",
+        name: "penkra",
+        folderName: "penkra",
+        cwd: "/Users/me/Developer/penkra",
       },
     });
 
     expect(metadata).toEqual({
-      projectName: "synara",
-      projectCwd: "/Users/me/Developer/synara",
+      projectName: "penkra",
+      projectCwd: "/Users/me/Developer/penkra",
       sourceProjectName: null,
       branch: "main",
       worktreeName: null,
@@ -530,7 +529,7 @@ describe("add-project error helpers", () => {
 
   it("explains root-absolute add-project paths that probably missed the home directory", () => {
     expect(
-      describeAddProjectError("Failed to create project directory: /Developer/Testing/synara"),
+      describeAddProjectError("Failed to create project directory: /Developer/Testing/penkra"),
     ).toContain("/Users/<name>/Developer");
   });
 
@@ -582,43 +581,6 @@ describe("pin helpers", () => {
       branch: null,
       worktreePath: null,
     }) satisfies Thread;
-
-  it("returns pinned threads in persisted pin order", () => {
-    const threads = [makeThread("thread-1"), makeThread("thread-2"), makeThread("thread-3")];
-
-    expect(
-      getPinnedThreadsForSidebar(threads, ["thread-3" as ThreadId, "thread-1" as ThreadId]),
-    ).toEqual([threads[2], threads[0]]);
-  });
-
-  it("filters pinned threads out of project lists", () => {
-    const threads = [makeThread("thread-1"), makeThread("thread-2"), makeThread("thread-3")];
-
-    expect(
-      getUnpinnedThreadsForSidebar(threads, ["thread-2" as ThreadId, "thread-3" as ThreadId]),
-    ).toEqual([threads[0]]);
-  });
-
-  it("keeps a pinned parent in project lists so its children stay reachable and nested", () => {
-    const threads = [
-      makeThread("thread-1"),
-      {
-        ...makeThread("child-1"),
-        parentThreadId: "thread-1" as ThreadId,
-      },
-      makeThread("thread-2"),
-    ];
-
-    // Pinning the parent must not orphan child-1 as a top-level project row
-    // (buildProjectThreadTree promotes children with missing parents) nor hide
-    // it entirely; the parent stays in the tree, children render under it.
-    expect(getUnpinnedThreadsForSidebar(threads, ["thread-1" as ThreadId])).toEqual(threads);
-    // Childless pinned threads are still hidden from project lists.
-    expect(getUnpinnedThreadsForSidebar(threads, ["thread-2" as ThreadId])).toEqual([
-      threads[0],
-      threads[1],
-    ]);
-  });
 
   it("lets an optimistic unpin override server and persisted pinned state", () => {
     const threads = [
@@ -786,6 +748,43 @@ describe("resolveThreadStatusPill", () => {
         hasPendingUserInput: false,
       }),
     ).toMatchObject({ label: "Working", pulse: true });
+  });
+
+  it("keeps showing working while a dispatched turn is waiting for provider start", () => {
+    expect(
+      resolveThreadStatusPill({
+        thread: {
+          ...baseThread,
+          // A previous turn can remain settled until the provider start event
+          // arrives; the durable session state is authoritative in this gap.
+          latestTurn: makeLatestTurn(),
+          session: {
+            ...baseThread.session,
+            status: "connecting",
+            orchestrationStatus: "starting",
+          },
+        },
+        hasPendingApprovals: false,
+        hasPendingUserInput: false,
+      }),
+    ).toMatchObject({ label: "Working", pulse: true });
+  });
+
+  it("surfaces a quarantined or errored session as attention instead of working", () => {
+    expect(
+      resolveThreadStatusPill({
+        thread: {
+          ...baseThread,
+          session: {
+            ...baseThread.session,
+            status: "error",
+            orchestrationStatus: "error",
+          },
+        },
+        hasPendingApprovals: true,
+        hasPendingUserInput: true,
+      }),
+    ).toMatchObject({ label: "Needs Attention", pulse: false, dismissible: false });
   });
 
   it("keeps showing working when late turn activity arrives after the session looks ready", () => {
@@ -984,6 +983,88 @@ describe("resolveProjectStatusIndicator", () => {
       ]),
     ).toMatchObject({ label: "Plan Ready", dotClass: "bg-violet-500" });
   });
+
+  it("lets every attention state supersede running and completed work", () => {
+    expect(
+      resolveProjectStatusIndicator([
+        {
+          label: "Working",
+          colorClass: "text-sky-600",
+          dotClass: "bg-sky-500",
+          pulse: true,
+        },
+        {
+          label: "Completed",
+          colorClass: "text-emerald-600",
+          dotClass: "bg-emerald-500",
+          pulse: false,
+        },
+        {
+          label: "Plan Ready",
+          colorClass: "text-violet-600",
+          dotClass: "bg-violet-500",
+          pulse: false,
+        },
+      ]),
+    ).toMatchObject({ label: "Plan Ready" });
+  });
+
+  it("keeps an errored thread ahead of other project activity", () => {
+    expect(
+      resolveProjectStatusIndicator([
+        {
+          label: "Working",
+          colorClass: "text-sky-600",
+          dotClass: "bg-sky-500",
+          pulse: true,
+        },
+        {
+          label: "Needs Attention",
+          colorClass: "text-orange-600",
+          dotClass: "bg-orange-500",
+          pulse: false,
+        },
+      ]),
+    ).toMatchObject({ label: "Needs Attention" });
+  });
+});
+
+describe("resolveSidebarWorkStatus", () => {
+  it("maps thread pills onto the shared Pencil work-status axis", () => {
+    expect(resolveSidebarWorkStatus(null)).toBe("idle");
+    expect(
+      resolveSidebarWorkStatus({
+        label: "Working",
+        colorClass: "",
+        dotClass: "",
+        pulse: true,
+      }),
+    ).toBe("running");
+    expect(
+      resolveSidebarWorkStatus({
+        label: "Completed",
+        colorClass: "",
+        dotClass: "",
+        pulse: false,
+      }),
+    ).toBe("done");
+    expect(
+      resolveSidebarWorkStatus({
+        label: "Awaiting Input",
+        colorClass: "",
+        dotClass: "",
+        pulse: false,
+      }),
+    ).toBe("attention");
+    expect(
+      resolveSidebarWorkStatus({
+        label: "Needs Attention",
+        colorClass: "",
+        dotClass: "",
+        pulse: false,
+      }),
+    ).toBe("attention");
+  });
 });
 
 describe("getVisibleThreadsForProject", () => {
@@ -1057,6 +1138,32 @@ describe("getRenderedThreadsForSidebarProject", () => {
 });
 
 describe("buildProjectThreadTree", () => {
+  it("orders pinned threads first inside their immediate parent without moving them", () => {
+    const rows = buildProjectThreadTree({
+      threads: [
+        makeThread({ id: ThreadId.makeUnsafe("root-unpinned") }),
+        makeThread({ id: ThreadId.makeUnsafe("root-pinned") }),
+        makeThread({
+          id: ThreadId.makeUnsafe("child-unpinned"),
+          parentThreadId: ThreadId.makeUnsafe("root-pinned"),
+        }),
+        makeThread({
+          id: ThreadId.makeUnsafe("child-pinned"),
+          parentThreadId: ThreadId.makeUnsafe("root-pinned"),
+        }),
+      ],
+      forceVisibleThreadId: ThreadId.makeUnsafe("child-unpinned"),
+      pinnedThreadIds: [ThreadId.makeUnsafe("child-pinned"), ThreadId.makeUnsafe("root-pinned")],
+    });
+
+    expect(rows.map((row) => [row.thread.id, row.depth])).toEqual([
+      [ThreadId.makeUnsafe("root-pinned"), 0],
+      [ThreadId.makeUnsafe("child-pinned"), 1],
+      [ThreadId.makeUnsafe("child-unpinned"), 1],
+      [ThreadId.makeUnsafe("root-unpinned"), 0],
+    ]);
+  });
+
   it("keeps inactive child threads out of the sidebar", () => {
     const rows = buildProjectThreadTree({
       threads: [
@@ -1504,7 +1611,7 @@ describe("partitionSidebarThreadsByProjectIds", () => {
 });
 
 describe("deriveSidebarProjectData", () => {
-  it("keeps pinned threads in the total project thread count", () => {
+  it("keeps a pinned thread in its folder and orders it first", () => {
     const project = makeProject();
     const pinnedThread = makeSidebarThreadSummary({
       id: ThreadId.makeUnsafe("thread-pinned"),
@@ -1533,7 +1640,11 @@ describe("deriveSidebarProjectData", () => {
 
     expect(data.get(project.id)).toMatchObject({
       allProjectThreadCount: 2,
-      orderedProjectThreadIds: [unpinnedThread.id],
+      orderedProjectThreadIds: [pinnedThread.id, unpinnedThread.id],
+      visibleEntries: [
+        expect.objectContaining({ rowId: pinnedThread.id }),
+        expect.objectContaining({ rowId: unpinnedThread.id }),
+      ],
     });
   });
 
@@ -1927,6 +2038,37 @@ describe("sortThreadsForSidebar", () => {
 
     expect(sorted.map((thread) => thread.id)).toEqual([
       ThreadId.makeUnsafe("thread-running"),
+      ThreadId.makeUnsafe("thread-newer"),
+    ]);
+  });
+
+  it("keeps a provider-starting thread in the live-work group", () => {
+    const sorted = sortThreadsForSidebar(
+      [
+        makeThread({
+          id: ThreadId.makeUnsafe("thread-newer"),
+          createdAt: "2026-03-09T11:00:00.000Z",
+          updatedAt: "2026-03-09T11:00:00.000Z",
+        }),
+        makeThread({
+          id: ThreadId.makeUnsafe("thread-starting"),
+          createdAt: "2026-03-09T09:00:00.000Z",
+          updatedAt: "2026-03-09T09:00:00.000Z",
+          latestTurn: makeLatestTurn(),
+          session: {
+            provider: "codex" as const,
+            status: "connecting" as const,
+            createdAt: "2026-03-09T09:00:00.000Z",
+            updatedAt: "2026-03-09T09:00:00.000Z",
+            orchestrationStatus: "starting" as const,
+          },
+        }),
+      ],
+      "updated_at",
+    );
+
+    expect(sorted.map((thread) => thread.id)).toEqual([
+      ThreadId.makeUnsafe("thread-starting"),
       ThreadId.makeUnsafe("thread-newer"),
     ]);
   });

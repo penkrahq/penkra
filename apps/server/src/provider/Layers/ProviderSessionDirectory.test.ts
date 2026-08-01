@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { ThreadId } from "@synara/contracts";
+import { ThreadId } from "@penkra/contracts";
 import { it, assert } from "@effect/vitest";
 import { assertFailure, assertSome } from "@effect/vitest/utils";
 import { Effect, Layer, Option } from "effect";
@@ -166,7 +166,7 @@ it.layer(makeDirectoryLayer(SqlitePersistenceMemory))("ProviderSessionDirectoryL
 
   it("rehydrates persisted mappings across layer restart", () =>
     Effect.gen(function* () {
-      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "synara-provider-directory-"));
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-provider-directory-"));
       const dbPath = path.join(tempDir, "orchestration.sqlite");
       const directoryLayer = makeDirectoryLayer(makeSqlitePersistenceLive(dbPath));
 
@@ -208,7 +208,7 @@ it.layer(makeDirectoryLayer(SqlitePersistenceMemory))("ProviderSessionDirectoryL
 
   it("rehydrates persisted OpenCode bindings across layer restart", () =>
     Effect.gen(function* () {
-      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "synara-provider-directory-opencode-"));
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-provider-directory-opencode-"));
       const dbPath = path.join(tempDir, "orchestration.sqlite");
       const directoryLayer = makeDirectoryLayer(makeSqlitePersistenceLive(dbPath));
 

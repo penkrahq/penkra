@@ -1,4 +1,4 @@
-import { ProjectId, SpaceId } from "@synara/contracts";
+import { ProjectId, SpaceId } from "@penkra/contracts";
 import { page } from "vitest/browser";
 import { beforeEach, describe, expect, it } from "vitest";
 import { render } from "vitest-browser-react";

@@ -1,7 +1,7 @@
 import { readFile, readdir, rm } from "node:fs/promises";
 import path from "node:path";
 
-import { CommandId, ProjectId, type OrchestrationProject } from "@synara/contracts";
+import { CommandId, ProjectId, type OrchestrationProject } from "@penkra/contracts";
 import { Effect } from "effect";
 
 import type { OrchestrationEngineShape } from "../orchestration/Services/OrchestrationEngine";

@@ -1,4 +1,4 @@
-import type { ProviderKind } from "@synara/contracts";
+import type { ProviderKind } from "@penkra/contracts";
 import { IconChevronDown } from "@tabler/icons-react";
 import { forwardRef, type ButtonHTMLAttributes } from "react";
 
@@ -18,7 +18,7 @@ export const HarnessSelectorShared = forwardRef<HTMLButtonElement, HarnessSelect
       label = "Claude Sonnet 5",
       provider = "claudeAgent",
       type = "button",
-      variantLabel,
+      variantLabel = "High",
       ...props
     },
     ref,
@@ -26,7 +26,7 @@ export const HarnessSelectorShared = forwardRef<HTMLButtonElement, HarnessSelect
     return (
       <button
         className={cn(
-          "inline-flex h-[25px] cursor-pointer items-center gap-1 rounded-lg border-0 bg-transparent px-2 font-sans text-xs text-[var(--color-text-foreground-secondary)] outline-none transition-colors hover:bg-[var(--color-background-button-secondary-hover)] hover:text-[var(--color-text-foreground)] focus-visible:ring-1 focus-visible:ring-[var(--color-border-focus)]",
+          "inline-flex h-[25px] cursor-pointer items-center gap-[5px] rounded-lg border-0 bg-transparent px-2 font-sans text-xs text-[var(--color-text-foreground-secondary)] outline-none transition-colors hover:bg-[var(--color-background-button-secondary-hover)] hover:text-[var(--color-text-foreground)] focus-visible:ring-1 focus-visible:ring-[var(--color-border-focus)]",
           className,
         )}
         ref={ref}

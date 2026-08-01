@@ -1,5 +1,5 @@
 {
-  "name": "@synara/desktop",
+  "name": "@penkra/desktop",
   "version": "0.8.2",
   "private": true,
   "main": "dist-electron/main.js",
@@ -22,8 +22,8 @@
     "electron-updater": "^6.6.2"
   },
   "devDependencies": {
-    "@synara/contracts": "workspace:*",
-    "@synara/shared": "workspace:*",
+    "@penkra/contracts": "workspace:*",
+    "@penkra/shared": "workspace:*",
     "@types/node": "catalog:",
     "tsdown": "catalog:",
     "typescript": "catalog:",

@@ -16,7 +16,7 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-import { matchesDistinguishedName } from "@synara/shared/windowsCertificate";
+import { matchesDistinguishedName } from "@penkra/shared/windowsCertificate";
 
 export type ReleaseArtifactPlatform = "linux" | "mac" | "win";
 
@@ -229,7 +229,7 @@ function verifyMacSignatures(
 
   const zip = requireSingleArtifact(artifacts, ".zip");
   const diskImage = requireSingleArtifact(artifacts, ".dmg");
-  const extractionRoot = mkdtempSync(join(tmpdir(), "synara-release-provenance-"));
+  const extractionRoot = mkdtempSync(join(tmpdir(), "penkra-release-provenance-"));
   try {
     runCommand("ditto", ["-x", "-k", join(input.assetsDirectory, zip.fileName), extractionRoot]);
     const appBundles = readdirSync(extractionRoot).filter((entry) => {

@@ -13,7 +13,7 @@ import { makeSqlitePersistenceLive } from "./Sqlite.ts";
 const tempDirectories: Array<string> = [];
 
 async function makeDbPath(): Promise<string> {
-  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "synara-sqlite-live-"));
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "penkra-sqlite-live-"));
   tempDirectories.push(directory);
   return path.join(directory, "state.sqlite");
 }
@@ -63,7 +63,7 @@ describe("SQLite persistence", () => {
         expect(journalMode?.journal_mode).toBe("wal");
 
         yield* sql`CREATE TABLE ownership_probe(value TEXT NOT NULL)`;
-        yield* sql`INSERT INTO ownership_probe(value) VALUES ('owned-by-synara')`;
+        yield* sql`INSERT INTO ownership_probe(value) VALUES ('owned-by-penkra')`;
         yield* Effect.promise(async () => {
           await expect(fs.stat(`${dbPath}-shm`)).rejects.toMatchObject({ code: "ENOENT" });
         });
@@ -78,7 +78,7 @@ describe("SQLite persistence", () => {
         const rows = yield* sql<{ readonly value: string }>`
           SELECT value FROM ownership_probe
         `;
-        expect(rows).toEqual([{ value: "owned-by-synara" }]);
+        expect(rows).toEqual([{ value: "owned-by-penkra" }]);
         yield* Effect.promise(async () => {
           await expect(fs.stat(`${dbPath}-shm`)).rejects.toMatchObject({ code: "ENOENT" });
         });

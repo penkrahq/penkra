@@ -64,4 +64,4 @@ export interface ThreadDiagnosticsQueryShape {
 export class ThreadDiagnosticsQuery extends ServiceMap.Service<
   ThreadDiagnosticsQuery,
   ThreadDiagnosticsQueryShape
->()("synara/diagnostics/Services/ThreadDiagnosticsQuery") {}
+>()("penkra/diagnostics/Services/ThreadDiagnosticsQuery") {}

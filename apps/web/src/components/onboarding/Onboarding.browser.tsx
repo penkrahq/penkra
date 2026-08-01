@@ -1,6 +1,6 @@
 import "../../index.css";
 
-import type { DesktopBridge } from "@synara/contracts";
+import type { DesktopBridge } from "@penkra/contracts";
 import { page } from "vitest/browser";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";

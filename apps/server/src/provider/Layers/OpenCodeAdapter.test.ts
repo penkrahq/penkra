@@ -1,4 +1,4 @@
-import { ThreadId } from "@synara/contracts";
+import { ThreadId } from "@penkra/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import type {
   Agent,
@@ -12,7 +12,7 @@ import { Deferred, Effect, Exit, Fiber, Layer, Scope, Stream } from "effect";
 import { describe, it, expect, vi } from "vitest";
 
 import { ServerConfig } from "../../config.ts";
-import { SYNARA_HARNESS_POLICY_MARKER } from "../../agentGateway/harnessPolicy.ts";
+import { PENKRA_HARNESS_POLICY_MARKER } from "../../agentGateway/harnessPolicy.ts";
 import {
   AgentGatewayCredentials,
   type AgentGatewayCredentialsShape,
@@ -172,7 +172,7 @@ function createMockOpenCodeRuntime(options?: {
         mcpAddCalls.push(input);
         return options?.mcpAdd
           ? options.mcpAdd(input)
-          : { data: { synara: { status: "connected" } } };
+          : { data: { penkra: { status: "connected" } } };
       },
     },
   };
@@ -829,7 +829,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
     ]);
     expect(runtime.promptCalls).toHaveLength(2);
     for (const prompt of runtime.promptCalls) {
-      expect(JSON.stringify(prompt)).toContain("Use the synara_* tools");
+      expect(JSON.stringify(prompt)).toContain("Use the penkra_* tools");
     }
     expect(gateway.revoked).toEqual(["gateway-token-1", "gateway-token-2"]);
   });
@@ -908,7 +908,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
 
   it("keeps managed sessions identity-only and revokes credentials when MCP setup is not connected", async () => {
     const runtime = createMockOpenCodeRuntime({
-      mcpAdd: async () => ({ data: { synara: { status: "failed", error: "offline" } } }),
+      mcpAdd: async () => ({ data: { penkra: { status: "failed", error: "offline" } } }),
     });
     const gateway = makeGatewayCredentials();
 
@@ -1511,7 +1511,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
     const firstPromptText = (
       runtime.promptCalls[0]?.parts as ReadonlyArray<{ readonly text?: string }> | undefined
     )?.[0]?.text;
-    expect(firstPromptText).toContain(SYNARA_HARNESS_POLICY_MARKER);
+    expect(firstPromptText).toContain(PENKRA_HARNESS_POLICY_MARKER);
     expect(firstPromptText).toContain("Penkra MCP control is unavailable");
     expect(runtime.promptCalls[0]).toMatchObject({
       model: {
@@ -2057,7 +2057,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
     });
   });
 
-  it("ignores a stale plan agent option when Synara interaction mode is default", async () => {
+  it("ignores a stale plan agent option when Penkra interaction mode is default", async () => {
     const runtime = createMockOpenCodeRuntime();
 
     await Effect.runPromise(

@@ -1,4 +1,4 @@
-import type { GitStatusResult } from "@synara/contracts";
+import type { GitStatusResult } from "@penkra/contracts";
 import { assert, describe, it } from "vitest";
 import {
   buildGitActionProgressStages,
@@ -293,7 +293,7 @@ describe("when: branch is clean, up to date, and has no open PR", () => {
   it("resolveQuickAction keeps disabled commit when the branch tracks the default branch", () => {
     const quick = resolveQuickAction(
       status({
-        branch: "synara/pi-cleanup",
+        branch: "penkra/pi-cleanup",
         upstreamBranch: "main",
         aheadCount: 0,
         behindCount: 0,
@@ -317,7 +317,7 @@ describe("when: branch is clean, up to date, and has no open PR", () => {
   it("resolveCreatePrActionAvailability blocks stale create-pr calls for default upstream", () => {
     const availability = resolveCreatePrActionAvailability({
       gitStatus: status({
-        branch: "synara/pi-cleanup",
+        branch: "penkra/pi-cleanup",
         upstreamBranch: "main",
         aheadCount: 0,
         behindCount: 0,
@@ -353,7 +353,7 @@ describe("when: branch is clean, up to date, and has no open PR", () => {
   it("buildMenuItems disables create PR when the branch tracks the default branch", () => {
     const items = buildMenuItems(
       status({
-        branch: "synara/pi-cleanup",
+        branch: "penkra/pi-cleanup",
         upstreamBranch: "main",
         aheadCount: 0,
         behindCount: 0,
@@ -1357,30 +1357,30 @@ describe("resolveAutoFeatureBranchName", () => {
 describe("resolveDefaultCreateBranchName", () => {
   it("uses Penkra as the default namespace", () => {
     const branch = resolveDefaultCreateBranchName(["main"], "fix toast copy");
-    assert.equal(branch, "synara/fix-toast-copy");
+    assert.equal(branch, "penkra/fix-toast-copy");
   });
 
-  it("normalizes an existing legacy synara namespace", () => {
-    const branch = resolveDefaultCreateBranchName(["main"], "synara/refine-toolbar-actions");
-    assert.equal(branch, "synara/refine-toolbar-actions");
+  it("normalizes an existing legacy penkra namespace", () => {
+    const branch = resolveDefaultCreateBranchName(["main"], "penkra/refine-toolbar-actions");
+    assert.equal(branch, "penkra/refine-toolbar-actions");
   });
 
   it("preserves nested namespaces under Penkra", () => {
     const branch = resolveDefaultCreateBranchName(["main"], "feature/refine-toolbar-actions");
-    assert.equal(branch, "synara/feature/refine-toolbar-actions");
+    assert.equal(branch, "penkra/feature/refine-toolbar-actions");
   });
 
   it("increments suffix when the Penkra branch already exists", () => {
     const branch = resolveDefaultCreateBranchName(
-      ["main", "synara/fix-toast-copy", "synara/fix-toast-copy-2"],
+      ["main", "penkra/fix-toast-copy", "penkra/fix-toast-copy-2"],
       "fix toast copy",
     );
-    assert.equal(branch, "synara/fix-toast-copy-3");
+    assert.equal(branch, "penkra/fix-toast-copy-3");
   });
 
-  it("falls back to synara/update when no preferred name is provided", () => {
+  it("falls back to penkra/update when no preferred name is provided", () => {
     const branch = resolveDefaultCreateBranchName(["main"]);
-    assert.equal(branch, "synara/update");
+    assert.equal(branch, "penkra/update");
   });
 });
 
@@ -1388,7 +1388,7 @@ describe("resolveLiveThreadBranchUpdate", () => {
   it("does not regress a semantic thread branch back to a temporary worktree branch", () => {
     const update = resolveLiveThreadBranchUpdate({
       threadBranch: "feature/semantic-branch",
-      gitStatus: status({ branch: "synara/deadbeef" }),
+      gitStatus: status({ branch: "penkra/deadbeef" }),
     });
 
     assert.equal(update, null);
@@ -1414,7 +1414,7 @@ describe("resolveLiveThreadBranchUpdate", () => {
 });
 
 describe("shouldOfferCreateBranchPrompt", () => {
-  const temporaryBranch = "synara/deadbeef";
+  const temporaryBranch = "penkra/deadbeef";
 
   it("shows the create-branch prompt for detached managed worktrees", () => {
     assert.isTrue(

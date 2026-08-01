@@ -212,31 +212,32 @@ export const COMPOSER_INPUT_SURFACE_BANNER_CLASS_NAME = `chat-composer-surface-b
 export const RUNTIME_FULL_ACCESS_ACCENT_CLASS_NAME =
   "text-[var(--runtime-full-access-accent)] hover:opacity-85";
 
-/** Minimum composer editor height — two lines at the element's line-height.
- *  `leading-relaxed` (1.625) keeps the input in step with the transcript/bubble leading. */
-export const COMPOSER_EDITOR_LINE_HEIGHT_CLASS_NAME = "leading-relaxed";
-export const COMPOSER_EDITOR_TEXT_CLASS_NAME = "text-[length:var(--app-font-size-chat,12px)]";
+/** Pencil composer baseline: 14px editor text on a 16px line box. */
+export const COMPOSER_EDITOR_LINE_HEIGHT_CLASS_NAME = "leading-4";
+export const COMPOSER_EDITOR_TEXT_CLASS_NAME =
+  "text-[length:calc(var(--app-font-size-chat,12px)+2px)]";
 /** Font, size, and leading shared by the composer editor and its placeholder so the
  *  placeholder always aligns with typed text. Keep both surfaces on this one token. */
-export const COMPOSER_EDITOR_TYPOGRAPHY_CLASS_NAME = `font-system-ui ${COMPOSER_EDITOR_TEXT_CLASS_NAME} ${COMPOSER_EDITOR_LINE_HEIGHT_CLASS_NAME}`;
+export const COMPOSER_EDITOR_TYPOGRAPHY_CLASS_NAME = `font-sans ${COMPOSER_EDITOR_TEXT_CLASS_NAME} ${COMPOSER_EDITOR_LINE_HEIGHT_CLASS_NAME}`;
 /** Muted empty-state copy for the composer prompt editor. */
-export const COMPOSER_PLACEHOLDER_TEXT_CLASS_NAME = "text-muted-foreground/40";
+export const COMPOSER_PLACEHOLDER_TEXT_CLASS_NAME = "text-[var(--color-text-foreground-tertiary)]";
+/** A 28px editor region preserves the 88.5px default shell while still allowing growth. */
 export const COMPOSER_EDITOR_MIN_HEIGHT_CLASS_NAME =
-  "min-h-[var(--app-density-composer-editor-min-height,2lh)]";
+  "min-h-[var(--app-density-composer-editor-min-height,1.75rem)]";
 /** Lexical wraps lines in `<p>` nodes; reset default margins so text sits flush above the footer. */
 export const COMPOSER_EDITOR_CONTENT_RESET_CLASS_NAME = "[&_p]:m-0";
 /** Shared padding around the composer prompt editor. */
 export const COMPOSER_EDITOR_PADDING_CLASS_NAME = [
   "relative",
-  "pl-[var(--app-density-composer-editor-padding-x,0.75rem)]",
-  "pr-[var(--app-density-composer-editor-padding-x-end,0.875rem)]",
-  "pt-[var(--app-density-composer-editor-padding-top,0.75rem)]",
+  "pl-[var(--app-density-composer-editor-padding-x,0.625rem)]",
+  "pr-[var(--app-density-composer-editor-padding-x-end,0.625rem)]",
+  "pt-[var(--app-density-composer-editor-padding-top,0.875rem)]",
   "pb-[var(--app-density-composer-editor-padding-bottom,0.5rem)]",
 ].join(" ");
 /** Bottom bar row — flush to the composer shell edges. */
 export const COMPOSER_FOOTER_ROW_CLASS_NAME = [
   "flex items-center justify-between",
-  "pl-[var(--app-density-composer-footer-padding,0.375rem)]",
-  "pr-[var(--app-density-composer-footer-padding-end,0.5rem)]",
-  "pb-[var(--app-density-composer-footer-padding,0.375rem)]",
+  "pl-[var(--app-density-composer-footer-padding,0.625rem)]",
+  "pr-[var(--app-density-composer-footer-padding-end,0.625rem)]",
+  "pb-[var(--app-density-composer-footer-padding,0.625rem)]",
 ].join(" ");

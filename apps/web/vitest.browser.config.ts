@@ -25,6 +25,11 @@ export default mergeConfig(
         provider: playwright(),
         instances: [{ browser: "chromium" }],
         headless: true,
+        // Large route-level suites can saturate Vite's transform server when
+        // several browser files import concurrently, leaving Chromium with a
+        // failed dynamic import instead of a test result. Run browser files in
+        // one stable sequence; individual tests still use the same browser.
+        fileParallelism: false,
         api: {
           // Vitest's default 63315 falls inside common Windows/Hyper-V
           // excluded-port ranges. Keep the local browser harness on IPv4 and
@@ -37,11 +42,6 @@ export default mergeConfig(
       // on a cold Windows cache before an individual browser test can proceed.
       testTimeout: 90_000,
       hookTimeout: 90_000,
-      // A worker per browser file can launch dozens of Chromium renderers at
-      // once, starving interaction timers and making the suite slower and
-      // nondeterministic. Keep enough parallelism for throughput without
-      // overcommitting developer machines or CI runners.
-      maxWorkers: 4,
     },
   }),
 );

@@ -1,4 +1,4 @@
-import { CheckpointRef, IsoDateTime, NonNegativeInt, ThreadId, TurnId } from "@synara/contracts";
+import { CheckpointRef, IsoDateTime, NonNegativeInt, ThreadId, TurnId } from "@penkra/contracts";
 import { Schema, ServiceMap } from "effect";
 import type { Effect, Stream } from "effect";
 
@@ -46,4 +46,4 @@ export interface RuntimeReceiptBusShape {
 export class RuntimeReceiptBus extends ServiceMap.Service<
   RuntimeReceiptBus,
   RuntimeReceiptBusShape
->()("synara/orchestration/Services/RuntimeReceiptBus") {}
+>()("penkra/orchestration/Services/RuntimeReceiptBus") {}

@@ -4,7 +4,7 @@
 // Layer: Routing
 // Depends on: the shared restore/create route surface plus the home-chat new-chat handler.
 
-import { SpaceId, type ProjectId } from "@synara/contracts";
+import { SpaceId, type ProjectId } from "@penkra/contracts";
 import { createFileRoute } from "@tanstack/react-router";
 
 import {

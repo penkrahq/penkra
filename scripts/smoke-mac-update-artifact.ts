@@ -252,7 +252,7 @@ async function smokeMacUpdateArtifact(): Promise<SmokeResult> {
   const artifactDirWasProvided = typeof values["artifact-dir"] === "string";
   const artifactDir = artifactDirWasProvided
     ? resolve(repoRoot, values["artifact-dir"] as string)
-    : mkdtempSync(join(tmpdir(), "synara-mac-update-smoke-"));
+    : mkdtempSync(join(tmpdir(), "penkra-mac-update-smoke-"));
   const cleanedUp = !artifactDirWasProvided && !keepOutput;
   let server: Server | null = null;
 

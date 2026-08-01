@@ -63,12 +63,12 @@ const INHERITED_NATIVE_CAPABILITY_KEYS = new Set([
 ]);
 
 const isTestHarnessKey = (key: string, env: NodeJS.ProcessEnv): boolean =>
-  Boolean(env.VITEST) && (key.startsWith("SYNARA_FAKE_") || key.startsWith("SYNARA_ACP_"));
+  Boolean(env.VITEST) && (key.startsWith("PENKRA_FAKE_") || key.startsWith("PENKRA_ACP_"));
 
 export function buildProviderChildEnvironment(input: {
   readonly provider: ProviderChildKind;
   readonly baseEnv?: NodeJS.ProcessEnv;
-  readonly inheritedSynaraKeys?: ReadonlyArray<string>;
+  readonly inheritedPenkraKeys?: ReadonlyArray<string>;
   readonly inheritedNativeCapabilityKeys?: ReadonlyArray<string>;
   readonly overrides?: NodeJS.ProcessEnv;
   readonly penkraContext?: { readonly workspace?: string; readonly threadId: string };
@@ -77,20 +77,17 @@ export function buildProviderChildEnvironment(input: {
     ...(input.baseEnv ?? process.env),
     ...input.overrides,
   };
-  const allowedSynaraKeys = new Set(input.inheritedSynaraKeys ?? []);
+  const allowedPenkraKeys = new Set(input.inheritedPenkraKeys ?? []);
   const allowedNativeCapabilities = new Set(input.inheritedNativeCapabilityKeys ?? []);
   const credentialGrants = PROVIDER_CREDENTIAL_GRANTS[input.provider];
   const childEnv: NodeJS.ProcessEnv = {};
 
   for (const [key, value] of Object.entries(baseEnv)) {
     if (
-      key.startsWith("SYNARA_") &&
-      !allowedSynaraKeys.has(key) &&
+      key.startsWith("PENKRA_") &&
+      !allowedPenkraKeys.has(key) &&
       !isTestHarnessKey(key, baseEnv)
     ) {
-      continue;
-    }
-    if (key.startsWith("PENKRA_")) {
       continue;
     }
     if (INHERITED_NATIVE_CAPABILITY_KEYS.has(key) && !allowedNativeCapabilities.has(key)) {

@@ -1,7 +1,7 @@
 // FILE: spaces.test.ts
 // Purpose: Covers the durable Space lifecycle and project reassignment invariants.
 
-import { CommandId, ProjectId, SpaceId, type OrchestrationCommand } from "@synara/contracts";
+import { CommandId, ProjectId, SpaceId, type OrchestrationCommand } from "@penkra/contracts";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 
@@ -125,7 +125,7 @@ describe("Spaces", () => {
       commandId: CommandId.makeUnsafe("cmd-project-create"),
       projectId,
       title: "Penkra",
-      workspaceRoot: "/tmp/synara",
+      workspaceRoot: "/tmp/penkra",
       createdAt,
     }));
     expect(readModel.projects[0]?.spaceId).toBeNull();
@@ -403,7 +403,7 @@ describe("Spaces", () => {
       commandId: CommandId.makeUnsafe("cmd-create-ordinary"),
       projectId: ordinaryProjectId,
       title: "Penkra",
-      workspaceRoot: "/Users/dev/code/synara",
+      workspaceRoot: "/Users/dev/code/penkra",
       createdAt,
     }));
 
@@ -495,7 +495,7 @@ describe("Spaces", () => {
       commandId: CommandId.makeUnsafe("cmd-create-transition-to-home"),
       projectId,
       title: "Penkra",
-      workspaceRoot: "/tmp/synara",
+      workspaceRoot: "/tmp/penkra",
       createdAt,
     }));
     ({ readModel } = await dispatch(readModel, {

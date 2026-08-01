@@ -3,8 +3,8 @@
 // Layer: Settings UI logic
 // Exports: origin metadata, canonical skill grouping, and section ordering helpers.
 
-import type { ProviderKind, ProviderSkillDescriptor } from "@synara/contracts";
-import { PROVIDER_DISPLAY_NAMES } from "@synara/contracts";
+import type { ProviderKind, ProviderSkillDescriptor } from "@penkra/contracts";
+import { PROVIDER_DISPLAY_NAMES } from "@penkra/contracts";
 import { DEFAULT_PROVIDER_ORDER } from "~/providerOrdering";
 
 export interface SkillOriginInfo {
@@ -37,7 +37,7 @@ export interface SettingsSkillSection {
 const SHARED_SKILLS_SECTION = "shared";
 const PERSONAL_ORIGIN = "personal";
 export const ORIGIN_SECTION_ORDER = [
-  "synara",
+  "penkra",
   "codex",
   "claude",
   "cursor",
@@ -52,7 +52,7 @@ export const ORIGIN_SECTION_ORDER = [
 ] as const;
 export function skillOriginInfo(scope: string | undefined): SkillOriginInfo {
   switch (scope) {
-    case "synara":
+    case "penkra":
       return { label: "Penkra", provider: null };
     case "codex":
       return { label: PROVIDER_DISPLAY_NAMES.codex, provider: "codex" };

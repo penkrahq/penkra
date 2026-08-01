@@ -1,4 +1,4 @@
-import type { NativeApi } from "@synara/contracts";
+import type { NativeApi } from "@penkra/contracts";
 
 import { createWsNativeApi } from "./wsNativeApi";
 

@@ -7,8 +7,8 @@ import {
   type ProjectDiscoveredScriptTarget,
   type ProjectId,
   type ServerLocalServerProcess,
-} from "@synara/contracts";
-import { localServerAddressLabel, localServerMatchesRun } from "@synara/shared/localServers";
+} from "@penkra/contracts";
+import { localServerAddressLabel, localServerMatchesRun } from "@penkra/shared/localServers";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 

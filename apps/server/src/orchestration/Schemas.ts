@@ -37,7 +37,7 @@ import {
   ThreadConversationRollbackRequestedPayload as ContractsThreadConversationRollbackRequestedPayloadSchema,
   ThreadMessageEditResendRequestedPayload as ContractsThreadMessageEditResendRequestedPayloadSchema,
   ThreadSessionStopRequestedPayload as ContractsThreadSessionStopRequestedPayloadSchema,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 
 // Server-internal alias surface, backed by contract schemas as the source of truth.
 export const SpaceCreatedPayload = ContractsSpaceCreatedPayloadSchema;

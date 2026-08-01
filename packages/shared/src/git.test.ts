@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   WORKTREE_BRANCH_PREFIX,
-  buildSynaraBranchName,
+  buildPenkraBranchName,
   buildTemporaryWorktreeBranchName,
   isTemporaryWorktreeBranch,
-  resolveUniqueSynaraBranchName,
+  resolveUniquePenkraBranchName,
   resolveThreadBranchRegressionGuard,
 } from "./git";
 
@@ -70,37 +70,37 @@ describe("resolveThreadBranchRegressionGuard", () => {
   });
 });
 
-describe("buildSynaraBranchName", () => {
-  it("uses synara as the branch namespace", () => {
-    expect(buildSynaraBranchName("fix toast copy")).toBe("synara/fix-toast-copy");
+describe("buildPenkraBranchName", () => {
+  it("uses penkra as the branch namespace", () => {
+    expect(buildPenkraBranchName("fix toast copy")).toBe("penkra/fix-toast-copy");
   });
 
   it("keeps non-Penkra namespaces inside the Penkra branch", () => {
-    expect(buildSynaraBranchName("feature/refine-toolbar-actions")).toBe(
-      "synara/feature/refine-toolbar-actions",
+    expect(buildPenkraBranchName("feature/refine-toolbar-actions")).toBe(
+      "penkra/feature/refine-toolbar-actions",
     );
   });
 
   it("normalizes legacy prefixes before rebuilding the branch", () => {
     for (const namespace of PRE_CUTOVER_NAMESPACE_FIXTURES) {
-      expect(buildSynaraBranchName(`${namespace}/refine toolbar actions`)).toBe(
-        "synara/refine-toolbar-actions",
+      expect(buildPenkraBranchName(`${namespace}/refine toolbar actions`)).toBe(
+        "penkra/refine-toolbar-actions",
       );
     }
   });
 
-  it("falls back to synara/update when no preferred name is provided", () => {
-    expect(buildSynaraBranchName()).toBe("synara/update");
+  it("falls back to penkra/update when no preferred name is provided", () => {
+    expect(buildPenkraBranchName()).toBe("penkra/update");
   });
 });
 
-describe("resolveUniqueSynaraBranchName", () => {
+describe("resolveUniquePenkraBranchName", () => {
   it("increments suffix when the Penkra branch already exists", () => {
     expect(
-      resolveUniqueSynaraBranchName(
-        ["main", "synara/fix-toast-copy", "synara/fix-toast-copy-2"],
+      resolveUniquePenkraBranchName(
+        ["main", "penkra/fix-toast-copy", "penkra/fix-toast-copy-2"],
         "fix toast copy",
       ),
-    ).toBe("synara/fix-toast-copy-3");
+    ).toBe("penkra/fix-toast-copy-3");
   });
 });

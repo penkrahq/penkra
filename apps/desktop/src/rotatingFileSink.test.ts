@@ -2,13 +2,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { RotatingFileSink } from "@synara/shared/logging";
+import { RotatingFileSink } from "@penkra/shared/logging";
 import { afterEach, describe, expect, it } from "vitest";
 
 const tempRoots: string[] = [];
 
 function makeTempDir(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "synara-rotating-log-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-rotating-log-"));
   tempRoots.push(dir);
   return dir;
 }

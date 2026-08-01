@@ -1,4 +1,4 @@
-import type { PenkraSnapshot } from "@synara/contracts";
+import type { PenkraSnapshot } from "@penkra/contracts";
 import { io, type Socket } from "socket.io-client";
 
 import type { PenkraRuntimeConfig } from "./config";

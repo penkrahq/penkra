@@ -9,11 +9,11 @@ import {
   type ProviderKind,
   type ThreadHandoffImportedMessage,
   type ThreadId,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 import {
   deriveAssociatedWorktreeMetadata,
   workspaceRootsEqual,
-} from "@synara/shared/threadWorkspace";
+} from "@penkra/shared/threadWorkspace";
 import type { FileSystem, Path } from "effect";
 import { Data, Effect, Option } from "effect";
 

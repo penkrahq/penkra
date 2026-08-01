@@ -19,7 +19,7 @@ import {
 export type WsSessionRole = "owner" | "client";
 
 export const CurrentWsSessionRole = ServiceMap.Reference<WsSessionRole>(
-  "synara/ws/CurrentSessionRole",
+  "penkra/ws/CurrentSessionRole",
   { defaultValue: () => "client" },
 );
 
@@ -33,7 +33,7 @@ export interface WsConnectionSession {
  * the upgrade request (never sent to clients), and Headers.set overrides any
  * value a client tried to smuggle in, so entries cannot be forged or replayed.
  */
-export const WS_CONNECTION_SESSION_HEADER = "x-synara-ws-connection-session";
+export const WS_CONNECTION_SESSION_HEADER = "x-penkra-ws-connection-session";
 
 export interface WsConnectionSessionsShape {
   /** Registers the session for the lifetime of the connection scope. */
@@ -44,7 +44,7 @@ export interface WsConnectionSessionsShape {
 export class WsConnectionSessions extends ServiceMap.Service<
   WsConnectionSessions,
   WsConnectionSessionsShape
->()("synara/ws/WsConnectionSessions") {}
+>()("penkra/ws/WsConnectionSessions") {}
 
 export const makeWsConnectionSessions = Effect.sync(() => {
   const sessions = new Map<string, WsConnectionSession>();

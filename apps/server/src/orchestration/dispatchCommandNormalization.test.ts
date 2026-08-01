@@ -11,7 +11,7 @@ import {
   type ClientOrchestrationCommand,
   ProjectId,
   ThreadId,
-} from "@synara/contracts";
+} from "@penkra/contracts";
 import { Effect } from "effect";
 import type { FileSystem, Path } from "effect";
 import { describe, expect, it } from "vitest";
@@ -220,7 +220,7 @@ describe("makeDispatchCommandNormalizer", () => {
   });
 
   it("defers binary attachment authority to the transactional managed ledger", async () => {
-    const attachmentsDir = fs.mkdtempSync(path.join(os.tmpdir(), "synara-dispatch-normalize-"));
+    const attachmentsDir = fs.mkdtempSync(path.join(os.tmpdir(), "penkra-dispatch-normalize-"));
     const validId = "thread-rollback-attachments-11111111-1111-4111-8111-111111111111";
     const validPath = path.join(attachmentsDir, `${validId}.png`);
     fs.writeFileSync(validPath, Buffer.from([1]));

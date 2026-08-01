@@ -2,7 +2,7 @@
 // Purpose: Recognizes only Penkra account-auth return URLs before Electron processes them.
 // Layer: Desktop main-process helper
 
-import { PENKRA_ACCOUNT_AUTH_SCHEME } from "@synara/shared/desktopIdentity";
+import { PENKRA_ACCOUNT_AUTH_SCHEME } from "@penkra/shared/desktopIdentity";
 
 export const PENKRA_ACCOUNT_AUTH_CALLBACK_PATH = "/auth/callback";
 

@@ -13,8 +13,8 @@ import {
   type OrchestrationThreadShell,
   type ProviderSession,
   type ThreadId,
-} from "@synara/contracts";
-import { nonEmptyTrimmed } from "@synara/shared/text";
+} from "@penkra/contracts";
+import { nonEmptyTrimmed } from "@penkra/shared/text";
 
 import type { ProviderRuntimeEventPumpHealth } from "./Services/ProviderService.ts";
 import type { ProviderRuntimeBinding } from "./Services/ProviderSessionDirectory.ts";
@@ -133,7 +133,16 @@ function projectedInFlightTurnId(thread: OrchestrationThreadShell): TurnId | nul
 }
 
 function projectedLifecycleAgeMs(thread: OrchestrationThreadShell, nowMs: number): number {
-  const observedAt = Date.parse(thread.session?.updatedAt ?? thread.updatedAt);
+  // Session timestamps move only at lifecycle boundaries, while thread timestamps
+  // also move as output is projected. A turn that is still producing messages is
+  // live evidence and must not be settled merely because its session row is quiet.
+  const sessionObservedAt = Date.parse(thread.session?.updatedAt ?? thread.updatedAt);
+  const threadObservedAt = Date.parse(thread.updatedAt);
+  const observedAt = Number.isFinite(sessionObservedAt)
+    ? Number.isFinite(threadObservedAt)
+      ? Math.max(sessionObservedAt, threadObservedAt)
+      : sessionObservedAt
+    : threadObservedAt;
   return Number.isFinite(observedAt) ? Math.max(0, nowMs - observedAt) : Number.POSITIVE_INFINITY;
 }
 
@@ -234,6 +243,12 @@ export function planProviderRuntimeReconciliation(input: {
       });
       continue;
     }
+
+    // Every settlement below depends on the absence of runtime evidence. When
+    // that provider's event pump is unhealthy, absence is not trustworthy. The
+    // abandoned-turn bound remains the escape hatch if the pump never recovers.
+    const pumpHealth = healthByProvider.get(provider);
+    if (pumpHealth !== undefined && pumpHealth.status !== "healthy" && !abandoned) continue;
 
     // Settling a projection is normally only safe when it names a concrete
     // in-flight turn; ProviderCommandReactor owns failures before a start

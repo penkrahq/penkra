@@ -3,10 +3,10 @@
 // Layer: Browser storage helper
 // Exports: sidebar UI state read/write helpers.
 
-import { normalizeWorkspaceRootForComparison } from "@synara/shared/threadWorkspace";
+import { normalizeWorkspaceRootForComparison } from "@penkra/shared/threadWorkspace";
 import type { LastThreadRoute } from "../chatRouteRestore";
 
-const SIDEBAR_UI_STATE_STORAGE_KEY = "synara:sidebar-ui:v1";
+const SIDEBAR_UI_STATE_STORAGE_KEY = "penkra:sidebar-ui:v1";
 
 export type SidebarUiState = {
   collapsedSpaceIds: string[];

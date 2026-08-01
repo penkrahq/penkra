@@ -74,7 +74,7 @@ it.effect("accepts an authenticated session on a non-loopback bind", () =>
       legacyToken: "remote-secret",
       request: {
         headers: {},
-        cookies: { "synara-session": "paired-session-credential" },
+        cookies: { "penkra-session": "paired-session-credential" },
         url: new URL("http://192.168.1.50:3773/ws?token=remote-secret"),
       },
       serverAuth: { authenticateWebSocketUpgrade },
@@ -123,12 +123,12 @@ it.effect(
         config: {
           host: "127.0.0.1",
           authToken: "proxy-secret",
-          publicUrl: new URL("https://synara.example.test/"),
+          publicUrl: new URL("https://penkra.example.test/"),
         },
         legacyToken: "proxy-secret",
         request: {
           headers: {},
-          cookies: { "synara-session": "paired-session-credential" },
+          cookies: { "penkra-session": "paired-session-credential" },
           url: new URL("http://127.0.0.1:3773/ws?token=proxy-secret"),
         },
         serverAuth: { authenticateWebSocketUpgrade },

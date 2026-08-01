@@ -1,4 +1,4 @@
-// This file mostly exists because we want dev mode to say "Synara (Dev)" instead of "electron"
+// This file mostly exists because we want dev mode to say "Penkra (Dev)" instead of "electron"
 
 import { spawnSync } from "node:child_process";
 import {
@@ -15,18 +15,18 @@ import {
   writeFileSync,
 } from "node:fs";
 import { createRequire } from "node:module";
-import { resolveSynaraDesktopFlavor, synaraDesktopIdentity } from "@synara/shared/desktopIdentity";
+import { resolvePenkraDesktopFlavor, penkraDesktopIdentity } from "@penkra/shared/desktopIdentity";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildMacosIcon, resolvePenkraDevIconSource } from "../../../scripts/lib/macos-icon.ts";
 import { APP_DATA_USAGE_DESCRIPTION } from "../../../scripts/lib/macos-privacy.ts";
 import { resolveMacDevelopmentSigningIdentity } from "../../../scripts/lib/macos-dev-signing.ts";
 
-const desktopFlavor = resolveSynaraDesktopFlavor({
+const desktopFlavor = resolvePenkraDesktopFlavor({
   isPackaged: false,
   requestedFlavor: process.env.PENKRA_DESKTOP_FLAVOR,
 });
-const desktopIdentity = synaraDesktopIdentity(desktopFlavor);
+const desktopIdentity = penkraDesktopIdentity(desktopFlavor);
 const APP_DISPLAY_NAME = desktopIdentity.displayName;
 const APP_BUNDLE_ID = desktopIdentity.bundleId;
 const LAUNCHER_VERSION = 10;

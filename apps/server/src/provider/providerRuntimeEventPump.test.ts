@@ -1,6 +1,6 @@
 import { Cause, Deferred, Effect, Fiber, Option, Queue, Stream } from "effect";
 import { describe, expect, it } from "vitest";
-import { EventId, ThreadId, TurnId, type ProviderRuntimeEvent } from "@synara/contracts";
+import { EventId, ThreadId, TurnId, type ProviderRuntimeEvent } from "@penkra/contracts";
 
 import {
   makeProviderRuntimeEventPumpHealthRegistry,
@@ -154,6 +154,56 @@ describe("providerRuntimeEventPump", () => {
           expect(health.snapshot()[0]).toMatchObject({
             status: "degraded",
             quarantinedEvents: 1,
+            lastQuarantinedEventId: "event-poison",
+          });
+        }),
+      ),
+    );
+  });
+
+  it("returns to healthy after enough successful events follow a quarantine", async () => {
+    class PermanentEventError extends Error {}
+
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const queue = yield* Queue.unbounded<ProviderRuntimeEvent>();
+          const completed = yield* Deferred.make<void>();
+          const health = makeProviderRuntimeEventPumpHealthRegistry(["codex"]);
+
+          const fiber = yield* runProviderRuntimeEventPump({
+            provider: "codex",
+            stream: Stream.fromQueue(queue),
+            processEvent: (event) =>
+              event.eventId === "event-poison"
+                ? Effect.fail(new PermanentEventError("invalid canonical event"))
+                : event.eventId === "event-healed"
+                  ? Deferred.succeed(completed, undefined).pipe(Effect.asVoid)
+                  : Effect.void,
+            updateHealth: health.update,
+            isPermanentFailure: (cause) =>
+              Option.match(Cause.findErrorOption(cause), {
+                onNone: () => false,
+                onSome: (error) => error instanceof PermanentEventError,
+              }),
+            quarantineEvent: () => Effect.void,
+            degradedHealAfterSuccesses: 2,
+            retryBaseDelayMs: 1,
+            retryMaxDelayMs: 2,
+          }).pipe(Effect.forkScoped);
+
+          yield* Queue.offerAll(queue, [
+            completedEvent("event-poison"),
+            completedEvent("event-recovery-1"),
+            completedEvent("event-healed"),
+          ]);
+          yield* Deferred.await(completed);
+          yield* Effect.sleep(5);
+          yield* Fiber.interrupt(fiber);
+
+          expect(health.snapshot()[0]).toMatchObject({
+            status: "healthy",
+            quarantinedEvents: 0,
             lastQuarantinedEventId: "event-poison",
           });
         }),

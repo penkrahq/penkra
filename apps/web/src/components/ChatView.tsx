@@ -33,24 +33,24 @@ import {
   OrchestrationThreadActivity,
   ProviderInteractionMode,
   RuntimeMode,
-} from "@synara/contracts";
-import { getModelCapabilities, normalizeModelSlug } from "@synara/shared/model";
-import { resolveTailUserMessageEditTarget } from "@synara/shared/conversationEdit";
-import { threadExportBlockedReason } from "@synara/shared/threadExport";
-import { pendingRequestInstanceKey } from "@synara/shared/threadSummary";
+} from "@penkra/contracts";
+import { getModelCapabilities, normalizeModelSlug } from "@penkra/shared/model";
+import { resolveTailUserMessageEditTarget } from "@penkra/shared/conversationEdit";
+import { threadExportBlockedReason } from "@penkra/shared/threadExport";
+import { pendingRequestInstanceKey } from "@penkra/shared/threadSummary";
 import {
   buildPromptThreadTitleFallback,
   GENERIC_CHAT_THREAD_TITLE,
-} from "@synara/shared/chatThreads";
+} from "@penkra/shared/chatThreads";
 import {
   resolveThreadWorkspaceState,
   resolveThreadBranchSourceCwd,
   resolveThreadWorkspaceCwd as resolveSharedThreadWorkspaceCwd,
-} from "@synara/shared/threadEnvironment";
+} from "@penkra/shared/threadEnvironment";
 import {
   deriveAssociatedWorktreeMetadata,
   workspaceRootsEqual,
-} from "@synara/shared/threadWorkspace";
+} from "@penkra/shared/threadWorkspace";
 import {
   useCallback,
   useEffect,
@@ -136,7 +136,6 @@ import {
   hydratePendingBlobComposerAttachments,
   readFileAsDataUrl,
 } from "../lib/composerSend";
-import { composerImageBlobKey, persistComposerImageBlob } from "../lib/composerImageBlobStore";
 import { reconcileDeletedThreadFromClient } from "../lib/deletedThreadClientReconciliation";
 import { dispatchThreadRename } from "../lib/threadRename";
 import { useHandleNewChat } from "../hooks/useHandleNewChat";
@@ -669,12 +668,10 @@ function revokeBlobPreviewUrlsAfterPaint(previewUrls: readonly string[]): void {
   });
 }
 
-// Shared by the live-composer and prompt-history attachment sync effects:
-// AppSnap images persist their bytes as IndexedDB blobs (reusing an existing
-// blob key when valid), everything else inlines a data URL. Falls back to the
-// already-persisted attachments for images whose serialization fails.
+// Shared by the live-composer and prompt-history attachment sync effects.
+// Images inline a data URL and fall back to an already-persisted attachment
+// when serialization fails.
 async function stagePersistedComposerImageAttachments(input: {
-  threadId: ThreadId;
   images: ReadonlyArray<ComposerImageAttachment>;
   getPersistedAttachments: () => PersistedComposerImageAttachment[];
 }): Promise<PersistedComposerImageAttachment[]> {
@@ -686,27 +683,6 @@ async function stagePersistedComposerImageAttachments(input: {
     await Promise.all(
       input.images.map(async (image) => {
         try {
-          if (image.source?.kind === "appsnap") {
-            const existingPersisted = existingPersistedById.get(image.id);
-            const expectedBlobKey = composerImageBlobKey(input.threadId, image.id);
-            const blobKey =
-              existingPersisted?.blobKey === expectedBlobKey
-                ? expectedBlobKey
-                : await persistComposerImageBlob({
-                    threadId: input.threadId,
-                    imageId: image.id,
-                    file: image.file,
-                  });
-            stagedAttachmentById.set(image.id, {
-              id: image.id,
-              name: image.name,
-              mimeType: image.mimeType,
-              sizeBytes: image.sizeBytes,
-              blobKey,
-              source: image.source,
-            });
-            return;
-          }
           const dataUrl = await readFileAsDataUrl(image.file);
           stagedAttachmentById.set(image.id, {
             id: image.id,
@@ -2561,6 +2537,7 @@ export default function ChatView({
         phase,
         latestTurn: activeLatestTurn,
         session: activeThread?.session ?? null,
+        messages: activeThread?.messages ?? EMPTY_MESSAGES,
         hasPendingApproval: activePendingApproval !== null,
         hasPendingUserInput: activePendingUserInput !== null,
         threadError: activeThread?.error,
@@ -2570,6 +2547,7 @@ export default function ChatView({
       activePendingApproval,
       activePendingUserInput,
       activeThread?.error,
+      activeThread?.messages,
       activeThread?.session,
       localDispatch,
       phase,
@@ -4855,7 +4833,6 @@ export default function ChatView({
         return;
       }
       const staged = await stagePersistedComposerImageAttachments({
-        threadId,
         images: composerImages,
         getPersistedAttachments: () =>
           useComposerDraftStore.getState().draftsByThreadId[threadId]?.persistedAttachments ?? [],
@@ -4886,7 +4863,6 @@ export default function ChatView({
     let cancelled = false;
     void (async () => {
       const staged = await stagePersistedComposerImageAttachments({
-        threadId,
         images: composerPromptHistorySavedDraftImages,
         getPersistedAttachments: () =>
           useComposerDraftStore.getState().draftsByThreadId[threadId]?.promptHistorySavedDraft
@@ -5835,12 +5811,8 @@ export default function ChatView({
       queuedChatTurn === null ? (composerEditorRef.current?.readSnapshot() ?? null) : null;
     let promptForSend = queuedChatTurn?.prompt ?? liveComposerSnapshot?.value ?? promptRef.current;
     let composerImagesForSend = queuedChatTurn?.images ?? composerImages;
-    // AppSnap captures persist as IndexedDB blobs and hydrate into `images`
-    // asynchronously (see AppSnapCoordinator). Right after a reload the user can
-    // hit send before that hydration finishes; without this, the not-yet-hydrated
-    // capture would be silently dropped from the message and then have its blob
-    // deleted when the composer clears after send. Live sends only: a queued turn
-    // already captured a fully-resolved image snapshot when it was queued.
+    // Legacy blob-backed images can exist without a hydrated live image right
+    // after reload. Hydrate them before a live send so they are not dropped.
     if (queuedChatTurn === null) {
       const pendingBlobAttachments = findPendingBlobComposerAttachments({
         persistedAttachments:
@@ -6279,13 +6251,15 @@ export default function ChatView({
       ? setupProjectScript(targetProjectScriptsForSend)
       : null;
     const worktreeSetupScriptName = setupScriptForWorktree?.name ?? null;
+    const messageIdForSend = newMessageId();
 
     sendInFlightRef.current = true;
-    beginLocalDispatch(
-      baseBranchForWorktree
+    beginLocalDispatch({
+      expectedUserMessageId: messageIdForSend,
+      ...(baseBranchForWorktree
         ? { worktreeSetupStepId: "create-worktree", setupScriptName: worktreeSetupScriptName }
-        : undefined,
-    );
+        : {}),
+    });
 
     const composerImagesSnapshot = [...composerImagesForSend];
     const composerFilesSnapshot = [...composerFilesForSend];
@@ -6308,7 +6282,6 @@ export default function ChatView({
       ),
       composerPastedTextsSnapshot,
     );
-    const messageIdForSend = newMessageId();
     const messageCreatedAt = new Date().toISOString();
     const outgoingTextSeed =
       messageTextForSend || (composerImagesSnapshot.length > 0 ? IMAGE_ONLY_BOOTSTRAP_PROMPT : "");
@@ -7024,7 +6997,7 @@ export default function ChatView({
     });
 
     sendInFlightRef.current = true;
-    beginLocalDispatch();
+    beginLocalDispatch({ expectedUserMessageId: messageIdForSend });
     setThreadError(threadIdForSend, null);
     setOptimisticUserMessages((existing) => [
       ...existing,
@@ -9256,6 +9229,7 @@ export default function ChatView({
                 <div
                   className={cn(
                     COMPOSER_INPUT_SURFACE_CLASS_NAME,
+                    "min-h-[88.5px] shadow-none",
                     composerProviderState.composerSurfaceClassName,
                     composerMenuOpen && !isComposerApprovalState && "overflow-visible",
                   )}
@@ -9371,7 +9345,7 @@ export default function ChatView({
                                   ? "Ask for follow-up changes"
                                   : phase === "disconnected"
                                     ? "Ask for follow-up changes or attach images"
-                                    : "Ask anything, @tag files/folders, or use / to show available commands"
+                                    : "Do anything"
                       }
                       disabled={isComposerEditorDisabled}
                     />
@@ -9444,15 +9418,17 @@ export default function ChatView({
                       <div
                         data-chat-composer-actions="right"
                         className={cn(
-                          "flex items-center gap-2",
+                          "flex items-center gap-1",
                           isVoiceRecording || isVoiceTranscribing ? "min-w-0 flex-1" : "shrink-0",
                         )}
                       >
+                        {!isVoiceRecording && !isVoiceTranscribing ? composerPickerControls : null}
                         {!isVoiceRecording &&
                         !isVoiceTranscribing &&
                         runtimeUsageContextWindow &&
                         composerFooterControlsPlan.showContextMeter ? (
                           <ContextWindowMeter
+                            className="size-[26px]"
                             usage={runtimeUsageContextWindow}
                             {...(activeCumulativeCostUsd != null
                               ? { cumulativeCostUsd: activeCumulativeCostUsd }
@@ -9470,7 +9446,6 @@ export default function ChatView({
                               : {})}
                           />
                         ) : null}
-                        {!isVoiceRecording && !isVoiceTranscribing ? composerPickerControls : null}
                         {showVoiceNotesControl && (isVoiceRecording || isVoiceTranscribing) ? (
                           <ComposerVoiceRecorderBar
                             disabled={isComposerApprovalState || isConnecting || isSendBusy}
@@ -9586,7 +9561,7 @@ export default function ChatView({
                                 type="submit"
                                 variant="prominent"
                                 size="icon-xs"
-                                className="size-7 rounded-full sm:size-7"
+                                className="size-[26px] rounded-full sm:size-[26px]"
                                 disabled={
                                   isSendBusy ||
                                   isConnecting ||
@@ -9651,7 +9626,11 @@ export default function ChatView({
         data-chat-composer-form="deferred"
       >
         <div
-          className={cn(COMPOSER_INPUT_SURFACE_CLASS_NAME, COMPOSER_COLUMN_FRAME_CLASS_NAME)}
+          className={cn(
+            COMPOSER_INPUT_SURFACE_CLASS_NAME,
+            COMPOSER_COLUMN_FRAME_CLASS_NAME,
+            "min-h-[88.5px] shadow-none",
+          )}
           style={{ height: secondaryChromePlaceholderHeight }}
         />
       </div>
@@ -9794,7 +9773,7 @@ export default function ChatView({
                     activeTurnId={activeThread.session?.activeTurnId ?? null}
                     agentActivityDetail={openAgentActivityDetail}
                     hasMessages={timelineEntries.length > 0}
-                    isWorking={isWorking}
+                    isWorking={hasLiveTurn}
                     worktreeSetup={activeWorktreeSetup}
                     activeTurnInProgress={activeTurnInProgress}
                     activeTurnStartedAt={activeWorkStartedAt}

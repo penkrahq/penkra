@@ -56,7 +56,7 @@ describe("electronUpdaterSecurity", () => {
         null,
         JSON.stringify({
           Status: 0,
-          Path: "C:\\Users\\test\\AppData\\Local\\Temp\\SynaraSetup.exe",
+          Path: "C:\\Users\\test\\AppData\\Local\\Temp\\PenkraSetup.exe",
           SignerCertificate: {
             Subject: "CN=Penkra, O=Acme Tools",
           },
@@ -67,7 +67,7 @@ describe("electronUpdaterSecurity", () => {
 
     const result = await verifyWindowsUpdateCodeSignature(
       ["CN=Penkra, O=Acme Tools"],
-      "C:\\Users\\test\\AppData\\Local\\Temp\\SynaraSetup.exe",
+      "C:\\Users\\test\\AppData\\Local\\Temp\\PenkraSetup.exe",
       { info: vi.fn(), warn: vi.fn() },
       {
         env: { SystemRoot: "C:\\Windows" },
@@ -93,7 +93,7 @@ describe("electronUpdaterSecurity", () => {
     const logger = { info: vi.fn(), warn: vi.fn() };
     const result = await verifyWindowsUpdateCodeSignature(
       ["CN=Penkra"],
-      "C:\\Temp\\SynaraSetup.exe",
+      "C:\\Temp\\PenkraSetup.exe",
       logger,
       {
         env: { SystemRoot: "C:\\Windows" },
@@ -102,7 +102,7 @@ describe("electronUpdaterSecurity", () => {
             null,
             JSON.stringify({
               Status: 0,
-              Path: "C:\\Temp\\SynaraSetup.exe",
+              Path: "C:\\Temp\\PenkraSetup.exe",
               SignerCertificate: { Subject: "CN=Penkra, O=Acme Tools" },
             }),
             "",
@@ -120,7 +120,7 @@ describe("electronUpdaterSecurity", () => {
   it("fails closed when PowerShell cannot verify the signature", async () => {
     const result = await verifyWindowsUpdateCodeSignature(
       ["CN=Penkra, O=Acme Tools"],
-      "C:\\Temp\\SynaraSetup.exe",
+      "C:\\Temp\\PenkraSetup.exe",
       { info: vi.fn(), warn: vi.fn() },
       {
         env: { SystemRoot: "C:\\Windows" },
@@ -137,7 +137,7 @@ describe("electronUpdaterSecurity", () => {
   it("fails closed when signature output is malformed", async () => {
     const result = await verifyWindowsUpdateCodeSignature(
       ["CN=Penkra, O=Acme Tools"],
-      "C:\\Temp\\SynaraSetup.exe",
+      "C:\\Temp\\PenkraSetup.exe",
       { info: vi.fn(), warn: vi.fn() },
       {
         env: { SystemRoot: "C:\\Windows" },
@@ -153,7 +153,7 @@ describe("electronUpdaterSecurity", () => {
   it("fails closed when signature output omits the signed file path", async () => {
     const result = await verifyWindowsUpdateCodeSignature(
       ["CN=Penkra, O=Acme Tools"],
-      "C:\\Temp\\SynaraSetup.exe",
+      "C:\\Temp\\PenkraSetup.exe",
       { info: vi.fn(), warn: vi.fn() },
       {
         env: { SystemRoot: "C:\\Windows" },
@@ -177,7 +177,7 @@ describe("electronUpdaterSecurity", () => {
   it("returns a mismatch summary for an unexpected publisher", async () => {
     const result = await verifyWindowsUpdateCodeSignature(
       ["CN=Penkra, O=Acme Tools"],
-      "C:\\Temp\\SynaraSetup.exe",
+      "C:\\Temp\\PenkraSetup.exe",
       { info: vi.fn(), warn: vi.fn() },
       {
         env: { SystemRoot: "C:\\Windows" },
@@ -186,7 +186,7 @@ describe("electronUpdaterSecurity", () => {
             null,
             JSON.stringify({
               Status: 0,
-              Path: "C:\\Temp\\SynaraSetup.exe",
+              Path: "C:\\Temp\\PenkraSetup.exe",
               SignerCertificate: { Subject: "CN=Someone Else, O=Acme Tools" },
             }),
             "",
@@ -204,7 +204,7 @@ describe("electronUpdaterSecurity", () => {
     const updaterModule = { BaseUpdater: FakeBaseUpdater };
     const prototype = FakeBaseUpdater.prototype as {
       spawnSyncLog?: (cmd: string, args?: string[]) => string;
-      __synaraSpawnSyncLogPatched?: boolean;
+      __penkraSpawnSyncLogPatched?: boolean;
     };
 
     hardenElectronUpdater(updaterModule, {}, "darwin");
@@ -217,7 +217,7 @@ describe("electronUpdaterSecurity", () => {
     const output = prototype.spawnSyncLog?.call(instance, process.execPath, ["--version"]);
 
     expect(output).toMatch(/^v\d+\.\d+\.\d+/);
-    expect(prototype.__synaraSpawnSyncLogPatched).toBe(true);
+    expect(prototype.__penkraSpawnSyncLogPatched).toBe(true);
   });
 
   it("replaces the NSIS signature verifier on Windows", async () => {
@@ -243,7 +243,7 @@ describe("electronUpdaterSecurity", () => {
 
     const result = await updater.verifyUpdateCodeSignature(
       ["CN=Feed Publisher, O=Acme Tools"],
-      "C:\\Temp\\SynaraSetup.exe",
+      "C:\\Temp\\PenkraSetup.exe",
     );
     expect(result).not.toContain("no valid embedded publisher subject DN");
     expect(result).toContain("signature verification could not be completed");
@@ -261,7 +261,7 @@ describe("electronUpdaterSecurity", () => {
     await expect(
       updater.verifyUpdateCodeSignature(
         ["CN=Feed Controlled, O=Unexpected"],
-        "C:\\Temp\\SynaraSetup.exe",
+        "C:\\Temp\\PenkraSetup.exe",
       ),
     ).resolves.toContain("no valid embedded publisher subject DN");
   });

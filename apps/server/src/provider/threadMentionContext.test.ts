@@ -1,4 +1,4 @@
-import type { OrchestrationThread, ProviderMentionReference } from "@synara/contracts";
+import type { OrchestrationThread, ProviderMentionReference } from "@penkra/contracts";
 import { Effect, Option } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
