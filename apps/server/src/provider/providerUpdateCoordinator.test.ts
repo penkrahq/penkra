@@ -77,6 +77,20 @@ function outdatedCodex(): ServerProviderStatus {
   } satisfies ServerProviderStatus;
 }
 
+function outdatedOpenCode(): ServerProviderStatus {
+  return {
+    ...outdatedCodex(),
+    provider: "opencode",
+    version: "1.18.5",
+    versionAdvisory: {
+      ...outdatedCodex().versionAdvisory!,
+      currentVersion: "1.18.5",
+      latestVersion: "1.18.10",
+      updateCommand: "brew upgrade opencode",
+    },
+  };
+}
+
 describe("provider update coordinator", () => {
   it("blocks only the active provider", () => {
     const active = thread();
@@ -243,6 +257,28 @@ describe("provider update coordinator", () => {
               },
             },
           }),
+        } as unknown as ServerSettingsShape,
+        config: { stateDir: "/unused" },
+        installManagedRuntime,
+      }).pipe(Effect.provide(NodeServices.layer)),
+    );
+
+    expect(installManagedRuntime).not.toHaveBeenCalled();
+  });
+
+  it("does not send lifecycle-script packages through the managed installer", async () => {
+    const installManagedRuntime = vi.fn();
+    await Effect.runPromise(
+      runAutomaticProviderUpdateCycle({
+        providerHealth: {
+          getStatuses: Effect.succeed([]),
+          refresh: Effect.succeed([outdatedOpenCode()]),
+          updateProvider: vi.fn(),
+          streamChanges: Stream.empty,
+        } as unknown as ProviderHealthShape,
+        projectionSnapshotQuery: {} as ProjectionSnapshotQueryShape,
+        serverSettings: {
+          getSettings: Effect.succeed(DEFAULT_SERVER_SETTINGS),
         } as unknown as ServerSettingsShape,
         config: { stateDir: "/unused" },
         installManagedRuntime,

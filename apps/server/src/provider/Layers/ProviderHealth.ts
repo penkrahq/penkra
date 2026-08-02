@@ -246,7 +246,9 @@ export const PACKAGE_MANAGED_PROVIDER_UPDATES: Partial<
   opencode: {
     provider: OPENCODE_PROVIDER,
     binaryName: "opencode",
-    npmPackageName: "opencode-ai",
+    // opencode-ai requires postinstall to replace its non-executable package stub.
+    // Penkra managed runtimes intentionally prohibit lifecycle scripts.
+    npmPackageName: null,
     homebrew: {
       name: "opencode",
       kind: "formula",
