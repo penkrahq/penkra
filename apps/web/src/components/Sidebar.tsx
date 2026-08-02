@@ -123,7 +123,6 @@ import { PenkraCreateClientDialog } from "../penkra/PenkraCreateClientDialog";
 import { penkraQueryKeys } from "../penkra/reactQuery";
 import { usePinnedProjectsStore } from "../pinnedProjectsStore";
 import { reconcileOptimisticPinState } from "../pinning.logic";
-import { useRightDockStore } from "../rightDockStore";
 import { derivePendingApprovals, derivePendingUserInputs } from "../session-logic";
 import { useSpacesUiStore } from "../spacesUiStore";
 import { selectSplitView, useSplitViewStore } from "../splitViewStore";
@@ -432,24 +431,6 @@ export default function Sidebar() {
     strict: false,
     select: (params) => (params.threadId ? ThreadId.makeUnsafe(params.threadId) : null),
   });
-  const openRightDockPane = useRightDockStore((store) => store.openPane);
-  const isOnApps = useRightDockStore((store) => {
-    if (!routeThreadId) return false;
-    const dock = store.dockStateByThreadId[routeThreadId];
-    return Boolean(
-      dock?.open && dock.panes.find((pane) => pane.id === dock.activePaneId)?.kind === "apps",
-    );
-  });
-  const handleOpenApps = useCallback(async () => {
-    if (routeThreadId) {
-      openRightDockPane(routeThreadId, { kind: "apps" });
-      return;
-    }
-    const result = await handleNewChat();
-    if (result.ok && result.threadId) {
-      openRightDockPane(result.threadId, { kind: "apps" });
-    }
-  }, [handleNewChat, openRightDockPane, routeThreadId]);
   const handleAccountLogout = useCallback(async () => {
     const accountAuth = window.desktopBridge?.accountAuth;
     if (!accountAuth) {
@@ -3309,14 +3290,10 @@ export default function Sidebar() {
       {sidebarHeaderSurface}
       <LeftRailContentShared>
         <SidebarTopNavigation
-          {...(isOnApps ? { activeItemId: "apps" } : {})}
           disabledItemIds={["scheduled"]}
           onSelect={(itemId) => {
             switch (itemId) {
               case "scheduled":
-                break;
-              case "apps":
-                void handleOpenApps();
                 break;
             }
           }}

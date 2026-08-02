@@ -39,6 +39,7 @@ import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 const BuildPlatform = Schema.Literals(["mac"]);
 const BuildArch = Schema.Literals(["arm64", "x64", "universal"]);
+const PENKRA_APPS_PACKAGE_PATH_ENV = "PENKRA_APPS_PACKAGE_PATH";
 const requireFromScriptsWorkspace = createRequire(new URL("./package.json", import.meta.url));
 
 const RepoRoot = Effect.service(Path.Path).pipe(
@@ -569,6 +570,7 @@ const createBuildConfig = Effect.fn("createBuildConfig")(function* (
     directories: {
       buildResources: "apps/desktop/resources",
     },
+    extraResources: [{ from: "penkra-apps", to: "penkra-apps" }],
     forceCodeSigning: signed,
   };
   buildConfig.publish = mockUpdates
@@ -732,6 +734,10 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
 
   const stageAppDir = path.join(stageRoot, "app");
   const stageResourcesDir = path.join(stageAppDir, "apps/desktop/resources");
+  const configuredAppsPackagePath = process.env[PENKRA_APPS_PACKAGE_PATH_ENV]?.trim();
+  const firstPartyAppsPackagePath = configuredAppsPackagePath
+    ? path.resolve(configuredAppsPackagePath)
+    : path.resolve(repoRoot, "..", "penkra-apps", "apps");
   const distDirs = {
     desktopDist: path.join(repoRoot, "apps/desktop/dist-electron"),
     desktopResources: path.join(repoRoot, "apps/desktop/resources"),
@@ -762,6 +768,11 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
       message: `Missing bundled server client at ${bundledClientEntry}. Run 'bun run build:desktop' first.`,
     });
   }
+  if (!(yield* fs.exists(path.join(firstPartyAppsPackagePath, "penkra-app.json")))) {
+    return yield* new BuildScriptError({
+      message: `Missing bundled Apps package at ${firstPartyAppsPackagePath}. Set ${PENKRA_APPS_PACKAGE_PATH_ENV} to a verified penkra-apps/apps package checkout or artifact.`,
+    });
+  }
   yield* validateBundledClientAssets(path.dirname(bundledClientEntry));
 
   yield* fs.makeDirectory(path.join(stageAppDir, "apps/desktop"), { recursive: true });
@@ -771,6 +782,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   yield* fs.copy(distDirs.desktopDist, path.join(stageAppDir, "apps/desktop/dist-electron"));
   yield* fs.copy(distDirs.desktopResources, stageResourcesDir);
   yield* fs.copy(distDirs.serverDist, path.join(stageAppDir, "apps/server/dist"));
+  yield* fs.copy(firstPartyAppsPackagePath, path.join(stageAppDir, "penkra-apps/apps"));
   yield* assertPlatformBuildResources(options.platform, stageResourcesDir, options.verbose);
 
   // electron-builder is filtering out stageResourcesDir directory in the AppImage for production

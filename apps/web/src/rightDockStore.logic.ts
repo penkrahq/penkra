@@ -10,7 +10,7 @@ import { isPlainObject, sanitizeStringKeyedRecord } from "./persistedRecord";
 // validator, the per-kind metadata map, and the add-menu order are all derived
 // from this list so they can never drift apart.
 export const RIGHT_DOCK_PANE_KINDS = [
-  "apps",
+  "app",
   "browser",
   "diff",
   "explorer",
@@ -42,6 +42,12 @@ export interface RightDockPane {
   pullRequestInitialTab: PullRequestInitialTab | null;
   // Profile panes show the selected Penkra client/project.
   profileProjectId: ProjectId | null;
+  // App panes are stable host-owned renderer tabs.
+  appId: string | null;
+  appSlug: string | null;
+  appName: string | null;
+  appRoute: string | null;
+  appStatus: "loading" | "ready" | "crashed" | null;
 }
 
 export interface RightDockThreadState {
@@ -52,7 +58,11 @@ export interface RightDockThreadState {
 
 // Kinds that allow multiple concurrent panes per host thread: sidechat opens
 // one pane per embedded thread, file opens one tab per previewed file.
-const MULTI_INSTANCE_PANE_KINDS: ReadonlySet<RightDockPaneKind> = new Set(["sidechat", "file"]);
+const MULTI_INSTANCE_PANE_KINDS: ReadonlySet<RightDockPaneKind> = new Set([
+  "app",
+  "sidechat",
+  "file",
+]);
 
 // Kinds that can only ever have one instance per host thread, derived as
 // "every kind that is not multi-instance" so the two sets can never drift.
@@ -117,6 +127,16 @@ function sanitizePersistedPane(value: unknown): RightDockPane | null {
       typeof candidate.profileProjectId === "string"
         ? (candidate.profileProjectId as ProjectId)
         : null,
+    appId: typeof candidate.appId === "string" ? candidate.appId : null,
+    appSlug: typeof candidate.appSlug === "string" ? candidate.appSlug : null,
+    appName: typeof candidate.appName === "string" ? candidate.appName : null,
+    appRoute: typeof candidate.appRoute === "string" ? candidate.appRoute : null,
+    appStatus:
+      candidate.appStatus === "loading" ||
+      candidate.appStatus === "ready" ||
+      candidate.appStatus === "crashed"
+        ? candidate.appStatus
+        : null,
   };
 }
 
@@ -162,6 +182,11 @@ export interface OpenPaneInput {
   pullRequestNumber?: number | null;
   pullRequestInitialTab?: PullRequestInitialTab | null;
   profileProjectId?: ProjectId | null;
+  appId?: string | null;
+  appSlug?: string | null;
+  appName?: string | null;
+  appRoute?: string | null;
+  appStatus?: "loading" | "ready" | "crashed" | null;
 }
 
 function createPane(input: OpenPaneInput): RightDockPane {
@@ -177,6 +202,11 @@ function createPane(input: OpenPaneInput): RightDockPane {
     pullRequestNumber: input.pullRequestNumber ?? null,
     pullRequestInitialTab: input.pullRequestInitialTab ?? null,
     profileProjectId: input.profileProjectId ?? null,
+    appId: input.appId ?? null,
+    appSlug: input.appSlug ?? null,
+    appName: input.appName ?? null,
+    appRoute: input.appRoute ?? null,
+    appStatus: input.appStatus ?? null,
   };
 }
 
@@ -218,6 +248,9 @@ function findMatchingMultiInstancePane(
   state: RightDockThreadState,
   input: OpenPaneInput,
 ): RightDockPane | undefined {
+  if (input.kind === "app") {
+    return state.panes.find((pane) => pane.kind === "app" && pane.id === input.paneId);
+  }
   if (input.kind === "sidechat") {
     if (!input.threadId) {
       return undefined;
@@ -257,6 +290,7 @@ export function openPaneInState(
   } else {
     const existing = findMatchingMultiInstancePane(state, input);
     if (existing) {
+      if (state.open && state.activePaneId === existing.id) return state;
       return { open: true, panes: state.panes, activePaneId: existing.id };
     }
   }
@@ -341,6 +375,8 @@ export function updatePaneInState(
       | "pullRequestRepository"
       | "pullRequestNumber"
       | "pullRequestInitialTab"
+      | "appRoute"
+      | "appStatus"
     >
   >,
 ): RightDockThreadState {
@@ -358,7 +394,9 @@ export function updatePaneInState(
       nextPane.pullRequestProjectId !== pane.pullRequestProjectId ||
       nextPane.pullRequestRepository !== pane.pullRequestRepository ||
       nextPane.pullRequestNumber !== pane.pullRequestNumber ||
-      nextPane.pullRequestInitialTab !== pane.pullRequestInitialTab
+      nextPane.pullRequestInitialTab !== pane.pullRequestInitialTab ||
+      nextPane.appRoute !== pane.appRoute ||
+      nextPane.appStatus !== pane.appStatus
     ) {
       changed = true;
       return nextPane;

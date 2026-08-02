@@ -144,6 +144,41 @@ contextBridge.exposeInMainWorld("desktopBridge", {
       return () => ipcRenderer.removeListener(IPC.accountAuth.error, wrappedListener);
     },
   },
+  appInstallations: {
+    getState: () => ipcRenderer.invoke(IPC.appInstallations.getState),
+    setEnabled: (input) => ipcRenderer.invoke(IPC.appInstallations.setEnabled, input),
+    setPermission: (input) => ipcRenderer.invoke(IPC.appInstallations.setPermission, input),
+    uninstall: (input) => ipcRenderer.invoke(IPC.appInstallations.uninstall, input),
+    removeData: (input) => ipcRenderer.invoke(IPC.appInstallations.removeData, input),
+    onState: (listener) => {
+      const wrappedListener = (_event: Electron.IpcRendererEvent, state: unknown) => {
+        if (typeof state !== "object" || state === null) return;
+        listener(state as Parameters<typeof listener>[0]);
+      };
+      ipcRenderer.on(IPC.appInstallations.state, wrappedListener);
+      return () => ipcRenderer.removeListener(IPC.appInstallations.state, wrappedListener);
+    },
+  },
+  appTabs: {
+    list: () => ipcRenderer.invoke(IPC.appTabs.list),
+    open: (input) => ipcRenderer.invoke(IPC.appTabs.open, input),
+    attach: (input) => ipcRenderer.invoke(IPC.appTabs.attach, input),
+    setBounds: (input) => ipcRenderer.invoke(IPC.appTabs.setBounds, input),
+    setVisible: (input) => ipcRenderer.invoke(IPC.appTabs.setVisible, input),
+    close: (input) => ipcRenderer.invoke(IPC.appTabs.close, input),
+    onOpened: (listener) => {
+      const wrapped = (_event: Electron.IpcRendererEvent, tab: Parameters<typeof listener>[0]) =>
+        listener(tab);
+      ipcRenderer.on(IPC.appTabs.opened, wrapped);
+      return () => ipcRenderer.removeListener(IPC.appTabs.opened, wrapped);
+    },
+    onState: (listener) => {
+      const wrapped = (_event: Electron.IpcRendererEvent, tab: Parameters<typeof listener>[0]) =>
+        listener(tab);
+      ipcRenderer.on(IPC.appTabs.state, wrapped);
+      return () => ipcRenderer.removeListener(IPC.appTabs.state, wrapped);
+    },
+  },
   storageMigration: {
     readSnapshot: () => ipcRenderer.sendSync(IPC.storageMigration.read),
     acknowledgeSnapshot: () => ipcRenderer.invoke(IPC.storageMigration.acknowledge),

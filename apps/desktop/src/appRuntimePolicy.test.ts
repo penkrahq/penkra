@@ -56,6 +56,7 @@ describe("App runtime policy", () => {
       webSecurity: true,
       allowRunningInsecureContent: false,
       webviewTag: false,
+      additionalArguments: ["--penkra-app-id=com.penkra.apps"],
     });
     expect(() =>
       createAppRendererPreferences({

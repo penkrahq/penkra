@@ -422,6 +422,88 @@ export interface DesktopSpacesMenuInput {
   }>;
 }
 
+export interface DesktopInstalledApp {
+  id: string;
+  slug: string;
+  name: string;
+  summary: string;
+  version: string;
+  source: "registry" | "sideload";
+  installedAt: string;
+  permissions: ReadonlyArray<{
+    name: string;
+    required: boolean;
+    reason: string;
+  }>;
+}
+
+export interface DesktopSpaceAppState {
+  appId: string;
+  spaceId: string;
+  enabled: boolean;
+  permissions: Readonly<Record<string, "denied" | "granted">>;
+}
+
+export interface DesktopAppInstallationSnapshot {
+  installed: ReadonlyArray<DesktopInstalledApp>;
+  spaces: ReadonlyArray<DesktopSpaceAppState>;
+}
+
+export interface DesktopAppInstallationBridge {
+  getState: () => Promise<DesktopAppInstallationSnapshot>;
+  setEnabled: (input: {
+    appId: string;
+    spaceId: string;
+    enabled: boolean;
+  }) => Promise<DesktopAppInstallationSnapshot>;
+  setPermission: (input: {
+    appId: string;
+    spaceId: string;
+    permission: string;
+    grant: "denied" | "granted";
+  }) => Promise<DesktopAppInstallationSnapshot>;
+  uninstall: (input: {
+    appId: string;
+    retainData: boolean;
+  }) => Promise<DesktopAppInstallationSnapshot>;
+  removeData: (input: {
+    appId: string;
+    spaceId?: string;
+  }) => Promise<DesktopAppInstallationSnapshot>;
+  onState: (listener: (state: DesktopAppInstallationSnapshot) => void) => () => void;
+}
+
+export interface DesktopAppTabDescriptor {
+  id: string;
+  appId: string;
+  slug: string;
+  name: string;
+  spaceId: string;
+  threadId: string;
+  route: string;
+  status: "loading" | "ready" | "crashed";
+}
+
+export interface DesktopAppTabsBridge {
+  list: () => Promise<ReadonlyArray<DesktopAppTabDescriptor>>;
+  open: (input: {
+    appId: string;
+    spaceId: string;
+    threadId: string;
+    route: string;
+    state?: unknown;
+  }) => Promise<DesktopAppTabDescriptor>;
+  attach: (input: { tabId: string }) => Promise<void>;
+  setBounds: (input: {
+    tabId: string;
+    bounds: { x: number; y: number; width: number; height: number };
+  }) => Promise<void>;
+  setVisible: (input: { tabId: string; visible: boolean }) => Promise<void>;
+  close: (input: { tabId: string }) => Promise<void>;
+  onOpened: (listener: (tab: DesktopAppTabDescriptor) => void) => () => void;
+  onState: (listener: (tab: DesktopAppTabDescriptor) => void) => () => void;
+}
+
 export interface DesktopBridge {
   getWsUrl: () => string | null;
   /**
@@ -489,6 +571,8 @@ export interface DesktopBridge {
     onUserUpdated: (listener: (user: DesktopAccountUser | null) => void) => () => void;
     onError: (listener: (error: DesktopAccountAuthError) => void) => () => void;
   };
+  appInstallations?: DesktopAppInstallationBridge;
+  appTabs?: DesktopAppTabsBridge;
   storageMigration: {
     readSnapshot: () => PenkraStorageSnapshot | null;
     acknowledgeSnapshot: () => Promise<void>;

@@ -45,6 +45,11 @@ function fixture() {
       values.add(listener);
       listeners.set(event, values);
     }),
+    once: vi.fn((event: string, listener: (...args: never[]) => void) => {
+      const values = listeners.get(event) ?? new Set();
+      values.add(listener);
+      listeners.set(event, values);
+    }),
     removeListener: vi.fn((event: string, listener: (...args: never[]) => void) => {
       listeners.get(event)?.delete(listener);
     }),

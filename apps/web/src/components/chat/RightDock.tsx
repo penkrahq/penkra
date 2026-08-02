@@ -67,6 +67,8 @@ interface RightDockProps {
   // Per-pane tab glyph overrides (same shape as label overrides) — e.g. a pull request pane
   // swapping the generic kind icon for its live state glyph.
   paneIconOverrides?: Record<string, ReactNode | undefined>;
+  /** Fixed panel-edge control supplied by the host, after the generic dock controls. */
+  edgeControl?: ReactNode;
   addMenuKinds: readonly RightDockPaneKind[];
   // Single-pane hosts omit selection so their lone tab label is static; multi-pane chat hosts
   // provide the callback and keep the normal selectable-tab behavior.
@@ -311,6 +313,7 @@ export function RightDock(props: RightDockProps) {
             >
               <PanelRightCloseIcon />
             </IconButton>
+            {props.edgeControl}
           </div>
           <div className="relative min-h-0 flex-1">
             {renderedPanes.map((pane) => {

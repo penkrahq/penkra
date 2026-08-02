@@ -27,6 +27,7 @@ import { OpenWithRowShared } from "./open-with-row-shared/OpenWithRowShared";
 import { SettingsPageContent } from "./pages/SettingsPageContent";
 import { SettingsPage, type SettingsPageId } from "./settings-page/SettingsPage";
 import { ThemePanelShared } from "./theme-panel-shared/ThemePanelShared";
+import { useSpacesUiStore } from "~/spacesUiStore";
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 
@@ -104,6 +105,40 @@ describe("Pencil settings structure", () => {
   });
 
   it("renders the Pencil-defined Settings pages without legacy controls", async () => {
+    const installationSnapshot = {
+      installed: [
+        {
+          id: "com.penkra.apps",
+          slug: "apps",
+          name: "Apps",
+          summary: "Discover and manage Apps.",
+          version: "0.1.0",
+          source: "registry" as const,
+          installedAt: "2026-08-01T00:00:00.000Z",
+          permissions: [],
+        },
+      ],
+      spaces: [
+        {
+          appId: "com.penkra.apps",
+          spaceId: "personal",
+          enabled: true,
+          permissions: {},
+        },
+      ],
+    };
+    Object.defineProperty(window, "desktopBridge", {
+      configurable: true,
+      value: {
+        setTheme: async () => undefined,
+        appInstallations: {
+          getState: async () => installationSnapshot,
+          onState: () => () => undefined,
+          setEnabled: async () => installationSnapshot,
+        },
+      },
+    });
+    useSpacesUiStore.getState().setActiveSpaceId("personal" as never);
     await render(<SettingsPageHarness />);
 
     await expect.element(page.getByText("Defaults and updates for Penkra.")).toBeVisible();
@@ -140,7 +175,7 @@ describe("Pencil settings structure", () => {
 
     await page.getByRole("button", { name: "Apps", exact: true }).click();
     await expect.element(page.getByText("Installed apps from the Penkra registry.")).toBeVisible();
-    await expect.element(page.getByRole("switch", { name: "Ledger installed" })).toBeChecked();
+    await expect.element(page.getByRole("switch", { name: "Apps installed" })).toBeChecked();
     expect(document.body.textContent).not.toContain("Installed appsInstalled");
 
     await page.getByRole("button", { name: "Connectors", exact: true }).click();

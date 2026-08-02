@@ -7,6 +7,7 @@ import * as Path from "node:path";
 
 export const PENKRA_APP_SCHEME = "penkra-app";
 export const APP_SESSION_PARTITION_PREFIX = "persist:penkra-app-";
+export const PENKRA_APP_ID_ARGUMENT_PREFIX = "--penkra-app-id=";
 
 export interface AppRendererPreferencesInput {
   appId: string;
@@ -25,6 +26,7 @@ export interface AppRendererPreferences {
   webSecurity: true;
   allowRunningInsecureContent: false;
   webviewTag: false;
+  additionalArguments: [string];
 }
 
 export type AppNavigationDecision =
@@ -73,6 +75,7 @@ export function createAppRendererPreferences(
     webSecurity: true,
     allowRunningInsecureContent: false,
     webviewTag: false,
+    additionalArguments: [`${PENKRA_APP_ID_ARGUMENT_PREFIX}${input.appId}`],
   };
 }
 

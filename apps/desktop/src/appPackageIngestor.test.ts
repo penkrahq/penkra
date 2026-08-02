@@ -1,0 +1,80 @@
+import * as FS from "node:fs";
+import * as OS from "node:os";
+import * as Path from "node:path";
+
+import { afterEach, describe, expect, it } from "vitest";
+
+import {
+  AppPackageIngestor,
+  PENKRA_APP_MANIFEST_FILE_NAME,
+} from "./appPackageIngestor";
+
+const roots: string[] = [];
+
+afterEach(() => {
+  for (const root of roots.splice(0)) FS.rmSync(root, { recursive: true, force: true });
+});
+
+function fixture(): { root: string; sourcePath: string; storePath: string } {
+  const root = FS.mkdtempSync(Path.join(OS.tmpdir(), "penkra-app-package-"));
+  roots.push(root);
+  const sourcePath = Path.join(root, "source");
+  const storePath = Path.join(root, "store");
+  FS.mkdirSync(Path.join(sourcePath, "assets"), { recursive: true });
+  FS.writeFileSync(Path.join(sourcePath, "README.md"), "# Example\n");
+  FS.writeFileSync(Path.join(sourcePath, "INSTRUCTIONS.md"), "Use Example.\n");
+  FS.writeFileSync(Path.join(sourcePath, "app.html"), "<!doctype html><title>Example</title>");
+  FS.writeFileSync(Path.join(sourcePath, "assets", "icon.svg"), "<svg/>");
+  FS.writeFileSync(
+    Path.join(sourcePath, PENKRA_APP_MANIFEST_FILE_NAME),
+    JSON.stringify({
+      manifestVersion: 1,
+      id: "com.example.app",
+      slug: "example",
+      name: "Example",
+      summary: "An example App",
+      version: "1.0.0",
+      compatibility: { penkra: ">=0.8.0" },
+      icons: [{ src: "assets/icon.svg", sizes: "any", type: "image/svg+xml" }],
+      entrypoints: { app: "app.html" },
+    }),
+  );
+  return { root, sourcePath, storePath };
+}
+
+describe("AppPackageIngestor", () => {
+  it("validates, hashes, and commits an immutable unpacked package", async () => {
+    const { sourcePath, storePath } = fixture();
+    const ingestor = new AppPackageIngestor(storePath);
+    const first = await ingestor.ingestDirectory({
+      sourcePath,
+      source: "sideload",
+      installedAt: "2026-08-01T00:00:00.000Z",
+    });
+    const second = await ingestor.ingestDirectory({
+      sourcePath,
+      source: "sideload",
+      installedAt: "2026-08-01T00:00:00.000Z",
+    });
+
+    expect(first.sha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(second.packagePath).toBe(first.packagePath);
+    expect(FS.readFileSync(Path.join(first.packagePath, "app.html"), "utf8")).toContain("Example");
+  });
+
+  it("rejects packages that omit required listing documentation", async () => {
+    const { sourcePath, storePath } = fixture();
+    FS.rmSync(Path.join(sourcePath, "INSTRUCTIONS.md"));
+    await expect(
+      new AppPackageIngestor(storePath).ingestDirectory({ sourcePath, source: "sideload" }),
+    ).rejects.toThrow("INSTRUCTIONS.md");
+  });
+
+  it("rejects symbolic links instead of copying outside the package", async () => {
+    const { root, sourcePath, storePath } = fixture();
+    FS.symlinkSync(Path.join(root, "outside"), Path.join(sourcePath, "escape"));
+    await expect(
+      new AppPackageIngestor(storePath).ingestDirectory({ sourcePath, source: "sideload" }),
+    ).rejects.toThrow("symbolic links");
+  });
+});

@@ -44,6 +44,9 @@ describe("desktop App runtime composition", () => {
       userDataPath: root,
       appPreloadPath: "/trusted/appPreload.js",
       ipcMain: ipcMain as never,
+      window: () => null,
+      onTabOpened: () => undefined,
+      onTabState: () => undefined,
     });
 
     expect(runtime.store.snapshot().packagesByAppId).toEqual({});

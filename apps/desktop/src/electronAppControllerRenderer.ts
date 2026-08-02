@@ -19,17 +19,22 @@ export interface ElectronAppControllerRendererFactoryOptions {
   preloadPath: string;
   ipcBridge: Pick<AppRendererIpcBridge, "waitForReady">;
   createView?: (options: ConstructorParameters<typeof WebContentsView>[0]) => WebContentsView;
+  onRendererCreated?: (input: { appId: string; rendererId: number }) => (() => void) | void;
 }
 
 export class ElectronAppControllerRendererFactory implements AppControllerRendererFactory {
   readonly #preloadPath: string;
   readonly #ipcBridge: ElectronAppControllerRendererFactoryOptions["ipcBridge"];
   readonly #createView: NonNullable<ElectronAppControllerRendererFactoryOptions["createView"]>;
+  readonly #onRendererCreated: NonNullable<
+    ElectronAppControllerRendererFactoryOptions["onRendererCreated"]
+  >;
 
   constructor(options: ElectronAppControllerRendererFactoryOptions) {
     this.#preloadPath = options.preloadPath;
     this.#ipcBridge = options.ipcBridge;
     this.#createView = options.createView ?? ((viewOptions) => new WebContentsView(viewOptions));
+    this.#onRendererCreated = options.onRendererCreated ?? (() => undefined);
   }
 
   create(input: Parameters<AppControllerRendererFactory["create"]>[0]): AppControllerRenderer {
@@ -43,6 +48,17 @@ export class ElectronAppControllerRendererFactory implements AppControllerRender
     }
     const view = this.#createView({ webPreferences });
     const contents = view.webContents;
+    const releaseIdentity = this.#onRendererCreated({
+      appId: input.installedApp.appId,
+      rendererId: contents.id,
+    });
+    let identityReleased = false;
+    const releaseRendererIdentity = () => {
+      if (identityReleased) return;
+      identityReleased = true;
+      releaseIdentity?.();
+    };
+    contents.once("destroyed", releaseRendererIdentity);
     contents.setAudioMuted(true);
     contents.setWindowOpenHandler(() => ({ action: "deny" }));
     contents.on("will-navigate", (event) => {
@@ -74,6 +90,7 @@ export class ElectronAppControllerRendererFactory implements AppControllerRender
         // lifetime even though it is intentionally not attached to a window.
         const ownedContents = view.webContents;
         if (!ownedContents.isDestroyed()) ownedContents.close();
+        releaseRendererIdentity();
       },
       onDestroyed: (listener) => {
         contents.on("destroyed", listener);

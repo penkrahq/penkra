@@ -25,7 +25,7 @@ describe("setDockOpenInState", () => {
 describe("RIGHT_DOCK_PANE_KINDS (single source of truth)", () => {
   it("lists every supported kind", () => {
     expect([...RIGHT_DOCK_PANE_KINDS]).toEqual([
-      "apps",
+      "app",
       "browser",
       "diff",
       "explorer",
@@ -39,7 +39,9 @@ describe("RIGHT_DOCK_PANE_KINDS (single source of truth)", () => {
 
   it("derives singletons as every kind except the multi-instance ones", () => {
     for (const kind of RIGHT_DOCK_PANE_KINDS) {
-      expect(SINGLETON_PANE_KINDS.has(kind)).toBe(kind !== "sidechat" && kind !== "file");
+      expect(SINGLETON_PANE_KINDS.has(kind)).toBe(
+        kind !== "app" && kind !== "sidechat" && kind !== "file",
+      );
     }
   });
 });
@@ -47,7 +49,7 @@ describe("RIGHT_DOCK_PANE_KINDS (single source of truth)", () => {
 describe("isRightDockPaneKind", () => {
   it("accepts the known pane kinds", () => {
     for (const kind of [
-      "apps",
+      "app",
       "browser",
       "diff",
       "explorer",

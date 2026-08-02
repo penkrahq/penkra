@@ -225,6 +225,24 @@ import {
 } from "./desktopStorageMigration";
 import { DESKTOP_IPC_CHANNELS } from "./ipcChannels";
 import { startDesktopAppRuntime, type DesktopAppRuntime } from "./desktopAppRuntime";
+import {
+  parseRemoveAppDataRequest,
+  parseSetAppEnabledRequest,
+  parseSetAppPermissionRequest,
+  parseUninstallAppRequest,
+  toDesktopAppInstallationSnapshot,
+} from "./appInstallationIpc";
+import {
+  bootstrapFirstPartyAppsPackage,
+  PENKRA_APPS_PACKAGE_PATH_ENV,
+  resolveFirstPartyAppsPackagePath,
+} from "./firstPartyAppsBootstrap";
+import {
+  parseAppTabIdRequest,
+  parseOpenAppTabRequest,
+  parseSetAppTabBoundsRequest,
+  parseSetAppTabVisibleRequest,
+} from "./appTabIpc";
 
 // Capture the real archive identity before any explicit app.asar lookup. Static
 // snapshotting and the runtime watcher both use this same generation as their
@@ -3521,6 +3539,80 @@ function registerIpcHandlers(): void {
     await acknowledgePenkraStorageSnapshot(storageSnapshotPath);
   });
 
+  const requireAppInstallations = (senderId: number) => {
+    const service = desktopAppRuntime?.installations;
+    if (!service) throw new Error("The App installation service is not ready.");
+    const isShellRenderer = mainWindow?.webContents.id === senderId;
+    if (!isShellRenderer && !desktopAppRuntime?.canManageInstallations(senderId)) {
+      throw new Error("This renderer cannot manage App installations.");
+    }
+    return service;
+  };
+  for (const channel of Object.values(IPC.appInstallations)) {
+    if (channel !== IPC.appInstallations.state) ipcMain.removeHandler(channel);
+  }
+  ipcMain.handle(IPC.appInstallations.getState, async (event) =>
+    toDesktopAppInstallationSnapshot(requireAppInstallations(event.sender.id).snapshot()),
+  );
+  ipcMain.handle(IPC.appInstallations.setEnabled, async (event, input: unknown) => {
+    return toDesktopAppInstallationSnapshot(
+      await requireAppInstallations(event.sender.id).setEnabled(parseSetAppEnabledRequest(input)),
+    );
+  });
+  ipcMain.handle(IPC.appInstallations.setPermission, async (event, input: unknown) => {
+    return toDesktopAppInstallationSnapshot(
+      await requireAppInstallations(event.sender.id).setPermission(
+        parseSetAppPermissionRequest(input),
+      ),
+    );
+  });
+  ipcMain.handle(IPC.appInstallations.uninstall, async (event, input: unknown) => {
+    return toDesktopAppInstallationSnapshot(
+      await requireAppInstallations(event.sender.id).uninstall(parseUninstallAppRequest(input)),
+    );
+  });
+  ipcMain.handle(IPC.appInstallations.removeData, async (event, input: unknown) => {
+    return toDesktopAppInstallationSnapshot(
+      await requireAppInstallations(event.sender.id).removeData(parseRemoveAppDataRequest(input)),
+    );
+  });
+
+  const requireShellAppTabs = (senderId: number) => {
+    if (mainWindow?.webContents.id !== senderId) {
+      throw new Error("Only the Penkra shell can manage host App tabs.");
+    }
+    const tabs = desktopAppRuntime?.appTabs;
+    if (!tabs) throw new Error("The App tab host is not ready.");
+    return tabs;
+  };
+  for (const channel of Object.values(IPC.appTabs)) {
+    if (channel !== IPC.appTabs.opened && channel !== IPC.appTabs.state) {
+      ipcMain.removeHandler(channel);
+    }
+  }
+  ipcMain.handle(IPC.appTabs.open, async (event, input: unknown) =>
+    requireShellAppTabs(event.sender.id).openInstalled(parseOpenAppTabRequest(input)),
+  );
+  ipcMain.handle(IPC.appTabs.list, async (event) =>
+    requireShellAppTabs(event.sender.id).list(),
+  );
+  ipcMain.handle(IPC.appTabs.attach, async (event, input: unknown) => {
+    const { tabId } = parseAppTabIdRequest(input);
+    requireShellAppTabs(event.sender.id).attach(tabId);
+  });
+  ipcMain.handle(IPC.appTabs.setBounds, async (event, input: unknown) => {
+    const { tabId, bounds } = parseSetAppTabBoundsRequest(input);
+    requireShellAppTabs(event.sender.id).setBounds(tabId, bounds);
+  });
+  ipcMain.handle(IPC.appTabs.setVisible, async (event, input: unknown) => {
+    const { tabId, visible } = parseSetAppTabVisibleRequest(input);
+    requireShellAppTabs(event.sender.id).setVisible(tabId, visible);
+  });
+  ipcMain.handle(IPC.appTabs.close, async (event, input: unknown) => {
+    const { tabId } = parseAppTabIdRequest(input);
+    requireShellAppTabs(event.sender.id).close(tabId);
+  });
+
   ipcMain.removeAllListeners(IPC.wsUrl);
   ipcMain.on(IPC.wsUrl, (event: IpcMainEvent) => {
     // The backend port is reserved at runtime, so preload asks main for the
@@ -4307,11 +4399,42 @@ async function bootstrap(): Promise<void> {
     userDataPath: app.getPath("userData"),
     appPreloadPath: Path.join(__dirname, "appPreload.js"),
     ipcMain,
+    window: () => mainWindow,
+    onTabOpened: (descriptor) => {
+      if (!mainWindow || mainWindow.isDestroyed()) return;
+      mainWindow.webContents.send(IPC.appTabs.opened, descriptor);
+    },
+    onTabState: (descriptor) => {
+      if (!mainWindow || mainWindow.isDestroyed()) return;
+      mainWindow.webContents.send(IPC.appTabs.state, descriptor);
+    },
     onInvalidRendererMessage: (error, senderId) => {
       console.warn(
         `[penkra-app] Rejected invalid renderer message sender=${senderId}: ${formatErrorMessage(error)}`,
       );
     },
+  });
+  const firstPartyAppsPath = resolveFirstPartyAppsPackagePath({
+    configuredPath: process.env[PENKRA_APPS_PACKAGE_PATH_ENV],
+    resourcesPath: process.resourcesPath,
+    desktopBundleDirectory: __dirname,
+    packaged: app.isPackaged,
+  });
+  if (firstPartyAppsPath) {
+    try {
+      await bootstrapFirstPartyAppsPackage(desktopAppRuntime, firstPartyAppsPath);
+    } catch (error) {
+      console.error("Unable to bootstrap the first-party Apps package.", error);
+    }
+  } else {
+    console.warn("The first-party Apps package is unavailable in this desktop build.");
+  }
+  desktopAppRuntime.installations.subscribe((state) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    mainWindow.webContents.send(
+      IPC.appInstallations.state,
+      toDesktopAppInstallationSnapshot(state),
+    );
   });
   for (const result of desktopAppRuntime.restoreResults) {
     if (result.status === "failed") {

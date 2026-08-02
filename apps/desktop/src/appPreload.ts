@@ -6,6 +6,8 @@ import { contextBridge, ipcRenderer } from "electron";
 
 import { AppPreloadRuntime } from "./appPreloadRuntime";
 import { APP_RUNTIME_IPC_CHANNELS } from "./ipcChannels";
+import { DESKTOP_IPC_CHANNELS } from "./ipcChannels";
+import { PENKRA_APP_ID_ARGUMENT_PREFIX } from "./appRuntimePolicy";
 
 const runtime = new AppPreloadRuntime({
   send: (message) => ipcRenderer.send(APP_RUNTIME_IPC_CHANNELS.rendererMessage, message),
@@ -17,7 +19,28 @@ const runtime = new AppPreloadRuntime({
   ready: () => ipcRenderer.send(APP_RUNTIME_IPC_CHANNELS.ready),
 });
 
-contextBridge.exposeInMainWorld("penkra", runtime.api);
+const appId = process.argv
+  .find((argument) => argument.startsWith(PENKRA_APP_ID_ARGUMENT_PREFIX))
+  ?.slice(PENKRA_APP_ID_ARGUMENT_PREFIX.length);
+const exposedApi =
+  appId === "com.penkra.apps"
+    ? {
+        ...runtime.api,
+        installations: {
+          getState: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.appInstallations.getState),
+          setEnabled: (input: unknown) =>
+            ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.appInstallations.setEnabled, input),
+          setPermission: (input: unknown) =>
+            ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.appInstallations.setPermission, input),
+          uninstall: (input: unknown) =>
+            ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.appInstallations.uninstall, input),
+          removeData: (input: unknown) =>
+            ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.appInstallations.removeData, input),
+        },
+      }
+    : runtime.api;
+
+contextBridge.exposeInMainWorld("penkra", exposedApi);
 runtime.start();
 if (document.readyState === "loading") {
   window.addEventListener("DOMContentLoaded", () => runtime.markReady(), { once: true });

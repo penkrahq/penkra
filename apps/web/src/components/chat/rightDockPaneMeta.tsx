@@ -32,7 +32,7 @@ export interface RightDockPaneMeta {
 }
 
 export const RIGHT_DOCK_PANE_META: Record<RightDockPaneKind, RightDockPaneMeta> = {
-  apps: { label: "Apps", Icon: PluginIcon },
+  app: { label: "App", Icon: PluginIcon },
   browser: { label: "Browser", Icon: GlobeIcon },
   diff: { label: "Diff", Icon: DiffIcon },
   explorer: { label: "Explorer", Icon: FoldersIcon },
@@ -64,7 +64,11 @@ export function getRightDockPaneMeta(kind: RightDockPaneKind): RightDockPaneMeta
 // avatar. The add menu offers the richer Explorer pane in place of a single
 // file preview.
 export const RIGHT_DOCK_ADD_MENU_KINDS: readonly RightDockPaneKind[] = RIGHT_DOCK_PANE_KINDS.filter(
-  (kind) => kind !== "file" && kind !== "pullRequest" && kind !== "profile",
+  (kind) =>
+    kind !== "app" &&
+    kind !== "file" &&
+    kind !== "pullRequest" &&
+    kind !== "profile",
 );
 
 // Resolves a tab label, preferring caller-provided per-pane overrides (e.g. the
@@ -73,7 +77,7 @@ export function resolveRightDockPaneLabel(
   pane: RightDockPane,
   overrides?: Record<string, string | undefined>,
 ): string {
-  return overrides?.[pane.id] ?? getRightDockPaneMeta(pane.kind).label;
+  return overrides?.[pane.id] ?? pane.appName ?? getRightDockPaneMeta(pane.kind).label;
 }
 
 // Resolves a tab glyph: file panes show the per-file-type icon (matching the

@@ -11,4 +11,4 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 export const Default: Story = {};
-export const AppsSelected: Story = { args: { activeItemId: "apps" } };
+export const ScheduledSelected: Story = { args: { activeItemId: "scheduled" } };

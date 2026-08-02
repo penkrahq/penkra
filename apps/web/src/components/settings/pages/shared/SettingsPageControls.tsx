@@ -42,19 +42,26 @@ export function SettingsValueAction({
 }
 
 export function SettingsInstalledRow({
+  checked,
   defaultChecked = true,
   description,
+  disabled = false,
   icon: RowIcon,
   label,
   multiline = false,
+  onCheckedChange,
 }: {
+  checked?: boolean;
   defaultChecked?: boolean;
   description: string;
+  disabled?: boolean;
   icon: Icon;
   label: string;
   multiline?: boolean;
+  onCheckedChange?: (checked: boolean) => void;
 }) {
-  const [checked, setChecked] = useState(defaultChecked);
+  const [uncontrolledChecked, setUncontrolledChecked] = useState(defaultChecked);
+  const resolvedChecked = checked ?? uncontrolledChecked;
 
   return (
     <div
@@ -77,8 +84,12 @@ export function SettingsInstalledRow({
       </span>
       <SwitchShared
         aria-label={`${label} installed`}
-        checked={checked}
-        onCheckedChange={setChecked}
+        checked={resolvedChecked}
+        disabled={disabled}
+        onCheckedChange={(nextChecked) => {
+          if (checked === undefined) setUncontrolledChecked(nextChecked);
+          onCheckedChange?.(nextChecked);
+        }}
       />
     </div>
   );

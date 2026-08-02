@@ -77,7 +77,7 @@ import {
 import { PanelStateMessage } from "./PanelStateMessage";
 import { RightDock } from "./RightDock";
 import { RightDockProfilePane } from "./RightDockProfilePane";
-import { PanelAppsContent } from "../right-panel/panel-apps/PanelApps";
+import { AppDockPane } from "./AppDockPane";
 import { RIGHT_DOCK_ADD_MENU_KINDS, getRightDockPaneMeta } from "./rightDockPaneMeta";
 import {
   CHAT_BACKGROUND_CLASS_NAME,
@@ -99,6 +99,9 @@ import {
   stripEditorViewSearchParams,
 } from "../../routes/-chatThreadRoute.logic";
 import { cn } from "~/lib/utils";
+import { PluginIcon } from "~/lib/icons";
+import { IconButton } from "../ui/icon-button";
+import { DOCK_HEADER_ICON_BUTTON_CLASS } from "./chatHeaderControls";
 
 const PullRequestDockPane = lazy(() => import("../pullRequest/PullRequestDockPane"));
 const EditorWorkspaceView = lazy(() =>
@@ -210,6 +213,7 @@ export function SingleChatSurface(props: {
   const { handleNewThread } = useHandleNewThread();
   const queryClient = useQueryClient();
   const lastAppliedRoutePanelSearchKeyRef = useRef<string | null>(null);
+  const restoringAppPaneIdsRef = useRef(new Set<string>());
   const [editorExpandedDirectories, setEditorExpandedDirectories] = useState<ReadonlySet<string>>(
     () => new Set(readEditorViewState(props.threadId)?.expandedDirectories ?? []),
   );
@@ -544,6 +548,140 @@ export function SingleChatSurface(props: {
   // selector, which re-emits on every streaming token of any thread and would
   // otherwise re-render the entire chat surface + right dock + active pane.
   const threadSummaries = useStore(useMemo(() => createSidebarThreadSummariesSelector(), []));
+  const currentSpaceId =
+    threadSummaries.find((thread) => thread.id === props.threadId)?.spaceId ?? null;
+
+  useEffect(() => {
+    const bridge = window.desktopBridge?.appTabs;
+    if (!bridge) return;
+    const removeOpened = bridge.onOpened((tab) => {
+      if (tab.threadId !== props.threadId) return;
+      openPane(props.threadId, {
+        paneId: tab.id,
+        kind: "app",
+        appId: tab.appId,
+        appSlug: tab.slug,
+        appName: tab.name,
+        appRoute: tab.route,
+        appStatus: tab.status,
+      });
+    });
+    const removeState = bridge.onState((tab) => {
+      if (tab.threadId !== props.threadId) return;
+      updatePane(props.threadId, tab.id, { appRoute: tab.route, appStatus: tab.status });
+    });
+    return () => {
+      removeOpened();
+      removeState();
+    };
+  }, [openPane, props.threadId, updatePane]);
+
+  useEffect(() => {
+    const bridge = window.desktopBridge?.appTabs;
+    if (!bridge) return;
+    let cancelled = false;
+    void bridge.list().then((tabs) => {
+      if (cancelled) return;
+      const liveIds = new Set(tabs.map((tab) => tab.id));
+      const renderedIds = new Set(dockState.panes.map((pane) => pane.id));
+      for (const tab of tabs) {
+        if (tab.threadId !== props.threadId || renderedIds.has(tab.id)) continue;
+        openPane(props.threadId, {
+          paneId: tab.id,
+          kind: "app",
+          appId: tab.appId,
+          appSlug: tab.slug,
+          appName: tab.name,
+          appRoute: tab.route,
+          appStatus: tab.status,
+        });
+      }
+      for (const pane of dockState.panes) {
+        if (
+          pane.kind !== "app" ||
+          liveIds.has(pane.id) ||
+          !pane.appId ||
+          !currentSpaceId ||
+          restoringAppPaneIdsRef.current.has(pane.id)
+        ) {
+          continue;
+        }
+        restoringAppPaneIdsRef.current.add(pane.id);
+        void bridge
+          .open({
+            appId: pane.appId,
+            spaceId: currentSpaceId,
+            threadId: props.threadId,
+            route: pane.appRoute ?? "/",
+          })
+          .then(() => closePane(props.threadId, pane.id))
+          .catch(() => updatePane(props.threadId, pane.id, { appStatus: "crashed" }))
+          .finally(() => restoringAppPaneIdsRef.current.delete(pane.id));
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [closePane, currentSpaceId, dockState.panes, openPane, props.threadId, updatePane]);
+
+  const handleAppsLauncher = () => {
+    const existing = dockState.panes.find((pane) => pane.appId === "com.penkra.apps");
+    if (existing && dockState.open && dockState.activePaneId === existing.id) {
+      setDockOpen(props.threadId, false);
+      return;
+    }
+    if (existing) {
+      setActivePane(props.threadId, existing.id);
+      return;
+    }
+    const bridge = window.desktopBridge?.appTabs;
+    if (!bridge || !currentSpaceId) {
+      toastManager.add({
+        type: "warning",
+        title: "Apps is unavailable",
+        description: "Open a Thread that belongs to a Space and try again.",
+      });
+      return;
+    }
+    void bridge
+      .open({
+        appId: "com.penkra.apps",
+        spaceId: currentSpaceId,
+        threadId: props.threadId,
+        route: "/",
+      })
+      .then((tab) => {
+        openPane(props.threadId, {
+          paneId: tab.id,
+          kind: "app",
+          appId: tab.appId,
+          appSlug: tab.slug,
+          appName: tab.name,
+          appRoute: tab.route,
+          appStatus: tab.status,
+        });
+      })
+      .catch((error: unknown) => {
+        toastManager.add({
+          type: "error",
+          title: "Could not open Apps",
+          description: error instanceof Error ? error.message : "The Apps package could not open.",
+        });
+      });
+  };
+  const appsLauncher = (
+    <IconButton
+      variant="chrome"
+      size="icon-xs"
+      label="Apps"
+      tooltip="Apps"
+      tooltipSide="bottom"
+      className={DOCK_HEADER_ICON_BUTTON_CLASS}
+      onClick={handleAppsLauncher}
+    >
+      <PluginIcon />
+    </IconButton>
+  );
   const editorProjectOptions = projects.flatMap((project) =>
     project.kind === "project" ? [{ id: project.id, name: project.name }] : [],
   );
@@ -656,11 +794,13 @@ export function SingleChatSurface(props: {
     context: { runtimeMode: DockPaneRuntimeMode; isActive: boolean; isVisible: boolean },
   ): ReactNode => {
     switch (pane.kind) {
-      case "apps":
+      case "app":
         return (
-          <div className="flex h-full min-h-0 w-full items-center justify-center overflow-y-auto p-5">
-            <PanelAppsContent />
-          </div>
+          <AppDockPane
+            tabId={pane.id}
+            status={pane.appStatus}
+            visible={context.isVisible}
+          />
         );
       case "browser":
         return (
@@ -774,6 +914,14 @@ export function SingleChatSurface(props: {
   const handleSelectDockPane = (paneId: string) => {
     requestImmediateDockHydration(dockState.panes.find((pane) => pane.id === paneId)?.kind);
     setActivePane(props.threadId, paneId);
+  };
+
+  const handleCloseDockPane = (paneId: string) => {
+    const pane = dockState.panes.find((candidate) => candidate.id === paneId);
+    if (pane?.kind === "app") {
+      void window.desktopBridge?.appTabs?.close({ tabId: paneId }).catch(() => undefined);
+    }
+    closePane(props.threadId, paneId);
   };
 
   // The editor file path arrives via the URL, so an attacker-crafted link can
@@ -908,8 +1056,15 @@ export function SingleChatSurface(props: {
   return (
     <WorkspaceFileOpenerContext.Provider value={dockFileOpener}>
       <div
-        className={cn(CHAT_MAIN_VIEWPORT_SHELL_CLASS_NAME, CHAT_MAIN_CONTENT_SURFACE_CLASS_NAME)}
+        className={cn(
+          CHAT_MAIN_VIEWPORT_SHELL_CLASS_NAME,
+          CHAT_MAIN_CONTENT_SURFACE_CLASS_NAME,
+          "relative",
+        )}
       >
+        {!dockState.open ? (
+          <div className="absolute right-1.5 top-1.5 z-50">{appsLauncher}</div>
+        ) : null}
         <ChatPaneDropOverlay
           canDropInDirection={allowAnySplitDirection}
           excludedThreadIds={excludedThreadIds}
@@ -947,8 +1102,9 @@ export function SingleChatSurface(props: {
           activePaneRuntimeMode={activePaneRuntimeMode}
           {...(paneLabelOverrides ? { paneLabelOverrides } : {})}
           {...(paneIconOverrides ? { paneIconOverrides } : {})}
+          edgeControl={appsLauncher}
           onSelectPane={handleSelectDockPane}
-          onClosePane={(paneId) => closePane(props.threadId, paneId)}
+          onClosePane={handleCloseDockPane}
           onCollapse={() => setDockOpen(props.threadId, false)}
           onOpenChange={(open) => setDockOpen(props.threadId, open)}
           onAddPane={handleAddDockPane}

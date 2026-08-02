@@ -1,4 +1,4 @@
-import { IconAlarm, IconLayoutGrid, type TablerIcon } from "@tabler/icons-react";
+import { IconAlarm, type TablerIcon } from "@tabler/icons-react";
 
 import { NavItemShared } from "../nav-item-shared/NavItemShared";
 
@@ -16,7 +16,6 @@ export interface SidebarTopNavigationProps {
 }
 
 const defaultItems: SidebarNavigationItem[] = [
-  { icon: IconLayoutGrid, id: "apps", label: "Apps" },
   { icon: IconAlarm, id: "scheduled", label: "Scheduled" },
 ];
 

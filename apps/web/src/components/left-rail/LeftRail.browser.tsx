@@ -261,7 +261,6 @@ describe("Pencil left rail", () => {
     await render(<SidebarTopNavigation />);
 
     expect(page.getByRole("button", { name: "New chat" }).query()).toBeNull();
-    await expect.element(page.getByRole("button", { name: "Apps" })).toBeVisible();
     await expect.element(page.getByRole("button", { name: "Scheduled" })).toBeVisible();
   });
 
