@@ -1,7 +1,7 @@
 import { readFile, readdir, rm } from "node:fs/promises";
 import path from "node:path";
 
-import { CommandId, ProjectId, type OrchestrationProject } from "@penkra/contracts";
+import { CommandId, ContainerId, SpaceId, type OrchestrationProject } from "@penkra/contracts";
 import { Effect } from "effect";
 
 import type { OrchestrationEngineShape } from "../orchestration/Services/OrchestrationEngine";
@@ -14,6 +14,8 @@ import {
   scaffoldClient,
   scaffoldHq,
 } from "./scaffold";
+
+const PERSONAL_SPACE_ID = SpaceId.makeUnsafe("penkra-personal");
 
 export type RegistrySyncResult = {
   status: "disabled" | "needs-hq-auth" | "reconciled";
@@ -59,15 +61,14 @@ export async function reconcilePenkraRegistry(input: {
     backend.getInstructionDocument("hq"),
     backend.getInstructionDocument("client"),
   ]);
-  const hqWorkspace = await scaffoldHq(
+  await scaffoldHq(
     input.config.root,
     hqInstructions.body,
     clientInstructions.body,
   );
-  await ensureProject(input.engine, {
+  await ensureRegistryFolder(input.engine, {
     id: "penkra-hq",
     title: "Penkra HQ",
-    workspaceRoot: hqWorkspace,
     isPinned: true,
     enforcePin: true,
   });
@@ -85,10 +86,9 @@ export async function reconcilePenkraRegistry(input: {
       token,
       instructions: clientInstructions.body,
     });
-    await ensureProject(input.engine, {
+    await ensureRegistryFolder(input.engine, {
       id: `penkra-client-${client.id}`,
       title: client.displayName,
-      workspaceRoot: workspace,
       isPinned: false,
       enforcePin: false,
     });
@@ -127,33 +127,28 @@ export async function cleanupInstructionViewFiles(
   await Promise.all(stalePaths.map((filePath) => rm(filePath, { force: true })));
 }
 
-async function ensureProject(
+export async function ensureRegistryFolder(
   engine: OrchestrationEngineShape,
   desired: {
     id: string;
     title: string;
-    workspaceRoot: string;
     isPinned: boolean;
     enforcePin: boolean;
   },
 ): Promise<void> {
   const readModel = await Effect.runPromise(engine.getReadModel());
   const activeProjects = readModel.projects.filter((project) => project.deletedAt === null);
-  const existing = activeProjects.find(
-    (project) =>
-      project.id === desired.id ||
-      path.resolve(project.workspaceRoot) === path.resolve(desired.workspaceRoot),
-  );
+  const existing = activeProjects.find((project) => project.id === desired.id);
   const now = new Date().toISOString();
   if (!existing) {
     await engine
       .dispatch({
         type: "project.create",
         commandId: CommandId.makeUnsafe(`penkra:project:create:${desired.id}`),
-        projectId: ProjectId.makeUnsafe(desired.id),
+        projectId: ContainerId.makeUnsafe(desired.id),
         title: desired.title,
-        workspaceRoot: desired.workspaceRoot,
-        createWorkspaceRootIfMissing: true,
+        workspaceRoot: null,
+        spaceId: PERSONAL_SPACE_ID,
         isPinned: desired.isPinned,
         createdAt: now,
       })
@@ -168,8 +163,6 @@ async function ensureProject(
       commandId: CommandId.makeUnsafe(`penkra:project:update:${existing.id}:${revision}`),
       projectId: existing.id,
       title: desired.title,
-      workspaceRoot: desired.workspaceRoot,
-      createWorkspaceRootIfMissing: true,
       ...(desired.enforcePin ? { isPinned: desired.isPinned } : {}),
     })
     .pipe(Effect.runPromise);
@@ -177,11 +170,10 @@ async function ensureProject(
 
 function projectMatches(
   project: OrchestrationProject,
-  desired: { title: string; workspaceRoot: string; isPinned: boolean; enforcePin: boolean },
+  desired: { title: string; isPinned: boolean; enforcePin: boolean },
 ): boolean {
   return (
     project.title === desired.title &&
-    path.resolve(project.workspaceRoot) === path.resolve(desired.workspaceRoot) &&
     (!desired.enforcePin || project.isPinned === desired.isPinned)
   );
 }
