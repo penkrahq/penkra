@@ -43,6 +43,7 @@ export async function startDesktopAppRuntime(input: {
   onTabOpened: (descriptor: DesktopAppTabDescriptor) => void;
   onTabState: (descriptor: DesktopAppTabDescriptor) => void;
   onInvalidRendererMessage?: (error: Error, senderId: number) => void;
+  assertAppAllowed?: (app: import("./appInstallationState").InstalledAppPackage) => Promise<void>;
 }): Promise<DesktopAppRuntime> {
   const storeResult = await AppInstallationStore.openSafe(
     resolveAppInstallationStatePath(input.userDataPath),
@@ -88,6 +89,7 @@ export async function startDesktopAppRuntime(input: {
     store,
     sessions,
     controllers: controllerHost,
+    ...(input.assertAppAllowed === undefined ? {} : { assertAppAllowed: input.assertAppAllowed }),
   });
   const installations = new AppInstallationService({ store, lifecycle });
   const packages = new AppPackageIngestor(resolveAppPackageStorePath(input.userDataPath));
@@ -102,6 +104,7 @@ export async function startDesktopAppRuntime(input: {
     onOpened: input.onTabOpened,
     onState: input.onTabState,
     onRendererCreated: registerRendererIdentity,
+    ...(input.assertAppAllowed === undefined ? {} : { assertAppAllowed: input.assertAppAllowed }),
   });
   const unbindTabs = tabs.bind(appTabs);
   const restoreResults = await lifecycle.restoreEnabled();

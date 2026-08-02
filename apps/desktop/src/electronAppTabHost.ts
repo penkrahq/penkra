@@ -38,6 +38,7 @@ export class ElectronAppTabHost implements AppTabHost {
   readonly #onOpened: (descriptor: DesktopAppTabDescriptor) => void;
   readonly #onState: (descriptor: DesktopAppTabDescriptor) => void;
   readonly #onRendererCreated: (input: { appId: string; spaceId: string; rendererId: number }) => (() => void) | void;
+  readonly #assertAppAllowed: (app: InstalledAppPackage) => Promise<void>;
   readonly #records = new Map<string, AppTabRecord>();
 
   constructor(input: {
@@ -51,6 +52,7 @@ export class ElectronAppTabHost implements AppTabHost {
     onOpened: (descriptor: DesktopAppTabDescriptor) => void;
     onState: (descriptor: DesktopAppTabDescriptor) => void;
     onRendererCreated?: (input: { appId: string; spaceId: string; rendererId: number }) => (() => void) | void;
+    assertAppAllowed?: (app: InstalledAppPackage) => Promise<void>;
   }) {
     this.#window = input.window;
     this.#installations = input.installations;
@@ -62,6 +64,7 @@ export class ElectronAppTabHost implements AppTabHost {
     this.#onOpened = input.onOpened;
     this.#onState = input.onState;
     this.#onRendererCreated = input.onRendererCreated ?? (() => undefined);
+    this.#assertAppAllowed = input.assertAppAllowed ?? (async () => undefined);
   }
 
   async open(input: OpenAppTabRequest): Promise<AppTabHandle> {
@@ -139,6 +142,7 @@ export class ElectronAppTabHost implements AppTabHost {
   }
 
   async #create(input: OpenAppTabRequest): Promise<AppTabHandle> {
+    await this.#assertAppAllowed(input.app);
     const activeSession = this.#sessions.get(input.app.appId, input.spaceId);
     if (!activeSession) throw new Error(`${input.app.name} is not active in this Space.`);
     const id = randomUUID();

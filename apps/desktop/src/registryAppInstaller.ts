@@ -8,6 +8,7 @@ import type { AppInstallationService } from "./appInstallationService";
 import type { AppInstallationState, AppPermissionGrant } from "./appInstallationState";
 import type { AppPackageIngestor } from "./appPackageIngestor";
 import type { AppRegistryClient } from "./appRegistryClient";
+import { assertRegistryReleaseAllowed } from "./appRegistryTrust";
 
 export async function installRegistryApp(input: {
   request: {
@@ -17,7 +18,7 @@ export async function installRegistryApp(input: {
     permissions: Readonly<Record<string, AppPermissionGrant>>;
   };
   hostVersion: string;
-  registry: Pick<AppRegistryClient, "get" | "downloadVerifiedRelease" | "recordSuccessfulInstall">;
+  registry: Pick<AppRegistryClient, "get" | "downloadVerifiedRelease" | "getSecurityPolicy" | "recordSuccessfulInstall">;
   packages: Pick<AppPackageIngestor, "ingestRegistryArchive">;
   installations: Pick<AppInstallationService, "installForSpace">;
 }): Promise<AppInstallationState> {
@@ -28,7 +29,15 @@ export async function installRegistryApp(input: {
     throw new Error(`App ${app.displayName} ${version.version} is not compatible with Penkra ${input.hostVersion}.`);
   }
   const grants = resolvePermissionGrants(version.permissions, input.request.permissions);
-  const verified = await input.registry.downloadVerifiedRelease({ app, version });
+  const [verified, policy] = await Promise.all([
+    input.registry.downloadVerifiedRelease({ app, version }),
+    input.registry.getSecurityPolicy(),
+  ]);
+  assertRegistryReleaseAllowed(policy, {
+    appId: verified.release.appId,
+    versionId: verified.release.versionId,
+    publisherId: verified.release.publisher.id,
+  });
   const installedPackage = await input.packages.ingestRegistryArchive({
     packageBytes: verified.packageBytes,
     expectedArchiveDigest: verified.release.packageDigest,
@@ -49,6 +58,7 @@ export async function installRegistryApp(input: {
       registryRelease: {
         appId: app.id,
         versionId: version.id,
+        publisherId: verified.release.publisher.id,
         packageDigest: verified.release.packageDigest,
         keyId: verified.release.keyId,
         publishedAt: verified.release.publishedAt,

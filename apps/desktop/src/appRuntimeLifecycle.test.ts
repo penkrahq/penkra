@@ -5,6 +5,7 @@ import {
   registerVerifiedAppPackage,
   setSpaceAppEnabled,
   type AppInstallationState,
+  type InstalledAppPackage,
 } from "./appInstallationState";
 import { AppRuntimeLifecycle } from "./appRuntimeLifecycle";
 import type { ActivateAppSessionInput, ActiveAppSession } from "./appSessionManager";
@@ -34,7 +35,7 @@ function installedState(enabled = false): AppInstallationState {
   });
 }
 
-function fixture(initial = installedState()) {
+function fixture(initial = installedState(), assertAppAllowed?: (app: InstalledAppPackage) => Promise<void>) {
   let state = initial;
   const store = {
     snapshot: vi.fn(() => state),
@@ -52,7 +53,12 @@ function fixture(initial = installedState()) {
     activate: vi.fn(async () => releaseController),
   };
   return {
-    lifecycle: new AppRuntimeLifecycle({ store, sessions, controllers }),
+    lifecycle: new AppRuntimeLifecycle({
+      store,
+      sessions,
+      controllers,
+      ...(assertAppAllowed === undefined ? {} : { assertAppAllowed }),
+    }),
     store,
     sessions,
     controllers,
@@ -62,6 +68,17 @@ function fixture(initial = installedState()) {
 }
 
 describe("AppRuntimeLifecycle", () => {
+  it("rejects blocked Apps before creating a session or controller", async () => {
+    const assertAppAllowed = vi.fn().mockRejectedValue(new Error("App release revoked"));
+    const test = fixture(installedState(), assertAppAllowed);
+
+    await expect(test.lifecycle.enable("com.penkra.apps", "personal")).rejects.toThrow("revoked");
+    expect(assertAppAllowed).toHaveBeenCalledOnce();
+    expect(test.sessions.activate).not.toHaveBeenCalled();
+    expect(test.controllers.activate).not.toHaveBeenCalled();
+    expect(test.store.mutate).not.toHaveBeenCalled();
+  });
+
   it("activates session and controller before publishing enabled state", async () => {
     const test = fixture();
     const events: string[] = [];

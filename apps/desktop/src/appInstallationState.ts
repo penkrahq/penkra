@@ -24,6 +24,7 @@ export interface InstalledAppPackage {
   registryRelease?: {
     appId: string;
     versionId: string;
+    publisherId?: string;
     packageDigest: string;
     keyId: string;
     publishedAt: string;
@@ -292,14 +293,18 @@ function parseRegistryRelease(value: unknown, recordKey: string): NonNullable<In
   }
   const appId = requireNonEmptyString(value.appId, `Package ${recordKey} registry App id`);
   const versionId = requireNonEmptyString(value.versionId, `Package ${recordKey} registry version id`);
+  const publisherId = value.publisherId === undefined
+    ? undefined
+    : requireNonEmptyString(value.publisherId, `Package ${recordKey} registry publisher id`);
   const keyId = requireNonEmptyString(value.keyId, `Package ${recordKey} registry key id`);
   const publishedAt = requireNonEmptyString(value.publishedAt, `Package ${recordKey} registry publication time`);
-  if (!UUID_PATTERN.test(appId) || !UUID_PATTERN.test(versionId) || !KEY_ID_PATTERN.test(keyId) || !Number.isFinite(Date.parse(publishedAt))) {
+  if (!UUID_PATTERN.test(appId) || !UUID_PATTERN.test(versionId) || (publisherId !== undefined && !UUID_PATTERN.test(publisherId)) || !KEY_ID_PATTERN.test(keyId) || !Number.isFinite(Date.parse(publishedAt))) {
     throw new AppInstallationStateError("invalid-state", `Package ${recordKey} registry release identity is invalid.`);
   }
   return {
     appId,
     versionId,
+    ...(publisherId === undefined ? {} : { publisherId }),
     packageDigest,
     keyId,
     publishedAt,

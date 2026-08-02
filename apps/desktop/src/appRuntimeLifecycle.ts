@@ -23,6 +23,7 @@ export interface AppRuntimeLifecycleDependencies {
   store: Pick<AppInstallationStore, "snapshot" | "mutate">;
   sessions: Pick<AppSessionManager, "activate" | "deactivate">;
   controllers: AppRuntimeControllerHost;
+  assertAppAllowed?: (app: InstalledAppPackage) => Promise<void>;
 }
 
 export type AppRuntimeRestoreResult =
@@ -44,6 +45,7 @@ export class AppRuntimeLifecycle {
   readonly #store: AppRuntimeLifecycleDependencies["store"];
   readonly #sessions: AppRuntimeLifecycleDependencies["sessions"];
   readonly #controllers: AppRuntimeControllerHost;
+  readonly #assertAppAllowed: (app: InstalledAppPackage) => Promise<void>;
   readonly #active = new Map<string, ActiveRuntime>();
   readonly #queues = new Map<string, Promise<void>>();
 
@@ -51,6 +53,7 @@ export class AppRuntimeLifecycle {
     this.#store = dependencies.store;
     this.#sessions = dependencies.sessions;
     this.#controllers = dependencies.controllers;
+    this.#assertAppAllowed = dependencies.assertAppAllowed ?? (async () => undefined);
   }
 
   async restoreEnabled(): Promise<ReadonlyArray<AppRuntimeRestoreResult>> {
@@ -133,6 +136,7 @@ export class AppRuntimeLifecycle {
     if (this.#active.has(key)) return;
     const installedApp = snapshot.packagesByAppId[appId];
     if (!installedApp) throw new Error(`${appId} is not installed.`);
+    await this.#assertAppAllowed(installedApp);
 
     const activeSession = await this.#sessions.activate({ installedApp, spaceId });
     let releaseController: (() => Promise<void> | void) | null = null;

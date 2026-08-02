@@ -8,10 +8,14 @@ import type {
   DesktopRegistryAppSummary,
 } from "@penkra/contracts";
 import { createHash } from "node:crypto";
+import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
 
 import {
+  verifyRegistryPolicyAttestation,
   verifyRegistryReleaseAttestation,
   type RegistryTrustKey,
+  type VerifiedRegistryPolicy,
   type VerifiedRegistryRelease,
 } from "./appRegistryTrust";
 
@@ -23,17 +27,21 @@ export class AppRegistryClient {
   readonly #fetch: typeof fetch;
   readonly #getCookie: () => string;
   readonly #trustedRegistryKeys: ReadonlyArray<RegistryTrustKey>;
+  readonly #policyCachePath: string | undefined;
+  #memoryPolicy: { value: VerifiedRegistryPolicy; loadedAt: number } | undefined;
 
   constructor(input: {
     apiUrl: string;
     getCookie: () => string;
     fetch?: typeof fetch;
     trustedRegistryKeys?: ReadonlyArray<RegistryTrustKey>;
+    policyCachePath?: string;
   }) {
     this.#apiUrl = input.apiUrl.replace(/\/$/, "");
     this.#getCookie = input.getCookie;
     this.#fetch = input.fetch ?? globalThis.fetch;
     this.#trustedRegistryKeys = input.trustedRegistryKeys ?? [];
+    this.#policyCachePath = input.policyCachePath;
   }
 
   async list(
@@ -163,6 +171,35 @@ export class AppRegistryClient {
     return { packageBytes, release };
   }
 
+  async getSecurityPolicy(): Promise<VerifiedRegistryPolicy> {
+    if (this.#memoryPolicy && Date.now() - this.#memoryPolicy.loadedAt < 5 * 60_000) {
+      return this.#memoryPolicy.value;
+    }
+    const trustedKeys = await this.#registryTrustKeys();
+    try {
+      const response = await this.#fetch(`${this.#apiUrl}/.well-known/penkra-app-policy.jws`, {
+        headers: { accept: "application/jose" },
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (!response.ok) throw new Error(`The registry security policy returned HTTP ${response.status}.`);
+      const compactJws = await boundedText(response, 2 * 1024 * 1024);
+      const policy = verifyRegistryPolicyAttestation({ compactJws, trustedKeys });
+      await this.#writePolicyCache(compactJws);
+      this.#memoryPolicy = { value: policy, loadedAt: Date.now() };
+      return policy;
+    } catch (networkError) {
+      if (!this.#policyCachePath) throw networkError;
+      try {
+        const compactJws = await readFile(this.#policyCachePath, "utf8");
+        const policy = verifyRegistryPolicyAttestation({ compactJws, trustedKeys });
+        this.#memoryPolicy = { value: policy, loadedAt: Date.now() };
+        return policy;
+      } catch {
+        throw networkError;
+      }
+    }
+  }
+
   async recordSuccessfulInstall(input: { appId: string; versionId: string }): Promise<void> {
     if (!UUID.test(input.appId) || !UUID.test(input.versionId)) throw new Error("Invalid registry release identity.");
     const value = await this.#request(
@@ -253,6 +290,29 @@ export class AppRegistryClient {
     if (!isRecord(value) || !Array.isArray(value.keys)) throw invalidResponse();
     return value.keys.map(parseRegistryTrustKey);
   }
+
+  async #writePolicyCache(compactJws: string): Promise<void> {
+    if (!this.#policyCachePath) return;
+    const temporaryPath = `${this.#policyCachePath}.${process.pid}.tmp`;
+    try {
+      await mkdir(dirname(this.#policyCachePath), { recursive: true });
+      await writeFile(temporaryPath, compactJws, { encoding: "utf8", mode: 0o600 });
+      await rename(temporaryPath, this.#policyCachePath);
+    } catch (error) {
+      await unlink(temporaryPath).catch(() => undefined);
+      console.warn("[penkra-app] Registry policy cache could not be updated.", error);
+    }
+  }
+}
+
+async function boundedText(response: Response, maximumBytes: number): Promise<string> {
+  const declaredLength = Number(response.headers.get("content-length") ?? "0");
+  if (Number.isFinite(declaredLength) && declaredLength > maximumBytes) {
+    throw new Error("The registry security policy exceeds the allowed size.");
+  }
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  if (bytes.byteLength > maximumBytes) throw new Error("The registry security policy exceeds the allowed size.");
+  return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
 }
 
 function parseCatalog(value: unknown): {

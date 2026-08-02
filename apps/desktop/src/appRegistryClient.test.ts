@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { createHash, generateKeyPairSync, sign } from "node:crypto";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { AppRegistryClient } from "./appRegistryClient";
 
@@ -193,6 +196,35 @@ describe("desktop App registry client", () => {
       }),
     );
   });
+
+  it("verifies and atomically reuses the last-known-good policy while offline", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "penkra-policy-test-"));
+    try {
+      const signed = signedPolicy();
+      const cachePath = join(directory, "policy.jws");
+      const online = new AppRegistryClient({
+        apiUrl: "https://api.penkra.com",
+        getCookie: () => "",
+        fetch: vi.fn().mockResolvedValue(new Response(signed.jws, {
+          headers: { "content-type": "application/jose" },
+        })),
+        trustedRegistryKeys: [signed.trustKey],
+        policyCachePath: cachePath,
+      });
+      await expect(online.getSecurityPolicy()).resolves.toMatchObject({ revocations: [] });
+
+      const offline = new AppRegistryClient({
+        apiUrl: "https://api.penkra.com",
+        getCookie: () => "",
+        fetch: vi.fn().mockRejectedValue(new Error("offline")),
+        trustedRegistryKeys: [signed.trustKey],
+        policyCachePath: cachePath,
+      });
+      await expect(offline.getSecurityPolicy()).resolves.toMatchObject({ keyId: signed.trustKey.kid });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
 });
 
 function jsonResponse(body: unknown): Response {
@@ -245,6 +277,28 @@ function signedAttestation(app: ReturnType<typeof registryDetail>, version: Retu
     evidence: { publisherSignatureDigest: "e".repeat(64), validationReportDigest: "f".repeat(64) },
     permissions: version.permissions,
     publishedAt: version.publishedAt,
+  })).toString("base64url");
+  const signature = sign(null, Buffer.from(`${protectedValue}.${payloadValue}`), privateKey).toString("base64url");
+  const jwk = publicKey.export({ format: "jwk" });
+  return {
+    jws: `${protectedValue}.${payloadValue}.${signature}`,
+    trustKey: { kty: "OKP" as const, crv: "Ed25519" as const, x: jwk.x!, kid, alg: "EdDSA" as const, use: "sig" as const },
+  };
+}
+
+function signedPolicy() {
+  const { privateKey, publicKey } = generateKeyPairSync("ed25519");
+  const publicDer = Buffer.from(publicKey.export({ format: "der", type: "spki" }));
+  const kid = createHash("sha256").update(publicDer).digest("hex").slice(0, 16);
+  const protectedValue = Buffer.from(JSON.stringify({ alg: "EdDSA", kid, typ: "penkra-policy+jws" })).toString("base64url");
+  const generatedAt = new Date();
+  const payloadValue = Buffer.from(JSON.stringify({
+    schemaVersion: 1,
+    kind: "penkra-app-policy",
+    registry: "penkra.com",
+    generatedAt: generatedAt.toISOString(),
+    expiresAt: new Date(generatedAt.getTime() + 30 * 24 * 60 * 60_000).toISOString(),
+    revocations: [],
   })).toString("base64url");
   const signature = sign(null, Buffer.from(`${protectedValue}.${payloadValue}`), privateKey).toString("base64url");
   const jwk = publicKey.export({ format: "jwk" });

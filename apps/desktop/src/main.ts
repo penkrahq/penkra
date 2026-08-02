@@ -202,7 +202,7 @@ import {
 } from "./desktopUserDataProfile";
 import { configurePenkraAccountAuth } from "./accountAuth";
 import { AppRegistryClient } from "./appRegistryClient";
-import { parseRegistryTrustKeys } from "./appRegistryTrust";
+import { assertRegistryReleaseAllowed, parseRegistryTrustKeys } from "./appRegistryTrust";
 import { createDesktopPrivilegedSchemes } from "./desktopProtocolSchemes";
 import { isBrokenPipeError } from "./desktopProcessErrors";
 import {
@@ -4432,6 +4432,7 @@ if (hasSingleInstanceLock) {
     trustedRegistryKeys: parseRegistryTrustKeys(
       process.env.PENKRA_REGISTRY_TRUSTED_KEYS ?? __PENKRA_REGISTRY_TRUSTED_KEYS__,
     ),
+    policyCachePath: Path.join(STATE_DIR, "registry-app-policy.jws"),
   });
 }
 
@@ -4481,6 +4482,17 @@ async function bootstrap(): Promise<void> {
       console.warn(
         `[penkra-app] Rejected invalid renderer message sender=${senderId}: ${formatErrorMessage(error)}`,
       );
+    },
+    assertAppAllowed: async (installedApp) => {
+      const release = installedApp.registryRelease;
+      if (!release) return;
+      if (!appRegistryClient) throw new Error("The App registry security policy is unavailable.");
+      const policy = await appRegistryClient.getSecurityPolicy();
+      assertRegistryReleaseAllowed(policy, {
+        appId: release.appId,
+        versionId: release.versionId,
+        publisherId: release.publisherId ?? "",
+      });
     },
   });
   if (desktopAppRuntime.safeStartRecovery) {

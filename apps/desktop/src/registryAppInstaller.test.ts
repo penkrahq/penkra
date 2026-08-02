@@ -36,6 +36,13 @@ describe("registry App installer", () => {
   it("passes only a verified, compatible package and reviewed grants to installation", async () => {
     const installForSpace = vi.fn().mockResolvedValue(createEmptyAppInstallationState());
     const recordSuccessfulInstall = vi.fn().mockResolvedValue(undefined);
+    const getSecurityPolicy = vi.fn().mockResolvedValue({
+      registry: "penkra.com",
+      generatedAt: "2026-08-01T00:00:00.000Z",
+      expiresAt: "2026-09-01T00:00:00.000Z",
+      revocations: [],
+      keyId: "a".repeat(16),
+    });
     const packageBytes = Uint8Array.from([1, 2, 3]);
     const ingestRegistryArchive = vi.fn().mockResolvedValue({
       source: "registry",
@@ -64,11 +71,15 @@ describe("registry App installer", () => {
         downloadVerifiedRelease: vi.fn().mockResolvedValue({
           packageBytes,
           release: {
+            appId: app.id,
+            versionId: version.id,
+            publisher: { id: "00000000-0000-4000-8000-000000000409" },
             packageDigest: version.packageDigest,
             keyId: "a".repeat(16),
             publishedAt: version.publishedAt,
           },
         }),
+        getSecurityPolicy,
         recordSuccessfulInstall,
       },
       packages: { ingestRegistryArchive },
@@ -88,7 +99,12 @@ describe("registry App installer", () => {
     await expect(installRegistryApp({
       request: { slug: "canvas", version: "1.0.0", spaceId: "space", permissions: {} },
       hostVersion: "0.8.7",
-      registry: { get: vi.fn().mockResolvedValue(app), downloadVerifiedRelease, recordSuccessfulInstall: vi.fn() },
+      registry: {
+        get: vi.fn().mockResolvedValue(app),
+        downloadVerifiedRelease,
+        getSecurityPolicy: vi.fn(),
+        recordSuccessfulInstall: vi.fn(),
+      },
       packages: { ingestRegistryArchive: vi.fn() },
       installations: { installForSpace: vi.fn() },
     })).rejects.toThrow("must be granted");
