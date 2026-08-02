@@ -38,11 +38,12 @@ function fixture() {
   };
   const lifecycle = {
     enable: vi.fn(async (appId: string, spaceId: string) => {
+      const current = state.spaceStateByKey[spaceId + "\0" + appId];
       state = {
         ...state,
         spaceStateByKey: {
           ...state.spaceStateByKey,
-          [spaceId + "\0" + appId]: { appId, spaceId, enabled: true, permissions: {} },
+          [spaceId + "\0" + appId]: { appId, spaceId, enabled: true, permissions: current?.permissions ?? {} },
         },
       };
       return state;
@@ -69,6 +70,22 @@ function fixture() {
 }
 
 describe("AppInstallationService", () => {
+  it("commits a verified registry package and reviewed Space grants before activation", async () => {
+    const test = fixture();
+
+    await test.service.installForSpace({
+      package: { ...verifiedPackage(), source: "registry" },
+      spaceId: "personal",
+      permissions: { "network-fetch": "granted" },
+    });
+
+    expect(test.lifecycle.enable).toHaveBeenCalledWith("com.acme.figma", "personal");
+    expect(test.state().packagesByAppId["com.acme.figma"]).toBeDefined();
+    expect(test.state().spaceStateByKey["personal\0com.acme.figma"]).toMatchObject({
+      enabled: true,
+      permissions: { "network-fetch": "granted" },
+    });
+  });
   it("publishes package and Space changes through one trusted owner", async () => {
     const test = fixture();
     const listener = vi.fn();

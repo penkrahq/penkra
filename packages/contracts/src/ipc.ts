@@ -453,6 +453,12 @@ export interface DesktopAppInstallationSnapshot {
 
 export interface DesktopAppInstallationBridge {
   getState: () => Promise<DesktopAppInstallationSnapshot>;
+  installRegistry: (input: {
+    slug: string;
+    version: string;
+    spaceId: string;
+    permissions: Readonly<Record<string, "denied" | "granted">>;
+  }) => Promise<DesktopAppInstallationSnapshot>;
   setEnabled: (input: {
     appId: string;
     spaceId: string;
@@ -508,6 +514,9 @@ export interface DesktopRegistryAppDetail extends DesktopRegistryAppSummary {
     publishedAt: string;
     readmeArtifactId: string;
     instructionsArtifactId: string;
+    publisherSignatureArtifactId: string;
+    registrySignatureArtifactId: string;
+    validationReportArtifactId: string;
     permissions: ReadonlyArray<{
       permission: string;
       required: boolean;

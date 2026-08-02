@@ -7,6 +7,13 @@ import type {
   DesktopRegistryAppDetail,
   DesktopRegistryAppSummary,
 } from "@penkra/contracts";
+import { createHash } from "node:crypto";
+
+import {
+  verifyRegistryReleaseAttestation,
+  type RegistryTrustKey,
+  type VerifiedRegistryRelease,
+} from "./appRegistryTrust";
 
 const APP_SLUG = /^[a-z][a-z0-9-]{1,62}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -15,15 +22,18 @@ export class AppRegistryClient {
   readonly #apiUrl: string;
   readonly #fetch: typeof fetch;
   readonly #getCookie: () => string;
+  readonly #trustedRegistryKeys: ReadonlyArray<RegistryTrustKey>;
 
   constructor(input: {
     apiUrl: string;
     getCookie: () => string;
     fetch?: typeof fetch;
+    trustedRegistryKeys?: ReadonlyArray<RegistryTrustKey>;
   }) {
     this.#apiUrl = input.apiUrl.replace(/\/$/, "");
     this.#getCookie = input.getCookie;
     this.#fetch = input.fetch ?? globalThis.fetch;
+    this.#trustedRegistryKeys = input.trustedRegistryKeys ?? [];
   }
 
   async list(
@@ -103,14 +113,83 @@ export class AppRegistryClient {
     };
   }
 
-  async #request(path: string): Promise<unknown> {
+  async downloadVerifiedRelease(input: {
+    app: DesktopRegistryAppDetail;
+    version: DesktopRegistryAppDetail["versions"][number];
+  }): Promise<{ packageBytes: Uint8Array; release: VerifiedRegistryRelease }> {
+    if (input.app.slug.length === 0 || input.version.version.length === 0) throw invalidResponse();
+    const packageValue = await this.#request(
+      `/api/registry/apps/${encodeURIComponent(input.app.slug)}/versions/${encodeURIComponent(input.version.version)}/package`,
+    );
+    if (!isRecord(packageValue)) throw invalidResponse();
+    const packageUrl = stringField(packageValue, "url");
+    this.#assertRegistryObjectUrl(packageUrl);
+    const packageDigest = digestField(packageValue, "sha256");
+    const packageSize = integerField(packageValue, "sizeBytes", 1);
+    if (
+      uuidField(packageValue, "appId") !== input.app.id ||
+      uuidField(packageValue, "versionId") !== input.version.id ||
+      stringField(packageValue, "version") !== input.version.version ||
+      packageDigest !== input.version.packageDigest ||
+      packageSize > 64 * 1024 * 1024
+    ) {
+      throw invalidResponse();
+    }
+    integerField(packageValue, "expiresInSeconds", 1);
+    const [packageBytes, attestation, trustedKeys] = await Promise.all([
+      this.#downloadBytes(packageUrl, packageSize, 64 * 1024 * 1024),
+      this.#downloadArtifactBytes(input.version.registrySignatureArtifactId, "application/jose", 512 * 1024),
+      this.#registryTrustKeys(),
+    ]);
+    if (createHash("sha256").update(packageBytes).digest("hex") !== packageDigest) {
+      throw new Error("Downloaded App package digest does not match the registry.");
+    }
+    const release = verifyRegistryReleaseAttestation({
+      compactJws: new TextDecoder("utf-8", { fatal: true }).decode(attestation),
+      trustedKeys,
+      expected: {
+        appId: input.app.id,
+        identifier: input.app.identifier,
+        slug: input.app.slug,
+        versionId: input.version.id,
+        version: input.version.version,
+        compatibilityRange: input.version.compatibilityRange,
+        packageDigest: input.version.packageDigest,
+        publishedAt: input.version.publishedAt,
+        publisherSlug: input.app.publisher.slug,
+        permissions: input.version.permissions,
+      },
+    });
+    return { packageBytes, release };
+  }
+
+  async recordSuccessfulInstall(input: { appId: string; versionId: string }): Promise<void> {
+    if (!UUID.test(input.appId) || !UUID.test(input.versionId)) throw new Error("Invalid registry release identity.");
+    const value = await this.#request(
+      `/api/registry/apps/${encodeURIComponent(input.appId)}/install-receipts`,
+      { method: "POST", body: JSON.stringify({ versionId: input.versionId }) },
+    );
+    if (
+      !isRecord(value) ||
+      uuidField(value, "appId") !== input.appId ||
+      !UUID.test(stringField(value, "firstInstalledVersionId")) ||
+      !Number.isFinite(Date.parse(stringField(value, "installedAt")))
+    ) {
+      throw invalidResponse();
+    }
+  }
+
+  async #request(path: string, init: { method?: "POST"; body?: string } = {}): Promise<unknown> {
     const cookie = this.#getCookie().trim();
     if (!cookie) throw new Error("Sign in to use the Penkra App registry.");
     const response = await this.#fetch(`${this.#apiUrl}${path}`, {
       headers: {
         accept: "application/json",
         cookie,
+        ...(init.body === undefined ? {} : { "content-type": "application/json" }),
       },
+      ...(init.method === undefined ? {} : { method: init.method }),
+      ...(init.body === undefined ? {} : { body: init.body }),
       signal: AbortSignal.timeout(15_000),
     });
     const contentType = response.headers.get("content-type") ?? "";
@@ -135,6 +214,44 @@ export class AppRegistryClient {
     if (url.protocol !== "http:" || !loopback(api.hostname) || !loopback(url.hostname)) {
       throw invalidResponse();
     }
+  }
+
+  async #downloadArtifactBytes(id: string, contentType: string, maximumBytes: number): Promise<Uint8Array> {
+    const value = await this.#request(`/api/registry/artifacts/${encodeURIComponent(id)}`);
+    if (!isRecord(value) || stringField(value, "contentType") !== contentType) throw invalidResponse();
+    integerField(value, "expiresInSeconds", 1);
+    const url = stringField(value, "url");
+    this.#assertRegistryObjectUrl(url);
+    return this.#downloadBytes(url, undefined, maximumBytes);
+  }
+
+  async #downloadBytes(url: string, exactBytes: number | undefined, maximumBytes: number): Promise<Uint8Array> {
+    const response = await this.#fetch(url, { signal: AbortSignal.timeout(30_000) });
+    if (!response.ok) throw new Error(`The registry object returned HTTP ${response.status}.`);
+    const declaredLength = Number(response.headers.get("content-length") ?? "0");
+    if (Number.isFinite(declaredLength) && declaredLength > maximumBytes) {
+      throw new Error("The registry object exceeds the allowed size.");
+    }
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (bytes.byteLength > maximumBytes || (exactBytes !== undefined && bytes.byteLength !== exactBytes)) {
+      throw new Error("The registry object has an invalid size.");
+    }
+    return bytes;
+  }
+
+  async #registryTrustKeys(): Promise<ReadonlyArray<RegistryTrustKey>> {
+    if (this.#trustedRegistryKeys.length > 0) return this.#trustedRegistryKeys;
+    const api = new URL(this.#apiUrl);
+    const loopback = api.hostname === "localhost" || api.hostname === "127.0.0.1";
+    if (!loopback) throw new Error("No trusted Penkra registry signing key is configured.");
+    const response = await this.#fetch(`${this.#apiUrl}/.well-known/penkra-registry-keys.json`, {
+      headers: { accept: "application/json" },
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!response.ok) throw new Error("The local registry signing key is unavailable.");
+    const value = await response.json() as unknown;
+    if (!isRecord(value) || !Array.isArray(value.keys)) throw invalidResponse();
+    return value.keys.map(parseRegistryTrustKey);
   }
 }
 
@@ -179,6 +296,9 @@ function parseDetail(value: unknown): DesktopRegistryAppDetail {
         publishedAt: isoDateField(version, "publishedAt"),
         readmeArtifactId: uuidField(version, "readmeArtifactId"),
         instructionsArtifactId: uuidField(version, "instructionsArtifactId"),
+        publisherSignatureArtifactId: uuidField(version, "publisherSignatureArtifactId"),
+        registrySignatureArtifactId: uuidField(version, "registrySignatureArtifactId"),
+        validationReportArtifactId: uuidField(version, "validationReportArtifactId"),
         permissions: version.permissions.map((permission) => {
           if (!isRecord(permission)) throw invalidResponse();
           return {
@@ -260,6 +380,22 @@ function digestField(value: Record<string, unknown>, key: string): string {
   const field = stringField(value, key);
   if (!/^[a-f0-9]{64}$/.test(field)) throw invalidResponse();
   return field;
+}
+
+function parseRegistryTrustKey(value: unknown): RegistryTrustKey {
+  if (!isRecord(value)) throw invalidResponse();
+  const key: RegistryTrustKey = {
+    kty: stringField(value, "kty") as "OKP",
+    crv: stringField(value, "crv") as "Ed25519",
+    x: stringField(value, "x"),
+    kid: stringField(value, "kid"),
+    alg: stringField(value, "alg") as "EdDSA",
+    use: stringField(value, "use") as "sig",
+  };
+  if (key.kty !== "OKP" || key.crv !== "Ed25519" || key.alg !== "EdDSA" || key.use !== "sig") {
+    throw invalidResponse();
+  }
+  return key;
 }
 
 function isoDateField(value: Record<string, unknown>, key: string): string {

@@ -21,6 +21,13 @@ export interface InstalledAppPackage {
   installedAt: string;
   /** Exact validated manifest committed with these immutable package bytes. */
   manifest: PenkraAppManifest;
+  registryRelease?: {
+    appId: string;
+    versionId: string;
+    packageDigest: string;
+    keyId: string;
+    publishedAt: string;
+  };
 }
 
 export interface SpaceAppState {
@@ -61,9 +68,12 @@ export interface VerifiedAppPackageInput {
   /** Lowercase hexadecimal SHA-256 of the immutable package bytes. */
   sha256: string;
   installedAt: string;
+  registryRelease?: InstalledAppPackage["registryRelease"];
 }
 
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const KEY_ID_PATTERN = /^[a-f0-9]{16}$/;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -132,6 +142,9 @@ function parseInstalledPackage(value: unknown, recordKey: string): InstalledAppP
     sha256,
     installedAt: requireNonEmptyString(value.installedAt, `Package ${recordKey} installedAt`),
     manifest: value.manifest,
+    ...(value.registryRelease === undefined
+      ? {}
+      : { registryRelease: parseRegistryRelease(value.registryRelease, recordKey) }),
   };
   if (
     installedPackage.manifest.id !== installedPackage.appId ||
@@ -144,6 +157,9 @@ function parseInstalledPackage(value: unknown, recordKey: string): InstalledAppP
       "invalid-state",
       `Package ${recordKey} metadata does not match its committed manifest.`,
     );
+  }
+  if (installedPackage.registryRelease && installedPackage.source !== "registry") {
+    throw new AppInstallationStateError("invalid-state", `Package ${recordKey} has registry evidence but is not registry sourced.`);
   }
   return installedPackage;
 }
@@ -246,6 +262,9 @@ function toInstalledPackage(input: VerifiedAppPackageInput): InstalledAppPackage
       "Verified package sha256 must be lowercase hexadecimal SHA-256.",
     );
   }
+  if (input.registryRelease && input.source !== "registry") {
+    throw new AppInstallationStateError("invalid-state", "Only registry packages may carry registry release evidence.");
+  }
   return {
     appId: input.manifest.id,
     slug: input.manifest.slug,
@@ -257,6 +276,33 @@ function toInstalledPackage(input: VerifiedAppPackageInput): InstalledAppPackage
     sha256: input.sha256,
     installedAt: input.installedAt,
     manifest: input.manifest,
+    ...(input.registryRelease === undefined
+      ? {}
+      : { registryRelease: parseRegistryRelease(input.registryRelease, input.manifest.id) }),
+  };
+}
+
+function parseRegistryRelease(value: unknown, recordKey: string): NonNullable<InstalledAppPackage["registryRelease"]> {
+  if (!isRecord(value)) {
+    throw new AppInstallationStateError("invalid-state", `Package ${recordKey} registry release must be an object.`);
+  }
+  const packageDigest = requireNonEmptyString(value.packageDigest, `Package ${recordKey} registry package digest`);
+  if (!SHA256_PATTERN.test(packageDigest)) {
+    throw new AppInstallationStateError("invalid-state", `Package ${recordKey} registry package digest is invalid.`);
+  }
+  const appId = requireNonEmptyString(value.appId, `Package ${recordKey} registry App id`);
+  const versionId = requireNonEmptyString(value.versionId, `Package ${recordKey} registry version id`);
+  const keyId = requireNonEmptyString(value.keyId, `Package ${recordKey} registry key id`);
+  const publishedAt = requireNonEmptyString(value.publishedAt, `Package ${recordKey} registry publication time`);
+  if (!UUID_PATTERN.test(appId) || !UUID_PATTERN.test(versionId) || !KEY_ID_PATTERN.test(keyId) || !Number.isFinite(Date.parse(publishedAt))) {
+    throw new AppInstallationStateError("invalid-state", `Package ${recordKey} registry release identity is invalid.`);
+  }
+  return {
+    appId,
+    versionId,
+    packageDigest,
+    keyId,
+    publishedAt,
   };
 }
 

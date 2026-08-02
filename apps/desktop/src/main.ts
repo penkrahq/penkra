@@ -202,6 +202,7 @@ import {
 } from "./desktopUserDataProfile";
 import { configurePenkraAccountAuth } from "./accountAuth";
 import { AppRegistryClient } from "./appRegistryClient";
+import { parseRegistryTrustKeys } from "./appRegistryTrust";
 import { createDesktopPrivilegedSchemes } from "./desktopProtocolSchemes";
 import { isBrokenPipeError } from "./desktopProcessErrors";
 import {
@@ -227,6 +228,7 @@ import {
 import { DESKTOP_IPC_CHANNELS } from "./ipcChannels";
 import { startDesktopAppRuntime, type DesktopAppRuntime } from "./desktopAppRuntime";
 import {
+  parseInstallRegistryAppRequest,
   parseRemoveAppDataRequest,
   parseSetAppEnabledRequest,
   parseSetAppPermissionRequest,
@@ -238,6 +240,7 @@ import {
   parseRegistryGetRequest,
   parseRegistryListRequest,
 } from "./appRegistryIpc";
+import { installRegistryApp } from "./registryAppInstaller";
 import {
   bootstrapFirstPartyAppsPackage,
   PENKRA_APPS_PACKAGE_PATH_ENV,
@@ -1032,6 +1035,7 @@ function resolveEmbeddedCommitHash(): string | null {
 }
 
 declare const __PENKRA_WINDOWS_UPDATER_PUBLISHER__: string;
+declare const __PENKRA_REGISTRY_TRUSTED_KEYS__: string;
 
 function resolveEmbeddedWindowsPublisherSubjects(): string[] {
   if (!app.isPackaged || process.platform !== "win32") {
@@ -3604,6 +3608,24 @@ function registerIpcHandlers(): void {
     if (!appRegistryClient) throw new Error("The App registry is not ready.");
     return appRegistryClient;
   };
+  ipcMain.handle(IPC.appInstallations.installRegistry, async (event, input: unknown) => {
+    const request = parseInstallRegistryAppRequest(input);
+    const registry = requireAppsRegistry(event.sender.id);
+    const runtime = desktopAppRuntime;
+    if (!runtime) throw new Error("The App runtime is not ready.");
+    const currentSpaceId = runtime.installationSpaceId(event.sender.id);
+    if (!currentSpaceId || currentSpaceId !== request.spaceId) {
+      throw new Error("Apps can only be installed into the current Space.");
+    }
+    const state = await installRegistryApp({
+      request,
+      hostVersion: app.getVersion(),
+      registry,
+      packages: runtime.packages,
+      installations: runtime.installations,
+    });
+    return toDesktopAppInstallationSnapshot(state, currentSpaceId);
+  });
   for (const channel of Object.values(IPC.appRegistry)) ipcMain.removeHandler(channel);
   ipcMain.handle(IPC.appRegistry.list, async (event, input: unknown) =>
     requireAppsRegistry(event.sender.id).list(parseRegistryListRequest(input)),
@@ -4407,6 +4429,9 @@ if (hasSingleInstanceLock) {
   appRegistryClient = new AppRegistryClient({
     apiUrl: penkraAccountServices.apiUrl,
     getCookie: accountAuthRuntime.getCookie,
+    trustedRegistryKeys: parseRegistryTrustKeys(
+      process.env.PENKRA_REGISTRY_TRUSTED_KEYS ?? __PENKRA_REGISTRY_TRUSTED_KEYS__,
+    ),
   });
 }
 

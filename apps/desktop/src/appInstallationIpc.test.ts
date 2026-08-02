@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { createEmptyAppInstallationState } from "./appInstallationState";
 import {
+  parseInstallRegistryAppRequest,
   parseRemoveAppDataRequest,
   parseSetAppEnabledRequest,
   parseSetAppPermissionRequest,
@@ -23,6 +24,17 @@ describe("App installation IPC boundary", () => {
   });
 
   it("parses supported mutation requests", () => {
+    expect(parseInstallRegistryAppRequest({
+      slug: "canvas",
+      version: "1.0.0",
+      spaceId: "work",
+      permissions: { "network-fetch": "granted" },
+    })).toEqual({
+      slug: "canvas",
+      version: "1.0.0",
+      spaceId: "work",
+      permissions: { "network-fetch": "granted" },
+    });
     expect(parseSetAppEnabledRequest({ appId: "com.penkra.apps", spaceId: "work", enabled: true })).toEqual({
       appId: "com.penkra.apps",
       spaceId: "work",
@@ -56,5 +68,6 @@ describe("App installation IPC boundary", () => {
     expect(() => parseSetAppPermissionRequest({ appId: "app", spaceId: "work", permission: "x", grant: "ask" })).toThrow();
     expect(() => parseUninstallAppRequest({ appId: "app" })).toThrow();
     expect(() => parseRemoveAppDataRequest({ appId: "app", spaceId: "" })).toThrow();
+    expect(() => parseInstallRegistryAppRequest({ slug: "app", version: "1.0.0", spaceId: "work", permissions: { bad: "ask" } })).toThrow();
   });
 });

@@ -3,6 +3,8 @@ import * as OS from "node:os";
 import * as Path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
+import { createHash } from "node:crypto";
+import yazl from "yazl";
 
 import {
   AppPackageIngestor,
@@ -77,4 +79,52 @@ describe("AppPackageIngestor", () => {
       new AppPackageIngestor(storePath).ingestDirectory({ sourcePath, source: "sideload" }),
     ).rejects.toThrow("symbolic links");
   });
+
+  it("safely extracts and commits a digest-verified registry archive", async () => {
+    const { storePath } = fixture();
+    const packageBytes = await registryArchive();
+    const expectedArchiveDigest = createHash("sha256").update(packageBytes).digest("hex");
+
+    const installed = await new AppPackageIngestor(storePath).ingestRegistryArchive({
+      packageBytes,
+      expectedArchiveDigest,
+      installedAt: "2026-08-01T00:00:00.000Z",
+    });
+
+    expect(installed.source).toBe("registry");
+    expect(installed.manifest.id).toBe("com.example.app");
+    expect(FS.readFileSync(Path.join(installed.packagePath, "app.html"), "utf8")).toContain("Example");
+  });
+
+  it("rejects a registry archive whose digest changed before extraction", async () => {
+    const { storePath } = fixture();
+    const packageBytes = await registryArchive();
+    await expect(new AppPackageIngestor(storePath).ingestRegistryArchive({
+      packageBytes,
+      expectedArchiveDigest: "a".repeat(64),
+    })).rejects.toThrow("digest changed");
+  });
 });
+
+async function registryArchive(): Promise<Buffer> {
+  const zip = new yazl.ZipFile();
+  zip.addBuffer(Buffer.from(JSON.stringify({
+    manifestVersion: 1,
+    id: "com.example.app",
+    slug: "example",
+    name: "Example",
+    summary: "An example App",
+    version: "1.0.0",
+    compatibility: { penkra: ">=0.8.0" },
+    icons: [{ src: "assets/icon.svg", sizes: "any", type: "image/svg+xml" }],
+    entrypoints: { app: "app.html" },
+  })), "penkra-app.json");
+  zip.addBuffer(Buffer.from("# Example\n"), "README.md");
+  zip.addBuffer(Buffer.from("Use Example.\n"), "INSTRUCTIONS.md");
+  zip.addBuffer(Buffer.from("<!doctype html><title>Example</title>"), "app.html");
+  zip.addBuffer(Buffer.from("<svg/>"), "assets/icon.svg");
+  zip.end();
+  const chunks: Buffer[] = [];
+  for await (const chunk of zip.outputStream) chunks.push(Buffer.from(chunk));
+  return Buffer.concat(chunks);
+}

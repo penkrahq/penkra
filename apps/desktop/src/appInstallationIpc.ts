@@ -57,6 +57,29 @@ export function parseSetAppEnabledRequest(input: unknown): {
   };
 }
 
+export function parseInstallRegistryAppRequest(input: unknown): {
+  slug: string;
+  version: string;
+  spaceId: string;
+  permissions: Record<string, AppPermissionGrant>;
+} {
+  const record = requireRecord(input);
+  const rawPermissions = requireRecord(record.permissions);
+  const permissions: Record<string, AppPermissionGrant> = {};
+  for (const [permission, grant] of Object.entries(rawPermissions)) {
+    if (!permission || (grant !== "denied" && grant !== "granted")) {
+      throw new Error("Invalid App installation permissions.");
+    }
+    permissions[permission] = grant;
+  }
+  return {
+    slug: requireString(record, "slug"),
+    version: requireString(record, "version"),
+    spaceId: requireString(record, "spaceId"),
+    permissions,
+  };
+}
+
 export function parseSetAppPermissionRequest(input: unknown): {
   appId: string;
   spaceId: string;

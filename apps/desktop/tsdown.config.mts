@@ -8,6 +8,7 @@ import { defineConfig } from "tsdown";
 const sourcemapEnv = process.env.PENKRA_DESKTOP_SOURCEMAP?.trim().toLowerCase();
 const buildSourcemap = sourcemapEnv === "1" || sourcemapEnv === "true";
 const windowsUpdaterPublisher = process.env.AZURE_TRUSTED_SIGNING_SUBJECT_DN?.trim() ?? "";
+const registryTrustedKeys = process.env.PENKRA_REGISTRY_TRUSTED_KEYS?.trim() ?? "";
 
 const shared = {
   format: "cjs" as const,
@@ -26,6 +27,7 @@ export default defineConfig([
     external: ["original-fs"],
     define: {
       __PENKRA_WINDOWS_UPDATER_PUBLISHER__: JSON.stringify(windowsUpdaterPublisher),
+      __PENKRA_REGISTRY_TRUSTED_KEYS__: JSON.stringify(registryTrustedKeys),
     },
     noExternal: (id) => id.startsWith("@penkra/"),
   },

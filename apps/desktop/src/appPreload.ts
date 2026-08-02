@@ -28,6 +28,8 @@ const exposedApi =
         ...runtime.api,
         installations: {
           getState: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.appInstallations.getState),
+          installRegistry: (input: unknown) =>
+            ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.appInstallations.installRegistry, input),
           setEnabled: (input: unknown) =>
             ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.appInstallations.setEnabled, input),
           setPermission: (input: unknown) =>

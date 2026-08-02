@@ -5,6 +5,9 @@
 import { createHash } from "node:crypto";
 import * as FS from "node:fs";
 import * as Path from "node:path";
+import * as OS from "node:os";
+import { pipeline } from "node:stream/promises";
+import yauzl, { type Entry } from "yauzl";
 
 import { assertAppManifest, type PenkraAppManifest } from "@penkra/sdk";
 
@@ -52,6 +55,89 @@ export class AppPackageIngestor {
       installedAt: input.installedAt ?? new Date().toISOString(),
     };
   }
+
+  async ingestRegistryArchive(input: {
+    packageBytes: Uint8Array;
+    expectedArchiveDigest: string;
+    installedAt?: string;
+  }): Promise<VerifiedAppPackageInput> {
+    if (input.packageBytes.byteLength === 0 || input.packageBytes.byteLength > APP_PACKAGE_MAX_BYTES) {
+      throw new Error("Registry App package exceeds the archive size limit.");
+    }
+    const actualDigest = createHash("sha256").update(input.packageBytes).digest("hex");
+    if (actualDigest !== input.expectedArchiveDigest) {
+      throw new Error("Registry App package digest changed before ingestion.");
+    }
+    const temporaryRoot = await FS.promises.mkdtemp(Path.join(OS.tmpdir(), "penkra-registry-app-"));
+    const archivePath = Path.join(temporaryRoot, "package.penkra");
+    const sourcePath = Path.join(temporaryRoot, "unpacked");
+    try {
+      await FS.promises.writeFile(archivePath, input.packageBytes, { flag: "wx", mode: 0o600 });
+      await extractRegistryArchive(archivePath, sourcePath);
+      return await this.ingestDirectory({
+        sourcePath,
+        source: "registry",
+        installedAt: input.installedAt,
+      });
+    } finally {
+      await FS.promises.rm(temporaryRoot, { recursive: true, force: true });
+    }
+  }
+}
+
+async function extractRegistryArchive(archivePath: string, outputRoot: string): Promise<void> {
+  await FS.promises.mkdir(outputRoot, { recursive: true, mode: 0o700 });
+  const zip = await yauzl.openPromise(archivePath, {
+    decodeStrings: true,
+    strictFileNames: true,
+    validateEntrySizes: true,
+  });
+  const paths = new Set<string>();
+  let fileCount = 0;
+  let totalBytes = 0;
+  for await (const entry of zip.eachEntry()) {
+    const relativePath = entry.fileName.normalize("NFC");
+    const isDirectory = relativePath.endsWith("/");
+    const normalizedPath = isDirectory ? relativePath.slice(0, -1) : relativePath;
+    assertPortableArchivePath(normalizedPath);
+    const portablePath = normalizedPath.toLocaleLowerCase("en-US");
+    if (paths.has(portablePath)) throw new Error("Registry App package contains duplicate paths.");
+    paths.add(portablePath);
+    if (entry.isEncrypted()) throw new Error("Registry App package contains encrypted files.");
+    if (isSymbolicLink(entry)) throw new Error("Registry App package contains a symbolic link.");
+    if (isDirectory) {
+      await FS.promises.mkdir(Path.join(outputRoot, ...normalizedPath.split("/")), { recursive: true, mode: 0o700 });
+      continue;
+    }
+    fileCount += 1;
+    totalBytes += entry.uncompressedSize;
+    if (fileCount > APP_PACKAGE_MAX_FILES || totalBytes > APP_PACKAGE_MAX_BYTES) {
+      throw new Error("Registry App package exceeds the unpacked size limit.");
+    }
+    if (entry.compressionMethod !== 0 && entry.compressionMethod !== 8) {
+      throw new Error("Registry App package uses an unsupported compression method.");
+    }
+    const outputPath = Path.join(outputRoot, ...relativePath.split("/"));
+    await FS.promises.mkdir(Path.dirname(outputPath), { recursive: true, mode: 0o700 });
+    const stream = await zip.openReadStreamPromise(entry);
+    await pipeline(stream, FS.createWriteStream(outputPath, { flags: "wx", mode: 0o600 }));
+  }
+}
+
+function assertPortableArchivePath(value: string): void {
+  if (
+    !value || value.startsWith("/") || value.startsWith("\\") || value.includes("\\") ||
+    /^[a-z][a-z0-9+.-]*:/i.test(value) ||
+    value.split("/").some((part) => part === "" || part === "." || part === "..")
+  ) {
+    throw new Error("Registry App package contains an unsafe path.");
+  }
+}
+
+function isSymbolicLink(entry: Entry): boolean {
+  if ((entry.versionMadeBy >>> 8) !== 3) return false;
+  const mode = (entry.externalFileAttributes >>> 16) & 0xffff;
+  return (mode & 0o170000) === 0o120000;
 }
 
 async function readManifest(sourcePath: string): Promise<PenkraAppManifest> {

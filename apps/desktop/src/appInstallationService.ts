@@ -57,6 +57,28 @@ export class AppInstallationService {
     return this.#mutate((state) => registerVerifiedAppPackage(state, input));
   }
 
+  async installForSpace(input: {
+    package: VerifiedAppPackageInput & { source: "registry" };
+    spaceId: string;
+    permissions: Readonly<Record<string, AppPermissionGrant>>;
+  }): Promise<AppInstallationState> {
+    await this.#mutate((state) => {
+      let next = registerVerifiedAppPackage(state, input.package);
+      for (const [permission, grant] of Object.entries(input.permissions)) {
+        next = setSpaceAppPermission(next, {
+          appId: input.package.manifest.id,
+          spaceId: input.spaceId,
+          permission,
+          grant,
+        });
+      }
+      return next;
+    });
+    const state = await this.#lifecycle.enable(input.package.manifest.id, input.spaceId);
+    this.#publish(state);
+    return state;
+  }
+
   update(input: VerifiedAppPackageInput & { source: "registry" }): Promise<AppInstallationState> {
     return this.#mutate((state) => replaceVerifiedRegistryAppPackage(state, input));
   }
