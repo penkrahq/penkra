@@ -72,6 +72,14 @@ describe("AppPackageIngestor", () => {
     ).rejects.toThrow("INSTRUCTIONS.md");
   });
 
+  it("rejects empty agent instructions before package commit", async () => {
+    const { sourcePath, storePath } = fixture();
+    FS.writeFileSync(Path.join(sourcePath, "INSTRUCTIONS.md"), "  \n");
+    await expect(
+      new AppPackageIngestor(storePath).ingestDirectory({ sourcePath, source: "sideload" }),
+    ).rejects.toThrow("must not be empty");
+  });
+
   it("rejects symbolic links instead of copying outside the package", async () => {
     const { root, sourcePath, storePath } = fixture();
     FS.symlinkSync(Path.join(root, "outside"), Path.join(sourcePath, "escape"));

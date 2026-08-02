@@ -17,6 +17,7 @@ import {
   type AppPackageGarbageCollectionResult,
 } from "./appPackageIngestor";
 import { AppOperationBroker } from "./appOperationBroker";
+import { AppOperationCatalog } from "./appOperationCatalog";
 import { AppRendererIpcBridge } from "./appRendererIpcBridge";
 import { AppRendererRpcHost } from "./appRendererRpc";
 import { AppRuntimeLifecycle, type AppRuntimeRestoreResult } from "./appRuntimeLifecycle";
@@ -35,6 +36,7 @@ export interface DesktopAppRuntime {
   readonly installations: AppInstallationService;
   readonly packages: AppPackageIngestor;
   readonly broker: AppOperationBroker;
+  readonly operationCatalog: AppOperationCatalog;
   readonly tabs: DeferredAppTabHost;
   readonly appTabs: ElectronAppTabHost;
   readonly restoreResults: ReadonlyArray<AppRuntimeRestoreResult>;
@@ -78,6 +80,7 @@ export async function startDesktopAppRuntime(input: {
     installationState: () => store.snapshot(),
     tabs,
   });
+  const operationCatalog = new AppOperationCatalog(() => store.snapshot());
   const sessions = new AppSessionManager();
   const trustedInstallationRenderers = new Map<number, string>();
   const registerRendererIdentity = ({
@@ -95,6 +98,7 @@ export async function startDesktopAppRuntime(input: {
   };
   const controllerHost = new AppControllerHost({
     broker,
+    operationCatalog,
     rpc,
     renderers: new ElectronAppControllerRendererFactory({
       preloadPath: input.appPreloadPath,

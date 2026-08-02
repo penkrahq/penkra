@@ -18,6 +18,12 @@ export {
   PENKRA_OPERATION_SCHEMA_MAX_NODES,
   validatePenkraJsonSchema,
 } from "./jsonSchema";
+export {
+  generateAppHelp,
+  PENKRA_APP_INSTRUCTIONS_MAX_BYTES,
+  PENKRA_APP_README_MAX_BYTES,
+  type GenerateAppHelpInput,
+} from "./help";
 
 export {
   OPERATION_CANCELLATION_CODES,

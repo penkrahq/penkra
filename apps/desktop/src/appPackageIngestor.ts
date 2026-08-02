@@ -9,7 +9,12 @@ import * as OS from "node:os";
 import { pipeline } from "node:stream/promises";
 import yauzl, { type Entry } from "yauzl";
 
-import { assertAppManifest, type PenkraAppManifest } from "@penkra/sdk";
+import {
+  assertAppManifest,
+  PENKRA_APP_INSTRUCTIONS_MAX_BYTES,
+  PENKRA_APP_README_MAX_BYTES,
+  type PenkraAppManifest,
+} from "@penkra/sdk";
 
 import type { InstalledAppSource, VerifiedAppPackageInput } from "./appInstallationState";
 import { assertOperationSchemas } from "./appOperationSchema";
@@ -87,6 +92,8 @@ export class AppPackageIngestor {
     const files = await collectPackageFiles(sourcePath);
     const manifest = await readManifest(sourcePath);
     assertOperationSchemas(manifest);
+    await assertTextDocument(sourcePath, "README.md", PENKRA_APP_README_MAX_BYTES);
+    await assertTextDocument(sourcePath, "INSTRUCTIONS.md", PENKRA_APP_INSTRUCTIONS_MAX_BYTES);
     assertRequiredFiles(files, manifest);
     const sha256 = await digestFiles(files);
     const packagePath = Path.join(this.#storePath, manifest.id, manifest.version, sha256);
@@ -234,6 +241,27 @@ async function readManifest(sourcePath: string): Promise<PenkraAppManifest> {
   }
   assertAppManifest(parsed);
   return parsed;
+}
+
+async function assertTextDocument(sourcePath: string, fileName: string, maxBytes: number): Promise<void> {
+  const filePath = Path.join(sourcePath, fileName);
+  let bytes: Buffer;
+  try {
+    const stats = await FS.promises.lstat(filePath);
+    if (!stats.isFile() || stats.isSymbolicLink() || stats.size > maxBytes) {
+      throw new Error(`${fileName} is not a valid bounded file.`);
+    }
+    bytes = await FS.promises.readFile(filePath);
+  } catch (error) {
+    throw new Error(`Unable to read ${fileName}.`, { cause: error });
+  }
+  let contents: string;
+  try {
+    contents = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch (error) {
+    throw new Error(`${fileName} must be valid UTF-8.`, { cause: error });
+  }
+  if (!contents.trim()) throw new Error(`${fileName} must not be empty.`);
 }
 
 async function collectPackageFiles(sourcePath: string): Promise<PackageFile[]> {
