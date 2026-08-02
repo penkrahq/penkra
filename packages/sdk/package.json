@@ -1,8 +1,10 @@
 {
   "name": "@penkra/sdk",
-  "private": true,
+  "version": "0.1.0",
   "files": [
-    "dist"
+    "dist",
+    "src/*.ts",
+    "!src/*.test.ts"
   ],
   "type": "module",
   "main": "./dist/index.cjs",
@@ -20,8 +22,12 @@
       "require": "./dist/react.cjs"
     }
   },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsdown src/index.ts src/react.ts --format esm,cjs --dts --clean",
+    "prepack": "bun run build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
@@ -34,5 +40,10 @@
   },
   "peerDependencies": {
     "react": ">=18"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
   }
 }

@@ -1,9 +1,12 @@
 {
   "name": "@penkra/ui",
-  "private": true,
+  "version": "0.1.0",
   "files": [
     "dist",
-    "src/*.css"
+    "src/*.css",
+    "src/*.ts",
+    "src/*.tsx",
+    "!src/*.test.ts"
   ],
   "type": "module",
   "main": "./dist/index.cjs",
@@ -23,8 +26,12 @@
     "./tokens.css": "./src/tokens.css",
     "./app-bar.css": "./src/app-bar.css"
   },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsdown src/index.ts src/react.tsx --format esm,cjs --dts --clean",
+    "prepack": "bun run build",
     "test": "vitest run"
   },
   "devDependencies": {
@@ -37,5 +44,10 @@
   },
   "peerDependencies": {
     "react": ">=18"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
   }
 }
