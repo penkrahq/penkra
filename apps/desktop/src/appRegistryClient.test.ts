@@ -170,6 +170,34 @@ describe("desktop App registry client", () => {
     ]);
   });
 
+  it("accepts the registry's UTF-8 Markdown media type without passing MIME parameters through", async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({
+        url: "https://downloads.test/readme",
+        contentType: "text/markdown; charset=utf-8",
+        expiresInSeconds: 300,
+      }))
+      .mockResolvedValueOnce(new Response("# Canvas\n", {
+        status: 200,
+        headers: { "content-type": "text/markdown; charset=utf-8" },
+      }));
+    const client = new AppRegistryClient({
+      apiUrl: "https://api.penkra.com",
+      getCookie: () => "cookie=value",
+      fetch,
+    });
+
+    await expect(client.getArtifact({
+      id: "00000000-0000-4000-8000-000000000304",
+      source: "artifact",
+    })).resolves.toEqual({
+      kind: "text",
+      contentType: "text/markdown",
+      text: "# Canvas\n",
+    });
+  });
+
   it("records an authenticated successful-install receipt without exposing a generic request", async () => {
     const fetch = vi.fn().mockResolvedValue(jsonResponse({
       appId: summary.id,

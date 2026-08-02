@@ -97,6 +97,7 @@ export class AppRegistryClient {
     const url = stringField(value, "url");
     this.#assertRegistryObjectUrl(url);
     const contentType = stringField(value, "contentType");
+    const mediaType = contentType.split(";", 1)[0]?.trim().toLowerCase() ?? "";
     integerField(value, "expiresInSeconds", 1);
     const response = await this.#fetch(url, { signal: AbortSignal.timeout(15_000) });
     if (!response.ok) throw new Error(`The registry object returned HTTP ${response.status}.`);
@@ -108,7 +109,7 @@ export class AppRegistryClient {
     const bytes = new Uint8Array(await response.arrayBuffer());
     if (bytes.byteLength > maximumBytes) throw new Error("The registry object exceeds the allowed size.");
     if (input.source === "artifact") {
-      if (contentType !== "text/markdown" && contentType !== "text/plain") {
+      if (mediaType !== "text/markdown" && mediaType !== "text/plain") {
         throw new Error("The registry help document has an unsupported content type.");
       }
       let text: string;
@@ -117,15 +118,15 @@ export class AppRegistryClient {
       } catch {
         throw new Error("The registry help document is not valid UTF-8.");
       }
-      return { kind: "text", contentType, text };
+      return { kind: "text", contentType: mediaType, text };
     }
-    if (!["image/png", "image/jpeg", "image/webp"].includes(contentType)) {
+    if (!["image/png", "image/jpeg", "image/webp"].includes(mediaType)) {
       throw new Error("The registry image has an unsupported content type.");
     }
     return {
       kind: "image",
-      contentType,
-      dataUrl: `data:${contentType};base64,${Buffer.from(bytes).toString("base64")}`,
+      contentType: mediaType,
+      dataUrl: `data:${mediaType};base64,${Buffer.from(bytes).toString("base64")}`,
     };
   }
 
