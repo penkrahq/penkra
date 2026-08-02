@@ -222,6 +222,42 @@ describe("AppRuntimeLifecycle", () => {
     expect(Object.values(test.state().spaceStateByKey)[0]?.enabled).toBe(true);
     expect(test.lifecycle.isActive("com.penkra.apps", "personal")).toBe(false);
   });
+
+  it("persists a deterministic safe disable when an operation controller exits", async () => {
+    const test = fixture();
+    const unexpected = vi.fn();
+    test.lifecycle.subscribeUnexpectedDisable(unexpected);
+    await test.lifecycle.enable("com.penkra.apps", "personal");
+    const activation = test.controllers.activate.mock.calls[0]?.[0];
+
+    activation?.onUnexpectedExit?.(new Error("controller crashed"));
+
+    await vi.waitFor(() => expect(test.lifecycle.isActive("com.penkra.apps", "personal")).toBe(false));
+    expect(Object.values(test.state().spaceStateByKey)[0]?.enabled).toBe(false);
+    expect(test.closeTabs).toHaveBeenCalledWith("com.penkra.apps", "personal", "app-disabled");
+    expect(test.sessions.deactivate).toHaveBeenCalledWith("com.penkra.apps", "personal");
+    expect(unexpected).toHaveBeenCalledWith(expect.objectContaining({
+      appId: "com.penkra.apps",
+      spaceId: "personal",
+      error: expect.objectContaining({ message: "controller crashed" }),
+      state: expect.any(Object),
+    }));
+  });
+
+  it("fails activation if the controller exits before activation commits", async () => {
+    const test = fixture();
+    test.controllers.activate.mockImplementationOnce(async (input) => {
+      input.onUnexpectedExit?.(new Error("controller exited during start"));
+      return test.releaseController;
+    });
+
+    await expect(test.lifecycle.enable("com.penkra.apps", "personal"))
+      .rejects.toThrow("controller exited during start");
+
+    expect(test.releaseController).toHaveBeenCalledOnce();
+    expect(test.sessions.deactivate).toHaveBeenCalledWith("com.penkra.apps", "personal");
+    expect(test.store.mutate).not.toHaveBeenCalled();
+  });
 });
 
 function activeSession(input: ActivateAppSessionInput): ActiveAppSession {

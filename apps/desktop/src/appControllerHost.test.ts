@@ -250,14 +250,19 @@ describe("AppControllerHost", () => {
 
   it("unregisters broker and transport when the controller renderer crashes", async () => {
     const test = fixture();
+    const onUnexpectedExit = vi.fn();
     await test.host.activate({
       installedApp: test.app,
       spaceId: "personal",
       session: test.session,
+      onUnexpectedExit,
     });
     test.destroyed();
     await vi.waitFor(() => expect(test.unregisterController).toHaveBeenCalledOnce());
     expect(test.unregisterRpc).toHaveBeenCalledWith("host-stopped");
     expect(test.renderer.destroy).not.toHaveBeenCalled();
+    expect(onUnexpectedExit).toHaveBeenCalledWith(expect.objectContaining({
+      message: expect.stringContaining("exited unexpectedly"),
+    }));
   });
 });

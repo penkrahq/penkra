@@ -53,6 +53,7 @@ export class AppControllerHost {
     installedApp: InstalledAppPackage;
     spaceId: string;
     session: ActiveAppSession;
+    onUnexpectedExit?: (error: Error) => void;
   }): Promise<(reason?: OperationCancellationCode) => Promise<void>> {
     const operations = input.installedApp.manifest.operations ?? [];
     if (operations.length === 0) return async () => undefined;
@@ -109,7 +110,13 @@ export class AppControllerHost {
       };
       unregisterController = this.#broker.registerController(controller);
       removeDestroyedListener = renderer.onDestroyed(() => {
-        void release("host-stopped", true);
+        const crash = new Error(
+          `${input.installedApp.name} operation controller exited unexpectedly in Space ${input.spaceId}.`,
+        );
+        void release("host-stopped", true).then(
+          () => input.onUnexpectedExit?.(crash),
+          (error) => input.onUnexpectedExit?.(new AggregateError([crash, error], crash.message)),
+        );
       });
       return (reason) => release(reason, false);
     } catch (error) {

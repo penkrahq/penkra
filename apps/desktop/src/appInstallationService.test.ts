@@ -30,6 +30,9 @@ function verifiedPackage(): VerifiedAppPackageInput {
 
 function fixture() {
   let state: AppInstallationState = createEmptyAppInstallationState();
+  let unexpectedDisableListener:
+    | ((event: { appId: string; spaceId: string; error: Error; state: AppInstallationState }) => void)
+    | undefined;
   const store = {
     snapshot: () => state,
     mutate: vi.fn(async (transition: (current: AppInstallationState) => AppInstallationState) => {
@@ -62,6 +65,10 @@ function fixture() {
       return state;
     }),
     isActive: vi.fn(() => false),
+    subscribeUnexpectedDisable: vi.fn((listener) => {
+      unexpectedDisableListener = listener;
+      return vi.fn();
+    }),
   };
   const updates = {
     prepare: vi.fn(async () => undefined),
@@ -75,6 +82,13 @@ function fixture() {
     data,
     lifecycle,
     updates,
+    unexpectedDisable: (error = new Error("controller crashed")) =>
+      unexpectedDisableListener?.({
+        appId: "com.acme.figma",
+        spaceId: "personal",
+        error,
+        state,
+      }),
     state: () => state,
   };
 }
@@ -116,6 +130,22 @@ describe("AppInstallationService", () => {
       permissions: { "network-fetch": "granted" },
     });
     expect(listener).toHaveBeenCalledTimes(3);
+  });
+
+  it("publishes lifecycle safe-disable state after a controller crash", async () => {
+    const test = fixture();
+    const listener = vi.fn();
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    test.service.subscribe(listener);
+
+    test.unexpectedDisable();
+
+    expect(listener).toHaveBeenCalledWith(test.state());
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.stringContaining("Disabled com.acme.figma"),
+      expect.any(Error),
+    );
+    consoleError.mockRestore();
   });
 
   it("requires declared required grants before enabling an App", async () => {

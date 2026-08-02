@@ -40,7 +40,7 @@ export interface AppInstallationDataEraser {
  */
 export class AppInstallationService {
   readonly #store: Pick<AppInstallationStore, "snapshot" | "mutate">;
-  readonly #lifecycle: Pick<AppRuntimeLifecycle, "enable" | "disable" | "isActive">;
+  readonly #lifecycle: Pick<AppRuntimeLifecycle, "enable" | "disable" | "isActive" | "subscribeUnexpectedDisable">;
   readonly #data: AppInstallationDataEraser;
   readonly #updates: Pick<AppUpdateJournal, "prepare" | "clear"> | undefined;
   readonly #listeners = new Set<AppInstallationStateListener>();
@@ -48,7 +48,7 @@ export class AppInstallationService {
 
   constructor(input: {
     store: Pick<AppInstallationStore, "snapshot" | "mutate">;
-    lifecycle: Pick<AppRuntimeLifecycle, "enable" | "disable" | "isActive">;
+    lifecycle: Pick<AppRuntimeLifecycle, "enable" | "disable" | "isActive" | "subscribeUnexpectedDisable">;
     data: AppInstallationDataEraser;
     updates?: Pick<AppUpdateJournal, "prepare" | "clear">;
   }) {
@@ -56,6 +56,10 @@ export class AppInstallationService {
     this.#lifecycle = input.lifecycle;
     this.#data = input.data;
     this.#updates = input.updates;
+    this.#lifecycle.subscribeUnexpectedDisable(({ state, error, appId, spaceId }) => {
+      console.error(`[penkra-app] Disabled ${appId} in Space ${spaceId} after its controller exited.`, error);
+      this.#publish(state);
+    });
   }
 
   snapshot(): AppInstallationState {

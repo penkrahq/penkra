@@ -16,6 +16,7 @@ export interface AppRuntimeControllerHost {
     installedApp: InstalledAppPackage;
     spaceId: string;
     session: ActiveAppSession;
+    onUnexpectedExit?: (error: Error) => void;
   }): Promise<(reason?: OperationCancellationCode) => Promise<void> | void>;
 }
 
@@ -35,6 +36,14 @@ interface ActiveRuntime {
   appId: string;
   spaceId: string;
   releaseController: (reason?: OperationCancellationCode) => Promise<void> | void;
+  token: object;
+}
+
+export interface AppRuntimeUnexpectedDisable {
+  appId: string;
+  spaceId: string;
+  error: Error;
+  state: AppInstallationState;
 }
 
 /**
@@ -50,6 +59,7 @@ export class AppRuntimeLifecycle {
   readonly #closeTabs: (appId: string, spaceId: string, reason: OperationCancellationCode) => void;
   readonly #active = new Map<string, ActiveRuntime>();
   readonly #queues = new Map<string, Promise<void>>();
+  readonly #unexpectedDisableListeners = new Set<(event: AppRuntimeUnexpectedDisable) => void>();
 
   constructor(dependencies: AppRuntimeLifecycleDependencies) {
     this.#store = dependencies.store;
@@ -112,6 +122,11 @@ export class AppRuntimeLifecycle {
     return this.#active.has(runtimeKey(appId, spaceId));
   }
 
+  subscribeUnexpectedDisable(listener: (event: AppRuntimeUnexpectedDisable) => void): () => void {
+    this.#unexpectedDisableListeners.add(listener);
+    return () => this.#unexpectedDisableListeners.delete(listener);
+  }
+
   async shutdown(): Promise<void> {
     const active = [...this.#active.values()];
     const results = await Promise.allSettled(
@@ -143,17 +158,66 @@ export class AppRuntimeLifecycle {
 
     const activeSession = await this.#sessions.activate({ installedApp, spaceId });
     let releaseController: (() => Promise<void> | void) | null = null;
+    const token = {};
+    let activationComplete = false;
+    let unexpectedExit: Error | null = null;
     try {
       releaseController = await this.#controllers.activate({
         installedApp,
         spaceId,
         session: activeSession,
+        onUnexpectedExit: (error) => {
+          unexpectedExit = error;
+          if (activationComplete) this.#scheduleUnexpectedDisable(appId, spaceId, token, error);
+        },
       });
-      this.#active.set(key, { appId, spaceId, releaseController });
+      if (unexpectedExit) throw unexpectedExit;
+      this.#active.set(key, { appId, spaceId, releaseController, token });
+      activationComplete = true;
     } catch (error) {
-      await this.#sessions.deactivate(appId, spaceId).catch(() => undefined);
+      const cleanupFailures: unknown[] = [];
+      if (releaseController) {
+        await Promise.resolve(releaseController("host-stopped"))
+          .catch((cause) => cleanupFailures.push(cause));
+      }
+      await this.#sessions.deactivate(appId, spaceId).catch((cause) => cleanupFailures.push(cause));
+      if (cleanupFailures.length > 0) {
+        throw new AggregateError([error, ...cleanupFailures], `App activation failed and cleanup also failed.`);
+      }
       throw error;
     }
+  }
+
+  #scheduleUnexpectedDisable(appId: string, spaceId: string, token: object, error: Error): void {
+    void this.#enqueue(runtimeKey(appId, spaceId), async () => {
+      const active = this.#active.get(runtimeKey(appId, spaceId));
+      if (!active || active.token !== token) return;
+      let state: AppInstallationState | null = null;
+      const failures: unknown[] = [];
+      try {
+        state = await this.#store.mutate((current) =>
+          setSpaceAppEnabled(current, { appId, spaceId, enabled: false }),
+        );
+      } catch (cause) {
+        failures.push(cause);
+      }
+      try {
+        await this.#deactivate(appId, spaceId, "app-disabled");
+      } catch (cause) {
+        failures.push(cause);
+      }
+      const crash = failures.length === 0
+        ? error
+        : new AggregateError([error, ...failures], error.message);
+      if (state) {
+        const event = { appId, spaceId, error: crash, state };
+        for (const listener of this.#unexpectedDisableListeners) listener(event);
+      } else {
+        console.error(`[penkra-app] Failed to persist crash disable for ${appId} in Space ${spaceId}.`, crash);
+      }
+    }).catch((cause) => {
+      console.error(`[penkra-app] Failed to reconcile crashed controller ${appId} in Space ${spaceId}.`, cause);
+    });
   }
 
   async #deactivate(
