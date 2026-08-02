@@ -23,6 +23,11 @@ interface PackageFile {
   size: number;
 }
 
+export interface AppPackageGarbageCollectionResult {
+  removedPaths: string[];
+  failures: Array<{ path: string; error: Error }>;
+}
+
 export function resolveAppPackageStorePath(userDataPath: string): string {
   return Path.join(userDataPath, "apps", "packages");
 }
@@ -33,6 +38,43 @@ export class AppPackageIngestor {
   constructor(storePath: string) {
     if (!Path.isAbsolute(storePath)) throw new TypeError("App package store path must be absolute.");
     this.#storePath = storePath;
+  }
+
+  /**
+   * Removes package-store entries that are not referenced by committed state.
+   *
+   * This is intentionally a startup operation: callers run it after update
+   * journal recovery and before accepting installs, so an ingested package
+   * cannot be mistaken for garbage while it is waiting to be committed.
+   */
+  async collectGarbage(retainedPackagePaths: readonly string[]): Promise<AppPackageGarbageCollectionResult> {
+    const retained = new Set(retainedPackagePaths.map((packagePath) => {
+      const resolved = Path.resolve(packagePath);
+      assertPackagePathInsideStore(this.#storePath, resolved);
+      return resolved;
+    }));
+    const result: AppPackageGarbageCollectionResult = { removedPaths: [], failures: [] };
+    for (const appEntry of await readDirectorySafe(this.#storePath)) {
+      const appPath = Path.join(this.#storePath, appEntry.name);
+      if (!appEntry.isDirectory() || appEntry.isSymbolicLink()) {
+        await removeGarbagePath(appPath, result);
+        continue;
+      }
+      for (const versionEntry of await readDirectorySafe(appPath)) {
+        const versionPath = Path.join(appPath, versionEntry.name);
+        if (!versionEntry.isDirectory() || versionEntry.isSymbolicLink()) {
+          await removeGarbagePath(versionPath, result);
+          continue;
+        }
+        for (const packageEntry of await readDirectorySafe(versionPath)) {
+          const packagePath = Path.join(versionPath, packageEntry.name);
+          if (!retained.has(Path.resolve(packagePath))) await removeGarbagePath(packagePath, result);
+        }
+        await removeEmptyDirectory(versionPath, result);
+      }
+      await removeEmptyDirectory(appPath, result);
+    }
+    return result;
   }
 
   async ingestDirectory(input: {
@@ -82,6 +124,46 @@ export class AppPackageIngestor {
     } finally {
       await FS.promises.rm(temporaryRoot, { recursive: true, force: true });
     }
+  }
+}
+
+function assertPackagePathInsideStore(storePath: string, packagePath: string): void {
+  const relative = Path.relative(Path.resolve(storePath), packagePath);
+  if (relative.startsWith("..") || Path.isAbsolute(relative) || relative.split(Path.sep).length !== 3) {
+    throw new Error("Retained App package path is outside the package store or has an invalid shape.");
+  }
+}
+
+async function readDirectorySafe(directoryPath: string): Promise<FS.Dirent[]> {
+  try {
+    return await FS.promises.readdir(directoryPath, { withFileTypes: true });
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") return [];
+    throw error;
+  }
+}
+
+async function removeGarbagePath(
+  garbagePath: string,
+  result: AppPackageGarbageCollectionResult,
+): Promise<void> {
+  try {
+    await FS.promises.rm(garbagePath, { recursive: true, force: true });
+    result.removedPaths.push(garbagePath);
+  } catch (error) {
+    result.failures.push({ path: garbagePath, error: toError(error) });
+  }
+}
+
+async function removeEmptyDirectory(
+  directoryPath: string,
+  result: AppPackageGarbageCollectionResult,
+): Promise<void> {
+  try {
+    await FS.promises.rmdir(directoryPath);
+  } catch (error) {
+    if (isNodeError(error) && (error.code === "ENOENT" || error.code === "ENOTEMPTY")) return;
+    result.failures.push({ path: directoryPath, error: toError(error) });
   }
 }
 
@@ -264,4 +346,8 @@ async function commitPackage(
 
 function isNodeError(value: unknown): value is NodeJS.ErrnoException {
   return value instanceof Error && "code" in value;
+}
+
+function toError(value: unknown): Error {
+  return value instanceof Error ? value : new Error(String(value));
 }

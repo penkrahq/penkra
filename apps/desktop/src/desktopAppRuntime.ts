@@ -11,7 +11,11 @@ import {
   resolveAppInstallationStatePath,
 } from "./appInstallationStore";
 import { AppInstallationService } from "./appInstallationService";
-import { AppPackageIngestor, resolveAppPackageStorePath } from "./appPackageIngestor";
+import {
+  AppPackageIngestor,
+  resolveAppPackageStorePath,
+  type AppPackageGarbageCollectionResult,
+} from "./appPackageIngestor";
 import { AppOperationBroker } from "./appOperationBroker";
 import { AppRendererIpcBridge } from "./appRendererIpcBridge";
 import { AppRendererRpcHost } from "./appRendererRpc";
@@ -36,6 +40,7 @@ export interface DesktopAppRuntime {
   readonly restoreResults: ReadonlyArray<AppRuntimeRestoreResult>;
   readonly safeStartRecovery: null | { quarantinedPath: string; error: Error };
   readonly updateRecovery: AppUpdateRecovery | null;
+  readonly packageGarbageCollection: AppPackageGarbageCollectionResult;
   canManageInstallations(rendererId: number): boolean;
   installationSpaceId(rendererId: number): string | null;
   stop(): Promise<void>;
@@ -57,6 +62,10 @@ export async function startDesktopAppRuntime(input: {
   const store = storeResult.store;
   const updates = new AppUpdateJournal(resolveAppUpdateJournalPath(input.userDataPath));
   const updateRecovery = await updates.recoverSafe(store);
+  const packages = new AppPackageIngestor(resolveAppPackageStorePath(input.userDataPath));
+  const packageGarbageCollection = await packages.collectGarbage(
+    Object.values(store.snapshot().packagesByAppId).map((installed) => installed.packagePath),
+  );
   const tabs = new DeferredAppTabHost();
   const rpc = new AppRendererRpcHost();
   const ipcBridge = new AppRendererIpcBridge({
@@ -102,7 +111,6 @@ export async function startDesktopAppRuntime(input: {
     closeTabs: (appId, spaceId, reason) => appTabs.closeForAppSpace(appId, spaceId, reason),
   });
   const installations = new AppInstallationService({ store, lifecycle, updates });
-  const packages = new AppPackageIngestor(resolveAppPackageStorePath(input.userDataPath));
   appTabs = new ElectronAppTabHost({
     window: input.window,
     installations,
@@ -130,6 +138,7 @@ export async function startDesktopAppRuntime(input: {
     restoreResults,
     safeStartRecovery: storeResult.recovery,
     updateRecovery,
+    packageGarbageCollection,
     canManageInstallations: (rendererId) => trustedInstallationRenderers.has(rendererId),
     installationSpaceId: (rendererId) => trustedInstallationRenderers.get(rendererId) ?? null,
     stop: async () => {

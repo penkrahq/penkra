@@ -4545,6 +4545,14 @@ async function bootstrap(): Promise<void> {
       `[penkra-app] Quarantined corrupt update journal at ${desktopAppRuntime.updateRecovery.quarantinedPath}: ${desktopAppRuntime.updateRecovery.error.message}`,
     );
   }
+  if (desktopAppRuntime.packageGarbageCollection.removedPaths.length > 0) {
+    console.info(
+      `[penkra-app] Removed ${desktopAppRuntime.packageGarbageCollection.removedPaths.length} unreferenced App package entr${desktopAppRuntime.packageGarbageCollection.removedPaths.length === 1 ? "y" : "ies"}.`,
+    );
+  }
+  for (const failure of desktopAppRuntime.packageGarbageCollection.failures) {
+    console.warn(`[penkra-app] Unable to remove unreferenced package entry ${failure.path}: ${failure.error.message}`);
+  }
   void appRegistryClient?.reconcileInstallReceipts().catch((error) => {
     console.warn(`[penkra-app] Install receipt reconciliation failed: ${formatErrorMessage(error)}`);
   });

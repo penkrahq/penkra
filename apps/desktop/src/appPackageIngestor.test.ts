@@ -104,6 +104,32 @@ describe("AppPackageIngestor", () => {
       expectedArchiveDigest: "a".repeat(64),
     })).rejects.toThrow("digest changed");
   });
+
+  it("removes only unreferenced immutable packages during startup collection", async () => {
+    const { sourcePath, storePath } = fixture();
+    const ingestor = new AppPackageIngestor(storePath);
+    const retained = await ingestor.ingestDirectory({ sourcePath, source: "registry" });
+    const stalePath = Path.join(storePath, "com.example.app", "0.9.0", "stale-digest");
+    const interruptedPath = Path.join(storePath, "com.example.app", "2.0.0", ".package.interrupted.tmp");
+    FS.mkdirSync(stalePath, { recursive: true });
+    FS.writeFileSync(Path.join(stalePath, "old.js"), "old");
+    FS.mkdirSync(interruptedPath, { recursive: true });
+
+    const result = await ingestor.collectGarbage([retained.packagePath]);
+
+    expect(result.failures).toEqual([]);
+    expect(result.removedPaths).toEqual(expect.arrayContaining([stalePath, interruptedPath]));
+    expect(FS.existsSync(stalePath)).toBe(false);
+    expect(FS.existsSync(interruptedPath)).toBe(false);
+    expect(FS.existsSync(retained.packagePath)).toBe(true);
+  });
+
+  it("rejects retained paths outside the owned three-level package store", async () => {
+    const { root, storePath } = fixture();
+    await expect(new AppPackageIngestor(storePath).collectGarbage([root])).rejects.toThrow(
+      "outside the package store or has an invalid shape",
+    );
+  });
 });
 
 async function registryArchive(): Promise<Buffer> {
