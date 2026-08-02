@@ -28,9 +28,9 @@ describe("first-party Apps bootstrap", () => {
       {
         packages: { ingestDirectory: vi.fn(async () => verified) },
         installations: {
-          snapshot: () => ({ packagesByAppId: {} }),
+          snapshot: () => ({ packagesByAppId: {}, spaceStateByKey: {} }),
           install,
-          update: vi.fn(),
+          updateForSpaces: vi.fn(),
         },
       } as never,
       "/package",
@@ -39,25 +39,44 @@ describe("first-party Apps bootstrap", () => {
     expect(install).toHaveBeenCalledWith(verified);
   });
 
-  it("updates changed bundled bytes through the registry update transition", async () => {
+  it("updates changed bundled bytes through the runtime-safe Space transition", async () => {
     const verified = {
       manifest: { id: "com.penkra.apps" },
       sha256: "b".repeat(64),
       source: "registry",
     };
-    const update = vi.fn(async () => undefined);
+    const updateForSpaces = vi.fn(async () => undefined);
     const result = await bootstrapFirstPartyAppsPackage(
       {
         packages: { ingestDirectory: vi.fn(async () => verified) },
         installations: {
-          snapshot: () => ({ packagesByAppId: { "com.penkra.apps": { sha256: "a".repeat(64) } } }),
+          snapshot: () => ({
+            packagesByAppId: { "com.penkra.apps": { sha256: "a".repeat(64) } },
+            spaceStateByKey: {
+              "space-1:com.penkra.apps": {
+                appId: "com.penkra.apps",
+                spaceId: "space-1",
+                permissions: { "network-fetch": "granted" },
+              },
+              "space-1:com.example.other": {
+                appId: "com.example.other",
+                spaceId: "space-1",
+                permissions: { "network-fetch": "denied" },
+              },
+            },
+          }),
           install: vi.fn(),
-          update,
+          updateForSpaces,
         },
       } as never,
       "/package",
     );
     expect(result).toBe("updated");
-    expect(update).toHaveBeenCalledWith({ ...verified, source: "registry" });
+    expect(updateForSpaces).toHaveBeenCalledWith({
+      package: { ...verified, source: "registry" },
+      permissionsBySpace: {
+        "space-1": { "network-fetch": "granted" },
+      },
+    });
   });
 });

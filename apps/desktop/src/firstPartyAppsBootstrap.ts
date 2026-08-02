@@ -38,12 +38,21 @@ export async function bootstrapFirstPartyAppsPackage(
   if (verified.manifest.id !== FIRST_PARTY_APPS_ID) {
     throw new Error(`Bundled Apps package must use ${FIRST_PARTY_APPS_ID}.`);
   }
-  const existing = runtime.installations.snapshot().packagesByAppId[FIRST_PARTY_APPS_ID];
+  const current = runtime.installations.snapshot();
+  const existing = current.packagesByAppId[FIRST_PARTY_APPS_ID];
   if (!existing) {
     await runtime.installations.install(verified);
     return "installed";
   }
   if (existing.sha256 === verified.sha256) return "current";
-  await runtime.installations.update({ ...verified, source: "registry" });
+  const permissionsBySpace = Object.fromEntries(
+    Object.values(current.spaceStateByKey)
+      .filter((space) => space.appId === FIRST_PARTY_APPS_ID)
+      .map((space) => [space.spaceId, space.permissions]),
+  );
+  await runtime.installations.updateForSpaces({
+    package: { ...verified, source: "registry" },
+    permissionsBySpace,
+  });
   return "updated";
 }
