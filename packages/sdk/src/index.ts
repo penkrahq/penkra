@@ -22,3 +22,14 @@ export {
   type OperationInvocation,
   type OperationRequest,
 } from "./operations";
+
+export {
+  operations,
+  tab,
+  type AppOperationHandler,
+  type AppTabHandlerContext,
+  type AppTabNavigationHandler,
+  type AppTabNavigationInput,
+  type AppTabOperationHandler,
+  type PenkraAppRuntimeApi,
+} from "./runtime";

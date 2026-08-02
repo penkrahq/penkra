@@ -33,4 +33,9 @@ export default defineConfig([
     ...shared,
     entry: ["src/preload.ts"],
   },
+  {
+    ...shared,
+    entry: ["src/appPreload.ts"],
+    noExternal: (id) => id.startsWith("@penkra/"),
+  },
 ]);

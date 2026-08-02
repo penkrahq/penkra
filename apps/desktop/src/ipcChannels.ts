@@ -45,6 +45,11 @@ export const DESKTOP_IPC_CHANNELS = {
     read: "desktop:storage-migration-read",
     acknowledge: "desktop:storage-migration-acknowledge",
   },
+  appRuntime: {
+    hostMessage: "penkra-app:host-message",
+    rendererMessage: "penkra-app:renderer-message",
+    ready: "penkra-app:ready",
+  },
   browser: {
     state: "desktop:browser-state",
     open: "desktop:browser-open",
@@ -76,3 +81,4 @@ export const DESKTOP_IPC_CHANNELS = {
 export const BROWSER_IPC_CHANNELS = DESKTOP_IPC_CHANNELS.browser;
 export const DESKTOP_WS_URL_CHANNEL = DESKTOP_IPC_CHANNELS.wsUrl;
 export const SERVER_TRANSCRIBE_VOICE_CHANNEL = DESKTOP_IPC_CHANNELS.transcribeVoice;
+export const APP_RUNTIME_IPC_CHANNELS = DESKTOP_IPC_CHANNELS.appRuntime;
