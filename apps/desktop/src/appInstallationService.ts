@@ -13,6 +13,7 @@ import {
   type AppPermissionGrant,
   type VerifiedAppPackageInput,
 } from "./appInstallationState";
+import { permissionsRequiringUpdateReview } from "@penkra/sdk";
 import type { AppInstallationStore } from "./appInstallationStore";
 import type { AppRuntimeLifecycle } from "./appRuntimeLifecycle";
 import type { AppUpdateJournal } from "./appUpdateJournal";
@@ -238,6 +239,10 @@ function applyUpdate(
   const appId = input.package.manifest.id;
   let next = replaceVerifiedRegistryAppPackage(state, input.package);
   const declarations = input.package.manifest.permissions ?? [];
+  const reviewRequired = new Set(permissionsRequiringUpdateReview(
+    state.packagesByAppId[appId]?.manifest.permissions ?? [],
+    declarations,
+  ));
   const declaredNames = new Set(declarations.map((permission) => permission.name));
   const spaces = Object.values(state.spaceStateByKey).filter((space) => space.appId === appId);
   const knownSpaces = new Set(spaces.map((space) => space.spaceId));
@@ -249,6 +254,13 @@ function applyUpdate(
   }
   for (const space of spaces) {
     const review = input.permissionsBySpace[space.spaceId] ?? {};
+    if (space.enabled) {
+      for (const permission of reviewRequired) {
+        if (!Object.hasOwn(review, permission)) {
+          throw new Error(`New App permission ${permission} must be reviewed for Space ${space.spaceId}.`);
+        }
+      }
+    }
     const permissions = Object.fromEntries(declarations.map((declaration) => [
       declaration.name,
       review[declaration.name] ?? space.permissions[declaration.name] ?? "denied",

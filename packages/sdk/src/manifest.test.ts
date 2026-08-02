@@ -95,6 +95,19 @@ describe("validateAppManifest", () => {
     );
   });
 
+  it("rejects undeclared host authority instead of accepting arbitrary permission names", () => {
+    const result = validateAppManifest({
+      ...validManifest,
+      permissions: [{ name: "account-read", required: false, reason: "Read the account" }],
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.issues).toContainEqual(expect.objectContaining({
+      path: "permissions[0].name",
+      message: "account-read is not a supported Penkra permission.",
+    }));
+  });
+
   it("enforces the bounded local-reference JSON Schema profile", () => {
     const result = validateAppManifest({
       ...validManifest,

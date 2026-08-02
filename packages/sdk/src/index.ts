@@ -24,6 +24,14 @@ export {
   PENKRA_APP_README_MAX_BYTES,
   type GenerateAppHelpInput,
 } from "./help";
+export {
+  PENKRA_PERMISSIONS,
+  diffAppPermissionDeclarations,
+  isPenkraPermissionName,
+  permissionsRequiringUpdateReview,
+  type AppPermissionDeclarationChange,
+  type PenkraPermissionName,
+} from "./permissions";
 
 export {
   OPERATION_CANCELLATION_CODES,

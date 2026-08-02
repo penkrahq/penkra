@@ -1,3 +1,6 @@
+import { validatePenkraJsonSchema } from "./jsonSchema";
+import { isPenkraPermissionName } from "./permissions";
+
 export const PENKRA_APP_MANIFEST_VERSION = 1 as const;
 
 export type JsonSchema = Readonly<Record<string, unknown>>;
@@ -217,6 +220,13 @@ export function validateAppManifest(value: unknown): AppManifestValidationResult
             "invalid-format",
             "Permission names must be lowercase words joined by hyphens.",
           );
+        } else if (typeof candidate.name === "string" && !isPenkraPermissionName(candidate.name)) {
+          issue(
+            issues,
+            `${path}.name`,
+            "invalid-format",
+            `${candidate.name} is not a supported Penkra permission.`,
+          );
         } else if (typeof candidate.name === "string") {
           permissionNames.push({ name: candidate.name, path: `${path}.name` });
         }
@@ -310,4 +320,3 @@ export function defineApp<const Manifest extends PenkraAppManifest>(manifest: Ma
   assertAppManifest(manifest);
   return manifest;
 }
-import { validatePenkraJsonSchema } from "./jsonSchema";

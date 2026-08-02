@@ -160,6 +160,27 @@ describe("AppInstallationService", () => {
     expect(test.updates.clear).toHaveBeenCalledOnce();
   });
 
+  it("requires an explicit grant or denial for every new permission in an enabled Space", async () => {
+    const test = fixture();
+    const initial = verifiedPackage();
+    initial.manifest.permissions = [];
+    await test.service.install(initial);
+    await test.service.setEnabled({ appId: "com.acme.figma", spaceId: "personal", enabled: true });
+    const update = verifiedPackage();
+    update.manifest.version = "2.0.0";
+
+    await expect(test.service.updateForSpaces({
+      package: { ...update, source: "registry" },
+      permissionsBySpace: {},
+    })).rejects.toThrow("network-fetch must be reviewed for Space personal");
+    expect(test.updates.prepare).not.toHaveBeenCalled();
+
+    await expect(test.service.updateForSpaces({
+      package: { ...update, source: "registry" },
+      permissionsBySpace: { personal: { "network-fetch": "denied" } },
+    })).resolves.toMatchObject({ packagesByAppId: { "com.acme.figma": { version: "2.0.0" } } });
+  });
+
   it("restores the prior package and runtime when updated activation fails", async () => {
     const test = fixture();
     await test.service.install(verifiedPackage());
