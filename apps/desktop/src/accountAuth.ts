@@ -30,12 +30,17 @@ type PenkraElectronAuthClient = ReturnType<typeof createAuthClient> & {
     error: { message?: string } | null;
   }>;
   requestAuth: () => Promise<void>;
+  getCookie: () => string;
   setupMain: (config: {
     bridges: boolean;
     csp: boolean;
     getWindow: () => BrowserWindow | null;
     scheme: boolean;
   }) => void;
+};
+
+export type PenkraAccountAuthRuntime = {
+  getCookie: () => string;
 };
 
 export function configurePenkraAccountAuth(input: {
@@ -46,7 +51,7 @@ export function configurePenkraAccountAuth(input: {
   ipcMain: IpcMain;
   registerAsDefaultProtocolClient?: boolean;
   websiteOrigin: string;
-}): void {
+}): PenkraAccountAuthRuntime {
   const accountStorage = storage({
     configName: `account-auth-${input.desktopFlavor}-${serviceKey(input.authBaseUrl)}`,
     projectName: "Penkra",
@@ -229,6 +234,10 @@ export function configurePenkraAccountAuth(input: {
     await signInClient.signOut();
     input.getWindow()?.webContents.send(DESKTOP_IPC_CHANNELS.accountAuth.userUpdated, null);
   });
+
+  return {
+    getCookie: () => signInClient.getCookie(),
+  };
 }
 
 function serviceKey(authBaseUrl: string): string {

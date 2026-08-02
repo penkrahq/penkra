@@ -58,6 +58,11 @@ export const DESKTOP_IPC_CHANNELS = {
     uninstall: "desktop:app-installations-uninstall",
     removeData: "desktop:app-installations-remove-data",
   },
+  appRegistry: {
+    list: "desktop:app-registry-list",
+    get: "desktop:app-registry-get",
+    getArtifact: "desktop:app-registry-get-artifact",
+  },
   appTabs: {
     opened: "desktop:app-tabs-opened",
     state: "desktop:app-tabs-state",

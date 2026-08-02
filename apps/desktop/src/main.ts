@@ -201,6 +201,7 @@ import {
   resolveDesktopUserDataPath,
 } from "./desktopUserDataProfile";
 import { configurePenkraAccountAuth } from "./accountAuth";
+import { AppRegistryClient } from "./appRegistryClient";
 import { createDesktopPrivilegedSchemes } from "./desktopProtocolSchemes";
 import { isBrokenPipeError } from "./desktopProcessErrors";
 import {
@@ -232,6 +233,11 @@ import {
   parseUninstallAppRequest,
   toDesktopAppInstallationSnapshot,
 } from "./appInstallationIpc";
+import {
+  parseRegistryArtifactRequest,
+  parseRegistryGetRequest,
+  parseRegistryListRequest,
+} from "./appRegistryIpc";
 import {
   bootstrapFirstPartyAppsPackage,
   PENKRA_APPS_PACKAGE_PATH_ENV,
@@ -370,6 +376,7 @@ type DesktopUpdateErrorContext = DesktopUpdateState["errorContext"];
 
 let mainWindow: BrowserWindow | null = null;
 let desktopAppRuntime: DesktopAppRuntime | null = null;
+let appRegistryClient: AppRegistryClient | null = null;
 const voiceRecordingPowerBlocker = new VoiceRecordingPowerBlocker({
   blocker: powerSaveBlocker,
   onError: (message, error) =>
@@ -3590,6 +3597,24 @@ function registerIpcHandlers(): void {
     );
   });
 
+  const requireAppsRegistry = (senderId: number) => {
+    if (!desktopAppRuntime?.canManageInstallations(senderId)) {
+      throw new Error("This renderer cannot access the App registry.");
+    }
+    if (!appRegistryClient) throw new Error("The App registry is not ready.");
+    return appRegistryClient;
+  };
+  for (const channel of Object.values(IPC.appRegistry)) ipcMain.removeHandler(channel);
+  ipcMain.handle(IPC.appRegistry.list, async (event, input: unknown) =>
+    requireAppsRegistry(event.sender.id).list(parseRegistryListRequest(input)),
+  );
+  ipcMain.handle(IPC.appRegistry.get, async (event, input: unknown) =>
+    requireAppsRegistry(event.sender.id).get(parseRegistryGetRequest(input)),
+  );
+  ipcMain.handle(IPC.appRegistry.getArtifact, async (event, input: unknown) =>
+    requireAppsRegistry(event.sender.id).getArtifact(parseRegistryArtifactRequest(input)),
+  );
+
   const requireShellAppTabs = (senderId: number) => {
     if (mainWindow?.webContents.id !== senderId) {
       throw new Error("Only the Penkra shell can manage host App tabs.");
@@ -4370,7 +4395,7 @@ function configureMediaPermissions(): void {
 // Must be called synchronously at the top level — before `app.whenReady()`.
 if (hasSingleInstanceLock) {
   repairBrowserProfileBeforeElectronReady(userDataPath);
-  configurePenkraAccountAuth({
+  const accountAuthRuntime = configurePenkraAccountAuth({
     accountAuthScheme: desktopIdentity.accountAuthScheme,
     authBaseUrl: penkraAccountServices.authBaseUrl,
     desktopFlavor,
@@ -4378,6 +4403,10 @@ if (hasSingleInstanceLock) {
     ipcMain,
     registerAsDefaultProtocolClient: !desktopSmokeUserDataPath,
     websiteOrigin: penkraAccountServices.websiteOrigin,
+  });
+  appRegistryClient = new AppRegistryClient({
+    apiUrl: penkraAccountServices.apiUrl,
+    getCookie: accountAuthRuntime.getCookie,
   });
 }
 

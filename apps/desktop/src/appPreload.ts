@@ -37,6 +37,14 @@ const exposedApi =
           removeData: (input: unknown) =>
             ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.appInstallations.removeData, input),
         },
+        registry: {
+          list: (input?: unknown) =>
+            ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.appRegistry.list, input),
+          get: (input: unknown) =>
+            ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.appRegistry.get, input),
+          getArtifact: (input: unknown) =>
+            ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.appRegistry.getArtifact, input),
+        },
       }
     : runtime.api;
 

@@ -475,6 +475,67 @@ export interface DesktopAppInstallationBridge {
   onState: (listener: (state: DesktopAppInstallationSnapshot) => void) => () => void;
 }
 
+export interface DesktopRegistryAppSummary {
+  id: string;
+  identifier: string;
+  slug: string;
+  displayName: string;
+  summary: string;
+  publisher: {
+    slug: string;
+    displayName: string;
+    domain: string | null;
+    verified: boolean;
+  };
+  latestVersion: string;
+  iconAssetId: string | null;
+  installCount: number;
+  rating: number | null;
+  ratingCount: number;
+}
+
+export interface DesktopRegistryAppDetail extends DesktopRegistryAppSummary {
+  screenshots: ReadonlyArray<{
+    id: string;
+    position: number;
+    altText: string;
+  }>;
+  versions: ReadonlyArray<{
+    id: string;
+    version: string;
+    packageDigest: string;
+    minimumHostVersion: string;
+    maximumHostVersion: string | null;
+    publishedAt: string;
+    readmeArtifactId: string;
+    instructionsArtifactId: string;
+    permissions: ReadonlyArray<{
+      permission: string;
+      required: boolean;
+      rationale: string;
+    }>;
+  }>;
+}
+
+export interface DesktopAppRegistryBridge {
+  list: (input?: {
+    query?: string;
+    cursor?: string;
+    limit?: number;
+  }) => Promise<{
+    items: ReadonlyArray<DesktopRegistryAppSummary>;
+    pageInfo: { nextCursor: string | null };
+  }>;
+  get: (input: { slug: string }) => Promise<DesktopRegistryAppDetail>;
+  getArtifact: (input: {
+    id: string;
+    source: "artifact" | "asset";
+  }) => Promise<
+    | { kind: "text"; contentType: string; text: string }
+    | { kind: "image"; contentType: string; dataUrl: string }
+  >;
+}
+
 export interface DesktopAppTabDescriptor {
   id: string;
   appId: string;
@@ -574,6 +635,7 @@ export interface DesktopBridge {
     onError: (listener: (error: DesktopAccountAuthError) => void) => () => void;
   };
   appInstallations?: DesktopAppInstallationBridge;
+  appRegistry?: DesktopAppRegistryBridge;
   appTabs?: DesktopAppTabsBridge;
   storageMigration: {
     readSnapshot: () => PenkraStorageSnapshot | null;
