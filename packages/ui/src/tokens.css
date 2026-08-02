@@ -1,0 +1,34 @@
+:root {
+  color-scheme: light dark;
+  --penkra-color-background: light-dark(#f7f7f7, #181818);
+  --penkra-color-panel: light-dark(#ffffff, #1a1a1a);
+  --penkra-color-surface: light-dark(#f0f0f0, #202020);
+  --penkra-color-control: light-dark(#e7e7e7, #292929);
+  --penkra-color-selected: light-dark(#dddddd, #303030);
+  --penkra-color-overlay: light-dark(#ffffff, #1f1f1f);
+  --penkra-color-text-primary: light-dark(#171717, #ffffff);
+  --penkra-color-text-secondary: light-dark(#545454, #ffffffa3);
+  --penkra-color-text-muted: light-dark(#767676, #ffffff70);
+  --penkra-color-text-disabled: light-dark(#9c9c9c, #ffffff45);
+  --penkra-color-border: light-dark(#00000018, #ffffff16);
+  --penkra-color-divider: var(--penkra-color-border);
+  --penkra-color-focus: #4c9dff;
+  --penkra-color-accent: #4c9dff;
+  --penkra-color-success: #36a269;
+  --penkra-color-warning: #d69a2d;
+  --penkra-color-destructive: #d84b4b;
+  --penkra-color-info: #4c9dff;
+  --penkra-interactive-hover: color-mix(in srgb, var(--penkra-color-text-primary) 8%, transparent);
+  --penkra-interactive-pressed: color-mix(in srgb, var(--penkra-color-text-primary) 13%, transparent);
+  --penkra-radius-control: 6px;
+  --penkra-motion-fast: 120ms;
+  --penkra-motion-standard-easing: cubic-bezier(.2, 0, 0, 1);
+  --penkra-font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+@media (prefers-contrast: more) {
+  :root {
+    --penkra-color-border: currentColor;
+    --penkra-color-focus: currentColor;
+  }
+}
