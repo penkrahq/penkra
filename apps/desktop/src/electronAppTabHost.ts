@@ -141,6 +141,12 @@ export class ElectronAppTabHost implements AppTabHost {
     for (const tabId of [...this.#records.keys()]) this.close(tabId, reason);
   }
 
+  closeForAppSpace(appId: string, spaceId: string, reason: OperationCancellationCode = "app-disabled"): void {
+    for (const [tabId, record] of this.#records) {
+      if (record.app.appId === appId && record.descriptor.spaceId === spaceId) this.close(tabId, reason);
+    }
+  }
+
   async #create(input: OpenAppTabRequest): Promise<AppTabHandle> {
     await this.#assertAppAllowed(input.app);
     const activeSession = this.#sessions.get(input.app.appId, input.spaceId);

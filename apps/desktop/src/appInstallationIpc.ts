@@ -80,6 +80,32 @@ export function parseInstallRegistryAppRequest(input: unknown): {
   };
 }
 
+export function parseUpdateRegistryAppRequest(input: unknown): {
+  slug: string;
+  version: string;
+  permissionsBySpace: Record<string, Record<string, AppPermissionGrant>>;
+} {
+  const record = requireRecord(input);
+  const rawBySpace = requireRecord(record.permissionsBySpace);
+  const permissionsBySpace: Record<string, Record<string, AppPermissionGrant>> = {};
+  for (const [spaceId, rawPermissions] of Object.entries(rawBySpace)) {
+    if (!spaceId) throw new Error("Invalid App update Space.");
+    const permissions: Record<string, AppPermissionGrant> = {};
+    for (const [permission, grant] of Object.entries(requireRecord(rawPermissions))) {
+      if (!permission || (grant !== "denied" && grant !== "granted")) {
+        throw new Error("Invalid App update permissions.");
+      }
+      permissions[permission] = grant;
+    }
+    permissionsBySpace[spaceId] = permissions;
+  }
+  return {
+    slug: requireString(record, "slug"),
+    version: requireString(record, "version"),
+    permissionsBySpace,
+  };
+}
+
 export function parseSetAppPermissionRequest(input: unknown): {
   appId: string;
   spaceId: string;

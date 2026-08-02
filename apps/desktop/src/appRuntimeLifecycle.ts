@@ -24,6 +24,7 @@ export interface AppRuntimeLifecycleDependencies {
   sessions: Pick<AppSessionManager, "activate" | "deactivate">;
   controllers: AppRuntimeControllerHost;
   assertAppAllowed?: (app: InstalledAppPackage) => Promise<void>;
+  closeTabs?: (appId: string, spaceId: string, reason: OperationCancellationCode) => void;
 }
 
 export type AppRuntimeRestoreResult =
@@ -46,6 +47,7 @@ export class AppRuntimeLifecycle {
   readonly #sessions: AppRuntimeLifecycleDependencies["sessions"];
   readonly #controllers: AppRuntimeControllerHost;
   readonly #assertAppAllowed: (app: InstalledAppPackage) => Promise<void>;
+  readonly #closeTabs: (appId: string, spaceId: string, reason: OperationCancellationCode) => void;
   readonly #active = new Map<string, ActiveRuntime>();
   readonly #queues = new Map<string, Promise<void>>();
 
@@ -54,6 +56,7 @@ export class AppRuntimeLifecycle {
     this.#sessions = dependencies.sessions;
     this.#controllers = dependencies.controllers;
     this.#assertAppAllowed = dependencies.assertAppAllowed ?? (async () => undefined);
+    this.#closeTabs = dependencies.closeTabs ?? (() => undefined);
   }
 
   async restoreEnabled(): Promise<ReadonlyArray<AppRuntimeRestoreResult>> {
@@ -160,6 +163,7 @@ export class AppRuntimeLifecycle {
   ): Promise<void> {
     const key = runtimeKey(appId, spaceId);
     const active = this.#active.get(key);
+    this.#closeTabs(appId, spaceId, reason);
     let controllerError: unknown;
     if (active) {
       try {

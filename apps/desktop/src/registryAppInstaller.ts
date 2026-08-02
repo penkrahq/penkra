@@ -2,7 +2,7 @@
 // Purpose: Orchestrates verified registry download, package ingestion, grants, and activation.
 // Layer: Trusted Electron main process
 
-import { satisfies } from "semver";
+import { gt, satisfies } from "semver";
 
 import type { AppInstallationService } from "./appInstallationService";
 import type { AppInstallationState, AppPermissionGrant } from "./appInstallationState";
@@ -42,15 +42,7 @@ export async function installRegistryApp(input: {
     packageBytes: verified.packageBytes,
     expectedArchiveDigest: verified.release.packageDigest,
   });
-  if (
-    installedPackage.manifest.id !== app.identifier ||
-    installedPackage.manifest.slug !== app.slug ||
-    installedPackage.manifest.version !== version.version ||
-    installedPackage.manifest.compatibility.penkra !== version.compatibilityRange ||
-    !manifestPermissionsMatch(installedPackage.manifest.permissions ?? [], version.permissions)
-  ) {
-    throw new Error("Verified App package metadata does not match the selected registry release.");
-  }
+  assertPackageMatchesRegistry(installedPackage, app, version);
   const state = await input.installations.installForSpace({
     package: {
       ...installedPackage,
@@ -73,6 +65,59 @@ export async function installRegistryApp(input: {
     console.warn("[penkra-app] Installed App receipt could not be recorded.", error);
   }
   return state;
+}
+
+export async function updateRegistryApp(input: {
+  request: {
+    slug: string;
+    version: string;
+    permissionsBySpace: Readonly<Record<string, Readonly<Record<string, AppPermissionGrant>>>>;
+  };
+  hostVersion: string;
+  registry: Pick<AppRegistryClient, "get" | "downloadVerifiedRelease" | "getSecurityPolicy">;
+  packages: Pick<AppPackageIngestor, "ingestRegistryArchive">;
+  installations: Pick<AppInstallationService, "snapshot" | "updateForSpaces">;
+}): Promise<AppInstallationState> {
+  const app = await input.registry.get({ slug: input.request.slug });
+  const version = app.versions.find((candidate) => candidate.version === input.request.version);
+  if (!version) throw new Error("The selected App version is no longer available.");
+  const current = input.installations.snapshot().packagesByAppId[app.identifier];
+  if (!current || current.source !== "registry") throw new Error(`${app.displayName} is not installed from the registry.`);
+  if (!gt(version.version, current.version)) {
+    throw new Error(`App updates must move forward from ${current.version} to a newer version.`);
+  }
+  if (!satisfies(input.hostVersion, version.compatibilityRange, { includePrerelease: true })) {
+    throw new Error(`App ${app.displayName} ${version.version} is not compatible with Penkra ${input.hostVersion}.`);
+  }
+  const [verified, policy] = await Promise.all([
+    input.registry.downloadVerifiedRelease({ app, version }),
+    input.registry.getSecurityPolicy(),
+  ]);
+  assertRegistryReleaseAllowed(policy, {
+    appId: verified.release.appId,
+    versionId: verified.release.versionId,
+    publisherId: verified.release.publisher.id,
+  });
+  const installedPackage = await input.packages.ingestRegistryArchive({
+    packageBytes: verified.packageBytes,
+    expectedArchiveDigest: verified.release.packageDigest,
+  });
+  assertPackageMatchesRegistry(installedPackage, app, version);
+  return input.installations.updateForSpaces({
+    package: {
+      ...installedPackage,
+      source: "registry",
+      registryRelease: {
+        appId: app.id,
+        versionId: version.id,
+        publisherId: verified.release.publisher.id,
+        packageDigest: verified.release.packageDigest,
+        keyId: verified.release.keyId,
+        publishedAt: verified.release.publishedAt,
+      },
+    },
+    permissionsBySpace: input.request.permissionsBySpace,
+  });
 }
 
 function resolvePermissionGrants(
@@ -103,4 +148,20 @@ function manifestPermissionsMatch(
     required: permission.required,
     rationale: permission.reason,
   })))) === JSON.stringify(normalize([...registry]));
+}
+
+function assertPackageMatchesRegistry(
+  installedPackage: Awaited<ReturnType<AppPackageIngestor["ingestRegistryArchive"]>>,
+  app: Awaited<ReturnType<AppRegistryClient["get"]>>,
+  version: Awaited<ReturnType<AppRegistryClient["get"]>>["versions"][number],
+): void {
+  if (
+    installedPackage.manifest.id !== app.identifier ||
+    installedPackage.manifest.slug !== app.slug ||
+    installedPackage.manifest.version !== version.version ||
+    installedPackage.manifest.compatibility.penkra !== version.compatibilityRange ||
+    !manifestPermissionsMatch(installedPackage.manifest.permissions ?? [], version.permissions)
+  ) {
+    throw new Error("Verified App package metadata does not match the selected registry release.");
+  }
 }

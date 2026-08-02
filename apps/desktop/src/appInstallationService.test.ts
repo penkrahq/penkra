@@ -19,6 +19,7 @@ function verifiedPackage(): VerifiedAppPackageInput {
       compatibility: { penkra: ">=0.8.0" },
       icons: [{ src: "icon.svg", sizes: "any", type: "image/svg+xml" }],
       entrypoints: { app: "app.html" },
+      permissions: [{ name: "network-fetch", required: false, reason: "Sync designs" }],
     },
     source: "registry",
     packagePath: "/profile/apps/com.acme.figma/1.0.0",
@@ -106,6 +107,64 @@ describe("AppInstallationService", () => {
       permissions: { "network-fetch": "granted" },
     });
     expect(listener).toHaveBeenCalledTimes(3);
+  });
+
+  it("requires declared required grants before enabling an App", async () => {
+    const test = fixture();
+    const packageWithPermission = verifiedPackage();
+    packageWithPermission.manifest.permissions = [{
+      name: "network-fetch",
+      required: true,
+      reason: "Sync designs",
+    }];
+    await test.service.install(packageWithPermission);
+
+    await expect(test.service.setEnabled({
+      appId: "com.acme.figma",
+      spaceId: "personal",
+      enabled: true,
+    })).rejects.toThrow("must be granted");
+    expect(test.lifecycle.enable).not.toHaveBeenCalled();
+  });
+
+  it("restarts enabled Spaces on update and applies an exact permission review", async () => {
+    const test = fixture();
+    await test.service.install(verifiedPackage());
+    await test.service.setEnabled({ appId: "com.acme.figma", spaceId: "personal", enabled: true });
+    const update = verifiedPackage();
+    update.manifest.version = "2.0.0";
+    update.manifest.permissions = [{ name: "network-fetch", required: true, reason: "Sync designs" }];
+
+    await test.service.updateForSpaces({
+      package: { ...update, source: "registry" },
+      permissionsBySpace: { personal: { "network-fetch": "granted" } },
+    });
+
+    expect(test.lifecycle.disable).toHaveBeenCalledWith("com.acme.figma", "personal");
+    expect(test.lifecycle.enable).toHaveBeenLastCalledWith("com.acme.figma", "personal");
+    expect(test.state().packagesByAppId["com.acme.figma"]?.version).toBe("2.0.0");
+    expect(test.state().spaceStateByKey["personal\0com.acme.figma"]).toMatchObject({
+      enabled: true,
+      permissions: { "network-fetch": "granted" },
+    });
+  });
+
+  it("restores the prior package and runtime when updated activation fails", async () => {
+    const test = fixture();
+    await test.service.install(verifiedPackage());
+    await test.service.setEnabled({ appId: "com.acme.figma", spaceId: "personal", enabled: true });
+    const update = verifiedPackage();
+    update.manifest.version = "2.0.0";
+    test.lifecycle.enable.mockRejectedValueOnce(new Error("new controller failed"));
+
+    await expect(test.service.updateForSpaces({
+      package: { ...update, source: "registry" },
+      permissionsBySpace: {},
+    })).rejects.toThrow("new controller failed");
+
+    expect(test.state().packagesByAppId["com.acme.figma"]?.version).toBe("1.0.0");
+    expect(test.state().spaceStateByKey["personal\0com.acme.figma"]?.enabled).toBe(true);
+    expect(test.lifecycle.enable).toHaveBeenLastCalledWith("com.acme.figma", "personal");
   });
 
   it("deactivates every enabled Space before retaining an uninstalled App's data", async () => {

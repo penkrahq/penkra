@@ -411,6 +411,32 @@ export function setSpaceAppPermission(
   return { ...state, spaceStateByKey: { ...state.spaceStateByKey, [key]: next } };
 }
 
+export function replaceSpaceAppPermissions(
+  state: AppInstallationState,
+  input: { appId: string; spaceId: string; permissions: Readonly<Record<string, AppPermissionGrant>> },
+): AppInstallationState {
+  if (!state.packagesByAppId[input.appId]) {
+    throw new AppInstallationStateError("app-not-installed", `${input.appId} is not installed.`);
+  }
+  for (const grant of Object.values(input.permissions)) {
+    if (!isPermissionGrant(grant)) throw new AppInstallationStateError("invalid-state", "Invalid App permission grant.");
+  }
+  const key = spaceAppStateKey(input.spaceId, input.appId);
+  const current = state.spaceStateByKey[key] ?? {
+    appId: input.appId,
+    spaceId: input.spaceId,
+    enabled: false,
+    permissions: {},
+  };
+  return {
+    ...state,
+    spaceStateByKey: {
+      ...state.spaceStateByKey,
+      [key]: { ...current, permissions: { ...input.permissions } },
+    },
+  };
+}
+
 export function removeRetainedAppState(
   state: AppInstallationState,
   input: { appId: string; spaceId?: string },

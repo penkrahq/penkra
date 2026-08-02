@@ -85,15 +85,17 @@ export async function startDesktopAppRuntime(input: {
       onRendererCreated: registerRendererIdentity,
     }),
   });
+  let appTabs!: ElectronAppTabHost;
   const lifecycle = new AppRuntimeLifecycle({
     store,
     sessions,
     controllers: controllerHost,
     ...(input.assertAppAllowed === undefined ? {} : { assertAppAllowed: input.assertAppAllowed }),
+    closeTabs: (appId, spaceId, reason) => appTabs.closeForAppSpace(appId, spaceId, reason),
   });
   const installations = new AppInstallationService({ store, lifecycle });
   const packages = new AppPackageIngestor(resolveAppPackageStorePath(input.userDataPath));
-  const appTabs = new ElectronAppTabHost({
+  appTabs = new ElectronAppTabHost({
     window: input.window,
     installations,
     sessions,

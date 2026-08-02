@@ -147,6 +147,7 @@ contextBridge.exposeInMainWorld("desktopBridge", {
   appInstallations: {
     getState: () => ipcRenderer.invoke(IPC.appInstallations.getState),
     installRegistry: (input) => ipcRenderer.invoke(IPC.appInstallations.installRegistry, input),
+    updateRegistry: (input) => ipcRenderer.invoke(IPC.appInstallations.updateRegistry, input),
     setEnabled: (input) => ipcRenderer.invoke(IPC.appInstallations.setEnabled, input),
     setPermission: (input) => ipcRenderer.invoke(IPC.appInstallations.setPermission, input),
     uninstall: (input) => ipcRenderer.invoke(IPC.appInstallations.uninstall, input),

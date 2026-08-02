@@ -143,10 +143,10 @@ describe("ElectronAppTabHost", () => {
     host.setBounds(descriptor.id, { x: 1.4, y: 2.6, width: 300.2, height: 400.8 });
     expect(electron.views[0]?.bounds.at(-1)).toEqual({ x: 1, y: 3, width: 300, height: 401 });
 
-    host.close(descriptor.id);
+    host.closeForAppSpace(app.appId, "personal");
     host.close(descriptor.id);
     expect(unregisterBroker).toHaveBeenCalledOnce();
-    expect(unregisterRpc).toHaveBeenCalledWith("tab-closed");
+    expect(unregisterRpc).toHaveBeenCalledWith("app-disabled");
     expect(releaseIdentity).toHaveBeenCalledOnce();
     expect(removeChildView).toHaveBeenCalledOnce();
     expect(electron.views[0]?.webContents.close).toHaveBeenCalledOnce();

@@ -229,6 +229,7 @@ import { DESKTOP_IPC_CHANNELS } from "./ipcChannels";
 import { startDesktopAppRuntime, type DesktopAppRuntime } from "./desktopAppRuntime";
 import {
   parseInstallRegistryAppRequest,
+  parseUpdateRegistryAppRequest,
   parseRemoveAppDataRequest,
   parseSetAppEnabledRequest,
   parseSetAppPermissionRequest,
@@ -240,7 +241,7 @@ import {
   parseRegistryGetRequest,
   parseRegistryListRequest,
 } from "./appRegistryIpc";
-import { installRegistryApp } from "./registryAppInstaller";
+import { installRegistryApp, updateRegistryApp } from "./registryAppInstaller";
 import {
   bootstrapFirstPartyAppsPackage,
   PENKRA_APPS_PACKAGE_PATH_ENV,
@@ -3618,6 +3619,22 @@ function registerIpcHandlers(): void {
       throw new Error("Apps can only be installed into the current Space.");
     }
     const state = await installRegistryApp({
+      request,
+      hostVersion: app.getVersion(),
+      registry,
+      packages: runtime.packages,
+      installations: runtime.installations,
+    });
+    return toDesktopAppInstallationSnapshot(state, currentSpaceId);
+  });
+  ipcMain.handle(IPC.appInstallations.updateRegistry, async (event, input: unknown) => {
+    const request = parseUpdateRegistryAppRequest(input);
+    const registry = requireAppsRegistry(event.sender.id);
+    const runtime = desktopAppRuntime;
+    if (!runtime) throw new Error("The App runtime is not ready.");
+    const currentSpaceId = runtime.installationSpaceId(event.sender.id);
+    if (!currentSpaceId) throw new Error("Apps can only be updated from a Space-bound Apps tab.");
+    const state = await updateRegistryApp({
       request,
       hostVersion: app.getVersion(),
       registry,

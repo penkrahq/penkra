@@ -52,17 +52,20 @@ function fixture(initial = installedState(), assertAppAllowed?: (app: InstalledA
   const controllers = {
     activate: vi.fn(async () => releaseController),
   };
+  const closeTabs = vi.fn();
   return {
     lifecycle: new AppRuntimeLifecycle({
       store,
       sessions,
       controllers,
       ...(assertAppAllowed === undefined ? {} : { assertAppAllowed }),
+      closeTabs,
     }),
     store,
     sessions,
     controllers,
     releaseController,
+    closeTabs,
     state: () => state,
   };
 }
@@ -130,6 +133,7 @@ describe("AppRuntimeLifecycle", () => {
 
     const state = await test.lifecycle.disable("com.penkra.apps", "personal");
     expect(events).toEqual(["persist-disabled", "controller-stop", "session-stop"]);
+    expect(test.closeTabs).toHaveBeenCalledWith("com.penkra.apps", "personal", "app-disabled");
     expect(Object.values(state.spaceStateByKey)[0]?.enabled).toBe(false);
   });
 
