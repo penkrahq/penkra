@@ -15,6 +15,11 @@ describe("App installation IPC boundary", () => {
       installed: [],
       spaces: [],
     });
+    expect(toDesktopAppInstallationSnapshot(createEmptyAppInstallationState(), "personal")).toEqual({
+      installed: [],
+      spaces: [],
+      currentSpaceId: "personal",
+    });
   });
 
   it("parses supported mutation requests", () => {

@@ -19,7 +19,7 @@ export interface ElectronAppControllerRendererFactoryOptions {
   preloadPath: string;
   ipcBridge: Pick<AppRendererIpcBridge, "waitForReady">;
   createView?: (options: ConstructorParameters<typeof WebContentsView>[0]) => WebContentsView;
-  onRendererCreated?: (input: { appId: string; rendererId: number }) => (() => void) | void;
+  onRendererCreated?: (input: { appId: string; spaceId: string; rendererId: number }) => (() => void) | void;
 }
 
 export class ElectronAppControllerRendererFactory implements AppControllerRendererFactory {
@@ -50,6 +50,7 @@ export class ElectronAppControllerRendererFactory implements AppControllerRender
     const contents = view.webContents;
     const releaseIdentity = this.#onRendererCreated({
       appId: input.installedApp.appId,
+      spaceId: input.spaceId,
       rendererId: contents.id,
     });
     let identityReleased = false;

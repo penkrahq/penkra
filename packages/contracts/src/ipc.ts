@@ -447,6 +447,8 @@ export interface DesktopSpaceAppState {
 export interface DesktopAppInstallationSnapshot {
   installed: ReadonlyArray<DesktopInstalledApp>;
   spaces: ReadonlyArray<DesktopSpaceAppState>;
+  /** Present only for an App-owned renderer bound to one Space. */
+  currentSpaceId?: string;
 }
 
 export interface DesktopAppInstallationBridge {

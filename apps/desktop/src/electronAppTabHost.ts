@@ -37,7 +37,7 @@ export class ElectronAppTabHost implements AppTabHost {
   readonly #preloadPath: string;
   readonly #onOpened: (descriptor: DesktopAppTabDescriptor) => void;
   readonly #onState: (descriptor: DesktopAppTabDescriptor) => void;
-  readonly #onRendererCreated: (input: { appId: string; rendererId: number }) => (() => void) | void;
+  readonly #onRendererCreated: (input: { appId: string; spaceId: string; rendererId: number }) => (() => void) | void;
   readonly #records = new Map<string, AppTabRecord>();
 
   constructor(input: {
@@ -50,7 +50,7 @@ export class ElectronAppTabHost implements AppTabHost {
     preloadPath: string;
     onOpened: (descriptor: DesktopAppTabDescriptor) => void;
     onState: (descriptor: DesktopAppTabDescriptor) => void;
-    onRendererCreated?: (input: { appId: string; rendererId: number }) => (() => void) | void;
+    onRendererCreated?: (input: { appId: string; spaceId: string; rendererId: number }) => (() => void) | void;
   }) {
     this.#window = input.window;
     this.#installations = input.installations;
@@ -150,7 +150,11 @@ export class ElectronAppTabHost implements AppTabHost {
       }),
     });
     const contents = view.webContents;
-    const releaseRendererIdentity = this.#onRendererCreated({ appId: input.app.appId, rendererId: contents.id });
+    const releaseRendererIdentity = this.#onRendererCreated({
+      appId: input.app.appId,
+      spaceId: input.spaceId,
+      rendererId: contents.id,
+    });
     let identityReleased = false;
     const releaseIdentity = () => {
       if (identityReleased) return;

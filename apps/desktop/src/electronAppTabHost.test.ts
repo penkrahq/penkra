@@ -82,6 +82,7 @@ describe("ElectronAppTabHost", () => {
     const unregisterBroker = vi.fn();
     const unregisterRpc = vi.fn();
     const releaseIdentity = vi.fn();
+    const onRendererCreated = vi.fn(() => releaseIdentity);
     const onOpened = vi.fn();
     const host = new ElectronAppTabHost({
       window: () => ({
@@ -103,7 +104,7 @@ describe("ElectronAppTabHost", () => {
       preloadPath: "/trusted/appPreload.js",
       onOpened,
       onState: vi.fn(),
-      onRendererCreated: vi.fn(() => releaseIdentity),
+      onRendererCreated,
     });
 
     const descriptor = await host.openInstalled({
@@ -121,6 +122,11 @@ describe("ElectronAppTabHost", () => {
     });
     expect(host.list()).toEqual([descriptor]);
     expect(onOpened).toHaveBeenCalledWith(descriptor);
+    expect(onRendererCreated).toHaveBeenCalledWith({
+      appId: app.appId,
+      spaceId: "personal",
+      rendererId: 100,
+    });
     expect(electron.views).toHaveLength(1);
     expect(electron.views[0]?.options).toEqual({
       webPreferences: expect.objectContaining({

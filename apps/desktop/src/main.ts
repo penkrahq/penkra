@@ -3546,34 +3546,46 @@ function registerIpcHandlers(): void {
     if (!isShellRenderer && !desktopAppRuntime?.canManageInstallations(senderId)) {
       throw new Error("This renderer cannot manage App installations.");
     }
-    return service;
+    return {
+      service,
+      currentSpaceId: isShellRenderer
+        ? undefined
+        : (desktopAppRuntime?.installationSpaceId(senderId) ?? undefined),
+    };
   };
   for (const channel of Object.values(IPC.appInstallations)) {
     if (channel !== IPC.appInstallations.state) ipcMain.removeHandler(channel);
   }
-  ipcMain.handle(IPC.appInstallations.getState, async (event) =>
-    toDesktopAppInstallationSnapshot(requireAppInstallations(event.sender.id).snapshot()),
-  );
+  ipcMain.handle(IPC.appInstallations.getState, async (event) => {
+    const { service, currentSpaceId } = requireAppInstallations(event.sender.id);
+    return toDesktopAppInstallationSnapshot(service.snapshot(), currentSpaceId);
+  });
   ipcMain.handle(IPC.appInstallations.setEnabled, async (event, input: unknown) => {
+    const { service, currentSpaceId } = requireAppInstallations(event.sender.id);
     return toDesktopAppInstallationSnapshot(
-      await requireAppInstallations(event.sender.id).setEnabled(parseSetAppEnabledRequest(input)),
+      await service.setEnabled(parseSetAppEnabledRequest(input)),
+      currentSpaceId,
     );
   });
   ipcMain.handle(IPC.appInstallations.setPermission, async (event, input: unknown) => {
+    const { service, currentSpaceId } = requireAppInstallations(event.sender.id);
     return toDesktopAppInstallationSnapshot(
-      await requireAppInstallations(event.sender.id).setPermission(
-        parseSetAppPermissionRequest(input),
-      ),
+      await service.setPermission(parseSetAppPermissionRequest(input)),
+      currentSpaceId,
     );
   });
   ipcMain.handle(IPC.appInstallations.uninstall, async (event, input: unknown) => {
+    const { service, currentSpaceId } = requireAppInstallations(event.sender.id);
     return toDesktopAppInstallationSnapshot(
-      await requireAppInstallations(event.sender.id).uninstall(parseUninstallAppRequest(input)),
+      await service.uninstall(parseUninstallAppRequest(input)),
+      currentSpaceId,
     );
   });
   ipcMain.handle(IPC.appInstallations.removeData, async (event, input: unknown) => {
+    const { service, currentSpaceId } = requireAppInstallations(event.sender.id);
     return toDesktopAppInstallationSnapshot(
-      await requireAppInstallations(event.sender.id).removeData(parseRemoveAppDataRequest(input)),
+      await service.removeData(parseRemoveAppDataRequest(input)),
+      currentSpaceId,
     );
   });
 

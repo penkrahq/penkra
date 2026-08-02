@@ -19,7 +19,7 @@ export function AppDockPane(props: {
     if (!bridge || !viewport) return;
     let stopped = false;
     let frame = 0;
-    let burstFrames = 0;
+    const dockShell = viewport.closest<HTMLElement>("[data-slot='sidebar-wrapper']")?.parentElement;
 
     const sync = () => {
       frame = 0;
@@ -34,18 +34,27 @@ export function AppDockPane(props: {
     const schedule = () => {
       if (!frame) frame = window.requestAnimationFrame(sync);
     };
-    const burst = () => {
-      schedule();
-      if (++burstFrames < 30) window.requestAnimationFrame(burst);
+    const followRunningTransitions = () => {
+      if (stopped) return;
+      sync();
+      const hasRunningTransition = dockShell
+        ?.getAnimations({ subtree: true })
+        .some((animation) => animation.playState === "pending" || animation.playState === "running");
+      if (hasRunningTransition) frame = window.requestAnimationFrame(followRunningTransitions);
+    };
+    const handleTransitionRun = () => {
+      if (frame) window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(followRunningTransitions);
     };
     const observer = new ResizeObserver(schedule);
     observer.observe(viewport);
     window.addEventListener("resize", schedule);
     window.addEventListener("scroll", schedule, true);
+    dockShell?.addEventListener("transitionrun", handleTransitionRun);
     void bridge.attach({ tabId: props.tabId }).then(() => {
       if (!stopped) {
         void bridge.setVisible({ tabId: props.tabId, visible: props.visible });
-        burst();
+        schedule();
       }
     });
     return () => {
@@ -53,6 +62,7 @@ export function AppDockPane(props: {
       observer.disconnect();
       window.removeEventListener("resize", schedule);
       window.removeEventListener("scroll", schedule, true);
+      dockShell?.removeEventListener("transitionrun", handleTransitionRun);
       if (frame) window.cancelAnimationFrame(frame);
       void bridge.setVisible({ tabId: props.tabId, visible: false }).catch(() => undefined);
     };

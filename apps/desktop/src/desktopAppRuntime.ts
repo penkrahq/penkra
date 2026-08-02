@@ -30,6 +30,7 @@ export interface DesktopAppRuntime {
   readonly appTabs: ElectronAppTabHost;
   readonly restoreResults: ReadonlyArray<AppRuntimeRestoreResult>;
   canManageInstallations(rendererId: number): boolean;
+  installationSpaceId(rendererId: number): string | null;
   stop(): Promise<void>;
 }
 
@@ -58,11 +59,19 @@ export async function startDesktopAppRuntime(input: {
     tabs,
   });
   const sessions = new AppSessionManager();
-  const trustedInstallationRendererIds = new Set<number>();
-  const registerRendererIdentity = ({ appId, rendererId }: { appId: string; rendererId: number }) => {
+  const trustedInstallationRenderers = new Map<number, string>();
+  const registerRendererIdentity = ({
+    appId,
+    spaceId,
+    rendererId,
+  }: {
+    appId: string;
+    spaceId: string;
+    rendererId: number;
+  }) => {
     if (appId !== "com.penkra.apps") return;
-    trustedInstallationRendererIds.add(rendererId);
-    return () => trustedInstallationRendererIds.delete(rendererId);
+    trustedInstallationRenderers.set(rendererId, spaceId);
+    return () => trustedInstallationRenderers.delete(rendererId);
   };
   const controllerHost = new AppControllerHost({
     broker,
@@ -104,7 +113,8 @@ export async function startDesktopAppRuntime(input: {
     tabs,
     appTabs,
     restoreResults,
-    canManageInstallations: (rendererId) => trustedInstallationRendererIds.has(rendererId),
+    canManageInstallations: (rendererId) => trustedInstallationRenderers.has(rendererId),
+    installationSpaceId: (rendererId) => trustedInstallationRenderers.get(rendererId) ?? null,
     stop: async () => {
       if (stopped) return;
       stopped = true;

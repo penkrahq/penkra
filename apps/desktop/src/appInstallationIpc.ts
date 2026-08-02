@@ -23,6 +23,7 @@ function requireString(record: Record<string, unknown>, key: string): string {
 
 export function toDesktopAppInstallationSnapshot(
   state: AppInstallationState,
+  currentSpaceId?: string,
 ): DesktopAppInstallationSnapshot {
   return {
     installed: Object.values(state.packagesByAppId).map((installed) => ({
@@ -36,6 +37,7 @@ export function toDesktopAppInstallationSnapshot(
       permissions: installed.manifest.permissions ?? [],
     })),
     spaces: Object.values(state.spaceStateByKey),
+    ...(currentSpaceId === undefined ? {} : { currentSpaceId }),
   };
 }
 
