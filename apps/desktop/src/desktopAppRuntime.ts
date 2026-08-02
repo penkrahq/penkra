@@ -20,6 +20,11 @@ import { AppSessionManager } from "./appSessionManager";
 import { DeferredAppTabHost } from "./deferredAppTabHost";
 import { ElectronAppControllerRendererFactory } from "./electronAppControllerRenderer";
 import { ElectronAppTabHost } from "./electronAppTabHost";
+import {
+  AppUpdateJournal,
+  resolveAppUpdateJournalPath,
+  type AppUpdateRecovery,
+} from "./appUpdateJournal";
 
 export interface DesktopAppRuntime {
   readonly store: AppInstallationStore;
@@ -30,6 +35,7 @@ export interface DesktopAppRuntime {
   readonly appTabs: ElectronAppTabHost;
   readonly restoreResults: ReadonlyArray<AppRuntimeRestoreResult>;
   readonly safeStartRecovery: null | { quarantinedPath: string; error: Error };
+  readonly updateRecovery: AppUpdateRecovery | null;
   canManageInstallations(rendererId: number): boolean;
   installationSpaceId(rendererId: number): string | null;
   stop(): Promise<void>;
@@ -49,6 +55,8 @@ export async function startDesktopAppRuntime(input: {
     resolveAppInstallationStatePath(input.userDataPath),
   );
   const store = storeResult.store;
+  const updates = new AppUpdateJournal(resolveAppUpdateJournalPath(input.userDataPath));
+  const updateRecovery = await updates.recoverSafe(store);
   const tabs = new DeferredAppTabHost();
   const rpc = new AppRendererRpcHost();
   const ipcBridge = new AppRendererIpcBridge({
@@ -93,7 +101,7 @@ export async function startDesktopAppRuntime(input: {
     ...(input.assertAppAllowed === undefined ? {} : { assertAppAllowed: input.assertAppAllowed }),
     closeTabs: (appId, spaceId, reason) => appTabs.closeForAppSpace(appId, spaceId, reason),
   });
-  const installations = new AppInstallationService({ store, lifecycle });
+  const installations = new AppInstallationService({ store, lifecycle, updates });
   const packages = new AppPackageIngestor(resolveAppPackageStorePath(input.userDataPath));
   appTabs = new ElectronAppTabHost({
     window: input.window,
@@ -121,6 +129,7 @@ export async function startDesktopAppRuntime(input: {
     appTabs,
     restoreResults,
     safeStartRecovery: storeResult.recovery,
+    updateRecovery,
     canManageInstallations: (rendererId) => trustedInstallationRenderers.has(rendererId),
     installationSpaceId: (rendererId) => trustedInstallationRenderers.get(rendererId) ?? null,
     stop: async () => {

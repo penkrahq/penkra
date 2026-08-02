@@ -15,6 +15,7 @@ import {
 } from "./appInstallationState";
 import type { AppInstallationStore } from "./appInstallationStore";
 import type { AppRuntimeLifecycle } from "./appRuntimeLifecycle";
+import type { AppUpdateJournal } from "./appUpdateJournal";
 
 export type AppInstallationStateListener = (state: AppInstallationState) => void;
 
@@ -34,15 +35,18 @@ export interface UninstallAppInput {
 export class AppInstallationService {
   readonly #store: Pick<AppInstallationStore, "snapshot" | "mutate">;
   readonly #lifecycle: Pick<AppRuntimeLifecycle, "enable" | "disable" | "isActive">;
+  readonly #updates: Pick<AppUpdateJournal, "prepare" | "clear"> | undefined;
   readonly #listeners = new Set<AppInstallationStateListener>();
   #queue: Promise<void> = Promise.resolve();
 
   constructor(input: {
     store: Pick<AppInstallationStore, "snapshot" | "mutate">;
     lifecycle: Pick<AppRuntimeLifecycle, "enable" | "disable" | "isActive">;
+    updates?: Pick<AppUpdateJournal, "prepare" | "clear">;
   }) {
     this.#store = input.store;
     this.#lifecycle = input.lifecycle;
+    this.#updates = input.updates;
   }
 
   snapshot(): AppInstallationState {
@@ -100,11 +104,17 @@ export class AppInstallationService {
       const enabledSpaces = Object.values(previous.spaceStateByKey)
         .filter((space) => space.appId === appId && space.enabled)
         .map((space) => space.spaceId);
-      for (const spaceId of enabledSpaces) await this.#lifecycle.disable(appId, spaceId);
+      await this.#updates?.prepare({
+        appId,
+        targetVersion: input.package.manifest.version,
+        previousState: previous,
+      });
       try {
+        for (const spaceId of enabledSpaces) await this.#lifecycle.disable(appId, spaceId);
         await this.#store.mutate((current) => applyUpdate(current, input));
         let state = this.#store.snapshot();
         for (const spaceId of enabledSpaces) state = await this.#lifecycle.enable(appId, spaceId);
+        await this.#updates?.clear();
         this.#publish(state);
         return state;
       } catch (cause) {
@@ -116,6 +126,9 @@ export class AppInstallationService {
         await this.#store.mutate(() => previous).catch((error) => rollbackFailures.push(error));
         for (const spaceId of enabledSpaces) {
           await this.#lifecycle.enable(appId, spaceId).catch((error) => rollbackFailures.push(error));
+        }
+        if (this.#updates) {
+          await this.#updates.clear().catch((error) => rollbackFailures.push(error));
         }
         this.#publish(this.#store.snapshot());
         if (rollbackFailures.length > 0) {

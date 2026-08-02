@@ -4519,6 +4519,15 @@ async function bootstrap(): Promise<void> {
       `[penkra-app] Quarantined corrupt installation state at ${desktopAppRuntime.safeStartRecovery.quarantinedPath}: ${desktopAppRuntime.safeStartRecovery.error.message}`,
     );
   }
+  if (desktopAppRuntime.updateRecovery?.status === "restored") {
+    console.warn(
+      `[penkra-app] Restored ${desktopAppRuntime.updateRecovery.appId} after interrupted update to ${desktopAppRuntime.updateRecovery.targetVersion}.`,
+    );
+  } else if (desktopAppRuntime.updateRecovery?.status === "corrupt") {
+    console.error(
+      `[penkra-app] Quarantined corrupt update journal at ${desktopAppRuntime.updateRecovery.quarantinedPath}: ${desktopAppRuntime.updateRecovery.error.message}`,
+    );
+  }
   void appRegistryClient?.reconcileInstallReceipts().catch((error) => {
     console.warn(`[penkra-app] Install receipt reconciliation failed: ${formatErrorMessage(error)}`);
   });

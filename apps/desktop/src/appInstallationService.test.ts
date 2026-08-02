@@ -63,9 +63,14 @@ function fixture() {
     }),
     isActive: vi.fn(() => false),
   };
+  const updates = {
+    prepare: vi.fn(async () => undefined),
+    clear: vi.fn(async () => undefined),
+  };
   return {
-    service: new AppInstallationService({ store, lifecycle }),
+    service: new AppInstallationService({ store, lifecycle, updates }),
     lifecycle,
+    updates,
     state: () => state,
   };
 }
@@ -147,6 +152,12 @@ describe("AppInstallationService", () => {
       enabled: true,
       permissions: { "network-fetch": "granted" },
     });
+    expect(test.updates.prepare).toHaveBeenCalledWith(expect.objectContaining({
+      appId: "com.acme.figma",
+      targetVersion: "2.0.0",
+      previousState: expect.objectContaining({ packagesByAppId: expect.any(Object) }),
+    }));
+    expect(test.updates.clear).toHaveBeenCalledOnce();
   });
 
   it("restores the prior package and runtime when updated activation fails", async () => {
@@ -165,6 +176,25 @@ describe("AppInstallationService", () => {
     expect(test.state().packagesByAppId["com.acme.figma"]?.version).toBe("1.0.0");
     expect(test.state().spaceStateByKey["personal\0com.acme.figma"]?.enabled).toBe(true);
     expect(test.lifecycle.enable).toHaveBeenLastCalledWith("com.acme.figma", "personal");
+    expect(test.updates.clear).toHaveBeenCalledOnce();
+  });
+
+  it("rolls back when the durable journal cannot be cleared at commit", async () => {
+    const test = fixture();
+    await test.service.install(verifiedPackage());
+    await test.service.setEnabled({ appId: "com.acme.figma", spaceId: "personal", enabled: true });
+    const update = verifiedPackage();
+    update.manifest.version = "2.0.0";
+    test.updates.clear.mockRejectedValueOnce(new Error("journal fsync failed"));
+
+    await expect(test.service.updateForSpaces({
+      package: { ...update, source: "registry" },
+      permissionsBySpace: {},
+    })).rejects.toThrow("journal fsync failed");
+
+    expect(test.state().packagesByAppId["com.acme.figma"]?.version).toBe("1.0.0");
+    expect(test.state().spaceStateByKey["personal\0com.acme.figma"]?.enabled).toBe(true);
+    expect(test.updates.clear).toHaveBeenCalledTimes(2);
   });
 
   it("deactivates every enabled Space before retaining an uninstalled App's data", async () => {
