@@ -15,16 +15,26 @@
       "import": "./src/index.ts",
       "require": "./dist/index.cjs"
     },
+    "./react": {
+      "types": "./src/react.tsx",
+      "import": "./src/react.tsx",
+      "require": "./dist/react.cjs"
+    },
     "./tokens.css": "./src/tokens.css",
     "./app-bar.css": "./src/app-bar.css"
   },
   "scripts": {
-    "build": "tsdown src/index.ts --format esm,cjs --dts --clean",
+    "build": "tsdown src/index.ts src/react.tsx --format esm,cjs --dts --clean",
     "test": "vitest run"
   },
   "devDependencies": {
+    "@types/react": "^19.0.0",
+    "react": "^19.0.0",
     "tsdown": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
+  },
+  "peerDependencies": {
+    "react": ">=18"
   }
 }

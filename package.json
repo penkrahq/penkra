@@ -4,6 +4,7 @@
   "workspaces": {
     "packages": [
       "apps/*",
+      "examples/*",
       "packages/*",
       "scripts"
     ],
@@ -42,6 +43,7 @@
     "test": "turbo run test",
     "brand:check": "node scripts/check-brand-identity.ts",
     "migrations:check": "node scripts/check-migration-lineage.ts",
+    "plan:check": "node scripts/check-product-plan.ts",
     "test:desktop-smoke": "turbo run smoke-test --filter=@penkra/desktop",
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",

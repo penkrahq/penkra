@@ -61,3 +61,7 @@ Pencil components are implemented with the existing React primitives and compose
 the existing router. As each remaining Pencil group is migrated, it receives the same
 named folder beside these groups. Storybook records variants and Pencil node mappings
 without shipping any iframe or exported-screen runtime in production.
+
+App developers can start with the complete framework-neutral sample in
+[`examples/sample-app`](./examples/sample-app) and the vanilla DOM and optional React
+SDK guide in [`docs/app-development.md`](./docs/app-development.md).

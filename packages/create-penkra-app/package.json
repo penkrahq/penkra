@@ -1,0 +1,11 @@
+{
+  "name": "create-penkra-app",
+  "version": "0.0.0",
+  "type": "module",
+  "bin": { "create-penkra-app": "./src/cli.mjs" },
+  "files": ["src"],
+  "scripts": {
+    "build": "node --check src/cli.mjs",
+    "test": "node --test src/cli.test.mjs"
+  }
+}
