@@ -102,6 +102,7 @@ import { cn } from "~/lib/utils";
 import { PluginIcon } from "~/lib/icons";
 import { IconButton } from "../ui/icon-button";
 import { DOCK_HEADER_ICON_BUTTON_CLASS } from "./chatHeaderControls";
+import { resolveAppsLauncherAction } from "./appsLauncher.logic";
 
 const PullRequestDockPane = lazy(() => import("../pullRequest/PullRequestDockPane"));
 const EditorWorkspaceView = lazy(() =>
@@ -626,12 +627,14 @@ export function SingleChatSurface(props: {
 
   const handleAppsLauncher = () => {
     const existing = dockState.panes.find((pane) => pane.appId === "com.penkra.apps");
-    if (existing && dockState.open && dockState.activePaneId === existing.id) {
-      setDockOpen(props.threadId, false);
-      return;
-    }
-    if (existing) {
-      setActivePane(props.threadId, existing.id);
+    const action = resolveAppsLauncherAction({
+      dockOpen: dockState.open,
+      activePaneId: dockState.activePaneId,
+      appsPaneId: existing?.id ?? null,
+    });
+    if (action.kind !== "open") {
+      if (action.kind === "collapse") setDockOpen(props.threadId, false);
+      else setActivePane(props.threadId, action.paneId);
       return;
     }
     const bridge = window.desktopBridge?.appTabs;
