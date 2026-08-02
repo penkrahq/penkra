@@ -257,7 +257,7 @@ describe("AppControllerHost", () => {
     });
     test.destroyed();
     await vi.waitFor(() => expect(test.unregisterController).toHaveBeenCalledOnce());
-    expect(test.unregisterRpc).toHaveBeenCalledWith(undefined);
+    expect(test.unregisterRpc).toHaveBeenCalledWith("host-stopped");
     expect(test.renderer.destroy).not.toHaveBeenCalled();
   });
 });

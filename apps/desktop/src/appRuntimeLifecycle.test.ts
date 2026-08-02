@@ -189,6 +189,18 @@ describe("AppRuntimeLifecycle", () => {
     await disabled;
     expect(Object.values(test.state().spaceStateByKey)[0]?.enabled).toBe(false);
   });
+
+  it("stops active runtimes on shutdown without rewriting persisted enablement", async () => {
+    const test = fixture();
+    await test.lifecycle.enable("com.penkra.apps", "personal");
+
+    await test.lifecycle.shutdown();
+
+    expect(test.releaseController).toHaveBeenCalledWith("host-stopped");
+    expect(test.sessions.deactivate).toHaveBeenCalledWith("com.penkra.apps", "personal");
+    expect(Object.values(test.state().spaceStateByKey)[0]?.enabled).toBe(true);
+    expect(test.lifecycle.isActive("com.penkra.apps", "personal")).toBe(false);
+  });
 });
 
 function activeSession(input: ActivateAppSessionInput): ActiveAppSession {

@@ -9,13 +9,14 @@ import {
 } from "./appInstallationState";
 import type { AppInstallationStore } from "./appInstallationStore";
 import type { ActiveAppSession, AppSessionManager } from "./appSessionManager";
+import type { OperationCancellationCode } from "@penkra/sdk";
 
 export interface AppRuntimeControllerHost {
   activate(input: {
     installedApp: InstalledAppPackage;
     spaceId: string;
     session: ActiveAppSession;
-  }): Promise<() => Promise<void> | void>;
+  }): Promise<(reason?: OperationCancellationCode) => Promise<void> | void>;
 }
 
 export interface AppRuntimeLifecycleDependencies {
@@ -31,7 +32,7 @@ export type AppRuntimeRestoreResult =
 interface ActiveRuntime {
   appId: string;
   spaceId: string;
-  releaseController: () => Promise<void> | void;
+  releaseController: (reason?: OperationCancellationCode) => Promise<void> | void;
 }
 
 /**
@@ -105,6 +106,24 @@ export class AppRuntimeLifecycle {
     return this.#active.has(runtimeKey(appId, spaceId));
   }
 
+  async shutdown(): Promise<void> {
+    const active = [...this.#active.values()];
+    const results = await Promise.allSettled(
+      active.map((runtime) =>
+        this.#enqueue(runtimeKey(runtime.appId, runtime.spaceId), () =>
+          this.#deactivate(runtime.appId, runtime.spaceId, "host-stopped"),
+        ),
+      ),
+    );
+    const failures = results.filter((result) => result.status === "rejected");
+    if (failures.length > 0) {
+      throw new AggregateError(
+        failures.map((failure) => failure.reason),
+        "One or more App runtimes failed to stop.",
+      );
+    }
+  }
+
   async #activate(
     appId: string,
     spaceId: string,
@@ -130,13 +149,17 @@ export class AppRuntimeLifecycle {
     }
   }
 
-  async #deactivate(appId: string, spaceId: string): Promise<void> {
+  async #deactivate(
+    appId: string,
+    spaceId: string,
+    reason: OperationCancellationCode = "app-disabled",
+  ): Promise<void> {
     const key = runtimeKey(appId, spaceId);
     const active = this.#active.get(key);
     let controllerError: unknown;
     if (active) {
       try {
-        await active.releaseController();
+        await active.releaseController(reason);
       } catch (error) {
         controllerError = error;
       } finally {

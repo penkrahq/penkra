@@ -224,6 +224,7 @@ import {
   resolvePenkraStorageSnapshotPath,
 } from "./desktopStorageMigration";
 import { DESKTOP_IPC_CHANNELS } from "./ipcChannels";
+import { startDesktopAppRuntime, type DesktopAppRuntime } from "./desktopAppRuntime";
 
 // Capture the real archive identity before any explicit app.asar lookup. Static
 // snapshotting and the runtime watcher both use this same generation as their
@@ -349,6 +350,7 @@ const browserPerfLoggingEnabled = process.env.PENKRA_BROWSER_PERF === "1";
 type DesktopUpdateErrorContext = DesktopUpdateState["errorContext"];
 
 let mainWindow: BrowserWindow | null = null;
+let desktopAppRuntime: DesktopAppRuntime | null = null;
 const voiceRecordingPowerBlocker = new VoiceRecordingPowerBlocker({
   blocker: powerSaveBlocker,
   onError: (message, error) =>
@@ -3434,6 +3436,27 @@ async function disposeBrowserUsePipeServerForShutdown(reason: string): Promise<v
   }
 }
 
+async function stopAppRuntimeAndBackend(): Promise<void> {
+  const failures: unknown[] = [];
+  const runtime = desktopAppRuntime;
+  desktopAppRuntime = null;
+  if (runtime) {
+    try {
+      await runtime.stop();
+    } catch (error) {
+      failures.push(error);
+    }
+  }
+  try {
+    await stopBackendAndWaitForExit();
+  } catch (error) {
+    failures.push(error);
+  }
+  if (failures.length > 0) {
+    throw new AggregateError(failures, "Desktop services did not shut down cleanly.");
+  }
+}
+
 // Keeps Electron alive long enough for backend finalizers to reap provider child processes.
 async function shutdownDesktopRuntime(reason: string): Promise<void> {
   if (desktopShutdownPromise) {
@@ -3443,7 +3466,7 @@ async function shutdownDesktopRuntime(reason: string): Promise<void> {
   isQuitting = true;
   writeDesktopLogHeader(`${reason} shutdown start`);
   const shutdown = runAfterDesktopShutdown(
-    stopBackendAndWaitForExit(),
+    stopAppRuntimeAndBackend(),
     async () => {
       clearUpdateBackgroundBlurTimer();
       clearUpdateCheckTimeoutTimer();
@@ -4280,6 +4303,24 @@ async function bootstrap(): Promise<void> {
 
   registerIpcHandlers();
   writeDesktopLogHeader("bootstrap ipc handlers registered");
+  desktopAppRuntime = await startDesktopAppRuntime({
+    userDataPath: app.getPath("userData"),
+    appPreloadPath: Path.join(__dirname, "appPreload.js"),
+    ipcMain,
+    onInvalidRendererMessage: (error, senderId) => {
+      console.warn(
+        `[penkra-app] Rejected invalid renderer message sender=${senderId}: ${formatErrorMessage(error)}`,
+      );
+    },
+  });
+  for (const result of desktopAppRuntime.restoreResults) {
+    if (result.status === "failed") {
+      console.warn(
+        `[penkra-app] Failed to restore ${result.appId} in Space ${result.spaceId}: ${formatErrorMessage(result.error)}`,
+      );
+    }
+  }
+  writeDesktopLogHeader("bootstrap App runtime started");
   try {
     await ensureBrowserUsePipeServer();
   } catch (error) {

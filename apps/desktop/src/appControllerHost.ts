@@ -2,7 +2,7 @@
 // Purpose: Runs declared App operation handlers in one isolated controller renderer per App/Space.
 // Layer: Trusted desktop App runtime
 
-import type { AppTabHandle, OperationContext } from "@penkra/sdk";
+import type { AppTabHandle, OperationCancellationCode, OperationContext } from "@penkra/sdk";
 
 import type { InstalledAppPackage } from "./appInstallationState";
 import type { AppOperationBroker, AppOperationController } from "./appOperationBroker";
@@ -53,7 +53,7 @@ export class AppControllerHost {
     installedApp: InstalledAppPackage;
     spaceId: string;
     session: ActiveAppSession;
-  }): Promise<() => Promise<void>> {
+  }): Promise<(reason?: OperationCancellationCode) => Promise<void>> {
     const operations = input.installedApp.manifest.operations ?? [];
     if (operations.length === 0) return async () => undefined;
     const entrypoint = input.installedApp.manifest.entrypoints.operations;
@@ -62,17 +62,20 @@ export class AppControllerHost {
     }
 
     const renderer = this.#renderers.create(input);
-    let unregisterRpc: ((reason?: "app-disabled") => void) | null = null;
+    let unregisterRpc: ((reason?: OperationCancellationCode) => void) | null = null;
     let unregisterController: (() => void) | null = null;
     let removeDestroyedListener: (() => void) | null = null;
     let released = false;
 
-    const release = async (unexpected = false): Promise<void> => {
+    const release = async (
+      reason: OperationCancellationCode = "app-disabled",
+      unexpected = false,
+    ): Promise<void> => {
       if (released) return;
       released = true;
       removeDestroyedListener?.();
       unregisterController?.();
-      unregisterRpc?.(unexpected ? undefined : "app-disabled");
+      unregisterRpc?.(unexpected ? "host-stopped" : reason);
       if (!unexpected) renderer.destroy();
     };
 
@@ -106,11 +109,11 @@ export class AppControllerHost {
       };
       unregisterController = this.#broker.registerController(controller);
       removeDestroyedListener = renderer.onDestroyed(() => {
-        void release(true);
+        void release("host-stopped", true);
       });
-      return () => release(false);
+      return (reason) => release(reason, false);
     } catch (error) {
-      await release(false);
+      await release("host-stopped", false);
       throw error;
     }
   }
