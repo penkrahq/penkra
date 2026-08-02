@@ -1,0 +1,257 @@
+// FILE: appCommandPipeServer.ts
+// Purpose: Exposes the trusted App operation broker to Penkra-owned CLI processes.
+// Layer: Desktop local capability bridge
+
+import * as Crypto from "node:crypto";
+import * as FS from "node:fs";
+import * as Net from "node:net";
+import * as Path from "node:path";
+
+import type { DesktopAppTabDescriptor } from "@penkra/contracts";
+
+import type { AppOperationBroker } from "./appOperationBroker";
+import type { AppOperationCatalog } from "./appOperationCatalog";
+import type { AppRegistryClient } from "./appRegistryClient";
+
+export const PENKRA_APP_COMMAND_PIPE_ENV = "PENKRA_APP_COMMAND_PIPE";
+export const PENKRA_APP_COMMAND_TOKEN_ENV = "PENKRA_APP_COMMAND_TOKEN";
+const MAX_REQUEST_BYTES = 1024 * 1024;
+
+type Request = {
+  id: string;
+  token: string;
+  method:
+    | "catalog.list"
+    | "catalog.help"
+    | "operations.invoke"
+    | "tabs.current"
+    | "tabs.list"
+    | "developer.publishers.list"
+    | "developer.publishers.create"
+    | "developer.apps.list"
+    | "developer.apps.create"
+    | "developer.submissions.list"
+    | "developer.submissions.get"
+    | "developer.submissions.create";
+  params?: unknown;
+};
+
+export function resolveAppCommandPipePath(_userDataPath: string): string {
+  if (process.platform === "win32") {
+    return `\\\\.\\pipe\\penkra-app-command-${process.pid}-${Crypto.randomUUID()}`;
+  }
+  const directory = Path.join("/tmp", `penkra-${process.getuid()}`);
+  return Path.join(
+    directory,
+    `app-${process.pid}-${Crypto.randomBytes(6).toString("hex")}.sock`,
+  );
+}
+
+export class AppCommandPipeServer {
+  readonly #server: Net.Server;
+  readonly #sockets = new Set<Net.Socket>();
+  readonly #path: string;
+  readonly #token: string;
+  readonly #catalog: AppOperationCatalog;
+  readonly #broker: AppOperationBroker;
+  readonly #tabs: { list(): ReadonlyArray<DesktopAppTabDescriptor>; current(): DesktopAppTabDescriptor | null };
+  readonly #registry: AppRegistryClient | null;
+  #started = false;
+
+  constructor(input: {
+    path: string;
+    token: string;
+    catalog: AppOperationCatalog;
+    broker: AppOperationBroker;
+    tabs: { list(): ReadonlyArray<DesktopAppTabDescriptor>; current(): DesktopAppTabDescriptor | null };
+    registry?: AppRegistryClient | null;
+  }) {
+    this.#path = input.path;
+    this.#token = input.token;
+    this.#catalog = input.catalog;
+    this.#broker = input.broker;
+    this.#tabs = input.tabs;
+    this.#registry = input.registry ?? null;
+    this.#server = Net.createServer((socket) => this.#accept(socket));
+  }
+
+  get environment(): NodeJS.ProcessEnv {
+    return {
+      [PENKRA_APP_COMMAND_PIPE_ENV]: this.#path,
+      [PENKRA_APP_COMMAND_TOKEN_ENV]: this.#token,
+    };
+  }
+
+  async start(): Promise<void> {
+    if (this.#started) return;
+    if (process.platform !== "win32") {
+      await FS.promises.mkdir(Path.dirname(this.#path), { recursive: true, mode: 0o700 });
+      await FS.promises.chmod(Path.dirname(this.#path), 0o700);
+      await FS.promises.rm(this.#path, { force: true });
+    }
+    await new Promise<void>((resolve, reject) => {
+      this.#server.once("error", reject);
+      this.#server.listen(this.#path, () => {
+        this.#server.off("error", reject);
+        resolve();
+      });
+    });
+    if (process.platform !== "win32") await FS.promises.chmod(this.#path, 0o600);
+    this.#started = true;
+  }
+
+  async dispose(): Promise<void> {
+    for (const socket of this.#sockets) socket.destroy();
+    this.#sockets.clear();
+    if (this.#started) {
+      await new Promise<void>((resolve) => this.#server.close(() => resolve()));
+      this.#started = false;
+    }
+    if (process.platform !== "win32") await FS.promises.rm(this.#path, { force: true });
+  }
+
+  #accept(socket: Net.Socket): void {
+    this.#sockets.add(socket);
+    let bytes = Buffer.alloc(0);
+    socket.on("data", (chunk) => {
+      bytes = Buffer.concat([bytes, chunk]);
+      if (bytes.length > MAX_REQUEST_BYTES) {
+        socket.destroy();
+        return;
+      }
+      const newline = bytes.indexOf(10);
+      if (newline < 0) return;
+      const raw = bytes.subarray(0, newline).toString("utf8");
+      socket.pause();
+      void this.#handle(raw)
+        .then((response) => socket.end(`${JSON.stringify(response)}\n`))
+        .catch((error) => socket.end(`${JSON.stringify({ ok: false, error: toError(error).message })}\n`));
+    });
+    const release = () => this.#sockets.delete(socket);
+    socket.on("close", release);
+    socket.on("error", release);
+  }
+
+  async #handle(raw: string): Promise<unknown> {
+    const request = JSON.parse(raw) as Request;
+    if (!request || typeof request !== "object" || typeof request.id !== "string") {
+      throw new Error("Invalid App command request.");
+    }
+    const supplied = Buffer.from(typeof request.token === "string" ? request.token : "");
+    const expected = Buffer.from(this.#token);
+    if (supplied.length !== expected.length || !Crypto.timingSafeEqual(supplied, expected)) {
+      throw new Error("Invalid App command capability.");
+    }
+    const params = asRecord(request.params);
+    switch (request.method) {
+      case "tabs.list":
+        return { ok: true, id: request.id, result: this.#tabs.list() };
+      case "tabs.current":
+        return { ok: true, id: request.id, result: this.#tabs.current() };
+      case "catalog.list": {
+        const context = this.#context(params);
+        return { ok: true, id: request.id, result: this.#catalog.list(context.spaceId) };
+      }
+      case "catalog.help": {
+        const context = this.#context(params);
+        const slug = requiredString(params.slug, "slug");
+        const operation = optionalString(params.operation, "operation");
+        return {
+          ok: true,
+          id: request.id,
+          result: await this.#catalog.help({
+            spaceId: context.spaceId,
+            slug,
+            ...(operation === null ? {} : { operation }),
+          }),
+        };
+      }
+      case "operations.invoke": {
+        const context = this.#context(params);
+        const slug = requiredString(params.app, "app");
+        const operation = requiredString(params.operation, "operation");
+        const requestedTabId = optionalString(params.tabId, "tabId");
+        const tabId = requestedTabId ?? (context.slug === slug ? context.id : undefined);
+        const result = await this.#broker.invoke({
+          app: slug,
+          operation,
+          input: params.input ?? {},
+          spaceId: context.spaceId,
+          threadId: context.threadId,
+          ...(tabId === undefined ? {} : { tabId }),
+        });
+        return { ok: true, id: request.id, result };
+      }
+      case "developer.publishers.list":
+        return { ok: true, id: request.id, result: await this.#requireRegistry().developerListPublishers() };
+      case "developer.publishers.create":
+        return { ok: true, id: request.id, result: await this.#requireRegistry().developerCreatePublisher({
+          slug: requiredString(params.slug, "slug"),
+          displayName: requiredString(params.displayName, "displayName"),
+          ...(optionalString(params.domain, "domain") === null ? {} : { domain: optionalString(params.domain, "domain")! }),
+        }) };
+      case "developer.apps.list":
+        return { ok: true, id: request.id, result: await this.#requireRegistry().developerListApps(requiredString(params.publisherId, "publisherId")) };
+      case "developer.apps.create":
+        return { ok: true, id: request.id, result: await this.#requireRegistry().developerCreateApp({
+          publisherId: requiredString(params.publisherId, "publisherId"),
+          identifier: requiredString(params.identifier, "identifier"),
+          slug: requiredString(params.slug, "slug"),
+          displayName: requiredString(params.displayName, "displayName"),
+          summary: requiredString(params.summary, "summary"),
+        }) };
+      case "developer.submissions.list":
+        return { ok: true, id: request.id, result: await this.#requireRegistry().developerListSubmissions(requiredString(params.appId, "appId")) };
+      case "developer.submissions.get":
+        return { ok: true, id: request.id, result: await this.#requireRegistry().developerSubmissionStatus(requiredString(params.submissionId, "submissionId")) };
+      case "developer.submissions.create": {
+        if (!params.evidence || typeof params.evidence !== "object" || Array.isArray(params.evidence)) throw new Error("evidence is required.");
+        return { ok: true, id: request.id, result: await this.#requireRegistry().developerSubmit({
+          appId: requiredString(params.appId, "appId"),
+          packagePath: requiredString(params.packagePath, "packagePath"),
+          signaturePath: requiredString(params.signaturePath, "signaturePath"),
+          issuer: requiredString(params.issuer, "issuer"),
+          evidence: params.evidence as Parameters<AppRegistryClient["developerSubmit"]>[0]["evidence"],
+        }) };
+      }
+      default:
+        throw new Error("Unknown App command method.");
+    }
+  }
+
+  #requireRegistry(): AppRegistryClient {
+    if (!this.#registry) throw new Error("The authenticated App registry is unavailable.");
+    return this.#registry;
+  }
+
+  #context(params: Record<string, unknown>): DesktopAppTabDescriptor {
+    const explicitTabId = optionalString(params.tabId, "tabId");
+    const tab = explicitTabId
+      ? this.#tabs.list().find((candidate) => candidate.id === explicitTabId)
+      : this.#tabs.current();
+    if (!tab) throw new Error(explicitTabId ? `App tab ${explicitTabId} is not open.` : "No current App tab. Open an App or pass --tab-id.");
+    return tab;
+  }
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  if (value === undefined) return {};
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("App command params must be an object.");
+  return value as Record<string, unknown>;
+}
+
+function requiredString(value: unknown, name: string): string {
+  const result = optionalString(value, name);
+  if (result === null) throw new Error(`${name} is required.`);
+  return result;
+}
+
+function optionalString(value: unknown, name: string): string | null {
+  if (value === undefined) return null;
+  if (typeof value !== "string" || !value.trim()) throw new Error(`${name} must be a non-empty string.`);
+  return value;
+}
+
+function toError(value: unknown): Error {
+  return value instanceof Error ? value : new Error(String(value));
+}

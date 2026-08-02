@@ -1,1 +1,0 @@
-import{t as e}from"./runtime-CQI2zgcx.js";e.handle(`notes.create`,async({text:e,confirm:t},n)=>t?n.tabs.openForResult({route:`/notes/new`,state:{text:e}}):{saved:e.trim().length>0});
