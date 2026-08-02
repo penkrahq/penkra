@@ -1133,9 +1133,6 @@ export function SingleChatSurface(props: {
           "relative",
         )}
       >
-        {!dockState.open ? (
-          <div className="absolute right-1.5 top-1.5 z-50">{appsLauncher}</div>
-        ) : null}
         <ChatPaneDropOverlay
           canDropInDirection={allowAnySplitDirection}
           excludedThreadIds={excludedThreadIds}
@@ -1181,6 +1178,11 @@ export function SingleChatSurface(props: {
           onAddPane={handleAddDockPane}
           renderPane={renderDockPane}
         />
+        {!dockState.open ? (
+          <div className="absolute right-1.5 top-1.5 z-50 [-webkit-app-region:no-drag]">
+            {appsLauncher}
+          </div>
+        ) : null}
       </div>
     </WorkspaceFileOpenerContext.Provider>
   );
