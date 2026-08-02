@@ -4,6 +4,8 @@
 
 import type { PenkraDesktopIdentity } from "@penkra/shared/desktopIdentity";
 
+import { PENKRA_APP_SCHEME } from "./appRuntimePolicy";
+
 export interface DesktopPrivilegedScheme {
   readonly scheme: string;
   readonly privileges: {
@@ -36,6 +38,15 @@ export function createDesktopPrivilegedSchemes(
       privileges: {
         standard: false,
         secure: true,
+      },
+    },
+    {
+      scheme: PENKRA_APP_SCHEME,
+      privileges: {
+        standard: true,
+        secure: true,
+        supportFetchAPI: true,
+        corsEnabled: true,
       },
     },
   ];

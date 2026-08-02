@@ -64,6 +64,7 @@ describe("App installation state", () => {
     });
 
     expect(Object.keys(work.packagesByAppId)).toEqual([manifest.id]);
+    expect(work.packagesByAppId[manifest.id]?.manifest).toEqual(manifest);
     expect(Object.values(work.spaceStateByKey)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ spaceId: "personal", enabled: true }),
@@ -146,5 +147,23 @@ describe("App installation state", () => {
         spaceStateByKey: {},
       }),
     ).toThrowError(expect.objectContaining<AppInstallationStateError>({ code: "invalid-state" }));
+  });
+
+  it("rejects persisted metadata that disagrees with the committed manifest", () => {
+    const installed = registerVerifiedAppPackage(
+      createEmptyAppInstallationState(),
+      verifiedPackage(),
+    );
+    const packageRecord = installed.packagesByAppId[manifest.id];
+    expect(packageRecord).toBeDefined();
+
+    expect(() =>
+      parseAppInstallationState({
+        ...installed,
+        packagesByAppId: {
+          [manifest.id]: { ...packageRecord, version: "9.9.9" },
+        },
+      }),
+    ).toThrow("metadata does not match its committed manifest");
   });
 });

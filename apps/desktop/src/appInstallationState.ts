@@ -19,6 +19,8 @@ export interface InstalledAppPackage {
   packagePath: string;
   sha256: string;
   installedAt: string;
+  /** Exact validated manifest committed with these immutable package bytes. */
+  manifest: PenkraAppManifest;
 }
 
 export interface SpaceAppState {
@@ -111,7 +113,15 @@ function parseInstalledPackage(value: unknown, recordKey: string): InstalledAppP
       `Package ${recordKey} sha256 must be lowercase hexadecimal SHA-256.`,
     );
   }
-  return {
+  try {
+    assertAppManifest(value.manifest);
+  } catch (error) {
+    throw new AppInstallationStateError(
+      "invalid-state",
+      `Package ${recordKey} manifest is invalid: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  const installedPackage: InstalledAppPackage = {
     appId,
     slug: requireNonEmptyString(value.slug, `Package ${recordKey} slug`),
     name: requireNonEmptyString(value.name, `Package ${recordKey} name`),
@@ -121,7 +131,21 @@ function parseInstalledPackage(value: unknown, recordKey: string): InstalledAppP
     packagePath: requireNonEmptyString(value.packagePath, `Package ${recordKey} packagePath`),
     sha256,
     installedAt: requireNonEmptyString(value.installedAt, `Package ${recordKey} installedAt`),
+    manifest: value.manifest,
   };
+  if (
+    installedPackage.manifest.id !== installedPackage.appId ||
+    installedPackage.manifest.slug !== installedPackage.slug ||
+    installedPackage.manifest.name !== installedPackage.name ||
+    installedPackage.manifest.summary !== installedPackage.summary ||
+    installedPackage.manifest.version !== installedPackage.version
+  ) {
+    throw new AppInstallationStateError(
+      "invalid-state",
+      `Package ${recordKey} metadata does not match its committed manifest.`,
+    );
+  }
+  return installedPackage;
 }
 
 function parseSpaceState(value: unknown, recordKey: string): SpaceAppState {
@@ -232,6 +256,7 @@ function toInstalledPackage(input: VerifiedAppPackageInput): InstalledAppPackage
     packagePath: input.packagePath,
     sha256: input.sha256,
     installedAt: input.installedAt,
+    manifest: input.manifest,
   };
 }
 

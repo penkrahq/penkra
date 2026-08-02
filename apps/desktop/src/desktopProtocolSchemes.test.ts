@@ -32,6 +32,15 @@ describe("desktop privileged schemes", () => {
             secure: true,
           },
         },
+        {
+          scheme: "penkra-app",
+          privileges: {
+            standard: true,
+            secure: true,
+            supportFetchAPI: true,
+            corsEnabled: true,
+          },
+        },
       ]);
     },
   );
