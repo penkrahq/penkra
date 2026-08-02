@@ -3723,10 +3723,6 @@ export default function ChatView({
     codexHomePath: settings.codexHomePath || null,
     providerOptions: providerOptionsForDispatch ?? null,
   });
-  const setRightDockOpen = useRightDockStore((store) => store.setDockOpen);
-  const openRightDock = useCallback(() => {
-    setRightDockOpen(threadId, true);
-  }, [setRightDockOpen, threadId]);
   const runProjectScript = useCallback(
     async (
       script: ProjectScript,
@@ -8970,8 +8966,6 @@ export default function ChatView({
             </ComposerPickerMenuPopup>
           </Menu>
         }
-        {...(!isEditorRail && !rightDockOpen ? { onPanelToggle: openRightDock } : {})}
-        panelToggleDisabled={isEditorRail || rightDockOpen}
         title={activeThreadDisplayTitle}
       />
 
