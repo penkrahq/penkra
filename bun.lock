@@ -207,6 +207,14 @@
         "vitest": "catalog:",
       },
     },
+    "packages/ui": {
+      "name": "@penkra/ui",
+      "devDependencies": {
+        "tsdown": "catalog:",
+        "typescript": "catalog:",
+        "vitest": "catalog:",
+      },
+    },
     "scripts": {
       "name": "@penkra/scripts",
       "dependencies": {
@@ -990,6 +998,8 @@
     "@penkra/sdk": ["@penkra/sdk@workspace:packages/sdk"],
 
     "@penkra/shared": ["@penkra/shared@workspace:packages/shared"],
+
+    "@penkra/ui": ["@penkra/ui@workspace:packages/ui"],
 
     "@penkra/web": ["@penkra/web@workspace:apps/web"],
 
