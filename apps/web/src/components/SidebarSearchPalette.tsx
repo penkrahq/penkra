@@ -14,31 +14,15 @@ import {
   SettingsIcon,
   SunIcon,
 } from "~/lib/icons";
-import { type FilesystemBrowseResult, type ProviderKind } from "@penkra/contracts";
+import { type ProviderKind } from "@penkra/contracts";
 import { isGenericChatThreadTitle } from "@penkra/shared/chatThreads";
 import { BsChat } from "react-icons/bs";
 import { HiOutlineFolderOpen } from "react-icons/hi2";
-import { LuArrowDownToLine, LuArrowLeft, LuCornerLeftUp, LuFolderPlus } from "react-icons/lu";
-import { type ComponentType, useEffect, useState, type KeyboardEvent } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { LuArrowDownToLine, LuArrowLeft } from "react-icons/lu";
+import { type ComponentType, useEffect, useState } from "react";
 import { FolderClosed } from "./FolderClosed";
 import { ProviderIcon as SharedProviderIcon } from "./ProviderIcon";
 import { formatRelativeTime } from "~/lib/relativeTime";
-import { readNativeApi } from "~/nativeApi";
-import { isMacPlatform } from "~/lib/utils";
-import { Kbd, KbdGroup } from "./ui/kbd";
-import {
-  appendBrowsePathSegment,
-  canNavigateUp,
-  getBrowseDirectoryPath,
-  getBrowseLeafPathSegment,
-  getBrowseParentPath,
-  hasTrailingPathSeparator,
-  isExplicitRelativeProjectPath,
-  isFilesystemBrowseQuery,
-  isUnsupportedWindowsProjectPath,
-  normalizeProjectPathForDispatch,
-} from "~/lib/projectPaths";
 
 import {
   type SidebarSearchAction,
@@ -82,8 +66,6 @@ interface SidebarSearchPaletteProps {
   threads: readonly SidebarSearchThread[];
   onCreateChat: () => void;
   onCreateThread: () => void;
-  onAddProjectPath: (path: string, options?: { createIfMissing?: boolean }) => Promise<void>;
-  homeDir: string | null;
   onOpenSettings: () => void;
   onOpenFeedback: () => void;
   onOpenUsageSettings: () => void;
@@ -132,19 +114,6 @@ const ACTION_ICONS: Record<string, IconComponent> = {
   settings: SettingsIcon,
   "usage-settings": SettingsIcon,
 };
-
-const BROWSE_STALE_TIME_MS = 10_000;
-
-const EMPTY_BROWSE_ENTRIES: FilesystemBrowseResult["entries"] = [];
-
-function expandHomeInPath(value: string, homeDir: string | null): string {
-  if (!homeDir) return value;
-  if (value === "~") return homeDir;
-  if (value.startsWith("~/") || value.startsWith("~\\")) {
-    return `${homeDir}${value.slice(1)}`;
-  }
-  return value;
-}
 
 function PaletteIcon(props: { icon: IconComponent }) {
   const Icon = props.icon;
@@ -291,7 +260,7 @@ function threadMatchLabel(input: {
     return input.messageMatchCount > 1 ? `${input.messageMatchCount} chat hits` : "Chat match";
   }
   if (input.matchKind === "project") {
-    return "Project match";
+    return "Folder match";
   }
   return null;
 }
@@ -351,7 +320,6 @@ function HighlightedText(props: { text: string; query: string; className?: strin
 export function SidebarSearchPalette(props: SidebarSearchPaletteProps) {
   const { activeTheme, resolvedTheme, setCodeThemeId, setTheme, theme } = useTheme();
   const [query, setQuery] = useState("");
-  const [highlightedItemValue, setHighlightedItemValue] = useState<string | null>(null);
   const [importProviderState, setImportProvider] = useState<ImportProviderKind>(
     props.importProviders[0] ?? "codex",
   );
@@ -363,20 +331,6 @@ export function SidebarSearchPalette(props: SidebarSearchPaletteProps) {
   const importProvider = props.importProviders.includes(importProviderState)
     ? importProviderState
     : (props.importProviders[0] ?? "codex");
-  // Error keyed to the query it was produced for: editing the query derives
-  // straight back to null with no state-clearing effect.
-  const [addProjectErrorState, setAddProjectErrorState] = useState<{
-    query: string;
-    message: string;
-  } | null>(null);
-  const [isAddingProject, setIsAddingProject] = useState(false);
-  const addProjectError =
-    addProjectErrorState !== null && addProjectErrorState.query === query
-      ? addProjectErrorState.message
-      : null;
-  const setAddProjectError = (message: string | null) =>
-    setAddProjectErrorState(message === null ? null : { query, message });
-
   useEffect(() => {
     if (props.open) {
       return;
@@ -385,58 +339,15 @@ export function SidebarSearchPalette(props: SidebarSearchPaletteProps) {
     // hidden), which keeps this component eligible for React Compiler.
     const timeoutId = window.setTimeout(() => {
       setQuery("");
-      setHighlightedItemValue(null);
       setImportProvider(props.importProviders[0] ?? "codex");
       setImportId("");
       setImportError(null);
       setIsImporting(false);
-      setAddProjectError(null);
-      setIsAddingProject(false);
     }, 0);
     return () => window.clearTimeout(timeoutId);
   }, [props.importProviders, props.open]);
 
-  const platform = typeof navigator === "undefined" ? "" : navigator.platform;
-  const trimmedQuery = query.trim();
-  const unsupportedWindowsPath = isUnsupportedWindowsProjectPath(trimmedQuery, platform);
-  const isBrowsing = trimmedQuery.length > 0 && isFilesystemBrowseQuery(trimmedQuery, platform);
-  const canBrowse = isBrowsing && !unsupportedWindowsPath;
-  const browseDirectoryPath = canBrowse ? getBrowseDirectoryPath(query) : "";
-  const leafSegment =
-    canBrowse && !hasTrailingPathSeparator(query) ? getBrowseLeafPathSegment(query) : "";
-  const expandedBrowsePath = canBrowse ? expandHomeInPath(browseDirectoryPath, props.homeDir) : "";
-
-  const { data: browseResult, isFetching: isBrowseFetching } =
-    useQuery<FilesystemBrowseResult | null>({
-      queryKey: ["sidebar-palette-browse", expandedBrowsePath],
-      queryFn: async () => {
-        if (!canBrowse || expandedBrowsePath.length === 0) return null;
-        const api = readNativeApi();
-        if (!api) return null;
-        return await api.filesystem.browse({ partialPath: expandedBrowsePath });
-      },
-      enabled: canBrowse && expandedBrowsePath.length > 0,
-      staleTime: BROWSE_STALE_TIME_MS,
-    });
-
-  const browseEntries = browseResult?.entries ?? EMPTY_BROWSE_ENTRIES;
-  const lowerFilter = leafSegment.toLowerCase();
-  const showHidden = leafSegment.startsWith(".");
-  const filteredBrowseEntries = browseEntries.filter(
-    (entry) =>
-      entry.name.toLowerCase().startsWith(lowerFilter) &&
-      (showHidden || !entry.name.startsWith(".")),
-  );
-
-  const exactBrowseEntry =
-    leafSegment.length === 0
-      ? null
-      : (filteredBrowseEntries.find((entry) => entry.name === leafSegment) ?? null);
-
-  const browseParentPath = canBrowse ? getBrowseParentPath(query) : null;
-  const canBrowseUp = canBrowse && canNavigateUp(query);
-
-  const matchedActions = isBrowsing ? [] : matchSidebarSearchActions(props.actions, query);
+  const matchedActions = matchSidebarSearchActions(props.actions, query);
   const themeCommandItems = buildThemeCommandItems({
     query,
     resolvedTheme,
@@ -455,15 +366,11 @@ export function SidebarSearchPalette(props: SidebarSearchPaletteProps) {
     }),
   );
   const matchedCurrentThemes =
-    isBrowsing || query.trim().length === 0
-      ? []
-      : matchSidebarSearchThemes(currentCodeThemeItems, query);
+    query.trim().length === 0 ? [] : matchSidebarSearchThemes(currentCodeThemeItems, query);
   const showThemeSection =
-    !isBrowsing &&
-    query.trim().length > 0 &&
-    (themeCommandItems.length > 0 || matchedCurrentThemes.length > 0);
-  const matchedProjects = isBrowsing ? [] : matchSidebarSearchProjects(props.projects, query);
-  const matchedThreads = isBrowsing ? [] : matchSidebarSearchThreads(props.threads, query);
+    query.trim().length > 0 && (themeCommandItems.length > 0 || matchedCurrentThemes.length > 0);
+  const matchedProjects = matchSidebarSearchProjects(props.projects, query);
+  const matchedThreads = matchSidebarSearchThreads(props.threads, query);
   const hasSearchResults =
     matchedActions.length > 0 ||
     themeCommandItems.length > 0 ||
@@ -481,97 +388,6 @@ export function SidebarSearchPalette(props: SidebarSearchPaletteProps) {
           : importProvider === "opencode"
             ? "Paste an OpenCode session id"
             : "Paste a Codex thread id";
-
-  const hasHighlightedFolderItem =
-    highlightedItemValue !== null && highlightedItemValue.startsWith("folder:");
-  const hasHighlightedBrowseItem =
-    hasHighlightedFolderItem || highlightedItemValue === "__browse_up__";
-
-  const highlightedFolderPath = hasHighlightedFolderItem
-    ? (highlightedItemValue?.slice("folder:".length) ?? null)
-    : null;
-
-  const willCreateMissingFolder =
-    canBrowse &&
-    !hasHighlightedFolderItem &&
-    trimmedQuery.length > 0 &&
-    !hasTrailingPathSeparator(query) &&
-    exactBrowseEntry === null &&
-    !isBrowseFetching;
-
-  const browseSubmitLabel = willCreateMissingFolder ? "Create & Add" : "Add";
-
-  const resolveBrowseSubmitPath = (): string => {
-    if (highlightedFolderPath) {
-      return normalizeProjectPathForDispatch(highlightedFolderPath);
-    }
-    const raw = hasTrailingPathSeparator(query)
-      ? (browseResult?.parentPath ?? expandHomeInPath(trimmedQuery, props.homeDir))
-      : (exactBrowseEntry?.fullPath ?? expandHomeInPath(trimmedQuery, props.homeDir));
-    return normalizeProjectPathForDispatch(raw);
-  };
-
-  const submitBrowsePath = async () => {
-    if (isAddingProject) return;
-    if (trimmedQuery.length === 0 && !highlightedFolderPath) {
-      setAddProjectError("Enter a folder path.");
-      return;
-    }
-    if (unsupportedWindowsPath) {
-      setAddProjectError("Windows paths are not supported on this platform.");
-      return;
-    }
-    if (!highlightedFolderPath && isExplicitRelativeProjectPath(trimmedQuery)) {
-      setAddProjectError(
-        "Relative paths are not supported. Use an absolute path or start with ~/.",
-      );
-      return;
-    }
-    setIsAddingProject(true);
-    setAddProjectError(null);
-    // Promise chain instead of async/try-finally: React Compiler does not yet
-    // support try/finally, and it would skip optimizing this whole component.
-    void Promise.resolve(
-      props.onAddProjectPath(resolveBrowseSubmitPath(), {
-        createIfMissing: willCreateMissingFolder,
-      }),
-    )
-      .then(() => {
-        props.onOpenChange(false);
-      })
-      .catch((cause: unknown) => {
-        setAddProjectError(cause instanceof Error ? cause.message : "Failed to add project.");
-      })
-      .finally(() => {
-        setIsAddingProject(false);
-      });
-  };
-
-  const isMac = isMacPlatform(platform);
-  const submitModifierLabel = isMac ? "⌘" : "Ctrl";
-
-  const handleBrowseInputKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (!isBrowsing) return;
-    const isModifierPressed = isMac ? event.metaKey : event.ctrlKey;
-    if (
-      event.key === "Enter" &&
-      (!hasHighlightedBrowseItem || (isModifierPressed && hasHighlightedFolderItem))
-    ) {
-      event.preventDefault();
-      void submitBrowsePath();
-      return;
-    }
-    if (
-      event.key === "Backspace" &&
-      hasTrailingPathSeparator(query) &&
-      browseParentPath &&
-      event.currentTarget.selectionStart === query.length &&
-      event.currentTarget.selectionEnd === query.length
-    ) {
-      event.preventDefault();
-      setQuery(browseParentPath);
-    }
-  };
 
   const submitImport = () => {
     const normalizedImportId = importId.trim();
@@ -710,135 +526,18 @@ export function SidebarSearchPalette(props: SidebarSearchPaletteProps) {
           </div>
         ) : (
           <>
-            <Command
-              autoHighlight={isBrowsing ? false : "always"}
-              mode="none"
-              onItemHighlighted={(value) => {
-                setHighlightedItemValue(typeof value === "string" ? value : null);
-              }}
-            >
+            <Command autoHighlight="always" mode="none">
               <CommandPanel className="overflow-hidden">
                 <div className="relative">
                   <CommandInput
-                    placeholder={
-                      isBrowsing
-                        ? "Enter project path (e.g. ~/projects/my-app)"
-                        : "Search projects, threads, and actions"
-                    }
+                    placeholder="Search folders, threads, and actions"
                     value={query}
                     onChange={(event) => setQuery(event.currentTarget.value)}
-                    onKeyDown={handleBrowseInputKeyDown}
-                    startAddon={
-                      isBrowsing ? (
-                        <LuFolderPlus className="text-muted-foreground" />
-                      ) : (
-                        <SearchIcon className="text-muted-foreground" />
-                      )
-                    }
-                    className={
-                      isBrowsing ? (willCreateMissingFolder ? "pe-36" : "pe-24") : undefined
-                    }
+                    startAddon={<SearchIcon className="text-muted-foreground" />}
                   />
-                  {isBrowsing ? (
-                    <Button
-                      variant="outline"
-                      size="xs"
-                      tabIndex={-1}
-                      className="-translate-y-1/2 absolute end-3 top-1/2 gap-1.5 pe-1 ps-2"
-                      disabled={
-                        isAddingProject ||
-                        unsupportedWindowsPath ||
-                        (trimmedQuery.length === 0 && !highlightedFolderPath) ||
-                        (!highlightedFolderPath && isExplicitRelativeProjectPath(trimmedQuery))
-                      }
-                      onMouseDown={(event) => {
-                        event.preventDefault();
-                      }}
-                      onClick={() => void submitBrowsePath()}
-                      title={
-                        hasHighlightedFolderItem
-                          ? `${browseSubmitLabel} highlighted folder (${submitModifierLabel} Enter)`
-                          : `${browseSubmitLabel} (Enter)`
-                      }
-                    >
-                      <span>{browseSubmitLabel}</span>
-                      <KbdGroup className="pointer-events-none -me-0.5 items-center gap-1">
-                        <Kbd>
-                          {hasHighlightedFolderItem ? `${submitModifierLabel} Enter` : "Enter"}
-                        </Kbd>
-                      </KbdGroup>
-                    </Button>
-                  ) : null}
                 </div>
                 <CommandList className="max-h-[min(24rem,60vh)] not-empty:px-1.5 not-empty:pt-0 not-empty:pb-1.5">
-                  {isBrowsing ? (
-                    unsupportedWindowsPath ? (
-                      <CommandEmpty className="py-10">
-                        <div className="text-center text-sm text-muted-foreground/79">
-                          Windows paths are not supported on this platform.
-                        </div>
-                      </CommandEmpty>
-                    ) : (
-                      <>
-                        {canBrowseUp || filteredBrowseEntries.length > 0 ? (
-                          <CommandGroup>
-                            {canBrowseUp ? (
-                              <CommandItem
-                                key="browse-up"
-                                value="__browse_up__"
-                                className="cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5"
-                                onMouseDown={(event) => {
-                                  event.preventDefault();
-                                }}
-                                onClick={() => {
-                                  if (browseParentPath) setQuery(browseParentPath);
-                                }}
-                              >
-                                <LuCornerLeftUp className="size-3.5 text-muted-foreground/60" />
-                                <span className="min-w-0 flex-1 truncate text-sm text-foreground">
-                                  ..
-                                </span>
-                              </CommandItem>
-                            ) : null}
-                            {filteredBrowseEntries.map((entry) => (
-                              <CommandItem
-                                key={entry.fullPath}
-                                value={`folder:${entry.fullPath}`}
-                                className="cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5"
-                                onMouseDown={(event) => {
-                                  event.preventDefault();
-                                }}
-                                onClick={() => setQuery(appendBrowsePathSegment(query, entry.name))}
-                              >
-                                <FolderClosed className="size-3.5 text-muted-foreground/60" />
-                                <span className="min-w-0 flex-1 truncate text-sm text-foreground">
-                                  {entry.name}
-                                </span>
-                              </CommandItem>
-                            ))}
-                          </CommandGroup>
-                        ) : !isBrowseFetching ? (
-                          <div className="px-3 py-2 text-sm text-muted-foreground">
-                            No matching folders.
-                          </div>
-                        ) : null}
-                        {willCreateMissingFolder ? (
-                          <div className="mx-1.5 mt-2 rounded-md border border-dashed border-[color:var(--color-border)] px-3 py-2 text-sm text-muted-foreground">
-                            Press Enter to create{" "}
-                            <span className="text-foreground">{trimmedQuery}</span> and add it as a
-                            project.
-                          </div>
-                        ) : null}
-                        {addProjectError ? (
-                          <div className="mx-1.5 mt-2 rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-                            {addProjectError}
-                          </div>
-                        ) : null}
-                      </>
-                    )
-                  ) : null}
-
-                  {!isBrowsing && matchedActions.length > 0 ? (
+                  {matchedActions.length > 0 ? (
                     <CommandGroup>
                       <CommandGroupLabel className="pt-0 pb-1.5 pl-3">Suggested</CommandGroupLabel>
                       {matchedActions.map((action) => {
@@ -881,13 +580,12 @@ export function SidebarSearchPalette(props: SidebarSearchPaletteProps) {
                     </CommandGroup>
                   ) : null}
 
-                  {!isBrowsing &&
-                  matchedActions.length > 0 &&
+                  {matchedActions.length > 0 &&
                   (matchedThreads.length > 0 || matchedProjects.length > 0 || showThemeSection) ? (
                     <CommandSeparator />
                   ) : null}
 
-                  {!isBrowsing && matchedThreads.length > 0 ? (
+                  {matchedThreads.length > 0 ? (
                     <CommandGroup>
                       <CommandGroupLabel className="py-1.5 pl-3">
                         {query ? "Threads" : "Recent"}
@@ -957,15 +655,13 @@ export function SidebarSearchPalette(props: SidebarSearchPaletteProps) {
                     </CommandGroup>
                   ) : null}
 
-                  {!isBrowsing &&
-                  matchedThreads.length > 0 &&
-                  (matchedProjects.length > 0 || showThemeSection) ? (
+                  {matchedThreads.length > 0 && (matchedProjects.length > 0 || showThemeSection) ? (
                     <CommandSeparator />
                   ) : null}
 
-                  {!isBrowsing && matchedProjects.length > 0 ? (
+                  {matchedProjects.length > 0 ? (
                     <CommandGroup>
-                      <CommandGroupLabel className="py-1.5 pl-3">Projects</CommandGroupLabel>
+                      <CommandGroupLabel className="py-1.5 pl-3">Folders</CommandGroupLabel>
                       {matchedProjects.map(({ id, project }) => (
                         <CommandItem
                           key={id}
@@ -983,7 +679,7 @@ export function SidebarSearchPalette(props: SidebarSearchPaletteProps) {
                           <div className="min-w-0 flex-1">
                             <div className="flex items-baseline gap-3">
                               <div className="min-w-0 flex-1 truncate text-[length:var(--app-font-size-ui,12px)] text-foreground">
-                                {project.name || "Untitled project"}
+                                {project.name || "Untitled folder"}
                               </div>
                               {/* Opening a project from here can switch Space, so the
                                   destination is worth naming. It rides in the same right-hand
@@ -1096,7 +792,7 @@ export function SidebarSearchPalette(props: SidebarSearchPaletteProps) {
                     </>
                   ) : null}
 
-                  {!isBrowsing && !hasSearchResults ? (
+                  {!hasSearchResults ? (
                     <CommandEmpty className="py-10">
                       <div className="flex flex-col items-center justify-center gap-2 text-center text-sm text-muted-foreground/79">
                         <SearchIcon className="size-4 opacity-70" />
@@ -1108,27 +804,8 @@ export function SidebarSearchPalette(props: SidebarSearchPaletteProps) {
                 <div className="h-1.5" />
               </CommandPanel>
               <CommandFooter>
-                {isBrowsing ? (
-                  <>
-                    <span>
-                      {isAddingProject
-                        ? "Adding project..."
-                        : "Type a path, ↑↓ to navigate folders."}
-                    </span>
-                    <span>
-                      {hasHighlightedFolderItem
-                        ? `Enter to open · ${submitModifierLabel}+Enter to add`
-                        : hasHighlightedBrowseItem
-                          ? "Enter to go up"
-                          : "Enter to add project"}
-                    </span>
-                  </>
-                ) : (
-                  <>
-                    <span>Jump to threads, projects, actions, or appearance.</span>
-                    <span>Enter to open</span>
-                  </>
-                )}
+                <span>Jump to threads, folders, actions, or appearance.</span>
+                <span>Enter to open</span>
               </CommandFooter>
             </Command>
           </>

@@ -1,18 +1,15 @@
 // FILE: ComposerExtrasMenu.tsx
-// Purpose: Hosts the composer `+` menu for attachments and quick composer mode toggles.
+// Purpose: Hosts the composer `+` menu for attachments and optional speed controls.
 // Layer: Chat composer presentation
 // Depends on: shared menu primitives, icon buttons, and caller-owned composer state callbacks.
 
-import { type ProviderInteractionMode } from "@penkra/contracts";
 import { useId, useRef, type ChangeEvent } from "react";
-import { GoTasklist } from "react-icons/go";
 
 import { PaperclipIcon, PlusIcon } from "~/lib/icons";
 import { ComposerPickerMenuPopup, ComposerPickerMenuSubPopup } from "./ComposerPickerMenuPopup";
 import { Button } from "../ui/button";
 import {
   Menu,
-  MenuCheckboxItem,
   MenuItem,
   MenuRadioGroup,
   MenuRadioItem,
@@ -23,12 +20,10 @@ import {
 } from "../ui/menu";
 
 export const ComposerExtrasMenu = function ComposerExtrasMenu(props: {
-  interactionMode: ProviderInteractionMode;
   supportsFastMode: boolean;
   fastModeEnabled: boolean;
   onAddPhotos: (files: File[]) => void;
   onToggleFastMode: () => void;
-  onSetPlanMode: (enabled: boolean) => void;
 }) {
   const inputId = useId();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -76,20 +71,6 @@ export const ComposerExtrasMenu = function ComposerExtrasMenu(props: {
             <PaperclipIcon className="size-4 shrink-0" />
             Add image
           </MenuItem>
-
-          <MenuSeparator />
-          <MenuCheckboxItem
-            checked={props.interactionMode === "plan"}
-            variant="switch"
-            onCheckedChange={(checked) => {
-              props.onSetPlanMode(checked === true);
-            }}
-          >
-            <span className="inline-flex items-center gap-2">
-              <GoTasklist className="size-4 shrink-0" />
-              Plan mode
-            </span>
-          </MenuCheckboxItem>
 
           {props.supportsFastMode ? (
             <>

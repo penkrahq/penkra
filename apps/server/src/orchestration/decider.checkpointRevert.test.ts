@@ -3,7 +3,7 @@ import {
   DEFAULT_PROVIDER_INTERACTION_MODE,
   EventId,
   MessageId,
-  ProjectId,
+  ContainerId,
   ThreadId,
   TurnId,
   type OrchestrationEvent,
@@ -37,7 +37,7 @@ function makeReadModel(input: {
     threads: [
       {
         id: THREAD_ID,
-        projectId: ProjectId.makeUnsafe("project-checkpoint-revert"),
+        projectId: ContainerId.makeUnsafe("project-checkpoint-revert"),
         title: "Checkpoint revert",
         modelSelection: {
           provider: "codex",

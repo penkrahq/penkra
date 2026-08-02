@@ -4,7 +4,7 @@
 // Layer: Route UI logic helpers
 // Exports: home-chat restore-route resolution.
 
-import type { ProjectId, SpaceId, ThreadId } from "@penkra/contracts";
+import type { ContainerId, SpaceId, ThreadId } from "@penkra/contracts";
 
 import { resolveRestorableThreadRoute, type LastThreadRoute } from "../chatRouteRestore";
 import type { ServerWorkspacePaths } from "../lib/serverWorkspacePaths";
@@ -14,13 +14,13 @@ import type { Project } from "../types";
 /**
  * Set only when "/" was reached by *selecting* a Space. The landing then restores threads that
  * Space can reach and nothing else. Without it — cold start, a deep link, a plain refresh — the
- * remembered route decides the Space instead: `activeSpaceId` lives in sessionStorage and is
- * empty on a fresh launch, while the remembered route lives in localStorage and survives, so
+ * remembered route decides the Space instead: the durable Space cursor may still be hydrating
+ * while the remembered route is already available, so
  * scoping unconditionally would drop the user out of the Space they left the app in.
  */
 export interface ChatIndexLandingSpace {
   readonly spaceId: SpaceId | null;
-  readonly projectById: ReadonlyMap<ProjectId, Project>;
+  readonly projectById: ReadonlyMap<ContainerId, Project>;
   readonly workspacePaths: ServerWorkspacePaths;
 }
 
@@ -29,15 +29,15 @@ export function resolveChatIndexRestoreRoute(input: {
   readonly availableSplitViewIds: ReadonlySet<string>;
   readonly threadIds: readonly ThreadId[];
   readonly sidebarThreadSummaryById: Readonly<
-    Record<string, { readonly projectId: ProjectId } | undefined>
+    Record<string, { readonly projectId: ContainerId } | undefined>
   >;
-  readonly studioProjectIds: ReadonlySet<ProjectId>;
+  readonly studioProjectIds: ReadonlySet<ContainerId>;
   /**
    * Still-unsent chat drafts. They have a route id but no sidebar summary yet, so the summary
    * lookup below never matches them — mirrors the /studio landing's draft handling so a cold
    * start on "/" can reopen an unsent draft instead of always minting a new one.
    */
-  readonly draftProjectIdByThreadId: ReadonlyMap<string, ProjectId>;
+  readonly draftProjectIdByThreadId: ReadonlyMap<string, ContainerId>;
   /**
    * Populated panes from the split named by `lastThreadRoute`. `undefined` means the current
    * client state could not resolve that split, so a Space-scoped restore must fail closed.

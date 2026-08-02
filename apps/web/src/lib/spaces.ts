@@ -6,7 +6,7 @@
 import {
   SPACE_PROJECTS_ASSIGN_MAX_COUNT,
   type NativeApi,
-  type ProjectId,
+  type ContainerId,
   type SpaceIconName,
   type SpaceId,
 } from "@penkra/contracts";
@@ -87,11 +87,16 @@ export async function archiveSpace(input: { api: NativeApi; spaceId: SpaceId }):
   });
 }
 
-export async function restoreSpace(input: { api: NativeApi; spaceId: SpaceId }): Promise<void> {
+export async function restoreSpace(input: {
+  api: NativeApi;
+  spaceId: SpaceId;
+  name?: string | undefined;
+}): Promise<void> {
   await input.api.orchestration.dispatchCommand({
     type: "space.restore",
     commandId: newCommandId(),
     spaceId: input.spaceId,
+    ...(input.name !== undefined ? { name: input.name } : {}),
   });
 }
 
@@ -110,8 +115,8 @@ export async function reorderSpaces(input: {
 
 export async function moveProjectToSpace(input: {
   api: NativeApi;
-  projectId: ProjectId;
-  spaceId: SpaceId | null;
+  projectId: ContainerId;
+  spaceId: SpaceId;
 }): Promise<void> {
   await input.api.orchestration.dispatchCommand({
     type: "project.meta.update",
@@ -131,9 +136,9 @@ export async function moveProjectToSpace(input: {
  */
 export async function moveProjectsToSpace(input: {
   api: NativeApi;
-  projectIds: ReadonlyArray<ProjectId>;
+  projectIds: ReadonlyArray<ContainerId>;
   spaceId: SpaceId;
-}): Promise<{ failedProjectIds: ProjectId[] }> {
+}): Promise<{ failedProjectIds: ContainerId[] }> {
   for (
     let offset = 0;
     offset < input.projectIds.length;

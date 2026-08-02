@@ -3,7 +3,8 @@ import {
   CommandId,
   DEFAULT_PROVIDER_INTERACTION_MODE,
   EventId,
-  ProjectId,
+  MessageId,
+  ContainerId,
   ThreadId,
 } from "@penkra/contracts";
 import { Effect } from "effect";
@@ -12,7 +13,7 @@ import { describe, expect, it } from "vitest";
 import { decideOrchestrationCommand } from "./decider.ts";
 import { createEmptyReadModel, projectEvent } from "./projector.ts";
 
-const PROJECT_ID = ProjectId.makeUnsafe("project-1");
+const PROJECT_ID = ContainerId.makeUnsafe("project-1");
 const THREAD_ID = ThreadId.makeUnsafe("thread-1");
 const FORK_THREAD_ID = ThreadId.makeUnsafe("thread-fork-1");
 const WORKTREE_BRANCH = "feature/worktree";
@@ -92,6 +93,38 @@ async function createWorktreeThreadReadModel(now: string, kind: "project" | "stu
   );
 }
 
+async function createStartedWorktreeThreadReadModel(
+  now: string,
+  kind: "project" | "studio" = "project",
+) {
+  const withThread = await createWorktreeThreadReadModel(now, kind);
+  return Effect.runPromise(
+    projectEvent(withThread, {
+      sequence: 3,
+      eventId: asEventId("evt-thread-message"),
+      aggregateKind: "thread",
+      aggregateId: THREAD_ID,
+      type: "thread.message-sent",
+      occurredAt: now,
+      commandId: CommandId.makeUnsafe("cmd-thread-message"),
+      causationEventId: null,
+      correlationId: CommandId.makeUnsafe("cmd-thread-message"),
+      metadata: {},
+      payload: {
+        threadId: THREAD_ID,
+        messageId: MessageId.makeUnsafe("message-1"),
+        role: "user",
+        text: "Start",
+        turnId: null,
+        streaming: false,
+        source: "native",
+        createdAt: now,
+        updatedAt: now,
+      },
+    }),
+  );
+}
+
 describe("decider worktree metadata", () => {
   it("converts legacy Studio worktreePath input into an ordinary working directory", async () => {
     const now = new Date().toISOString();
@@ -142,40 +175,42 @@ describe("decider worktree metadata", () => {
     });
   });
 
-  it("self-heals legacy Studio workspace metadata on any meta update", async () => {
+  it("allows changing a durable draft's physical folder before its first message", async () => {
     const now = new Date().toISOString();
     const readModel = await createWorktreeThreadReadModel(now, "studio");
-
     const result = await Effect.runPromise(
       decideOrchestrationCommand({
         command: {
           type: "thread.meta.update",
-          commandId: CommandId.makeUnsafe("cmd-studio-thread-rename"),
+          commandId: CommandId.makeUnsafe("cmd-studio-draft-folder"),
           threadId: THREAD_ID,
-          title: "Renamed Studio thread",
           workingDirectory: "/tmp/updated-reference-folder",
         },
         readModel,
       }),
     );
-
     const event = Array.isArray(result) ? result[0] : result;
     expect(event?.type).toBe("thread.meta-updated");
-    if (!event || event.type !== "thread.meta-updated") {
-      return;
-    }
+  });
 
-    expect(event.payload).toMatchObject({
-      title: "Renamed Studio thread",
-      envMode: "local",
-      branch: null,
-      worktreePath: null,
-      workingDirectory: "/tmp/updated-reference-folder",
-      associatedWorktreePath: null,
-      associatedWorktreeBranch: null,
-      associatedWorktreeRef: null,
-      createBranchFlowCompleted: false,
-    });
+  it("rejects changing a Studio thread's physical folder after its first message", async () => {
+    const now = new Date().toISOString();
+    const readModel = await createStartedWorktreeThreadReadModel(now, "studio");
+
+    await expect(
+      Effect.runPromise(
+        decideOrchestrationCommand({
+          command: {
+            type: "thread.meta.update",
+            commandId: CommandId.makeUnsafe("cmd-studio-thread-rename"),
+            threadId: THREAD_ID,
+            title: "Renamed Studio thread",
+            workingDirectory: "/tmp/updated-reference-folder",
+          },
+          readModel,
+        }),
+      ),
+    ).rejects.toThrow(/physical folder cannot change/i);
   });
 
   it("preserves the Studio folder during legacy branch-only metadata updates", async () => {
@@ -213,29 +248,23 @@ describe("decider worktree metadata", () => {
     });
   });
 
-  it("clears the Studio folder only through an explicit working-directory update", async () => {
+  it("rejects clearing a Studio thread's physical folder after its first message", async () => {
     const now = new Date().toISOString();
-    const readModel = await createWorktreeThreadReadModel(now, "studio");
+    const readModel = await createStartedWorktreeThreadReadModel(now, "studio");
 
-    const result = await Effect.runPromise(
-      decideOrchestrationCommand({
-        command: {
-          type: "thread.meta.update",
-          commandId: CommandId.makeUnsafe("cmd-studio-clear-working-directory"),
-          threadId: THREAD_ID,
-          workingDirectory: null,
-        },
-        readModel,
-      }),
-    );
-
-    const event = Array.isArray(result) ? result[0] : result;
-    expect(event?.type).toBe("thread.meta-updated");
-    if (!event || event.type !== "thread.meta-updated") {
-      return;
-    }
-
-    expect(event.payload.workingDirectory).toBeNull();
+    await expect(
+      Effect.runPromise(
+        decideOrchestrationCommand({
+          command: {
+            type: "thread.meta.update",
+            commandId: CommandId.makeUnsafe("cmd-studio-clear-working-directory"),
+            threadId: THREAD_ID,
+            workingDirectory: null,
+          },
+          readModel,
+        }),
+      ),
+    ).rejects.toThrow(/physical folder cannot change/i);
   });
 
   it("derives associated worktree metadata during thread.create when only branch and worktreePath are provided", async () => {

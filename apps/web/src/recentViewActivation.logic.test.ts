@@ -2,12 +2,12 @@
 // Purpose: Verifies split-pane restoration for Ctrl+Tab recent thread activation.
 // Layer: UI state logic test
 
-import { ProjectId, ThreadId } from "@penkra/contracts";
+import { ContainerId, ThreadId } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 import type { SplitView } from "./splitViewStore";
 import { resolveRecentThreadSplitActivation } from "./recentViewActivation.logic";
 
-const PROJECT_ID = ProjectId.makeUnsafe("project-1");
+const PROJECT_ID = ContainerId.makeUnsafe("project-1");
 
 function threadId(value: string): ThreadId {
   return ThreadId.makeUnsafe(value);

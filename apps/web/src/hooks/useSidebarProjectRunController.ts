@@ -5,7 +5,7 @@
 
 import {
   type ProjectDiscoveredScriptTarget,
-  type ProjectId,
+  type ContainerId,
   type ServerLocalServerProcess,
 } from "@penkra/contracts";
 import { localServerAddressLabel, localServerMatchesRun } from "@penkra/shared/localServers";
@@ -43,7 +43,7 @@ function findTrackedProjectRunServer(
 
 export function useSidebarProjectRunController(input: {
   readonly projects: readonly Project[];
-  readonly projectById: ReadonlyMap<ProjectId, Project>;
+  readonly projectById: ReadonlyMap<ContainerId, Project>;
   readonly homeDir: string | null;
   readonly chatWorkspaceRoot: string | null;
 }) {
@@ -51,7 +51,7 @@ export function useSidebarProjectRunController(input: {
   const projectRunsByProjectId = useProjectRunStore((state) => state.runsByProjectId);
   const storeUpsertProjectRun = useProjectRunStore((state) => state.upsertRun);
   const storeRemoveProjectRun = useProjectRunStore((state) => state.removeRun);
-  const [dialogProjectId, setDialogProjectId] = useState<ProjectId | null>(null);
+  const [dialogProjectId, setDialogProjectId] = useState<ContainerId | null>(null);
   const [dialogCommandDraft, setDialogCommandDraft] = useState("");
 
   const runnableProjects = useMemo(
@@ -75,7 +75,7 @@ export function useSidebarProjectRunController(input: {
     ),
   });
   const discoveredTargetsByProjectId = useMemo(() => {
-    const targetsByProjectId = new Map<ProjectId, readonly ProjectDiscoveredScriptTarget[]>();
+    const targetsByProjectId = new Map<ContainerId, readonly ProjectDiscoveredScriptTarget[]>();
     for (let index = 0; index < runnableProjects.length; index += 1) {
       const project = runnableProjects[index];
       if (!project) continue;
@@ -84,7 +84,7 @@ export function useSidebarProjectRunController(input: {
     return targetsByProjectId;
   }, [discoveryQueries, runnableProjects]);
   const commandByProjectId = useMemo(() => {
-    const commands = new Map<ProjectId, ReturnType<typeof selectPrimaryProjectRunCommand>>();
+    const commands = new Map<ContainerId, ReturnType<typeof selectPrimaryProjectRunCommand>>();
     for (const project of runnableProjects) {
       commands.set(
         project.id,
@@ -113,7 +113,7 @@ export function useSidebarProjectRunController(input: {
   );
   const serverByProjectId = useMemo(() => {
     const servers = localServersQuery.data?.servers ?? [];
-    const serversByProject = new Map<ProjectId, ServerLocalServerProcess>();
+    const serversByProject = new Map<ContainerId, ServerLocalServerProcess>();
 
     for (const run of Object.values(projectRunsByProjectId)) {
       const server = findTrackedProjectRunServer(run, servers);
@@ -140,7 +140,7 @@ export function useSidebarProjectRunController(input: {
   }, [serverByProjectId]);
 
   const startProjectRun = useCallback(
-    async (projectId: ProjectId, commandOverride?: string) => {
+    async (projectId: ContainerId, commandOverride?: string) => {
       const api = readNativeApi();
       const project = input.projectById.get(projectId);
       const runCommand = commandByProjectIdRef.current.get(projectId);
@@ -189,7 +189,7 @@ export function useSidebarProjectRunController(input: {
   );
 
   const stopProjectRun = useCallback(
-    async (projectId: ProjectId) => {
+    async (projectId: ContainerId) => {
       const api = readNativeApi();
       if (!api) {
         storeRemoveProjectRun(projectId);
@@ -217,7 +217,7 @@ export function useSidebarProjectRunController(input: {
     [queryClient, storeRemoveProjectRun],
   );
 
-  const openProjectRunServer = useCallback(async (projectId: ProjectId) => {
+  const openProjectRunServer = useCallback(async (projectId: ContainerId) => {
     const api = readNativeApi();
     const server = serverByProjectIdRef.current.get(projectId);
     const url = server ? firstLocalServerUrl(server) : null;
@@ -234,7 +234,7 @@ export function useSidebarProjectRunController(input: {
   }, []);
 
   const persistProjectRunCommand = useCallback(
-    async (projectId: ProjectId, command: string) => {
+    async (projectId: ContainerId, command: string) => {
       const api = readNativeApi();
       const project = input.projectById.get(projectId);
       if (!api || !project) return;
@@ -254,7 +254,7 @@ export function useSidebarProjectRunController(input: {
     [input.projectById],
   );
 
-  const openProjectRunDialog = useCallback((projectId: ProjectId) => {
+  const openProjectRunDialog = useCallback((projectId: ContainerId) => {
     setDialogProjectId(projectId);
   }, []);
   const closeProjectRunDialog = useCallback(() => {

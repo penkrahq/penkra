@@ -30,6 +30,7 @@
     "@lexical/react": "^0.41.0",
     "@penkra/contracts": "workspace:*",
     "@penkra/shared": "workspace:*",
+    "@penkra/ui": "workspace:*",
     "@pierre/diffs": "^1.2.12",
     "@tabler/icons-react": "^3.44.0",
     "@tanstack/react-pacer": "^0.19.4",

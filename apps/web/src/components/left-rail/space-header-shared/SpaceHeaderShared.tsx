@@ -32,14 +32,14 @@ export function SpaceHeaderShared({
         aria-expanded={expanded}
         className={cn(
           "gap-0 pr-2.5 transition-[padding,color,background-color] duration-[140ms] ease-out",
-          "group-hover/space-header:bg-[var(--color-background-button-secondary-hover)] group-hover/space-header:text-[var(--color-text-foreground)] group-focus-within/space-header:bg-[var(--color-background-button-secondary-hover)] group-focus-within/space-header:text-[var(--color-text-foreground)]",
-          onAction && "group-hover/space-header:pr-9 group-focus-within/space-header:pr-9",
+          "group-hover/space-header:bg-[var(--color-background-button-secondary-hover)] group-hover/space-header:text-[var(--color-text-foreground)]",
+          onAction && "group-hover/space-header:pr-9",
           showAffordances && onAction && "pr-9",
         )}
         leading={<Chevron className="size-3" />}
         leadingClassName={cn(
           "h-3.5 w-0 overflow-hidden opacity-0 transition-[width,margin,opacity] duration-[140ms] ease-out",
-          "group-hover/space-header:mr-3 group-hover/space-header:w-3.5 group-hover/space-header:opacity-100 group-focus-within/space-header:mr-3 group-focus-within/space-header:w-3.5 group-focus-within/space-header:opacity-100",
+          "group-hover/space-header:mr-3 group-hover/space-header:w-3.5 group-hover/space-header:opacity-100",
           showAffordances && "mr-3 w-3.5 opacity-100",
         )}
         {...props}
@@ -47,7 +47,7 @@ export function SpaceHeaderShared({
       >
         <span
           className={cn(
-            "font-semibold text-[var(--color-text-foreground-tertiary)] transition-colors duration-[140ms] ease-out group-hover/space-header:text-[var(--color-text-foreground)] group-focus-within/space-header:text-[var(--color-text-foreground)]",
+            "font-semibold text-[var(--color-text-foreground-tertiary)] transition-colors duration-[140ms] ease-out group-hover/space-header:text-[var(--color-text-foreground)]",
             showAffordances && "text-[var(--color-text-foreground)]",
           )}
         >

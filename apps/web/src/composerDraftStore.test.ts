@@ -1,4 +1,4 @@
-import { ProjectId, ThreadId } from "@penkra/contracts";
+import { ContainerId, ThreadId } from "@penkra/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { selectComposerThreadDraft } from "./composerDraftDomain";
 import {
@@ -83,8 +83,8 @@ describe("composerDraftStore clearComposerContent", () => {
 });
 
 describe("composerDraftStore project draft thread mapping", () => {
-  const projectId = ProjectId.makeUnsafe("project-a");
-  const otherProjectId = ProjectId.makeUnsafe("project-b");
+  const projectId = ContainerId.makeUnsafe("project-a");
+  const otherProjectId = ContainerId.makeUnsafe("project-b");
   const threadId = ThreadId.makeUnsafe("thread-a");
   const otherThreadId = ThreadId.makeUnsafe("thread-b");
   let originalRevokeObjectUrl: typeof URL.revokeObjectURL;

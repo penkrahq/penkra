@@ -2,14 +2,10 @@
 // Purpose: Routes App operations to one controller and, when requested, one validated App tab.
 // Layer: Trusted desktop App runtime
 
-import type {
-  AppTabHandle,
-  AppTabs,
-  OperationContext,
-  OperationRequest,
-} from "@penkra/sdk";
+import type { AppTabHandle, AppTabs, OperationContext, OperationRequest } from "@penkra/sdk";
 
 import type { AppInstallationState, InstalledAppPackage } from "./appInstallationState";
+import type { AppRuntimeDiagnosticInput } from "./appRuntimeDiagnostics";
 import {
   assertOperationValue,
   compileOperationValidators,
@@ -24,6 +20,7 @@ export type AppOperationBrokerErrorCode =
   | "invalid-input"
   | "invalid-output"
   | "operation-not-found"
+  | "recursion-limit"
   | "tab-already-registered"
   | "tab-not-found"
   | "tab-target-mismatch";
@@ -43,6 +40,7 @@ export interface InvokeAppOperationRequest<Input = unknown> extends OperationReq
   spaceId: string;
   threadId: string;
   signal?: AbortSignal;
+  caller?: { appId: string; slug: string; invocationId: string; depth: number };
 }
 
 export type AppOperationHandler<Input = unknown, Result = unknown> = (
@@ -79,7 +77,12 @@ export interface AppTabHost {
 export interface AppOperationBrokerOptions {
   installationState: () => AppInstallationState;
   tabs: AppTabHost;
+  resolveIdentity: (
+    appId: string,
+    spaceId: string,
+  ) => Promise<{ subject: string | null; space: string }>;
   mintInvocationId?: () => string;
+  onDiagnostic?: (entry: AppRuntimeDiagnosticInput) => void;
 }
 
 /**
@@ -93,6 +96,8 @@ export class AppOperationBroker {
   readonly #installationState: () => AppInstallationState;
   readonly #tabHost: AppTabHost;
   readonly #mintInvocationId: () => string;
+  readonly #onDiagnostic: (entry: AppRuntimeDiagnosticInput) => void;
+  readonly #resolveIdentity: AppOperationBrokerOptions["resolveIdentity"];
   readonly #controllers = new Map<string, AppOperationController>();
   readonly #tabs = new Map<string, AppTabEndpoint>();
   readonly #validators = new Map<string, AppOperationValidators>();
@@ -101,6 +106,8 @@ export class AppOperationBroker {
     this.#installationState = options.installationState;
     this.#tabHost = options.tabs;
     this.#mintInvocationId = options.mintInvocationId ?? (() => crypto.randomUUID());
+    this.#onDiagnostic = options.onDiagnostic ?? (() => undefined);
+    this.#resolveIdentity = options.resolveIdentity;
   }
 
   registerController(controller: AppOperationController): () => void {
@@ -133,6 +140,12 @@ export class AppOperationBroker {
   async invoke<Input = unknown, Result = unknown>(
     request: InvokeAppOperationRequest<Input>,
   ): Promise<Result> {
+    if ((request.caller?.depth ?? 0) >= 8) {
+      throw new AppOperationBrokerError(
+        "recursion-limit",
+        "Cross-App operation recursion exceeded eight calls.",
+      );
+    }
     const installedApp = this.#resolveEnabledApp(request.app, request.spaceId);
     const controller = this.#controllers.get(controllerKey(installedApp.appId, request.spaceId));
     if (!controller) {
@@ -169,11 +182,16 @@ export class AppOperationBroker {
       throw new AppOperationBrokerError("invalid-input", toError(error).message);
     }
 
+    const identity = await this.#resolveIdentity(installedApp.appId, request.spaceId);
     const invocation: OperationContext["invocation"] = {
       id: this.#mintInvocationId(),
       app: request.app,
       operation: request.operation,
-      spaceId: request.spaceId,
+      caller: request.caller
+        ? { app: request.caller.slug, invocationId: request.caller.invocationId }
+        : null,
+      subject: identity.subject,
+      space: identity.space,
       threadId: request.threadId,
       ...(request.tabId === undefined ? {} : { tabId: request.tabId }),
     };
@@ -200,10 +218,50 @@ export class AppOperationBroker {
       invocation,
       ...(tab === undefined ? {} : { tab }),
       tabs,
+      operations: {
+        invoke: (crossAppRequest) =>
+          this.invoke({
+            ...crossAppRequest,
+            spaceId: request.spaceId,
+            threadId: request.threadId,
+            ...(request.signal === undefined ? {} : { signal: request.signal }),
+            caller: {
+              appId: installedApp.appId,
+              slug: installedApp.slug,
+              invocationId: invocation.id,
+              depth: (request.caller?.depth ?? 0) + 1,
+            },
+          }),
+      },
       signal: request.signal ?? new AbortController().signal,
     };
 
-    const result = await handler(request.input, context);
+    const startedAt = performance.now();
+    let result: unknown;
+    try {
+      result = await handler(request.input, context);
+      this.#onDiagnostic({
+        kind: "operation-completed",
+        appId: installedApp.appId,
+        spaceId: request.spaceId,
+        operation: request.operation,
+        invocationId: invocation.id,
+        ...(request.caller ? { callerApp: request.caller.slug } : {}),
+        durationMs: Math.round(performance.now() - startedAt),
+      });
+    } catch (error) {
+      this.#onDiagnostic({
+        kind: "operation-failed",
+        appId: installedApp.appId,
+        spaceId: request.spaceId,
+        operation: request.operation,
+        invocationId: invocation.id,
+        ...(request.caller ? { callerApp: request.caller.slug } : {}),
+        durationMs: Math.round(performance.now() - startedAt),
+        message: toError(error).message,
+      });
+      throw error;
+    }
     try {
       assertOperationValue(result, validators.output, "output");
     } catch (error) {

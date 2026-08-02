@@ -83,6 +83,8 @@ describe("App update journal", () => {
 
     expect(recovery).toMatchObject({ status: "corrupt" });
     expect(store.snapshot()).toEqual(before);
-    expect(recovery?.status === "corrupt" && FS.readFileSync(recovery.quarantinedPath, "utf8")).toBe("{invalid");
+    expect(
+      recovery?.status === "corrupt" && FS.readFileSync(recovery.quarantinedPath, "utf8"),
+    ).toBe("{invalid");
   });
 });

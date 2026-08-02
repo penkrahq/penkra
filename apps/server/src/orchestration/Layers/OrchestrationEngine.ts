@@ -2,7 +2,7 @@ import type {
   ChatAttachment,
   OrchestrationEvent,
   OrchestrationReadModel,
-  ProjectId,
+  ContainerId,
   SpaceId,
   ThreadId,
 } from "@penkra/contracts";
@@ -104,7 +104,7 @@ type CommittedCommandResult = {
 
 function commandToAggregateRef(command: OrchestrationCommand): {
   readonly aggregateKind: "space" | "project" | "thread";
-  readonly aggregateId: SpaceId | ProjectId | ThreadId;
+  readonly aggregateId: SpaceId | ContainerId | ThreadId;
 } {
   switch (command.type) {
     case "space.create":

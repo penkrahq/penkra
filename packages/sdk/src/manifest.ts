@@ -34,6 +34,62 @@ export interface OperationDeclaration {
   handler: string;
 }
 
+export type AppSettingDeclaration =
+  | {
+      key: string;
+      label: string;
+      description?: string;
+      migrationId?: string;
+      type: "boolean";
+      default: boolean;
+    }
+  | {
+      key: string;
+      label: string;
+      description?: string;
+      migrationId?: string;
+      type: "string";
+      default: string;
+      sensitive?: boolean;
+      validation?: { minLength?: number; maxLength?: number };
+    }
+  | {
+      key: string;
+      label: string;
+      description?: string;
+      migrationId?: string;
+      type: "number";
+      default: number;
+      validation?: { minimum?: number; maximum?: number; step?: number };
+    }
+  | {
+      key: string;
+      label: string;
+      description?: string;
+      migrationId?: string;
+      type: "select";
+      default: string;
+      options: ReadonlyArray<{ value: string; label: string }>;
+    };
+
+export interface AppSkillDeclaration {
+  /** Package-relative directory containing one Agent Skills-compatible SKILL.md. */
+  path: string;
+}
+
+export type AppHandlerDeclaration =
+  | {
+      intent: "open-url";
+      operation: string;
+      schemes: ReadonlyArray<string>;
+    }
+  | {
+      intent: "open-file";
+      operation: string;
+      mediaTypes?: ReadonlyArray<string>;
+      extensions?: ReadonlyArray<string>;
+    };
+
 export interface PenkraAppManifest {
   manifestVersion: typeof PENKRA_APP_MANIFEST_VERSION;
   /** Immutable reverse-domain identity, such as `com.penkra.apps`. */
@@ -56,16 +112,16 @@ export interface PenkraAppManifest {
   entrypoints: AppEntrypoints;
   permissions?: ReadonlyArray<AppPermissionDeclaration>;
   operations?: ReadonlyArray<OperationDeclaration>;
+  contributions?: {
+    settings?: ReadonlyArray<AppSettingDeclaration>;
+    skills?: ReadonlyArray<AppSkillDeclaration>;
+    handlers?: ReadonlyArray<AppHandlerDeclaration>;
+  };
 }
 
 export interface AppManifestValidationIssue {
   path: string;
-  code:
-    | "duplicate"
-    | "invalid-format"
-    | "invalid-manifest-version"
-    | "missing"
-    | "unsafe-path";
+  code: "duplicate" | "invalid-format" | "invalid-manifest-version" | "missing" | "unsafe-path";
   message: string;
 }
 
@@ -77,6 +133,7 @@ const APP_ID_PATTERN = /^[a-z][a-z0-9]*(?:\.[a-z][a-z0-9-]*){2,}$/;
 const APP_SLUG_PATTERN = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 const PERMISSION_NAME_PATTERN = APP_SLUG_PATTERN;
 const OPERATION_KEY_PATTERN = /^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)*$/;
+const CONTRIBUTION_KEY_PATTERN = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 const MIME_TYPE_PATTERN = /^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/i;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -305,9 +362,330 @@ export function validateAppManifest(value: unknown): AppManifestValidationResult
     );
   }
 
+  validateContributions(value.contributions, value.operations, issues);
+
   return issues.length === 0
     ? { ok: true, manifest: value as unknown as PenkraAppManifest }
     : { ok: false, issues };
+}
+
+function validateContributions(
+  value: unknown,
+  operations: unknown,
+  issues: AppManifestValidationIssue[],
+): void {
+  if (value === undefined) return;
+  if (!isRecord(value)) {
+    issue(issues, "contributions", "invalid-format", "contributions must be an object.");
+    return;
+  }
+  const settingNames: Array<{ name: string; path: string }> = [];
+  if (value.settings !== undefined) {
+    if (!Array.isArray(value.settings)) {
+      issue(issues, "contributions.settings", "invalid-format", "settings must be an array.");
+    } else {
+      value.settings.forEach((candidate, index) => {
+        const path = `contributions.settings[${index}]`;
+        if (!isRecord(candidate)) {
+          issue(issues, path, "invalid-format", `${path} must be an object.`);
+          return;
+        }
+        if (
+          requireString(candidate.key, `${path}.key`, issues) &&
+          !CONTRIBUTION_KEY_PATTERN.test(candidate.key)
+        ) {
+          issue(
+            issues,
+            `${path}.key`,
+            "invalid-format",
+            "Setting keys must be lowercase hyphenated identifiers.",
+          );
+        } else if (typeof candidate.key === "string") {
+          settingNames.push({ name: candidate.key, path: `${path}.key` });
+        }
+        requireString(candidate.label, `${path}.label`, issues);
+        if (candidate.description !== undefined) {
+          requireString(candidate.description, `${path}.description`, issues);
+        }
+        if (
+          candidate.migrationId !== undefined &&
+          (!nonEmptyString(candidate.migrationId) ||
+            !CONTRIBUTION_KEY_PATTERN.test(candidate.migrationId))
+        ) {
+          issue(
+            issues,
+            `${path}.migrationId`,
+            "invalid-format",
+            "migrationId must be a lowercase hyphenated identifier.",
+          );
+        }
+        validateSettingDeclaration(candidate, path, issues);
+      });
+    }
+  }
+  validateUniqueNames(settingNames, issues);
+
+  const skillPaths: Array<{ name: string; path: string }> = [];
+  if (value.skills !== undefined) {
+    if (!Array.isArray(value.skills)) {
+      issue(issues, "contributions.skills", "invalid-format", "skills must be an array.");
+    } else {
+      value.skills.forEach((candidate, index) => {
+        const path = `contributions.skills[${index}]`;
+        if (!isRecord(candidate)) {
+          issue(issues, path, "invalid-format", `${path} must be an object.`);
+          return;
+        }
+        if (requireString(candidate.path, `${path}.path`, issues)) {
+          if (!isSafePackagePath(candidate.path)) {
+            issue(
+              issues,
+              `${path}.path`,
+              "unsafe-path",
+              `${path}.path must be a package-relative directory.`,
+            );
+          } else {
+            skillPaths.push({ name: candidate.path, path: `${path}.path` });
+          }
+        }
+      });
+    }
+  }
+  validateUniqueNames(skillPaths, issues);
+  validateHandlerContributions(value.handlers, operations, issues);
+}
+
+function validateSettingDeclaration(
+  candidate: Record<string, unknown>,
+  path: string,
+  issues: AppManifestValidationIssue[],
+): void {
+  if (!["boolean", "string", "number", "select"].includes(String(candidate.type))) {
+    issue(
+      issues,
+      `${path}.type`,
+      "invalid-format",
+      "Setting type must be boolean, string, number, or select.",
+    );
+    return;
+  }
+  if (candidate.type === "boolean" && typeof candidate.default !== "boolean") {
+    issue(
+      issues,
+      `${path}.default`,
+      "invalid-format",
+      "Boolean setting default must be a boolean.",
+    );
+  }
+  if (candidate.type === "string") {
+    if (typeof candidate.default !== "string") {
+      issue(
+        issues,
+        `${path}.default`,
+        "invalid-format",
+        "String setting default must be a string.",
+      );
+    }
+    if (candidate.sensitive !== undefined && typeof candidate.sensitive !== "boolean") {
+      issue(issues, `${path}.sensitive`, "invalid-format", "sensitive must be a boolean.");
+    }
+    validateNumericRules(candidate.validation, path, issues, ["minLength", "maxLength"], true);
+    if (isRecord(candidate.validation)) {
+      const minimum = candidate.validation.minLength;
+      const maximum = candidate.validation.maxLength;
+      if (typeof minimum === "number" && typeof maximum === "number" && minimum > maximum) {
+        issue(issues, `${path}.validation`, "invalid-format", "minLength cannot exceed maxLength.");
+      }
+    }
+  }
+  if (candidate.type === "number") {
+    if (typeof candidate.default !== "number" || !Number.isFinite(candidate.default)) {
+      issue(issues, `${path}.default`, "invalid-format", "Number setting default must be finite.");
+    }
+    validateNumericRules(candidate.validation, path, issues, ["minimum", "maximum", "step"], false);
+    if (isRecord(candidate.validation)) {
+      const minimum = candidate.validation.minimum;
+      const maximum = candidate.validation.maximum;
+      if (typeof minimum === "number" && typeof maximum === "number" && minimum > maximum) {
+        issue(issues, `${path}.validation`, "invalid-format", "minimum cannot exceed maximum.");
+      }
+      if (typeof candidate.validation.step === "number" && candidate.validation.step <= 0) {
+        issue(
+          issues,
+          `${path}.validation.step`,
+          "invalid-format",
+          "step must be greater than zero.",
+        );
+      }
+    }
+  }
+  if (candidate.type === "select") {
+    if (typeof candidate.default !== "string") {
+      issue(
+        issues,
+        `${path}.default`,
+        "invalid-format",
+        "Select setting default must be a string.",
+      );
+    }
+    if (!Array.isArray(candidate.options) || candidate.options.length === 0) {
+      issue(issues, `${path}.options`, "missing", "Select settings must contain options.");
+      return;
+    }
+    const options: Array<{ name: string; path: string }> = [];
+    candidate.options.forEach((option, index) => {
+      const optionPath = `${path}.options[${index}]`;
+      if (!isRecord(option)) {
+        issue(issues, optionPath, "invalid-format", `${optionPath} must be an object.`);
+        return;
+      }
+      if (requireString(option.value, `${optionPath}.value`, issues)) {
+        options.push({ name: option.value, path: `${optionPath}.value` });
+      }
+      requireString(option.label, `${optionPath}.label`, issues);
+    });
+    validateUniqueNames(options, issues);
+    if (
+      typeof candidate.default === "string" &&
+      !candidate.options.some((option) => isRecord(option) && option.value === candidate.default)
+    ) {
+      issue(
+        issues,
+        `${path}.default`,
+        "invalid-format",
+        "Select setting default must match an option value.",
+      );
+    }
+  }
+}
+
+function validateHandlerContributions(
+  handlers: unknown,
+  operations: unknown,
+  issues: AppManifestValidationIssue[],
+): void {
+  if (handlers !== undefined) {
+    if (!Array.isArray(handlers)) {
+      issue(issues, "contributions.handlers", "invalid-format", "handlers must be an array.");
+    } else {
+      const intents: Array<{ name: string; path: string }> = [];
+      const operationKeys = new Set(
+        Array.isArray(operations)
+          ? operations.flatMap((operation) =>
+              isRecord(operation) && typeof operation.key === "string" ? [operation.key] : [],
+            )
+          : [],
+      );
+      handlers.forEach((candidate, index) => {
+        const path = `contributions.handlers[${index}]`;
+        if (!isRecord(candidate)) {
+          issue(issues, path, "invalid-format", `${path} must be an object.`);
+          return;
+        }
+        if (candidate.intent !== "open-url" && candidate.intent !== "open-file") {
+          issue(
+            issues,
+            `${path}.intent`,
+            "invalid-format",
+            "intent must be open-url or open-file.",
+          );
+          return;
+        }
+        intents.push({ name: candidate.intent, path: `${path}.intent` });
+        if (
+          requireString(candidate.operation, `${path}.operation`, issues) &&
+          !operationKeys.has(candidate.operation)
+        ) {
+          issue(
+            issues,
+            `${path}.operation`,
+            "invalid-format",
+            "handler operation must reference a declared operation key.",
+          );
+        }
+        if (candidate.intent === "open-url") {
+          if (
+            !Array.isArray(candidate.schemes) ||
+            candidate.schemes.length === 0 ||
+            candidate.schemes.some(
+              (scheme) => typeof scheme !== "string" || !/^[a-z][a-z0-9+.-]*$/.test(scheme),
+            )
+          ) {
+            issue(
+              issues,
+              `${path}.schemes`,
+              "invalid-format",
+              "open-url schemes must be a non-empty array of lowercase URL schemes.",
+            );
+          }
+          if (candidate.mediaTypes !== undefined || candidate.extensions !== undefined) {
+            issue(issues, path, "invalid-format", "open-url handlers cannot declare file filters.");
+          }
+        } else {
+          const mediaTypesValid =
+            candidate.mediaTypes === undefined ||
+            (Array.isArray(candidate.mediaTypes) &&
+              candidate.mediaTypes.length > 0 &&
+              candidate.mediaTypes.every(
+                (type) => typeof type === "string" && MIME_TYPE_PATTERN.test(type),
+              ));
+          const extensionsValid =
+            candidate.extensions === undefined ||
+            (Array.isArray(candidate.extensions) &&
+              candidate.extensions.length > 0 &&
+              candidate.extensions.every(
+                (extension) =>
+                  typeof extension === "string" && /^\.[a-z0-9][a-z0-9._+-]*$/i.test(extension),
+              ));
+          if (
+            !mediaTypesValid ||
+            !extensionsValid ||
+            (candidate.mediaTypes === undefined && candidate.extensions === undefined)
+          ) {
+            issue(
+              issues,
+              path,
+              "invalid-format",
+              "open-file handlers require valid mediaTypes or dot-prefixed extensions.",
+            );
+          }
+          if (candidate.schemes !== undefined)
+            issue(issues, path, "invalid-format", "open-file handlers cannot declare URL schemes.");
+        }
+      });
+      validateUniqueNames(intents, issues);
+    }
+  }
+}
+
+function validateNumericRules(
+  value: unknown,
+  path: string,
+  issues: AppManifestValidationIssue[],
+  allowed: readonly string[],
+  integer: boolean,
+): void {
+  if (value === undefined) return;
+  if (!isRecord(value)) {
+    issue(issues, `${path}.validation`, "invalid-format", "validation must be an object.");
+    return;
+  }
+  for (const [key, candidate] of Object.entries(value)) {
+    if (
+      !allowed.includes(key) ||
+      typeof candidate !== "number" ||
+      !Number.isFinite(candidate) ||
+      (integer && !Number.isInteger(candidate)) ||
+      (integer && candidate < 0)
+    ) {
+      issue(
+        issues,
+        `${path}.validation.${key}`,
+        "invalid-format",
+        `${key} is not a valid validation rule.`,
+      );
+    }
+  }
 }
 
 export function assertAppManifest(value: unknown): asserts value is PenkraAppManifest {

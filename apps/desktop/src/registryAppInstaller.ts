@@ -18,7 +18,10 @@ export async function installRegistryApp(input: {
     permissions: Readonly<Record<string, AppPermissionGrant>>;
   };
   hostVersion: string;
-  registry: Pick<AppRegistryClient, "get" | "downloadVerifiedRelease" | "getSecurityPolicy" | "recordSuccessfulInstallDurably">;
+  registry: Pick<
+    AppRegistryClient,
+    "get" | "downloadVerifiedRelease" | "getSecurityPolicy" | "recordSuccessfulInstallDurably"
+  >;
   packages: Pick<AppPackageIngestor, "ingestRegistryArchive">;
   installations: Pick<AppInstallationService, "installForSpace">;
 }): Promise<AppInstallationState> {
@@ -26,7 +29,9 @@ export async function installRegistryApp(input: {
   const version = app.versions.find((candidate) => candidate.version === input.request.version);
   if (!version) throw new Error("The selected App version is no longer available.");
   if (!satisfies(input.hostVersion, version.compatibilityRange, { includePrerelease: true })) {
-    throw new Error(`App ${app.displayName} ${version.version} is not compatible with Penkra ${input.hostVersion}.`);
+    throw new Error(
+      `App ${app.displayName} ${version.version} is not compatible with Penkra ${input.hostVersion}.`,
+    );
   }
   const grants = resolvePermissionGrants(version.permissions, input.request.permissions);
   const [verified, policy] = await Promise.all([
@@ -91,32 +96,41 @@ export async function rollbackRegistryApp(input: {
   return replaceRegistryApp(input, "rollback");
 }
 
-async function replaceRegistryApp(input: {
-  request: {
-    slug: string;
-    version: string;
-    permissionsBySpace: Readonly<Record<string, Readonly<Record<string, AppPermissionGrant>>>>;
-  };
-  hostVersion: string;
-  registry: Pick<AppRegistryClient, "get" | "downloadVerifiedRelease" | "getSecurityPolicy">;
-  packages: Pick<AppPackageIngestor, "ingestRegistryArchive">;
-  installations: Pick<AppInstallationService, "snapshot" | "updateForSpaces">;
-}, direction: "update" | "rollback"): Promise<AppInstallationState> {
+async function replaceRegistryApp(
+  input: {
+    request: {
+      slug: string;
+      version: string;
+      permissionsBySpace: Readonly<Record<string, Readonly<Record<string, AppPermissionGrant>>>>;
+    };
+    hostVersion: string;
+    registry: Pick<AppRegistryClient, "get" | "downloadVerifiedRelease" | "getSecurityPolicy">;
+    packages: Pick<AppPackageIngestor, "ingestRegistryArchive">;
+    installations: Pick<AppInstallationService, "snapshot" | "updateForSpaces">;
+  },
+  direction: "update" | "rollback",
+): Promise<AppInstallationState> {
   const app = await input.registry.get({ slug: input.request.slug });
   const version = app.versions.find((candidate) => candidate.version === input.request.version);
   if (!version) throw new Error("The selected App version is no longer available.");
   const current = input.installations.snapshot().packagesByAppId[app.identifier];
-  if (!current || current.source !== "registry") throw new Error(`${app.displayName} is not installed from the registry.`);
-  const correctDirection = direction === "update"
-    ? gt(version.version, current.version)
-    : lt(version.version, current.version);
+  if (!current || current.source !== "registry")
+    throw new Error(`${app.displayName} is not installed from the registry.`);
+  const correctDirection =
+    direction === "update"
+      ? gt(version.version, current.version)
+      : lt(version.version, current.version);
   if (!correctDirection) {
-    throw new Error(direction === "update"
-      ? `App updates must move forward from ${current.version} to a newer version.`
-      : `App rollback must select a version older than ${current.version}.`);
+    throw new Error(
+      direction === "update"
+        ? `App updates must move forward from ${current.version} to a newer version.`
+        : `App rollback must select a version older than ${current.version}.`,
+    );
   }
   if (!satisfies(input.hostVersion, version.compatibilityRange, { includePrerelease: true })) {
-    throw new Error(`App ${app.displayName} ${version.version} is not compatible with Penkra ${input.hostVersion}.`);
+    throw new Error(
+      `App ${app.displayName} ${version.version} is not compatible with Penkra ${input.hostVersion}.`,
+    );
   }
   const [verified, policy] = await Promise.all([
     input.registry.downloadVerifiedRelease({ app, version }),
@@ -155,15 +169,18 @@ function resolvePermissionGrants(
 ): Record<string, AppPermissionGrant> {
   const declaredNames = new Set(declared.map((permission) => permission.permission));
   for (const name of Object.keys(requested)) {
-    if (!declaredNames.has(name)) throw new Error(`App installation includes undeclared permission ${name}.`);
+    if (!declaredNames.has(name))
+      throw new Error(`App installation includes undeclared permission ${name}.`);
   }
-  return Object.fromEntries(declared.map((permission) => {
-    const grant = requested[permission.permission] ?? "denied";
-    if (permission.required && grant !== "granted") {
-      throw new Error(`Required App permission ${permission.permission} must be granted.`);
-    }
-    return [permission.permission, grant];
-  }));
+  return Object.fromEntries(
+    declared.map((permission) => {
+      const grant = requested[permission.permission] ?? "denied";
+      if (permission.required && grant !== "granted") {
+        throw new Error(`Required App permission ${permission.permission} must be granted.`);
+      }
+      return [permission.permission, grant];
+    }),
+  );
 }
 
 function manifestPermissionsMatch(
@@ -172,11 +189,17 @@ function manifestPermissionsMatch(
 ): boolean {
   const normalize = (values: Array<{ permission: string; required: boolean; rationale: string }>) =>
     values.sort((left, right) => left.permission.localeCompare(right.permission));
-  return JSON.stringify(normalize(manifest.map((permission) => ({
-    permission: permission.name,
-    required: permission.required,
-    rationale: permission.reason,
-  })))) === JSON.stringify(normalize([...registry]));
+  return (
+    JSON.stringify(
+      normalize(
+        manifest.map((permission) => ({
+          permission: permission.name,
+          required: permission.required,
+          rationale: permission.reason,
+        })),
+      ),
+    ) === JSON.stringify(normalize([...registry]))
+  );
 }
 
 function assertPackageMatchesRegistry(

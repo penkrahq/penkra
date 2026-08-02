@@ -3,7 +3,7 @@
 // Layer: Web UI state store
 // Exports: useProjectInstructionsStore, mergeProjectInstructionsIntoThreadNotes
 
-import type { ProjectId } from "@penkra/contracts";
+import type { ContainerId } from "@penkra/contracts";
 import { clampThreadNotes } from "@penkra/shared/pinnedMessages";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
@@ -30,9 +30,9 @@ interface ProjectInstructionsStore {
   /** Freeform instructions keyed by orchestration project id. */
   instructionsByProjectId: Record<string, string>;
   /** Set or replace a project's instructions; empty strings clear persisted clutter. */
-  setInstructions: (projectId: ProjectId, instructions: string) => void;
+  setInstructions: (projectId: ContainerId, instructions: string) => void;
   /** Clear a project's instructions. */
-  clearInstructions: (projectId: ProjectId) => void;
+  clearInstructions: (projectId: ContainerId) => void;
 }
 
 export const useProjectInstructionsStore = create<ProjectInstructionsStore>()(

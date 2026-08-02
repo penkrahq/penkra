@@ -3,7 +3,13 @@ export const PENKRA_OPERATION_SCHEMA_MAX_BYTES = 64 * 1024;
 export const PENKRA_OPERATION_SCHEMA_MAX_DEPTH = 32;
 export const PENKRA_OPERATION_SCHEMA_MAX_NODES = 4_096;
 
-const UNSUPPORTED_KEYWORDS = new Set(["$id", "$dynamicRef", "$dynamicAnchor", "pattern", "patternProperties"]);
+const UNSUPPORTED_KEYWORDS = new Set([
+  "$id",
+  "$dynamicRef",
+  "$dynamicAnchor",
+  "pattern",
+  "patternProperties",
+]);
 
 /**
  * Applies Penkra's bounded JSON Schema 2020-12 profile.
@@ -48,7 +54,9 @@ export function validatePenkraJsonSchema(schema: Readonly<Record<string, unknown
           issues.push(`${entryPath} is not supported by the Penkra schema profile`);
         }
         if (key === "$schema" && (path !== "$" || entry !== PENKRA_JSON_SCHEMA_DIALECT)) {
-          issues.push(`${entryPath} must identify ${PENKRA_JSON_SCHEMA_DIALECT} at the schema root`);
+          issues.push(
+            `${entryPath} must identify ${PENKRA_JSON_SCHEMA_DIALECT} at the schema root`,
+          );
         }
         if (key === "$ref" && (typeof entry !== "string" || !entry.startsWith("#"))) {
           issues.push(`${entryPath} must be a document-local fragment reference`);

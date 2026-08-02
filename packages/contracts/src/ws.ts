@@ -1,5 +1,5 @@
 import { Schema, Struct } from "effect";
-import { NonNegativeInt, ProjectId, ThreadId, TrimmedNonEmptyString } from "./baseSchemas";
+import { NonNegativeInt, ContainerId, ThreadId, TrimmedNonEmptyString } from "./baseSchemas";
 
 import {
   ClientOrchestrationCommand,
@@ -80,6 +80,7 @@ import {
   ServerLifecycleStreamEvent,
   ServerProviderUpdateInput,
   ServerUpdateSettingsInput,
+  ServerUpdateSpaceNavigationStateInput,
   ServerGetProviderUsageSnapshotInput,
   ServerListProviderUsageInput,
   ServerProviderStatusesUpdatedPayload,
@@ -190,6 +191,8 @@ export const WS_METHODS = {
   serverGetEnvironment: "server.getEnvironment",
   serverGetSettings: "server.getSettings",
   serverUpdateSettings: "server.updateSettings",
+  serverGetSpaceNavigationState: "server.getSpaceNavigationState",
+  serverUpdateSpaceNavigationState: "server.updateSpaceNavigationState",
   serverRefreshProviders: "server.refreshProviders",
   serverUpdateProvider: "server.updateProvider",
   serverListWorktrees: "server.listWorktrees",
@@ -357,6 +360,11 @@ const WebSocketRequestBody = Schema.Union([
   tagRequestBody(WS_METHODS.serverGetEnvironment, Schema.Struct({})),
   tagRequestBody(WS_METHODS.serverGetSettings, Schema.Struct({})),
   tagRequestBody(WS_METHODS.serverUpdateSettings, ServerUpdateSettingsInput),
+  tagRequestBody(WS_METHODS.serverGetSpaceNavigationState, Schema.Struct({})),
+  tagRequestBody(
+    WS_METHODS.serverUpdateSpaceNavigationState,
+    ServerUpdateSpaceNavigationStateInput,
+  ),
   tagRequestBody(WS_METHODS.serverRefreshProviders, Schema.Struct({})),
   tagRequestBody(WS_METHODS.serverUpdateProvider, ServerProviderUpdateInput),
   tagRequestBody(WS_METHODS.serverListWorktrees, Schema.Struct({})),
@@ -418,7 +426,7 @@ export const WsWelcomePayload = Schema.Struct({
   chatWorkspaceRoot: Schema.optional(TrimmedNonEmptyString),
   studioWorkspaceRoot: Schema.optional(TrimmedNonEmptyString),
   projectName: TrimmedNonEmptyString,
-  bootstrapProjectId: Schema.optional(ProjectId),
+  bootstrapProjectId: Schema.optional(ContainerId),
   bootstrapThreadId: Schema.optional(ThreadId),
 });
 export type WsWelcomePayload = typeof WsWelcomePayload.Type;

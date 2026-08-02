@@ -16,32 +16,37 @@ export default Effect.gen(function* () {
     `;
   }
 
-  // Naturally re-runnable: a normalized Studio thread no longer matches the
-  // predicate, and COALESCE keeps an already-adopted working directory.
-  yield* sql`
-    UPDATE projection_threads
-    SET working_directory = COALESCE(working_directory, worktree_path),
-        env_mode = 'local',
-        branch = NULL,
-        worktree_path = NULL,
-        associated_worktree_path = NULL,
-        associated_worktree_branch = NULL,
-        associated_worktree_ref = NULL,
-        create_branch_flow_completed = 0
-    WHERE project_id IN (
-      SELECT project_id
-      FROM projection_projects
-      WHERE kind = 'studio'
-        AND deleted_at IS NULL
-    )
-      AND (
-        env_mode <> 'local'
-        OR branch IS NOT NULL
-        OR worktree_path IS NOT NULL
-        OR associated_worktree_path IS NOT NULL
-        OR associated_worktree_branch IS NOT NULL
-        OR associated_worktree_ref IS NOT NULL
-        OR create_branch_flow_completed <> 0
+  const hasLegacyWorktreePath = yield* columnExists(sql, "projection_threads", "worktree_path");
+
+  // Some imported lineages already removed worktree_path before this repair
+  // replays. Keep both shapes valid so migration reconciliation stays lossless.
+  if (hasLegacyWorktreePath) {
+    yield* sql`
+      UPDATE projection_threads
+      SET working_directory = COALESCE(working_directory, worktree_path),
+          env_mode = 'local',
+          branch = NULL,
+          worktree_path = NULL,
+          associated_worktree_path = NULL,
+          associated_worktree_branch = NULL,
+          associated_worktree_ref = NULL,
+          create_branch_flow_completed = 0
+      WHERE project_id IN (
+        SELECT project_id FROM projection_projects WHERE kind = 'studio' AND deleted_at IS NULL
       )
-  `;
+    `;
+  } else {
+    yield* sql`
+      UPDATE projection_threads
+      SET env_mode = 'local',
+          branch = NULL,
+          associated_worktree_path = NULL,
+          associated_worktree_branch = NULL,
+          associated_worktree_ref = NULL,
+          create_branch_flow_completed = 0
+      WHERE project_id IN (
+        SELECT project_id FROM projection_projects WHERE kind = 'studio' AND deleted_at IS NULL
+      )
+    `;
+  }
 });

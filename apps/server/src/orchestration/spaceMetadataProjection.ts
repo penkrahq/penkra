@@ -102,6 +102,9 @@ export const applySpaceMetadataProjection = (input: {
             : input.event.payload.restoredAt;
           yield* input.projectionSpaceRepository.upsert({
             ...existing.value,
+            ...(!archived && input.event.payload.name !== undefined
+              ? { name: input.event.payload.name }
+              : {}),
             archivedAt: archived ? updatedAt : null,
             updatedAt,
           });

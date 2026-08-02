@@ -18,6 +18,7 @@ import { BRAND_ASSET_PATHS } from "./lib/brand-assets.ts";
 import { createDesktopPlatformBuildConfig } from "./lib/desktop-platform-build-config.ts";
 import {
   PENKRA_ACCOUNT_AUTH_SCHEME,
+  PENKRA_DESKTOP_SCHEME,
   PENKRA_PRODUCTION_BUNDLE_ID,
 } from "@penkra/shared/desktopIdentity";
 import { parseBooleanEnvValue } from "./lib/env-bool.ts";
@@ -426,7 +427,11 @@ function resolveDesktopRuntimeDependencies(
   }
 
   const runtimeDependencies = Object.fromEntries(
-    Object.entries(dependencies).filter(([dependencyName]) => dependencyName !== "electron"),
+    Object.entries(dependencies).filter(
+      ([dependencyName, version]) =>
+        dependencyName !== "electron" &&
+        !(typeof version === "string" && version.startsWith("workspace:")),
+    ),
   );
 
   return resolveCatalogDependencies(runtimeDependencies, catalog, "apps/desktop");
@@ -563,6 +568,10 @@ const createBuildConfig = Effect.fn("createBuildConfig")(function* (
     artifactName: "Penkra-${version}-${arch}.${ext}",
     protocols: [
       {
+        name: "Penkra App Listings",
+        schemes: [PENKRA_DESKTOP_SCHEME],
+      },
+      {
         name: "Penkra Account Authentication",
         schemes: [PENKRA_ACCOUNT_AUTH_SCHEME],
       },
@@ -648,7 +657,11 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   const resolvedServerDependencies = yield* Effect.try({
     try: () =>
       resolveCatalogDependencies(
-        serverDependencies,
+        Object.fromEntries(
+          Object.entries(serverDependencies).filter(
+            ([, version]) => !(typeof version === "string" && version.startsWith("workspace:")),
+          ),
+        ),
         rootPackageJson.workspaces.catalog,
         "apps/server",
       ),

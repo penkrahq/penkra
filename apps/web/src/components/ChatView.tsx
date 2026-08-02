@@ -9,7 +9,7 @@ import {
   type ModelSlug,
   type ProviderKind,
   type ProjectEntry,
-  type ProjectId,
+  type ContainerId,
   type ProviderApprovalDecision,
   type ProviderMentionReference,
   type ProviderNativeCommandDescriptor,
@@ -47,10 +47,7 @@ import {
   resolveThreadBranchSourceCwd,
   resolveThreadWorkspaceCwd as resolveSharedThreadWorkspaceCwd,
 } from "@penkra/shared/threadEnvironment";
-import {
-  deriveAssociatedWorktreeMetadata,
-  workspaceRootsEqual,
-} from "@penkra/shared/threadWorkspace";
+import { deriveAssociatedWorktreeMetadata } from "@penkra/shared/threadWorkspace";
 import {
   useCallback,
   useEffect,
@@ -60,7 +57,6 @@ import {
   useState,
   type MouseEvent,
 } from "react";
-import { GoTasklist } from "react-icons/go";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Debouncer, useDebouncedValue } from "@tanstack/react-pacer";
 import { useNavigate } from "@tanstack/react-router";
@@ -111,15 +107,10 @@ import { isElectron } from "../env";
 import { isScrollContainerNearBottom } from "../chat-scroll";
 import { stripDiffSearchParams } from "../diffRouteSearch";
 import { resolveSubagentPresentationForThread } from "../lib/subagentPresentation";
-import { ensureHomeChatProject, isHomeChatContainerProject } from "../lib/chatProjects";
-import { ensureStudioProject, isStudioContainerProject } from "../lib/studioProjects";
+import { isHomeChatContainerProject } from "../lib/chatProjects";
+import { isStudioContainerProject } from "../lib/studioProjects";
 import { resolveFirstSendTarget } from "../lib/chatFirstSend";
-import { readActiveSpaceId } from "../spacesUiStore";
-import {
-  createOrRecoverProjectFromPath,
-  PROJECT_CREATE_EXISTING_SYNC_ERROR,
-  PROJECT_CREATE_SYNC_ERROR,
-} from "../lib/projectCreation";
+import { readActiveSpaceId, useSpacesUiStore } from "../spacesUiStore";
 import {
   maybeResolveBrowserPromptAttachment,
   type BrowserPromptAttachmentResolution,
@@ -204,16 +195,11 @@ import {
   derivePhase,
   deriveTimelineEntries,
   deriveActiveWorkStartedAt,
-  deriveActiveTaskListState,
-  deriveActiveBackgroundTasksState,
-  findSidebarProposedPlan,
   findLatestProposedPlan,
   deriveWorkLogEntries,
   buildSourceProposedPlanReference,
-  hasActionableProposedPlan,
   hasLiveTurnTailWork,
   isLatestTurnSettled,
-  type ActiveTaskListState,
 } from "../session-logic";
 import {
   buildPendingUserInputAnswers,
@@ -229,13 +215,6 @@ import { useStore } from "../store";
 import { RenameThreadDialog } from "./RenameThreadDialog";
 import { getThreadFromState } from "../threadDerivation";
 import { useWorkspacePathsStore } from "../workspacePathsStore";
-import {
-  buildPlanImplementationThreadTitle,
-  buildPlanImplementationPrompt,
-  proposedPlanTitle,
-  resolvePlanFollowUpSubmission,
-} from "../proposedPlan";
-import { truncateTitle } from "../truncateTitle";
 import {
   DEFAULT_INTERACTION_MODE,
   DEFAULT_RUNTIME_MODE,
@@ -259,12 +238,9 @@ import {
   resolveShortcutCommand,
   shortcutLabelForCommand,
 } from "../keybindings";
-import PlanSidebar from "./PlanSidebar";
 import {
-  ChevronDownIcon,
   ComposerSendArrowIcon,
   EllipsisIcon,
-  LayoutSidebarIcon,
   RefreshCwIcon,
   TemporaryThreadIcon,
 } from "~/lib/icons";
@@ -419,7 +395,6 @@ import {
 import { ComposerPendingApprovalPanel } from "./chat/ComposerPendingApprovalPanel";
 import { ComposerExtrasMenu } from "./chat/ComposerExtrasMenu";
 import { ContextWindowMeter } from "./chat/ContextWindowMeter";
-import { ComposerInputBanners } from "./chat/ComposerInputBanners";
 import { ComposerPendingUserInputPanel } from "./chat/ComposerPendingUserInputPanel";
 import { ComposerVoiceButton } from "./chat/ComposerVoiceButton";
 import { ComposerVoiceRecorderBar } from "./chat/ComposerVoiceRecorderBar";
@@ -428,7 +403,6 @@ import { ComposerSlashStatusDialog } from "./chat/ComposerSlashStatusDialog";
 import { ExpandedImageOverlay } from "./chat/ExpandedImageOverlay";
 import { TranscriptSelectionActionLayer } from "./chat/TranscriptSelectionActionLayer";
 import { useChatTerminalController } from "./chat/useChatTerminalController";
-import { ComposerActiveTaskListCard } from "./chat/ComposerActiveTaskListCard";
 import { ComposerSubagentStrip } from "./chat/ComposerSubagentStrip";
 import {
   collectForegroundRunningSubagentStripItems,
@@ -534,12 +508,6 @@ const EMPTY_PROJECT_ENTRIES: ProjectEntry[] = [];
 const EMPTY_PROVIDER_NATIVE_COMMANDS: ProviderNativeCommandDescriptor[] = [];
 const EMPTY_PROVIDER_SKILLS: ProviderSkillDescriptor[] = [];
 const EMPTY_SUBAGENT_TOOL_TRACES: ReadonlyMap<string, SubagentToolTrace> = new Map();
-const LOCAL_PROJECT_DRAFT_CONTEXT = {
-  envMode: "local",
-  worktreePath: null,
-  branch: null,
-  lastKnownPr: null,
-} as const;
 const DRAFT_PROJECT_SYNC_MAX_ATTEMPTS = 6;
 const DRAFT_PROJECT_SYNC_DELAY_MS = 50;
 const SETUP_SCRIPT_TERMINAL_ACTIVITY_START_TIMEOUT_MS = 1_000;
@@ -633,7 +601,7 @@ function waitForDraftProjectSyncDelay(ms: number): Promise<void> {
 // Waits for a project to appear in the shell snapshot before a local draft points at it.
 async function waitForShellProjectById(
   api: NativeApi,
-  projectId: ProjectId,
+  projectId: ContainerId,
 ): Promise<{
   project: OrchestrationShellSnapshot["projects"][number] | null;
   snapshot: OrchestrationShellSnapshot | null;
@@ -1122,7 +1090,6 @@ export default function ChatView({
   );
   const clearComposerDraftContent = useComposerDraftStore((store) => store.clearComposerContent);
   const setDraftThreadContext = useComposerDraftStore((store) => store.setDraftThreadContext);
-  const moveDraftThreadToProject = useComposerDraftStore((store) => store.moveDraftThreadToProject);
   const getDraftThreadByProjectId = useComposerDraftStore(
     (store) => store.getDraftThreadByProjectId,
   );
@@ -1202,8 +1169,6 @@ export default function ChatView({
   const pendingUserInputAnswersByRequestIdRef = useRef(pendingUserInputAnswersByRequestId);
   const [pendingUserInputQuestionIndexByRequestId, setPendingUserInputQuestionIndexByRequestId] =
     useState<Record<string, number>>({});
-  const [planSidebarOpen, setPlanSidebarOpen] = useState(false);
-  const [activeTaskListCompact, setActiveTaskListCompact] = useState(false);
   const [subagentStripCompact, setSubagentStripCompact] = useState(false);
   const [workflowRunCardCompact, setWorkflowRunCardCompact] = useState(false);
   const [isComposerFooterCompact, setIsComposerFooterCompact] = useState(false);
@@ -1224,11 +1189,6 @@ export default function ChatView({
     null | "fork-target" | "review-target"
   >(null);
   const [secondaryChromePlaceholderHeight, setSecondaryChromePlaceholderHeight] = useState(88);
-  // Tracks whether the user explicitly dismissed the sidebar for the active turn.
-  const planSidebarDismissedForTurnRef = useRef<string | null>(null);
-  // When set, the thread-change reset effect will open the sidebar instead of closing it.
-  // Used by "Implement in a new thread" to carry the sidebar-open intent across navigation.
-  const planSidebarOpenOnNextThreadRef = useRef(false);
   const [composerHighlightedItemId, setComposerHighlightedItemId] = useState<string | null>(null);
   const [pullRequestDialogState, setPullRequestDialogState] =
     useState<PullRequestDialogState | null>(null);
@@ -1598,8 +1558,10 @@ export default function ChatView({
   }, [activeThread, pendingFileUndo]);
   const runtimeMode =
     composerDraft.runtimeMode ?? activeThread?.runtimeMode ?? DEFAULT_RUNTIME_MODE;
-  const interactionMode =
-    composerDraft.interactionMode ?? activeThread?.interactionMode ?? DEFAULT_INTERACTION_MODE;
+  // Plan mode is no longer a user-facing Penkra feature. Keep the persisted wire
+  // field for backward compatibility, but normalize every new turn to Default so
+  // resumed legacy threads cannot remain silently read-only.
+  const interactionMode: ProviderInteractionMode = DEFAULT_INTERACTION_MODE;
   const isServerThread = serverThread !== undefined;
   const isLocalDraftThread = !isServerThread && localDraftThread !== undefined;
   const canCheckoutPullRequestIntoThread = isLocalDraftThread;
@@ -1754,6 +1716,7 @@ export default function ChatView({
   const homeDir = useWorkspacePathsStore((state) => state.homeDir);
   const chatWorkspaceRoot = useWorkspacePathsStore((state) => state.chatWorkspaceRoot);
   const studioWorkspaceRoot = useWorkspacePathsStore((state) => state.studioWorkspaceRoot);
+  const selectedSpaceId = useSpacesUiStore((state) => state.activeSpaceId);
   const [renameDialogOpen, setRenameDialogOpen] = useState(false);
   const isHomeChatContainer = isHomeChatContainerProject(activeProject, {
     homeDir,
@@ -1778,10 +1741,14 @@ export default function ChatView({
   const resolvedThreadWorktreePath = isServerThread
     ? (activeThread?.worktreePath ?? null)
     : (draftThread?.worktreePath ?? null);
+  const resolvedThreadWorkingDirectory = isServerThread
+    ? (activeThread?.workingDirectory ?? null)
+    : (draftThread?.workingDirectory ?? null);
   const diffEnvironmentState = resolveDiffEnvironmentState({
     projectCwd: activeProject?.cwd ?? null,
     envMode: resolvedThreadEnvMode,
     worktreePath: resolvedThreadWorktreePath,
+    workingDirectory: resolvedThreadWorkingDirectory,
   });
   const diffEnvironmentPending = diffEnvironmentState.pending;
   const diffDisabledReason = diffEnvironmentState.disabledReason;
@@ -1833,7 +1800,7 @@ export default function ChatView({
       lastKnownPr?: Thread["lastKnownPr"];
     }) => {
       if (!activeProject) {
-        throw new Error("No active project is available for this pull request.");
+        throw new Error("No active folder is available for this pull request.");
       }
       const draftThreadContext = {
         branch: input.branch,
@@ -1945,7 +1912,6 @@ export default function ChatView({
     provider: ProviderKind;
   } | null>(null);
   const featureFlags = useFeatureFlags();
-  const showDebugTaskBanner = import.meta.env.DEV && featureFlags["show-debug-task-banner"];
   const serverConfigQuery = useQuery(serverConfigQueryOptions());
   const composerModelHintByProvider = useMemo<Record<ProviderKind, string | null>>(() => {
     const threadModelSelection = activeThread?.modelSelection ?? null;
@@ -1975,6 +1941,7 @@ export default function ChatView({
   ]);
   const providerModelDiscoveryCwd = resolveProviderDiscoveryCwd({
     activeThreadWorktreePath: resolvedThreadWorktreePath,
+    activeThreadWorkingDirectory: resolvedThreadWorkingDirectory,
     activeProjectCwd: activeProject?.cwd ?? null,
     serverCwd: serverConfigQuery.data?.cwd ?? null,
   });
@@ -2382,91 +2349,6 @@ export default function ChatView({
       activeLatestTurn?.turnId ?? null,
     );
   }, [activeLatestTurn?.turnId, activeThread?.proposedPlans, latestTurnSettled]);
-  const sidebarPlanSourceThreadId = !latestTurnSettled
-    ? (activeLatestTurn?.sourceProposedPlan?.threadId ?? null)
-    : null;
-  const sidebarPlanSourceThread = useStore(
-    useMemo(() => createThreadSelector(sidebarPlanSourceThreadId), [sidebarPlanSourceThreadId]),
-  );
-  const activeThreadPlanThreadId = activeThread?.id ?? null;
-  const activeThreadPlanProposedPlans = activeThread?.proposedPlans;
-  const sidebarPlanSourceThreadPlanId = sidebarPlanSourceThread?.id ?? null;
-  const sidebarPlanSourceThreadProposedPlans = sidebarPlanSourceThread?.proposedPlans;
-  const sidebarProposedPlan = useMemo(
-    () =>
-      findSidebarProposedPlan({
-        threads: [
-          ...(activeThreadPlanThreadId
-            ? [
-                {
-                  id: activeThreadPlanThreadId,
-                  proposedPlans: activeThreadPlanProposedPlans ?? [],
-                },
-              ]
-            : []),
-          ...(sidebarPlanSourceThreadPlanId &&
-          sidebarPlanSourceThreadPlanId !== activeThreadPlanThreadId
-            ? [
-                {
-                  id: sidebarPlanSourceThreadPlanId,
-                  proposedPlans: sidebarPlanSourceThreadProposedPlans ?? [],
-                },
-              ]
-            : []),
-        ],
-        latestTurn: activeLatestTurn,
-        latestTurnSettled,
-        threadId: activeThreadPlanThreadId,
-      }),
-    [
-      activeLatestTurn,
-      activeThreadPlanProposedPlans,
-      activeThreadPlanThreadId,
-      latestTurnSettled,
-      sidebarPlanSourceThreadPlanId,
-      sidebarPlanSourceThreadProposedPlans,
-    ],
-  );
-  const planSidebarLabel = sidebarProposedPlan ? "Plan details" : "Tasks";
-  const planSidebarToggleLabel = planSidebarOpen ? `Hide ${planSidebarLabel}` : planSidebarLabel;
-  const planSidebarToggleTitle = `${planSidebarOpen ? "Hide" : "Show"} ${planSidebarLabel.toLowerCase()} sidebar`;
-  const activeTaskList = useMemo((): ActiveTaskListState | null => {
-    if (showDebugTaskBanner) {
-      return {
-        createdAt: new Date().toISOString(),
-        turnId: activeLatestTurn?.turnId ?? null,
-        tasks: [
-          {
-            task: "Inspect banner layout without overlapping transcript text",
-            status: "inProgress",
-          },
-          {
-            task: "Confirm compact task banner width",
-            status: "pending",
-          },
-          {
-            task: "Verify sidebar task controls",
-            status: "completed",
-          },
-        ],
-      };
-    }
-
-    // Only while a turn is live: deriveActiveTaskListState falls back to the latest
-    // unfinished prior-turn list (follow-up turns, reloads mid-turn), but once the
-    // thread is idle the card must clear — providers routinely end a turn without
-    // marking every task completed, and an unfinished list must not linger forever.
-    return latestTurnSettled
-      ? null
-      : deriveActiveTaskListState(threadActivities, activeLatestTurn?.turnId);
-  }, [activeLatestTurn?.turnId, latestTurnSettled, showDebugTaskBanner, threadActivities]);
-  const activeBackgroundTasks = useMemo(
-    () =>
-      latestTurnSettled
-        ? null
-        : deriveActiveBackgroundTasksState(threadActivities, activeLatestTurn?.turnId ?? undefined),
-    [activeLatestTurn?.turnId, latestTurnSettled, threadActivities],
-  );
   // Task tool_use_ids the provider confirmed as backgrounded via task_updated
   // patches (last patch wins, so re-foregrounded tasks drop back out).
   const backgroundedSubagentToolUseIds = useMemo(() => {
@@ -2557,11 +2439,7 @@ export default function ChatView({
     ],
   );
   const workflowNowMs = useNowMs(workflowRunState !== null && !workflowRunState.settled);
-  const showPlanFollowUpPrompt =
-    pendingUserInputs.length === 0 &&
-    interactionMode === "plan" &&
-    latestTurnSettled &&
-    hasActionableProposedPlan(activeProposedPlan);
+  const showPlanFollowUpPrompt = false;
   const activePendingApproval = pendingApprovals[0] ?? null;
   const serverAcknowledgedLocalDispatch = useMemo(
     () =>
@@ -2901,7 +2779,7 @@ export default function ChatView({
       .then(() => {
         toastManager.add({
           type: "success",
-          title: "Project instructions added to notepad.",
+          title: "Folder instructions added to notepad.",
         });
       })
       .catch(() => {
@@ -3032,6 +2910,7 @@ export default function ChatView({
         projectCwd: activeProject.cwd,
         envMode: resolvedThreadEnvMode,
         worktreePath: resolvedThreadWorktreePath,
+        workingDirectory: resolvedThreadWorkingDirectory,
       })
     : null;
   const gitCwd = threadWorkspaceCwd;
@@ -3039,6 +2918,7 @@ export default function ChatView({
     ? resolveThreadBranchSourceCwd({
         projectCwd: activeProject.cwd,
         worktreePath: resolvedThreadWorktreePath,
+        workingDirectory: resolvedThreadWorkingDirectory,
       })
     : null;
   const composerTriggerKind = composerTrigger?.kind ?? null;
@@ -3100,6 +2980,7 @@ export default function ChatView({
       provider: selectedProvider,
       cwd: composerSkillCwd,
       threadId,
+      spaceId: selectedSpaceId,
       agentDir: selectedProvider === "pi" ? settings.piAgentDir || null : null,
       enabled:
         (isSkillTrigger || composerTriggerKind === "slash-command" || selectedProvider === "pi") &&
@@ -3140,10 +3021,10 @@ export default function ChatView({
     () =>
       resolveComposerSlashRootBranch({
         branches: branchesQuery.data?.branches,
-        activeProjectCwd: activeProject?.cwd,
+        activeProjectCwd: gitBranchSourceCwd,
         activeThreadBranch: activeThread?.branch,
       }),
-    [activeProject?.cwd, activeThread?.branch, branchesQuery.data?.branches],
+    [activeThread?.branch, branchesQuery.data?.branches, gitBranchSourceCwd],
   );
   // Keep plugin suggestions referentially stable so prompt-sync effects do not loop on rerender.
   const providerPlugins = useMemo(
@@ -3889,7 +3770,7 @@ export default function ChatView({
           threadId: activeThreadId,
           terminalId: targetTerminalId,
           project: {
-            cwd: activeProject.cwd,
+            cwd: targetCwd,
           },
           cwd: targetCwd,
           command: script.command,
@@ -3976,7 +3857,7 @@ export default function ChatView({
   });
   const persistProjectScripts = useCallback(
     async (input: {
-      projectId: ProjectId;
+      projectId: ContainerId;
       projectCwd: string;
       previousScripts: ProjectScript[];
       nextScripts: ProjectScript[];
@@ -4146,66 +4027,6 @@ export default function ChatView({
     ],
   );
 
-  const handleInteractionModeChange = useCallback(
-    (mode: ProviderInteractionMode) => {
-      if (mode === interactionMode) return;
-      setComposerDraftInteractionMode(threadId, mode);
-      if (isLocalDraftThread) {
-        setDraftThreadContext(threadId, { interactionMode: mode });
-      }
-      if (serverThread) {
-        const api = readNativeApi();
-        if (api) {
-          void api.orchestration
-            .dispatchCommand({
-              type: "thread.interaction-mode.set",
-              commandId: newCommandId(),
-              threadId,
-              interactionMode: mode,
-              createdAt: new Date().toISOString(),
-            })
-            .catch((error) => {
-              toastManager.add({
-                type: "error",
-                title: "Could not update plan mode",
-                description:
-                  error instanceof Error ? error.message : "An unexpected error occurred.",
-              });
-            });
-        }
-      }
-      scheduleComposerFocus();
-    },
-    [
-      interactionMode,
-      isLocalDraftThread,
-      scheduleComposerFocus,
-      serverThread,
-      setComposerDraftInteractionMode,
-      setDraftThreadContext,
-      threadId,
-    ],
-  );
-  const toggleInteractionMode = useCallback(() => {
-    handleInteractionModeChange(interactionMode === "plan" ? "default" : "plan");
-  }, [handleInteractionModeChange, interactionMode]);
-  const togglePlanSidebar = useCallback(() => {
-    setPlanSidebarOpen((open) => {
-      if (open) {
-        planSidebarDismissedForTurnRef.current =
-          activeTaskList?.turnId ?? sidebarProposedPlan?.turnId ?? "__dismissed__";
-      } else {
-        planSidebarDismissedForTurnRef.current = null;
-      }
-      return !open;
-    });
-  }, [activeTaskList?.turnId, sidebarProposedPlan?.turnId]);
-  const setPlanMode = useCallback(
-    (enabled: boolean) => {
-      handleInteractionModeChange(enabled ? "plan" : "default");
-    },
-    [handleInteractionModeChange],
-  );
   const persistThreadSettingsForNextTurn = useCallback(
     async (input: {
       threadId: ThreadId;
@@ -4638,17 +4459,10 @@ export default function ChatView({
   useEffect(() => {
     isAtEndRef.current = true;
     showScrollDebouncer.current.cancel();
-    // Capture the carried sidebar-open intent synchronously (ref reads/writes stay
-    // in render->commit order); defer only the setState so this thread-change reset
-    // stays out of the render->effect->render cascade.
-    const openPlanSidebar = planSidebarOpenOnNextThreadRef.current;
-    planSidebarOpenOnNextThreadRef.current = false;
-    planSidebarDismissedForTurnRef.current = null;
     const settle = window.setTimeout(() => {
       setPullRequestDialogState(null);
       setRenameDialogOpen(false);
       setShowScrollToBottom(false);
-      setPlanSidebarOpen(openPlanSidebar);
     }, 0);
     return () => window.clearTimeout(settle);
   }, [activeThread?.id]);
@@ -5706,7 +5520,7 @@ export default function ChatView({
       // Editing a queued turn should recreate the same draft state the user queued.
       setDraftThreadContext(activeThread.id, {
         runtimeMode: queuedTurn.runtimeMode,
-        interactionMode: queuedTurn.interactionMode,
+        interactionMode: DEFAULT_INTERACTION_MODE,
         ...(queuedTurn.kind === "chat" ? { envMode: queuedTurn.envMode } : {}),
       });
       if (queuedTurn.kind === "chat") {
@@ -5746,7 +5560,7 @@ export default function ChatView({
       );
       setComposerDraftModelSelection(activeThread.id, queuedTurn.modelSelection);
       setComposerDraftRuntimeMode(activeThread.id, queuedTurn.runtimeMode);
-      setComposerDraftInteractionMode(activeThread.id, queuedTurn.interactionMode);
+      setComposerDraftInteractionMode(activeThread.id, DEFAULT_INTERACTION_MODE);
       setComposerCursor(collapseExpandedComposerCursor(nextPrompt, nextPrompt.length));
       setComposerTrigger(detectComposerTrigger(nextPrompt, nextPrompt.length));
       scheduleComposerFocus();
@@ -5842,7 +5656,8 @@ export default function ChatView({
     const queuedChatTurn = queuedTurn ?? null;
     const liveComposerSnapshot =
       queuedChatTurn === null ? (composerEditorRef.current?.readSnapshot() ?? null) : null;
-    let promptForSend = queuedChatTurn?.prompt ?? liveComposerSnapshot?.value ?? promptRef.current;
+    const promptForSend =
+      queuedChatTurn?.prompt ?? liveComposerSnapshot?.value ?? promptRef.current;
     let composerImagesForSend = queuedChatTurn?.images ?? composerImages;
     // Legacy blob-backed images can exist without a hydrated live image right
     // after reload. Hydrate them before a live send so they are not dropped.
@@ -5880,7 +5695,7 @@ export default function ChatView({
     const providerOptionsForDispatchForSend =
       queuedChatTurn?.providerOptionsForDispatch ?? providerOptionsForDispatch;
     const runtimeModeForSend = queuedChatTurn?.runtimeMode ?? runtimeMode;
-    let interactionModeForSend = queuedChatTurn?.interactionMode ?? interactionMode;
+    const interactionModeForSend = DEFAULT_INTERACTION_MODE;
     const envModeForSend = queuedChatTurn?.envMode ?? envMode;
     const {
       trimmedPrompt: trimmed,
@@ -5897,7 +5712,7 @@ export default function ChatView({
       terminalContexts: composerTerminalContextsForSend,
       pastedTexts: composerPastedTextsForSend,
     });
-    let trimmedPromptForSend = trimmed;
+    const trimmedPromptForSend = trimmed;
     const restoredQueuedPlanDraftSource =
       queuedChatTurn === null &&
       restoredQueuedSourceProposedPlanRef.current?.threadId === activeThread.id &&
@@ -5907,58 +5722,6 @@ export default function ChatView({
       )
         ? restoredQueuedSourceProposedPlanRef.current
         : null;
-    const isLivePlanFollowUpSubmission =
-      queuedChatTurn === null &&
-      restoredQueuedPlanDraftSource === null &&
-      showPlanFollowUpPrompt &&
-      activeProposedPlan !== null;
-    const hasStructuredPlanFollowUpContent =
-      composerImagesForSend.length > 0 ||
-      composerFilesForSend.length > 0 ||
-      composerAssistantSelectionsForSend.length > 0 ||
-      composerFileCommentsForSend.length > 0 ||
-      sendableComposerTerminalContexts.length > 0 ||
-      sendableComposerPastedTexts.length > 0;
-    // Queued chat turns already captured their intended mode. Live plan follow-ups
-    // with attachments must use the normal send path so references are preserved.
-    if (isLivePlanFollowUpSubmission) {
-      const followUp = resolvePlanFollowUpSubmission({
-        draftText: trimmed,
-        planMarkdown: activeProposedPlan.planMarkdown,
-      });
-      if (hasStructuredPlanFollowUpContent) {
-        promptForSend = followUp.text;
-        interactionModeForSend = followUp.interactionMode;
-        trimmedPromptForSend = followUp.text.trim();
-      } else {
-        if (hasLiveTurn && dispatchMode === "queue") {
-          clearComposerInput(activeThread.id);
-          scheduleComposerFocus();
-          enqueueQueuedComposerTurn(activeThread.id, {
-            id: randomUUID(),
-            kind: "plan-follow-up",
-            createdAt: new Date().toISOString(),
-            previewText: followUp.text.trim(),
-            text: followUp.text,
-            interactionMode: followUp.interactionMode,
-            selectedProvider,
-            selectedModel,
-            selectedPromptEffort,
-            modelSelection: selectedModelSelection,
-            ...(providerOptionsForDispatch ? { providerOptionsForDispatch } : {}),
-            runtimeMode,
-          });
-          return true;
-        }
-        clearComposerInput(activeThread.id);
-        scheduleComposerFocus();
-        return lateSendHandlers.submitPlanFollowUp({
-          text: followUp.text,
-          interactionMode: followUp.interactionMode,
-          dispatchMode,
-        });
-      }
-    }
     const hasNoStructuredComposerContext =
       composerImagesForSend.length === 0 &&
       composerFilesForSend.length === 0 &&
@@ -5977,14 +5740,7 @@ export default function ChatView({
       }
     }
     const sourceProposedPlanForSend =
-      queuedChatTurn?.sourceProposedPlan ??
-      restoredQueuedPlanDraftSource?.sourceProposedPlan ??
-      (isLivePlanFollowUpSubmission && activeProposedPlan && interactionModeForSend === "default"
-        ? buildSourceProposedPlanReference({
-            threadId: activeThread.id,
-            proposedPlan: activeProposedPlan,
-          })
-        : undefined);
+      queuedChatTurn?.sourceProposedPlan ?? restoredQueuedPlanDraftSource?.sourceProposedPlan;
     if (!hasSendableContent) {
       if (expiredTerminalContextCount > 0) {
         const toastCopy = buildExpiredTerminalContextToastCopy(
@@ -6139,9 +5895,10 @@ export default function ChatView({
     // Keep the optimistic label short while the server asks Codex for a better summary.
     const title = buildPromptThreadTitleFallback(titleSeed);
     const currentStoreState = useStore.getState();
-    // Keep an optimistically selected Space across the command/snapshot race. The server
-    // validates this best-effort target and degrades genuinely stale/deleted ids to Void.
     const activeSpaceIdForSend = readActiveSpaceId();
+    if (isHomeChatContainer && activeSpaceIdForSend === null) {
+      throw new Error("Choose a persisted Space before starting this chat.");
+    }
     const firstSendTarget = resolveFirstSendTarget({
       activeProject,
       chatWorkspaceRoot,
@@ -6150,9 +5907,7 @@ export default function ChatView({
       isHomeChatContainer,
       isStudioContainer,
       projects: currentStoreState.projects,
-      selectedWorkspaceRoot: isContainerLandingProject
-        ? (resolvedThreadWorktreePath ?? null)
-        : null,
+      selectedWorkspaceRoot: null,
       title,
       titleSeed,
     });
@@ -6207,7 +5962,7 @@ export default function ChatView({
             firstSendTarget.creation.defaultModelSelection;
         } catch (error) {
           const description =
-            error instanceof Error ? error.message : "Failed to create the selected project.";
+            error instanceof Error ? error.message : "Failed to create the selected folder.";
           if (!isDuplicateProjectCreateError(description)) {
             throw error;
           }
@@ -6219,7 +5974,7 @@ export default function ChatView({
               workspaceRoot: firstSendTarget.creation.workspaceRoot,
               loadSnapshot: () => api.orchestration.getShellSnapshot().catch(() => null),
             });
-          if (!snapshot || !recoveredProject) {
+          if (!snapshot || !recoveredProject || recoveredProject.workspaceRoot === null) {
             throw error;
           }
 
@@ -6279,6 +6034,8 @@ export default function ChatView({
       );
       return false;
     }
+
+    const targetWorkspaceCwdForSend = resolvedThreadWorkingDirectory ?? targetProjectCwdForSend;
 
     const setupScriptForWorktree = baseBranchForWorktree
       ? setupProjectScript(targetProjectScriptsForSend)
@@ -6410,9 +6167,6 @@ export default function ChatView({
       expectedPromptHistoryPromptRef.current = null;
       promptRef.current = "";
       clearComposerDraftContent(threadIdForSend, { preservePreviewUrls: true });
-      if (isLivePlanFollowUpSubmission) {
-        setComposerDraftInteractionMode(threadIdForSend, interactionModeForSend);
-      }
       setComposerHighlightedItemId(null);
       setComposerCursor(0);
       setComposerTrigger(null);
@@ -6428,10 +6182,10 @@ export default function ChatView({
       // On first message: lock in branch + create worktree if needed.
       if (baseBranchForWorktree) {
         const result = await createWorktreeMutation.mutateAsync({
-          cwd: targetProjectCwdForSend,
+          cwd: targetWorkspaceCwdForSend,
           ref: baseBranchForWorktree,
           ...(baseBranchForWorktree === activeRootBranch
-            ? { copyChangesFrom: targetProjectCwdForSend }
+            ? { copyChangesFrom: targetWorkspaceCwdForSend }
             : {}),
         });
         beginLocalDispatch({
@@ -6502,6 +6256,7 @@ export default function ChatView({
             envMode: nextThreadEnvMode,
             branch: nextThreadBranch,
             worktreePath: nextThreadWorktreePath,
+            workingDirectory: resolvedThreadWorkingDirectory,
             associatedWorktreePath: nextAssociatedWorktreePath,
             associatedWorktreeBranch: nextAssociatedWorktreeBranch,
             associatedWorktreeRef: nextAssociatedWorktreeRef,
@@ -6627,10 +6382,6 @@ export default function ChatView({
           armedActiveTurnId: activeThread?.session?.activeTurnId ?? null,
         });
       }
-      if (sourceProposedPlanForSend) {
-        planSidebarDismissedForTurnRef.current = null;
-        setPlanSidebarOpen(true);
-      }
       if (queuedChatTurn === null) {
         setRestoredQueuedSourceProposedPlan(threadIdForSend, null);
       }
@@ -6657,7 +6408,7 @@ export default function ChatView({
       if (createdWorktreeForSendPath && !turnStartSucceeded) {
         const removed = await api.git
           .removeWorktree({
-            cwd: targetProjectCwdForSend,
+            cwd: targetWorkspaceCwdForSend,
             path: createdWorktreeForSendPath,
             force: true,
           })
@@ -6993,7 +6744,6 @@ export default function ChatView({
 
   async function onSubmitPlanFollowUp({
     text,
-    interactionMode: nextInteractionMode,
     dispatchMode,
     queuedTurn,
   }: {
@@ -7020,6 +6770,7 @@ export default function ChatView({
     }
 
     const threadIdForSend = activeThread.id;
+    const nextInteractionMode = DEFAULT_INTERACTION_MODE;
     const messageIdForSend = newMessageId();
     const messageCreatedAt = new Date().toISOString();
     const outgoingMessageText = formatOutgoingComposerPrompt({
@@ -7057,20 +6808,18 @@ export default function ChatView({
         interactionMode: nextInteractionMode,
       });
 
-      // Keep the mode toggle and plan-follow-up banner in sync immediately
-      // while the same-thread implementation turn is starting.
+      // Legacy queued plan follow-ups are resumed as ordinary chat turns.
       setComposerDraftInteractionMode(threadIdForSend, nextInteractionMode);
 
       const providerOptionsForPlanDispatch =
         queuedTurn?.providerOptionsForDispatch ?? providerOptionsForDispatch;
       const modelSelectionForPlanDispatch = queuedTurn?.modelSelection ?? selectedModelSelection;
-      const sourceProposedPlan =
-        nextInteractionMode === "default"
-          ? buildSourceProposedPlanReference({
-              threadId: activeThread.id,
-              proposedPlan: activeProposedPlan,
-            })
-          : undefined;
+      const sourceProposedPlan = activeProposedPlan
+        ? buildSourceProposedPlanReference({
+            threadId: activeThread.id,
+            proposedPlan: activeProposedPlan,
+          })
+        : undefined;
       rememberCustomBinaryPathForDispatch({
         threadId: threadIdForSend,
         provider: modelSelectionForPlanDispatch.provider,
@@ -7111,13 +6860,6 @@ export default function ChatView({
           gapStartedAt: null,
           armedActiveTurnId: activeThread?.session?.activeTurnId ?? null,
         });
-      }
-      // Optimistically open the plan sidebar when implementing (not refining).
-      // "default" mode here means the agent is executing the plan, which produces
-      // step-tracking activities that the sidebar will display.
-      if (nextInteractionMode === "default") {
-        planSidebarDismissedForTurnRef.current = null;
-        setPlanSidebarOpen(true);
       }
     };
 
@@ -7422,147 +7164,6 @@ export default function ChatView({
     threadId,
   ]);
 
-  const onImplementPlanInNewThread = useCallback(async () => {
-    const api = readNativeApi();
-    if (
-      !api ||
-      !activeThread ||
-      !activeProject ||
-      !activeProposedPlan ||
-      !isServerThread ||
-      isSendBusy ||
-      isConnecting ||
-      sendInFlightRef.current
-    ) {
-      return;
-    }
-
-    const createdAt = new Date().toISOString();
-    const nextThreadId = newThreadId();
-    const planMarkdown = activeProposedPlan.planMarkdown;
-    const implementationPrompt = buildPlanImplementationPrompt(planMarkdown);
-    const outgoingImplementationPrompt = formatOutgoingComposerPrompt({
-      provider: selectedProvider,
-      model: selectedModel,
-      effort: selectedPromptEffort,
-      text: implementationPrompt,
-    });
-    const nextThreadTitle = truncateTitle(buildPlanImplementationThreadTitle(planMarkdown));
-    const nextThreadModelSelection: ModelSelection = selectedModelSelection;
-    const sourceProposedPlan = buildSourceProposedPlanReference({
-      threadId: activeThread.id,
-      proposedPlan: activeProposedPlan,
-    });
-
-    sendInFlightRef.current = true;
-    beginLocalDispatch();
-    const finish = () => {
-      sendInFlightRef.current = false;
-      resetLocalDispatch();
-    };
-
-    await api.orchestration
-      .dispatchCommand({
-        type: "thread.create",
-        commandId: newCommandId(),
-        threadId: nextThreadId,
-        projectId: activeProject.id,
-        spaceId: activeProject.kind === "chat" ? activeThread.spaceId : null,
-        title: nextThreadTitle,
-        modelSelection: nextThreadModelSelection,
-        runtimeMode,
-        interactionMode: "default",
-        envMode: activeThread.envMode ?? (activeThread.worktreePath ? "worktree" : "local"),
-        branch: activeThread.branch,
-        worktreePath: activeThread.worktreePath,
-        lastKnownPr: activeThread.lastKnownPr ?? null,
-        associatedWorktreePath: activeThreadAssociatedWorktree.associatedWorktreePath,
-        associatedWorktreeBranch: activeThreadAssociatedWorktree.associatedWorktreeBranch,
-        associatedWorktreeRef: activeThreadAssociatedWorktree.associatedWorktreeRef,
-        createdAt,
-      })
-      .then(() => {
-        rememberCustomBinaryPathForDispatch({
-          threadId: nextThreadId,
-          provider: selectedModelSelection.provider,
-          providerOptions: providerOptionsForDispatch,
-        });
-        return api.orchestration.dispatchCommand({
-          type: "thread.turn.start",
-          commandId: newCommandId(),
-          threadId: nextThreadId,
-          message: {
-            messageId: newMessageId(),
-            role: "user",
-            text: outgoingImplementationPrompt,
-            attachments: [],
-          },
-          modelSelection: selectedModelSelection,
-          ...(providerOptionsForDispatch ? { providerOptions: providerOptionsForDispatch } : {}),
-          assistantDeliveryMode,
-          dispatchMode: "queue",
-          runtimeMode,
-          interactionMode: "default",
-          ...(sourceProposedPlan ? { sourceProposedPlan } : {}),
-          createdAt,
-        });
-      })
-      .then(() => api.orchestration.getShellSnapshot())
-      .then((snapshot) => {
-        syncServerShellSnapshot(snapshot);
-        // Signal that the plan sidebar should open on the new thread.
-        planSidebarOpenOnNextThreadRef.current = true;
-        return navigate({
-          to: "/$threadId",
-          params: { threadId: nextThreadId },
-        });
-      })
-      .catch(async (err) => {
-        const deletedOnServer = await api.orchestration
-          .dispatchCommand({
-            type: "thread.delete",
-            commandId: newCommandId(),
-            threadId: nextThreadId,
-          })
-          .then(() => true)
-          .catch(() => false);
-        if (deletedOnServer) {
-          void reconcileDeletedThreadFromClient({
-            threadId: nextThreadId,
-            removeDeletedThreadFromClientState:
-              useStore.getState().removeDeletedThreadFromClientState,
-          });
-        }
-        toastManager.add({
-          type: "error",
-          title: "Could not start implementation thread",
-          description:
-            err instanceof Error ? err.message : "An error occurred while creating the new thread.",
-        });
-      })
-      .then(finish, finish);
-  }, [
-    activeProject,
-    activeProposedPlan,
-    activeThread,
-    activeThreadAssociatedWorktree,
-    beginLocalDispatch,
-    isConnecting,
-    isSendBusy,
-    isServerThread,
-    navigate,
-    resetLocalDispatch,
-    runtimeMode,
-    selectedPromptEffort,
-    selectedModelSelection,
-    providerOptionsForDispatch,
-    rememberCustomBinaryPathForDispatch,
-    selectedProvider,
-    assistantDeliveryMode,
-    syncServerShellSnapshot,
-    selectedModel,
-  ]);
-
   const setPromptFromTraits = useCallback(
     (nextPrompt: string) => {
       const currentPrompt = promptRef.current;
@@ -7800,212 +7401,19 @@ export default function ChatView({
     ],
   );
 
-  const moveEmptyDraftToLocalProject = useCallback(
-    (projectId: ProjectId) => {
-      // Project moves reset branch; the previous project's current branch may not exist here.
-      moveDraftThreadToProject(threadId, projectId, LOCAL_PROJECT_DRAFT_CONTEXT);
-      scheduleComposerFocus();
-    },
-    [moveDraftThreadToProject, scheduleComposerFocus, threadId],
-  );
-
   const handleResetWorkspaceToHome = useCallback(() => {
-    if (isLocalDraftThread) {
-      if (isStudioContainer) {
-        return (async () => {
-          const studioProjectId = await ensureStudioProject({
-            homeDir,
-            chatWorkspaceRoot,
-            studioWorkspaceRoot,
-          });
-          if (!studioProjectId) {
-            throw new Error("Unable to prepare Studio.");
-          }
-          const api = readNativeApi();
-          if (!api) {
-            throw new Error("App is still connecting. Try again in a moment.");
-          }
-          const hasStudioProjectInStore = useStore
-            .getState()
-            .projects.some((project) => project.id === studioProjectId);
-          if (!hasStudioProjectInStore) {
-            const { project, snapshot } = await waitForShellProjectById(api, studioProjectId);
-            if (!project || !snapshot) {
-              throw new Error(PROJECT_CREATE_SYNC_ERROR);
-            }
-            syncServerShellSnapshot(snapshot);
-          }
-          moveEmptyDraftToLocalProject(studioProjectId);
-        })();
-      }
-      if (!isHomeChatContainer) {
-        return (async () => {
-          if (!homeDir) {
-            throw new Error("Home folder is not available yet.");
-          }
-          const homeProjectId = await ensureHomeChatProject({ homeDir, chatWorkspaceRoot });
-          if (!homeProjectId) {
-            throw new Error("Unable to prepare a normal chat.");
-          }
-          const api = readNativeApi();
-          if (!api) {
-            throw new Error("App is still connecting. Try again in a moment.");
-          }
-          const hasHomeProjectInStore = useStore
-            .getState()
-            .projects.some((project) => project.id === homeProjectId);
-          if (!hasHomeProjectInStore) {
-            const { project, snapshot } = await waitForShellProjectById(api, homeProjectId);
-            if (!project || !snapshot) {
-              throw new Error(PROJECT_CREATE_SYNC_ERROR);
-            }
-            syncServerShellSnapshot(snapshot);
-          }
-          moveEmptyDraftToLocalProject(homeProjectId);
-        })();
-      }
-      setDraftThreadContext(threadId, {
-        envMode: "local",
-        worktreePath: null,
-        branch: null,
-        lastKnownPr: null,
-      });
-      scheduleComposerFocus();
-      return;
-    }
-
-    if (activeThread) {
-      setStoreThreadWorkspace(activeThread.id, {
-        envMode: "local",
-        worktreePath: null,
-      });
-      const api = readNativeApi();
-      if (api && !hasNativeUserMessages && !activeThread.session) {
-        void api.orchestration.dispatchCommand({
-          type: "thread.meta.update",
-          commandId: newCommandId(),
-          threadId: activeThread.id,
-          envMode: "local",
-          worktreePath: null,
-        });
-      }
-    }
+    if (!isLocalDraftThread) return;
+    setDraftThreadContext(threadId, { workingDirectory: null });
     scheduleComposerFocus();
-  }, [
-    activeThread,
-    chatWorkspaceRoot,
-    hasNativeUserMessages,
-    homeDir,
-    isHomeChatContainer,
-    isLocalDraftThread,
-    isStudioContainer,
-    moveEmptyDraftToLocalProject,
-    scheduleComposerFocus,
-    setDraftThreadContext,
-    setStoreThreadWorkspace,
-    studioWorkspaceRoot,
-    syncServerShellSnapshot,
-    threadId,
-  ]);
+  }, [isLocalDraftThread, scheduleComposerFocus, setDraftThreadContext, threadId]);
 
   const handleSelectWorkspaceRoot = useCallback(
     (workspaceRoot: string) => {
-      if (isLocalDraftThread) {
-        setDraftThreadContext(threadId, {
-          envMode: "worktree",
-          worktreePath: workspaceRoot,
-        });
-        scheduleComposerFocus();
-        return;
-      }
-
-      if (activeThread) {
-        setStoreThreadWorkspace(activeThread.id, {
-          envMode: "worktree",
-          worktreePath: workspaceRoot,
-        });
-      }
+      if (!isLocalDraftThread) return;
+      setDraftThreadContext(threadId, { workingDirectory: workspaceRoot });
       scheduleComposerFocus();
     },
-    [
-      activeThread,
-      isLocalDraftThread,
-      scheduleComposerFocus,
-      setDraftThreadContext,
-      setStoreThreadWorkspace,
-      threadId,
-    ],
-  );
-
-  const handleSelectProjectForEmptyDraft = useCallback(
-    (projectId: ProjectId) => {
-      if (!isLocalDraftThread) {
-        return;
-      }
-      const project = useStore
-        .getState()
-        .projects.find((candidate) => candidate.id === projectId && candidate.kind === "project");
-      if (!project) {
-        throw new Error("Selected project is not available.");
-      }
-      if (draftThread?.projectId === projectId) {
-        scheduleComposerFocus();
-        return;
-      }
-      moveEmptyDraftToLocalProject(projectId);
-    },
-    [
-      draftThread?.projectId,
-      isLocalDraftThread,
-      moveEmptyDraftToLocalProject,
-      scheduleComposerFocus,
-    ],
-  );
-
-  const handleCreateProjectFromPickerPath = useCallback(
-    async (workspaceRoot: string) => {
-      if (!isLocalDraftThread) {
-        return;
-      }
-      const api = readNativeApi();
-      if (!api) {
-        throw new Error("App is still connecting. Try again in a moment.");
-      }
-
-      const existingProject = useStore
-        .getState()
-        .projects.find(
-          (project) =>
-            project.kind === "project" && workspaceRootsEqual(project.cwd, workspaceRoot),
-        );
-      if (existingProject) {
-        handleSelectProjectForEmptyDraft(existingProject.id);
-        return;
-      }
-
-      const creationResult = await createOrRecoverProjectFromPath({
-        api,
-        workspaceRoot,
-        createIfMissing: false,
-        loadSnapshot: () => api.orchestration.getShellSnapshot().catch(() => null),
-      });
-      if (creationResult.snapshot) {
-        syncServerShellSnapshot(creationResult.snapshot);
-      }
-      if (!creationResult.created && !creationResult.project) {
-        throw new Error(PROJECT_CREATE_EXISTING_SYNC_ERROR);
-      }
-      if (!creationResult.project) {
-        throw new Error(PROJECT_CREATE_SYNC_ERROR);
-      }
-      moveEmptyDraftToLocalProject(creationResult.project.id);
-    },
-    [
-      handleSelectProjectForEmptyDraft,
-      isLocalDraftThread,
-      moveEmptyDraftToLocalProject,
-      syncServerShellSnapshot,
-    ],
+    [isLocalDraftThread, scheduleComposerFocus, setDraftThreadContext, threadId],
   );
 
   const applyPromptReplacement = useCallback(
@@ -8272,13 +7680,12 @@ export default function ChatView({
         toastManager.add({
           type: "warning",
           title: "Clear is unavailable",
-          description: "Open a project before starting a fresh thread.",
+          description: "Open a folder before starting a fresh thread.",
         });
         return;
       }
       await handleNewThread(activeProject.id, { entryPoint: "chat" });
     },
-    handleInteractionModeChange,
     openForkTargetPicker: () => {
       setComposerCommandPicker("fork-target");
       setComposerHighlightedItemId("fork-target:worktree");
@@ -8587,11 +7994,6 @@ export default function ChatView({
         return false;
       }
       return false;
-    }
-
-    if (key === "Tab" && event.shiftKey) {
-      toggleInteractionMode();
-      return true;
     }
 
     const { snapshot, trigger } = resolveActiveComposerTrigger();
@@ -8916,12 +8318,10 @@ export default function ChatView({
   const renderComposerLeadingControls = (options: { iconOnly: boolean }) => (
     <>
       <ComposerExtrasMenu
-        interactionMode={interactionMode}
         supportsFastMode={composerTraitSelection.caps.supportsFastMode}
         fastModeEnabled={composerTraitSelection.fastModeEnabled}
         onAddPhotos={addComposerImages}
         onToggleFastMode={toggleFastMode}
-        onSetPlanMode={setPlanMode}
       />
       {!isVoiceRecording && !isVoiceTranscribing ? (
         <RuntimeUsageControls
@@ -8969,6 +8369,7 @@ export default function ChatView({
     ) : null;
   const showEmptyLandingControls =
     isCenteredEmptyLanding &&
+    isLocalDraftThread &&
     (isEmptyChatLanding ||
       showEmptyLandingProjectPicker ||
       emptyLandingProjectChip !== null ||
@@ -8976,14 +8377,7 @@ export default function ChatView({
   const emptyLandingControls = showEmptyLandingControls ? (
     <div
       className={cn(
-        // Full-width tray under the composer that reads as UNITED but not fused: it carries extra
-        // top height (pt-6) and is pulled up by that amount (-mt-5 = 20px, just past the
-        // --composer-radius ~19px corner). That hidden top slice sits BEHIND the composer's rounded
-        // bottom corners (z-0), so its tint fills those corner notches and its straight full-width
-        // top edge stays covered by the composer's solid sides — no gap/poke at the sides. The
-        // composer keeps its own rounded shape; the tray keeps its tint + rounded bottom.
-        "chat-composer-shell relative z-0 -mt-5 flex min-h-8 min-w-0 flex-nowrap items-center gap-x-1.5 overflow-hidden !rounded-t-none !rounded-b-[var(--composer-radius)] bg-[color-mix(in_srgb,var(--color-background-elevated-secondary)_76%,var(--color-background-surface)_24%)] px-2 pb-1.5 pt-6 transition-colors duration-150 ease-out motion-reduce:transition-none sm:min-h-7",
-        COMPOSER_COLUMN_FRAME_CLASS_NAME,
+        "chat-composer-shell relative z-20 ml-3 flex h-8 w-fit max-w-[calc(100%-24px)] min-w-0 flex-nowrap items-center gap-x-1.5 overflow-visible rounded-t-[var(--composer-radius)] rounded-b-none border border-b-0 border-[var(--color-border)] bg-[var(--color-background-elevated-secondary)] px-2 transition-colors duration-150 ease-out motion-reduce:transition-none",
       )}
     >
       {isEmptyChatLanding ? (
@@ -8991,35 +8385,21 @@ export default function ChatView({
           align="start"
           side="top"
           triggerClassName="h-7 py-1"
-          showResetToHome={Boolean(resolvedThreadWorktreePath)}
-          selectedWorkspaceRoot={resolvedThreadWorktreePath}
+          recentProjectId={activeProject!.id}
+          recentSpaceId={isHomeChatContainer ? selectedSpaceId : null}
+          selectedWorkspaceRoot={resolvedThreadWorkingDirectory}
           onSelectWorkspaceRoot={handleSelectWorkspaceRoot}
           onResetToHome={handleResetWorkspaceToHome}
-          // Studio folder picks only tag the chat's workspace root; they never create a
-          // Projects entry or move the draft out of the Studio container.
-          {...(isStudioContainer
-            ? {
-                emptyTriggerLabel: "Use a folder",
-                addActionLabel: "Choose a folder",
-                resetActionLabel: "Don't use a folder",
-                searchPlaceholder: "Search folders",
-              }
-            : {
-                onSelectProject: handleSelectProjectForEmptyDraft,
-                onCreateProjectFromPath: handleCreateProjectFromPickerPath,
-              })}
         />
       ) : showEmptyLandingProjectPicker ? (
         <ProjectPicker
           align="start"
           side="top"
           triggerClassName="h-7 py-1"
-          selectionMode="project"
-          selectedProjectId={activeProject.id}
-          selectedWorkspaceRoot={activeProject.cwd}
-          showResetToHome
-          onSelectProject={handleSelectProjectForEmptyDraft}
-          onCreateProjectFromPath={handleCreateProjectFromPickerPath}
+          recentProjectId={activeProject.id}
+          recentSpaceId={null}
+          selectedWorkspaceRoot={resolvedThreadWorkingDirectory}
+          onSelectWorkspaceRoot={handleSelectWorkspaceRoot}
           onResetToHome={handleResetWorkspaceToHome}
         />
       ) : (
@@ -9121,29 +8501,8 @@ export default function ChatView({
   const environmentAppliesContentInset = environmentPanelVisible && !environmentUsesFloatingOverlay;
   const environmentOverlayVariant = environmentUsesFloatingOverlay ? "floating" : "docked";
   const showComposerLiveChangesHeader = latestTurnLive && activeTurnLiveDiffState.hasChanges;
-  const showComposerActiveTaskListCard = Boolean(activeTaskList && !planSidebarOpen);
   const showComposerWorkflowRunCard = workflowRunState !== null;
   const showComposerSubagentStrip = composerSubagentStripItems.length > 0;
-  // The workflow card already lists its run and member agents, so the generic
-  // "N background agents" footer only counts tasks outside the workflow.
-  const composerBackgroundTaskCount = workflowRunState
-    ? (activeBackgroundTasks?.taskIds.filter((taskId) => !workflowRunState.taskIds.includes(taskId))
-        .length ?? 0)
-    : (activeBackgroundTasks?.activeCount ?? 0);
-
-  // Composer layout keeps the task list and footer actions in one render path so
-  // follow-up prompts and normal chat mode stay visually in sync.
-  const renderActiveTaskListCard = (attachedToPrevious: boolean) =>
-    activeTaskList && showComposerActiveTaskListCard ? (
-      <ComposerActiveTaskListCard
-        activeTaskList={activeTaskList}
-        backgroundTaskCount={composerBackgroundTaskCount}
-        compact={activeTaskListCompact}
-        onCompactChange={setActiveTaskListCompact}
-        onOpenSidebar={() => setPlanSidebarOpen(true)}
-        attachedToPrevious={attachedToPrevious}
-      />
-    ) : null;
 
   const composerSection =
     secondaryChromeReady && shouldRenderChatPaneContent ? (
@@ -9173,7 +8532,6 @@ export default function ChatView({
                     }
                   />
                 ) : null}
-                {renderActiveTaskListCard(showComposerLiveChangesHeader)}
                 {workflowRunState ? (
                   <WorkflowRunCard
                     workflowRun={workflowRunState}
@@ -9185,9 +8543,7 @@ export default function ChatView({
                     onPause={onPauseWorkflowRun}
                     onResume={onResumeWorkflowRun}
                     onDismiss={onDismissWorkflowRun}
-                    attachedToPrevious={
-                      showComposerLiveChangesHeader || showComposerActiveTaskListCard
-                    }
+                    attachedToPrevious={showComposerLiveChangesHeader}
                   />
                 ) : null}
                 {showComposerSubagentStrip ? (
@@ -9200,9 +8556,7 @@ export default function ChatView({
                     onStopItem={onStopSubagentStripItem}
                     onStopAll={onStopAllSubagentStripItems}
                     attachedToPrevious={
-                      showComposerLiveChangesHeader ||
-                      showComposerActiveTaskListCard ||
-                      showComposerWorkflowRunCard
+                      showComposerLiveChangesHeader || showComposerWorkflowRunCard
                     }
                   />
                 ) : null}
@@ -9214,7 +8568,6 @@ export default function ChatView({
                   cwd={threadWorkspaceCwd ?? undefined}
                   attachedToPrevious={
                     showComposerLiveChangesHeader ||
-                    showComposerActiveTaskListCard ||
                     showComposerWorkflowRunCard ||
                     showComposerSubagentStrip
                   }
@@ -9252,6 +8605,7 @@ export default function ChatView({
                   </div>
                 ) : null}
               </div>
+              {emptyLandingControls}
               <div
                 className={cn(
                   COMPOSER_INPUT_SHELL_CLASS_NAME,
@@ -9267,20 +8621,6 @@ export default function ChatView({
                     composerMenuOpen && !isComposerApprovalState && "overflow-visible",
                   )}
                 >
-                  <ComposerInputBanners
-                    roundedTopReset={false}
-                    planFollowUp={
-                      !activePendingApproval &&
-                      pendingUserInputs.length === 0 &&
-                      showPlanFollowUpPrompt &&
-                      activeProposedPlan
-                        ? {
-                            id: activeProposedPlan.id,
-                            title: proposedPlanTitle(activeProposedPlan.planMarkdown) ?? null,
-                          }
-                        : null
-                    }
-                  />
                   <div
                     className={cn(
                       COMPOSER_EDITOR_PADDING_CLASS_NAME,
@@ -9370,15 +8710,13 @@ export default function ChatView({
                             ? activePendingProgress.activeQuestion?.options.length === 0
                               ? "Type your answer to continue"
                               : "Type your own answer, or leave this blank to use the selected option"
-                            : showPlanFollowUpPrompt && activeProposedPlan
-                              ? "Add feedback to refine the plan, or leave this blank to implement it"
-                              : activeThread?.parentThreadId
-                                ? "Message this subagent while it works"
-                                : hasLiveTurn
-                                  ? "Ask for follow-up changes"
-                                  : phase === "disconnected"
-                                    ? "Ask for follow-up changes or attach images"
-                                    : "Do anything"
+                            : activeThread?.parentThreadId
+                              ? "Message this subagent while it works"
+                              : hasLiveTurn
+                                ? "Ask for follow-up changes"
+                                : phase === "disconnected"
+                                  ? "Ask for follow-up changes or attach images"
+                                  : "Do anything"
                       }
                       disabled={isComposerEditorDisabled}
                     />
@@ -9411,41 +8749,6 @@ export default function ChatView({
                         {relocateComposerLeadingControls
                           ? null
                           : renderComposerLeadingControls({ iconOnly: false })}
-
-                        {!isVoiceRecording && !isVoiceTranscribing ? (
-                          <>
-                            {interactionMode === "plan" ? (
-                              <Button
-                                variant="ghost"
-                                className="shrink-0 whitespace-nowrap px-2 text-[length:var(--app-font-size-ui-sm,11px)] sm:text-[length:var(--app-font-size-ui-sm,11px)] font-normal text-[var(--color-text-foreground-secondary)] hover:bg-[var(--color-background-button-secondary-hover)] hover:text-[var(--color-text-foreground)] sm:px-3"
-                                size="sm"
-                                type="button"
-                                onClick={toggleInteractionMode}
-                                title="Plan mode — click to return to normal build mode"
-                              >
-                                <GoTasklist className="size-3.5" />
-                                <span className="sr-only sm:not-sr-only">Plan</span>
-                              </Button>
-                            ) : null}
-
-                            {activeTaskList || sidebarProposedPlan || planSidebarOpen ? (
-                              <Button
-                                variant="ghost"
-                                className="shrink-0 whitespace-nowrap px-2 text-[length:var(--app-font-size-ui-sm,11px)] sm:text-[length:var(--app-font-size-ui-sm,11px)] font-normal sm:px-3"
-                                size="sm"
-                                type="button"
-                                onClick={togglePlanSidebar}
-                                title={planSidebarToggleTitle}
-                                aria-label={planSidebarToggleTitle}
-                              >
-                                <LayoutSidebarIcon className="size-3.5" />
-                                <span className="sr-only sm:not-sr-only">
-                                  {planSidebarToggleLabel}
-                                </span>
-                              </Button>
-                            ) : null}
-                          </>
-                        ) : null}
                       </div>
 
                       <div
@@ -9534,113 +8837,66 @@ export default function ChatView({
                         ) : pendingUserInputs.length === 0 &&
                           !isVoiceRecording &&
                           !isVoiceTranscribing ? (
-                          showPlanFollowUpPrompt ? (
-                            prompt.trim().length > 0 ? (
-                              <Button
-                                type="submit"
-                                size="sm"
-                                className="h-9 rounded-full px-4 sm:h-8"
-                                disabled={isSendBusy || isConnecting}
-                              >
-                                {isConnecting || isSendBusy ? "Sending..." : "Refine"}
-                              </Button>
-                            ) : (
-                              <div className="flex items-center">
-                                <Button
-                                  type="submit"
-                                  size="sm"
-                                  className="h-9 rounded-l-full rounded-r-none px-4 sm:h-8"
-                                  disabled={isSendBusy || isConnecting}
+                          <>
+                            {showVoiceNotesControl ? (
+                              <ComposerVoiceButton
+                                disabled={isComposerApprovalState || isConnecting || isSendBusy}
+                                isRecording={isVoiceRecording}
+                                isTranscribing={isVoiceTranscribing}
+                                durationLabel={voiceRecordingDurationLabel}
+                                onClick={toggleComposerVoiceRecording}
+                              />
+                            ) : null}
+                            <Button
+                              type="submit"
+                              variant="prominent"
+                              size="icon-xs"
+                              className="size-[26px] rounded-full sm:size-[26px]"
+                              disabled={
+                                isSendBusy ||
+                                isConnecting ||
+                                isVoiceTranscribing ||
+                                !composerSendState.hasSendableContent
+                              }
+                              aria-label={
+                                isConnecting
+                                  ? "Connecting"
+                                  : isVoiceTranscribing
+                                    ? "Transcribing voice note"
+                                    : isPreparingWorktree
+                                      ? "Preparing worktree"
+                                      : isSendBusy
+                                        ? "Sending"
+                                        : "Send message"
+                              }
+                            >
+                              {isConnecting || isSendBusy ? (
+                                <svg
+                                  width="12"
+                                  height="12"
+                                  viewBox="0 0 14 14"
+                                  fill="none"
+                                  className="animate-spin"
+                                  aria-hidden="true"
                                 >
-                                  {isConnecting || isSendBusy ? "Sending..." : "Implement"}
-                                </Button>
-                                <Menu>
-                                  <MenuTrigger
-                                    render={
-                                      <Button
-                                        size="sm"
-                                        variant="default"
-                                        className="h-9 rounded-l-none rounded-r-full border-l-white/12 px-2 sm:h-8"
-                                        aria-label="Implementation actions"
-                                        disabled={isSendBusy || isConnecting}
-                                      />
-                                    }
-                                  >
-                                    <ChevronDownIcon className="size-3.5" />
-                                  </MenuTrigger>
-                                  <ComposerPickerMenuPopup align="end" side="top">
-                                    <MenuItem
-                                      disabled={isSendBusy || isConnecting}
-                                      onClick={() => void onImplementPlanInNewThread()}
-                                    >
-                                      Implement in a new thread
-                                    </MenuItem>
-                                  </ComposerPickerMenuPopup>
-                                </Menu>
-                              </div>
-                            )
-                          ) : (
-                            <>
-                              {showVoiceNotesControl ? (
-                                <ComposerVoiceButton
-                                  disabled={isComposerApprovalState || isConnecting || isSendBusy}
-                                  isRecording={isVoiceRecording}
-                                  isTranscribing={isVoiceTranscribing}
-                                  durationLabel={voiceRecordingDurationLabel}
-                                  onClick={toggleComposerVoiceRecording}
-                                />
-                              ) : null}
-                              <Button
-                                type="submit"
-                                variant="prominent"
-                                size="icon-xs"
-                                className="size-[26px] rounded-full sm:size-[26px]"
-                                disabled={
-                                  isSendBusy ||
-                                  isConnecting ||
-                                  isVoiceTranscribing ||
-                                  !composerSendState.hasSendableContent
-                                }
-                                aria-label={
-                                  isConnecting
-                                    ? "Connecting"
-                                    : isVoiceTranscribing
-                                      ? "Transcribing voice note"
-                                      : isPreparingWorktree
-                                        ? "Preparing worktree"
-                                        : isSendBusy
-                                          ? "Sending"
-                                          : "Send message"
-                                }
-                              >
-                                {isConnecting || isSendBusy ? (
-                                  <svg
-                                    width="12"
-                                    height="12"
-                                    viewBox="0 0 14 14"
-                                    fill="none"
-                                    className="animate-spin"
-                                    aria-hidden="true"
-                                  >
-                                    <circle
-                                      cx="7"
-                                      cy="7"
-                                      r="5.5"
-                                      stroke="currentColor"
-                                      strokeWidth="1.5"
-                                      strokeLinecap="round"
-                                      strokeDasharray="20 12"
-                                    />
-                                  </svg>
-                                ) : (
-                                  <ComposerSendArrowIcon
-                                    aria-hidden="true"
-                                    className="size-5 shrink-0"
+                                  <circle
+                                    cx="7"
+                                    cy="7"
+                                    r="5.5"
+                                    stroke="currentColor"
+                                    strokeWidth="1.5"
+                                    strokeLinecap="round"
+                                    strokeDasharray="20 12"
                                   />
-                                )}
-                              </Button>
-                            </>
-                          )
+                                </svg>
+                              ) : (
+                                <ComposerSendArrowIcon
+                                  aria-hidden="true"
+                                  className="size-5 shrink-0"
+                                />
+                              )}
+                            </Button>
+                          </>
                         ) : null}
                       </div>
                     </div>
@@ -9650,7 +8906,6 @@ export default function ChatView({
             </ComposerColumnFrame>
           </form>
         </ComposerDefaultAdapter>
-        {emptyLandingControls}
       </div>
     ) : (
       <div
@@ -9835,7 +9090,7 @@ export default function ChatView({
                     resolvedTheme={resolvedTheme}
                     chatFontSizePx={settings.chatFontSizePx}
                     timestampFormat={timestampFormat}
-                    workspaceRoot={activeProject?.cwd ?? undefined}
+                    workspaceRoot={threadWorkspaceCwd ?? undefined}
                     emptyStateContent={isEditorRail ? <span aria-hidden="true" /> : undefined}
                     emptyStateProjectName={activeProjectDisplayName}
                     onMessagesScroll={onMessagesScroll}
@@ -9903,7 +9158,7 @@ export default function ChatView({
               <PullRequestThreadDialog
                 key={pullRequestDialogState.key}
                 open
-                cwd={activeProject?.cwd ?? null}
+                cwd={threadWorkspaceCwd}
                 initialReference={pullRequestDialogState.initialReference}
                 onOpenChange={(open) => {
                   if (!open) {
@@ -9925,25 +9180,6 @@ export default function ChatView({
           ) : null}
         </div>
         {/* end chat column */}
-
-        {/* Plan sidebar */}
-        {planSidebarOpen ? (
-          <PlanSidebar
-            activeTaskList={activeTaskList}
-            activeProposedPlan={sidebarProposedPlan}
-            markdownCwd={threadWorkspaceCwd ?? undefined}
-            workspaceRoot={activeProject?.cwd ?? undefined}
-            timestampFormat={timestampFormat}
-            onClose={() => {
-              setPlanSidebarOpen(false);
-              // Track that the user explicitly dismissed for this turn so auto-open won't fight them.
-              const turnKey = activeTaskList?.turnId ?? sidebarProposedPlan?.turnId ?? null;
-              if (turnKey) {
-                planSidebarDismissedForTurnRef.current = turnKey;
-              }
-            }}
-          />
-        ) : null}
       </div>
       {/* end horizontal flex container */}
 
@@ -9953,7 +9189,6 @@ export default function ChatView({
         selectedModel={selectedModel}
         fastModeEnabled={fastModeEnabled}
         selectedPromptEffort={selectedPromptEffort}
-        interactionMode={interactionMode}
         envMode={envMode}
         envState={envState}
         branch={activeThread?.branch ?? activeRootBranch}

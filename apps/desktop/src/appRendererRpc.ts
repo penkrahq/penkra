@@ -21,6 +21,7 @@ export const APP_RENDERER_CONTEXT_METHODS = [
   "context.tab.navigate-for-result",
   "context.tabs.open",
   "context.tabs.open-for-result",
+  "context.operations.invoke",
 ] as const;
 
 export type AppRendererContextMethod = (typeof APP_RENDERER_CONTEXT_METHODS)[number];
@@ -93,7 +94,7 @@ export type AppRendererRpcErrorCode =
 
 export class AppRendererRpcError extends Error {
   readonly code: AppRendererRpcErrorCode;
-  readonly rendererCode?: string;
+  readonly rendererCode: string | undefined;
 
   constructor(code: AppRendererRpcErrorCode, message: string, rendererCode?: string) {
     super(message);
@@ -203,16 +204,22 @@ export class AppRendererRpcHost {
     const timeoutMs = positiveInteger(options.timeoutMs ?? this.#defaultTimeoutMs, "timeoutMs");
     return new Promise<Result>((resolve, reject) => {
       const timeout = setTimeout(() => {
-        this.#cancelRequest(id, "timeout", new AppRendererRpcError("timeout", "App request timed out."));
+        this.#cancelRequest(
+          id,
+          "timeout",
+          new AppRendererRpcError("timeout", "App request timed out."),
+        );
       }, timeoutMs);
       const pending: PendingRequest = {
         targetId,
         resolve,
         reject,
         timeout,
-        signal: options.signal,
+        ...(options.signal === undefined ? {} : { signal: options.signal }),
         contextController: new AbortController(),
-        handleContextCall: options.handleContextCall,
+        ...(options.handleContextCall === undefined
+          ? {}
+          : { handleContextCall: options.handleContextCall }),
         activeContextCalls: new Set(),
         seenContextCalls: new Set(),
       };
@@ -240,9 +247,7 @@ export class AppRendererRpcHost {
     if (response.type === "result") {
       pending.resolve(response.result);
     } else {
-      pending.reject(
-        new AppRendererRpcError("renderer-error", response.message, response.code),
-      );
+      pending.reject(new AppRendererRpcError("renderer-error", response.message, response.code));
     }
     return true;
   }
@@ -278,45 +283,36 @@ export class AppRendererRpcHost {
     pending.activeContextCalls.add(call.id);
     void Promise.resolve()
       .then(() =>
-        pending.handleContextCall?.(
-          call.method,
-          call.input,
-          pending.contextController.signal,
-        ),
+        pending.handleContextCall?.(call.method, call.input, pending.contextController.signal),
       )
       .then(
-      (result) => {
-        const current = this.#pending.get(call.parentId);
-        if (current !== pending || !pending.activeContextCalls.delete(call.id)) return;
-        try {
-          assertPayloadSize(result, this.#maxPayloadBytes);
-          this.#sendContextMessage(senderTargetId, {
-            type: "context-result",
-            parentId: call.parentId,
-            id: call.id,
-            result,
-          });
-        } catch (error) {
-          this.#sendContextError(
-            senderTargetId,
-            call,
-            "INVALID_CONTEXT_RESULT",
-            toError(error).message,
-          );
-        }
-      },
-      (error) => {
-        const current = this.#pending.get(call.parentId);
-        if (current !== pending || !pending.activeContextCalls.delete(call.id)) return;
-        const publicError = toPublicContextError(error);
-        this.#sendContextError(
-          senderTargetId,
-          call,
-          publicError.code,
-          publicError.message,
-        );
-      },
-    );
+        (result) => {
+          const current = this.#pending.get(call.parentId);
+          if (current !== pending || !pending.activeContextCalls.delete(call.id)) return;
+          try {
+            assertPayloadSize(result, this.#maxPayloadBytes);
+            this.#sendContextMessage(senderTargetId, {
+              type: "context-result",
+              parentId: call.parentId,
+              id: call.id,
+              result,
+            });
+          } catch (error) {
+            this.#sendContextError(
+              senderTargetId,
+              call,
+              "INVALID_CONTEXT_RESULT",
+              toError(error).message,
+            );
+          }
+        },
+        (error) => {
+          const current = this.#pending.get(call.parentId);
+          if (current !== pending || !pending.activeContextCalls.delete(call.id)) return;
+          const publicError = toPublicContextError(error);
+          this.#sendContextError(senderTargetId, call, publicError.code, publicError.message);
+        },
+      );
     return true;
   }
 
@@ -379,7 +375,10 @@ export class AppRendererRpcHost {
   #mintUniqueRequestId(): string {
     const id = this.#mintRequestId();
     if (typeof id !== "string" || id.length === 0 || id.length > 128 || this.#pending.has(id)) {
-      throw new AppRendererRpcError("invalid-message", "RPC request ID generator returned an invalid ID.");
+      throw new AppRendererRpcError(
+        "invalid-message",
+        "RPC request ID generator returned an invalid ID.",
+      );
     }
     return id;
   }
@@ -472,7 +471,10 @@ function assertPayloadSize(value: unknown, maxPayloadBytes: number): void {
     );
   }
   if (serialized === undefined) {
-    throw new AppRendererRpcError("invalid-message", "App renderer payload must be JSON-serializable.");
+    throw new AppRendererRpcError(
+      "invalid-message",
+      "App renderer payload must be JSON-serializable.",
+    );
   }
   if (Buffer.byteLength(serialized, "utf8") > maxPayloadBytes) {
     throw new AppRendererRpcError("payload-too-large", "App renderer payload exceeds its limit.");

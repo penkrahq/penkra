@@ -22,9 +22,7 @@ describe("App registry IPC", () => {
     expect(() => parseRegistryListRequest({ url: "https://evil.test" })).toThrow(
       "Invalid App registry request",
     );
-    expect(() => parseRegistryListRequest({ limit: 101 })).toThrow(
-      "Invalid App registry request",
-    );
+    expect(() => parseRegistryListRequest({ limit: 101 })).toThrow("Invalid App registry request");
   });
 
   it("accepts only canonical App and object identities", () => {

@@ -7,7 +7,7 @@
  */
 import { Schema } from "effect";
 
-import { ProjectId, ThreadId, TurnId } from "./baseSchemas";
+import { ContainerId, ThreadId, TurnId } from "./baseSchemas";
 import { ModelSelection, ProviderKind } from "./orchestration";
 import { ProviderModelDescriptor } from "./providerDiscovery";
 import { ServerProviderAuthStatus } from "./server";
@@ -53,7 +53,7 @@ export const PenkraContextResult = Schema.Struct({
     threadId: ThreadId,
     turnId: Schema.NullOr(TurnId),
     provider: ProviderKind,
-    projectId: ProjectId,
+    projectId: ContainerId,
   }),
   capabilities: Schema.Struct({
     threadRead: Schema.Boolean,
@@ -67,7 +67,7 @@ export const PenkraCreateThreadSpec = Schema.Struct({
   prompt: Schema.String.check(Schema.isNonEmpty()),
   title: Schema.optional(Schema.String.check(Schema.isNonEmpty())),
   target: ModelSelection,
-  projectId: Schema.optional(ProjectId),
+  projectId: Schema.optional(ContainerId),
   environment: Schema.optional(Schema.Literals(["local", "worktree"])),
   baseRef: Schema.optional(Schema.String.check(Schema.isNonEmpty())),
   // Legacy inputs remain decodable for replay/backward compatibility, but the
@@ -142,7 +142,7 @@ export type PenkraCapabilitiesResult = typeof PenkraCapabilitiesResult.Type;
 export const PenkraCreatedThreadResult = Schema.Struct({
   index: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
   threadId: ThreadId,
-  projectId: ProjectId,
+  projectId: ContainerId,
   title: Schema.String,
   target: ModelSelection,
   provider: ProviderKind,

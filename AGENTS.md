@@ -2,6 +2,8 @@
 
 ## Task Completion Requirements
 
+- Before committing changes or declaring a task complete, start a fresh Penkra (Dev) instance and perform manual QA in the desktop app for the affected user flows. Automated tests, builds, browser-only checks, or inspecting an already-running instance do not replace this requirement.
+- Record what was manually exercised and its result in the final handoff. If Penkra (Dev) cannot be started or a relevant flow cannot be exercised, report the task as not fully validated instead of silently treating it as complete.
 - Do not run `bun fmt`, `bun lint`, or `bun typecheck` unless the user explicitly asks for them in the current conversation.
 - All of `bun fmt`, `bun lint`, and `bun typecheck` must pass before considering tasks completed.
 - Treat `bun fmt`, `bun lint`, and `bun typecheck` as heavyweight workspace checks: bundle them into one final verification pass per task whenever possible, and avoid rerunning the full set repeatedly during iteration.
@@ -83,6 +85,12 @@ gpt-5.6-sol is exceptionally capable on long-running tasks. Give it substantial,
 Long term maintainability is a core priority. If you add new functionality, first check if there is shared logic that can be extracted to a separate module. Duplicate logic across multiple files is a code smell and should be avoided. Don't be afraid to change existing code. Don't take shortcuts by just adding local logic to solve a problem.
 
 ## UI Conventions
+
+### Human approval gate for Pencil work
+
+- When a task involves Pencil or other design work that will inform implementation, complete and present the design work first. Do not begin or continue the corresponding code implementation until the human has explicitly reviewed the design and approved it as final.
+- Iterate only in the design source while design review is pending. An initial request to build the feature, silence, or approval of an earlier concept does not count as approval of the current design.
+- After explicit design approval in the current conversation, implementation may proceed from the approved design.
 
 ### Pencil-to-code component structure
 

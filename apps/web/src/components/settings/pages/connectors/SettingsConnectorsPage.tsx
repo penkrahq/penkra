@@ -1,27 +1,22 @@
-import { IconCalendar, IconListCheck, IconMail, IconNotes } from "@tabler/icons-react";
-
-import { SettingsConnectorRow } from "../shared/SettingsPageControls";
+import { listTrustedConnectors } from "~/connectors/trustedConnectorCatalog";
 
 export function SettingsConnectorsPage() {
+  const connectors = listTrustedConnectors();
+  if (connectors.length === 0) {
+    return (
+      <p
+        className="text-xs leading-relaxed text-[var(--color-text-foreground-secondary)]"
+        data-pencil-page="connectors"
+      >
+        No supported connectors are available in this build.
+      </p>
+    );
+  }
   return (
     <div className="flex flex-col gap-2.5" data-pencil-page="connectors">
-      <SettingsConnectorRow
-        description="Read and create calendar events."
-        icon={IconCalendar}
-        label="Calendar"
-      />
-      <SettingsConnectorRow
-        description="Create and complete reminders."
-        icon={IconListCheck}
-        label="Reminders"
-      />
-      <SettingsConnectorRow
-        defaultChecked={false}
-        description="Read and send email on your behalf."
-        icon={IconMail}
-        label="Mail"
-      />
-      <SettingsConnectorRow description="Read and write notes." icon={IconNotes} label="Notes" />
+      {connectors.map((connector) => (
+        <p key={connector.id}>{connector.name}</p>
+      ))}
     </div>
   );
 }

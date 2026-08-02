@@ -285,7 +285,7 @@ export default function ProjectScriptsControl({
   return (
     <>
       {showInlineControls && primaryScript ? (
-        <ChatHeaderSplitGroup label="Project actions">
+        <ChatHeaderSplitGroup label="Folder actions">
           <ChatHeaderButton
             className={cn(
               CHAT_HEADER_SPLIT_LEADING_CLASS_NAME,
@@ -407,7 +407,7 @@ export default function ProjectScriptsControl({
           <DialogHeader>
             <DialogTitle>{isEditing ? "Edit Action" : "Add Action"}</DialogTitle>
             <DialogDescription>
-              Actions are project-scoped commands you can run from the top bar or keybindings.
+              Actions are folder-scoped commands you can run from the top bar or keybindings.
             </DialogDescription>
           </DialogHeader>
           <DialogPanel>

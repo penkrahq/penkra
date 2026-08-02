@@ -1,4 +1,4 @@
-import { type ProjectId, type ProviderKind, type ThreadId, type TurnId } from "@penkra/contracts";
+import { type ContainerId, type ProviderKind, type ThreadId, type TurnId } from "@penkra/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import {
   type CSSProperties,
@@ -232,10 +232,10 @@ function SplitPaneEmptyState(props: {
   threads: readonly {
     id: ThreadId;
     title: string | null;
-    projectId: ProjectId;
+    projectId: ContainerId;
     modelSelection: { provider: ProviderKind };
   }[];
-  projects: readonly { id: ProjectId; name: string }[];
+  projects: readonly { id: ContainerId; name: string }[];
   excludedThreadIds: ReadonlySet<ThreadId>;
   onSelectThread: (threadId: ThreadId) => void;
 }) {
@@ -254,7 +254,7 @@ function SplitPaneEmptyState(props: {
           {props.threads.map((thread) => {
             const isUsed = props.excludedThreadIds.has(thread.id);
             const projectName =
-              props.projects.find((p) => p.id === thread.projectId)?.name ?? "Project";
+              props.projects.find((p) => p.id === thread.projectId)?.name ?? "Folder";
             return (
               <button
                 key={thread.id}
@@ -459,10 +459,10 @@ function SplitPaneSurface(props: {
   threads: readonly {
     id: ThreadId;
     title: string | null;
-    projectId: ProjectId;
+    projectId: ContainerId;
     modelSelection: { provider: ProviderKind };
   }[];
-  projects: readonly { id: ProjectId; name: string }[];
+  projects: readonly { id: ContainerId; name: string }[];
   onFocus: () => void;
   onToggleDiff: () => void;
   onToggleBrowser: () => void;
@@ -991,7 +991,7 @@ export function SplitChatSurface(props: { splitViewId: SplitViewId; routeThreadI
             <div className="max-h-[56vh] space-y-1 overflow-y-auto">
               {selectableThreads.map((thread) => {
                 const projectName =
-                  projects.find((project) => project.id === thread.projectId)?.name ?? "Project";
+                  projects.find((project) => project.id === thread.projectId)?.name ?? "Folder";
                 const isSelected = pickerLeaf?.threadId === thread.id;
                 return (
                   <button

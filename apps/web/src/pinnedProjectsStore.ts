@@ -3,16 +3,16 @@
 // Layer: UI state store
 // Exports: usePinnedProjectsStore
 
-import { MAX_PINNED_PROJECTS, type ProjectId } from "@penkra/contracts";
+import { MAX_PINNED_PROJECTS, type ContainerId } from "@penkra/contracts";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { normalizePinnedIds, pinId, prunePinnedIds, unpinId } from "./pinning.logic";
 
 interface PinnedProjectsStoreState {
-  pinnedProjectIds: ProjectId[];
-  pinProject: (projectId: ProjectId) => boolean;
-  unpinProject: (projectId: ProjectId) => void;
-  prunePinnedProjects: (projectIds: readonly ProjectId[]) => void;
+  pinnedProjectIds: ContainerId[];
+  pinProject: (projectId: ContainerId) => boolean;
+  unpinProject: (projectId: ContainerId) => void;
+  prunePinnedProjects: (projectIds: readonly ContainerId[]) => void;
 }
 
 const PINNED_PROJECTS_STORAGE_KEY = "penkra:pinned-projects:v1";

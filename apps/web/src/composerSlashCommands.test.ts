@@ -209,6 +209,8 @@ describe("composerSlashCommands", () => {
     expect(availableCommands).not.toContain("fast");
     expect(availableCommands).not.toContain("model");
     expect(availableCommands).not.toContain("status");
+    expect(availableCommands).not.toContain("plan");
+    expect(availableCommands).not.toContain("default");
     expect(hasProviderNativeSlashCommand("codex", ["/fast", "model"], "fast")).toBe(true);
     expect(hasProviderNativeSlashCommand("codex", ["/fast", "model"], "/model")).toBe(true);
   });
@@ -227,6 +229,8 @@ describe("composerSlashCommands", () => {
 
     expect(availableCommands).toContain("review");
     expect(shouldHideProviderNativeCommandFromComposerMenu("codex", "review")).toBe(true);
+    expect(shouldHideProviderNativeCommandFromComposerMenu("codex", "plan")).toBe(true);
+    expect(shouldHideProviderNativeCommandFromComposerMenu("codex", "default")).toBe(true);
     expect(shouldHideProviderNativeCommandFromComposerMenu("codex", "status")).toBe(false);
   });
 
@@ -381,8 +385,6 @@ describe("composerSlashCommands", () => {
     ).toEqual([
       "clear",
       "model",
-      "plan",
-      "default",
       "review",
       "fork",
       "side",

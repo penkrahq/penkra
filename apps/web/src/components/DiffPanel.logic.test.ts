@@ -1,4 +1,4 @@
-import { ProjectId, ThreadId, TurnId } from "@penkra/contracts";
+import { ContainerId, ThreadId, TurnId } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 
 import type { DraftThreadState } from "../composerDraftStore";
@@ -25,7 +25,7 @@ import {
   DIFF_PANEL_REPO_LIVE_REFETCH_INTERVAL_MS,
 } from "./DiffPanel.logic";
 
-const PROJECT_ID = ProjectId.makeUnsafe("project-1");
+const PROJECT_ID = ContainerId.makeUnsafe("project-1");
 const THREAD_ID = ThreadId.makeUnsafe("thread-1");
 
 function makeThread(overrides: Partial<Thread> = {}): Thread {

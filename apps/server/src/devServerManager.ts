@@ -12,7 +12,7 @@
  */
 import {
   DEFAULT_TERMINAL_ID,
-  ProjectId,
+  ContainerId,
   type ProjectDevServer,
   type ProjectDevServerEvent,
   type ProjectListDevServersResult,
@@ -33,15 +33,15 @@ const DEV_SERVER_THREAD_PREFIX = "dev-server:";
 const DEV_SERVER_TERMINAL_COLS = 120;
 const DEV_SERVER_TERMINAL_ROWS = 30;
 
-const devServerThreadId = (projectId: ProjectId): string =>
+const devServerThreadId = (projectId: ContainerId): string =>
   `${DEV_SERVER_THREAD_PREFIX}${projectId}`;
 
-const parseDevServerProjectId = (threadId: string): ProjectId | null => {
+const parseDevServerProjectId = (threadId: string): ContainerId | null => {
   if (!threadId.startsWith(DEV_SERVER_THREAD_PREFIX)) {
     return null;
   }
   const raw = threadId.slice(DEV_SERVER_THREAD_PREFIX.length);
-  return raw.length > 0 ? ProjectId.makeUnsafe(raw) : null;
+  return raw.length > 0 ? ContainerId.makeUnsafe(raw) : null;
 };
 
 export function findProjectDevServerForLocalServer(input: {
@@ -81,14 +81,14 @@ export const DevServerManagerLive = Layer.effect(
       PubSub.unbounded<ProjectDevServerEvent>(),
       PubSub.shutdown,
     );
-    const registry = yield* Ref.make<Record<ProjectId, ProjectDevServer>>({});
+    const registry = yield* Ref.make<Record<ContainerId, ProjectDevServer>>({});
 
     const publish = (event: ProjectDevServerEvent) => PubSub.publish(pubsub, event);
 
     // Reap a tracked dev server whose PTY exited or errored. Guarded so that a
     // deliberate stop (which removes the entry first) cannot double-publish, and
     // so a stale exit for an already-replaced project is ignored.
-    const reapExited = (projectId: ProjectId) =>
+    const reapExited = (projectId: ContainerId) =>
       Ref.modify(registry, (current) => {
         if (!current[projectId]) {
           return [false, current] as const;

@@ -3,7 +3,8 @@ import {
   IsoDateTime,
   NonNegativeInt,
   PositiveInt,
-  ProjectId,
+  ContainerId,
+  SpaceId,
   ThreadId,
   TrimmedNonEmptyString,
 } from "./baseSchemas";
@@ -317,7 +318,7 @@ export const ServerLifecycleWelcomePayload = Schema.Struct({
   chatWorkspaceRoot: Schema.optional(TrimmedNonEmptyString),
   studioWorkspaceRoot: Schema.optional(TrimmedNonEmptyString),
   projectName: TrimmedNonEmptyString,
-  bootstrapProjectId: Schema.optional(ProjectId),
+  bootstrapProjectId: Schema.optional(ContainerId),
   bootstrapThreadId: Schema.optional(ThreadId),
 });
 export type ServerLifecycleWelcomePayload = typeof ServerLifecycleWelcomePayload.Type;
@@ -401,3 +402,19 @@ export type ServerUpdateSettingsInput = typeof ServerUpdateSettingsInput.Type;
 
 export const ServerUpdateSettingsResult = ServerSettingsView;
 export type ServerUpdateSettingsResult = typeof ServerUpdateSettingsResult.Type;
+
+export const ServerSpaceNavigationState = Schema.Struct({
+  activeSpaceId: Schema.NullOr(SpaceId),
+  lastThreadIdBySpace: Schema.Record(Schema.String, ThreadId),
+  lastProjectIdBySpace: Schema.Record(Schema.String, ContainerId),
+  updatedAt: Schema.NullOr(IsoDateTime),
+});
+export type ServerSpaceNavigationState = typeof ServerSpaceNavigationState.Type;
+
+export const ServerUpdateSpaceNavigationStateInput = Schema.Struct({
+  activeSpaceId: Schema.NullOr(SpaceId),
+  lastThreadIdBySpace: Schema.Record(Schema.String, ThreadId),
+  lastProjectIdBySpace: Schema.Record(Schema.String, ContainerId),
+});
+export type ServerUpdateSpaceNavigationStateInput =
+  typeof ServerUpdateSpaceNavigationStateInput.Type;

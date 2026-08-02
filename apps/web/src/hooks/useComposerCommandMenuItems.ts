@@ -91,10 +91,10 @@ function threadSuggestionTitle(title: string): string {
 }
 
 function threadSuggestionContainerName(project: Project | undefined): string {
-  if (!project) return "Unknown project";
+  if (!project) return "Unknown folder";
   if (project.kind === "chat") return "Chats";
   if (project.kind === "studio") return "Studio";
-  return project.name.trim() || project.folderName.trim() || "Untitled project";
+  return project.name.trim() || project.folderName.trim() || "Untitled folder";
 }
 
 function threadSuggestionRecency(thread: ComposerThreadMentionSource): string {

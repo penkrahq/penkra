@@ -29,7 +29,12 @@ export interface AppBarProps {
   trailing?: readonly AppBarAction[];
 }
 
-export function AppBar({ label = "App navigation", leading = [], center, trailing = [] }: AppBarProps) {
+export function AppBar({
+  label = "App navigation",
+  leading = [],
+  center,
+  trailing = [],
+}: AppBarProps) {
   return (
     <header aria-label={label} className="penkra-app-bar">
       <ActionGroup actions={leading} slot="leading" />
@@ -39,7 +44,13 @@ export function AppBar({ label = "App navigation", leading = [], center, trailin
   );
 }
 
-function ActionGroup({ actions, slot }: { actions: readonly AppBarAction[]; slot: "leading" | "trailing" }) {
+function ActionGroup({
+  actions,
+  slot,
+}: {
+  actions: readonly AppBarAction[];
+  slot: "leading" | "trailing";
+}) {
   return (
     <div className={`penkra-app-bar__${slot}`}>
       {actions.map((action) => (
@@ -60,11 +71,17 @@ function ActionGroup({ actions, slot }: { actions: readonly AppBarAction[]; slot
   );
 }
 
-function Center({ center }: { center?: AppBarCenter }) {
+function Center({ center }: { center?: AppBarCenter | undefined }) {
   if (!center) return <div className="penkra-app-bar__center" />;
-  if (center.kind === "custom") return <div className="penkra-app-bar__center">{center.content}</div>;
+  if (center.kind === "custom")
+    return <div className="penkra-app-bar__center">{center.content}</div>;
   if (center.kind === "display") {
-    return <div className="penkra-app-bar__center penkra-app-bar__display">{center.icon}{center.text}</div>;
+    return (
+      <div className="penkra-app-bar__center penkra-app-bar__display">
+        {center.icon}
+        {center.text}
+      </div>
+    );
   }
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -85,7 +102,13 @@ function Center({ center }: { center?: AppBarCenter }) {
   );
 }
 
-export function PenkraIcon({ name, label }: { name: "back" | "close" | "forward" | "more" | "search"; label?: string }) {
+export function PenkraIcon({
+  name,
+  label,
+}: {
+  name: "back" | "close" | "forward" | "more" | "search";
+  label?: string;
+}) {
   const paths = {
     back: "M15 18l-6-6 6-6",
     close: "M6 6l12 12M18 6 6 18",
@@ -94,7 +117,17 @@ export function PenkraIcon({ name, label }: { name: "back" | "close" | "forward"
     search: "m21 21-4.35-4.35M19 11a8 8 0 1 1-16 0 8 8 0 0 1 16 0Z",
   } as const;
   return (
-    <svg aria-hidden={label ? undefined : true} aria-label={label} fill="none" role={label ? "img" : undefined} stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24">
+    <svg
+      aria-hidden={label ? undefined : true}
+      aria-label={label}
+      fill="none"
+      role={label ? "img" : undefined}
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="2"
+      viewBox="0 0 24 24"
+    >
       <path d={paths[name]} />
     </svg>
   );

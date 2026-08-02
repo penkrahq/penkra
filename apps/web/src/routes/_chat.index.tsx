@@ -4,7 +4,7 @@
 // Layer: Routing
 // Depends on: the shared restore/create route surface plus the home-chat new-chat handler.
 
-import { SpaceId, type ProjectId } from "@penkra/contracts";
+import { SpaceId, type ContainerId } from "@penkra/contracts";
 import { createFileRoute } from "@tanstack/react-router";
 
 import {
@@ -14,7 +14,6 @@ import {
 import { readSidebarUiState } from "../components/Sidebar.uiState";
 import { useComposerDraftStore } from "../composerDraftStore";
 import { useHandleNewChat } from "../hooks/useHandleNewChat";
-import { VOID_SPACE_KEY } from "../lib/spaceGrouping";
 import { collectStudioProjectIds } from "../lib/studioProjects";
 import { resolveSplitViewThreadIds, useSplitViewStore } from "../splitViewStore";
 import { EMPTY_THREAD_IDS, useStore } from "../store";
@@ -22,8 +21,7 @@ import { useWorkspacePathsStore } from "../workspacePathsStore";
 import { resolveChatIndexRestoreRoute, type ChatIndexLandingSpace } from "./-chatIndexRoute.logic";
 
 /**
- * Set by the Space switcher when the selected Space has nothing to open (`spaceKey`, so Void
- * survives as a string). It scopes the restore below to that Space — without it this landing
+ * Set when the selected Space has nothing to open. It scopes the restore below — without it this landing
  * happily reopens the *previous* Space's thread, and the route-to-Space sync then writes that
  * Space back over the user's click.
  */
@@ -55,7 +53,7 @@ function ChatIndexRouteView() {
   // Only plain, still-unsent chat drafts qualify as restore targets: a non-"chat" entry point
   // isn't a home-chat draft, and `promotedTo` means the draft already became a real thread, so
   // its stale id is no longer valid (matches the filtering findStudioDraftThreadId applies).
-  const draftProjectIdByThreadId = new Map<string, ProjectId>();
+  const draftProjectIdByThreadId = new Map<string, ContainerId>();
   for (const [threadId, draft] of Object.entries(draftThreadsByThreadId)) {
     if (draft.entryPoint === "chat" && draft.promotedTo === undefined) {
       draftProjectIdByThreadId.set(threadId, draft.projectId);
@@ -66,7 +64,7 @@ function ChatIndexRouteView() {
     landingSpaceKey === undefined
       ? null
       : {
-          spaceId: landingSpaceKey === VOID_SPACE_KEY ? null : SpaceId.makeUnsafe(landingSpaceKey),
+          spaceId: SpaceId.makeUnsafe(landingSpaceKey),
           projectById: new Map(projects.map((project) => [project.id, project])),
           workspacePaths,
         };

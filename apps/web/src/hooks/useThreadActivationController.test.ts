@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { ProjectId, ThreadId } from "@penkra/contracts";
+import { ContainerId, ThreadId } from "@penkra/contracts";
 import type { SplitView } from "../splitViewStore";
 import {
   activateThreadFromSidebarIntent,
@@ -10,7 +10,7 @@ import {
 const THREAD_A = ThreadId.makeUnsafe("thread-a");
 const THREAD_B = ThreadId.makeUnsafe("thread-b");
 const THREAD_C = ThreadId.makeUnsafe("thread-c");
-const PROJECT_ID = ProjectId.makeUnsafe("project-1");
+const PROJECT_ID = ContainerId.makeUnsafe("project-1");
 
 function makeSplitViewFixture(input: {
   id: string;

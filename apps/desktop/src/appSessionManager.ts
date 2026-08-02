@@ -5,6 +5,7 @@
 import { session, type Session } from "electron";
 
 import type { InstalledAppPackage } from "./appInstallationState";
+import type { AppStandardPermissionName } from "./appStandardPermissions";
 import {
   createAppPackageProtocolHandler,
   type AppPackageProtocolHandler,
@@ -38,6 +39,17 @@ interface ActiveAppSessionRecord extends ActiveAppSession {
 export interface AppSessionManagerDependencies {
   fromPartition?: typeof session.fromPartition;
   createProtocolHandler?: typeof createAppPackageProtocolHandler;
+  getStandardPermission?: (
+    appId: string,
+    spaceId: string,
+    permission: AppStandardPermissionName,
+  ) => boolean;
+  requestStandardPermissions?: (input: {
+    appId: string;
+    appName: string;
+    spaceId: string;
+    permissions: ReadonlyArray<AppStandardPermissionName>;
+  }) => Promise<boolean>;
 }
 
 /**
@@ -52,11 +64,20 @@ export class AppSessionManager {
   readonly #createProtocolHandler: typeof createAppPackageProtocolHandler;
   readonly #records = new Map<string, ActiveAppSessionRecord>();
   readonly #queues = new Map<string, Promise<void>>();
+  readonly #getStandardPermission: NonNullable<
+    AppSessionManagerDependencies["getStandardPermission"]
+  >;
+  readonly #requestStandardPermissions: NonNullable<
+    AppSessionManagerDependencies["requestStandardPermissions"]
+  >;
 
   constructor(dependencies: AppSessionManagerDependencies = {}) {
     this.#fromPartition = dependencies.fromPartition ?? session.fromPartition.bind(session);
     this.#createProtocolHandler =
       dependencies.createProtocolHandler ?? createAppPackageProtocolHandler;
+    this.#getStandardPermission = dependencies.getStandardPermission ?? (() => false);
+    this.#requestStandardPermissions =
+      dependencies.requestStandardPermissions ?? (async () => false);
   }
 
   activate(input: ActivateAppSessionInput): Promise<ActiveAppSession> {
@@ -76,7 +97,13 @@ export class AppSessionManager {
 
       const partitionSession = this.#fromPartition(partition, { cache: true });
       const protocolTarget: MutableProtocolTarget = { handle: nextHandler };
-      configureAppSession(partitionSession, input.installedApp.appId);
+      configureAppSession(partitionSession, {
+        appId: input.installedApp.appId,
+        appName: input.installedApp.name,
+        spaceId: input.spaceId,
+        getPermission: this.#getStandardPermission,
+        requestPermissions: this.#requestStandardPermissions,
+      });
       await partitionSession.protocol.handle(PENKRA_APP_SCHEME, (request) =>
         protocolTarget.handle(request),
       );
@@ -141,18 +168,63 @@ export class AppSessionManager {
   }
 }
 
-function configureAppSession(partitionSession: Session, appId: string): void {
+function configureAppSession(
+  partitionSession: Session,
+  input: {
+    appId: string;
+    appName: string;
+    spaceId: string;
+    getPermission: NonNullable<AppSessionManagerDependencies["getStandardPermission"]>;
+    requestPermissions: NonNullable<AppSessionManagerDependencies["requestStandardPermissions"]>;
+  },
+): void {
   partitionSession.on("will-download", (event) => event.preventDefault());
-  partitionSession.setPermissionCheckHandler(() => false);
-  partitionSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
-    callback(false);
+  partitionSession.setPermissionCheckHandler((_webContents, permission, _origin, details) => {
+    if (permission === "clipboard-sanitized-write") return true;
+    const requested = standardPermissionNames(permission, details);
+    return (
+      requested.length > 0 &&
+      requested.every((name) => input.getPermission(input.appId, input.spaceId, name))
+    );
   });
-  partitionSession.webRequest.onBeforeRequest(
-    { urls: ["<all_urls>"] },
-    (details, callback) => {
-      callback({ cancel: decideAppNavigation(appId, details.url).action !== "allow" });
-    },
-  );
+  partitionSession.setPermissionRequestHandler((_webContents, permission, callback, details) => {
+    if (permission === "clipboard-sanitized-write") return callback(true);
+    const requested = standardPermissionNames(permission, details);
+    if (requested.length === 0) return callback(false);
+    if (requested.every((name) => input.getPermission(input.appId, input.spaceId, name)))
+      return callback(true);
+    void input
+      .requestPermissions({
+        appId: input.appId,
+        appName: input.appName,
+        spaceId: input.spaceId,
+        permissions: requested,
+      })
+      .then(callback, () => callback(false));
+  });
+  partitionSession.webRequest.onBeforeRequest({ urls: ["<all_urls>"] }, (details, callback) => {
+    callback({ cancel: decideAppNavigation(input.appId, details.url).action !== "allow" });
+  });
+}
+
+function standardPermissionNames(
+  permission: string,
+  details: unknown,
+): AppStandardPermissionName[] {
+  if (permission === "notifications") return ["notifications"];
+  if (permission === "clipboard-read") return ["clipboard-read"];
+  if (permission !== "media") return [];
+  const result: AppStandardPermissionName[] = [];
+  const mediaTypes =
+    details &&
+    typeof details === "object" &&
+    "mediaTypes" in details &&
+    Array.isArray(details.mediaTypes)
+      ? details.mediaTypes
+      : [];
+  if (mediaTypes.includes("audio")) result.push("microphone");
+  if (mediaTypes.includes("video")) result.push("camera");
+  return result;
 }
 
 function assertRecordIdentity(

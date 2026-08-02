@@ -6,7 +6,7 @@
 //      (inputs in, handlers out) keeps it reviewable instead of interleaved through an
 //      8k-line component.
 
-import type { ProjectId, SpaceId, ThreadId } from "@penkra/contracts";
+import type { ContainerId, SpaceId, ThreadId } from "@penkra/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import { startTransition, useCallback, useEffect, useMemo, useState } from "react";
 
@@ -30,7 +30,7 @@ import { useRouteSpaceSync } from "./useRouteSpaceSync";
 import { toastManager } from "./ui/toast";
 
 type SpaceEditorState =
-  | { mode: "create"; projectIdAfterCreate: ProjectId | null }
+  | { mode: "create"; projectIdAfterCreate: ContainerId | null }
   | { mode: "edit"; spaceId: SpaceId };
 
 type SpaceEditorValue = {
@@ -38,15 +38,20 @@ type SpaceEditorValue = {
   icon: string;
 };
 
+function requireAssignedSpaceId(spaceId: SpaceId | null | undefined, subject: string): SpaceId {
+  if (spaceId == null) throw new Error(`${subject} is missing its required Space assignment.`);
+  return spaceId;
+}
+
 export function useSpacesController(input: {
   /** Ordinary (space-assignable) projects; computed by Sidebar because its own memos need it too. */
   ordinarySpaceProjects: readonly Project[];
-  projectById: ReadonlyMap<ProjectId, Project>;
+  projectById: ReadonlyMap<ContainerId, Project>;
   sidebarThreads: readonly SidebarThreadSummary[];
   sidebarThreadSortOrder: SidebarThreadSortOrder;
   routeThreadId: ThreadId | null;
   activeRouteProject: Project | null;
-  activeRouteProjectId: ProjectId | null;
+  activeRouteProjectId: ContainerId | null;
   activateThreadFromSidebarIntent: (threadId: ThreadId) => void;
   /** Space moves are offered from the project context menu; the menu closes on action. */
   onCloseProjectContextMenu: () => void;
@@ -74,6 +79,7 @@ export function useSpacesController(input: {
   const rememberSpaceThread = useSpacesUiStore((store) => store.rememberThread);
   const getLastSpaceThreadId = useSpacesUiStore((store) => store.getLastThreadId);
   const reconcileSpacesUi = useSpacesUiStore((store) => store.reconcile);
+  const hydrateSpacesUi = useSpacesUiStore((store) => store.hydrateFromServer);
   const homeDir = useWorkspacePathsStore((store) => store.homeDir);
   const chatWorkspaceRoot = useWorkspacePathsStore((store) => store.chatWorkspaceRoot);
   const studioWorkspaceRoot = useWorkspacePathsStore((store) => store.studioWorkspaceRoot);
@@ -87,7 +93,13 @@ export function useSpacesController(input: {
     ? (sidebarThreads.find((thread) => thread.id === routeThreadId) ?? null)
     : null;
   const routeSpaceContext = isOrdinarySpaceProject(routeSpaceProject, workspacePaths)
-    ? { projectId: routeSpaceProject.id, spaceId: routeSpaceProject.spaceId ?? null }
+    ? {
+        projectId: routeSpaceProject.id,
+        spaceId: requireAssignedSpaceId(
+          routeSpaceProject.spaceId,
+          `Folder '${routeSpaceProject.id}'`,
+        ),
+      }
     : routeThread?.spaceId != null
       ? { projectId: routeThread.projectId, spaceId: routeThread.spaceId }
       : null;
@@ -97,12 +109,24 @@ export function useSpacesController(input: {
   const [spaceEditorState, setSpaceEditorState] = useState<SpaceEditorState | null>(null);
 
   useEffect(() => {
+    void hydrateSpacesUi().catch(() => {
+      // Keep the in-memory selection usable; a later mount can retry hydration.
+    });
+  }, [hydrateSpacesUi]);
+
+  useEffect(() => {
     if (!threadsHydrated) return;
     reconcileSpacesUi({
       activeSpaceIds: new Set(spaces.map((space) => space.id)),
       snapshotSequence: shellSnapshotSequence,
       projectSpaceById: new Map(
-        ordinarySpaceProjects.map((project) => [project.id, project.spaceId ?? null] as const),
+        ordinarySpaceProjects.map(
+          (project) =>
+            [
+              project.id,
+              requireAssignedSpaceId(project.spaceId, `Folder '${project.id}'`),
+            ] as const,
+        ),
       ),
       threadProjectById: new Map(
         sidebarThreads
@@ -131,7 +155,7 @@ export function useSpacesController(input: {
   });
 
   const selectSpaceForNavigation = useCallback(
-    (spaceId: SpaceId | null) => {
+    (spaceId: SpaceId) => {
       setActiveSpaceId(spaceId);
     },
     [setActiveSpaceId],
@@ -142,7 +166,13 @@ export function useSpacesController(input: {
     const currentRouteSpaceProject = activeRouteProject;
     if (!routeThreadId) return;
     if (isOrdinarySpaceProject(currentRouteSpaceProject, workspacePaths)) {
-      rememberSpaceThread(currentRouteSpaceProject.spaceId ?? null, routeThreadId);
+      rememberSpaceThread(
+        requireAssignedSpaceId(
+          currentRouteSpaceProject.spaceId,
+          `Folder '${currentRouteSpaceProject.id}'`,
+        ),
+        routeThreadId,
+      );
       return;
     }
     const currentThread = sidebarThreads.find((thread) => thread.id === routeThreadId);
@@ -157,7 +187,7 @@ export function useSpacesController(input: {
    * space and then opens its first thread) — the restore navigation would race it.
    */
   const handleSelectSpaceForIncomingProject = useCallback(
-    (spaceId: SpaceId | null) => {
+    (spaceId: SpaceId) => {
       // Read the live value so an async create flow can roll back a provisional
       // selection with the same callback instance it used to select it.
       if (spaceId === useSpacesUiStore.getState().activeSpaceId) return;
@@ -168,7 +198,7 @@ export function useSpacesController(input: {
   );
 
   const handleSelectSpace = useCallback(
-    (spaceId: SpaceId | null) => {
+    (spaceId: SpaceId) => {
       if (spaceId === activeSpaceId) return;
 
       rememberDepartingSpaceContext();
@@ -179,9 +209,7 @@ export function useSpacesController(input: {
         if (thread.archivedAt != null) return false;
         const project = projectById.get(thread.projectId);
         if (thread.spaceId != null) return thread.spaceId === spaceId;
-        return (
-          isOrdinarySpaceProject(project, workspacePaths) && (project.spaceId ?? null) === spaceId
-        );
+        return isOrdinarySpaceProject(project, workspacePaths) && project.spaceId === spaceId;
       });
       const rememberedThreadId = getLastSpaceThreadId(spaceId);
       const rememberedThread = rememberedThreadId
@@ -256,8 +284,8 @@ export function useSpacesController(input: {
         } catch (error) {
           toastManager.add({
             type: "error",
-            title: `${value.name} was created, but the project was not moved`,
-            description: error instanceof Error ? error.message : "Try moving the project again.",
+            title: `${value.name} was created, but the folder was not moved`,
+            description: error instanceof Error ? error.message : "Try moving the folder again.",
           });
           return;
         }
@@ -288,19 +316,25 @@ export function useSpacesController(input: {
       const space = spaces.find((candidate) => candidate.id === spaceId);
       if (!api || !space) return;
       const projectCount = ordinarySpaceProjects.filter(
-        (project) => (project.spaceId ?? null) === spaceId,
+        (project) => project.spaceId === spaceId,
       ).length;
-      const confirmed = await api.dialogs.confirm(
-        projectCount > 0
-          ? `Delete “${space.name}”?\n\n${projectCount} project${projectCount === 1 ? "" : "s"} will move to Void.`
-          : `Delete “${space.name}”?`,
-      );
+      if (projectCount > 0) {
+        toastManager.add({
+          type: "error",
+          title: "Move folders before deleting this space",
+          description: `${projectCount} folder${projectCount === 1 ? " is" : "s are"} still assigned to ${space.name}.`,
+        });
+        return;
+      }
+      const confirmed = await api.dialogs.confirm(`Delete “${space.name}”?`);
       if (!confirmed) return;
 
       try {
         await deleteSpace({ api, spaceId });
         if (activeSpaceId === spaceId) {
-          selectSpaceForNavigation(null);
+          const nextSpace = spaces.find((candidate) => candidate.id !== spaceId);
+          if (!nextSpace) throw new Error("At least one active Space must remain.");
+          selectSpaceForNavigation(nextSpace.id);
           if (!isOrdinarySpaceProject(activeRouteProject, workspacePaths)) {
             void navigate({ to: "/" });
           }
@@ -371,7 +405,7 @@ export function useSpacesController(input: {
   );
 
   const handleMoveProjectToSpace = useCallback(
-    async (projectId: ProjectId, spaceId: SpaceId | null) => {
+    async (projectId: ContainerId, spaceId: SpaceId) => {
       const api = readNativeApi();
       const project = projectById.get(projectId);
       if (!api || !project || (project.spaceId ?? null) === spaceId) return;
@@ -384,7 +418,7 @@ export function useSpacesController(input: {
       } catch (error) {
         toastManager.add({
           type: "error",
-          title: "Unable to move project",
+          title: "Unable to move folder",
           description: error instanceof Error ? error.message : "Try again.",
         });
       }
@@ -392,7 +426,7 @@ export function useSpacesController(input: {
     [activeRouteProjectId, onCloseProjectContextMenu, projectById, selectSpaceForNavigation],
   );
 
-  const openSpaceCreator = useCallback((projectIdAfterCreate: ProjectId | null = null) => {
+  const openSpaceCreator = useCallback((projectIdAfterCreate: ContainerId | null = null) => {
     setSpaceEditorState({ mode: "create", projectIdAfterCreate });
   }, []);
   const openSpaceEditor = useCallback((spaceId: SpaceId) => {

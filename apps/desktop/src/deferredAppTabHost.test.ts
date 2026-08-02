@@ -40,13 +40,15 @@ describe("DeferredAppTabHost", () => {
     const tabs = new DeferredAppTabHost();
     const open = vi.fn(async () => ({ id: "tab-1" }));
     const openForResult = vi.fn(async () => ({ saved: true }));
-    const unbind = tabs.bind({ open: open as never, openForResult });
+    const unbind = tabs.bind({ open: open as never, openForResult: openForResult as never });
 
     await tabs.open(request);
     await tabs.openForResult(request);
     expect(open).toHaveBeenCalledWith(request);
     expect(openForResult).toHaveBeenCalledWith(request);
-    expect(() => tabs.bind({ open: open as never, openForResult })).toThrow("already bound");
+    expect(() => tabs.bind({ open: open as never, openForResult: openForResult as never })).toThrow(
+      "already bound",
+    );
     unbind();
     await expect(tabs.open(request)).rejects.toMatchObject({ code: "TAB_HOST_UNAVAILABLE" });
   });

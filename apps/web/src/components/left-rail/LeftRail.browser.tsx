@@ -1,6 +1,6 @@
 import "../../index.css";
 
-import { page } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
@@ -68,7 +68,14 @@ describe("Pencil left rail", () => {
   });
 
   it("keeps folder expansion independent from header hover", async () => {
-    await render(<FolderGroupShared label="penut" threads={threads.slice(0, 2)} />);
+    await render(
+      <>
+        <FolderGroupShared label="penut" threads={threads.slice(0, 2)} />
+        <button className="fixed right-0 bottom-0" type="button">
+          Outside folder expansion
+        </button>
+      </>,
+    );
 
     const disclosure = page.getByRole("button", { name: "penut" });
     await expect.element(disclosure).toHaveAttribute("aria-expanded", "false");
@@ -105,6 +112,10 @@ describe("Pencil left rail", () => {
     expect(disclosure.element().querySelectorAll("svg")).toHaveLength(2);
     const firstThread = page.getByRole("button", { name: "Thread 1" });
     await expect.element(firstThread).toBeVisible();
+    await page.getByRole("button", { name: "Outside folder expansion" }).hover();
+    await vi.waitFor(() => {
+      expect(getComputedStyle(disclosure.element()).backgroundColor).toBe("rgba(0, 0, 0, 0)");
+    });
     expect(
       Math.abs(
         firstThread.element().getBoundingClientRect().top -
@@ -145,6 +156,37 @@ describe("Pencil left rail", () => {
       expect(disclosureShell!.textContent).not.toContain("Thread 1");
       expect(disclosureShell!.textContent).not.toContain("Thread 2");
     });
+  });
+
+  it("reverses a disclosure immediately when the user toggles it rapidly", async () => {
+    const renderDisclosure = (open: boolean) => (
+      <DisclosureSection hasContent header={<div>Rapid folder</div>} open={open}>
+        <div>Rapid thread</div>
+      </DisclosureSection>
+    );
+    const { rerender } = await render(renderDisclosure(true));
+    const region = document.querySelector<HTMLElement>("[data-slot='disclosure-region']")!;
+
+    await rerender(renderDisclosure(false));
+    expect(region.getAttribute("aria-hidden")).toBe("true");
+    expect(region.textContent).toContain("Rapid thread");
+
+    await rerender(renderDisclosure(true));
+    expect(region.getAttribute("aria-hidden")).toBeNull();
+    expect(region.inert).toBe(false);
+    expect(region.textContent).toContain("Rapid thread");
+  });
+
+  it("uses native button keyboard activation for folder disclosure", async () => {
+    await render(<FolderGroupShared label="Keyboard folder" threads={threads.slice(0, 1)} />);
+    const disclosure = page.getByRole("button", { name: "Keyboard folder" });
+
+    disclosure.element().focus();
+    await userEvent.keyboard("{Enter}");
+    await expect.element(disclosure).toHaveAttribute("aria-expanded", "true");
+
+    await userEvent.keyboard(" ");
+    await expect.element(disclosure).toHaveAttribute("aria-expanded", "false");
   });
 
   it("keeps an expanded folder surface distinct from its hover state", async () => {
@@ -261,7 +303,11 @@ describe("Pencil left rail", () => {
     await render(<SidebarTopNavigation />);
 
     expect(page.getByRole("button", { name: "New chat" }).query()).toBeNull();
-    await expect.element(page.getByRole("button", { name: "Scheduled" })).toBeVisible();
+    await expect
+      .element(
+        page.getByRole("navigation", { name: "Primary" }).getByRole("button", { name: "Search" }),
+      )
+      .toBeVisible();
   });
 
   it("uses the Pencil root and nested thread columns", async () => {
@@ -379,10 +425,11 @@ describe("Pencil left rail", () => {
     expect(getComputedStyle(action.element()).opacity).toBe("1");
 
     await row.click();
-    await page.getByRole("button", { name: "Outside space" }).click();
+    await page.getByRole("button", { name: "Outside space" }).hover();
     await vi.waitFor(() => {
       expect(leading.getBoundingClientRect().width).toBeCloseTo(0, 0);
       expect(getComputedStyle(action.element()).opacity).toBe("0");
+      expect(getComputedStyle(row.element()).backgroundColor).toBe("rgba(0, 0, 0, 0)");
     });
     expect(getComputedStyle(action.element()).opacity).toBe("0");
 

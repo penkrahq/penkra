@@ -7,4 +7,5 @@ test("normalizes known routes", () => {
   assert.equal(routeFromHash("#settings"), "settings");
   assert.equal(routeFromHash("#unknown"), "home");
 });
-test("renders explicit failures", () => assert.equal(readableError(new Error("offline")), "offline"));
+test("renders explicit failures", () =>
+  assert.equal(readableError(new Error("offline")), "offline"));

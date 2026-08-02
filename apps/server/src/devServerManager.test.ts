@@ -4,13 +4,17 @@
 
 import { describe, expect, it } from "vitest";
 
-import { ProjectId, type ProjectDevServer, type ServerLocalServerProcess } from "@penkra/contracts";
+import {
+  ContainerId,
+  type ProjectDevServer,
+  type ServerLocalServerProcess,
+} from "@penkra/contracts";
 
 import { findProjectDevServerForLocalServer } from "./devServerManager";
 
 function makeDevServer(overrides: Partial<ProjectDevServer> = {}): ProjectDevServer {
   return {
-    projectId: ProjectId.makeUnsafe("project-1"),
+    projectId: ContainerId.makeUnsafe("project-1"),
     command: "pnpm run dev",
     cwd: "/repo/app",
     pid: 100,

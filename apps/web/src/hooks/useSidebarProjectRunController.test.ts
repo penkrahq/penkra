@@ -2,7 +2,7 @@
 // Purpose: Characterizes Sidebar project-run lifecycle, attribution, and dialog behavior.
 // Layer: Web hook tests
 
-import { ProjectId } from "@penkra/contracts";
+import { ContainerId } from "@penkra/contracts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const reactHarness = vi.hoisted(() => {
@@ -148,7 +148,7 @@ vi.mock("../projectScripts", async (importOriginal) => ({
 import type { Project } from "../types";
 import { useSidebarProjectRunController } from "./useSidebarProjectRunController";
 
-const PROJECT_ID = ProjectId.makeUnsafe("project-run");
+const PROJECT_ID = ContainerId.makeUnsafe("project-run");
 const PROJECT: Project = {
   id: PROJECT_ID,
   kind: "project",
@@ -289,7 +289,7 @@ describe("useSidebarProjectRunController", () => {
   });
 
   it("attributes unmatched servers to the deepest project cwd", () => {
-    const nestedId = ProjectId.makeUnsafe("project-nested");
+    const nestedId = ContainerId.makeUnsafe("project-nested");
     const nested = { ...PROJECT, id: nestedId, cwd: "/repo/apps/web", name: "Web" };
     harness.localServers = [
       {
@@ -316,7 +316,7 @@ describe("useSidebarProjectRunController", () => {
   });
 
   it("keeps tracked pid attribution authoritative before cwd fallback", () => {
-    const nestedId = ProjectId.makeUnsafe("project-tracked-nested");
+    const nestedId = ContainerId.makeUnsafe("project-tracked-nested");
     const nested = { ...PROJECT, id: nestedId, cwd: "/repo/apps/web", name: "Web" };
     harness.runsByProjectId = {
       [PROJECT_ID]: {
@@ -412,7 +412,7 @@ describe("useSidebarProjectRunController", () => {
   });
 
   it("keeps discovered commands aligned with their project query", () => {
-    const secondId = ProjectId.makeUnsafe("project-run-second");
+    const secondId = ContainerId.makeUnsafe("project-run-second");
     const secondProject: Project = {
       ...PROJECT,
       id: secondId,

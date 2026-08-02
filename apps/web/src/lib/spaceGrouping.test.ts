@@ -15,7 +15,7 @@ const workSpace: Space = {
 };
 
 describe("resolveActiveSpaceId", () => {
-  it("keeps known selections and resolves stale persisted ids to Void", () => {
+  it("keeps known selections and exposes missing persisted ids as missing", () => {
     expect(resolveActiveSpaceId(workSpaceId, [workSpace])).toBe(workSpaceId);
     expect(resolveActiveSpaceId(SpaceId.makeUnsafe("space-deleted"), [workSpace])).toBeNull();
     expect(resolveActiveSpaceId(null, [workSpace])).toBeNull();

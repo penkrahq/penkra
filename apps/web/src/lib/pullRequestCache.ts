@@ -1,5 +1,5 @@
 import type {
-  ProjectId,
+  ContainerId,
   PullRequestDetailInput,
   PullRequestProjectContext,
   PullRequestSetPinnedInput,
@@ -19,7 +19,7 @@ import type { QueryClient, QueryKey } from "@tanstack/react-query";
 import { PULL_REQUEST_STATES } from "./pullRequestQueryOptions";
 
 export type PullRequestListCacheEntry = {
-  projectId: ProjectId;
+  projectId: ContainerId;
   projectTitle?: string;
   repository: string;
   number: number;
@@ -51,7 +51,7 @@ export type ActionListCacheRollback = {
 
 export type PullRequestListQueryScope = {
   state: PullRequestState;
-  projectId: ProjectId | null;
+  projectId: ContainerId | null;
 };
 
 export function pullRequestIdentityKey(
@@ -85,7 +85,7 @@ function matchesPullRequestPinIdentity(
 
 function updateEntryProjectPin(
   entry: PullRequestListCacheEntry,
-  projectId: ProjectId,
+  projectId: ContainerId,
   isPinned: boolean,
 ): PullRequestListCacheEntry {
   return updatePullRequestListEntryProjectPin(entry, projectId, isPinned);
@@ -110,7 +110,7 @@ export function pullRequestListQueryScope(queryKey: QueryKey): PullRequestListQu
   const projectId = queryKey[projectIdIndex];
   if (!PULL_REQUEST_STATES.includes(state as PullRequestState)) return null;
   if (projectId !== null && typeof projectId !== "string") return null;
-  return { state: state as PullRequestState, projectId: projectId as ProjectId | null };
+  return { state: state as PullRequestState, projectId: projectId as ContainerId | null };
 }
 
 function scopeKey(scope: PullRequestListQueryScope): string {

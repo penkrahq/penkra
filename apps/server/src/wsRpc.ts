@@ -30,6 +30,7 @@ import { clamp } from "effect/Number";
 import { Effect, FileSystem, Layer, Option, Path, Queue, Schema, Scope, Stream } from "effect";
 import { Headers, HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { RpcMiddleware, RpcSchema, RpcSerialization, RpcServer } from "effect/unstable/rpc";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { authErrorResponse, makeEffectAuthRequest } from "./auth/effectHttp";
 import {
@@ -43,6 +44,7 @@ import { SessionCredentialService } from "./auth/Services/SessionCredentialServi
 import { CheckpointDiffQuery } from "./checkpointing/Services/CheckpointDiffQuery";
 import { resolveThreadWorkspaceCwd } from "./checkpointing/Utils";
 import { ServerConfig, type ServerConfigShape } from "./config";
+import { getSpaceNavigationState, updateSpaceNavigationState } from "./spaceNavigationState";
 import { realpathNearestExisting } from "./realpathNearestExisting";
 import { listStudioThreadOutputs } from "./studioOutputs";
 import {
@@ -317,6 +319,7 @@ const makeWsRpcHandlersLayer = () =>
       const runtimeStartup = yield* ServerRuntimeStartup;
       const serverEnvironment = yield* ServerEnvironment;
       const serverSettings = yield* ServerSettingsService;
+      const sql = yield* SqlClient.SqlClient;
       const terminalManager = yield* TerminalManager;
       const textGeneration = yield* TextGeneration;
       const workspaceEntries = yield* WorkspaceEntries;
@@ -1344,6 +1347,13 @@ const makeWsRpcHandlersLayer = () =>
           rpcEffect(serverSettings.getSettingsView, "Failed to load server settings"),
         [WS_METHODS.serverUpdateSettings]: (input) =>
           rpcEffect(serverSettings.updateSettingsView(input), "Failed to update server settings"),
+        [WS_METHODS.serverGetSpaceNavigationState]: () =>
+          rpcEffect(getSpaceNavigationState(sql), "Failed to load Space navigation state"),
+        [WS_METHODS.serverUpdateSpaceNavigationState]: (input) =>
+          rpcEffect(
+            updateSpaceNavigationState(sql, input),
+            "Failed to update Space navigation state",
+          ),
         [WS_METHODS.serverRefreshProviders]: () =>
           rpcEffect(
             providerHealth.refresh.pipe(Effect.map((providers) => ({ providers }))),

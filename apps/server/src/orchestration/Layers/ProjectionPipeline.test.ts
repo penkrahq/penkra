@@ -5,7 +5,8 @@ import {
   CorrelationId,
   EventId,
   MessageId,
-  ProjectId,
+  ContainerId,
+  SpaceId,
   ThreadId,
   TurnId,
 } from "@penkra/contracts";
@@ -93,14 +94,14 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
         type: "project.created",
         eventId: EventId.makeUnsafe("evt-1"),
         aggregateKind: "project",
-        aggregateId: ProjectId.makeUnsafe("project-1"),
+        aggregateId: ContainerId.makeUnsafe("project-1"),
         occurredAt: now,
         commandId: CommandId.makeUnsafe("cmd-1"),
         causationEventId: null,
         correlationId: CommandId.makeUnsafe("cmd-1"),
         metadata: {},
         payload: {
-          projectId: ProjectId.makeUnsafe("project-1"),
+          projectId: ContainerId.makeUnsafe("project-1"),
           title: "Project 1",
           workspaceRoot: "/tmp/project-1",
           defaultModelSelection: null,
@@ -122,7 +123,7 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
         metadata: {},
         payload: {
           threadId: ThreadId.makeUnsafe("thread-1"),
-          projectId: ProjectId.makeUnsafe("project-1"),
+          projectId: ContainerId.makeUnsafe("project-1"),
           title: "Thread 1",
           modelSelection: {
             provider: "codex",
@@ -215,14 +216,14 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
         type: "project.created",
         eventId: EventId.makeUnsafe("evt-turn-settings-project"),
         aggregateKind: "project",
-        aggregateId: ProjectId.makeUnsafe("project-turn-settings"),
+        aggregateId: ContainerId.makeUnsafe("project-turn-settings"),
         occurredAt: createdAt,
         commandId: CommandId.makeUnsafe("cmd-turn-settings-project"),
         causationEventId: null,
         correlationId: CommandId.makeUnsafe("cmd-turn-settings-project"),
         metadata: {},
         payload: {
-          projectId: ProjectId.makeUnsafe("project-turn-settings"),
+          projectId: ContainerId.makeUnsafe("project-turn-settings"),
           title: "Project",
           workspaceRoot: "/tmp/project-turn-settings",
           defaultModelSelection: null,
@@ -244,7 +245,7 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
         metadata: {},
         payload: {
           threadId: ThreadId.makeUnsafe("thread-turn-settings"),
-          projectId: ProjectId.makeUnsafe("project-turn-settings"),
+          projectId: ContainerId.makeUnsafe("project-turn-settings"),
           title: "Thread",
           modelSelection: {
             provider: "pi",
@@ -445,14 +446,14 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
         type: "project.created",
         eventId: EventId.makeUnsafe("evt-retained-error-project"),
         aggregateKind: "project",
-        aggregateId: ProjectId.makeUnsafe("project-retained-error"),
+        aggregateId: ContainerId.makeUnsafe("project-retained-error"),
         occurredAt: createdAt,
         commandId: CommandId.makeUnsafe("cmd-retained-error-project"),
         causationEventId: null,
         correlationId: CommandId.makeUnsafe("cmd-retained-error-project"),
         metadata: {},
         payload: {
-          projectId: ProjectId.makeUnsafe("project-retained-error"),
+          projectId: ContainerId.makeUnsafe("project-retained-error"),
           title: "Retained error project",
           workspaceRoot: "/tmp/project-retained-error",
           defaultModelSelection: null,
@@ -473,7 +474,7 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
         metadata: {},
         payload: {
           threadId,
-          projectId: ProjectId.makeUnsafe("project-retained-error"),
+          projectId: ContainerId.makeUnsafe("project-retained-error"),
           title: "Retained error thread",
           modelSelection: { provider: "codex", model: "gpt-5.6-sol" },
           runtimeMode: "full-access",
@@ -964,7 +965,7 @@ it.effect("fast-forwards lagging hot projector cursors before restart replay", (
       Layer.provideMerge(makeObservedEventStoreLayer(readCursors)),
       Layer.provideMerge(persistenceLayer),
     );
-    const projectId = ProjectId.makeUnsafe("project-bootstrap-fast-forward");
+    const projectId = ContainerId.makeUnsafe("project-bootstrap-fast-forward");
     const threadId = ThreadId.makeUnsafe("thread-bootstrap-fast-forward");
     const createdAt = "2026-07-09T10:00:00.000Z";
 
@@ -1087,7 +1088,7 @@ it.effect("drains 2,501 file-backed events to a captured high-water fence", () =
     const { dbPath } = yield* ServerConfig;
     const persistenceLayer = makeSqlitePersistenceLive(dbPath);
     const eventStoreLayer = OrchestrationEventStoreLive.pipe(Layer.provideMerge(persistenceLayer));
-    const projectId = ProjectId.makeUnsafe("project-bootstrap-paged");
+    const projectId = ContainerId.makeUnsafe("project-bootstrap-paged");
     const occurredAt = "2026-07-14T01:00:00.000Z";
 
     yield* Effect.gen(function* () {
@@ -1311,7 +1312,7 @@ it.layer(
       const eventStore = yield* OrchestrationEventStore;
       const projectionPipeline = yield* OrchestrationProjectionPipeline;
       const sql = yield* SqlClient.SqlClient;
-      const projectId = ProjectId.makeUnsafe("project-approvals");
+      const projectId = ContainerId.makeUnsafe("project-approvals");
       const threadId = ThreadId.makeUnsafe("thread-approvals");
       const requestId = ApprovalRequestId.makeUnsafe("approval-request-1");
       const createdAt = "2026-03-05T09:00:00.000Z";
@@ -1448,7 +1449,7 @@ it.layer(
       const projectionPipeline = yield* OrchestrationProjectionPipeline;
       const eventStore = yield* OrchestrationEventStore;
       const sql = yield* SqlClient.SqlClient;
-      const projectId = ProjectId.makeUnsafe("project-streaming-shell");
+      const projectId = ContainerId.makeUnsafe("project-streaming-shell");
       const threadId = ThreadId.makeUnsafe("thread-streaming-shell");
       const createdAt = "2026-03-05T10:00:00.000Z";
       const deltaAt = "2026-03-05T10:00:05.000Z";
@@ -1548,7 +1549,7 @@ it.layer(
       const eventStore = yield* OrchestrationEventStore;
       const projectionPipeline = yield* OrchestrationProjectionPipeline;
       const sql = yield* SqlClient.SqlClient;
-      const projectId = ProjectId.makeUnsafe("project-user-inputs");
+      const projectId = ContainerId.makeUnsafe("project-user-inputs");
       const threadId = ThreadId.makeUnsafe("thread-user-inputs");
       const requestId = ApprovalRequestId.makeUnsafe("user-input-request-1");
       const createdAt = "2026-03-05T11:00:00.000Z";
@@ -1955,14 +1956,14 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
           type: "project.created",
           eventId: EventId.makeUnsafe("evt-clear-attachments-1"),
           aggregateKind: "project",
-          aggregateId: ProjectId.makeUnsafe("project-clear-attachments"),
+          aggregateId: ContainerId.makeUnsafe("project-clear-attachments"),
           occurredAt: now,
           commandId: CommandId.makeUnsafe("cmd-clear-attachments-1"),
           causationEventId: null,
           correlationId: CommandId.makeUnsafe("cmd-clear-attachments-1"),
           metadata: {},
           payload: {
-            projectId: ProjectId.makeUnsafe("project-clear-attachments"),
+            projectId: ContainerId.makeUnsafe("project-clear-attachments"),
             title: "Project Clear Attachments",
             workspaceRoot: "/tmp/project-clear-attachments",
             defaultModelSelection: null,
@@ -1984,7 +1985,7 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
           metadata: {},
           payload: {
             threadId: ThreadId.makeUnsafe("thread-clear-attachments"),
-            projectId: ProjectId.makeUnsafe("project-clear-attachments"),
+            projectId: ContainerId.makeUnsafe("project-clear-attachments"),
             title: "Thread Clear Attachments",
             modelSelection: {
               provider: "codex",
@@ -2083,14 +2084,14 @@ it.layer(
         type: "project.created",
         eventId: EventId.makeUnsafe("evt-overwrite-1"),
         aggregateKind: "project",
-        aggregateId: ProjectId.makeUnsafe("project-overwrite"),
+        aggregateId: ContainerId.makeUnsafe("project-overwrite"),
         occurredAt: now,
         commandId: CommandId.makeUnsafe("cmd-overwrite-1"),
         causationEventId: null,
         correlationId: CommandId.makeUnsafe("cmd-overwrite-1"),
         metadata: {},
         payload: {
-          projectId: ProjectId.makeUnsafe("project-overwrite"),
+          projectId: ContainerId.makeUnsafe("project-overwrite"),
           title: "Project Overwrite",
           workspaceRoot: "/tmp/project-overwrite",
           defaultModelSelection: null,
@@ -2112,7 +2113,7 @@ it.layer(
         metadata: {},
         payload: {
           threadId: ThreadId.makeUnsafe("thread-overwrite"),
-          projectId: ProjectId.makeUnsafe("project-overwrite"),
+          projectId: ContainerId.makeUnsafe("project-overwrite"),
           title: "Thread Overwrite",
           modelSelection: {
             provider: "codex",
@@ -2228,14 +2229,14 @@ it.layer(
         type: "project.created",
         eventId: EventId.makeUnsafe("evt-rollback-1"),
         aggregateKind: "project",
-        aggregateId: ProjectId.makeUnsafe("project-rollback"),
+        aggregateId: ContainerId.makeUnsafe("project-rollback"),
         occurredAt: now,
         commandId: CommandId.makeUnsafe("cmd-rollback-1"),
         causationEventId: null,
         correlationId: CorrelationId.makeUnsafe("cmd-rollback-1"),
         metadata: {},
         payload: {
-          projectId: ProjectId.makeUnsafe("project-rollback"),
+          projectId: ContainerId.makeUnsafe("project-rollback"),
           title: "Project Rollback",
           workspaceRoot: "/tmp/project-rollback",
           defaultModelSelection: null,
@@ -2257,7 +2258,7 @@ it.layer(
         metadata: {},
         payload: {
           threadId: ThreadId.makeUnsafe("thread-rollback"),
-          projectId: ProjectId.makeUnsafe("project-rollback"),
+          projectId: ContainerId.makeUnsafe("project-rollback"),
           title: "Thread Rollback",
           modelSelection: {
             provider: "codex",
@@ -2336,7 +2337,7 @@ it.layer(
       const eventStore = yield* OrchestrationEventStore;
       const sql = yield* SqlClient.SqlClient;
       const appendAndProject = makeAppendAndProject(eventStore, projectionPipeline);
-      const projectId = ProjectId.makeUnsafe("project-stream-append");
+      const projectId = ContainerId.makeUnsafe("project-stream-append");
       const threadId = ThreadId.makeUnsafe("thread-stream-append");
       const messageId = MessageId.makeUnsafe("message-stream-append");
       const turnId = TurnId.makeUnsafe("turn-stream-append");
@@ -2540,7 +2541,7 @@ it.layer(
       const eventStore = yield* OrchestrationEventStore;
       const sql = yield* SqlClient.SqlClient;
       const appendAndProject = makeAppendAndProject(eventStore, projectionPipeline);
-      const projectId = ProjectId.makeUnsafe("project-stream-restart");
+      const projectId = ContainerId.makeUnsafe("project-stream-restart");
       const threadId = ThreadId.makeUnsafe("thread-stream-restart");
       const messageId = MessageId.makeUnsafe("message-stream-restart");
       const createdAt = "2026-04-02T10:00:00.000Z";
@@ -2715,14 +2716,14 @@ it.layer(
         type: "project.created",
         eventId: EventId.makeUnsafe("evt-revert-files-1"),
         aggregateKind: "project",
-        aggregateId: ProjectId.makeUnsafe("project-revert-files"),
+        aggregateId: ContainerId.makeUnsafe("project-revert-files"),
         occurredAt: now,
         commandId: CommandId.makeUnsafe("cmd-revert-files-1"),
         causationEventId: null,
         correlationId: CorrelationId.makeUnsafe("cmd-revert-files-1"),
         metadata: {},
         payload: {
-          projectId: ProjectId.makeUnsafe("project-revert-files"),
+          projectId: ContainerId.makeUnsafe("project-revert-files"),
           title: "Project Revert Files",
           workspaceRoot: "/tmp/project-revert-files",
           defaultModelSelection: null,
@@ -2744,7 +2745,7 @@ it.layer(
         metadata: {},
         payload: {
           threadId,
-          projectId: ProjectId.makeUnsafe("project-revert-files"),
+          projectId: ContainerId.makeUnsafe("project-revert-files"),
           title: "Thread Revert Files",
           modelSelection: {
             provider: "codex",
@@ -2991,14 +2992,14 @@ it.layer(
         type: "project.created",
         eventId: EventId.makeUnsafe("evt-delete-files-1"),
         aggregateKind: "project",
-        aggregateId: ProjectId.makeUnsafe("project-delete-files"),
+        aggregateId: ContainerId.makeUnsafe("project-delete-files"),
         occurredAt: now,
         commandId: CommandId.makeUnsafe("cmd-delete-files-1"),
         causationEventId: null,
         correlationId: CorrelationId.makeUnsafe("cmd-delete-files-1"),
         metadata: {},
         payload: {
-          projectId: ProjectId.makeUnsafe("project-delete-files"),
+          projectId: ContainerId.makeUnsafe("project-delete-files"),
           title: "Project Delete Files",
           workspaceRoot: "/tmp/project-delete-files",
           defaultModelSelection: null,
@@ -3020,7 +3021,7 @@ it.layer(
         metadata: {},
         payload: {
           threadId,
-          projectId: ProjectId.makeUnsafe("project-delete-files"),
+          projectId: ContainerId.makeUnsafe("project-delete-files"),
           title: "Thread Delete Files",
           modelSelection: {
             provider: "codex",
@@ -3149,14 +3150,14 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
         type: "project.created",
         eventId: EventId.makeUnsafe("evt-a1"),
         aggregateKind: "project",
-        aggregateId: ProjectId.makeUnsafe("project-a"),
+        aggregateId: ContainerId.makeUnsafe("project-a"),
         occurredAt: now,
         commandId: CommandId.makeUnsafe("cmd-a1"),
         causationEventId: null,
         correlationId: CorrelationId.makeUnsafe("cmd-a1"),
         metadata: {},
         payload: {
-          projectId: ProjectId.makeUnsafe("project-a"),
+          projectId: ContainerId.makeUnsafe("project-a"),
           title: "Project A",
           workspaceRoot: "/tmp/project-a",
           defaultModelSelection: null,
@@ -3178,7 +3179,7 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
         metadata: {},
         payload: {
           threadId: ThreadId.makeUnsafe("thread-a"),
-          projectId: ProjectId.makeUnsafe("project-a"),
+          projectId: ContainerId.makeUnsafe("project-a"),
           title: "Thread A",
           modelSelection: {
             provider: "codex",
@@ -3276,14 +3277,14 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
         type: "project.created",
         eventId: EventId.makeUnsafe("evt-empty-1"),
         aggregateKind: "project",
-        aggregateId: ProjectId.makeUnsafe("project-empty"),
+        aggregateId: ContainerId.makeUnsafe("project-empty"),
         occurredAt: now,
         commandId: CommandId.makeUnsafe("cmd-empty-1"),
         causationEventId: null,
         correlationId: CorrelationId.makeUnsafe("cmd-empty-1"),
         metadata: {},
         payload: {
-          projectId: ProjectId.makeUnsafe("project-empty"),
+          projectId: ContainerId.makeUnsafe("project-empty"),
           title: "Project Empty",
           workspaceRoot: "/tmp/project-empty",
           defaultModelSelection: null,
@@ -3305,7 +3306,7 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
         metadata: {},
         payload: {
           threadId: ThreadId.makeUnsafe("thread-empty"),
-          projectId: ProjectId.makeUnsafe("project-empty"),
+          projectId: ContainerId.makeUnsafe("project-empty"),
           title: "Thread Empty",
           modelSelection: {
             provider: "codex",
@@ -3413,14 +3414,14 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
           type: "project.created",
           eventId: EventId.makeUnsafe("evt-conflict-1"),
           aggregateKind: "project",
-          aggregateId: ProjectId.makeUnsafe("project-conflict"),
+          aggregateId: ContainerId.makeUnsafe("project-conflict"),
           occurredAt: "2026-02-26T13:00:00.000Z",
           commandId: CommandId.makeUnsafe("cmd-conflict-1"),
           causationEventId: null,
           correlationId: CorrelationId.makeUnsafe("cmd-conflict-1"),
           metadata: {},
           payload: {
-            projectId: ProjectId.makeUnsafe("project-conflict"),
+            projectId: ContainerId.makeUnsafe("project-conflict"),
             title: "Project Conflict",
             workspaceRoot: "/tmp/project-conflict",
             defaultModelSelection: null,
@@ -3442,7 +3443,7 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
           metadata: {},
           payload: {
             threadId: ThreadId.makeUnsafe("thread-conflict"),
-            projectId: ProjectId.makeUnsafe("project-conflict"),
+            projectId: ContainerId.makeUnsafe("project-conflict"),
             title: "Thread Conflict",
             modelSelection: {
               provider: "codex",
@@ -3555,14 +3556,14 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
         type: "project.created",
         eventId: EventId.makeUnsafe("evt-revert-1"),
         aggregateKind: "project",
-        aggregateId: ProjectId.makeUnsafe("project-revert"),
+        aggregateId: ContainerId.makeUnsafe("project-revert"),
         occurredAt: "2026-02-26T12:00:00.000Z",
         commandId: CommandId.makeUnsafe("cmd-revert-1"),
         causationEventId: null,
         correlationId: CorrelationId.makeUnsafe("cmd-revert-1"),
         metadata: {},
         payload: {
-          projectId: ProjectId.makeUnsafe("project-revert"),
+          projectId: ContainerId.makeUnsafe("project-revert"),
           title: "Project Revert",
           workspaceRoot: "/tmp/project-revert",
           defaultModelSelection: null,
@@ -3584,7 +3585,7 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
         metadata: {},
         payload: {
           threadId: ThreadId.makeUnsafe("thread-revert"),
-          projectId: ProjectId.makeUnsafe("project-revert"),
+          projectId: ContainerId.makeUnsafe("project-revert"),
           title: "Thread Revert",
           modelSelection: {
             provider: "codex",
@@ -3909,8 +3910,9 @@ engineLayer("OrchestrationProjectionPipeline via engine dispatch", (it) => {
 
       yield* engine.dispatch({
         type: "project.create",
+        kind: "chat",
         commandId: CommandId.makeUnsafe("cmd-live-project"),
-        projectId: ProjectId.makeUnsafe("project-live"),
+        projectId: ContainerId.makeUnsafe("project-live"),
         title: "Live Project",
         workspaceRoot: "/tmp/project-live",
         defaultModelSelection: {
@@ -3973,13 +3975,24 @@ engineLayer("OrchestrationProjectionPipeline via engine dispatch", (it) => {
       const engine = yield* OrchestrationEngineService;
       const sql = yield* SqlClient.SqlClient;
       const createdAt = new Date().toISOString();
+      const personalSpaceId = SpaceId.makeUnsafe("penkra-personal");
+
+      yield* engine.dispatch({
+        type: "space.create",
+        commandId: CommandId.makeUnsafe("cmd-scripts-space-create"),
+        spaceId: personalSpaceId,
+        name: "Personal",
+        icon: "home",
+        createdAt,
+      });
 
       yield* engine.dispatch({
         type: "project.create",
         commandId: CommandId.makeUnsafe("cmd-scripts-project-create"),
-        projectId: ProjectId.makeUnsafe("project-scripts"),
+        projectId: ContainerId.makeUnsafe("project-scripts"),
         title: "Scripts Project",
-        workspaceRoot: "/tmp/project-scripts",
+        workspaceRoot: null,
+        spaceId: personalSpaceId,
         defaultModelSelection: {
           provider: "codex",
           model: "gpt-5-codex",
@@ -3990,7 +4003,7 @@ engineLayer("OrchestrationProjectionPipeline via engine dispatch", (it) => {
       yield* engine.dispatch({
         type: "project.meta.update",
         commandId: CommandId.makeUnsafe("cmd-scripts-project-update"),
-        projectId: ProjectId.makeUnsafe("project-scripts"),
+        projectId: ContainerId.makeUnsafe("project-scripts"),
         scripts: [
           {
             id: "script-1",
@@ -4035,11 +4048,12 @@ engineLayer("OrchestrationProjectionPipeline via engine dispatch", (it) => {
       const engine = yield* OrchestrationEngineService;
       const sql = yield* SqlClient.SqlClient;
       const createdAt = "2026-07-09T00:00:00.000Z";
-      const projectId = ProjectId.makeUnsafe("project-routed-telemetry");
+      const projectId = ContainerId.makeUnsafe("project-routed-telemetry");
       const threadId = ThreadId.makeUnsafe("thread-routed-telemetry");
 
       yield* engine.dispatch({
         type: "project.create",
+        kind: "chat",
         commandId: CommandId.makeUnsafe("cmd-routed-project"),
         projectId,
         title: "Routed telemetry",
@@ -4057,7 +4071,7 @@ engineLayer("OrchestrationProjectionPipeline via engine dispatch", (it) => {
         interactionMode: "default",
         runtimeMode: "full-access",
         branch: null,
-        worktreePath: null,
+        worktreePath: "/tmp/project-routed-telemetry",
         createdAt,
       });
 

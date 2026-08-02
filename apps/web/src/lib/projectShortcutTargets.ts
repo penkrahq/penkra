@@ -1,11 +1,11 @@
-import type { ProjectId } from "@penkra/contracts";
+import type { ContainerId } from "@penkra/contracts";
 
 import type { Project } from "../types";
 
 function resolveUsableProjectId(
   projects: readonly Project[],
-  projectId: ProjectId | null,
-): ProjectId | null {
+  projectId: ContainerId | null,
+): ContainerId | null {
   if (!projectId) {
     return null;
   }
@@ -18,22 +18,22 @@ function resolveUsableProjectId(
 
 export function resolveCurrentProjectTargetId(
   projects: readonly Project[],
-  focusedProjectId: ProjectId | null,
-): ProjectId | null {
+  focusedProjectId: ContainerId | null,
+): ContainerId | null {
   return resolveUsableProjectId(projects, focusedProjectId);
 }
 
 export function resolveLatestProjectTargetId(
   projects: readonly Project[],
-  latestProjectId: ProjectId | null,
-): ProjectId | null {
+  latestProjectId: ContainerId | null,
+): ContainerId | null {
   return resolveUsableProjectId(projects, latestProjectId);
 }
 
 export function resolveLatestProjectTargetIdWithFallback(
   projects: readonly Project[],
-  latestProjectId: ProjectId | null,
-): ProjectId | null {
+  latestProjectId: ContainerId | null,
+): ContainerId | null {
   return (
     resolveLatestProjectTargetId(projects, latestProjectId) ??
     projects
@@ -45,7 +45,7 @@ export function resolveLatestProjectTargetIdWithFallback(
 }
 
 export interface NewThreadTarget {
-  readonly projectId: ProjectId;
+  readonly projectId: ContainerId;
   /**
    * Whether the new thread should inherit the active surface's branch/worktree/env.
    * True only when we target the focused project; on the latest-project fallback that
@@ -58,8 +58,8 @@ export interface NewThreadTarget {
 // when one is usable, otherwise the most recently used project. Shared by click, palette,
 // and keyboard entry points so they never disagree on the fallback.
 export function resolveNewThreadTarget(input: {
-  currentProjectId: ProjectId | null;
-  latestUsableProjectId: ProjectId | null;
+  currentProjectId: ContainerId | null;
+  latestUsableProjectId: ContainerId | null;
 }): NewThreadTarget | null {
   if (input.currentProjectId) {
     return { projectId: input.currentProjectId, inheritContext: true };

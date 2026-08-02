@@ -47,6 +47,41 @@ function enabledState(): AppInstallationState {
   });
 }
 
+function crossAppState(): AppInstallationState {
+  const linear = enabledState();
+  const installed = registerVerifiedAppPackage(linear, {
+    manifest: {
+      manifestVersion: 1,
+      id: "com.acme.github",
+      slug: "github",
+      name: "GitHub",
+      summary: "Manage GitHub issues.",
+      version: "1.0.0",
+      compatibility: { penkra: ">=0.8.0" },
+      icons: [{ src: "icon.svg", sizes: "any", type: "image/svg+xml" }],
+      entrypoints: { app: "app.html", operations: "operations.html" },
+      operations: [
+        {
+          key: "issues.search",
+          summary: "Search issues.",
+          input: { type: "object" },
+          output: { type: "object" },
+          handler: "issues.search",
+        },
+      ],
+    },
+    source: "registry",
+    packagePath: "/profile/apps/com.acme.github/1.0.0",
+    sha256: "b".repeat(64),
+    installedAt: "2026-08-01T00:00:00.000Z",
+  });
+  return setSpaceAppEnabled(installed, {
+    appId: "com.acme.github",
+    spaceId: "personal",
+    enabled: true,
+  });
+}
+
 function tab(id: string, overrides: Partial<AppTabEndpoint> = {}): AppTabEndpoint {
   return {
     id,
@@ -54,8 +89,8 @@ function tab(id: string, overrides: Partial<AppTabEndpoint> = {}): AppTabEndpoin
     spaceId: "personal",
     threadId: "thread-1",
     navigate: vi.fn(async () => undefined),
-    navigateForResult: vi.fn(async () => ({ accepted: true })),
-    invoke: vi.fn(async () => ({ updated: true })),
+    navigateForResult: vi.fn(async () => ({ accepted: true })) as never,
+    invoke: vi.fn(async () => ({ updated: true })) as never,
     ...overrides,
   };
 }
@@ -64,9 +99,10 @@ function broker(state: () => AppInstallationState, tabs?: Partial<AppTabHost>) {
   return new AppOperationBroker({
     installationState: state,
     mintInvocationId: () => "invocation-1",
+    resolveIdentity: async () => ({ subject: "sub_test", space: "space_test" }),
     tabs: {
       open: vi.fn(async () => tab("new-tab")),
-      openForResult: vi.fn(async () => ({ completed: true })),
+      openForResult: vi.fn(async () => ({ completed: true })) as never,
       ...tabs,
     },
   });
@@ -96,7 +132,9 @@ describe("AppOperationBroker", () => {
         id: "invocation-1",
         app: "linear",
         operation: "issues.create",
-        spaceId: "personal",
+        caller: null,
+        subject: "sub_test",
+        space: "space_test",
         threadId: "thread-1",
       },
     });
@@ -148,7 +186,7 @@ describe("AppOperationBroker", () => {
       tabId: "other-thread",
       input: {},
     });
-    await expect(invocation).rejects.toMatchObject<AppOperationBrokerError>({
+    await expect(invocation).rejects.toMatchObject({
       code: "tab-target-mismatch",
     });
   });
@@ -207,7 +245,7 @@ describe("AppOperationBroker", () => {
         threadId: "thread-1",
         input: {},
       }),
-    ).rejects.toMatchObject<AppOperationBrokerError>({ code: "app-disabled" });
+    ).rejects.toMatchObject({ code: "app-disabled" });
   });
 
   it("enforces declared input and output schemas at the trusted broker", async () => {
@@ -218,21 +256,25 @@ describe("AppOperationBroker", () => {
       handlers: { "issues.create": async () => "not-an-object" },
     });
 
-    await expect(runtime.invoke({
-      app: "linear",
-      operation: "issues.create",
-      spaceId: "personal",
-      threadId: "thread-1",
-      input: "not-an-object",
-    })).rejects.toMatchObject<AppOperationBrokerError>({ code: "invalid-input" });
+    await expect(
+      runtime.invoke({
+        app: "linear",
+        operation: "issues.create",
+        spaceId: "personal",
+        threadId: "thread-1",
+        input: "not-an-object",
+      }),
+    ).rejects.toMatchObject({ code: "invalid-input" });
 
-    await expect(runtime.invoke({
-      app: "linear",
-      operation: "issues.create",
-      spaceId: "personal",
-      threadId: "thread-1",
-      input: {},
-    })).rejects.toMatchObject<AppOperationBrokerError>({ code: "invalid-output" });
+    await expect(
+      runtime.invoke({
+        app: "linear",
+        operation: "issues.create",
+        spaceId: "personal",
+        threadId: "thread-1",
+        input: {},
+      }),
+    ).rejects.toMatchObject({ code: "invalid-output" });
   });
 
   it("unregister callbacks cannot remove replacement endpoints", () => {
@@ -247,5 +289,49 @@ describe("AppOperationBroker", () => {
     expect(() => runtime.registerTab(tab("tab-a"))).toThrowError(
       expect.objectContaining({ code: "tab-already-registered" }),
     );
+  });
+
+  it("routes cross-App calls through the callee schema and preserves caller attribution", async () => {
+    let invocation = 0;
+    const runtime = new AppOperationBroker({
+      installationState: crossAppState,
+      mintInvocationId: () => `invocation-${++invocation}`,
+      resolveIdentity: async (appId) => ({ subject: `subject:${appId}`, space: `space:${appId}` }),
+      tabs: { open: vi.fn(), openForResult: vi.fn() },
+    });
+    runtime.registerController({
+      appId: "com.acme.github",
+      spaceId: "personal",
+      handlers: {
+        "issues.search": async (_input, context) => ({ invocation: context.invocation }),
+      },
+    });
+    runtime.registerController({
+      appId: "com.acme.linear",
+      spaceId: "personal",
+      handlers: {
+        "issues.create": async (_input, context) =>
+          context.operations.invoke({ app: "github", operation: "issues.search", input: {} }),
+      },
+    });
+
+    await expect(
+      runtime.invoke({
+        app: "linear",
+        operation: "issues.create",
+        spaceId: "personal",
+        threadId: "thread-1",
+        input: {},
+      }),
+    ).resolves.toMatchObject({
+      invocation: {
+        id: "invocation-2",
+        app: "github",
+        operation: "issues.search",
+        caller: { app: "linear", invocationId: "invocation-1" },
+        subject: "subject:com.acme.github",
+        space: "space:com.acme.github",
+      },
+    });
   });
 });

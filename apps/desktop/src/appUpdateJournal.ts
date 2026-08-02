@@ -31,7 +31,8 @@ export class AppUpdateJournal {
   readonly filePath: string;
 
   constructor(filePath: string) {
-    if (!Path.isAbsolute(filePath)) throw new TypeError("App update journal path must be absolute.");
+    if (!Path.isAbsolute(filePath))
+      throw new TypeError("App update journal path must be absolute.");
     this.filePath = filePath;
   }
 
@@ -59,7 +60,9 @@ export class AppUpdateJournal {
     }
   }
 
-  async recoverSafe(store: Pick<AppInstallationStore, "mutate">): Promise<AppUpdateRecovery | null> {
+  async recoverSafe(
+    store: Pick<AppInstallationStore, "mutate">,
+  ): Promise<AppUpdateRecovery | null> {
     const result = await readJournal(this.filePath);
     if (result.status === "missing") return null;
     if (result.status === "corrupt") {
@@ -104,9 +107,11 @@ async function readJournal(filePath: string): Promise<ReadJournalResult> {
 }
 
 function parseJournal(value: unknown): AppUpdateJournalRecord {
-  if (!isRecord(value) || value.schemaVersion !== 1) throw new Error("App update journal schema is invalid.");
+  if (!isRecord(value) || value.schemaVersion !== 1)
+    throw new Error("App update journal schema is invalid.");
   const createdAt = requireText(value.createdAt, "createdAt");
-  if (!Number.isFinite(Date.parse(createdAt))) throw new Error("App update journal time is invalid.");
+  if (!Number.isFinite(Date.parse(createdAt)))
+    throw new Error("App update journal time is invalid.");
   return {
     schemaVersion: 1,
     appId: requireText(value.appId, "appId"),
@@ -122,7 +127,10 @@ async function writeJournal(filePath: string, record: AppUpdateJournalRecord): P
     throw new Error("App update journal exceeds its size limit.");
   }
   const parentPath = Path.dirname(filePath);
-  const temporaryPath = Path.join(parentPath, `.${APP_UPDATE_JOURNAL_FILE_NAME}.${process.pid}.${Date.now()}.tmp`);
+  const temporaryPath = Path.join(
+    parentPath,
+    `.${APP_UPDATE_JOURNAL_FILE_NAME}.${process.pid}.${Date.now()}.tmp`,
+  );
   let handle: FS.promises.FileHandle | null = null;
   try {
     await FS.promises.mkdir(parentPath, { recursive: true, mode: 0o700 });
@@ -152,7 +160,8 @@ async function syncDirectory(directoryPath: string): Promise<void> {
 }
 
 function requireText(value: unknown, label: string): string {
-  if (typeof value !== "string" || !value.trim()) throw new Error(`App update journal ${label} is invalid.`);
+  if (typeof value !== "string" || !value.trim())
+    throw new Error(`App update journal ${label} is invalid.`);
   return value;
 }
 

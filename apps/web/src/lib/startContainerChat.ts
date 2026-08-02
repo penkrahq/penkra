@@ -4,7 +4,7 @@
 // Layer: Web orchestration helper
 // Exports: Container-chat startup plus segment-aware fresh-chat dispatch.
 
-import type { ProjectId, SpaceId, ThreadId } from "@penkra/contracts";
+import type { ContainerId, SpaceId, ThreadId } from "@penkra/contracts";
 import type { Project } from "../types";
 import { isStudioContainerProject } from "./studioProjects";
 import type { ServerWorkspacePaths } from "./serverWorkspacePaths";
@@ -40,9 +40,9 @@ export function startFreshChatForActiveSurface(input: {
  * user-facing failure label vary.
  */
 export async function startContainerChat(input: {
-  readonly ensureProjectId: () => Promise<ProjectId | null>;
+  readonly ensureProjectId: () => Promise<ContainerId | null>;
   readonly handleNewThread: (
-    projectId: ProjectId,
+    projectId: ContainerId,
     options?: NewThreadOptions,
   ) => Promise<ThreadId | null>;
   readonly fresh?: boolean | undefined;

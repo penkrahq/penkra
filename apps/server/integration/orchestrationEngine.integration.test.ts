@@ -8,7 +8,8 @@ import {
   DEFAULT_MODEL_BY_PROVIDER,
   EventId,
   MessageId,
-  ProjectId,
+  ContainerId,
+  SpaceId,
   ProviderKind,
   ThreadId,
   ModelSelection,
@@ -31,7 +32,7 @@ import type {
 import * as NodeServices from "@effect/platform-node/NodeServices";
 
 const asMessageId = (value: string): MessageId => MessageId.makeUnsafe(value);
-const asProjectId = (value: string): ProjectId => ProjectId.makeUnsafe(value);
+const asProjectId = (value: string): ContainerId => ContainerId.makeUnsafe(value);
 const asEventId = (value: string): EventId => EventId.makeUnsafe(value);
 const asApprovalRequestId = (value: string): ApprovalRequestId =>
   ApprovalRequestId.makeUnsafe(value);
@@ -126,13 +127,24 @@ const seedProjectAndThread = (harness: OrchestrationIntegrationHarness) =>
       throw new Error("Pi integration tests require an explicit model selection.");
     }
     const defaultModel = DEFAULT_MODEL_BY_PROVIDER[provider];
+    const personalSpaceId = SpaceId.makeUnsafe("penkra-personal");
+
+    yield* harness.engine.dispatch({
+      type: "space.create",
+      commandId: CommandId.makeUnsafe("cmd-space-create"),
+      spaceId: personalSpaceId,
+      name: "Personal",
+      icon: "home",
+      createdAt,
+    });
 
     yield* harness.engine.dispatch({
       type: "project.create",
       commandId: CommandId.makeUnsafe("cmd-project-create"),
       projectId: PROJECT_ID,
       title: "Integration Project",
-      workspaceRoot: harness.workspaceDir,
+      workspaceRoot: null,
+      spaceId: personalSpaceId,
       defaultModelSelection: {
         provider,
         model: defaultModel,
@@ -281,7 +293,7 @@ it.live.skipIf(!process.env.CODEX_BINARY_PATH)(
           commandId: CommandId.makeUnsafe("cmd-project-create-real-codex"),
           projectId: PROJECT_ID,
           title: "Integration Project",
-          workspaceRoot: harness.workspaceDir,
+          workspaceRoot: null,
           defaultModelSelection: {
             provider: "codex",
             model: "gpt-5.3-codex",

@@ -1,13 +1,13 @@
 // FILE: useRouteSpaceSync.ts
 // Purpose: Synchronize the selected Space only when route identity actually changes.
 
-import type { ProjectId, SpaceId, ThreadId } from "@penkra/contracts";
+import type { ContainerId, SpaceId, ThreadId } from "@penkra/contracts";
 import { useEffect } from "react";
 
 import { useSpacesUiStore } from "../spacesUiStore";
 
 export function useRouteSpaceSync(input: {
-  routeProjectId: ProjectId | null;
+  routeProjectId: ContainerId | null;
   routeSpaceId: SpaceId | null | undefined;
   routeThreadId: ThreadId | null;
 }): void {
@@ -19,7 +19,7 @@ export function useRouteSpaceSync(input: {
   // and the still-current route must not immediately overwrite that user intent. Primitive route
   // inputs rerun this effect once navigation really changes identity.
   useEffect(() => {
-    if (routeProjectId === null || routeSpaceId === undefined) return;
+    if (routeProjectId === null || routeSpaceId == null) return;
     if (useSpacesUiStore.getState().activeSpaceId !== routeSpaceId) {
       setActiveSpaceId(routeSpaceId);
     }

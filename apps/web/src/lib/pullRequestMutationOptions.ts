@@ -1,5 +1,5 @@
 import type {
-  ProjectId,
+  ContainerId,
   PullRequestActionInput,
   PullRequestCommentInput,
   PullRequestSetPinnedInput,
@@ -100,7 +100,7 @@ function actionListScopes(
   const byKey = new Map(
     scopes.map((scope) => [`${scope.state}\u0000${scope.projectId ?? ""}`, scope] as const),
   );
-  const projectIds = new Set<ProjectId | null>([
+  const projectIds = new Set<ContainerId | null>([
     input.projectId,
     null,
     ...scopes.map((scope) => scope.projectId),
@@ -352,7 +352,7 @@ export function pullRequestsForceRefreshMutationOptions(queryClient: QueryClient
     // merged field-by-field through the retained identity protection below.
     scope: { id: PULL_REQUEST_ACTION_REFRESH_SCOPE_ID },
     networkMode: "always",
-    mutationFn: (input: { state: PullRequestState; projectId: ProjectId | null }) =>
+    mutationFn: (input: { state: PullRequestState; projectId: ContainerId | null }) =>
       ensureNativeApi().pullRequests.list({
         involvement: "all",
         state: input.state,

@@ -44,28 +44,25 @@ interface ShortcutDefinition {
   description: string;
 }
 
-// Space jumps address the switcher's visual tab order, so slot 1 is always Void.
+// Space jumps address persisted Spaces in visual order.
 const SPACE_JUMP_DEFINITIONS: readonly ShortcutDefinition[] = Array.from(
   { length: 9 },
   (_, index) => ({
     command: `space.jump.${index + 1}` as KeybindingCommand,
-    label: index === 0 ? "Jump to Void" : `Jump to space ${index + 1}`,
-    description:
-      index === 0
-        ? "Switch straight to the Void tab of the space switcher."
-        : "Switch straight to this tab of the space switcher.",
+    label: `Jump to space ${index + 1}`,
+    description: "Switch straight to this Space.",
   }),
 );
 
 const AVAILABLE_NOW_DEFINITIONS: readonly ShortcutDefinition[] = [
   {
     command: "sidebar.addProject",
-    label: "Add project",
-    description: "Open the Create project dialog to import a local folder.",
+    label: "Add folder",
+    description: "Open the Add folder dialog to link a local folder.",
   },
   {
     command: "sidebar.search",
-    label: "Search projects and threads",
+    label: "Search folders and threads",
     description: "Open the sidebar search palette from anywhere in the app.",
   },
   {
@@ -76,23 +73,23 @@ const AVAILABLE_NOW_DEFINITIONS: readonly ShortcutDefinition[] = [
   {
     command: "space.previous",
     label: "Previous space",
-    description: "Switch to the previous project space and restore its last working context.",
+    description: "Switch to the previous space and restore its last working context.",
   },
   {
     command: "space.next",
     label: "Next space",
-    description: "Switch to the next project space and restore its last working context.",
+    description: "Switch to the next space and restore its last working context.",
   },
   ...SPACE_JUMP_DEFINITIONS,
   {
     command: "chat.new",
     label: "New thread",
-    description: "Start a fresh thread in the current project, or the most recent one.",
+    description: "Start a fresh thread in the current folder, or the most recent one.",
   },
   {
     command: "chat.newLatestProject",
-    label: "New thread in latest project",
-    description: "Jump back into the most recently used project with a new thread.",
+    label: "New thread in latest folder",
+    description: "Jump back into the most recently used folder with a new thread.",
   },
   {
     command: ["chat.newChat", "chat.newLocal"],
@@ -314,8 +311,8 @@ export function buildShortcutSheetSections(
         id: script.id,
         label: script.runOnWorktreeCreate ? `${script.name} setup script` : script.name,
         description: script.runOnWorktreeCreate
-          ? "Run the project setup script directly from the keyboard."
-          : "Run this project script without opening the scripts menu.",
+          ? "Run the folder setup script directly from the keyboard."
+          : "Run this folder script without opening the scripts menu.",
         shortcutLabel,
       } satisfies ShortcutSheetEntry;
     })
@@ -324,8 +321,8 @@ export function buildShortcutSheetSections(
   if (projectScriptEntries.length > 0) {
     sections.push({
       id: "project-scripts",
-      title: "Project scripts",
-      description: "Custom shortcuts defined for the active project's scripts.",
+      title: "Folder scripts",
+      description: "Custom shortcuts defined for the active folder's scripts.",
       entries: projectScriptEntries,
     });
   }

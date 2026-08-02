@@ -5,7 +5,7 @@
 import {
   MAX_PINNED_PROJECTS,
   PROVIDER_DISPLAY_NAMES,
-  ProjectId,
+  ContainerId,
   SpaceId,
   ThreadId,
   type DesktopUpdateState,
@@ -79,10 +79,6 @@ import { useLatestProjectStore } from "../latestProjectStore";
 import { isHomeChatContainerProject, prewarmHomeChatProject } from "../lib/chatProjects";
 import { reconcileDeletedThreadsFromClient } from "../lib/deletedThreadClientReconciliation";
 import { waitForRecoverableProjectInReadModel } from "../lib/projectCreateRecovery";
-import {
-  PROJECT_CREATE_EXISTING_SYNC_ERROR,
-  createOrRecoverProjectFromPath,
-} from "../lib/projectCreation";
 import { deleteProjectFromClient } from "../lib/projectDelete";
 import {
   resolveCurrentProjectTargetId,
@@ -99,17 +95,8 @@ import {
   resolveNewThreadModelPrefetchProvider,
 } from "../lib/providerModelPrefetch";
 import { serverConfigQueryOptions } from "../lib/serverReactQuery";
-import {
-  VOID_SPACE_ICON,
-  VOID_SPACE_KEY,
-  VOID_SPACE_NAME,
-  resolveActiveSpaceId,
-  spaceDisplayIcon,
-  spaceDisplayName,
-  spaceKey,
-} from "../lib/spaceGrouping";
+import { resolveActiveSpaceId, spaceDisplayName } from "../lib/spaceGrouping";
 import { archiveSpace, isOrdinarySpaceProject } from "../lib/spaces";
-import { suggestSpaceIcon } from "../lib/spaceIconSuggestion";
 import { collectStudioProjectIds } from "../lib/studioProjects";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import {
@@ -117,7 +104,7 @@ import {
   resolveAvailableHandoffTargetProviders,
 } from "../lib/threadHandoff";
 import { dispatchThreadRename } from "../lib/threadRename";
-import { isMacPlatform, newCommandId, newThreadId } from "../lib/utils";
+import { isMacPlatform, newCommandId, newProjectId, newThreadId } from "../lib/utils";
 import { readNativeApi } from "../nativeApi";
 import { PenkraCreateClientDialog } from "../penkra/PenkraCreateClientDialog";
 import { penkraQueryKeys } from "../penkra/reactQuery";
@@ -150,7 +137,6 @@ import {
   buildProjectThreadTree,
   derivePinnedProjectIdsForSidebar,
   deriveSidebarProjectData,
-  findWorkspaceRootMatch,
   getNextVisibleSidebarThreadId,
   getSidebarThreadIdsToPrewarm,
   getVisibleSidebarEntriesForPreview,
@@ -159,7 +145,6 @@ import {
   isProjectsSidebarSurface,
   orderPinnedProjectsForSidebar,
   pruneProjectThreadListPagingForCollapsedProjects,
-  recoverExistingAddProjectTarget,
   resolveSidebarNewThreadEnvMode,
   resolveSidebarWorkStatus,
   resolveSidebarThreadListPaging,
@@ -187,7 +172,6 @@ import type {
   SidebarSearchProject,
   SidebarSearchThread,
 } from "./SidebarSearchPalette.logic";
-import { SpaceIcon } from "./SpaceIcon";
 import { THREAD_DRAG_MIME } from "./chat-drop-overlay/ChatPaneDropOverlay";
 import {
   ComposerPickerMenuPopup,
@@ -285,7 +269,7 @@ type ProjectContextMenuId =
   | "delete";
 
 type ProjectContextMenuState = {
-  projectId: ProjectId;
+  projectId: ContainerId;
   position: { x: number; y: number };
 };
 
@@ -555,9 +539,8 @@ export default function Sidebar() {
   const [searchPaletteOpen, setSearchPaletteOpen] = useState(false);
   const openFeedbackDialog = useFeedbackDialogStore((state) => state.openDialog);
   const [searchPaletteMode, setSearchPaletteMode] = useState<SidebarSearchPaletteMode>("search");
-  const [isAddingProject, setIsAddingProject] = useState(false);
   const [renameDialogThreadId, setRenameDialogThreadId] = useState<ThreadId | null>(null);
-  const [renameProjectDialogId, setRenameProjectDialogId] = useState<ProjectId | null>(null);
+  const [renameProjectDialogId, setRenameProjectDialogId] = useState<ContainerId | null>(null);
   const [projectContextMenuState, setProjectContextMenuState] =
     useState<ProjectContextMenuState | null>(null);
   // "Show more" paging state: extra pages of THREAD_PREVIEW_PAGE_SIZE rows per project cwd.
@@ -581,12 +564,12 @@ export default function Sidebar() {
     threadId: ThreadId;
     timestamp: number;
   } | null>(null);
-  const optimisticPinnedStateByProjectIdRef = useRef(new Map<ProjectId, boolean>());
-  const latestPinnedMutationVersionByProjectIdRef = useRef(new Map<ProjectId, number>());
+  const optimisticPinnedStateByProjectIdRef = useRef(new Map<ContainerId, boolean>());
+  const latestPinnedMutationVersionByProjectIdRef = useRef(new Map<ContainerId, number>());
   const [desktopUpdateState, setDesktopUpdateState] = useState<DesktopUpdateState | null>(null);
   const [installingDesktopUpdate, setInstallingDesktopUpdate] = useState(false);
   const [optimisticPinnedStateByProjectId, setOptimisticPinnedStateByProjectId] = useState<
-    ReadonlyMap<ProjectId, boolean>
+    ReadonlyMap<ContainerId, boolean>
   >(() => new Map());
   // Dedupes the manual-download fallback toast so a single failure surfaced by
   // both the click handler and the install-watchdog push only notifies once.
@@ -788,7 +771,7 @@ export default function Sidebar() {
   useEffect(() => {
     projectByIdRef.current = projectById;
   }, [projectById]);
-  const setOptimisticProjectPinned = useCallback((projectId: ProjectId, isPinned: boolean) => {
+  const setOptimisticProjectPinned = useCallback((projectId: ContainerId, isPinned: boolean) => {
     optimisticPinnedStateByProjectIdRef.current.set(projectId, isPinned);
     setOptimisticPinnedStateByProjectId((current) => {
       if (current.get(projectId) === isPinned) {
@@ -799,7 +782,7 @@ export default function Sidebar() {
       return next;
     });
   }, []);
-  const clearOptimisticProjectPinned = useCallback((projectId: ProjectId) => {
+  const clearOptimisticProjectPinned = useCallback((projectId: ContainerId) => {
     optimisticPinnedStateByProjectIdRef.current.delete(projectId);
     setOptimisticPinnedStateByProjectId((current) => {
       if (!current.has(projectId)) {
@@ -811,7 +794,7 @@ export default function Sidebar() {
     });
   }, []);
   const dispatchProjectPinnedState = useCallback(
-    async (projectId: ProjectId, isPinned: boolean) => {
+    async (projectId: ContainerId, isPinned: boolean) => {
       const api = readNativeApi();
       if (!api) return;
       await api.orchestration.dispatchCommand({
@@ -824,7 +807,7 @@ export default function Sidebar() {
     [],
   );
   const setProjectPinned = useCallback(
-    async (projectId: ProjectId, isPinned: boolean) => {
+    async (projectId: ContainerId, isPinned: boolean) => {
       const api = readNativeApi();
       if (!api) return;
       const project = projectByIdRef.current.get(projectId);
@@ -842,8 +825,8 @@ export default function Sidebar() {
           clearOptimisticProjectPinned(projectId);
           toastManager.add({
             type: "warning",
-            title: "Project pin limit reached",
-            description: `You can pin up to ${MAX_PINNED_PROJECTS} projects.`,
+            title: "Folder pin limit reached",
+            description: `You can pin up to ${MAX_PINNED_PROJECTS} folders.`,
           });
           return;
         }
@@ -883,7 +866,7 @@ export default function Sidebar() {
     ],
   );
   const toggleProjectPinned = useCallback(
-    (projectId: ProjectId) => {
+    (projectId: ContainerId) => {
       const optimisticPinned = optimisticPinnedStateByProjectIdRef.current.get(projectId);
       const locallyPinned = usePinnedProjectsStore.getState().pinnedProjectIds.includes(projectId);
       const serverPinned = projectByIdRef.current.get(projectId)?.isPinned === true;
@@ -895,7 +878,7 @@ export default function Sidebar() {
         });
         toastManager.add({
           type: "error",
-          title: isPinned ? "Unable to unpin project" : "Unable to pin project",
+          title: isPinned ? "Unable to unpin folder" : "Unable to pin folder",
           description: error instanceof Error ? error.message : undefined,
         });
       });
@@ -928,7 +911,7 @@ export default function Sidebar() {
     return () => window.clearTimeout(settle);
   }, [optimisticPinnedStateByProjectId, projects]);
   const focusMostRecentThreadForProject = useCallback(
-    (projectId: ProjectId) => {
+    (projectId: ContainerId) => {
       const latestThread = sortThreadsForSidebar(
         sidebarThreads.filter((thread) => thread.projectId === projectId),
         appSettings.sidebarThreadSortOrder,
@@ -943,91 +926,11 @@ export default function Sidebar() {
     [appSettings.sidebarThreadSortOrder, navigate, sidebarThreads],
   );
 
-  const openOrCreateProjectThreadFromSnapshot = useCallback(
-    async (projectId: ProjectId, snapshot: OrchestrationShellSnapshot): Promise<boolean> => {
-      const latestThread = sortThreadsForSidebar(
-        snapshot.threads
-          .filter(
-            (thread) => thread.projectId === projectId && (thread.archivedAt ?? null) === null,
-          )
-          .map((thread) => ({
-            id: thread.id,
-            createdAt: thread.createdAt,
-            updatedAt: thread.updatedAt,
-            latestUserMessageAt: thread.latestUserMessageAt,
-          })),
-        appSettings.sidebarThreadSortOrder,
-      )[0];
-      if (latestThread) {
-        await navigate({
-          to: "/$threadId",
-          params: { threadId: latestThread.id },
-        });
-        return true;
-      }
-
-      void handleNewThread(projectId, {
-        envMode: appSettings.defaultThreadEnvMode,
-      }).catch(() => undefined);
-      return true;
-    },
-    [
-      appSettings.defaultThreadEnvMode,
-      appSettings.sidebarThreadSortOrder,
-      handleNewThread,
-      navigate,
-    ],
-  );
-
-  const openExistingProjectFromSnapshot = useCallback(
-    async (projectId: ProjectId, snapshot: OrchestrationShellSnapshot): Promise<boolean> => {
-      const existingProject =
-        snapshot.projects.find((candidate) => candidate.id === projectId) ?? null;
-      if (!existingProject) {
-        return false;
-      }
-
-      const latestThread = sortThreadsForSidebar(
-        snapshot.threads
-          .filter(
-            (thread) => thread.projectId === projectId && (thread.archivedAt ?? null) === null,
-          )
-          .map((thread) => ({
-            id: thread.id,
-            createdAt: thread.createdAt,
-            updatedAt: thread.updatedAt,
-            latestUserMessageAt: thread.latestUserMessageAt,
-          })),
-        appSettings.sidebarThreadSortOrder,
-      )[0];
-      if (latestThread) {
-        await navigate({
-          to: "/$threadId",
-          params: { threadId: latestThread.id },
-        });
-        return true;
-      }
-
-      setProjectExpanded(projectId, true);
-      void handleNewThread(projectId, {
-        envMode: appSettings.defaultThreadEnvMode,
-      }).catch(() => undefined);
-      return true;
-    },
-    [
-      appSettings.defaultThreadEnvMode,
-      appSettings.sidebarThreadSortOrder,
-      handleNewThread,
-      navigate,
-      setProjectExpanded,
-    ],
-  );
-
   // Poll the server read model briefly after project.create so we only recover from fresh state.
   const waitForProjectInSnapshot = useCallback(
     async (
       api: NonNullable<ReturnType<typeof readNativeApi>>,
-      projectId: ProjectId,
+      projectId: ContainerId,
     ): Promise<{
       project: OrchestrationShellSnapshot["projects"][number] | null;
       snapshot: OrchestrationShellSnapshot | null;
@@ -1041,67 +944,9 @@ export default function Sidebar() {
     [],
   );
 
-  const waitForProjectWorkspaceRootInSnapshot = useCallback(
-    async (
-      api: NonNullable<ReturnType<typeof readNativeApi>>,
-      workspaceRoot: string,
-    ): Promise<{
-      project: OrchestrationShellSnapshot["projects"][number] | null;
-      snapshot: OrchestrationShellSnapshot | null;
-    }> =>
-      waitForRecoverableProjectInReadModel({
-        workspaceRoot,
-        loadSnapshot: () => api.orchestration.getShellSnapshot().catch(() => null),
-        maxAttempts: ADD_PROJECT_SNAPSHOT_CATCH_UP_MAX_ATTEMPTS,
-        delayMs: ADD_PROJECT_SNAPSHOT_CATCH_UP_DELAY_MS,
-      }),
-    [],
-  );
-
-  // Keep add-project recovery on the same fresh-snapshot path for create, duplicate, and existing-project flows.
-  const recoverExistingProjectFromServer = useCallback(
-    async (
-      api: NonNullable<ReturnType<typeof readNativeApi>>,
-      projectId: ProjectId,
-    ): Promise<boolean> => {
-      const { project, snapshot } = await waitForProjectInSnapshot(api, projectId);
-      if (snapshot) {
-        syncServerShellSnapshot(snapshot);
-      }
-      if (!project || !snapshot) {
-        return false;
-      }
-
-      return openExistingProjectFromSnapshot(project.id, snapshot);
-    },
-    [openExistingProjectFromSnapshot, syncServerShellSnapshot, waitForProjectInSnapshot],
-  );
-
-  const recoverExistingProjectByWorkspaceRootFromServer = useCallback(
-    async (
-      api: NonNullable<ReturnType<typeof readNativeApi>>,
-      workspaceRoot: string,
-    ): Promise<boolean> => {
-      const { project, snapshot } = await waitForProjectWorkspaceRootInSnapshot(api, workspaceRoot);
-      if (snapshot) {
-        syncServerShellSnapshot(snapshot);
-      }
-      if (!project || !snapshot) {
-        return false;
-      }
-
-      return openExistingProjectFromSnapshot(project.id, snapshot);
-    },
-    [
-      openExistingProjectFromSnapshot,
-      syncServerShellSnapshot,
-      waitForProjectWorkspaceRootInSnapshot,
-    ],
-  );
-
   const handleOpenProjectFromSearch = useCallback(
     (projectId: string) => {
-      const typedProjectId = ProjectId.makeUnsafe(projectId);
+      const typedProjectId = ContainerId.makeUnsafe(projectId);
       const hasProjectThread = sidebarThreads.some((thread) => thread.projectId === typedProjectId);
       if (hasProjectThread) {
         focusMostRecentThreadForProject(typedProjectId);
@@ -1132,120 +977,10 @@ export default function Sidebar() {
   // Opens a fresh home-chat draft directly on the draft thread route so the first send
   // does not need a second route swap from "/" to "/$threadId".
   const handleCreateHomeChat = useCallback(
-    async (spaceId: SpaceId | null) => {
+    async (spaceId: SpaceId) => {
       await handleNewChat({ fresh: true, spaceId });
     },
     [handleNewChat],
-  );
-
-  const addProjectFromPath = useCallback(
-    async (
-      rawCwd: string,
-      options: { createIfMissing?: boolean; spaceId?: SpaceId | null } = {},
-    ) => {
-      const cwd = rawCwd.trim();
-      if (!cwd) {
-        throw new Error("Project folder path is empty.");
-      }
-      if (isAddingProject) {
-        throw new Error("Another project is already being added.");
-      }
-      const api = readNativeApi();
-      if (!api) {
-        throw new Error("The app server is unavailable.");
-      }
-
-      setIsAddingProject(true);
-      const finishAddingProject = () => {
-        setIsAddingProject(false);
-      };
-
-      try {
-        const existing = findWorkspaceRootMatch(projects, cwd, (project) => project.cwd);
-        const existingRecovery = await recoverExistingAddProjectTarget({
-          existingProjectId: existing?.id,
-          workspaceRoot: cwd,
-          recoverByProjectId: (projectId) => recoverExistingProjectFromServer(api, projectId),
-          recoverByWorkspaceRoot: (workspaceRoot) =>
-            recoverExistingProjectByWorkspaceRootFromServer(api, workspaceRoot),
-        });
-        if (existingRecovery === "recovered") {
-          finishAddingProject();
-          return;
-        }
-        if (existing) {
-          // Local project state can briefly outlive a server-side project.deleted event.
-          // Continue to project.create so re-adding the folder revives it instead of opening a dead shell.
-        }
-
-        const creationResult = await createOrRecoverProjectFromPath({
-          api,
-          workspaceRoot: cwd,
-          ...(options.createIfMissing === undefined
-            ? {}
-            : { createIfMissing: options.createIfMissing }),
-          ...(options.spaceId === undefined ? {} : { spaceId: options.spaceId }),
-          loadSnapshot: () => api.orchestration.getShellSnapshot().catch(() => null),
-          maxAttempts: ADD_PROJECT_SNAPSHOT_CATCH_UP_MAX_ATTEMPTS,
-          delayMs: ADD_PROJECT_SNAPSHOT_CATCH_UP_DELAY_MS,
-        });
-        if (creationResult.snapshot) {
-          syncServerShellSnapshot(creationResult.snapshot);
-        }
-        if (creationResult.project && creationResult.snapshot) {
-          const recovered = creationResult.created
-            ? await openOrCreateProjectThreadFromSnapshot(
-                creationResult.project.id,
-                creationResult.snapshot,
-              )
-            : await openExistingProjectFromSnapshot(
-                creationResult.project.id,
-                creationResult.snapshot,
-              );
-          if (recovered) {
-            finishAddingProject();
-            return;
-          }
-        }
-
-        if (!creationResult.created) {
-          const recovered = await recoverExistingProjectFromServer(api, creationResult.projectId);
-          if (recovered) {
-            finishAddingProject();
-            return;
-          }
-          setIsAddingProject(false);
-          throw new Error(PROJECT_CREATE_EXISTING_SYNC_ERROR);
-        }
-
-        // The command already committed successfully at this point. If the projection
-        // snapshot is just slow to catch up, continue with the local new-thread flow
-        // instead of surfacing a false-negative sidebar sync error.
-        setProjectExpanded(creationResult.projectId, true);
-        void handleNewThread(creationResult.projectId, {
-          envMode: appSettings.defaultThreadEnvMode,
-        }).catch(() => undefined);
-        finishAddingProject();
-        return;
-      } catch (error) {
-        const description =
-          error instanceof Error ? error.message : "An error occurred while adding the project.";
-        setIsAddingProject(false);
-        throw error instanceof Error ? error : new Error(description);
-      }
-    },
-    [
-      appSettings.defaultThreadEnvMode,
-      handleNewThread,
-      isAddingProject,
-      projects,
-      recoverExistingProjectFromServer,
-      recoverExistingProjectByWorkspaceRootFromServer,
-      openOrCreateProjectThreadFromSnapshot,
-      openExistingProjectFromSnapshot,
-      setProjectExpanded,
-      syncServerShellSnapshot,
-    ],
   );
 
   const handleStartAddProject = useCallback(() => {
@@ -1276,7 +1011,7 @@ export default function Sidebar() {
   // Warm model discovery before ChatView mounts so new-thread composers skip
   // the "Loading models" skeleton when React Query already has a fresh cache hit.
   const prefetchModelsForProjectNewThread = useCallback(
-    (projectId: ProjectId, options?: { includeDroid?: boolean }) => {
+    (projectId: ContainerId, options?: { includeDroid?: boolean }) => {
       const project = projects.find((candidate) => candidate.id === projectId);
       if (!project) {
         return;
@@ -1300,6 +1035,7 @@ export default function Sidebar() {
       }
       const cwd = resolveNewThreadModelPrefetchCwd({
         draftWorktreePath: draftThread?.worktreePath ?? null,
+        draftWorkingDirectory: draftThread?.workingDirectory ?? null,
         projectCwd: project.cwd,
         serverCwd,
       });
@@ -1356,14 +1092,14 @@ export default function Sidebar() {
       }
 
       if (!currentProjectShortcutTargetId) {
-        throw new Error("Add a project before importing a thread.");
+        throw new Error("Add a folder before importing a thread.");
       }
 
       const activeProject = projects.find(
         (project) => project.id === currentProjectShortcutTargetId,
       );
       if (!activeProject) {
-        throw new Error("The target project could not be resolved.");
+        throw new Error("The target folder could not be resolved.");
       }
 
       const providerDefaultModel = getDefaultModel(provider);
@@ -1871,18 +1607,24 @@ export default function Sidebar() {
       const clicked = await api.contextMenu.show(
         [
           { id: "new-thread", label: `New thread in ${space.name}` },
-          { id: "rename", label: "Rename Space", separatorBefore: true },
+          { id: "add-folder", label: `Add folder to ${space.name}` },
+          { id: "rename", label: "Rename space", separatorBefore: true },
           {
             id: "toggle-expanded",
-            label: expanded ? "Collapse Space" : "Expand Space",
+            label: expanded ? "Collapse space" : "Expand space",
           },
-          { id: "archive", label: "Archive Space", separatorBefore: true },
+          { id: "archive", label: "Archive space", separatorBefore: true },
         ],
         { x: event.clientX, y: event.clientY },
       );
       if (clicked === "new-thread") {
         handleSelectSpace(space.id);
         await handleCreateHomeChat(space.id);
+        return;
+      }
+      if (clicked === "add-folder") {
+        handleSelectSpace(space.id);
+        setCreateProjectDialogOpen(true);
         return;
       }
       if (clicked === "rename") {
@@ -1907,44 +1649,63 @@ export default function Sidebar() {
   const handleCreateProjectSubmit = useCallback(
     async (value: CreateProjectSubmitValue) => {
       const previousSpaceId = activeSpaceId;
-      const existingProject = findWorkspaceRootMatch(
-        projects,
-        value.workspaceRoot,
-        (project) => project.cwd,
-      );
-      // Reopening an existing project must follow the Space where that project
-      // actually lives. New projects use the destination selected in the dialog.
-      const destinationSpaceId = existingProject
-        ? (existingProject.spaceId ?? null)
-        : value.spaceId;
-      // Land on the destination space before creating so the sidebar follows the
-      // new project's thread instead of bouncing back to the previous space.
-      handleSelectSpaceForIncomingProject(destinationSpaceId);
+      const api = readNativeApi();
+      if (!api) throw new Error("The app server is unavailable.");
+      const projectId = newProjectId();
+      handleSelectSpaceForIncomingProject(value.spaceId);
       try {
-        await addProjectFromPath(value.workspaceRoot, {
-          createIfMissing: value.createIfMissing,
+        await api.orchestration.dispatchCommand({
+          type: "project.create",
+          commandId: newCommandId(),
+          projectId,
+          kind: "project",
+          title: value.name,
+          workspaceRoot: null,
+          defaultModelSelection: {
+            provider: "codex",
+            model: getDefaultModel("codex"),
+          },
           spaceId: value.spaceId,
+          createdAt: new Date().toISOString(),
         });
+        const { project, snapshot } = await waitForProjectInSnapshot(api, projectId);
+        if (snapshot) syncServerShellSnapshot(snapshot);
+        if (!project) throw new Error("The folder was created but has not synced yet.");
+        setProjectExpanded(projectId, true);
+        await handleNewThread(projectId, { fresh: true, envMode: "local" });
       } catch (error) {
-        // Project creation is one UI transaction: a failed command must not
-        // strand the sidebar in a Space unrelated to the current route.
-        handleSelectSpaceForIncomingProject(previousSpaceId);
+        if (previousSpaceId) handleSelectSpaceForIncomingProject(previousSpaceId);
         throw error;
       }
     },
-    [activeSpaceId, addProjectFromPath, handleSelectSpaceForIncomingProject, projects],
+    [
+      activeSpaceId,
+      handleNewThread,
+      handleSelectSpaceForIncomingProject,
+      setProjectExpanded,
+      syncServerShellSnapshot,
+      waitForProjectInSnapshot,
+    ],
   );
   const handleProjectContextMenuAction = useCallback(
-    async (projectId: ProjectId, clicked: ProjectContextMenuId) => {
+    async (projectId: ContainerId, clicked: ProjectContextMenuId) => {
       setProjectContextMenuState(null);
       const api = readNativeApi();
       if (!api) return;
       const project = projectById.get(projectId);
       if (!project) return;
+      const physicalPath =
+        sidebarThreads
+          .filter((thread) => thread.projectId === projectId && Boolean(thread.workingDirectory))
+          .toSorted((left, right) => right.createdAt.localeCompare(left.createdAt))[0]
+          ?.workingDirectory?.trim() ||
+        project.cwd ||
+        null;
 
       if (clicked === "open-in-finder") {
+        if (!physicalPath) return;
         try {
-          await api.shell.showInFolder(project.cwd);
+          await api.shell.showInFolder(physicalPath);
         } catch (error) {
           toastManager.add({
             type: "error",
@@ -1958,7 +1719,7 @@ export default function Sidebar() {
         return;
       }
       if (clicked === "copy-path") {
-        copyPathToClipboard(project.cwd);
+        if (physicalPath) copyPathToClipboard(physicalPath);
         return;
       }
       if (clicked === "start-dev") {
@@ -1995,10 +1756,10 @@ export default function Sidebar() {
       const confirmed = await api.dialogs.confirm(
         projectThreads.length > 0
           ? [
-              `Remove project "${project.name}"?`,
-              `This will delete ${projectThreads.length} ${pluralize(projectThreads.length, "thread")} in this folder and remove the project.`,
+              `Remove folder "${project.name}"?`,
+              `This will delete ${projectThreads.length} ${pluralize(projectThreads.length, "thread")} in this folder and remove the folder.`,
             ].join("\n")
-          : `Remove project "${project.name}"?`,
+          : `Remove folder "${project.name}"?`,
       );
       if (!confirmed) return;
 
@@ -2033,11 +1794,11 @@ export default function Sidebar() {
           title: `Removed "${project.name}"`,
           description:
             deletionResult.deletedCount > 0
-              ? `Deleted ${deletionResult.deletedCount} ${pluralize(deletionResult.deletedCount, "thread")} and removed the project.`
-              : "Project removed.",
+              ? `Deleted ${deletionResult.deletedCount} ${pluralize(deletionResult.deletedCount, "thread")} and removed the folder.`
+              : "Folder removed.",
         });
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Unknown error removing project.";
+        const message = error instanceof Error ? error.message : "Unknown error removing folder.";
         console.error("Failed to remove project", { projectId, error });
         toastManager.add({
           type: "error",
@@ -2062,7 +1823,7 @@ export default function Sidebar() {
   );
 
   const handleProjectContextMenu = useCallback(
-    (projectId: ProjectId, position: { x: number; y: number }) => {
+    (projectId: ContainerId, position: { x: number; y: number }) => {
       if (!readNativeApi()) return;
       if (!projectById.has(projectId)) return;
       setProjectContextMenuState({ projectId, position });
@@ -2077,7 +1838,7 @@ export default function Sidebar() {
     [sidebarTreeThreads],
   );
   const sortedSidebarThreadsByProjectId = useMemo(() => {
-    const byProjectId = new Map<ProjectId, SidebarThreadSummary[]>();
+    const byProjectId = new Map<ContainerId, SidebarThreadSummary[]>();
     for (const [projectId, projectThreads] of sidebarThreadsByProjectId) {
       byProjectId.set(
         projectId,
@@ -2087,7 +1848,7 @@ export default function Sidebar() {
     return byProjectId;
   }, [appSettings.sidebarThreadSortOrder, sidebarThreadsByProjectId]);
   const handleRenameProjectSave = useCallback(
-    (projectId: ProjectId, nextName: string, previousLocalName: string | null) => {
+    (projectId: ContainerId, nextName: string, previousLocalName: string | null) => {
       const trimmed = nextName.trim();
       const normalizedPrevious = previousLocalName?.trim() ?? "";
       if (trimmed === normalizedPrevious) {
@@ -2165,10 +1926,9 @@ export default function Sidebar() {
     [pinnedProjectIds, standardProjectsBase],
   );
   const sidebarSpaceSections = useMemo(() => {
-    const defaultSpaceId = spaces[0]?.id ?? null;
-    const buildChatData = (spaceId: SpaceId | null) => {
+    const buildChatData = (spaceId: SpaceId) => {
       const entries = visibleChatPreviewEntries.filter(
-        (entry) => (entry.row.thread.spaceId ?? defaultSpaceId) === spaceId,
+        (entry) => entry.row.thread.spaceId === spaceId,
       );
       const activeEntry =
         activeSidebarThreadId === undefined
@@ -2195,7 +1955,7 @@ export default function Sidebar() {
     const sections: Array<{
       key: string;
       label: string;
-      space: Space | null;
+      space: Space;
       projects: Project[];
       chatData: ReturnType<typeof buildChatData>;
     }> = spaces.map((space) => ({
@@ -2205,16 +1965,6 @@ export default function Sidebar() {
       projects: standardProjects.filter((project) => project.spaceId === space.id),
       chatData: buildChatData(space.id),
     }));
-    const unassignedProjects = standardProjects.filter((project) => project.spaceId == null);
-    if (unassignedProjects.length > 0 || sections.length === 0) {
-      sections.push({
-        key: VOID_SPACE_KEY,
-        label: VOID_SPACE_NAME,
-        space: null,
-        projects: unassignedProjects,
-        chatData: buildChatData(null),
-      });
-    }
     return sections;
   }, [
     activeSidebarThreadId,
@@ -2223,7 +1973,9 @@ export default function Sidebar() {
     standardProjects,
     visibleChatPreviewEntries,
   ]);
-  const standardProjectSidebarDataById = useMemo<ReadonlyMap<ProjectId, SidebarDerivedProjectData>>(
+  const standardProjectSidebarDataById = useMemo<
+    ReadonlyMap<ContainerId, SidebarDerivedProjectData>
+  >(
     () =>
       deriveSidebarProjectData({
         projects: standardProjects,
@@ -2671,28 +2423,26 @@ export default function Sidebar() {
         if (!isProjectsSidebarSurface({ isOnSettings, isOnStudio: false, isOnWorkspace })) return;
         event.preventDefault();
         event.stopPropagation();
-        const orderedSpaceIds: ReadonlyArray<SpaceId | null> = [
-          null,
-          ...spaces.map((space) => space.id),
-        ];
-        const currentIndex = Math.max(0, orderedSpaceIds.indexOf(activeSpaceId));
+        const orderedSpaceIds = spaces.map((space) => space.id);
+        if (orderedSpaceIds.length === 0) return;
+        const currentIndex = activeSpaceId
+          ? Math.max(0, orderedSpaceIds.indexOf(activeSpaceId))
+          : 0;
         const offset = command === "space.previous" ? -1 : 1;
         const nextIndex = (currentIndex + offset + orderedSpaceIds.length) % orderedSpaceIds.length;
-        handleSelectSpace(orderedSpaceIds[nextIndex] ?? null);
+        const nextSpaceId = orderedSpaceIds[nextIndex];
+        if (nextSpaceId) handleSelectSpace(nextSpaceId);
         return;
       }
       const spaceJumpIndex = spaceJumpIndexFromCommand(command ?? "");
       if (spaceJumpIndex !== null) {
         if (!isProjectsSidebarSurface({ isOnSettings, isOnStudio: false, isOnWorkspace })) return;
-        // Index 0 is Void, then spaces in strip order — the chord addresses what you see.
-        const orderedSpaceIds: ReadonlyArray<SpaceId | null> = [
-          null,
-          ...spaces.map((space) => space.id),
-        ];
+        const orderedSpaceIds = spaces.map((space) => space.id);
         if (spaceJumpIndex >= orderedSpaceIds.length) return;
         event.preventDefault();
         event.stopPropagation();
-        const targetSpaceId = orderedSpaceIds[spaceJumpIndex] ?? null;
+        const targetSpaceId = orderedSpaceIds[spaceJumpIndex];
+        if (!targetSpaceId) return;
         if (targetSpaceId !== activeSpaceId) {
           handleSelectSpace(targetSpaceId);
         }
@@ -2882,12 +2632,6 @@ export default function Sidebar() {
       : showDesktopUpdateButton
         ? "ready"
         : "none";
-  const newThreadShortcutLabel =
-    shortcutLabelForCommand(keybindings, "chat.new") ??
-    shortcutLabelForCommand(keybindings, "chat.newLatestProject");
-  const newChatShortcutLabel =
-    shortcutLabelForCommand(keybindings, "chat.newChat") ??
-    shortcutLabelForCommand(keybindings, "chat.newLocal");
   const importThreadShortcutLabel =
     shortcutLabelForCommand(keybindings, "sidebar.importThread") ??
     (isMacPlatform(navigator.platform) ? "⌘I" : "Ctrl+I");
@@ -2905,13 +2649,21 @@ export default function Sidebar() {
         localName: project.localName,
         cwd: project.cwd,
         // Containers (Chats, Studio) are reachable from every Space, so they search as "Global".
-        spaceName: isOrdinarySpaceProject(project, {
-          homeDir,
-          chatWorkspaceRoot,
-          studioWorkspaceRoot,
-        })
-          ? spaceDisplayName(project.spaceId, spaces)
-          : "Global",
+        spaceName: (() => {
+          if (
+            !isOrdinarySpaceProject(project, {
+              homeDir,
+              chatWorkspaceRoot,
+              studioWorkspaceRoot,
+            })
+          ) {
+            return "Global";
+          }
+          if (project.spaceId == null) {
+            throw new Error(`Folder '${project.id}' is missing its required Space assignment.`);
+          }
+          return spaceDisplayName(project.spaceId, spaces);
+        })(),
         createdAt: project.createdAt,
         updatedAt: project.updatedAt,
       })),
@@ -2920,22 +2672,8 @@ export default function Sidebar() {
   const searchPaletteActions = useMemo<SidebarSearchAction[]>(
     () => [
       {
-        id: "new-chat",
-        label: "New chat",
-        description: "Open the new chat landing screen.",
-        keywords: ["chat", "new", "home"],
-        shortcutLabel: newChatShortcutLabel,
-      },
-      {
-        id: "new-thread",
-        label: "New thread",
-        description: "Start a fresh thread in the current or most recently used project.",
-        keywords: ["thread", "new", "project"],
-        shortcutLabel: newThreadShortcutLabel,
-      },
-      {
         id: "add-project",
-        label: "Add project",
+        label: "Add folder",
         description: "Open a repository or folder in the sidebar.",
         keywords: ["folder", "repo", "repository", "open"],
         shortcutLabel: addProjectShortcutLabel,
@@ -2978,21 +2716,6 @@ export default function Sidebar() {
       },
       // Space jumps ride the palette so keyboard users can reach any space by name
       // without learning the previous/next-space chords.
-      ...(spaces.length > 0
-        ? [
-            {
-              id: "switch-space-void",
-              label: `Switch to ${VOID_SPACE_NAME}`,
-              description: "Jump to unassigned projects.",
-              keywords: ["space", "switch", "void", "unassigned"],
-              requiresQuery: true,
-              run: () => handleSelectSpace(null),
-              icon: ({ className }: { className?: string }) => (
-                <SpaceIcon icon={VOID_SPACE_ICON} className={className} />
-              ),
-            } satisfies SidebarSearchAction,
-          ]
-        : []),
       ...spaces.map(
         (space) =>
           ({
@@ -3002,15 +2725,12 @@ export default function Sidebar() {
             keywords: ["space", "switch", space.name],
             requiresQuery: true,
             run: () => handleSelectSpace(space.id),
-            icon: ({ className }: { className?: string }) => (
-              <SpaceIcon icon={space.icon} className={className} />
-            ),
           }) satisfies SidebarSearchAction,
       ),
       {
         id: "new-space",
         label: "New space",
-        description: "Group projects into a focused work context.",
+        description: "Group folders into a focused work context.",
         keywords: ["space", "create", "new", "group", "workspace"],
         run: () => openSpaceCreator(),
         icon: AddPlusIcon,
@@ -3021,8 +2741,6 @@ export default function Sidebar() {
       handleSelectSpace,
       handleStartAddProject,
       importThreadShortcutLabel,
-      newChatShortcutLabel,
-      newThreadShortcutLabel,
       openSpaceCreator,
       spaces,
       usageSettingsShortcutLabel,
@@ -3273,6 +2991,13 @@ export default function Sidebar() {
   const projectContextMenuHasArchivableThreads = projectContextMenuThreads.some(
     (thread) => thread.archivedAt == null,
   );
+  const projectContextMenuPhysicalPath =
+    projectContextMenuThreads
+      .filter((thread) => Boolean(thread.workingDirectory))
+      .toSorted((left, right) => right.createdAt.localeCompare(left.createdAt))[0]
+      ?.workingDirectory?.trim() ||
+    projectContextMenuProject?.cwd ||
+    null;
   const projectContextMenuIsPinned = projectContextMenuProject
     ? pinnedProjectIdSet.has(projectContextMenuProject.id)
     : false;
@@ -3289,15 +3014,7 @@ export default function Sidebar() {
     <>
       {sidebarHeaderSurface}
       <LeftRailContentShared>
-        <SidebarTopNavigation
-          disabledItemIds={["scheduled"]}
-          onSelect={(itemId) => {
-            switch (itemId) {
-              case "scheduled":
-                break;
-            }
-          }}
-        />
+        <SidebarTopNavigation onSelect={() => setSearchPaletteOpen(true)} />
 
         {showArm64IntelBuildWarning && arm64IntelBuildWarningDescription ? (
           <div className="px-2 pt-2">
@@ -3331,7 +3048,7 @@ export default function Sidebar() {
               mode="create"
               onCancel={closeSpaceEditor}
               onSubmit={async (name) => {
-                await handleSpaceEditorSubmit({ name, icon: suggestSpaceIcon(name) });
+                await handleSpaceEditorSubmit({ name, icon: "folder" });
                 closeSpaceEditor();
               }}
             />
@@ -3345,12 +3062,11 @@ export default function Sidebar() {
                 section.chatData.canShowMore ||
                 section.chatData.canShowLess;
               const editingThisSpace =
-                section.space !== null &&
                 spaceEditorOpen &&
                 spaceEditorMode === "edit" &&
                 editedSpace?.id === section.space.id;
               return (
-                <div data-space-id={section.space?.id ?? "void"} key={section.key}>
+                <div data-space-id={section.space.id} key={section.key}>
                   <SpaceGroupShared
                     expanded={expanded}
                     hasContent={hasContent}
@@ -3378,15 +3094,12 @@ export default function Sidebar() {
                       });
                     }}
                     onHeaderAction={() => {
-                      handleSelectSpace(section.space?.id ?? null);
-                      void handleCreateHomeChat(section.space?.id ?? null);
+                      handleSelectSpace(section.space.id);
+                      void handleCreateHomeChat(section.space.id);
                     }}
-                    {...(section.space
-                      ? {
-                          onHeaderContextMenu: (event: MouseEvent<HTMLButtonElement>) =>
-                            void handleSpaceHeaderContextMenu(event, section.space as Space),
-                        }
-                      : {})}
+                    onHeaderContextMenu={(event: MouseEvent<HTMLButtonElement>) =>
+                      void handleSpaceHeaderContextMenu(event, section.space)
+                    }
                   >
                     {section.chatData.entries.map((entry) =>
                       renderPencilThreadRow(
@@ -3478,99 +3191,96 @@ export default function Sidebar() {
             className={PROJECT_CONTEXT_MENU_PANEL_CLASS_NAME}
           >
             <MenuGroup>
-              <MenuItem
-                className={PROJECT_CONTEXT_MENU_ITEM_CLASS_NAME}
-                onClick={() =>
-                  void handleProjectContextMenuAction(
-                    projectContextMenuState.projectId,
-                    "open-in-finder",
-                  )
-                }
-              >
-                <ProjectContextMenuIcon icon={FolderOpenIcon} />
-                <span>Open in Finder</span>
-              </MenuItem>
-              <MenuItem
-                className={PROJECT_CONTEXT_MENU_ITEM_CLASS_NAME}
-                onClick={() =>
-                  void handleProjectContextMenuAction(
-                    projectContextMenuState.projectId,
-                    "copy-path",
-                  )
-                }
-              >
-                <ProjectContextMenuIcon icon={CopyIcon} />
-                <span>Copy Path</span>
-              </MenuItem>
-              <MenuSeparator />
-              {projectContextMenuIsRunning ? (
-                <MenuItem
-                  className={PROJECT_CONTEXT_MENU_ITEM_CLASS_NAME}
-                  onClick={() =>
-                    void handleProjectContextMenuAction(
-                      projectContextMenuState.projectId,
-                      "stop-dev",
-                    )
-                  }
-                >
-                  <ProjectContextMenuIcon icon={StopFilledIcon} />
-                  <span>Stop dev</span>
-                </MenuItem>
-              ) : (
-                <MenuItem
-                  className={PROJECT_CONTEXT_MENU_ITEM_CLASS_NAME}
-                  onClick={() =>
-                    void handleProjectContextMenuAction(
-                      projectContextMenuState.projectId,
-                      "start-dev",
-                    )
-                  }
-                >
-                  <ProjectContextMenuIcon icon={PlayIcon} />
-                  <span>Start dev</span>
-                </MenuItem>
-              )}
-              {projectContextMenuHasOpenServer ? (
-                <MenuItem
-                  className={PROJECT_CONTEXT_MENU_ITEM_CLASS_NAME}
-                  onClick={() =>
-                    void handleProjectContextMenuAction(
-                      projectContextMenuState.projectId,
-                      "open-dev-server",
-                    )
-                  }
-                >
-                  <ProjectContextMenuIcon icon={ExternalLinkIcon} />
-                  <span>Open dev server</span>
-                </MenuItem>
+              {projectContextMenuPhysicalPath ? (
+                <>
+                  <MenuItem
+                    className={PROJECT_CONTEXT_MENU_ITEM_CLASS_NAME}
+                    onClick={() =>
+                      void handleProjectContextMenuAction(
+                        projectContextMenuState.projectId,
+                        "open-in-finder",
+                      )
+                    }
+                  >
+                    <ProjectContextMenuIcon icon={FolderOpenIcon} />
+                    <span>Open in Finder</span>
+                  </MenuItem>
+                  <MenuItem
+                    className={PROJECT_CONTEXT_MENU_ITEM_CLASS_NAME}
+                    onClick={() =>
+                      void handleProjectContextMenuAction(
+                        projectContextMenuState.projectId,
+                        "copy-path",
+                      )
+                    }
+                  >
+                    <ProjectContextMenuIcon icon={CopyIcon} />
+                    <span>Copy Path</span>
+                  </MenuItem>
+                  <MenuSeparator />
+                </>
+              ) : null}
+              {projectContextMenuProject.cwd ? (
+                <>
+                  {projectContextMenuIsRunning ? (
+                    <MenuItem
+                      className={PROJECT_CONTEXT_MENU_ITEM_CLASS_NAME}
+                      onClick={() =>
+                        void handleProjectContextMenuAction(
+                          projectContextMenuState.projectId,
+                          "stop-dev",
+                        )
+                      }
+                    >
+                      <ProjectContextMenuIcon icon={StopFilledIcon} />
+                      <span>Stop dev</span>
+                    </MenuItem>
+                  ) : (
+                    <MenuItem
+                      className={PROJECT_CONTEXT_MENU_ITEM_CLASS_NAME}
+                      onClick={() =>
+                        void handleProjectContextMenuAction(
+                          projectContextMenuState.projectId,
+                          "start-dev",
+                        )
+                      }
+                    >
+                      <ProjectContextMenuIcon icon={PlayIcon} />
+                      <span>Start dev</span>
+                    </MenuItem>
+                  )}
+                  {projectContextMenuHasOpenServer ? (
+                    <MenuItem
+                      className={PROJECT_CONTEXT_MENU_ITEM_CLASS_NAME}
+                      onClick={() =>
+                        void handleProjectContextMenuAction(
+                          projectContextMenuState.projectId,
+                          "open-dev-server",
+                        )
+                      }
+                    >
+                      <ProjectContextMenuIcon icon={ExternalLinkIcon} />
+                      <span>Open dev server</span>
+                    </MenuItem>
+                  ) : null}
+                </>
               ) : null}
               <MenuSub keepOpenOnFocusOut>
                 <MenuSubTrigger className={PROJECT_CONTEXT_MENU_ITEM_CLASS_NAME}>
-                  {/* The glyph is the project's current space, so the row doubles as a
-                      read-out of where it lives today. It wears the same secondary tone
-                      as every other leading glyph in this menu. */}
-                  <span className={PROJECT_CONTEXT_MENU_ICON_CLASS_NAME}>
-                    <SpaceIcon icon={spaceDisplayIcon(projectContextMenuProject.spaceId, spaces)} />
-                  </span>
                   <span>Move to space</span>
                 </MenuSubTrigger>
                 <ComposerPickerMenuSubPopup className="min-w-48">
                   <MenuRadioGroup
-                    value={spaceKey(projectContextMenuProject.spaceId ?? null)}
+                    value={projectContextMenuProject.spaceId ?? ""}
                     onValueChange={(value) => {
                       void handleMoveProjectToSpace(
                         projectContextMenuProject.id,
-                        value === VOID_SPACE_KEY ? null : SpaceId.makeUnsafe(value),
+                        SpaceId.makeUnsafe(value),
                       );
                     }}
                   >
-                    <MenuRadioItem value={VOID_SPACE_KEY}>
-                      <SpaceIcon icon={VOID_SPACE_ICON} className="size-3.5" />
-                      <span className="min-w-0 truncate">Void</span>
-                    </MenuRadioItem>
                     {spaces.map((space) => (
                       <MenuRadioItem key={space.id} value={space.id}>
-                        <SpaceIcon icon={space.icon} className="size-3.5" />
                         <span className="min-w-0 truncate">{space.name}</span>
                       </MenuRadioItem>
                     ))}
@@ -3611,7 +3321,7 @@ export default function Sidebar() {
                 }
               >
                 <ProjectContextMenuIcon icon={PinIcon} />
-                <span>{pinActionLabel("project", projectContextMenuIsPinned)}</span>
+                <span>{pinActionLabel("folder", projectContextMenuIsPinned)}</span>
               </MenuItem>
               {projectContextMenuHasArchivableThreads || projectContextMenuHasAnyThreads ? (
                 <MenuSeparator />
@@ -3674,7 +3384,7 @@ export default function Sidebar() {
               Start dev
             </DialogTitle>
             <DialogDescription>
-              {projectRunDialogProject ? projectRunDialogProject.name : "Project"}
+              {projectRunDialogProject ? projectRunDialogProject.name : "Folder"}
             </DialogDescription>
           </DialogHeader>
           <DialogPanel className="space-y-2">
@@ -3741,7 +3451,7 @@ export default function Sidebar() {
 
       <RenameDialog
         open={renameProjectDialogId !== null && renameProjectDialogProject !== null}
-        title="Rename project"
+        title="Rename folder"
         description="Keep it short and recognizable."
         initialValue={
           renameProjectDialogProject?.localName ?? renameProjectDialogProject?.name ?? ""
@@ -3780,10 +3490,10 @@ export default function Sidebar() {
           actions={searchPaletteActions}
           projects={searchPaletteProjects}
           projectById={projectById}
-          onCreateChat={() => void handleCreateHomeChat(activeSpaceId)}
+          onCreateChat={() => {
+            if (activeSpaceId) void handleCreateHomeChat(activeSpaceId);
+          }}
           onCreateThread={handlePrimaryNewThread}
-          onAddProjectPath={addProjectFromPath}
-          homeDir={homeDir}
           onOpenSettings={() => {
             void navigate({ to: "/settings" });
           }}
@@ -3812,11 +3522,9 @@ function SidebarSearchPaletteController(props: {
   onOpenChange: (open: boolean) => void;
   actions: readonly SidebarSearchAction[];
   projects: readonly SidebarSearchProject[];
-  projectById: ReadonlyMap<ProjectId, { name: string; remoteName: string }>;
+  projectById: ReadonlyMap<ContainerId, { name: string; remoteName: string }>;
   onCreateChat: () => void;
   onCreateThread: () => void;
-  onAddProjectPath: (path: string, options?: { createIfMissing?: boolean }) => Promise<void>;
-  homeDir: string | null;
   onOpenSettings: () => void;
   onOpenFeedback: () => void;
   onOpenUsageSettings: () => void;
@@ -3852,9 +3560,9 @@ function SidebarSearchPaletteController(props: {
           id: thread.id,
           title: thread.title,
           projectId: thread.projectId,
-          projectName: props.projectById.get(thread.projectId)?.name ?? "Unknown project",
+          projectName: props.projectById.get(thread.projectId)?.name ?? "Unknown folder",
           projectRemoteName:
-            props.projectById.get(thread.projectId)?.remoteName ?? "Unknown project",
+            props.projectById.get(thread.projectId)?.remoteName ?? "Unknown folder",
           spaceName: searchProjectById.get(thread.projectId)?.spaceName ?? "Global",
           provider: thread.modelSelection.provider,
           createdAt: thread.createdAt,
@@ -3878,8 +3586,6 @@ function SidebarSearchPaletteController(props: {
       threads={searchPaletteThreads}
       onCreateChat={props.onCreateChat}
       onCreateThread={props.onCreateThread}
-      onAddProjectPath={props.onAddProjectPath}
-      homeDir={props.homeDir}
       onOpenSettings={props.onOpenSettings}
       onOpenFeedback={props.onOpenFeedback}
       onOpenUsageSettings={props.onOpenUsageSettings}

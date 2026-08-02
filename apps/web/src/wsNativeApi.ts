@@ -591,6 +591,9 @@ export function createWsNativeApi(): NativeApi {
       getEnvironment: () => transport.request(WS_METHODS.serverGetEnvironment),
       getSettings: () => transport.request(WS_METHODS.serverGetSettings),
       updateSettings: (input) => transport.request(WS_METHODS.serverUpdateSettings, input),
+      getSpaceNavigationState: () => transport.request(WS_METHODS.serverGetSpaceNavigationState),
+      updateSpaceNavigationState: (input) =>
+        transport.request(WS_METHODS.serverUpdateSpaceNavigationState, input),
       getAuthSession: () => requestAuthJson<AuthSessionState>("/api/auth/session"),
       bootstrapAuth: (input: AuthBootstrapInput) =>
         requestAuthJson<AuthBootstrapResult>("/api/auth/bootstrap", {

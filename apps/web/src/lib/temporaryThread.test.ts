@@ -2,11 +2,11 @@
 // Purpose: Verifies focus-switch cleanup decisions for temporary threads.
 // Layer: Web route/domain helper tests
 
-import { ProjectId, ThreadId } from "@penkra/contracts";
+import { ContainerId, ThreadId } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 import { resolveTemporaryThreadIdToDelete } from "./temporaryThread";
 
-const PROJECT_ID = ProjectId.makeUnsafe("project-temporary");
+const PROJECT_ID = ContainerId.makeUnsafe("project-temporary");
 const THREAD_A = ThreadId.makeUnsafe("thread-a");
 const THREAD_B = ThreadId.makeUnsafe("thread-b");
 

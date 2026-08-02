@@ -15,8 +15,8 @@ import {
   ThreadPinnedMessages,
   ThreadMarkers,
   ProjectScript,
-  ProjectId,
-  ProjectKind,
+  ContainerId,
+  ContainerKind,
   SpaceId,
   STUDIO_OUTPUTS_ACTIVITY_KIND,
   ThreadId,
@@ -173,7 +173,7 @@ const WorkspaceRootLookupInput = Schema.Struct({
   workspaceRoot: Schema.String,
 });
 const ProjectIdLookupInput = Schema.Struct({
-  projectId: ProjectId,
+  projectId: ContainerId,
 });
 const SpaceIdLookupInput = Schema.Struct({
   spaceId: SpaceId,
@@ -206,8 +206,8 @@ const ProjectionThreadIdLookupRowSchema = Schema.Struct({
 });
 const ProjectionThreadCheckpointContextThreadRowSchema = Schema.Struct({
   threadId: ThreadId,
-  projectId: ProjectId,
-  projectKind: ProjectKind.pipe(Schema.withDecodingDefault(() => "project")),
+  projectId: ContainerId,
+  projectKind: ContainerKind.pipe(Schema.withDecodingDefault(() => "project")),
   workspaceRoot: Schema.String,
   envMode: ThreadEnvironmentMode,
   worktreePath: Schema.NullOr(Schema.String),
@@ -215,8 +215,8 @@ const ProjectionThreadCheckpointContextThreadRowSchema = Schema.Struct({
 });
 const ProjectionFullThreadDiffContextRowSchema = Schema.Struct({
   threadId: ThreadId,
-  projectId: ProjectId,
-  projectKind: ProjectKind.pipe(Schema.withDecodingDefault(() => "project")),
+  projectId: ContainerId,
+  projectKind: ContainerKind.pipe(Schema.withDecodingDefault(() => "project")),
   workspaceRoot: Schema.String,
   envMode: ThreadEnvironmentMode,
   worktreePath: Schema.NullOr(Schema.String),
@@ -811,7 +811,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           interaction_mode AS "interactionMode",
           env_mode AS "envMode",
           branch,
-          worktree_path AS "worktreePath",
+          CASE WHEN env_mode = 'worktree' THEN working_directory ELSE NULL END AS "worktreePath",
           working_directory AS "workingDirectory",
           associated_worktree_path AS "associatedWorktreePath",
           associated_worktree_branch AS "associatedWorktreeBranch",
@@ -863,7 +863,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           interaction_mode AS "interactionMode",
           env_mode AS "envMode",
           branch,
-          worktree_path AS "worktreePath",
+          CASE WHEN env_mode = 'worktree' THEN working_directory ELSE NULL END AS "worktreePath",
           working_directory AS "workingDirectory",
           associated_worktree_path AS "associatedWorktreePath",
           associated_worktree_branch AS "associatedWorktreeBranch",
@@ -905,10 +905,10 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         SELECT
           thread_id AS "threadId",
           archived_at AS "archivedAt",
-          worktree_path AS "worktreePath",
+          CASE WHEN env_mode = 'worktree' THEN working_directory ELSE NULL END AS "worktreePath",
           associated_worktree_path AS "associatedWorktreePath"
         FROM projection_threads
-        WHERE worktree_path IS NOT NULL
+        WHERE (env_mode = 'worktree' AND working_directory IS NOT NULL)
            OR associated_worktree_path IS NOT NULL
         ORDER BY created_at ASC, thread_id ASC
       `,
@@ -1362,7 +1362,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           interaction_mode AS "interactionMode",
           env_mode AS "envMode",
           branch,
-          worktree_path AS "worktreePath",
+          CASE WHEN env_mode = 'worktree' THEN working_directory ELSE NULL END AS "worktreePath",
           working_directory AS "workingDirectory",
           associated_worktree_path AS "associatedWorktreePath",
           associated_worktree_branch AS "associatedWorktreeBranch",
@@ -1416,7 +1416,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           interaction_mode AS "interactionMode",
           env_mode AS "envMode",
           branch,
-          worktree_path AS "worktreePath",
+          CASE WHEN env_mode = 'worktree' THEN working_directory ELSE NULL END AS "worktreePath",
           working_directory AS "workingDirectory",
           associated_worktree_path AS "associatedWorktreePath",
           associated_worktree_branch AS "associatedWorktreeBranch",
@@ -1735,7 +1735,10 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           projects.kind AS "projectKind",
           projects.workspace_root AS "workspaceRoot",
           threads.env_mode AS "envMode",
-          threads.worktree_path AS "worktreePath",
+          CASE
+            WHEN threads.env_mode = 'worktree' THEN threads.working_directory
+            ELSE NULL
+          END AS "worktreePath",
           threads.working_directory AS "workingDirectory"
         FROM projection_threads AS threads
         INNER JOIN projection_projects AS projects
@@ -1828,7 +1831,10 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           projects.kind AS "projectKind",
           projects.workspace_root AS "workspaceRoot",
           threads.env_mode AS "envMode",
-          threads.worktree_path AS "worktreePath",
+          CASE
+            WHEN threads.env_mode = 'worktree' THEN threads.working_directory
+            ELSE NULL
+          END AS "worktreePath",
           threads.working_directory AS "workingDirectory",
           (
             SELECT MAX(turns.checkpoint_turn_count)

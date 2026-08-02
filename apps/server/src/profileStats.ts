@@ -547,7 +547,7 @@ function buildMostWorkedProject(row: MostWorkedProjectRow | undefined): MostWork
   const title = nonEmptyString(row.title);
   const workspaceRoot = nonEmptyString(row.workspaceRoot);
   const lastWorkedAt = nonEmptyString(row.lastWorkedAt);
-  if (!projectId || !title || !workspaceRoot || !lastWorkedAt) {
+  if (!projectId || !title || !lastWorkedAt) {
     return null;
   }
 

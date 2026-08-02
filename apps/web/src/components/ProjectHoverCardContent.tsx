@@ -73,11 +73,15 @@ export function ProjectHoverCardContent({
         <MessageCircleIcon className={ICON_CLASS_NAME} aria-hidden />
         <span className="min-w-0 truncate">{formatChatCount(chatCount)}</span>
       </div>
-      <div className="-mx-0.5 my-0.5 h-px bg-[color:var(--color-border)]" aria-hidden />
-      <div className={cn(ROW_CLASS_NAME, "text-foreground/80")}>
-        <FolderClosed className={ICON_CLASS_NAME} aria-hidden />
-        <span className="min-w-0 truncate">{path}</span>
-      </div>
+      {path ? (
+        <>
+          <div className="-mx-0.5 my-0.5 h-px bg-[color:var(--color-border)]" aria-hidden />
+          <div className={cn(ROW_CLASS_NAME, "text-foreground/80")}>
+            <FolderClosed className={ICON_CLASS_NAME} aria-hidden />
+            <span className="min-w-0 truncate">{path}</span>
+          </div>
+        </>
+      ) : null}
       <div className="-mx-0.5 my-0.5 h-px bg-[color:var(--color-border)]" aria-hidden />
       <button
         type="button"
@@ -88,7 +92,7 @@ export function ProjectHoverCardContent({
         )}
       >
         <SettingsIcon className={ICON_CLASS_NAME} aria-hidden />
-        <span className="min-w-0 truncate">Edit project</span>
+        <span className="min-w-0 truncate">Edit folder</span>
       </button>
     </div>
   );

@@ -20,10 +20,16 @@ const electron = vi.hoisted(() => {
       this.webContents = {
         id: nextId++,
         setWindowOpenHandler: vi.fn(),
-        on: vi.fn((event: string, listener: (...args: unknown[]) => void) => listeners.set(event, listener)),
-        once: vi.fn((event: string, listener: (...args: unknown[]) => void) => listeners.set(event, listener)),
+        on: vi.fn((event: string, listener: (...args: unknown[]) => void) =>
+          listeners.set(event, listener),
+        ),
+        once: vi.fn((event: string, listener: (...args: unknown[]) => void) =>
+          listeners.set(event, listener),
+        ),
         send: vi.fn(),
         loadURL: vi.fn(async () => undefined),
+        insertCSS: vi.fn(async () => "theme-css"),
+        removeInsertedCSS: vi.fn(async () => undefined),
         isDestroyed: vi.fn(() => false),
         close: vi.fn(),
         listeners,
@@ -85,10 +91,11 @@ describe("ElectronAppTabHost", () => {
     const onRendererCreated = vi.fn(() => releaseIdentity);
     const onOpened = vi.fn();
     const host = new ElectronAppTabHost({
-      window: () => ({
-        isDestroyed: () => false,
-        contentView: { addChildView, removeChildView },
-      }) as never,
+      window: () =>
+        ({
+          isDestroyed: () => false,
+          contentView: { addChildView, removeChildView },
+        }) as never,
       installations: {
         snapshot: () => ({ packagesByAppId: { [app.appId]: app } }),
         isActive: () => true,
@@ -105,6 +112,7 @@ describe("ElectronAppTabHost", () => {
       onOpened,
       onState: vi.fn(),
       onRendererCreated,
+      measureRendererMemory: () => 128 * 1024,
     });
 
     const descriptor = await host.openInstalled({
@@ -121,6 +129,7 @@ describe("ElectronAppTabHost", () => {
       status: "ready",
     });
     expect(host.list()).toEqual([descriptor]);
+    expect(host.current()).toBeNull();
     expect(onOpened).toHaveBeenCalledWith(descriptor);
     expect(onRendererCreated).toHaveBeenCalledWith({
       appId: app.appId,
@@ -142,6 +151,10 @@ describe("ElectronAppTabHost", () => {
     expect(addChildView).toHaveBeenCalledOnce();
     host.setBounds(descriptor.id, { x: 1.4, y: 2.6, width: 300.2, height: 400.8 });
     expect(electron.views[0]?.bounds.at(-1)).toEqual({ x: 1, y: 3, width: 300, height: 401 });
+    host.setVisible(descriptor.id, true);
+    expect(host.current()).toEqual(descriptor);
+    host.setVisible(descriptor.id, false);
+    expect(host.current()).toBeNull();
 
     host.closeForAppSpace(app.appId, "personal");
     host.close(descriptor.id);
@@ -189,6 +202,7 @@ describe("ElectronAppTabHost", () => {
       onOpened: vi.fn(),
       onState: vi.fn(),
       onRendererCreated,
+      measureRendererMemory: () => 128 * 1024,
     });
 
     await host.openInstalled({
@@ -211,8 +225,8 @@ describe("ElectronAppTabHost", () => {
       route: "/",
       status: "ready",
     });
-    await expect(
-      host.openInstalledFromRenderer(-1, { appId: target.appId }),
-    ).rejects.toThrow("originating App tab is unavailable");
+    await expect(host.openInstalledFromRenderer(-1, { appId: target.appId })).rejects.toThrow(
+      "originating App tab is unavailable",
+    );
   });
 });

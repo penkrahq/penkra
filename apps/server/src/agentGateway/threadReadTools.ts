@@ -146,7 +146,7 @@ export function makeThreadReadTools(input: ThreadReadToolsInput): ReadonlyArray<
             ...(availabilities.get(provider) !== undefined
               ? { availability: availabilities.get(provider)! }
               : {}),
-            cwd: project.workspaceRoot,
+            ...(project.workspaceRoot ? { cwd: project.workspaceRoot } : {}),
           }),
         );
         const targetConstruction = Object.fromEntries(

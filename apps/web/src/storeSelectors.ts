@@ -2,7 +2,7 @@
 // Purpose: Stable Zustand selectors for entity lookups and lightweight sidebar projections.
 // Exports: Selector factories used by routes and sidebar-heavy components.
 
-import type { ProjectId, ThreadEnvironmentMode, ThreadId } from "@penkra/contracts";
+import type { ContainerId, ThreadEnvironmentMode, ThreadId } from "@penkra/contracts";
 
 import type { AppState } from "./storeState";
 import { resolveThreadDisplayProvider } from "./lib/threadDisplayProvider";
@@ -53,7 +53,7 @@ function createStableEntitySelector<T extends { id: string }>(
 }
 
 export function createProjectSelector(
-  projectId: ProjectId | null | undefined,
+  projectId: ContainerId | null | undefined,
 ): (state: AppState) => Project | undefined {
   return createStableEntitySelector((state) => state.projects, projectId);
 }
@@ -157,7 +157,7 @@ export function createAllThreadsMessagelessSelector(): (state: AppState) => bool
 
 export function createThreadProjectIdSelector(
   threadId: ThreadId | null | undefined,
-): (state: AppState) => ProjectId | null {
+): (state: AppState) => ContainerId | null {
   return (state) => {
     if (!threadId) {
       return null;

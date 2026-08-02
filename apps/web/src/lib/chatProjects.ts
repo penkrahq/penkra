@@ -2,7 +2,7 @@
 // Purpose: Reuse one hidden home-scoped chat project as the backing container for chat rows.
 // Layer: Web orchestration helper
 
-import { type ProjectId } from "@penkra/contracts";
+import { type ContainerId } from "@penkra/contracts";
 import { matchesLegacyHomeChatWorkspaceRoot } from "@penkra/shared/projectContainers";
 import { isWorkspaceRootWithin, workspaceRootsEqual } from "@penkra/shared/threadWorkspace";
 import type { Project } from "../types";
@@ -22,14 +22,14 @@ import {
 import { resolveServerChatWorkspaceRoot, type ServerWorkspacePaths } from "./serverWorkspacePaths";
 import { newCommandId, newProjectId } from "./utils";
 
-const pendingHomeChatCreationByWorkspaceRoot = new Map<string, Promise<ProjectId | null>>();
+const pendingHomeChatCreationByWorkspaceRoot = new Map<string, Promise<ContainerId | null>>();
 const pendingHomeChatFixupByWorkspaceRoot = new Map<string, Promise<void>>();
 
 interface HomeChatContainerCandidate {
-  readonly id?: ProjectId | undefined;
+  readonly id?: ContainerId | undefined;
   readonly kind?: Project["kind"] | undefined;
-  readonly cwd?: string | undefined;
-  readonly workspaceRoot?: string | undefined;
+  readonly cwd?: string | null | undefined;
+  readonly workspaceRoot?: string | null | undefined;
   readonly name?: string | undefined;
   readonly remoteName?: string | undefined;
   readonly title?: string | undefined;
@@ -37,7 +37,7 @@ interface HomeChatContainerCandidate {
 
 async function updateHomeChatProjectMetadata(
   api: NonNullable<ReturnType<typeof readNativeApi>>,
-  projectId: ProjectId,
+  projectId: ContainerId,
 ): Promise<void> {
   await api.orchestration.dispatchCommand({
     type: "project.meta.update",
@@ -71,7 +71,7 @@ function isHomeChatContainerCandidate(
 
 function findHomeChatContainerCandidateById<T extends HomeChatContainerCandidate>(
   projects: readonly T[],
-  projectId: ProjectId,
+  projectId: ContainerId,
   paths: ServerWorkspacePaths,
 ): T | null {
   return findContainerCandidateById(projects, projectId, (project) =>
@@ -81,7 +81,7 @@ function findHomeChatContainerCandidateById<T extends HomeChatContainerCandidate
 
 async function findDuplicateHomeChatContainer(
   api: NonNullable<ReturnType<typeof readNativeApi>>,
-  projectId: ProjectId,
+  projectId: ContainerId,
   paths: ServerWorkspacePaths,
 ): Promise<HomeChatContainerCandidate | null> {
   const localProject = findHomeChatContainerCandidateById(
@@ -128,7 +128,7 @@ function isLegacyHomeChatContainerProject(
   );
 }
 
-function hasThreadsForProject(projectId: ProjectId): boolean {
+function hasThreadsForProject(projectId: ContainerId): boolean {
   const state = useStore.getState();
   return (state.threadIds ?? [])
     .map((threadId) => getThreadFromState(state, threadId))
@@ -146,8 +146,8 @@ function scoreHomeChatProject(project: Project, input: ServerWorkspacePaths): nu
 }
 
 function findCanonicalHomeProject(input: ServerWorkspacePaths): {
-  canonicalProjectId: ProjectId | null;
-  duplicateProjectIds: ProjectId[];
+  canonicalProjectId: ContainerId | null;
+  duplicateProjectIds: ContainerId[];
   needsKindFixup: boolean;
 } {
   const state = useStore.getState();
@@ -222,7 +222,7 @@ function scheduleHomeChatFixup(input: ServerWorkspacePaths): void {
 
 export async function ensureHomeChatProject(
   paths: ServerWorkspacePaths,
-): Promise<ProjectId | null> {
+): Promise<ContainerId | null> {
   const api = readNativeApi();
   if (!api) {
     return null;
@@ -274,7 +274,7 @@ export async function ensureHomeChatProject(
       if (isDuplicateProjectCreateError(message)) {
         const duplicateProjectId = extractDuplicateProjectCreateProjectId(message);
         if (duplicateProjectId) {
-          const homeProjectId = duplicateProjectId as ProjectId;
+          const homeProjectId = duplicateProjectId as ContainerId;
           const duplicateProject = await findDuplicateHomeChatContainer(api, homeProjectId, paths);
           if (duplicateProject) {
             if (duplicateProject.kind !== "chat") {

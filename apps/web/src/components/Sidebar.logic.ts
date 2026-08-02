@@ -1,18 +1,18 @@
 // FILE: Sidebar.logic.ts
 // Purpose: Shared sidebar sorting and status helpers used by the thread list UI.
-// Exports: Sidebar row state derivation, add-project error helpers, sort utilities, and visibility helpers.
+// Exports: Sidebar row state derivation, sort utilities, and visibility helpers.
 
 import {
   MAX_PINNED_PROJECTS,
   type KeybindingCommand,
-  type ProjectId,
+  type ContainerId,
   type ThreadId,
 } from "@penkra/contracts";
 import { resolveThreadEnvironmentMode } from "@penkra/shared/threadEnvironment";
-import { isWorkspaceRootWithin, workspaceRootsEqual } from "@penkra/shared/threadWorkspace";
+import { isWorkspaceRootWithin } from "@penkra/shared/threadWorkspace";
 import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "../appSettings";
 import { resolveRestorableThreadRoute, type LastThreadRoute } from "../chatRouteRestore";
-import type { ChatMessage, Project, SidebarThreadSummary, Thread } from "../types";
+import type { Project, SidebarThreadSummary, Thread } from "../types";
 import { cn } from "../lib/utils";
 import { derivePinnedIds, isLatestPinMutation, orderPinnedItemsFirst } from "../pinning.logic";
 import {
@@ -21,20 +21,8 @@ import {
   SIDEBAR_ROW_IDLE_TEXT_CLASS_NAME,
   SIDEBAR_THREAD_ROW_BASE_CLASS_NAME,
 } from "../sidebarRowStyles";
-import { isDuplicateProjectCreateError } from "../lib/projectCreateRecovery";
-import {
-  canSessionAnswerPendingRequests,
-  hasLiveLatestTurn,
-  findLatestProposedPlan,
-  hasActionableProposedPlan,
-  isLatestTurnSettled,
-} from "../session-logic";
+import { canSessionAnswerPendingRequests, hasLiveLatestTurn } from "../session-logic";
 import { formatWorktreePathForDisplay } from "../worktreeCleanup";
-
-export {
-  extractDuplicateProjectCreateProjectId,
-  isDuplicateProjectCreateError,
-} from "../lib/projectCreateRecovery";
 
 export const THREAD_SELECTION_SAFE_SELECTOR = "[data-thread-item], [data-thread-selection-safe]";
 export const SIDEBAR_THREAD_PREWARM_LIMIT = 10;
@@ -59,14 +47,11 @@ type SidebarProject = {
 type SidebarThreadSortInput = {
   createdAt: string;
   updatedAt?: string | undefined;
-  latestUserMessageAt?: string | null | undefined;
-  messages?: ReadonlyArray<Pick<ChatMessage, "role" | "createdAt">> | undefined;
-  // Present on real thread summaries; lets finished-but-unseen threads float to
-  // the top of the sort (see sortThreadsForSidebar). Optional so minimal test
-  // fixtures and legacy shapes keep plain timestamp ordering.
   latestTurn?: Thread["latestTurn"] | undefined;
   lastVisitedAt?: Thread["lastVisitedAt"] | undefined;
   hasLiveTailWork?: boolean | undefined;
+  hasPendingApprovals?: boolean | undefined;
+  hasPendingUserInput?: boolean | undefined;
   session?: Thread["session"] | undefined;
 };
 
@@ -193,7 +178,6 @@ export interface ThreadStatusPill {
     | "Completed"
     | "Pending Approval"
     | "Awaiting Input"
-    | "Plan Ready"
     | "Needs Attention";
   colorClass: string;
   dotClass: string;
@@ -205,7 +189,6 @@ export interface ThreadStatusPill {
 const THREAD_STATUS_PRIORITY: Record<ThreadStatusPill["label"], number> = {
   "Pending Approval": 5,
   "Awaiting Input": 5,
-  "Plan Ready": 5,
   "Needs Attention": 6,
   Working: 3,
   Connecting: 3,
@@ -221,18 +204,13 @@ export function resolveSidebarWorkStatus(status: ThreadStatusPill | null): Sideb
   return "attention";
 }
 
-type ThreadStatusInput = Pick<
-  Thread,
-  "interactionMode" | "latestTurn" | "lastVisitedAt" | "session" | "updatedAt"
-> & {
-  proposedPlans?: Thread["proposedPlans"] | undefined;
-  hasActionableProposedPlan?: boolean | undefined;
+type ThreadStatusInput = Pick<Thread, "latestTurn" | "lastVisitedAt" | "session" | "updatedAt"> & {
   hasLiveTailWork?: boolean | undefined;
   dismissedStatusKey?: string | undefined;
 };
 
 function createThreadStatusDismissalKey(
-  label: Extract<ThreadStatusPill["label"], "Pending Approval" | "Awaiting Input" | "Plan Ready">,
+  label: Extract<ThreadStatusPill["label"], "Pending Approval" | "Awaiting Input">,
   thread: ThreadStatusInput,
 ): string {
   return [
@@ -507,30 +485,6 @@ export function resolveThreadStatusPill(input: {
     };
   }
 
-  const hasPlanReadyPrompt =
-    !hasPendingUserInput &&
-    !thread.hasLiveTailWork &&
-    thread.interactionMode === "plan" &&
-    isLatestTurnSettled(thread.latestTurn, thread.session) &&
-    (thread.hasActionableProposedPlan ??
-      hasActionableProposedPlan(
-        findLatestProposedPlan(thread.proposedPlans ?? [], thread.latestTurn?.turnId ?? null),
-      ));
-  if (hasPlanReadyPrompt) {
-    const dismissalKey = createThreadStatusDismissalKey("Plan Ready", thread);
-    if (thread.dismissedStatusKey === dismissalKey) {
-      return null;
-    }
-    return {
-      label: "Plan Ready",
-      colorClass: "text-violet-600 dark:text-violet-300/90",
-      dotClass: "bg-violet-500 dark:bg-violet-300/90",
-      pulse: false,
-      dismissible: true,
-      dismissalKey,
-    };
-  }
-
   if (!thread.hasLiveTailWork && hasUnseenCompletion(thread)) {
     const dismissalKey = createCompletedDismissalKey(thread);
     if (dismissalKey && thread.dismissedStatusKey === dismissalKey) {
@@ -567,14 +521,6 @@ export function resolveProjectStatusIndicator(
   return highestPriorityStatus;
 }
 
-export function findWorkspaceRootMatch<T>(
-  items: readonly T[],
-  targetWorkspaceRoot: string,
-  getWorkspaceRoot: (item: T) => string,
-): T | undefined {
-  return items.find((item) => workspaceRootsEqual(getWorkspaceRoot(item), targetWorkspaceRoot));
-}
-
 // Finds the item whose workspace root most specifically contains `targetPath`
 // (equal to it, or its closest ancestor). Used to attribute a dev server's cwd
 // to a project even when it runs from a nested package directory; the deepest root
@@ -597,45 +543,6 @@ export function findDeepestWorkspaceRootMatch<T>(
     }
   }
   return best;
-}
-
-// Rechecks an existing local project against the server before the add flow decides to reuse it.
-export async function recoverExistingAddProjectTarget(input: {
-  readonly existingProjectId: ProjectId | null | undefined;
-  readonly workspaceRoot: string;
-  readonly recoverByProjectId: (projectId: ProjectId) => Promise<boolean>;
-  readonly recoverByWorkspaceRoot: (workspaceRoot: string) => Promise<boolean>;
-}): Promise<"recovered" | "create"> {
-  if (!input.existingProjectId) {
-    return "create";
-  }
-
-  if (await input.recoverByProjectId(input.existingProjectId)) {
-    return "recovered";
-  }
-
-  if (await input.recoverByWorkspaceRoot(input.workspaceRoot)) {
-    return "recovered";
-  }
-
-  return "create";
-}
-
-// Translates low-level add-project failures into a short explanation without
-// hiding the original error text that developers may need for diagnosis.
-export function describeAddProjectError(message: string): string | null {
-  if (isDuplicateProjectCreateError(message)) {
-    return "This usually means the folder is already linked to an existing project. On Windows, the same folder can arrive with a different path format, so it looks new even when it is not.";
-  }
-
-  if (
-    message.startsWith("Failed to create project directory: /") ||
-    message.startsWith("Project directory does not exist: /")
-  ) {
-    return "This is an absolute path from the filesystem root. If the folder is in your home directory, use ~/Developer/... or the full /Users/<name>/Developer/... path.";
-  }
-
-  return null;
 }
 
 // One "Show more" click reveals one extra page of rows; "Show less" hides one page again.
@@ -991,7 +898,7 @@ export function getVisibleSidebarThreadIds(input: {
     threads,
   } = input;
   const visibleThreadIds: Thread["id"][] = [];
-  const threadsByProjectId = new Map<ProjectId, (typeof threads)[number][]>();
+  const threadsByProjectId = new Map<ContainerId, (typeof threads)[number][]>();
 
   for (const thread of threads) {
     const projectThreads = threadsByProjectId.get(thread.projectId);
@@ -1141,31 +1048,6 @@ function toSortableTimestamp(iso: string | undefined): number | null {
   return Number.isFinite(ms) ? ms : null;
 }
 
-function getLatestUserMessageTimestamp(thread: SidebarThreadSortInput): number {
-  const latestUserMessageAt = toSortableTimestamp(thread.latestUserMessageAt ?? undefined);
-  if (latestUserMessageAt !== null) {
-    return latestUserMessageAt;
-  }
-
-  let latestUserMessageTimestamp: number | null = null;
-
-  for (const message of thread.messages ?? []) {
-    if (message.role !== "user") continue;
-    const messageTimestamp = toSortableTimestamp(message.createdAt);
-    if (messageTimestamp === null) continue;
-    latestUserMessageTimestamp =
-      latestUserMessageTimestamp === null
-        ? messageTimestamp
-        : Math.max(latestUserMessageTimestamp, messageTimestamp);
-  }
-
-  if (latestUserMessageTimestamp !== null) {
-    return latestUserMessageTimestamp;
-  }
-
-  return toSortableTimestamp(thread.updatedAt ?? thread.createdAt) ?? Number.NEGATIVE_INFINITY;
-}
-
 function getThreadSortTimestamp(
   thread: SidebarThreadSortInput,
   sortOrder: SidebarThreadSortOrder | Exclude<SidebarProjectSortOrder, "manual">,
@@ -1173,35 +1055,87 @@ function getThreadSortTimestamp(
   if (sortOrder === "created_at") {
     return toSortableTimestamp(thread.createdAt) ?? Number.NEGATIVE_INFINITY;
   }
-  return getLatestUserMessageTimestamp(thread);
+  return toSortableTimestamp(thread.updatedAt ?? thread.createdAt) ?? Number.NEGATIVE_INFINITY;
 }
 
-// A finished chat the user hasn't opened yet floats above the plain timestamp
-// order so it gets seen. Opening it (or dismissing its Completed pill, which
-// marks it visited) updates lastVisitedAt and the thread falls back into place.
-// A thread with live tail work isn't finished, so it stays in plain order.
-function isUnseenFinishedThread(thread: SidebarThreadSortInput): boolean {
-  if (thread.hasLiveTailWork === true) {
-    return false;
+type SidebarThreadSortStatus = "running" | "attention" | "completed" | "idle";
+
+const SIDEBAR_THREAD_SORT_STATUS_RANK: Record<SidebarThreadSortStatus, number> = {
+  running: 3,
+  attention: 2,
+  completed: 1,
+  idle: 0,
+};
+
+// Sorting uses the underlying state rather than a dismissible presentation pill.
+// Viewing or dismissing an attention badge therefore cannot move the thread.
+function resolveSidebarThreadSortStatus(thread: SidebarThreadSortInput): SidebarThreadSortStatus {
+  const canAnswerPendingRequests = canSessionAnswerPendingRequests(thread.session ?? null);
+  if (
+    thread.session?.status === "error" ||
+    (canAnswerPendingRequests &&
+      (thread.hasPendingApprovals === true || thread.hasPendingUserInput === true))
+  ) {
+    return "attention";
   }
-  return hasUnseenCompletion({
-    latestTurn: thread.latestTurn ?? null,
-    lastVisitedAt: thread.lastVisitedAt,
-  });
-}
-
-// Attention groups for the sidebar order: threads doing live work first so you
-// can watch what's going on, then finished-but-unseen ones so they get noticed,
-// then everything else by timestamp. Mirrors THREAD_STATUS_PRIORITY, where
-// Working/Connecting outrank Completed.
-function threadSortAttentionRank(thread: SidebarThreadSortInput): number {
   if (isThreadActivelyWorking(thread) || thread.session?.status === "connecting") {
-    return 2;
+    return "running";
   }
-  if (isUnseenFinishedThread(thread)) {
-    return 1;
+  if (
+    thread.hasLiveTailWork !== true &&
+    hasUnseenCompletion({
+      latestTurn: thread.latestTurn ?? null,
+      lastVisitedAt: thread.lastVisitedAt,
+    })
+  ) {
+    return "completed";
   }
-  return 0;
+  return "idle";
+}
+
+function firstSortableTimestamp(...timestamps: Array<string | null | undefined>): number {
+  for (const timestamp of timestamps) {
+    const sortableTimestamp = toSortableTimestamp(timestamp ?? undefined);
+    if (sortableTimestamp !== null) {
+      return sortableTimestamp;
+    }
+  }
+  return Number.NEGATIVE_INFINITY;
+}
+
+// Reorder only when a thread enters a new sidebar status. Provider activity and
+// metadata may advance thread.updatedAt, but they do not continually reshuffle
+// running, completed, or acknowledged threads.
+function getSidebarThreadStatusChangedTimestamp(
+  thread: SidebarThreadSortInput,
+  status: SidebarThreadSortStatus,
+): number {
+  switch (status) {
+    case "running":
+      return firstSortableTimestamp(
+        thread.latestTurn?.startedAt,
+        thread.latestTurn?.requestedAt,
+        thread.session?.createdAt,
+        thread.updatedAt,
+        thread.createdAt,
+      );
+    case "attention":
+      return firstSortableTimestamp(
+        thread.session?.status === "error" ? thread.session.updatedAt : null,
+        thread.updatedAt,
+        thread.latestTurn?.startedAt,
+        thread.latestTurn?.requestedAt,
+        thread.createdAt,
+      );
+    case "completed":
+    case "idle":
+      return firstSortableTimestamp(
+        thread.latestTurn?.completedAt,
+        thread.latestTurn?.startedAt,
+        thread.latestTurn?.requestedAt,
+        thread.createdAt,
+      );
+  }
 }
 
 export function sortThreadsForSidebar<T extends { id: Thread["id"] } & SidebarThreadSortInput>(
@@ -1209,8 +1143,25 @@ export function sortThreadsForSidebar<T extends { id: Thread["id"] } & SidebarTh
   sortOrder: SidebarThreadSortOrder,
 ): T[] {
   return threads.toSorted((left, right) => {
-    const byAttentionRank = threadSortAttentionRank(right) - threadSortAttentionRank(left);
-    if (byAttentionRank !== 0) return byAttentionRank;
+    if (sortOrder === "updated_at") {
+      const leftStatus = resolveSidebarThreadSortStatus(left);
+      const rightStatus = resolveSidebarThreadSortStatus(right);
+      const byStatusRank =
+        SIDEBAR_THREAD_SORT_STATUS_RANK[rightStatus] - SIDEBAR_THREAD_SORT_STATUS_RANK[leftStatus];
+      if (byStatusRank !== 0) return byStatusRank;
+
+      const rightStatusChangedAt = getSidebarThreadStatusChangedTimestamp(right, rightStatus);
+      const leftStatusChangedAt = getSidebarThreadStatusChangedTimestamp(left, leftStatus);
+      const byStatusChangedAt =
+        rightStatusChangedAt === leftStatusChangedAt
+          ? 0
+          : rightStatusChangedAt > leftStatusChangedAt
+            ? 1
+            : -1;
+      if (byStatusChangedAt !== 0) return byStatusChangedAt;
+      return right.id.localeCompare(left.id);
+    }
+
     const rightTimestamp = getThreadSortTimestamp(right, sortOrder);
     const leftTimestamp = getThreadSortTimestamp(left, sortOrder);
     const byTimestamp =
@@ -1305,8 +1256,8 @@ export function sortProjectsForSidebar<
 // Groups thread summaries once so project-specific sidebar derivations can reuse the same slices.
 export function groupSidebarThreadsByProjectId(
   threads: readonly SidebarThreadSummary[],
-): ReadonlyMap<ProjectId, SidebarThreadSummary[]> {
-  const byProjectId = new Map<ProjectId, SidebarThreadSummary[]>();
+): ReadonlyMap<ContainerId, SidebarThreadSummary[]> {
+  const byProjectId = new Map<ContainerId, SidebarThreadSummary[]>();
   for (const thread of threads) {
     const existing = byProjectId.get(thread.projectId);
     if (existing) {
@@ -1322,7 +1273,7 @@ export function partitionSidebarThreadsByProjectIds<
   T extends Pick<SidebarThreadSummary, "projectId">,
 >(
   threads: readonly T[],
-  studioProjectIds: ReadonlySet<ProjectId>,
+  studioProjectIds: ReadonlySet<ContainerId>,
 ): {
   readonly studioThreads: T[];
   readonly nonStudioThreads: T[];
@@ -1342,7 +1293,7 @@ export function partitionSidebarThreadsByProjectIds<
 // Centralizes the expensive per-project row derivation so Sidebar.tsx can mostly orchestrate UI state.
 export function deriveSidebarProjectData(input: {
   projects: readonly Pick<Project, "id" | "cwd" | "expanded">[];
-  sortedSidebarThreadsByProjectId: ReadonlyMap<ProjectId, SidebarThreadSummary[]>;
+  sortedSidebarThreadsByProjectId: ReadonlyMap<ContainerId, SidebarThreadSummary[]>;
   pinnedThreadIds: readonly ThreadId[];
   threadListExtraPagesByProjectCwd: ReadonlyMap<string, number>;
   normalizeProjectCwd: (cwd: string) => string;
@@ -1352,8 +1303,8 @@ export function deriveSidebarProjectData(input: {
   resolveThreadStatus?: (
     thread: SidebarThreadSummary,
   ) => ReturnType<typeof resolveThreadStatusPill>;
-}): ReadonlyMap<ProjectId, SidebarDerivedProjectData> {
-  const byProjectId = new Map<ProjectId, SidebarDerivedProjectData>();
+}): ReadonlyMap<ContainerId, SidebarDerivedProjectData> {
+  const byProjectId = new Map<ContainerId, SidebarDerivedProjectData>();
 
   for (const project of input.projects) {
     const allProjectThreads = input.sortedSidebarThreadsByProjectId.get(project.id) ?? [];

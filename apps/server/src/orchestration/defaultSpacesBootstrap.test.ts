@@ -6,7 +6,10 @@ import { ensureDefaultSpaces } from "./defaultSpacesBootstrap.ts";
 import { createEmptyReadModel } from "./projector.ts";
 import type { OrchestrationEngineShape } from "./Services/OrchestrationEngine.ts";
 
-function engineFor(spaces: ReturnType<typeof createEmptyReadModel>["spaces"]) {
+function engineFor(
+  spaces: ReturnType<typeof createEmptyReadModel>["spaces"],
+  overrides?: Partial<ReturnType<typeof createEmptyReadModel>>,
+) {
   const dispatched: OrchestrationCommand[] = [];
   const dispatch = vi.fn((command: OrchestrationCommand) => {
     dispatched.push(command);
@@ -14,7 +17,11 @@ function engineFor(spaces: ReturnType<typeof createEmptyReadModel>["spaces"]) {
   });
   const engine = {
     getReadModel: () =>
-      Effect.succeed({ ...createEmptyReadModel("2026-07-31T00:00:00.000Z"), spaces }),
+      Effect.succeed({
+        ...createEmptyReadModel("2026-07-31T00:00:00.000Z"),
+        ...overrides,
+        spaces,
+      }),
     dispatch,
   } as unknown as OrchestrationEngineShape;
   return { dispatch, dispatched, engine };
@@ -37,6 +44,17 @@ describe("default Spaces bootstrap", () => {
     ]);
   });
 
+  it("does not inspect or repair historical folder assignments during bootstrap", async () => {
+    const timestamp = "2026-07-31T00:00:00.000Z";
+    const { dispatched, engine } = engineFor([], {
+      projects: [],
+    });
+
+    await Effect.runPromise(ensureDefaultSpaces(engine));
+
+    expect(dispatched.map((command) => command.type)).toEqual(["space.create", "space.create"]);
+  });
+
   it("does not recreate defaults when Space history already exists", async () => {
     const existing = {
       id: SpaceId.makeUnsafe("existing"),
@@ -52,5 +70,39 @@ describe("default Spaces bootstrap", () => {
     await Effect.runPromise(ensureDefaultSpaces(engine));
 
     expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it("does not restore archived defaults or migrate records at runtime", async () => {
+    const timestamp = "2026-07-31T00:00:00.000Z";
+    const personalId = SpaceId.makeUnsafe("penkra-personal");
+    const workId = SpaceId.makeUnsafe("penkra-work");
+    const archivedAt = "2026-07-31T01:00:00.000Z";
+    const spaces = [
+      {
+        id: personalId,
+        name: "Personal",
+        icon: "home" as const,
+        sortOrder: 0,
+        createdAt: timestamp,
+        updatedAt: archivedAt,
+        archivedAt,
+        deletedAt: null,
+      },
+      {
+        id: workId,
+        name: "Work",
+        icon: "bag" as const,
+        sortOrder: 1,
+        createdAt: timestamp,
+        updatedAt: archivedAt,
+        archivedAt,
+        deletedAt: null,
+      },
+    ];
+    const { dispatched, engine } = engineFor(spaces);
+
+    await Effect.runPromise(ensureDefaultSpaces(engine));
+
+    expect(dispatched).toEqual([]);
   });
 });

@@ -9,7 +9,7 @@ import {
   CommandId,
   MessageId,
   type ClientOrchestrationCommand,
-  ProjectId,
+  ContainerId,
   ThreadId,
 } from "@penkra/contracts";
 import { Effect } from "effect";
@@ -27,7 +27,7 @@ function projectCreateCommand(
   return {
     type: "project.create",
     commandId: CommandId.makeUnsafe("cmd-project-create"),
-    projectId: ProjectId.makeUnsafe("project-chat"),
+    projectId: ContainerId.makeUnsafe("project-chat"),
     kind: "chat",
     title: "Chat",
     workspaceRoot: "/Users/tester/Documents/Penkra/2026-06-11/chat",

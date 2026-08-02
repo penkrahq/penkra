@@ -1,5 +1,5 @@
 import type {
-  ProjectId,
+  ContainerId,
   PullRequestDetailInput,
   PullRequestInvolvement,
   PullRequestState,
@@ -10,16 +10,16 @@ import { ensureNativeApi } from "~/nativeApi";
 
 export const pullRequestQueryKeys = {
   all: ["pull-requests"] as const,
-  list: (input: { state: PullRequestState; projectId: ProjectId | null }) =>
+  list: (input: { state: PullRequestState; projectId: ContainerId | null }) =>
     ["pull-requests", "list", input.state, input.projectId] as const,
   exactList: (input: {
     involvement: PullRequestInvolvement;
     state: PullRequestState;
-    projectId: ProjectId | null;
+    projectId: ContainerId | null;
   }) =>
     ["pull-requests", "list-involvement", input.involvement, input.state, input.projectId] as const,
   reviewRequestCounts: ["pull-requests", "review-request-count"] as const,
-  reviewRequestCount: (projectId: ProjectId | null) =>
+  reviewRequestCount: (projectId: ContainerId | null) =>
     [...pullRequestQueryKeys.reviewRequestCounts, projectId] as const,
   detail: (input: PullRequestDetailInput | null) =>
     [
@@ -54,7 +54,7 @@ export function pullRequestQueryErrorState<TData, TError>(
 
 export function normalizePullRequestListKeyInput(input: {
   state: PullRequestState;
-  projectId?: ProjectId | null | undefined;
+  projectId?: ContainerId | null | undefined;
 }) {
   return {
     state: input.state,
@@ -76,7 +76,7 @@ export function shouldLoadExactPullRequestInvolvement(input: {
 
 export function pullRequestsListQueryOptions(input: {
   state: PullRequestState;
-  projectId: ProjectId | null;
+  projectId: ContainerId | null;
 }) {
   return queryOptions({
     queryKey: pullRequestQueryKeys.list(input),
@@ -98,7 +98,7 @@ export function pullRequestsListQueryOptions(input: {
 export function pullRequestsExactInvolvementQueryOptions(input: {
   involvement: PullRequestInvolvement;
   state: PullRequestState;
-  projectId: ProjectId | null;
+  projectId: ContainerId | null;
 }) {
   return queryOptions({
     queryKey: pullRequestQueryKeys.exactList(input),
@@ -111,7 +111,9 @@ export function pullRequestsExactInvolvementQueryOptions(input: {
   });
 }
 
-export function pullRequestReviewRequestCountQueryOptions(input: { projectId: ProjectId | null }) {
+export function pullRequestReviewRequestCountQueryOptions(input: {
+  projectId: ContainerId | null;
+}) {
   return queryOptions({
     queryKey: pullRequestQueryKeys.reviewRequestCount(input.projectId),
     queryFn: () => ensureNativeApi().pullRequests.reviewRequestCount(input),
@@ -125,7 +127,7 @@ export function pullRequestReviewRequestCountQueryOptions(input: { projectId: Pr
 /** Warm one destination state only after the user points at or focuses its tab. */
 export function prefetchPullRequestListState(
   queryClient: QueryClient,
-  input: { state: PullRequestState; projectId: ProjectId | null },
+  input: { state: PullRequestState; projectId: ContainerId | null },
 ) {
   return queryClient.prefetchQuery(pullRequestsListQueryOptions(input));
 }

@@ -15,7 +15,7 @@ import {
   ThreadPinnedMessages,
   ThreadMarkers,
   ThreadHandoff,
-  ProjectId,
+  ContainerId,
   SpaceId,
   ProviderInteractionMode,
   RuntimeMode,
@@ -30,7 +30,7 @@ import type { ProjectionRepositoryError } from "../Errors.ts";
 
 export const ProjectionThread = Schema.Struct({
   threadId: ThreadId,
-  projectId: ProjectId,
+  projectId: ContainerId,
   spaceId: Schema.optional(Schema.NullOr(SpaceId)).pipe(Schema.withDecodingDefault(() => null)),
   title: Schema.String,
   modelSelection: ModelSelection,
@@ -103,7 +103,7 @@ export const DeleteProjectionThreadInput = Schema.Struct({
 export type DeleteProjectionThreadInput = typeof DeleteProjectionThreadInput.Type;
 
 export const ListProjectionThreadsByProjectInput = Schema.Struct({
-  projectId: ProjectId,
+  projectId: ContainerId,
 });
 export type ListProjectionThreadsByProjectInput = typeof ListProjectionThreadsByProjectInput.Type;
 

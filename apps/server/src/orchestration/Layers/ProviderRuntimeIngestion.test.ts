@@ -15,7 +15,8 @@ import {
   DEFAULT_PROVIDER_INTERACTION_MODE,
   EventId,
   MessageId,
-  ProjectId,
+  ContainerId,
+  SpaceId,
   RuntimeItemId,
   ThreadId,
   TurnId,
@@ -47,7 +48,7 @@ import { ProviderRuntimeIngestionService } from "../Services/ProviderRuntimeInge
 import { ServerConfig } from "../../config.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 
-const asProjectId = (value: string): ProjectId => ProjectId.makeUnsafe(value);
+const asProjectId = (value: string): ContainerId => ContainerId.makeUnsafe(value);
 const asItemId = (value: string): RuntimeItemId => RuntimeItemId.makeUnsafe(value);
 const asEventId = (value: string): EventId => EventId.makeUnsafe(value);
 const asMessageId = (value: string): MessageId => MessageId.makeUnsafe(value);
@@ -246,13 +247,25 @@ describe("ProviderRuntimeIngestion", () => {
     const drain = () => Effect.runPromise(ingestion.drain);
 
     const createdAt = new Date().toISOString();
+    const personalSpaceId = SpaceId.makeUnsafe("penkra-personal");
+    await Effect.runPromise(
+      engine.dispatch({
+        type: "space.create",
+        commandId: CommandId.makeUnsafe("cmd-provider-space-create"),
+        spaceId: personalSpaceId,
+        name: "Personal",
+        icon: "home",
+        createdAt,
+      }),
+    );
     await Effect.runPromise(
       engine.dispatch({
         type: "project.create",
         commandId: CommandId.makeUnsafe("cmd-provider-project-create"),
         projectId: asProjectId("project-1"),
         title: "Provider Project",
-        workspaceRoot,
+        workspaceRoot: null,
+        spaceId: personalSpaceId,
         defaultModelSelection: {
           provider: "codex",
           model: "gpt-5-codex",
@@ -274,7 +287,7 @@ describe("ProviderRuntimeIngestion", () => {
         interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
         runtimeMode: "approval-required",
         branch: null,
-        worktreePath: null,
+        worktreePath: workspaceRoot,
         createdAt,
       }),
     );

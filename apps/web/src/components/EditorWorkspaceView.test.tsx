@@ -4,7 +4,7 @@
 // Depends on: EditorWorkspaceView and React server rendering.
 
 import type { FileDiffMetadata } from "@pierre/diffs/react";
-import { ProjectId } from "@penkra/contracts";
+import { ContainerId } from "@penkra/contracts";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
@@ -43,8 +43,8 @@ describe("EditorWorkspaceView", () => {
       <EditorWorkspaceView
         workspaceRoot="/Users/tester/project"
         projectName="project"
-        currentProjectId={ProjectId.makeUnsafe("project-current")}
-        projectOptions={[{ id: ProjectId.makeUnsafe("project-current"), name: "project" }]}
+        currentProjectId={ContainerId.makeUnsafe("project-current")}
+        projectOptions={[{ id: ContainerId.makeUnsafe("project-current"), name: "project" }]}
         selectedFilePath={null}
         expandedDirectories={new Set()}
         centerMode="diff"
@@ -61,7 +61,7 @@ describe("EditorWorkspaceView", () => {
       />,
     );
 
-    expect(markup).toContain('aria-label="Switch project"');
+    expect(markup).toContain('aria-label="Switch folder"');
     expect(markup).toContain("project");
   });
 

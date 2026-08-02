@@ -12,7 +12,7 @@ import type {
   EditorId,
   MessageId,
   PinnedMessage,
-  ProjectId,
+  ContainerId,
   ProviderKind,
   ResolvedKeybindingsConfig,
   ThreadId,
@@ -130,13 +130,13 @@ export interface EnvironmentPanelProps {
   /** Per-thread freeform scratchpad notes (server-synced). */
   notes: string;
   /** Active project whose local instructions should be edited. */
-  activeProjectId: ProjectId | null;
+  activeProjectId: ContainerId | null;
   /** Per-project freeform instructions, persisted locally and optionally copied into notes. */
   projectInstructions: string;
   /** Whether the current thread is server-backed enough to accept notepad updates. */
   canCopyProjectInstructionsToNotes: boolean;
   /** Persist local project instruction edits. */
-  onProjectInstructionsChange: (projectId: ProjectId, instructions: string) => void;
+  onProjectInstructionsChange: (projectId: ContainerId, instructions: string) => void;
   /** Copy/append current project instructions into the active thread's notepad. */
   onCopyProjectInstructionsToNotes: () => void;
   /** Toggle the Diff panel/route (same handler the header diff toggle used). */

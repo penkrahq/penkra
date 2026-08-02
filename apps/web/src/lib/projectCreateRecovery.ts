@@ -14,7 +14,7 @@ const DEFAULT_RECOVERABLE_PROJECT_KINDS: ReadonlySet<string> = new Set(["project
 export interface DuplicateProjectCreateRecoveryCandidate {
   readonly id: string;
   readonly kind?: string | undefined;
-  readonly workspaceRoot: string;
+  readonly workspaceRoot: string | null;
   readonly deletedAt?: string | null | undefined;
 }
 
@@ -98,8 +98,8 @@ export async function waitForSnapshotMatch<TSnapshot, TMatch>(input: {
 // project recovery: normalizes the cwd/workspaceRoot field naming difference between local store
 // projects and shell-snapshot rows, and finds a candidate by id via a caller-supplied predicate.
 export interface ContainerCandidateFields {
-  readonly cwd?: string | undefined;
-  readonly workspaceRoot?: string | undefined;
+  readonly cwd?: string | null | undefined;
+  readonly workspaceRoot?: string | null | undefined;
 }
 
 export function resolveContainerCandidateCwd(
@@ -163,6 +163,7 @@ export function findRecoverableProject<T extends DuplicateProjectCreateRecoveryC
     input.projects.find(
       (project) =>
         isRecoverableActiveProject(project, input.recoverableKinds) &&
+        project.workspaceRoot !== null &&
         workspaceRootsEqual(project.workspaceRoot, workspaceRoot),
     ) ?? null
   );

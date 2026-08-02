@@ -15,6 +15,7 @@ import { Effect, Layer, Schema, SchemaIssue } from "effect";
 
 import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
+import { discoverEnabledAppSkills } from "../../appSkillsCatalog.ts";
 import { ProviderValidationError } from "../Errors.ts";
 import { ProviderAdapterRegistry } from "../Services/ProviderAdapterRegistry.ts";
 import {
@@ -120,16 +121,29 @@ const make = Effect.gen(function* () {
           }).pipe(Effect.as([] as ProviderSkillDescriptor[])),
         ),
       );
+      const spaceId = parsed.spaceId;
+      const appSkills = spaceId
+        ? yield* Effect.tryPromise(() => discoverEnabledAppSkills(spaceId)).pipe(
+            Effect.catchCause((cause) =>
+              Effect.logWarning("App skill discovery failed; serving filesystem skills only", {
+                spaceId,
+                cause,
+              }).pipe(Effect.as([] as ProviderSkillDescriptor[])),
+            ),
+          )
+        : [];
       const merged = mergeSkillsIntoCatalog({
         native: nativeResult?.skills ?? [],
-        catalog: catalogSkills,
+        catalog: [...catalogSkills, ...appSkills],
       });
       const settings = yield* serverSettings.getSettings.pipe(
         Effect.orElseSucceed(() => DEFAULT_SERVER_SETTINGS),
       );
       return {
         skills: filterDisabledSkills(merged, settings.skills.disabled),
-        source: nativeResult?.source ? `${nativeResult.source}+penkra.catalog` : "penkra.catalog",
+        source: nativeResult?.source
+          ? `${nativeResult.source}+penkra.catalog${appSkills.length > 0 ? "+penkra.apps" : ""}`
+          : `penkra.catalog${appSkills.length > 0 ? "+penkra.apps" : ""}`,
         cached: nativeResult?.cached ?? false,
       } satisfies ProviderListSkillsResult;
     });

@@ -33,11 +33,7 @@ import {
   threadTurnStatesEqual,
   type ProjectNormalizationInput,
 } from "./storeNormalization";
-import {
-  projectCwdKey,
-  rememberProjectLocalNames,
-  rememberProjectUiState,
-} from "./storePersistence";
+import { rememberProjectLocalNames, rememberProjectUiState } from "./storePersistence";
 import {
   EMPTY_ACTIVITY_BY_THREAD,
   EMPTY_ACTIVITY_IDS_BY_THREAD,
@@ -66,7 +62,7 @@ import type {
 } from "./types";
 
 type ReadModelThread = OrchestrationReadModel["threads"][number];
-export type ProjectMatchPolicy = "id-only" | "id-or-cwd";
+export type ProjectMatchPolicy = "id-only";
 
 function toThreadShell(thread: Thread): ThreadShell {
   return {
@@ -212,18 +208,12 @@ const turnDiffId = (summary: Thread["turnDiffSummaries"][number]): TurnId => sum
 export function upsertProject(
   state: AppState,
   incoming: ProjectNormalizationInput,
-  matchPolicy: ProjectMatchPolicy,
+  _matchPolicy: ProjectMatchPolicy,
 ): AppState {
   if (state.deletedProjectIdsById?.[incoming.id] !== undefined) {
     return state;
   }
-  const existingProject =
-    state.projects.find((project) => project.id === incoming.id) ??
-    (matchPolicy === "id-or-cwd"
-      ? state.projects.find(
-          (project) => projectCwdKey(project.cwd) === projectCwdKey(incoming.workspaceRoot),
-        )
-      : undefined);
+  const existingProject = state.projects.find((project) => project.id === incoming.id);
   const nextProject = normalizeProject(incoming, existingProject);
 
   if (existingProject) {
@@ -276,7 +266,7 @@ export function upsertSpace(
 export function removeSpace(
   state: AppState,
   spaceId: Space["id"],
-  assignmentUpdatedAt?: string,
+  _assignmentUpdatedAt?: string,
   preserveAssignments = false,
 ): AppState {
   const currentArchivedSpaces = state.archivedSpaces ?? [];
@@ -296,45 +286,9 @@ export function removeSpace(
     };
   }
   const archivedSpaces = currentArchivedSpaces.filter((space) => space.id !== spaceId);
-  let projectsChanged = false;
-  const projects = state.projects.map((project) => {
-    if ((project.spaceId ?? null) !== spaceId) return project;
-    projectsChanged = true;
-    return {
-      ...project,
-      spaceId: null,
-      ...(assignmentUpdatedAt !== undefined
-        ? {
-            updatedAt:
-              project.updatedAt && project.updatedAt > assignmentUpdatedAt
-                ? project.updatedAt
-                : assignmentUpdatedAt,
-          }
-        : {}),
-    };
-  });
-  let threadShellsChanged = false;
-  const threadShellById = Object.fromEntries(
-    Object.entries(state.threadShellById ?? {}).map(([threadId, thread]) => {
-      if ((thread.spaceId ?? null) !== spaceId) return [threadId, thread];
-      threadShellsChanged = true;
-      return [threadId, { ...thread, spaceId: null }];
-    }),
-  ) as NonNullable<AppState["threadShellById"]>;
-  let threadSummariesChanged = false;
-  const sidebarThreadSummaryById = Object.fromEntries(
-    Object.entries(state.sidebarThreadSummaryById).map(([threadId, thread]) => {
-      if ((thread.spaceId ?? null) !== spaceId) return [threadId, thread];
-      threadSummariesChanged = true;
-      return [threadId, { ...thread, spaceId: null }];
-    }),
-  );
   if (
     spaces.length === state.spaces.length &&
-    archivedSpaces.length === currentArchivedSpaces.length &&
-    !projectsChanged &&
-    !threadShellsChanged &&
-    !threadSummariesChanged
+    archivedSpaces.length === currentArchivedSpaces.length
   ) {
     return state;
   }
@@ -342,9 +296,6 @@ export function removeSpace(
     ...state,
     spaces,
     archivedSpaces,
-    projects: projectsChanged ? projects : state.projects,
-    ...(threadShellsChanged ? { threadShellById } : {}),
-    ...(threadSummariesChanged ? { sidebarThreadSummaryById } : {}),
   };
 }
 
@@ -1396,7 +1347,7 @@ export function applyShellEvent(state: AppState, event: OrchestrationShellStream
     case "space-order-updated":
       return applySpaceOrder(state, event.orderedSpaceIds);
     case "project-upserted":
-      return upsertProject(state, event.project, "id-or-cwd");
+      return upsertProject(state, event.project, "id-only");
     case "project-removed":
       return removeDeletedProjectFromClientState(state, event.projectId, event.sequence);
     case "thread-upserted": {

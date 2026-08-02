@@ -124,6 +124,8 @@ import type {
   ServerStopLocalServerResult,
   ServerUpdateSettingsInput,
   ServerUpdateSettingsResult,
+  ServerSpaceNavigationState,
+  ServerUpdateSpaceNavigationStateInput,
   ServerUpsertKeybindingInput,
   ServerUpsertKeybindingResult,
   ServerVoiceTranscriptionInput,
@@ -209,6 +211,29 @@ export type DesktopUpdateStatus =
 
 export type DesktopRuntimeArch = "arm64" | "x64" | "other";
 export type DesktopTheme = "light" | "dark" | "system";
+
+export interface DesktopAppTheme {
+  variant: "light" | "dark";
+  tokens: {
+    background: string;
+    panel: string;
+    surface: string;
+    control: string;
+    selected: string;
+    overlay: string;
+    textPrimary: string;
+    textSecondary: string;
+    textMuted: string;
+    border: string;
+    focus: string;
+    accent: string;
+    success: string;
+    warning: string;
+    destructive: string;
+    info: string;
+    fontSans: string;
+  };
+}
 
 export interface DesktopRuntimeInfo {
   hostArch: DesktopRuntimeArch;
@@ -435,6 +460,16 @@ export interface DesktopInstalledApp {
     required: boolean;
     reason: string;
   }>;
+  skills: ReadonlyArray<{ path: string }>;
+  handlers: ReadonlyArray<
+    | { intent: "open-url"; operation: string; schemes: ReadonlyArray<string> }
+    | {
+        intent: "open-file";
+        operation: string;
+        mediaTypes?: ReadonlyArray<string>;
+        extensions?: ReadonlyArray<string>;
+      }
+  >;
 }
 
 export interface DesktopSpaceAppState {
@@ -442,6 +477,7 @@ export interface DesktopSpaceAppState {
   spaceId: string;
   enabled: boolean;
   permissions: Readonly<Record<string, "denied" | "granted">>;
+  skills: Readonly<Record<string, boolean>>;
 }
 
 export interface DesktopAppInstallationSnapshot {
@@ -450,6 +486,35 @@ export interface DesktopAppInstallationSnapshot {
   /** Present only for an App-owned renderer bound to one Space. */
   currentSpaceId?: string;
 }
+
+export type DesktopAppSetting = {
+  key: string;
+  label: string;
+  description?: string;
+  configured: boolean;
+  migrationId?: string;
+} & (
+  | { type: "boolean"; default: boolean; value: boolean }
+  | {
+      type: "string";
+      default: string;
+      sensitive: boolean;
+      value?: string;
+      validation?: { minLength?: number; maxLength?: number };
+    }
+  | {
+      type: "number";
+      default: number;
+      value: number;
+      validation?: { minimum?: number; maximum?: number; step?: number };
+    }
+  | {
+      type: "select";
+      default: string;
+      value: string;
+      options: ReadonlyArray<{ value: string; label: string }>;
+    }
+);
 
 export interface DesktopAppInstallationBridge {
   getState: () => Promise<DesktopAppInstallationSnapshot>;
@@ -479,6 +544,27 @@ export interface DesktopAppInstallationBridge {
     spaceId: string;
     permission: string;
     grant: "denied" | "granted";
+  }) => Promise<DesktopAppInstallationSnapshot>;
+  getSettings: (input: {
+    appId: string;
+    spaceId: string;
+  }) => Promise<ReadonlyArray<DesktopAppSetting>>;
+  setSetting: (input: {
+    appId: string;
+    spaceId: string;
+    key: string;
+    value: boolean | number | string;
+  }) => Promise<ReadonlyArray<DesktopAppSetting>>;
+  resetSetting: (input: {
+    appId: string;
+    spaceId: string;
+    key: string;
+  }) => Promise<ReadonlyArray<DesktopAppSetting>>;
+  setSkillEnabled: (input: {
+    appId: string;
+    spaceId: string;
+    path: string;
+    enabled: boolean;
   }) => Promise<DesktopAppInstallationSnapshot>;
   uninstall: (input: {
     appId: string;
@@ -548,11 +634,7 @@ export interface DesktopRegistryAccountFeedback {
 }
 
 export interface DesktopAppRegistryBridge {
-  list: (input?: {
-    query?: string;
-    cursor?: string;
-    limit?: number;
-  }) => Promise<{
+  list: (input?: { query?: string; cursor?: string; limit?: number }) => Promise<{
     items: ReadonlyArray<DesktopRegistryAppSummary>;
     pageInfo: { nextCursor: string | null };
   }>;
@@ -591,6 +673,7 @@ export interface DesktopAppTabDescriptor {
 
 export interface DesktopAppTabsBridge {
   list: () => Promise<ReadonlyArray<DesktopAppTabDescriptor>>;
+  consumeListingRequest: () => Promise<{ appId: string } | null>;
   open: (input: {
     appId: string;
     spaceId: string;
@@ -604,9 +687,41 @@ export interface DesktopAppTabsBridge {
     bounds: { x: number; y: number; width: number; height: number };
   }) => Promise<void>;
   setVisible: (input: { tabId: string; visible: boolean }) => Promise<void>;
+  navigate: (input: { tabId: string; route: string; state?: unknown }) => Promise<void>;
   close: (input: { tabId: string }) => Promise<void>;
+  onListingRequested: (listener: (input: { appId: string }) => void) => () => void;
   onOpened: (listener: (tab: DesktopAppTabDescriptor) => void) => () => void;
   onState: (listener: (tab: DesktopAppTabDescriptor) => void) => () => void;
+}
+
+export interface DesktopAppDiagnosticEntry {
+  id: string;
+  timestamp: string;
+  kind:
+    | "operation-completed"
+    | "operation-failed"
+    | "permission-used"
+    | "runtime-disabled"
+    | "tab-crashed"
+    | "tab-opened"
+    | "tab-ready"
+    | "tab-responsive"
+    | "tab-unresponsive";
+  appId: string;
+  spaceId: string;
+  tabId?: string;
+  operation?: string;
+  durationMs?: number;
+  memoryBytes?: number;
+  message?: string;
+}
+
+export interface DesktopAppDiagnosticsBridge {
+  list: (input?: {
+    appId?: string;
+    spaceId?: string;
+    limit?: number;
+  }) => Promise<ReadonlyArray<DesktopAppDiagnosticEntry>>;
 }
 
 export interface DesktopBridge {
@@ -627,6 +742,7 @@ export interface DesktopBridge {
   }) => Promise<string | null>;
   confirm: (input: string | DesktopConfirmOptions) => Promise<boolean>;
   setTheme: (theme: DesktopTheme) => Promise<void>;
+  setAppTheme?: (theme: DesktopAppTheme) => Promise<void>;
   setSpacesMenu?: (input: DesktopSpacesMenuInput) => Promise<void>;
   showContextMenu: <T extends string>(
     items: readonly ContextMenuItem<T>[],
@@ -679,6 +795,7 @@ export interface DesktopBridge {
   appInstallations?: DesktopAppInstallationBridge;
   appRegistry?: DesktopAppRegistryBridge;
   appTabs?: DesktopAppTabsBridge;
+  appDiagnostics?: DesktopAppDiagnosticsBridge;
   storageMigration: {
     readSnapshot: () => PenkraStorageSnapshot | null;
     acknowledgeSnapshot: () => Promise<void>;
@@ -818,6 +935,10 @@ export interface NativeApi {
     getEnvironment: () => Promise<ServerGetEnvironmentResult>;
     getSettings: () => Promise<ServerGetSettingsResult>;
     updateSettings: (input: ServerUpdateSettingsInput) => Promise<ServerUpdateSettingsResult>;
+    getSpaceNavigationState: () => Promise<ServerSpaceNavigationState>;
+    updateSpaceNavigationState: (
+      input: ServerUpdateSpaceNavigationStateInput,
+    ) => Promise<ServerSpaceNavigationState>;
     getAuthSession: () => Promise<AuthSessionState>;
     bootstrapAuth: (input: AuthBootstrapInput) => Promise<AuthBootstrapResult>;
     bootstrapBearerAuth: (input: AuthBootstrapInput) => Promise<AuthBearerBootstrapResult>;

@@ -37,16 +37,28 @@ function state() {
 
 describe("App permission query", () => {
   it("uses only the renderer-bound App and Space grant", () => {
-    expect(queryAppPermission(state(), { appId: "com.acme.linear", spaceId: "personal" }, "network-fetch"))
-      .toEqual({ name: "network-fetch", declared: true, required: false, state: "granted" });
-    expect(queryAppPermission(state(), { appId: "com.acme.linear", spaceId: "work" }, "network-fetch"))
-      .toEqual({ name: "network-fetch", declared: true, required: false, state: "denied" });
+    expect(
+      queryAppPermission(
+        state(),
+        { appId: "com.acme.linear", spaceId: "personal" },
+        "network-fetch",
+      ),
+    ).toEqual({ name: "network-fetch", declared: true, required: false, state: "granted" });
+    expect(
+      queryAppPermission(state(), { appId: "com.acme.linear", spaceId: "work" }, "network-fetch"),
+    ).toEqual({ name: "network-fetch", declared: true, required: false, state: "denied" });
   });
 
   it("does not reveal or grant undeclared and unsupported authority", () => {
-    expect(queryAppPermission(state(), { appId: "com.acme.linear", spaceId: "personal" }, "raw-socket"))
-      .toEqual({ name: "raw-socket", declared: false, required: false, state: "denied" });
-    expect(() => queryAppPermission(state(), { appId: "com.acme.linear", spaceId: "personal" }, "account-read"))
-      .toThrow("unsupported permission");
+    expect(
+      queryAppPermission(state(), { appId: "com.acme.linear", spaceId: "personal" }, "raw-socket"),
+    ).toEqual({ name: "raw-socket", declared: false, required: false, state: "denied" });
+    expect(() =>
+      queryAppPermission(
+        state(),
+        { appId: "com.acme.linear", spaceId: "personal" },
+        "account-read",
+      ),
+    ).toThrow("unsupported permission");
   });
 });

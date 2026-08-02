@@ -4,7 +4,7 @@
 
 import "../../../index.css";
 
-import { ProjectId } from "@penkra/contracts";
+import { ContainerId } from "@penkra/contracts";
 import { useState } from "react";
 import { page } from "vitest/browser";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -12,8 +12,8 @@ import { render } from "vitest-browser-react";
 
 import { EnvironmentProjectInstructionsSection } from "./EnvironmentProjectInstructionsSection";
 
-const PROJECT_A = ProjectId.makeUnsafe("project-instructions-a");
-const PROJECT_B = ProjectId.makeUnsafe("project-instructions-b");
+const PROJECT_A = ContainerId.makeUnsafe("project-instructions-a");
+const PROJECT_B = ContainerId.makeUnsafe("project-instructions-b");
 
 describe("EnvironmentProjectInstructionsSection", () => {
   afterEach(() => {
@@ -24,7 +24,7 @@ describe("EnvironmentProjectInstructionsSection", () => {
     const onInstructionsChange = vi.fn();
 
     function ProjectSwitchHarness() {
-      const [projectId, setProjectId] = useState<ProjectId>(PROJECT_A);
+      const [projectId, setProjectId] = useState<ContainerId>(PROJECT_A);
       return (
         <>
           <button type="button" onClick={() => setProjectId(PROJECT_B)}>

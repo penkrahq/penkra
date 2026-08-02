@@ -1,7 +1,7 @@
 // FILE: chatFirstSend.test.ts
 // Purpose: Verifies first-send project routing for general chats and folder mentions.
 
-import { type ProjectId } from "@penkra/contracts";
+import { type ContainerId } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 
 import type { Project } from "../types";
@@ -9,7 +9,7 @@ import { resolveFirstSendTarget } from "./chatFirstSend";
 
 function makeProject(overrides: Partial<Project> = {}): Project {
   return {
-    id: "project-home" as ProjectId,
+    id: "project-home" as ContainerId,
     kind: "chat",
     name: "Home",
     remoteName: "Home",
@@ -76,7 +76,7 @@ describe("resolveFirstSendTarget", () => {
   });
 
   it("uses the current project outside a home chat first send", () => {
-    const activeProject = makeProject({ id: "project-app" as ProjectId, kind: "project" });
+    const activeProject = makeProject({ id: "project-app" as ContainerId, kind: "project" });
     const result = resolveFirstSendTarget({
       activeProject,
       chatWorkspaceRoot: "/Users/tester/Documents/Penkra",
@@ -101,7 +101,7 @@ describe("resolveFirstSendTarget", () => {
 
   it("keeps a plain Studio first send in the Studio container", () => {
     const activeProject = makeProject({
-      id: "project-studio" as ProjectId,
+      id: "project-studio" as ContainerId,
       kind: "studio",
       name: "Studio",
       remoteName: "Studio",
@@ -132,7 +132,7 @@ describe("resolveFirstSendTarget", () => {
 
   it("keeps a Studio folder pick in the Studio container", () => {
     const activeProject = makeProject({
-      id: "project-studio" as ProjectId,
+      id: "project-studio" as ContainerId,
       kind: "studio",
       name: "Studio",
       remoteName: "Studio",

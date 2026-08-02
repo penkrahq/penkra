@@ -10,7 +10,7 @@ import {
   PiModelOptions,
 } from "./model";
 import { ProviderMentionReference, ProviderSkillReference } from "./providerDiscovery";
-import { ProjectKind } from "./project";
+import { ContainerKind } from "./project";
 import {
   ApprovalRequestId,
   CheckpointRef,
@@ -20,7 +20,7 @@ import {
   MessageId,
   NonNegativeInt,
   PositiveInt,
-  ProjectId,
+  ContainerId,
   SpaceId,
   ProviderItemId,
   ThreadId,
@@ -378,8 +378,6 @@ export type ProjectScript = typeof ProjectScript.Type;
 
 export const SPACE_NAME_MAX_LENGTH = 32;
 export const SPACES_MAX_COUNT = 50;
-/** Reserved client-side identity for the virtual collection of unassigned projects. */
-export const RESERVED_VOID_SPACE_ID = "void";
 /** Per-command cap for bulk assignment; clients chunk larger selections. */
 export const SPACE_PROJECTS_ASSIGN_MAX_COUNT = 200;
 export const SPACE_ICON_NAMES = [
@@ -434,10 +432,10 @@ export const OrchestrationSpaceShell = Schema.Struct({
 export type OrchestrationSpaceShell = typeof OrchestrationSpaceShell.Type;
 
 export const OrchestrationProject = Schema.Struct({
-  id: ProjectId,
-  kind: Schema.optional(ProjectKind).pipe(Schema.withDecodingDefault(() => "project")),
+  id: ContainerId,
+  kind: Schema.optional(ContainerKind).pipe(Schema.withDecodingDefault(() => "project")),
   title: TrimmedNonEmptyString,
-  workspaceRoot: TrimmedNonEmptyString,
+  workspaceRoot: Schema.NullOr(TrimmedNonEmptyString),
   defaultModelSelection: Schema.NullOr(ModelSelection),
   scripts: Schema.Array(ProjectScript),
   isPinned: Schema.optional(Schema.Boolean).pipe(Schema.withDecodingDefault(() => false)),
@@ -449,10 +447,10 @@ export const OrchestrationProject = Schema.Struct({
 export type OrchestrationProject = typeof OrchestrationProject.Type;
 
 export const OrchestrationProjectShell = Schema.Struct({
-  id: ProjectId,
-  kind: Schema.optional(ProjectKind).pipe(Schema.withDecodingDefault(() => "project")),
+  id: ContainerId,
+  kind: Schema.optional(ContainerKind).pipe(Schema.withDecodingDefault(() => "project")),
   title: TrimmedNonEmptyString,
-  workspaceRoot: TrimmedNonEmptyString,
+  workspaceRoot: Schema.NullOr(TrimmedNonEmptyString),
   defaultModelSelection: Schema.NullOr(ModelSelection),
   scripts: Schema.Array(ProjectScript),
   isPinned: Schema.optional(Schema.Boolean).pipe(Schema.withDecodingDefault(() => false)),
@@ -698,7 +696,7 @@ export type OrchestrationPendingInteraction = typeof OrchestrationPendingInterac
 
 export const OrchestrationThread = Schema.Struct({
   id: ThreadId,
-  projectId: ProjectId,
+  projectId: ContainerId,
   spaceId: Schema.optional(Schema.NullOr(SpaceId)).pipe(Schema.withDecodingDefault(() => null)),
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
@@ -783,7 +781,7 @@ export type OrchestrationThread = typeof OrchestrationThread.Type;
 
 export const OrchestrationThreadShell = Schema.Struct({
   id: ThreadId,
-  projectId: ProjectId,
+  projectId: ContainerId,
   spaceId: Schema.optional(Schema.NullOr(SpaceId)).pipe(Schema.withDecodingDefault(() => null)),
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
@@ -906,7 +904,7 @@ export const OrchestrationShellStreamEvent = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("project-removed"),
     sequence: NonNegativeInt,
-    projectId: ProjectId,
+    projectId: ContainerId,
   }),
   Schema.Struct({
     kind: Schema.Literal("thread-upserted"),
@@ -970,18 +968,15 @@ export const SpaceRestoreCommand = Schema.Struct({
   type: Schema.Literal("space.restore"),
   commandId: CommandId,
   spaceId: SpaceId,
+  name: Schema.optional(SpaceName),
 });
 
-/**
- * Bulk assignment into one target space, applied atomically in a single transaction.
- * Moving projects out to Void stays per-project via `project.meta.update` — the only
- * bulk surface in the app files projects *into* a space.
- */
+/** Bulk assignment into one persisted target Space, applied atomically. */
 export const SpaceProjectsAssignCommand = Schema.Struct({
   type: Schema.Literal("space.projects.assign"),
   commandId: CommandId,
   spaceId: SpaceId,
-  projectIds: Schema.Array(ProjectId).check(
+  projectIds: Schema.Array(ContainerId).check(
     Schema.isMinLength(1),
     Schema.isMaxLength(SPACE_PROJECTS_ASSIGN_MAX_COUNT),
   ),
@@ -990,20 +985,16 @@ export const SpaceProjectsAssignCommand = Schema.Struct({
 export const ProjectCreateCommand = Schema.Struct({
   type: Schema.Literal("project.create"),
   commandId: CommandId,
-  projectId: ProjectId,
-  kind: Schema.optional(ProjectKind).pipe(Schema.withDecodingDefault(() => "project")),
+  projectId: ContainerId,
+  kind: Schema.optional(ContainerKind).pipe(Schema.withDecodingDefault(() => "project")),
   title: TrimmedNonEmptyString,
-  workspaceRoot: TrimmedNonEmptyString,
+  workspaceRoot: Schema.NullOr(TrimmedNonEmptyString),
   createWorkspaceRootIfMissing: Schema.optional(Schema.Boolean).pipe(
     Schema.withDecodingDefault(() => false),
   ),
   defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
   isPinned: Schema.optional(Schema.Boolean).pipe(Schema.withDecodingDefault(() => false)),
-  /**
-   * Space the project is born into (usually the client's active space). Best-effort:
-   * an unusable target (deleted space, non-ordinary kind) degrades to Void rather
-   * than failing creation.
-   */
+  /** Required for ordinary folders and absent for managed chat/Studio containers. */
   spaceId: Schema.optional(Schema.NullOr(SpaceId)),
   createdAt: IsoDateTime,
 });
@@ -1011,10 +1002,10 @@ export const ProjectCreateCommand = Schema.Struct({
 const ProjectMetaUpdateCommand = Schema.Struct({
   type: Schema.Literal("project.meta.update"),
   commandId: CommandId,
-  projectId: ProjectId,
-  kind: Schema.optional(ProjectKind),
+  projectId: ContainerId,
+  kind: Schema.optional(ContainerKind),
   title: Schema.optional(TrimmedNonEmptyString),
-  workspaceRoot: Schema.optional(TrimmedNonEmptyString),
+  workspaceRoot: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   createWorkspaceRootIfMissing: Schema.optional(Schema.Boolean).pipe(
     Schema.withDecodingDefault(() => false),
   ),
@@ -1027,14 +1018,14 @@ const ProjectMetaUpdateCommand = Schema.Struct({
 const ProjectDeleteCommand = Schema.Struct({
   type: Schema.Literal("project.delete"),
   commandId: CommandId,
-  projectId: ProjectId,
+  projectId: ContainerId,
 });
 
 const ThreadCreateCommand = Schema.Struct({
   type: Schema.Literal("thread.create"),
   commandId: CommandId,
   threadId: ThreadId,
-  projectId: ProjectId,
+  projectId: ContainerId,
   /** Direct Space ownership for loose chats. Project-backed threads inherit their project. */
   spaceId: Schema.optional(Schema.NullOr(SpaceId)),
   title: TrimmedNonEmptyString,
@@ -1092,7 +1083,7 @@ const ThreadHandoffCreateCommand = Schema.Struct({
   commandId: CommandId,
   threadId: ThreadId,
   sourceThreadId: ThreadId,
-  projectId: ProjectId,
+  projectId: ContainerId,
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,
@@ -1118,7 +1109,7 @@ const ThreadForkCreateCommand = Schema.Struct({
   commandId: CommandId,
   threadId: ThreadId,
   sourceThreadId: ThreadId,
-  projectId: ProjectId,
+  projectId: ContainerId,
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,
@@ -1162,6 +1153,7 @@ const ThreadMetaUpdateCommand = Schema.Struct({
   type: Schema.Literal("thread.meta.update"),
   commandId: CommandId,
   threadId: ThreadId,
+  spaceId: Schema.optional(SpaceId),
   title: Schema.optional(TrimmedNonEmptyString),
   modelSelection: Schema.optional(ModelSelection),
   envMode: Schema.optional(ThreadEnvironmentMode),
@@ -1704,14 +1696,15 @@ export const SpaceArchivedPayload = Schema.Struct({
 
 export const SpaceRestoredPayload = Schema.Struct({
   spaceId: SpaceId,
+  name: Schema.optional(SpaceName),
   restoredAt: IsoDateTime,
 });
 
 export const ProjectCreatedPayload = Schema.Struct({
-  projectId: ProjectId,
-  kind: Schema.optional(ProjectKind).pipe(Schema.withDecodingDefault(() => "project")),
+  projectId: ContainerId,
+  kind: Schema.optional(ContainerKind).pipe(Schema.withDecodingDefault(() => "project")),
   title: TrimmedNonEmptyString,
-  workspaceRoot: TrimmedNonEmptyString,
+  workspaceRoot: Schema.NullOr(TrimmedNonEmptyString),
   defaultModelSelection: Schema.NullOr(ModelSelection),
   scripts: Schema.Array(ProjectScript),
   isPinned: Schema.optional(Schema.Boolean).pipe(Schema.withDecodingDefault(() => false)),
@@ -1721,10 +1714,10 @@ export const ProjectCreatedPayload = Schema.Struct({
 });
 
 export const ProjectMetaUpdatedPayload = Schema.Struct({
-  projectId: ProjectId,
-  kind: Schema.optional(ProjectKind),
+  projectId: ContainerId,
+  kind: Schema.optional(ContainerKind),
   title: Schema.optional(TrimmedNonEmptyString),
-  workspaceRoot: Schema.optional(TrimmedNonEmptyString),
+  workspaceRoot: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
   scripts: Schema.optional(Schema.Array(ProjectScript)),
   isPinned: Schema.optional(Schema.Boolean),
@@ -1733,13 +1726,13 @@ export const ProjectMetaUpdatedPayload = Schema.Struct({
 });
 
 export const ProjectDeletedPayload = Schema.Struct({
-  projectId: ProjectId,
+  projectId: ContainerId,
   deletedAt: IsoDateTime,
 });
 
 export const ThreadCreatedPayload = Schema.Struct({
   threadId: ThreadId,
-  projectId: ProjectId,
+  projectId: ContainerId,
   spaceId: Schema.optional(Schema.NullOr(SpaceId)).pipe(Schema.withDecodingDefault(() => null)),
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
@@ -1817,6 +1810,7 @@ export const ThreadUnarchivedPayload = Schema.Struct({
 
 export const ThreadMetaUpdatedPayload = Schema.Struct({
   threadId: ThreadId,
+  spaceId: Schema.optional(SpaceId),
   title: Schema.optional(TrimmedNonEmptyString),
   modelSelection: Schema.optional(ModelSelection),
   envMode: Schema.optional(ThreadEnvironmentMode),
@@ -2064,7 +2058,7 @@ const EventBaseFields = {
   sequence: NonNegativeInt,
   eventId: EventId,
   aggregateKind: OrchestrationAggregateKind,
-  aggregateId: Schema.Union([SpaceId, ProjectId, ThreadId]),
+  aggregateId: Schema.Union([SpaceId, ContainerId, ThreadId]),
   occurredAt: IsoDateTime,
   commandId: Schema.NullOr(CommandId),
   causationEventId: Schema.NullOr(EventId),

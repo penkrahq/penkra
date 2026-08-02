@@ -48,6 +48,7 @@ export function resolveThreadWorkspaceCwd(input: {
 export function resolveThreadBranchSourceCwd(input: {
   projectCwd?: string | null | undefined;
   worktreePath?: string | null | undefined;
+  workingDirectory?: string | null | undefined;
 }): string | null {
-  return input.worktreePath ?? input.projectCwd ?? null;
+  return input.worktreePath ?? input.workingDirectory ?? input.projectCwd ?? null;
 }

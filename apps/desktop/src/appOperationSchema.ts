@@ -19,7 +19,9 @@ export interface AppOperationValidators {
   output: ValidateFunction;
 }
 
-export function compileOperationValidators(declaration: OperationDeclaration): AppOperationValidators {
+export function compileOperationValidators(
+  declaration: OperationDeclaration,
+): AppOperationValidators {
   const ajv = new Ajv2020({
     allErrors: false,
     strict: true,
@@ -33,7 +35,9 @@ export function compileOperationValidators(declaration: OperationDeclaration): A
       output: ajv.compile(declaration.output),
     };
   } catch (error) {
-    throw new Error(`Operation ${declaration.key} contains an invalid JSON Schema.`, { cause: error });
+    throw new Error(`Operation ${declaration.key} contains an invalid JSON Schema.`, {
+      cause: error,
+    });
   }
 }
 
@@ -48,12 +52,15 @@ export function assertOperationValue(
 ): void {
   assertBoundedJsonValue(value, label);
   if (validator(value)) return;
-  throw new Error(`Operation ${label} does not match its declared schema${formatAjvError(validator.errors?.[0])}.`);
+  throw new Error(
+    `Operation ${label} does not match its declared schema${formatAjvError(validator.errors?.[0])}.`,
+  );
 }
 
 function assertSchemaProfile(schema: Readonly<Record<string, unknown>>, label: string): void {
   const issues = validatePenkraJsonSchema(schema);
-  if (issues.length > 0) throw new Error(`Operation ${label} schema is unsupported: ${issues.join("; ")}.`);
+  if (issues.length > 0)
+    throw new Error(`Operation ${label} schema is unsupported: ${issues.join("; ")}.`);
 }
 
 function assertBoundedJsonValue(value: unknown, label: string): void {
@@ -71,13 +78,16 @@ function assertBoundedJsonValue(value: unknown, label: string): void {
     }
     const candidate = current.value;
     if (
-      candidate === null || typeof candidate === "string" || typeof candidate === "boolean" ||
+      candidate === null ||
+      typeof candidate === "string" ||
+      typeof candidate === "boolean" ||
       (typeof candidate === "number" && Number.isFinite(candidate))
     ) {
       continue;
     }
     if (typeof candidate !== "object") throw new Error(`Operation ${label} must be JSON data.`);
-    if (seen.has(candidate)) throw new Error(`Operation ${label} must not contain circular references.`);
+    if (seen.has(candidate))
+      throw new Error(`Operation ${label} must not contain circular references.`);
     seen.add(candidate);
     const entries = Array.isArray(candidate) ? candidate : Object.values(candidate);
     for (const entry of entries) stack.push({ value: entry, depth: current.depth + 1 });

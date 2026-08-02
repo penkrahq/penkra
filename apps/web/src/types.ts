@@ -18,7 +18,7 @@ import type {
   ThreadHandoff,
   ProjectScript as ContractProjectScript,
   ThreadId,
-  ProjectId,
+  ContainerId,
   SpaceId,
   SpaceIconName,
   TurnId,
@@ -28,7 +28,7 @@ import type {
   ProviderKind,
   CheckpointRef,
   ProviderInteractionMode,
-  ProjectKind,
+  ContainerKind,
   RuntimeMode,
   ThreadCreationSource,
   ThreadEnvironmentMode,
@@ -167,8 +167,8 @@ export interface WorktreeSetupSnapshot {
 }
 
 export interface Project {
-  id: ProjectId;
-  kind: ProjectKind;
+  id: ContainerId;
+  kind: ContainerKind;
   name: string;
   remoteName: string;
   folderName: string;
@@ -218,7 +218,7 @@ export interface ThreadWorkspacePatch {
 export interface Thread extends ThreadWorkspaceState {
   id: ThreadId;
   codexThreadId: string | null;
-  projectId: ProjectId;
+  projectId: ContainerId;
   spaceId?: SpaceId | null;
   title: string;
   modelSelection: ModelSelection;
@@ -260,7 +260,7 @@ export interface Thread extends ThreadWorkspaceState {
 export interface ThreadShell extends ThreadWorkspaceState {
   id: ThreadId;
   codexThreadId: string | null;
-  projectId: ProjectId;
+  projectId: ContainerId;
   spaceId?: SpaceId | null;
   title: string;
   modelSelection: ModelSelection;
@@ -303,7 +303,7 @@ export interface ThreadTurnState {
 
 export interface SidebarThreadSummary {
   id: ThreadId;
-  projectId: ProjectId;
+  projectId: ContainerId;
   spaceId?: SpaceId | null;
   title: string;
   modelSelection: ModelSelection;
@@ -340,7 +340,7 @@ export interface SidebarThreadSummary {
 /** Lightweight composer identity that ignores live turn/status churn. */
 export interface ComposerThreadMentionSource {
   id: ThreadId;
-  projectId: ProjectId;
+  projectId: ContainerId;
   title: string;
   provider: ProviderKind;
   createdAt: string;

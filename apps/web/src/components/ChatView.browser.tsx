@@ -7,7 +7,7 @@ import {
   MessageId,
   ORCHESTRATION_WS_METHODS,
   type OrchestrationReadModel,
-  type ProjectId,
+  type ContainerId,
   type ServerConfig,
   SpaceId,
   ThreadId,
@@ -69,10 +69,10 @@ const THREAD_ID = "thread-browser-test" as ThreadId;
 const OTHER_THREAD_ID = "thread-browser-test-other" as ThreadId;
 const THREAD_TITLE = "Browser test thread";
 const UUID_ROUTE_RE = /^\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-const PROJECT_ID = "project-1" as ProjectId;
-const OTHER_PROJECT_ID = "project-2" as ProjectId;
-const HOME_PROJECT_ID = "project-home" as ProjectId;
-const STUDIO_PROJECT_ID = "project-studio" as ProjectId;
+const PROJECT_ID = "project-1" as ContainerId;
+const OTHER_PROJECT_ID = "project-2" as ContainerId;
+const HOME_PROJECT_ID = "project-home" as ContainerId;
+const STUDIO_PROJECT_ID = "project-studio" as ContainerId;
 const STUDIO_DRAFT_THREAD_ID = "thread-studio-draft" as ThreadId;
 const NOW_ISO = "2026-03-04T12:00:00.000Z";
 const BASE_TIME_MS = Date.parse(NOW_ISO);
@@ -1020,7 +1020,7 @@ function recordProjectCreateCommand(command: unknown): boolean {
     return false;
   }
 
-  const projectId = command.projectId as ProjectId;
+  const projectId = command.projectId as ContainerId;
   fixture = {
     ...fixture,
     snapshot: {
@@ -2723,7 +2723,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("toggles plan mode with Shift+Tab only while the composer is focused", async () => {
+  it("leaves interaction mode unchanged when Shift+Tab is pressed in the composer", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
       snapshot: createSnapshotForTargetUser({
@@ -2737,18 +2737,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
         useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.interactionMode ?? "default";
       expect(readInteractionMode()).toBe("default");
 
-      window.dispatchEvent(
-        new KeyboardEvent("keydown", {
-          key: "Tab",
-          shiftKey: true,
-          bubbles: true,
-          cancelable: true,
-        }),
-      );
-      await waitForLayout();
-
-      expect(readInteractionMode()).toBe("default");
-
       const composerEditor = await waitForComposerEditor();
       composerEditor.focus();
       composerEditor.dispatchEvent(
@@ -2760,32 +2748,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
         }),
       );
 
-      await vi.waitFor(
-        () => {
-          expect(readInteractionMode()).toBe("plan");
-          const planButton = Array.from(
-            document.querySelectorAll<HTMLButtonElement>("button"),
-          ).find((button) => button.textContent?.trim() === "Plan");
-          expect(planButton?.title).toContain("return to normal build mode");
-        },
-        { timeout: 8_000, interval: 16 },
-      );
+      await waitForLayout();
 
-      composerEditor.dispatchEvent(
-        new KeyboardEvent("keydown", {
-          key: "Tab",
-          shiftKey: true,
-          bubbles: true,
-          cancelable: true,
-        }),
-      );
-
-      await vi.waitFor(
-        () => {
-          expect(readInteractionMode()).toBe("default");
-        },
-        { timeout: 8_000, interval: 16 },
-      );
+      expect(readInteractionMode()).toBe("default");
+      expect(document.body.textContent).not.toContain("Plan details");
     } finally {
       await mounted.cleanup();
     }
@@ -3483,17 +3449,14 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
-      // Plan mode, settled turn, actionable proposed plan -> the live composer is
-      // showing the plan follow-up prompt at the moment the queue drains.
+      // A legacy persisted plan state must not affect a queued ordinary chat turn.
       snapshot: createSnapshotWithSettledPlanAwaitingFollowUp(),
     });
 
     try {
       await waitForComposerEditor();
-      // Make the live composer's interaction mode explicitly "plan" so the
-      // plan-follow-up branch in onSend is live. The queued chat turn below
-      // carries its own "default" mode and an image attachment, both of which the
-      // misroute (onSubmitPlanFollowUp) would discard.
+      // Seed the removed mode to cover migration behavior. The queued chat turn
+      // must still dispatch in Default mode and preserve its image attachment.
       useComposerDraftStore.getState().setInteractionMode(THREAD_ID, "plan");
       useComposerDraftStore.getState().enqueueQueuedTurn(THREAD_ID, {
         id: "queued-turn-plan-chat",
@@ -3772,8 +3735,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await expect.element(projectPickerTrigger).toHaveTextContent("project");
       await projectPickerTrigger.click();
 
-      await expect.element(page.getByText("New project")).toBeInTheDocument();
-      await expect.element(page.getByText("Don't work in a project")).toBeInTheDocument();
+      await expect.element(page.getByText("Choose from computer…")).toBeInTheDocument();
+      await expect.element(page.getByText("Don't work in a folder")).toBeInTheDocument();
       await expect.element(page.getByText(/Folders on this/)).not.toBeInTheDocument();
 
       const currentProjectOption = await waitForElement(
@@ -3941,7 +3904,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       const projectPickerTrigger = page.getByTestId("project-picker-trigger");
       await expect.element(projectPickerTrigger).toBeInTheDocument();
       await projectPickerTrigger.click();
-      await page.getByText("Don't work in a project").click();
+      await page.getByText("Don't work in a folder").click();
 
       await vi.waitFor(
         () => {
@@ -4075,7 +4038,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     const wsNativeApi = readNativeApi();
     expect(wsNativeApi).toBeDefined();
     const pickFolder = vi.fn(async () => "/repo/new-project");
-    let createdProjectId: ProjectId | null = null;
+    let createdProjectId: ContainerId | null = null;
     const dispatchCommand = vi.fn(async (command: unknown) => {
       wsRequests.push({
         _tag: ORCHESTRATION_WS_METHODS.dispatchCommand,
@@ -4083,7 +4046,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       });
       if (recordProjectCreateCommand(command)) {
         if (command && typeof command === "object" && "projectId" in command) {
-          createdProjectId = command.projectId as ProjectId;
+          createdProjectId = command.projectId as ContainerId;
         }
         return { sequence: fixture.snapshot.snapshotSequence };
       }
@@ -4111,7 +4074,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       const projectPickerTrigger = page.getByTestId("project-picker-trigger");
       await expect.element(projectPickerTrigger).toBeInTheDocument();
       await projectPickerTrigger.click();
-      await page.getByText("New project").click();
+      await page.getByText("Choose from computer…").click();
       await vi.waitFor(() => {
         expect(pickFolder).toHaveBeenCalledTimes(1);
       });
@@ -4374,7 +4337,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
         .element(page.getByRole("heading", { name: "Create project" }))
         .toBeInTheDocument();
     } finally {
-      useSpacesUiStore.getState().setActiveSpaceId(null);
+      useSpacesUiStore.getState().setActiveSpaceId(currentSpaceId);
       if (previousNativeApi) {
         Object.defineProperty(window, "nativeApi", {
           configurable: true,
@@ -5145,7 +5108,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("enables plan mode from the composer extras menu", async () => {
+  it("does not expose plan mode or plan details in the composer", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
       snapshot: createSnapshotForTargetUser({
@@ -5156,44 +5119,9 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
     try {
       await page.getByLabelText("Composer extras").click();
-      await page.getByText("Plan mode").click();
-
-      await vi.waitFor(() => {
-        expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.interactionMode).toBe(
-          "plan",
-        );
-      });
-    } finally {
-      await mounted.cleanup();
-    }
-  });
-
-  it("distinguishes plan mode from the plan details sidebar button", async () => {
-    const mounted = await mountChatView({
-      viewport: DEFAULT_VIEWPORT,
-      snapshot: createSnapshotWithSettledPlanAwaitingFollowUp(),
-    });
-
-    try {
-      await waitForServerConfigToApply();
-      const footer = await waitForElement(
-        () => document.querySelector<HTMLElement>('[data-chat-composer-footer="true"]'),
-        "Unable to find composer footer.",
-      );
-
-      await vi.waitFor(() => {
-        const buttonLabels = Array.from(footer.querySelectorAll("button"))
-          .map((button) => button.textContent?.trim() ?? "")
-          .filter(Boolean);
-
-        expect(buttonLabels.filter((label) => label === "Plan")).toHaveLength(1);
-        expect(buttonLabels).toContain("Plan details");
-        expect(document.querySelector('button[title="Show plan sidebar"]')).toBeNull();
-      });
-      await expect
-        .element(page.getByTitle("Plan mode — click to return to normal build mode"))
-        .toBeInTheDocument();
-      await expect.element(page.getByLabelText("Show plan details sidebar")).toBeInTheDocument();
+      expect(document.body.textContent).not.toContain("Plan mode");
+      expect(document.body.textContent).not.toContain("Plan details");
+      expect(document.querySelector('[aria-label="Show plan details sidebar"]')).toBeNull();
     } finally {
       await mounted.cleanup();
     }
@@ -5254,35 +5182,18 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("keeps long proposed plans lightweight until the user expands them", async () => {
+  it("renders historical proposed plans as ordinary transcript content", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
       snapshot: createSnapshotWithLongProposedPlan(),
     });
 
     try {
-      await waitForElement(
-        () =>
-          Array.from(document.querySelectorAll("button")).find(
-            (button) => button.textContent?.trim() === "Expand plan",
-          ) as HTMLButtonElement | null,
-        "Unable to find Expand plan button.",
-      );
-
-      expect(document.body.textContent).not.toContain("deep hidden detail only after expand");
-
-      const expandButton = await waitForElement(
-        () =>
-          Array.from(document.querySelectorAll("button")).find(
-            (button) => button.textContent?.trim() === "Expand plan",
-          ) as HTMLButtonElement | null,
-        "Unable to find Expand plan button.",
-      );
-      expandButton.click();
-
       await vi.waitFor(
         () => {
           expect(document.body.textContent).toContain("deep hidden detail only after expand");
+          expect(document.body.textContent).not.toContain("Expand plan");
+          expect(document.querySelector('[aria-label="Close plan sidebar"]')).toBeNull();
         },
         { timeout: 8_000, interval: 16 },
       );
@@ -5291,179 +5202,27 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("keeps proposed plans inline until execution starts", async () => {
-    const mounted = await mountChatView({
-      viewport: DEFAULT_VIEWPORT,
-      snapshot: createSnapshotWithLongProposedPlan(),
-    });
-
-    try {
-      await expect.element(page.getByText("Expand plan")).toBeInTheDocument();
-      expect(document.querySelector('[aria-label="Close plan sidebar"]')).toBeNull();
-    } finally {
-      await mounted.cleanup();
-    }
-  });
-
-  it("keeps the final transcript row clear of a tall composer panel stack", async () => {
+  it("does not mount a task-progress panel above the composer", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
       snapshot: createSnapshotWithTallComposerStack(),
     });
 
-    const maxFixedClearancePx = 128;
-
     try {
       await vi.waitFor(
         () => {
           expect(document.body.textContent).toContain("2 files changed");
-          expect(document.body.textContent).toContain("1 out of 3 tasks completed");
+          expect(document.body.textContent).not.toContain("1 out of 3 tasks completed");
+          expect(document.querySelector('[data-testid="active-task-list-card"]')).toBeNull();
         },
         { timeout: 8_000, interval: 16 },
       );
-
-      const scrollContainer = await waitForElement(
-        () => document.querySelector<HTMLElement>("[data-chat-scroll-container='true']"),
-        "Unable to find message scroll container.",
-      );
-      scrollContainer.scrollTop = scrollContainer.scrollHeight;
-      scrollContainer.dispatchEvent(new Event("scroll"));
-      await waitForLayout();
-
-      const readStackLayout = () => {
-        const renderedRows = Array.from(
-          document.querySelectorAll<HTMLElement>("[data-timeline-row-kind]"),
-        );
-        const finalTranscriptRow = renderedRows.reduce<HTMLElement | null>((latest, row) => {
-          if (!latest) return row;
-          return row.getBoundingClientRect().bottom > latest.getBoundingClientRect().bottom
-            ? row
-            : latest;
-        }, null);
-        const taskListCard = document.querySelector<HTMLElement>(
-          '[data-testid="active-task-list-card"]',
-        );
-        const stackedPanels = taskListCard?.parentElement ?? null;
-
-        expect(
-          finalTranscriptRow,
-          "Unable to find the final rendered transcript row.",
-        ).toBeTruthy();
-        expect(taskListCard, "Unable to find the active task-list card.").toBeTruthy();
-        expect(stackedPanels, "Unable to find the stacked composer-panel wrapper.").toBeTruthy();
-
-        const finalRowRect = finalTranscriptRow!.getBoundingClientRect();
-        const taskCardRect = taskListCard!.getBoundingClientRect();
-        const stackRect = stackedPanels!.getBoundingClientRect();
-        return {
-          gapPx: stackRect.top - finalRowRect.bottom,
-          stackHeightPx: stackRect.height,
-          taskCardHeightPx: taskCardRect.height,
-          distanceFromBottomPx: getScrollContainerDistanceFromBottom(scrollContainer),
-        };
-      };
-
-      const waitForBoundedGap = async (phase: string) => {
-        let measured = readStackLayout();
-        await vi.waitFor(
-          () => {
-            measured = readStackLayout();
-            expect(
-              measured.distanceFromBottomPx,
-              `${phase}: transcript must stay at the end`,
-            ).toBeLessThanOrEqual(AUTO_SCROLL_BOTTOM_THRESHOLD_PX);
-            expect(
-              measured.gapPx,
-              `${phase}: final row must not be obscured`,
-            ).toBeGreaterThanOrEqual(-1);
-            expect(
-              measured.gapPx,
-              `${phase}: gap must stay within fixed clearance`,
-            ).toBeLessThanOrEqual(maxFixedClearancePx);
-          },
-          { timeout: 4_000, interval: 16 },
-        );
-        return measured;
-      };
-
-      const expanded = await waitForBoundedGap("expanded");
-      expect(expanded.stackHeightPx).toBeGreaterThan(maxFixedClearancePx);
-
-      const collapseButton = await waitForElement(
-        () =>
-          document.querySelector<HTMLButtonElement>('button[aria-label="Collapse task banner"]'),
-        "Unable to find the task-banner collapse button.",
-      );
-      collapseButton.click();
-      await vi.waitFor(() => {
-        expect(
-          document.querySelector<HTMLButtonElement>('button[aria-label="Expand task banner"]'),
-        ).not.toBeNull();
-      });
-      const collapsed = await waitForBoundedGap("collapsed");
-      expect(collapsed.taskCardHeightPx).toBeLessThan(expanded.taskCardHeightPx - 20);
-      expect(Math.abs(collapsed.gapPx - expanded.gapPx)).toBeLessThanOrEqual(8);
-
-      const expandButton = await waitForElement(
-        () => document.querySelector<HTMLButtonElement>('button[aria-label="Expand task banner"]'),
-        "Unable to find the task-banner expand button.",
-      );
-      expandButton.click();
-      await vi.waitFor(() => {
-        expect(
-          document.querySelector<HTMLButtonElement>('button[aria-label="Collapse task banner"]'),
-        ).not.toBeNull();
-      });
-      const reexpanded = await waitForBoundedGap("re-expanded");
-      expect(reexpanded.taskCardHeightPx).toBeGreaterThan(collapsed.taskCardHeightPx + 20);
-      expect(Math.abs(reexpanded.gapPx - expanded.gapPx)).toBeLessThanOrEqual(8);
-
-      const finalCollapseButton = await waitForElement(
-        () =>
-          document.querySelector<HTMLButtonElement>('button[aria-label="Collapse task banner"]'),
-        "Unable to find the task-banner collapse button before the away-from-end check.",
-      );
-      finalCollapseButton.click();
-      const finalExpandButton = await waitForElement(
-        () => document.querySelector<HTMLButtonElement>('button[aria-label="Expand task banner"]'),
-        "Unable to find the task-banner expand button before the away-from-end check.",
-      );
-      await vi.waitFor(() => {
-        expect(readStackLayout().taskCardHeightPx).toBeLessThan(expanded.taskCardHeightPx - 20);
-      });
-
-      scrollContainer.scrollTop = 0;
-      scrollContainer.dispatchEvent(new Event("scroll"));
-      await vi.waitFor(() => {
-        expect(getScrollContainerDistanceFromBottom(scrollContainer)).toBeGreaterThan(
-          AUTO_SCROLL_BOTTOM_THRESHOLD_PX,
-        );
-      });
-      const scrollTopBeforeExpansion = scrollContainer.scrollTop;
-
-      finalExpandButton.click();
-      await vi.waitFor(
-        () => {
-          const awayFromEnd = readStackLayout();
-          expect(awayFromEnd.taskCardHeightPx).toBeGreaterThan(expanded.taskCardHeightPx - 2);
-        },
-        { timeout: 4_000, interval: 16 },
-      );
-      await waitForLayout();
-      expect(readStackLayout().distanceFromBottomPx).toBeGreaterThan(
-        AUTO_SCROLL_BOTTOM_THRESHOLD_PX,
-      );
-      await waitForLayout();
-      expect(readStackLayout().distanceFromBottomPx).toBeGreaterThan(
-        AUTO_SCROLL_BOTTOM_THRESHOLD_PX,
-      );
-      expect(Math.abs(scrollContainer.scrollTop - scrollTopBeforeExpansion)).toBeLessThanOrEqual(1);
     } finally {
       await mounted.cleanup();
     }
   });
 
-  it("shows the skinny inline plan card for active turn plans", async () => {
+  it("does not expose provider task progress for active turns", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
       snapshot: createSnapshotWithActiveInlinePlan(),
@@ -5472,44 +5231,12 @@ describe("ChatView timeline estimator parity (full app)", () => {
     try {
       await vi.waitFor(
         () => {
-          expect(document.body.textContent).toContain("1 out of 3 tasks completed");
-          expect(document.body.textContent).toContain("Inspecting ChatView boundaries");
-          expect(document.body.textContent).toContain("Patch the shared checklist receiver");
-          expect(document.body.textContent).toContain("1 background agent");
+          expect(document.body.textContent).not.toContain("1 out of 3 tasks completed");
+          expect(document.querySelector('[data-testid="active-task-list-card"]')).toBeNull();
+          expect(document.querySelector('button[title="Open tasks sidebar"]')).toBeNull();
         },
         { timeout: 8_000, interval: 16 },
       );
-
-      const transcriptPane = document.querySelector<HTMLElement>("[data-chat-transcript-pane]");
-      const taskListCard = document.querySelector<HTMLElement>(
-        '[data-testid="active-task-list-card"]',
-      );
-      const composerShell = document.querySelector<HTMLElement>(
-        'form[data-chat-composer-form="true"] .chat-composer-shell',
-      );
-      expect(transcriptPane).not.toBeNull();
-      expect(taskListCard).not.toBeNull();
-      expect(composerShell).not.toBeNull();
-      expect(transcriptPane!.getBoundingClientRect().bottom).toBeGreaterThan(
-        taskListCard!.getBoundingClientRect().top + 1,
-      );
-      // Active plan activity shares the centered queued-follow-up rail, intentionally inset to
-      // eleven twelfths of the composer width while the input keeps its rounded top corners.
-      const taskRect = taskListCard!.getBoundingClientRect();
-      const composerRect = composerShell!.getBoundingClientRect();
-      expect(Math.abs(taskRect.width - (composerRect.width * 11) / 12)).toBeLessThanOrEqual(2);
-      expect(
-        Math.abs(taskRect.left + taskRect.width / 2 - (composerRect.left + composerRect.width / 2)),
-      ).toBeLessThanOrEqual(1);
-      expect(parseFloat(getComputedStyle(composerShell!).borderTopLeftRadius)).toBeGreaterThan(0);
-
-      const openPlanButton = await waitForElement(
-        () => document.querySelector<HTMLButtonElement>('button[title="Open tasks sidebar"]'),
-        "Unable to find inline active plan sidebar button.",
-      );
-      openPlanButton.click();
-
-      await expect.element(page.getByLabelText("Close plan sidebar")).toBeInTheDocument();
     } finally {
       await mounted.cleanup();
     }

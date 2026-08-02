@@ -62,7 +62,7 @@ export class AppRendererIpcBridge {
           this.#settleReady(targetId);
           reject(new Error(`App renderer ${targetId} did not become ready in time.`));
         }, this.#readyTimeoutMs),
-        signal,
+        ...(signal === undefined ? {} : { signal }),
       };
       if (signal) {
         waiter.abortListener = () => {

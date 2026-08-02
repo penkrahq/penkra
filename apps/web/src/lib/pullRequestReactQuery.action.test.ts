@@ -1,4 +1,4 @@
-import type { ProjectId } from "@penkra/contracts";
+import type { ContainerId } from "@penkra/contracts";
 import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 
@@ -8,7 +8,7 @@ import { pullRequestActionMutationOptions, pullRequestQueryKeys } from "./pullRe
 describe("pullRequestActionMutationOptions", () => {
   it("cancels an ordinary list refetch before applying optimistic fields", async () => {
     const queryClient = new QueryClient();
-    const projectId = "project-a" as ProjectId;
+    const projectId = "project-a" as ContainerId;
     const identity = { projectId, repository: "acme/widgets", number: 42 } as const;
     const listKey = pullRequestQueryKeys.list({ state: "open", projectId });
     queryClient.setQueryData(listKey, {
@@ -43,8 +43,8 @@ describe("pullRequestActionMutationOptions", () => {
 
   it("invalidates only repository scopes, matching detail, and the affected git PR cache", async () => {
     const queryClient = new QueryClient();
-    const projectId = "project-a" as ProjectId;
-    const otherProjectId = "project-b" as ProjectId;
+    const projectId = "project-a" as ContainerId;
+    const otherProjectId = "project-b" as ContainerId;
     const input = {
       projectId,
       repository: "acme/widgets",
@@ -126,8 +126,8 @@ describe("pullRequestActionMutationOptions", () => {
 
   it("updates the global row when an action starts from another associated project", async () => {
     const queryClient = new QueryClient();
-    const projectA = "project-a" as ProjectId;
-    const projectB = "project-b" as ProjectId;
+    const projectA = "project-a" as ContainerId;
+    const projectB = "project-b" as ContainerId;
     const input = {
       projectId: projectA,
       repository: "acme/widgets",
@@ -165,7 +165,7 @@ describe("pullRequestActionMutationOptions", () => {
 
   it("does not keep an action pending on the passive review-count refresh", async () => {
     const queryClient = new QueryClient();
-    const projectId = "project-a" as ProjectId;
+    const projectId = "project-a" as ContainerId;
     const input = {
       projectId,
       repository: "acme/widgets",
@@ -201,7 +201,7 @@ describe("pullRequestActionMutationOptions", () => {
 
   it("invalidates the warm merged lists after a merge", async () => {
     const queryClient = new QueryClient();
-    const projectId = "project-a" as ProjectId;
+    const projectId = "project-a" as ContainerId;
     const input = {
       projectId,
       repository: "acme/widgets",
@@ -241,7 +241,7 @@ describe("pullRequestActionMutationOptions", () => {
 
   it("rolls list-owned fields back even when no detail cache exists", async () => {
     const queryClient = new QueryClient();
-    const projectId = "project-a" as ProjectId;
+    const projectId = "project-a" as ContainerId;
     const identity = { projectId, repository: "acme/widgets", number: 42 } as const;
     const listKey = pullRequestQueryKeys.list({ state: "open", projectId });
     queryClient.setQueryData(listKey, {

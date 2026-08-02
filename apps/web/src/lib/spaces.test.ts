@@ -4,7 +4,7 @@
 import {
   SPACE_PROJECTS_ASSIGN_MAX_COUNT,
   type NativeApi,
-  type ProjectId,
+  type ContainerId,
   SpaceId,
 } from "@penkra/contracts";
 import { describe, expect, it, vi } from "vitest";
@@ -27,7 +27,7 @@ describe("moveProjectsToSpace", () => {
   it("reports only the failed and unattempted chunks without inventing a moved count", async () => {
     const projectIds = Array.from(
       { length: SPACE_PROJECTS_ASSIGN_MAX_COUNT + 2 },
-      (_, index) => `project-${index}` as ProjectId,
+      (_, index) => `project-${index}` as ContainerId,
     );
     const dispatchCommand = vi
       .fn()
@@ -53,7 +53,7 @@ describe("moveProjectsToSpace", () => {
     await expect(
       moveProjectsToSpace({
         api: makeApi(dispatchCommand),
-        projectIds: ["project-1" as ProjectId, "project-2" as ProjectId],
+        projectIds: ["project-1" as ContainerId, "project-2" as ContainerId],
         spaceId: SpaceId.makeUnsafe("space-target"),
       }),
     ).resolves.toEqual({ failedProjectIds: [] });
@@ -61,7 +61,7 @@ describe("moveProjectsToSpace", () => {
 
   it("does not report projects that committed before a transport failure", async () => {
     const targetSpaceId = SpaceId.makeUnsafe("space-target");
-    const projectIds = ["project-1", "project-2"] as ProjectId[];
+    const projectIds = ["project-1", "project-2"] as ContainerId[];
     const dispatchCommand = vi.fn().mockRejectedValue(new Error("connection closed"));
     const getShellSnapshot = vi.fn().mockResolvedValue({
       projects: [
@@ -82,7 +82,7 @@ describe("moveProjectsToSpace", () => {
 
   it("does not report projects deleted concurrently with an ambiguous dispatch", async () => {
     const targetSpaceId = SpaceId.makeUnsafe("space-target");
-    const projectIds = ["project-deleted", "project-still-active"] as ProjectId[];
+    const projectIds = ["project-deleted", "project-still-active"] as ContainerId[];
     const dispatchCommand = vi.fn().mockRejectedValue(new Error("connection closed"));
     const getShellSnapshot = vi.fn().mockResolvedValue({
       projects: [{ id: projectIds[1], spaceId: null }],

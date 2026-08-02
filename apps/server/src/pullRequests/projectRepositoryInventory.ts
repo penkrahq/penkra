@@ -1,4 +1,4 @@
-import type { OrchestrationProject, ProjectId, PullRequestsListResult } from "@penkra/contracts";
+import type { OrchestrationProject, ContainerId, PullRequestsListResult } from "@penkra/contracts";
 import { Effect } from "effect";
 
 import type {
@@ -15,7 +15,7 @@ export type ProjectRepositoryResolution = {
 
 export type ProjectRepositoryIndex = {
   readonly errors: PullRequestsListResult["errors"];
-  readonly repositoryKeysByProject: ReadonlyMap<ProjectId, Set<string>>;
+  readonly repositoryKeysByProject: ReadonlyMap<ContainerId, Set<string>>;
   readonly uniqueRepositories: ReadonlyMap<
     string,
     { repository: GitHubRepositoryLink; projects: OrchestrationProject[] }
@@ -65,7 +65,7 @@ export function indexProjectRepositoryInventories(
     string,
     { repository: GitHubRepositoryLink; projects: OrchestrationProject[] }
   >();
-  const repositoryKeysByProject = new Map<ProjectId, Set<string>>();
+  const repositoryKeysByProject = new Map<ContainerId, Set<string>>();
 
   for (const item of resolved) {
     repositoryKeysByProject.set(
@@ -94,8 +94,8 @@ export function indexProjectRepositoryInventories(
 export function cleanupUnconfiguredPullRequestPins(input: {
   pins: ProjectPullRequestPinsShape;
   pinnedRows: ReadonlyArray<ProjectPullRequestPin>;
-  projectById: ReadonlyMap<ProjectId, OrchestrationProject>;
-  repositoryKeysByProject: ReadonlyMap<ProjectId, Set<string>>;
+  projectById: ReadonlyMap<ContainerId, OrchestrationProject>;
+  repositoryKeysByProject: ReadonlyMap<ContainerId, Set<string>>;
   resolved: ReadonlyArray<ProjectRepositoryResolution>;
 }) {
   const resolutionByProject = new Map(input.resolved.map((item) => [item.project.id, item]));

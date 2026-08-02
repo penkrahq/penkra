@@ -69,6 +69,8 @@ export type ProviderGetComposerCapabilitiesInput = typeof ProviderGetComposerCap
 export const ProviderListSkillsInput = Schema.Struct({
   provider: ProviderDiscoveryKind,
   cwd: TrimmedNonEmptyString,
+  /** Explicit Space used to index enabled App-contributed skills. */
+  spaceId: Schema.optional(TrimmedNonEmptyString),
   threadId: Schema.optional(TrimmedNonEmptyString),
   agentDir: Schema.optional(TrimmedNonEmptyString),
   forceReload: Schema.optional(Schema.Boolean),

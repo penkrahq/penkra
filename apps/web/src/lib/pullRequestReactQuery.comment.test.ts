@@ -1,4 +1,4 @@
-import type { ProjectId } from "@penkra/contracts";
+import type { ContainerId } from "@penkra/contracts";
 import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it } from "vitest";
 
@@ -7,8 +7,8 @@ import { pullRequestCommentMutationOptions, pullRequestQueryKeys } from "./pullR
 describe("pullRequestCommentMutationOptions", () => {
   it("invalidates matching repository list scopes and detail only", async () => {
     const queryClient = new QueryClient();
-    const projectId = "project-a" as ProjectId;
-    const otherProjectId = "project-b" as ProjectId;
+    const projectId = "project-a" as ContainerId;
+    const otherProjectId = "project-b" as ContainerId;
     const input = {
       projectId,
       repository: "acme/widgets",

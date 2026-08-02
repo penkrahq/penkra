@@ -24,7 +24,11 @@ export function parseRegistryListRequest(value: unknown): {
     result.cursor = input.cursor;
   }
   if (input.limit !== undefined) {
-    if (!Number.isInteger(input.limit) || (input.limit as number) < 1 || (input.limit as number) > 100) {
+    if (
+      !Number.isInteger(input.limit) ||
+      (input.limit as number) < 1 ||
+      (input.limit as number) > 100
+    ) {
       throw invalidRequest();
     }
     result.limit = input.limit as number;
@@ -34,7 +38,11 @@ export function parseRegistryListRequest(value: unknown): {
 
 export function parseRegistryGetRequest(value: unknown): { slug: string } {
   const input = record(value);
-  if (Object.keys(input).length !== 1 || typeof input.slug !== "string" || !APP_SLUG.test(input.slug)) {
+  if (
+    Object.keys(input).length !== 1 ||
+    typeof input.slug !== "string" ||
+    !APP_SLUG.test(input.slug)
+  ) {
     throw invalidRequest();
   }
   return { slug: input.slug };
@@ -58,7 +66,11 @@ export function parseRegistryArtifactRequest(value: unknown): {
 
 export function parseRegistryFeedbackRequest(value: unknown): { appId: string } {
   const input = record(value);
-  if (Object.keys(input).length !== 1 || typeof input.appId !== "string" || !UUID.test(input.appId)) {
+  if (
+    Object.keys(input).length !== 1 ||
+    typeof input.appId !== "string" ||
+    !UUID.test(input.appId)
+  ) {
     throw invalidRequest();
   }
   return { appId: input.appId };
@@ -81,7 +93,11 @@ export function parseRegistryRatingRequest(value: unknown): { appId: string; rat
 
 export function parseRegistryReviewRequest(value: unknown): { appId: string; body: string } {
   const input = record(value);
-  if (Object.keys(input).length !== 2 || typeof input.appId !== "string" || !UUID.test(input.appId)) {
+  if (
+    Object.keys(input).length !== 2 ||
+    typeof input.appId !== "string" ||
+    !UUID.test(input.appId)
+  ) {
     throw invalidRequest();
   }
   if (typeof input.body !== "string") throw invalidRequest();

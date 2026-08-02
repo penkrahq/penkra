@@ -18,18 +18,19 @@ const DEFAULT_SPACES = [
 export const ensureDefaultSpaces = (engine: OrchestrationEngineShape) =>
   Effect.gen(function* () {
     const readModel = yield* engine.getReadModel();
-    if (readModel.spaces.length > 0) return;
-
-    const createdAt = new Date().toISOString();
-    for (const space of DEFAULT_SPACES) {
-      const command = {
-        type: "space.create",
-        commandId: CommandId.makeUnsafe(`bootstrap:${space.id}`),
-        spaceId: SpaceId.makeUnsafe(space.id),
-        name: space.name,
-        icon: space.icon,
-        createdAt,
-      } satisfies OrchestrationCommand;
-      yield* engine.dispatch(command);
+    const isNewSpaceHistory = readModel.spaces.length === 0;
+    if (isNewSpaceHistory) {
+      const createdAt = new Date().toISOString();
+      for (const space of DEFAULT_SPACES) {
+        const command = {
+          type: "space.create",
+          commandId: CommandId.makeUnsafe(`bootstrap:${space.id}`),
+          spaceId: SpaceId.makeUnsafe(space.id),
+          name: space.name,
+          icon: space.icon,
+          createdAt,
+        } satisfies OrchestrationCommand;
+        yield* engine.dispatch(command);
+      }
     }
   });

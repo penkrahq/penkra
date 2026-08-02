@@ -68,7 +68,7 @@ describe("derivePenkraMcpToolTitle", () => {
         "Penkra is checking available agents",
         "Penkra checked available agents",
       ],
-      ["penkra_list_projects", "Penkra is listing projects", "Penkra listed projects"],
+      ["penkra_list_projects", "Penkra is listing folders", "Penkra listed folders"],
       ["penkra_list_threads", "Penkra is listing threads", "Penkra listed threads"],
       ["penkra_read_thread", "Penkra is reading a thread", "Penkra read a thread"],
       [
@@ -97,8 +97,8 @@ describe("derivePenkraMcpToolTitle", () => {
       ["penkra_overview", "Penkra is gathering an overview", "Penkra gathered an overview"],
       [
         "penkra_list_allowed_projects",
-        "Penkra is listing allowed projects",
-        "Penkra listed allowed projects",
+        "Penkra is listing allowed folders",
+        "Penkra listed allowed folders",
       ],
       ["penkra_create_task", "Penkra is creating a task", "Penkra created a task"],
       [

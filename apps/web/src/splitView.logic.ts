@@ -3,7 +3,7 @@
 // Layer: UI state helpers
 // Exports: tree traversal/mutation utilities and migration helpers consumed by the store and route surfaces
 
-import type { ProjectId, ThreadId } from "@penkra/contracts";
+import type { ContainerId, ThreadId } from "@penkra/contracts";
 import type {
   LeafPane,
   Pane,
@@ -199,7 +199,7 @@ export function resolveDefaultFocusLeafId(root: Pane): PaneId {
 export interface LegacySplitViewLike {
   id: string;
   sourceThreadId: ThreadId;
-  ownerProjectId: ProjectId;
+  ownerProjectId: ContainerId;
   leftThreadId: ThreadId | null;
   rightThreadId: ThreadId | null;
   focusedPane: "left" | "right";

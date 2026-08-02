@@ -86,10 +86,7 @@ function actionGroup(
   return group;
 }
 
-function centerSlot(
-  center: AppBarCenter | undefined,
-  cleanups: Array<() => void>,
-): HTMLElement {
+function centerSlot(center: AppBarCenter | undefined, cleanups: Array<() => void>): HTMLElement {
   const slot = document.createElement("div");
   slot.className = "penkra-app-bar__center";
   if (!center) return slot;

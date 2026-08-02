@@ -3,7 +3,7 @@
 //          file search, file/diff preview, and chat.
 // Layer: Chat route presentation
 
-import type { ProjectId } from "@penkra/contracts";
+import type { ContainerId } from "@penkra/contracts";
 import type { FileDiffMetadata } from "@pierre/diffs/react";
 import {
   type CSSProperties,
@@ -74,7 +74,7 @@ const EDITOR_CHAT_PANE_KEYBOARD_STEP = 24;
 interface EditorWorkspaceViewProps {
   workspaceRoot: string | null;
   projectName: string | null;
-  currentProjectId?: ProjectId | null;
+  currentProjectId?: ContainerId | null;
   projectOptions?: ReadonlyArray<ProjectMenuPickerOption>;
   selectedFilePath: string | null;
   expandedDirectories: ReadonlySet<string>;
@@ -93,7 +93,7 @@ interface EditorWorkspaceViewProps {
   onReferenceInChat?: (reference: ChatFileReference) => void;
   onAskWhyInChat?: (reference: ChatFileReference) => void;
   onCommentInChat?: (comment: FileCommentSelection) => void;
-  onSelectProject?: (projectId: ProjectId) => void;
+  onSelectProject?: (projectId: ContainerId) => void;
 }
 
 function clampEditorChatPaneWidth(width: number): number {
@@ -547,8 +547,8 @@ export function EditorWorkspaceView(props: EditorWorkspaceViewProps) {
                 <ChatHeaderIconButton
                   type="button"
                   tone="plain"
-                  label="Switch project"
-                  title="Switch project"
+                  label="Switch folder"
+                  title="Switch folder"
                   className="size-6"
                 >
                   <ChevronDownIcon className="size-3.5" />

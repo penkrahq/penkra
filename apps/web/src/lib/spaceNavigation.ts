@@ -6,7 +6,7 @@
 //      "/" restore landing both make that judgement, and spelling it out separately is exactly
 //      how selecting an empty Space ended up restoring another Space's thread.
 
-import type { ProjectId, SpaceId, ThreadId } from "@penkra/contracts";
+import type { ContainerId, SpaceId, ThreadId } from "@penkra/contracts";
 
 import type { ServerWorkspacePaths } from "~/lib/serverWorkspacePaths";
 import { isOrdinarySpaceProject } from "~/lib/spaces";
@@ -45,7 +45,7 @@ export function isThreadReachableFromSpace(input: {
  */
 export type SpaceSelectionTarget =
   | { readonly kind: "thread"; readonly threadId: ThreadId }
-  | { readonly kind: "project"; readonly projectId: ProjectId }
+  | { readonly kind: "project"; readonly projectId: ContainerId }
   | { readonly kind: "empty"; readonly spaceId: SpaceId | null };
 
 /**
@@ -56,10 +56,10 @@ export function resolveSpaceSelectionTarget(input: {
   spaceId: SpaceId | null;
   /** Space-assignable projects only; the containers are filtered out by `isProjectInSpace`. */
   projects: readonly Project[];
-  projectById: ReadonlyMap<ProjectId, Project>;
+  projectById: ReadonlyMap<ContainerId, Project>;
   threads: readonly SidebarThreadSummary[];
   rememberedThreadId: ThreadId | null;
-  rememberedProjectId: ProjectId | null;
+  rememberedProjectId: ContainerId | null;
   paths: ServerWorkspacePaths;
   /** Injected so this stays a domain helper instead of importing sidebar presentation. */
   sortThreads: (threads: readonly SidebarThreadSummary[]) => readonly SidebarThreadSummary[];

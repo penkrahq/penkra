@@ -9,7 +9,14 @@ import type {
   ServerProviderStatus,
   ThreadId as ThreadIdType,
 } from "@penkra/contracts";
-import { EventId, MessageId, ModelSelection, ProjectId, ThreadId, TurnId } from "@penkra/contracts";
+import {
+  EventId,
+  MessageId,
+  ModelSelection,
+  ContainerId,
+  ThreadId,
+  TurnId,
+} from "@penkra/contracts";
 import { realpathSync } from "node:fs";
 import { homedir } from "node:os";
 
@@ -48,7 +55,7 @@ import { AgentGatewayLive } from "./AgentGateway.ts";
 import { recordCreatedWorktreeInPlan } from "../operationPlan.ts";
 
 const NOW = "2026-03-01T10:00:00.000Z";
-const PROJECT_ID = ProjectId.makeUnsafe("project-1");
+const PROJECT_ID = ContainerId.makeUnsafe("project-1");
 
 function makeProjectShell(
   scripts: OrchestrationProjectShell["scripts"] = [],
@@ -1295,21 +1302,21 @@ describe("AgentGateway", () => {
       extraProjects: [
         {
           ...makeProjectShell(),
-          id: ProjectId.makeUnsafe("project-chat-container"),
+          id: ContainerId.makeUnsafe("project-chat-container"),
           kind: "chat",
           title: "che progetti ci sono in penkra",
           workspaceRoot: `${homeDir}/Documents/Penkra/2026-03-01/chat`,
         },
         {
           ...makeProjectShell(),
-          id: ProjectId.makeUnsafe("project-studio-container"),
+          id: ContainerId.makeUnsafe("project-studio-container"),
           kind: "studio",
           title: "Studio",
           workspaceRoot: `${homeDir}/Documents/Penkra/Studio`,
         },
         {
           ...makeProjectShell(),
-          id: ProjectId.makeUnsafe("project-legacy-home"),
+          id: ContainerId.makeUnsafe("project-legacy-home"),
           kind: "project",
           title: "Home",
           workspaceRoot: homeDir,

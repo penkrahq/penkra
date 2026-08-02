@@ -23,6 +23,7 @@ type Request = {
   method:
     | "catalog.list"
     | "catalog.help"
+    | "skills.list"
     | "operations.invoke"
     | "tabs.current"
     | "tabs.list"
@@ -40,11 +41,9 @@ export function resolveAppCommandPipePath(_userDataPath: string): string {
   if (process.platform === "win32") {
     return `\\\\.\\pipe\\penkra-app-command-${process.pid}-${Crypto.randomUUID()}`;
   }
+  if (!process.getuid) throw new Error("Unix App command sockets require a numeric user ID.");
   const directory = Path.join("/tmp", `penkra-${process.getuid()}`);
-  return Path.join(
-    directory,
-    `app-${process.pid}-${Crypto.randomBytes(6).toString("hex")}.sock`,
-  );
+  return Path.join(directory, `app-${process.pid}-${Crypto.randomBytes(6).toString("hex")}.sock`);
 }
 
 export class AppCommandPipeServer {
@@ -54,7 +53,10 @@ export class AppCommandPipeServer {
   readonly #token: string;
   readonly #catalog: AppOperationCatalog;
   readonly #broker: AppOperationBroker;
-  readonly #tabs: { list(): ReadonlyArray<DesktopAppTabDescriptor>; current(): DesktopAppTabDescriptor | null };
+  readonly #tabs: {
+    list(): ReadonlyArray<DesktopAppTabDescriptor>;
+    current(): DesktopAppTabDescriptor | null;
+  };
   readonly #registry: AppRegistryClient | null;
   #started = false;
 
@@ -63,7 +65,10 @@ export class AppCommandPipeServer {
     token: string;
     catalog: AppOperationCatalog;
     broker: AppOperationBroker;
-    tabs: { list(): ReadonlyArray<DesktopAppTabDescriptor>; current(): DesktopAppTabDescriptor | null };
+    tabs: {
+      list(): ReadonlyArray<DesktopAppTabDescriptor>;
+      current(): DesktopAppTabDescriptor | null;
+    };
     registry?: AppRegistryClient | null;
   }) {
     this.#path = input.path;
@@ -125,7 +130,9 @@ export class AppCommandPipeServer {
       socket.pause();
       void this.#handle(raw)
         .then((response) => socket.end(`${JSON.stringify(response)}\n`))
-        .catch((error) => socket.end(`${JSON.stringify({ ok: false, error: toError(error).message })}\n`));
+        .catch((error) =>
+          socket.end(`${JSON.stringify({ ok: false, error: toError(error).message })}\n`),
+        );
     });
     const release = () => this.#sockets.delete(socket);
     socket.on("close", release);
@@ -166,6 +173,12 @@ export class AppCommandPipeServer {
           }),
         };
       }
+      case "skills.list":
+        return {
+          ok: true,
+          id: request.id,
+          result: await this.#catalog.skills(requiredString(params.spaceId, "spaceId")),
+        };
       case "operations.invoke": {
         const context = this.#context(params);
         const slug = requiredString(params.app, "app");
@@ -183,36 +196,79 @@ export class AppCommandPipeServer {
         return { ok: true, id: request.id, result };
       }
       case "developer.publishers.list":
-        return { ok: true, id: request.id, result: await this.#requireRegistry().developerListPublishers() };
+        return {
+          ok: true,
+          id: request.id,
+          result: await this.#requireRegistry().developerListPublishers(),
+        };
       case "developer.publishers.create":
-        return { ok: true, id: request.id, result: await this.#requireRegistry().developerCreatePublisher({
-          slug: requiredString(params.slug, "slug"),
-          displayName: requiredString(params.displayName, "displayName"),
-          ...(optionalString(params.domain, "domain") === null ? {} : { domain: optionalString(params.domain, "domain")! }),
-        }) };
+        return {
+          ok: true,
+          id: request.id,
+          result: await this.#requireRegistry().developerCreatePublisher({
+            slug: requiredString(params.slug, "slug"),
+            displayName: requiredString(params.displayName, "displayName"),
+            ...(optionalString(params.domain, "domain") === null
+              ? {}
+              : { domain: optionalString(params.domain, "domain")! }),
+          }),
+        };
       case "developer.apps.list":
-        return { ok: true, id: request.id, result: await this.#requireRegistry().developerListApps(requiredString(params.publisherId, "publisherId")) };
+        return {
+          ok: true,
+          id: request.id,
+          result: await this.#requireRegistry().developerListApps(
+            requiredString(params.publisherId, "publisherId"),
+          ),
+        };
       case "developer.apps.create":
-        return { ok: true, id: request.id, result: await this.#requireRegistry().developerCreateApp({
-          publisherId: requiredString(params.publisherId, "publisherId"),
-          identifier: requiredString(params.identifier, "identifier"),
-          slug: requiredString(params.slug, "slug"),
-          displayName: requiredString(params.displayName, "displayName"),
-          summary: requiredString(params.summary, "summary"),
-        }) };
+        return {
+          ok: true,
+          id: request.id,
+          result: await this.#requireRegistry().developerCreateApp({
+            publisherId: requiredString(params.publisherId, "publisherId"),
+            identifier: requiredString(params.identifier, "identifier"),
+            slug: requiredString(params.slug, "slug"),
+            displayName: requiredString(params.displayName, "displayName"),
+            summary: requiredString(params.summary, "summary"),
+          }),
+        };
       case "developer.submissions.list":
-        return { ok: true, id: request.id, result: await this.#requireRegistry().developerListSubmissions(requiredString(params.appId, "appId")) };
+        return {
+          ok: true,
+          id: request.id,
+          result: await this.#requireRegistry().developerListSubmissions(
+            requiredString(params.appId, "appId"),
+          ),
+        };
       case "developer.submissions.get":
-        return { ok: true, id: request.id, result: await this.#requireRegistry().developerSubmissionStatus(requiredString(params.submissionId, "submissionId")) };
+        return {
+          ok: true,
+          id: request.id,
+          result: await this.#requireRegistry().developerSubmissionStatus(
+            requiredString(params.submissionId, "submissionId"),
+          ),
+        };
       case "developer.submissions.create": {
-        if (!params.evidence || typeof params.evidence !== "object" || Array.isArray(params.evidence)) throw new Error("evidence is required.");
-        return { ok: true, id: request.id, result: await this.#requireRegistry().developerSubmit({
-          appId: requiredString(params.appId, "appId"),
-          packagePath: requiredString(params.packagePath, "packagePath"),
-          signaturePath: requiredString(params.signaturePath, "signaturePath"),
-          issuer: requiredString(params.issuer, "issuer"),
-          evidence: params.evidence as Parameters<AppRegistryClient["developerSubmit"]>[0]["evidence"],
-        }) };
+        if (
+          !params.evidence ||
+          typeof params.evidence !== "object" ||
+          Array.isArray(params.evidence)
+        )
+          throw new Error("evidence is required.");
+        return {
+          ok: true,
+          id: request.id,
+          result: await this.#requireRegistry().developerSubmit({
+            appId: requiredString(params.appId, "appId"),
+            packagePath: requiredString(params.packagePath, "packagePath"),
+            signaturePath: requiredString(params.signaturePath, "signaturePath"),
+            issuer: requiredString(params.issuer, "issuer"),
+            evidence: params.evidence as Parameters<
+              AppRegistryClient["developerSubmit"]
+            >[0]["evidence"],
+          }),
+        };
       }
       default:
         throw new Error("Unknown App command method.");
@@ -229,14 +285,20 @@ export class AppCommandPipeServer {
     const tab = explicitTabId
       ? this.#tabs.list().find((candidate) => candidate.id === explicitTabId)
       : this.#tabs.current();
-    if (!tab) throw new Error(explicitTabId ? `App tab ${explicitTabId} is not open.` : "No current App tab. Open an App or pass --tab-id.");
+    if (!tab)
+      throw new Error(
+        explicitTabId
+          ? `App tab ${explicitTabId} is not open.`
+          : "No current App tab. Open an App or pass --tab-id.",
+      );
     return tab;
   }
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
   if (value === undefined) return {};
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("App command params must be an object.");
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw new Error("App command params must be an object.");
   return value as Record<string, unknown>;
 }
 
@@ -248,7 +310,8 @@ function requiredString(value: unknown, name: string): string {
 
 function optionalString(value: unknown, name: string): string | null {
   if (value === undefined) return null;
-  if (typeof value !== "string" || !value.trim()) throw new Error(`${name} must be a non-empty string.`);
+  if (typeof value !== "string" || !value.trim())
+    throw new Error(`${name} must be a non-empty string.`);
   return value;
 }
 

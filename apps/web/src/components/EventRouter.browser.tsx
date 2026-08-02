@@ -4,7 +4,7 @@ import {
   EventId,
   MessageId,
   ORCHESTRATION_WS_METHODS,
-  ProjectId,
+  ContainerId,
   ThreadId,
   TurnId,
   type OrchestrationEvent,
@@ -40,7 +40,7 @@ import { resetWsNativeApiForTest } from "../wsNativeApi";
 
 const THREAD_ID = ThreadId.makeUnsafe("thread-root-browser-test");
 const OTHER_THREAD_ID = ThreadId.makeUnsafe("thread-other-browser-test");
-const PROJECT_ID = ProjectId.makeUnsafe("project-root-browser-test");
+const PROJECT_ID = ContainerId.makeUnsafe("project-root-browser-test");
 const NOW_ISO = "2026-03-04T12:00:00.000Z";
 
 interface TestFixture {

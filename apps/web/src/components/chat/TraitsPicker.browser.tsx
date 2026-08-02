@@ -8,7 +8,7 @@ import {
   DEFAULT_MODEL_BY_PROVIDER,
   type OpenCodeModelOptions,
   type ProviderModelDescriptor,
-  ProjectId,
+  ContainerId,
   ThreadId,
 } from "@penkra/contracts";
 import { page } from "vitest/browser";
@@ -363,7 +363,7 @@ async function mountCodexPicker(props: { model?: string; options?: CodexModelOpt
     draftsByThreadId,
     draftThreadsByThreadId: {},
     projectDraftThreadIdByProjectId: {
-      [ProjectId.makeUnsafe("project-codex-traits")]: threadId,
+      [ContainerId.makeUnsafe("project-codex-traits")]: threadId,
     },
   });
   const host = document.createElement("div");

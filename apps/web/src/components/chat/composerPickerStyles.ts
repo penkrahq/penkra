@@ -143,7 +143,8 @@ export const APP_TRANSLUCENT_POPUP_SURFACE_CLASS_NAME = `${APP_TRANSLUCENT_POPUP
  * picker tooltips deliberately stay on the picker chrome instead (see
  * COMPOSER_PICKER_TOOLTIP_SURFACE_CLASS_NAME) so they match the menus they open.
  */
-export const APP_TOOLTIP_SURFACE_CLASS_NAME = `${APP_TRANSLUCENT_POPUP_SURFACE_BASE_CLASS_NAME} rounded-lg shadow-xl`;
+export const APP_TOOLTIP_SURFACE_CLASS_NAME =
+  "relative overflow-visible rounded-md border border-black bg-black text-white shadow-xl";
 
 /** Shared border, radius, and shadow for composer-attached popup panels. */
 export const COMPOSER_PICKER_MENU_SURFACE_CHROME_CLASS_NAME = `border border-border ${COMPOSER_PICKER_RADIUS_CLASS_NAME} ${COMPOSER_SURFACE_SHADOW_CLASS_NAME}`;

@@ -5,7 +5,7 @@
 // Layer: Pull request presentation
 // Exports: PullRequestFilterPillGroup, PullRequestProjectFilterPopover
 
-import type { ProjectId } from "@penkra/contracts";
+import type { ContainerId } from "@penkra/contracts";
 import { useState } from "react";
 
 import { CHAT_SURFACE_CONTROL_ACTIVE_CLASS_NAME } from "~/components/chat/chatHeaderControls";
@@ -71,23 +71,23 @@ export function PullRequestProjectFilterPopover({
   value,
   onChange,
 }: {
-  projects: ReadonlyArray<readonly [ProjectId, string]>;
-  value: ProjectId | undefined;
-  onChange: (projectId: ProjectId | undefined) => void;
+  projects: ReadonlyArray<readonly [ContainerId, string]>;
+  value: ContainerId | undefined;
+  onChange: (projectId: ContainerId | undefined) => void;
 }) {
   const [open, setOpen] = useState(false);
   const active = value !== undefined;
   const selectedProjectName = value
     ? projects.find(([projectId]) => projectId === value)?.[1]
     : undefined;
-  const triggerLabel = `Filter pull requests by project: ${selectedProjectName ?? "All projects"}`;
+  const triggerLabel = `Filter pull requests by folder: ${selectedProjectName ?? "All folders"}`;
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
         render={
           <IconButton
             label={triggerLabel}
-            tooltip="Filter by project"
+            tooltip="Filter by folder"
             aria-pressed={active}
             className={cn("relative", active && "text-foreground")}
           >
@@ -103,7 +103,7 @@ export function PullRequestProjectFilterPopover({
       />
       <PopoverPopup align="end" className="w-64 p-1">
         <div className={cn(PR_FINE_TEXT_CLASS_NAME, "px-2 py-1 font-medium text-muted-foreground")}>
-          Project
+          Folder
         </div>
         <div className="max-h-72 overflow-y-auto">
           <button
@@ -118,7 +118,7 @@ export function PullRequestProjectFilterPopover({
               value === undefined && "text-foreground",
             )}
           >
-            <span className="min-w-0 truncate">All projects</span>
+            <span className="min-w-0 truncate">All folders</span>
             {value === undefined ? <CheckIcon aria-hidden className="size-3.5 shrink-0" /> : null}
           </button>
           {projects.map(([id, title]) => (

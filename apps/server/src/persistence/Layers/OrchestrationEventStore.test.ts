@@ -1,4 +1,4 @@
-import { CommandId, EventId, ProjectId, ThreadId } from "@penkra/contracts";
+import { CommandId, EventId, ContainerId, ThreadId } from "@penkra/contracts";
 import { assert, it } from "@effect/vitest";
 import { Effect, Layer, Schema, Stream } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -78,7 +78,7 @@ layer("OrchestrationEventStore", (it) => {
         type: "project.created",
         eventId: EventId.makeUnsafe("evt-store-roundtrip"),
         aggregateKind: "project",
-        aggregateId: ProjectId.makeUnsafe("project-roundtrip"),
+        aggregateId: ContainerId.makeUnsafe("project-roundtrip"),
         occurredAt: now,
         commandId: CommandId.makeUnsafe("cmd-store-roundtrip"),
         causationEventId: null,
@@ -87,7 +87,7 @@ layer("OrchestrationEventStore", (it) => {
           adapterKey: "codex",
         },
         payload: {
-          projectId: ProjectId.makeUnsafe("project-roundtrip"),
+          projectId: ContainerId.makeUnsafe("project-roundtrip"),
           title: "Roundtrip Project",
           workspaceRoot: "/tmp/project-roundtrip",
           defaultModelSelection: null,
@@ -146,7 +146,7 @@ layer("OrchestrationEventStore", (it) => {
         (
           ${EventId.makeUnsafe("evt-import-project-created")},
           ${"project"},
-          ${ProjectId.makeUnsafe("project-imported")},
+          ${ContainerId.makeUnsafe("project-imported")},
           ${0},
           ${"project.created"},
           ${now},
@@ -297,7 +297,7 @@ layer("OrchestrationEventStore", (it) => {
         VALUES (
           ${EventId.makeUnsafe("evt-store-invalid-json")},
           ${"project"},
-          ${ProjectId.makeUnsafe("project-invalid-json")},
+          ${ContainerId.makeUnsafe("project-invalid-json")},
           ${0},
           ${"project.created"},
           ${now},
@@ -349,7 +349,7 @@ layer("OrchestrationEventStore", (it) => {
         VALUES (
           ${EventId.makeUnsafe("evt-store-future-schema")},
           ${"project"},
-          ${ProjectId.makeUnsafe("project-future-schema")},
+          ${ContainerId.makeUnsafe("project-future-schema")},
           ${0},
           ${"project.created"},
           ${now},

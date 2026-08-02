@@ -1,4 +1,4 @@
-import { ProjectId, type OrchestrationProject } from "@penkra/contracts";
+import { ContainerId, type OrchestrationProject } from "@penkra/contracts";
 import { Deferred, Effect, Fiber } from "effect";
 import { describe, expect, it } from "vitest";
 
@@ -10,7 +10,7 @@ import { makePullRequestOperations } from "./pullRequestOperations";
 const now = "2026-07-15T00:00:00.000Z";
 
 const project: OrchestrationProject = {
-  id: ProjectId.makeUnsafe("project-detail"),
+  id: ContainerId.makeUnsafe("project-detail"),
   kind: "project",
   title: "Detail",
   workspaceRoot: "/tmp/detail",
@@ -79,7 +79,8 @@ describe("makePullRequestOperations", () => {
                 waitForRelease(commentsStarted, { comments: [], truncated: false }),
             },
             pins,
-            findProject: () => Effect.succeed(project),
+            findProject: () =>
+              Effect.succeed({ ...project, workspaceRoot: project.workspaceRoot! }),
             validateRepository: (repository) => Effect.succeed(repository),
             validateProjectRepository: (_project, repository) => Effect.succeed(repository),
             loadMergeCapabilities: () =>

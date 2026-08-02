@@ -4,7 +4,7 @@ import {
   IsoDateTime,
   NonNegativeInt,
   PositiveInt,
-  ProjectId,
+  ContainerId,
   TrimmedNonEmptyString,
 } from "./baseSchemas";
 import { GitPullRequestMergeability } from "./git";
@@ -93,14 +93,14 @@ export const PullRequestMergeCapabilities = Schema.Struct({
 export type PullRequestMergeCapabilities = typeof PullRequestMergeCapabilities.Type;
 
 export const PullRequestProjectContext = Schema.Struct({
-  projectId: ProjectId,
+  projectId: ContainerId,
   projectTitle: TrimmedNonEmptyString,
   isPinned: Schema.Boolean,
 });
 export type PullRequestProjectContext = typeof PullRequestProjectContext.Type;
 
 export const PullRequestListEntry = Schema.Struct({
-  projectId: ProjectId,
+  projectId: ContainerId,
   projectTitle: TrimmedNonEmptyString,
   repository: TrimmedNonEmptyString,
   number: PositiveInt,
@@ -135,19 +135,19 @@ export type PullRequestListEntry = typeof PullRequestListEntry.Type;
 export const PullRequestsListInput = Schema.Struct({
   involvement: Schema.optional(PullRequestInvolvement),
   state: PullRequestState,
-  projectId: Schema.optional(Schema.NullOr(ProjectId)),
+  projectId: Schema.optional(Schema.NullOr(ContainerId)),
   forceRefresh: Schema.optional(Schema.Boolean),
 });
 export type PullRequestsListInput = typeof PullRequestsListInput.Type;
 
 export const PullRequestsListError = Schema.Struct({
-  projectId: ProjectId,
+  projectId: ContainerId,
   projectTitle: TrimmedNonEmptyString,
   message: TrimmedNonEmptyString,
 });
 
 export const PullRequestsListRepositoryBatch = Schema.Struct({
-  projectId: ProjectId,
+  projectId: ContainerId,
   projectTitle: TrimmedNonEmptyString,
   repository: TrimmedNonEmptyString,
   truncated: Schema.Boolean,
@@ -163,7 +163,7 @@ export const PullRequestsListResult = Schema.Struct({
 export type PullRequestsListResult = typeof PullRequestsListResult.Type;
 
 export const PullRequestReviewRequestCountInput = Schema.Struct({
-  projectId: Schema.optional(Schema.NullOr(ProjectId)),
+  projectId: Schema.optional(Schema.NullOr(ContainerId)),
 });
 export type PullRequestReviewRequestCountInput = typeof PullRequestReviewRequestCountInput.Type;
 
@@ -175,14 +175,14 @@ export const PullRequestReviewRequestCountResult = Schema.Struct({
 export type PullRequestReviewRequestCountResult = typeof PullRequestReviewRequestCountResult.Type;
 
 export const PullRequestDetailInput = Schema.Struct({
-  projectId: ProjectId,
+  projectId: ContainerId,
   repository: TrimmedNonEmptyString,
   number: PositiveInt,
 });
 export type PullRequestDetailInput = typeof PullRequestDetailInput.Type;
 
 export const PullRequestDetail = Schema.Struct({
-  projectId: ProjectId,
+  projectId: ContainerId,
   projectTitle: TrimmedNonEmptyString,
   workspaceRoot: TrimmedNonEmptyString,
   repository: TrimmedNonEmptyString,
@@ -229,7 +229,7 @@ export const PullRequestDiffResult = Schema.Struct({
 export type PullRequestDiffResult = typeof PullRequestDiffResult.Type;
 
 export const PullRequestActionInput = Schema.Struct({
-  projectId: ProjectId,
+  projectId: ContainerId,
   repository: TrimmedNonEmptyString,
   number: PositiveInt,
   action: PullRequestAction,
@@ -238,7 +238,7 @@ export const PullRequestActionInput = Schema.Struct({
 export type PullRequestActionInput = typeof PullRequestActionInput.Type;
 
 export const PullRequestCommentInput = Schema.Struct({
-  projectId: ProjectId,
+  projectId: ContainerId,
   repository: TrimmedNonEmptyString,
   number: PositiveInt,
   // GitHub rejects comment bodies past 65536 characters; enforcing it here keeps oversized
@@ -248,7 +248,7 @@ export const PullRequestCommentInput = Schema.Struct({
 export type PullRequestCommentInput = typeof PullRequestCommentInput.Type;
 
 export const PullRequestSetPinnedInput = Schema.Struct({
-  projectId: ProjectId,
+  projectId: ContainerId,
   repository: TrimmedNonEmptyString,
   number: PositiveInt,
   isPinned: Schema.Boolean,
@@ -256,7 +256,7 @@ export const PullRequestSetPinnedInput = Schema.Struct({
 export type PullRequestSetPinnedInput = typeof PullRequestSetPinnedInput.Type;
 
 export const PullRequestSetPinnedResult = Schema.Struct({
-  projectId: ProjectId,
+  projectId: ContainerId,
   repository: TrimmedNonEmptyString,
   number: PositiveInt,
   isPinned: Schema.Boolean,
@@ -266,7 +266,7 @@ export type PullRequestSetPinnedResult = typeof PullRequestSetPinnedResult.Type;
 // Actions acknowledge the mutation independently from the follow-up detail refetch. This keeps
 // a successful GitHub mutation from being reported as failed when a later read is unavailable.
 export const PullRequestActionResult = Schema.Struct({
-  projectId: ProjectId,
+  projectId: ContainerId,
   repository: TrimmedNonEmptyString,
   number: PositiveInt,
   workspaceRoot: TrimmedNonEmptyString,

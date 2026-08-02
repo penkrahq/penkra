@@ -73,7 +73,6 @@ export function useComposerSlashCommands(input: {
   syncServerShellSnapshot: (snapshot: OrchestrationShellSnapshot) => void;
   navigateToThread: (threadId: ThreadId, options?: { splitViewId?: SplitViewId }) => Promise<void>;
   handleClearConversation: () => Promise<void> | void;
-  handleInteractionModeChange: (mode: "default" | "plan") => Promise<void> | void;
   openForkTargetPicker: () => void;
   openReviewTargetPicker: () => void;
   setComposerDraftProviderModelOptions: (
@@ -124,7 +123,6 @@ export function useComposerSlashCommands(input: {
     syncServerShellSnapshot,
     navigateToThread,
     handleClearConversation,
-    handleInteractionModeChange,
     openForkTargetPicker,
     openReviewTargetPicker,
     setComposerDraftProviderModelOptions,
@@ -400,7 +398,7 @@ export function useComposerSlashCommands(input: {
         toastManager.add({
           type: "warning",
           title: "Review is unavailable",
-          description: "Open a project thread before starting a native review.",
+          description: "Open a folder thread before starting a native review.",
         });
         return false;
       }
@@ -660,11 +658,6 @@ export function useComposerSlashCommands(input: {
         await compactProviderThread();
         return true;
       }
-      if (slashInvocation.command === "plan" || slashInvocation.command === "default") {
-        await handleInteractionModeChange(slashInvocation.command === "plan" ? "plan" : "default");
-        editorActions.clearComposerSlashDraft();
-        return true;
-      }
       if (slashInvocation.command === "status") {
         editorActions.clearComposerSlashDraft();
         setIsSlashStatusDialogOpen(true);
@@ -778,7 +771,6 @@ export function useComposerSlashCommands(input: {
       createSidechatFromSlashCommand,
       editorActions,
       handleClearConversation,
-      handleInteractionModeChange,
       openForkTargetPicker,
       openFeedbackDialog,
       openReviewTargetPicker,
@@ -838,15 +830,6 @@ export function useComposerSlashCommands(input: {
         editorActions.setComposerHighlightedItemId(null);
         void compactProviderThread();
         editorActions.scheduleComposerFocus();
-        return;
-      }
-
-      if (item.command === "plan" || item.command === "default") {
-        void handleInteractionModeChange(item.command === "plan" ? "plan" : "default");
-        const applied = clearSlashCommandFromComposer();
-        if (wasPromptReplacementApplied(applied)) {
-          editorActions.setComposerHighlightedItemId(null);
-        }
         return;
       }
 
@@ -977,7 +960,6 @@ export function useComposerSlashCommands(input: {
       createSidechatFromSlashCommand,
       editorActions,
       handleClearConversation,
-      handleInteractionModeChange,
       openForkTargetPicker,
       openFeedbackDialog,
       openReviewTargetPicker,

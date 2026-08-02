@@ -7,28 +7,12 @@ import {
 } from "@tabler/icons-react";
 
 import { useAppSettings } from "~/appSettings";
+import { useAppInstallationSnapshot } from "~/appInstallationStore";
+import { useSpacesUiStore } from "~/spacesUiStore";
 import { APP_VERSION } from "~/branding";
 import { OpenWithRowShared } from "~/components/settings/open-with-row-shared/OpenWithRowShared";
 import { SettingRowShared } from "~/components/settings/setting-row-shared/SettingRowShared";
 import { SettingsSectionShared } from "~/components/settings/settings-section-shared/SettingsSectionShared";
-
-const BROWSER_OPTIONS = [
-  { id: "safari", label: "Safari" },
-  { id: "chrome", label: "Google Chrome" },
-  { id: "firefox", label: "Firefox" },
-];
-
-const PREVIEW_OPTIONS = [
-  { id: "preview", label: "Preview" },
-  { id: "finder", label: "Finder" },
-  { id: "penkra", label: "Penkra" },
-];
-
-const CODE_OPTIONS = [
-  { id: "cursor", label: "Cursor" },
-  { id: "vscode", label: "Visual Studio Code" },
-  { id: "finder", label: "Finder" },
-];
 
 const PROVIDER_UPDATE_OPTIONS = [
   { id: "automatic", icon: <IconRefresh />, label: "Automatic" },
@@ -37,34 +21,27 @@ const PROVIDER_UPDATE_OPTIONS = [
 
 export function SettingsGeneralPage() {
   const { settings, updateSettings } = useAppSettings();
+  const installations = useAppInstallationSnapshot();
+  const activeSpaceId = useSpacesUiStore((state) => state.activeSpaceId);
+  const isEnabled = (appId: string) =>
+    activeSpaceId !== null &&
+    installations?.spaces.some(
+      (space) => space.appId === appId && space.spaceId === activeSpaceId && space.enabled,
+    ) === true;
+  const urlHandlers =
+    installations?.installed.filter(
+      (app) => isEnabled(app.id) && app.handlers.some((handler) => handler.intent === "open-url"),
+    ) ?? [];
+  const fileHandlers =
+    installations?.installed.filter(
+      (app) => isEnabled(app.id) && app.handlers.some((handler) => handler.intent === "open-file"),
+    ) ?? [];
 
   return (
     <div className="flex flex-col gap-6" data-pencil-page="general">
       <SettingsSectionShared title="Open with">
-        <OpenWithRowShared
-          defaultValue="safari"
-          description="Web links clicked in threads."
-          options={BROWSER_OPTIONS}
-          title="Links"
-        />
-        <OpenWithRowShared
-          defaultValue="preview"
-          description="Image files agents create or reference."
-          options={PREVIEW_OPTIONS}
-          title="Images"
-        />
-        <OpenWithRowShared
-          defaultValue="preview"
-          description="PDF documents agents create or reference."
-          options={PREVIEW_OPTIONS}
-          title="PDFs"
-        />
-        <OpenWithRowShared
-          defaultValue="cursor"
-          description="Source and text files agents create or reference."
-          options={CODE_OPTIONS}
-          title="Code & text files"
-        />
+        <HandlerAvailabilityRow apps={urlHandlers.map((app) => app.name)} label="Links" />
+        <HandlerAvailabilityRow apps={fileHandlers.map((app) => app.name)} label="Files" />
       </SettingsSectionShared>
 
       <SettingsSectionShared title="Notifications">
@@ -99,5 +76,23 @@ export function SettingsGeneralPage() {
         </div>
       </SettingsSectionShared>
     </div>
+  );
+}
+
+function HandlerAvailabilityRow({ apps, label }: { apps: ReadonlyArray<string>; label: string }) {
+  const status =
+    apps.length === 0
+      ? "No compatible App installed"
+      : apps.length === 1
+        ? apps[0]
+        : "Choose when opening";
+  return (
+    <SettingRowShared
+      control={
+        <span className="text-xs text-[var(--color-text-foreground-tertiary)]">{status}</span>
+      }
+      description="Resolved from enabled App handler contributions."
+      label={label}
+    />
   );
 }

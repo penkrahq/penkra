@@ -1,13 +1,13 @@
-import type { ProjectId } from "@penkra/contracts";
+import type { ContainerId } from "@penkra/contracts";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
 const LATEST_PROJECT_STORAGE_KEY = "penkra:latest-project:v1";
 
 interface LatestProjectStore {
-  latestProjectId: ProjectId | null;
-  setLatestProjectId: (projectId: ProjectId) => void;
-  clearLatestProjectId: (projectId?: ProjectId) => void;
+  latestProjectId: ContainerId | null;
+  setLatestProjectId: (projectId: ContainerId) => void;
+  clearLatestProjectId: (projectId?: ContainerId) => void;
 }
 
 export const useLatestProjectStore = create<LatestProjectStore>()(
@@ -36,7 +36,7 @@ export const useLatestProjectStore = create<LatestProjectStore>()(
           ?.latestProjectId;
         return {
           ...current,
-          latestProjectId: typeof persistedId === "string" ? (persistedId as ProjectId) : null,
+          latestProjectId: typeof persistedId === "string" ? (persistedId as ContainerId) : null,
         };
       },
     },

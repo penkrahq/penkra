@@ -89,6 +89,15 @@ function TooltipPopup({
           data-slot="tooltip-popup"
           {...props}
         >
+          <TooltipPrimitive.Arrow
+            className={cn(
+              "flex size-2 items-center justify-center text-black",
+              variant === "picker" && "text-popover",
+            )}
+            data-slot="tooltip-arrow"
+          >
+            <span className="block size-2 rotate-45 bg-current" />
+          </TooltipPrimitive.Arrow>
           <TooltipPrimitive.Viewport
             className={cn(
               "relative size-full overflow-clip px-(--viewport-inline-padding) py-1 [--viewport-inline-padding:--spacing(2)] data-instant:transition-none **:data-current:data-ending-style:opacity-0 **:data-current:data-starting-style:opacity-0 **:data-previous:data-ending-style:opacity-0 **:data-previous:data-starting-style:opacity-0 **:data-current:w-[calc(var(--popup-width)-2*var(--viewport-inline-padding)-2px)] **:data-previous:w-[calc(var(--popup-width)-2*var(--viewport-inline-padding)-2px)] **:data-previous:truncate **:data-current:opacity-100 **:data-previous:opacity-100 **:data-current:transition-opacity **:data-previous:transition-opacity",

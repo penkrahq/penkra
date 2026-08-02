@@ -18,6 +18,26 @@ const runtime = new AppPreloadRuntime({
   },
   ready: () => ipcRenderer.send(APP_RUNTIME_IPC_CHANNELS.ready),
   queryPermission: (name) => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.permissionQuery, name),
+  requestPermission: (name) => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.permissionRequest, name),
+  getIdentity: () => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.identityGet),
+  settingGet: (key) => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.settingGet, key),
+  settingSet: (input) => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.settingSet, input),
+  settingReset: (key) => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.settingReset, key),
+  secretGet: (name) => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.secretGet, name),
+  secretSet: (input) => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.secretSet, input),
+  secretDelete: (name) => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.secretDelete, name),
+  filePick: (kind) => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.filePick, kind),
+  fileList: () => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.fileList),
+  fileReadText: (handleId) => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.fileReadText, handleId),
+  fileWriteText: (input) => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.fileWriteText, input),
+  fileListDirectory: (handleId) =>
+    ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.fileListDirectory, handleId),
+  fileOpenChild: (input) => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.fileOpenChild, input),
+  fileRevoke: (handleId) => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.fileRevoke, handleId),
+  networkFetch: (input) => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.networkFetch, input),
+  rawSocketExchange: (input) =>
+    ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.rawSocketExchange, input),
+  processRun: (input) => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.processRun, input),
 });
 
 const appId = process.argv
@@ -39,6 +59,14 @@ const exposedApi =
             ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.appInstallations.setEnabled, input),
           setPermission: (input: unknown) =>
             ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.appInstallations.setPermission, input),
+          getSettings: (input: unknown) =>
+            ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.appInstallations.getSettings, input),
+          setSetting: (input: unknown) =>
+            ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.appInstallations.setSetting, input),
+          resetSetting: (input: unknown) =>
+            ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.appInstallations.resetSetting, input),
+          setSkillEnabled: (input: unknown) =>
+            ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.appInstallations.setSkillEnabled, input),
           uninstall: (input: unknown) =>
             ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.appInstallations.uninstall, input),
           removeData: (input: unknown) =>
@@ -47,8 +75,7 @@ const exposedApi =
         registry: {
           list: (input?: unknown) =>
             ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.appRegistry.list, input),
-          get: (input: unknown) =>
-            ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.appRegistry.get, input),
+          get: (input: unknown) => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.appRegistry.get, input),
           getArtifact: (input: unknown) =>
             ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.appRegistry.getArtifact, input),
           getFeedback: (input: unknown) =>

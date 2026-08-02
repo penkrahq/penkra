@@ -4,52 +4,85 @@ import { setInstalledAppEnabled, useAppInstallationSnapshot } from "~/appInstall
 import { useSpacesUiStore } from "~/spacesUiStore";
 import { toastManager } from "~/components/ui/toast";
 import { SettingsInstalledRow } from "../shared/SettingsPageControls";
+import { AppDiagnosticsView } from "./AppDiagnosticsView";
+import { AppContributedSettings } from "./AppContributedSettings";
+import { AppContributedSkills } from "./AppContributedSkills";
 
 export function SettingsAppsPage() {
   const snapshot = useAppInstallationSnapshot();
   const activeSpaceId = useSpacesUiStore((state) => state.activeSpaceId);
 
   if (!snapshot) {
-    return <p className="text-xs text-[var(--color-text-foreground-secondary)]">Loading installed Apps…</p>;
+    return (
+      <p className="text-xs text-[var(--color-text-foreground-secondary)]">
+        Loading installed Apps…
+      </p>
+    );
   }
   if (snapshot.installed.length === 0) {
-    return <p className="text-xs text-[var(--color-text-foreground-secondary)]">No Apps are installed.</p>;
+    return (
+      <p className="text-xs text-[var(--color-text-foreground-secondary)]">
+        No Apps are installed.
+      </p>
+    );
   }
 
   return (
-    <div className="flex flex-col gap-2.5" data-pencil-page="apps">
-      {snapshot.installed.map((app) => {
-        const enabled = activeSpaceId
-          ? (snapshot.spaces.find(
-              (space) => space.appId === app.id && space.spaceId === activeSpaceId,
-            )?.enabled ?? false)
-          : false;
-        return (
-          <SettingsInstalledRow
-            checked={enabled}
-            description={`${app.summary} Version ${app.version}.`}
-            disabled={!activeSpaceId}
-            icon={IconPackage}
-            key={app.id}
-            label={app.name}
-            multiline
-            onCheckedChange={(nextEnabled) => {
-              if (!activeSpaceId) return;
-              void setInstalledAppEnabled({
-                appId: app.id,
-                spaceId: activeSpaceId,
-                enabled: nextEnabled,
-              }).catch((error: unknown) => {
-                toastManager.add({
-                  type: "error",
-                  title: `Could not ${nextEnabled ? "enable" : "disable"} ${app.name}`,
-                  description: error instanceof Error ? error.message : "The App state did not change.",
-                });
-              });
-            }}
-          />
-        );
-      })}
+    <div data-pencil-page="apps">
+      <div className="flex flex-col gap-2.5">
+        {snapshot.installed.map((app) => {
+          const spaceState = activeSpaceId
+            ? snapshot.spaces.find(
+                (space) => space.appId === app.id && space.spaceId === activeSpaceId,
+              )
+            : undefined;
+          const enabled = spaceState?.enabled ?? false;
+          return (
+            <div key={app.id}>
+              <SettingsInstalledRow
+                checked={enabled}
+                description={`${app.summary} Version ${app.version}.`}
+                disabled={!activeSpaceId}
+                icon={IconPackage}
+                label={app.name}
+                multiline
+                onCheckedChange={(nextEnabled) => {
+                  if (!activeSpaceId) return;
+                  void setInstalledAppEnabled({
+                    appId: app.id,
+                    spaceId: activeSpaceId,
+                    enabled: nextEnabled,
+                  }).catch((error: unknown) => {
+                    toastManager.add({
+                      type: "error",
+                      title: `Could not ${nextEnabled ? "enable" : "disable"} ${app.name}`,
+                      description:
+                        error instanceof Error ? error.message : "The App state did not change.",
+                    });
+                  });
+                }}
+              />
+              {enabled && activeSpaceId ? (
+                <>
+                  <AppContributedSettings
+                    appId={app.id}
+                    appName={app.name}
+                    spaceId={activeSpaceId}
+                  />
+                  <AppContributedSkills
+                    appId={app.id}
+                    appName={app.name}
+                    overrides={spaceState?.skills ?? {}}
+                    skills={app.skills}
+                    spaceId={activeSpaceId}
+                  />
+                </>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+      <AppDiagnosticsView apps={snapshot.installed} spaceId={activeSpaceId} />
     </div>
   );
 }

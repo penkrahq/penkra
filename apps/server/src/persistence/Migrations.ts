@@ -96,6 +96,10 @@ import Migration0087 from "./Migrations/087_DropUnusedOrchestrationEventIndexes.
 import Migration0088 from "./Migrations/088_ProjectionThreadsSpaces.ts";
 import Migration0089 from "./Migrations/089_ProjectionSpacesArchive.ts";
 import Migration0090 from "./Migrations/090_ThreadScopedProviderRuntimeProjection.ts";
+import Migration0091 from "./Migrations/091_SpaceNavigationState.ts";
+import Migration0092 from "./Migrations/092_RemoveProjectionThreadWorktreePath.ts";
+import Migration0093 from "./Migrations/093_VirtualFolders.ts";
+import Migration0094 from "./Migrations/094_RequireSpaces.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -191,6 +195,10 @@ export const migrationEntries = [
   [88, "ProjectionThreadsSpaces", Migration0088],
   [89, "ProjectionSpacesArchive", Migration0089],
   [90, "ThreadScopedProviderRuntimeProjection", Migration0090],
+  [91, "SpaceNavigationState", Migration0091],
+  [92, "RemoveProjectionThreadWorktreePath", Migration0092],
+  [93, "VirtualFolders", Migration0093],
+  [94, "RequireSpaces", Migration0094],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

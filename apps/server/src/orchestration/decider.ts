@@ -3,14 +3,13 @@ import type {
   OrchestrationEvent,
   OrchestrationReadModel,
   OrchestrationThread,
-  ProjectKind,
+  ContainerKind,
   ThreadMarker,
 } from "@penkra/contracts";
 import {
   EventId,
   MAX_PINNED_PROJECTS,
   PINNED_MESSAGES_MAX_COUNT,
-  RESERVED_VOID_SPACE_ID,
   SPACES_MAX_COUNT,
   THREAD_MARKERS_MAX_COUNT,
   TurnId,
@@ -60,10 +59,9 @@ import {
 
 const nowIso = () => new Date().toISOString();
 const DEFAULT_ASSISTANT_DELIVERY_MODE = "buffered" as const;
-const STUDIO_PROJECT_KIND_SET = new Set<ProjectKind>(["studio"]);
 // Kinds that claim exclusive ownership of a workspace root. Chat containers are excluded: they
 // use placeholder roots (e.g. the home dir) that legitimately coexist with real projects.
-const WORKSPACE_OWNING_PROJECT_KIND_SET = new Set<ProjectKind>(["project", "studio"]);
+const WORKSPACE_OWNING_PROJECT_KIND_SET = new Set<ContainerKind>(["project", "studio"]);
 
 const defaultMetadata: Omit<OrchestrationEvent, "sequence" | "type" | "payload"> = {
   eventId: crypto.randomUUID() as OrchestrationEvent["eventId"],
@@ -155,7 +153,7 @@ function validateProjectPinLimit(input: {
   >;
   readonly readModel: OrchestrationReadModel;
   readonly projectId: OrchestrationEvent["aggregateId"];
-  readonly nextKind: ProjectKind;
+  readonly nextKind: ContainerKind;
   readonly nextDeletedAt?: string | null;
   readonly wasPinned?: boolean;
   readonly staleProjectIds?: ReadonlySet<string>;
@@ -263,7 +261,7 @@ type CreatedThreadWorkspaceCommand = Pick<
 >;
 
 function resolveCreatedThreadWorkspaceMetadata(
-  projectKind: ProjectKind | undefined,
+  projectKind: ContainerKind | undefined,
   command: CreatedThreadWorkspaceCommand,
 ) {
   if (projectKind === "studio") {
@@ -285,7 +283,7 @@ function resolveCreatedThreadWorkspaceMetadata(
     envMode: command.envMode,
     branch: command.branch,
     worktreePath: command.worktreePath,
-    workingDirectory: command.workingDirectory ?? null,
+    workingDirectory: command.workingDirectory ?? command.worktreePath ?? null,
     ...deriveCommandAssociatedWorktreeMetadata({
       branch: command.branch,
       worktreePath: command.worktreePath,
@@ -303,7 +301,7 @@ function resolveCreatedThreadWorkspaceMetadata(
 }
 
 function resolveThreadWorkspaceMetadataPatch(
-  projectKind: ProjectKind | undefined,
+  projectKind: ContainerKind | undefined,
   command: Extract<OrchestrationCommand, { type: "thread.meta.update" }>,
   currentThread: OrchestrationThread,
 ) {
@@ -331,7 +329,9 @@ function resolveThreadWorkspaceMetadataPatch(
     ...(command.worktreePath !== undefined ? { worktreePath: command.worktreePath } : {}),
     ...(command.workingDirectory !== undefined
       ? { workingDirectory: command.workingDirectory }
-      : {}),
+      : command.worktreePath !== undefined
+        ? { workingDirectory: command.worktreePath }
+        : {}),
     ...deriveCommandAssociatedWorktreeMetadataPatch({
       ...(command.branch !== undefined ? { branch: command.branch } : {}),
       ...(command.worktreePath !== undefined ? { worktreePath: command.worktreePath } : {}),
@@ -385,12 +385,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
   switch (command.type) {
     case "space.create": {
       yield* requireSpaceAbsent({ readModel, command, spaceId: command.spaceId });
-      if (command.spaceId === RESERVED_VOID_SPACE_ID) {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: "The reserved Void identity cannot be used for a custom space.",
-        });
-      }
       yield* requireSpaceNameAvailable({ readModel, command, name: command.name });
       const activeSpaces = listActiveSpaces(readModel);
       if (activeSpaces.length >= SPACES_MAX_COUNT) {
@@ -500,6 +494,28 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
 
     case "space.archive": {
       yield* requireSpace({ readModel, command, spaceId: command.spaceId });
+      if (listActiveSpaces(readModel).length <= 1) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "At least one active Space must remain.",
+        });
+      }
+      if (
+        readModel.projects.some(
+          (project) =>
+            project.kind === "project" &&
+            project.deletedAt === null &&
+            project.spaceId === command.spaceId,
+        ) ||
+        readModel.threads.some(
+          (thread) => thread.deletedAt === null && thread.spaceId === command.spaceId,
+        )
+      ) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "Move every folder and chat thread out of this Space before archiving it.",
+        });
+      }
       const occurredAt = nowIso();
       return {
         ...withEventBase({
@@ -527,10 +543,11 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           detail: `A maximum of ${SPACES_MAX_COUNT} active custom spaces is supported.`,
         });
       }
+      const restoredName = command.name ?? existingSpace.name;
       yield* requireSpaceNameAvailable({
         readModel,
         command,
-        name: existingSpace.name,
+        name: restoredName,
         excludeSpaceId: existingSpace.id,
       });
       const occurredAt = nowIso();
@@ -542,7 +559,11 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           commandId: command.commandId,
         }),
         type: "space.restored",
-        payload: { spaceId: command.spaceId, restoredAt: occurredAt },
+        payload: {
+          spaceId: command.spaceId,
+          ...(restoredName !== existingSpace.name ? { name: restoredName } : {}),
+          restoredAt: occurredAt,
+        },
       };
     }
 
@@ -554,10 +575,29 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           detail: `Space '${command.spaceId}' does not exist or was already deleted.`,
         });
       }
+      if (existingSpace.archivedAt === null && listActiveSpaces(readModel).length <= 1) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "At least one active Space must remain.",
+        });
+      }
+      if (
+        readModel.projects.some(
+          (project) =>
+            project.kind === "project" &&
+            project.deletedAt === null &&
+            project.spaceId === command.spaceId,
+        ) ||
+        readModel.threads.some(
+          (thread) => thread.deletedAt === null && thread.spaceId === command.spaceId,
+        )
+      ) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "Move every folder and chat thread out of this Space before deleting it.",
+        });
+      }
       const occurredAt = nowIso();
-      // The deletion event owns the re-filing invariant. Projectors clear every matching
-      // assignment in one pass, avoiding an unbounded event fanout for large spaces while
-      // still including soft-deleted projects that a recovery flow could resurrect.
       return {
         ...withEventBase({
           aggregateKind: "space",
@@ -625,59 +665,21 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         projectId: command.projectId,
       });
       const events: Array<Omit<OrchestrationEvent, "sequence">> = [];
-      const staleProjects: Array<OrchestrationReadModel["projects"][number]> = [];
       const nextProjectKind = command.kind ?? "project";
-      if (nextProjectKind === "project") {
-        // The app-managed Studio container owns its root exclusively and is never retired here:
-        // silently deleting it would orphan Studio threads, so adding its folder as a project
-        // is rejected outright.
-        const existingStudioProject = listActiveProjectsByWorkspaceRoot(
-          readModel,
-          command.workspaceRoot,
-          { kinds: STUDIO_PROJECT_KIND_SET },
-        )[0];
-        if (existingStudioProject) {
-          return yield* new OrchestrationCommandInvariantError({
-            commandType: command.type,
-            detail: `Project '${existingStudioProject.id}' already uses workspace root '${existingStudioProject.workspaceRoot}'.`,
-          });
-        }
-        const existingProjects = listActiveProjectsByWorkspaceRoot(
-          readModel,
-          command.workspaceRoot,
-        );
-        for (const existingProject of existingProjects) {
-          const remainingThreads = listThreadsByProjectId(readModel, existingProject.id).filter(
-            (thread) => thread.deletedAt === null,
-          );
-          if (remainingThreads.length > 0) {
-            return yield* new OrchestrationCommandInvariantError({
-              commandType: command.type,
-              detail: `Project '${existingProject.id}' already uses workspace root '${existingProject.workspaceRoot}'.`,
-            });
-          }
-          staleProjects.push(existingProject);
-        }
-
-        for (const staleProject of staleProjects) {
-          // A removed folder can leave an active project shell with no live threads.
-          // Retire that stale shell so re-adding the same folder creates a fresh project.
-          events.push({
-            ...withEventBase({
-              aggregateKind: "project",
-              aggregateId: staleProject.id,
-              occurredAt: command.createdAt,
-              commandId: command.commandId,
-            }),
-            type: "project.deleted",
-            payload: {
-              projectId: staleProject.id,
-              deletedAt: command.createdAt,
-            },
-          });
-        }
+      if (nextProjectKind !== "project" && command.workspaceRoot === null) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "Managed chat and Studio containers require a workspace root.",
+        });
       }
-      if (nextProjectKind === "studio") {
+      if (nextProjectKind === "project" && command.workspaceRoot !== null) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail:
+            "Folders are virtual containers. Set the physical directory on the thread instead.",
+        });
+      }
+      if (nextProjectKind === "studio" && command.workspaceRoot !== null) {
         // Cross-kind on purpose: a regular project already using this root would otherwise
         // coexist with the Studio container, breaking workspace-root-to-project uniqueness
         // that shell snapshot mapping and duplicate recovery rely on.
@@ -698,25 +700,24 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         readModel,
         projectId: command.projectId,
         nextKind: nextProjectKind,
-        staleProjectIds: new Set(staleProjects.map((project) => project.id)),
       });
 
-      // Filing a new project into the requested space is best-effort: creation must never
-      // fail because the space raced a delete, so an unusable target degrades to Void.
-      const requestedSpace =
-        command.spaceId != null ? findSpaceById(readModel, command.spaceId) : undefined;
-      const creationSpaceId =
-        command.spaceId != null &&
-        nextProjectKind === "project" &&
-        requestedSpace !== undefined &&
-        requestedSpace.deletedAt === null &&
-        !isLegacyHomeChatContainerRow({
-          projectTitle: command.title,
-          projectWorkspaceRoot: command.workspaceRoot,
-          workspacePaths,
-        })
-          ? command.spaceId
-          : null;
+      let creationSpaceId = null;
+      if (nextProjectKind === "project") {
+        if (command.spaceId == null) {
+          return yield* new OrchestrationCommandInvariantError({
+            commandType: command.type,
+            detail: "Every folder must be created in a persisted Space.",
+          });
+        }
+        yield* requireSpace({ readModel, command, spaceId: command.spaceId });
+        creationSpaceId = command.spaceId;
+      } else if (command.spaceId != null) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "Managed chat and Studio containers do not belong to a Space.",
+        });
+      }
 
       events.push({
         ...withEventBase({
@@ -749,6 +750,19 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         projectId: command.projectId,
       });
       const nextProjectKind = command.kind ?? existingProject.kind ?? "project";
+      const effectiveWorkspaceRoot =
+        command.workspaceRoot !== undefined ? command.workspaceRoot : existingProject.workspaceRoot;
+      if (
+        nextProjectKind === "project" &&
+        command.workspaceRoot !== undefined &&
+        command.workspaceRoot !== null
+      ) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail:
+            "Folders are virtual containers. Set the physical directory on the thread instead.",
+        });
+      }
       const requestedSpaceId =
         command.spaceId !== undefined
           ? command.spaceId
@@ -757,6 +771,18 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             : undefined;
       const effectiveSpaceId =
         requestedSpaceId !== undefined ? requestedSpaceId : existingProject.spaceId;
+      if (nextProjectKind === "project" && effectiveSpaceId === null) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "Every folder must remain assigned to a persisted Space.",
+        });
+      }
+      if (nextProjectKind !== "project" && effectiveSpaceId !== null) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "Managed chat and Studio containers do not belong to a Space.",
+        });
+      }
       const changedSpaceId =
         requestedSpaceId !== undefined && requestedSpaceId !== existingProject.spaceId
           ? requestedSpaceId
@@ -785,6 +811,8 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       }
       if (
         command.workspaceRoot !== undefined &&
+        command.workspaceRoot !== null &&
+        existingProject.workspaceRoot !== null &&
         !workspaceRootsEqual(command.workspaceRoot, existingProject.workspaceRoot, {
           platform: process.platform,
         }) &&
@@ -802,7 +830,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         yield* requireSpaceAssignableProject({
           command,
           projectTitle: command.title ?? existingProject.title,
-          projectWorkspaceRoot: command.workspaceRoot ?? existingProject.workspaceRoot,
+          projectWorkspaceRoot: effectiveWorkspaceRoot,
           workspacePaths,
         });
       }
@@ -838,11 +866,17 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       const ownershipMayChange =
         command.workspaceRoot !== undefined ||
         (command.kind !== undefined && command.kind !== (existingProject.kind ?? "project"));
-      if (ownershipMayChange && nextProjectKind !== "chat") {
+      if (nextProjectKind !== "project" && effectiveWorkspaceRoot === null) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "Managed chat and Studio containers require a workspace root.",
+        });
+      }
+      if (ownershipMayChange && nextProjectKind !== "chat" && effectiveWorkspaceRoot !== null) {
         yield* requireProjectWorkspaceRootAvailable({
           readModel,
           command,
-          workspaceRoot: command.workspaceRoot ?? existingProject.workspaceRoot,
+          workspaceRoot: effectiveWorkspaceRoot,
           excludeProjectId: command.projectId,
           kinds: WORKSPACE_OWNING_PROJECT_KIND_SET,
         });
@@ -1238,6 +1272,25 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         threadId: command.threadId,
       });
       const project = readModel.projects.find((candidate) => candidate.id === thread.projectId);
+      if (command.spaceId !== undefined) {
+        if (project?.kind !== "chat") {
+          return yield* new OrchestrationCommandInvariantError({
+            commandType: command.type,
+            detail: "Only threads directly under a Space can change Space ownership.",
+          });
+        }
+        yield* requireSpace({ readModel, command, spaceId: command.spaceId });
+      }
+      if (
+        command.workingDirectory !== undefined &&
+        command.workingDirectory !== thread.workingDirectory &&
+        thread.messages.length > 0
+      ) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "A thread's physical folder cannot change after the thread has started.",
+        });
+      }
       const occurredAt = nowIso();
       return {
         ...withEventBase({
@@ -1249,6 +1302,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         type: "thread.meta-updated",
         payload: {
           threadId: command.threadId,
+          ...(command.spaceId !== undefined ? { spaceId: command.spaceId } : {}),
           ...(command.title !== undefined ? { title: command.title } : {}),
           ...(command.modelSelection !== undefined
             ? { modelSelection: command.modelSelection }

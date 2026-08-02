@@ -60,7 +60,7 @@ export const PullRequestRow = function PullRequestRow({
   const isPinned = entry.isPinned === true;
   const projectContexts = pullRequestListProjectContexts(entry);
   const projectLabel =
-    projectContexts.length > 1 ? `${projectContexts.length} projects` : entry.projectTitle;
+    projectContexts.length > 1 ? `${projectContexts.length} folders` : entry.projectTitle;
   const projectTitle = projectContexts.map((context) => context.projectTitle).join(", ");
   const pinLabel = pinActionLabel(
     showProjectTitle

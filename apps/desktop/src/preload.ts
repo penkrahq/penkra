@@ -29,6 +29,7 @@ contextBridge.exposeInMainWorld("desktopBridge", {
   saveFile: (input) => ipcRenderer.invoke(IPC.saveFile, input),
   confirm: (input) => ipcRenderer.invoke(IPC.confirm, input),
   setTheme: (theme) => ipcRenderer.invoke(IPC.setTheme, theme),
+  setAppTheme: (theme) => ipcRenderer.invoke(IPC.setAppTheme, theme),
   setSpacesMenu: (input) => ipcRenderer.invoke(IPC.setSpacesMenu, input),
   showContextMenu: (items, position) => ipcRenderer.invoke(IPC.contextMenu, items, position),
   openExternal: (url: string) => ipcRenderer.invoke(IPC.openExternal, url),
@@ -151,6 +152,10 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     rollbackRegistry: (input) => ipcRenderer.invoke(IPC.appInstallations.rollbackRegistry, input),
     setEnabled: (input) => ipcRenderer.invoke(IPC.appInstallations.setEnabled, input),
     setPermission: (input) => ipcRenderer.invoke(IPC.appInstallations.setPermission, input),
+    getSettings: (input) => ipcRenderer.invoke(IPC.appInstallations.getSettings, input),
+    setSetting: (input) => ipcRenderer.invoke(IPC.appInstallations.setSetting, input),
+    resetSetting: (input) => ipcRenderer.invoke(IPC.appInstallations.resetSetting, input),
+    setSkillEnabled: (input) => ipcRenderer.invoke(IPC.appInstallations.setSkillEnabled, input),
     uninstall: (input) => ipcRenderer.invoke(IPC.appInstallations.uninstall, input),
     removeData: (input) => ipcRenderer.invoke(IPC.appInstallations.removeData, input),
     onState: (listener) => {
@@ -164,11 +169,19 @@ contextBridge.exposeInMainWorld("desktopBridge", {
   },
   appTabs: {
     list: () => ipcRenderer.invoke(IPC.appTabs.list),
+    consumeListingRequest: () => ipcRenderer.invoke(IPC.appTabs.consumeListingRequest),
     open: (input) => ipcRenderer.invoke(IPC.appTabs.open, input),
     attach: (input) => ipcRenderer.invoke(IPC.appTabs.attach, input),
     setBounds: (input) => ipcRenderer.invoke(IPC.appTabs.setBounds, input),
     setVisible: (input) => ipcRenderer.invoke(IPC.appTabs.setVisible, input),
+    navigate: (input) => ipcRenderer.invoke(IPC.appTabs.navigate, input),
     close: (input) => ipcRenderer.invoke(IPC.appTabs.close, input),
+    onListingRequested: (listener) => {
+      const wrapped = (_event: Electron.IpcRendererEvent, input: Parameters<typeof listener>[0]) =>
+        listener(input);
+      ipcRenderer.on(IPC.appTabs.listingRequested, wrapped);
+      return () => ipcRenderer.removeListener(IPC.appTabs.listingRequested, wrapped);
+    },
     onOpened: (listener) => {
       const wrapped = (_event: Electron.IpcRendererEvent, tab: Parameters<typeof listener>[0]) =>
         listener(tab);
@@ -181,6 +194,9 @@ contextBridge.exposeInMainWorld("desktopBridge", {
       ipcRenderer.on(IPC.appTabs.state, wrapped);
       return () => ipcRenderer.removeListener(IPC.appTabs.state, wrapped);
     },
+  },
+  appDiagnostics: {
+    list: (input) => ipcRenderer.invoke(IPC.appDiagnostics.list, input),
   },
   storageMigration: {
     readSnapshot: () => ipcRenderer.sendSync(IPC.storageMigration.read),

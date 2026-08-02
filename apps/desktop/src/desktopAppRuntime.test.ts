@@ -9,7 +9,14 @@ const electron = vi.hoisted(() => ({
 }));
 
 vi.mock("electron", () => ({
+  app: { getAppMetrics: vi.fn(() => []) },
+  safeStorage: {
+    isEncryptionAvailable: vi.fn(() => true),
+    encryptString: vi.fn((value: string) => Buffer.from(value)),
+    decryptString: vi.fn((value: Buffer) => value.toString("utf8")),
+  },
   session: { fromPartition: electron.fromPartition },
+  webContents: { fromId: vi.fn(() => null) },
   WebContentsView: class {},
 }));
 

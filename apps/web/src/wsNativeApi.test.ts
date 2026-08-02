@@ -11,7 +11,7 @@ import {
   ORCHESTRATION_WS_CHANNELS,
   ORCHESTRATION_WS_METHODS,
   type OrchestrationEvent,
-  ProjectId,
+  ContainerId,
   ThreadId,
   type WsPushChannel,
   type WsPushData,
@@ -184,7 +184,7 @@ describe("wsNativeApi", () => {
       cwd: "/tmp/workspace",
       homeDir: "/Users/tester",
       projectName: "penkra-code",
-      bootstrapProjectId: ProjectId.makeUnsafe("project-1"),
+      bootstrapProjectId: ContainerId.makeUnsafe("project-1"),
       bootstrapThreadId: ThreadId.makeUnsafe("thread-1"),
     });
 
@@ -379,7 +379,7 @@ describe("wsNativeApi", () => {
       sequence: 1,
       eventId: EventId.makeUnsafe("event-1"),
       aggregateKind: "project",
-      aggregateId: ProjectId.makeUnsafe("project-1"),
+      aggregateId: ContainerId.makeUnsafe("project-1"),
       occurredAt: "2026-02-24T00:00:00.000Z",
       commandId: null,
       causationEventId: null,
@@ -387,7 +387,7 @@ describe("wsNativeApi", () => {
       metadata: {},
       type: "project.created",
       payload: {
-        projectId: ProjectId.makeUnsafe("project-1"),
+        projectId: ContainerId.makeUnsafe("project-1"),
         kind: "project",
         title: "Project",
         workspaceRoot: "/tmp/workspace",
@@ -432,7 +432,7 @@ describe("wsNativeApi", () => {
     const command = {
       type: "project.create",
       commandId: CommandId.makeUnsafe("cmd-1"),
-      projectId: ProjectId.makeUnsafe("project-1"),
+      projectId: ContainerId.makeUnsafe("project-1"),
       kind: "project",
       title: "Project",
       workspaceRoot: "/tmp/project",

@@ -41,6 +41,7 @@ let listeners: Array<() => void> = [];
 let lastSnapshot: ThemeSnapshot | null = null;
 let lastSnapshotKey = "";
 let lastDesktopTheme: ThemeMode | null = null;
+let lastDesktopAppTheme = "";
 
 // ─── Store wiring ─────────────────────────────────────────────────────────
 
@@ -175,7 +176,30 @@ function applyThemeState(state: ThemeState, suppressTransitions = false) {
     root.style.setProperty(name, value);
   }
 
-  syncDesktopTheme(state.mode);
+  syncDesktopTheme(state.mode, {
+    variant,
+    tokens: {
+      background: cssVariableBuild.variables["--color-background-surface-under"]!,
+      panel: cssVariableBuild.variables["--color-background-panel"]!,
+      surface: cssVariableBuild.variables["--color-background-surface"]!,
+      control: cssVariableBuild.variables["--color-background-control-opaque"]!,
+      selected: cssVariableBuild.variables["--color-background-button-secondary-hover"]!,
+      overlay: cssVariableBuild.variables["--color-background-elevated-primary-opaque"]!,
+      textPrimary: cssVariableBuild.variables["--color-text-foreground"]!,
+      textSecondary: cssVariableBuild.variables["--color-text-foreground-secondary"]!,
+      textMuted: cssVariableBuild.variables["--color-text-foreground-tertiary"]!,
+      border: cssVariableBuild.variables["--color-border"]!,
+      focus: cssVariableBuild.variables["--color-border-focus"]!,
+      accent: activeTheme.theme.accent,
+      success: activeTheme.theme.semanticColors.diffAdded,
+      warning: cssVariableBuild.variables["--warning"]!,
+      destructive: activeTheme.theme.semanticColors.diffRemoved,
+      info: activeTheme.theme.accent,
+      fontSans:
+        cssVariableBuild.variables["--theme-font-ui-family"] ||
+        "Inter, ui-sans-serif, system-ui, sans-serif",
+    },
+  });
 
   if (suppressTransitions) {
     // Force a reflow so the no-transitions class takes effect before removal.
@@ -187,22 +211,28 @@ function applyThemeState(state: ThemeState, suppressTransitions = false) {
   }
 }
 
-function syncDesktopTheme(theme: ThemeMode) {
+function syncDesktopTheme(theme: ThemeMode, appTheme: import("@penkra/contracts").DesktopAppTheme) {
   if (typeof window === "undefined") {
     return;
   }
 
   const bridge = window.desktopBridge;
-  if (!bridge || lastDesktopTheme === theme) {
+  if (!bridge) {
     return;
   }
-
-  lastDesktopTheme = theme;
-  void bridge.setTheme(theme).catch(() => {
-    if (lastDesktopTheme === theme) {
-      lastDesktopTheme = null;
-    }
-  });
+  if (lastDesktopTheme !== theme) {
+    lastDesktopTheme = theme;
+    void bridge.setTheme(theme).catch(() => {
+      if (lastDesktopTheme === theme) lastDesktopTheme = null;
+    });
+  }
+  const serializedAppTheme = JSON.stringify(appTheme);
+  if (bridge.setAppTheme && lastDesktopAppTheme !== serializedAppTheme) {
+    lastDesktopAppTheme = serializedAppTheme;
+    void bridge.setAppTheme(appTheme).catch(() => {
+      if (lastDesktopAppTheme === serializedAppTheme) lastDesktopAppTheme = "";
+    });
+  }
 }
 
 // Apply immediately on module load to minimize flash before React mounts.

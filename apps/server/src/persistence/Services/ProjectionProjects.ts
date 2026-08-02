@@ -9,8 +9,8 @@
 import {
   IsoDateTime,
   ModelSelection,
-  ProjectId,
-  ProjectKind,
+  ContainerId,
+  ContainerKind,
   ProjectScript,
   SpaceId,
 } from "@penkra/contracts";
@@ -20,10 +20,10 @@ import type { Effect } from "effect";
 import type { ProjectionRepositoryError } from "../Errors.ts";
 
 export const ProjectionProject = Schema.Struct({
-  projectId: ProjectId,
-  kind: ProjectKind.pipe(Schema.withDecodingDefault(() => "project")),
+  projectId: ContainerId,
+  kind: ContainerKind.pipe(Schema.withDecodingDefault(() => "project")),
   title: Schema.String,
-  workspaceRoot: Schema.String,
+  workspaceRoot: Schema.NullOr(Schema.String),
   defaultModelSelection: Schema.NullOr(ModelSelection),
   scripts: Schema.Array(ProjectScript),
   isPinned: Schema.Boolean.pipe(Schema.withDecodingDefault(() => false)),
@@ -35,12 +35,12 @@ export const ProjectionProject = Schema.Struct({
 export type ProjectionProject = typeof ProjectionProject.Type;
 
 export const GetProjectionProjectInput = Schema.Struct({
-  projectId: ProjectId,
+  projectId: ContainerId,
 });
 export type GetProjectionProjectInput = typeof GetProjectionProjectInput.Type;
 
 export const DeleteProjectionProjectInput = Schema.Struct({
-  projectId: ProjectId,
+  projectId: ContainerId,
 });
 export type DeleteProjectionProjectInput = typeof DeleteProjectionProjectInput.Type;
 

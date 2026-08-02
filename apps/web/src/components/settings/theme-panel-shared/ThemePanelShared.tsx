@@ -32,9 +32,9 @@ export interface ThemePanelSharedProps {
 
 interface ThemeValueRowProps {
   label: string;
-  onValueChange?: (value: string | null) => void;
+  onValueChange?: ((value: string | null) => void) | undefined;
   placeholder: string;
-  value?: string | null;
+  value?: string | null | undefined;
 }
 
 function ThemeValueRow({ label, onValueChange, placeholder, value }: ThemeValueRowProps) {
@@ -130,14 +130,17 @@ export function ThemePanelShared({
       </header>
       <div className="h-px bg-[var(--color-border)]" />
       <div className="flex flex-col">
+        <ColorRow accent label="Accent" onValueChange={onAccentChange} value={selectedAccent} />
         <ColorRow
-          accent
-          label="Accent"
-          onValueChange={onAccentChange}
-          value={selectedAccent}
+          label="Background"
+          onValueChange={onBackgroundChange}
+          value={selectedBackground}
         />
-        <ColorRow label="Background" onValueChange={onBackgroundChange} value={selectedBackground} />
-        <ColorRow label="Foreground" onValueChange={onForegroundChange} value={selectedForeground} />
+        <ColorRow
+          label="Foreground"
+          onValueChange={onForegroundChange}
+          value={selectedForeground}
+        />
         <ThemeValueRow
           label="UI font"
           onValueChange={onUiFontChange}
@@ -197,7 +200,7 @@ function ColorRow({
 }: {
   accent?: boolean;
   label: string;
-  onValueChange?: (value: string) => void;
+  onValueChange?: ((value: string) => void) | undefined;
   value: string;
 }) {
   return (

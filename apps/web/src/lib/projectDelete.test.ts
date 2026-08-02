@@ -1,14 +1,14 @@
 // FILE: projectDelete.test.ts
 // Purpose: Verifies project deletion reconciles local state only after server acceptance.
 
-import { ProjectId } from "@penkra/contracts";
+import { ContainerId } from "@penkra/contracts";
 import { describe, expect, it, vi } from "vitest";
 
 import { deleteProjectFromClient } from "./projectDelete";
 
 describe("deleteProjectFromClient", () => {
   it("reconciles local state after the delete command succeeds", async () => {
-    const projectId = ProjectId.makeUnsafe("project-delete");
+    const projectId = ContainerId.makeUnsafe("project-delete");
     const order: string[] = [];
     const dispatchCommand = vi.fn(async () => {
       order.push("dispatch");
@@ -34,7 +34,7 @@ describe("deleteProjectFromClient", () => {
   });
 
   it("keeps local state when the delete command fails", async () => {
-    const projectId = ProjectId.makeUnsafe("project-delete-failed");
+    const projectId = ContainerId.makeUnsafe("project-delete-failed");
     const dispatchCommand = vi.fn(async () => {
       throw new Error("delete rejected");
     });

@@ -8,7 +8,7 @@
 // shared with other terminal surfaces through useTerminalSurfaceController; only the
 // "ensure a terminal is open" policy is surface-specific (here: a single terminal-only page).
 
-import { type ProjectId, type ThreadId } from "@penkra/contracts";
+import { type ContainerId, type ThreadId } from "@penkra/contracts";
 import { resolveThreadWorkspaceCwd } from "@penkra/shared/threadEnvironment";
 import { useMemo, useEffect } from "react";
 
@@ -21,7 +21,7 @@ import ThreadTerminalDrawer from "../ThreadTerminalDrawer";
 
 export function DockTerminalPane(props: {
   hostThreadId: ThreadId;
-  projectId: ProjectId | null;
+  projectId: ContainerId | null;
   // When false the pane stays mounted but hidden (another dock tab is active),
   // so the xterm runtime sleeps its visual work without detaching its DOM.
   isActive?: boolean;

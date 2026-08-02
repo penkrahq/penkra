@@ -6,7 +6,7 @@ import {
   ModelSelection,
   OrchestrationProposedPlanId,
   OrchestrationThreadPullRequest,
-  ProjectId,
+  ContainerId,
   ProviderInteractionMode,
   ProviderKind,
   ProviderMentionReference,
@@ -260,7 +260,7 @@ type LegacyPersistedComposerDraftStoreState = PersistedComposerDraftStoreState &
   LegacyV2StoreFields;
 
 const PersistedDraftThreadState = Schema.Struct({
-  projectId: ProjectId,
+  projectId: ContainerId,
   spaceId: Schema.optionalKey(Schema.NullOr(SpaceId)),
   createdAt: Schema.String,
   runtimeMode: RuntimeMode,
@@ -280,7 +280,7 @@ type PersistedDraftThreadState = typeof PersistedDraftThreadState.Type;
 const PersistedComposerDraftStoreState = Schema.Struct({
   draftsByThreadId: Schema.Record(ThreadId, PersistedComposerThreadDraftState),
   draftThreadsByThreadId: Schema.Record(ThreadId, PersistedDraftThreadState),
-  projectDraftThreadIdByProjectId: Schema.Record(ProjectId, ThreadId),
+  projectDraftThreadIdByProjectId: Schema.Record(ContainerId, ThreadId),
   stickyModelSelectionByProvider: Schema.optionalKey(
     Schema.Record(ProviderKind, Schema.optionalKey(ModelSelection)),
   ),
@@ -701,7 +701,7 @@ function normalizePersistedDraftThreads(
         continue;
       }
       draftThreadsByThreadId[threadId as ThreadId] = {
-        projectId: projectId as ProjectId,
+        projectId: projectId as ContainerId,
         spaceId:
           typeof candidateDraftThread.spaceId === "string"
             ? SpaceId.makeUnsafe(candidateDraftThread.spaceId)
@@ -751,7 +751,7 @@ function normalizePersistedDraftThreads(
         projectDraftThreadIdByProjectId[mappingKey] = threadId as ThreadId;
         if (!draftThreadsByThreadId[threadId as ThreadId]) {
           draftThreadsByThreadId[threadId as ThreadId] = {
-            projectId: projectId as ProjectId,
+            projectId: projectId as ContainerId,
             spaceId: null,
             createdAt: new Date().toISOString(),
             runtimeMode: DEFAULT_RUNTIME_MODE,
@@ -765,7 +765,7 @@ function normalizePersistedDraftThreads(
         } else if (draftThreadsByThreadId[threadId as ThreadId]?.projectId !== projectId) {
           draftThreadsByThreadId[threadId as ThreadId] = {
             ...draftThreadsByThreadId[threadId as ThreadId]!,
-            projectId: projectId as ProjectId,
+            projectId: projectId as ContainerId,
           };
         } else if (draftThreadsByThreadId[threadId as ThreadId]?.entryPoint !== entryPoint) {
           draftThreadsByThreadId[threadId as ThreadId] = {

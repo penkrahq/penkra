@@ -57,7 +57,7 @@ const projects: SidebarSearchProject[] = [
     folderName: "beta-repo",
     localName: "Docs",
     cwd: "/repos/beta-repo",
-    spaceName: "Void",
+    spaceName: "Personal",
     updatedAt: "2026-04-09T11:00:00.000Z",
   },
 ];
@@ -145,7 +145,7 @@ const threads: SidebarSearchThread[] = [
     projectId: "project-beta",
     projectName: "Docs",
     projectRemoteName: "Beta Repo",
-    spaceName: "Void",
+    spaceName: "Personal",
     provider: "claudeAgent",
     createdAt: "2026-04-09T07:00:00.000Z",
     updatedAt: "2026-04-09T09:00:00.000Z",
@@ -248,7 +248,7 @@ describe("SidebarSearchPalette.logic", () => {
       ["project-alpha"],
     );
     assert.deepEqual(
-      matchSidebarSearchThreads(threads, "void").map((match) => match.thread.id),
+      matchSidebarSearchThreads(threads, "personal").map((match) => match.thread.id),
       ["thread-beta-settings"],
     );
   });

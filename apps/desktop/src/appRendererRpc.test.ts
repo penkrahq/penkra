@@ -44,7 +44,7 @@ describe("AppRendererRpcHost", () => {
       code: "TAB_REQUIRED",
       message: "Select a tab.",
     });
-    await expect(result).rejects.toMatchObject<AppRendererRpcError>({
+    await expect(result).rejects.toMatchObject({
       code: "renderer-error",
       rendererCode: "TAB_REQUIRED",
       message: "Select a tab.",
@@ -62,9 +62,9 @@ describe("AppRendererRpcHost", () => {
       reason: "tab-closed",
     });
     await expect(result).rejects.toMatchObject({ code: "renderer-unavailable" });
-    expect(
-      test.host.acceptResponse(17, { type: "result", id: "request-1", result: {} }),
-    ).toBe(false);
+    expect(test.host.acceptResponse(17, { type: "result", id: "request-1", result: {} })).toBe(
+      false,
+    );
   });
 
   it("propagates caller abort and ignores a late result", async () => {
@@ -79,9 +79,9 @@ describe("AppRendererRpcHost", () => {
       reason: "operation-cancelled",
     });
     await expect(result).rejects.toThrow("operation disabled");
-    expect(
-      test.host.acceptResponse(17, { type: "result", id: "request-1", result: {} }),
-    ).toBe(false);
+    expect(test.host.acceptResponse(17, { type: "result", id: "request-1", result: {} })).toBe(
+      false,
+    );
   });
 
   it("times out, tells the renderer to cancel, and releases target capacity", async () => {
@@ -115,9 +115,9 @@ describe("AppRendererRpcHost", () => {
       mintRequestId: () => `request-${++nextId}`,
     });
     const pending = test.host.request(17, "controller.invoke", { ok: true });
-    await expect(test.host.request(17, "controller.invoke", { second: true })).rejects.toMatchObject(
-      { code: "target-overloaded" },
-    );
+    await expect(
+      test.host.request(17, "controller.invoke", { second: true }),
+    ).rejects.toMatchObject({ code: "target-overloaded" });
     test.host.acceptResponse(17, { type: "result", id: "request-1", result: null });
     await pending;
 
@@ -161,12 +161,7 @@ describe("AppRendererRpcHost", () => {
   it("binds renderer context calls to their exact parent request and target", async () => {
     const test = fixture();
     const handleContextCall = vi.fn(async (method, input) => ({ method, input }));
-    const result = test.host.request(
-      17,
-      "controller.invoke",
-      {},
-      { handleContextCall },
-    );
+    const result = test.host.request(17, "controller.invoke", {}, { handleContextCall });
 
     expect(
       test.host.acceptContextCall(18, {
@@ -224,18 +219,24 @@ describe("AppRendererRpcHost", () => {
     await expect(result).resolves.toBe("done");
     expect(contextSignal?.aborted).toBe(true);
     await Promise.resolve();
-    expect(test.sent.some((message) => (message as { type?: string }).type === "context-error"))
-      .toBe(false);
+    expect(
+      test.sent.some((message) => (message as { type?: string }).type === "context-error"),
+    ).toBe(false);
   });
 
   it("returns scoped context errors instead of settling the parent request", async () => {
     const test = fixture();
     const error = Object.assign(new Error("Choose an issue tab."), { code: "TAB_REQUIRED" });
-    const result = test.host.request(17, "controller.invoke", {}, {
-      handleContextCall: async () => {
-        throw error;
+    const result = test.host.request(
+      17,
+      "controller.invoke",
+      {},
+      {
+        handleContextCall: async () => {
+          throw error;
+        },
       },
-    });
+    );
     test.host.acceptContextCall(17, {
       type: "context-call",
       parentId: "request-1",
@@ -259,11 +260,16 @@ describe("AppRendererRpcHost", () => {
 
   it("converts a synchronous context-handler throw into a scoped error", async () => {
     const test = fixture();
-    const result = test.host.request(17, "controller.invoke", {}, {
-      handleContextCall: () => {
-        throw Object.assign(new Error("No target tab."), { code: "TAB_REQUIRED" });
+    const result = test.host.request(
+      17,
+      "controller.invoke",
+      {},
+      {
+        handleContextCall: () => {
+          throw Object.assign(new Error("No target tab."), { code: "TAB_REQUIRED" });
+        },
       },
-    });
+    );
     expect(() =>
       test.host.acceptContextCall(17, {
         type: "context-call",
@@ -288,9 +294,14 @@ describe("AppRendererRpcHost", () => {
 
   it("rejects reuse of a context-call ID within one parent request", async () => {
     const test = fixture();
-    const result = test.host.request(17, "controller.invoke", {}, {
-      handleContextCall: async () => "first",
-    });
+    const result = test.host.request(
+      17,
+      "controller.invoke",
+      {},
+      {
+        handleContextCall: async () => "first",
+      },
+    );
     const call = {
       type: "context-call",
       parentId: "request-1",

@@ -127,9 +127,7 @@ export class WorkspaceWatcherManager {
     const roots = await this.readProjectRoots();
     this.projectRoots = [
       ...new Set(
-        roots
-          .filter((root): root is string => root !== null)
-          .map((root) => path.resolve(root)),
+        roots.filter((root): root is string => root !== null).map((root) => path.resolve(root)),
       ),
     ];
     const desiredWatchRoots = new Set(deduplicateWorkspaceRoots(this.projectRoots));

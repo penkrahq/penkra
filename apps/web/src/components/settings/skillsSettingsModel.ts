@@ -75,7 +75,7 @@ export function skillOriginInfo(scope: string | undefined): SkillOriginInfo {
     case "agents":
       return { label: "Shared (.agents)", provider: null };
     case "project":
-      return { label: "Project", provider: null };
+      return { label: "Folder", provider: null };
     default:
       return { label: scope ?? "Personal", provider: null };
   }

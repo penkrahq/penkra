@@ -5,7 +5,7 @@ import path from "node:path";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   EventId,
-  ProjectId,
+  ContainerId,
   STUDIO_OUTPUTS_ACTIVITY_KIND,
   ThreadId,
   TurnId,
@@ -63,7 +63,7 @@ describe("StudioOutputReactor", () => {
     const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "penkra-studio-reactor-"));
     temporaryRoots.push(workspaceRoot);
     const threadId = ThreadId.makeUnsafe("studio-thread");
-    const projectId = ProjectId.makeUnsafe("studio-project");
+    const projectId = ContainerId.makeUnsafe("studio-project");
     const turnId = TurnId.makeUnsafe("studio-turn");
     const runtimeEvents = Effect.runSync(PubSub.unbounded<ProviderRuntimeEvent>());
     const commands: OrchestrationCommand[] = [];

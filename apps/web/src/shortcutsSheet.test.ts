@@ -53,7 +53,7 @@ describe("buildShortcutSheetSections", () => {
         (entry) => entry.id === "composer.focus.toggle" && entry.shortcutLabel === "⌘L",
       ),
     ).toBe(true);
-    expect(sections[1]?.title).toBe("Project scripts");
+    expect(sections[1]?.title).toBe("Folder scripts");
     expect(sections[1]?.entries[0]?.shortcutLabel).toBe("⌘R");
   });
 

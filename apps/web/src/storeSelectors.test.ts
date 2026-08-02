@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { MessageId, ProjectId, ThreadId } from "@penkra/contracts";
+import type { MessageId, ContainerId, ThreadId } from "@penkra/contracts";
 
 import type { AppState } from "./store";
 import {
@@ -17,7 +17,7 @@ import type { SidebarThreadSummary, ThreadShell } from "./types";
 const threadIdA = "thread-a" as ThreadId;
 const threadIdB = "thread-b" as ThreadId;
 const messageId = "message-1" as MessageId;
-const projectId = "project-1" as ProjectId;
+const projectId = "project-1" as ContainerId;
 
 const shellA = { id: threadIdA, projectId, title: "A" } as ThreadShell;
 const shellB = { id: threadIdB, projectId, title: "B" } as ThreadShell;

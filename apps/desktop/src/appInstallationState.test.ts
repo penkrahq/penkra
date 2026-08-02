@@ -25,9 +25,7 @@ const manifest = {
   entrypoints: { app: "app.html", operations: "operations.html" },
 } as const;
 
-function verifiedPackage(
-  patch: Partial<VerifiedAppPackageInput> = {},
-): VerifiedAppPackageInput {
+function verifiedPackage(patch: Partial<VerifiedAppPackageInput> = {}): VerifiedAppPackageInput {
   return {
     manifest,
     source: "registry",
@@ -80,9 +78,7 @@ describe("App installation state", () => {
     );
     expect(() =>
       registerVerifiedAppPackage(installed, verifiedPackage({ source: "sideload" })),
-    ).toThrowError(
-      expect.objectContaining<AppInstallationStateError>({ code: "app-already-installed" }),
-    );
+    ).toThrowError(expect.objectContaining({ code: "app-already-installed" }));
 
     expect(() =>
       registerVerifiedAppPackage(
@@ -92,7 +88,7 @@ describe("App installation state", () => {
           manifest: { ...manifest, id: "com.acme.apps" },
         }),
       ),
-    ).toThrowError(expect.objectContaining<AppInstallationStateError>({ code: "slug-collision" }));
+    ).toThrowError(expect.objectContaining({ code: "slug-collision" }));
   });
 
   it("updates only verified registry installations with stable identity", () => {
@@ -100,14 +96,14 @@ describe("App installation state", () => {
       createEmptyAppInstallationState(),
       verifiedPackage(),
     );
-    const updated = replaceVerifiedRegistryAppPackage(
-      installed,
-      verifiedPackage({
+    const updated = replaceVerifiedRegistryAppPackage(installed, {
+      ...verifiedPackage({
         manifest: { ...manifest, version: "0.2.0" },
         packagePath: "/profile/apps/com.penkra.apps/0.2.0",
         sha256: "b".repeat(64),
       }),
-    );
+      source: "registry" as const,
+    });
     expect(updated.packagesByAppId[manifest.id]?.version).toBe("0.2.0");
   });
 
@@ -146,7 +142,41 @@ describe("App installation state", () => {
         },
         spaceStateByKey: {},
       }),
-    ).toThrowError(expect.objectContaining<AppInstallationStateError>({ code: "invalid-state" }));
+    ).toThrowError(expect.objectContaining({ code: "invalid-state" }));
+  });
+
+  it("migrates schema version 1 Space records exactly once", () => {
+    const installed = registerVerifiedAppPackage(
+      createEmptyAppInstallationState(),
+      verifiedPackage(),
+    );
+    const enabled = setSpaceAppEnabled(installed, {
+      appId: manifest.id,
+      spaceId: "personal",
+      enabled: true,
+    });
+    const legacy = {
+      ...enabled,
+      schemaVersion: 1,
+      spaceStateByKey: Object.fromEntries(
+        Object.entries(enabled.spaceStateByKey).map(([key, value]) => [
+          key,
+          {
+            appId: value.appId,
+            spaceId: value.spaceId,
+            enabled: value.enabled,
+            permissions: value.permissions,
+          },
+        ]),
+      ),
+    };
+
+    expect(parseAppInstallationState(legacy)).toMatchObject({
+      schemaVersion: 2,
+      spaceStateByKey: {
+        [`personal\0${manifest.id}`]: { settings: {}, settingMigrations: {}, skills: {} },
+      },
+    });
   });
 
   it("rejects persisted metadata that disagrees with the committed manifest", () => {

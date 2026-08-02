@@ -1,4 +1,4 @@
-import { ProjectId } from "@penkra/contracts";
+import { ContainerId } from "@penkra/contracts";
 import type { OrchestrationProject } from "@penkra/contracts";
 import { Deferred, Effect, Fiber } from "effect";
 import { describe, expect, it } from "vitest";
@@ -21,7 +21,7 @@ const now = "2026-07-15T00:00:00.000Z";
 
 function makeProject(id: string, title: string, workspaceRoot: string): OrchestrationProject {
   return {
-    id: ProjectId.makeUnsafe(id),
+    id: ContainerId.makeUnsafe(id),
     kind: "project",
     title,
     workspaceRoot,
@@ -63,9 +63,9 @@ function makeBatch(
 }
 
 function makePins(
-  rows: ReadonlyArray<{ projectId: ProjectId; repositoryKey: string; number: number }> = [],
+  rows: ReadonlyArray<{ projectId: ContainerId; repositoryKey: string; number: number }> = [],
   onSetPinned?: (input: {
-    projectId: ProjectId;
+    projectId: ContainerId;
     repositoryKey: string;
     number: number;
     isPinned: boolean;
@@ -80,7 +80,7 @@ function makePins(
 
 function makeDependencies(input: {
   projects: OrchestrationProject[];
-  repositories: ReadonlyMap<ProjectId, string>;
+  repositories: ReadonlyMap<ContainerId, string>;
   github: GitHubCliShape;
   pins?: ProjectPullRequestPinsShape;
 }) {
@@ -594,7 +594,7 @@ describe("PullRequestService", () => {
   it("deletes a pin only after exact recovery proves the pull request is missing", async () => {
     const project = makeProject("project-missing-pin", "Missing pin", "/tmp/missing-pin");
     const writes: Array<{
-      projectId: ProjectId;
+      projectId: ContainerId;
       repositoryKey: string;
       number: number;
       isPinned: boolean;

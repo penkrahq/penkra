@@ -3,7 +3,7 @@
 // Layer: UI state logic test
 
 import { describe, expect, it } from "vitest";
-import { ProjectId, ThreadId } from "@penkra/contracts";
+import { ContainerId, ThreadId } from "@penkra/contracts";
 import {
   buildRecentViewDisplayEntries,
   deriveCurrentRecentView,
@@ -19,8 +19,8 @@ function threadId(value: string): ThreadId {
   return ThreadId.makeUnsafe(value);
 }
 
-function projectId(value: string): ProjectId {
-  return ProjectId.makeUnsafe(value);
+function projectId(value: string): ContainerId {
+  return ContainerId.makeUnsafe(value);
 }
 
 describe("recent view MRU logic", () => {

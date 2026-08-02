@@ -2,7 +2,7 @@
 // Purpose: Verifies hidden Studio container detection and creation dispatches.
 // Layer: Web orchestration tests
 
-import { type ProjectId, type ThreadId } from "@penkra/contracts";
+import { type ContainerId, type ThreadId } from "@penkra/contracts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useStore } from "../store";
@@ -72,7 +72,7 @@ vi.mock("../nativeApi", () => ({
 
 function makeProject(overrides: Partial<Project> = {}): Project {
   return {
-    id: "project-studio" as ProjectId,
+    id: "project-studio" as ContainerId,
     kind: "studio",
     name: "Studio",
     remoteName: "Studio",
@@ -139,7 +139,7 @@ describe("studioProjects", () => {
 
   it("finds an existing Studio container project", () => {
     const ordinaryProject = makeProject({
-      id: "project-app" as ProjectId,
+      id: "project-app" as ContainerId,
       kind: "project",
       name: "App",
       cwd: "/Users/tester/Developer/app",
@@ -156,10 +156,10 @@ describe("studioProjects", () => {
 
   it("prefers the canonical Studio root container over nested studio-kind rows", () => {
     const nestedStudioProject = makeProject({
-      id: "project-studio-nested" as ProjectId,
+      id: "project-studio-nested" as ContainerId,
       cwd: "/Users/tester/Documents/Penkra/Studio/Outbox",
     });
-    const canonicalStudioProject = makeProject({ id: "project-studio-root" as ProjectId });
+    const canonicalStudioProject = makeProject({ id: "project-studio-root" as ContainerId });
 
     // Store order must not decide which row backs new Studio chats.
     expect(
@@ -171,7 +171,7 @@ describe("studioProjects", () => {
   });
 
   it("prefers an unpromoted chat draft for the Studio container", () => {
-    const studioProjectId = "project-studio" as ProjectId;
+    const studioProjectId = "project-studio" as ContainerId;
     const studioDraftThreadId = "thread-studio-draft" as ThreadId;
 
     expect(
@@ -197,7 +197,7 @@ describe("studioProjects", () => {
   });
 
   it("ignores promoted or non-chat Studio drafts", () => {
-    const studioProjectId = "project-studio" as ProjectId;
+    const studioProjectId = "project-studio" as ContainerId;
     const promotedDraftThreadId = "thread-promoted-draft" as ThreadId;
     const terminalDraftThreadId = "thread-terminal-draft" as ThreadId;
 
@@ -254,7 +254,7 @@ describe("studioProjects", () => {
   });
 
   it("reuses the existing Studio project without dispatching create", async () => {
-    const existingProject = makeProject({ id: "project-existing-studio" as ProjectId });
+    const existingProject = makeProject({ id: "project-existing-studio" as ContainerId });
     useStore.setState({ projects: [existingProject] });
 
     await expect(
@@ -277,7 +277,7 @@ describe("studioProjects", () => {
 
     expect(nativeApiMock.dispatchedCommands).toEqual([]);
 
-    const existingProject = makeProject({ id: "project-hydrated-studio" as ProjectId });
+    const existingProject = makeProject({ id: "project-hydrated-studio" as ContainerId });
     useStore.setState({ projects: [existingProject], threadsHydrated: true });
 
     await expect(projectPromise).resolves.toBe(existingProject.id);
@@ -345,7 +345,7 @@ describe("studioProjects", () => {
     });
     // The follow-up shell snapshot now includes the created container; ensureStudioProject must
     // sync it into the store before resolving so no consumer sees an unknown project id.
-    const createCommand = nativeApiMock.dispatchedCommands[0] as { projectId: ProjectId };
+    const createCommand = nativeApiMock.dispatchedCommands[0] as { projectId: ContainerId };
     nativeApiMock.shellSnapshotProjects = [
       {
         id: createCommand.projectId,
@@ -367,7 +367,7 @@ describe("studioProjects", () => {
   });
 
   it("recovers and hydrates the existing Studio project when the server rejects a duplicate create", async () => {
-    const existingProjectId = "project-server-studio" as ProjectId;
+    const existingProjectId = "project-server-studio" as ContainerId;
     nativeApiMock.dispatchError = new Error(
       "Orchestration command invariant failed (project.create): Project 'project-server-studio' already uses workspace root '/Users/tester/Documents/Penkra/Studio'.",
     );
@@ -401,7 +401,7 @@ describe("studioProjects", () => {
   });
 
   it("retries duplicate Studio recovery while the shell snapshot catches up", async () => {
-    const existingProjectId = "project-retried-studio" as ProjectId;
+    const existingProjectId = "project-retried-studio" as ContainerId;
     nativeApiMock.dispatchError = new Error(
       "Orchestration command invariant failed (project.create): Project 'project-retried-studio' already uses workspace root '/Users/tester/Documents/Penkra/Studio'.",
     );

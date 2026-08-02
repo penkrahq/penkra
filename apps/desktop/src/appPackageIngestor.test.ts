@@ -6,10 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createHash } from "node:crypto";
 import yazl from "yazl";
 
-import {
-  AppPackageIngestor,
-  PENKRA_APP_MANIFEST_FILE_NAME,
-} from "./appPackageIngestor";
+import { AppPackageIngestor, PENKRA_APP_MANIFEST_FILE_NAME } from "./appPackageIngestor";
 
 const roots: string[] = [];
 
@@ -101,16 +98,20 @@ describe("AppPackageIngestor", () => {
 
     expect(installed.source).toBe("registry");
     expect(installed.manifest.id).toBe("com.example.app");
-    expect(FS.readFileSync(Path.join(installed.packagePath, "app.html"), "utf8")).toContain("Example");
+    expect(FS.readFileSync(Path.join(installed.packagePath, "app.html"), "utf8")).toContain(
+      "Example",
+    );
   });
 
   it("rejects a registry archive whose digest changed before extraction", async () => {
     const { storePath } = fixture();
     const packageBytes = await registryArchive();
-    await expect(new AppPackageIngestor(storePath).ingestRegistryArchive({
-      packageBytes,
-      expectedArchiveDigest: "a".repeat(64),
-    })).rejects.toThrow("digest changed");
+    await expect(
+      new AppPackageIngestor(storePath).ingestRegistryArchive({
+        packageBytes,
+        expectedArchiveDigest: "a".repeat(64),
+      }),
+    ).rejects.toThrow("digest changed");
   });
 
   it("removes only unreferenced immutable packages during startup collection", async () => {
@@ -118,7 +119,12 @@ describe("AppPackageIngestor", () => {
     const ingestor = new AppPackageIngestor(storePath);
     const retained = await ingestor.ingestDirectory({ sourcePath, source: "registry" });
     const stalePath = Path.join(storePath, "com.example.app", "0.9.0", "stale-digest");
-    const interruptedPath = Path.join(storePath, "com.example.app", "2.0.0", ".package.interrupted.tmp");
+    const interruptedPath = Path.join(
+      storePath,
+      "com.example.app",
+      "2.0.0",
+      ".package.interrupted.tmp",
+    );
     FS.mkdirSync(stalePath, { recursive: true });
     FS.writeFileSync(Path.join(stalePath, "old.js"), "old");
     FS.mkdirSync(interruptedPath, { recursive: true });
@@ -142,17 +148,22 @@ describe("AppPackageIngestor", () => {
 
 async function registryArchive(): Promise<Buffer> {
   const zip = new yazl.ZipFile();
-  zip.addBuffer(Buffer.from(JSON.stringify({
-    manifestVersion: 1,
-    id: "com.example.app",
-    slug: "example",
-    name: "Example",
-    summary: "An example App",
-    version: "1.0.0",
-    compatibility: { penkra: ">=0.8.0" },
-    icons: [{ src: "assets/icon.svg", sizes: "any", type: "image/svg+xml" }],
-    entrypoints: { app: "app.html" },
-  })), "penkra-app.json");
+  zip.addBuffer(
+    Buffer.from(
+      JSON.stringify({
+        manifestVersion: 1,
+        id: "com.example.app",
+        slug: "example",
+        name: "Example",
+        summary: "An example App",
+        version: "1.0.0",
+        compatibility: { penkra: ">=0.8.0" },
+        icons: [{ src: "assets/icon.svg", sizes: "any", type: "image/svg+xml" }],
+        entrypoints: { app: "app.html" },
+      }),
+    ),
+    "penkra-app.json",
+  );
   zip.addBuffer(Buffer.from("# Example\n"), "README.md");
   zip.addBuffer(Buffer.from("Use Example.\n"), "INSTRUCTIONS.md");
   zip.addBuffer(Buffer.from("<!doctype html><title>Example</title>"), "app.html");

@@ -388,7 +388,7 @@ export function ArchivedSettingsPanel({ active }: { readonly active: boolean }) 
       {archivedGroups.map(({ project, threads }) => (
         <SettingsSection
           key={project?.id ?? "unknown-project"}
-          title={project?.name ?? "Unknown project"}
+          title={project?.name ?? "Unknown folder"}
         >
           {threads.map((thread) => (
             <SettingsListRow

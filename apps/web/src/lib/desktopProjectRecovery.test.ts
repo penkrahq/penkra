@@ -2,7 +2,7 @@
 // Purpose: Verifies desktop startup detects snapshots where threads outlive visible project rows.
 
 import {
-  ProjectId,
+  ContainerId,
   ThreadId,
   type OrchestrationReadModel,
   type OrchestrationShellSnapshot,
@@ -15,7 +15,7 @@ function makeProject(
   overrides: Partial<OrchestrationReadModel["projects"][number]> = {},
 ): OrchestrationReadModel["projects"][number] {
   return {
-    id: ProjectId.makeUnsafe("project-1"),
+    id: ContainerId.makeUnsafe("project-1"),
     kind: "project",
     title: "Project",
     workspaceRoot: "/tmp/project",
@@ -36,7 +36,7 @@ function makeThread(
 ): OrchestrationReadModel["threads"][number] {
   return {
     id: ThreadId.makeUnsafe("thread-1"),
-    projectId: ProjectId.makeUnsafe("project-1"),
+    projectId: ContainerId.makeUnsafe("project-1"),
     title: "Thread",
     modelSelection: {
       provider: "codex",

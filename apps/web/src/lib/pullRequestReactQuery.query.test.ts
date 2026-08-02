@@ -1,4 +1,4 @@
-import type { ProjectId } from "@penkra/contracts";
+import type { ContainerId } from "@penkra/contracts";
 import { QueryClient } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -49,7 +49,7 @@ describe("pull request list query options", () => {
   it("disables detail polling and focus refresh while its dock is collapsed", () => {
     const options = pullRequestDetailQueryOptions(
       {
-        projectId: "project-a" as ProjectId,
+        projectId: "project-a" as ContainerId,
         repository: "acme/widgets",
         number: 42,
       },
@@ -77,7 +77,7 @@ describe("pull request list query options", () => {
   it("prefetches only the state named by user intent", async () => {
     const queryClient = new QueryClient();
     const prefetchQuery = vi.spyOn(queryClient, "prefetchQuery").mockResolvedValue(undefined);
-    const projectA = "project-a" as ProjectId;
+    const projectA = "project-a" as ContainerId;
 
     await prefetchPullRequestListState(queryClient, {
       state: "closed",
@@ -125,8 +125,8 @@ describe("pull request list query options", () => {
 describe("invalidateOtherPullRequestListQueries", () => {
   it("invalidates only same-state, same-project list siblings", async () => {
     const queryClient = new QueryClient();
-    const projectA = "project-a" as ProjectId;
-    const projectB = "project-b" as ProjectId;
+    const projectA = "project-a" as ContainerId;
+    const projectB = "project-b" as ContainerId;
     const refreshedKey = pullRequestQueryKeys.list({ state: "open", projectId: projectA });
     const exactSiblingKey = pullRequestsExactInvolvementQueryOptions({
       involvement: "reviewing",

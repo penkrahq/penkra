@@ -64,11 +64,7 @@ export function getRightDockPaneMeta(kind: RightDockPaneKind): RightDockPaneMeta
 // avatar. The add menu offers the richer Explorer pane in place of a single
 // file preview.
 export const RIGHT_DOCK_ADD_MENU_KINDS: readonly RightDockPaneKind[] = RIGHT_DOCK_PANE_KINDS.filter(
-  (kind) =>
-    kind !== "app" &&
-    kind !== "file" &&
-    kind !== "pullRequest" &&
-    kind !== "profile",
+  (kind) => kind !== "app" && kind !== "file" && kind !== "pullRequest" && kind !== "profile",
 );
 
 // Resolves a tab label, preferring caller-provided per-pane overrides (e.g. the

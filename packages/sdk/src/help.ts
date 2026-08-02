@@ -15,8 +15,11 @@ export function generateAppHelp(input: GenerateAppHelpInput): string {
   const instructions = input.instructions.trim();
   if (!instructions) throw new Error("App instructions must not be empty.");
   if (input.operation !== undefined) {
-    const declaration = input.manifest.operations?.find((candidate) => candidate.key === input.operation);
-    if (!declaration) throw new Error(`${input.manifest.slug} does not declare operation ${input.operation}.`);
+    const declaration = input.manifest.operations?.find(
+      (candidate) => candidate.key === input.operation,
+    );
+    if (!declaration)
+      throw new Error(`${input.manifest.slug} does not declare operation ${input.operation}.`);
     return operationHelp(input.manifest, instructions, declaration);
   }
   const lines = [
@@ -47,7 +50,7 @@ function operationHelp(
     declaration.summary,
     "",
     "Usage",
-    `  ${commandPath(manifest.slug, declaration.key)} --input '<json>' [--tab-id <tab-id>]`,
+    `  ${commandPath(manifest.slug, declaration.key)} [--input '<json>'] [--<property> <value> ...] [--tab-id <tab-id>]`,
     "",
     "App instructions",
     instructions,

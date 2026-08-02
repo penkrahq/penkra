@@ -138,7 +138,7 @@ export function makeImportThreadHandler(options: ImportThreadHandlerOptions) {
   const resolveImportedProviderThreadContext = Effect.fn(function* (input: {
     readonly provider: "codex" | "droid" | "kilo" | "opencode";
     readonly externalId: string;
-    readonly projectWorkspaceRoot: string;
+    readonly projectWorkspaceRoot: string | null;
     readonly fallbackCwd?: string;
   }) {
     const adapter = yield* options.providerAdapterRegistry.getByProvider(input.provider);
@@ -152,6 +152,20 @@ export function makeImportThreadHandler(options: ImportThreadHandlerOptions) {
       .pipe(Effect.catch(() => Effect.succeed(null)));
     const externalCwd = snapshot?.cwd?.trim();
     if (!externalCwd) return null;
+
+    if (input.projectWorkspaceRoot === null) {
+      return {
+        runtimeCwd: externalCwd,
+        patch: {
+          envMode: "local" as const,
+          worktreePath: null,
+          workingDirectory: externalCwd,
+          associatedWorktreePath: null,
+          associatedWorktreeBranch: null,
+          associatedWorktreeRef: null,
+        },
+      };
+    }
 
     if (
       workspaceRootsEqual(input.projectWorkspaceRoot, externalCwd, {

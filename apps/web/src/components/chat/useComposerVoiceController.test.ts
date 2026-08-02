@@ -2,7 +2,7 @@
 // Purpose: Covers voice transcription request identity and recorder action guards.
 // Layer: Chat composer hook tests
 
-import { ProjectId, ThreadId, type ProviderKind } from "@penkra/contracts";
+import { ContainerId, ThreadId, type ProviderKind } from "@penkra/contracts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const reactHarness = vi.hoisted(() => {
@@ -129,7 +129,7 @@ import {
 const THREAD_A = ThreadId.makeUnsafe("thread-a");
 const THREAD_B = ThreadId.makeUnsafe("thread-b");
 const PROJECT: Project = {
-  id: ProjectId.makeUnsafe("project-a"),
+  id: ContainerId.makeUnsafe("project-a"),
   kind: "project",
   name: "Project",
   remoteName: "Project",

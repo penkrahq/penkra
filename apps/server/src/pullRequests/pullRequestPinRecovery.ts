@@ -1,6 +1,6 @@
 import type {
   OrchestrationProject,
-  ProjectId,
+  ContainerId,
   PullRequestInvolvement,
   PullRequestListEntry,
   PullRequestState,
@@ -56,8 +56,8 @@ export function recoverPinnedPullRequests(input: {
   pinStore: ProjectPullRequestPinsShape;
   batchEntries: ReadonlyArray<PullRequestListEntry>;
   recoveryContexts: ReadonlyArray<PullRequestPinRecoveryContext>;
-  repositoryKeysByProject: ReadonlyMap<ProjectId, Set<string>>;
-  projectById: ReadonlyMap<ProjectId, OrchestrationProject>;
+  repositoryKeysByProject: ReadonlyMap<ContainerId, Set<string>>;
+  projectById: ReadonlyMap<ContainerId, OrchestrationProject>;
   // Deliberately boolean, not a type predicate: callers check values already typed
   // GitHubCliError, and a predicate would narrow the false branch to `never`.
   isGlobalError: (error: unknown) => boolean;
@@ -202,7 +202,7 @@ export function recoverPinnedPullRequests(input: {
     for (const row of missingPins) {
       const recovery = recoveryByRepository.get(row.repositoryKey.trim().toLowerCase());
       const project = input.projectById.get(row.projectId);
-      if (!recovery || !project) continue;
+      if (!recovery || !project || project.workspaceRoot === null) continue;
       const lookupKey = repositoryPullRequestIdentityKey({
         repository: recovery.repository,
         number: row.number,

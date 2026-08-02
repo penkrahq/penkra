@@ -1,5 +1,5 @@
 import {
-  ProjectId,
+  ContainerId,
   ThreadId,
   type ModelSelection,
   type ModelSlug,
@@ -48,7 +48,7 @@ export const LAST_INVOKED_SCRIPT_BY_PROJECT_KEY = "penkra:last-invoked-script-by
 export const DISMISSED_PROVIDER_HEALTH_BANNERS_KEY = "penkra:dismissed-provider-health-banners";
 export const PROMPT_HISTORY_MAX_ENTRIES = 100;
 
-export const LastInvokedScriptByProjectSchema = Schema.Record(ProjectId, Schema.String);
+export const LastInvokedScriptByProjectSchema = Schema.Record(ContainerId, Schema.String);
 export const DismissedProviderHealthBannersSchema = Schema.Array(Schema.String);
 
 export interface PendingFileUndo {

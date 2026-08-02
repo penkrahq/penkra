@@ -6,14 +6,14 @@ the workspace-root `TODO.md`.
 
 ## Trust boundaries
 
-| Principal | Trust | Authority |
-| --- | --- | --- |
-| Penkra main process | Trusted | Package verification, App lifecycle, sessions, permissions, tab routing, privileged operations |
-| Apps installation binding | Trusted and narrow | Verified package mutation only; unavailable to ordinary Apps |
-| App controller | Untrusted | Declared operation handlers for one App in one Space |
-| App tab renderer | Untrusted | Visual UI for one App in one Space and one Penkra thread |
-| Registry/package/README/INSTRUCTIONS content | Untrusted input | Data only until separately verified, sanitized, and authorized |
-| Another App, agent, or CLI caller | Untrusted caller | Only declared operation input and explicit host context |
+| Principal                                    | Trust              | Authority                                                                                      |
+| -------------------------------------------- | ------------------ | ---------------------------------------------------------------------------------------------- |
+| Penkra main process                          | Trusted            | Package verification, App lifecycle, sessions, permissions, tab routing, privileged operations |
+| Apps installation binding                    | Trusted and narrow | Verified package mutation only; unavailable to ordinary Apps                                   |
+| App controller                               | Untrusted          | Declared operation handlers for one App in one Space                                           |
+| App tab renderer                             | Untrusted          | Visual UI for one App in one Space and one Penkra thread                                       |
+| Registry/package/README/INSTRUCTIONS content | Untrusted input    | Data only until separately verified, sanitized, and authorized                                 |
+| Another App, agent, or CLI caller            | Untrusted caller   | Only declared operation input and explicit host context                                        |
 
 First-party App packages receive the same sandbox and permission checks as third-party packages.
 `com.penkra.apps` is not generally privileged; only its trusted host-owned installation binding is.

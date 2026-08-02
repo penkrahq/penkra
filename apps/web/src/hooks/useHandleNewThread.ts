@@ -1,4 +1,4 @@
-import { type ProjectId, ThreadId } from "@penkra/contracts";
+import { type ContainerId, ThreadId } from "@penkra/contracts";
 import { getDefaultModel } from "@penkra/shared/model";
 import { useNavigate, useRouter } from "@tanstack/react-router";
 import { startTransition } from "react";
@@ -15,6 +15,7 @@ import {
   createFreshDraftThreadSeed,
   resolveTerminalThreadCreationState,
   resolveThreadBootstrapPlan,
+  resolveRecentParentWorkingDirectory,
   type NewThreadOptions,
 } from "../lib/threadBootstrap";
 import { promoteThreadCreate } from "../lib/threadCreatePromotion";
@@ -53,10 +54,27 @@ export function useHandleNewThread() {
   const clearTemporaryThread = useTemporaryThreadStore((store) => store.clearTemporaryThread);
 
   const handleNewThread = (
-    projectId: ProjectId,
-    options?: NewThreadOptions,
+    projectId: ContainerId,
+    requestedOptions?: NewThreadOptions,
     navigation?: NewThreadNavigationOptions,
   ): Promise<ThreadId | null> => {
+    const currentState = useStore.getState();
+    const targetProject = currentState.projects.find((project) => project.id === projectId);
+    const shouldInferWorkingDirectory =
+      requestedOptions?.workingDirectory === undefined &&
+      requestedOptions?.worktreePath === undefined &&
+      targetProject !== undefined;
+    const inferredWorkingDirectory = shouldInferWorkingDirectory
+      ? resolveRecentParentWorkingDirectory({
+          projectId,
+          projectKind: targetProject.kind,
+          spaceId: requestedOptions?.spaceId ?? null,
+          threads: Object.values(currentState.sidebarThreadSummaryById),
+        })
+      : null;
+    const options = inferredWorkingDirectory
+      ? { ...requestedOptions, workingDirectory: inferredWorkingDirectory }
+      : requestedOptions;
     const entryPoint = options?.entryPoint ?? "chat";
     const wantsTemporaryThread = options?.temporary === true;
     const applyProviderOverride = (threadId: ThreadId) => {

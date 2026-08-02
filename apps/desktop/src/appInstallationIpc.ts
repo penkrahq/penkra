@@ -2,9 +2,10 @@
 // Purpose: Validates App-installation IPC requests and serializes trusted runtime state.
 // Layer: Desktop IPC boundary
 
-import type { DesktopAppInstallationSnapshot } from "@penkra/contracts";
+import type { DesktopAppInstallationSnapshot, DesktopAppSetting } from "@penkra/contracts";
 
 import type { AppInstallationState, AppPermissionGrant } from "./appInstallationState";
+import type { AppSettingSnapshot } from "./appSettings";
 
 function requireRecord(input: unknown): Record<string, unknown> {
   if (typeof input !== "object" || input === null || Array.isArray(input)) {
@@ -35,10 +36,23 @@ export function toDesktopAppInstallationSnapshot(
       source: installed.source,
       installedAt: installed.installedAt,
       permissions: installed.manifest.permissions ?? [],
+      skills: installed.manifest.contributions?.skills ?? [],
+      handlers: installed.manifest.contributions?.handlers ?? [],
     })),
     spaces: Object.values(state.spaceStateByKey),
     ...(currentSpaceId === undefined ? {} : { currentSpaceId }),
   };
+}
+
+export function toDesktopAppSettings(
+  snapshots: ReadonlyArray<AppSettingSnapshot>,
+): ReadonlyArray<DesktopAppSetting> {
+  return snapshots.map(({ declaration, configured, ...snapshot }) => ({
+    ...declaration,
+    ...snapshot,
+    configured,
+    ...(declaration.type === "string" ? { sensitive: declaration.sensitive === true } : {}),
+  })) as ReadonlyArray<DesktopAppSetting>;
 }
 
 export function parseSetAppEnabledRequest(input: unknown): {
@@ -123,6 +137,56 @@ export function parseSetAppPermissionRequest(input: unknown): {
     spaceId: requireString(record, "spaceId"),
     permission: requireString(record, "permission"),
     grant: record.grant,
+  };
+}
+
+export function parseAppSettingTarget(input: unknown): { appId: string; spaceId: string } {
+  const record = requireRecord(input);
+  return {
+    appId: requireString(record, "appId"),
+    spaceId: requireString(record, "spaceId"),
+  };
+}
+
+export function parseAppSettingKey(input: unknown): {
+  appId: string;
+  spaceId: string;
+  key: string;
+} {
+  const record = requireRecord(input);
+  return {
+    ...parseAppSettingTarget(record),
+    key: requireString(record, "key"),
+  };
+}
+
+export function parseAppSettingValue(input: unknown): {
+  appId: string;
+  spaceId: string;
+  key: string;
+  value: boolean | number | string;
+} {
+  const record = requireRecord(input);
+  const value = record.value;
+  if (typeof value !== "boolean" && typeof value !== "number" && typeof value !== "string") {
+    throw new Error("Invalid App setting value.");
+  }
+  return { ...parseAppSettingKey(record), value };
+}
+
+export function parseSetAppSkillEnabledRequest(input: unknown): {
+  appId: string;
+  spaceId: string;
+  path: string;
+  enabled: boolean;
+} {
+  const record = requireRecord(input);
+  if (typeof record.enabled !== "boolean") throw new Error("Invalid App skill state.");
+  return {
+    appId: requireString(record, "appId"),
+    spaceId: requireString(record, "spaceId"),
+    path: requireString(record, "path"),
+    enabled: record.enabled,
   };
 }
 

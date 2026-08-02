@@ -23,7 +23,11 @@ export type PenkraPermissionName = keyof typeof PENKRA_PERMISSIONS;
 export type AppPermissionDeclarationChange =
   | { kind: "added"; permission: AppPermissionDeclaration }
   | { kind: "removed"; permission: AppPermissionDeclaration }
-  | { kind: "requirement-changed"; before: AppPermissionDeclaration; after: AppPermissionDeclaration }
+  | {
+      kind: "requirement-changed";
+      before: AppPermissionDeclaration;
+      after: AppPermissionDeclaration;
+    }
   | { kind: "reason-changed"; before: AppPermissionDeclaration; after: AppPermissionDeclaration };
 
 export function isPenkraPermissionName(value: string): value is PenkraPermissionName {
@@ -61,7 +65,8 @@ export function permissionsRequiringUpdateReview(
   after: readonly AppPermissionDeclaration[],
 ): PenkraPermissionName[] {
   return diffAppPermissionDeclarations(before, after).flatMap((change) => {
-    if (change.kind === "added") return isPenkraPermissionName(change.permission.name) ? [change.permission.name] : [];
+    if (change.kind === "added")
+      return isPenkraPermissionName(change.permission.name) ? [change.permission.name] : [];
     if (change.kind === "requirement-changed" && change.after.required) {
       return isPenkraPermissionName(change.after.name) ? [change.after.name] : [];
     }

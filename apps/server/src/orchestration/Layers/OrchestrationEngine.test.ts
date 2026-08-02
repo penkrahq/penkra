@@ -3,7 +3,7 @@ import {
   CommandId,
   DEFAULT_PROVIDER_INTERACTION_MODE,
   MessageId,
-  ProjectId,
+  ContainerId,
   ThreadId,
   TurnId,
   type OrchestrationCommand,
@@ -51,7 +51,7 @@ vi.mock("../commandFingerprint.ts", async (importOriginal) => {
   };
 });
 
-const asProjectId = (value: string): ProjectId => ProjectId.makeUnsafe(value);
+const asProjectId = (value: string): ContainerId => ContainerId.makeUnsafe(value);
 const asMessageId = (value: string): MessageId => MessageId.makeUnsafe(value);
 
 const makeThreadEventReadMethods = (
@@ -122,6 +122,7 @@ describe("OrchestrationEngine", () => {
     await system.run(
       system.engine.dispatch({
         type: "project.create",
+        kind: "chat",
         commandId: CommandId.makeUnsafe("cmd-engine-quiesce-project"),
         projectId: asProjectId("project-engine-quiesce"),
         title: "Engine quiesce",
@@ -224,6 +225,7 @@ describe("OrchestrationEngine", () => {
     const system = await createOrchestrationSystem();
     const command = {
       type: "project.create" as const,
+      kind: "chat" as const,
       commandId: CommandId.makeUnsafe("cmd-fingerprint-retry"),
       projectId: asProjectId("project-fingerprint-retry"),
       title: "Fingerprint project",
@@ -261,6 +263,7 @@ describe("OrchestrationEngine", () => {
     await system.run(
       engine.dispatch({
         type: "project.create",
+        kind: "chat",
         commandId: CommandId.makeUnsafe("cmd-project-1-create"),
         projectId: asProjectId("project-1"),
         title: "Project 1",
@@ -318,6 +321,7 @@ describe("OrchestrationEngine", () => {
     const { engine } = system;
     const command = {
       type: "project.create" as const,
+      kind: "chat" as const,
       commandId: CommandId.makeUnsafe("cmd-project-command-identity"),
       projectId: asProjectId("project-command-identity"),
       title: "Original identity",
@@ -352,6 +356,7 @@ describe("OrchestrationEngine", () => {
     await system.run(
       engine.dispatch({
         type: "project.create",
+        kind: "chat",
         commandId: CommandId.makeUnsafe("cmd-managed-attachment-project"),
         projectId: asProjectId("project-managed-attachment"),
         title: "Managed attachment project",
@@ -482,6 +487,7 @@ describe("OrchestrationEngine", () => {
     await system.run(
       engine.dispatch({
         type: "project.create",
+        kind: "chat",
         commandId: CommandId.makeUnsafe("cmd-project-replay-create"),
         projectId: asProjectId("project-replay"),
         title: "Replay Project",
@@ -540,6 +546,7 @@ describe("OrchestrationEngine", () => {
     await system.run(
       engine.dispatch({
         type: "project.create",
+        kind: "chat",
         commandId: CommandId.makeUnsafe("cmd-project-stream-create"),
         projectId: asProjectId("project-stream"),
         title: "Stream Project",
@@ -601,6 +608,7 @@ describe("OrchestrationEngine", () => {
     await system.run(
       engine.dispatch({
         type: "project.create",
+        kind: "chat",
         commandId: CommandId.makeUnsafe("cmd-project-turn-diff-create"),
         projectId: asProjectId("project-turn-diff"),
         title: "Turn Diff Project",
@@ -719,6 +727,7 @@ describe("OrchestrationEngine", () => {
     await runtime.runPromise(
       engine.dispatch({
         type: "project.create",
+        kind: "chat",
         commandId: CommandId.makeUnsafe("cmd-project-flaky-create"),
         projectId: asProjectId("project-flaky"),
         title: "Flaky Project",
@@ -818,6 +827,7 @@ describe("OrchestrationEngine", () => {
     await runtime.runPromise(
       engine.dispatch({
         type: "project.create",
+        kind: "chat",
         commandId: CommandId.makeUnsafe("cmd-project-atomic-create"),
         projectId: asProjectId("project-atomic"),
         title: "Atomic Project",
@@ -965,6 +975,7 @@ describe("OrchestrationEngine", () => {
       runtime.runPromise(
         engine.dispatch({
           type: "project.create",
+          kind: "chat",
           commandId: CommandId.makeUnsafe("cmd-project-defect-1"),
           projectId: asProjectId("project-defect-1"),
           title: "Defective Project",
@@ -982,6 +993,7 @@ describe("OrchestrationEngine", () => {
       runtime.runPromise(
         engine.dispatch({
           type: "project.create",
+          kind: "chat",
           commandId: CommandId.makeUnsafe("cmd-project-defect-2"),
           projectId: asProjectId("project-defect-2"),
           title: "Recovered Project",
@@ -1083,6 +1095,7 @@ describe("OrchestrationEngine", () => {
     await runtime.runPromise(
       engine.dispatch({
         type: "project.create",
+        kind: "chat",
         commandId: CommandId.makeUnsafe("cmd-project-sync-create"),
         projectId: asProjectId("project-sync"),
         title: "Sync Project",
@@ -1218,6 +1231,7 @@ describe("OrchestrationEngine", () => {
     await runtime.runPromise(
       engine.dispatch({
         type: "project.create",
+        kind: "chat",
         commandId: CommandId.makeUnsafe("cmd-project-deferred-recovery"),
         projectId: asProjectId("project-deferred-recovery"),
         title: "Deferred Recovery Project",
@@ -1309,6 +1323,7 @@ describe("OrchestrationEngine", () => {
     await runtime.runPromise(
       engine.dispatch({
         type: "project.create",
+        kind: "chat",
         commandId: CommandId.makeUnsafe("cmd-project-repair-fence"),
         projectId: asProjectId("project-repair-fence"),
         title: "Repair Fence Project",
@@ -1325,112 +1340,6 @@ describe("OrchestrationEngine", () => {
     await expect(runtime.runPromise(engine.getReadModel())).resolves.toEqual(beforeRepair);
 
     await runtime.dispose();
-  });
-
-  it("retires an empty existing project when re-adding the same workspace root", async () => {
-    const system = await createOrchestrationSystem();
-    const { engine } = system;
-    const createdAt = now();
-
-    await system.run(
-      engine.dispatch({
-        type: "project.create",
-        commandId: CommandId.makeUnsafe("cmd-project-stale-create"),
-        projectId: asProjectId("project-stale"),
-        title: "Stale Project",
-        workspaceRoot: "/tmp/readd-project",
-        defaultModelSelection: {
-          provider: "codex",
-          model: "gpt-5-codex",
-        },
-        createdAt,
-      }),
-    );
-
-    await expect(
-      system.run(
-        engine.dispatch({
-          type: "project.create",
-          commandId: CommandId.makeUnsafe("cmd-project-readd-create"),
-          projectId: asProjectId("project-readd"),
-          title: "Readded Project",
-          workspaceRoot: "/tmp/readd-project",
-          defaultModelSelection: {
-            provider: "codex",
-            model: "gpt-5-codex",
-          },
-          createdAt,
-        }),
-      ),
-    ).resolves.toEqual({ sequence: 3 });
-
-    const readModel = await system.run(engine.getReadModel());
-    expect(
-      readModel.projects.find((project) => project.id === asProjectId("project-stale"))?.deletedAt,
-    ).toBe(createdAt);
-    expect(
-      readModel.projects.find((project) => project.id === asProjectId("project-readd"))?.deletedAt,
-    ).toBeNull();
-
-    await system.dispose();
-  });
-
-  it("keeps rejecting a duplicate workspace root when the existing project has threads", async () => {
-    const system = await createOrchestrationSystem();
-    const { engine } = system;
-    const createdAt = now();
-
-    await system.run(
-      engine.dispatch({
-        type: "project.create",
-        commandId: CommandId.makeUnsafe("cmd-project-active-create"),
-        projectId: asProjectId("project-active"),
-        title: "Active Project",
-        workspaceRoot: "/tmp/active-project",
-        defaultModelSelection: {
-          provider: "codex",
-          model: "gpt-5-codex",
-        },
-        createdAt,
-      }),
-    );
-    await system.run(
-      engine.dispatch({
-        type: "thread.create",
-        commandId: CommandId.makeUnsafe("cmd-project-active-thread-create"),
-        threadId: ThreadId.makeUnsafe("thread-active"),
-        projectId: asProjectId("project-active"),
-        title: "active",
-        modelSelection: {
-          provider: "codex",
-          model: "gpt-5-codex",
-        },
-        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
-        runtimeMode: "approval-required",
-        branch: null,
-        worktreePath: null,
-        createdAt,
-      }),
-    );
-
-    await expect(
-      system.run(
-        engine.dispatch({
-          type: "project.create",
-          commandId: CommandId.makeUnsafe("cmd-project-active-duplicate-create"),
-          projectId: asProjectId("project-active-duplicate"),
-          title: "Active Duplicate",
-          workspaceRoot: "/tmp/active-project",
-          defaultModelSelection: {
-            provider: "codex",
-            model: "gpt-5-codex",
-          },
-          createdAt,
-        }),
-      ),
-    ).rejects.toThrow("already uses workspace root");
-
-    await system.dispose();
   });
 
   it("rejects duplicate Studio workspace containers", async () => {
@@ -1469,126 +1378,25 @@ describe("OrchestrationEngine", () => {
     await system.dispose();
   });
 
-  it("rejects Studio and regular projects claiming each other's workspace root", async () => {
+  it("rejects physical roots on ordinary folders", async () => {
     const system = await createOrchestrationSystem();
     const { engine } = system;
     const createdAt = now();
 
-    await system.run(
-      engine.dispatch({
-        type: "project.create",
-        commandId: CommandId.makeUnsafe("cmd-cross-kind-studio-create"),
-        projectId: asProjectId("project-cross-kind-studio"),
-        kind: "studio",
-        title: "Studio",
-        workspaceRoot: "/tmp/penkra-cross-kind-studio",
-        defaultModelSelection: null,
-        createdAt,
-      }),
-    );
-    await system.run(
-      engine.dispatch({
-        type: "project.create",
-        commandId: CommandId.makeUnsafe("cmd-cross-kind-project-create"),
-        projectId: asProjectId("project-cross-kind-app"),
-        kind: "project",
-        title: "App",
-        workspaceRoot: "/tmp/penkra-cross-kind-app",
-        defaultModelSelection: null,
-        createdAt,
-      }),
-    );
-
-    // Adding the Studio container's folder as a regular project must not create a second
-    // active project on that root (the empty container would otherwise be silently retired).
     await expect(
       system.run(
         engine.dispatch({
           type: "project.create",
-          commandId: CommandId.makeUnsafe("cmd-cross-kind-project-on-studio-root"),
-          projectId: asProjectId("project-on-studio-root"),
+          commandId: CommandId.makeUnsafe("cmd-folder-with-root"),
+          projectId: asProjectId("folder-with-root"),
           kind: "project",
-          title: "Studio folder",
-          workspaceRoot: "/tmp/penkra-cross-kind-studio",
+          title: "Folder",
+          workspaceRoot: "/tmp/folder-root",
           defaultModelSelection: null,
           createdAt,
         }),
       ),
-    ).rejects.toThrow("already uses workspace root");
-
-    // Creating a Studio container on a root an existing regular project owns must fail too.
-    await expect(
-      system.run(
-        engine.dispatch({
-          type: "project.create",
-          commandId: CommandId.makeUnsafe("cmd-cross-kind-studio-on-project-root"),
-          projectId: asProjectId("project-studio-on-project-root"),
-          kind: "studio",
-          title: "Studio",
-          workspaceRoot: "/tmp/penkra-cross-kind-app",
-          defaultModelSelection: null,
-          createdAt,
-        }),
-      ),
-    ).rejects.toThrow("already uses workspace root");
-
-    // Root moves are covered by the same cross-kind ownership rule.
-    await expect(
-      system.run(
-        engine.dispatch({
-          type: "project.meta.update",
-          commandId: CommandId.makeUnsafe("cmd-cross-kind-project-root-update"),
-          projectId: asProjectId("project-cross-kind-app"),
-          workspaceRoot: "/tmp/penkra-cross-kind-studio",
-        }),
-      ),
-    ).rejects.toThrow("already uses workspace root");
-
-    // A kind-only update must not carry an existing pin onto a kind that can never be pinned.
-    await system.run(
-      engine.dispatch({
-        type: "project.meta.update",
-        commandId: CommandId.makeUnsafe("cmd-cross-kind-pin-app"),
-        projectId: asProjectId("project-cross-kind-app"),
-        isPinned: true,
-      }),
-    );
-    await expect(
-      system.run(
-        engine.dispatch({
-          type: "project.meta.update",
-          commandId: CommandId.makeUnsafe("cmd-cross-kind-pinned-kind-change"),
-          projectId: asProjectId("project-cross-kind-app"),
-          kind: "studio",
-          workspaceRoot: "/tmp/penkra-cross-kind-pinned-studio",
-        }),
-      ),
-    ).rejects.toThrow("Only projects can be pinned.");
-
-    // A kind-only update must not bypass ownership either: a chat project sitting on an owned
-    // root cannot become a workspace-owning kind without the root check running.
-    await system.run(
-      engine.dispatch({
-        type: "project.create",
-        commandId: CommandId.makeUnsafe("cmd-cross-kind-chat-create"),
-        projectId: asProjectId("project-cross-kind-chat"),
-        kind: "chat",
-        title: "Home",
-        workspaceRoot: "/tmp/penkra-cross-kind-studio",
-        defaultModelSelection: null,
-        createdAt,
-      }),
-    );
-    await expect(
-      system.run(
-        engine.dispatch({
-          type: "project.meta.update",
-          commandId: CommandId.makeUnsafe("cmd-cross-kind-chat-kind-only-update"),
-          projectId: asProjectId("project-cross-kind-chat"),
-          kind: "studio",
-        }),
-      ),
-    ).rejects.toThrow("already uses workspace root");
+    ).rejects.toThrow("Folders are virtual containers");
 
     await system.dispose();
   });
@@ -1645,6 +1453,7 @@ describe("OrchestrationEngine", () => {
     await system.run(
       engine.dispatch({
         type: "project.create",
+        kind: "chat",
         commandId: CommandId.makeUnsafe("cmd-project-duplicate-create"),
         projectId: asProjectId("project-duplicate"),
         title: "Duplicate Project",
@@ -1711,6 +1520,7 @@ describe("OrchestrationEngine", () => {
         Effect.result(
           system.engine.dispatch({
             type: "project.create",
+            kind: "chat",
             commandId: poisonedCommandId,
             projectId: asProjectId("project-engine-poison"),
             title: "Poisoned",
@@ -1735,6 +1545,7 @@ describe("OrchestrationEngine", () => {
         system.run(
           system.engine.dispatch({
             type: "project.create",
+            kind: "chat",
             commandId: CommandId.makeUnsafe("cmd-engine-poison-next"),
             projectId: asProjectId("project-engine-poison-next"),
             title: "After poison",

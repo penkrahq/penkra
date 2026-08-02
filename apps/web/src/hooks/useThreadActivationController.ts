@@ -3,7 +3,7 @@
 // Exports: useThreadActivationController
 
 import type { useNavigate } from "@tanstack/react-router";
-import type { ProjectId, ThreadId } from "@penkra/contracts";
+import type { ContainerId, ThreadId } from "@penkra/contracts";
 import type { LastThreadRoute } from "../chatRouteRestore";
 import { type PaneId, type SplitView, type SplitViewId } from "../splitViewStore";
 import { selectThreadTerminalState } from "../terminalStateStore";
@@ -28,7 +28,7 @@ export type ThreadActivationControllerInput = {
   openSidechatSplit: (input: {
     sidechatThreadId: ThreadId;
     sourceThreadId: ThreadId;
-    ownerProjectId: ProjectId;
+    ownerProjectId: ContainerId;
   }) => SplitViewId;
   openTerminalThreadPage: (threadId: ThreadId) => void;
   prewarmThreadDetailForIntent: (threadId: ThreadId) => void;
@@ -129,7 +129,7 @@ function resolveSidechatSplitActivation(
     threadId: ThreadId;
     targetThread: SidebarThreadActivationSummary | undefined;
   },
-): { threadId: ThreadId; sourceThreadId: ThreadId; ownerProjectId: ProjectId } | null {
+): { threadId: ThreadId; sourceThreadId: ThreadId; ownerProjectId: ContainerId } | null {
   if (!options.targetThread?.sidechatSourceThreadId) {
     return null;
   }
@@ -150,7 +150,7 @@ function activateSidechatSplit(
   activation: {
     threadId: ThreadId;
     sourceThreadId: ThreadId;
-    ownerProjectId: ProjectId;
+    ownerProjectId: ContainerId;
   },
 ): void {
   input.prewarmThreadDetailForIntent(activation.sourceThreadId);

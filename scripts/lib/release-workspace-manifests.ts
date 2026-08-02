@@ -8,8 +8,12 @@ export const RELEASE_WORKSPACE_MANIFEST_PATHS = [
   "apps/desktop/package.json",
   "apps/web/package.json",
   "apps/marketing/package.json",
+  "examples/sample-app/package.json",
   "packages/contracts/package.json",
+  "packages/create-penkra-app/package.json",
+  "packages/sdk/package.json",
   "packages/shared/package.json",
+  "packages/ui/package.json",
   "scripts/package.json",
 ] as const;
 

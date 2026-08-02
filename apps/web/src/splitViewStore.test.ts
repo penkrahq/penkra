@@ -2,7 +2,7 @@
 // Purpose: Verify tree-aware split view state operations: drop creation, perpendicular subdivision,
 // pane focus/ratio mutations, deleted-thread collapse semantics, and v1 -> v2 persisted-state migration.
 
-import { ProjectId, ThreadId, TurnId } from "@penkra/contracts";
+import { ContainerId, ThreadId, TurnId } from "@penkra/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { collectLeaves, findParentSplitNode } from "./splitView.logic";
@@ -17,7 +17,7 @@ import {
   type SplitView,
 } from "./splitViewStore";
 
-const PROJECT_ID = ProjectId.makeUnsafe("project-1");
+const PROJECT_ID = ContainerId.makeUnsafe("project-1");
 const THREAD_A = ThreadId.makeUnsafe("thread-a");
 const THREAD_B = ThreadId.makeUnsafe("thread-b");
 const THREAD_C = ThreadId.makeUnsafe("thread-c");

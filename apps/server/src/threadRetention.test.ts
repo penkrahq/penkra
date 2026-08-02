@@ -3,7 +3,7 @@
 // Layer: Server maintenance tests
 // Exports: Vitest coverage for threadRetention helpers.
 
-import { ProjectId, ThreadId, type OrchestrationReadModel } from "@penkra/contracts";
+import { ContainerId, ThreadId, type OrchestrationReadModel } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 
 import { getInactiveThreadIdsForRetention, THREAD_RETENTION_UNUSED_MS } from "./threadRetention";
@@ -13,7 +13,7 @@ function makeReadModelThread(
 ): OrchestrationReadModel["threads"][number] {
   return {
     id: ThreadId.makeUnsafe("thread-active"),
-    projectId: ProjectId.makeUnsafe("project-1"),
+    projectId: ContainerId.makeUnsafe("project-1"),
     title: "Thread",
     createdAt: "2026-04-01T00:00:00.000Z",
     updatedAt: "2026-04-01T00:00:00.000Z",

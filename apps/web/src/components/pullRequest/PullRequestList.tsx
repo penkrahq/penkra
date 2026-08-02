@@ -6,7 +6,7 @@
 // Layer: Pull request presentation
 // Exports: PullRequestList
 
-import type { ProjectId, PullRequestListEntry } from "@penkra/contracts";
+import type { ContainerId, PullRequestListEntry } from "@penkra/contracts";
 import { pullRequestListEntryKey, type PullRequestListGroup } from "./pullRequestList.logic";
 import { PullRequestRow } from "./PullRequestRow";
 import { PR_FINE_TEXT_CLASS_NAME, PR_QUIET_INK_CLASS_NAME } from "./pullRequestText";
@@ -24,7 +24,7 @@ export const PullRequestList = function PullRequestList({
 }: {
   entries: PullRequestListEntry[];
   grouped: PullRequestListGroup[] | null;
-  selectedProjectId: ProjectId | undefined;
+  selectedProjectId: ContainerId | undefined;
   selectedRepo: string | undefined;
   selectedNumber: number | undefined;
   showProjectTitle?: boolean;

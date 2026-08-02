@@ -6,7 +6,7 @@
 // Layer: Shared domain helper
 // Exports: chat-container root resolution, legacy Home row detection, ordinary-project rule
 
-import type { ProjectKind } from "@penkra/contracts";
+import type { ContainerKind } from "@penkra/contracts";
 
 import {
   workspaceRootsEqual,
@@ -47,13 +47,14 @@ export function matchesLegacyHomeChatWorkspaceRoot(
 
 export interface LegacyHomeChatContainerRowInput {
   readonly projectTitle: string;
-  readonly projectWorkspaceRoot: string;
+  readonly projectWorkspaceRoot: string | null;
   readonly paths: ProjectContainerWorkspacePaths;
   readonly comparisonOptions?: NormalizeWorkspaceRootForComparisonOptions;
 }
 
 export function isLegacyHomeChatContainerRow(input: LegacyHomeChatContainerRowInput): boolean {
   return (
+    input.projectWorkspaceRoot !== null &&
     input.projectTitle === "Home" &&
     matchesLegacyHomeChatWorkspaceRoot(
       input.projectWorkspaceRoot,
@@ -64,7 +65,7 @@ export function isLegacyHomeChatContainerRow(input: LegacyHomeChatContainerRowIn
 }
 
 export interface OrdinaryProjectRowInput extends LegacyHomeChatContainerRowInput {
-  readonly projectKind: ProjectKind | undefined;
+  readonly projectKind: ContainerKind | undefined;
 }
 
 /**

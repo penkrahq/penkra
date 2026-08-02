@@ -23,7 +23,8 @@ import {
   EventId,
   MessageId,
   PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
-  ProjectId,
+  ContainerId,
+  SpaceId,
   ThreadId,
   TurnId,
 } from "@penkra/contracts";
@@ -96,7 +97,7 @@ import {
 } from "../../checkpointing/Services/CheckpointStore.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 
-const asProjectId = (value: string): ProjectId => ProjectId.makeUnsafe(value);
+const asProjectId = (value: string): ContainerId => ContainerId.makeUnsafe(value);
 const asApprovalRequestId = (value: string): ApprovalRequestId =>
   ApprovalRequestId.makeUnsafe(value);
 const asEventId = (value: string): EventId => EventId.makeUnsafe(value);
@@ -549,11 +550,22 @@ describe("ProviderCommandReactor", () => {
 
     await Effect.runPromise(
       engine.dispatch({
+        type: "space.create",
+        commandId: CommandId.makeUnsafe("cmd-space-create"),
+        spaceId: SpaceId.makeUnsafe("space-personal"),
+        name: "Personal",
+        icon: "home",
+        createdAt: now,
+      }),
+    );
+    await Effect.runPromise(
+      engine.dispatch({
         type: "project.create",
         commandId: CommandId.makeUnsafe("cmd-project-create"),
         projectId: asProjectId("project-1"),
         title: "Provider Project",
-        workspaceRoot: "/tmp/provider-project",
+        workspaceRoot: null,
+        spaceId: SpaceId.makeUnsafe("space-personal"),
         defaultModelSelection: modelSelection,
         createdAt: now,
       }),
@@ -569,7 +581,7 @@ describe("ProviderCommandReactor", () => {
         interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
         runtimeMode: "approval-required",
         branch: null,
-        worktreePath: null,
+        worktreePath: "/tmp/provider-project",
         createdAt: now,
       }),
     );

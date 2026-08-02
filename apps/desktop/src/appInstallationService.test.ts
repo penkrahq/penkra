@@ -31,7 +31,12 @@ function verifiedPackage(): VerifiedAppPackageInput {
 function fixture() {
   let state: AppInstallationState = createEmptyAppInstallationState();
   let unexpectedDisableListener:
-    | ((event: { appId: string; spaceId: string; error: Error; state: AppInstallationState }) => void)
+    | ((event: {
+        appId: string;
+        spaceId: string;
+        error: Error;
+        state: AppInstallationState;
+      }) => void)
     | undefined;
   const store = {
     snapshot: () => state,
@@ -47,7 +52,15 @@ function fixture() {
         ...state,
         spaceStateByKey: {
           ...state.spaceStateByKey,
-          [spaceId + "\0" + appId]: { appId, spaceId, enabled: true, permissions: current?.permissions ?? {} },
+          [spaceId + "\0" + appId]: {
+            appId,
+            spaceId,
+            enabled: true,
+            permissions: current?.permissions ?? {},
+            settings: current?.settings ?? {},
+            settingMigrations: current?.settingMigrations ?? {},
+            skills: current?.skills ?? {},
+          },
         },
       };
       return state;
@@ -59,7 +72,15 @@ function fixture() {
         ...state,
         spaceStateByKey: {
           ...state.spaceStateByKey,
-          [key]: { appId, spaceId, enabled: false, permissions: current?.permissions ?? {} },
+          [key]: {
+            appId,
+            spaceId,
+            enabled: false,
+            permissions: current?.permissions ?? {},
+            settings: current?.settings ?? {},
+            settingMigrations: current?.settingMigrations ?? {},
+            skills: current?.skills ?? {},
+          },
         },
       };
       return state;
@@ -77,11 +98,25 @@ function fixture() {
   const data = {
     eraseData: vi.fn(async () => undefined),
   };
+  const secrets = new Map<string, string>();
+  const settingSecrets = {
+    getSecret: vi.fn(
+      (appId: string, spaceId: string, name: string) =>
+        secrets.get(`${appId}\0${spaceId}\0${name}`) ?? null,
+    ),
+    setSecret: vi.fn(async (appId: string, spaceId: string, name: string, value: string) => {
+      secrets.set(`${appId}\0${spaceId}\0${name}`, value);
+    }),
+    deleteSecret: vi.fn(async (appId: string, spaceId: string, name: string) => {
+      secrets.delete(`${appId}\0${spaceId}\0${name}`);
+    }),
+  };
   return {
-    service: new AppInstallationService({ store, lifecycle, data, updates }),
+    service: new AppInstallationService({ store, lifecycle, data, updates, settingSecrets }),
     data,
     lifecycle,
     updates,
+    settingSecrets,
     unexpectedDisable: (error = new Error("controller crashed")) =>
       unexpectedDisableListener?.({
         appId: "com.acme.figma",
@@ -151,19 +186,230 @@ describe("AppInstallationService", () => {
   it("requires declared required grants before enabling an App", async () => {
     const test = fixture();
     const packageWithPermission = verifiedPackage();
-    packageWithPermission.manifest.permissions = [{
-      name: "network-fetch",
-      required: true,
-      reason: "Sync designs",
-    }];
+    packageWithPermission.manifest.permissions = [
+      {
+        name: "network-fetch",
+        required: true,
+        reason: "Sync designs",
+      },
+    ];
     await test.service.install(packageWithPermission);
 
-    await expect(test.service.setEnabled({
+    await expect(
+      test.service.setEnabled({
+        appId: "com.acme.figma",
+        spaceId: "personal",
+        enabled: true,
+      }),
+    ).rejects.toThrow("must be granted");
+    expect(test.lifecycle.enable).not.toHaveBeenCalled();
+  });
+
+  it("revokes a required permission by disabling the App first", async () => {
+    const test = fixture();
+    const packageWithPermission = verifiedPackage();
+    packageWithPermission.manifest.permissions = [
+      {
+        name: "network-fetch",
+        required: true,
+        reason: "Sync designs",
+      },
+    ];
+    await test.service.install(packageWithPermission);
+    await test.service.setPermission({
       appId: "com.acme.figma",
       spaceId: "personal",
-      enabled: true,
-    })).rejects.toThrow("must be granted");
-    expect(test.lifecycle.enable).not.toHaveBeenCalled();
+      permission: "network-fetch",
+      grant: "granted",
+    });
+    await test.service.setEnabled({ appId: "com.acme.figma", spaceId: "personal", enabled: true });
+
+    await test.service.setPermission({
+      appId: "com.acme.figma",
+      spaceId: "personal",
+      permission: "network-fetch",
+      grant: "denied",
+    });
+
+    expect(test.lifecycle.disable).toHaveBeenCalledWith("com.acme.figma", "personal");
+    expect(test.state().spaceStateByKey["personal\0com.acme.figma"]).toMatchObject({
+      enabled: false,
+      permissions: { "network-fetch": "denied" },
+    });
+  });
+
+  it("coalesces concurrent optional permission requests into one prompt", async () => {
+    const test = fixture();
+    await test.service.install(verifiedPackage());
+    const confirm = vi.fn(async () => true);
+
+    const first = test.service.requestOptionalPermission({
+      appId: "com.acme.figma",
+      spaceId: "personal",
+      permission: "network-fetch",
+      confirm,
+    });
+    const second = test.service.requestOptionalPermission({
+      appId: "com.acme.figma",
+      spaceId: "personal",
+      permission: "network-fetch",
+      confirm,
+    });
+
+    await expect(Promise.all([first, second])).resolves.toHaveLength(2);
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(test.state().spaceStateByKey["personal\0com.acme.figma"]?.permissions).toEqual({
+      "network-fetch": "granted",
+    });
+  });
+
+  it("lets an explicit Settings change win over a permission prompt already in flight", async () => {
+    const test = fixture();
+    await test.service.install(verifiedPackage());
+    let resolvePrompt!: (value: boolean) => void;
+    const prompt = new Promise<boolean>((resolve) => {
+      resolvePrompt = resolve;
+    });
+    const request = test.service.requestOptionalPermission({
+      appId: "com.acme.figma",
+      spaceId: "personal",
+      permission: "network-fetch",
+      confirm: () => prompt,
+    });
+    await test.service.setPermission({
+      appId: "com.acme.figma",
+      spaceId: "personal",
+      permission: "network-fetch",
+      grant: "denied",
+    });
+    resolvePrompt(true);
+
+    await request;
+    expect(test.state().spaceStateByKey["personal\0com.acme.figma"]?.permissions).toEqual({
+      "network-fetch": "denied",
+    });
+  });
+
+  it("rejects runtime requests for required or undeclared permissions", async () => {
+    const test = fixture();
+    const packageWithRequiredPermission = verifiedPackage();
+    packageWithRequiredPermission.manifest.permissions = [
+      {
+        name: "network-fetch",
+        required: true,
+        reason: "Sync designs",
+      },
+    ];
+    await test.service.install(packageWithRequiredPermission);
+
+    await expect(
+      test.service.requestOptionalPermission({
+        appId: "com.acme.figma",
+        spaceId: "personal",
+        permission: "network-fetch",
+        confirm: async () => true,
+      }),
+    ).rejects.toThrow("required");
+    await expect(
+      test.service.requestOptionalPermission({
+        appId: "com.acme.figma",
+        spaceId: "personal",
+        permission: "raw-socket",
+        confirm: async () => true,
+      }),
+    ).rejects.toThrow("not declared");
+  });
+
+  it("persists validated plain Settings per Space and exposes defaults without storing them", async () => {
+    const test = fixture();
+    const app = verifiedPackage();
+    app.manifest.contributions = {
+      settings: [
+        {
+          key: "font-size",
+          label: "Font size",
+          type: "number",
+          default: 14,
+          migrationId: "font-size-v1",
+          validation: { minimum: 10, maximum: 20, step: 2 },
+        },
+      ],
+    };
+    await test.service.install(app);
+
+    expect(
+      test.service.getSetting({ appId: app.manifest.id, spaceId: "personal", key: "font-size" }),
+    ).toBe(14);
+    expect(
+      test.service.listSettings({ appId: app.manifest.id, spaceId: "personal" })[0],
+    ).toMatchObject({
+      configured: false,
+      value: 14,
+    });
+    await expect(
+      test.service.setSetting({
+        appId: app.manifest.id,
+        spaceId: "personal",
+        key: "font-size",
+        value: 15,
+      }),
+    ).rejects.toThrow("step of 2");
+    await test.service.setSetting({
+      appId: app.manifest.id,
+      spaceId: "personal",
+      key: "font-size",
+      value: 18,
+    });
+    expect(
+      test.service.getSetting({ appId: app.manifest.id, spaceId: "personal", key: "font-size" }),
+    ).toBe(18);
+    expect(test.state().spaceStateByKey["personal\0com.acme.figma"]).toMatchObject({
+      settings: { "font-size": 18 },
+      settingMigrations: { "font-size": "font-size-v1" },
+      skills: {},
+    });
+  });
+
+  it("keeps sensitive Settings only in the encrypted vault owner and resets them independently", async () => {
+    const test = fixture();
+    const app = verifiedPackage();
+    app.manifest.contributions = {
+      settings: [
+        {
+          key: "api-token",
+          label: "API token",
+          type: "string",
+          default: "",
+          sensitive: true,
+        },
+      ],
+    };
+    await test.service.install(app);
+    await test.service.setSetting({
+      appId: app.manifest.id,
+      spaceId: "personal",
+      key: "api-token",
+      value: "secret-value",
+    });
+
+    expect(
+      test.service.getSetting({ appId: app.manifest.id, spaceId: "personal", key: "api-token" }),
+    ).toBe("secret-value");
+    const sensitiveSnapshot = test.service.listSettings({
+      appId: app.manifest.id,
+      spaceId: "personal",
+    })[0];
+    expect(sensitiveSnapshot).toMatchObject({ configured: true });
+    expect(sensitiveSnapshot).not.toHaveProperty("value");
+    expect(test.state().spaceStateByKey["personal\0com.acme.figma"]?.settings).toEqual({});
+    await test.service.resetSetting({
+      appId: app.manifest.id,
+      spaceId: "personal",
+      key: "api-token",
+    });
+    expect(
+      test.service.getSetting({ appId: app.manifest.id, spaceId: "personal", key: "api-token" }),
+    ).toBe("");
   });
 
   it("restarts enabled Spaces on update and applies an exact permission review", async () => {
@@ -172,7 +418,9 @@ describe("AppInstallationService", () => {
     await test.service.setEnabled({ appId: "com.acme.figma", spaceId: "personal", enabled: true });
     const update = verifiedPackage();
     update.manifest.version = "2.0.0";
-    update.manifest.permissions = [{ name: "network-fetch", required: true, reason: "Sync designs" }];
+    update.manifest.permissions = [
+      { name: "network-fetch", required: true, reason: "Sync designs" },
+    ];
 
     await test.service.updateForSpaces({
       package: { ...update, source: "registry" },
@@ -186,11 +434,13 @@ describe("AppInstallationService", () => {
       enabled: true,
       permissions: { "network-fetch": "granted" },
     });
-    expect(test.updates.prepare).toHaveBeenCalledWith(expect.objectContaining({
-      appId: "com.acme.figma",
-      targetVersion: "2.0.0",
-      previousState: expect.objectContaining({ packagesByAppId: expect.any(Object) }),
-    }));
+    expect(test.updates.prepare).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appId: "com.acme.figma",
+        targetVersion: "2.0.0",
+        previousState: expect.objectContaining({ packagesByAppId: expect.any(Object) }),
+      }),
+    );
     expect(test.updates.clear).toHaveBeenCalledOnce();
   });
 
@@ -203,16 +453,20 @@ describe("AppInstallationService", () => {
     const update = verifiedPackage();
     update.manifest.version = "2.0.0";
 
-    await expect(test.service.updateForSpaces({
-      package: { ...update, source: "registry" },
-      permissionsBySpace: {},
-    })).rejects.toThrow("network-fetch must be reviewed for Space personal");
+    await expect(
+      test.service.updateForSpaces({
+        package: { ...update, source: "registry" },
+        permissionsBySpace: {},
+      }),
+    ).rejects.toThrow("network-fetch must be reviewed for Space personal");
     expect(test.updates.prepare).not.toHaveBeenCalled();
 
-    await expect(test.service.updateForSpaces({
-      package: { ...update, source: "registry" },
-      permissionsBySpace: { personal: { "network-fetch": "denied" } },
-    })).resolves.toMatchObject({ packagesByAppId: { "com.acme.figma": { version: "2.0.0" } } });
+    await expect(
+      test.service.updateForSpaces({
+        package: { ...update, source: "registry" },
+        permissionsBySpace: { personal: { "network-fetch": "denied" } },
+      }),
+    ).resolves.toMatchObject({ packagesByAppId: { "com.acme.figma": { version: "2.0.0" } } });
   });
 
   it("restarts enabled Spaces when validated sideload bytes change", async () => {
@@ -243,10 +497,12 @@ describe("AppInstallationService", () => {
     update.manifest.version = "2.0.0";
     test.lifecycle.enable.mockRejectedValueOnce(new Error("new controller failed"));
 
-    await expect(test.service.updateForSpaces({
-      package: { ...update, source: "registry" },
-      permissionsBySpace: {},
-    })).rejects.toThrow("new controller failed");
+    await expect(
+      test.service.updateForSpaces({
+        package: { ...update, source: "registry" },
+        permissionsBySpace: {},
+      }),
+    ).rejects.toThrow("new controller failed");
 
     expect(test.state().packagesByAppId["com.acme.figma"]?.version).toBe("1.0.0");
     expect(test.state().spaceStateByKey["personal\0com.acme.figma"]?.enabled).toBe(true);
@@ -262,10 +518,12 @@ describe("AppInstallationService", () => {
     update.manifest.version = "2.0.0";
     test.updates.clear.mockRejectedValueOnce(new Error("journal fsync failed"));
 
-    await expect(test.service.updateForSpaces({
-      package: { ...update, source: "registry" },
-      permissionsBySpace: {},
-    })).rejects.toThrow("journal fsync failed");
+    await expect(
+      test.service.updateForSpaces({
+        package: { ...update, source: "registry" },
+        permissionsBySpace: {},
+      }),
+    ).rejects.toThrow("journal fsync failed");
 
     expect(test.state().packagesByAppId["com.acme.figma"]?.version).toBe("1.0.0");
     expect(test.state().spaceStateByKey["personal\0com.acme.figma"]?.enabled).toBe(true);
@@ -283,7 +541,9 @@ describe("AppInstallationService", () => {
     expect(test.lifecycle.disable).toHaveBeenCalledWith("com.acme.figma", "personal");
     expect(test.lifecycle.disable).toHaveBeenCalledWith("com.acme.figma", "work");
     expect(test.state().packagesByAppId["com.acme.figma"]).toBeUndefined();
-    expect(test.state().spaceStateByKey["personal\0com.acme.figma"]).toMatchObject({ enabled: false });
+    expect(test.state().spaceStateByKey["personal\0com.acme.figma"]).toMatchObject({
+      enabled: false,
+    });
   });
 
   it("erases retained Space state only when explicitly requested", async () => {
@@ -315,8 +575,9 @@ describe("AppInstallationService", () => {
     await test.service.setEnabled({ appId: "com.acme.figma", spaceId: "personal", enabled: true });
     test.data.eraseData.mockRejectedValueOnce(new Error("partition clear failed"));
 
-    await expect(test.service.uninstall({ appId: "com.acme.figma", retainData: false }))
-      .rejects.toThrow("partition clear failed");
+    await expect(
+      test.service.uninstall({ appId: "com.acme.figma", retainData: false }),
+    ).rejects.toThrow("partition clear failed");
 
     expect(test.state().packagesByAppId["com.acme.figma"]).toBeDefined();
     expect(test.state().spaceStateByKey["personal\0com.acme.figma"]).toBeDefined();

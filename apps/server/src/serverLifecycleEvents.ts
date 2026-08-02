@@ -1,6 +1,6 @@
 import { Effect, Layer, PubSub, Ref, ServiceMap, Stream } from "effect";
 
-import type { ProjectId, ThreadId } from "@penkra/contracts";
+import type { ContainerId, ThreadId } from "@penkra/contracts";
 
 export interface ServerLifecycleWelcomePayload {
   readonly cwd: string;
@@ -8,7 +8,7 @@ export interface ServerLifecycleWelcomePayload {
   readonly chatWorkspaceRoot: string;
   readonly studioWorkspaceRoot: string;
   readonly projectName: string;
-  readonly bootstrapProjectId?: ProjectId;
+  readonly bootstrapProjectId?: ContainerId;
   readonly bootstrapThreadId?: ThreadId;
 }
 

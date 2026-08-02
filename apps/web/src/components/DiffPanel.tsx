@@ -478,10 +478,16 @@ export default function DiffPanel({
     draftThread?.worktreePath ??
     activeThreadContext?.worktreePath ??
     null;
+  const resolvedThreadWorkingDirectory =
+    serverThreadCatalog?.workingDirectory ??
+    draftThread?.workingDirectory ??
+    activeThreadContext?.workingDirectory ??
+    null;
   const diffEnvironmentState = resolveDiffEnvironmentState({
     projectCwd: activeProject?.cwd ?? null,
     envMode: resolvedThreadEnvMode,
     worktreePath: resolvedThreadWorktreePath,
+    workingDirectory: resolvedThreadWorkingDirectory,
   });
   const diffEnvironmentPending = diffEnvironmentState.pending;
   const activeCwd = diffEnvironmentState.cwd;

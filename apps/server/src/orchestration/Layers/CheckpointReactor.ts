@@ -3,7 +3,7 @@ import {
   CommandId,
   EventId,
   MessageId,
-  type ProjectId,
+  type ContainerId,
   ThreadId,
   TurnId,
   type OrchestrationEvent,
@@ -339,7 +339,7 @@ const make = Effect.gen(function* () {
   });
 
   const getProjectShell = Effect.fnUntraced(function* (
-    projectId: ProjectId,
+    projectId: ContainerId,
   ): Effect.fn.Return<OrchestrationProjectShell | undefined> {
     return Option.getOrUndefined(
       yield* projectionSnapshotQuery

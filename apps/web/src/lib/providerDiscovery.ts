@@ -13,6 +13,7 @@ import type {
 // Prefer the most specific workspace context so discovery reflects the active thread first.
 export function resolveProviderDiscoveryCwd(options: {
   activeThreadWorktreePath: string | null;
+  activeThreadWorkingDirectory?: string | null;
   activeProjectCwd: string | null;
   serverCwd: string | null;
 }): string | null {
@@ -20,6 +21,7 @@ export function resolveProviderDiscoveryCwd(options: {
     resolveThreadBranchSourceCwd({
       projectCwd: options.activeProjectCwd,
       worktreePath: options.activeThreadWorktreePath,
+      workingDirectory: options.activeThreadWorkingDirectory,
     }) ?? options.serverCwd
   );
 }

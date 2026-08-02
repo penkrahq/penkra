@@ -5,7 +5,7 @@ import { join } from "node:path";
 import {
   CommandId,
   EventId,
-  ProjectId,
+  ContainerId,
   ThreadId,
   TurnId,
   type ModelSelection,
@@ -391,7 +391,7 @@ export const makeCreateThreadsHandler = Effect.fn(function* (
 
       const prepared = yield* Effect.forEach(input.threads, (spec, index) =>
         Effect.gen(function* () {
-          const projectId = ProjectId.makeUnsafe(spec.projectId ?? caller.projectId);
+          const projectId = ContainerId.makeUnsafe(spec.projectId ?? caller.projectId);
           const project = yield* snapshotQuery.getProjectShellById(projectId).pipe(
             Effect.mapError((error) => new ToolInputError(errorText(error))),
             Effect.flatMap(
@@ -402,13 +402,17 @@ export const makeCreateThreadsHandler = Effect.fn(function* (
               }),
             ),
           );
+          const workspaceRoot =
+            (caller.projectId === projectId
+              ? (caller.workingDirectory ?? caller.worktreePath ?? project.workspaceRoot)
+              : project.workspaceRoot) ?? process.cwd();
           const target = yield* resolveAgentGatewayTarget({
             target: spec.target,
             discovery: providerDiscovery,
             ...(providerAvailabilities.get(spec.target.provider) !== undefined
               ? { availability: providerAvailabilities.get(spec.target.provider)! }
               : {}),
-            cwd: project.workspaceRoot,
+            cwd: workspaceRoot,
           });
           const environment = spec.environment ?? (callerIsolatedInWorktree ? "worktree" : "local");
           if (environment === "local" && callerIsolatedInWorktree) {
@@ -442,8 +446,8 @@ export const makeCreateThreadsHandler = Effect.fn(function* (
             // an explicit baseRef:"HEAD" cannot silently jump back to the primary checkout.
             const sourceCwd =
               caller?.projectId === projectId
-                ? (caller.worktreePath ?? project.workspaceRoot)
-                : project.workspaceRoot;
+                ? (caller.worktreePath ?? workspaceRoot)
+                : workspaceRoot;
             const pullRequest = parsePullRequestSelector(requestedRef);
             worktreeRef = yield* (
               pullRequest === null
@@ -454,10 +458,10 @@ export const makeCreateThreadsHandler = Effect.fn(function* (
                     timeoutMs: 5_000,
                   })
                 : git.withMutation(
-                    project.workspaceRoot,
+                    workspaceRoot,
                     git
                       .fetchPullRequestCommit({
-                        cwd: project.workspaceRoot,
+                        cwd: workspaceRoot,
                         prNumber: pullRequest.number,
                         ...(pullRequest.repositoryNameWithOwner
                           ? { expectedRepositoryNameWithOwner: pullRequest.repositoryNameWithOwner }
@@ -506,7 +510,7 @@ export const makeCreateThreadsHandler = Effect.fn(function* (
             index,
             spec,
             projectId,
-            workspaceRoot: project.workspaceRoot,
+            workspaceRoot,
             target,
             environment,
             runtimeMode,

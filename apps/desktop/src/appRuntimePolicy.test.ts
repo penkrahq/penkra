@@ -68,8 +68,9 @@ describe("App runtime policy", () => {
   });
 
   it("allows only navigation within the assigned App origin", () => {
-    expect(decideAppNavigation("com.penkra.apps", "penkra-app://com.penkra.apps/settings"))
-      .toMatchObject({ action: "allow" });
+    expect(
+      decideAppNavigation("com.penkra.apps", "penkra-app://com.penkra.apps/settings"),
+    ).toMatchObject({ action: "allow" });
     expect(decideAppNavigation("com.penkra.apps", "penkra-app://com.acme.linear/issues")).toEqual({
       action: "deny",
       reason: "outside-app-origin",
@@ -117,17 +118,11 @@ describe("App runtime policy", () => {
         "penkra-app://com.penkra.apps/%2e%2e%5csecrets.txt",
       ),
     ).toThrow("platform-dependent separator");
-    expect(() =>
-      resolveAppPackagePath(root, "com.penkra.apps", "file:///tmp/app.html"),
-    ).toThrow("does not belong to its assigned App origin");
-    expect(() =>
-      resolveAppPackagePath(
-        root,
-        "com.penkra.apps",
-        "penkra-app://com.acme.linear/app.html",
-      ),
-    ).toThrow(
+    expect(() => resolveAppPackagePath(root, "com.penkra.apps", "file:///tmp/app.html")).toThrow(
       "does not belong to its assigned App origin",
     );
+    expect(() =>
+      resolveAppPackagePath(root, "com.penkra.apps", "penkra-app://com.acme.linear/app.html"),
+    ).toThrow("does not belong to its assigned App origin");
   });
 });

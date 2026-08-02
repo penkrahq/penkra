@@ -7,30 +7,30 @@ import { normalizeWorkspaceRootForComparison } from "@penkra/shared/threadWorksp
 import type { AppState } from "./storeState";
 import type { Project } from "./types";
 
-const PERSISTED_STATE_KEY = "penkra:renderer-state:v8";
-const persistedExpandedProjectCwds = new Set<string>();
-const persistedProjectOrderCwds: string[] = [];
-const persistedProjectOrderByCwd = new Map<string, number>();
-const persistedProjectNamesByCwd = new Map<string, string>();
+const PERSISTED_STATE_KEY = "penkra:renderer-state:v9";
+const persistedExpandedProjectIds = new Set<string>();
+const persistedProjectOrderIds: string[] = [];
+const persistedProjectOrderById = new Map<string, number>();
+const persistedProjectNamesById = new Map<string, string>();
 
 export interface RememberedProjectUiState {
   expandedProjectCount: number;
-  isProjectExpanded: (cwdKey: string) => boolean;
+  isProjectExpanded: (projectId: string) => boolean;
   projectOrderCount: number;
-  projectOrderIndexForCwd: (cwdKey: string) => number | undefined;
-  projectNameForCwd: (cwdKey: string) => string | undefined;
+  projectOrderIndexForId: (projectId: string) => number | undefined;
+  projectNameForId: (projectId: string) => string | undefined;
 }
 
 const rememberedProjectUiState: RememberedProjectUiState = {
   get expandedProjectCount() {
-    return persistedExpandedProjectCwds.size;
+    return persistedExpandedProjectIds.size;
   },
-  isProjectExpanded: (cwdKey) => persistedExpandedProjectCwds.has(cwdKey),
+  isProjectExpanded: (projectId) => persistedExpandedProjectIds.has(projectId),
   get projectOrderCount() {
-    return persistedProjectOrderCwds.length;
+    return persistedProjectOrderIds.length;
   },
-  projectOrderIndexForCwd: (cwdKey) => persistedProjectOrderByCwd.get(cwdKey),
-  projectNameForCwd: (cwdKey) => persistedProjectNamesByCwd.get(cwdKey),
+  projectOrderIndexForId: (projectId) => persistedProjectOrderById.get(projectId),
+  projectNameForId: (projectId) => persistedProjectNamesById.get(projectId),
 };
 
 export function projectCwdKey(cwd: string): string {
@@ -42,32 +42,32 @@ export function getRememberedProjectUiState(): RememberedProjectUiState {
 }
 
 export function rememberProjectUiState(
-  projects: ReadonlyArray<Pick<Project, "cwd" | "expanded">>,
+  projects: ReadonlyArray<Pick<Project, "id" | "expanded">>,
 ): void {
   for (const project of projects) {
-    const cwdKey = projectCwdKey(project.cwd);
+    const projectId = project.id;
     if (project.expanded) {
-      persistedExpandedProjectCwds.add(cwdKey);
+      persistedExpandedProjectIds.add(projectId);
     } else {
-      persistedExpandedProjectCwds.delete(cwdKey);
+      persistedExpandedProjectIds.delete(projectId);
     }
-    if (!persistedProjectOrderByCwd.has(cwdKey)) {
-      persistedProjectOrderByCwd.set(cwdKey, persistedProjectOrderCwds.length);
-      persistedProjectOrderCwds.push(cwdKey);
+    if (!persistedProjectOrderById.has(projectId)) {
+      persistedProjectOrderById.set(projectId, persistedProjectOrderIds.length);
+      persistedProjectOrderIds.push(projectId);
     }
   }
 }
 
 export function rememberProjectLocalNames(
-  projects: ReadonlyArray<Pick<Project, "cwd" | "localName">>,
+  projects: ReadonlyArray<Pick<Project, "id" | "localName">>,
 ): void {
   for (const project of projects) {
-    const cwdKey = projectCwdKey(project.cwd);
+    const projectId = project.id;
     const localName = project.localName?.trim() ?? "";
     if (localName.length > 0) {
-      persistedProjectNamesByCwd.set(cwdKey, localName);
+      persistedProjectNamesById.set(projectId, localName);
     } else {
-      persistedProjectNamesByCwd.delete(cwdKey);
+      persistedProjectNamesById.delete(projectId);
     }
   }
 }
@@ -78,31 +78,34 @@ export function readPersistedState(initialState: AppState): AppState {
     const raw = window.localStorage.getItem(PERSISTED_STATE_KEY);
     if (!raw) return initialState;
     const parsed = JSON.parse(raw) as {
-      expandedProjectCwds?: string[];
-      projectOrderCwds?: string[];
-      projectNamesByCwd?: Record<string, string>;
+      expandedProjectIds?: string[];
+      projectOrderIds?: string[];
+      projectNamesById?: Record<string, string>;
     };
-    persistedExpandedProjectCwds.clear();
-    persistedProjectOrderCwds.length = 0;
-    persistedProjectOrderByCwd.clear();
-    persistedProjectNamesByCwd.clear();
-    for (const cwd of parsed.expandedProjectCwds ?? []) {
-      if (typeof cwd === "string" && cwd.length > 0) {
-        persistedExpandedProjectCwds.add(projectCwdKey(cwd));
+    persistedExpandedProjectIds.clear();
+    persistedProjectOrderIds.length = 0;
+    persistedProjectOrderById.clear();
+    persistedProjectNamesById.clear();
+    for (const projectId of parsed.expandedProjectIds ?? []) {
+      if (typeof projectId === "string" && projectId.length > 0) {
+        persistedExpandedProjectIds.add(projectId);
       }
     }
-    for (const cwd of parsed.projectOrderCwds ?? []) {
-      const cwdKey = typeof cwd === "string" ? projectCwdKey(cwd) : "";
-      if (cwdKey.length > 0 && !persistedProjectOrderByCwd.has(cwdKey)) {
-        persistedProjectOrderByCwd.set(cwdKey, persistedProjectOrderCwds.length);
-        persistedProjectOrderCwds.push(cwdKey);
+    for (const projectId of parsed.projectOrderIds ?? []) {
+      if (
+        typeof projectId === "string" &&
+        projectId.length > 0 &&
+        !persistedProjectOrderById.has(projectId)
+      ) {
+        persistedProjectOrderById.set(projectId, persistedProjectOrderIds.length);
+        persistedProjectOrderIds.push(projectId);
       }
     }
-    for (const [cwd, name] of Object.entries(parsed.projectNamesByCwd ?? {})) {
-      if (typeof cwd !== "string" || cwd.length === 0 || typeof name !== "string") continue;
+    for (const [projectId, name] of Object.entries(parsed.projectNamesById ?? {})) {
+      if (projectId.length === 0 || typeof name !== "string") continue;
       const trimmedName = name.trim();
       if (trimmedName.length === 0) continue;
-      persistedProjectNamesByCwd.set(projectCwdKey(cwd), trimmedName);
+      persistedProjectNamesById.set(projectId, trimmedName);
     }
     return { ...initialState };
   } catch {
@@ -118,11 +121,11 @@ export function persistState(state: AppState): void {
     window.localStorage.setItem(
       PERSISTED_STATE_KEY,
       JSON.stringify({
-        expandedProjectCwds: state.projects
+        expandedProjectIds: state.projects
           .filter((project) => project.expanded)
-          .map((project) => project.cwd),
-        projectOrderCwds: state.projects.map((project) => project.cwd),
-        projectNamesByCwd: Object.fromEntries(persistedProjectNamesByCwd),
+          .map((project) => project.id),
+        projectOrderIds: state.projects.map((project) => project.id),
+        projectNamesById: Object.fromEntries(persistedProjectNamesById),
       }),
     );
   } catch {

@@ -15,7 +15,45 @@ function fixture() {
       };
     },
     ready,
-    queryPermission: vi.fn(async (name) => ({ name, declared: true, required: false, state: "granted" })),
+    queryPermission: vi.fn(async (name) => ({
+      name,
+      declared: true,
+      required: false,
+      state: "granted" as const,
+    })),
+    requestPermission: vi.fn(async (name) => ({
+      name,
+      declared: true,
+      required: false,
+      state: "granted" as const,
+    })),
+    getIdentity: vi.fn(async () => ({ subject: "sub_test", space: "space_test" })),
+    settingGet: vi.fn(async () => "value"),
+    settingSet: vi.fn(async () => undefined),
+    settingReset: vi.fn(async () => undefined),
+    secretGet: vi.fn(async () => null),
+    secretSet: vi.fn(async () => undefined),
+    secretDelete: vi.fn(async () => undefined),
+    filePick: vi.fn(async () => null),
+    fileList: vi.fn(async () => []),
+    fileReadText: vi.fn(async () => ""),
+    fileWriteText: vi.fn(async () => undefined),
+    fileListDirectory: vi.fn(async () => []),
+    fileOpenChild: vi.fn(async () => ({ id: "child", kind: "file" as const, name: "child.txt" })),
+    fileRevoke: vi.fn(async () => undefined),
+    networkFetch: vi.fn(async () => ({
+      url: "https://example.com/",
+      status: 200,
+      headers: {},
+      body: new Uint8Array(),
+    })),
+    rawSocketExchange: vi.fn(async () => new Uint8Array()),
+    processRun: vi.fn(async () => ({
+      exitCode: 0,
+      signal: null,
+      stdout: new Uint8Array(),
+      stderr: new Uint8Array(),
+    })),
   });
   runtime.start();
   return {
@@ -39,7 +77,9 @@ function controllerRequest(input: unknown = { title: "Fix redirect" }) {
         id: "inv-1",
         app: "linear",
         operation: "issues.create",
-        spaceId: "personal",
+        caller: null,
+        subject: "sub_test",
+        space: "space_test",
         threadId: "thread-1",
         tabId: "target-tab",
       },
@@ -153,8 +193,9 @@ describe("AppPreloadRuntime", () => {
     test.host({ type: "cancel", id: "request-1", reason: "app-disabled" });
 
     await vi.waitFor(() => expect(signal?.aborted).toBe(true));
-    expect(test.sent.some((message) => message.type === "result" || message.type === "error"))
-      .toBe(false);
+    expect(test.sent.some((message) => message.type === "result" || message.type === "error")).toBe(
+      false,
+    );
   });
 
   it("dispatches point-to-point tab operations and navigation", async () => {

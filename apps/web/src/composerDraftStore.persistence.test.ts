@@ -1,4 +1,4 @@
-import { OrchestrationProposedPlanId, ProjectId, ThreadId } from "@penkra/contracts";
+import { OrchestrationProposedPlanId, ContainerId, ThreadId } from "@penkra/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { partializeComposerDraftStoreState, useComposerDraftStore } from "./composerDraftStore";
 import { normalizeCurrentPersistedComposerDraftStoreState } from "./composerDraftPersistence";
@@ -31,7 +31,7 @@ describe("composerDraftStore persisted-state hydration", () => {
   });
 
   it("hydrates project mappings, defaults, and persisted selections", () => {
-    const projectId = ProjectId.makeUnsafe("project-hydration");
+    const projectId = ContainerId.makeUnsafe("project-hydration");
     const threadId = ThreadId.makeUnsafe("thread-hydration");
     const mappingKey = `${projectId}::terminal`;
 
@@ -631,7 +631,7 @@ describe("composerDraftStore queued follow-ups", () => {
     });
     const store = useComposerDraftStore.getState();
 
-    store.setProjectDraftThreadId(ProjectId.makeUnsafe("queue-project"), threadId);
+    store.setProjectDraftThreadId(ContainerId.makeUnsafe("queue-project"), threadId);
     store.enqueueQueuedTurn(threadId, makeQueuedChatTurn("queued-chat-thread-clear", queuedImage));
     store.clearDraftThread(threadId);
 

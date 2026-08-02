@@ -3,7 +3,7 @@
 // Layer: UI state helpers
 // Exports: dock pane types, default-state factory, and immutable open/close/activate helpers.
 
-import type { ProjectId, ThreadId, TurnId } from "@penkra/contracts";
+import type { ContainerId, ThreadId, TurnId } from "@penkra/contracts";
 import { isPlainObject, sanitizeStringKeyedRecord } from "./persistedRecord";
 
 // Single source of truth for the dock pane kinds. The union type, the runtime
@@ -36,12 +36,12 @@ export interface RightDockPane {
   diffFilePath: string | null;
   // file panes preview one workspace-relative file.
   filePath: string | null;
-  pullRequestProjectId: ProjectId | null;
+  pullRequestProjectId: ContainerId | null;
   pullRequestRepository: string | null;
   pullRequestNumber: number | null;
   pullRequestInitialTab: PullRequestInitialTab | null;
   // Profile panes show the selected Penkra client/project.
-  profileProjectId: ProjectId | null;
+  profileProjectId: ContainerId | null;
   // App panes are stable host-owned renderer tabs.
   appId: string | null;
   appSlug: string | null;
@@ -107,7 +107,7 @@ function sanitizePersistedPane(value: unknown): RightDockPane | null {
     filePath: typeof candidate.filePath === "string" ? candidate.filePath : null,
     pullRequestProjectId:
       typeof candidate.pullRequestProjectId === "string"
-        ? (candidate.pullRequestProjectId as ProjectId)
+        ? (candidate.pullRequestProjectId as ContainerId)
         : null,
     pullRequestRepository:
       typeof candidate.pullRequestRepository === "string" ? candidate.pullRequestRepository : null,
@@ -125,7 +125,7 @@ function sanitizePersistedPane(value: unknown): RightDockPane | null {
         : null,
     profileProjectId:
       typeof candidate.profileProjectId === "string"
-        ? (candidate.profileProjectId as ProjectId)
+        ? (candidate.profileProjectId as ContainerId)
         : null,
     appId: typeof candidate.appId === "string" ? candidate.appId : null,
     appSlug: typeof candidate.appSlug === "string" ? candidate.appSlug : null,
@@ -177,11 +177,11 @@ export interface OpenPaneInput {
   diffTurnId?: TurnId | null;
   diffFilePath?: string | null;
   filePath?: string | null;
-  pullRequestProjectId?: ProjectId | null;
+  pullRequestProjectId?: ContainerId | null;
   pullRequestRepository?: string | null;
   pullRequestNumber?: number | null;
   pullRequestInitialTab?: PullRequestInitialTab | null;
-  profileProjectId?: ProjectId | null;
+  profileProjectId?: ContainerId | null;
   appId?: string | null;
   appSlug?: string | null;
   appName?: string | null;

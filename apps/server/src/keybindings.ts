@@ -84,8 +84,8 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "mod+i", command: "sidebar.importThread", when: "!terminalFocus" },
   { key: "mod+alt+arrowleft", command: "space.previous", when: "!terminalFocus" },
   { key: "mod+alt+arrowright", command: "space.next", when: "!terminalFocus" },
-  // Numbered space jumps address tabs in the switcher's visual order, so mod+alt+1 is
-  // always Void. Same `|| isMac` escape hatch as the new-surface chords below: Cmd
+  // Numbered Space jumps address persisted Spaces in their visual order. The same
+  // `|| isMac` escape hatch as the new-surface chords below means Cmd
   // chords never reach the PTY on macOS, while Ctrl+Alt+digit is AltGr territory on
   // Linux/Windows layouts and must keep yielding to focused terminals there.
   { key: "mod+alt+1", command: "space.jump.1", when: "!terminalFocus || isMac" },

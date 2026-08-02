@@ -16,11 +16,7 @@ describe("RIGHT_DOCK_ADD_MENU_KINDS", () => {
   it("keeps the canonical kind order minus context-only panes", () => {
     expect([...RIGHT_DOCK_ADD_MENU_KINDS]).toEqual(
       RIGHT_DOCK_PANE_KINDS.filter(
-        (kind) =>
-          kind !== "app" &&
-          kind !== "file" &&
-          kind !== "pullRequest" &&
-          kind !== "profile",
+        (kind) => kind !== "app" && kind !== "file" && kind !== "pullRequest" && kind !== "profile",
       ),
     );
   });

@@ -234,23 +234,15 @@ describe("ChatMarkdown", () => {
     expect(markup).not.toContain('class="katex"');
   });
 
-  it("keeps plan, diff, and transcript surfaces routed through the shared renderer", () => {
-    const planSidebarSource = readFileSync(new URL("./PlanSidebar.tsx", import.meta.url), "utf8");
-    const proposedPlanCardSource = readFileSync(
-      new URL("./chat/ProposedPlanCard.tsx", import.meta.url),
-      "utf8",
-    );
+  it("keeps proposed-plan, diff, and transcript content routed through the shared renderer", () => {
     const messagesTimelineSource = readFileSync(
       new URL("./chat/MessagesTimeline.tsx", import.meta.url),
       "utf8",
     );
 
-    expect(planSidebarSource).toContain('import ChatMarkdown from "./ChatMarkdown"');
-    expect(planSidebarSource).toContain("<ChatMarkdown");
-    expect(proposedPlanCardSource).toContain('import ChatMarkdown from "../ChatMarkdown"');
-    expect(proposedPlanCardSource).toContain("<ChatMarkdown");
     expect(messagesTimelineSource).toContain('import ChatMarkdown from "../ChatMarkdown"');
     expect(messagesTimelineSource).toContain("<ChatMarkdown");
+    expect(messagesTimelineSource).toContain('row.kind === "proposed-plan"');
   });
 });
 

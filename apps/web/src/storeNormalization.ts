@@ -20,7 +20,7 @@ import { deriveThreadSummaryMetadata } from "@penkra/shared/threadSummary";
 import { isStalePendingRequestFailureDetail } from "./lib/pendingInteraction";
 import { toAttachmentPreviewUrl } from "./lib/wsHttpUrl";
 import { hasLiveTurnTailWork } from "./session-logic";
-import { getRememberedProjectUiState, projectCwdKey } from "./storePersistence";
+import { getRememberedProjectUiState } from "./storePersistence";
 import type {
   ChatAttachment,
   ChatMessage,
@@ -59,7 +59,8 @@ const MAX_THREAD_ACTIVITIES = 2_000;
 const LOCAL_USER_MESSAGE_RETENTION_MS = 10_000;
 const PENDING_INTERACTION_REQUEST_KINDS = new Set(["approval.requested", "user-input.requested"]);
 
-function basenameOfPath(value: string): string | null {
+function basenameOfPath(value: string | null): string | null {
+  if (!value) return null;
   const segments = value.split(/[/\\]/).filter((segment) => segment.length > 0);
   return segments.at(-1) ?? null;
 }
@@ -315,10 +316,9 @@ export function normalizeProject(
   previous: Project | undefined,
 ): Project {
   const rememberedUiState = getRememberedProjectUiState();
-  const workspaceRootKey = projectCwdKey(incoming.workspaceRoot);
+  const workspaceRoot = incoming.workspaceRoot ?? "";
   const folderName = basenameOfPath(incoming.workspaceRoot) ?? incoming.title;
-  const localName =
-    previous?.localName ?? rememberedUiState.projectNameForCwd(workspaceRootKey) ?? null;
+  const localName = previous?.localName ?? rememberedUiState.projectNameForId(incoming.id) ?? null;
   const defaultModelSelection =
     incoming.defaultModelSelection === null
       ? null
@@ -327,7 +327,7 @@ export function normalizeProject(
   const expanded =
     previous?.expanded ??
     (rememberedUiState.expandedProjectCount > 0
-      ? rememberedUiState.isProjectExpanded(workspaceRootKey)
+      ? rememberedUiState.isProjectExpanded(incoming.id)
       : true);
 
   if (
@@ -338,7 +338,7 @@ export function normalizeProject(
     previous.remoteName === incoming.title &&
     previous.folderName === folderName &&
     previous.localName === localName &&
-    previous.cwd === incoming.workspaceRoot &&
+    previous.cwd === workspaceRoot &&
     previous.defaultModelSelection === defaultModelSelection &&
     previous.expanded === expanded &&
     (previous.isPinned ?? false) === (incoming.isPinned ?? false) &&
@@ -357,7 +357,7 @@ export function normalizeProject(
     remoteName: incoming.title,
     folderName,
     localName,
-    cwd: incoming.workspaceRoot,
+    cwd: workspaceRoot,
     defaultModelSelection,
     expanded,
     isPinned: incoming.isPinned ?? false,
@@ -1748,26 +1748,18 @@ export function mapProjects(
 ): Project[] {
   const rememberedUiState = getRememberedProjectUiState();
   const previousById = new Map(previous.map((project) => [project.id, project] as const));
-  const previousByCwd = new Map(
-    previous.map((project) => [projectCwdKey(project.cwd), project] as const),
-  );
   const previousOrderById = new Map(previous.map((project, index) => [project.id, index] as const));
-  const previousOrderByCwd = new Map(
-    previous.map((project, index) => [projectCwdKey(project.cwd), index] as const),
-  );
   const usePersistedOrder = previous.length === 0;
 
   const mappedProjects = incoming
     .map((project) => {
-      const existing =
-        previousById.get(project.id) ?? previousByCwd.get(projectCwdKey(project.workspaceRoot));
+      const existing = previousById.get(project.id);
       return normalizeProject(project, existing);
     })
     .map((project, incomingIndex) => {
-      const previousIndex =
-        previousOrderById.get(project.id) ?? previousOrderByCwd.get(projectCwdKey(project.cwd));
+      const previousIndex = previousOrderById.get(project.id);
       const persistedIndex = usePersistedOrder
-        ? rememberedUiState.projectOrderIndexForCwd(projectCwdKey(project.cwd))
+        ? rememberedUiState.projectOrderIndexForId(project.id)
         : undefined;
       const orderIndex =
         previousIndex ??

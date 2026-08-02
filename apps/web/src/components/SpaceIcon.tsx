@@ -4,10 +4,9 @@
 import { SPACE_ICON_NAMES, type SpaceIconName } from "@penkra/contracts";
 
 import { CentralIcon } from "~/lib/central-icons";
-import { DEFAULT_VOID_SPACE_ICON, type VoidSpaceIconName } from "~/lib/spaceGrouping";
 import { cn } from "~/lib/utils";
 
-export type SpaceIconValue = VoidSpaceIconName;
+export type SpaceIconValue = SpaceIconName;
 
 /**
  * Spoken names for the curated icon set. The asset basenames leak numbering and
@@ -47,15 +46,6 @@ export const SPACE_ICON_OPTIONS: ReadonlyArray<SpaceIconOption> = SPACE_ICON_NAM
   name,
   label: SPACE_ICON_LABELS[name],
 }));
-
-/**
- * Void's own glyph, offered only when editing Void: it is the one icon that means "nothing
- * is filed here", so a stored Space wearing it would be lying about itself.
- */
-export const VOID_SPACE_ICON_OPTIONS: ReadonlyArray<SpaceIconOption> = [
-  { name: DEFAULT_VOID_SPACE_ICON, label: "Black hole" },
-  ...SPACE_ICON_OPTIONS,
-];
 
 export function SpaceIcon(props: {
   icon: SpaceIconValue;

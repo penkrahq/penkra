@@ -128,14 +128,6 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
           "Database access now proves exclusive ownership, migration backups and resumable artifacts receive broader retention and reclamation coverage, and orphan cleanup stays bounded to verified Penkra-owned paths.",
       },
       {
-        id: "custom-void-space",
-        title: "Make the Void space your own",
-        description:
-          "Rename Void and choose its icon so unassigned projects fit the way you organize your workspace.",
-        details:
-          "The custom presentation is stored locally and appears consistently in the sidebar, Space switcher, project pickers, and creation flows, with validation and a one-step reset to the default.",
-      },
-      {
         id: "readability-and-interface-polish",
         title: "Small details are calmer and clearer",
         description:
@@ -206,10 +198,9 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
       {
         id: "project-spaces",
         title: "Organize projects into Spaces",
-        description:
-          "Create named, icon-based Spaces for the parts of your work that belong together, while unassigned projects remain easy to find in Void.",
+        description: "Create persisted Spaces for the parts of your work that belong together.",
         details:
-          "Spaces support persisted ordering, project assignment, drag-and-drop movement, bulk moves, activity indicators, inline creation while adding a project, and numbered keyboard shortcuts for direct switching.",
+          "Spaces support persisted ordering, folder assignment, drag-and-drop movement, bulk moves, activity indicators, inline creation while adding a folder, and numbered keyboard shortcuts for direct switching.",
       },
       {
         id: "claude-subagents-workflows",

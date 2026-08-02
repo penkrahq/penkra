@@ -145,11 +145,7 @@ export class AppRuntimeLifecycle {
     }
   }
 
-  async #activate(
-    appId: string,
-    spaceId: string,
-    snapshot: AppInstallationState,
-  ): Promise<void> {
+  async #activate(appId: string, spaceId: string, snapshot: AppInstallationState): Promise<void> {
     const key = runtimeKey(appId, spaceId);
     if (this.#active.has(key)) return;
     const installedApp = snapshot.packagesByAppId[appId];
@@ -157,7 +153,8 @@ export class AppRuntimeLifecycle {
     await this.#assertAppAllowed(installedApp);
 
     const activeSession = await this.#sessions.activate({ installedApp, spaceId });
-    let releaseController: (() => Promise<void> | void) | null = null;
+    let releaseController: ((reason?: OperationCancellationCode) => Promise<void> | void) | null =
+      null;
     const token = {};
     let activationComplete = false;
     let unexpectedExit: Error | null = null;
@@ -177,12 +174,16 @@ export class AppRuntimeLifecycle {
     } catch (error) {
       const cleanupFailures: unknown[] = [];
       if (releaseController) {
-        await Promise.resolve(releaseController("host-stopped"))
-          .catch((cause) => cleanupFailures.push(cause));
+        await Promise.resolve(releaseController("host-stopped")).catch((cause) =>
+          cleanupFailures.push(cause),
+        );
       }
       await this.#sessions.deactivate(appId, spaceId).catch((cause) => cleanupFailures.push(cause));
       if (cleanupFailures.length > 0) {
-        throw new AggregateError([error, ...cleanupFailures], `App activation failed and cleanup also failed.`);
+        throw new AggregateError(
+          [error, ...cleanupFailures],
+          `App activation failed and cleanup also failed.`,
+        );
       }
       throw error;
     }
@@ -206,17 +207,22 @@ export class AppRuntimeLifecycle {
       } catch (cause) {
         failures.push(cause);
       }
-      const crash = failures.length === 0
-        ? error
-        : new AggregateError([error, ...failures], error.message);
+      const crash =
+        failures.length === 0 ? error : new AggregateError([error, ...failures], error.message);
       if (state) {
         const event = { appId, spaceId, error: crash, state };
         for (const listener of this.#unexpectedDisableListeners) listener(event);
       } else {
-        console.error(`[penkra-app] Failed to persist crash disable for ${appId} in Space ${spaceId}.`, crash);
+        console.error(
+          `[penkra-app] Failed to persist crash disable for ${appId} in Space ${spaceId}.`,
+          crash,
+        );
       }
     }).catch((cause) => {
-      console.error(`[penkra-app] Failed to reconcile crashed controller ${appId} in Space ${spaceId}.`, cause);
+      console.error(
+        `[penkra-app] Failed to reconcile crashed controller ${appId} in Space ${spaceId}.`,
+        cause,
+      );
     });
   }
 

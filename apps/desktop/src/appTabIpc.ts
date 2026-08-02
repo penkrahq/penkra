@@ -42,6 +42,19 @@ export function parseAppTabIdRequest(input: unknown): { tabId: string } {
   return { tabId: string(record(input), "tabId") };
 }
 
+export function parseNavigateAppTabRequest(input: unknown): {
+  tabId: string;
+  route: string;
+  state?: unknown;
+} {
+  const value = record(input);
+  return {
+    tabId: string(value, "tabId"),
+    route: string(value, "route"),
+    ...(value.state === undefined ? {} : { state: value.state }),
+  };
+}
+
 export function parseSetAppTabVisibleRequest(input: unknown): {
   tabId: string;
   visible: boolean;

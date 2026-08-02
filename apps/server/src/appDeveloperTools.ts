@@ -1,6 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import { createWriteStream } from "node:fs";
+import { spawn } from "node:child_process";
 import * as FS from "node:fs/promises";
+import * as OS from "node:os";
 import * as Path from "node:path";
 import { pipeline } from "node:stream/promises";
 
@@ -20,8 +22,20 @@ const MAX_MANIFEST_BYTES = 256 * 1024;
 const MAX_PATH_BYTES = 1_024;
 const ZIP_EPOCH = new Date("1980-01-01T00:00:00.000Z");
 const FORBIDDEN_EXECUTABLE_SUFFIXES = [
-  ".app", ".bat", ".cmd", ".command", ".dmg", ".dll", ".dylib", ".exe",
-  ".msi", ".node", ".pkg", ".ps1", ".sh", ".so",
+  ".app",
+  ".bat",
+  ".cmd",
+  ".command",
+  ".dmg",
+  ".dll",
+  ".dylib",
+  ".exe",
+  ".msi",
+  ".node",
+  ".pkg",
+  ".ps1",
+  ".sh",
+  ".so",
 ] as const;
 
 export interface AppPackageEvidence {
@@ -38,6 +52,69 @@ export interface AppPackageEvidence {
   permissions: ReadonlyArray<{ permission: string; required: boolean; rationale: string }>;
 }
 
+export interface AppIntegrationTestEvidence {
+  ok: true;
+  appId: string;
+  version: string;
+  tab: { id: string; status: "ready" };
+  diagnostics: ReadonlyArray<{ kind: string }>;
+  profileRemoved: true;
+}
+
+export async function testAppDirectory(input: {
+  directory: string;
+  desktopDirectory?: string;
+  timeoutMs?: number;
+}): Promise<AppIntegrationTestEvidence> {
+  const source = await FS.realpath(Path.resolve(input.directory));
+  const desktopDirectory = await resolveDesktopDeveloperDirectory(input.desktopDirectory);
+  const host = Path.join(desktopDirectory, "dist-electron", "appTestHost.js");
+  const preload = Path.join(desktopDirectory, "dist-electron", "appPreload.js");
+  await Promise.all(
+    [host, preload].map(async (path) => {
+      const stat = await FS.stat(path).catch(() => null);
+      if (!stat?.isFile())
+        throw new Error("Build @penkra/desktop before running `penkra app test`.");
+    }),
+  );
+  const electron = await resolveElectronExecutable(desktopDirectory);
+  const profile = await FS.mkdtemp(Path.join(OS.tmpdir(), "penkra-app-test-"));
+  const resultPath = Path.join(profile, "result.json");
+  try {
+    await spawnAppTestHost({
+      electron,
+      host,
+      source,
+      profile,
+      resultPath,
+      timeoutMs: input.timeoutMs ?? 30_000,
+    });
+    const result = JSON.parse(await FS.readFile(resultPath, "utf8")) as Record<string, unknown>;
+    if (result.ok !== true)
+      throw new Error(
+        typeof result.error === "string" ? result.error : "The App integration host failed.",
+      );
+    const tab = result.tab as Record<string, unknown> | undefined;
+    if (!tab || tab.status !== "ready" || typeof tab.id !== "string")
+      throw new Error("The App tab did not reach ready state.");
+    const diagnostics = Array.isArray(result.diagnostics)
+      ? (result.diagnostics as Array<{ kind: string }>)
+      : [];
+    if (!diagnostics.some((entry) => entry.kind === "tab-ready"))
+      throw new Error("The App test did not produce tab-ready diagnostics.");
+    return {
+      ok: true,
+      appId: String(result.appId),
+      version: String(result.version),
+      tab: { id: tab.id, status: "ready" },
+      diagnostics,
+      profileRemoved: true,
+    };
+  } finally {
+    await FS.rm(profile, { recursive: true, force: true });
+  }
+}
+
 export async function packageAppDirectory(input: {
   directory: string;
   output: string;
@@ -45,7 +122,10 @@ export async function packageAppDirectory(input: {
   const root = await FS.realpath(Path.resolve(input.directory));
   const requestedOutput = Path.resolve(input.output);
   await FS.mkdir(Path.dirname(requestedOutput), { recursive: true });
-  const output = Path.join(await FS.realpath(Path.dirname(requestedOutput)), Path.basename(requestedOutput));
+  const output = Path.join(
+    await FS.realpath(Path.dirname(requestedOutput)),
+    Path.basename(requestedOutput),
+  );
   if (isWithin(root, output)) {
     throw new Error("The App package output must be outside the packaged directory.");
   }
@@ -101,19 +181,25 @@ async function readPackageFiles(root: string): Promise<PackageFile[]> {
         continue;
       }
       if (!entry.isFile()) throw new Error(`Unsupported package entry: ${relative}`);
-      if (++fileCount > MAX_ENTRY_COUNT) throw new Error(`App packages may contain at most ${MAX_ENTRY_COUNT} files.`);
-      if (Buffer.byteLength(relative, "utf8") > MAX_PATH_BYTES) throw new Error(`Package path is too long: ${relative}`);
+      if (++fileCount > MAX_ENTRY_COUNT)
+        throw new Error(`App packages may contain at most ${MAX_ENTRY_COUNT} files.`);
+      if (Buffer.byteLength(relative, "utf8") > MAX_PATH_BYTES)
+        throw new Error(`Package path is too long: ${relative}`);
       const portable = relative.toLocaleLowerCase("en-US");
-      if (portablePaths.has(portable)) throw new Error(`Package paths collide across filesystems: ${relative}`);
+      if (portablePaths.has(portable))
+        throw new Error(`Package paths collide across filesystems: ${relative}`);
       portablePaths.add(portable);
       if (FORBIDDEN_EXECUTABLE_SUFFIXES.some((suffix) => portable.endsWith(suffix))) {
         throw new Error(`Native executables and scripts are not allowed: ${relative}`);
       }
       const bytes = await FS.readFile(absolute);
-      if (bytes.byteLength > MAX_ENTRY_BYTES) throw new Error(`Package entry is too large: ${relative}`);
-      if (executableFormat(bytes.subarray(0, 8))) throw new Error(`Native executable content is not allowed: ${relative}`);
+      if (bytes.byteLength > MAX_ENTRY_BYTES)
+        throw new Error(`Package entry is too large: ${relative}`);
+      if (executableFormat(bytes.subarray(0, 8)))
+        throw new Error(`Native executable content is not allowed: ${relative}`);
       totalBytes += bytes.byteLength;
-      if (totalBytes > MAX_TOTAL_BYTES) throw new Error(`Expanded App package exceeds ${MAX_TOTAL_BYTES} bytes.`);
+      if (totalBytes > MAX_TOTAL_BYTES)
+        throw new Error(`Expanded App package exceeds ${MAX_TOTAL_BYTES} bytes.`);
       files.push({ path: relative, bytes });
     }
   };
@@ -121,11 +207,20 @@ async function readPackageFiles(root: string): Promise<PackageFile[]> {
   return files.sort((left, right) => left.path.localeCompare(right.path, "en"));
 }
 
-function requiredDocuments(files: PackageFile[]): { manifest: Buffer; readme: Buffer; instructions: Buffer } {
+function requiredDocuments(files: PackageFile[]): {
+  manifest: Buffer;
+  readme: Buffer;
+  instructions: Buffer;
+} {
   const byPath = new Map(files.map((file) => [file.path, file.bytes]));
   const manifest = requireDocument(byPath, "penkra-app.json", MAX_MANIFEST_BYTES, false);
   const readme = requireDocument(byPath, "README.md", PENKRA_APP_README_MAX_BYTES, true);
-  const instructions = requireDocument(byPath, "INSTRUCTIONS.md", PENKRA_APP_INSTRUCTIONS_MAX_BYTES, true);
+  const instructions = requireDocument(
+    byPath,
+    "INSTRUCTIONS.md",
+    PENKRA_APP_INSTRUCTIONS_MAX_BYTES,
+    true,
+  );
   return { manifest, readme, instructions };
 }
 
@@ -140,7 +235,8 @@ function requireDocument(
   if (bytes.byteLength > maximumBytes) throw new Error(`${path} exceeds ${maximumBytes} bytes.`);
   if (requireText) {
     const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-    if (text.includes("\0") || !text.trim()) throw new Error(`${path} must be nonempty UTF-8 text.`);
+    if (text.includes("\0") || !text.trim())
+      throw new Error(`${path} must be nonempty UTF-8 text.`);
   }
   return bytes;
 }
@@ -150,7 +246,9 @@ function parseManifest(bytes: Buffer): PenkraAppManifest {
   try {
     manifest = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
   } catch (error) {
-    throw new Error(`penkra-app.json is not valid UTF-8 JSON: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(
+      `penkra-app.json is not valid UTF-8 JSON: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
   assertAppManifest(manifest);
   if (!valid(manifest.version)) throw new Error("App manifest version must be valid SemVer.");
@@ -166,9 +264,11 @@ function assertReferencedFiles(manifest: PenkraAppManifest, files: PackageFile[]
     manifest.entrypoints.app,
     manifest.entrypoints.operations,
     ...manifest.icons.map((icon) => icon.src),
+    ...(manifest.contributions?.skills ?? []).map((skill) => `${skill.path}/SKILL.md`),
   ].filter((path): path is string => Boolean(path));
   for (const reference of references) {
-    if (!paths.has(reference)) throw new Error(`Manifest reference is missing from the package: ${reference}`);
+    if (!paths.has(reference))
+      throw new Error(`Manifest reference is missing from the package: ${reference}`);
   }
 }
 
@@ -191,9 +291,83 @@ function isWithin(root: string, candidate: string): boolean {
 }
 
 function executableFormat(header: Buffer): boolean {
-  if (header.length >= 4 && header.subarray(0, 4).equals(Buffer.from([0x7f, 0x45, 0x4c, 0x46]))) return true;
+  if (header.length >= 4 && header.subarray(0, 4).equals(Buffer.from([0x7f, 0x45, 0x4c, 0x46])))
+    return true;
   if (header.length >= 2 && header[0] === 0x4d && header[1] === 0x5a) return true;
   if (header.length < 4) return false;
-  return [0xfeedface, 0xfeedfacf, 0xcefaedfe, 0xcffaedfe, 0xcafebabe, 0xbebafeca]
-    .includes(header.readUInt32BE(0));
+  return [0xfeedface, 0xfeedfacf, 0xcefaedfe, 0xcffaedfe, 0xcafebabe, 0xbebafeca].includes(
+    header.readUInt32BE(0),
+  );
+}
+
+async function resolveDesktopDeveloperDirectory(explicit?: string): Promise<string> {
+  const candidates = [
+    explicit,
+    process.env.PENKRA_DESKTOP_DEVELOPER_DIR,
+    Path.join(process.cwd(), "apps", "desktop"),
+  ].filter((value): value is string => Boolean(value));
+  for (const candidate of candidates) {
+    const resolved = Path.resolve(candidate);
+    const packageJson = await FS.stat(Path.join(resolved, "package.json")).catch(() => null);
+    if (packageJson?.isFile()) return resolved;
+  }
+  throw new Error("Set PENKRA_DESKTOP_DEVELOPER_DIR to a built @penkra/desktop checkout.");
+}
+
+async function resolveElectronExecutable(desktopDirectory: string): Promise<string> {
+  const electronPackage = Path.join(desktopDirectory, "node_modules", "electron");
+  const relative = (await FS.readFile(Path.join(electronPackage, "path.txt"), "utf8")).trim();
+  const executable = Path.join(electronPackage, "dist", relative);
+  const stat = await FS.stat(executable);
+  if (!stat.isFile()) throw new Error("Electron executable is unavailable.");
+  return executable;
+}
+
+function spawnAppTestHost(input: {
+  electron: string;
+  host: string;
+  source: string;
+  profile: string;
+  resultPath: string;
+  timeoutMs: number;
+}): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const environment: NodeJS.ProcessEnv = {
+      ...process.env,
+      PENKRA_APP_TEST_SOURCE: input.source,
+      PENKRA_APP_TEST_PROFILE: input.profile,
+      PENKRA_APP_TEST_RESULT: input.resultPath,
+    };
+    delete environment.ELECTRON_RUN_AS_NODE;
+    const child = spawn(input.electron, [input.host], {
+      cwd: Path.dirname(input.host),
+      env: environment,
+      shell: false,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let output = "";
+    const append = (chunk: Buffer) => {
+      output = `${output}${chunk.toString("utf8")}`.slice(-8_192);
+    };
+    child.stdout?.on("data", append);
+    child.stderr?.on("data", append);
+    const timeout = setTimeout(() => {
+      child.kill("SIGKILL");
+      reject(new Error(`App integration test exceeded ${input.timeoutMs} ms.\n${output}`));
+    }, input.timeoutMs);
+    child.once("error", (error) => {
+      clearTimeout(timeout);
+      reject(error);
+    });
+    child.once("exit", (code, signal) => {
+      clearTimeout(timeout);
+      if (code === 0) resolve();
+      else
+        reject(
+          new Error(
+            `App integration host failed${signal ? ` with ${signal}` : ` with exit code ${code ?? "unknown"}`}.\n${output}`,
+          ),
+        );
+    });
+  });
 }

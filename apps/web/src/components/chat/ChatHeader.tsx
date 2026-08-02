@@ -5,7 +5,7 @@
 
 import {
   type EditorId,
-  type ProjectId,
+  type ContainerId,
   type ProjectScript,
   PROVIDER_DISPLAY_NAMES,
   type ProviderKind,
@@ -122,7 +122,7 @@ interface ChatHeaderProps {
   // Editor-rail chat controls rendered beside the title: a "new chat" button and
   // a project chat-history menu. Provided only by the editor workspace chat pane.
   editorChatControls?: {
-    projectId: ProjectId;
+    projectId: ContainerId;
     onNewChat: () => void;
     onOpenChat: (threadId: ThreadId) => void;
   } | null;
@@ -144,7 +144,7 @@ type EditorRailChatTab = EditorRailChatTabSnapshot;
 
 function updateStoredEditorRailChatTabs(
   setOpenChatTabs: Dispatch<SetStateAction<ReadonlyArray<EditorRailChatTab>>>,
-  projectId: ProjectId,
+  projectId: ContainerId,
   updater: (current: ReadonlyArray<EditorRailChatTab>) => ReadonlyArray<EditorRailChatTab>,
 ): void {
   setOpenChatTabs((current) => {
@@ -157,7 +157,7 @@ function updateStoredEditorRailChatTabs(
 // Compact recent-chats picker for the editor rail; selecting a thread keeps the
 // editor view because the caller's navigation preserves the `view` search param.
 function EditorChatHistoryMenu(props: {
-  projectId: ProjectId;
+  projectId: ContainerId;
   activeThreadId: ThreadId;
   onNavigateToThread: (threadId: ThreadId) => void;
 }) {
@@ -186,7 +186,7 @@ function EditorChatHistoryMenu(props: {
       />
       <ComposerPickerMenuPopup align="start" side="bottom" sideOffset={6} className="w-72 min-w-72">
         {historyThreads.length === 0 ? (
-          <MenuItem disabled>No chats in this project yet</MenuItem>
+          <MenuItem disabled>No chats in this folder yet</MenuItem>
         ) : (
           historyThreads.map((thread) => (
             <MenuItem
@@ -219,7 +219,7 @@ function EditorChatHistoryMenu(props: {
 }
 
 function EditorRailTabs(props: {
-  projectId: ProjectId;
+  projectId: ContainerId;
   activeThreadId: ThreadId;
   activeThreadTitle: string;
   activeProvider: ProviderKind;
@@ -547,7 +547,7 @@ export function ChatHeader({
       />
       <TooltipPopup side="bottom">
         {!isGitRepo
-          ? "Diff panel is unavailable because this project is not a git repository."
+          ? "Diff panel is unavailable because this folder is not a git repository."
           : diffDisabledReason && !diffOpen
             ? diffDisabledReason
             : diffToggleShortcutLabel

@@ -76,10 +76,7 @@ async function requireContainedRegularFile(
   candidatePath: string,
 ): Promise<string> {
   const canonicalPath = await FS.promises.realpath(candidatePath);
-  if (
-    canonicalPath !== canonicalRoot &&
-    !canonicalPath.startsWith(`${canonicalRoot}${Path.sep}`)
-  ) {
+  if (canonicalPath !== canonicalRoot && !canonicalPath.startsWith(`${canonicalRoot}${Path.sep}`)) {
     throw new Error("Resolved App package file escapes its verified package root.");
   }
   const stats = await FS.promises.stat(canonicalPath);

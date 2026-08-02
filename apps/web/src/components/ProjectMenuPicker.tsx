@@ -1,7 +1,7 @@
 // FILE: ProjectMenuPicker.tsx
 // Purpose: Shared searchable project picker, grouped by the active and other Spaces.
 
-import type { ProjectId, SpaceId } from "@penkra/contracts";
+import type { ContainerId, SpaceId } from "@penkra/contracts";
 import { Fragment, type ReactElement, type ReactNode, useMemo, useState } from "react";
 
 import { ComposerPickerMenuPopup } from "~/components/chat/ComposerPickerMenuPopup";
@@ -18,11 +18,9 @@ import {
 import { groupItemsBySpace, resolveActiveSpaceId, spaceDisplayName } from "~/lib/spaceGrouping";
 import { useSpacesUiStore } from "~/spacesUiStore";
 import { useStore } from "~/store";
-import { useVoidSpace } from "~/voidSpaceStore";
-import { SpaceIcon } from "./SpaceIcon";
 
 export interface ProjectMenuPickerOption {
-  readonly id: ProjectId;
+  readonly id: ContainerId;
   readonly name: string;
   readonly spaceId?: SpaceId | null;
   readonly spaceName?: string;
@@ -35,8 +33,8 @@ interface ResolvedProjectOption extends ProjectMenuPickerOption {
 
 export function ProjectMenuPicker(props: {
   projectOptions: ReadonlyArray<ProjectMenuPickerOption>;
-  selectedProjectId: ProjectId | null;
-  onProjectIdChange: (projectId: ProjectId) => void;
+  selectedProjectId: ContainerId | null;
+  onProjectIdChange: (projectId: ContainerId) => void;
   /** Rendered through MenuTrigger's `render` slot so each surface owns its trigger chrome. */
   trigger: ReactElement;
   /** Content merged into the trigger element (label, chevron, …). */
@@ -71,15 +69,14 @@ export function ProjectMenuPicker(props: {
 
 function ProjectMenuPickerList(props: {
   projectOptions: ReadonlyArray<ProjectMenuPickerOption>;
-  selectedProjectId: ProjectId | null;
-  onProjectIdChange: (projectId: ProjectId) => void;
+  selectedProjectId: ContainerId | null;
+  onProjectIdChange: (projectId: ContainerId) => void;
 }) {
   const [query, setQuery] = useState("");
   const projects = useStore((state) => state.projects);
   const spaces = useStore((state) => state.spaces);
   const storedActiveSpaceId = useSpacesUiStore((state) => state.activeSpaceId);
   const activeSpaceId = resolveActiveSpaceId(storedActiveSpaceId, spaces);
-  const voidSpace = useVoidSpace();
 
   const groupedOptions = useMemo(() => {
     const normalizedQuery = query.trim().toLocaleLowerCase();
@@ -92,11 +89,13 @@ function ProjectMenuPickerList(props: {
           option.spaceId !== undefined
             ? option.spaceId
             : (projectById.get(option.id)?.spaceId ?? null);
+        if (resolvedSpaceId === null) {
+          throw new Error(`Folder '${option.id}' is missing its required Space assignment.`);
+        }
         return {
           ...option,
           resolvedSpaceId,
-          resolvedSpaceName:
-            option.spaceName ?? spaceDisplayName(resolvedSpaceId, spaces, voidSpace),
+          resolvedSpaceName: option.spaceName ?? spaceDisplayName(resolvedSpaceId, spaces),
         };
       })
       .filter(
@@ -111,13 +110,12 @@ function ProjectMenuPickerList(props: {
       spaces,
       activeSpaceId,
       spaceIdOf: (option) => option.resolvedSpaceId,
-      voidSpace,
     });
-  }, [activeSpaceId, projects, props.projectOptions, query, spaces, voidSpace]);
+  }, [activeSpaceId, projects, props.projectOptions, query, spaces]);
 
   return (
     <PickerPanelShell
-      searchPlaceholder="Search projects"
+      searchPlaceholder="Search folders"
       query={query}
       onQueryChange={setQuery}
       // Lets Arrow/Enter fall through to the menu so the search field and the
@@ -141,8 +139,7 @@ function ProjectMenuPickerList(props: {
             <Fragment key={group.key}>
               {index > 0 ? <MenuSeparator /> : null}
               <MenuGroup>
-                <MenuGroupLabel className="flex items-center gap-1.5">
-                  <SpaceIcon icon={group.icon} className="size-3 shrink-0" />
+                <MenuGroupLabel>
                   <span className="min-w-0 truncate">{group.label}</span>
                 </MenuGroupLabel>
                 {group.items.map((option) => (
@@ -156,7 +153,7 @@ function ProjectMenuPickerList(props: {
         </MenuRadioGroup>
       ) : (
         <p className="px-3 py-6 text-center text-[length:var(--app-font-size-ui-sm,11px)] text-muted-foreground/60">
-          {props.projectOptions.length === 0 ? "No projects yet" : "No matching projects"}
+          {props.projectOptions.length === 0 ? "No folders yet" : "No matching folders"}
         </p>
       )}
     </PickerPanelShell>

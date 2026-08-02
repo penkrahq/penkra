@@ -61,11 +61,7 @@ export async function reconcilePenkraRegistry(input: {
     backend.getInstructionDocument("hq"),
     backend.getInstructionDocument("client"),
   ]);
-  await scaffoldHq(
-    input.config.root,
-    hqInstructions.body,
-    clientInstructions.body,
-  );
+  await scaffoldHq(input.config.root, hqInstructions.body, clientInstructions.body);
   await ensureRegistryFolder(input.engine, {
     id: "penkra-hq",
     title: "Penkra HQ",

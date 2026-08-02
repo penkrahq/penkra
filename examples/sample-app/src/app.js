@@ -1,4 +1,4 @@
-import { permissions, tab } from "@penkra/sdk";
+import { permissions, settings as appSettings, tab } from "@penkra/sdk";
 import { createAppBar, createIcon } from "@penkra/ui";
 import "@penkra/ui/tokens.css";
 import "@penkra/ui/app-bar.css";
@@ -8,6 +8,7 @@ import { readableError, routeFromHash } from "./model";
 const root = document.querySelector("#app");
 let pendingNavigation = null;
 let notice = null;
+let displayName = "from Sample";
 
 tab.onNavigate(async ({ route, state }, { signal }) => {
   if (route !== "/notes/new") throw new Error(`Unsupported route: ${route}`);
@@ -15,12 +16,26 @@ tab.onNavigate(async ({ route, state }, { signal }) => {
   return new Promise((resolve, reject) => {
     const abort = () => reject(signal.reason);
     signal.addEventListener("abort", abort, { once: true });
-    pendingNavigation = { text: typeof state?.text === "string" ? state.text : "", resolve, abort, signal };
+    pendingNavigation = {
+      text: typeof state?.text === "string" ? state.text : "",
+      resolve,
+      abort,
+      signal,
+    };
     render();
   });
 });
 window.addEventListener("hashchange", render);
-render();
+void appSettings.get("display-name").then(
+  (value) => {
+    displayName = value;
+    render();
+  },
+  (cause) => {
+    notice = readableError(cause);
+    render();
+  },
+);
 
 function render() {
   const route = routeFromHash(location.hash);
@@ -28,12 +43,18 @@ function render() {
   if (route !== "focus") root.append(makeBar(route));
   const main = document.createElement("main");
   if (notice) main.append(message(notice));
-  if (route === "focus") main.innerHTML = "<h1>Focus canvas</h1><p>This page deliberately omits the App Bar.</p><a href='#home'>Return</a>";
+  if (route === "focus")
+    main.innerHTML =
+      "<h1>Focus canvas</h1><p>This page deliberately omits the App Bar.</p><a href='#home'>Return</a>";
   else if (route === "settings") main.append(settings());
   else {
     const heading = document.createElement("h1");
-    heading.textContent = `Hello ${localStorage.getItem("display-name") || "from Sample"}`;
-    main.append(heading, paragraph("Theme tokens adapt automatically to Penkra appearance."), link("#focus", "Open focus canvas"));
+    heading.textContent = `Hello ${displayName}`;
+    main.append(
+      heading,
+      paragraph("Theme tokens adapt automatically to Penkra appearance."),
+      link("#focus", "Open focus canvas"),
+    );
     if (pendingNavigation) main.append(noteEditor());
   }
   root.append(main);
@@ -41,9 +62,27 @@ function render() {
 
 function makeBar(route) {
   return createAppBar({
-    leading: [{ key: "home", label: "Home", icon: () => createIcon("back"), onActivate: () => { location.hash = "#home"; } }],
+    leading: [
+      {
+        key: "home",
+        label: "Home",
+        icon: () => createIcon("back"),
+        onActivate: () => {
+          location.hash = "#home";
+        },
+      },
+    ],
     center: { kind: "display", text: route === "settings" ? "Settings" : "Sample" },
-    trailing: [{ key: "settings", label: "Settings", icon: () => createIcon("more"), onActivate: () => { location.hash = "#settings"; } }],
+    trailing: [
+      {
+        key: "settings",
+        label: "Settings",
+        icon: () => createIcon("more"),
+        onActivate: () => {
+          location.hash = "#settings";
+        },
+      },
+    ],
   }).element;
 }
 
@@ -52,14 +91,26 @@ function settings() {
   const label = document.createElement("label");
   label.textContent = "Display name ";
   const input = document.createElement("input");
-  input.value = localStorage.getItem("display-name") ?? "";
-  input.addEventListener("input", () => localStorage.setItem("display-name", input.value));
+  input.value = displayName;
+  input.addEventListener("change", async () => {
+    try {
+      await appSettings.set("display-name", input.value);
+      displayName = input.value;
+      notice = "Display name saved for this Space.";
+    } catch (cause) {
+      notice = readableError(cause);
+    }
+    render();
+  });
   label.append(input);
   const button = document.createElement("button");
-  button.textContent = "Check network permission";
+  button.textContent = "Request network permission";
   button.addEventListener("click", async () => {
-    try { notice = `network-fetch is ${(await permissions.query("network-fetch")).state}`; }
-    catch (cause) { notice = readableError(cause); }
+    try {
+      notice = `network-fetch is ${(await permissions.request("network-fetch")).state}`;
+    } catch (cause) {
+      notice = readableError(cause);
+    }
     render();
   });
   section.append(label, button);
@@ -84,6 +135,20 @@ function noteEditor() {
   return form;
 }
 
-function message(text) { const value = document.createElement("p"); value.textContent = text; value.setAttribute("role", "status"); return value; }
-function paragraph(text) { const value = document.createElement("p"); value.textContent = text; return value; }
-function link(href, text) { const value = document.createElement("a"); value.href = href; value.textContent = text; return value; }
+function message(text) {
+  const value = document.createElement("p");
+  value.textContent = text;
+  value.setAttribute("role", "status");
+  return value;
+}
+function paragraph(text) {
+  const value = document.createElement("p");
+  value.textContent = text;
+  return value;
+}
+function link(href, text) {
+  const value = document.createElement("a");
+  value.href = href;
+  value.textContent = text;
+  return value;
+}

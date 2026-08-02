@@ -1,6 +1,6 @@
 import type { FileDiffMetadata } from "@pierre/diffs/react";
 import { isWorkspaceRelativePathSafe } from "@penkra/shared/path";
-import type { ProjectId, ThreadId, TurnId } from "@penkra/contracts";
+import type { ContainerId, ThreadId, TurnId } from "@penkra/contracts";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import {
@@ -8,6 +8,7 @@ import {
   type ReactNode,
   startTransition,
   Suspense,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -102,7 +103,7 @@ import { cn } from "~/lib/utils";
 import { PluginIcon } from "~/lib/icons";
 import { IconButton } from "../ui/icon-button";
 import { DOCK_HEADER_ICON_BUTTON_CLASS } from "./chatHeaderControls";
-import { resolveAppsLauncherAction } from "./appsLauncher.logic";
+import { resolveAppsLauncherAction, resolveAppsLauncherSpaceId } from "./appsLauncher.logic";
 
 const PullRequestDockPane = lazy(() => import("../pullRequest/PullRequestDockPane"));
 const EditorWorkspaceView = lazy(() =>
@@ -172,7 +173,7 @@ const DOCK_EMBEDDED_PANEL_STATE: SplitViewPanePanelState = {
 export function SingleChatSurface(props: {
   threadId: ThreadId;
   search: DiffRouteSearch;
-  projectId: ProjectId | null;
+  projectId: ContainerId | null;
 }) {
   const navigate = useNavigate();
   const createSplitView = useSplitViewStore((store) => store.createFromThread);
@@ -549,8 +550,14 @@ export function SingleChatSurface(props: {
   // selector, which re-emits on every streaming token of any thread and would
   // otherwise re-render the entire chat surface + right dock + active pane.
   const threadSummaries = useStore(useMemo(() => createSidebarThreadSummariesSelector(), []));
-  const currentSpaceId =
-    threadSummaries.find((thread) => thread.id === props.threadId)?.spaceId ?? null;
+  const draftSpaceId = useComposerDraftStore(
+    (store) => store.draftThreadsByThreadId[props.threadId]?.spaceId ?? null,
+  );
+  const currentSpaceId = resolveAppsLauncherSpaceId({
+    persistedSpaceId:
+      threadSummaries.find((thread) => thread.id === props.threadId)?.spaceId ?? null,
+    draftSpaceId,
+  });
 
   useEffect(() => {
     const bridge = window.desktopBridge?.appTabs;
@@ -625,6 +632,72 @@ export function SingleChatSurface(props: {
     };
   }, [closePane, currentSpaceId, dockState.panes, openPane, props.threadId, updatePane]);
 
+  const openAppsListing = useCallback(
+    (appId: string) => {
+      const bridge = window.desktopBridge?.appTabs;
+      if (!bridge || !currentSpaceId) return;
+      const existing = dockState.panes.find((pane) => pane.appId === "com.penkra.apps");
+      if (existing) {
+        setDockOpen(props.threadId, true);
+        setActivePane(props.threadId, existing.id);
+        void bridge
+          .navigate({
+            tabId: existing.id,
+            route: "/detail",
+            state: { appId, tab: "description" },
+          })
+          .catch((error: unknown) => {
+            toastManager.add({
+              type: "error",
+              title: "Could not open App listing",
+              description:
+                error instanceof Error ? error.message : "The App listing could not open.",
+            });
+          });
+        return;
+      }
+      void bridge
+        .open({
+          appId: "com.penkra.apps",
+          spaceId: currentSpaceId,
+          threadId: props.threadId,
+          route: "/detail",
+          state: { appId, tab: "description" },
+        })
+        .then((tab) => {
+          openPane(props.threadId, {
+            paneId: tab.id,
+            kind: "app",
+            appId: tab.appId,
+            appSlug: tab.slug,
+            appName: tab.name,
+            appRoute: tab.route,
+            appStatus: tab.status,
+          });
+          setDockOpen(props.threadId, true);
+          setActivePane(props.threadId, tab.id);
+        })
+        .catch((error: unknown) => {
+          toastManager.add({
+            type: "error",
+            title: "Could not open App listing",
+            description: error instanceof Error ? error.message : "The App listing could not open.",
+          });
+        });
+    },
+    [currentSpaceId, dockState.panes, openPane, props.threadId, setActivePane, setDockOpen],
+  );
+
+  useEffect(() => {
+    const bridge = window.desktopBridge?.appTabs;
+    if (!bridge) return;
+    const remove = bridge.onListingRequested(({ appId }) => openAppsListing(appId));
+    void bridge.consumeListingRequest().then((request) => {
+      if (request) openAppsListing(request.appId);
+    });
+    return remove;
+  }, [openAppsListing]);
+
   const handleAppsLauncher = () => {
     const existing = dockState.panes.find((pane) => pane.appId === "com.penkra.apps");
     const action = resolveAppsLauncherAction({
@@ -688,7 +761,7 @@ export function SingleChatSurface(props: {
   const editorProjectOptions = projects.flatMap((project) =>
     project.kind === "project" ? [{ id: project.id, name: project.name }] : [],
   );
-  const openEditorProject = async (projectId: ProjectId) => {
+  const openEditorProject = async (projectId: ContainerId) => {
     const latestThread = sortThreadsForSidebar(
       threadSummaries.filter((thread) => thread.projectId === projectId),
       appSettings.sidebarThreadSortOrder,
@@ -719,12 +792,12 @@ export function SingleChatSurface(props: {
       },
     );
   };
-  const handleSelectEditorProject = (projectId: ProjectId) => {
+  const handleSelectEditorProject = (projectId: ContainerId) => {
     void openEditorProject(projectId).catch((error: unknown) => {
       toastManager.add({
         type: "error",
-        title: "Unable to open project",
-        description: error instanceof Error ? error.message : "The project could not be opened.",
+        title: "Unable to open folder",
+        description: error instanceof Error ? error.message : "The folder could not be opened.",
       });
     });
   };
@@ -798,13 +871,7 @@ export function SingleChatSurface(props: {
   ): ReactNode => {
     switch (pane.kind) {
       case "app":
-        return (
-          <AppDockPane
-            tabId={pane.id}
-            status={pane.appStatus}
-            visible={context.isVisible}
-          />
-        );
+        return <AppDockPane tabId={pane.id} status={pane.appStatus} visible={context.isVisible} />;
       case "browser":
         return (
           <Suspense fallback={<PanelStateMessage>Loading browser...</PanelStateMessage>}>

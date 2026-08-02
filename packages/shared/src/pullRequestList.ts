@@ -1,4 +1,8 @@
-import type { ProjectId, PullRequestListEntry, PullRequestProjectContext } from "@penkra/contracts";
+import type {
+  ContainerId,
+  PullRequestListEntry,
+  PullRequestProjectContext,
+} from "@penkra/contracts";
 
 type ProjectAwarePullRequestEntry = Pick<
   PullRequestListEntry,
@@ -35,14 +39,14 @@ export function pullRequestListProjectContexts(
 
 export function pullRequestListEntryHasProject(
   entry: ProjectAwarePullRequestEntry,
-  projectId: ProjectId,
+  projectId: ContainerId,
 ): boolean {
   return pullRequestListProjectContexts(entry).some((context) => context.projectId === projectId);
 }
 
 export function pullRequestListProjectPin(
   entry: ProjectAwarePullRequestEntry,
-  projectId: ProjectId,
+  projectId: ContainerId,
 ): boolean | null {
   return (
     pullRequestListProjectContexts(entry).find((context) => context.projectId === projectId)
@@ -53,7 +57,7 @@ export function pullRequestListProjectPin(
 function mergeProjectContexts(
   entries: readonly ProjectAwarePullRequestEntry[],
 ): PullRequestProjectContext[] {
-  const byProjectId = new Map<ProjectId, PullRequestProjectContext>();
+  const byProjectId = new Map<ContainerId, PullRequestProjectContext>();
   for (const entry of entries) {
     for (const context of pullRequestListProjectContexts(entry)) {
       const existing = byProjectId.get(context.projectId);
@@ -73,7 +77,7 @@ function mergeProjectContexts(
 function preferredProjectContext(
   entry: Pick<PullRequestListEntry, "headBranch">,
   contexts: readonly PullRequestProjectContext[],
-  preferredProjectId: ProjectId | undefined,
+  preferredProjectId: ContainerId | undefined,
 ): PullRequestProjectContext {
   const explicitlyPreferred = preferredProjectId
     ? contexts.find((context) => context.projectId === preferredProjectId)
@@ -93,7 +97,7 @@ function preferredProjectContext(
  * detail panel; remote identity and aggregate pin state remain repository-level. */
 export function coalescePullRequestListEntries(
   entries: readonly PullRequestListEntry[],
-  options: { readonly preferredProjectId?: ProjectId | undefined } = {},
+  options: { readonly preferredProjectId?: ContainerId | undefined } = {},
 ): PullRequestListEntry[] {
   const entriesByIdentity = new Map<string, PullRequestListEntry[]>();
   for (const entry of entries) {
@@ -121,7 +125,7 @@ export function coalescePullRequestListEntries(
 /** Update one project-owned pin inside an aggregate row without changing its selected context. */
 export function updatePullRequestListEntryProjectPin<T extends ProjectAwarePullRequestEntry>(
   entry: T,
-  projectId: ProjectId,
+  projectId: ContainerId,
   isPinned: boolean,
 ): T {
   if (!pullRequestListEntryHasProject(entry, projectId)) return entry;

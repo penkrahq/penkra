@@ -30,9 +30,7 @@ describe("App package protocol", () => {
       entrypoint: "app.html",
     });
 
-    const response = await handle(
-      new Request("penkra-app://com.penkra.apps/assets/app.js"),
-    );
+    const response = await handle(new Request("penkra-app://com.penkra.apps/assets/app.js"));
     expect(response.status).toBe(200);
     await expect(response.text()).resolves.toBe("export const ready = true;");
     expect(response.headers.get("content-type")).toBe("text/javascript; charset=utf-8");

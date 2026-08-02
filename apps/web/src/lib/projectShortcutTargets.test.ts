@@ -1,4 +1,4 @@
-import type { ProjectId } from "@penkra/contracts";
+import type { ContainerId } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 
 import type { Project } from "../types";
@@ -9,12 +9,12 @@ import {
   resolveNewThreadTarget,
 } from "./projectShortcutTargets";
 
-const CURRENT_PROJECT_ID = "project-current" as ProjectId;
-const LATEST_PROJECT_ID = "project-latest" as ProjectId;
-const HOME_PROJECT_ID = "project-home" as ProjectId;
-const STUDIO_PROJECT_ID = "project-studio" as ProjectId;
+const CURRENT_PROJECT_ID = "project-current" as ContainerId;
+const LATEST_PROJECT_ID = "project-latest" as ContainerId;
+const HOME_PROJECT_ID = "project-home" as ContainerId;
+const STUDIO_PROJECT_ID = "project-studio" as ContainerId;
 
-function makeProject(id: ProjectId, kind: Project["kind"] = "project"): Project {
+function makeProject(id: ContainerId, kind: Project["kind"] = "project"): Project {
   return {
     id,
     kind,
@@ -77,7 +77,7 @@ describe("project shortcut targets", () => {
         currentProjectId: null,
         latestUsableProjectId: resolveLatestProjectTargetId(
           projects,
-          "project-deleted" as ProjectId,
+          "project-deleted" as ContainerId,
         ),
       }),
     ).toBeNull();
@@ -90,7 +90,7 @@ describe("project shortcut targets", () => {
     expect(
       resolveLatestProjectTargetIdWithFallback(
         [older, newer],
-        "project-from-another-space" as ProjectId,
+        "project-from-another-space" as ContainerId,
       ),
     ).toBe(LATEST_PROJECT_ID);
   });

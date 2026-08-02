@@ -148,6 +148,8 @@ import {
   ServerStopLocalServerResult,
   ServerUpdateSettingsInput,
   ServerUpdateSettingsResult,
+  ServerSpaceNavigationState,
+  ServerUpdateSpaceNavigationStateInput,
   ServerUpsertKeybindingResult,
   ServerVoiceTranscriptionInput,
   ServerVoiceTranscriptionResult,
@@ -688,6 +690,24 @@ export const WsServerUpdateSettingsRpc = Rpc.make(WS_METHODS.serverUpdateSetting
   error: WsRpcError,
 });
 
+export const WsServerGetSpaceNavigationStateRpc = Rpc.make(
+  WS_METHODS.serverGetSpaceNavigationState,
+  {
+    payload: Schema.Struct({}),
+    success: ServerSpaceNavigationState,
+    error: WsRpcError,
+  },
+);
+
+export const WsServerUpdateSpaceNavigationStateRpc = Rpc.make(
+  WS_METHODS.serverUpdateSpaceNavigationState,
+  {
+    payload: ServerUpdateSpaceNavigationStateInput,
+    success: ServerSpaceNavigationState,
+    error: WsRpcError,
+  },
+);
+
 export const WsServerRefreshProvidersRpc = Rpc.make(WS_METHODS.serverRefreshProviders, {
   payload: Schema.Struct({}),
   success: ServerRefreshProvidersResult,
@@ -984,6 +1004,8 @@ export const WsFeatureRpcGroup = RpcGroup.make(
   WsServerGetEnvironmentRpc,
   WsServerGetSettingsRpc,
   WsServerUpdateSettingsRpc,
+  WsServerGetSpaceNavigationStateRpc,
+  WsServerUpdateSpaceNavigationStateRpc,
   WsServerRefreshProvidersRpc,
   WsServerUpdateProviderRpc,
   WsServerListWorktreesRpc,

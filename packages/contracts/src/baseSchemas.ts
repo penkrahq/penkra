@@ -29,8 +29,8 @@ const makeEntityId = <Brand extends string>(brand: Brand) =>
 
 export const ThreadId = makeEntityId("ThreadId");
 export type ThreadId = typeof ThreadId.Type;
-export const ProjectId = makeEntityId("ProjectId");
-export type ProjectId = typeof ProjectId.Type;
+export const ContainerId = makeEntityId("ContainerId");
+export type ContainerId = typeof ContainerId.Type;
 export const SpaceId = makeEntityId("SpaceId");
 export type SpaceId = typeof SpaceId.Type;
 export const EnvironmentId = makeEntityId("EnvironmentId");

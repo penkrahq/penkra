@@ -1,60 +1,15 @@
 // FILE: spacesUiStore.ts
 // Purpose: Keeps per-window Space selection and last working-context restoration.
 
-import type { ProjectId, SpaceId, ThreadId } from "@penkra/contracts";
+import type { ContainerId, SpaceId, ThreadId } from "@penkra/contracts";
 import { create } from "zustand";
 
-import { spaceKey } from "~/lib/spaceGrouping";
-
-const STORAGE_KEY = "penkra:spaces-ui:v1";
+import { readNativeApi } from "./nativeApi";
 
 interface PersistedSpacesUiState {
   activeSpaceId: SpaceId | null;
   lastThreadIdBySpace: Record<string, ThreadId>;
-  lastProjectIdBySpace: Record<string, ProjectId>;
-}
-
-function readPersisted(): PersistedSpacesUiState {
-  if (typeof window === "undefined") {
-    return { activeSpaceId: null, lastThreadIdBySpace: {}, lastProjectIdBySpace: {} };
-  }
-  try {
-    const parsed = JSON.parse(
-      window.sessionStorage.getItem(STORAGE_KEY) ?? "null",
-    ) as Partial<PersistedSpacesUiState> | null;
-    return {
-      activeSpaceId:
-        typeof parsed?.activeSpaceId === "string" ? (parsed.activeSpaceId as SpaceId) : null,
-      lastThreadIdBySpace:
-        parsed?.lastThreadIdBySpace && typeof parsed.lastThreadIdBySpace === "object"
-          ? parsed.lastThreadIdBySpace
-          : {},
-      lastProjectIdBySpace:
-        parsed?.lastProjectIdBySpace && typeof parsed.lastProjectIdBySpace === "object"
-          ? parsed.lastProjectIdBySpace
-          : {},
-    };
-  } catch {
-    return { activeSpaceId: null, lastThreadIdBySpace: {}, lastProjectIdBySpace: {} };
-  }
-}
-
-function persist(
-  state: Pick<SpacesUiState, "activeSpaceId" | "lastThreadIdBySpace" | "lastProjectIdBySpace">,
-): void {
-  if (typeof window === "undefined") return;
-  try {
-    window.sessionStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify({
-        activeSpaceId: state.activeSpaceId,
-        lastThreadIdBySpace: state.lastThreadIdBySpace,
-        lastProjectIdBySpace: state.lastProjectIdBySpace,
-      }),
-    );
-  } catch {
-    // A blocked storage API must not make Space switching unusable.
-  }
+  lastProjectIdBySpace: Record<string, ContainerId>;
 }
 
 function recordsEqual<T extends string>(
@@ -69,48 +24,79 @@ function recordsEqual<T extends string>(
 }
 
 interface SpacesUiState extends PersistedSpacesUiState {
+  serverHydrated: boolean;
   pendingActiveSpace: { spaceId: SpaceId; minSequence: number } | null;
-  setActiveSpaceId: (spaceId: SpaceId | null) => void;
+  hydrateFromServer: () => Promise<void>;
+  setActiveSpaceId: (spaceId: SpaceId) => void;
   setOptimisticActiveSpaceId: (spaceId: SpaceId, minSequence: number) => void;
-  rememberThread: (spaceId: SpaceId | null, threadId: ThreadId) => void;
-  rememberProject: (spaceId: SpaceId | null, projectId: ProjectId) => void;
-  getLastThreadId: (spaceId: SpaceId | null) => ThreadId | null;
-  getLastProjectId: (spaceId: SpaceId | null) => ProjectId | null;
+  rememberThread: (spaceId: SpaceId, threadId: ThreadId) => void;
+  rememberProject: (spaceId: SpaceId, projectId: ContainerId) => void;
+  getLastThreadId: (spaceId: SpaceId) => ThreadId | null;
+  getLastProjectId: (spaceId: SpaceId) => ContainerId | null;
   reconcile: (input: {
     activeSpaceIds: ReadonlySet<SpaceId>;
     snapshotSequence: number;
-    projectSpaceById: ReadonlyMap<ProjectId, SpaceId | null>;
-    threadProjectById: ReadonlyMap<ThreadId, ProjectId>;
+    projectSpaceById: ReadonlyMap<ContainerId, SpaceId>;
+    threadProjectById: ReadonlyMap<ThreadId, ContainerId>;
     threadSpaceById: ReadonlyMap<ThreadId, SpaceId | null>;
   }) => void;
 }
 
-const persisted = readPersisted();
+let durableWrite: Promise<unknown> = Promise.resolve();
+
+function persistDurably(state: SpacesUiState): void {
+  if (!state.serverHydrated) return;
+  const api = readNativeApi();
+  if (!api) return;
+  const input = {
+    activeSpaceId: state.activeSpaceId,
+    lastThreadIdBySpace: state.lastThreadIdBySpace,
+    lastProjectIdBySpace: state.lastProjectIdBySpace,
+  };
+  durableWrite = durableWrite
+    .catch(() => undefined)
+    .then(() => api.server.updateSpaceNavigationState(input));
+}
 
 export const useSpacesUiStore = create<SpacesUiState>((set, get) => ({
-  ...persisted,
+  activeSpaceId: null,
+  lastThreadIdBySpace: {},
+  lastProjectIdBySpace: {},
+  serverHydrated: false,
   pendingActiveSpace: null,
+  hydrateFromServer: async () => {
+    if (get().serverHydrated) return;
+    const api = readNativeApi();
+    if (!api) return;
+    const remote = await api.server.getSpaceNavigationState();
+    set({
+      activeSpaceId: remote.activeSpaceId,
+      lastThreadIdBySpace: remote.lastThreadIdBySpace,
+      lastProjectIdBySpace: remote.lastProjectIdBySpace,
+      serverHydrated: true,
+    });
+  },
   setActiveSpaceId: (activeSpaceId) => {
     set({ activeSpaceId, pendingActiveSpace: null });
-    persist(get());
+    persistDurably(get());
   },
   setOptimisticActiveSpaceId: (activeSpaceId, minSequence) => {
     set({ activeSpaceId, pendingActiveSpace: { spaceId: activeSpaceId, minSequence } });
-    persist(get());
+    persistDurably(get());
   },
   rememberThread: (spaceId, threadId) => {
-    const key = spaceKey(spaceId);
+    const key = spaceId;
     if (get().lastThreadIdBySpace[key] === threadId && !(key in get().lastProjectIdBySpace)) return;
     set((state) => ({
       lastThreadIdBySpace: { ...state.lastThreadIdBySpace, [key]: threadId },
       lastProjectIdBySpace: Object.fromEntries(
         Object.entries(state.lastProjectIdBySpace).filter(([entryKey]) => entryKey !== key),
-      ) as Record<string, ProjectId>,
+      ) as Record<string, ContainerId>,
     }));
-    persist(get());
+    persistDurably(get());
   },
   rememberProject: (spaceId, projectId) => {
-    const key = spaceKey(spaceId);
+    const key = spaceId;
     if (get().lastProjectIdBySpace[key] === projectId && !(key in get().lastThreadIdBySpace))
       return;
     set((state) => ({
@@ -119,10 +105,10 @@ export const useSpacesUiStore = create<SpacesUiState>((set, get) => ({
         Object.entries(state.lastThreadIdBySpace).filter(([entryKey]) => entryKey !== key),
       ) as Record<string, ThreadId>,
     }));
-    persist(get());
+    persistDurably(get());
   },
-  getLastThreadId: (spaceId) => get().lastThreadIdBySpace[spaceKey(spaceId)] ?? null,
-  getLastProjectId: (spaceId) => get().lastProjectIdBySpace[spaceKey(spaceId)] ?? null,
+  getLastThreadId: (spaceId) => get().lastThreadIdBySpace[spaceId] ?? null,
+  getLastProjectId: (spaceId) => get().lastProjectIdBySpace[spaceId] ?? null,
   reconcile: ({
     activeSpaceIds,
     snapshotSequence,
@@ -137,7 +123,7 @@ export const useSpacesUiStore = create<SpacesUiState>((set, get) => ({
         snapshotSequence >= current.pendingActiveSpace.minSequence)
         ? null
         : current.pendingActiveSpace;
-    const activeSpaceId =
+    const reconciledActiveSpaceId =
       current.activeSpaceId !== null &&
       !activeSpaceIds.has(current.activeSpaceId) &&
       !(
@@ -146,21 +132,20 @@ export const useSpacesUiStore = create<SpacesUiState>((set, get) => ({
       )
         ? null
         : current.activeSpaceId;
+    const activeSpaceId = reconciledActiveSpaceId;
     const lastThreadIdBySpace: Record<string, ThreadId> = {};
     for (const [key, threadId] of Object.entries(current.lastThreadIdBySpace)) {
       const projectId = threadProjectById.get(threadId);
       if (!projectId) continue;
-      const assignedSpaceId = threadSpaceById.has(threadId)
-        ? (threadSpaceById.get(threadId) ?? null)
-        : (projectSpaceById.get(projectId) ?? null);
-      if (spaceKey(assignedSpaceId) === key) {
+      const assignedSpaceId = threadSpaceById.get(threadId) ?? projectSpaceById.get(projectId);
+      if (assignedSpaceId === key) {
         lastThreadIdBySpace[key] = threadId;
       }
     }
-    const lastProjectIdBySpace: Record<string, ProjectId> = {};
+    const lastProjectIdBySpace: Record<string, ContainerId> = {};
     for (const [key, projectId] of Object.entries(current.lastProjectIdBySpace)) {
       const assignedSpaceId = projectSpaceById.get(projectId);
-      if (assignedSpaceId !== undefined && spaceKey(assignedSpaceId) === key) {
+      if (assignedSpaceId === key) {
         lastProjectIdBySpace[key] = projectId;
       }
     }
@@ -173,7 +158,7 @@ export const useSpacesUiStore = create<SpacesUiState>((set, get) => ({
       return;
     }
     set({ activeSpaceId, pendingActiveSpace, lastThreadIdBySpace, lastProjectIdBySpace });
-    persist(get());
+    persistDurably(get());
   },
 }));
 

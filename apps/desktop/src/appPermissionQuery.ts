@@ -16,7 +16,9 @@ export function queryAppPermission(
   }
   const installed = state.packagesByAppId[identity.appId];
   if (!installed) throw new Error("The requesting App is not installed.");
-  const declaration = installed.manifest.permissions?.find((permission) => permission.name === input);
+  const declaration = installed.manifest.permissions?.find(
+    (permission) => permission.name === input,
+  );
   const space = state.spaceStateByKey[`${identity.spaceId}\u0000${identity.appId}`];
   return {
     name: input,

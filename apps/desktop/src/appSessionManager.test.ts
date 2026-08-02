@@ -43,7 +43,9 @@ function installedApp(patch: Partial<InstalledAppPackage> = {}): InstalledAppPac
 function sessionFixture() {
   const listeners = {
     download: null as null | ((event: { preventDefault(): void }) => void),
-    request: null as null | ((details: { url: string }, callback: (value: unknown) => void) => void),
+    request: null as
+      | null
+      | ((details: { url: string }, callback: (value: unknown) => void) => void),
     protocol: null as null | ((request: Request) => Promise<Response>),
   };
   const fixture = {
@@ -107,7 +109,7 @@ describe("AppSessionManager", () => {
     const requestPermission = fixture.session.setPermissionRequestHandler.mock.calls[0]?.[0];
     const permissionCallback = vi.fn();
     requestPermission({}, "notifications", permissionCallback);
-    expect(permissionCallback).toHaveBeenCalledWith(false);
+    await vi.waitFor(() => expect(permissionCallback).toHaveBeenCalledWith(false));
   });
 
   it("blocks direct remote requests while allowing only the assigned App origin", async () => {
@@ -134,10 +136,7 @@ describe("AppSessionManager", () => {
     electron.fromPartition.mockReturnValue(fixture.session);
     const v1 = vi.fn(async () => new Response("v1"));
     const v2 = vi.fn(async () => new Response("v2"));
-    const createProtocolHandler = vi
-      .fn()
-      .mockResolvedValueOnce(v1)
-      .mockResolvedValueOnce(v2);
+    const createProtocolHandler = vi.fn().mockResolvedValueOnce(v1).mockResolvedValueOnce(v2);
     const manager = new AppSessionManager({ createProtocolHandler });
     await manager.activate({ installedApp: installedApp(), spaceId: "personal" });
     const protocolDelegate = fixture.listeners.protocol;
@@ -250,8 +249,9 @@ describe("AppSessionManager", () => {
     });
     await manager.activate({ installedApp: installedApp(), spaceId: "personal" });
 
-    await expect(manager.eraseData("com.penkra.apps", "personal"))
-      .rejects.toThrow("must be inactive");
+    await expect(manager.eraseData("com.penkra.apps", "personal")).rejects.toThrow(
+      "must be inactive",
+    );
     expect(fixture.session.clearData).not.toHaveBeenCalled();
   });
 });

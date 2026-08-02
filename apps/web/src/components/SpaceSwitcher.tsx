@@ -10,7 +10,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { restrictToHorizontalAxis } from "@dnd-kit/modifiers";
-import { SPACE_NAME_MAX_LENGTH, type ProjectId, type SpaceId } from "@penkra/contracts";
+import { SPACE_NAME_MAX_LENGTH, type ContainerId, type SpaceId } from "@penkra/contracts";
 import {
   useCallback,
   useEffect,
@@ -25,15 +25,9 @@ import {
 
 import type { Space } from "~/types";
 import { createClientPointMenuAnchor } from "~/lib/clientPointMenuAnchor";
-import {
-  DEFAULT_VOID_SPACE,
-  resolveActiveSpaceId,
-  spaceDisplayName,
-  spaceKey,
-  type VoidSpacePresentation,
-} from "~/lib/spaceGrouping";
+import { resolveActiveSpaceId } from "~/lib/spaceGrouping";
 import { cn } from "~/lib/utils";
-import { PencilIcon, PlusIcon, RotateCcwIcon, Trash2 } from "~/lib/icons";
+import { PencilIcon, PlusIcon, Trash2 } from "~/lib/icons";
 import { SIDEBAR_SECTION_LABEL_CLASS_NAME } from "~/sidebarRowStyles";
 import { SpaceIcon, type SpaceIconValue } from "./SpaceIcon";
 import { ComposerPickerMenuPopup } from "./chat/ComposerPickerMenuPopup";
@@ -50,12 +44,12 @@ export type SpaceActivityTone = "attention" | "running" | "completed";
 /** HTML5 drag payload for filing a project by dropping it onto a space tab. */
 export const PROJECT_SPACE_DRAG_MIME = "application/x-penkra-project";
 
-function readDraggedProjectId(event: DragEvent): ProjectId | null {
+function readDraggedProjectId(event: DragEvent): ContainerId | null {
   try {
     const payload = JSON.parse(event.dataTransfer.getData(PROJECT_SPACE_DRAG_MIME)) as {
       projectId?: string;
     } | null;
-    return payload?.projectId ? (payload.projectId as ProjectId) : null;
+    return payload?.projectId ? (payload.projectId as ContainerId) : null;
   } catch {
     return null;
   }
@@ -135,7 +129,7 @@ interface SpaceTabSortable {
 function SpaceTab(props: {
   icon: SpaceIconValue;
   name: string;
-  /** Extra tooltip/spoken context that the icon alone cannot carry (Void). */
+  /** Extra tooltip/spoken context that the icon alone cannot carry. */
   hint?: string;
   /** Rendered jump-chord label (e.g. "⌘⌥2") appended to the tooltip. */
   shortcutLabel?: string | null;
@@ -148,7 +142,7 @@ function SpaceTab(props: {
   gestureHint?: string;
   onContextMenu?: (event: MouseEvent<HTMLButtonElement>) => void;
   /** Files the dragged project into this tab's space. */
-  onProjectDrop?: (projectId: ProjectId) => void;
+  onProjectDrop?: (projectId: ContainerId) => void;
   sortable?: SpaceTabSortable;
 }) {
   const toneLabel = props.activityTone ? SPACE_ACTIVITY_LABEL[props.activityTone] : null;
@@ -245,7 +239,7 @@ function SortableSpaceTab(props: {
   onSelect: () => void;
   onEdit: () => void;
   onContextMenu: (event: MouseEvent<HTMLButtonElement>) => void;
-  onProjectDrop: (projectId: ProjectId) => void;
+  onProjectDrop: (projectId: ContainerId) => void;
 }) {
   // `sortable.attributes` is dropped whole, not filtered: `role`/`tabIndex`/`aria-pressed`
   // fight the tab role and roving tabindex, and the rest advertise a keyboard drag that
@@ -325,13 +319,11 @@ function useTabStripOverflow(dependencyKey: string) {
 
 /**
  * The active space's name doubles as its rename affordance: double-click edits in
- * place, Enter or blur commits when valid, Escape cancels. Void has no stored row but
- * renames the same way — its name is a local presentation preference, and being unable
- * to rename the one group every install starts in is exactly the wrong asymmetry.
+ * place, Enter or blur commits when valid, and Escape cancels.
  */
 function SpaceNameLabel(props: {
   displayName: string;
-  /** Names held by the other spaces (and by Void), which this rename may not collide with. */
+  /** Names held by the other Spaces, which this rename may not collide with. */
   takenNames: ReadonlyArray<string>;
   onRename: (name: string) => void;
 }) {
@@ -389,27 +381,17 @@ interface SpaceSwitcherProps {
   spaces: ReadonlyArray<Space>;
   activeSpaceId: SpaceId | null;
   activityBySpaceId: ReadonlyMap<SpaceId | null, SpaceActivityTone>;
-  /** How the unfiled group presents itself; user-set, so never the constant. */
-  voidSpace: VoidSpacePresentation;
-  onSelect: (spaceId: SpaceId | null) => void;
+  onSelect: (spaceId: SpaceId) => void;
   onCreate: () => void;
   onEdit: (space: Space) => void;
   onDelete: (space: Space) => void;
   onReorder: (orderedSpaceIds: ReadonlyArray<SpaceId>, movedSpaceId: SpaceId) => void;
   onRenameSpace: (space: Space, name: string) => void;
-  /** Void edits are presentation-only, so they take a separate path from a Space rename. */
-  onEditVoid: () => void;
-  onRenameVoid: (name: string) => void;
-  onResetVoid: () => void;
-  onDropProject: (projectId: ProjectId, spaceId: SpaceId | null) => void;
-  /** Jump-chord label for a tab position (0 = Void), shown in the tab tooltip. */
+  onDropProject: (projectId: ContainerId, spaceId: SpaceId) => void;
   jumpShortcutLabelForTab?: (tabIndex: number) => string | null;
 }
 
 export function SpaceSwitcher(props: SpaceSwitcherProps) {
-  // Zero spaces means zero chrome: the strip (and the Void tab it would carry) only
-  // exists once there is a second place for a project to be. Creation lives in the
-  // project context menu and the command palette until then.
   if (props.spaces.length === 0) {
     return null;
   }
@@ -420,8 +402,7 @@ function SpaceSwitcherStrip(props: SpaceSwitcherProps) {
   const { onSelect } = props;
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
   const [contextState, setContextState] = useState<{
-    /** `null` targets Void, which has no row but still owns a name and an icon. */
-    space: Space | null;
+    space: Space;
     position: { x: number; y: number };
   } | null>(null);
   /**
@@ -436,34 +417,19 @@ function SpaceSwitcherStrip(props: SpaceSwitcherProps) {
   );
   const spaceOrderKey = props.spaces.map((space) => space.id).join();
   const scrollerRef = useTabStripOverflow(spaceOrderKey);
-  /**
-   * `activeSpaceId` can name a Space this strip has no tab for: the selection is restored
-   * from session storage synchronously on reload while `spaces` is still empty, and another
-   * window can delete the Space we are sitting in. Every other Space id in the app resolves
-   * to "unassigned" when it cannot be found, so this one does too — otherwise the header
-   * would name one Space while no tab looked selected, and, because the tab stop rides on
-   * the selected tab, the whole strip would silently drop out of the Tab order. Presenting
-   * Void is also the state the store reconciles itself to a moment later.
-   */
   const activeSpaceId = resolveActiveSpaceId(props.activeSpaceId, props.spaces);
   const activeSpace = activeSpaceId
     ? (props.spaces.find((space) => space.id === activeSpaceId) ?? null)
     : null;
-  const activeSpaceName = spaceDisplayName(activeSpaceId, props.spaces, props.voidSpace);
-  /** Every name the header rename must not land on: the other spaces, plus Void or itself. */
-  const takenNames = [
-    ...props.spaces.filter((space) => space.id !== activeSpaceId).map((space) => space.name),
-    ...(activeSpace ? [props.voidSpace.name] : []),
-  ];
-  const voidIsCustomized =
-    props.voidSpace.name !== DEFAULT_VOID_SPACE.name ||
-    props.voidSpace.icon !== DEFAULT_VOID_SPACE.icon;
+  const takenNames = props.spaces
+    .filter((space) => space.id !== activeSpaceId)
+    .map((space) => space.name);
 
   /**
    * A tab click that only ends a drag is dropped rather than navigating (see `dragEndedRef`).
    */
   const selectFromClick = useCallback(
-    (spaceId: SpaceId | null) => {
+    (spaceId: SpaceId) => {
       if (dragEndedRef.current) {
         dragEndedRef.current = false;
         return;
@@ -500,7 +466,6 @@ function SpaceSwitcherStrip(props: SpaceSwitcherProps) {
     tabs[nextIndex]?.focus();
   }, []);
 
-  // Void sits outside the scroller, so it can never need revealing.
   useEffect(() => {
     if (activeSpaceId === null) return;
     scrollerRef.current
@@ -516,17 +481,14 @@ function SpaceSwitcherStrip(props: SpaceSwitcherProps) {
           SIDEBAR_SECTION_LABEL_CLASS_NAME,
         )}
       >
-        <SpaceNameLabel
-          // Keyed by the active space so switching spaces mid-edit discards the draft
-          // instead of leaving an input bound to a different space's rename handler.
-          key={spaceKey(activeSpaceId)}
-          displayName={activeSpaceName}
-          takenNames={takenNames}
-          onRename={(name) => {
-            if (activeSpace) props.onRenameSpace(activeSpace, name);
-            else props.onRenameVoid(name);
-          }}
-        />
+        {activeSpace ? (
+          <SpaceNameLabel
+            key={activeSpace.id}
+            displayName={activeSpace.name}
+            takenNames={takenNames}
+            onRename={(name) => props.onRenameSpace(activeSpace, name)}
+          />
+        ) : null}
       </div>
 
       {/* px-1 keeps a 24px tab's 14px glyph centred on the same x (16px) as the
@@ -545,26 +507,6 @@ function SpaceSwitcherStrip(props: SpaceSwitcherProps) {
             dragEndedRef.current = false;
           }}
         >
-          {/* Void keeps its place at the head of the strip even when renamed: it is not a
-              stored row, so it has no sort order to move, and "everything not filed" reads
-              as the origin of the list rather than one entry within it. */}
-          <SpaceTab
-            icon={props.voidSpace.icon}
-            name={props.voidSpace.name}
-            hint="Unassigned projects"
-            gestureHint="Double-click to edit"
-            shortcutLabel={props.jumpShortcutLabelForTab?.(0) ?? null}
-            active={activeSpaceId === null}
-            activityTone={props.activityBySpaceId.get(null) ?? null}
-            onSelect={() => selectFromClick(null)}
-            onEdit={props.onEditVoid}
-            onContextMenu={(event) => {
-              event.preventDefault();
-              setContextState({ space: null, position: { x: event.clientX, y: event.clientY } });
-            }}
-            onProjectDrop={(projectId) => props.onDropProject(projectId, null)}
-          />
-
           <DndContext
             sensors={sensors}
             collisionDetection={closestCenter}
@@ -599,7 +541,7 @@ function SpaceSwitcherStrip(props: SpaceSwitcherProps) {
                   <SortableSpaceTab
                     key={space.id}
                     space={space}
-                    shortcutLabel={props.jumpShortcutLabelForTab?.(index + 1) ?? null}
+                    shortcutLabel={props.jumpShortcutLabelForTab?.(index) ?? null}
                     active={activeSpaceId === space.id}
                     activityTone={props.activityBySpaceId.get(space.id) ?? null}
                     onSelect={() => selectFromClick(space.id)}
@@ -651,42 +593,23 @@ function SpaceSwitcherStrip(props: SpaceSwitcherProps) {
                 onClick={() => {
                   const target = contextState.space;
                   setContextState(null);
-                  if (target) props.onEdit(target);
-                  else props.onEditVoid();
+                  props.onEdit(target);
                 }}
               >
                 <SidebarContextMenuIcon icon={PencilIcon} />
-                <span>{contextState.space ? "Edit space…" : "Edit name and icon…"}</span>
+                <span>Edit space…</span>
               </MenuItem>
-              {contextState.space ? (
-                // Neutral, not red: deleting a space only files its projects back into
-                // Void, and the sibling project menu keeps its harder "Delete project"
-                // neutral too. Reddening the milder action would invert the hierarchy.
-                <MenuItem
-                  className={SIDEBAR_CONTEXT_MENU_ITEM_CLASS_NAME}
-                  onClick={() => {
-                    const target = contextState.space;
-                    setContextState(null);
-                    if (target) props.onDelete(target);
-                  }}
-                >
-                  <SidebarContextMenuIcon icon={Trash2} />
-                  <span>Delete space</span>
-                </MenuItem>
-              ) : voidIsCustomized ? (
-                // Void cannot be deleted — it is where projects live when they are nowhere —
-                // so the slot below "Edit" is the way back to the shipped name and icon.
-                <MenuItem
-                  className={SIDEBAR_CONTEXT_MENU_ITEM_CLASS_NAME}
-                  onClick={() => {
-                    setContextState(null);
-                    props.onResetVoid();
-                  }}
-                >
-                  <SidebarContextMenuIcon icon={RotateCcwIcon} />
-                  <span>Reset to {DEFAULT_VOID_SPACE.name}</span>
-                </MenuItem>
-              ) : null}
+              <MenuItem
+                className={SIDEBAR_CONTEXT_MENU_ITEM_CLASS_NAME}
+                onClick={() => {
+                  const target = contextState.space;
+                  setContextState(null);
+                  props.onDelete(target);
+                }}
+              >
+                <SidebarContextMenuIcon icon={Trash2} />
+                <span>Delete space</span>
+              </MenuItem>
             </MenuGroup>
           </ComposerPickerMenuPopup>
         </Menu>

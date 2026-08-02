@@ -1,4 +1,4 @@
-import { ProjectId, ThreadId, TurnId } from "@penkra/contracts";
+import { ContainerId, ThreadId, TurnId } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -19,8 +19,8 @@ const SIDECHAT_THREAD_ID = ThreadId.makeUnsafe("thread-sidechat");
 const OTHER_THREAD_ID = ThreadId.makeUnsafe("thread-2");
 const TURN_ID = TurnId.makeUnsafe("turn-1");
 const OTHER_TURN_ID = TurnId.makeUnsafe("turn-2");
-const PROJECT_ID = ProjectId.makeUnsafe("project-1");
-const DRAFT_PROJECT_ID = ProjectId.makeUnsafe("project-draft");
+const PROJECT_ID = ContainerId.makeUnsafe("project-1");
+const DRAFT_PROJECT_ID = ContainerId.makeUnsafe("project-draft");
 
 describe("resolveThreadPickerTitle", () => {
   it("falls back to a stable untitled label", () => {

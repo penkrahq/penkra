@@ -11,7 +11,7 @@ export interface SidebarProjectsProps {
 export function SidebarProjects({ children, className }: SidebarProjectsProps) {
   return (
     <ScrollArea
-      aria-label="Projects and threads"
+      aria-label="Folders and threads"
       className={cn("min-h-0 w-60 flex-1", className)}
       data-pencil-component="mKbbW"
       hideScrollbars

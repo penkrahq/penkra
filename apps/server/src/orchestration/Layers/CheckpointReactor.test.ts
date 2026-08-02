@@ -15,7 +15,8 @@ import {
   DEFAULT_PROVIDER_INTERACTION_MODE,
   EventId,
   MessageId,
-  ProjectId,
+  ContainerId,
+  SpaceId,
   ThreadId,
   TurnId,
 } from "@penkra/contracts";
@@ -59,7 +60,7 @@ import {
 } from "../../checkpointing/Utils.ts";
 import { ServerConfig } from "../../config.ts";
 
-const asProjectId = (value: string): ProjectId => ProjectId.makeUnsafe(value);
+const asProjectId = (value: string): ContainerId => ContainerId.makeUnsafe(value);
 const asTurnId = (value: string): TurnId => TurnId.makeUnsafe(value);
 
 type LegacyProviderRuntimeEvent = {
@@ -306,7 +307,6 @@ describe("CheckpointReactor", () => {
   async function createHarness(options?: {
     readonly hasSession?: boolean;
     readonly seedFilesystemCheckpoints?: boolean;
-    readonly projectWorkspaceRoot?: string;
     readonly threadWorktreePath?: string | null;
     readonly providerSessionCwd?: string;
     readonly providerName?: ProviderKind;
@@ -387,13 +387,25 @@ describe("CheckpointReactor", () => {
     const drain = () => Effect.runPromise(reactor.drain);
 
     const createdAt = new Date().toISOString();
+    const personalSpaceId = SpaceId.makeUnsafe("penkra-personal");
+    await Effect.runPromise(
+      engine.dispatch({
+        type: "space.create",
+        commandId: CommandId.makeUnsafe("cmd-space-create"),
+        spaceId: personalSpaceId,
+        name: "Personal",
+        icon: "home",
+        createdAt,
+      }),
+    );
     await Effect.runPromise(
       engine.dispatch({
         type: "project.create",
         commandId: CommandId.makeUnsafe("cmd-project-create"),
         projectId: asProjectId("project-1"),
         title: "Test Project",
-        workspaceRoot: options?.projectWorkspaceRoot ?? cwd,
+        workspaceRoot: null,
+        spaceId: personalSpaceId,
         defaultModelSelection: {
           provider: "codex",
           model: "gpt-5-codex",
@@ -1231,11 +1243,10 @@ describe("CheckpointReactor", () => {
     ).toBe(true);
   });
 
-  it("captures pre-turn baseline from project workspace root when thread worktree is unset", async () => {
+  it("captures pre-turn baseline from the thread working directory", async () => {
     const harness = await createHarness({
       hasSession: false,
       seedFilesystemCheckpoints: false,
-      threadWorktreePath: null,
     });
 
     await Effect.runPromise(
@@ -1268,11 +1279,10 @@ describe("CheckpointReactor", () => {
     ).toBe("v1\n");
   });
 
-  it("captures turn completion checkpoint from project workspace root when provider session cwd is unavailable", async () => {
+  it("captures turn completion checkpoint from the thread directory when provider cwd is unavailable", async () => {
     const harness = await createHarness({
       hasSession: false,
       seedFilesystemCheckpoints: false,
-      threadWorktreePath: null,
     });
     const createdAt = new Date().toISOString();
 

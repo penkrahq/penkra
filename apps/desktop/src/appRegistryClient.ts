@@ -77,9 +77,7 @@ export class AppRegistryClient {
 
   async get(input: { slug: string }): ReturnType<DesktopAppRegistryBridge["get"]> {
     if (!APP_SLUG.test(input.slug)) throw new Error("Invalid App slug.");
-    return parseDetail(
-      await this.#request(`/api/registry/apps/${encodeURIComponent(input.slug)}`),
-    );
+    return parseDetail(await this.#request(`/api/registry/apps/${encodeURIComponent(input.slug)}`));
   }
 
   async getArtifact(input: {
@@ -107,7 +105,8 @@ export class AppRegistryClient {
       throw new Error("The registry object exceeds the allowed size.");
     }
     const bytes = new Uint8Array(await response.arrayBuffer());
-    if (bytes.byteLength > maximumBytes) throw new Error("The registry object exceeds the allowed size.");
+    if (bytes.byteLength > maximumBytes)
+      throw new Error("The registry object exceeds the allowed size.");
     if (input.source === "artifact") {
       if (mediaType !== "text/markdown" && mediaType !== "text/plain") {
         throw new Error("The registry help document has an unsupported content type.");
@@ -155,7 +154,11 @@ export class AppRegistryClient {
     integerField(packageValue, "expiresInSeconds", 1);
     const [packageBytes, attestation, trustedKeys] = await Promise.all([
       this.#downloadBytes(packageUrl, packageSize, 64 * 1024 * 1024),
-      this.#downloadArtifactBytes(input.version.registrySignatureArtifactId, "application/jose", 512 * 1024),
+      this.#downloadArtifactBytes(
+        input.version.registrySignatureArtifactId,
+        "application/jose",
+        512 * 1024,
+      ),
       this.#registryTrustKeys(),
     ]);
     if (createHash("sha256").update(packageBytes).digest("hex") !== packageDigest) {
@@ -190,7 +193,8 @@ export class AppRegistryClient {
         headers: { accept: "application/jose" },
         signal: AbortSignal.timeout(15_000),
       });
-      if (!response.ok) throw new Error(`The registry security policy returned HTTP ${response.status}.`);
+      if (!response.ok)
+        throw new Error(`The registry security policy returned HTTP ${response.status}.`);
       const compactJws = await boundedText(response, 2 * 1024 * 1024);
       const policy = verifyRegistryPolicyAttestation({ compactJws, trustedKeys });
       await this.#writePolicyCache(compactJws);
@@ -210,7 +214,8 @@ export class AppRegistryClient {
   }
 
   async recordSuccessfulInstall(input: { appId: string; versionId: string }): Promise<void> {
-    if (!UUID.test(input.appId) || !UUID.test(input.versionId)) throw new Error("Invalid registry release identity.");
+    if (!UUID.test(input.appId) || !UUID.test(input.versionId))
+      throw new Error("Invalid registry release identity.");
     const value = await this.#request(
       `/api/registry/apps/${encodeURIComponent(input.appId)}/install-receipts`,
       { method: "POST", body: JSON.stringify({ versionId: input.versionId }) },
@@ -227,9 +232,9 @@ export class AppRegistryClient {
 
   async getFeedback(input: { appId: string }): ReturnType<DesktopAppRegistryBridge["getFeedback"]> {
     assertUuid(input.appId, "App");
-    return parseAccountFeedback(await this.#request(
-      `/api/registry/apps/${encodeURIComponent(input.appId)}/feedback`,
-    ));
+    return parseAccountFeedback(
+      await this.#request(`/api/registry/apps/${encodeURIComponent(input.appId)}/feedback`),
+    );
   }
 
   async setRating(input: {
@@ -240,10 +245,13 @@ export class AppRegistryClient {
     if (!Number.isInteger(input.rating) || input.rating < 1 || input.rating > 5) {
       throw new Error("App rating must be an integer between 1 and 5.");
     }
-    return parseRating(await this.#request(
-      `/api/registry/apps/${encodeURIComponent(input.appId)}/rating`,
-      { method: "PUT", body: JSON.stringify({ rating: input.rating }) },
-    ), input.appId);
+    return parseRating(
+      await this.#request(`/api/registry/apps/${encodeURIComponent(input.appId)}/rating`, {
+        method: "PUT",
+        body: JSON.stringify({ rating: input.rating }),
+      }),
+      input.appId,
+    );
   }
 
   async setReview(input: {
@@ -252,23 +260,139 @@ export class AppRegistryClient {
   }): ReturnType<DesktopAppRegistryBridge["setReview"]> {
     assertUuid(input.appId, "App");
     const body = input.body.trim();
-    if (!body || body.length > 10_000) throw new Error("App review must be between 1 and 10000 characters.");
-    return parseReview(await this.#request(
-      `/api/registry/apps/${encodeURIComponent(input.appId)}/review`,
-      { method: "PUT", body: JSON.stringify({ body }) },
-    ), input.appId);
+    if (!body || body.length > 10_000)
+      throw new Error("App review must be between 1 and 10000 characters.");
+    return parseReview(
+      await this.#request(`/api/registry/apps/${encodeURIComponent(input.appId)}/review`, {
+        method: "PUT",
+        body: JSON.stringify({ body }),
+      }),
+      input.appId,
+    );
+  }
+
+  async developerCreatePublisher(input: {
+    slug: string;
+    displayName: string;
+    domain?: string;
+  }): Promise<unknown> {
+    return this.#request("/api/registry/publishers", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  }
+
+  async developerListPublishers(): Promise<unknown[]> {
+    return this.#collectPages("/api/registry/publishers");
+  }
+
+  async developerCreateApp(input: {
+    publisherId: string;
+    identifier: string;
+    slug: string;
+    displayName: string;
+    summary: string;
+  }): Promise<unknown> {
+    assertUuid(input.publisherId, "publisher");
+    return this.#request("/api/registry/apps", { method: "POST", body: JSON.stringify(input) });
+  }
+
+  async developerListApps(publisherId: string): Promise<unknown[]> {
+    assertUuid(publisherId, "publisher");
+    return this.#collectPages(`/api/registry/publishers/${encodeURIComponent(publisherId)}/apps`);
+  }
+
+  async developerListSubmissions(appId: string): Promise<unknown[]> {
+    assertUuid(appId, "App");
+    return this.#collectPages(`/api/registry/apps/${encodeURIComponent(appId)}/submissions`);
+  }
+
+  async developerSubmissionStatus(submissionId: string): Promise<unknown> {
+    assertUuid(submissionId, "submission");
+    return this.#request(`/api/registry/submissions/${encodeURIComponent(submissionId)}`);
+  }
+
+  async developerSubmit(input: {
+    appId: string;
+    packagePath: string;
+    signaturePath: string;
+    issuer: string;
+    evidence: {
+      version: string;
+      compatibilityRange: string;
+      manifestDigest: string;
+      packageDigest: string;
+      readmeDigest: string;
+      instructionsDigest: string;
+      packageSizeBytes: number;
+      permissions: ReadonlyArray<{ permission: string; required: boolean; rationale: string }>;
+    };
+  }): Promise<unknown> {
+    assertUuid(input.appId, "App");
+    const issuer = new URL(input.issuer);
+    if (issuer.protocol !== "https:") throw new Error("The publisher OIDC issuer must use HTTPS.");
+    const [packageBytes, signatureBytes] = await Promise.all([
+      readFile(input.packagePath),
+      readFile(input.signaturePath),
+    ]);
+    if (
+      packageBytes.byteLength !== input.evidence.packageSizeBytes ||
+      digest(packageBytes) !== input.evidence.packageDigest
+    ) {
+      throw new Error("The App package changed after preflight.");
+    }
+    if (signatureBytes.byteLength < 1 || signatureBytes.byteLength > 512 * 1024) {
+      throw new Error("The publisher signature bundle has an invalid size.");
+    }
+    JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(signatureBytes));
+    const created = await this.#request(
+      `/api/registry/apps/${encodeURIComponent(input.appId)}/submissions`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          version: input.evidence.version,
+          manifestDigest: input.evidence.manifestDigest,
+          packageDigest: input.evidence.packageDigest,
+          readmeDigest: input.evidence.readmeDigest,
+          instructionsDigest: input.evidence.instructionsDigest,
+          compatibilityRange: input.evidence.compatibilityRange,
+          packageSizeBytes: packageBytes.byteLength,
+          publisherSignature: {
+            sha256: digest(signatureBytes),
+            sizeBytes: signatureBytes.byteLength,
+            oidcIssuer: issuer.toString(),
+          },
+          permissions: input.evidence.permissions,
+        }),
+      },
+    );
+    const response = parseSubmissionUpload(created);
+    await Promise.all([
+      this.#uploadDeveloperArtifact(response.uploads.package, packageBytes),
+      this.#uploadDeveloperArtifact(response.uploads.publisherSignature, signatureBytes),
+    ]);
+    return this.#request(
+      `/api/registry/submissions/${encodeURIComponent(response.submissionId)}/finalize`,
+      {
+        method: "POST",
+      },
+    );
   }
 
   async recordSuccessfulInstallDurably(input: { appId: string; versionId: string }): Promise<void> {
     const accountId = await this.#getAccountId();
     if (!accountId) {
-      console.warn("[penkra-app] Installed App receipt was not queued because the account identity is unavailable.");
+      console.warn(
+        "[penkra-app] Installed App receipt was not queued because the account identity is unavailable.",
+      );
       return;
     }
     const entry = { accountId, appId: input.appId, versionId: input.versionId };
     try {
       await this.#mutateReceiptQueue((entries) => [
-        ...entries.filter((candidate) => candidate.accountId !== accountId || candidate.appId !== input.appId),
+        ...entries.filter(
+          (candidate) => candidate.accountId !== accountId || candidate.appId !== input.appId,
+        ),
         entry,
       ]);
     } catch (error) {
@@ -276,9 +400,11 @@ export class AppRegistryClient {
     }
     try {
       await this.recordSuccessfulInstall(input);
-      await this.#mutateReceiptQueue((entries) => entries.filter((candidate) =>
-        candidate.accountId !== accountId || candidate.appId !== input.appId
-      ));
+      await this.#mutateReceiptQueue((entries) =>
+        entries.filter(
+          (candidate) => candidate.accountId !== accountId || candidate.appId !== input.appId,
+        ),
+      );
     } catch (error) {
       console.warn("[penkra-app] Installed App receipt will be retried.", error);
     }
@@ -287,20 +413,28 @@ export class AppRegistryClient {
   async reconcileInstallReceipts(): Promise<void> {
     const accountId = await this.#getAccountId();
     if (!accountId || !this.#receiptQueuePath) return;
-    const pending = (await this.#readReceiptQueue()).filter((entry) => entry.accountId === accountId);
+    const pending = (await this.#readReceiptQueue()).filter(
+      (entry) => entry.accountId === accountId,
+    );
     for (const entry of pending) {
       try {
         await this.recordSuccessfulInstall({ appId: entry.appId, versionId: entry.versionId });
-        await this.#mutateReceiptQueue((entries) => entries.filter((candidate) =>
-          candidate.accountId !== entry.accountId || candidate.appId !== entry.appId
-        ));
+        await this.#mutateReceiptQueue((entries) =>
+          entries.filter(
+            (candidate) =>
+              candidate.accountId !== entry.accountId || candidate.appId !== entry.appId,
+          ),
+        );
       } catch {
         return;
       }
     }
   }
 
-  async #request(path: string, init: { method?: "POST" | "PUT"; body?: string } = {}): Promise<unknown> {
+  async #request(
+    path: string,
+    init: { method?: "POST" | "PUT"; body?: string } = {},
+  ): Promise<unknown> {
     const cookie = this.#getCookie().trim();
     if (!cookie) throw new Error("Sign in to use the Penkra App registry.");
     const response = await this.#fetch(`${this.#apiUrl}${path}`, {
@@ -318,12 +452,45 @@ export class AppRegistryClient {
       ? ((await response.json()) as unknown)
       : await response.text();
     if (!response.ok) {
-      const message = isRecord(body) && typeof body.message === "string"
-        ? body.message
-        : `The App registry returned HTTP ${response.status}.`;
+      const message =
+        isRecord(body) && typeof body.message === "string"
+          ? body.message
+          : `The App registry returned HTTP ${response.status}.`;
       throw new Error(message);
     }
     return body;
+  }
+
+  async #collectPages(path: string): Promise<unknown[]> {
+    const items: unknown[] = [];
+    let cursor: string | null = null;
+    do {
+      const separator = path.includes("?") ? "&" : "?";
+      const value = await this.#request(
+        `${path}${separator}limit=100${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
+      );
+      if (!isRecord(value) || !Array.isArray(value.items) || !isRecord(value.pageInfo))
+        throw invalidResponse();
+      items.push(...value.items);
+      const next = value.pageInfo.nextCursor;
+      if (next !== null && (typeof next !== "string" || !UUID.test(next))) throw invalidResponse();
+      cursor = next;
+    } while (cursor !== null);
+    return items;
+  }
+
+  async #uploadDeveloperArtifact(
+    upload: { url: string; headers: Record<string, string> },
+    bytes: Uint8Array,
+  ): Promise<void> {
+    this.#assertRegistryObjectUrl(upload.url);
+    const response = await this.#fetch(upload.url, {
+      method: "PUT",
+      headers: upload.headers,
+      body: new Blob([bytes.slice().buffer]),
+      signal: AbortSignal.timeout(60_000),
+    });
+    if (!response.ok) throw new Error(`Registry upload returned HTTP ${response.status}.`);
   }
 
   #assertRegistryObjectUrl(value: string): void {
@@ -337,16 +504,25 @@ export class AppRegistryClient {
     }
   }
 
-  async #downloadArtifactBytes(id: string, contentType: string, maximumBytes: number): Promise<Uint8Array> {
+  async #downloadArtifactBytes(
+    id: string,
+    contentType: string,
+    maximumBytes: number,
+  ): Promise<Uint8Array> {
     const value = await this.#request(`/api/registry/artifacts/${encodeURIComponent(id)}`);
-    if (!isRecord(value) || stringField(value, "contentType") !== contentType) throw invalidResponse();
+    if (!isRecord(value) || stringField(value, "contentType") !== contentType)
+      throw invalidResponse();
     integerField(value, "expiresInSeconds", 1);
     const url = stringField(value, "url");
     this.#assertRegistryObjectUrl(url);
     return this.#downloadBytes(url, undefined, maximumBytes);
   }
 
-  async #downloadBytes(url: string, exactBytes: number | undefined, maximumBytes: number): Promise<Uint8Array> {
+  async #downloadBytes(
+    url: string,
+    exactBytes: number | undefined,
+    maximumBytes: number,
+  ): Promise<Uint8Array> {
     const response = await this.#fetch(url, { signal: AbortSignal.timeout(30_000) });
     if (!response.ok) throw new Error(`The registry object returned HTTP ${response.status}.`);
     const declaredLength = Number(response.headers.get("content-length") ?? "0");
@@ -354,7 +530,10 @@ export class AppRegistryClient {
       throw new Error("The registry object exceeds the allowed size.");
     }
     const bytes = new Uint8Array(await response.arrayBuffer());
-    if (bytes.byteLength > maximumBytes || (exactBytes !== undefined && bytes.byteLength !== exactBytes)) {
+    if (
+      bytes.byteLength > maximumBytes ||
+      (exactBytes !== undefined && bytes.byteLength !== exactBytes)
+    ) {
       throw new Error("The registry object has an invalid size.");
     }
     return bytes;
@@ -370,7 +549,7 @@ export class AppRegistryClient {
       signal: AbortSignal.timeout(15_000),
     });
     if (!response.ok) throw new Error("The local registry signing key is unavailable.");
-    const value = await response.json() as unknown;
+    const value = (await response.json()) as unknown;
     if (!isRecord(value) || !Array.isArray(value.keys)) throw invalidResponse();
     return value.keys.map(parseRegistryTrustKey);
   }
@@ -446,7 +625,8 @@ async function boundedText(response: Response, maximumBytes: number): Promise<st
     throw new Error("The registry security policy exceeds the allowed size.");
   }
   const bytes = new Uint8Array(await response.arrayBuffer());
-  if (bytes.byteLength > maximumBytes) throw new Error("The registry security policy exceeds the allowed size.");
+  if (bytes.byteLength > maximumBytes)
+    throw new Error("The registry security policy exceeds the allowed size.");
   return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
 }
 
@@ -540,7 +720,10 @@ function parseSummary(value: unknown): DesktopRegistryAppSummary {
 function parseAccountFeedback(value: unknown): DesktopRegistryAccountFeedback {
   if (!isRecord(value) || value.eligible !== true) throw invalidResponse();
   const rating = value.rating;
-  if (rating !== null && (!Number.isInteger(rating) || (rating as number) < 1 || (rating as number) > 5)) {
+  if (
+    rating !== null &&
+    (!Number.isInteger(rating) || (rating as number) < 1 || (rating as number) > 5)
+  ) {
     throw invalidResponse();
   }
   const review = value.review;
@@ -564,7 +747,10 @@ function parseAccountFeedback(value: unknown): DesktopRegistryAccountFeedback {
   };
 }
 
-function parseRating(value: unknown, expectedAppId: string): {
+function parseRating(
+  value: unknown,
+  expectedAppId: string,
+): {
   appId: string;
   rating: number;
   updatedAt: string;
@@ -576,7 +762,10 @@ function parseRating(value: unknown, expectedAppId: string): {
   return { appId, rating, updatedAt: isoDateField(value, "updatedAt") };
 }
 
-function parseReview(value: unknown, expectedAppId: string): {
+function parseReview(
+  value: unknown,
+  expectedAppId: string,
+): {
   appId: string;
   body: string;
   status: "pending";
@@ -661,4 +850,34 @@ function isoDateField(value: Record<string, unknown>, key: string): string {
 
 function invalidResponse(): Error {
   return new Error("The App registry returned an invalid response.");
+}
+
+function digest(bytes: Uint8Array): string {
+  return createHash("sha256").update(bytes).digest("hex");
+}
+
+function parseSubmissionUpload(value: unknown): {
+  submissionId: string;
+  uploads: {
+    package: { url: string; headers: Record<string, string> };
+    publisherSignature: { url: string; headers: Record<string, string> };
+  };
+} {
+  if (!isRecord(value) || !isRecord(value.uploads)) throw invalidResponse();
+  const parseUpload = (candidate: unknown) => {
+    if (!isRecord(candidate) || !isRecord(candidate.headers)) throw invalidResponse();
+    const headers: Record<string, string> = {};
+    for (const [key, header] of Object.entries(candidate.headers)) {
+      if (typeof header !== "string") throw invalidResponse();
+      headers[key] = header;
+    }
+    return { url: stringField(candidate, "url"), headers };
+  };
+  return {
+    submissionId: uuidField(value, "submissionId"),
+    uploads: {
+      package: parseUpload(value.uploads.package),
+      publisherSignature: parseUpload(value.uploads.publisherSignature),
+    },
+  };
 }

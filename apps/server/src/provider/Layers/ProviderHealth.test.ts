@@ -324,7 +324,7 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
       });
     });
 
-    it("routes OpenCode updates through each detected installation owner", () => {
+    it("uses only OpenCode's executable native or Homebrew updater", () => {
       const definition = PACKAGE_MANAGED_PROVIDER_UPDATES.opencode;
       assert.ok(definition);
 
@@ -333,27 +333,30 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
           realCommandPath:
             "/Users/test/.nvm/versions/node/v24.13.0/lib/node_modules/opencode-ai/bin/opencode.exe",
           commandDirectory: "/Users/test/.nvm/versions/node/v24.13.0/bin",
-          command:
-            "npm install -g --prefix /Users/test/.nvm/versions/node/v24.13.0 opencode-ai@latest",
-          executable: "npm",
+          command: undefined,
+          executable: undefined,
+          pathPrepend: undefined,
         },
         {
           realCommandPath: "/Users/test/.bun/bin/opencode",
           commandDirectory: "/Users/test/.bun/bin",
-          command: "bun i -g opencode-ai@latest",
-          executable: "bun",
+          command: undefined,
+          executable: undefined,
+          pathPrepend: undefined,
         },
         {
           realCommandPath: "/Users/test/.local/share/pnpm/opencode",
           commandDirectory: "/Users/test/.local/share/pnpm",
-          command: "pnpm add -g opencode-ai@latest",
-          executable: "pnpm",
+          command: undefined,
+          executable: undefined,
+          pathPrepend: undefined,
         },
         {
           realCommandPath: "/Users/test/.opencode/bin/opencode",
           commandDirectory: "/Users/test/.opencode/bin",
           command: "opencode upgrade",
           executable: "opencode",
+          pathPrepend: "/Users/test/.opencode/bin",
         },
         {
           realCommandPath:
@@ -361,6 +364,7 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
           commandDirectory: "/usr/local/bin",
           command: "brew upgrade opencode",
           executable: "brew",
+          pathPrepend: "/usr/local/bin",
         },
       ] as const;
 
@@ -373,7 +377,7 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
 
         assert.strictEqual(capabilities.update?.command, testCase.command);
         assert.strictEqual(capabilities.update?.executable, testCase.executable);
-        assert.strictEqual(capabilities.update?.pathPrepend, testCase.commandDirectory);
+        assert.strictEqual(capabilities.update?.pathPrepend, testCase.pathPrepend);
       }
     });
 

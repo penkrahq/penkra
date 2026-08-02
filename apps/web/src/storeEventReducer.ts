@@ -810,7 +810,10 @@ function applyOrchestrationEvent(
           id: existingProject.id,
           kind: event.payload.kind ?? existingProject.kind,
           title: event.payload.title ?? existingProject.remoteName,
-          workspaceRoot: event.payload.workspaceRoot ?? existingProject.cwd,
+          workspaceRoot:
+            event.payload.workspaceRoot !== undefined
+              ? event.payload.workspaceRoot
+              : existingProject.cwd || null,
           defaultModelSelection:
             event.payload.defaultModelSelection !== undefined
               ? event.payload.defaultModelSelection
@@ -895,6 +898,7 @@ function applyOrchestrationEvent(
             (thread.workingDirectory ?? null) !== nextWorkingDirectory;
 
           if (
+            (event.payload.spaceId === undefined || event.payload.spaceId === thread.spaceId) &&
             (event.payload.title === undefined || event.payload.title === thread.title) &&
             modelSelection === thread.modelSelection &&
             (event.payload.envMode === undefined || event.payload.envMode === thread.envMode) &&
@@ -931,6 +935,7 @@ function applyOrchestrationEvent(
 
           return {
             ...thread,
+            ...(event.payload.spaceId !== undefined ? { spaceId: event.payload.spaceId } : {}),
             ...(event.payload.title !== undefined ? { title: event.payload.title } : {}),
             modelSelection,
             ...(event.payload.envMode !== undefined ? { envMode: event.payload.envMode } : {}),

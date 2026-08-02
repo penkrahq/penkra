@@ -96,6 +96,8 @@ export function shouldHideProviderNativeCommandFromComposerMenu(
   const normalizedCommand = normalizeComposerSlashCommandName(command);
   const appCommandIsAvailable = options.availableAppCommands?.has(normalizedCommand) ?? true;
   return (
+    normalizedCommand === "plan" ||
+    normalizedCommand === "default" ||
     (normalizedCommand === "export" && appCommandIsAvailable) ||
     (normalizedCommand === "feedback" && appCommandIsAvailable) ||
     (providerUsesAppOwnedReviewSlashCommand(provider) && normalizedCommand === "review")
@@ -395,8 +397,6 @@ export function getAvailableComposerSlashCommands(input: {
           ...(input.canOfferCompactCommand ? (["compact"] as const) : []),
           "model",
           ...(input.supportsFastSlashCommand ? (["fast"] as const) : []),
-          "plan",
-          "default",
           ...(input.canOfferReviewCommand ? (["review"] as const) : []),
           ...(input.canOfferForkCommand ? (["fork"] as const) : []),
           ...(input.canOfferSideCommand ? (["side"] as const) : []),

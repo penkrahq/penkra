@@ -140,6 +140,12 @@ export function makeDispatchCommandNormalizer<E>(options: DispatchCommandNormali
 
   return Effect.fnUntraced(function* (input: { readonly command: ClientOrchestrationCommand }) {
     if (input.command.type === "project.create") {
+      if ((input.command.kind ?? "project") === "project" || input.command.workspaceRoot === null) {
+        return {
+          command: input.command as OrchestrationCommand,
+          prepareWorkspaceRoot: null,
+        };
+      }
       // Known trade-off: canonicalization may create the (empty) root directory before the
       // decider validates ownership — realpath-based canonicalization needs the directory to
       // exist, and comparing lexical paths instead would mis-handle symlinked roots. A rejected
@@ -162,7 +168,14 @@ export function makeDispatchCommandNormalizer<E>(options: DispatchCommandNormali
       };
     }
 
-    if (input.command.type === "project.meta.update" && input.command.workspaceRoot !== undefined) {
+    if (input.command.type === "project.meta.update" && input.command.workspaceRoot === null) {
+      return {
+        command: input.command as OrchestrationCommand,
+        prepareWorkspaceRoot: null,
+      };
+    }
+
+    if (input.command.type === "project.meta.update" && input.command.workspaceRoot != null) {
       const workspaceRoot = yield* options.canonicalizeProjectWorkspaceRoot(
         input.command.workspaceRoot,
         {

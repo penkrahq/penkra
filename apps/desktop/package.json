@@ -30,6 +30,7 @@
     "@penkra/shared": "workspace:*",
     "@types/node": "catalog:",
     "@types/semver": "7.7.1",
+    "@types/yauzl": "^3.4.0",
     "@types/yazl": "3.3.0",
     "tsdown": "catalog:",
     "typescript": "catalog:",

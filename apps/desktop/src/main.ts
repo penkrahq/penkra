@@ -195,6 +195,7 @@ import {
   PENKRA_BROWSER_USE_PIPE_PATH,
   resolveBrowserUsePipeBackendEnv,
 } from "./browserUsePipeServer";
+import { AppCommandPipeServer, resolveAppCommandPipePath } from "./appCommandPipeServer";
 import { normalizeDesktopWsUrl, resolveDesktopWsUrlFromEnv } from "./desktopWsBridge";
 import {
   repairBrowserProfileFromBridgeManifest,
@@ -228,14 +229,24 @@ import {
 } from "./desktopStorageMigration";
 import { DESKTOP_IPC_CHANNELS } from "./ipcChannels";
 import { startDesktopAppRuntime, type DesktopAppRuntime } from "./desktopAppRuntime";
+import { parseDesktopAppTheme, renderDesktopAppThemeCss } from "./appTheme";
+import { mediatedAppFetch } from "./appNetworkFetch";
+import { exchangeRawSocket } from "./appRawSocket";
+import { runAppProcess } from "./appProcessRunner";
+import { APP_STANDARD_PERMISSIONS, isAppStandardPermissionName } from "./appStandardPermissions";
 import {
+  parseAppSettingKey,
+  parseAppSettingTarget,
+  parseAppSettingValue,
   parseInstallRegistryAppRequest,
   parseRollbackRegistryAppRequest,
   parseUpdateRegistryAppRequest,
   parseRemoveAppDataRequest,
   parseSetAppEnabledRequest,
+  parseSetAppSkillEnabledRequest,
   parseSetAppPermissionRequest,
   parseUninstallAppRequest,
+  toDesktopAppSettings,
   toDesktopAppInstallationSnapshot,
 } from "./appInstallationIpc";
 import {
@@ -259,11 +270,13 @@ import {
 import { createInitialWindowPresenter } from "./initialWindowVisibility";
 import {
   parseAppTabIdRequest,
+  parseNavigateAppTabRequest,
   parseOpenAppFromAppsRequest,
   parseOpenAppTabRequest,
   parseSetAppTabBoundsRequest,
   parseSetAppTabVisibleRequest,
 } from "./appTabIpc";
+import { parseAppListingDeepLink } from "./appListingDeepLink";
 
 // Capture the real archive identity before any explicit app.asar lookup. Static
 // snapshotting and the runtime watcher both use this same generation as their
@@ -344,6 +357,10 @@ const DESKTOP_BACKEND_SHUTDOWN_TOKEN = Crypto.randomBytes(32).toString("hex");
 if (desktopSmokeUserDataPath && Path.isAbsolute(desktopSmokeUserDataPath)) {
   // Keep smoke launches isolated from a developer's running Penkra instance.
   app.setName(`${APP_DISPLAY_NAME} Smoke ${process.pid}`);
+  // A synthetic smoke identity must not prompt for or wait on the operator's macOS
+  // Keychain. The temporary profile still exercises safeStorage through Chromium's
+  // purpose-built test keychain; normal Dev and production launches use the real one.
+  app.commandLine.appendSwitch("use-mock-keychain");
 }
 const userDataPath =
   desktopSmokeUserDataPath && Path.isAbsolute(desktopSmokeUserDataPath)
@@ -389,8 +406,10 @@ const browserPerfLoggingEnabled = process.env.PENKRA_BROWSER_PERF === "1";
 type DesktopUpdateErrorContext = DesktopUpdateState["errorContext"];
 
 let mainWindow: BrowserWindow | null = null;
+let pendingAppListingRequest: { appId: string } | null = null;
 let desktopAppRuntime: DesktopAppRuntime | null = null;
 let appRegistryClient: AppRegistryClient | null = null;
+let getPenkraAccountId: () => Promise<string | null> = async () => null;
 const voiceRecordingPowerBlocker = new VoiceRecordingPowerBlocker({
   blocker: powerSaveBlocker,
   onError: (message, error) =>
@@ -460,6 +479,7 @@ const browserManager = new DesktopBrowserManager({
   },
 });
 let browserUsePipeServer: BrowserUsePipeServer | null = null;
+let appCommandPipeServer: AppCommandPipeServer | null = null;
 let configuredUpdaterCacheDirName: string | null = null;
 
 browserManager.subscribe((state) => {
@@ -3047,6 +3067,7 @@ function backendEnv(): NodeJS.ProcessEnv {
         process.env,
         browserUsePipeServer ? PENKRA_BROWSER_USE_PIPE_PATH : null,
       ),
+      ...(appCommandPipeServer?.environment ?? {}),
       // Point the backend's HTTP static route at the same swap-immune snapshot the
       // penkra:// protocol serves, so both surfaces survive app.asar being replaced.
       ...(servedStaticRoot?.snapshotted ? { PENKRA_STATIC_DIR: servedStaticRoot.dir } : {}),
@@ -3477,6 +3498,19 @@ async function disposeBrowserUsePipeServerForShutdown(reason: string): Promise<v
   }
 }
 
+async function disposeAppCommandPipeServerForShutdown(reason: string): Promise<void> {
+  const pipeServer = appCommandPipeServer;
+  appCommandPipeServer = null;
+  if (!pipeServer) return;
+  try {
+    await pipeServer.dispose();
+  } catch (error) {
+    console.warn(
+      `[desktop] Failed to dispose App command pipe during ${reason}: ${formatErrorMessage(error)}`,
+    );
+  }
+}
+
 async function stopAppRuntimeAndBackend(): Promise<void> {
   const failures: unknown[] = [];
   const runtime = desktopAppRuntime;
@@ -3514,6 +3548,7 @@ async function shutdownDesktopRuntime(reason: string): Promise<void> {
       clearUpdatePollTimer();
       cancelBackendReadinessWait();
       await disposeBrowserUsePipeServerForShutdown(reason);
+      await disposeAppCommandPipeServerForShutdown(reason);
       browserManager.dispose();
       restoreStdIoCapture?.();
       desktopShutdownComplete = true;
@@ -3562,12 +3597,325 @@ function registerIpcHandlers(): void {
     await acknowledgePenkraStorageSnapshot(storageSnapshotPath);
   });
 
+  const requireAppRenderer = (senderId: number) => {
+    const runtime = desktopAppRuntime;
+    const identity = runtime?.rendererIdentity(senderId);
+    if (!runtime || !identity) throw new Error("This renderer is not a registered Penkra App.");
+    return { runtime, identity };
+  };
+
   ipcMain.removeHandler(IPC.appRuntime.permissionQuery);
   ipcMain.handle(IPC.appRuntime.permissionQuery, async (event, input: unknown) => {
-    const runtime = desktopAppRuntime;
-    const identity = runtime?.rendererIdentity(event.sender.id);
-    if (!runtime || !identity) throw new Error("This renderer is not a registered Penkra App.");
+    const { runtime, identity } = requireAppRenderer(event.sender.id);
     return queryAppPermission(runtime.installations.snapshot(), identity, input);
+  });
+  ipcMain.removeHandler(IPC.appRuntime.permissionRequest);
+  ipcMain.handle(IPC.appRuntime.permissionRequest, async (event, input: unknown) => {
+    const { runtime, identity } = requireAppRenderer(event.sender.id);
+    const current = queryAppPermission(runtime.installations.snapshot(), identity, input);
+    if (!current.declared) throw new Error(`${String(input)} is not declared by this App.`);
+    if (current.required)
+      throw new Error(`${current.name} is required and cannot be requested at runtime.`);
+    if (current.state === "granted") return current;
+    await runtime.installations.requestOptionalPermission({
+      appId: identity.appId,
+      spaceId: identity.spaceId,
+      permission: current.name,
+      confirm: async ({ appName, reason }) => {
+        const options: Electron.MessageBoxOptions = {
+          type: "question",
+          buttons: ["Allow", "Not now"],
+          defaultId: 0,
+          cancelId: 1,
+          noLink: true,
+          title: `${appName} permission`,
+          message: `${appName} would like permission to ${reason.replace(/[.\s]+$/, "").toLowerCase()}.`,
+          detail: "You can revoke this permission later in Penkra Settings.",
+        };
+        const result = mainWindow
+          ? await dialog.showMessageBox(mainWindow, options)
+          : await dialog.showMessageBox(options);
+        return result.response === 0;
+      },
+    });
+    return queryAppPermission(runtime.installations.snapshot(), identity, current.name);
+  });
+  ipcMain.removeHandler(IPC.appRuntime.identityGet);
+  ipcMain.handle(IPC.appRuntime.identityGet, async (event) => {
+    const { runtime, identity } = requireAppRenderer(event.sender.id);
+    return runtime.identities.resolve(identity.appId, identity.spaceId);
+  });
+  ipcMain.removeHandler(IPC.appRuntime.settingGet);
+  ipcMain.handle(IPC.appRuntime.settingGet, async (event, key: unknown) => {
+    const { runtime, identity } = requireAppRenderer(event.sender.id);
+    if (typeof key !== "string") throw new Error("Setting key must be a string.");
+    return runtime.installations.getSetting({ ...identity, key });
+  });
+  ipcMain.removeHandler(IPC.appRuntime.settingSet);
+  ipcMain.handle(IPC.appRuntime.settingSet, async (event, input: unknown) => {
+    const { runtime, identity } = requireAppRenderer(event.sender.id);
+    if (!input || typeof input !== "object" || Array.isArray(input))
+      throw new Error("Setting input must be an object.");
+    const { key, value } = input as Record<string, unknown>;
+    if (typeof key !== "string") throw new Error("Setting key must be a string.");
+    await runtime.installations.setSetting({ ...identity, key, value });
+  });
+  ipcMain.removeHandler(IPC.appRuntime.settingReset);
+  ipcMain.handle(IPC.appRuntime.settingReset, async (event, key: unknown) => {
+    const { runtime, identity } = requireAppRenderer(event.sender.id);
+    if (typeof key !== "string") throw new Error("Setting key must be a string.");
+    await runtime.installations.resetSetting({ ...identity, key });
+  });
+  ipcMain.removeHandler(IPC.appRuntime.secretGet);
+  ipcMain.handle(IPC.appRuntime.secretGet, async (event, name: unknown) => {
+    const { runtime, identity } = requireAppRenderer(event.sender.id);
+    if (typeof name !== "string") throw new Error("Secret name must be a string.");
+    return runtime.vault.getSecret(identity.appId, identity.spaceId, name);
+  });
+  ipcMain.removeHandler(IPC.appRuntime.secretSet);
+  ipcMain.handle(IPC.appRuntime.secretSet, async (event, input: unknown) => {
+    const { runtime, identity } = requireAppRenderer(event.sender.id);
+    if (!input || typeof input !== "object" || Array.isArray(input))
+      throw new Error("Secret input must be an object.");
+    const { name, value } = input as Record<string, unknown>;
+    if (typeof name !== "string" || typeof value !== "string")
+      throw new Error("Secret name and value must be strings.");
+    await runtime.vault.setSecret(identity.appId, identity.spaceId, name, value);
+  });
+  ipcMain.removeHandler(IPC.appRuntime.secretDelete);
+  ipcMain.handle(IPC.appRuntime.secretDelete, async (event, name: unknown) => {
+    const { runtime, identity } = requireAppRenderer(event.sender.id);
+    if (typeof name !== "string") throw new Error("Secret name must be a string.");
+    await runtime.vault.deleteSecret(identity.appId, identity.spaceId, name);
+  });
+  ipcMain.removeHandler(IPC.appRuntime.filePick);
+  ipcMain.handle(IPC.appRuntime.filePick, async (event, kind: unknown) => {
+    const { runtime, identity } = requireAppRenderer(event.sender.id);
+    if (kind !== "file" && kind !== "directory")
+      throw new Error("File picker kind must be file or directory.");
+    const result = await dialog.showOpenDialog({
+      properties: kind === "directory" ? ["openDirectory"] : ["openFile"],
+      title: `Choose a ${kind} for ${runtime.installations.snapshot().packagesByAppId[identity.appId]?.name ?? "this App"}`,
+    });
+    const selected = result.canceled ? undefined : result.filePaths[0];
+    return selected
+      ? runtime.vault.addHandle(identity.appId, identity.spaceId, { kind, path: selected })
+      : null;
+  });
+  ipcMain.removeHandler(IPC.appRuntime.fileList);
+  ipcMain.handle(IPC.appRuntime.fileList, async (event) => {
+    const { runtime, identity } = requireAppRenderer(event.sender.id);
+    return runtime.vault.listHandles(identity.appId, identity.spaceId);
+  });
+  ipcMain.removeHandler(IPC.appRuntime.fileReadText);
+  ipcMain.handle(IPC.appRuntime.fileReadText, async (event, handleId: unknown) => {
+    const { runtime, identity } = requireAppRenderer(event.sender.id);
+    if (typeof handleId !== "string") throw new Error("File handle ID must be a string.");
+    const handle = runtime.vault.resolveHandle(identity.appId, identity.spaceId, handleId, "file");
+    const bytes = await FS.promises.readFile(handle.path);
+    if (bytes.byteLength > 10 * 1024 * 1024)
+      throw new Error("App text files may contain at most 10 MiB.");
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  });
+  ipcMain.removeHandler(IPC.appRuntime.fileWriteText);
+  ipcMain.handle(IPC.appRuntime.fileWriteText, async (event, input: unknown) => {
+    const { runtime, identity } = requireAppRenderer(event.sender.id);
+    if (!input || typeof input !== "object" || Array.isArray(input))
+      throw new Error("File write input must be an object.");
+    const { handleId, contents } = input as Record<string, unknown>;
+    if (typeof handleId !== "string" || typeof contents !== "string")
+      throw new Error("File handle and contents must be strings.");
+    if (Buffer.byteLength(contents) > 10 * 1024 * 1024)
+      throw new Error("App text files may contain at most 10 MiB.");
+    const handle = runtime.vault.resolveHandle(identity.appId, identity.spaceId, handleId, "file");
+    await FS.promises.writeFile(handle.path, contents, "utf8");
+  });
+  ipcMain.removeHandler(IPC.appRuntime.fileListDirectory);
+  ipcMain.handle(IPC.appRuntime.fileListDirectory, async (event, handleId: unknown) => {
+    const { runtime, identity } = requireAppRenderer(event.sender.id);
+    if (typeof handleId !== "string") throw new Error("Directory handle ID must be a string.");
+    const handle = runtime.vault.resolveHandle(
+      identity.appId,
+      identity.spaceId,
+      handleId,
+      "directory",
+    );
+    const entries = await FS.promises.readdir(handle.path, { withFileTypes: true });
+    if (entries.length > 10_000)
+      throw new Error("This directory contains too many entries to list at once.");
+    return entries
+      .filter((entry) => entry.isFile() || entry.isDirectory())
+      .map((entry) => ({
+        name: entry.name,
+        kind: entry.isDirectory() ? ("directory" as const) : ("file" as const),
+      }));
+  });
+  ipcMain.removeHandler(IPC.appRuntime.fileOpenChild);
+  ipcMain.handle(IPC.appRuntime.fileOpenChild, async (event, input: unknown) => {
+    const { runtime, identity } = requireAppRenderer(event.sender.id);
+    if (!input || typeof input !== "object" || Array.isArray(input))
+      throw new Error("Child handle input must be an object.");
+    const { handleId, relativePath } = input as Record<string, unknown>;
+    if (
+      typeof handleId !== "string" ||
+      typeof relativePath !== "string" ||
+      !relativePath ||
+      Path.isAbsolute(relativePath)
+    ) {
+      throw new Error("Child handle requires a relative path.");
+    }
+    const parent = runtime.vault.resolveHandle(
+      identity.appId,
+      identity.spaceId,
+      handleId,
+      "directory",
+    );
+    const childPath = await FS.promises.realpath(Path.resolve(parent.path, relativePath));
+    const relative = Path.relative(parent.path, childPath);
+    if (relative === ".." || relative.startsWith(`..${Path.sep}`) || Path.isAbsolute(relative))
+      throw new Error("Child path escapes the selected directory.");
+    const stat = await FS.promises.stat(childPath);
+    const kind = stat.isDirectory() ? "directory" : stat.isFile() ? "file" : null;
+    if (!kind) throw new Error("Only regular files and directories can become App handles.");
+    return runtime.vault.addHandle(identity.appId, identity.spaceId, { kind, path: childPath });
+  });
+  ipcMain.removeHandler(IPC.appRuntime.fileRevoke);
+  ipcMain.handle(IPC.appRuntime.fileRevoke, async (event, handleId: unknown) => {
+    const { runtime, identity } = requireAppRenderer(event.sender.id);
+    if (typeof handleId !== "string") throw new Error("File handle ID must be a string.");
+    await runtime.vault.revokeHandle(identity.appId, identity.spaceId, handleId);
+  });
+  ipcMain.removeHandler(IPC.appRuntime.networkFetch);
+  ipcMain.handle(IPC.appRuntime.networkFetch, async (event, input: unknown) => {
+    const { runtime, identity } = requireAppRenderer(event.sender.id);
+    const permission = queryAppPermission(
+      runtime.installations.snapshot(),
+      identity,
+      "network-fetch",
+    );
+    if (!permission.declared || permission.state !== "granted") {
+      throw Object.assign(
+        new Error("network-fetch is not granted for this App in the current Space."),
+        { code: "PERMISSION_DENIED" },
+      );
+    }
+    if (!input || typeof input !== "object" || Array.isArray(input))
+      throw new Error("Network request must be an object.");
+    const startedAt = performance.now();
+    try {
+      return await mediatedAppFetch(input as import("./appNetworkFetch").AppNetworkFetchRequest);
+    } finally {
+      void runtime.diagnostics
+        .record({
+          kind: "permission-used",
+          appId: identity.appId,
+          spaceId: identity.spaceId,
+          operation: "network-fetch",
+          durationMs: Math.round(performance.now() - startedAt),
+        })
+        .catch(() => undefined);
+    }
+  });
+  ipcMain.removeHandler(IPC.appRuntime.rawSocketExchange);
+  ipcMain.handle(IPC.appRuntime.rawSocketExchange, async (event, input: unknown) => {
+    const { runtime, identity } = requireAppRenderer(event.sender.id);
+    const permission = queryAppPermission(runtime.installations.snapshot(), identity, "raw-socket");
+    if (!permission.declared || permission.state !== "granted") {
+      throw Object.assign(
+        new Error("raw-socket is not granted for this App in the current Space."),
+        { code: "PERMISSION_DENIED" },
+      );
+    }
+    if (!input || typeof input !== "object" || Array.isArray(input))
+      throw new Error("Raw socket request must be an object.");
+    const startedAt = performance.now();
+    try {
+      return await exchangeRawSocket(input as import("./appRawSocket").AppRawSocketRequest);
+    } finally {
+      void runtime.diagnostics
+        .record({
+          kind: "permission-used",
+          appId: identity.appId,
+          spaceId: identity.spaceId,
+          operation: "raw-socket",
+          durationMs: Math.round(performance.now() - startedAt),
+        })
+        .catch(() => undefined);
+    }
+  });
+  ipcMain.removeHandler(IPC.appRuntime.processRun);
+  ipcMain.handle(IPC.appRuntime.processRun, async (event, input: unknown) => {
+    const { runtime, identity } = requireAppRenderer(event.sender.id);
+    const permission = queryAppPermission(
+      runtime.installations.snapshot(),
+      identity,
+      "process-spawn",
+    );
+    if (!permission.declared || permission.state !== "granted") {
+      throw Object.assign(
+        new Error("process-spawn is not granted for this App in the current Space."),
+        { code: "PERMISSION_DENIED" },
+      );
+    }
+    if (!input || typeof input !== "object" || Array.isArray(input))
+      throw new Error("Process request must be an object.");
+    const request = input as Record<string, unknown>;
+    if (typeof request.executableHandleId !== "string")
+      throw new Error("Process executable handle is required.");
+    if (request.args !== undefined && !Array.isArray(request.args))
+      throw new Error("Process args must be an array.");
+    if (request.cwdHandleId !== undefined && typeof request.cwdHandleId !== "string")
+      throw new Error("Process cwd handle must be a string.");
+    if (
+      request.stdin !== undefined &&
+      typeof request.stdin !== "string" &&
+      !(request.stdin instanceof Uint8Array)
+    )
+      throw new Error("Process stdin must be text or bytes.");
+    if (request.timeoutMs !== undefined && typeof request.timeoutMs !== "number")
+      throw new Error("Process timeout must be a number.");
+    const executable = runtime.vault.resolveHandle(
+      identity.appId,
+      identity.spaceId,
+      request.executableHandleId,
+      "file",
+    );
+    const cwd =
+      request.cwdHandleId === undefined
+        ? undefined
+        : runtime.vault.resolveHandle(
+            identity.appId,
+            identity.spaceId,
+            request.cwdHandleId as string,
+            "directory",
+          ).path;
+    const controller = new AbortController();
+    const cancel = () => controller.abort();
+    event.sender.once("destroyed", cancel);
+    const startedAt = performance.now();
+    try {
+      return await runAppProcess({
+        executablePath: executable.path,
+        ...(Array.isArray(request.args) ? { args: request.args as string[] } : {}),
+        ...(cwd === undefined ? {} : { cwd }),
+        ...(typeof request.stdin === "string" || request.stdin instanceof Uint8Array
+          ? { stdin: request.stdin }
+          : {}),
+        ...(typeof request.timeoutMs === "number" ? { timeoutMs: request.timeoutMs } : {}),
+        signal: controller.signal,
+      });
+    } finally {
+      event.sender.removeListener("destroyed", cancel);
+      void runtime.diagnostics
+        .record({
+          kind: "permission-used",
+          appId: identity.appId,
+          spaceId: identity.spaceId,
+          operation: "process-spawn",
+          durationMs: Math.round(performance.now() - startedAt),
+        })
+        .catch(() => undefined);
+    }
   });
 
   const requireAppInstallations = (senderId: number) => {
@@ -3600,8 +3948,34 @@ function registerIpcHandlers(): void {
   });
   ipcMain.handle(IPC.appInstallations.setPermission, async (event, input: unknown) => {
     const { service, currentSpaceId } = requireAppInstallations(event.sender.id);
+    const request = parseSetAppPermissionRequest(input);
     return toDesktopAppInstallationSnapshot(
-      await service.setPermission(parseSetAppPermissionRequest(input)),
+      await (isAppStandardPermissionName(request.permission)
+        ? service.setRuntimePermission({ ...request, permission: request.permission })
+        : service.setPermission(request)),
+      currentSpaceId,
+    );
+  });
+  ipcMain.handle(IPC.appInstallations.getSettings, async (event, input: unknown) => {
+    const { service } = requireAppInstallations(event.sender.id);
+    return toDesktopAppSettings(service.listSettings(parseAppSettingTarget(input)));
+  });
+  ipcMain.handle(IPC.appInstallations.setSetting, async (event, input: unknown) => {
+    const { service } = requireAppInstallations(event.sender.id);
+    const request = parseAppSettingValue(input);
+    await service.setSetting(request);
+    return toDesktopAppSettings(service.listSettings(request));
+  });
+  ipcMain.handle(IPC.appInstallations.resetSetting, async (event, input: unknown) => {
+    const { service } = requireAppInstallations(event.sender.id);
+    const request = parseAppSettingKey(input);
+    await service.resetSetting(request);
+    return toDesktopAppSettings(service.listSettings(request));
+  });
+  ipcMain.handle(IPC.appInstallations.setSkillEnabled, async (event, input: unknown) => {
+    const { service, currentSpaceId } = requireAppInstallations(event.sender.id);
+    return toDesktopAppInstallationSnapshot(
+      await service.setSkillEnabled(parseSetAppSkillEnabledRequest(input)),
       currentSpaceId,
     );
   });
@@ -3667,7 +4041,8 @@ function registerIpcHandlers(): void {
     const runtime = desktopAppRuntime;
     if (!runtime) throw new Error("The App runtime is not ready.");
     const currentSpaceId = runtime.installationSpaceId(event.sender.id);
-    if (!currentSpaceId) throw new Error("Apps can only be rolled back from a Space-bound Apps tab.");
+    if (!currentSpaceId)
+      throw new Error("Apps can only be rolled back from a Space-bound Apps tab.");
     const state = await rollbackRegistryApp({
       request,
       hostVersion: app.getVersion(),
@@ -3706,10 +4081,20 @@ function registerIpcHandlers(): void {
     return tabs;
   };
   for (const channel of Object.values(IPC.appTabs)) {
-    if (channel !== IPC.appTabs.opened && channel !== IPC.appTabs.state) {
+    if (
+      channel !== IPC.appTabs.opened &&
+      channel !== IPC.appTabs.state &&
+      channel !== IPC.appTabs.listingRequested
+    ) {
       ipcMain.removeHandler(channel);
     }
   }
+  ipcMain.handle(IPC.appTabs.consumeListingRequest, async (event) => {
+    requireShellAppTabs(event.sender.id);
+    const request = pendingAppListingRequest;
+    pendingAppListingRequest = null;
+    return request;
+  });
   ipcMain.handle(IPC.appTabs.open, async (event, input: unknown) =>
     requireShellAppTabs(event.sender.id).openInstalled(parseOpenAppTabRequest(input)),
   );
@@ -3722,9 +4107,7 @@ function registerIpcHandlers(): void {
       parseOpenAppFromAppsRequest(input),
     );
   });
-  ipcMain.handle(IPC.appTabs.list, async (event) =>
-    requireShellAppTabs(event.sender.id).list(),
-  );
+  ipcMain.handle(IPC.appTabs.list, async (event) => requireShellAppTabs(event.sender.id).list());
   ipcMain.handle(IPC.appTabs.attach, async (event, input: unknown) => {
     const { tabId } = parseAppTabIdRequest(input);
     requireShellAppTabs(event.sender.id).attach(tabId);
@@ -3737,9 +4120,48 @@ function registerIpcHandlers(): void {
     const { tabId, visible } = parseSetAppTabVisibleRequest(input);
     requireShellAppTabs(event.sender.id).setVisible(tabId, visible);
   });
+  ipcMain.handle(IPC.appTabs.navigate, async (event, input: unknown) => {
+    const { tabId, route, state } = parseNavigateAppTabRequest(input);
+    await requireShellAppTabs(event.sender.id).navigate(tabId, {
+      route,
+      ...(state === undefined ? {} : { state }),
+    });
+  });
   ipcMain.handle(IPC.appTabs.close, async (event, input: unknown) => {
     const { tabId } = parseAppTabIdRequest(input);
     requireShellAppTabs(event.sender.id).close(tabId);
+  });
+
+  ipcMain.removeHandler(IPC.appDiagnostics.list);
+  ipcMain.handle(IPC.appDiagnostics.list, async (event, input: unknown) => {
+    if (mainWindow?.webContents.id !== event.sender.id) {
+      throw new Error("Only the Penkra shell can read App diagnostics.");
+    }
+    if (!desktopAppRuntime) throw new Error("The App runtime is not ready.");
+    if (
+      input !== undefined &&
+      (typeof input !== "object" || input === null || Array.isArray(input))
+    ) {
+      throw new Error("App diagnostics filters must be an object.");
+    }
+    const filters = (input ?? {}) as Record<string, unknown>;
+    for (const key of Object.keys(filters)) {
+      if (!["appId", "spaceId", "limit"].includes(key))
+        throw new Error(`Unknown App diagnostics filter ${key}.`);
+    }
+    if (filters.appId !== undefined && typeof filters.appId !== "string")
+      throw new Error("appId must be a string.");
+    if (filters.spaceId !== undefined && typeof filters.spaceId !== "string")
+      throw new Error("spaceId must be a string.");
+    if (
+      filters.limit !== undefined &&
+      (!Number.isInteger(filters.limit) || (filters.limit as number) < 1)
+    ) {
+      throw new Error("limit must be a positive integer.");
+    }
+    return desktopAppRuntime.diagnostics.list(
+      filters as { appId?: string; spaceId?: string; limit?: number },
+    );
   });
 
   ipcMain.removeAllListeners(IPC.wsUrl);
@@ -3815,6 +4237,16 @@ function registerIpcHandlers(): void {
     }
 
     nativeTheme.themeSource = theme;
+  });
+  ipcMain.removeHandler(IPC.setAppTheme);
+  ipcMain.handle(IPC.setAppTheme, async (event, rawTheme: unknown) => {
+    if (mainWindow?.webContents.id !== event.sender.id) {
+      throw new Error("Only the Penkra shell can set the App Theme contract.");
+    }
+    if (!desktopAppRuntime) throw new Error("The App runtime is not ready.");
+    await desktopAppRuntime.appTabs.applyTheme(
+      renderDesktopAppThemeCss(parseDesktopAppTheme(rawTheme)),
+    );
   });
 
   ipcMain.removeHandler(IPC.setSpacesMenu);
@@ -4495,6 +4927,7 @@ if (hasSingleInstanceLock) {
     registerAsDefaultProtocolClient: !desktopSmokeUserDataPath,
     websiteOrigin: penkraAccountServices.websiteOrigin,
   });
+  getPenkraAccountId = accountAuthRuntime.getAccountId;
   appRegistryClient = new AppRegistryClient({
     apiUrl: penkraAccountServices.apiUrl,
     getCookie: accountAuthRuntime.getCookie,
@@ -4512,10 +4945,28 @@ configureAppIdentity();
 if (!hasSingleInstanceLock) {
   app.quit();
 } else {
-  app.on("second-instance", () => {
+  app.on("open-url", (event, value) => {
+    const request = parseAppListingDeepLink(value);
+    if (!request) return;
+    event.preventDefault();
+    requestAppListing(request);
+  });
+  app.on("second-instance", (_event, commandLine) => {
+    const request = commandLine.toReversed().map(parseAppListingDeepLink).find(Boolean);
+    if (request) requestAppListing(request);
     focusMainWindow();
   });
 }
+
+function requestAppListing(request: { appId: string }): void {
+  pendingAppListingRequest = request;
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.webContents.send(IPC.appTabs.listingRequested, request);
+  focusMainWindow();
+}
+
+pendingAppListingRequest ??=
+  process.argv.toReversed().map(parseAppListingDeepLink).find(Boolean) ?? null;
 
 async function bootstrap(): Promise<void> {
   writeDesktopLogHeader("bootstrap start");
@@ -4540,6 +4991,23 @@ async function bootstrap(): Promise<void> {
     userDataPath: app.getPath("userData"),
     appPreloadPath: Path.join(__dirname, "appPreload.js"),
     ipcMain,
+    getAccountId: getPenkraAccountId,
+    requestStandardPermissions: async (request) => {
+      if (!mainWindow || mainWindow.isDestroyed()) return false;
+      const labels = request.permissions.map((permission) => APP_STANDARD_PERMISSIONS[permission]);
+      const result = await dialog.showMessageBox(mainWindow, {
+        type: "question",
+        title: `${request.appName} permission`,
+        message: `${request.appName} would like to ${labels.join(" and ").toLowerCase()}.`,
+        detail:
+          "This permission applies only to this App in the current Space and can be changed in Settings.",
+        buttons: ["Don't Allow", "Allow"],
+        defaultId: 1,
+        cancelId: 0,
+        noLink: true,
+      });
+      return result.response === 1;
+    },
     window: () => mainWindow,
     onTabOpened: (descriptor) => {
       if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -4586,13 +5054,19 @@ async function bootstrap(): Promise<void> {
     );
   }
   for (const failure of desktopAppRuntime.packageGarbageCollection.failures) {
-    console.warn(`[penkra-app] Unable to remove unreferenced package entry ${failure.path}: ${failure.error.message}`);
+    console.warn(
+      `[penkra-app] Unable to remove unreferenced package entry ${failure.path}: ${failure.error.message}`,
+    );
   }
   void appRegistryClient?.reconcileInstallReceipts().catch((error) => {
-    console.warn(`[penkra-app] Install receipt reconciliation failed: ${formatErrorMessage(error)}`);
+    console.warn(
+      `[penkra-app] Install receipt reconciliation failed: ${formatErrorMessage(error)}`,
+    );
   });
   const firstPartyAppsPath = resolveFirstPartyAppsPackagePath({
-    configuredPath: process.env[PENKRA_APPS_PACKAGE_PATH_ENV],
+    ...(process.env[PENKRA_APPS_PACKAGE_PATH_ENV] === undefined
+      ? {}
+      : { configuredPath: process.env[PENKRA_APPS_PACKAGE_PATH_ENV] }),
     resourcesPath: process.resourcesPath,
     desktopBundleDirectory: __dirname,
     packaged: app.isPackaged,
@@ -4630,6 +5104,15 @@ async function bootstrap(): Promise<void> {
     }
   }
   writeDesktopLogHeader("bootstrap App runtime started");
+  appCommandPipeServer = new AppCommandPipeServer({
+    path: resolveAppCommandPipePath(app.getPath("userData")),
+    token: Crypto.randomBytes(32).toString("hex"),
+    catalog: desktopAppRuntime.operationCatalog,
+    broker: desktopAppRuntime.broker,
+    tabs: desktopAppRuntime.appTabs,
+    registry: appRegistryClient,
+  });
+  await appCommandPipeServer.start();
   try {
     await ensureBrowserUsePipeServer();
   } catch (error) {

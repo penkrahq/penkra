@@ -3,7 +3,7 @@ import {
   NonNegativeInt,
   PositiveInt,
   ProcessEnvRecord,
-  ProjectId,
+  ContainerId,
   TrimmedNonEmptyString,
 } from "./baseSchemas";
 
@@ -16,8 +16,8 @@ const PROJECT_DIRECTORY_LIST_MAX_DEPTH = 32;
 const PROJECT_SCRIPT_DISCOVERY_MAX_DEPTH = 3;
 const ProjectEntryKind = Schema.Literals(["file", "directory"]);
 
-export const ProjectKind = Schema.Literals(["project", "chat", "studio"]);
-export type ProjectKind = typeof ProjectKind.Type;
+export const ContainerKind = Schema.Literals(["project", "chat", "studio"]);
+export type ContainerKind = typeof ContainerKind.Type;
 
 export const ProjectSearchEntriesInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,
@@ -187,7 +187,7 @@ export const ProjectDevServerStatus = Schema.Literals(["starting", "running"]);
 export type ProjectDevServerStatus = typeof ProjectDevServerStatus.Type;
 
 export const ProjectDevServer = Schema.Struct({
-  projectId: ProjectId,
+  projectId: ContainerId,
   command: TrimmedNonEmptyString,
   cwd: TrimmedNonEmptyString,
   pid: Schema.NullOr(PositiveInt),
@@ -197,7 +197,7 @@ export const ProjectDevServer = Schema.Struct({
 export type ProjectDevServer = typeof ProjectDevServer.Type;
 
 export const ProjectRunDevServerInput = Schema.Struct({
-  projectId: ProjectId,
+  projectId: ContainerId,
   command: TrimmedNonEmptyString,
   cwd: TrimmedNonEmptyString,
   env: Schema.optional(ProcessEnvRecord),
@@ -210,7 +210,7 @@ export const ProjectRunDevServerResult = Schema.Struct({
 export type ProjectRunDevServerResult = typeof ProjectRunDevServerResult.Type;
 
 export const ProjectStopDevServerInput = Schema.Struct({
-  projectId: ProjectId,
+  projectId: ContainerId,
 });
 export type ProjectStopDevServerInput = typeof ProjectStopDevServerInput.Type;
 
@@ -238,7 +238,7 @@ export const ProjectDevServerEvent = Schema.Union([
   }),
   Schema.Struct({
     type: Schema.Literal("removed"),
-    projectId: ProjectId,
+    projectId: ContainerId,
     reason: ProjectDevServerRemovedReason,
   }),
 ]);

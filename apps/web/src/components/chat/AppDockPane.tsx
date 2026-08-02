@@ -39,7 +39,7 @@ export function AppDockPane(props: {
       sync();
       const hasRunningTransition = dockShell
         ?.getAnimations({ subtree: true })
-        .some((animation) => animation.playState === "pending" || animation.playState === "running");
+        .some((animation) => animation.playState === "running");
       if (hasRunningTransition) frame = window.requestAnimationFrame(followRunningTransitions);
     };
     const handleTransitionRun = () => {
@@ -77,7 +77,9 @@ export function AppDockPane(props: {
   return (
     <div ref={viewportRef} className="relative h-full min-h-0 w-full overflow-hidden">
       {props.status === "crashed" ? (
-        <PanelStateMessage>The App stopped responding. Close this tab and open it again.</PanelStateMessage>
+        <PanelStateMessage>
+          The App stopped responding. Close this tab and open it again.
+        </PanelStateMessage>
       ) : props.status !== "ready" ? (
         <PanelStateMessage>Loading App…</PanelStateMessage>
       ) : null}

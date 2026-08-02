@@ -44,6 +44,17 @@ describe("resolveThreadWorkspaceState", () => {
 });
 
 describe("resolveThreadWorkspaceCwd", () => {
+  it("uses the thread directory before the legacy project root", () => {
+    expect(
+      resolveThreadWorkspaceCwd({
+        projectCwd: "/legacy-project-root",
+        workingDirectory: "/thread-folder",
+        envMode: "local",
+        worktreePath: null,
+      }),
+    ).toBe("/thread-folder");
+  });
+
   it("uses the project root for local threads", () => {
     expect(
       resolveThreadWorkspaceCwd({
@@ -77,6 +88,16 @@ describe("resolveThreadWorkspaceCwd", () => {
 });
 
 describe("resolveThreadBranchSourceCwd", () => {
+  it("uses the thread directory for a virtual folder", () => {
+    expect(
+      resolveThreadBranchSourceCwd({
+        projectCwd: null,
+        workingDirectory: "/thread-folder",
+        worktreePath: null,
+      }),
+    ).toBe("/thread-folder");
+  });
+
   it("falls back to the project root before worktree creation", () => {
     expect(
       resolveThreadBranchSourceCwd({

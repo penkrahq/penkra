@@ -17,8 +17,8 @@ import type {
   OrchestrationThread,
   OrchestrationThreadShell,
   CheckpointRef,
-  ProjectId,
-  ProjectKind,
+  ContainerId,
+  ContainerKind,
   SpaceId,
   ThreadId,
   ThreadEnvironmentMode,
@@ -40,9 +40,9 @@ export interface ProjectionSnapshotSequence {
 
 export interface ProjectionThreadCheckpointContext {
   readonly threadId: ThreadId;
-  readonly projectId: ProjectId;
-  readonly projectKind: ProjectKind;
-  readonly workspaceRoot: string;
+  readonly projectId: ContainerId;
+  readonly projectKind: ContainerKind;
+  readonly workspaceRoot: string | null;
   readonly envMode: ThreadEnvironmentMode;
   readonly worktreePath: string | null;
   readonly workingDirectory: string | null;
@@ -63,9 +63,9 @@ export interface ProjectionGeneratedImageActivityRecord {
 
 export interface ProjectionFullThreadDiffContext {
   readonly threadId: ThreadId;
-  readonly projectId: ProjectId;
-  readonly projectKind: ProjectKind;
-  readonly workspaceRoot: string;
+  readonly projectId: ContainerId;
+  readonly projectKind: ContainerKind;
+  readonly workspaceRoot: string | null;
   readonly envMode: ThreadEnvironmentMode;
   readonly worktreePath: string | null;
   readonly workingDirectory: string | null;
@@ -164,7 +164,7 @@ export interface ProjectionSnapshotQueryShape {
    * Read a single active project shell row by id.
    */
   readonly getProjectShellById: (
-    projectId: ProjectId,
+    projectId: ContainerId,
   ) => Effect.Effect<Option.Option<OrchestrationProjectShell>, ProjectionRepositoryError>;
 
   /** Read a single active custom space shell row by id. */
@@ -176,7 +176,7 @@ export interface ProjectionSnapshotQueryShape {
    * Read the earliest active thread for a project.
    */
   readonly getFirstActiveThreadIdByProjectId: (
-    projectId: ProjectId,
+    projectId: ContainerId,
   ) => Effect.Effect<Option.Option<ThreadId>, ProjectionRepositoryError>;
 
   /**

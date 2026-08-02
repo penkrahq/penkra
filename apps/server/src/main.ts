@@ -50,6 +50,7 @@ import { OrchestrationEngineService } from "./orchestration/Services/Orchestrati
 import { ensureDefaultSpaces } from "./orchestration/defaultSpacesBootstrap";
 import { startThreadRetentionJob } from "./threadRetention";
 import { PenkraRegistry } from "./penkra/layer";
+import { appDeveloperCommand } from "./appDeveloperCli";
 import {
   consumeDesktopParentPidFromEnvironment,
   waitForDesktopParentDisconnect,
@@ -590,4 +591,4 @@ const serverCommand = baseServerCommand.pipe(
   Command.withHandler((input) => makeServerProgram(input)),
 );
 
-export const penkraCli = serverCommand;
+export const penkraCli = serverCommand.pipe(Command.withSubcommands([appDeveloperCommand]));

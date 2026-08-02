@@ -307,10 +307,14 @@ managedAttachmentsLegacyLayer("managed attachment migration after private migrat
         [88, "ProjectionThreadsSpaces"],
         [89, "ProjectionSpacesArchive"],
         [90, "ThreadScopedProviderRuntimeProjection"],
+        [91, "SpaceNavigationState"],
+        [92, "RemoveProjectionThreadWorktreePath"],
+        [93, "VirtualFolders"],
+        [94, "RequireSpaces"],
       ]);
 
       const tracker = yield* trackerRows(sql);
-      assert.deepStrictEqual(tracker.slice(-27), [
+      assert.deepStrictEqual(tracker.slice(-31), [
         { migration_id: 54, name: "DurableProviderCommandDelivery" },
         { migration_id: 55, name: "ManagedAttachments" },
         { migration_id: 56, name: "CommandReceiptFingerprints" },
@@ -338,6 +342,10 @@ managedAttachmentsLegacyLayer("managed attachment migration after private migrat
         { migration_id: 88, name: "ProjectionThreadsSpaces" },
         { migration_id: 89, name: "ProjectionSpacesArchive" },
         { migration_id: 90, name: "ThreadScopedProviderRuntimeProjection" },
+        { migration_id: 91, name: "SpaceNavigationState" },
+        { migration_id: 92, name: "RemoveProjectionThreadWorktreePath" },
+        { migration_id: 93, name: "VirtualFolders" },
+        { migration_id: 94, name: "RequireSpaces" },
       ]);
       const preserved = yield* sql<{ readonly count: number }>`
         SELECT COUNT(*) AS count FROM orchestration_consumer_state
@@ -410,6 +418,10 @@ agentGatewayRetentionLegacyLayer(
           [88, "ProjectionThreadsSpaces"],
           [89, "ProjectionSpacesArchive"],
           [90, "ThreadScopedProviderRuntimeProjection"],
+          [91, "SpaceNavigationState"],
+          [92, "RemoveProjectionThreadWorktreePath"],
+          [93, "VirtualFolders"],
+          [94, "RequireSpaces"],
         ]);
 
         const columns = yield* sql<{ readonly name: string }>`
@@ -485,11 +497,15 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
         [88, "ProjectionThreadsSpaces"],
         [89, "ProjectionSpacesArchive"],
         [90, "ThreadScopedProviderRuntimeProjection"],
+        [91, "SpaceNavigationState"],
+        [92, "RemoveProjectionThreadWorktreePath"],
+        [93, "VirtualFolders"],
+        [94, "RequireSpaces"],
       ]);
 
       const tracker = yield* trackerRows(sql);
       assert.deepStrictEqual(
-        tracker.slice(-11).map((row) => [row.migration_id, row.name]),
+        tracker.slice(-15).map((row) => [row.migration_id, row.name]),
         [
           [70, "AgentGatewayOperations"],
           [71, "ProjectionThreadsGatewayProvenance"],
@@ -502,6 +518,10 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
           [88, "ProjectionThreadsSpaces"],
           [89, "ProjectionSpacesArchive"],
           [90, "ThreadScopedProviderRuntimeProjection"],
+          [91, "SpaceNavigationState"],
+          [92, "RemoveProjectionThreadWorktreePath"],
+          [93, "VirtualFolders"],
+          [94, "RequireSpaces"],
         ],
       );
 
@@ -571,11 +591,15 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
         [88, "ProjectionThreadsSpaces"],
         [89, "ProjectionSpacesArchive"],
         [90, "ThreadScopedProviderRuntimeProjection"],
+        [91, "SpaceNavigationState"],
+        [92, "RemoveProjectionThreadWorktreePath"],
+        [93, "VirtualFolders"],
+        [94, "RequireSpaces"],
       ]);
 
       const tracker = yield* trackerRows(sql);
       assert.deepStrictEqual(
-        tracker.slice(-8).map((row) => [row.migration_id, row.name]),
+        tracker.slice(-12).map((row) => [row.migration_id, row.name]),
         [
           [74, "Spaces"],
           [79, "Spaces"],
@@ -585,6 +609,10 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
           [88, "ProjectionThreadsSpaces"],
           [89, "ProjectionSpacesArchive"],
           [90, "ThreadScopedProviderRuntimeProjection"],
+          [91, "SpaceNavigationState"],
+          [92, "RemoveProjectionThreadWorktreePath"],
+          [93, "VirtualFolders"],
+          [94, "RequireSpaces"],
         ],
       );
       const preservedSpaces = yield* sql<{ readonly spaceId: string }>`
@@ -628,6 +656,10 @@ retiredMigration80CompatibilityLayer("v0.8.4 migration compatibility", (it) => {
         [88, "ProjectionThreadsSpaces"],
         [89, "ProjectionSpacesArchive"],
         [90, "ThreadScopedProviderRuntimeProjection"],
+        [91, "SpaceNavigationState"],
+        [92, "RemoveProjectionThreadWorktreePath"],
+        [93, "VirtualFolders"],
+        [94, "RequireSpaces"],
       ]);
 
       const tracker = yield* trackerRows(sql);

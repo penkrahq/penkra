@@ -22,7 +22,9 @@ export function resolveFirstPartyAppsPackagePath(input: {
     ...(input.packaged ? [Path.join(input.resourcesPath, "penkra-apps", "apps")] : []),
     Path.resolve(input.desktopBundleDirectory, "../../../..", "penkra-apps", "apps"),
   ];
-  return candidates.find((candidate) => FS.existsSync(Path.join(candidate, "penkra-app.json"))) ?? null;
+  return (
+    candidates.find((candidate) => FS.existsSync(Path.join(candidate, "penkra-app.json"))) ?? null
+  );
 }
 
 export async function bootstrapFirstPartyAppsPackage(

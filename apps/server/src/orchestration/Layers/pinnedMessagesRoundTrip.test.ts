@@ -2,7 +2,7 @@ import {
   CommandId,
   DEFAULT_PROVIDER_INTERACTION_MODE,
   MessageId,
-  ProjectId,
+  ContainerId,
   ThreadId,
   ThreadMarkerId,
 } from "@penkra/contracts";
@@ -48,7 +48,7 @@ describe("pinned messages round-trip", () => {
   it("persists pinned-message commands into projected thread detail and snapshots", async () => {
     const system = await createSystem();
     const createdAt = "2026-06-06T00:00:00.000Z";
-    const projectId = ProjectId.makeUnsafe("project-pins");
+    const projectId = ContainerId.makeUnsafe("project-pins");
     const threadId = ThreadId.makeUnsafe("thread-pins");
     const messageId = MessageId.makeUnsafe("assistant-msg-1");
     const secondMessageId = MessageId.makeUnsafe("assistant-msg-2");
@@ -57,6 +57,7 @@ describe("pinned messages round-trip", () => {
       await system.run(
         system.engine.dispatch({
           type: "project.create",
+          kind: "chat",
           commandId: CommandId.makeUnsafe("cmd-project-pins"),
           projectId,
           title: "Pins project",
@@ -76,7 +77,7 @@ describe("pinned messages round-trip", () => {
           interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
           runtimeMode: "approval-required",
           branch: null,
-          worktreePath: null,
+          worktreePath: "/tmp/project-pins",
           createdAt,
         }),
       );
@@ -151,7 +152,7 @@ describe("pinned messages round-trip", () => {
   it("persists thread marker commands into projected thread detail and snapshots", async () => {
     const system = await createSystem();
     const createdAt = "2026-06-06T00:00:00.000Z";
-    const projectId = ProjectId.makeUnsafe("project-markers");
+    const projectId = ContainerId.makeUnsafe("project-markers");
     const threadId = ThreadId.makeUnsafe("thread-markers");
     const messageId = MessageId.makeUnsafe("assistant-marker-msg-1");
     const firstMarkerId = ThreadMarkerId.makeUnsafe("marker-1");
@@ -161,6 +162,7 @@ describe("pinned messages round-trip", () => {
       await system.run(
         system.engine.dispatch({
           type: "project.create",
+          kind: "chat",
           commandId: CommandId.makeUnsafe("cmd-project-markers"),
           projectId,
           title: "Markers project",
@@ -180,7 +182,7 @@ describe("pinned messages round-trip", () => {
           interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
           runtimeMode: "approval-required",
           branch: null,
-          worktreePath: null,
+          worktreePath: "/tmp/project-markers",
           createdAt,
         }),
       );

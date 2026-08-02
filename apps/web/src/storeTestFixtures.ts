@@ -4,7 +4,7 @@
 
 import {
   EventId,
-  ProjectId,
+  ContainerId,
   ThreadId,
   TurnId,
   type OrchestrationEvent,
@@ -21,7 +21,7 @@ export function makeThread(overrides: Partial<Thread> = {}): Thread {
   return {
     id: ThreadId.makeUnsafe("thread-1"),
     codexThreadId: null,
-    projectId: ProjectId.makeUnsafe("project-1"),
+    projectId: ContainerId.makeUnsafe("project-1"),
     title: "Thread",
     modelSelection: {
       provider: "codex",
@@ -63,7 +63,7 @@ export function makeDomainEvent<TType extends OrchestrationEvent["type"]>(
         ? payload.spaceId
         : "projectId" in payload
           ? payload.projectId
-          : ProjectId.makeUnsafe("project-1");
+          : ContainerId.makeUnsafe("project-1");
   const aggregateKind =
     "threadId" in payload ? "thread" : "spaceId" in payload ? "space" : "project";
   return {
@@ -150,7 +150,7 @@ export function makeProject(
   overrides: Partial<AppState["projects"][number]> = {},
 ): AppState["projects"][number] {
   return {
-    id: ProjectId.makeUnsafe("project-1"),
+    id: ContainerId.makeUnsafe("project-1"),
     kind: "project",
     name: "Project",
     remoteName: "Project",
@@ -171,7 +171,7 @@ export function makeProject(
 export function makeReadModelThread(overrides: Partial<OrchestrationReadModel["threads"][number]>) {
   return {
     id: ThreadId.makeUnsafe("thread-1"),
-    projectId: ProjectId.makeUnsafe("project-1"),
+    projectId: ContainerId.makeUnsafe("project-1"),
     title: "Thread",
     modelSelection: {
       provider: "codex",
@@ -207,7 +207,7 @@ export function makeReadModel(
     spaces: [],
     projects: [
       {
-        id: ProjectId.makeUnsafe("project-1"),
+        id: ContainerId.makeUnsafe("project-1"),
         kind: "project",
         title: "Project",
         workspaceRoot: "/tmp/project",
@@ -233,7 +233,7 @@ export function makeShellSnapshot(thread: OrchestrationShellSnapshot["threads"][
     spaces: [],
     projects: [
       {
-        id: ProjectId.makeUnsafe("project-1"),
+        id: ContainerId.makeUnsafe("project-1"),
         title: "Project",
         workspaceRoot: "/tmp/project",
         defaultModelSelection: {
@@ -254,7 +254,7 @@ export function makeReadModelProject(
   overrides: Partial<OrchestrationReadModel["projects"][number]>,
 ): OrchestrationReadModel["projects"][number] {
   return {
-    id: ProjectId.makeUnsafe("project-1"),
+    id: ContainerId.makeUnsafe("project-1"),
     kind: "project",
     title: "Project",
     workspaceRoot: "/tmp/project",

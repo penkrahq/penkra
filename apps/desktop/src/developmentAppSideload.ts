@@ -22,9 +22,13 @@ export async function bootstrapDevelopmentSideload(
     return "installed";
   }
   if (existing.source !== "sideload") {
-    throw new Error(`${verified.manifest.id} is already installed from the registry; remove it before sideloading.`);
+    throw new Error(
+      `${verified.manifest.id} is already installed from the registry; remove it before sideloading.`,
+    );
   }
   if (existing.sha256 === verified.sha256) return "current";
-  await runtime.installations.updateSideloadForSpaces({ ...verified, source: "sideload" });
+  await runtime.installations.updateSideloadForSpaces({
+    package: { ...verified, source: "sideload" },
+  });
   return "updated";
 }

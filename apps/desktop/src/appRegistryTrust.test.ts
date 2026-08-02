@@ -32,11 +32,13 @@ describe("registry release trust", () => {
   it("verifies the selected release against a pinned Ed25519 trust anchor", () => {
     const fixture = signedFixture();
 
-    expect(verifyRegistryReleaseAttestation({
-      compactJws: fixture.jws,
-      trustedKeys: [fixture.trustKey],
-      expected,
-    })).toMatchObject({
+    expect(
+      verifyRegistryReleaseAttestation({
+        compactJws: fixture.jws,
+        trustedKeys: [fixture.trustKey],
+        expected,
+      }),
+    ).toMatchObject({
       ...expected,
       keyId: fixture.trustKey.kid,
       publisherSignatureDigest: "e".repeat(64),
@@ -47,21 +49,27 @@ describe("registry release trust", () => {
     const fixture = signedFixture();
     const [header, payload] = fixture.jws.split(".");
 
-    expect(() => verifyRegistryReleaseAttestation({
-      compactJws: `${header}.${payload}.AAAA`,
-      trustedKeys: [fixture.trustKey],
-      expected,
-    })).toThrow("signature is invalid");
-    expect(() => verifyRegistryReleaseAttestation({
-      compactJws: fixture.jws,
-      trustedKeys: [],
-      expected,
-    })).toThrow("untrusted key");
-    expect(() => verifyRegistryReleaseAttestation({
-      compactJws: fixture.jws,
-      trustedKeys: [fixture.trustKey],
-      expected: { ...expected, version: "2.0.0" },
-    })).toThrow("does not match");
+    expect(() =>
+      verifyRegistryReleaseAttestation({
+        compactJws: `${header}.${payload}.AAAA`,
+        trustedKeys: [fixture.trustKey],
+        expected,
+      }),
+    ).toThrow("signature is invalid");
+    expect(() =>
+      verifyRegistryReleaseAttestation({
+        compactJws: fixture.jws,
+        trustedKeys: [],
+        expected,
+      }),
+    ).toThrow("untrusted key");
+    expect(() =>
+      verifyRegistryReleaseAttestation({
+        compactJws: fixture.jws,
+        trustedKeys: [fixture.trustKey],
+        expected: { ...expected, version: "2.0.0" },
+      }),
+    ).toThrow("does not match");
   });
 });
 
@@ -72,16 +80,20 @@ describe("registry revocation policy trust", () => {
       generatedAt: now.toISOString(),
       expiresAt: "2026-08-02T06:00:00.000Z",
     });
-    expect(verifyRegistryPolicyAttestation({
-      compactJws: fixture.jws,
-      trustedKeys: [fixture.trustKey],
-      now,
-    })).toMatchObject({
+    expect(
+      verifyRegistryPolicyAttestation({
+        compactJws: fixture.jws,
+        trustedKeys: [fixture.trustKey],
+        now,
+      }),
+    ).toMatchObject({
       keyId: fixture.trustKey.kid,
-      revocations: [{
-        target: { kind: "version", id: "00000000-0000-4000-8000-000000000702" },
-        code: "malware",
-      }],
+      revocations: [
+        {
+          target: { kind: "version", id: "00000000-0000-4000-8000-000000000702" },
+          code: "malware",
+        },
+      ],
     });
   });
 
@@ -91,41 +103,52 @@ describe("registry revocation policy trust", () => {
       generatedAt: "2026-08-02T00:00:00.000Z",
       expiresAt: "2026-08-02T06:00:00.000Z",
     });
-    expect(() => verifyRegistryPolicyAttestation({
-      compactJws: expired.jws,
-      trustedKeys: [expired.trustKey],
-      now,
-    })).toThrow("expired");
+    expect(() =>
+      verifyRegistryPolicyAttestation({
+        compactJws: expired.jws,
+        trustedKeys: [expired.trustKey],
+        now,
+      }),
+    ).toThrow("expired");
     const overlong = signedPolicyFixture({
       generatedAt: "2026-08-02T00:00:00.000Z",
       expiresAt: "2026-09-04T00:00:00.000Z",
     });
-    expect(() => verifyRegistryPolicyAttestation({
-      compactJws: overlong.jws,
-      trustedKeys: [overlong.trustKey],
-      now: new Date("2026-08-02T01:00:00.000Z"),
-    })).toThrow("validity period");
+    expect(() =>
+      verifyRegistryPolicyAttestation({
+        compactJws: overlong.jws,
+        trustedKeys: [overlong.trustKey],
+        now: new Date("2026-08-02T01:00:00.000Z"),
+      }),
+    ).toThrow("validity period");
   });
 
   it("blocks exact publisher, App, or version identities", () => {
-    expect(() => assertRegistryReleaseAllowed({
-      registry: "penkra.com",
-      generatedAt: "2026-08-02T00:00:00.000Z",
-      expiresAt: "2026-09-01T00:00:00.000Z",
-      keyId: "key",
-      revocations: [{
-        id: "00000000-0000-4000-8000-000000000701",
-        target: { kind: "app", id: "00000000-0000-4000-8000-000000000702" },
-        code: "security",
-        reason: "Blocked release",
-        effectiveAt: "2026-08-02T00:00:00.000Z",
-        expiresAt: null,
-      }],
-    }, {
-      appId: "00000000-0000-4000-8000-000000000702",
-      versionId: "00000000-0000-4000-8000-000000000703",
-      publisherId: "00000000-0000-4000-8000-000000000704",
-    })).toThrow("Blocked release");
+    expect(() =>
+      assertRegistryReleaseAllowed(
+        {
+          registry: "penkra.com",
+          generatedAt: "2026-08-02T00:00:00.000Z",
+          expiresAt: "2026-09-01T00:00:00.000Z",
+          keyId: "key",
+          revocations: [
+            {
+              id: "00000000-0000-4000-8000-000000000701",
+              target: { kind: "app", id: "00000000-0000-4000-8000-000000000702" },
+              code: "security",
+              reason: "Blocked release",
+              effectiveAt: "2026-08-02T00:00:00.000Z",
+              expiresAt: null,
+            },
+          ],
+        },
+        {
+          appId: "00000000-0000-4000-8000-000000000702",
+          versionId: "00000000-0000-4000-8000-000000000703",
+          publisherId: "00000000-0000-4000-8000-000000000704",
+        },
+      ),
+    ).toThrow("Blocked release");
   });
 });
 
@@ -161,7 +184,11 @@ function signedFixture(): { jws: string; trustKey: RegistryTrustKey } {
     permissions: expected.permissions,
     publishedAt: expected.publishedAt,
   });
-  const signature = sign(null, Buffer.from(`${protectedValue}.${payloadValue}`), privateKey).toString("base64url");
+  const signature = sign(
+    null,
+    Buffer.from(`${protectedValue}.${payloadValue}`),
+    privateKey,
+  ).toString("base64url");
   const jwk = publicKey.export({ format: "jwk" });
   return {
     jws: `${protectedValue}.${payloadValue}.${signature}`,
@@ -179,20 +206,33 @@ function signedPolicyFixture(dates: { generatedAt: string; expiresAt: string }) 
     kind: "penkra-app-policy",
     registry: "penkra.com",
     ...dates,
-    revocations: [{
-      id: "00000000-0000-4000-8000-000000000701",
-      target: { kind: "version", id: "00000000-0000-4000-8000-000000000702" },
-      code: "malware",
-      reason: "Known malicious release",
-      effectiveAt: dates.generatedAt,
-      expiresAt: null,
-    }],
+    revocations: [
+      {
+        id: "00000000-0000-4000-8000-000000000701",
+        target: { kind: "version", id: "00000000-0000-4000-8000-000000000702" },
+        code: "malware",
+        reason: "Known malicious release",
+        effectiveAt: dates.generatedAt,
+        expiresAt: null,
+      },
+    ],
   });
-  const signature = sign(null, Buffer.from(`${protectedValue}.${payloadValue}`), privateKey).toString("base64url");
+  const signature = sign(
+    null,
+    Buffer.from(`${protectedValue}.${payloadValue}`),
+    privateKey,
+  ).toString("base64url");
   const jwk = publicKey.export({ format: "jwk" });
   return {
     jws: `${protectedValue}.${payloadValue}.${signature}`,
-    trustKey: { kty: "OKP", crv: "Ed25519", x: jwk.x!, kid, alg: "EdDSA", use: "sig" } satisfies RegistryTrustKey,
+    trustKey: {
+      kty: "OKP",
+      crv: "Ed25519",
+      x: jwk.x!,
+      kid,
+      alg: "EdDSA",
+      use: "sig",
+    } satisfies RegistryTrustKey,
   };
 }
 

@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
-import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -16,6 +16,8 @@ const smokeEnvironment = {
   ...process.env,
   ELECTRON_ENABLE_LOGGING: "1",
   PENKRA_DESKTOP_FLAVOR: "development",
+  PENKRA_HOME: resolve(smokeRoot, "home"),
+  PENKRA_SKIP_LOGIN_SHELL_ENVIRONMENT: "1",
   PENKRA_DESKTOP_SMOKE_USER_DATA: resolve(smokeRoot, "user-data"),
   PENKRA_ROOT: resolve(smokeRoot, "workspace"),
 };
@@ -47,6 +49,14 @@ const timeout = setTimeout(() => {
 
 child.on("exit", () => {
   clearTimeout(timeout);
+  if (smokeFailure) {
+    for (const logName of ["desktop-main.log", "server-child.log"]) {
+      const logPath = resolve(smokeRoot, "home", "userdata", "logs", logName);
+      if (existsSync(logPath)) {
+        output += `\n[${logName}]\n${readFileSync(logPath, "utf8")}`;
+      }
+    }
+  }
   rmSync(smokeRoot, { recursive: true, force: true });
 
   const fatalPatterns = [

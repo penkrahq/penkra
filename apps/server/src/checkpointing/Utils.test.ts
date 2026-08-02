@@ -1,4 +1,4 @@
-import { ProjectId, ThreadId, TurnId } from "@penkra/contracts";
+import { ContainerId, ThreadId, TurnId } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -107,7 +107,7 @@ describe("resolveProjectCwdForKind", () => {
 });
 
 describe("resolveThreadWorkspaceCwd", () => {
-  const projectId = ProjectId.makeUnsafe("project-1");
+  const projectId = ContainerId.makeUnsafe("project-1");
 
   it("resolves undefined for a chat-kind thread with no worktree", () => {
     expect(

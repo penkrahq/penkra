@@ -1,4 +1,10 @@
-import { CheckpointRef, ProjectId, ThreadId, TurnId, type ProjectKind } from "@penkra/contracts";
+import {
+  CheckpointRef,
+  ContainerId,
+  ThreadId,
+  TurnId,
+  type ContainerKind,
+} from "@penkra/contracts";
 import { Effect, Layer, Option } from "effect";
 import { describe, expect, it } from "vitest";
 
@@ -13,9 +19,9 @@ import { CheckpointStore, type CheckpointStoreShape } from "../Services/Checkpoi
 import { CheckpointDiffQuery } from "../Services/CheckpointDiffQuery.ts";
 
 function makeThreadCheckpointContext(input: {
-  readonly projectId: ProjectId;
+  readonly projectId: ContainerId;
   readonly threadId: ThreadId;
-  readonly projectKind?: ProjectKind;
+  readonly projectKind?: ContainerKind;
   readonly workspaceRoot: string;
   readonly envMode?: "local" | "worktree";
   readonly worktreePath: string | null;
@@ -46,9 +52,9 @@ function makeThreadCheckpointContext(input: {
 }
 
 function makeFullThreadDiffContext(input: {
-  readonly projectId: ProjectId;
+  readonly projectId: ContainerId;
   readonly threadId: ThreadId;
-  readonly projectKind?: ProjectKind;
+  readonly projectKind?: ContainerKind;
   readonly workspaceRoot: string;
   readonly envMode?: "local" | "worktree";
   readonly worktreePath: string | null;
@@ -72,7 +78,7 @@ function makeFullThreadDiffContext(input: {
 
 describe("CheckpointDiffQueryLive", () => {
   it("prefers exact turn-start checkpoints for single-turn diffs", async () => {
-    const projectId = ProjectId.makeUnsafe("project-1");
+    const projectId = ContainerId.makeUnsafe("project-1");
     const threadId = ThreadId.makeUnsafe("thread-1");
     const toCheckpointRef = CheckpointRef.makeUnsafe(
       checkpointRefForThreadTurn(threadId, 1).replace("refs/penkra/", "refs/historical/"),
@@ -176,7 +182,7 @@ describe("CheckpointDiffQueryLive", () => {
   });
 
   it("uses the narrow full-thread diff context without loading checkpoint summaries", async () => {
-    const projectId = ProjectId.makeUnsafe("project-full-diff");
+    const projectId = ContainerId.makeUnsafe("project-full-diff");
     const threadId = ThreadId.makeUnsafe("thread-full-diff");
     const toCheckpointRef = checkpointRefForThreadTurn(threadId, 2);
     const historicalBaselineRef = CheckpointRef.makeUnsafe(
@@ -325,7 +331,7 @@ describe("CheckpointDiffQueryLive", () => {
   });
 
   it("fails when a worktree-mode thread has no materialized worktree path", async () => {
-    const projectId = ProjectId.makeUnsafe("project-worktree");
+    const projectId = ContainerId.makeUnsafe("project-worktree");
     const threadId = ThreadId.makeUnsafe("thread-worktree");
     const toCheckpointRef = checkpointRefForThreadTurn(threadId, 1);
 
@@ -392,7 +398,7 @@ describe("CheckpointDiffQueryLive", () => {
   });
 
   it("fails for a chat-kind project with no materialized worktree, since chat containers have no real cwd", async () => {
-    const projectId = ProjectId.makeUnsafe("project-chat");
+    const projectId = ContainerId.makeUnsafe("project-chat");
     const threadId = ThreadId.makeUnsafe("thread-chat");
     const toCheckpointRef = checkpointRefForThreadTurn(threadId, 1);
 
@@ -460,7 +466,7 @@ describe("CheckpointDiffQueryLive", () => {
   });
 
   it("uses the workspace root as a real cwd for a studio-kind project", async () => {
-    const projectId = ProjectId.makeUnsafe("project-studio");
+    const projectId = ContainerId.makeUnsafe("project-studio");
     const threadId = ThreadId.makeUnsafe("thread-studio");
     const toCheckpointRef = checkpointRefForThreadTurn(threadId, 1);
     const diffCheckpointsCalls: Array<{ readonly cwd: string }> = [];
@@ -534,7 +540,7 @@ describe("CheckpointDiffQueryLive", () => {
   });
 
   it("fails cleanly when the selected checkpoint is still missing", async () => {
-    const projectId = ProjectId.makeUnsafe("project-missing");
+    const projectId = ContainerId.makeUnsafe("project-missing");
     const threadId = ThreadId.makeUnsafe("thread-missing-checkpoint");
     const toCheckpointRef = checkpointRefForThreadTurn(threadId, 1);
 

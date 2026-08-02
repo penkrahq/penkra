@@ -1,4 +1,4 @@
-import { ProjectId, type ModelSelection, ThreadId } from "@penkra/contracts";
+import { ContainerId, type ModelSelection, SpaceId, ThreadId } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 import { type ComposerThreadDraftState, type DraftThreadState } from "../composerDraftStore";
 import {
@@ -8,12 +8,13 @@ import {
   createFreshDraftThreadSeed,
   hasDraftContextOverrides,
   resolveInheritedThreadContext,
+  resolveRecentParentWorkingDirectory,
   resolveTerminalThreadCreationState,
   resolveThreadBootstrapPlan,
   shouldReuseActiveDraftThread,
 } from "./threadBootstrap";
 
-const PROJECT_ID = ProjectId.makeUnsafe("project-bootstrap");
+const PROJECT_ID = ContainerId.makeUnsafe("project-bootstrap");
 const THREAD_ID = ThreadId.makeUnsafe("thread-bootstrap");
 
 function modelSelection(
@@ -71,6 +72,55 @@ function makeComposerDraftState(
 }
 
 describe("threadBootstrap", () => {
+  it("inherits the newest physical folder used directly in the same Space", () => {
+    const personalId = SpaceId.makeUnsafe("personal");
+    const workId = SpaceId.makeUnsafe("work");
+    expect(
+      resolveRecentParentWorkingDirectory({
+        projectId: PROJECT_ID,
+        projectKind: "chat",
+        spaceId: personalId,
+        threads: [
+          {
+            projectId: PROJECT_ID,
+            spaceId: personalId,
+            workingDirectory: "/repo/older",
+            createdAt: "2026-04-05T10:00:00.000Z",
+          },
+          {
+            projectId: PROJECT_ID,
+            spaceId: workId,
+            workingDirectory: "/repo/other-space",
+            createdAt: "2026-04-05T12:00:00.000Z",
+          },
+          {
+            projectId: PROJECT_ID,
+            spaceId: personalId,
+            workingDirectory: "/repo/newer",
+            createdAt: "2026-04-05T11:00:00.000Z",
+          },
+        ],
+      }),
+    ).toBe("/repo/newer");
+  });
+
+  it("inherits across every thread in the same virtual folder", () => {
+    expect(
+      resolveRecentParentWorkingDirectory({
+        projectId: PROJECT_ID,
+        projectKind: "project",
+        spaceId: SpaceId.makeUnsafe("ignored-for-folder-parent"),
+        threads: [
+          {
+            projectId: PROJECT_ID,
+            spaceId: null,
+            workingDirectory: "/repo/folder-parent",
+            createdAt: "2026-04-05T10:00:00.000Z",
+          },
+        ],
+      }),
+    ).toBe("/repo/folder-parent");
+  });
   it("detects when a draft context override is present", () => {
     expect(hasDraftContextOverrides()).toBe(false);
     expect(hasDraftContextOverrides({ branch: "feature/new-branch" })).toBe(true);
@@ -331,7 +381,7 @@ describe("threadBootstrap", () => {
     ).toBe("default");
   });
 
-  it("preserves explicit draft plan mode when resolving terminal creation payloads", () => {
+  it("normalizes an explicit legacy draft plan mode when resolving terminal creation payloads", () => {
     expect(
       resolveTerminalThreadCreationState({
         activeDraftThread: null,
@@ -347,7 +397,7 @@ describe("threadBootstrap", () => {
         projectDefaultModelSelection: modelSelection("codex", "gpt-5.4"),
         projectId: PROJECT_ID,
       }).interactionMode,
-    ).toBe("plan");
+    ).toBe("default");
   });
 
   it("clears inherited worktree state when an explicit local env override is requested", () => {

@@ -42,7 +42,8 @@ export class AppPackageIngestor {
   readonly #storePath: string;
 
   constructor(storePath: string) {
-    if (!Path.isAbsolute(storePath)) throw new TypeError("App package store path must be absolute.");
+    if (!Path.isAbsolute(storePath))
+      throw new TypeError("App package store path must be absolute.");
     this.#storePath = storePath;
   }
 
@@ -53,12 +54,16 @@ export class AppPackageIngestor {
    * journal recovery and before accepting installs, so an ingested package
    * cannot be mistaken for garbage while it is waiting to be committed.
    */
-  async collectGarbage(retainedPackagePaths: readonly string[]): Promise<AppPackageGarbageCollectionResult> {
-    const retained = new Set(retainedPackagePaths.map((packagePath) => {
-      const resolved = Path.resolve(packagePath);
-      assertPackagePathInsideStore(this.#storePath, resolved);
-      return resolved;
-    }));
+  async collectGarbage(
+    retainedPackagePaths: readonly string[],
+  ): Promise<AppPackageGarbageCollectionResult> {
+    const retained = new Set(
+      retainedPackagePaths.map((packagePath) => {
+        const resolved = Path.resolve(packagePath);
+        assertPackagePathInsideStore(this.#storePath, resolved);
+        return resolved;
+      }),
+    );
     const result: AppPackageGarbageCollectionResult = { removedPaths: [], failures: [] };
     for (const appEntry of await readDirectorySafe(this.#storePath)) {
       const appPath = Path.join(this.#storePath, appEntry.name);
@@ -74,7 +79,8 @@ export class AppPackageIngestor {
         }
         for (const packageEntry of await readDirectorySafe(versionPath)) {
           const packagePath = Path.join(versionPath, packageEntry.name);
-          if (!retained.has(Path.resolve(packagePath))) await removeGarbagePath(packagePath, result);
+          if (!retained.has(Path.resolve(packagePath)))
+            await removeGarbagePath(packagePath, result);
         }
         await removeEmptyDirectory(versionPath, result);
       }
@@ -112,7 +118,10 @@ export class AppPackageIngestor {
     expectedArchiveDigest: string;
     installedAt?: string;
   }): Promise<VerifiedAppPackageInput> {
-    if (input.packageBytes.byteLength === 0 || input.packageBytes.byteLength > APP_PACKAGE_MAX_BYTES) {
+    if (
+      input.packageBytes.byteLength === 0 ||
+      input.packageBytes.byteLength > APP_PACKAGE_MAX_BYTES
+    ) {
       throw new Error("Registry App package exceeds the archive size limit.");
     }
     const actualDigest = createHash("sha256").update(input.packageBytes).digest("hex");
@@ -128,7 +137,7 @@ export class AppPackageIngestor {
       return await this.ingestDirectory({
         sourcePath,
         source: "registry",
-        installedAt: input.installedAt,
+        ...(input.installedAt === undefined ? {} : { installedAt: input.installedAt }),
       });
     } finally {
       await FS.promises.rm(temporaryRoot, { recursive: true, force: true });
@@ -138,8 +147,14 @@ export class AppPackageIngestor {
 
 function assertPackagePathInsideStore(storePath: string, packagePath: string): void {
   const relative = Path.relative(Path.resolve(storePath), packagePath);
-  if (relative.startsWith("..") || Path.isAbsolute(relative) || relative.split(Path.sep).length !== 3) {
-    throw new Error("Retained App package path is outside the package store or has an invalid shape.");
+  if (
+    relative.startsWith("..") ||
+    Path.isAbsolute(relative) ||
+    relative.split(Path.sep).length !== 3
+  ) {
+    throw new Error(
+      "Retained App package path is outside the package store or has an invalid shape.",
+    );
   }
 }
 
@@ -197,7 +212,10 @@ async function extractRegistryArchive(archivePath: string, outputRoot: string): 
     if (entry.isEncrypted()) throw new Error("Registry App package contains encrypted files.");
     if (isSymbolicLink(entry)) throw new Error("Registry App package contains a symbolic link.");
     if (isDirectory) {
-      await FS.promises.mkdir(Path.join(outputRoot, ...normalizedPath.split("/")), { recursive: true, mode: 0o700 });
+      await FS.promises.mkdir(Path.join(outputRoot, ...normalizedPath.split("/")), {
+        recursive: true,
+        mode: 0o700,
+      });
       continue;
     }
     fileCount += 1;
@@ -217,7 +235,10 @@ async function extractRegistryArchive(archivePath: string, outputRoot: string): 
 
 function assertPortableArchivePath(value: string): void {
   if (
-    !value || value.startsWith("/") || value.startsWith("\\") || value.includes("\\") ||
+    !value ||
+    value.startsWith("/") ||
+    value.startsWith("\\") ||
+    value.includes("\\") ||
     /^[a-z][a-z0-9+.-]*:/i.test(value) ||
     value.split("/").some((part) => part === "" || part === "." || part === "..")
   ) {
@@ -226,7 +247,7 @@ function assertPortableArchivePath(value: string): void {
 }
 
 function isSymbolicLink(entry: Entry): boolean {
-  if ((entry.versionMadeBy >>> 8) !== 3) return false;
+  if (entry.versionMadeBy >>> 8 !== 3) return false;
   const mode = (entry.externalFileAttributes >>> 16) & 0xffff;
   return (mode & 0o170000) === 0o120000;
 }
@@ -243,7 +264,11 @@ async function readManifest(sourcePath: string): Promise<PenkraAppManifest> {
   return parsed;
 }
 
-async function assertTextDocument(sourcePath: string, fileName: string, maxBytes: number): Promise<void> {
+async function assertTextDocument(
+  sourcePath: string,
+  fileName: string,
+  maxBytes: number,
+): Promise<void> {
   const filePath = Path.join(sourcePath, fileName);
   let bytes: Buffer;
   try {
@@ -307,6 +332,7 @@ function assertRequiredFiles(files: readonly PackageFile[], manifest: PenkraAppM
     manifest.entrypoints.app,
     ...(manifest.entrypoints.operations ? [manifest.entrypoints.operations] : []),
     ...manifest.icons.map((icon) => icon.src),
+    ...(manifest.contributions?.skills ?? []).map((skill) => `${skill.path}/SKILL.md`),
   ]);
   for (const relativePath of required) {
     if (!paths.has(relativePath)) throw new Error(`App package is missing ${relativePath}.`);

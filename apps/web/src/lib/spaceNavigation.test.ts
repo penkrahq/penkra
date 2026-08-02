@@ -1,4 +1,4 @@
-import { ProjectId, SpaceId, ThreadId } from "@penkra/contracts";
+import { ContainerId, SpaceId, ThreadId } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 
 import { resolveChatIndexRestoreRoute } from "../routes/-chatIndexRoute.logic";
@@ -19,10 +19,11 @@ const paths: ServerWorkspacePaths = {
 };
 
 const workSpaceId = SpaceId.makeUnsafe("space-work");
+const personalSpaceId = SpaceId.makeUnsafe("space-personal");
 
 function project(input: { id: string; spaceId?: SpaceId | null; kind?: Project["kind"] }): Project {
   return {
-    id: ProjectId.makeUnsafe(input.id),
+    id: ContainerId.makeUnsafe(input.id),
     kind: input.kind ?? "project",
     name: input.id,
     remoteName: input.id,
@@ -39,7 +40,7 @@ function project(input: { id: string; spaceId?: SpaceId | null; kind?: Project["
 function thread(input: { id: string; projectId: string }): SidebarThreadSummary {
   return {
     id: ThreadId.makeUnsafe(input.id),
-    projectId: ProjectId.makeUnsafe(input.projectId),
+    projectId: ContainerId.makeUnsafe(input.projectId),
     title: input.id,
     modelSelection: { provider: "codex", model: "gpt-5" },
     interactionMode: "default",
@@ -56,13 +57,11 @@ function thread(input: { id: string; projectId: string }): SidebarThreadSummary 
   };
 }
 
-// The upgraded-install shape that produced the bug report: every pre-existing project kept
-// `space_id = NULL`, so the user's own Space is genuinely empty while Void holds everything.
-const voidProject = project({ id: "project-void", spaceId: null });
+const personalProject = project({ id: "project-personal", spaceId: personalSpaceId });
 const homeChatContainer = project({ id: "project-home", kind: "chat" });
-const voidThread = thread({ id: "thread-void", projectId: "project-void" });
+const personalThread = thread({ id: "thread-personal", projectId: "project-personal" });
 const projectById = new Map([
-  [voidProject.id, voidProject],
+  [personalProject.id, personalProject],
   [homeChatContainer.id, homeChatContainer],
 ]);
 
@@ -73,9 +72,9 @@ describe("selecting an empty Space", () => {
   it("never lands on a thread belonging to another Space", () => {
     const target: SpaceSelectionTarget = resolveSpaceSelectionTarget({
       spaceId: workSpaceId,
-      projects: [voidProject],
+      projects: [personalProject],
       projectById,
-      threads: [voidThread],
+      threads: [personalThread],
       rememberedThreadId: null,
       rememberedProjectId: null,
       paths,
@@ -85,10 +84,10 @@ describe("selecting an empty Space", () => {
 
     const restored = resolveChatIndexRestoreRoute({
       // The Space we just left is still the remembered route.
-      lastThreadRoute: { threadId: voidThread.id },
+      lastThreadRoute: { threadId: personalThread.id },
       availableSplitViewIds: new Set(),
-      threadIds: [voidThread.id],
-      sidebarThreadSummaryById: { [voidThread.id]: { projectId: voidThread.projectId } },
+      threadIds: [personalThread.id],
+      sidebarThreadSummaryById: { [personalThread.id]: { projectId: personalThread.projectId } },
       studioProjectIds: new Set(),
       draftProjectIdByThreadId: new Map(),
       rememberedSplitViewThreadIds: undefined,
@@ -117,23 +116,23 @@ describe("selecting an empty Space", () => {
     ).toEqual({ threadId: homeThread.id });
   });
 
-  // activeSpaceId lives in sessionStorage and is empty on a fresh launch; the remembered route
-  // lives in localStorage and survives. Scoping unconditionally would drop the user out of the
+  // The durable activeSpaceId can still be hydrating while the remembered route is already
+  // available. Scoping unconditionally would drop the user out of the
   // Space they closed the app in, so a landing with no Space intent must not filter.
   it("restores the remembered route unscoped when the landing carries no Space intent", () => {
     expect(
       resolveChatIndexRestoreRoute({
-        lastThreadRoute: { threadId: voidThread.id, splitViewId: "split-cross-space" },
+        lastThreadRoute: { threadId: personalThread.id, splitViewId: "split-cross-space" },
         availableSplitViewIds: new Set(["split-cross-space"]),
-        threadIds: [voidThread.id],
-        sidebarThreadSummaryById: { [voidThread.id]: { projectId: voidThread.projectId } },
+        threadIds: [personalThread.id],
+        sidebarThreadSummaryById: { [personalThread.id]: { projectId: personalThread.projectId } },
         studioProjectIds: new Set(),
         draftProjectIdByThreadId: new Map(),
         // Unscoped startup preserves the remembered split without applying a Space policy.
         rememberedSplitViewThreadIds: undefined,
         landingSpace: null,
       }),
-    ).toEqual({ threadId: voidThread.id, splitViewId: "split-cross-space" });
+    ).toEqual({ threadId: personalThread.id, splitViewId: "split-cross-space" });
   });
 
   it("drops a split containing a thread from another Space while retaining its focused route", () => {
@@ -145,14 +144,14 @@ describe("selecting an empty Space", () => {
       resolveChatIndexRestoreRoute({
         lastThreadRoute: { threadId: workThread.id, splitViewId: "split-cross-space" },
         availableSplitViewIds: new Set(["split-cross-space"]),
-        threadIds: [workThread.id, voidThread.id],
+        threadIds: [workThread.id, personalThread.id],
         sidebarThreadSummaryById: {
           [workThread.id]: { projectId: workThread.projectId },
-          [voidThread.id]: { projectId: voidThread.projectId },
+          [personalThread.id]: { projectId: personalThread.projectId },
         },
         studioProjectIds: new Set(),
         draftProjectIdByThreadId: new Map(),
-        rememberedSplitViewThreadIds: [workThread.id, voidThread.id],
+        rememberedSplitViewThreadIds: [workThread.id, personalThread.id],
         landingSpace: {
           spaceId: workSpaceId,
           projectById: projects,
@@ -221,9 +220,9 @@ describe("resolveSpaceSelectionTarget", () => {
     const byId = new Map([...projectById, [workProject.id, workProject]]);
     const base = {
       spaceId: workSpaceId,
-      projects: [voidProject, workProject],
+      projects: [personalProject, workProject],
       projectById: byId,
-      threads: [voidThread, older, newer],
+      threads: [personalThread, older, newer],
       paths,
       sortThreads: (threads: readonly SidebarThreadSummary[]) =>
         threads.toSorted((left, right) => right.id.localeCompare(left.id)),
@@ -254,12 +253,12 @@ describe("resolveSpaceSelectionTarget", () => {
     expect(
       resolveSpaceSelectionTarget({
         spaceId: workSpaceId,
-        projects: [voidProject],
+        projects: [personalProject],
         projectById,
-        threads: [voidThread],
-        // Both were remembered for this Space but their project has since moved to Void.
-        rememberedThreadId: voidThread.id,
-        rememberedProjectId: voidProject.id,
+        threads: [personalThread],
+        // Both targets belong to another persisted Space.
+        rememberedThreadId: personalThread.id,
+        rememberedProjectId: personalProject.id,
         paths,
         sortThreads: (threads) => threads,
       }),

@@ -9,7 +9,7 @@
 // through GitCore; on settle we invalidate the per-cwd git caches so both lists stay in sync.
 
 import { type FileDiffMetadata } from "@pierre/diffs/react";
-import { type ProjectId, type ThreadId } from "@penkra/contracts";
+import { type ContainerId, type ThreadId } from "@penkra/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 
@@ -199,7 +199,7 @@ function SelectedFileDiff(props: { fileDiff: FileDiffMetadata; theme: "light" | 
 
 export function GitPanel(props: {
   hostThreadId: ThreadId;
-  projectId: ProjectId | null;
+  projectId: ContainerId | null;
   onClose?: () => void;
 }) {
   const queryClient = useQueryClient();

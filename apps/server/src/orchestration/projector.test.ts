@@ -1,7 +1,7 @@
 import {
   CommandId,
   EventId,
-  ProjectId,
+  ContainerId,
   SpaceId,
   ThreadId,
   type OrchestrationEvent,
@@ -29,7 +29,7 @@ function makeEvent(input: {
       input.aggregateKind === "space"
         ? SpaceId.makeUnsafe(input.aggregateId)
         : input.aggregateKind === "project"
-          ? ProjectId.makeUnsafe(input.aggregateId)
+          ? ContainerId.makeUnsafe(input.aggregateId)
           : ThreadId.makeUnsafe(input.aggregateId),
     occurredAt: input.occurredAt,
     commandId: input.commandId === null ? null : CommandId.makeUnsafe(input.commandId),

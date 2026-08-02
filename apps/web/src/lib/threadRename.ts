@@ -7,7 +7,7 @@
 import {
   type ModelSelection,
   type OrchestrationThreadPullRequest,
-  type ProjectId,
+  type ContainerId,
   type ProviderInteractionMode,
   type RuntimeMode,
   type SpaceId,
@@ -26,7 +26,7 @@ export async function dispatchThreadRename(input: {
   unchangedTitles: readonly string[];
   createIfMissing?:
     | {
-        projectId: ProjectId;
+        projectId: ContainerId;
         spaceId?: SpaceId | null;
         modelSelection: ModelSelection;
         runtimeMode: RuntimeMode;

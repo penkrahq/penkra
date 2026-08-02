@@ -1,11 +1,11 @@
 {
   "name": "@penkra/ui",
   "private": true,
-  "type": "module",
   "files": [
     "dist",
     "src/*.css"
   ],
+  "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",
   "types": "./src/index.ts",
@@ -29,6 +29,7 @@
   },
   "devDependencies": {
     "@types/react": "^19.0.0",
+    "happy-dom": "^20.11.1",
     "react": "^19.0.0",
     "tsdown": "catalog:",
     "typescript": "catalog:",

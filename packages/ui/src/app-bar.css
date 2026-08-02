@@ -20,7 +20,9 @@
   gap: 2px;
 }
 
-.penkra-app-bar__trailing { justify-content: flex-end; }
+.penkra-app-bar__trailing {
+  justify-content: flex-end;
+}
 
 .penkra-app-bar__action {
   display: inline-grid;
@@ -44,10 +46,21 @@
   color: var(--penkra-color-text-primary);
 }
 
-.penkra-app-bar__action:active { background: var(--penkra-interactive-pressed); }
-.penkra-app-bar__action:focus-visible { box-shadow: 0 0 0 1px var(--penkra-color-focus); }
-.penkra-app-bar__action:disabled { background: transparent; color: var(--penkra-color-text-disabled); cursor: default; }
-.penkra-app-bar__action > svg { width: 14px; height: 14px; }
+.penkra-app-bar__action:active {
+  background: var(--penkra-interactive-pressed);
+}
+.penkra-app-bar__action:focus-visible {
+  box-shadow: 0 0 0 1px var(--penkra-color-focus);
+}
+.penkra-app-bar__action:disabled {
+  background: transparent;
+  color: var(--penkra-color-text-disabled);
+  cursor: default;
+}
+.penkra-app-bar__action > svg {
+  width: 14px;
+  height: 14px;
+}
 
 .penkra-app-bar__center {
   display: flex;
@@ -72,13 +85,37 @@
 }
 
 .penkra-app-bar__input:hover,
-.penkra-app-bar__input:focus-within { background: var(--penkra-interactive-hover); color: var(--penkra-color-text-primary); }
-.penkra-app-bar__input:focus-within { box-shadow: 0 0 0 1px var(--penkra-color-focus); }
-.penkra-app-bar__input input { width: 100%; min-width: 0; padding: 0; border: 0; outline: 0; background: transparent; color: inherit; font: inherit; }
-.penkra-app-bar__input input::placeholder { color: var(--penkra-color-text-muted); }
+.penkra-app-bar__input:focus-within {
+  background: var(--penkra-interactive-hover);
+  color: var(--penkra-color-text-primary);
+}
+.penkra-app-bar__input:focus-within {
+  box-shadow: 0 0 0 1px var(--penkra-color-focus);
+}
+.penkra-app-bar__input input {
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+.penkra-app-bar__input input::placeholder {
+  color: var(--penkra-color-text-muted);
+}
 .penkra-app-bar__display > svg,
-.penkra-app-bar__input > svg { width: 14px; height: 14px; flex: none; }
+.penkra-app-bar__input > svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
 
 @media (prefers-reduced-motion: reduce) {
-  .penkra-app-bar *, .penkra-app-bar *::before, .penkra-app-bar *::after { transition-duration: .01ms !important; }
+  .penkra-app-bar *,
+  .penkra-app-bar *::before,
+  .penkra-app-bar *::after {
+    transition-duration: 0.01ms !important;
+  }
 }

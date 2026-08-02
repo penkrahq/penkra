@@ -4,7 +4,7 @@
 import {
   EventId,
   MessageId,
-  ProjectId,
+  ContainerId,
   SpaceId,
   ThreadId,
   ThreadMarkerId,
@@ -176,7 +176,7 @@ describe("store projection", () => {
   });
 
   it("keeps a confirmed project deletion hidden from stale snapshots", () => {
-    const projectId = ProjectId.makeUnsafe("project-1");
+    const projectId = ContainerId.makeUnsafe("project-1");
     const threadId = ThreadId.makeUnsafe("thread-1");
     const initialState = syncServerReadModel(
       makeState(makeThread({ id: threadId, projectId })),
@@ -222,13 +222,13 @@ describe("store projection", () => {
     expect(threadsOf(afterStaleReadModel)).toEqual([]);
   });
 
-  it("reuses the existing project slot for shell upserts that keep the same workspace root", () => {
+  it("keeps distinct folder identities even when they use the same physical path", () => {
     const initialState: AppState = {
       spaces: [],
       archivedSpaces: [],
       projects: [
         makeProject({
-          id: ProjectId.makeUnsafe("project-old"),
+          id: ContainerId.makeUnsafe("project-old"),
           name: "Local Name",
           remoteName: "Old Name",
           localName: "Local Name",
@@ -243,7 +243,7 @@ describe("store projection", () => {
       kind: "project-upserted",
       sequence: 2,
       project: {
-        id: ProjectId.makeUnsafe("project-new"),
+        id: ContainerId.makeUnsafe("project-new"),
         title: "Server Name",
         workspaceRoot: "/tmp/shared-root",
         defaultModelSelection: null,
@@ -253,17 +253,21 @@ describe("store projection", () => {
       },
     } satisfies OrchestrationShellStreamEvent);
 
-    expect(next.projects).toHaveLength(1);
+    expect(next.projects).toHaveLength(2);
     expect(next.projects[0]).toMatchObject({
-      id: ProjectId.makeUnsafe("project-new"),
+      id: ContainerId.makeUnsafe("project-old"),
       name: "Local Name",
+    });
+    expect(next.projects[1]).toMatchObject({
+      id: ContainerId.makeUnsafe("project-new"),
+      name: "Server Name",
       remoteName: "Server Name",
-      localName: "Local Name",
+      localName: null,
       cwd: "/tmp/shared-root",
     });
   });
 
-  it("moves shell projects to Void with the deletion timestamp", () => {
+  it("removes an empty Space without rewriting folder assignments", () => {
     const spaceId = SpaceId.makeUnsafe("space-shell-delete");
     const initialState: AppState = {
       spaces: [
@@ -279,7 +283,7 @@ describe("store projection", () => {
       archivedSpaces: [],
       projects: [
         makeProject({
-          id: ProjectId.makeUnsafe("project-shell-space"),
+          id: ContainerId.makeUnsafe("project-shell-space"),
           spaceId,
           updatedAt: "2026-07-15T10:00:01.000Z",
         }),
@@ -297,8 +301,8 @@ describe("store projection", () => {
 
     expect(next.spaces).toEqual([]);
     expect(next.projects[0]).toMatchObject({
-      spaceId: null,
-      updatedAt: "2026-07-15T10:00:02.000Z",
+      spaceId,
+      updatedAt: "2026-07-15T10:00:01.000Z",
     });
   });
 
@@ -343,7 +347,7 @@ describe("store projection", () => {
     expect(restored.projects[0]?.spaceId).toBe(spaceId);
   });
 
-  it("permanently removes an archived Space and clears its assignments", () => {
+  it("permanently removes an archived Space without synthesizing assignment changes", () => {
     const spaceId = SpaceId.makeUnsafe("space-shell-archived-delete");
     const initialState: AppState = {
       spaces: [],
@@ -371,8 +375,7 @@ describe("store projection", () => {
 
     expect(next.archivedSpaces).toEqual([]);
     expect(next.projects[0]).toMatchObject({
-      spaceId: null,
-      updatedAt: "2026-07-15T10:00:02.000Z",
+      spaceId,
     });
   });
 
@@ -383,11 +386,11 @@ describe("store projection", () => {
         archivedSpaces: [],
         projects: [
           makeProject({
-            id: ProjectId.makeUnsafe("project-shell"),
+            id: ContainerId.makeUnsafe("project-shell"),
             cwd: "/tmp/project-shell",
           }),
           makeProject({
-            id: ProjectId.makeUnsafe("project-other"),
+            id: ContainerId.makeUnsafe("project-other"),
             cwd: "/tmp/project-other",
           }),
         ],
@@ -400,22 +403,22 @@ describe("store projection", () => {
         spaces: [],
         projects: [
           makeReadModelProject({
-            id: ProjectId.makeUnsafe("project-shell"),
+            id: ContainerId.makeUnsafe("project-shell"),
             workspaceRoot: "/tmp/project-shell",
           }),
           makeReadModelProject({
-            id: ProjectId.makeUnsafe("project-other"),
+            id: ContainerId.makeUnsafe("project-other"),
             workspaceRoot: "/tmp/project-other",
           }),
         ],
         threads: [
           makeReadModelThread({
             id: ThreadId.makeUnsafe("thread-project-1"),
-            projectId: ProjectId.makeUnsafe("project-shell"),
+            projectId: ContainerId.makeUnsafe("project-shell"),
           }),
           makeReadModelThread({
             id: ThreadId.makeUnsafe("thread-project-2"),
-            projectId: ProjectId.makeUnsafe("project-other"),
+            projectId: ContainerId.makeUnsafe("project-other"),
           }),
         ],
       },
@@ -424,11 +427,11 @@ describe("store projection", () => {
     const next = applyShellEvent(initialState, {
       kind: "project-removed",
       sequence: 2,
-      projectId: ProjectId.makeUnsafe("project-shell"),
+      projectId: ContainerId.makeUnsafe("project-shell"),
     } satisfies OrchestrationShellStreamEvent);
 
     expect(next.projects.map((project) => project.id)).toEqual([
-      ProjectId.makeUnsafe("project-other"),
+      ContainerId.makeUnsafe("project-other"),
     ]);
     expect(threadsOf(next).map((thread) => thread.id)).toEqual([
       ThreadId.makeUnsafe("thread-project-2"),
@@ -471,7 +474,7 @@ describe("store projection", () => {
       sequence: 2,
       thread: {
         id: threadId,
-        projectId: ProjectId.makeUnsafe("project-1"),
+        projectId: ContainerId.makeUnsafe("project-1"),
         title: "Thread",
         modelSelection: {
           provider: "codex",
@@ -577,7 +580,7 @@ describe("store projection", () => {
       sequence: 2,
       thread: {
         id: threadId,
-        projectId: ProjectId.makeUnsafe("project-1"),
+        projectId: ContainerId.makeUnsafe("project-1"),
         title: "Thread",
         modelSelection: {
           provider: "codex",
@@ -1572,7 +1575,7 @@ describe("store projection", () => {
       deletedState,
       makeShellSnapshot({
         id: threadId,
-        projectId: ProjectId.makeUnsafe("project-1"),
+        projectId: ContainerId.makeUnsafe("project-1"),
         title: "Stale resurrected thread",
         modelSelection: {
           provider: "codex",
@@ -1621,7 +1624,7 @@ describe("store projection", () => {
       removedState,
       makeShellSnapshot({
         id: threadId,
-        projectId: ProjectId.makeUnsafe("project-1"),
+        projectId: ContainerId.makeUnsafe("project-1"),
         title: "Rehydrated shell removed thread",
         modelSelection: {
           provider: "codex",
@@ -1746,7 +1749,7 @@ describe("thread detail sync state", () => {
 });
 
 describe("deletion tombstone retirement", () => {
-  const projectId = ProjectId.makeUnsafe("project-1");
+  const projectId = ContainerId.makeUnsafe("project-1");
   const deletedThreadId = ThreadId.makeUnsafe("thread-1");
 
   function makeEmptyShellSnapshot(snapshotSequence: number) {
@@ -2076,7 +2079,7 @@ describe("deletion tombstone retirement", () => {
       sequence: 2,
       thread: {
         id: threadId,
-        projectId: ProjectId.makeUnsafe("project-1"),
+        projectId: ContainerId.makeUnsafe("project-1"),
         title: "Thread",
         modelSelection: {
           provider: "codex",

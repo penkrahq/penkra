@@ -3,7 +3,7 @@
 // Layer: Web UI state
 // Exports: useProjectRunStore plus helpers for syncing dev-server lifecycle events.
 
-import type { ProjectDevServer, ProjectId } from "@penkra/contracts";
+import type { ProjectDevServer, ContainerId } from "@penkra/contracts";
 
 /**
  * A tracked dev server as projected from the server. This mirrors the
@@ -13,21 +13,21 @@ import type { ProjectDevServer, ProjectId } from "@penkra/contracts";
 export type ProjectRunState = ProjectDevServer;
 
 interface ProjectRunStoreState {
-  runsByProjectId: Record<ProjectId, ProjectRunState>;
+  runsByProjectId: Record<ContainerId, ProjectRunState>;
   /** Replace the entire registry from an authoritative server snapshot. */
   replaceAll: (servers: ReadonlyArray<ProjectDevServer>) => void;
   /** Insert or update a single tracked dev server. */
   upsertRun: (server: ProjectDevServer) => void;
   /** Drop a tracked dev server by project id. */
-  removeRun: (projectId: ProjectId) => void;
+  removeRun: (projectId: ContainerId) => void;
 }
 
 import { create } from "zustand";
 
 function indexByProjectId(
   servers: ReadonlyArray<ProjectDevServer>,
-): Record<ProjectId, ProjectRunState> {
-  const next: Record<ProjectId, ProjectRunState> = {};
+): Record<ContainerId, ProjectRunState> {
+  const next: Record<ContainerId, ProjectRunState> = {};
   for (const server of servers) {
     next[server.projectId] = server;
   }

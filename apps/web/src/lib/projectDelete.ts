@@ -2,14 +2,14 @@
 // Purpose: Removes a project locally only after the server accepts its deletion.
 // Exports: deleteProjectFromClient
 
-import type { NativeApi, ProjectId } from "@penkra/contracts";
+import type { NativeApi, ContainerId } from "@penkra/contracts";
 
 import { newCommandId } from "./utils";
 
 interface DeleteProjectFromClientInput {
   api: Pick<NativeApi["orchestration"], "dispatchCommand">;
-  projectId: ProjectId;
-  removeDeletedProjectFromClientState: (projectId: ProjectId) => void;
+  projectId: ContainerId;
+  removeDeletedProjectFromClientState: (projectId: ContainerId) => void;
 }
 
 export async function deleteProjectFromClient(input: DeleteProjectFromClientInput): Promise<void> {

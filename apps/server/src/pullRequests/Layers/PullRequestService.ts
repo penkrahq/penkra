@@ -1,7 +1,7 @@
 import {
   type OrchestrationProject,
   type OrchestrationProjectShell,
-  type ProjectId,
+  type ContainerId,
   type PullRequestDetail,
   type PullRequestInvolvement,
   type PullRequestListEntry,
@@ -64,6 +64,11 @@ type PullRequestListBatch = {
 };
 
 type PullRequestListError = PullRequestsListResult["errors"][number];
+type WorkspaceProject = OrchestrationProject & { readonly workspaceRoot: string };
+
+function hasWorkspaceRoot(project: OrchestrationProject): project is WorkspaceProject {
+  return project.workspaceRoot !== null;
+}
 
 export interface PullRequestServiceDependencies {
   readonly homeDir: string;
@@ -179,7 +184,9 @@ export const makePullRequestService = (
       );
 
     const resolveProjectRepositories = (project: OrchestrationProject) =>
-      repositoryCache.get(project.workspaceRoot, dependencies.resolveRepositories(project));
+      project.workspaceRoot
+        ? repositoryCache.get(project.workspaceRoot, dependencies.resolveRepositories(project))
+        : Effect.succeed({ repositories: [], authoritative: false });
 
     const loadViewer = () =>
       viewerCache.get(
@@ -261,7 +268,7 @@ export const makePullRequestService = (
       );
     };
 
-    const findProject = (projectId: ProjectId) =>
+    const findProject = (projectId: ContainerId) =>
       dependencies.listProjects().pipe(
         Effect.flatMap((allProjects) => {
           const project = allProjects.find(
@@ -270,7 +277,9 @@ export const makePullRequestService = (
               candidate.kind === "project" &&
               candidate.deletedAt === null,
           );
-          return project ? Effect.succeed(project) : Effect.fail(new Error("Project not found."));
+          return project && hasWorkspaceRoot(project)
+            ? Effect.succeed(project)
+            : Effect.fail(new Error("Project does not have a workspace directory."));
         }),
       );
 
@@ -282,7 +291,7 @@ export const makePullRequestService = (
     };
 
     const validateProjectPullRequestRepository = (
-      project: OrchestrationProject,
+      project: WorkspaceProject,
       repositoryInput: string,
     ) =>
       Effect.gen(function* () {
@@ -313,9 +322,10 @@ export const makePullRequestService = (
         const forceRefresh = input.forceRefresh === true;
         const involvement = input.involvement ?? "all";
         const projects = (yield* dependencies.listProjects()).filter(
-          (project) =>
+          (project): project is WorkspaceProject =>
             project.deletedAt === null &&
             project.kind === "project" &&
+            project.workspaceRoot !== null &&
             (input.projectId == null || project.id === input.projectId),
         );
         const projectById = new Map(projects.map((project) => [project.id, project]));
@@ -392,7 +402,7 @@ export const makePullRequestService = (
           uniqueRepositories.values(),
           ({ projects: repositoryProjects, repository }) =>
             Effect.gen(function* () {
-              const cwd = repositoryProjects[0]!.workspaceRoot;
+              const cwd = repositoryProjects[0]!.workspaceRoot!;
               const [result, reviewingResult] = yield* Effect.all(
                 [
                   loadRepositoryPullRequests(
@@ -486,7 +496,9 @@ export const makePullRequestService = (
           pins: pinnedRows,
           pinStore: dependencies.pins,
           batchEntries,
-          recoveryContexts: batches.flatMap((batch) => (batch.recovery ? [batch.recovery] : [])),
+          recoveryContexts: batches.flatMap((batch) =>
+            batch.recovery ? [{ ...batch.recovery, cwd: batch.recovery.cwd! }] : [],
+          ),
           repositoryKeysByProject,
           projectById,
           isGlobalError: isGlobalGitHubCliError,
@@ -514,9 +526,10 @@ export const makePullRequestService = (
     const reviewRequestCount: PullRequestServiceShape["reviewRequestCount"] = (input) =>
       Effect.gen(function* () {
         const projects = (yield* dependencies.listProjects()).filter(
-          (project) =>
+          (project): project is WorkspaceProject =>
             project.deletedAt === null &&
             project.kind === "project" &&
+            project.workspaceRoot !== null &&
             (input.projectId == null || project.id === input.projectId),
         );
         const resolved = yield* resolveProjectRepositoryInventories({
@@ -536,7 +549,7 @@ export const makePullRequestService = (
           uniqueRepositories.values(),
           ({ projects: repositoryProjects, repository }) =>
             loadReviewRequestedPullRequestNumbers(
-              repositoryProjects[0]!.workspaceRoot,
+              repositoryProjects[0]!.workspaceRoot!,
               repository.nameWithOwner,
               viewer,
             ).pipe(
@@ -593,7 +606,10 @@ export const PullRequestServiceLive = Layer.effect(
         projection
           .getShellSnapshot()
           .pipe(Effect.map((snapshot) => snapshot.projects.map(liveProjectFromShell))),
-      resolveRepositories: (project) => resolveGitHubRepositories(git, project.workspaceRoot),
+      resolveRepositories: (project) =>
+        project.workspaceRoot
+          ? resolveGitHubRepositories(git, project.workspaceRoot)
+          : Effect.succeed({ repositories: [], authoritative: true }),
     });
   }),
 );

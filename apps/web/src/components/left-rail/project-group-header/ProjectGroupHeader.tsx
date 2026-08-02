@@ -11,7 +11,7 @@ export interface ProjectGroupHeaderProps extends Omit<
 }
 
 export function ProjectGroupHeader({
-  children = "Projects",
+  children = "Folders",
   expanded = true,
   state = "default",
   ...props

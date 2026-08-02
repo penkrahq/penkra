@@ -16,11 +16,14 @@ afterEach(async () => {
 describe("AppCommandPipeServer", () => {
   it("uses a short private Unix socket path independent of the profile path", () => {
     if (process.platform === "win32") return;
+    if (!process.getuid) throw new Error("Expected getuid on Unix.");
     const path = resolveAppCommandPipePath(
       "/Users/example/Library/Application Support/penkra-development-profile-with-a-long-name",
     );
 
-    expect(path).toMatch(new RegExp(`^/tmp/penkra-${process.getuid()}/app-\\d+-[a-f0-9]{12}\\.sock$`));
+    expect(path).toMatch(
+      new RegExp(`^/tmp/penkra-${process.getuid()}/app-\\d+-[a-f0-9]{12}\\.sock$`),
+    );
     expect(Buffer.byteLength(path)).toBeLessThan(100);
   });
 
@@ -43,8 +46,11 @@ describe("AppCommandPipeServer", () => {
       path,
       token: "secret",
       catalog: {
-        list: vi.fn(() => [{ slug: "linear", operations: [{ key: "issues.create" }] }]),
+        list: vi.fn(() => [
+          { slug: "linear", operations: [{ key: "issues.create", input: { type: "object" } }] },
+        ]),
         help: vi.fn(async () => "Linear help\n"),
+        skills: vi.fn(async () => []),
       } as never,
       broker: { invoke } as never,
       tabs: { list: () => [current], current: () => current },
@@ -55,12 +61,14 @@ describe("AppCommandPipeServer", () => {
       FS.rmSync(directory, { recursive: true, force: true });
     });
 
-    await expect(send(path, {
-      id: "request-1",
-      token: "secret",
-      method: "operations.invoke",
-      params: { app: "linear", operation: "issues.create", input: { title: "Fix auth" } },
-    })).resolves.toEqual({ ok: true, id: "request-1", result: { created: true } });
+    await expect(
+      send(path, {
+        id: "request-1",
+        token: "secret",
+        method: "operations.invoke",
+        params: { app: "linear", operation: "issues.create", input: { title: "Fix auth" } },
+      }),
+    ).resolves.toEqual({ ok: true, id: "request-1", result: { created: true } });
     expect(invoke).toHaveBeenCalledWith({
       app: "linear",
       operation: "issues.create",
@@ -70,11 +78,13 @@ describe("AppCommandPipeServer", () => {
       tabId: "tab-1",
     });
 
-    await expect(send(path, {
-      id: "request-2",
-      token: "wrong",
-      method: "tabs.list",
-    })).resolves.toMatchObject({ ok: false, error: "Invalid App command capability." });
+    await expect(
+      send(path, {
+        id: "request-2",
+        token: "wrong",
+        method: "tabs.list",
+      }),
+    ).resolves.toMatchObject({ ok: false, error: "Invalid App command capability." });
   });
 });
 

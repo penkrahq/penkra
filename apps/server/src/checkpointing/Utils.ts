@@ -2,8 +2,8 @@ import { Encoding } from "effect";
 import {
   CheckpointRef,
   MessageId,
-  ProjectId,
-  type ProjectKind,
+  ContainerId,
+  type ContainerKind,
   type ThreadId,
   TurnId,
 } from "@penkra/contracts";
@@ -122,7 +122,7 @@ export function checkpointRefForThreadRevertRescue(
  *   unresolved/undefined project) treats `workspaceRoot` as the real cwd.
  */
 export function resolveProjectCwdForKind(input: {
-  readonly kind: ProjectKind | string | null | undefined;
+  readonly kind: ContainerKind | string | null | undefined;
   readonly workspaceRoot: string | null;
   readonly worktreePath: string | null | undefined;
 }): string | null {
@@ -134,15 +134,15 @@ export function resolveProjectCwdForKind(input: {
 
 export function resolveThreadWorkspaceCwd(input: {
   readonly thread: {
-    readonly projectId: ProjectId;
+    readonly projectId: ContainerId;
     readonly envMode?: "local" | "worktree" | undefined;
     readonly worktreePath: string | null;
     readonly workingDirectory?: string | null | undefined;
   };
   readonly projects: ReadonlyArray<{
-    readonly id: ProjectId;
-    readonly kind?: ProjectKind | undefined;
-    readonly workspaceRoot: string;
+    readonly id: ContainerId;
+    readonly kind?: ContainerKind | undefined;
+    readonly workspaceRoot: string | null;
   }>;
 }): string | undefined {
   const project = input.projects.find((entry) => entry.id === input.thread.projectId);

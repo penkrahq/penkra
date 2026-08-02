@@ -3,7 +3,7 @@
 // Layer: Web Sidebar controller hook
 // Exports: useSidebarThreadActions
 
-import { type ProjectId, ThreadId } from "@penkra/contracts";
+import { type ContainerId, ThreadId } from "@penkra/contracts";
 import { pluralize } from "@penkra/shared/text";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
@@ -77,7 +77,7 @@ export function useSidebarThreadActions(input: {
   >;
   readonly clearTerminalState: (threadId: ThreadId) => void;
   readonly handleNewChat: (options?: { fresh?: boolean }) => Promise<unknown>;
-  readonly projectById: ReadonlyMap<ProjectId, Project>;
+  readonly projectById: ReadonlyMap<ContainerId, Project>;
   readonly routeSplitViewId: string | null;
   readonly routeThreadId: ThreadId | null;
   readonly sidebarThreads: readonly SidebarThreadSummary[];
@@ -531,7 +531,7 @@ export function useSidebarThreadActions(input: {
   );
 
   const archiveAllThreadsInProject = useCallback(
-    async (projectId: ProjectId): Promise<void> => {
+    async (projectId: ContainerId): Promise<void> => {
       const api = readNativeApi();
       const project = projectById.get(projectId);
       if (!api || !project) return;
@@ -592,7 +592,7 @@ export function useSidebarThreadActions(input: {
   );
 
   const deleteProjectThreads = useCallback(
-    async (projectId: ProjectId, options?: DeleteProjectThreadsOptions) => {
+    async (projectId: ContainerId, options?: DeleteProjectThreadsOptions) => {
       const api = readNativeApi();
       const project = projectById.get(projectId);
       if (!api || !project) return null;

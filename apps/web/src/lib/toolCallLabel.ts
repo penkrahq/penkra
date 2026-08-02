@@ -131,9 +131,9 @@ const PENKRA_MCP_TOOL_PRESENTATIONS = {
     failed: "Penkra couldn't gather an overview",
   },
   penkra_list_allowed_projects: {
-    running: "Penkra is listing allowed projects",
-    completed: "Penkra listed allowed projects",
-    failed: "Penkra couldn't list allowed projects",
+    running: "Penkra is listing allowed folders",
+    completed: "Penkra listed allowed folders",
+    failed: "Penkra couldn't list allowed folders",
   },
   penkra_create_task: {
     running: "Penkra is creating a task",
@@ -151,9 +151,9 @@ const PENKRA_MCP_TOOL_PRESENTATIONS = {
     failed: "Penkra couldn't read a task",
   },
   penkra_list_projects: {
-    running: "Penkra is listing projects",
-    completed: "Penkra listed projects",
-    failed: "Penkra couldn't list projects",
+    running: "Penkra is listing folders",
+    completed: "Penkra listed folders",
+    failed: "Penkra couldn't list folders",
   },
   penkra_list_threads: {
     running: "Penkra is listing threads",

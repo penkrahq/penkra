@@ -5,7 +5,10 @@ import type { PenkraPermissionName } from "./permissions";
 import {
   operations,
   permissions,
+  identity,
+  settings,
   tab,
+  type AppIdentity,
   type AppOperationHandler,
   type AppPermissionStatus,
   type AppTabNavigationHandler,
@@ -16,6 +19,22 @@ function useLatest<Value>(value: Value) {
   const ref = useRef(value);
   ref.current = value;
   return ref;
+}
+
+export function useIdentity() {
+  const [value, setValue] = useState<AppIdentity | null>(null);
+  const [error, setError] = useState<Error | null>(null);
+  useEffect(() => {
+    let active = true;
+    void identity.get().then(
+      (next) => active && setValue(next),
+      (cause) => active && setError(cause instanceof Error ? cause : new Error(String(cause))),
+    );
+    return () => {
+      active = false;
+    };
+  }, []);
+  return { identity: value, error } as const;
 }
 
 export function usePermission(name: PenkraPermissionName) {
@@ -32,6 +51,36 @@ export function usePermission(name: PenkraPermissionName) {
     };
   }, [name]);
   return { status, error } as const;
+}
+
+export function useAppSetting<Value extends boolean | number | string>(key: string) {
+  const [value, setValue] = useState<Value | null>(null);
+  const [error, setError] = useState<Error | null>(null);
+  const [revision, setRevision] = useState(0);
+  useEffect(() => {
+    let active = true;
+    void settings.get(key).then(
+      (next) => active && setValue(next as Value),
+      (cause) => active && setError(cause instanceof Error ? cause : new Error(String(cause))),
+    );
+    return () => {
+      active = false;
+    };
+  }, [key, revision]);
+  return {
+    value,
+    error,
+    set: async (next: Value) => {
+      await settings.set(key, next);
+      setValue(next);
+      setError(null);
+    },
+    reset: async () => {
+      await settings.reset(key);
+      setRevision((current) => current + 1);
+      setError(null);
+    },
+  } as const;
 }
 
 export function useOperation<Input = unknown, Result = unknown>(
@@ -61,4 +110,4 @@ export function useTabNavigation<Result = void>(handler: AppTabNavigationHandler
   useEffect(() => tab.onNavigate((input, context) => latest.current(input, context)), [latest]);
 }
 
-export type { AppOperationHandler, AppPermissionStatus };
+export type { AppIdentity, AppOperationHandler, AppPermissionStatus };

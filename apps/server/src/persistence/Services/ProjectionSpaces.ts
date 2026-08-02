@@ -1,4 +1,4 @@
-/** Durable projection repository for custom Spaces. Void remains virtual (`spaceId = null`). */
+/** Durable projection repository for persisted Spaces. */
 import { IsoDateTime, NonNegativeInt, SpaceIconName, SpaceId, SpaceName } from "@penkra/contracts";
 import { Option, Schema, ServiceMap } from "effect";
 import type { Effect } from "effect";

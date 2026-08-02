@@ -185,7 +185,7 @@ function ProfileContent({
               }
             />
             <InsightRow label="Most active hour" value={peakHourLabel} />
-            <InsightRow label="Most worked project" value={mostWorkedProjectLabel} />
+            <InsightRow label="Most worked folder" value={mostWorkedProjectLabel} />
             <InsightRow
               label="Skills explored"
               value={formatNumber(stats.insights.skillsExplored)}

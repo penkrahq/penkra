@@ -30,7 +30,7 @@ function HoverSubmenuFixture() {
         <MenuSub keepOpenOnFocusOut>
           <MenuSubTrigger>Move to space</MenuSubTrigger>
           <MenuSubPopup>
-            <MenuItem>Void</MenuItem>
+            <MenuItem>Work</MenuItem>
             <MenuItem>Work</MenuItem>
           </MenuSubPopup>
         </MenuSub>
@@ -48,12 +48,12 @@ describe("Menu submenu hover", () => {
     const screen = await render(<HoverSubmenuFixture />);
 
     await page.getByText("Move to space", { exact: true }).hover();
-    await expect.element(page.getByText("Void", { exact: true })).toBeVisible();
+    await expect.element(page.getByText("Work", { exact: true })).toBeVisible();
 
-    await page.getByText("Void", { exact: true }).hover();
+    await page.getByText("Work", { exact: true }).hover();
     await new Promise((resolve) => window.setTimeout(resolve, 220));
 
-    await expect.element(page.getByText("Void", { exact: true })).toBeVisible();
+    await expect.element(page.getByText("Work", { exact: true })).toBeVisible();
     await screen.unmount();
   });
 

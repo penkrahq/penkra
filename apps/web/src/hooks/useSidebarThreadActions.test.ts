@@ -2,7 +2,7 @@
 // Purpose: Characterizes Sidebar pin races, archive serialization/undo, and batch deletion.
 // Layer: Web hook tests
 
-import { ProjectId, ThreadId } from "@penkra/contracts";
+import { ContainerId, ThreadId } from "@penkra/contracts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const reactHarness = vi.hoisted(() => {
@@ -182,7 +182,7 @@ vi.mock("../threadDerivation", () => ({
 import type { Project, SidebarThreadSummary } from "../types";
 import { useSidebarThreadActions } from "./useSidebarThreadActions";
 
-const PROJECT_ID = ProjectId.makeUnsafe("project-actions");
+const PROJECT_ID = ContainerId.makeUnsafe("project-actions");
 const THREAD_ID = ThreadId.makeUnsafe("thread-actions");
 const FALLBACK_ID = ThreadId.makeUnsafe("thread-fallback");
 const PROJECT = {
@@ -296,7 +296,7 @@ beforeEach(() => {
     const action = input as {
       prepareForDelete?: () => unknown;
       onDeleted: (input: {
-        thread: { id: ThreadId; projectId: ProjectId };
+        thread: { id: ThreadId; projectId: ContainerId };
         prepared?: unknown;
       }) => void;
     };
@@ -449,7 +449,7 @@ describe("useSidebarThreadActions", () => {
       .mockRejectedValueOnce(new Error("first failed"))
       .mockImplementationOnce(async (input: unknown) => {
         const action = input as {
-          onDeleted: (input: { thread: { id: ThreadId; projectId: ProjectId } }) => void;
+          onDeleted: (input: { thread: { id: ThreadId; projectId: ContainerId } }) => void;
         };
         action.onDeleted({ thread: { id: thirdId, projectId: PROJECT_ID } });
       });

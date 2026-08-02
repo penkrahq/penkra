@@ -4,7 +4,7 @@
 // Exports: EnvironmentProjectInstructionsSection
 
 import { useEffect, useRef, useState, type ChangeEventHandler } from "react";
-import { THREAD_NOTES_MAX_CHARS, type ProjectId } from "@penkra/contracts";
+import { THREAD_NOTES_MAX_CHARS, type ContainerId } from "@penkra/contracts";
 
 import { Textarea } from "~/components/ui/textarea";
 import { Button } from "~/components/ui/button";
@@ -15,7 +15,7 @@ import { EnvironmentCollapsibleSection } from "./EnvironmentRow";
 const PROJECT_INSTRUCTIONS_AUTOSAVE_DEBOUNCE_MS = 500;
 
 interface PendingProjectInstructionsSave {
-  readonly projectId: ProjectId;
+  readonly projectId: ContainerId;
   readonly value: string;
   readonly lastCommitted: string;
 }
@@ -25,9 +25,9 @@ function useProjectInstructionsAutosave({
   instructions,
   onChange,
 }: {
-  readonly projectId: ProjectId | null;
+  readonly projectId: ContainerId | null;
   readonly instructions: string;
-  readonly onChange: (projectId: ProjectId, instructions: string) => void;
+  readonly onChange: (projectId: ContainerId, instructions: string) => void;
 }) {
   const [value, setValue] = useState(instructions);
   const [focused, setFocused] = useState(false);
@@ -136,11 +136,11 @@ export function EnvironmentProjectInstructionsSection({
   onInstructionsChange,
   onCopyToThreadNotes,
 }: {
-  projectId: ProjectId | null;
+  projectId: ContainerId | null;
   instructions: string;
   threadNotes: string;
   canCopyToThreadNotes: boolean;
-  onInstructionsChange: (projectId: ProjectId, instructions: string) => void;
+  onInstructionsChange: (projectId: ContainerId, instructions: string) => void;
   onCopyToThreadNotes: () => void;
 }) {
   const autosave = useProjectInstructionsAutosave({
@@ -152,7 +152,7 @@ export function EnvironmentProjectInstructionsSection({
   const copyLabel = threadNotes.trim().length === 0 ? "Copy to notepad" : "Append to notepad";
 
   return (
-    <EnvironmentCollapsibleSection label="Project instructions" defaultOpen={hasInstructions}>
+    <EnvironmentCollapsibleSection label="Folder instructions" defaultOpen={hasInstructions}>
       <div className="flex flex-col gap-2 px-2 pb-1">
         <Textarea
           unstyled

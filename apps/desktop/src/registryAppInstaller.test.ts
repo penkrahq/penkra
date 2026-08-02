@@ -64,7 +64,12 @@ describe("registry App installer", () => {
     });
 
     await installRegistryApp({
-      request: { slug: "canvas", version: "1.0.0", spaceId: "space", permissions: { "network-fetch": "granted" } },
+      request: {
+        slug: "canvas",
+        version: "1.0.0",
+        spaceId: "space",
+        permissions: { "network-fetch": "granted" },
+      },
       hostVersion: "0.8.7",
       registry: {
         get: vi.fn().mockResolvedValue(app),
@@ -86,28 +91,38 @@ describe("registry App installer", () => {
       installations: { installForSpace },
     });
 
-    expect(ingestRegistryArchive).toHaveBeenCalledWith({ packageBytes, expectedArchiveDigest: version.packageDigest });
-    expect(installForSpace).toHaveBeenCalledWith(expect.objectContaining({
-      spaceId: "space",
-      permissions: { "network-fetch": "granted" },
-    }));
-    expect(recordSuccessfulInstallDurably).toHaveBeenCalledWith({ appId: app.id, versionId: version.id });
+    expect(ingestRegistryArchive).toHaveBeenCalledWith({
+      packageBytes,
+      expectedArchiveDigest: version.packageDigest,
+    });
+    expect(installForSpace).toHaveBeenCalledWith(
+      expect.objectContaining({
+        spaceId: "space",
+        permissions: { "network-fetch": "granted" },
+      }),
+    );
+    expect(recordSuccessfulInstallDurably).toHaveBeenCalledWith({
+      appId: app.id,
+      versionId: version.id,
+    });
   });
 
   it("rejects incompatible releases and missing required grants before download", async () => {
     const downloadVerifiedRelease = vi.fn();
-    await expect(installRegistryApp({
-      request: { slug: "canvas", version: "1.0.0", spaceId: "space", permissions: {} },
-      hostVersion: "0.8.7",
-      registry: {
-        get: vi.fn().mockResolvedValue(app),
-        downloadVerifiedRelease,
-        getSecurityPolicy: vi.fn(),
-        recordSuccessfulInstallDurably: vi.fn(),
-      },
-      packages: { ingestRegistryArchive: vi.fn() },
-      installations: { installForSpace: vi.fn() },
-    })).rejects.toThrow("must be granted");
+    await expect(
+      installRegistryApp({
+        request: { slug: "canvas", version: "1.0.0", spaceId: "space", permissions: {} },
+        hostVersion: "0.8.7",
+        registry: {
+          get: vi.fn().mockResolvedValue(app),
+          downloadVerifiedRelease,
+          getSecurityPolicy: vi.fn(),
+          recordSuccessfulInstallDurably: vi.fn(),
+        },
+        packages: { ingestRegistryArchive: vi.fn() },
+        installations: { installForSpace: vi.fn() },
+      }),
+    ).rejects.toThrow("must be granted");
     expect(downloadVerifiedRelease).not.toHaveBeenCalled();
   });
 
@@ -166,19 +181,37 @@ describe("registry App installer", () => {
       installations: {
         snapshot: () => ({
           ...createEmptyAppInstallationState(),
-          packagesByAppId: { [app.identifier]: { ...installedPackage, appId: app.identifier, slug: app.slug, name: app.displayName, summary: app.summary, version: "1.0.0", manifest: { ...installedPackage.manifest, version: "1.0.0" } } },
+          packagesByAppId: {
+            [app.identifier]: {
+              ...installedPackage,
+              appId: app.identifier,
+              slug: app.slug,
+              name: app.displayName,
+              summary: app.summary,
+              version: "1.0.0",
+              manifest: { ...installedPackage.manifest, version: "1.0.0" },
+            },
+          },
         }),
         updateForSpaces,
       },
     });
-    expect(updateForSpaces).toHaveBeenCalledWith(expect.objectContaining({
-      permissionsBySpace: { personal: { "network-fetch": "granted" } },
-      package: expect.objectContaining({ registryRelease: expect.objectContaining({ appId: app.id }) }),
-    }));
+    expect(updateForSpaces).toHaveBeenCalledWith(
+      expect.objectContaining({
+        permissionsBySpace: { personal: { "network-fetch": "granted" } },
+        package: expect.objectContaining({
+          registryRelease: expect.objectContaining({ appId: app.id }),
+        }),
+      }),
+    );
   });
 
   it("re-verifies an older immutable release before handing rollback to the durable update owner", async () => {
-    const currentVersion = { ...version, id: "00000000-0000-4000-8000-000000000413", version: "2.0.0" };
+    const currentVersion = {
+      ...version,
+      id: "00000000-0000-4000-8000-000000000413",
+      version: "2.0.0",
+    };
     const rollbackApp = { ...app, latestVersion: "2.0.0", versions: [version, currentVersion] };
     const updateForSpaces = vi.fn().mockResolvedValue(createEmptyAppInstallationState());
     const downloadVerifiedRelease = vi.fn().mockResolvedValue({
@@ -250,55 +283,61 @@ describe("registry App installer", () => {
     });
 
     expect(downloadVerifiedRelease).toHaveBeenCalledWith({ app: rollbackApp, version });
-    expect(updateForSpaces).toHaveBeenCalledWith(expect.objectContaining({
-      permissionsBySpace: { personal: { "network-fetch": "granted" } },
-      package: expect.objectContaining({ manifest: expect.objectContaining({ version: "1.0.0" }) }),
-    }));
+    expect(updateForSpaces).toHaveBeenCalledWith(
+      expect.objectContaining({
+        permissionsBySpace: { personal: { "network-fetch": "granted" } },
+        package: expect.objectContaining({
+          manifest: expect.objectContaining({ version: "1.0.0" }),
+        }),
+      }),
+    );
   });
 
   it("rejects a rollback that does not move to an older version before download", async () => {
     const downloadVerifiedRelease = vi.fn();
-    await expect(rollbackRegistryApp({
-      request: { slug: "canvas", version: "1.0.0", permissionsBySpace: {} },
-      hostVersion: "0.8.7",
-      registry: {
-        get: vi.fn().mockResolvedValue(app),
-        downloadVerifiedRelease,
-        getSecurityPolicy: vi.fn(),
-      },
-      packages: { ingestRegistryArchive: vi.fn() },
-      installations: {
-        snapshot: () => ({
-          ...createEmptyAppInstallationState(),
-          packagesByAppId: {
-            [app.identifier]: {
-              appId: app.identifier,
-              slug: app.slug,
-              name: app.displayName,
-              summary: app.summary,
-              version: "1.0.0",
-              source: "registry",
-              packagePath: "/profile/apps/canvas/1.0.0",
-              sha256: "b".repeat(64),
-              installedAt: "2026-08-01T00:00:00.000Z",
-              manifest: {
-                manifestVersion: 1,
-                id: app.identifier,
+    await expect(
+      rollbackRegistryApp({
+        request: { slug: "canvas", version: "1.0.0", permissionsBySpace: {} },
+        hostVersion: "0.8.7",
+        registry: {
+          get: vi.fn().mockResolvedValue(app),
+          downloadVerifiedRelease,
+          getSecurityPolicy: vi.fn(),
+        },
+        packages: { ingestRegistryArchive: vi.fn() },
+        installations: {
+          snapshot: () => ({
+            ...createEmptyAppInstallationState(),
+            packagesByAppId: {
+              [app.identifier]: {
+                appId: app.identifier,
                 slug: app.slug,
                 name: app.displayName,
                 summary: app.summary,
                 version: "1.0.0",
-                compatibility: { penkra: version.compatibilityRange },
-                icons: [{ src: "icon.svg", sizes: "any", type: "image/svg+xml" }],
-                entrypoints: { app: "app.js" },
-                permissions: [{ name: "network-fetch", required: true, reason: "Sync" }],
+                source: "registry",
+                packagePath: "/profile/apps/canvas/1.0.0",
+                sha256: "b".repeat(64),
+                installedAt: "2026-08-01T00:00:00.000Z",
+                manifest: {
+                  manifestVersion: 1,
+                  id: app.identifier,
+                  slug: app.slug,
+                  name: app.displayName,
+                  summary: app.summary,
+                  version: "1.0.0",
+                  compatibility: { penkra: version.compatibilityRange },
+                  icons: [{ src: "icon.svg", sizes: "any", type: "image/svg+xml" }],
+                  entrypoints: { app: "app.js" },
+                  permissions: [{ name: "network-fetch", required: true, reason: "Sync" }],
+                },
               },
             },
-          },
-        }),
-        updateForSpaces: vi.fn(),
-      },
-    })).rejects.toThrow("older than 1.0.0");
+          }),
+          updateForSpaces: vi.fn(),
+        },
+      }),
+    ).rejects.toThrow("older than 1.0.0");
     expect(downloadVerifiedRelease).not.toHaveBeenCalled();
   });
 });

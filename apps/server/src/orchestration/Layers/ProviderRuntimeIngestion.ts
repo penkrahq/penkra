@@ -1734,7 +1734,7 @@ const make = Effect.gen(function* () {
               interactionMode: parentThread.interactionMode,
               envMode: parentThread.envMode,
               branch: parentThread.branch,
-              worktreePath: parentThread.worktreePath,
+              worktreePath: parentThread.workingDirectory ?? parentThread.worktreePath,
               associatedWorktreePath: parentThread.associatedWorktreePath,
               associatedWorktreeBranch: parentThread.associatedWorktreeBranch,
               associatedWorktreeRef: parentThread.associatedWorktreeRef,

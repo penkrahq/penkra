@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   CommandId,
-  ProjectId,
+  ContainerId,
   ThreadId,
   type ClientOrchestrationCommand,
   type NativeApi,
@@ -37,7 +37,7 @@ function makeThreadCreateCommand(threadId = "thread-promote") {
     type: "thread.create",
     commandId: CommandId.makeUnsafe(`cmd-${threadId}`),
     threadId: ThreadId.makeUnsafe(threadId),
-    projectId: ProjectId.makeUnsafe("project-promote"),
+    projectId: ContainerId.makeUnsafe("project-promote"),
     title: "Promoted thread",
     modelSelection: {
       provider: "codex",
@@ -90,7 +90,7 @@ describe("threadCreatePromotion", () => {
 
   it("marks the draft as promoted when the thread already exists locally", async () => {
     const threadId = ThreadId.makeUnsafe("thread-existing-local");
-    const projectId = ProjectId.makeUnsafe("project-promote");
+    const projectId = ContainerId.makeUnsafe("project-promote");
     useComposerDraftStore.getState().setProjectDraftThreadId(projectId, threadId);
     useStore.getState().syncServerShellSnapshot({
       snapshotSequence: 1,
@@ -153,7 +153,7 @@ describe("threadCreatePromotion", () => {
 
   it("recovers duplicate promotions by syncing the shell snapshot", async () => {
     const threadId = ThreadId.makeUnsafe("thread-duplicate-recovered");
-    const projectId = ProjectId.makeUnsafe("project-promote");
+    const projectId = ContainerId.makeUnsafe("project-promote");
     const dispatchCommand = vi.fn(() =>
       Promise.reject(
         new Error(

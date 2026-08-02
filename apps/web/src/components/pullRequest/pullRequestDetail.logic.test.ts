@@ -145,6 +145,11 @@ describe("pullRequestDetailInputFromPane", () => {
     pullRequestNumber: 350,
     pullRequestInitialTab: null,
     profileProjectId: null,
+    appId: null,
+    appSlug: null,
+    appName: null,
+    appRoute: null,
+    appStatus: null,
   };
 
   it("builds the detail input from a fully-populated pull request pane", () => {

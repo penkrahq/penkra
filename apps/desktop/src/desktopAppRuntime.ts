@@ -2,14 +2,11 @@
 // Purpose: Composes trusted App persistence, isolation, controller, broker, and IPC services.
 // Layer: Desktop main-process bootstrap
 
-import type { BrowserWindow, IpcMain } from "electron";
+import { app, safeStorage, webContents, type BrowserWindow, type IpcMain } from "electron";
 import type { DesktopAppTabDescriptor } from "@penkra/contracts";
 
 import { AppControllerHost } from "./appControllerHost";
-import {
-  AppInstallationStore,
-  resolveAppInstallationStatePath,
-} from "./appInstallationStore";
+import { AppInstallationStore, resolveAppInstallationStatePath } from "./appInstallationStore";
 import { AppInstallationService } from "./appInstallationService";
 import {
   AppPackageIngestor,
@@ -18,10 +15,14 @@ import {
 } from "./appPackageIngestor";
 import { AppOperationBroker } from "./appOperationBroker";
 import { AppOperationCatalog } from "./appOperationCatalog";
+import { AppIntentRouter } from "./appIntentRouter";
 import { AppRendererIpcBridge } from "./appRendererIpcBridge";
 import { AppRendererRpcHost } from "./appRendererRpc";
 import { AppRuntimeLifecycle, type AppRuntimeRestoreResult } from "./appRuntimeLifecycle";
 import { AppSessionManager } from "./appSessionManager";
+import { AppRuntimeDiagnostics, resolveAppRuntimeDiagnosticsPath } from "./appRuntimeDiagnostics";
+import { AppIdentityService } from "./appIdentityService";
+import { AppDataVault } from "./appDataVault";
 import { DeferredAppTabHost } from "./deferredAppTabHost";
 import { ElectronAppControllerRendererFactory } from "./electronAppControllerRenderer";
 import { ElectronAppTabHost } from "./electronAppTabHost";
@@ -37,9 +38,13 @@ export interface DesktopAppRuntime {
   readonly packages: AppPackageIngestor;
   readonly broker: AppOperationBroker;
   readonly operationCatalog: AppOperationCatalog;
+  readonly intents: AppIntentRouter;
   readonly tabs: DeferredAppTabHost;
   readonly appTabs: ElectronAppTabHost;
   readonly restoreResults: ReadonlyArray<AppRuntimeRestoreResult>;
+  readonly diagnostics: AppRuntimeDiagnostics;
+  readonly identities: AppIdentityService;
+  readonly vault: AppDataVault;
   readonly safeStartRecovery: null | { quarantinedPath: string; error: Error };
   readonly updateRecovery: AppUpdateRecovery | null;
   readonly packageGarbageCollection: AppPackageGarbageCollectionResult;
@@ -58,6 +63,13 @@ export async function startDesktopAppRuntime(input: {
   onTabState: (descriptor: DesktopAppTabDescriptor) => void;
   onInvalidRendererMessage?: (error: Error, senderId: number) => void;
   assertAppAllowed?: (app: import("./appInstallationState").InstalledAppPackage) => Promise<void>;
+  getAccountId?: () => Promise<string | null>;
+  requestStandardPermissions?: (input: {
+    appId: string;
+    appName: string;
+    spaceId: string;
+    permissions: ReadonlyArray<import("./appStandardPermissions").AppStandardPermissionName>;
+  }) => Promise<boolean>;
 }): Promise<DesktopAppRuntime> {
   const storeResult = await AppInstallationStore.openSafe(
     resolveAppInstallationStatePath(input.userDataPath),
@@ -66,6 +78,25 @@ export async function startDesktopAppRuntime(input: {
   const updates = new AppUpdateJournal(resolveAppUpdateJournalPath(input.userDataPath));
   const updateRecovery = await updates.recoverSafe(store);
   const packages = new AppPackageIngestor(resolveAppPackageStorePath(input.userDataPath));
+  const diagnostics = new AppRuntimeDiagnostics(
+    resolveAppRuntimeDiagnosticsPath(input.userDataPath),
+  );
+  const identities = await AppIdentityService.open({
+    userDataPath: input.userDataPath,
+    getAccountId: input.getAccountId ?? (async () => null),
+  });
+  if (!safeStorage.isEncryptionAvailable())
+    throw new Error("Secure App secret storage is unavailable on this device.");
+  const vault = await AppDataVault.open({
+    userDataPath: input.userDataPath,
+    encrypt: (value) => safeStorage.encryptString(value),
+    decrypt: (value) => safeStorage.decryptString(value),
+  });
+  const recordDiagnostic = (entry: import("./appRuntimeDiagnostics").AppRuntimeDiagnosticInput) => {
+    void diagnostics.record(entry).catch((error) => {
+      console.error("[penkra-app] Could not persist App runtime diagnostics.", error);
+    });
+  };
   const packageGarbageCollection = await packages.collectGarbage(
     Object.values(store.snapshot().packagesByAppId).map((installed) => installed.packagePath),
   );
@@ -74,15 +105,40 @@ export async function startDesktopAppRuntime(input: {
   const ipcBridge = new AppRendererIpcBridge({
     ipcMain: input.ipcMain,
     rpc,
-    onInvalidMessage: input.onInvalidRendererMessage,
+    ...(input.onInvalidRendererMessage === undefined
+      ? {}
+      : { onInvalidMessage: input.onInvalidRendererMessage }),
   });
   ipcBridge.start();
   const broker = new AppOperationBroker({
     installationState: () => store.snapshot(),
     tabs,
+    resolveIdentity: (appId, spaceId) => identities.resolve(appId, spaceId),
+    onDiagnostic: recordDiagnostic,
   });
   const operationCatalog = new AppOperationCatalog(() => store.snapshot());
-  const sessions = new AppSessionManager();
+  const intents = new AppIntentRouter(() => store.snapshot());
+  let installations!: AppInstallationService;
+  const sessions = new AppSessionManager({
+    getStandardPermission: (appId, spaceId, permission) => {
+      const space = Object.values(store.snapshot().spaceStateByKey).find(
+        (candidate) => candidate.appId === appId && candidate.spaceId === spaceId,
+      );
+      return space?.permissions[permission] === "granted";
+    },
+    requestStandardPermissions: async (request) => {
+      const granted = await (input.requestStandardPermissions?.(request) ?? Promise.resolve(false));
+      for (const permission of request.permissions) {
+        await installations.setRuntimePermission({
+          appId: request.appId,
+          spaceId: request.spaceId,
+          permission,
+          grant: granted ? "granted" : "denied",
+        });
+      }
+      return granted;
+    },
+  });
   const rendererIdentities = new Map<number, { appId: string; spaceId: string }>();
   const registerRendererIdentity = ({
     appId,
@@ -116,7 +172,18 @@ export async function startDesktopAppRuntime(input: {
     ...(input.assertAppAllowed === undefined ? {} : { assertAppAllowed: input.assertAppAllowed }),
     closeTabs: (appId, spaceId, reason) => appTabs.closeForAppSpace(appId, spaceId, reason),
   });
-  const installations = new AppInstallationService({ store, lifecycle, data: sessions, updates });
+  installations = new AppInstallationService({
+    store,
+    lifecycle,
+    data: {
+      eraseData: async (appId, spaceId) => {
+        await sessions.eraseData(appId, spaceId);
+        await vault.erase(appId, spaceId);
+      },
+    },
+    settingSecrets: vault,
+    updates,
+  });
   appTabs = new ElectronAppTabHost({
     window: input.window,
     installations,
@@ -127,10 +194,26 @@ export async function startDesktopAppRuntime(input: {
     preloadPath: input.appPreloadPath,
     onOpened: input.onTabOpened,
     onState: input.onTabState,
+    onDiagnostic: recordDiagnostic,
+    measureRendererMemory: (rendererId) => {
+      const renderer = webContents.fromId(rendererId);
+      if (!renderer || renderer.isDestroyed()) return undefined;
+      const processId = renderer.getOSProcessId();
+      const metric = app.getAppMetrics().find((candidate) => candidate.pid === processId);
+      return metric ? metric.memory.workingSetSize * 1024 : undefined;
+    },
     onRendererCreated: registerRendererIdentity,
     ...(input.assertAppAllowed === undefined ? {} : { assertAppAllowed: input.assertAppAllowed }),
   });
   const unbindTabs = tabs.bind(appTabs);
+  const unsubscribeUnexpectedDisable = lifecycle.subscribeUnexpectedDisable((event) => {
+    recordDiagnostic({
+      kind: "runtime-disabled",
+      appId: event.appId,
+      spaceId: event.spaceId,
+      message: event.error.message,
+    });
+  });
   const restoreResults = await lifecycle.restoreEnabled();
   let stopped = false;
 
@@ -139,13 +222,19 @@ export async function startDesktopAppRuntime(input: {
     installations,
     packages,
     broker,
+    operationCatalog,
+    intents,
     tabs,
     appTabs,
+    diagnostics,
+    identities,
+    vault,
     restoreResults,
     safeStartRecovery: storeResult.recovery,
     updateRecovery,
     packageGarbageCollection,
-    canManageInstallations: (rendererId) => rendererIdentities.get(rendererId)?.appId === "com.penkra.apps",
+    canManageInstallations: (rendererId) =>
+      rendererIdentities.get(rendererId)?.appId === "com.penkra.apps",
     installationSpaceId: (rendererId) => {
       const identity = rendererIdentities.get(rendererId);
       return identity?.appId === "com.penkra.apps" ? identity.spaceId : null;
@@ -155,6 +244,7 @@ export async function startDesktopAppRuntime(input: {
       if (stopped) return;
       stopped = true;
       try {
+        unsubscribeUnexpectedDisable();
         unbindTabs();
         appTabs.closeAll("host-stopped");
         await lifecycle.shutdown();

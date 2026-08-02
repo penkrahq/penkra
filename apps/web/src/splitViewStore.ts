@@ -3,7 +3,7 @@
 // Layer: UI state store
 // Exports: pane/split types, tree-aware selectors, and id-based mutation helpers used by sidebar and route surfaces
 
-import { type ProjectId, type ThreadId, type TurnId } from "@penkra/contracts";
+import { type ContainerId, type ThreadId, type TurnId } from "@penkra/contracts";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
@@ -58,7 +58,7 @@ export type Pane = LeafPane | SplitNode;
 export interface SplitView {
   id: SplitViewId;
   sourceThreadId: ThreadId;
-  ownerProjectId: ProjectId;
+  ownerProjectId: ContainerId;
   root: Pane;
   focusedPaneId: PaneId;
   createdAt: string;
@@ -67,12 +67,12 @@ export interface SplitView {
 
 interface CreateFromThreadInput {
   sourceThreadId: ThreadId;
-  ownerProjectId: ProjectId;
+  ownerProjectId: ContainerId;
 }
 
 interface CreateFromDropInput {
   sourceThreadId: ThreadId;
-  ownerProjectId: ProjectId;
+  ownerProjectId: ContainerId;
   droppedThreadId: ThreadId;
   direction: SplitDirection;
   side: SplitDropSide;

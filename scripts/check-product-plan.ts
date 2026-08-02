@@ -25,14 +25,18 @@ for (const repository of repositories) {
       if (entry.isDirectory()) {
         pending.push(candidate);
       } else if (forbiddenPlanningNames.has(entry.name)) {
-        failures.push(`Forbidden repository-local planning authority: ${path.relative(workspaceRoot, candidate)}`);
+        failures.push(
+          `Forbidden repository-local planning authority: ${path.relative(workspaceRoot, candidate)}`,
+        );
       }
     }
   }
 }
 
 if (failures.length > 0) {
-  throw new Error(`Product-plan consistency check failed:\n${failures.map((failure) => `- ${failure}`).join("\n")}`);
+  throw new Error(
+    `Product-plan consistency check failed:\n${failures.map((failure) => `- ${failure}`).join("\n")}`,
+  );
 }
 
 console.log("Product-plan consistency check passed.");

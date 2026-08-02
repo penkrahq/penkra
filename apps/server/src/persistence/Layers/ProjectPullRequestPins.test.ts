@@ -1,4 +1,4 @@
-import { ProjectId } from "@penkra/contracts";
+import { ContainerId } from "@penkra/contracts";
 import { assert, it } from "@effect/vitest";
 import { Effect, Exit, Layer } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -15,10 +15,10 @@ const layer = it.layer(
   ProjectPullRequestPinsLive.pipe(Layer.provideMerge(SqlitePersistenceMemory)),
 );
 
-const projectA = ProjectId.makeUnsafe("project-a");
-const projectB = ProjectId.makeUnsafe("project-b");
-const idempotenceProject = ProjectId.makeUnsafe("project-idempotence");
-const orderingProject = ProjectId.makeUnsafe("project-ordering");
+const projectA = ContainerId.makeUnsafe("project-a");
+const projectB = ContainerId.makeUnsafe("project-b");
+const idempotenceProject = ContainerId.makeUnsafe("project-idempotence");
+const orderingProject = ContainerId.makeUnsafe("project-ordering");
 
 layer("ProjectPullRequestPins", (it) => {
   it.effect("isolates the same repository and pull request number by project", () =>
@@ -128,8 +128,8 @@ layer("ProjectPullRequestPins", (it) => {
   it.effect("enforces the project cap without affecting another project or idempotent pins", () =>
     Effect.gen(function* () {
       const pins = yield* ProjectPullRequestPins;
-      const cappedProject = ProjectId.makeUnsafe("project-cap");
-      const independentProject = ProjectId.makeUnsafe("project-cap-independent");
+      const cappedProject = ContainerId.makeUnsafe("project-cap");
+      const independentProject = ContainerId.makeUnsafe("project-cap-independent");
 
       for (let number = 1; number <= PROJECT_PULL_REQUEST_PIN_LIMIT; number += 1) {
         yield* pins.setPinned({

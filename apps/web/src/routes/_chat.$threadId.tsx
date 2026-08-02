@@ -2,7 +2,7 @@
 // Purpose: Resolve the active thread route into either a single chat surface or a persisted split view.
 // Layer: Route container
 
-import { type ProjectId, ThreadId } from "@penkra/contracts";
+import { type ContainerId, ThreadId } from "@penkra/contracts";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -35,7 +35,7 @@ function ChatThreadRouteView() {
   const search = Route.useSearch();
   const threadProjectIdSelector = createThreadProjectIdSelector(threadId);
   const threadExistsSelector = createThreadExistsSelector(threadId);
-  const threadProjectId: ProjectId | null = useStore(threadProjectIdSelector);
+  const threadProjectId: ContainerId | null = useStore(threadProjectIdSelector);
   const threadExists = useStore(threadExistsSelector);
   const draftThreadState = useComposerDraftStore(
     (store) => store.draftThreadsByThreadId[threadId] ?? null,

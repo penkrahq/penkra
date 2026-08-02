@@ -18,6 +18,9 @@ describe("App permission declarations", () => {
       "added",
       "removed",
     ]);
-    expect(permissionsRequiringUpdateReview(before, after)).toEqual(["network-fetch", "process-spawn"]);
+    expect(permissionsRequiringUpdateReview(before, after)).toEqual([
+      "network-fetch",
+      "process-spawn",
+    ]);
   });
 });

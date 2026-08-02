@@ -1,4 +1,4 @@
-import { ProjectId, SpaceId } from "@penkra/contracts";
+import { ContainerId, SpaceId } from "@penkra/contracts";
 import { page } from "vitest/browser";
 import { beforeEach, describe, expect, it } from "vitest";
 import { render } from "vitest-browser-react";
@@ -6,7 +6,7 @@ import { render } from "vitest-browser-react";
 import { useSpacesUiStore } from "../spacesUiStore";
 import { useRouteSpaceSync } from "./useRouteSpaceSync";
 
-const routeProjectId = ProjectId.makeUnsafe("project-void");
+const routeProjectId = ContainerId.makeUnsafe("project-void");
 const selectedSpaceId = SpaceId.makeUnsafe("space-work");
 
 function RouteSpaceSyncFixture() {

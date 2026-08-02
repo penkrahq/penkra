@@ -7,7 +7,7 @@ import {
   DEFAULT_RUNTIME_MODE,
   type ModelSelection,
   type OrchestrationThreadPullRequest,
-  type ProjectId,
+  type ContainerId,
   type ProviderInteractionMode,
   type ProviderKind,
   type RuntimeMode,
@@ -41,6 +41,24 @@ export interface InheritedThreadContext {
   worktreePath: string | null;
   workingDirectory: string | null;
   envMode: DraftThreadEnvMode;
+}
+
+export function resolveRecentParentWorkingDirectory(input: {
+  projectId: ContainerId;
+  projectKind: "chat" | "project" | "studio";
+  spaceId: SpaceId | null;
+  threads: ReadonlyArray<Pick<Thread, "projectId" | "spaceId" | "workingDirectory" | "createdAt">>;
+}): string | null {
+  const matchingThreads = input.threads.filter((thread) => {
+    if (thread.projectId !== input.projectId || !thread.workingDirectory?.trim()) return false;
+    return input.projectKind === "project" || (thread.spaceId ?? null) === input.spaceId;
+  });
+  const latest = matchingThreads.reduce<(typeof matchingThreads)[number] | null>(
+    (current, candidate) =>
+      !current || candidate.createdAt.localeCompare(current.createdAt) > 0 ? candidate : current,
+    null,
+  );
+  return latest?.workingDirectory?.trim() || null;
 }
 
 // Carry the active surface's branch/worktree/env into a new thread bootstrap.
@@ -77,7 +95,7 @@ export function resolveInheritedThreadContext(input: {
 }
 
 interface ActiveThreadSnapshot {
-  projectId: ProjectId;
+  projectId: ContainerId;
   modelSelection: ModelSelection;
   runtimeMode: RuntimeMode;
   interactionMode: ProviderInteractionMode;
@@ -111,7 +129,7 @@ interface ResolveTerminalThreadCreationStateInput {
   draftThread: DraftThreadState | null;
   options: NewThreadOptions | undefined;
   projectDefaultModelSelection: ModelSelection | null;
-  projectId: ProjectId;
+  projectId: ContainerId;
 }
 
 export interface TerminalThreadCreationState {
@@ -132,14 +150,14 @@ export function createActiveThreadSnapshot(
     | {
         interactionMode: ProviderInteractionMode;
         modelSelection: ModelSelection;
-        projectId: ProjectId;
+        projectId: ContainerId;
         runtimeMode: RuntimeMode;
         envMode?: ThreadEnvironmentMode | undefined;
         lastKnownPr?: OrchestrationThreadPullRequest | null;
       }
     | null
     | undefined,
-  projectId: ProjectId,
+  projectId: ContainerId,
 ): ActiveThreadSnapshot | null {
   if (!activeThread || activeThread.projectId !== projectId) {
     return null;
@@ -157,7 +175,7 @@ export function createActiveThreadSnapshot(
 // Normalize the currently active draft thread into a stable snapshot for pure helpers.
 export function createActiveDraftThreadSnapshot(
   activeDraftThread: DraftThreadState | null | undefined,
-  projectId: ProjectId,
+  projectId: ContainerId,
 ): DraftThreadState | null {
   if (!activeDraftThread || activeDraftThread.projectId !== projectId) {
     return null;
@@ -182,7 +200,7 @@ export function createActiveDraftThreadSnapshot(
 export function resolveThreadBootstrapPlan(input: {
   entryPoint: ThreadPrimarySurface;
   latestActiveDraftThread: DraftThreadState | null;
-  projectId: ProjectId;
+  projectId: ContainerId;
   routeThreadId: ThreadId | null;
   storedDraftThread: ({ threadId: ThreadId } & DraftThreadState) | null;
 }): ThreadBootstrapPlan {
@@ -275,12 +293,12 @@ export function buildDraftThreadContextPatch(
 export function shouldReuseActiveDraftThread(input: {
   draftThread: DraftThreadState | null;
   entryPoint: ThreadPrimarySurface;
-  projectId: ProjectId;
+  projectId: ContainerId;
   routeThreadId: ThreadId | null;
 }): input is {
   draftThread: DraftThreadState;
   entryPoint: ThreadPrimarySurface;
-  projectId: ProjectId;
+  projectId: ContainerId;
   routeThreadId: ThreadId;
 } {
   return Boolean(
@@ -327,10 +345,9 @@ export function resolveTerminalThreadCreationState(
         ? input.activeDraftThread.runtimeMode
         : null) ??
       DEFAULT_RUNTIME_MODE,
-    interactionMode:
-      // Plan mode is an explicit composer/thread choice. Do not copy it from
-      // the previously active thread into a fresh session bootstrap.
-      input.draftThread?.interactionMode ?? DEFAULT_INTERACTION_MODE,
+    // Legacy drafts may still contain a persisted plan value. New sessions are
+    // always created in the ordinary interaction mode.
+    interactionMode: DEFAULT_INTERACTION_MODE,
     lastKnownPr:
       input.draftThread?.lastKnownPr ??
       (input.activeThread?.projectId === input.projectId

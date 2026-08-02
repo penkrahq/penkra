@@ -61,7 +61,6 @@ import { Button } from "../ui/button";
 import { CrossTaskOriginLabel, type CrossTaskOrigin } from "./CrossTaskOriginLabel";
 import { PenkraThreadCreationCard } from "./PenkraThreadCreationCard";
 import { buildExpandedImagePreview, ExpandedImagePreview } from "./ExpandedImagePreview";
-import { ProposedPlanCard } from "./ProposedPlanCard";
 import { DiffStatLabel } from "./DiffStatLabel";
 import { ReviewChangesButton } from "./ReviewChangesButton";
 import { FileEntryIcon } from "./FileEntryIcon";
@@ -2208,12 +2207,12 @@ export const MessagesTimeline = memo(function MessagesTimeline({
           })()}
 
         {row.kind === "proposed-plan" && (
-          <div className="min-w-0 py-0.5">
-            <ProposedPlanCard
-              planMarkdown={row.proposedPlan.planMarkdown}
+          <div className="min-w-0 py-1">
+            <ChatMarkdown
+              text={row.proposedPlan.planMarkdown}
               cwd={markdownCwd}
-              workspaceRoot={workspaceRoot}
-              chatTypographyStyle={chatTypographyStyle}
+              isStreaming={false}
+              style={chatTypographyStyle}
             />
           </div>
         )}

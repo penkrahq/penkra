@@ -1,7 +1,7 @@
 // FILE: chatProjects.test.ts
 // Purpose: Verifies home chat-container project recognition across new and legacy roots.
 
-import { ProjectId, type OrchestrationShellSnapshot } from "@penkra/contracts";
+import { ContainerId, type OrchestrationShellSnapshot } from "@penkra/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useStore } from "../store";
@@ -14,7 +14,7 @@ function makeShellProject(
   overrides: Partial<OrchestrationShellSnapshot["projects"][number]> = {},
 ): OrchestrationShellSnapshot["projects"][number] {
   return {
-    id: ProjectId.makeUnsafe("project-home-existing"),
+    id: ContainerId.makeUnsafe("project-home-existing"),
     kind: "chat",
     title: "Home",
     workspaceRoot: "/Users/tester",
@@ -183,7 +183,7 @@ describe("isHomeChatContainerProject", () => {
 
     // Hydration reveals an already-persisted container: no duplicate create is dispatched.
     const existingProject = {
-      id: ProjectId.makeUnsafe("project-home-hydrated"),
+      id: ContainerId.makeUnsafe("project-home-hydrated"),
       kind: "chat" as const,
       name: "Home",
       remoteName: "Home",
@@ -257,7 +257,7 @@ describe("isHomeChatContainerProject", () => {
   });
 
   it("recovers a stale duplicate when the snapshot shows an existing Home chat container", async () => {
-    const existingProjectId = ProjectId.makeUnsafe("project-home-existing");
+    const existingProjectId = ContainerId.makeUnsafe("project-home-existing");
     const dispatchCommand = vi.fn(async (command: { type: string }) => {
       if (command.type === "project.create") {
         throw new Error(
@@ -298,7 +298,7 @@ describe("isHomeChatContainerProject", () => {
   });
 
   it("normalizes a recognizable legacy Home duplicate before returning it", async () => {
-    const existingProjectId = ProjectId.makeUnsafe("project-home-existing");
+    const existingProjectId = ContainerId.makeUnsafe("project-home-existing");
     const dispatchCommand = vi.fn(async (command: { type: string }) => {
       if (command.type === "project.create") {
         throw new Error(
@@ -341,7 +341,7 @@ describe("isHomeChatContainerProject", () => {
   });
 
   it("does not convert an ordinary duplicate home-folder project into Home chat", async () => {
-    const existingProjectId = ProjectId.makeUnsafe("project-home-existing");
+    const existingProjectId = ContainerId.makeUnsafe("project-home-existing");
     const duplicateError = new Error(
       `Orchestration command invariant failed (project.create): Project '${existingProjectId}' already uses workspace root '/Users/tester'.`,
     );

@@ -388,26 +388,6 @@ export function projectEvent(
               ? { ...space, deletedAt: payload.deletedAt, updatedAt: payload.deletedAt }
               : space,
           ),
-          projects: nextBase.projects.map((project) =>
-            project.spaceId === payload.spaceId
-              ? {
-                  ...project,
-                  spaceId: null,
-                  updatedAt:
-                    project.updatedAt > payload.deletedAt ? project.updatedAt : payload.deletedAt,
-                }
-              : project,
-          ),
-          threads: nextBase.threads.map((thread) =>
-            thread.spaceId === payload.spaceId
-              ? {
-                  ...thread,
-                  spaceId: null,
-                  updatedAt:
-                    thread.updatedAt > payload.deletedAt ? thread.updatedAt : payload.deletedAt,
-                }
-              : thread,
-          ),
         })),
       );
 
@@ -429,7 +409,12 @@ export function projectEvent(
           ...nextBase,
           spaces: nextBase.spaces.map((space) =>
             space.id === payload.spaceId
-              ? { ...space, archivedAt: null, updatedAt: payload.restoredAt }
+              ? {
+                  ...space,
+                  name: payload.name ?? space.name,
+                  archivedAt: null,
+                  updatedAt: payload.restoredAt,
+                }
               : space,
           ),
         })),
@@ -531,7 +516,7 @@ export function projectEvent(
             worktreePath: isStudio ? null : payload.worktreePath,
             workingDirectory: isStudio
               ? (payload.workingDirectory ?? payload.worktreePath)
-              : payload.workingDirectory,
+              : (payload.workingDirectory ?? payload.worktreePath),
             associatedWorktreePath: isStudio ? null : payload.associatedWorktreePath,
             associatedWorktreeBranch: isStudio ? null : payload.associatedWorktreeBranch,
             associatedWorktreeRef: isStudio ? null : payload.associatedWorktreeRef,
@@ -630,6 +615,7 @@ export function projectEvent(
           return {
             ...nextBase,
             threads: updateThread(nextBase.threads, payload.threadId, {
+              ...(payload.spaceId !== undefined ? { spaceId: payload.spaceId } : {}),
               ...(payload.title !== undefined ? { title: payload.title } : {}),
               ...(payload.modelSelection !== undefined
                 ? { modelSelection: payload.modelSelection }
@@ -656,7 +642,9 @@ export function projectEvent(
                       : {}),
                     ...(payload.workingDirectory !== undefined
                       ? { workingDirectory: payload.workingDirectory }
-                      : {}),
+                      : payload.worktreePath !== undefined
+                        ? { workingDirectory: payload.worktreePath }
+                        : {}),
                   }),
               ...(payload.associatedWorktreePath !== undefined
                 ? { associatedWorktreePath: payload.associatedWorktreePath }

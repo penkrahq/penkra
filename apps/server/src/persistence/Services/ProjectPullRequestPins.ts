@@ -4,7 +4,7 @@
  * Repository keys are canonical values supplied by callers. This service owns only
  * persistence and never derives or normalizes repository identity.
  */
-import { PositiveInt, ProjectId, TrimmedNonEmptyString } from "@penkra/contracts";
+import { PositiveInt, ContainerId, TrimmedNonEmptyString } from "@penkra/contracts";
 import { Schema, ServiceMap } from "effect";
 import type { Effect } from "effect";
 
@@ -20,7 +20,7 @@ export const PROJECT_PULL_REQUEST_PIN_LIMIT = 20;
 export class ProjectPullRequestPinLimitError extends Schema.TaggedErrorClass<ProjectPullRequestPinLimitError>()(
   "ProjectPullRequestPinLimitError",
   {
-    projectId: ProjectId,
+    projectId: ContainerId,
     limit: PositiveInt,
   },
 ) {
@@ -35,20 +35,20 @@ export type ProjectPullRequestPinsError =
   | ProjectPullRequestPinLimitError;
 
 export const ProjectPullRequestPin = Schema.Struct({
-  projectId: ProjectId,
+  projectId: ContainerId,
   repositoryKey: TrimmedNonEmptyString,
   number: PositiveInt,
 });
 export type ProjectPullRequestPin = typeof ProjectPullRequestPin.Type;
 
 export const ListProjectPullRequestPinsByProjectIdsInput = Schema.Struct({
-  projectIds: Schema.Array(ProjectId),
+  projectIds: Schema.Array(ContainerId),
 });
 export type ListProjectPullRequestPinsByProjectIdsInput =
   typeof ListProjectPullRequestPinsByProjectIdsInput.Type;
 
 export const SetProjectPullRequestPinnedInput = Schema.Struct({
-  projectId: ProjectId,
+  projectId: ContainerId,
   repositoryKey: TrimmedNonEmptyString,
   number: PositiveInt,
   isPinned: Schema.Boolean,

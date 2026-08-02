@@ -15,7 +15,11 @@ test("creates complete vanilla and React App packages", () => {
       assert.ok(fs.existsSync(path.join(result.target, "penkra-app.json")));
       assert.ok(fs.existsSync(path.join(result.target, "README.md")));
       assert.ok(fs.existsSync(path.join(result.target, "INSTRUCTIONS.md")));
-      assert.ok(fs.existsSync(path.join(result.target, template === "react" ? "src/main.jsx" : "src/app.js")));
+      assert.ok(
+        fs.existsSync(
+          path.join(result.target, template === "react" ? "src/main.jsx" : "src/app.js"),
+        ),
+      );
     }
   } finally {
     fs.rmSync(root, { recursive: true, force: true });

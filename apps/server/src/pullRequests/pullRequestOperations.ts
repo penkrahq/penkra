@@ -11,16 +11,17 @@ type PullRequestOperations = Pick<
   PullRequestServiceShape,
   "detail" | "diff" | "action" | "comment" | "setPinned"
 >;
+type WorkspaceProject = OrchestrationProject & { readonly workspaceRoot: string };
 
 export function makePullRequestOperations(dependencies: {
   github: GitHubCliShape;
   pins: ProjectPullRequestPinsShape;
   findProject: (
     projectId: Parameters<PullRequestServiceShape["detail"]>[0]["projectId"],
-  ) => Effect.Effect<OrchestrationProject, unknown>;
+  ) => Effect.Effect<WorkspaceProject, unknown>;
   validateRepository: (repository: string) => Effect.Effect<string, Error>;
   validateProjectRepository: (
-    project: OrchestrationProject,
+    project: WorkspaceProject,
     repository: string,
   ) => Effect.Effect<string, unknown>;
   loadMergeCapabilities: (
@@ -34,7 +35,7 @@ export function makePullRequestOperations(dependencies: {
     options: { readonly invalidateReviewMatches: boolean },
   ) => Effect.Effect<void, never>;
 }): PullRequestOperations {
-  const loadDetail = (project: OrchestrationProject, repositoryInput: string, number: number) =>
+  const loadDetail = (project: WorkspaceProject, repositoryInput: string, number: number) =>
     Effect.gen(function* () {
       const repository = yield* dependencies.validateProjectRepository(project, repositoryInput);
       const [owner = "", repo = ""] = repository.split("/");

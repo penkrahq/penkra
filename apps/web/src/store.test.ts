@@ -2,7 +2,7 @@
 // Purpose: Exercises the public store facade, persistence, and simple UI actions.
 
 import {
-  ProjectId,
+  ContainerId,
   SpaceId,
   ThreadId,
   TurnId,
@@ -184,9 +184,9 @@ describe("store facade", () => {
   });
 
   it("reorderProjects moves a project to a target index", () => {
-    const project1 = ProjectId.makeUnsafe("project-1");
-    const project2 = ProjectId.makeUnsafe("project-2");
-    const project3 = ProjectId.makeUnsafe("project-3");
+    const project1 = ContainerId.makeUnsafe("project-1");
+    const project2 = ContainerId.makeUnsafe("project-2");
+    const project3 = ContainerId.makeUnsafe("project-3");
     const state: AppState = {
       spaces: [],
       archivedSpaces: [],
@@ -223,8 +223,8 @@ describe("store facade", () => {
   });
 
   it("expands every project when toggled on", () => {
-    const project1 = ProjectId.makeUnsafe("project-1");
-    const project2 = ProjectId.makeUnsafe("project-2");
+    const project1 = ContainerId.makeUnsafe("project-1");
+    const project2 = ContainerId.makeUnsafe("project-2");
     const state: AppState = {
       spaces: [],
       archivedSpaces: [],
@@ -263,14 +263,14 @@ describe("store facade", () => {
       archivedSpaces: [],
       projects: [
         makeProject({
-          id: ProjectId.makeUnsafe("project-1"),
+          id: ContainerId.makeUnsafe("project-1"),
           name: "Project 1",
           remoteName: "Project 1",
           folderName: "project-1",
           cwd: "/tmp/project-1",
         }),
         makeProject({
-          id: ProjectId.makeUnsafe("project-2"),
+          id: ContainerId.makeUnsafe("project-2"),
           name: "Project 2",
           remoteName: "Project 2",
           folderName: "project-2",
@@ -287,8 +287,8 @@ describe("store facade", () => {
   });
 
   it("collapses every project except the active one", () => {
-    const project1 = ProjectId.makeUnsafe("project-1");
-    const project2 = ProjectId.makeUnsafe("project-2");
+    const project1 = ContainerId.makeUnsafe("project-1");
+    const project2 = ContainerId.makeUnsafe("project-2");
     const state: AppState = {
       spaces: [],
       archivedSpaces: [],
@@ -323,7 +323,7 @@ describe("store facade", () => {
   it("renames a project locally without changing its remote or folder names", () => {
     const state = makeState(makeThread());
 
-    const next = renameProjectLocally(state, ProjectId.makeUnsafe("project-1"), "penkra");
+    const next = renameProjectLocally(state, ContainerId.makeUnsafe("project-1"), "penkra");
 
     expect(next.projects[0]).toMatchObject({
       name: "penkra",
@@ -334,9 +334,9 @@ describe("store facade", () => {
   });
 
   it("preserves the current project order when syncing incoming read model updates", () => {
-    const project1 = ProjectId.makeUnsafe("project-1");
-    const project2 = ProjectId.makeUnsafe("project-2");
-    const project3 = ProjectId.makeUnsafe("project-3");
+    const project1 = ContainerId.makeUnsafe("project-1");
+    const project2 = ContainerId.makeUnsafe("project-2");
+    const project3 = ContainerId.makeUnsafe("project-3");
     const initialState: AppState = {
       spaces: [],
       archivedSpaces: [],
@@ -389,8 +389,8 @@ describe("store facade", () => {
   });
 
   it("preserves expanded project state when a project briefly disappears from the snapshot", () => {
-    const project1 = ProjectId.makeUnsafe("project-1");
-    const project2 = ProjectId.makeUnsafe("project-2");
+    const project1 = ContainerId.makeUnsafe("project-1");
+    const project2 = ContainerId.makeUnsafe("project-2");
     const initialState: AppState = {
       spaces: [],
       archivedSpaces: [],
@@ -455,7 +455,7 @@ describe("store facade", () => {
   it("preserves a local project alias across read model syncs", () => {
     const aliasedState = renameProjectLocally(
       makeState(makeThread()),
-      ProjectId.makeUnsafe("project-1"),
+      ContainerId.makeUnsafe("project-1"),
       "penkra",
     );
 
@@ -506,7 +506,7 @@ describe("store facade", () => {
       vi.resetModules();
 
       const freshStore = await import("./store");
-      const projectId = ProjectId.makeUnsafe("project-1");
+      const projectId = ContainerId.makeUnsafe("project-1");
       freshStore.useStore.setState((state) => ({
         ...state,
         projects: [
@@ -564,7 +564,7 @@ describe("store facade", () => {
       vi.resetModules();
 
       const freshStore = await import("./store");
-      const projectId = ProjectId.makeUnsafe("project-1");
+      const projectId = ContainerId.makeUnsafe("project-1");
       freshStore.useStore.setState((state) => ({
         ...state,
         projects: [
@@ -580,9 +580,9 @@ describe("store facade", () => {
       freshStore.useStore.getState().renameProjectLocally(projectId, "penkra");
 
       expect(setItem).toHaveBeenCalled();
-      expect(JSON.parse(storage.get("penkra:renderer-state:v8") ?? "{}")).toMatchObject({
-        projectNamesByCwd: {
-          "/tmp/project": "penkra",
+      expect(JSON.parse(storage.get("penkra:renderer-state:v9") ?? "{}")).toMatchObject({
+        projectNamesById: {
+          "project-1": "penkra",
         },
       });
     } finally {

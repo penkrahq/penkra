@@ -97,11 +97,15 @@ export function providerSkillsQueryOptions(input: {
   provider: ProviderKind;
   cwd: string | null;
   threadId?: string | null;
+  spaceId?: string | null;
   agentDir?: string | null;
   enabled?: boolean;
 }) {
   return queryOptions({
-    queryKey: providerDiscoveryQueryKeys.skills(input.provider, input.cwd, input.agentDir ?? null),
+    queryKey: [
+      ...providerDiscoveryQueryKeys.skills(input.provider, input.cwd, input.agentDir ?? null),
+      input.spaceId ?? null,
+    ],
     queryFn: async () => {
       const api = ensureNativeApi();
       if (!input.cwd) {
@@ -111,6 +115,7 @@ export function providerSkillsQueryOptions(input: {
         provider: input.provider,
         cwd: input.cwd,
         ...(input.threadId ? { threadId: input.threadId } : {}),
+        ...(input.spaceId ? { spaceId: input.spaceId } : {}),
         ...(input.agentDir ? { agentDir: input.agentDir } : {}),
       });
     },

@@ -59,7 +59,9 @@ export class AppControllerHost {
     if (operations.length === 0) return async () => undefined;
     const entrypoint = input.installedApp.manifest.entrypoints.operations;
     if (!entrypoint) {
-      throw new Error(`${input.installedApp.appId} declares operations without a controller entrypoint.`);
+      throw new Error(
+        `${input.installedApp.appId} declares operations without a controller entrypoint.`,
+      );
     }
 
     const renderer = this.#renderers.create(input);
@@ -94,16 +96,21 @@ export class AppControllerHost {
             declaration.key,
             async (operationInput: unknown, context: OperationContext) => {
               const openedTabs = new Map<string, AppTabHandle>();
-              return this.#rpc.request(renderer.id, "controller.invoke", {
-                operation: declaration.key,
-                handler: declaration.handler,
-                input: operationInput,
-                invocation: context.invocation,
-              }, {
-                signal: context.signal,
-                handleContextCall: (method, contextInput, signal) =>
-                  handleContextCall(context, openedTabs, method, contextInput, signal),
-              });
+              return this.#rpc.request(
+                renderer.id,
+                "controller.invoke",
+                {
+                  operation: declaration.key,
+                  handler: declaration.handler,
+                  input: operationInput,
+                  invocation: context.invocation,
+                },
+                {
+                  signal: context.signal,
+                  handleContextCall: (method, contextInput, signal) =>
+                    handleContextCall(context, openedTabs, method, contextInput, signal),
+                },
+              );
             },
           ]),
         ),
@@ -154,6 +161,16 @@ async function handleContextCall(
       return resolveTab(context, openedTabs, record).invoke({
         operation,
         input: record.input,
+      });
+    }
+    case "context.operations.invoke": {
+      return context.operations.invoke({
+        app: requireNonEmptyString(record.app, "app"),
+        operation: requireNonEmptyString(record.operation, "operation"),
+        input: record.input,
+        ...(record.tabId === undefined
+          ? {}
+          : { tabId: requireNonEmptyString(record.tabId, "tabId") }),
       });
     }
   }

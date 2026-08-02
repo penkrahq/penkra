@@ -40,12 +40,14 @@ describe("registry Folder projection", () => {
       },
     );
 
-    expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({
-      type: "project.create",
-      projectId: "penkra-client-client-1",
-      title: "Client One",
-      workspaceRoot: null,
-      spaceId: "penkra-personal",
-    }));
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "project.create",
+        projectId: "penkra-client-client-1",
+        title: "Client One",
+        workspaceRoot: null,
+        spaceId: "penkra-personal",
+      }),
+    );
   });
 });

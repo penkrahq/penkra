@@ -544,7 +544,7 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
             worktreePath: isStudio ? null : event.payload.worktreePath,
             workingDirectory: isStudio
               ? (event.payload.workingDirectory ?? event.payload.worktreePath)
-              : (event.payload.workingDirectory ?? null),
+              : (event.payload.workingDirectory ?? event.payload.worktreePath ?? null),
             associatedWorktreePath: isStudio
               ? null
               : (event.payload.associatedWorktreePath ?? null),
@@ -604,6 +604,7 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
                   : undefined;
             return {
               ...thread,
+              ...(event.payload.spaceId !== undefined ? { spaceId: event.payload.spaceId } : {}),
               ...(event.payload.title !== undefined ? { title: event.payload.title } : {}),
               ...(event.payload.modelSelection !== undefined
                 ? { modelSelection: event.payload.modelSelection }
@@ -630,7 +631,9 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
                       : {}),
                     ...(event.payload.workingDirectory !== undefined
                       ? { workingDirectory: event.payload.workingDirectory }
-                      : {}),
+                      : event.payload.worktreePath !== undefined
+                        ? { workingDirectory: event.payload.worktreePath }
+                        : {}),
                   }),
               ...(event.payload.associatedWorktreePath !== undefined
                 ? { associatedWorktreePath: event.payload.associatedWorktreePath }

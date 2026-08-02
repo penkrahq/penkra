@@ -3,7 +3,7 @@
 // Layer: Web orchestration helper
 // Exports: Studio project lookup, creation, and prewarm helpers.
 
-import { type ProjectId, type ThreadId } from "@penkra/contracts";
+import { type ContainerId, type ThreadId } from "@penkra/contracts";
 import { isWorkspaceRootWithin, workspaceRootsEqual } from "@penkra/shared/threadWorkspace";
 import type { DraftThreadState } from "../composerDraftStore";
 import { readNativeApi } from "../nativeApi";
@@ -25,17 +25,17 @@ import {
 } from "./projectCreateRecovery";
 import { newCommandId, newProjectId } from "./utils";
 
-const pendingStudioCreationByWorkspaceRoot = new Map<string, Promise<ProjectId | null>>();
+const pendingStudioCreationByWorkspaceRoot = new Map<string, Promise<ContainerId | null>>();
 
 // A successful create's follow-up sync gets a longer retry window than duplicate recovery
 // (~2.3s vs ~0.75s): the row is guaranteed to arrive eventually, so patience beats failing.
 const CREATED_CONTAINER_SYNC_MAX_ATTEMPTS = 10;
 
 interface StudioContainerCandidate {
-  readonly id?: ProjectId | undefined;
+  readonly id?: ContainerId | undefined;
   readonly kind?: Project["kind"] | undefined;
-  readonly cwd?: string | undefined;
-  readonly workspaceRoot?: string | undefined;
+  readonly cwd?: string | null | undefined;
+  readonly workspaceRoot?: string | null | undefined;
 }
 
 export function isStudioContainerProject(
@@ -62,7 +62,7 @@ export function isStudioContainerProject(
 export function collectStudioProjectIds<T extends Pick<Project, "id" | "cwd" | "kind">>(
   projects: readonly T[],
   paths: ServerWorkspacePaths,
-): Set<ProjectId> {
+): Set<ContainerId> {
   return new Set(
     projects.filter((project) => isStudioContainerProject(project, paths)).map((p) => p.id),
   );
@@ -90,7 +90,7 @@ export function findStudioContainerProject<T extends Pick<Project, "cwd" | "kind
 }
 
 export function findStudioDraftThreadId(input: {
-  readonly studioProjectIds: ReadonlySet<ProjectId>;
+  readonly studioProjectIds: ReadonlySet<ContainerId>;
   readonly projectDraftThreadIdByProjectId: Readonly<Record<string, ThreadId>>;
   readonly draftThreadsByThreadId: Readonly<Record<string, DraftThreadState>>;
 }): ThreadId | null {
@@ -118,7 +118,7 @@ export function findStudioDraftThreadId(input: {
 // string would wrongly reject the container whenever the Studio path contains a symlink.
 function findStudioContainerCandidateById<T extends StudioContainerCandidate>(
   projects: readonly T[],
-  projectId: ProjectId,
+  projectId: ContainerId,
 ): T | null {
   return findContainerCandidateById(projects, projectId, (project) => project.kind === "studio");
 }
@@ -132,7 +132,7 @@ interface StudioRecoverySnapshot {
 // syncing one in only once it actually contains the project. Resolves null when it never shows.
 async function waitForStudioContainerInStore(
   api: NonNullable<ReturnType<typeof readNativeApi>>,
-  projectId: ProjectId,
+  projectId: ContainerId,
   options?: { readonly maxAttempts?: number | undefined },
 ): Promise<StudioContainerCandidate | null> {
   const { match } = await waitForSnapshotMatch<StudioRecoverySnapshot, StudioContainerCandidate>({
@@ -157,12 +157,14 @@ async function waitForStudioContainerInStore(
 
 async function recoverDuplicateStudioContainer(
   api: NonNullable<ReturnType<typeof readNativeApi>>,
-  projectId: ProjectId,
-): Promise<ProjectId | null> {
+  projectId: ContainerId,
+): Promise<ContainerId | null> {
   return (await waitForStudioContainerInStore(api, projectId))?.id ?? null;
 }
 
-export async function ensureStudioProject(paths: ServerWorkspacePaths): Promise<ProjectId | null> {
+export async function ensureStudioProject(
+  paths: ServerWorkspacePaths,
+): Promise<ContainerId | null> {
   const api = readNativeApi();
   if (!api) {
     return null;
@@ -214,7 +216,7 @@ export async function ensureStudioProject(paths: ServerWorkspacePaths): Promise<
         if (duplicateProjectId) {
           const recoveredProjectId = await recoverDuplicateStudioContainer(
             api,
-            duplicateProjectId as ProjectId,
+            duplicateProjectId as ContainerId,
           );
           if (recoveredProjectId) {
             return recoveredProjectId;
@@ -223,7 +225,7 @@ export async function ensureStudioProject(paths: ServerWorkspacePaths): Promise<
           // cross-kind ownership). Adopting a user's visible project into the hidden container
           // would make it vanish from Projects, so surface the conflict instead.
           throw new Error(
-            `Studio can't use "${workspaceRoot}" because another project already uses that folder. Remove or move that project, then retry.`,
+            `Studio can't use "${workspaceRoot}" because another folder already uses that location. Remove or move that folder, then retry.`,
             { cause: error },
           );
         }

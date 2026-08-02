@@ -1,4 +1,4 @@
-import { IconAlarm, type TablerIcon } from "@tabler/icons-react";
+import { IconSearch, type TablerIcon } from "@tabler/icons-react";
 
 import { NavItemShared } from "../nav-item-shared/NavItemShared";
 
@@ -15,9 +15,7 @@ export interface SidebarTopNavigationProps {
   onSelect?: (id: string) => void;
 }
 
-const defaultItems: SidebarNavigationItem[] = [
-  { icon: IconAlarm, id: "scheduled", label: "Scheduled" },
-];
+const defaultItems: SidebarNavigationItem[] = [{ icon: IconSearch, id: "search", label: "Search" }];
 
 export function SidebarTopNavigation({
   activeItemId,

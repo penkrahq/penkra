@@ -3,7 +3,7 @@
 // Layer: Route utility unit tests
 // Depends on: rootEventInvalidation predicates and Vitest assertions.
 
-import { ProjectId, ThreadId, type OrchestrationEvent } from "@penkra/contracts";
+import { ContainerId, ThreadId, type OrchestrationEvent } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -94,7 +94,7 @@ describe("root event invalidation", () => {
   });
 
   it("resolves local and worktree cwd from the current thread projection", () => {
-    const projectId = ProjectId.makeUnsafe("project-1");
+    const projectId = ContainerId.makeUnsafe("project-1");
     const localThreadId = ThreadId.makeUnsafe("thread-local");
     const worktreeThreadId = ThreadId.makeUnsafe("thread-worktree");
     const localThread = makeThread({
@@ -131,7 +131,7 @@ function makeThread(overrides: Partial<Thread>): Thread {
   return {
     id: ThreadId.makeUnsafe("thread"),
     codexThreadId: null,
-    projectId: ProjectId.makeUnsafe("project"),
+    projectId: ContainerId.makeUnsafe("project"),
     title: "Thread",
     modelSelection: { provider: "codex", model: "gpt-5.4-mini" },
     runtimeMode: "full-access",

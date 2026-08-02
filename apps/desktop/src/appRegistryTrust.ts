@@ -79,8 +79,14 @@ export function parseRegistryTrustKeys(value: string | undefined): RegistryTrust
     }
     const key = candidate as Record<string, unknown>;
     if (
-      key.kty !== "OKP" || key.crv !== "Ed25519" || key.alg !== "EdDSA" || key.use !== "sig" ||
-      typeof key.x !== "string" || !key.x || typeof key.kid !== "string" || !key.kid
+      key.kty !== "OKP" ||
+      key.crv !== "Ed25519" ||
+      key.alg !== "EdDSA" ||
+      key.use !== "sig" ||
+      typeof key.x !== "string" ||
+      !key.x ||
+      typeof key.kid !== "string" ||
+      !key.kid
     ) {
       throw new Error("PENKRA_REGISTRY_TRUSTED_KEYS contains an invalid key.");
     }
@@ -96,13 +102,18 @@ export function verifyRegistryReleaseAttestation(input: {
   const verified = verifyCompactJws(input.compactJws, input.trustedKeys, "penkra-release+jws");
   const payload = verified.payload;
   const trustedKey = verified.key;
-  if (Buffer.byteLength(input.compactJws, "utf8") > 512 * 1024) throw new Error("Registry release attestation exceeds the allowed size.");
+  if (Buffer.byteLength(input.compactJws, "utf8") > 512 * 1024)
+    throw new Error("Registry release attestation exceeds the allowed size.");
   const app = objectField(payload, "app");
   const publisher = objectField(payload, "publisher");
   const version = objectField(payload, "version");
   const evidence = objectField(payload, "evidence");
   const permissions = permissionsField(payload, "permissions");
-  if (payload.schemaVersion !== 1 || payload.kind !== "penkra-app-release" || payload.registry !== "penkra.com") {
+  if (
+    payload.schemaVersion !== 1 ||
+    payload.kind !== "penkra-app-release" ||
+    payload.registry !== "penkra.com"
+  ) {
     throw new Error("Registry release attestation has an unsupported identity.");
   }
   const actual = {
@@ -146,14 +157,23 @@ export function verifyRegistryPolicyAttestation(input: {
   if (Buffer.byteLength(input.compactJws, "utf8") > 2 * 1024 * 1024) {
     throw new Error("Registry policy exceeds the allowed size.");
   }
-  const { payload, key } = verifyCompactJws(input.compactJws, input.trustedKeys, "penkra-policy+jws");
-  if (payload.schemaVersion !== 1 || payload.kind !== "penkra-app-policy" || payload.registry !== "penkra.com") {
+  const { payload, key } = verifyCompactJws(
+    input.compactJws,
+    input.trustedKeys,
+    "penkra-policy+jws",
+  );
+  if (
+    payload.schemaVersion !== 1 ||
+    payload.kind !== "penkra-app-policy" ||
+    payload.registry !== "penkra.com"
+  ) {
     throw new Error("Registry policy has an unsupported identity.");
   }
   const generatedAt = dateField(payload, "generatedAt");
   const expiresAt = dateField(payload, "expiresAt");
   const now = input.now ?? new Date();
-  if (Date.parse(generatedAt) > now.getTime() + 5 * 60_000) throw new Error("Registry policy is from the future.");
+  if (Date.parse(generatedAt) > now.getTime() + 5 * 60_000)
+    throw new Error("Registry policy is from the future.");
   if (Date.parse(expiresAt) <= now.getTime()) throw new Error("Registry policy has expired.");
   if (Date.parse(expiresAt) - Date.parse(generatedAt) > 31 * 24 * 60 * 60_000) {
     throw new Error("Registry policy validity period is too long.");
@@ -173,7 +193,8 @@ export function verifyRegistryPolicyAttestation(input: {
     }
     const id = stringField(revocation, "id");
     const targetId = stringField(target, "id");
-    if (!UUID.test(id) || !UUID.test(targetId)) throw new Error("Registry policy identity is invalid.");
+    if (!UUID.test(id) || !UUID.test(targetId))
+      throw new Error("Registry policy identity is invalid.");
     const effectiveAt = dateField(revocation, "effectiveAt");
     const rawExpiresAt = revocation.expiresAt;
     const revocationExpiresAt = rawExpiresAt === null ? null : dateField(revocation, "expiresAt");
@@ -193,12 +214,14 @@ export function assertRegistryReleaseAllowed(
   policy: VerifiedRegistryPolicy,
   release: { appId: string; versionId: string; publisherId: string },
 ): void {
-  const match = policy.revocations.find((revocation) =>
-    (revocation.target.kind === "publisher" && revocation.target.id === release.publisherId) ||
-    (revocation.target.kind === "app" && revocation.target.id === release.appId) ||
-    (revocation.target.kind === "version" && revocation.target.id === release.versionId)
+  const match = policy.revocations.find(
+    (revocation) =>
+      (revocation.target.kind === "publisher" && revocation.target.id === release.publisherId) ||
+      (revocation.target.kind === "app" && revocation.target.id === release.appId) ||
+      (revocation.target.kind === "version" && revocation.target.id === release.versionId),
   );
-  if (match) throw new Error(`This App release is blocked by Penkra (${match.code}): ${match.reason}`);
+  if (match)
+    throw new Error(`This App release is blocked by Penkra (${match.code}): ${match.reason}`);
 }
 
 function verifyCompactJws(
@@ -242,7 +265,9 @@ function verifyCompactJws(
 
 function parseObject(encoded: string, label: string): Record<string, unknown> {
   try {
-    const parsed = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(Buffer.from(encoded, "base64url")));
+    const parsed = JSON.parse(
+      new TextDecoder("utf-8", { fatal: true }).decode(Buffer.from(encoded, "base64url")),
+    );
     if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) throw new Error();
     return parsed as Record<string, unknown>;
   } catch {
@@ -260,11 +285,16 @@ function objectField(value: Record<string, unknown>, key: string): Record<string
 
 function stringField(value: Record<string, unknown>, key: string): string {
   const field = value[key];
-  if (typeof field !== "string" || !field) throw new Error("Registry release attestation payload is invalid.");
+  if (typeof field !== "string" || !field)
+    throw new Error("Registry release attestation payload is invalid.");
   return field;
 }
 
-function boundedStringField(value: Record<string, unknown>, key: string, maximumLength: number): string {
+function boundedStringField(
+  value: Record<string, unknown>,
+  key: string,
+  maximumLength: number,
+): string {
   const field = stringField(value, key);
   if (field.length > maximumLength) throw new Error("Registry attestation payload is invalid.");
   return field;
@@ -287,7 +317,8 @@ function permissionsField(
   key: string,
 ): Array<{ permission: string; required: boolean; rationale: string }> {
   const field = value[key];
-  if (!Array.isArray(field)) throw new Error("Registry release attestation permissions are invalid.");
+  if (!Array.isArray(field))
+    throw new Error("Registry release attestation permissions are invalid.");
   return field.map((candidate) => {
     if (typeof candidate !== "object" || candidate === null || Array.isArray(candidate)) {
       throw new Error("Registry release attestation permissions are invalid.");

@@ -50,11 +50,7 @@ export function ThemePickerShared({
         <IconChevronDown className="size-3 shrink-0 text-[var(--color-text-foreground-tertiary)]" />
       </PopoverTrigger>
       <PopoverPopup align="end" className="border-0 bg-transparent p-0 shadow-none" sideOffset={6}>
-        <MenuThemePicker
-          mode={mode}
-          onValueChange={select}
-          value={selectedValue}
-        />
+        <MenuThemePicker mode={mode} onValueChange={select} value={selectedValue} />
       </PopoverPopup>
     </Popover>
   );

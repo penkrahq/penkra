@@ -6,7 +6,7 @@ import {
   type ModelSelection,
   type OrchestrationLatestTurn,
   type OrchestrationThreadPullRequest,
-  type ProjectId,
+  type ContainerId,
   type ProviderInteractionMode,
   type ProviderKind,
   type ProviderMentionReference,
@@ -159,7 +159,7 @@ export interface ComposerThreadDraftState {
 }
 
 export interface DraftThreadState {
-  projectId: ProjectId;
+  projectId: ContainerId;
   spaceId?: SpaceId | null;
   createdAt: string;
   runtimeMode: RuntimeMode;
@@ -204,12 +204,12 @@ export interface ComposerDraftStoreState {
   stickyModelSelectionByProvider: Partial<Record<ProviderKind, ModelSelection>>;
   stickyActiveProvider: ProviderKind | null;
   getDraftThreadByProjectId: (
-    projectId: ProjectId,
+    projectId: ContainerId,
     entryPoint?: ThreadPrimarySurface,
   ) => ProjectDraftThread | null;
   getDraftThread: (threadId: ThreadId) => DraftThreadState | null;
   setProjectDraftThreadId: (
-    projectId: ProjectId,
+    projectId: ContainerId,
     threadId: ThreadId,
     options?: DraftThreadMutationOptions,
   ) => void;
@@ -223,7 +223,7 @@ export interface ComposerDraftStoreState {
   registerDraftThread: (
     threadId: ThreadId,
     options: {
-      projectId: ProjectId;
+      projectId: ContainerId;
       spaceId?: SpaceId | null;
       createdAt?: string;
       branch?: string | null;
@@ -238,7 +238,7 @@ export interface ComposerDraftStoreState {
   ) => void;
   setDraftThreadContext: (
     threadId: ThreadId,
-    options: DraftThreadMutationOptions & { projectId?: ProjectId },
+    options: DraftThreadMutationOptions & { projectId?: ContainerId },
   ) => void;
   /**
    * Moves an existing draft into a project's primary draft slot while deleting
@@ -246,12 +246,12 @@ export interface ComposerDraftStoreState {
    */
   moveDraftThreadToProject: (
     threadId: ThreadId,
-    projectId: ProjectId,
+    projectId: ContainerId,
     options?: DraftThreadMutationOptions,
   ) => void;
-  clearProjectDraftThreadId: (projectId: ProjectId, entryPoint?: ThreadPrimarySurface) => void;
-  clearProjectDraftThreads: (projectId: ProjectId) => void;
-  clearProjectDraftThreadById: (projectId: ProjectId, threadId: ThreadId) => void;
+  clearProjectDraftThreadId: (projectId: ContainerId, entryPoint?: ThreadPrimarySurface) => void;
+  clearProjectDraftThreads: (projectId: ContainerId) => void;
+  clearProjectDraftThreadById: (projectId: ContainerId, threadId: ThreadId) => void;
   markDraftThreadPromoting: (threadId: ThreadId, promotedTo?: ThreadId) => void;
   finalizePromotedDraftThread: (threadId: ThreadId) => void;
   clearDraftThread: (threadId: ThreadId) => void;
@@ -341,7 +341,7 @@ export interface ComposerDraftStoreState {
 }
 
 export function projectDraftThreadMappingKey(
-  projectId: ProjectId,
+  projectId: ContainerId,
   entryPoint: ThreadPrimarySurface = "chat",
 ): string {
   return entryPoint === "terminal"
@@ -353,12 +353,12 @@ export function projectDraftThreadEntryPointFromKey(key: string): ThreadPrimaryS
   return key.endsWith(TERMINAL_DRAFT_THREAD_MAPPING_SUFFIX) ? "terminal" : "chat";
 }
 
-export function projectIdFromDraftThreadMappingKey(key: string): ProjectId {
+export function projectIdFromDraftThreadMappingKey(key: string): ContainerId {
   return (
     key.endsWith(TERMINAL_DRAFT_THREAD_MAPPING_SUFFIX)
       ? key.slice(0, -TERMINAL_DRAFT_THREAD_MAPPING_SUFFIX.length)
       : key
-  ) as ProjectId;
+  ) as ContainerId;
 }
 
 function resolveDraftThreadCreatedAt(input: {
@@ -376,7 +376,7 @@ function resolveDraftThreadCreatedAt(input: {
 }
 
 export function buildDraftThreadState(input: {
-  projectId: ProjectId;
+  projectId: ContainerId;
   existingThread?: DraftThreadState | undefined;
   options?: DraftThreadMutationOptions | undefined;
   createdAtMode: DraftThreadCreatedAtMode;

@@ -1,170 +1,100 @@
 // FILE: spaceGrouping.ts
-// Purpose: One ordering, naming, and labelling rule for every list that groups projects by Space.
-// Layer: Spaces presentation utility
-// Why: The composer project picker, the sidebar project menu, and the bulk move dialog each
-//      rebuilt "active space first, then Void, then the rest" plus the `Name · Active` label by
-//      hand. Three copies drift; this is the single source they all read from.
+// Purpose: One ordering and labelling rule for lists grouped by persisted Spaces.
 
-import {
-  RESERVED_VOID_SPACE_ID,
-  SPACE_ICON_NAMES,
-  type SpaceIconName,
-  type SpaceId,
-} from "@penkra/contracts";
+import { SPACE_ICON_NAMES, type SpaceIconName, type SpaceId } from "@penkra/contracts";
 
 import type { Space } from "~/types";
 
-/** Void is not a stored Space, so its name and icon live here rather than in a row. */
-export const VOID_SPACE_NAME = "Void";
-export const VOID_SPACE_ICON = "black-hole";
-export const DEFAULT_VOID_SPACE_NAME = VOID_SPACE_NAME;
-export const DEFAULT_VOID_SPACE_ICON = VOID_SPACE_ICON;
 export const DEFAULT_SPACE_ICON: SpaceIconName = "bag";
 
-export type VoidSpaceIconName = SpaceIconName | typeof DEFAULT_VOID_SPACE_ICON;
-
-export interface VoidSpacePresentation {
-  readonly name: string;
-  readonly icon: VoidSpaceIconName;
-}
-
-export const DEFAULT_VOID_SPACE: VoidSpacePresentation = {
-  name: DEFAULT_VOID_SPACE_NAME,
-  icon: DEFAULT_VOID_SPACE_ICON,
-};
-
-export function isVoidSpaceIconName(value: string): value is VoidSpaceIconName {
-  return (
-    value === DEFAULT_VOID_SPACE_ICON || (SPACE_ICON_NAMES as ReadonlyArray<string>).includes(value)
-  );
-}
-
 export function toSpaceIconName(icon: string): SpaceIconName {
-  if (icon === DEFAULT_VOID_SPACE_ICON) return DEFAULT_SPACE_ICON;
   return (SPACE_ICON_NAMES as ReadonlyArray<string>).includes(icon)
     ? (icon as SpaceIconName)
     : DEFAULT_SPACE_ICON;
 }
-/**
- * Void's stand-in wherever a `SpaceId | null` has to survive as a plain string — React
- * keys, menu radio values, storage records. `null` cannot fill any of those roles, and a
- * sentinel that three modules each spell out by hand is a sentinel that eventually only
- * two of them agree on.
- */
-export const VOID_SPACE_KEY = RESERVED_VOID_SPACE_ID;
 
 /**
- * Resolve stale persisted selection to Void before Space-scoped lists filter on it. A receipt-
- * fenced optimistic selection remains usable until shell hydration reaches the command sequence.
+ * Returns the selected persisted Space only when it is present in the snapshot.
+ * Missing state remains missing; it is never represented as a synthetic Space.
  */
 export function resolveActiveSpaceId(
   activeSpaceId: SpaceId | null,
   spaces: ReadonlyArray<Space>,
   pendingActiveSpaceId: SpaceId | null = null,
 ): SpaceId | null {
-  return activeSpaceId !== null &&
-    (activeSpaceId === pendingActiveSpaceId || spaces.some((space) => space.id === activeSpaceId))
+  if (activeSpaceId === null) return null;
+  return activeSpaceId === pendingActiveSpaceId ||
+    spaces.some((space) => space.id === activeSpaceId)
     ? activeSpaceId
     : null;
 }
 
-/** Narrows a `SpaceId | null` to the string key that stands in for it. */
-export function spaceKey(spaceId: SpaceId | null): string {
-  return spaceId ?? VOID_SPACE_KEY;
+function requireSpace(spaceId: SpaceId, spaces: ReadonlyArray<Space>): Space {
+  const space = spaces.find((candidate) => candidate.id === spaceId);
+  if (!space) throw new Error(`Space '${spaceId}' is missing from the authoritative snapshot.`);
+  return space;
 }
 
-/** Shown when a project points at a Space that is not in the snapshot (mid-delete, stale route). */
-const UNKNOWN_SPACE_NAME = "Unknown space";
+export function spaceDisplayName(spaceId: SpaceId, spaces: ReadonlyArray<Space>): string {
+  return requireSpace(spaceId, spaces).name;
+}
+
+export function spaceDisplayIcon(spaceId: SpaceId, spaces: ReadonlyArray<Space>): SpaceIconName {
+  return requireSpace(spaceId, spaces).icon;
+}
 
 export interface SpaceGroup<T> {
-  readonly spaceId: SpaceId | null;
+  readonly spaceId: SpaceId;
   readonly name: string;
-  readonly icon: VoidSpaceIconName;
+  readonly icon: SpaceIconName;
   readonly isActive: boolean;
-  /** Group heading copy, including the active-space marker. */
   readonly label: string;
   readonly items: ReadonlyArray<T>;
-  /** Stable React key — `null` (Void) is not usable as one. */
   readonly key: string;
 }
 
-export function spaceDisplayName(
-  spaceId: SpaceId | null | undefined,
-  spaces: ReadonlyArray<Space>,
-  voidSpace: VoidSpacePresentation = DEFAULT_VOID_SPACE,
-): string {
-  if (!spaceId) return voidSpace.name;
-  return spaces.find((space) => space.id === spaceId)?.name ?? UNKNOWN_SPACE_NAME;
-}
-
-export function spaceDisplayIcon(
-  spaceId: SpaceId | null | undefined,
-  spaces: ReadonlyArray<Space>,
-  voidSpace: VoidSpacePresentation = DEFAULT_VOID_SPACE,
-): VoidSpaceIconName {
-  if (!spaceId) return voidSpace.icon;
-  return spaces.find((space) => space.id === spaceId)?.icon ?? voidSpace.icon;
-}
-
-/**
- * Space ids in the order every grouped project list presents them: the space you are
- * working in first, then Void, then the remaining spaces in their user-defined order.
- */
 export function orderedSpaceIdsForPicker(
   spaces: ReadonlyArray<Space>,
   activeSpaceId: SpaceId | null,
-): ReadonlyArray<SpaceId | null> {
-  const rest: ReadonlyArray<SpaceId | null> = [null, ...spaces.map((space) => space.id)].filter(
-    (spaceId) => spaceId !== activeSpaceId,
-  );
-  return [activeSpaceId, ...rest];
+): ReadonlyArray<SpaceId> {
+  if (activeSpaceId === null) return spaces.map((space) => space.id);
+  requireSpace(activeSpaceId, spaces);
+  return [activeSpaceId, ...spaces.map((space) => space.id).filter((id) => id !== activeSpaceId)];
 }
 
-/** Groups any project-shaped list by Space, dropping empty groups. */
+/** Groups ordinary folders by their required persisted Space. Invalid rows fail visibly. */
 export function groupItemsBySpace<T>(input: {
   items: ReadonlyArray<T>;
   spaces: ReadonlyArray<Space>;
   activeSpaceId: SpaceId | null;
   spaceIdOf: (item: T) => SpaceId | null;
-  voidSpace?: VoidSpacePresentation;
 }): ReadonlyArray<SpaceGroup<T>> {
-  const { activeSpaceId, items, spaceIdOf, spaces } = input;
-  const voidSpace = input.voidSpace ?? DEFAULT_VOID_SPACE;
-
-  // Bucket in one pass, preserving each item's incoming order within its group. Insertion
-  // order also records the orphans (see below) in the order they were met, so the ordered
-  // ids below only have to describe the groups we actually want to place.
-  const itemsBySpaceId = new Map<SpaceId | null, T[]>();
-  for (const item of items) {
-    const spaceId = spaceIdOf(item);
+  const itemsBySpaceId = new Map<SpaceId, T[]>();
+  for (const item of input.items) {
+    const spaceId = input.spaceIdOf(item);
+    if (spaceId === null) {
+      throw new Error("An ordinary folder is missing its required Space assignment.");
+    }
+    requireSpace(spaceId, input.spaces);
     const bucket = itemsBySpaceId.get(spaceId);
     if (bucket) bucket.push(item);
     else itemsBySpaceId.set(spaceId, [item]);
   }
 
-  const orderedSpaceIds = orderedSpaceIdsForPicker(spaces, activeSpaceId);
-  // An item can point at a space the snapshot has not caught up with (a delete still in
-  // flight). Grouping strictly by known spaces would drop it from the list entirely, so
-  // stragglers get their own trailing group rather than disappearing.
-  const knownSpaceIds = new Set(orderedSpaceIds);
-  const orphanSpaceIds = [...itemsBySpaceId.keys()].filter(
-    (spaceId) => !knownSpaceIds.has(spaceId),
-  );
-
-  return [...orderedSpaceIds, ...orphanSpaceIds].flatMap((spaceId) => {
-    const groupItems = itemsBySpaceId.get(spaceId);
-    if (!groupItems) return [];
-    const isActive = spaceId === activeSpaceId;
-    const name = spaceDisplayName(spaceId, spaces, voidSpace);
+  return orderedSpaceIdsForPicker(input.spaces, input.activeSpaceId).flatMap((spaceId) => {
+    const items = itemsBySpaceId.get(spaceId);
+    if (!items) return [];
+    const space = requireSpace(spaceId, input.spaces);
+    const isActive = spaceId === input.activeSpaceId;
     return [
       {
         spaceId,
-        name,
-        icon: spaceDisplayIcon(spaceId, spaces, voidSpace),
+        name: space.name,
+        icon: space.icon,
         isActive,
-        label: isActive ? `${name} · Active` : name,
-        items: groupItems,
-        key: spaceKey(spaceId),
+        label: isActive ? `${space.name} · Active` : space.name,
+        items,
+        key: spaceId,
       } satisfies SpaceGroup<T>,
     ];
   });

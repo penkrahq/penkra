@@ -3,7 +3,7 @@
 // Layer: Route UI logic helpers.
 // Exports: thread title fallback, deep-link bootstrap replay handling, and panel toggle helpers.
 
-import type { ProjectId, ThreadEnvironmentMode, ThreadId, TurnId } from "@penkra/contracts";
+import type { ContainerId, ThreadEnvironmentMode, ThreadId, TurnId } from "@penkra/contracts";
 import { resolveThreadWorkspaceCwd } from "@penkra/shared/threadEnvironment";
 
 import type { ChatRightPanel, DiffRouteSearch } from "../diffRouteSearch";
@@ -66,9 +66,9 @@ export function resolveFilePreviewWorkspaceRoot(input: {
 }
 
 export function resolveSingleProjectId(input: {
-  threadProjectId: ProjectId | null;
-  draftProjectId: ProjectId | null;
-}): ProjectId | null {
+  threadProjectId: ContainerId | null;
+  draftProjectId: ContainerId | null;
+}): ContainerId | null {
   return input.threadProjectId ?? input.draftProjectId ?? null;
 }
 

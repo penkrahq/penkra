@@ -3,7 +3,8 @@ import {
   DEFAULT_PROVIDER_INTERACTION_MODE,
   EventId,
   MessageId,
-  ProjectId,
+  ContainerId,
+  SpaceId,
   ThreadId,
 } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
@@ -13,13 +14,39 @@ import { decideOrchestrationCommand } from "./decider.ts";
 import { createEmptyReadModel, projectEvent } from "./projector.ts";
 
 const asEventId = (value: string): EventId => EventId.makeUnsafe(value);
-const asProjectId = (value: string): ProjectId => ProjectId.makeUnsafe(value);
+const asProjectId = (value: string): ContainerId => ContainerId.makeUnsafe(value);
 const asMessageId = (value: string): MessageId => MessageId.makeUnsafe(value);
+const TEST_SPACE_ID = SpaceId.makeUnsafe("space-project-scripts");
+
+async function withTestSpace(now: string) {
+  return Effect.runPromise(
+    projectEvent(createEmptyReadModel(now), {
+      sequence: 1,
+      eventId: asEventId("evt-space-project-scripts"),
+      aggregateKind: "space",
+      aggregateId: TEST_SPACE_ID,
+      type: "space.created",
+      occurredAt: now,
+      commandId: CommandId.makeUnsafe("cmd-space-project-scripts"),
+      causationEventId: null,
+      correlationId: CommandId.makeUnsafe("cmd-space-project-scripts"),
+      metadata: {},
+      payload: {
+        spaceId: TEST_SPACE_ID,
+        name: "Personal",
+        icon: "home",
+        sortOrder: 0,
+        createdAt: now,
+        updatedAt: now,
+      },
+    }),
+  );
+}
 
 describe("decider project scripts", () => {
   it("emits empty scripts on project.create", async () => {
     const now = new Date().toISOString();
-    const readModel = createEmptyReadModel(now);
+    const readModel = await withTestSpace(now);
 
     const result = await Effect.runPromise(
       decideOrchestrationCommand({
@@ -28,7 +55,8 @@ describe("decider project scripts", () => {
           commandId: CommandId.makeUnsafe("cmd-project-create-scripts"),
           projectId: asProjectId("project-scripts"),
           title: "Scripts",
-          workspaceRoot: "/tmp/scripts",
+          workspaceRoot: null,
+          spaceId: TEST_SPACE_ID,
           createdAt: now,
         },
         readModel,
@@ -40,9 +68,9 @@ describe("decider project scripts", () => {
     expect((event.payload as { scripts: unknown[] }).scripts).toEqual([]);
   });
 
-  it("retires all empty project shells before recreating a workspace root", async () => {
+  it("rejects legacy path-bound folder creation", async () => {
     const now = new Date().toISOString();
-    const initial = createEmptyReadModel(now);
+    const initial = await withTestSpace(now);
     const withFirstProject = await Effect.runPromise(
       projectEvent(initial, {
         sequence: 1,
@@ -61,6 +89,7 @@ describe("decider project scripts", () => {
           workspaceRoot: "/tmp/recreate-root",
           defaultModelSelection: null,
           scripts: [],
+          spaceId: TEST_SPACE_ID,
           createdAt: now,
           updatedAt: now,
         },
@@ -90,37 +119,26 @@ describe("decider project scripts", () => {
       }),
     );
 
-    const result = await Effect.runPromise(
-      decideOrchestrationCommand({
-        command: {
-          type: "project.create",
-          commandId: CommandId.makeUnsafe("cmd-project-recreate"),
-          projectId: asProjectId("project-recreated"),
-          title: "Recreated",
-          workspaceRoot: "/tmp/recreate-root",
-          createdAt: now,
-        },
-        readModel,
-      }),
-    );
-
-    expect(Array.isArray(result)).toBe(true);
-    const events = Array.isArray(result) ? result : [result];
-    expect(events.map((event) => event.type)).toEqual([
-      "project.deleted",
-      "project.deleted",
-      "project.created",
-    ]);
-    expect(events.map((event) => (event.payload as { projectId: ProjectId }).projectId)).toEqual([
-      asProjectId("project-stale-a"),
-      asProjectId("project-stale-b"),
-      asProjectId("project-recreated"),
-    ]);
+    await expect(
+      Effect.runPromise(
+        decideOrchestrationCommand({
+          command: {
+            type: "project.create",
+            commandId: CommandId.makeUnsafe("cmd-project-recreate"),
+            projectId: asProjectId("project-recreated"),
+            title: "Recreated",
+            workspaceRoot: "/tmp/recreate-root",
+            createdAt: now,
+          },
+          readModel,
+        }),
+      ),
+    ).rejects.toThrow("Folders are virtual containers");
   });
 
   it("blocks on the project with saved threads before retiring empty duplicate shells", async () => {
     const now = new Date().toISOString();
-    const initial = createEmptyReadModel(now);
+    const initial = await withTestSpace(now);
     const withStaleProject = await Effect.runPromise(
       projectEvent(initial, {
         sequence: 1,
@@ -139,6 +157,7 @@ describe("decider project scripts", () => {
           workspaceRoot: "/tmp/mixed-root",
           defaultModelSelection: null,
           scripts: [],
+          spaceId: TEST_SPACE_ID,
           createdAt: now,
           updatedAt: now,
         },
@@ -213,12 +232,12 @@ describe("decider project scripts", () => {
           readModel,
         }),
       ),
-    ).rejects.toThrow("Project 'project-mixed-active' already uses workspace root");
+    ).rejects.toThrow("Folders are virtual containers");
   });
 
   it("propagates scripts in project.meta.update payload", async () => {
     const now = new Date().toISOString();
-    const initial = createEmptyReadModel(now);
+    const initial = await withTestSpace(now);
     const readModel = await Effect.runPromise(
       projectEvent(initial, {
         sequence: 1,
@@ -237,6 +256,7 @@ describe("decider project scripts", () => {
           workspaceRoot: "/tmp/scripts",
           defaultModelSelection: null,
           scripts: [],
+          spaceId: TEST_SPACE_ID,
           createdAt: now,
           updatedAt: now,
         },
@@ -272,7 +292,7 @@ describe("decider project scripts", () => {
 
   it("rejects pinning more than three active projects", async () => {
     const now = new Date().toISOString();
-    let readModel = createEmptyReadModel(now);
+    let readModel = await withTestSpace(now);
 
     for (const index of [1, 2, 3, 4]) {
       readModel = await Effect.runPromise(
@@ -293,6 +313,7 @@ describe("decider project scripts", () => {
             workspaceRoot: `/tmp/project-pin-${index}`,
             defaultModelSelection: null,
             scripts: [],
+            spaceId: TEST_SPACE_ID,
             isPinned: index <= 3,
             createdAt: now,
             updatedAt: now,

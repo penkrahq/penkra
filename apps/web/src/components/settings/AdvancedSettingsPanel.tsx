@@ -82,7 +82,7 @@ export function AdvancedSettingsPanel(props: {
     const confirmed = await api.dialogs.confirm(
       [
         "Repair local state?",
-        "This rebuilds local project indexes and refreshes project snapshots.",
+        "This rebuilds local folder indexes and refreshes folder snapshots.",
         "It keeps existing chats in place, but it may take a moment.",
       ].join("\n"),
     );
@@ -96,7 +96,7 @@ export function AdvancedSettingsPanel(props: {
         toastManager.add({
           type: "success",
           title: "Local state repaired",
-          description: "Project indexes were rebuilt without clearing existing chats.",
+          description: "Folder indexes were rebuilt without clearing existing chats.",
         });
       })
       .catch((error: unknown) => {
@@ -186,10 +186,10 @@ export function AdvancedSettingsPanel(props: {
 
         <SettingsRow
           title="Recovery tools"
-          description="Rebuild local project indexes without clearing existing chats when the local state gets out of sync."
+          description="Rebuild local folder indexes without clearing existing chats when the local state gets out of sync."
           status={
             shouldOfferRecoveryTools
-              ? "Visible because projects exist but no chat history is currently available."
+              ? "Visible because folders exist but no chat history is currently available."
               : "Shown automatically only when recovery actions are relevant."
           }
           control={
@@ -225,8 +225,8 @@ export function AdvancedSettingsPanel(props: {
                 )}
               >
                 <div>
-                  Rebuilds local project indexes and refreshes project snapshots. Existing chats
-                  stay in place.
+                  Rebuilds local folder indexes and refreshes folder snapshots. Existing chats stay
+                  in place.
                 </div>
               </DisclosureRegion>
             </div>

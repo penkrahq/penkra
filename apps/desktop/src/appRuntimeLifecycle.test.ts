@@ -8,6 +8,7 @@ import {
   type InstalledAppPackage,
 } from "./appInstallationState";
 import { AppRuntimeLifecycle } from "./appRuntimeLifecycle";
+import type { OperationCancellationCode } from "@penkra/sdk";
 import type { ActivateAppSessionInput, ActiveAppSession } from "./appSessionManager";
 
 function installedState(enabled = false): AppInstallationState {
@@ -35,7 +36,10 @@ function installedState(enabled = false): AppInstallationState {
   });
 }
 
-function fixture(initial = installedState(), assertAppAllowed?: (app: InstalledAppPackage) => Promise<void>) {
+function fixture(
+  initial = installedState(),
+  assertAppAllowed?: (app: InstalledAppPackage) => Promise<void>,
+) {
   let state = initial;
   const store = {
     snapshot: vi.fn(() => state),
@@ -44,13 +48,15 @@ function fixture(initial = installedState(), assertAppAllowed?: (app: InstalledA
       return state;
     }),
   };
-  const releaseController = vi.fn(async () => undefined);
+  const releaseController = vi.fn(async (_reason?: OperationCancellationCode) => undefined);
   const sessions = {
     activate: vi.fn(async (input: ActivateAppSessionInput) => activeSession(input)),
     deactivate: vi.fn(async () => true),
   };
   const controllers = {
-    activate: vi.fn(async () => releaseController),
+    activate: vi.fn(
+      async (_input: { onUnexpectedExit?: (error: Error) => void }) => releaseController,
+    ),
   };
   const closeTabs = vi.fn();
   return {
@@ -232,16 +238,20 @@ describe("AppRuntimeLifecycle", () => {
 
     activation?.onUnexpectedExit?.(new Error("controller crashed"));
 
-    await vi.waitFor(() => expect(test.lifecycle.isActive("com.penkra.apps", "personal")).toBe(false));
+    await vi.waitFor(() =>
+      expect(test.lifecycle.isActive("com.penkra.apps", "personal")).toBe(false),
+    );
     expect(Object.values(test.state().spaceStateByKey)[0]?.enabled).toBe(false);
     expect(test.closeTabs).toHaveBeenCalledWith("com.penkra.apps", "personal", "app-disabled");
     expect(test.sessions.deactivate).toHaveBeenCalledWith("com.penkra.apps", "personal");
-    expect(unexpected).toHaveBeenCalledWith(expect.objectContaining({
-      appId: "com.penkra.apps",
-      spaceId: "personal",
-      error: expect.objectContaining({ message: "controller crashed" }),
-      state: expect.any(Object),
-    }));
+    expect(unexpected).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appId: "com.penkra.apps",
+        spaceId: "personal",
+        error: expect.objectContaining({ message: "controller crashed" }),
+        state: expect.any(Object),
+      }),
+    );
   });
 
   it("fails activation if the controller exits before activation commits", async () => {
@@ -251,8 +261,9 @@ describe("AppRuntimeLifecycle", () => {
       return test.releaseController;
     });
 
-    await expect(test.lifecycle.enable("com.penkra.apps", "personal"))
-      .rejects.toThrow("controller exited during start");
+    await expect(test.lifecycle.enable("com.penkra.apps", "personal")).rejects.toThrow(
+      "controller exited during start",
+    );
 
     expect(test.releaseController).toHaveBeenCalledOnce();
     expect(test.sessions.deactivate).toHaveBeenCalledWith("com.penkra.apps", "personal");

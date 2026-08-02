@@ -7,8 +7,8 @@ import type {
   OrchestrationSession,
   OrchestrationThread,
   OrchestrationThreadActivity,
-  ProjectKind,
-  ProjectId,
+  ContainerKind,
+  ContainerId,
   SpaceId,
   ThreadId,
 } from "@penkra/contracts";
@@ -98,7 +98,7 @@ export function findThreadById(
 
 export function findProjectById(
   readModel: OrchestrationReadModel,
-  projectId: ProjectId,
+  projectId: ContainerId,
 ): OrchestrationProject | undefined {
   return readModel.projects.find((project) => project.id === projectId);
 }
@@ -163,14 +163,10 @@ export function requireSpaceNameAvailable(input: {
   readonly excludeSpaceId?: SpaceId;
 }): Effect.Effect<void, OrchestrationCommandInvariantError> {
   const normalizedName = input.name.trim().toLowerCase();
-  if (normalizedName === "void") {
-    return Effect.fail(
-      invariantError(input.command.type, "'Void' is reserved for unassigned projects."),
-    );
-  }
   const conflict = input.readModel.spaces.find(
     (space) =>
       space.deletedAt === null &&
+      space.archivedAt === null &&
       space.id !== input.excludeSpaceId &&
       space.name.trim().toLowerCase() === normalizedName,
   );
@@ -197,7 +193,7 @@ export interface SpaceAssignmentWorkspacePaths {
  */
 export function isLegacyHomeChatContainerRow(input: {
   readonly projectTitle: string;
-  readonly projectWorkspaceRoot: string;
+  readonly projectWorkspaceRoot: string | null;
   readonly workspacePaths: SpaceAssignmentWorkspacePaths | undefined;
 }): boolean {
   return isSharedLegacyHomeChatContainerRow({
@@ -217,9 +213,9 @@ export function isLegacyHomeChatContainerRow(input: {
  * chat container kept `kind: "project"` and is recognized by its row shape instead.
  */
 export function isOrdinaryProjectRow(input: {
-  readonly projectKind: ProjectKind | undefined;
+  readonly projectKind: ContainerKind | undefined;
   readonly projectTitle: string;
-  readonly projectWorkspaceRoot: string;
+  readonly projectWorkspaceRoot: string | null;
   readonly workspacePaths: SpaceAssignmentWorkspacePaths | undefined;
 }): boolean {
   return isSharedOrdinaryProjectRow({
@@ -238,7 +234,7 @@ export function isOrdinaryProjectRow(input: {
 export function requireSpaceAssignableProject(input: {
   readonly command: OrchestrationCommand;
   readonly projectTitle: string;
-  readonly projectWorkspaceRoot: string;
+  readonly projectWorkspaceRoot: string | null;
   readonly workspacePaths: SpaceAssignmentWorkspacePaths | undefined;
 }): Effect.Effect<void, OrchestrationCommandInvariantError> {
   if (!isLegacyHomeChatContainerRow(input)) {
@@ -256,15 +252,16 @@ export function requireSpaceAssignableProject(input: {
 export function listActiveProjectsByWorkspaceRoot(
   readModel: OrchestrationReadModel,
   workspaceRoot: string,
-  options?: { readonly kinds?: ReadonlySet<ProjectKind> },
+  options?: { readonly kinds?: ReadonlySet<ContainerKind> },
 ): ReadonlyArray<OrchestrationProject> {
   const normalizedWorkspaceRoot = normalizeWorkspaceRootForComparison(workspaceRoot, {
     platform: process.platform,
   });
-  const acceptedKinds = options?.kinds ?? new Set<ProjectKind>(["project"]);
+  const acceptedKinds = options?.kinds ?? new Set<ContainerKind>(["project"]);
   return readModel.projects.filter(
     (project) =>
       project.deletedAt === null &&
+      project.workspaceRoot !== null &&
       acceptedKinds.has(project.kind ?? "project") &&
       normalizeWorkspaceRootForComparison(project.workspaceRoot, {
         platform: process.platform,
@@ -274,7 +271,7 @@ export function listActiveProjectsByWorkspaceRoot(
 
 export function listThreadsByProjectId(
   readModel: OrchestrationReadModel,
-  projectId: ProjectId,
+  projectId: ContainerId,
 ): ReadonlyArray<OrchestrationThread> {
   return readModel.threads.filter((thread) => thread.projectId === projectId);
 }
@@ -282,7 +279,7 @@ export function listThreadsByProjectId(
 export function requireProject(input: {
   readonly readModel: OrchestrationReadModel;
   readonly command: OrchestrationCommand;
-  readonly projectId: ProjectId;
+  readonly projectId: ContainerId;
 }): Effect.Effect<OrchestrationProject, OrchestrationCommandInvariantError> {
   const project = findProjectById(input.readModel, input.projectId);
   if (project) {
@@ -299,7 +296,7 @@ export function requireProject(input: {
 export function requireProjectAbsent(input: {
   readonly readModel: OrchestrationReadModel;
   readonly command: OrchestrationCommand;
-  readonly projectId: ProjectId;
+  readonly projectId: ContainerId;
 }): Effect.Effect<void, OrchestrationCommandInvariantError> {
   if (!findProjectById(input.readModel, input.projectId)) {
     return Effect.void;
@@ -316,8 +313,8 @@ export function requireProjectWorkspaceRootAvailable(input: {
   readonly readModel: OrchestrationReadModel;
   readonly command: OrchestrationCommand;
   readonly workspaceRoot: string;
-  readonly excludeProjectId?: ProjectId;
-  readonly kinds?: ReadonlySet<ProjectKind>;
+  readonly excludeProjectId?: ContainerId;
+  readonly kinds?: ReadonlySet<ContainerKind>;
 }): Effect.Effect<void, OrchestrationCommandInvariantError> {
   // Skip the excluded project BEFORE picking, not after: if corrupt state ever leaves two
   // active owners on one root, the project being updated must not mask the other owner.
@@ -340,7 +337,7 @@ export function requireProjectWorkspaceRootAvailable(input: {
 export function requireProjectHasNoThreads(input: {
   readonly readModel: OrchestrationReadModel;
   readonly command: OrchestrationCommand;
-  readonly projectId: ProjectId;
+  readonly projectId: ContainerId;
 }): Effect.Effect<void, OrchestrationCommandInvariantError> {
   const remainingThreads = listThreadsByProjectId(input.readModel, input.projectId).filter(
     (thread) => thread.deletedAt === null,

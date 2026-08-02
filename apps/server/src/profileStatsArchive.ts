@@ -441,7 +441,10 @@ const makeProfileStatsArchive = Effect.gen(function* () {
           t.model_selection_json AS modelSelectionJson,
           t.deleted_at AS deletedAt,
           t.env_mode AS envMode,
-          t.worktree_path AS worktreePath,
+          CASE
+            WHEN t.env_mode = 'worktree' THEN t.working_directory
+            ELSE NULL
+          END AS worktreePath,
           t.working_directory AS workingDirectory,
           p.kind AS projectKind,
           p.workspace_root AS workspaceRoot
@@ -571,7 +574,10 @@ const makeProfileStatsArchive = Effect.gen(function* () {
           t.model_selection_json AS modelSelectionJson,
           t.deleted_at AS deletedAt,
           t.env_mode AS envMode,
-          t.worktree_path AS worktreePath,
+          CASE
+            WHEN t.env_mode = 'worktree' THEN t.working_directory
+            ELSE NULL
+          END AS worktreePath,
           t.working_directory AS workingDirectory,
           p.kind AS projectKind,
           p.workspace_root AS workspaceRoot

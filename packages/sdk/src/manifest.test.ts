@@ -12,9 +12,7 @@ const validManifest = {
   compatibility: { penkra: ">=0.8.0" },
   icons: [{ src: "assets/icon.svg", sizes: "any", type: "image/svg+xml" }],
   entrypoints: { app: "app.html", operations: "operations.html" },
-  permissions: [
-    { name: "network-fetch", required: true, reason: "Load the Penkra App catalog." },
-  ],
+  permissions: [{ name: "network-fetch", required: true, reason: "Load the Penkra App catalog." }],
   operations: [
     {
       key: "installations.install",
@@ -24,6 +22,30 @@ const validManifest = {
       handler: "installations.install",
     },
   ],
+  contributions: {
+    settings: [
+      { key: "show-labels", label: "Show labels", type: "boolean", default: true },
+      {
+        key: "api-token",
+        label: "API token",
+        type: "string",
+        default: "",
+        sensitive: true,
+        validation: { maxLength: 256 },
+      },
+      {
+        key: "density",
+        label: "Density",
+        type: "select",
+        default: "comfortable",
+        options: [
+          { value: "comfortable", label: "Comfortable" },
+          { value: "compact", label: "Compact" },
+        ],
+      },
+    ],
+    skills: [{ path: "skills/create-issue" }],
+  },
 } as const;
 
 describe("validateAppManifest", () => {
@@ -102,31 +124,104 @@ describe("validateAppManifest", () => {
     });
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    expect(result.issues).toContainEqual(expect.objectContaining({
-      path: "permissions[0].name",
-      message: "account-read is not a supported Penkra permission.",
-    }));
+    expect(result.issues).toContainEqual(
+      expect.objectContaining({
+        path: "permissions[0].name",
+        message: "account-read is not a supported Penkra permission.",
+      }),
+    );
   });
 
   it("enforces the bounded local-reference JSON Schema profile", () => {
     const result = validateAppManifest({
       ...validManifest,
-      operations: [{
-        ...validManifest.operations[0],
-        input: {
-          $schema: "http://json-schema.org/draft-07/schema#",
-          type: "object",
-          properties: { value: { pattern: "(a+)+$" } },
-          $ref: "https://example.com/shared.json",
+      operations: [
+        {
+          ...validManifest.operations[0],
+          input: {
+            $schema: "http://json-schema.org/draft-07/schema#",
+            type: "object",
+            properties: { value: { pattern: "(a+)+$" } },
+            $ref: "https://example.com/shared.json",
+          },
         },
-      }],
+      ],
     });
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    expect(result.issues).toEqual(expect.arrayContaining([
-      expect.objectContaining({ path: "operations[0].input", message: expect.stringContaining("draft/2020-12") }),
-      expect.objectContaining({ path: "operations[0].input", message: expect.stringContaining("pattern") }),
-      expect.objectContaining({ path: "operations[0].input", message: expect.stringContaining("document-local") }),
-    ]));
+    expect(result.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: "operations[0].input",
+          message: expect.stringContaining("draft/2020-12"),
+        }),
+        expect.objectContaining({
+          path: "operations[0].input",
+          message: expect.stringContaining("pattern"),
+        }),
+        expect.objectContaining({
+          path: "operations[0].input",
+          message: expect.stringContaining("document-local"),
+        }),
+      ]),
+    );
+  });
+
+  it("validates declarative Settings and Agent Skills contributions", () => {
+    const result = validateAppManifest({
+      ...validManifest,
+      contributions: {
+        settings: [
+          { key: "Bad Key", label: "Bad", type: "boolean", default: "yes" },
+          {
+            key: "density",
+            label: "Density",
+            type: "select",
+            default: "missing",
+            options: [{ value: "compact", label: "Compact" }],
+          },
+        ],
+        skills: [{ path: "../outside" }],
+      },
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: "contributions.settings[0].key" }),
+        expect.objectContaining({ path: "contributions.settings[0].default" }),
+        expect.objectContaining({ path: "contributions.settings[1].default" }),
+        expect.objectContaining({ path: "contributions.skills[0].path", code: "unsafe-path" }),
+      ]),
+    );
+  });
+
+  it("validates intent handlers against declared operations and standard filters", () => {
+    expect(
+      validateAppManifest({
+        ...validManifest,
+        contributions: {
+          ...validManifest.contributions,
+          handlers: [
+            { intent: "open-url", operation: "installations.install", schemes: ["https"] },
+          ],
+        },
+      }).ok,
+    ).toBe(true);
+
+    const result = validateAppManifest({
+      ...validManifest,
+      contributions: {
+        handlers: [{ intent: "open-file", operation: "missing.open", extensions: ["pdf"] }],
+      },
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: "contributions.handlers[0].operation" }),
+        expect.objectContaining({ path: "contributions.handlers[0]" }),
+      ]),
+    );
   });
 });

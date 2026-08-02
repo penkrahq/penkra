@@ -1,8 +1,12 @@
 import { IconArchive, IconArrowRight, IconEdit, IconPlus, IconRestore } from "@tabler/icons-react";
+import { useState } from "react";
 
+import { RenameDialog } from "~/components/RenameDialog";
 import { Button } from "~/components/ui/button";
+import { toastManager } from "~/components/ui/toast";
 import { dispatchSpaceUiAction } from "~/spaceUiEvents";
 import { useStore } from "~/store";
+import type { Space } from "~/types";
 import { archiveSpace, restoreSpace } from "~/lib/spaces";
 import { readNativeApi } from "~/nativeApi";
 
@@ -12,6 +16,22 @@ import { SettingsSectionShared } from "../../settings-section-shared/SettingsSec
 export function SettingsSpacesPage() {
   const spaces = useStore((store) => store.spaces);
   const archivedSpaces = useStore((store) => store.archivedSpaces);
+  const [restoreRenameSpace, setRestoreRenameSpace] = useState<Space | null>(null);
+
+  const restore = async (space: Space, name?: string) => {
+    const api = readNativeApi();
+    if (!api) return;
+    try {
+      await restoreSpace({ api, spaceId: space.id, ...(name ? { name } : {}) });
+    } catch (error) {
+      toastManager.add({
+        type: "error",
+        title: "Unable to restore Space",
+        description: error instanceof Error ? error.message : "Try again.",
+      });
+      throw error;
+    }
+  };
 
   return (
     <div className="flex flex-col gap-6" data-pencil-page="spaces">
@@ -64,9 +84,15 @@ export function SettingsSpacesPage() {
                 <Button
                   aria-label={`Restore ${space.name}`}
                   onClick={async () => {
-                    const api = readNativeApi();
-                    if (!api) return;
-                    await restoreSpace({ api, spaceId: space.id });
+                    const normalizedName = space.name.trim().toLowerCase();
+                    const hasActiveNameConflict = spaces.some(
+                      (activeSpace) => activeSpace.name.trim().toLowerCase() === normalizedName,
+                    );
+                    if (hasActiveNameConflict) {
+                      setRestoreRenameSpace(space);
+                      return;
+                    }
+                    await restore(space);
                   }}
                   size="icon-xs"
                   variant="ghost"
@@ -90,6 +116,22 @@ export function SettingsSpacesPage() {
         <IconPlus />
         New Space
       </Button>
+      <RenameDialog
+        open={restoreRenameSpace !== null}
+        title={
+          restoreRenameSpace ? `Rename and restore ${restoreRenameSpace.name}` : "Restore Space"
+        }
+        description="An active Space already uses this name. Choose a different name to restore it with its folders and threads unchanged."
+        initialValue={restoreRenameSpace ? `${restoreRenameSpace.name} restored` : ""}
+        saveLabel="Restore"
+        onOpenChange={(open) => {
+          if (!open) setRestoreRenameSpace(null);
+        }}
+        onSave={async (name) => {
+          if (!restoreRenameSpace) return;
+          await restore(restoreRenameSpace, name);
+        }}
+      />
     </div>
   );
 }

@@ -4,22 +4,20 @@
 
 import { WebContentsView } from "electron";
 
-import type {
-  AppControllerRenderer,
-  AppControllerRendererFactory,
-} from "./appControllerHost";
+import type { AppControllerRenderer, AppControllerRendererFactory } from "./appControllerHost";
 import type { AppRendererIpcBridge } from "./appRendererIpcBridge";
 import { APP_RUNTIME_IPC_CHANNELS } from "./ipcChannels";
-import {
-  createAppRendererPreferences,
-  decideAppNavigation,
-} from "./appRuntimePolicy";
+import { createAppRendererPreferences, decideAppNavigation } from "./appRuntimePolicy";
 
 export interface ElectronAppControllerRendererFactoryOptions {
   preloadPath: string;
   ipcBridge: Pick<AppRendererIpcBridge, "waitForReady">;
   createView?: (options: ConstructorParameters<typeof WebContentsView>[0]) => WebContentsView;
-  onRendererCreated?: (input: { appId: string; spaceId: string; rendererId: number }) => (() => void) | void;
+  onRendererCreated?: (input: {
+    appId: string;
+    spaceId: string;
+    rendererId: number;
+  }) => (() => void) | void;
 }
 
 export class ElectronAppControllerRendererFactory implements AppControllerRendererFactory {

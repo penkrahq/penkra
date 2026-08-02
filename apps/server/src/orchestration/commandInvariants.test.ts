@@ -3,7 +3,7 @@ import {
   MessageId,
   CommandId,
   DEFAULT_PROVIDER_INTERACTION_MODE,
-  ProjectId,
+  ContainerId,
   ThreadId,
   type OrchestrationCommand,
   type OrchestrationReadModel,
@@ -29,7 +29,7 @@ const readModel: OrchestrationReadModel = {
   spaces: [],
   projects: [
     {
-      id: ProjectId.makeUnsafe("project-a"),
+      id: ContainerId.makeUnsafe("project-a"),
       title: "Project A",
       workspaceRoot: "/tmp/project-a",
       defaultModelSelection: {
@@ -42,7 +42,7 @@ const readModel: OrchestrationReadModel = {
       deletedAt: null,
     },
     {
-      id: ProjectId.makeUnsafe("project-b"),
+      id: ContainerId.makeUnsafe("project-b"),
       title: "Project B",
       workspaceRoot: "/tmp/project-b",
       defaultModelSelection: {
@@ -58,7 +58,7 @@ const readModel: OrchestrationReadModel = {
   threads: [
     {
       id: ThreadId.makeUnsafe("thread-1"),
-      projectId: ProjectId.makeUnsafe("project-a"),
+      projectId: ContainerId.makeUnsafe("project-a"),
       title: "Thread A",
       modelSelection: {
         provider: "codex",
@@ -81,7 +81,7 @@ const readModel: OrchestrationReadModel = {
     },
     {
       id: ThreadId.makeUnsafe("thread-2"),
-      projectId: ProjectId.makeUnsafe("project-b"),
+      projectId: ContainerId.makeUnsafe("project-b"),
       title: "Thread B",
       modelSelection: {
         provider: "codex",
@@ -104,7 +104,7 @@ const readModel: OrchestrationReadModel = {
     },
     {
       id: ThreadId.makeUnsafe("thread-archived"),
-      projectId: ProjectId.makeUnsafe("project-a"),
+      projectId: ContainerId.makeUnsafe("project-a"),
       title: "Archived Thread",
       modelSelection: {
         provider: "codex",
@@ -128,7 +128,7 @@ const readModel: OrchestrationReadModel = {
     },
     {
       id: ThreadId.makeUnsafe("thread-deleted"),
-      projectId: ProjectId.makeUnsafe("project-a"),
+      projectId: ContainerId.makeUnsafe("project-a"),
       title: "Deleted Thread",
       modelSelection: {
         provider: "codex",
@@ -172,7 +172,7 @@ describe("commandInvariants", () => {
     expect(findThreadById(readModel, ThreadId.makeUnsafe("thread-1"))?.projectId).toBe("project-a");
     expect(findThreadById(readModel, ThreadId.makeUnsafe("missing"))).toBeUndefined();
     expect(
-      listThreadsByProjectId(readModel, ProjectId.makeUnsafe("project-b")).map(
+      listThreadsByProjectId(readModel, ContainerId.makeUnsafe("project-b")).map(
         (thread) => thread.id,
       ),
     ).toEqual([ThreadId.makeUnsafe("thread-2")]);
@@ -217,7 +217,7 @@ describe("commandInvariants", () => {
           type: "thread.create",
           commandId: CommandId.makeUnsafe("cmd-2"),
           threadId: ThreadId.makeUnsafe("thread-3"),
-          projectId: ProjectId.makeUnsafe("project-a"),
+          projectId: ContainerId.makeUnsafe("project-a"),
           title: "new",
           modelSelection: {
             provider: "codex",
@@ -241,7 +241,7 @@ describe("commandInvariants", () => {
             type: "thread.create",
             commandId: CommandId.makeUnsafe("cmd-3"),
             threadId: ThreadId.makeUnsafe("thread-1"),
-            projectId: ProjectId.makeUnsafe("project-a"),
+            projectId: ContainerId.makeUnsafe("project-a"),
             title: "dup",
             modelSelection: {
               provider: "codex",
@@ -341,7 +341,7 @@ describe("commandInvariants", () => {
     const deleteCommand: OrchestrationCommand = {
       type: "project.delete",
       commandId: CommandId.makeUnsafe("cmd-project-delete"),
-      projectId: ProjectId.makeUnsafe("project-a"),
+      projectId: ContainerId.makeUnsafe("project-a"),
     };
 
     await expect(
@@ -349,7 +349,7 @@ describe("commandInvariants", () => {
         requireProjectHasNoThreads({
           readModel,
           command: deleteCommand,
-          projectId: ProjectId.makeUnsafe("project-a"),
+          projectId: ContainerId.makeUnsafe("project-a"),
         }),
       ),
     ).rejects.toThrow("still has 2 threads");
@@ -359,7 +359,7 @@ describe("commandInvariants", () => {
         requireProjectHasNoThreads({
           readModel,
           command: deleteCommand,
-          projectId: ProjectId.makeUnsafe("project-missing"),
+          projectId: ContainerId.makeUnsafe("project-missing"),
         }),
       ),
     ).resolves.toBeUndefined();

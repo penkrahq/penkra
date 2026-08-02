@@ -1,6 +1,5 @@
-import { IconCheck, type Icon } from "@tabler/icons-react";
-import type { ReactNode } from "react";
-import { useState } from "react";
+import { IconCheck } from "@tabler/icons-react";
+import { useState, type ReactNode } from "react";
 
 import { SwitchShared } from "~/components/foundations/switch-shared/SwitchShared";
 import { cn } from "~/lib/utils";
@@ -55,7 +54,7 @@ export function SettingsInstalledRow({
   defaultChecked?: boolean;
   description: string;
   disabled?: boolean;
-  icon: Icon;
+  icon: typeof IconCheck;
   label: string;
   multiline?: boolean;
   onCheckedChange?: (checked: boolean) => void;
@@ -90,39 +89,6 @@ export function SettingsInstalledRow({
           if (checked === undefined) setUncontrolledChecked(nextChecked);
           onCheckedChange?.(nextChecked);
         }}
-      />
-    </div>
-  );
-}
-
-export function SettingsConnectorRow({
-  defaultChecked = true,
-  description,
-  icon: RowIcon,
-  label,
-}: {
-  defaultChecked?: boolean;
-  description: string;
-  icon: Icon;
-  label: string;
-}) {
-  const [checked, setChecked] = useState(defaultChecked);
-
-  return (
-    <div className="flex h-[59px] w-full items-center gap-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-background-surface)] px-4 py-3">
-      <span className="inline-flex size-4 shrink-0 items-center justify-center text-[var(--color-text-foreground-secondary)]">
-        <RowIcon className="size-4" />
-      </span>
-      <span className="flex min-w-0 flex-1 flex-col">
-        <span className="text-[13px] text-[var(--color-text-foreground)]">{label}</span>
-        <span className="mt-0.5 text-xs text-[var(--color-text-foreground-tertiary)]">
-          {description}
-        </span>
-      </span>
-      <SwitchShared
-        aria-label={`${label} connected`}
-        checked={checked}
-        onCheckedChange={setChecked}
       />
     </div>
   );

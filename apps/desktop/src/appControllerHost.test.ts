@@ -80,7 +80,7 @@ function fixture(app = installedApp()) {
   };
   const host = new AppControllerHost({
     broker,
-    rpc,
+    rpc: rpc as never,
     renderers: { create: vi.fn(() => renderer) },
   });
   const session = {
@@ -110,15 +110,18 @@ function operationContext(tab?: AppTabHandle): OperationContext {
       id: "inv-1",
       app: "linear",
       operation: "issues.create",
-      spaceId: "personal",
+      caller: null,
+      subject: "sub_test",
+      space: "space_test",
       threadId: "thread-1",
       ...(tab ? { tabId: tab.id } : {}),
     },
     ...(tab ? { tab } : {}),
     tabs: {
       open: vi.fn(async () => tabHandle("opened-tab")),
-      openForResult: vi.fn(async () => ({ confirmed: true })),
+      openForResult: vi.fn(async () => ({ confirmed: true })) as never,
     },
+    operations: { invoke: vi.fn() },
     signal: new AbortController().signal,
   };
 }
@@ -127,8 +130,8 @@ function tabHandle(id: string): AppTabHandle {
   return {
     id,
     navigate: vi.fn(async () => undefined),
-    navigateForResult: vi.fn(async () => ({ saved: true })),
-    invoke: vi.fn(async () => ({ updated: true })),
+    navigateForResult: vi.fn(async () => ({ saved: true })) as never,
+    invoke: vi.fn(async () => ({ updated: true })) as never,
   };
 }
 
@@ -237,7 +240,11 @@ describe("AppControllerHost", () => {
     if (!call) throw new Error("Context call handler missing.");
 
     await expect(
-      call("context.tab.invoke", { operation: "issues.open", input: {} }, new AbortController().signal),
+      call(
+        "context.tab.invoke",
+        { operation: "issues.open", input: {} },
+        new AbortController().signal,
+      ),
     ).rejects.toMatchObject({ code: "TAB_REQUIRED" });
     await expect(
       call(
@@ -261,8 +268,10 @@ describe("AppControllerHost", () => {
     await vi.waitFor(() => expect(test.unregisterController).toHaveBeenCalledOnce());
     expect(test.unregisterRpc).toHaveBeenCalledWith("host-stopped");
     expect(test.renderer.destroy).not.toHaveBeenCalled();
-    expect(onUnexpectedExit).toHaveBeenCalledWith(expect.objectContaining({
-      message: expect.stringContaining("exited unexpectedly"),
-    }));
+    expect(onUnexpectedExit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.stringContaining("exited unexpectedly"),
+      }),
+    );
   });
 });

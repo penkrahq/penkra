@@ -10,6 +10,7 @@ import { version } from "../package.json" with { type: "json" };
 import { ServerLive } from "./effectServer";
 import { NetService } from "@penkra/shared/Net";
 import { FetchHttpClient } from "effect/unstable/http";
+import { maybeRunAppRuntimeCli } from "./appRuntimeCli";
 
 const RuntimeLayer = Layer.empty.pipe(
   Layer.provideMerge(CliConfig.layer),
@@ -20,6 +21,15 @@ const RuntimeLayer = Layer.empty.pipe(
   Layer.provideMerge(FetchHttpClient.layer),
 );
 
-Command.run(penkraCli, { version })
-  .pipe(Effect.provide(RuntimeLayer))
-  .pipe((program) => NodeRuntime.runMain(program as Effect.Effect<void, unknown, never>));
+const args = process.argv.slice(2);
+void maybeRunAppRuntimeCli(args)
+  .then((handled) => {
+    if (handled) return;
+    Command.run(penkraCli, { version })
+      .pipe(Effect.provide(RuntimeLayer))
+      .pipe((program) => NodeRuntime.runMain(program as Effect.Effect<void, unknown, never>));
+  })
+  .catch((error) => {
+    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+    process.exitCode = 1;
+  });

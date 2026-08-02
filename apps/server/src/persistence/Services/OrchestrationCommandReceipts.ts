@@ -13,7 +13,7 @@ import {
   OrchestrationAggregateKind,
   OrchestrationCommandReceiptStatus,
   PositiveInt,
-  ProjectId,
+  ContainerId,
   SpaceId,
   ThreadId,
 } from "@penkra/contracts";
@@ -27,7 +27,7 @@ const CommandFingerprint = Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/
 const ReceiptFields = {
   commandId: CommandId,
   aggregateKind: OrchestrationAggregateKind,
-  aggregateId: Schema.Union([SpaceId, ProjectId, ThreadId]),
+  aggregateId: Schema.Union([SpaceId, ContainerId, ThreadId]),
   acceptedAt: IsoDateTime,
   resultSequence: NonNegativeInt,
   status: OrchestrationCommandReceiptStatus,

@@ -4,7 +4,7 @@ import {
   CommandId,
   EventId,
   MessageId,
-  ProjectId,
+  ContainerId,
   SpaceId,
   ThreadId,
   TurnId,
@@ -18,7 +18,7 @@ import { ORCHESTRATION_PROJECTOR_NAMES } from "./ProjectionPipeline.ts";
 import { OrchestrationProjectionSnapshotQueryLive } from "./ProjectionSnapshotQuery.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 
-const asProjectId = (value: string): ProjectId => ProjectId.makeUnsafe(value);
+const asProjectId = (value: string): ContainerId => ContainerId.makeUnsafe(value);
 const asThreadId = (value: string): ThreadId => ThreadId.makeUnsafe(value);
 const asTurnId = (value: string): TurnId => TurnId.makeUnsafe(value);
 const asMessageId = (value: string): MessageId => MessageId.makeUnsafe(value);
@@ -125,7 +125,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           title,
           model_selection_json,
           branch,
-          worktree_path,
+          working_directory,
           latest_turn_id,
           created_at,
           updated_at,
@@ -559,7 +559,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           title,
           model_selection_json,
           branch,
-          worktree_path,
+          working_directory,
           latest_turn_id,
           created_at,
           updated_at,
@@ -758,7 +758,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       `;
       yield* sql`
         INSERT INTO projection_threads (
-          thread_id, project_id, title, model_selection_json, branch, worktree_path,
+          thread_id, project_id, title, model_selection_json, branch, working_directory,
           latest_turn_id, created_at, updated_at, deleted_at
         ) VALUES (
           'thread-turn-window', 'project-turn-window', 'Turn Window',
@@ -844,7 +844,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       `;
       yield* sql`
         INSERT INTO projection_threads (
-          thread_id, project_id, title, model_selection_json, branch, worktree_path,
+          thread_id, project_id, title, model_selection_json, branch, working_directory,
           latest_turn_id, created_at, updated_at, deleted_at
         ) VALUES (
           'thread-oversized-turn', 'project-oversized-turn', 'Oversized Turn',
@@ -924,7 +924,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           title,
           model_selection_json,
           branch,
-          worktree_path,
+          working_directory,
           latest_turn_id,
           created_at,
           updated_at,
@@ -1009,7 +1009,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       `;
       yield* sql`
         INSERT INTO projection_threads (
-          thread_id, project_id, title, model_selection_json, branch, worktree_path,
+          thread_id, project_id, title, model_selection_json, branch, working_directory,
           latest_turn_id, created_at, updated_at, deleted_at
         ) VALUES (
           'thread-causal-message-snapshot', 'project-causal-message-snapshot',
@@ -1130,7 +1130,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           title,
           model_selection_json,
           branch,
-          worktree_path,
+          working_directory,
           runtime_mode,
           interaction_mode,
           latest_turn_id,
@@ -1422,7 +1422,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           interaction_mode,
           env_mode,
           branch,
-          worktree_path,
+          working_directory,
           latest_turn_id,
           handoff_json,
           created_at,
@@ -1556,7 +1556,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           interaction_mode,
           env_mode,
           branch,
-          worktree_path,
+          working_directory,
           latest_turn_id,
           handoff_json,
           latest_user_message_at,
@@ -1783,7 +1783,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           interaction_mode,
           env_mode,
           branch,
-          worktree_path,
+          working_directory,
           latest_turn_id,
           handoff_json,
           created_at,
@@ -1798,7 +1798,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           '{"provider":"codex","model":"gpt-5-codex"}',
           'full-access',
           'default',
-          'local',
+          'worktree',
           'feature/perf',
           '/tmp/context-worktree',
           NULL,
@@ -1958,9 +1958,9 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           projectId: asProjectId("project-context"),
           projectKind: "project",
           workspaceRoot: "/tmp/context-workspace",
-          envMode: "local",
+          envMode: "worktree",
           worktreePath: "/tmp/context-worktree",
-          workingDirectory: null,
+          workingDirectory: "/tmp/context-worktree",
           checkpoints: [
             {
               turnId: asTurnId("turn-1"),
@@ -2052,9 +2052,9 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           projectId: asProjectId("project-context"),
           projectKind: "project",
           workspaceRoot: "/tmp/context-workspace",
-          envMode: "local",
+          envMode: "worktree",
           worktreePath: "/tmp/context-worktree",
-          workingDirectory: null,
+          workingDirectory: "/tmp/context-worktree",
           latestCheckpointTurnCount: 2,
           baselineCheckpointRef: asCheckpointRef("checkpoint-a"),
           toCheckpointRef: asCheckpointRef("checkpoint-b"),
@@ -2083,7 +2083,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       `;
       yield* sql`
         INSERT INTO projection_threads (
-          thread_id, project_id, title, model_selection_json, branch, worktree_path,
+          thread_id, project_id, title, model_selection_json, branch, working_directory,
           latest_turn_id, created_at, updated_at, deleted_at
         ) VALUES (
           'thread-revert-lifecycle', 'project-revert-lifecycle', 'Revert lifecycle',
@@ -2148,7 +2148,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       `;
       yield* sql`
         INSERT INTO projection_threads (
-          thread_id, project_id, title, model_selection_json, branch, worktree_path,
+          thread_id, project_id, title, model_selection_json, branch, working_directory,
           latest_turn_id, created_at, updated_at, archived_at, deleted_at
         ) VALUES
           (
@@ -2301,7 +2301,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       `;
       yield* sql`
         INSERT INTO projection_threads (
-          thread_id, project_id, title, model_selection_json, branch, worktree_path,
+          thread_id, project_id, title, model_selection_json, branch, working_directory,
           latest_turn_id, created_at, updated_at, deleted_at
         ) VALUES
           (
@@ -2385,7 +2385,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       `;
       yield* sql`
         INSERT INTO projection_threads (
-          thread_id, project_id, title, model_selection_json, branch, worktree_path,
+          thread_id, project_id, title, model_selection_json, branch, working_directory,
           latest_turn_id, created_at, updated_at, deleted_at
         ) VALUES (
           'thread-deleted-command', 'project-deleted-command', 'Deleted command',
@@ -2436,26 +2436,26 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       `;
       yield* sql`
         INSERT INTO projection_threads (
-          thread_id, project_id, title, model_selection_json, branch, worktree_path,
+          thread_id, project_id, title, model_selection_json, branch, env_mode, working_directory,
           associated_worktree_path, latest_turn_id, created_at, updated_at,
           archived_at, deleted_at
         ) VALUES
           (
             'thread-worktree-active', 'project-worktrees', 'Active',
-            '{"provider":"codex","model":"gpt-5-codex"}', NULL, '/tmp/wt/active',
+            '{"provider":"codex","model":"gpt-5-codex"}', NULL, 'worktree', '/tmp/wt/active',
             NULL, NULL, '2026-07-24T00:00:01.000Z', '2026-07-24T00:00:01.000Z',
             NULL, NULL
           ),
           (
             'thread-worktree-deleted', 'project-worktrees', 'Retention deleted',
-            '{"provider":"codex","model":"gpt-5-codex"}', NULL, '/tmp/wt/deleted',
+            '{"provider":"codex","model":"gpt-5-codex"}', NULL, 'worktree', '/tmp/wt/deleted',
             '/tmp/wt/deleted-assoc', NULL, '2026-07-24T00:00:02.000Z',
             '2026-07-24T00:00:09.000Z', '2026-07-24T00:00:08.000Z',
             '2026-07-24T00:00:09.000Z'
           ),
           (
             'thread-no-worktree', 'project-worktrees', 'No worktree',
-            '{"provider":"codex","model":"gpt-5-codex"}', NULL, NULL,
+            '{"provider":"codex","model":"gpt-5-codex"}', NULL, 'local', NULL,
             NULL, NULL, '2026-07-24T00:00:03.000Z', '2026-07-24T00:00:03.000Z',
             NULL, NULL
           )

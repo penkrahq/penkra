@@ -1,4 +1,4 @@
-import { ProjectId, ThreadId } from "@penkra/contracts";
+import { ContainerId, ThreadId } from "@penkra/contracts";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -79,7 +79,7 @@ describe("startFreshChatForActiveSurface", () => {
 
 describe("startContainerChat", () => {
   it("returns the created thread so callers can attach context deterministically", async () => {
-    const projectId = ProjectId.makeUnsafe("project-1");
+    const projectId = ContainerId.makeUnsafe("project-1");
     const threadId = ThreadId.makeUnsafe("thread-1");
     const handleNewThread = vi.fn(async () => threadId);
 
@@ -101,7 +101,7 @@ describe("startContainerChat", () => {
   });
 
   it("clears a stored Studio draft's inherited worktree metadata without overriding its cwd", async () => {
-    const projectId = ProjectId.makeUnsafe("studio-project");
+    const projectId = ContainerId.makeUnsafe("studio-project");
     const threadId = ThreadId.makeUnsafe("studio-thread");
     const handleNewThread = vi.fn(async () => threadId);
 

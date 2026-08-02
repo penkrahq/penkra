@@ -3,7 +3,7 @@
 // Layer: UI state helpers test
 // Targets: tree traversal, immutable replace, leaf removal/collapse, depth-cap rule, legacy migration.
 
-import { ProjectId, ThreadId } from "@penkra/contracts";
+import { ContainerId, ThreadId } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -27,7 +27,7 @@ const THREAD_A = ThreadId.makeUnsafe("thread-a");
 const THREAD_B = ThreadId.makeUnsafe("thread-b");
 const THREAD_C = ThreadId.makeUnsafe("thread-c");
 const THREAD_D = ThreadId.makeUnsafe("thread-d");
-const PROJECT_ID = ProjectId.makeUnsafe("project-1");
+const PROJECT_ID = ContainerId.makeUnsafe("project-1");
 
 function makePanel(): SplitViewPanePanelState {
   return {

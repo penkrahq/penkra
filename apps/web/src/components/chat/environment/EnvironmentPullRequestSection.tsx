@@ -7,7 +7,7 @@
 import type {
   GitPullRequestCheck,
   GitPullRequestComment,
-  ProjectId,
+  ContainerId,
   ThreadId,
 } from "@penkra/contracts";
 import { parseGitHubRepositoryNameWithOwnerFromPullRequestUrl } from "@penkra/shared/githubRepository";
@@ -205,7 +205,7 @@ export function EnvironmentPullRequestSection({
   /** Gate polling on the panel being open (mirrors the Local Servers section). */
   enabled: boolean;
   activeThreadId: ThreadId | null;
-  projectId: ProjectId | null;
+  projectId: ContainerId | null;
   configuredRepositories: ReadonlyArray<{ readonly nameWithOwner: string }>;
   /** Open non-PR URLs in the in-app browser panel. */
   onOpenUrl: (url: string) => void;

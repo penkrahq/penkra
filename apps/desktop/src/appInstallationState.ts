@@ -4,7 +4,7 @@
 
 import { assertAppManifest, type PenkraAppManifest } from "@penkra/sdk";
 
-export const APP_INSTALLATION_STATE_SCHEMA_VERSION = 1 as const;
+export const APP_INSTALLATION_STATE_SCHEMA_VERSION = 2 as const;
 
 export type InstalledAppSource = "registry" | "sideload";
 export type AppPermissionGrant = "denied" | "granted";
@@ -36,6 +36,12 @@ export interface SpaceAppState {
   spaceId: string;
   enabled: boolean;
   permissions: Readonly<Record<string, AppPermissionGrant>>;
+  /** Non-sensitive manifest-declared setting values. Sensitive values live in the encrypted vault. */
+  settings: Readonly<Record<string, boolean | number | string>>;
+  /** Last applied declaration migration ID by setting key. */
+  settingMigrations: Readonly<Record<string, string>>;
+  /** Per-Space overrides for App-contributed Agent Skills. Undeclared entries are invalid. */
+  skills: Readonly<Record<string, boolean>>;
 }
 
 export interface AppInstallationState {
@@ -160,7 +166,10 @@ function parseInstalledPackage(value: unknown, recordKey: string): InstalledAppP
     );
   }
   if (installedPackage.registryRelease && installedPackage.source !== "registry") {
-    throw new AppInstallationStateError("invalid-state", `Package ${recordKey} has registry evidence but is not registry sourced.`);
+    throw new AppInstallationStateError(
+      "invalid-state",
+      `Package ${recordKey} has registry evidence but is not registry sourced.`,
+    );
   }
   return installedPackage;
 }
@@ -192,6 +201,12 @@ function parseSpaceState(value: unknown, recordKey: string): SpaceAppState {
       `Space App state ${recordKey} permissions must be an object.`,
     );
   }
+  if (!isRecord(value.settings) || !isRecord(value.settingMigrations) || !isRecord(value.skills)) {
+    throw new AppInstallationStateError(
+      "invalid-state",
+      `Space App state ${recordKey} settings, migrations, and skills must be objects.`,
+    );
+  }
   const permissions: Record<string, AppPermissionGrant> = {};
   for (const [permission, grant] of Object.entries(value.permissions)) {
     if (!isPermissionGrant(grant)) {
@@ -202,7 +217,46 @@ function parseSpaceState(value: unknown, recordKey: string): SpaceAppState {
     }
     permissions[permission] = grant;
   }
-  return { appId, spaceId, enabled: value.enabled, permissions };
+  const settings: Record<string, boolean | number | string> = {};
+  for (const [key, setting] of Object.entries(value.settings)) {
+    if (
+      typeof setting !== "boolean" &&
+      typeof setting !== "number" &&
+      typeof setting !== "string"
+    ) {
+      throw new AppInstallationStateError(
+        "invalid-state",
+        `Space App setting ${key} has an invalid value.`,
+      );
+    }
+    settings[key] = setting;
+  }
+  const settingMigrations: Record<string, string> = {};
+  for (const [key, migrationId] of Object.entries(value.settingMigrations)) {
+    settingMigrations[key] = requireNonEmptyString(
+      migrationId,
+      `Space App setting ${key} migration ID`,
+    );
+  }
+  const skills: Record<string, boolean> = {};
+  for (const [path, enabled] of Object.entries(value.skills)) {
+    if (typeof enabled !== "boolean") {
+      throw new AppInstallationStateError(
+        "invalid-state",
+        `Space App skill ${path} has an invalid state.`,
+      );
+    }
+    skills[path] = enabled;
+  }
+  return {
+    appId,
+    spaceId,
+    enabled: value.enabled,
+    permissions,
+    settings,
+    settingMigrations,
+    skills,
+  };
 }
 
 export function createEmptyAppInstallationState(): AppInstallationState {
@@ -214,6 +268,7 @@ export function createEmptyAppInstallationState(): AppInstallationState {
 }
 
 export function parseAppInstallationState(value: unknown): AppInstallationState {
+  if (isRecord(value) && value.schemaVersion === 1) value = migrateSchemaVersionOne(value);
   if (!isRecord(value) || value.schemaVersion !== APP_INSTALLATION_STATE_SCHEMA_VERSION) {
     throw new AppInstallationStateError(
       "invalid-state",
@@ -248,10 +303,45 @@ export function parseAppInstallationState(value: unknown): AppInstallationState 
       parseSpaceState(candidate, key),
     ]),
   );
+  for (const space of Object.values(spaceStateByKey)) {
+    const installed = packagesByAppId[space.appId];
+    const declared = new Set(
+      (installed?.manifest.contributions?.skills ?? []).map((skill) => skill.path),
+    );
+    for (const path of Object.keys(space.skills)) {
+      if (!declared.has(path)) {
+        throw new AppInstallationStateError(
+          "invalid-state",
+          `Space App state for ${space.appId} contains undeclared skill ${path}.`,
+        );
+      }
+    }
+  }
   return {
     schemaVersion: APP_INSTALLATION_STATE_SCHEMA_VERSION,
     packagesByAppId,
     spaceStateByKey,
+  };
+}
+
+function migrateSchemaVersionOne(value: Record<string, unknown>): Record<string, unknown> {
+  if (!isRecord(value.spaceStateByKey)) {
+    throw new AppInstallationStateError(
+      "invalid-state",
+      "App installation state Space records must be an object.",
+    );
+  }
+  return {
+    ...value,
+    schemaVersion: APP_INSTALLATION_STATE_SCHEMA_VERSION,
+    spaceStateByKey: Object.fromEntries(
+      Object.entries(value.spaceStateByKey).map(([key, candidate]) => [
+        key,
+        isRecord(candidate)
+          ? { ...candidate, settings: {}, settingMigrations: {}, skills: {} }
+          : candidate,
+      ]),
+    ),
   };
 }
 
@@ -264,7 +354,10 @@ function toInstalledPackage(input: VerifiedAppPackageInput): InstalledAppPackage
     );
   }
   if (input.registryRelease && input.source !== "registry") {
-    throw new AppInstallationStateError("invalid-state", "Only registry packages may carry registry release evidence.");
+    throw new AppInstallationStateError(
+      "invalid-state",
+      "Only registry packages may carry registry release evidence.",
+    );
   }
   return {
     appId: input.manifest.id,
@@ -283,23 +376,51 @@ function toInstalledPackage(input: VerifiedAppPackageInput): InstalledAppPackage
   };
 }
 
-function parseRegistryRelease(value: unknown, recordKey: string): NonNullable<InstalledAppPackage["registryRelease"]> {
+function parseRegistryRelease(
+  value: unknown,
+  recordKey: string,
+): NonNullable<InstalledAppPackage["registryRelease"]> {
   if (!isRecord(value)) {
-    throw new AppInstallationStateError("invalid-state", `Package ${recordKey} registry release must be an object.`);
+    throw new AppInstallationStateError(
+      "invalid-state",
+      `Package ${recordKey} registry release must be an object.`,
+    );
   }
-  const packageDigest = requireNonEmptyString(value.packageDigest, `Package ${recordKey} registry package digest`);
+  const packageDigest = requireNonEmptyString(
+    value.packageDigest,
+    `Package ${recordKey} registry package digest`,
+  );
   if (!SHA256_PATTERN.test(packageDigest)) {
-    throw new AppInstallationStateError("invalid-state", `Package ${recordKey} registry package digest is invalid.`);
+    throw new AppInstallationStateError(
+      "invalid-state",
+      `Package ${recordKey} registry package digest is invalid.`,
+    );
   }
   const appId = requireNonEmptyString(value.appId, `Package ${recordKey} registry App id`);
-  const versionId = requireNonEmptyString(value.versionId, `Package ${recordKey} registry version id`);
-  const publisherId = value.publisherId === undefined
-    ? undefined
-    : requireNonEmptyString(value.publisherId, `Package ${recordKey} registry publisher id`);
+  const versionId = requireNonEmptyString(
+    value.versionId,
+    `Package ${recordKey} registry version id`,
+  );
+  const publisherId =
+    value.publisherId === undefined
+      ? undefined
+      : requireNonEmptyString(value.publisherId, `Package ${recordKey} registry publisher id`);
   const keyId = requireNonEmptyString(value.keyId, `Package ${recordKey} registry key id`);
-  const publishedAt = requireNonEmptyString(value.publishedAt, `Package ${recordKey} registry publication time`);
-  if (!UUID_PATTERN.test(appId) || !UUID_PATTERN.test(versionId) || (publisherId !== undefined && !UUID_PATTERN.test(publisherId)) || !KEY_ID_PATTERN.test(keyId) || !Number.isFinite(Date.parse(publishedAt))) {
-    throw new AppInstallationStateError("invalid-state", `Package ${recordKey} registry release identity is invalid.`);
+  const publishedAt = requireNonEmptyString(
+    value.publishedAt,
+    `Package ${recordKey} registry publication time`,
+  );
+  if (
+    !UUID_PATTERN.test(appId) ||
+    !UUID_PATTERN.test(versionId) ||
+    (publisherId !== undefined && !UUID_PATTERN.test(publisherId)) ||
+    !KEY_ID_PATTERN.test(keyId) ||
+    !Number.isFinite(Date.parse(publishedAt))
+  ) {
+    throw new AppInstallationStateError(
+      "invalid-state",
+      `Package ${recordKey} registry release identity is invalid.`,
+    );
   }
   return {
     appId,
@@ -393,6 +514,9 @@ export function setSpaceAppEnabled(
     spaceId: input.spaceId,
     enabled: input.enabled,
     permissions: current?.permissions ?? {},
+    settings: current?.settings ?? {},
+    settingMigrations: current?.settingMigrations ?? {},
+    skills: current?.skills ?? {},
   };
   return { ...state, spaceStateByKey: { ...state.spaceStateByKey, [key]: next } };
 }
@@ -410,6 +534,9 @@ export function setSpaceAppPermission(
     spaceId: input.spaceId,
     enabled: false,
     permissions: {},
+    settings: {},
+    settingMigrations: {},
+    skills: {},
   };
   const next: SpaceAppState = {
     ...current,
@@ -420,13 +547,18 @@ export function setSpaceAppPermission(
 
 export function replaceSpaceAppPermissions(
   state: AppInstallationState,
-  input: { appId: string; spaceId: string; permissions: Readonly<Record<string, AppPermissionGrant>> },
+  input: {
+    appId: string;
+    spaceId: string;
+    permissions: Readonly<Record<string, AppPermissionGrant>>;
+  },
 ): AppInstallationState {
   if (!state.packagesByAppId[input.appId]) {
     throw new AppInstallationStateError("app-not-installed", `${input.appId} is not installed.`);
   }
   for (const grant of Object.values(input.permissions)) {
-    if (!isPermissionGrant(grant)) throw new AppInstallationStateError("invalid-state", "Invalid App permission grant.");
+    if (!isPermissionGrant(grant))
+      throw new AppInstallationStateError("invalid-state", "Invalid App permission grant.");
   }
   const key = spaceAppStateKey(input.spaceId, input.appId);
   const current = state.spaceStateByKey[key] ?? {
@@ -434,6 +566,9 @@ export function replaceSpaceAppPermissions(
     spaceId: input.spaceId,
     enabled: false,
     permissions: {},
+    settings: {},
+    settingMigrations: {},
+    skills: {},
   };
   return {
     ...state,
@@ -442,6 +577,153 @@ export function replaceSpaceAppPermissions(
       [key]: { ...current, permissions: { ...input.permissions } },
     },
   };
+}
+
+export function setSpaceAppSetting(
+  state: AppInstallationState,
+  input: {
+    appId: string;
+    spaceId: string;
+    key: string;
+    value: boolean | number | string;
+    migrationId?: string;
+  },
+): AppInstallationState {
+  if (!state.packagesByAppId[input.appId]) {
+    throw new AppInstallationStateError("app-not-installed", `${input.appId} is not installed.`);
+  }
+  const key = spaceAppStateKey(input.spaceId, input.appId);
+  const current = state.spaceStateByKey[key] ?? {
+    appId: input.appId,
+    spaceId: input.spaceId,
+    enabled: false,
+    permissions: {},
+    settings: {},
+    settingMigrations: {},
+    skills: {},
+  };
+  const settingMigrations = { ...current.settingMigrations };
+  if (input.migrationId) settingMigrations[input.key] = input.migrationId;
+  else delete settingMigrations[input.key];
+  return {
+    ...state,
+    spaceStateByKey: {
+      ...state.spaceStateByKey,
+      [key]: {
+        ...current,
+        settings: { ...current.settings, [input.key]: input.value },
+        settingMigrations,
+      },
+    },
+  };
+}
+
+export function resetSpaceAppSetting(
+  state: AppInstallationState,
+  input: { appId: string; spaceId: string; key: string },
+): AppInstallationState {
+  const key = spaceAppStateKey(input.spaceId, input.appId);
+  const current = state.spaceStateByKey[key];
+  if (!current) return state;
+  const settings = { ...current.settings };
+  const settingMigrations = { ...current.settingMigrations };
+  delete settings[input.key];
+  delete settingMigrations[input.key];
+  return {
+    ...state,
+    spaceStateByKey: {
+      ...state.spaceStateByKey,
+      [key]: { ...current, settings, settingMigrations },
+    },
+  };
+}
+
+export function setSpaceAppSettingMigration(
+  state: AppInstallationState,
+  input: { appId: string; spaceId: string; key: string; migrationId?: string },
+): AppInstallationState {
+  const key = spaceAppStateKey(input.spaceId, input.appId);
+  const current = state.spaceStateByKey[key] ?? {
+    appId: input.appId,
+    spaceId: input.spaceId,
+    enabled: false,
+    permissions: {},
+    settings: {},
+    settingMigrations: {},
+    skills: {},
+  };
+  const settingMigrations = { ...current.settingMigrations };
+  if (input.migrationId) settingMigrations[input.key] = input.migrationId;
+  else delete settingMigrations[input.key];
+  return {
+    ...state,
+    spaceStateByKey: {
+      ...state.spaceStateByKey,
+      [key]: { ...current, settingMigrations },
+    },
+  };
+}
+
+export function setSpaceAppSkillEnabled(
+  state: AppInstallationState,
+  input: { appId: string; spaceId: string; path: string; enabled: boolean },
+): AppInstallationState {
+  const installed = state.packagesByAppId[input.appId];
+  if (!installed) {
+    throw new AppInstallationStateError("app-not-installed", `${input.appId} is not installed.`);
+  }
+  if (
+    !(installed.manifest.contributions?.skills ?? []).some((skill) => skill.path === input.path)
+  ) {
+    throw new AppInstallationStateError(
+      "invalid-state",
+      `${input.path} is not declared by ${installed.name}.`,
+    );
+  }
+  const key = spaceAppStateKey(input.spaceId, input.appId);
+  const current = state.spaceStateByKey[key] ?? {
+    appId: input.appId,
+    spaceId: input.spaceId,
+    enabled: false,
+    permissions: {},
+    settings: {},
+    settingMigrations: {},
+    skills: {},
+  };
+  return {
+    ...state,
+    spaceStateByKey: {
+      ...state.spaceStateByKey,
+      [key]: { ...current, skills: { ...current.skills, [input.path]: input.enabled } },
+    },
+  };
+}
+
+export function reconcileSpaceAppSkills(
+  state: AppInstallationState,
+  appId: string,
+): AppInstallationState {
+  const installed = state.packagesByAppId[appId];
+  if (!installed) {
+    throw new AppInstallationStateError("app-not-installed", `${appId} is not installed.`);
+  }
+  const declared = new Set(
+    (installed.manifest.contributions?.skills ?? []).map((skill) => skill.path),
+  );
+  const spaceStateByKey = Object.fromEntries(
+    Object.entries(state.spaceStateByKey).map(([key, space]) => [
+      key,
+      space.appId === appId
+        ? {
+            ...space,
+            skills: Object.fromEntries(
+              Object.entries(space.skills).filter(([path]) => declared.has(path)),
+            ),
+          }
+        : space,
+    ]),
+  );
+  return { ...state, spaceStateByKey };
 }
 
 export function removeRetainedAppState(

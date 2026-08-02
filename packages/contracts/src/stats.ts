@@ -65,7 +65,7 @@ export type ProfileSkillUsage = typeof ProfileSkillUsage.Type;
 export const ProfileMostWorkedProject = Schema.Struct({
   projectId: TrimmedNonEmptyString,
   title: TrimmedNonEmptyString,
-  workspaceRoot: TrimmedNonEmptyString,
+  workspaceRoot: Schema.NullOr(TrimmedNonEmptyString),
   promptCount: NonNegativeInt,
   threadCount: NonNegativeInt,
   activeDays: NonNegativeInt,

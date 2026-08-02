@@ -4,7 +4,7 @@ import {
   ORCHESTRATION_WS_METHODS,
   type MessageId,
   type OrchestrationReadModel,
-  type ProjectId,
+  type ContainerId,
   type ServerConfig,
   type ThreadId,
   type WsWelcomePayload,
@@ -31,7 +31,7 @@ import { createBrowserTestServerConfig, createFullscreenTestHost } from "../test
 import { resetWsNativeApiForTest } from "../wsNativeApi";
 
 const THREAD_ID = "thread-kb-toast-test" as ThreadId;
-const PROJECT_ID = "project-1" as ProjectId;
+const PROJECT_ID = "project-1" as ContainerId;
 const NOW_ISO = "2026-03-04T12:00:00.000Z";
 
 interface TestFixture {

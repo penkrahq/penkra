@@ -1,4 +1,4 @@
-import { ProjectId, ThreadId, TurnId } from "@penkra/contracts";
+import { ContainerId, ThreadId, TurnId } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 
 import { type DraftThreadState } from "./composerDraftStore";
@@ -6,7 +6,7 @@ import { resolveFocusedChatContext } from "./focusedChatContext";
 import type { Project, Thread } from "./types";
 import type { SplitView } from "./splitViewStore";
 
-const PROJECT_ID = ProjectId.makeUnsafe("project-1");
+const PROJECT_ID = ContainerId.makeUnsafe("project-1");
 const THREAD_A = ThreadId.makeUnsafe("thread-a");
 const THREAD_B = ThreadId.makeUnsafe("thread-b");
 

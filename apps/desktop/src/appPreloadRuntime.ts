@@ -24,15 +24,45 @@ export interface AppPreloadTransport {
   send(message: AppPreloadRendererMessage): void;
   onHostMessage(listener: (message: unknown) => void): () => void;
   ready(): void;
-  queryPermission(name: import("@penkra/sdk").PenkraPermissionName): Promise<import("@penkra/sdk").AppPermissionStatus>;
+  queryPermission(
+    name: import("@penkra/sdk").PenkraPermissionName,
+  ): Promise<import("@penkra/sdk").AppPermissionStatus>;
+  requestPermission(
+    name: import("@penkra/sdk").PenkraPermissionName,
+  ): Promise<import("@penkra/sdk").AppPermissionStatus>;
+  getIdentity(): Promise<import("@penkra/sdk").AppIdentity>;
+  settingGet(key: string): Promise<boolean | number | string>;
+  settingSet(input: { key: string; value: boolean | number | string }): Promise<void>;
+  settingReset(key: string): Promise<void>;
+  secretGet(name: string): Promise<string | null>;
+  secretSet(input: { name: string; value: string }): Promise<void>;
+  secretDelete(name: string): Promise<void>;
+  filePick(kind: "file" | "directory"): Promise<import("@penkra/sdk").AppFileHandle | null>;
+  fileList(): Promise<ReadonlyArray<import("@penkra/sdk").AppFileHandle>>;
+  fileReadText(handleId: string): Promise<string>;
+  fileWriteText(input: { handleId: string; contents: string }): Promise<void>;
+  fileListDirectory(
+    handleId: string,
+  ): Promise<ReadonlyArray<{ name: string; kind: "file" | "directory" }>>;
+  fileOpenChild(input: {
+    handleId: string;
+    relativePath: string;
+  }): Promise<import("@penkra/sdk").AppFileHandle>;
+  fileRevoke(handleId: string): Promise<void>;
+  networkFetch(
+    input: Parameters<import("@penkra/sdk").PenkraAppRuntimeApi["network"]["fetch"]>[0],
+  ): ReturnType<import("@penkra/sdk").PenkraAppRuntimeApi["network"]["fetch"]>;
+  rawSocketExchange(
+    input: Parameters<import("@penkra/sdk").PenkraAppRuntimeApi["sockets"]["exchange"]>[0],
+  ): ReturnType<import("@penkra/sdk").PenkraAppRuntimeApi["sockets"]["exchange"]>;
+  processRun(
+    input: Parameters<import("@penkra/sdk").PenkraAppRuntimeApi["processes"]["run"]>[0],
+  ): ReturnType<import("@penkra/sdk").PenkraAppRuntimeApi["processes"]["run"]>;
 }
 
 interface ActiveRequest {
   controller: AbortController;
-  contextCalls: Map<
-    string,
-    { resolve(value: unknown): void; reject(error: Error): void }
-  >;
+  contextCalls: Map<string, { resolve(value: unknown): void; reject(error: Error): void }>;
 }
 
 export class AppPreloadRuntime {
@@ -41,7 +71,7 @@ export class AppPreloadRuntime {
   readonly #operationHandlers = new Map<string, AppOperationHandler>();
   readonly #tabHandlers = new Map<string, AppTabOperationHandler>();
   readonly #active = new Map<string, ActiveRequest>();
-  #navigationHandler: AppTabNavigationHandler | null = null;
+  #navigationHandler: AppTabNavigationHandler<unknown> | null = null;
   #nextContextCallId = 0;
   #unsubscribe: (() => void) | null = null;
   #ready = false;
@@ -49,20 +79,65 @@ export class AppPreloadRuntime {
   constructor(transport: AppPreloadTransport) {
     this.#transport = transport;
     this.api = {
+      identity: {
+        get: () => this.#transport.getIdentity(),
+      },
+      settings: {
+        get: (key) => this.#transport.settingGet(key),
+        set: (key, value) => this.#transport.settingSet({ key, value }),
+        reset: (key) => this.#transport.settingReset(key),
+      },
+      secrets: {
+        get: (name) => this.#transport.secretGet(name),
+        set: (name, value) => this.#transport.secretSet({ name, value }),
+        delete: (name) => this.#transport.secretDelete(name),
+      },
+      files: {
+        pick: (kind) => this.#transport.filePick(kind),
+        list: () => this.#transport.fileList(),
+        readText: (handleId) => this.#transport.fileReadText(handleId),
+        writeText: (handleId, contents) => this.#transport.fileWriteText({ handleId, contents }),
+        listDirectory: (handleId) => this.#transport.fileListDirectory(handleId),
+        openChild: (handleId, relativePath) =>
+          this.#transport.fileOpenChild({ handleId, relativePath }),
+        revoke: (handleId) => this.#transport.fileRevoke(handleId),
+      },
+      network: {
+        fetch: (input) => this.#transport.networkFetch(input),
+      },
+      sockets: {
+        exchange: (input) => this.#transport.rawSocketExchange(input),
+      },
+      processes: {
+        run: (input) => this.#transport.processRun(input),
+      },
       permissions: {
         query: (name) => this.#transport.queryPermission(name),
+        request: (name) => this.#transport.requestPermission(name),
       },
       operations: {
         handle: (handlerKey, handler) =>
-          registerUnique(this.#operationHandlers, handlerKey, handler, "operation handler"),
+          registerUnique(
+            this.#operationHandlers,
+            handlerKey,
+            handler as AppOperationHandler,
+            "operation handler",
+          ),
       },
       tab: {
         handle: (operation, handler) =>
-          registerUnique(this.#tabHandlers, operation, handler, "tab handler"),
+          registerUnique(
+            this.#tabHandlers,
+            operation,
+            handler as AppTabOperationHandler,
+            "tab handler",
+          ),
         onNavigate: (handler) => {
-          if (typeof handler !== "function") throw new TypeError("Navigation handler must be a function.");
-          if (this.#navigationHandler) throw new Error("A tab navigation handler is already registered.");
-          this.#navigationHandler = handler;
+          if (typeof handler !== "function")
+            throw new TypeError("Navigation handler must be a function.");
+          if (this.#navigationHandler)
+            throw new Error("A tab navigation handler is already registered.");
+          this.#navigationHandler = handler as AppTabNavigationHandler<unknown>;
           return () => {
             if (this.#navigationHandler === handler) this.#navigationHandler = null;
           };
@@ -73,7 +148,9 @@ export class AppPreloadRuntime {
 
   start(): void {
     if (this.#unsubscribe) return;
-    this.#unsubscribe = this.#transport.onHostMessage((message) => this.#acceptHostMessage(message));
+    this.#unsubscribe = this.#transport.onHostMessage((message) =>
+      this.#acceptHostMessage(message),
+    );
   }
 
   markReady(): void {
@@ -103,7 +180,8 @@ export class AppPreloadRuntime {
       const requestId = typeof candidate.id === "string" ? candidate.id : "";
       const request = requestId ? this.#active.get(requestId) : undefined;
       if (!request) return;
-      const reason = typeof candidate.reason === "string" ? candidate.reason : "operation-cancelled";
+      const reason =
+        typeof candidate.reason === "string" ? candidate.reason : "operation-cancelled";
       const error = Object.assign(new Error(`App request cancelled: ${reason}.`), {
         code: reason.toUpperCase().replaceAll("-", "_"),
       });
@@ -159,7 +237,11 @@ export class AppPreloadRuntime {
     const input = requireRecord(value);
     const handlerKey = requireString(input.handler, "handler");
     const handler = this.#operationHandlers.get(handlerKey);
-    if (!handler) throw runtimeError("HANDLER_NOT_REGISTERED", `Operation handler ${handlerKey} is not registered.`);
+    if (!handler)
+      throw runtimeError(
+        "HANDLER_NOT_REGISTERED",
+        `Operation handler ${handlerKey} is not registered.`,
+      );
     const invocation = parseInvocation(input.invocation);
     const context = this.#operationContext(parentId, request, invocation);
     return handler(input.input, context);
@@ -169,13 +251,20 @@ export class AppPreloadRuntime {
     const input = requireRecord(value);
     const operation = requireString(input.operation, "operation");
     const handler = this.#tabHandlers.get(operation);
-    if (!handler) throw runtimeError("TAB_HANDLER_NOT_REGISTERED", `Tab handler ${operation} is not registered.`);
+    if (!handler)
+      throw runtimeError(
+        "TAB_HANDLER_NOT_REGISTERED",
+        `Tab handler ${operation} is not registered.`,
+      );
     return handler(input.input, { signal: request.controller.signal });
   }
 
   async #navigateTab(request: ActiveRequest, value: unknown): Promise<unknown> {
     if (!this.#navigationHandler) {
-      throw runtimeError("NAVIGATION_HANDLER_NOT_REGISTERED", "A tab navigation handler is not registered.");
+      throw runtimeError(
+        "NAVIGATION_HANDLER_NOT_REGISTERED",
+        "A tab navigation handler is not registered.",
+      );
     }
     const input = requireRecord(value);
     return this.#navigationHandler(
@@ -206,40 +295,54 @@ export class AppPreloadRuntime {
           const id = requireString(result.id, "id");
           return this.#tabHandle(parentId, request, id, true);
         },
-        openForResult: (input) =>
-          this.#contextCall(parentId, request, "context.tabs.open-for-result", input),
+        openForResult: <Result = unknown>(input: { route: string; state?: unknown }) =>
+          this.#contextCall(
+            parentId,
+            request,
+            "context.tabs.open-for-result",
+            input,
+          ) as Promise<Result>,
+      },
+      operations: {
+        invoke: <Result = unknown>(input: import("@penkra/sdk").OperationRequest) =>
+          this.#contextCall(
+            parentId,
+            request,
+            "context.operations.invoke",
+            input,
+          ) as Promise<Result>,
       },
       signal: request.controller.signal,
     };
   }
 
-  #tabHandle(parentId: string, request: ActiveRequest, id: string, opened: boolean) {
+  #tabHandle(
+    parentId: string,
+    request: ActiveRequest,
+    id: string,
+    opened: boolean,
+  ): import("@penkra/sdk").AppTabHandle {
     const withHandle = (input: Record<string, unknown>) =>
       opened ? { ...input, handleId: id } : input;
     return {
       id,
       navigate: async (input: { route: string; state?: unknown }) => {
-        await this.#contextCall(
-          parentId,
-          request,
-          "context.tab.navigate",
-          withHandle(input),
-        );
+        await this.#contextCall(parentId, request, "context.tab.navigate", withHandle(input));
       },
-      navigateForResult: (input: { route: string; state?: unknown }) =>
+      navigateForResult: <Result = unknown>(input: { route: string; state?: unknown }) =>
         this.#contextCall(
           parentId,
           request,
           "context.tab.navigate-for-result",
           withHandle(input),
-        ),
-      invoke: (input: { operation: string; input: unknown }) =>
+        ) as Promise<Result>,
+      invoke: <Result = unknown>(input: { operation: string; input: unknown }) =>
         this.#contextCall(
           parentId,
           request,
           "context.tab.invoke",
           withHandle(input),
-        ),
+        ) as Promise<Result>,
     };
   }
 
@@ -309,9 +412,19 @@ function parseInvocation(value: unknown): OperationContext["invocation"] {
     id: requireString(input.id, "invocation.id"),
     app: requireString(input.app, "invocation.app"),
     operation: requireString(input.operation, "invocation.operation"),
-    spaceId: requireString(input.spaceId, "invocation.spaceId"),
+    caller: input.caller === null ? null : parseCaller(input.caller),
+    subject: input.subject === null ? null : requireString(input.subject, "invocation.subject"),
+    space: requireString(input.space, "invocation.space"),
     threadId: requireString(input.threadId, "invocation.threadId"),
     ...(input.tabId === undefined ? {} : { tabId: requireString(input.tabId, "invocation.tabId") }),
+  };
+}
+
+function parseCaller(value: unknown): { app: string; invocationId: string } {
+  const input = requireRecord(value);
+  return {
+    app: requireString(input.app, "invocation.caller.app"),
+    invocationId: requireString(input.invocationId, "invocation.caller.invocationId"),
   };
 }
 
@@ -335,8 +448,12 @@ function runtimeError(code: string, message: string): Error & { code: string } {
 
 function serializeError(error: unknown): { code: string; message: string } {
   if (error instanceof Error) {
-    const code = isRecord(error) && typeof error.code === "string" ? error.code : "APP_HANDLER_FAILED";
-    return { code: /^[A-Z][A-Z0-9_]{0,127}$/.test(code) ? code : "APP_HANDLER_FAILED", message: error.message.slice(0, 2_048) };
+    const code =
+      isRecord(error) && typeof error.code === "string" ? error.code : "APP_HANDLER_FAILED";
+    return {
+      code: /^[A-Z][A-Z0-9_]{0,127}$/.test(code) ? code : "APP_HANDLER_FAILED",
+      message: error.message.slice(0, 2_048),
+    };
   }
   return { code: "APP_HANDLER_FAILED", message: String(error).slice(0, 2_048) };
 }

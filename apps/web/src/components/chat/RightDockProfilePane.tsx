@@ -3,7 +3,7 @@
 // Layer: Chat right-dock UI
 // Exports: RightDockProfilePane
 
-import type { ProjectId } from "@penkra/contracts";
+import type { ContainerId } from "@penkra/contracts";
 import { memo, useState } from "react";
 
 import { CheckCircle2Icon, TriangleAlertIcon } from "~/lib/icons";
@@ -59,7 +59,7 @@ const STATUS_CONFIG = {
 } as const;
 
 export const RightDockProfilePane = memo(function RightDockProfilePane(props: {
-  projectId: ProjectId;
+  projectId: ContainerId;
 }) {
   const project = useStore((store) =>
     store.projects.find((candidate) => candidate.id === props.projectId),
