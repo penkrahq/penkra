@@ -42,12 +42,16 @@ function installedApp(patch: Partial<InstalledAppPackage> = {}): InstalledAppPac
 
 function sessionFixture() {
   const listeners = {
+    download: null as null | ((event: { preventDefault(): void }) => void),
     request: null as null | ((details: { url: string }, callback: (value: unknown) => void) => void),
     protocol: null as null | ((request: Request) => Promise<Response>),
   };
   const fixture = {
     listeners,
     session: {
+      on: vi.fn((event, listener) => {
+        if (event === "will-download") listeners.download = listener;
+      }),
       protocol: {
         handle: vi.fn(async (_scheme, handler) => {
           listeners.protocol = handler;
@@ -88,6 +92,9 @@ describe("AppSessionManager", () => {
     expect(active.session).toBe(fixture.session);
     expect(fixture.session.setPermissionCheckHandler).toHaveBeenCalledOnce();
     expect(fixture.session.setPermissionRequestHandler).toHaveBeenCalledOnce();
+    const preventDownload = vi.fn();
+    fixture.listeners.download?.({ preventDefault: preventDownload });
+    expect(preventDownload).toHaveBeenCalledOnce();
     expect(fixture.session.protocol.handle).toHaveBeenCalledWith(
       PENKRA_APP_SCHEME,
       expect.any(Function),

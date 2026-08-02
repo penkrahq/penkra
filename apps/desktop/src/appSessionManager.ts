@@ -125,6 +125,7 @@ export class AppSessionManager {
 }
 
 function configureAppSession(partitionSession: Session, appId: string): void {
+  partitionSession.on("will-download", (event) => event.preventDefault());
   partitionSession.setPermissionCheckHandler(() => false);
   partitionSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
     callback(false);
