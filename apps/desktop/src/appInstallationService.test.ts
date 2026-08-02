@@ -181,6 +181,26 @@ describe("AppInstallationService", () => {
     })).resolves.toMatchObject({ packagesByAppId: { "com.acme.figma": { version: "2.0.0" } } });
   });
 
+  it("restarts enabled Spaces when validated sideload bytes change", async () => {
+    const test = fixture();
+    const initial = { ...verifiedPackage(), source: "sideload" as const };
+    await test.service.install(initial);
+    await test.service.setEnabled({ appId: "com.acme.figma", spaceId: "personal", enabled: true });
+    const update = { ...verifiedPackage(), source: "sideload" as const };
+    update.manifest.version = "1.0.1-dev";
+    update.sha256 = "b".repeat(64);
+
+    await test.service.updateSideloadForSpaces({ package: update });
+
+    expect(test.lifecycle.disable).toHaveBeenCalledWith("com.acme.figma", "personal");
+    expect(test.lifecycle.enable).toHaveBeenLastCalledWith("com.acme.figma", "personal");
+    expect(test.state().packagesByAppId["com.acme.figma"]).toMatchObject({
+      source: "sideload",
+      version: "1.0.1-dev",
+      sha256: "b".repeat(64),
+    });
+  });
+
   it("restores the prior package and runtime when updated activation fails", async () => {
     const test = fixture();
     await test.service.install(verifiedPackage());

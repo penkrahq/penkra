@@ -342,6 +342,13 @@ export function replaceVerifiedRegistryAppPackage(
   state: AppInstallationState,
   input: VerifiedAppPackageInput & { source: "registry" },
 ): AppInstallationState {
+  return replaceVerifiedAppPackage(state, input);
+}
+
+export function replaceVerifiedAppPackage(
+  state: AppInstallationState,
+  input: VerifiedAppPackageInput,
+): AppInstallationState {
   const installedPackage = toInstalledPackage(input);
   const existing = state.packagesByAppId[installedPackage.appId];
   if (!existing) {
@@ -350,10 +357,10 @@ export function replaceVerifiedRegistryAppPackage(
       `${installedPackage.appId} is not installed.`,
     );
   }
-  if (existing.source !== "registry" || existing.slug !== installedPackage.slug) {
+  if (existing.source !== installedPackage.source || existing.slug !== installedPackage.slug) {
     throw new AppInstallationStateError(
       "source-mismatch",
-      "Registry updates cannot replace a sideload or change an installed App slug.",
+      "App updates cannot change package source or the installed App slug.",
     );
   }
   return {

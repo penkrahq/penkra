@@ -6,6 +6,7 @@ import {
   registerVerifiedAppPackage,
   removeRetainedAppState,
   replaceSpaceAppPermissions,
+  replaceVerifiedAppPackage,
   replaceVerifiedRegistryAppPackage,
   setSpaceAppPermission,
   unregisterAppPackage,
@@ -96,6 +97,29 @@ export class AppInstallationService {
 
   updateForSpaces(input: {
     package: VerifiedAppPackageInput & { source: "registry" };
+    permissionsBySpace: Readonly<Record<string, Readonly<Record<string, AppPermissionGrant>>>>;
+  }): Promise<AppInstallationState> {
+    return this.#updateForSpaces(input);
+  }
+
+  updateSideloadForSpaces(input: {
+    package: VerifiedAppPackageInput & { source: "sideload" };
+  }): Promise<AppInstallationState> {
+    const current = this.#store.snapshot();
+    const existing = current.packagesByAppId[input.package.manifest.id];
+    if (!existing || existing.source !== "sideload") {
+      return Promise.reject(new Error(`${input.package.manifest.id} is not installed as a sideload.`));
+    }
+    const permissionsBySpace = Object.fromEntries(
+      Object.values(current.spaceStateByKey)
+        .filter((space) => space.appId === existing.appId)
+        .map((space) => [space.spaceId, space.permissions]),
+    );
+    return this.#updateForSpaces({ package: input.package, permissionsBySpace });
+  }
+
+  #updateForSpaces(input: {
+    package: VerifiedAppPackageInput;
     permissionsBySpace: Readonly<Record<string, Readonly<Record<string, AppPermissionGrant>>>>;
   }): Promise<AppInstallationState> {
     return this.#enqueue(async () => {
@@ -232,12 +256,12 @@ export class AppInstallationService {
 function applyUpdate(
   state: AppInstallationState,
   input: {
-    package: VerifiedAppPackageInput & { source: "registry" };
+    package: VerifiedAppPackageInput;
     permissionsBySpace: Readonly<Record<string, Readonly<Record<string, AppPermissionGrant>>>>;
   },
 ): AppInstallationState {
   const appId = input.package.manifest.id;
-  let next = replaceVerifiedRegistryAppPackage(state, input.package);
+  let next = replaceVerifiedAppPackage(state, input.package);
   const declarations = input.package.manifest.permissions ?? [];
   const reviewRequired = new Set(permissionsRequiringUpdateReview(
     state.packagesByAppId[appId]?.manifest.permissions ?? [],

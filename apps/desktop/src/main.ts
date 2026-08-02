@@ -249,6 +249,10 @@ import {
   PENKRA_APPS_PACKAGE_PATH_ENV,
   resolveFirstPartyAppsPackagePath,
 } from "./firstPartyAppsBootstrap";
+import {
+  bootstrapDevelopmentSideload,
+  PENKRA_SIDELOAD_APP_PATH_ENV,
+} from "./developmentAppSideload";
 import { createInitialWindowPresenter } from "./initialWindowVisibility";
 import {
   parseAppTabIdRequest,
@@ -4579,6 +4583,15 @@ async function bootstrap(): Promise<void> {
     }
   } else {
     console.warn("The first-party Apps package is unavailable in this desktop build.");
+  }
+  const developmentSideloadPath = process.env[PENKRA_SIDELOAD_APP_PATH_ENV]?.trim();
+  if (!app.isPackaged && developmentSideloadPath) {
+    try {
+      const status = await bootstrapDevelopmentSideload(desktopAppRuntime, developmentSideloadPath);
+      console.info(`[penkra-app] Development sideload ${status}: ${developmentSideloadPath}`);
+    } catch (error) {
+      console.error(`[penkra-app] Development sideload failed: ${formatErrorMessage(error)}`);
+    }
   }
   desktopAppRuntime.installations.subscribe((state) => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
