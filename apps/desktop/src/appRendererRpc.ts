@@ -15,6 +15,16 @@ export const APP_RENDERER_RPC_METHODS = [
 
 export type AppRendererRpcMethod = (typeof APP_RENDERER_RPC_METHODS)[number];
 
+export const APP_RENDERER_CONTEXT_METHODS = [
+  "context.tab.invoke",
+  "context.tab.navigate",
+  "context.tab.navigate-for-result",
+  "context.tabs.open",
+  "context.tabs.open-for-result",
+] as const;
+
+export type AppRendererContextMethod = (typeof APP_RENDERER_CONTEXT_METHODS)[number];
+
 export interface AppRendererRpcRequestMessage {
   type: "request";
   id: string;
@@ -28,13 +38,32 @@ export interface AppRendererRpcCancelMessage {
   reason: OperationCancellationCode;
 }
 
+export type AppRendererRpcContextResponseMessage =
+  | { type: "context-result"; parentId: string; id: string; result: unknown }
+  | {
+      type: "context-error";
+      parentId: string;
+      id: string;
+      code: string;
+      message: string;
+    };
+
 export type AppRendererRpcHostMessage =
   | AppRendererRpcRequestMessage
-  | AppRendererRpcCancelMessage;
+  | AppRendererRpcCancelMessage
+  | AppRendererRpcContextResponseMessage;
 
 export type AppRendererRpcResponseMessage =
   | { type: "result"; id: string; result: unknown }
   | { type: "error"; id: string; code: string; message: string };
+
+export interface AppRendererRpcContextCallMessage {
+  type: "context-call";
+  parentId: string;
+  id: string;
+  method: AppRendererContextMethod;
+  input: unknown;
+}
 
 export interface AppRendererRpcTarget {
   /** Host-owned renderer identity, conventionally Electron webContents.id. */
@@ -45,6 +74,11 @@ export interface AppRendererRpcTarget {
 export interface AppRendererRpcRequestOptions {
   signal?: AbortSignal;
   timeoutMs?: number;
+  handleContextCall?: (
+    method: AppRendererContextMethod,
+    input: unknown,
+    signal: AbortSignal,
+  ) => Promise<unknown> | unknown;
 }
 
 export type AppRendererRpcErrorCode =
@@ -83,11 +117,17 @@ interface PendingRequest {
   timeout: ReturnType<typeof setTimeout>;
   signal?: AbortSignal;
   abortListener?: () => void;
+  contextController: AbortController;
+  handleContextCall?: AppRendererRpcRequestOptions["handleContextCall"];
+  activeContextCalls: Set<string>;
+  seenContextCalls: Set<string>;
 }
 
 const DEFAULT_MAX_PAYLOAD_BYTES = 1024 * 1024;
 const DEFAULT_MAX_PENDING_PER_TARGET = 128;
 const DEFAULT_TIMEOUT_MS = 120_000;
+const MAX_CONTEXT_CALLS_PER_REQUEST = 32;
+const MAX_TOTAL_CONTEXT_CALLS_PER_REQUEST = 1_024;
 
 export class AppRendererRpcHost {
   readonly #targets = new Map<number, AppRendererRpcTarget>();
@@ -171,6 +211,10 @@ export class AppRendererRpcHost {
         reject,
         timeout,
         signal: options.signal,
+        contextController: new AbortController(),
+        handleContextCall: options.handleContextCall,
+        activeContextCalls: new Set(),
+        seenContextCalls: new Set(),
       };
       if (options.signal) {
         pending.abortListener = () => {
@@ -200,6 +244,79 @@ export class AppRendererRpcHost {
         new AppRendererRpcError("renderer-error", response.message, response.code),
       );
     }
+    return true;
+  }
+
+  acceptContextCall(senderTargetId: number, candidate: unknown): boolean {
+    const call = parseContextCall(candidate, this.#maxPayloadBytes);
+    const pending = this.#pending.get(call.parentId);
+    if (!pending || pending.targetId !== senderTargetId) return false;
+    if (!pending.handleContextCall) {
+      this.#sendContextError(
+        senderTargetId,
+        call,
+        "CONTEXT_CALL_UNAVAILABLE",
+        "This request does not expose App context calls.",
+      );
+      return true;
+    }
+    if (
+      pending.seenContextCalls.has(call.id) ||
+      pending.seenContextCalls.size >= MAX_TOTAL_CONTEXT_CALLS_PER_REQUEST ||
+      pending.activeContextCalls.size >= MAX_CONTEXT_CALLS_PER_REQUEST
+    ) {
+      this.#sendContextError(
+        senderTargetId,
+        call,
+        "CONTEXT_CALL_LIMIT",
+        "This request has too many active or duplicate context calls.",
+      );
+      return true;
+    }
+
+    pending.seenContextCalls.add(call.id);
+    pending.activeContextCalls.add(call.id);
+    void Promise.resolve()
+      .then(() =>
+        pending.handleContextCall?.(
+          call.method,
+          call.input,
+          pending.contextController.signal,
+        ),
+      )
+      .then(
+      (result) => {
+        const current = this.#pending.get(call.parentId);
+        if (current !== pending || !pending.activeContextCalls.delete(call.id)) return;
+        try {
+          assertPayloadSize(result, this.#maxPayloadBytes);
+          this.#sendContextMessage(senderTargetId, {
+            type: "context-result",
+            parentId: call.parentId,
+            id: call.id,
+            result,
+          });
+        } catch (error) {
+          this.#sendContextError(
+            senderTargetId,
+            call,
+            "INVALID_CONTEXT_RESULT",
+            toError(error).message,
+          );
+        }
+      },
+      (error) => {
+        const current = this.#pending.get(call.parentId);
+        if (current !== pending || !pending.activeContextCalls.delete(call.id)) return;
+        const publicError = toPublicContextError(error);
+        this.#sendContextError(
+          senderTargetId,
+          call,
+          publicError.code,
+          publicError.message,
+        );
+      },
+    );
     return true;
   }
 
@@ -242,6 +359,9 @@ export class AppRendererRpcHost {
     const pending = this.#pending.get(id);
     if (!pending) return;
     this.#pending.delete(id);
+    pending.contextController.abort(new Error("Parent App request settled."));
+    pending.activeContextCalls.clear();
+    pending.seenContextCalls.clear();
     clearTimeout(pending.timeout);
     if (pending.signal && pending.abortListener) {
       pending.signal.removeEventListener("abort", pending.abortListener);
@@ -262,6 +382,30 @@ export class AppRendererRpcHost {
       throw new AppRendererRpcError("invalid-message", "RPC request ID generator returned an invalid ID.");
     }
     return id;
+  }
+
+  #sendContextError(
+    targetId: number,
+    call: Pick<AppRendererRpcContextCallMessage, "parentId" | "id">,
+    code: string,
+    message: string,
+  ): void {
+    this.#sendContextMessage(targetId, {
+      type: "context-error",
+      parentId: call.parentId,
+      id: call.id,
+      code: sanitizeErrorCode(code),
+      message: message.slice(0, 2_048),
+    });
+  }
+
+  #sendContextMessage(targetId: number, message: AppRendererRpcContextResponseMessage): void {
+    try {
+      this.#targets.get(targetId)?.send(message);
+    } catch {
+      // Renderer destruction races target-unregister events. The parent request
+      // remains authoritative and will be cancelled when that event arrives.
+    }
   }
 }
 
@@ -286,6 +430,34 @@ function parseResponse(candidate: unknown, maxPayloadBytes: number): AppRenderer
     throw new AppRendererRpcError("invalid-message", "App renderer error response is invalid.");
   }
   return { type: "error", id: candidate.id, code: candidate.code, message: candidate.message };
+}
+
+function parseContextCall(
+  candidate: unknown,
+  maxPayloadBytes: number,
+): AppRendererRpcContextCallMessage {
+  if (
+    !isRecord(candidate) ||
+    candidate.type !== "context-call" ||
+    typeof candidate.parentId !== "string" ||
+    candidate.parentId.length === 0 ||
+    candidate.parentId.length > 128 ||
+    typeof candidate.id !== "string" ||
+    candidate.id.length === 0 ||
+    candidate.id.length > 128 ||
+    typeof candidate.method !== "string" ||
+    !APP_RENDERER_CONTEXT_METHODS.includes(candidate.method as AppRendererContextMethod)
+  ) {
+    throw new AppRendererRpcError("invalid-message", "App renderer context call is invalid.");
+  }
+  assertPayloadSize(candidate.input, maxPayloadBytes);
+  return {
+    type: "context-call",
+    parentId: candidate.parentId,
+    id: candidate.id,
+    method: candidate.method as AppRendererContextMethod,
+    input: candidate.input,
+  };
 }
 
 function assertPayloadSize(value: unknown, maxPayloadBytes: number): void {
@@ -362,4 +534,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function toError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
+}
+
+function toPublicContextError(error: unknown): { code: string; message: string } {
+  if (isRecord(error) && typeof error.code === "string" && error instanceof Error) {
+    return { code: sanitizeErrorCode(error.code), message: error.message.slice(0, 2_048) };
+  }
+  return { code: "CONTEXT_CALL_FAILED", message: toError(error).message.slice(0, 2_048) };
+}
+
+function sanitizeErrorCode(value: string): string {
+  return /^[A-Z][A-Z0-9_]{0,127}$/.test(value) ? value : "CONTEXT_CALL_FAILED";
 }

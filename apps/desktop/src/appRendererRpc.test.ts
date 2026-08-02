@@ -157,4 +157,162 @@ describe("AppRendererRpcHost", () => {
       code: "host-stopped",
     });
   });
+
+  it("binds renderer context calls to their exact parent request and target", async () => {
+    const test = fixture();
+    const handleContextCall = vi.fn(async (method, input) => ({ method, input }));
+    const result = test.host.request(
+      17,
+      "controller.invoke",
+      {},
+      { handleContextCall },
+    );
+
+    expect(
+      test.host.acceptContextCall(18, {
+        type: "context-call",
+        parentId: "request-1",
+        id: "context-1",
+        method: "context.tabs.open",
+        input: { route: "/issues/new" },
+      }),
+    ).toBe(false);
+    expect(
+      test.host.acceptContextCall(17, {
+        type: "context-call",
+        parentId: "request-1",
+        id: "context-1",
+        method: "context.tabs.open",
+        input: { route: "/issues/new" },
+      }),
+    ).toBe(true);
+    await vi.waitFor(() => {
+      expect(test.sent).toContainEqual({
+        type: "context-result",
+        parentId: "request-1",
+        id: "context-1",
+        result: {
+          method: "context.tabs.open",
+          input: { route: "/issues/new" },
+        },
+      });
+    });
+    test.host.acceptResponse(17, { type: "result", id: "request-1", result: "done" });
+    await expect(result).resolves.toBe("done");
+  });
+
+  it("aborts active context calls when the parent request settles", async () => {
+    const test = fixture();
+    let contextSignal: AbortSignal | undefined;
+    const handleContextCall = vi.fn(
+      async (_method, _input, signal: AbortSignal) =>
+        new Promise((_resolve, reject) => {
+          contextSignal = signal;
+          signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+        }),
+    );
+    const result = test.host.request(17, "controller.invoke", {}, { handleContextCall });
+    test.host.acceptContextCall(17, {
+      type: "context-call",
+      parentId: "request-1",
+      id: "context-1",
+      method: "context.tab.invoke",
+      input: {},
+    });
+
+    test.host.acceptResponse(17, { type: "result", id: "request-1", result: "done" });
+    await expect(result).resolves.toBe("done");
+    expect(contextSignal?.aborted).toBe(true);
+    await Promise.resolve();
+    expect(test.sent.some((message) => (message as { type?: string }).type === "context-error"))
+      .toBe(false);
+  });
+
+  it("returns scoped context errors instead of settling the parent request", async () => {
+    const test = fixture();
+    const error = Object.assign(new Error("Choose an issue tab."), { code: "TAB_REQUIRED" });
+    const result = test.host.request(17, "controller.invoke", {}, {
+      handleContextCall: async () => {
+        throw error;
+      },
+    });
+    test.host.acceptContextCall(17, {
+      type: "context-call",
+      parentId: "request-1",
+      id: "context-1",
+      method: "context.tab.navigate",
+      input: { route: "/issues/new" },
+    });
+
+    await vi.waitFor(() => {
+      expect(test.sent).toContainEqual({
+        type: "context-error",
+        parentId: "request-1",
+        id: "context-1",
+        code: "TAB_REQUIRED",
+        message: "Choose an issue tab.",
+      });
+    });
+    test.host.acceptResponse(17, { type: "result", id: "request-1", result: "continued" });
+    await expect(result).resolves.toBe("continued");
+  });
+
+  it("converts a synchronous context-handler throw into a scoped error", async () => {
+    const test = fixture();
+    const result = test.host.request(17, "controller.invoke", {}, {
+      handleContextCall: () => {
+        throw Object.assign(new Error("No target tab."), { code: "TAB_REQUIRED" });
+      },
+    });
+    expect(() =>
+      test.host.acceptContextCall(17, {
+        type: "context-call",
+        parentId: "request-1",
+        id: "context-1",
+        method: "context.tab.invoke",
+        input: {},
+      }),
+    ).not.toThrow();
+    await vi.waitFor(() => {
+      expect(test.sent).toContainEqual(
+        expect.objectContaining({
+          type: "context-error",
+          id: "context-1",
+          code: "TAB_REQUIRED",
+        }),
+      );
+    });
+    test.host.acceptResponse(17, { type: "result", id: "request-1", result: null });
+    await expect(result).resolves.toBeNull();
+  });
+
+  it("rejects reuse of a context-call ID within one parent request", async () => {
+    const test = fixture();
+    const result = test.host.request(17, "controller.invoke", {}, {
+      handleContextCall: async () => "first",
+    });
+    const call = {
+      type: "context-call",
+      parentId: "request-1",
+      id: "context-1",
+      method: "context.tabs.open",
+      input: {},
+    };
+    test.host.acceptContextCall(17, call);
+    await vi.waitFor(() => {
+      expect(test.sent).toContainEqual(
+        expect.objectContaining({ type: "context-result", id: "context-1" }),
+      );
+    });
+    test.host.acceptContextCall(17, call);
+    expect(test.sent.at(-1)).toEqual(
+      expect.objectContaining({
+        type: "context-error",
+        id: "context-1",
+        code: "CONTEXT_CALL_LIMIT",
+      }),
+    );
+    test.host.acceptResponse(17, { type: "result", id: "request-1", result: null });
+    await expect(result).resolves.toBeNull();
+  });
 });

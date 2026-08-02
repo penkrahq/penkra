@@ -82,4 +82,16 @@ describe("validateAppManifest", () => {
       ]),
     );
   });
+
+  it("requires a controller entrypoint when operations are declared", () => {
+    const result = validateAppManifest({
+      ...validManifest,
+      entrypoints: { app: "app.html" },
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.issues).toContainEqual(
+      expect.objectContaining({ path: "entrypoints.operations", code: "missing" }),
+    );
+  });
 });

@@ -273,6 +273,19 @@ export function validateAppManifest(value: unknown): AppManifestValidationResult
     }
   }
   validateUniqueNames(operationNames, issues);
+  if (
+    Array.isArray(value.operations) &&
+    value.operations.length > 0 &&
+    isRecord(value.entrypoints) &&
+    value.entrypoints.operations === undefined
+  ) {
+    issue(
+      issues,
+      "entrypoints.operations",
+      "missing",
+      "Apps that declare operations must provide a controller entrypoint.",
+    );
+  }
 
   return issues.length === 0
     ? { ok: true, manifest: value as unknown as PenkraAppManifest }
