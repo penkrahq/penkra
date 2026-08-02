@@ -67,6 +67,22 @@ describe("workspace watcher lifecycle", () => {
     expect(closeCount).toBe(1);
   });
 
+  it("ignores projects without a filesystem workspace root", async () => {
+    const watched: string[] = [];
+    const manager = new WorkspaceWatcherManager(
+      async () => [null, undefined, "", "   ", "/tmp/workspace"],
+      () => undefined,
+      (watchRoot) => {
+        watched.push(watchRoot);
+        return { close: () => undefined };
+      },
+    );
+
+    await manager.start();
+    expect(watched).toEqual([path.resolve("/tmp/workspace")]);
+    await manager.close();
+  });
+
   it("publishes recursive file changes and closes the built-in watcher", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "penkra-workspace-watcher-"));
     let resolveEvent!: (event: { cwd: string; filesChanged: boolean }) => void;

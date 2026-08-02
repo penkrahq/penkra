@@ -97,7 +97,7 @@ export class WorkspaceWatcherManager {
   private closed = false;
 
   constructor(
-    private readonly readProjectRoots: () => Promise<string[]>,
+    private readonly readProjectRoots: () => Promise<readonly (string | null | undefined)[]>,
     private readonly publish: (event: ProjectWorkspaceChangeEvent) => void,
     private readonly createWorkspaceWatch: CreateWorkspaceWatch = createNodeWorkspaceWatch,
   ) {}
@@ -124,8 +124,13 @@ export class WorkspaceWatcherManager {
 
   private async reconcileOnce(): Promise<void> {
     if (this.closed) return;
+    const roots = await this.readProjectRoots();
     this.projectRoots = [
-      ...new Set((await this.readProjectRoots()).map((root) => path.resolve(root))),
+      ...new Set(
+        roots
+          .filter((root): root is string => typeof root === "string" && root.trim().length > 0)
+          .map((root) => path.resolve(root)),
+      ),
     ];
     const desiredWatchRoots = new Set(deduplicateWorkspaceRoots(this.projectRoots));
 
