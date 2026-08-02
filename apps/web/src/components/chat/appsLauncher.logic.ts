@@ -21,6 +21,7 @@ export function resolveAppsLauncherAction(input: {
 export function resolveAppsLauncherSpaceId(input: {
   persistedSpaceId: SpaceId | null;
   draftSpaceId: SpaceId | null;
+  projectSpaceId: SpaceId | null;
 }): SpaceId | null {
-  return input.persistedSpaceId ?? input.draftSpaceId;
+  return input.persistedSpaceId ?? input.draftSpaceId ?? input.projectSpaceId;
 }

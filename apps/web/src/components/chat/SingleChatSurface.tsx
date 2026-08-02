@@ -557,6 +557,7 @@ export function SingleChatSurface(props: {
     persistedSpaceId:
       threadSummaries.find((thread) => thread.id === props.threadId)?.spaceId ?? null,
     draftSpaceId,
+    projectSpaceId: activeProject?.spaceId ?? null,
   });
 
   useEffect(() => {

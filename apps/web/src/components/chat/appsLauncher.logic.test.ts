@@ -29,7 +29,13 @@ describe("fixed Apps launcher", () => {
   it("uses a Space-scoped draft before the thread is persisted", () => {
     const draftSpaceId = SpaceId.makeUnsafe("space-draft");
 
-    expect(resolveAppsLauncherSpaceId({ persistedSpaceId: null, draftSpaceId })).toBe(draftSpaceId);
+    expect(
+      resolveAppsLauncherSpaceId({
+        persistedSpaceId: null,
+        draftSpaceId,
+        projectSpaceId: SpaceId.makeUnsafe("space-project"),
+      }),
+    ).toBe(draftSpaceId);
   });
 
   it("prefers the persisted thread Space after promotion", () => {
@@ -39,7 +45,20 @@ describe("fixed Apps launcher", () => {
       resolveAppsLauncherSpaceId({
         persistedSpaceId,
         draftSpaceId: SpaceId.makeUnsafe("space-draft"),
+        projectSpaceId: SpaceId.makeUnsafe("space-project"),
       }),
     ).toBe(persistedSpaceId);
+  });
+
+  it("inherits the parent Folder Space for persisted Folder threads", () => {
+    const projectSpaceId = SpaceId.makeUnsafe("space-project");
+
+    expect(
+      resolveAppsLauncherSpaceId({
+        persistedSpaceId: null,
+        draftSpaceId: null,
+        projectSpaceId,
+      }),
+    ).toBe(projectSpaceId);
   });
 });
