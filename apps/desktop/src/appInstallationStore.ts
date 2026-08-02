@@ -108,6 +108,25 @@ export class AppInstallationStore {
     return new AppInstallationStore(filePath, result.state);
   }
 
+  static async openSafe(filePath: string): Promise<{
+    store: AppInstallationStore;
+    recovery: null | { quarantinedPath: string; error: Error };
+  }> {
+    const result = await readAppInstallationState(filePath);
+    if (result.status !== "corrupt") {
+      return { store: new AppInstallationStore(filePath, result.state), recovery: null };
+    }
+    const quarantinedPath = Path.join(
+      Path.dirname(filePath),
+      `${Path.basename(filePath, Path.extname(filePath))}.corrupt-${Date.now()}-${process.pid}${Path.extname(filePath)}`,
+    );
+    await FS.promises.rename(filePath, quarantinedPath);
+    return {
+      store: new AppInstallationStore(filePath, createEmptyAppInstallationState()),
+      recovery: { quarantinedPath, error: result.error },
+    };
+  }
+
   snapshot(): AppInstallationState {
     return this.#state;
   }

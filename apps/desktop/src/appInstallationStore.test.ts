@@ -95,6 +95,20 @@ describe("App installation persistence", () => {
     expect(FS.readFileSync(filePath, "utf8")).toBe("{not-json");
   });
 
+  it("quarantines corrupt state for safe start without losing its bytes", async () => {
+    const filePath = resolveAppInstallationStatePath(createTemporaryDirectory());
+    FS.mkdirSync(Path.dirname(filePath), { recursive: true });
+    FS.writeFileSync(filePath, "{not-json", "utf8");
+
+    const result = await AppInstallationStore.openSafe(filePath);
+
+    expect(result.store.snapshot()).toEqual(createEmptyAppInstallationState());
+    expect(result.recovery?.error.message).toBeTruthy();
+    expect(result.recovery?.quarantinedPath).toMatch(/installations-v1\.corrupt-\d+-\d+\.json$/);
+    expect(FS.readFileSync(result.recovery!.quarantinedPath, "utf8")).toBe("{not-json");
+    expect(FS.existsSync(filePath)).toBe(false);
+  });
+
   it("serializes mutations and retains the previous snapshot after a failed transition", async () => {
     const filePath = resolveAppInstallationStatePath(createTemporaryDirectory());
     const store = await AppInstallationStore.open(filePath);

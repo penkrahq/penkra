@@ -29,6 +29,7 @@ export interface DesktopAppRuntime {
   readonly tabs: DeferredAppTabHost;
   readonly appTabs: ElectronAppTabHost;
   readonly restoreResults: ReadonlyArray<AppRuntimeRestoreResult>;
+  readonly safeStartRecovery: null | { quarantinedPath: string; error: Error };
   canManageInstallations(rendererId: number): boolean;
   installationSpaceId(rendererId: number): string | null;
   stop(): Promise<void>;
@@ -43,9 +44,10 @@ export async function startDesktopAppRuntime(input: {
   onTabState: (descriptor: DesktopAppTabDescriptor) => void;
   onInvalidRendererMessage?: (error: Error, senderId: number) => void;
 }): Promise<DesktopAppRuntime> {
-  const store = await AppInstallationStore.open(
+  const storeResult = await AppInstallationStore.openSafe(
     resolveAppInstallationStatePath(input.userDataPath),
   );
+  const store = storeResult.store;
   const tabs = new DeferredAppTabHost();
   const rpc = new AppRendererRpcHost();
   const ipcBridge = new AppRendererIpcBridge({
@@ -113,6 +115,7 @@ export async function startDesktopAppRuntime(input: {
     tabs,
     appTabs,
     restoreResults,
+    safeStartRecovery: storeResult.recovery,
     canManageInstallations: (rendererId) => trustedInstallationRenderers.has(rendererId),
     installationSpaceId: (rendererId) => trustedInstallationRenderers.get(rendererId) ?? null,
     stop: async () => {

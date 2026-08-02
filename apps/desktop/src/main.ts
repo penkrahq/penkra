@@ -4429,6 +4429,11 @@ async function bootstrap(): Promise<void> {
       );
     },
   });
+  if (desktopAppRuntime.safeStartRecovery) {
+    console.error(
+      `[penkra-app] Quarantined corrupt installation state at ${desktopAppRuntime.safeStartRecovery.quarantinedPath}: ${desktopAppRuntime.safeStartRecovery.error.message}`,
+    );
+  }
   const firstPartyAppsPath = resolveFirstPartyAppsPackagePath({
     configuredPath: process.env[PENKRA_APPS_PACKAGE_PATH_ENV],
     resourcesPath: process.resourcesPath,

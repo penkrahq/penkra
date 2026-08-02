@@ -51,6 +51,7 @@ describe("desktop App runtime composition", () => {
 
     expect(runtime.store.snapshot().packagesByAppId).toEqual({});
     expect(runtime.restoreResults).toEqual([]);
+    expect(runtime.safeStartRecovery).toBeNull();
     expect(listeners.get(APP_RUNTIME_IPC_CHANNELS.rendererMessage)).toHaveLength(1);
     expect(listeners.get(APP_RUNTIME_IPC_CHANNELS.ready)).toHaveLength(1);
     await runtime.stop();
