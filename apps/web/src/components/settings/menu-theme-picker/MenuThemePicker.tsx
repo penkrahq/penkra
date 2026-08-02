@@ -1,51 +1,44 @@
 import { IconCheck } from "@tabler/icons-react";
 
+import { getAvailableCodeThemes, type ThemeVariant } from "~/theme/theme.logic";
 import { cn } from "~/lib/utils";
-
-export const themePresetNames = [
-  "GitHub",
-  "Codex",
-  "Catppuccin",
-  "Everforest",
-  "Solarized",
-  "Vercel",
-] as const;
-
-export type ThemePresetName = (typeof themePresetNames)[number];
 
 export interface MenuThemePickerProps {
   className?: string;
-  onValueChange?: (value: ThemePresetName) => void;
-  value?: ThemePresetName;
+  mode?: ThemeVariant;
+  onValueChange?: (codeThemeId: string) => void;
+  value?: string;
 }
 
 export function MenuThemePicker({
   className,
+  mode = "light",
   onValueChange,
-  value = "GitHub",
+  value = "codex",
 }: MenuThemePickerProps) {
+  const options = getAvailableCodeThemes(mode);
   return (
     <div
-      aria-label="Theme presets"
+      aria-label={`${mode === "dark" ? "Dark" : "Light"} theme presets`}
       className={cn(
-        "flex w-[180px] flex-col gap-0.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-background-surface-raised)] p-1 shadow-[0_6px_18px_#0006]",
+        "flex max-h-80 w-[180px] flex-col gap-0.5 overflow-y-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-background-surface-raised)] p-1 shadow-[0_6px_18px_#0006]",
         className,
       )}
       data-pencil-component="q9tPr"
       role="listbox"
     >
-      {themePresetNames.map((name) => {
-        const selected = value === name;
+      {options.map((option) => {
+        const selected = value === option.id;
         return (
           <button
             aria-selected={selected}
             className={cn(
-              "flex h-7 w-full cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent px-2 text-xs text-[var(--color-text-foreground-secondary)] outline-none hover:bg-[var(--color-background-button-secondary-hover)] focus-visible:ring-1 focus-visible:ring-[var(--color-border-focus)]",
+              "flex h-7 w-full shrink-0 cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent px-2 text-xs text-[var(--color-text-foreground-secondary)] outline-none hover:bg-[var(--color-background-button-secondary-hover)] focus-visible:ring-1 focus-visible:ring-[var(--color-border-focus)]",
               selected &&
                 "bg-[var(--color-background-button-secondary)] text-[var(--color-text-foreground)]",
             )}
-            key={name}
-            onClick={() => onValueChange?.(name)}
+            key={option.id}
+            onClick={() => onValueChange?.(option.id)}
             role="option"
             type="button"
           >
@@ -59,7 +52,7 @@ export function MenuThemePicker({
             >
               Aa
             </span>
-            <span className="flex-1 text-left">{name}</span>
+            <span className="flex-1 text-left">{option.label}</span>
             {selected ? <IconCheck className="size-3 text-[var(--color-text-accent)]" /> : null}
           </button>
         );

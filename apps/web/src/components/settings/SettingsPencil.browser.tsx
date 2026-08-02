@@ -152,6 +152,14 @@ describe("Pencil settings structure", () => {
     await expect
       .element(page.getByRole("button", { name: "System" }))
       .toHaveAttribute("aria-pressed", "true");
+    await page.getByRole("button", { name: "Dark" }).click();
+    await expect
+      .element(page.getByRole("button", { name: "Dark" }))
+      .toHaveAttribute("aria-pressed", "true");
+    expect(JSON.parse(localStorage.getItem("penkra:theme") ?? "null")).toMatchObject({
+      mode: "dark",
+    });
+    await page.getByRole("button", { name: "System" }).click();
 
     await page.getByRole("button", { name: "Account", exact: true }).click();
     await expect.element(page.getByText("Manage your profile and preferences.")).toBeVisible();
