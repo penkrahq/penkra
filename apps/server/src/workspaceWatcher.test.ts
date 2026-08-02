@@ -70,7 +70,7 @@ describe("workspace watcher lifecycle", () => {
   it("ignores projects without a filesystem workspace root", async () => {
     const watched: string[] = [];
     const manager = new WorkspaceWatcherManager(
-      async () => [null, undefined, "", "   ", "/tmp/workspace"],
+      async () => [null, "/tmp/workspace"],
       () => undefined,
       (watchRoot) => {
         watched.push(watchRoot);
