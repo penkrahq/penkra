@@ -1,6 +1,5 @@
 import { type CSSProperties, type FC, type SVGProps } from "react";
 import { PiSquareSplitHorizontal, PiSquareSplitVertical } from "react-icons/pi";
-import { RiApps2Line } from "react-icons/ri";
 import { SiGithub } from "react-icons/si";
 import { VscMcp } from "react-icons/vsc";
 import { cn } from "./utils";
@@ -90,8 +89,26 @@ function centralIconWrapper(name: string, variant?: CentralIconVariant): LucideI
   };
 }
 
-export const AppsIcon: LucideIcon = (props) => (
-  <RiApps2Line className={props.className} style={props.style} />
+// Canonical Apps launcher glyph from Pencil (`grid-2x2`). Keep the geometry
+// local so the launcher and App tabs cannot silently fall back to the former
+// plugin/stacked-window asset through a third-party icon alias.
+export const AppsIcon: LucideIcon = ({ className, style, ...props }) => (
+  <svg
+    aria-hidden={props["aria-label"] ? undefined : true}
+    className={className}
+    fill="none"
+    stroke="currentColor"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    strokeWidth="2"
+    style={style}
+    viewBox="0 0 24 24"
+    {...props}
+  >
+    <rect height="18" rx="2" width="18" x="3" y="3" />
+    <path d="M3 12h18" />
+    <path d="M12 3v18" />
+  </svg>
 );
 // Composer stacked-panel glyphs (subagent strip / workflow run card).
 export const BackgroundTrayIcon: LucideIcon = centralIconWrapper("arrow-down-wall");

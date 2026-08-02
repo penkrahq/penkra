@@ -7,6 +7,7 @@ import type { ReactNode } from "react";
 
 import type { LucideIcon } from "~/lib/icons";
 import {
+  AppsIcon,
   DiffIcon,
   FileIcon,
   FoldersIcon,
@@ -15,7 +16,6 @@ import {
   GlobeIcon,
   InfoIcon,
   MessageCircleIcon,
-  PluginIcon,
   UsersIcon,
 } from "~/lib/icons";
 import {
@@ -32,7 +32,7 @@ export interface RightDockPaneMeta {
 }
 
 export const RIGHT_DOCK_PANE_META: Record<RightDockPaneKind, RightDockPaneMeta> = {
-  app: { label: "App", Icon: PluginIcon },
+  app: { label: "App", Icon: AppsIcon },
   browser: { label: "Browser", Icon: GlobeIcon },
   diff: { label: "Diff", Icon: DiffIcon },
   explorer: { label: "Explorer", Icon: FoldersIcon },

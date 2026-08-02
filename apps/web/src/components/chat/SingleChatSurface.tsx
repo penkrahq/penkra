@@ -100,7 +100,7 @@ import {
   stripEditorViewSearchParams,
 } from "../../routes/-chatThreadRoute.logic";
 import { cn } from "~/lib/utils";
-import { PluginIcon } from "~/lib/icons";
+import { AppsIcon } from "~/lib/icons";
 import { IconButton } from "../ui/icon-button";
 import { DOCK_HEADER_ICON_BUTTON_CLASS } from "./chatHeaderControls";
 import { resolveAppsLauncherAction, resolveAppsLauncherSpaceId } from "./appsLauncher.logic";
@@ -755,7 +755,7 @@ export function SingleChatSurface(props: {
       className={DOCK_HEADER_ICON_BUTTON_CLASS}
       onClick={handleAppsLauncher}
     >
-      <PluginIcon />
+      <AppsIcon />
     </IconButton>
   );
   const editorProjectOptions = projects.flatMap((project) =>
