@@ -106,6 +106,8 @@ export function parseUpdateRegistryAppRequest(input: unknown): {
   };
 }
 
+export const parseRollbackRegistryAppRequest = parseUpdateRegistryAppRequest;
+
 export function parseSetAppPermissionRequest(input: unknown): {
   appId: string;
   spaceId: string;

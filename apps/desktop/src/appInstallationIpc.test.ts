@@ -4,6 +4,7 @@ import { createEmptyAppInstallationState } from "./appInstallationState";
 import {
   parseInstallRegistryAppRequest,
   parseRemoveAppDataRequest,
+  parseRollbackRegistryAppRequest,
   parseSetAppEnabledRequest,
   parseSetAppPermissionRequest,
   parseUpdateRegistryAppRequest,
@@ -50,6 +51,15 @@ describe("App installation IPC boundary", () => {
       version: "2.0.0",
       permissionsBySpace: { work: { "network-fetch": "granted" } },
     });
+    expect(parseRollbackRegistryAppRequest({
+      slug: "canvas",
+      version: "1.0.0",
+      permissionsBySpace: { work: { "network-fetch": "granted" } },
+    })).toEqual({
+      slug: "canvas",
+      version: "1.0.0",
+      permissionsBySpace: { work: { "network-fetch": "granted" } },
+    });
     expect(
       parseSetAppPermissionRequest({
         appId: "com.penkra.apps",
@@ -80,5 +90,6 @@ describe("App installation IPC boundary", () => {
     expect(() => parseRemoveAppDataRequest({ appId: "app", spaceId: "" })).toThrow();
     expect(() => parseInstallRegistryAppRequest({ slug: "app", version: "1.0.0", spaceId: "work", permissions: { bad: "ask" } })).toThrow();
     expect(() => parseUpdateRegistryAppRequest({ slug: "app", version: "2.0.0", permissionsBySpace: { work: { bad: "ask" } } })).toThrow();
+    expect(() => parseRollbackRegistryAppRequest({ slug: "app", version: "1.0.0", permissionsBySpace: { work: { bad: "ask" } } })).toThrow();
   });
 });

@@ -464,6 +464,11 @@ export interface DesktopAppInstallationBridge {
     version: string;
     permissionsBySpace: Readonly<Record<string, Readonly<Record<string, "denied" | "granted">>>>;
   }) => Promise<DesktopAppInstallationSnapshot>;
+  rollbackRegistry: (input: {
+    slug: string;
+    version: string;
+    permissionsBySpace: Readonly<Record<string, Readonly<Record<string, "denied" | "granted">>>>;
+  }) => Promise<DesktopAppInstallationSnapshot>;
   setEnabled: (input: {
     appId: string;
     spaceId: string;

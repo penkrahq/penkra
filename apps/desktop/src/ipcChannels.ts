@@ -55,6 +55,7 @@ export const DESKTOP_IPC_CHANNELS = {
     getState: "desktop:app-installations-get-state",
     installRegistry: "desktop:app-installations-install-registry",
     updateRegistry: "desktop:app-installations-update-registry",
+    rollbackRegistry: "desktop:app-installations-rollback-registry",
     setEnabled: "desktop:app-installations-set-enabled",
     setPermission: "desktop:app-installations-set-permission",
     uninstall: "desktop:app-installations-uninstall",

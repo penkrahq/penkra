@@ -229,6 +229,7 @@ import { DESKTOP_IPC_CHANNELS } from "./ipcChannels";
 import { startDesktopAppRuntime, type DesktopAppRuntime } from "./desktopAppRuntime";
 import {
   parseInstallRegistryAppRequest,
+  parseRollbackRegistryAppRequest,
   parseUpdateRegistryAppRequest,
   parseRemoveAppDataRequest,
   parseSetAppEnabledRequest,
@@ -241,7 +242,7 @@ import {
   parseRegistryGetRequest,
   parseRegistryListRequest,
 } from "./appRegistryIpc";
-import { installRegistryApp, updateRegistryApp } from "./registryAppInstaller";
+import { installRegistryApp, rollbackRegistryApp, updateRegistryApp } from "./registryAppInstaller";
 import {
   bootstrapFirstPartyAppsPackage,
   PENKRA_APPS_PACKAGE_PATH_ENV,
@@ -3635,6 +3636,22 @@ function registerIpcHandlers(): void {
     const currentSpaceId = runtime.installationSpaceId(event.sender.id);
     if (!currentSpaceId) throw new Error("Apps can only be updated from a Space-bound Apps tab.");
     const state = await updateRegistryApp({
+      request,
+      hostVersion: app.getVersion(),
+      registry,
+      packages: runtime.packages,
+      installations: runtime.installations,
+    });
+    return toDesktopAppInstallationSnapshot(state, currentSpaceId);
+  });
+  ipcMain.handle(IPC.appInstallations.rollbackRegistry, async (event, input: unknown) => {
+    const request = parseRollbackRegistryAppRequest(input);
+    const registry = requireAppsRegistry(event.sender.id);
+    const runtime = desktopAppRuntime;
+    if (!runtime) throw new Error("The App runtime is not ready.");
+    const currentSpaceId = runtime.installationSpaceId(event.sender.id);
+    if (!currentSpaceId) throw new Error("Apps can only be rolled back from a Space-bound Apps tab.");
+    const state = await rollbackRegistryApp({
       request,
       hostVersion: app.getVersion(),
       registry,
