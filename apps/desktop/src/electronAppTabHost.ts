@@ -100,6 +100,22 @@ export class ElectronAppTabHost implements AppTabHost {
     return this.#require(handle.id).descriptor;
   }
 
+  async openInstalledFromRenderer(
+    rendererId: number,
+    input: { appId: string },
+  ): Promise<DesktopAppTabDescriptor> {
+    const origin = [...this.#records.values()].find(
+      (record) => record.view.webContents.id === rendererId,
+    );
+    if (!origin) throw new Error("The originating App tab is unavailable.");
+    return this.openInstalled({
+      appId: input.appId,
+      spaceId: origin.descriptor.spaceId,
+      threadId: origin.descriptor.threadId,
+      route: "/",
+    });
+  }
+
   list(): ReadonlyArray<DesktopAppTabDescriptor> {
     return [...this.#records.values()].map((record) => record.descriptor);
   }

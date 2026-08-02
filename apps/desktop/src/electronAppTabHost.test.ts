@@ -152,4 +152,67 @@ describe("ElectronAppTabHost", () => {
     expect(electron.views[0]?.webContents.close).toHaveBeenCalledOnce();
     expect(host.list()).toEqual([]);
   });
+
+  it("opens an installed App in the calling Apps tab context", async () => {
+    electron.views.length = 0;
+    const apps = installedApp();
+    const target: InstalledAppPackage = {
+      ...apps,
+      appId: "com.example.canvas",
+      slug: "canvas",
+      name: "Canvas",
+      summary: "Edit a canvas.",
+      packagePath: "/profile/apps/com.example.canvas/0.1.0",
+      manifest: {
+        ...apps.manifest,
+        id: "com.example.canvas",
+        slug: "canvas",
+        name: "Canvas",
+        summary: "Edit a canvas.",
+      },
+    };
+    const onRendererCreated = vi.fn(
+      (_input: { appId: string; spaceId: string; rendererId: number }) => vi.fn(),
+    );
+    const host = new ElectronAppTabHost({
+      window: () => null,
+      installations: {
+        snapshot: () => ({ packagesByAppId: { [apps.appId]: apps, [target.appId]: target } }),
+        isActive: () => true,
+        setEnabled: vi.fn(),
+      } as never,
+      sessions: { get: (appId: string, spaceId: string) => ({ appId, spaceId }) as never },
+      broker: { registerTab: vi.fn(() => vi.fn()) },
+      rpc: { registerTarget: vi.fn(() => vi.fn()), request: vi.fn() },
+      ipcBridge: { waitForReady: vi.fn(async () => undefined) },
+      preloadPath: "/trusted/appPreload.js",
+      onOpened: vi.fn(),
+      onState: vi.fn(),
+      onRendererCreated,
+    });
+
+    await host.openInstalled({
+      appId: apps.appId,
+      spaceId: "personal",
+      threadId: "thread-1",
+      route: "/",
+    });
+    const renderer = onRendererCreated.mock.calls[0]?.[0];
+    expect(renderer).toBeDefined();
+    if (!renderer) throw new Error("Apps renderer was not registered.");
+    const descriptor = await host.openInstalledFromRenderer(renderer.rendererId, {
+      appId: target.appId,
+    });
+
+    expect(descriptor).toMatchObject({
+      appId: target.appId,
+      spaceId: "personal",
+      threadId: "thread-1",
+      route: "/",
+      status: "ready",
+    });
+    await expect(
+      host.openInstalledFromRenderer(-1, { appId: target.appId }),
+    ).rejects.toThrow("originating App tab is unavailable");
+  });
 });

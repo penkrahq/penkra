@@ -34,6 +34,10 @@ export function parseOpenAppTabRequest(input: unknown): {
   };
 }
 
+export function parseOpenAppFromAppsRequest(input: unknown): { appId: string } {
+  return { appId: string(record(input), "appId") };
+}
+
 export function parseAppTabIdRequest(input: unknown): { tabId: string } {
   return { tabId: string(record(input), "tabId") };
 }

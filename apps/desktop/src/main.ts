@@ -259,6 +259,7 @@ import {
 import { createInitialWindowPresenter } from "./initialWindowVisibility";
 import {
   parseAppTabIdRequest,
+  parseOpenAppFromAppsRequest,
   parseOpenAppTabRequest,
   parseSetAppTabBoundsRequest,
   parseSetAppTabVisibleRequest,
@@ -3712,6 +3713,15 @@ function registerIpcHandlers(): void {
   ipcMain.handle(IPC.appTabs.open, async (event, input: unknown) =>
     requireShellAppTabs(event.sender.id).openInstalled(parseOpenAppTabRequest(input)),
   );
+  ipcMain.handle(IPC.appTabs.openFromApps, async (event, input: unknown) => {
+    if (!desktopAppRuntime?.canManageInstallations(event.sender.id)) {
+      throw new Error("Only Apps can open an installed App.");
+    }
+    return desktopAppRuntime.appTabs.openInstalledFromRenderer(
+      event.sender.id,
+      parseOpenAppFromAppsRequest(input),
+    );
+  });
   ipcMain.handle(IPC.appTabs.list, async (event) =>
     requireShellAppTabs(event.sender.id).list(),
   );

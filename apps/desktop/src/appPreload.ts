@@ -58,6 +58,10 @@ const exposedApi =
           setReview: (input: unknown) =>
             ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.appRegistry.setReview, input),
         },
+        apps: {
+          open: (input: unknown) =>
+            ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.appTabs.openFromApps, input),
+        },
       }
     : runtime.api;
 
