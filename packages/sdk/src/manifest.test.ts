@@ -94,4 +94,26 @@ describe("validateAppManifest", () => {
       expect.objectContaining({ path: "entrypoints.operations", code: "missing" }),
     );
   });
+
+  it("enforces the bounded local-reference JSON Schema profile", () => {
+    const result = validateAppManifest({
+      ...validManifest,
+      operations: [{
+        ...validManifest.operations[0],
+        input: {
+          $schema: "http://json-schema.org/draft-07/schema#",
+          type: "object",
+          properties: { value: { pattern: "(a+)+$" } },
+          $ref: "https://example.com/shared.json",
+        },
+      }],
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: "operations[0].input", message: expect.stringContaining("draft/2020-12") }),
+      expect.objectContaining({ path: "operations[0].input", message: expect.stringContaining("pattern") }),
+      expect.objectContaining({ path: "operations[0].input", message: expect.stringContaining("document-local") }),
+    ]));
+  });
 });

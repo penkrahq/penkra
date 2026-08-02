@@ -160,8 +160,10 @@ describe("AppOperationBroker", () => {
       appId: "com.acme.linear",
       spaceId: "personal",
       handlers: {
-        "issues.create": async (_input, context) =>
-          context.tabs.open({ route: "/issues/new", state: { title: "Fix redirect" } }),
+        "issues.create": async (_input, context) => {
+          await context.tabs.open({ route: "/issues/new", state: { title: "Fix redirect" } });
+          return { opened: true };
+        },
       },
     });
 
@@ -206,6 +208,31 @@ describe("AppOperationBroker", () => {
         input: {},
       }),
     ).rejects.toMatchObject<AppOperationBrokerError>({ code: "app-disabled" });
+  });
+
+  it("enforces declared input and output schemas at the trusted broker", async () => {
+    const runtime = broker(enabledState);
+    runtime.registerController({
+      appId: "com.acme.linear",
+      spaceId: "personal",
+      handlers: { "issues.create": async () => "not-an-object" },
+    });
+
+    await expect(runtime.invoke({
+      app: "linear",
+      operation: "issues.create",
+      spaceId: "personal",
+      threadId: "thread-1",
+      input: "not-an-object",
+    })).rejects.toMatchObject<AppOperationBrokerError>({ code: "invalid-input" });
+
+    await expect(runtime.invoke({
+      app: "linear",
+      operation: "issues.create",
+      spaceId: "personal",
+      threadId: "thread-1",
+      input: {},
+    })).rejects.toMatchObject<AppOperationBrokerError>({ code: "invalid-output" });
   });
 
   it("unregister callbacks cannot remove replacement endpoints", () => {

@@ -11,6 +11,13 @@ export {
   type OperationDeclaration,
   type PenkraAppManifest,
 } from "./manifest";
+export {
+  PENKRA_JSON_SCHEMA_DIALECT,
+  PENKRA_OPERATION_SCHEMA_MAX_BYTES,
+  PENKRA_OPERATION_SCHEMA_MAX_DEPTH,
+  PENKRA_OPERATION_SCHEMA_MAX_NODES,
+  validatePenkraJsonSchema,
+} from "./jsonSchema";
 
 export {
   OPERATION_CANCELLATION_CODES,

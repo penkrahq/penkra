@@ -264,9 +264,17 @@ export function validateAppManifest(value: unknown): AppManifestValidationResult
         requireString(candidate.summary, `${path}.summary`, issues);
         if (!isRecord(candidate.input)) {
           issue(issues, `${path}.input`, "invalid-format", "input must be a JSON Schema object.");
+        } else {
+          for (const message of validatePenkraJsonSchema(candidate.input)) {
+            issue(issues, `${path}.input`, "invalid-format", `input ${message}.`);
+          }
         }
         if (!isRecord(candidate.output)) {
           issue(issues, `${path}.output`, "invalid-format", "output must be a JSON Schema object.");
+        } else {
+          for (const message of validatePenkraJsonSchema(candidate.output)) {
+            issue(issues, `${path}.output`, "invalid-format", `output ${message}.`);
+          }
         }
         requireString(candidate.handler, `${path}.handler`, issues);
       });
@@ -302,3 +310,4 @@ export function defineApp<const Manifest extends PenkraAppManifest>(manifest: Ma
   assertAppManifest(manifest);
   return manifest;
 }
+import { validatePenkraJsonSchema } from "./jsonSchema";

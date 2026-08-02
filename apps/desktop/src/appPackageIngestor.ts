@@ -12,6 +12,7 @@ import yauzl, { type Entry } from "yauzl";
 import { assertAppManifest, type PenkraAppManifest } from "@penkra/sdk";
 
 import type { InstalledAppSource, VerifiedAppPackageInput } from "./appInstallationState";
+import { assertOperationSchemas } from "./appOperationSchema";
 
 export const PENKRA_APP_MANIFEST_FILE_NAME = "penkra-app.json";
 export const APP_PACKAGE_MAX_FILES = 2_048;
@@ -85,6 +86,7 @@ export class AppPackageIngestor {
     const sourcePath = Path.resolve(input.sourcePath);
     const files = await collectPackageFiles(sourcePath);
     const manifest = await readManifest(sourcePath);
+    assertOperationSchemas(manifest);
     assertRequiredFiles(files, manifest);
     const sha256 = await digestFiles(files);
     const packagePath = Path.join(this.#storePath, manifest.id, manifest.version, sha256);

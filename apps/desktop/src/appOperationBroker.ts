@@ -10,12 +10,19 @@ import type {
 } from "@penkra/sdk";
 
 import type { AppInstallationState, InstalledAppPackage } from "./appInstallationState";
+import {
+  assertOperationValue,
+  compileOperationValidators,
+  type AppOperationValidators,
+} from "./appOperationSchema";
 
 export type AppOperationBrokerErrorCode =
   | "app-disabled"
   | "app-not-installed"
   | "controller-already-registered"
   | "controller-unavailable"
+  | "invalid-input"
+  | "invalid-output"
   | "operation-not-found"
   | "tab-already-registered"
   | "tab-not-found"
@@ -88,6 +95,7 @@ export class AppOperationBroker {
   readonly #mintInvocationId: () => string;
   readonly #controllers = new Map<string, AppOperationController>();
   readonly #tabs = new Map<string, AppTabEndpoint>();
+  readonly #validators = new Map<string, AppOperationValidators>();
 
   constructor(options: AppOperationBrokerOptions) {
     this.#installationState = options.installationState;
@@ -140,6 +148,26 @@ export class AppOperationBroker {
         `${installedApp.slug} does not provide operation ${request.operation}.`,
       );
     }
+    const declaration = installedApp.manifest.operations?.find(
+      (candidate) => candidate.key === request.operation,
+    );
+    if (!declaration) {
+      throw new AppOperationBrokerError(
+        "operation-not-found",
+        `${installedApp.slug} does not declare operation ${request.operation}.`,
+      );
+    }
+    const validatorKey = `${installedApp.sha256}\u0000${request.operation}`;
+    let validators = this.#validators.get(validatorKey);
+    if (!validators) {
+      validators = compileOperationValidators(declaration);
+      this.#validators.set(validatorKey, validators);
+    }
+    try {
+      assertOperationValue(request.input, validators.input, "input");
+    } catch (error) {
+      throw new AppOperationBrokerError("invalid-input", toError(error).message);
+    }
 
     const invocation: OperationContext["invocation"] = {
       id: this.#mintInvocationId(),
@@ -175,7 +203,13 @@ export class AppOperationBroker {
       signal: request.signal ?? new AbortController().signal,
     };
 
-    return (await handler(request.input, context)) as Result;
+    const result = await handler(request.input, context);
+    try {
+      assertOperationValue(result, validators.output, "output");
+    } catch (error) {
+      throw new AppOperationBrokerError("invalid-output", toError(error).message);
+    }
+    return result as Result;
   }
 
   #resolveEnabledApp(slug: string, spaceId: string): InstalledAppPackage {
@@ -211,6 +245,10 @@ export class AppOperationBroker {
     }
     return tab;
   }
+}
+
+function toError(value: unknown): Error {
+  return value instanceof Error ? value : new Error(String(value));
 }
 
 function controllerKey(appId: string, spaceId: string): string {
