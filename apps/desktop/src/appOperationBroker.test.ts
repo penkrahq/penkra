@@ -1,0 +1,224 @@
+import { describe, expect, it, vi } from "vitest";
+
+import {
+  createEmptyAppInstallationState,
+  registerVerifiedAppPackage,
+  setSpaceAppEnabled,
+  type AppInstallationState,
+} from "./appInstallationState";
+import {
+  AppOperationBroker,
+  AppOperationBrokerError,
+  type AppTabEndpoint,
+  type AppTabHost,
+} from "./appOperationBroker";
+
+function enabledState(): AppInstallationState {
+  const installed = registerVerifiedAppPackage(createEmptyAppInstallationState(), {
+    manifest: {
+      manifestVersion: 1,
+      id: "com.acme.linear",
+      slug: "linear",
+      name: "Linear",
+      summary: "Manage Linear issues.",
+      version: "1.0.0",
+      compatibility: { penkra: ">=0.8.0" },
+      icons: [{ src: "icon.svg", sizes: "any", type: "image/svg+xml" }],
+      entrypoints: { app: "app.html", operations: "operations.html" },
+      operations: [
+        {
+          key: "issues.create",
+          summary: "Create an issue.",
+          input: { type: "object" },
+          output: { type: "object" },
+          handler: "issues.create",
+        },
+      ],
+    },
+    source: "registry",
+    packagePath: "/profile/apps/com.acme.linear/1.0.0",
+    sha256: "a".repeat(64),
+    installedAt: "2026-08-01T00:00:00.000Z",
+  });
+  return setSpaceAppEnabled(installed, {
+    appId: "com.acme.linear",
+    spaceId: "personal",
+    enabled: true,
+  });
+}
+
+function tab(id: string, overrides: Partial<AppTabEndpoint> = {}): AppTabEndpoint {
+  return {
+    id,
+    appId: "com.acme.linear",
+    spaceId: "personal",
+    threadId: "thread-1",
+    navigate: vi.fn(async () => undefined),
+    navigateForResult: vi.fn(async () => ({ accepted: true })),
+    invoke: vi.fn(async () => ({ updated: true })),
+    ...overrides,
+  };
+}
+
+function broker(state: () => AppInstallationState, tabs?: Partial<AppTabHost>) {
+  return new AppOperationBroker({
+    installationState: state,
+    mintInvocationId: () => "invocation-1",
+    tabs: {
+      open: vi.fn(async () => tab("new-tab")),
+      openForResult: vi.fn(async () => ({ completed: true })),
+      ...tabs,
+    },
+  });
+}
+
+describe("AppOperationBroker", () => {
+  it("keeps App slug and App-local operation key separate", async () => {
+    const runtime = broker(enabledState);
+    const handler = vi.fn(async (input, context) => ({ input, invocation: context.invocation }));
+    runtime.registerController({
+      appId: "com.acme.linear",
+      spaceId: "personal",
+      handlers: { "issues.create": handler },
+    });
+
+    await expect(
+      runtime.invoke({
+        app: "linear",
+        operation: "issues.create",
+        spaceId: "personal",
+        threadId: "thread-1",
+        input: { title: "Fix redirect" },
+      }),
+    ).resolves.toEqual({
+      input: { title: "Fix redirect" },
+      invocation: {
+        id: "invocation-1",
+        app: "linear",
+        operation: "issues.create",
+        spaceId: "personal",
+        threadId: "thread-1",
+      },
+    });
+  });
+
+  it("delivers only to the explicitly targeted tab", async () => {
+    const runtime = broker(enabledState);
+    const tabA = tab("tab-a");
+    const tabB = tab("tab-b");
+    runtime.registerTab(tabA);
+    runtime.registerTab(tabB);
+    runtime.registerController({
+      appId: "com.acme.linear",
+      spaceId: "personal",
+      handlers: {
+        "issues.create": async (_input, context) =>
+          context.tab?.invoke({ operation: "selection.replace-text", input: { text: "Updated" } }),
+      },
+    });
+
+    await expect(
+      runtime.invoke({
+        app: "linear",
+        operation: "issues.create",
+        spaceId: "personal",
+        threadId: "thread-1",
+        tabId: "tab-b",
+        input: {},
+      }),
+    ).resolves.toEqual({ updated: true });
+    expect(tabA.invoke).not.toHaveBeenCalled();
+    expect(tabB.invoke).toHaveBeenCalledOnce();
+  });
+
+  it("rejects a tab outside the invocation's App, Space, or thread", async () => {
+    const runtime = broker(enabledState);
+    runtime.registerTab(tab("other-thread", { threadId: "thread-2" }));
+    runtime.registerController({
+      appId: "com.acme.linear",
+      spaceId: "personal",
+      handlers: { "issues.create": async () => undefined },
+    });
+
+    const invocation = runtime.invoke({
+      app: "linear",
+      operation: "issues.create",
+      spaceId: "personal",
+      threadId: "thread-1",
+      tabId: "other-thread",
+      input: {},
+    });
+    await expect(invocation).rejects.toMatchObject<AppOperationBrokerError>({
+      code: "tab-target-mismatch",
+    });
+  });
+
+  it("opens tabs through the host with App, Space, and thread ownership", async () => {
+    const open = vi.fn(async () => tab("new-tab"));
+    const runtime = broker(enabledState, { open });
+    runtime.registerController({
+      appId: "com.acme.linear",
+      spaceId: "personal",
+      handlers: {
+        "issues.create": async (_input, context) =>
+          context.tabs.open({ route: "/issues/new", state: { title: "Fix redirect" } }),
+      },
+    });
+
+    await runtime.invoke({
+      app: "linear",
+      operation: "issues.create",
+      spaceId: "personal",
+      threadId: "thread-1",
+      input: {},
+    });
+    expect(open).toHaveBeenCalledWith(
+      expect.objectContaining({
+        app: expect.objectContaining({ appId: "com.acme.linear", slug: "linear" }),
+        spaceId: "personal",
+        threadId: "thread-1",
+        route: "/issues/new",
+        state: { title: "Fix redirect" },
+      }),
+    );
+  });
+
+  it("checks installation and Space enablement at invocation time", async () => {
+    let state = enabledState();
+    const runtime = broker(() => state);
+    runtime.registerController({
+      appId: "com.acme.linear",
+      spaceId: "personal",
+      handlers: { "issues.create": async () => ({ created: true }) },
+    });
+    state = setSpaceAppEnabled(state, {
+      appId: "com.acme.linear",
+      spaceId: "personal",
+      enabled: false,
+    });
+
+    await expect(
+      runtime.invoke({
+        app: "linear",
+        operation: "issues.create",
+        spaceId: "personal",
+        threadId: "thread-1",
+        input: {},
+      }),
+    ).rejects.toMatchObject<AppOperationBrokerError>({ code: "app-disabled" });
+  });
+
+  it("unregister callbacks cannot remove replacement endpoints", () => {
+    const runtime = broker(enabledState);
+    const first = tab("tab-a");
+    const unregister = runtime.registerTab(first);
+    unregister();
+    const replacement = tab("tab-a");
+    runtime.registerTab(replacement);
+
+    unregister();
+    expect(() => runtime.registerTab(tab("tab-a"))).toThrowError(
+      expect.objectContaining({ code: "tab-already-registered" }),
+    );
+  });
+});
