@@ -73,6 +73,30 @@ describe("desktop App registry client", () => {
     await expect(client.list()).rejects.toThrow("invalid response");
   });
 
+  it("preserves the registry's exact host compatibility range", async () => {
+    const detail = {
+      ...summary,
+      screenshots: [],
+      versions: [{
+        id: "00000000-0000-4000-8000-000000000303",
+        version: "1.0.0",
+        packageDigest: "a".repeat(64),
+        compatibilityRange: ">=0.8.0 <2.0.0",
+        publishedAt: "2026-08-01T00:00:00.000Z",
+        readmeArtifactId: "00000000-0000-4000-8000-000000000304",
+        instructionsArtifactId: "00000000-0000-4000-8000-000000000305",
+        permissions: [],
+      }],
+    };
+    const client = new AppRegistryClient({
+      apiUrl: "https://api.penkra.com",
+      getCookie: () => "cookie=value",
+      fetch: vi.fn().mockResolvedValue(jsonResponse(detail)),
+    });
+
+    await expect(client.get({ slug: "canvas" })).resolves.toEqual(detail);
+  });
+
   it("keeps arbitrary URLs and methods out of the Apps renderer API", async () => {
     const fetch = vi
       .fn()

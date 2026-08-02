@@ -504,8 +504,7 @@ export interface DesktopRegistryAppDetail extends DesktopRegistryAppSummary {
     id: string;
     version: string;
     packageDigest: string;
-    minimumHostVersion: string;
-    maximumHostVersion: string | null;
+    compatibilityRange: string;
     publishedAt: string;
     readmeArtifactId: string;
     instructionsArtifactId: string;
