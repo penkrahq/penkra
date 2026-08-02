@@ -17,6 +17,7 @@
       "version": "0.8.7",
       "dependencies": {
         "@better-auth/electron": "1.6.25",
+        "@penkra/sdk": "workspace:*",
         "better-auth": "1.6.25",
         "conf": "15.0.2",
         "effect": "catalog:",
@@ -172,6 +173,14 @@
       "devDependencies": {
         "@effect/language-service": "catalog:",
         "@effect/vitest": "catalog:",
+        "tsdown": "catalog:",
+        "typescript": "catalog:",
+        "vitest": "catalog:",
+      },
+    },
+    "packages/sdk": {
+      "name": "@penkra/sdk",
+      "devDependencies": {
         "tsdown": "catalog:",
         "typescript": "catalog:",
         "vitest": "catalog:",
@@ -971,6 +980,8 @@
     "@penkra/marketing": ["@penkra/marketing@workspace:apps/marketing"],
 
     "@penkra/scripts": ["@penkra/scripts@workspace:scripts"],
+
+    "@penkra/sdk": ["@penkra/sdk@workspace:packages/sdk"],
 
     "@penkra/shared": ["@penkra/shared@workspace:packages/shared"],
 

@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@better-auth/electron": "1.6.25",
+    "@penkra/sdk": "workspace:*",
     "better-auth": "1.6.25",
     "conf": "15.0.2",
     "effect": "catalog:",
