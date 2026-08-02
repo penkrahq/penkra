@@ -535,6 +535,18 @@ export interface DesktopRegistryAppDetail extends DesktopRegistryAppSummary {
   }>;
 }
 
+export interface DesktopRegistryAccountFeedback {
+  appId: string;
+  eligible: true;
+  installedAt: string;
+  rating: number | null;
+  review: {
+    body: string;
+    status: "pending" | "published" | "rejected" | "removed";
+    updatedAt: string;
+  } | null;
+}
+
 export interface DesktopAppRegistryBridge {
   list: (input?: {
     query?: string;
@@ -552,6 +564,18 @@ export interface DesktopAppRegistryBridge {
     | { kind: "text"; contentType: string; text: string }
     | { kind: "image"; contentType: string; dataUrl: string }
   >;
+  getFeedback: (input: { appId: string }) => Promise<DesktopRegistryAccountFeedback>;
+  setRating: (input: { appId: string; rating: number }) => Promise<{
+    appId: string;
+    rating: number;
+    updatedAt: string;
+  }>;
+  setReview: (input: { appId: string; body: string }) => Promise<{
+    appId: string;
+    body: string;
+    status: "pending";
+    updatedAt: string;
+  }>;
 }
 
 export interface DesktopAppTabDescriptor {

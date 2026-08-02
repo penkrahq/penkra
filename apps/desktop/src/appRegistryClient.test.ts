@@ -197,6 +197,79 @@ describe("desktop App registry client", () => {
     );
   });
 
+  it("reads and writes only bounded install-gated account feedback", async () => {
+    const updatedAt = "2026-08-02T00:00:00.000Z";
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({
+        appId: summary.id,
+        eligible: true,
+        installedAt: "2026-08-01T00:00:00.000Z",
+        rating: null,
+        review: null,
+      }))
+      .mockResolvedValueOnce(jsonResponse({ appId: summary.id, rating: 5, updatedAt }))
+      .mockResolvedValueOnce(jsonResponse({
+        appId: summary.id,
+        body: "Useful",
+        status: "pending",
+        updatedAt,
+      }));
+    const client = new AppRegistryClient({
+      apiUrl: "https://api.penkra.com",
+      getCookie: () => "cookie=value",
+      fetch,
+    });
+
+    await expect(client.getFeedback({ appId: summary.id })).resolves.toMatchObject({
+      appId: summary.id,
+      eligible: true,
+      rating: null,
+    });
+    await expect(client.setRating({ appId: summary.id, rating: 5 })).resolves.toEqual({
+      appId: summary.id,
+      rating: 5,
+      updatedAt,
+    });
+    await expect(client.setReview({ appId: summary.id, body: "  Useful  " })).resolves.toEqual({
+      appId: summary.id,
+      body: "Useful",
+      status: "pending",
+      updatedAt,
+    });
+
+    expect(fetch.mock.calls[0]?.[0]).toBe(
+      `https://api.penkra.com/api/registry/apps/${summary.id}/feedback`,
+    );
+    expect(fetch.mock.calls[1]).toEqual([
+      `https://api.penkra.com/api/registry/apps/${summary.id}/rating`,
+      expect.objectContaining({ method: "PUT", body: JSON.stringify({ rating: 5 }) }),
+    ]);
+    expect(fetch.mock.calls[2]).toEqual([
+      `https://api.penkra.com/api/registry/apps/${summary.id}/review`,
+      expect.objectContaining({ method: "PUT", body: JSON.stringify({ body: "Useful" }) }),
+    ]);
+  });
+
+  it("rejects invalid account feedback before or at the trust boundary", async () => {
+    const fetch = vi.fn().mockResolvedValue(jsonResponse({
+      appId: summary.id,
+      eligible: true,
+      installedAt: "not-a-date",
+      rating: 5,
+      review: null,
+    }));
+    const client = new AppRegistryClient({
+      apiUrl: "https://api.penkra.com",
+      getCookie: () => "cookie=value",
+      fetch,
+    });
+
+    await expect(client.setRating({ appId: summary.id, rating: 6 })).rejects.toThrow("between 1 and 5");
+    await expect(client.setReview({ appId: summary.id, body: "   " })).rejects.toThrow("between 1 and 10000");
+    await expect(client.getFeedback({ appId: summary.id })).rejects.toThrow("invalid response");
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
   it("verifies and atomically reuses the last-known-good policy while offline", async () => {
     const directory = await mkdtemp(join(tmpdir(), "penkra-policy-test-"));
     try {

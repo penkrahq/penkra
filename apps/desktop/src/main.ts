@@ -240,8 +240,11 @@ import {
 } from "./appInstallationIpc";
 import {
   parseRegistryArtifactRequest,
+  parseRegistryFeedbackRequest,
   parseRegistryGetRequest,
   parseRegistryListRequest,
+  parseRegistryRatingRequest,
+  parseRegistryReviewRequest,
 } from "./appRegistryIpc";
 import { installRegistryApp, rollbackRegistryApp, updateRegistryApp } from "./registryAppInstaller";
 import {
@@ -3682,6 +3685,15 @@ function registerIpcHandlers(): void {
   );
   ipcMain.handle(IPC.appRegistry.getArtifact, async (event, input: unknown) =>
     requireAppsRegistry(event.sender.id).getArtifact(parseRegistryArtifactRequest(input)),
+  );
+  ipcMain.handle(IPC.appRegistry.getFeedback, async (event, input: unknown) =>
+    requireAppsRegistry(event.sender.id).getFeedback(parseRegistryFeedbackRequest(input)),
+  );
+  ipcMain.handle(IPC.appRegistry.setRating, async (event, input: unknown) =>
+    requireAppsRegistry(event.sender.id).setRating(parseRegistryRatingRequest(input)),
+  );
+  ipcMain.handle(IPC.appRegistry.setReview, async (event, input: unknown) =>
+    requireAppsRegistry(event.sender.id).setReview(parseRegistryReviewRequest(input)),
   );
 
   const requireShellAppTabs = (senderId: number) => {

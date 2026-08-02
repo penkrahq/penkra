@@ -66,6 +66,9 @@ export const DESKTOP_IPC_CHANNELS = {
     list: "desktop:app-registry-list",
     get: "desktop:app-registry-get",
     getArtifact: "desktop:app-registry-get-artifact",
+    getFeedback: "desktop:app-registry-get-feedback",
+    setRating: "desktop:app-registry-set-rating",
+    setReview: "desktop:app-registry-set-review",
   },
   appTabs: {
     opened: "desktop:app-tabs-opened",

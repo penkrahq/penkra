@@ -56,6 +56,40 @@ export function parseRegistryArtifactRequest(value: unknown): {
   return { id: input.id, source: input.source };
 }
 
+export function parseRegistryFeedbackRequest(value: unknown): { appId: string } {
+  const input = record(value);
+  if (Object.keys(input).length !== 1 || typeof input.appId !== "string" || !UUID.test(input.appId)) {
+    throw invalidRequest();
+  }
+  return { appId: input.appId };
+}
+
+export function parseRegistryRatingRequest(value: unknown): { appId: string; rating: number } {
+  const input = record(value);
+  if (
+    Object.keys(input).length !== 2 ||
+    typeof input.appId !== "string" ||
+    !UUID.test(input.appId) ||
+    !Number.isInteger(input.rating) ||
+    (input.rating as number) < 1 ||
+    (input.rating as number) > 5
+  ) {
+    throw invalidRequest();
+  }
+  return { appId: input.appId, rating: input.rating as number };
+}
+
+export function parseRegistryReviewRequest(value: unknown): { appId: string; body: string } {
+  const input = record(value);
+  if (Object.keys(input).length !== 2 || typeof input.appId !== "string" || !UUID.test(input.appId)) {
+    throw invalidRequest();
+  }
+  if (typeof input.body !== "string") throw invalidRequest();
+  const body = input.body.trim();
+  if (body.length < 1 || body.length > 10_000) throw invalidRequest();
+  return { appId: input.appId, body };
+}
+
 function record(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw invalidRequest();
   return value as Record<string, unknown>;

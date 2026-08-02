@@ -51,6 +51,12 @@ const exposedApi =
             ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.appRegistry.get, input),
           getArtifact: (input: unknown) =>
             ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.appRegistry.getArtifact, input),
+          getFeedback: (input: unknown) =>
+            ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.appRegistry.getFeedback, input),
+          setRating: (input: unknown) =>
+            ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.appRegistry.setRating, input),
+          setReview: (input: unknown) =>
+            ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.appRegistry.setReview, input),
         },
       }
     : runtime.api;

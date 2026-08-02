@@ -4,6 +4,7 @@
 
 import type {
   DesktopAppRegistryBridge,
+  DesktopRegistryAccountFeedback,
   DesktopRegistryAppDetail,
   DesktopRegistryAppSummary,
 } from "@penkra/contracts";
@@ -223,6 +224,40 @@ export class AppRegistryClient {
     }
   }
 
+  async getFeedback(input: { appId: string }): ReturnType<DesktopAppRegistryBridge["getFeedback"]> {
+    assertUuid(input.appId, "App");
+    return parseAccountFeedback(await this.#request(
+      `/api/registry/apps/${encodeURIComponent(input.appId)}/feedback`,
+    ));
+  }
+
+  async setRating(input: {
+    appId: string;
+    rating: number;
+  }): ReturnType<DesktopAppRegistryBridge["setRating"]> {
+    assertUuid(input.appId, "App");
+    if (!Number.isInteger(input.rating) || input.rating < 1 || input.rating > 5) {
+      throw new Error("App rating must be an integer between 1 and 5.");
+    }
+    return parseRating(await this.#request(
+      `/api/registry/apps/${encodeURIComponent(input.appId)}/rating`,
+      { method: "PUT", body: JSON.stringify({ rating: input.rating }) },
+    ), input.appId);
+  }
+
+  async setReview(input: {
+    appId: string;
+    body: string;
+  }): ReturnType<DesktopAppRegistryBridge["setReview"]> {
+    assertUuid(input.appId, "App");
+    const body = input.body.trim();
+    if (!body || body.length > 10_000) throw new Error("App review must be between 1 and 10000 characters.");
+    return parseReview(await this.#request(
+      `/api/registry/apps/${encodeURIComponent(input.appId)}/review`,
+      { method: "PUT", body: JSON.stringify({ body }) },
+    ), input.appId);
+  }
+
   async recordSuccessfulInstallDurably(input: { appId: string; versionId: string }): Promise<void> {
     const accountId = await this.#getAccountId();
     if (!accountId) {
@@ -264,7 +299,7 @@ export class AppRegistryClient {
     }
   }
 
-  async #request(path: string, init: { method?: "POST"; body?: string } = {}): Promise<unknown> {
+  async #request(path: string, init: { method?: "POST" | "PUT"; body?: string } = {}): Promise<unknown> {
     const cookie = this.#getCookie().trim();
     if (!cookie) throw new Error("Sign in to use the Penkra App registry.");
     const response = await this.#fetch(`${this.#apiUrl}${path}`, {
@@ -501,6 +536,62 @@ function parseSummary(value: unknown): DesktopRegistryAppSummary {
   };
 }
 
+function parseAccountFeedback(value: unknown): DesktopRegistryAccountFeedback {
+  if (!isRecord(value) || value.eligible !== true) throw invalidResponse();
+  const rating = value.rating;
+  if (rating !== null && (!Number.isInteger(rating) || (rating as number) < 1 || (rating as number) > 5)) {
+    throw invalidResponse();
+  }
+  const review = value.review;
+  let parsedReview: DesktopRegistryAccountFeedback["review"] = null;
+  if (review !== null) {
+    if (!isRecord(review)) throw invalidResponse();
+    const status = stringField(review, "status");
+    if (!["pending", "published", "rejected", "removed"].includes(status)) throw invalidResponse();
+    parsedReview = {
+      body: stringField(review, "body"),
+      status: status as NonNullable<DesktopRegistryAccountFeedback["review"]>["status"],
+      updatedAt: isoDateField(review, "updatedAt"),
+    };
+  }
+  return {
+    appId: uuidField(value, "appId"),
+    eligible: true,
+    installedAt: isoDateField(value, "installedAt"),
+    rating: rating as number | null,
+    review: parsedReview,
+  };
+}
+
+function parseRating(value: unknown, expectedAppId: string): {
+  appId: string;
+  rating: number;
+  updatedAt: string;
+} {
+  if (!isRecord(value)) throw invalidResponse();
+  const appId = uuidField(value, "appId");
+  const rating = integerField(value, "rating", 1);
+  if (appId !== expectedAppId || rating > 5) throw invalidResponse();
+  return { appId, rating, updatedAt: isoDateField(value, "updatedAt") };
+}
+
+function parseReview(value: unknown, expectedAppId: string): {
+  appId: string;
+  body: string;
+  status: "pending";
+  updatedAt: string;
+} {
+  if (!isRecord(value)) throw invalidResponse();
+  const appId = uuidField(value, "appId");
+  if (appId !== expectedAppId || value.status !== "pending") throw invalidResponse();
+  return {
+    appId,
+    body: stringField(value, "body"),
+    status: "pending",
+    updatedAt: isoDateField(value, "updatedAt"),
+  };
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
@@ -533,6 +624,10 @@ function uuidField(value: Record<string, unknown>, key: string): string {
   const field = stringField(value, key);
   if (!UUID.test(field)) throw invalidResponse();
   return field;
+}
+
+function assertUuid(value: string, label: string): void {
+  if (!UUID.test(value)) throw new Error(`Invalid registry ${label} id.`);
 }
 
 function digestField(value: Record<string, unknown>, key: string): string {
