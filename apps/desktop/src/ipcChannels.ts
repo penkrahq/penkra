@@ -26,6 +26,7 @@ export const DESKTOP_IPC_CHANNELS = {
   notificationsIsSupported: "desktop:notifications-is-supported",
   notificationsShow: "desktop:notifications-show",
   mediaRequestMicrophoneAccess: "desktop:media-request-microphone-access",
+  mediaSetVoiceRecordingActive: "desktop:media-set-voice-recording-active",
   accountAuth: {
     getState: "desktop:account-auth-get-state",
     requestSignIn: "desktop:account-auth-request-sign-in",

@@ -476,6 +476,8 @@ export interface DesktopBridge {
   media?: {
     /** Resolve the native OS grant before Chromium opens the audio device. */
     requestMicrophoneAccess: () => Promise<boolean>;
+    /** Keep the display awake only while this renderer is actively recording voice. */
+    setVoiceRecordingActive: (recordingId: string, active: boolean) => Promise<void>;
   };
   accountAuth?: {
     getState: () => Promise<DesktopAccountAuthState>;

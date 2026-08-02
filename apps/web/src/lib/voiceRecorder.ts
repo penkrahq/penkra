@@ -41,6 +41,7 @@ export function formatVoiceRecordingDuration(durationMs: number): string {
 }
 
 export function useVoiceRecorder() {
+  const [recordingActivityId] = useState(() => globalThis.crypto.randomUUID());
   const runtimeRef = useRef<RecorderRuntime | null>(null);
   const timerRef = useRef<number | null>(null);
   const waveformLevelsRef = useRef<number[]>([]);
@@ -61,6 +62,7 @@ export function useVoiceRecorder() {
     runtimeRef.current = null;
     clearTimer();
     setIsRecording(false);
+    setDesktopVoiceRecordingActive(recordingActivityId, false);
 
     if (!runtime) {
       setDurationMs(0);
@@ -85,7 +87,7 @@ export function useVoiceRecorder() {
       chunks: runtime.completedChunks,
       durationMs: Math.max(runtime.chunker.totalDurationMs, duration),
     };
-  }, [clearTimer]);
+  }, [clearTimer, recordingActivityId]);
 
   const startRecording = useCallback(async () => {
     if (runtimeRef.current) {
@@ -176,6 +178,18 @@ export function useVoiceRecorder() {
       silentGainNode.connect(audioContext.destination);
 
       runtimeRef.current = runtime;
+      setDesktopVoiceRecordingActive(recordingActivityId, true);
+      for (const track of stream.getTracks()) {
+        track.addEventListener(
+          "ended",
+          () => {
+            if (runtimeRef.current === runtime) {
+              void teardownRuntime();
+            }
+          },
+          { once: true },
+        );
+      }
       waveformLevelsRef.current = [];
       waveformLastEmitAtRef.current = 0;
       setWaveformLevels([]);
@@ -196,7 +210,7 @@ export function useVoiceRecorder() {
       await audioContext?.close().catch(() => undefined);
       throw error;
     }
-  }, []);
+  }, [recordingActivityId, teardownRuntime]);
 
   const stopRecording = useCallback(async (): Promise<VoiceRecordingPayload | null> => {
     const recorded = await teardownRuntime();
@@ -247,6 +261,18 @@ export function useVoiceRecorder() {
     stopRecording,
     cancelRecording,
   };
+}
+
+function setDesktopVoiceRecordingActive(recordingId: string, active: boolean): void {
+  const setRecordingActive = window.desktopBridge?.media?.setVoiceRecordingActive;
+  if (!setRecordingActive) return;
+
+  void setRecordingActive(recordingId, active).catch((error: unknown) => {
+    console.warn(
+      `[voice-recorder] Failed to ${active ? "start" : "stop"} the display-sleep blocker.`,
+      error,
+    );
+  });
 }
 
 function encodeChunk(chunk: RawVoiceChunk): EncodedVoiceChunk {

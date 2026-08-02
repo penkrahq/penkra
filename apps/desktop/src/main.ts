@@ -22,6 +22,7 @@ import {
   Notification,
   nativeImage,
   nativeTheme,
+  powerSaveBlocker,
   protocol,
   screen,
   session,
@@ -63,6 +64,7 @@ import { RotatingFileSink } from "@penkra/shared/logging";
 import { ensureStaticSnapshot, findAsarArchivePath } from "@penkra/shared/staticSnapshot";
 import { isBackendReadinessAborted, waitForHttpReady } from "./backendReadiness";
 import { resolveBackendNodeArgs } from "./backendNodeOptions";
+import { VoiceRecordingPowerBlocker } from "./voiceRecordingPowerBlocker";
 import {
   retainLiveBackendAfterShutdownFailure,
   requireWindowsBackendExit,
@@ -347,6 +349,11 @@ const browserPerfLoggingEnabled = process.env.PENKRA_BROWSER_PERF === "1";
 type DesktopUpdateErrorContext = DesktopUpdateState["errorContext"];
 
 let mainWindow: BrowserWindow | null = null;
+const voiceRecordingPowerBlocker = new VoiceRecordingPowerBlocker({
+  blocker: powerSaveBlocker,
+  onError: (message, error) =>
+    safeConsoleError(`[desktop-media] ${message} ${formatErrorMessage(error)}`),
+});
 let spacesMenuState: DesktopSpacesMenuInput = { activeSpaceId: null, spaces: [] };
 let backendProcess: ChildProcess.ChildProcess | null = null;
 let backendPort = 0;
@@ -3818,6 +3825,24 @@ function registerIpcHandlers(): void {
     );
     return allowed;
   });
+  ipcMain.removeHandler(IPC.mediaSetVoiceRecordingActive);
+  ipcMain.handle(
+    IPC.mediaSetVoiceRecordingActive,
+    (event, recordingId: unknown, active: unknown) => {
+      if (!mainWindow || event.sender !== mainWindow.webContents || event.sender.isDestroyed()) {
+        return;
+      }
+      if (
+        typeof recordingId !== "string" ||
+        recordingId.length === 0 ||
+        recordingId.length > 128 ||
+        typeof active !== "boolean"
+      ) {
+        throw new Error("Invalid voice recording activity state.");
+      }
+      voiceRecordingPowerBlocker.setRecordingActive(event.sender.id, recordingId, active);
+    },
+  );
   registerDesktopVoiceTranscriptionHandler();
   startBrowserPerformanceLogging();
   registerBrowserIpcHandlers(ipcMain, browserManager);
@@ -3909,6 +3934,7 @@ function createWindow(): BrowserWindow {
       backgroundThrottling: true,
     },
   });
+  const rendererOwnerId = window.webContents.id;
   browserManager.setWindow(window);
   attachDesktopZoomFactorSync(window);
   attachRendererCrashRecovery(window);
@@ -4020,7 +4046,14 @@ function createWindow(): BrowserWindow {
     void window.loadURL(desktopIdentity.entryUrl);
   }
 
+  window.webContents.on("did-start-navigation", (_event, _url, isInPlace, isMainFrame) => {
+    if (!isInPlace && isMainFrame) {
+      voiceRecordingPowerBlocker.releaseOwner(rendererOwnerId);
+    }
+  });
+
   window.on("closed", () => {
+    voiceRecordingPowerBlocker.releaseOwner(rendererOwnerId);
     if (mainWindow === window) {
       mainWindow = null;
     }
@@ -4038,6 +4071,7 @@ function createWindow(): BrowserWindow {
  * crash reloading forever is worse than one blank window.
  */
 function attachRendererCrashRecovery(window: BrowserWindow): void {
+  const rendererOwnerId = window.webContents.id;
   let reloadTimer: ReturnType<typeof setTimeout> | null = null;
   const clearReloadTimer = (): void => {
     if (reloadTimer === null) return;
@@ -4046,6 +4080,7 @@ function attachRendererCrashRecovery(window: BrowserWindow): void {
   };
 
   window.webContents.on("render-process-gone", (_event, details) => {
+    voiceRecordingPowerBlocker.releaseOwner(rendererOwnerId);
     const description = `reason=${details.reason} exitCode=${details.exitCode}`;
     writeDesktopLogHeader(`renderer process gone ${description}`);
     safeConsoleError(`[desktop] renderer process gone (${description})`);
@@ -4331,6 +4366,10 @@ app.on("before-quit", (event) => {
 
   event.preventDefault();
   requestGracefulAppQuit("before-quit");
+});
+
+app.on("will-quit", () => {
+  voiceRecordingPowerBlocker.shutdown();
 });
 
 if (hasSingleInstanceLock) {

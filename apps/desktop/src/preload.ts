@@ -103,6 +103,8 @@ contextBridge.exposeInMainWorld("desktopBridge", {
   },
   media: {
     requestMicrophoneAccess: () => ipcRenderer.invoke(IPC.mediaRequestMicrophoneAccess),
+    setVoiceRecordingActive: (recordingId, active) =>
+      ipcRenderer.invoke(IPC.mediaSetVoiceRecordingActive, recordingId, active),
   },
   accountAuth: {
     getState: () => ipcRenderer.invoke(IPC.accountAuth.getState),
