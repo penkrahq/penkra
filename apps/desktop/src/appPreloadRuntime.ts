@@ -24,6 +24,7 @@ export interface AppPreloadTransport {
   send(message: AppPreloadRendererMessage): void;
   onHostMessage(listener: (message: unknown) => void): () => void;
   ready(): void;
+  queryPermission(name: import("@penkra/sdk").PenkraPermissionName): Promise<import("@penkra/sdk").AppPermissionStatus>;
 }
 
 interface ActiveRequest {
@@ -48,6 +49,9 @@ export class AppPreloadRuntime {
   constructor(transport: AppPreloadTransport) {
     this.#transport = transport;
     this.api = {
+      permissions: {
+        query: (name) => this.#transport.queryPermission(name),
+      },
       operations: {
         handle: (handlerKey, handler) =>
           registerUnique(this.#operationHandlers, handlerKey, handler, "operation handler"),

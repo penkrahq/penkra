@@ -45,6 +45,7 @@ export interface DesktopAppRuntime {
   readonly packageGarbageCollection: AppPackageGarbageCollectionResult;
   canManageInstallations(rendererId: number): boolean;
   installationSpaceId(rendererId: number): string | null;
+  rendererIdentity(rendererId: number): { appId: string; spaceId: string } | null;
   stop(): Promise<void>;
 }
 
@@ -82,7 +83,7 @@ export async function startDesktopAppRuntime(input: {
   });
   const operationCatalog = new AppOperationCatalog(() => store.snapshot());
   const sessions = new AppSessionManager();
-  const trustedInstallationRenderers = new Map<number, string>();
+  const rendererIdentities = new Map<number, { appId: string; spaceId: string }>();
   const registerRendererIdentity = ({
     appId,
     spaceId,
@@ -92,13 +93,14 @@ export async function startDesktopAppRuntime(input: {
     spaceId: string;
     rendererId: number;
   }) => {
-    if (appId !== "com.penkra.apps") return;
-    trustedInstallationRenderers.set(rendererId, spaceId);
-    return () => trustedInstallationRenderers.delete(rendererId);
+    const identity = { appId, spaceId };
+    rendererIdentities.set(rendererId, identity);
+    return () => {
+      if (rendererIdentities.get(rendererId) === identity) rendererIdentities.delete(rendererId);
+    };
   };
   const controllerHost = new AppControllerHost({
     broker,
-    operationCatalog,
     rpc,
     renderers: new ElectronAppControllerRendererFactory({
       preloadPath: input.appPreloadPath,
@@ -143,8 +145,12 @@ export async function startDesktopAppRuntime(input: {
     safeStartRecovery: storeResult.recovery,
     updateRecovery,
     packageGarbageCollection,
-    canManageInstallations: (rendererId) => trustedInstallationRenderers.has(rendererId),
-    installationSpaceId: (rendererId) => trustedInstallationRenderers.get(rendererId) ?? null,
+    canManageInstallations: (rendererId) => rendererIdentities.get(rendererId)?.appId === "com.penkra.apps",
+    installationSpaceId: (rendererId) => {
+      const identity = rendererIdentities.get(rendererId);
+      return identity?.appId === "com.penkra.apps" ? identity.spaceId : null;
+    },
+    rendererIdentity: (rendererId) => rendererIdentities.get(rendererId) ?? null,
     stop: async () => {
       if (stopped) return;
       stopped = true;

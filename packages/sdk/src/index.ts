@@ -46,7 +46,9 @@ export {
 
 export {
   operations,
+  permissions,
   tab,
+  type AppPermissionStatus,
   type AppOperationHandler,
   type AppTabHandlerContext,
   type AppTabNavigationHandler,

@@ -15,6 +15,7 @@ function fixture() {
       };
     },
     ready,
+    queryPermission: vi.fn(async (name) => ({ name, declared: true, required: false, state: "granted" })),
   });
   runtime.start();
   return {

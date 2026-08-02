@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { operations, tab, type PenkraAppRuntimeApi } from "./runtime";
+import { operations, permissions, tab, type PenkraAppRuntimeApi } from "./runtime";
 
 afterEach(() => {
   delete (globalThis as { penkra?: PenkraAppRuntimeApi }).penkra;
@@ -9,6 +9,7 @@ afterEach(() => {
 describe("framework-neutral App runtime exports", () => {
   it("forwards operation and tab registration to the preload-owned global API", () => {
     const runtime: PenkraAppRuntimeApi = {
+      permissions: { query: vi.fn(async (name) => ({ name, declared: true, required: false, state: "granted" })) },
       operations: { handle: vi.fn(() => vi.fn()) },
       tab: { handle: vi.fn(() => vi.fn()), onNavigate: vi.fn(() => vi.fn()) },
     };
@@ -24,6 +25,17 @@ describe("framework-neutral App runtime exports", () => {
     expect(runtime.operations.handle).toHaveBeenCalledWith("issues.create", operationHandler);
     expect(runtime.tab.handle).toHaveBeenCalledWith("selection.replace-text", tabHandler);
     expect(runtime.tab.onNavigate).toHaveBeenCalledWith(navigationHandler);
+  });
+
+  it("forwards read-only permission inspection to the preload-owned API", async () => {
+    const runtime: PenkraAppRuntimeApi = {
+      permissions: { query: vi.fn(async (name) => ({ name, declared: true, required: false, state: "granted" })) },
+      operations: { handle: vi.fn(() => vi.fn()) },
+      tab: { handle: vi.fn(() => vi.fn()), onNavigate: vi.fn(() => vi.fn()) },
+    };
+    (globalThis as { penkra?: PenkraAppRuntimeApi }).penkra = runtime;
+    await expect(permissions.query("network-fetch")).resolves.toMatchObject({ state: "granted" });
+    expect(runtime.permissions.query).toHaveBeenCalledWith("network-fetch");
   });
 
   it("fails clearly outside a Penkra App renderer", () => {

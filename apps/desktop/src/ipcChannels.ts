@@ -49,6 +49,7 @@ export const DESKTOP_IPC_CHANNELS = {
     hostMessage: "penkra-app:host-message",
     rendererMessage: "penkra-app:renderer-message",
     ready: "penkra-app:ready",
+    permissionQuery: "penkra-app:permission-query",
   },
   appInstallations: {
     state: "desktop:app-installations-state",

@@ -63,6 +63,7 @@ import { applyShellEnvironmentHydrationMarker } from "@penkra/shared/shell";
 import { RotatingFileSink } from "@penkra/shared/logging";
 import { ensureStaticSnapshot, findAsarArchivePath } from "@penkra/shared/staticSnapshot";
 import { isBackendReadinessAborted, waitForHttpReady } from "./backendReadiness";
+import { queryAppPermission } from "./appPermissionQuery";
 import { resolveBackendNodeArgs } from "./backendNodeOptions";
 import { VoiceRecordingPowerBlocker } from "./voiceRecordingPowerBlocker";
 import {
@@ -3551,6 +3552,14 @@ function registerIpcHandlers(): void {
   ipcMain.removeHandler(IPC.storageMigration.acknowledge);
   ipcMain.handle(IPC.storageMigration.acknowledge, async () => {
     await acknowledgePenkraStorageSnapshot(storageSnapshotPath);
+  });
+
+  ipcMain.removeHandler(IPC.appRuntime.permissionQuery);
+  ipcMain.handle(IPC.appRuntime.permissionQuery, async (event, input: unknown) => {
+    const runtime = desktopAppRuntime;
+    const identity = runtime?.rendererIdentity(event.sender.id);
+    if (!runtime || !identity) throw new Error("This renderer is not a registered Penkra App.");
+    return queryAppPermission(runtime.installations.snapshot(), identity, input);
   });
 
   const requireAppInstallations = (senderId: number) => {

@@ -17,6 +17,7 @@ const runtime = new AppPreloadRuntime({
     return () => ipcRenderer.removeListener(APP_RUNTIME_IPC_CHANNELS.hostMessage, wrapped);
   },
   ready: () => ipcRenderer.send(APP_RUNTIME_IPC_CHANNELS.ready),
+  queryPermission: (name) => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.permissionQuery, name),
 });
 
 const appId = process.argv
