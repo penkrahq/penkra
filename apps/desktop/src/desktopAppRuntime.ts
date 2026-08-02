@@ -116,7 +116,7 @@ export async function startDesktopAppRuntime(input: {
     ...(input.assertAppAllowed === undefined ? {} : { assertAppAllowed: input.assertAppAllowed }),
     closeTabs: (appId, spaceId, reason) => appTabs.closeForAppSpace(appId, spaceId, reason),
   });
-  const installations = new AppInstallationService({ store, lifecycle, updates });
+  const installations = new AppInstallationService({ store, lifecycle, data: sessions, updates });
   appTabs = new ElectronAppTabHost({
     window: input.window,
     installations,

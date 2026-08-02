@@ -49,6 +49,8 @@ function sessionFixture() {
   const fixture = {
     listeners,
     session: {
+      clearAuthCache: vi.fn(async () => undefined),
+      clearData: vi.fn(async () => undefined),
       on: vi.fn((event, listener) => {
         if (event === "will-download") listeners.download = listener;
       }),
@@ -223,5 +225,33 @@ describe("AppSessionManager", () => {
     ]);
     expect(personalSession.partition).not.toBe(workSession.partition);
     expect(personalSession.session).not.toBe(workSession.session);
+  });
+
+  it("erases the complete inactive persistent partition", async () => {
+    const fixture = sessionFixture();
+    electron.fromPartition.mockReturnValue(fixture.session);
+    const manager = new AppSessionManager();
+
+    await manager.eraseData("com.penkra.apps", "personal");
+
+    expect(electron.fromPartition).toHaveBeenCalledWith(
+      createAppSessionPartition("com.penkra.apps", "personal"),
+      { cache: true },
+    );
+    expect(fixture.session.clearData).toHaveBeenCalledOnce();
+    expect(fixture.session.clearAuthCache).toHaveBeenCalledOnce();
+  });
+
+  it("refuses to erase a live App partition", async () => {
+    const fixture = sessionFixture();
+    electron.fromPartition.mockReturnValue(fixture.session);
+    const manager = new AppSessionManager({
+      createProtocolHandler: vi.fn(async () => async () => new Response("ok")),
+    });
+    await manager.activate({ installedApp: installedApp(), spaceId: "personal" });
+
+    await expect(manager.eraseData("com.penkra.apps", "personal"))
+      .rejects.toThrow("must be inactive");
+    expect(fixture.session.clearData).not.toHaveBeenCalled();
   });
 });

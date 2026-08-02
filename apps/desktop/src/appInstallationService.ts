@@ -26,6 +26,10 @@ export interface UninstallAppInput {
   retainData: boolean;
 }
 
+export interface AppInstallationDataEraser {
+  eraseData(appId: string, spaceId: string): Promise<void>;
+}
+
 /**
  * The narrow trusted mutation boundary used by the Apps App and core Settings.
  *
@@ -37,6 +41,7 @@ export interface UninstallAppInput {
 export class AppInstallationService {
   readonly #store: Pick<AppInstallationStore, "snapshot" | "mutate">;
   readonly #lifecycle: Pick<AppRuntimeLifecycle, "enable" | "disable" | "isActive">;
+  readonly #data: AppInstallationDataEraser;
   readonly #updates: Pick<AppUpdateJournal, "prepare" | "clear"> | undefined;
   readonly #listeners = new Set<AppInstallationStateListener>();
   #queue: Promise<void> = Promise.resolve();
@@ -44,10 +49,12 @@ export class AppInstallationService {
   constructor(input: {
     store: Pick<AppInstallationStore, "snapshot" | "mutate">;
     lifecycle: Pick<AppRuntimeLifecycle, "enable" | "disable" | "isActive">;
+    data: AppInstallationDataEraser;
     updates?: Pick<AppUpdateJournal, "prepare" | "clear">;
   }) {
     this.#store = input.store;
     this.#lifecycle = input.lifecycle;
+    this.#data = input.data;
     this.#updates = input.updates;
   }
 
@@ -207,6 +214,14 @@ export class AppInstallationService {
       for (const space of enabledSpaces) {
         await this.#lifecycle.disable(input.appId, space.spaceId);
       }
+      const retainedSpaces = Object.values(this.#store.snapshot().spaceStateByKey).filter(
+        (candidate) => candidate.appId === input.appId,
+      );
+      if (!input.retainData) {
+        for (const space of retainedSpaces) {
+          await this.#data.eraseData(input.appId, space.spaceId);
+        }
+      }
       const state = await this.#store.mutate((current) => {
         const withoutPackage = unregisterAppPackage(current, input.appId);
         return input.retainData
@@ -222,7 +237,18 @@ export class AppInstallationService {
     if (Object.values(this.#store.snapshot().packagesByAppId).some((app) => app.appId === input.appId)) {
       return Promise.reject(new Error("App data can only be removed after the App is uninstalled."));
     }
-    return this.#mutate((state) => removeRetainedAppState(state, input));
+    return this.#enqueue(async () => {
+      const retainedSpaces = Object.values(this.#store.snapshot().spaceStateByKey).filter(
+        (candidate) => candidate.appId === input.appId &&
+          (input.spaceId === undefined || candidate.spaceId === input.spaceId),
+      );
+      for (const space of retainedSpaces) {
+        await this.#data.eraseData(input.appId, space.spaceId);
+      }
+      const state = await this.#store.mutate((current) => removeRetainedAppState(current, input));
+      this.#publish(state);
+      return state;
+    });
   }
 
   isActive(appId: string, spaceId: string): boolean {

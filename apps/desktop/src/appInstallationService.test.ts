@@ -67,8 +67,12 @@ function fixture() {
     prepare: vi.fn(async () => undefined),
     clear: vi.fn(async () => undefined),
   };
+  const data = {
+    eraseData: vi.fn(async () => undefined),
+  };
   return {
-    service: new AppInstallationService({ store, lifecycle, updates }),
+    service: new AppInstallationService({ store, lifecycle, data, updates }),
+    data,
     lifecycle,
     updates,
     state: () => state,
@@ -261,6 +265,46 @@ describe("AppInstallationService", () => {
 
     expect(test.state().packagesByAppId["com.acme.figma"]).toBeUndefined();
     expect(test.state().spaceStateByKey["personal\0com.acme.figma"]).toBeUndefined();
+    expect(test.data.eraseData).toHaveBeenCalledWith("com.acme.figma", "personal");
+  });
+
+  it("keeps retained data when uninstall requests retention", async () => {
+    const test = fixture();
+    await test.service.install(verifiedPackage());
+    await test.service.setEnabled({ appId: "com.acme.figma", spaceId: "personal", enabled: true });
+
+    await test.service.uninstall({ appId: "com.acme.figma", retainData: true });
+
+    expect(test.data.eraseData).not.toHaveBeenCalled();
+    expect(test.state().spaceStateByKey["personal\0com.acme.figma"]).toBeDefined();
+  });
+
+  it("does not remove package metadata when persistent data erasure fails", async () => {
+    const test = fixture();
+    await test.service.install(verifiedPackage());
+    await test.service.setEnabled({ appId: "com.acme.figma", spaceId: "personal", enabled: true });
+    test.data.eraseData.mockRejectedValueOnce(new Error("partition clear failed"));
+
+    await expect(test.service.uninstall({ appId: "com.acme.figma", retainData: false }))
+      .rejects.toThrow("partition clear failed");
+
+    expect(test.state().packagesByAppId["com.acme.figma"]).toBeDefined();
+    expect(test.state().spaceStateByKey["personal\0com.acme.figma"]).toBeDefined();
+  });
+
+  it("erases one retained Space partition after uninstall", async () => {
+    const test = fixture();
+    await test.service.install(verifiedPackage());
+    await test.service.setEnabled({ appId: "com.acme.figma", spaceId: "personal", enabled: true });
+    await test.service.setEnabled({ appId: "com.acme.figma", spaceId: "work", enabled: true });
+    await test.service.uninstall({ appId: "com.acme.figma", retainData: true });
+
+    await test.service.removeData({ appId: "com.acme.figma", spaceId: "personal" });
+
+    expect(test.data.eraseData).toHaveBeenCalledWith("com.acme.figma", "personal");
+    expect(test.data.eraseData).not.toHaveBeenCalledWith("com.acme.figma", "work");
+    expect(test.state().spaceStateByKey["personal\0com.acme.figma"]).toBeUndefined();
+    expect(test.state().spaceStateByKey["work\0com.acme.figma"]).toBeDefined();
   });
 
   it("refuses to erase data while the package is still installed", async () => {

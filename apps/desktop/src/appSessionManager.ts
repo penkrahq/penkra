@@ -104,6 +104,23 @@ export class AppSessionManager {
     });
   }
 
+  /**
+   * Erases the complete persistent Chromium partition for one App in one Space.
+   * Callers must deactivate the runtime first so a live renderer cannot race
+   * the destructive clear or immediately recreate state.
+   */
+  eraseData(appId: string, spaceId: string): Promise<void> {
+    const partition = createAppSessionPartition(appId, spaceId);
+    return this.#enqueue(partition, async () => {
+      if (this.#records.has(partition)) {
+        throw new Error(`${appId} must be inactive in Space ${spaceId} before its data is erased.`);
+      }
+      const partitionSession = this.#fromPartition(partition, { cache: true });
+      await partitionSession.clearData();
+      await partitionSession.clearAuthCache();
+    });
+  }
+
   get(appId: string, spaceId: string): ActiveAppSession | null {
     const record = this.#records.get(createAppSessionPartition(appId, spaceId));
     return record ? publicSession(record) : null;
