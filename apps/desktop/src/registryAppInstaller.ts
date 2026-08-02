@@ -18,7 +18,7 @@ export async function installRegistryApp(input: {
     permissions: Readonly<Record<string, AppPermissionGrant>>;
   };
   hostVersion: string;
-  registry: Pick<AppRegistryClient, "get" | "downloadVerifiedRelease" | "getSecurityPolicy" | "recordSuccessfulInstall">;
+  registry: Pick<AppRegistryClient, "get" | "downloadVerifiedRelease" | "getSecurityPolicy" | "recordSuccessfulInstallDurably">;
   packages: Pick<AppPackageIngestor, "ingestRegistryArchive">;
   installations: Pick<AppInstallationService, "installForSpace">;
 }): Promise<AppInstallationState> {
@@ -59,11 +59,7 @@ export async function installRegistryApp(input: {
     spaceId: input.request.spaceId,
     permissions: grants,
   });
-  try {
-    await input.registry.recordSuccessfulInstall({ appId: app.id, versionId: version.id });
-  } catch (error) {
-    console.warn("[penkra-app] Installed App receipt could not be recorded.", error);
-  }
+  await input.registry.recordSuccessfulInstallDurably({ appId: app.id, versionId: version.id });
   return state;
 }
 

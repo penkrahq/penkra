@@ -26,22 +26,29 @@ export class AppRegistryClient {
   readonly #apiUrl: string;
   readonly #fetch: typeof fetch;
   readonly #getCookie: () => string;
+  readonly #getAccountId: () => Promise<string | null>;
   readonly #trustedRegistryKeys: ReadonlyArray<RegistryTrustKey>;
   readonly #policyCachePath: string | undefined;
+  readonly #receiptQueuePath: string | undefined;
   #memoryPolicy: { value: VerifiedRegistryPolicy; loadedAt: number } | undefined;
+  #receiptQueue: Promise<void> = Promise.resolve();
 
   constructor(input: {
     apiUrl: string;
     getCookie: () => string;
+    getAccountId?: () => Promise<string | null>;
     fetch?: typeof fetch;
     trustedRegistryKeys?: ReadonlyArray<RegistryTrustKey>;
     policyCachePath?: string;
+    receiptQueuePath?: string;
   }) {
     this.#apiUrl = input.apiUrl.replace(/\/$/, "");
     this.#getCookie = input.getCookie;
+    this.#getAccountId = input.getAccountId ?? (async () => null);
     this.#fetch = input.fetch ?? globalThis.fetch;
     this.#trustedRegistryKeys = input.trustedRegistryKeys ?? [];
     this.#policyCachePath = input.policyCachePath;
+    this.#receiptQueuePath = input.receiptQueuePath;
   }
 
   async list(
@@ -216,6 +223,47 @@ export class AppRegistryClient {
     }
   }
 
+  async recordSuccessfulInstallDurably(input: { appId: string; versionId: string }): Promise<void> {
+    const accountId = await this.#getAccountId();
+    if (!accountId) {
+      console.warn("[penkra-app] Installed App receipt was not queued because the account identity is unavailable.");
+      return;
+    }
+    const entry = { accountId, appId: input.appId, versionId: input.versionId };
+    try {
+      await this.#mutateReceiptQueue((entries) => [
+        ...entries.filter((candidate) => candidate.accountId !== accountId || candidate.appId !== input.appId),
+        entry,
+      ]);
+    } catch (error) {
+      console.warn("[penkra-app] Installed App receipt could not be queued.", error);
+    }
+    try {
+      await this.recordSuccessfulInstall(input);
+      await this.#mutateReceiptQueue((entries) => entries.filter((candidate) =>
+        candidate.accountId !== accountId || candidate.appId !== input.appId
+      ));
+    } catch (error) {
+      console.warn("[penkra-app] Installed App receipt will be retried.", error);
+    }
+  }
+
+  async reconcileInstallReceipts(): Promise<void> {
+    const accountId = await this.#getAccountId();
+    if (!accountId || !this.#receiptQueuePath) return;
+    const pending = (await this.#readReceiptQueue()).filter((entry) => entry.accountId === accountId);
+    for (const entry of pending) {
+      try {
+        await this.recordSuccessfulInstall({ appId: entry.appId, versionId: entry.versionId });
+        await this.#mutateReceiptQueue((entries) => entries.filter((candidate) =>
+          candidate.accountId !== entry.accountId || candidate.appId !== entry.appId
+        ));
+      } catch {
+        return;
+      }
+    }
+  }
+
   async #request(path: string, init: { method?: "POST"; body?: string } = {}): Promise<unknown> {
     const cookie = this.#getCookie().trim();
     if (!cookie) throw new Error("Sign in to use the Penkra App registry.");
@@ -303,6 +351,57 @@ export class AppRegistryClient {
       console.warn("[penkra-app] Registry policy cache could not be updated.", error);
     }
   }
+
+  #mutateReceiptQueue(
+    transition: (entries: InstallReceiptQueueEntry[]) => InstallReceiptQueueEntry[],
+  ): Promise<void> {
+    const operation = this.#receiptQueue.then(async () => {
+      if (!this.#receiptQueuePath) return;
+      const entries = transition(await this.#readReceiptQueue());
+      await writeAtomic(this.#receiptQueuePath, JSON.stringify({ schemaVersion: 1, entries }));
+    });
+    this.#receiptQueue = operation.catch(() => undefined);
+    return operation;
+  }
+
+  async #readReceiptQueue(): Promise<InstallReceiptQueueEntry[]> {
+    if (!this.#receiptQueuePath) return [];
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(await readFile(this.#receiptQueuePath, "utf8"));
+    } catch (error) {
+      if (isNodeError(error) && error.code === "ENOENT") return [];
+      throw error;
+    }
+    if (!isRecord(parsed) || parsed.schemaVersion !== 1 || !Array.isArray(parsed.entries)) {
+      throw new Error("The App install receipt queue is invalid.");
+    }
+    return parsed.entries.map((candidate) => {
+      if (!isRecord(candidate)) throw new Error("The App install receipt queue is invalid.");
+      const accountId = stringField(candidate, "accountId");
+      const appId = uuidField(candidate, "appId");
+      const versionId = uuidField(candidate, "versionId");
+      return { accountId, appId, versionId };
+    });
+  }
+}
+
+type InstallReceiptQueueEntry = { accountId: string; appId: string; versionId: string };
+
+async function writeAtomic(path: string, contents: string): Promise<void> {
+  const temporaryPath = `${path}.${process.pid}.tmp`;
+  try {
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(temporaryPath, contents, { encoding: "utf8", mode: 0o600 });
+    await rename(temporaryPath, path);
+  } catch (error) {
+    await unlink(temporaryPath).catch(() => undefined);
+    throw error;
+  }
+}
+
+function isNodeError(value: unknown): value is NodeJS.ErrnoException {
+  return value instanceof Error && "code" in value;
 }
 
 async function boundedText(response: Response, maximumBytes: number): Promise<string> {

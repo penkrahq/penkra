@@ -225,11 +225,57 @@ describe("desktop App registry client", () => {
       await rm(directory, { recursive: true, force: true });
     }
   });
+
+  it("retries install receipts only for the account that performed the install", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "penkra-receipt-test-"));
+    try {
+      const queuePath = join(directory, "receipts.json");
+      const failed = new AppRegistryClient({
+        apiUrl: "https://api.penkra.com",
+        getCookie: () => "cookie=value",
+        getAccountId: async () => "account-a",
+        fetch: vi.fn().mockResolvedValue(jsonResponse({ message: "offline" }, 503)),
+        receiptQueuePath: queuePath,
+      });
+      await expect(failed.recordSuccessfulInstallDurably({
+        appId: summary.id,
+        versionId: "00000000-0000-4000-8000-000000000303",
+      })).resolves.toBeUndefined();
+
+      const otherFetch = vi.fn();
+      await new AppRegistryClient({
+        apiUrl: "https://api.penkra.com",
+        getCookie: () => "cookie=value",
+        getAccountId: async () => "account-b",
+        fetch: otherFetch,
+        receiptQueuePath: queuePath,
+      }).reconcileInstallReceipts();
+      expect(otherFetch).not.toHaveBeenCalled();
+
+      const retryFetch = vi.fn().mockResolvedValue(jsonResponse({
+        appId: summary.id,
+        firstInstalledVersionId: "00000000-0000-4000-8000-000000000303",
+        installedAt: "2026-08-02T00:00:00.000Z",
+      }));
+      const retry = new AppRegistryClient({
+        apiUrl: "https://api.penkra.com",
+        getCookie: () => "cookie=value",
+        getAccountId: async () => "account-a",
+        fetch: retryFetch,
+        receiptQueuePath: queuePath,
+      });
+      await retry.reconcileInstallReceipts();
+      await retry.reconcileInstallReceipts();
+      expect(retryFetch).toHaveBeenCalledOnce();
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
 });
 
-function jsonResponse(body: unknown): Response {
+function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
-    status: 200,
+    status,
     headers: { "content-type": "application/json" },
   });
 }

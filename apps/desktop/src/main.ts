@@ -4446,10 +4446,12 @@ if (hasSingleInstanceLock) {
   appRegistryClient = new AppRegistryClient({
     apiUrl: penkraAccountServices.apiUrl,
     getCookie: accountAuthRuntime.getCookie,
+    getAccountId: accountAuthRuntime.getAccountId,
     trustedRegistryKeys: parseRegistryTrustKeys(
       process.env.PENKRA_REGISTRY_TRUSTED_KEYS ?? __PENKRA_REGISTRY_TRUSTED_KEYS__,
     ),
     policyCachePath: Path.join(STATE_DIR, "registry-app-policy.jws"),
+    receiptQueuePath: Path.join(STATE_DIR, "registry-install-receipts.json"),
   });
 }
 
@@ -4517,6 +4519,9 @@ async function bootstrap(): Promise<void> {
       `[penkra-app] Quarantined corrupt installation state at ${desktopAppRuntime.safeStartRecovery.quarantinedPath}: ${desktopAppRuntime.safeStartRecovery.error.message}`,
     );
   }
+  void appRegistryClient?.reconcileInstallReceipts().catch((error) => {
+    console.warn(`[penkra-app] Install receipt reconciliation failed: ${formatErrorMessage(error)}`);
+  });
   const firstPartyAppsPath = resolveFirstPartyAppsPackagePath({
     configuredPath: process.env[PENKRA_APPS_PACKAGE_PATH_ENV],
     resourcesPath: process.resourcesPath,

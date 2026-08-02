@@ -35,7 +35,7 @@ const app = {
 describe("registry App installer", () => {
   it("passes only a verified, compatible package and reviewed grants to installation", async () => {
     const installForSpace = vi.fn().mockResolvedValue(createEmptyAppInstallationState());
-    const recordSuccessfulInstall = vi.fn().mockResolvedValue(undefined);
+    const recordSuccessfulInstallDurably = vi.fn().mockResolvedValue(undefined);
     const getSecurityPolicy = vi.fn().mockResolvedValue({
       registry: "penkra.com",
       generatedAt: "2026-08-01T00:00:00.000Z",
@@ -80,7 +80,7 @@ describe("registry App installer", () => {
           },
         }),
         getSecurityPolicy,
-        recordSuccessfulInstall,
+        recordSuccessfulInstallDurably,
       },
       packages: { ingestRegistryArchive },
       installations: { installForSpace },
@@ -91,7 +91,7 @@ describe("registry App installer", () => {
       spaceId: "space",
       permissions: { "network-fetch": "granted" },
     }));
-    expect(recordSuccessfulInstall).toHaveBeenCalledWith({ appId: app.id, versionId: version.id });
+    expect(recordSuccessfulInstallDurably).toHaveBeenCalledWith({ appId: app.id, versionId: version.id });
   });
 
   it("rejects incompatible releases and missing required grants before download", async () => {
@@ -103,7 +103,7 @@ describe("registry App installer", () => {
         get: vi.fn().mockResolvedValue(app),
         downloadVerifiedRelease,
         getSecurityPolicy: vi.fn(),
-        recordSuccessfulInstall: vi.fn(),
+        recordSuccessfulInstallDurably: vi.fn(),
       },
       packages: { ingestRegistryArchive: vi.fn() },
       installations: { installForSpace: vi.fn() },

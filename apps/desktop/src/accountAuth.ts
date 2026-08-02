@@ -41,6 +41,7 @@ type PenkraElectronAuthClient = ReturnType<typeof createAuthClient> & {
 
 export type PenkraAccountAuthRuntime = {
   getCookie: () => string;
+  getAccountId: () => Promise<string | null>;
 };
 
 export function configurePenkraAccountAuth(input: {
@@ -237,6 +238,11 @@ export function configurePenkraAccountAuth(input: {
 
   return {
     getCookie: () => signInClient.getCookie(),
+    getAccountId: async () => {
+      const result = await signInClient.getSession();
+      const id = result.data?.user?.id;
+      return typeof id === "string" && id ? id : null;
+    },
   };
 }
 
