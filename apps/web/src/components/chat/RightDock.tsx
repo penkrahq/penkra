@@ -18,16 +18,8 @@ import {
   EMPTY_PANE_ID_SET,
   reconcileKeepMountedPaneIds,
 } from "~/lib/dockPaneActivation";
-import { PanelRightCloseIcon, PlusIcon } from "~/lib/icons";
-import type {
-  RightDockPane,
-  RightDockPaneKind,
-  RightDockThreadState,
-} from "~/rightDockStore.logic";
+import type { RightDockPane, RightDockThreadState } from "~/rightDockStore.logic";
 import { resolveActivePane } from "~/rightDockStore.logic";
-import { Button } from "../ui/button";
-import { IconButton } from "../ui/icon-button";
-import { Menu, MenuItem, MenuTrigger } from "../ui/menu";
 import { PanelTabShared } from "../right-panel/panel-tab-shared/PanelTabShared";
 import {
   Sidebar,
@@ -37,16 +29,8 @@ import {
   SidebarRail,
 } from "../ui/sidebar";
 import { CHAT_BACKGROUND_CLASS_NAME } from "./composerPickerStyles";
-import { ComposerPickerMenuPopup } from "./ComposerPickerMenuPopup";
-import {
-  CHAT_SURFACE_HEADER_ROW_CLASS_NAME,
-  DOCK_HEADER_ICON_BUTTON_CLASS,
-} from "./chatHeaderControls";
-import {
-  getRightDockPaneMeta,
-  resolveRightDockPaneIcon,
-  resolveRightDockPaneLabel,
-} from "./rightDockPaneMeta";
+import { CHAT_SURFACE_HEADER_ROW_CLASS_NAME } from "./chatHeaderControls";
+import { resolveRightDockPaneIcon, resolveRightDockPaneLabel } from "./rightDockPaneMeta";
 import { useDesktopTopBarWindowControlsGutterClassName } from "~/hooks/useDesktopTopBarGutter";
 import { useOptionalFind } from "../find/FindProvider";
 import { createDomFindSurface } from "~/lib/find/domFindSurface";
@@ -67,16 +51,11 @@ interface RightDockProps {
   // Per-pane tab glyph overrides (same shape as label overrides) — e.g. a pull request pane
   // swapping the generic kind icon for its live state glyph.
   paneIconOverrides?: Record<string, ReactNode | undefined>;
-  /** Fixed panel-edge control supplied by the host, after the generic dock controls. */
-  edgeControl?: ReactNode;
-  addMenuKinds: readonly RightDockPaneKind[];
   // Single-pane hosts omit selection so their lone tab label is static; multi-pane chat hosts
   // provide the callback and keep the normal selectable-tab behavior.
   onSelectPane?: ((paneId: string) => void) | undefined;
   onClosePane: (paneId: string) => void;
-  onCollapse: () => void;
   onOpenChange: (open: boolean) => void;
-  onAddPane: (kind: RightDockPaneKind) => void;
   motionKey?: string;
   activePaneRuntimeMode?: DockPaneRuntimeMode;
   renderPane: (
@@ -253,7 +232,9 @@ export function RightDock(props: RightDockProps) {
           <div
             className={cn(
               CHAT_SURFACE_HEADER_ROW_CLASS_NAME,
-              "gap-1 px-1.5",
+              // The Apps launcher is a fixed host-level overlay, not dock content. Reserve its
+              // footprint so tabs slide beneath the launcher without occupying its space.
+              "gap-1 pl-1.5 pr-11",
               desktopTopBarWindowControlsGutterClassName,
             )}
           >
@@ -274,46 +255,6 @@ export function RightDock(props: RightDockProps) {
                 />
               ))}
             </div>
-            {props.addMenuKinds.length > 0 ? (
-              <Menu modal={false}>
-                <MenuTrigger
-                  render={
-                    <Button
-                      variant="chrome"
-                      size="icon-xs"
-                      aria-label="Add panel"
-                      title="Add panel"
-                      className={DOCK_HEADER_ICON_BUTTON_CLASS}
-                    />
-                  }
-                >
-                  <PlusIcon className="size-3.5" />
-                </MenuTrigger>
-                <ComposerPickerMenuPopup align="end" side="bottom" className="w-44 min-w-44">
-                  {props.addMenuKinds.map((kind) => {
-                    const { Icon, label } = getRightDockPaneMeta(kind);
-                    return (
-                      <MenuItem key={kind} onClick={() => props.onAddPane(kind)}>
-                        <Icon className="size-3.5 shrink-0" />
-                        <span>{label}</span>
-                      </MenuItem>
-                    );
-                  })}
-                </ComposerPickerMenuPopup>
-              </Menu>
-            ) : null}
-            <IconButton
-              variant="chrome"
-              size="icon-xs"
-              label="Collapse panel"
-              tooltip="Collapse panel"
-              tooltipSide="bottom"
-              className={DOCK_HEADER_ICON_BUTTON_CLASS}
-              onClick={props.onCollapse}
-            >
-              <PanelRightCloseIcon />
-            </IconButton>
-            {props.edgeControl}
           </div>
           <div className="relative min-h-0 flex-1">
             {renderedPanes.map((pane) => {

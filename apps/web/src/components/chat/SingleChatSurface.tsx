@@ -40,7 +40,6 @@ import type { DockPaneRuntimeMode } from "../../lib/dockPaneActivation";
 import type { FileCommentSelection } from "../../lib/fileComments";
 import { canComposerHandlePanelWidth } from "../../lib/panelResize";
 import { projectListDirectoriesQueryOptions } from "../../lib/projectReactQuery";
-import { getSidechatCreator } from "../../lib/sidechatCreatorRegistry";
 import {
   prefetchWorkspaceFile,
   resolveDockFileOpenTarget,
@@ -79,7 +78,7 @@ import { PanelStateMessage } from "./PanelStateMessage";
 import { RightDock } from "./RightDock";
 import { RightDockProfilePane } from "./RightDockProfilePane";
 import { AppDockPane } from "./AppDockPane";
-import { RIGHT_DOCK_ADD_MENU_KINDS, getRightDockPaneMeta } from "./rightDockPaneMeta";
+import { getRightDockPaneMeta } from "./rightDockPaneMeta";
 import {
   CHAT_BACKGROUND_CLASS_NAME,
   CHAT_MAIN_CONTENT_SURFACE_CLASS_NAME,
@@ -102,7 +101,6 @@ import {
 import { cn } from "~/lib/utils";
 import { AppsIcon } from "~/lib/icons";
 import { IconButton } from "../ui/icon-button";
-import { DOCK_HEADER_ICON_BUTTON_CLASS } from "./chatHeaderControls";
 import { resolveAppsLauncherAction, resolveAppsLauncherSpaceId } from "./appsLauncher.logic";
 
 const PullRequestDockPane = lazy(() => import("../pullRequest/PullRequestDockPane"));
@@ -699,12 +697,13 @@ export function SingleChatSurface(props: {
     return remove;
   }, [openAppsListing]);
 
+  const appsPane = dockState.panes.find((pane) => pane.appId === "com.penkra.apps");
+  const appsLauncherPressed = dockState.open && dockState.activePaneId === appsPane?.id;
   const handleAppsLauncher = () => {
-    const existing = dockState.panes.find((pane) => pane.appId === "com.penkra.apps");
     const action = resolveAppsLauncherAction({
       dockOpen: dockState.open,
       activePaneId: dockState.activePaneId,
-      appsPaneId: existing?.id ?? null,
+      appsPaneId: appsPane?.id ?? null,
     });
     if (action.kind !== "open") {
       if (action.kind === "collapse") setDockOpen(props.threadId, false);
@@ -753,7 +752,8 @@ export function SingleChatSurface(props: {
       label="Apps"
       tooltip="Apps"
       tooltipSide="bottom"
-      className={DOCK_HEADER_ICON_BUTTON_CLASS}
+      aria-pressed={appsLauncherPressed}
+      className="!size-8 shrink-0 rounded-lg [&_svg,&_[data-slot=central-icon]]:mx-0"
       onClick={handleAppsLauncher}
     >
       <AppsIcon />
@@ -838,33 +838,6 @@ export function SingleChatSurface(props: {
     pullRequestPane && pullRequestPaneStateIcon
       ? { [pullRequestPane.id]: pullRequestPaneStateIcon }
       : undefined;
-
-  const handleAddDockPane = (kind: RightDockPaneKind) => {
-    requestImmediateDockHydration(kind);
-    if (kind === "sidechat") {
-      // Sidechat spawns a thread; reuse the composer's /side flow (correct model
-      // selection) published via the registry instead of opening an empty pane.
-      const createSidechat = getSidechatCreator(props.threadId);
-      if (!createSidechat) {
-        toastManager.add({
-          type: "warning",
-          title: "Side is unavailable",
-          description: "Open a server-backed main thread before starting Side.",
-        });
-        return;
-      }
-      void createSidechat().catch((error) => {
-        toastManager.add({
-          type: "error",
-          title: "Could not start Side",
-          description:
-            error instanceof Error ? error.message : "An error occurred while creating Side.",
-        });
-      });
-      return;
-    }
-    openPane(props.threadId, { kind });
-  };
 
   const renderDockPane = (
     pane: RightDockPane,
@@ -1165,24 +1138,18 @@ export function SingleChatSurface(props: {
           minWidth={SINGLE_PANEL_MIN_WIDTH}
           defaultWidth={DIFF_INLINE_DEFAULT_WIDTH}
           shouldAcceptWidth={shouldAcceptDockWidth}
-          addMenuKinds={RIGHT_DOCK_ADD_MENU_KINDS}
           motionKey={props.threadId}
           activePaneRuntimeMode={activePaneRuntimeMode}
           {...(paneLabelOverrides ? { paneLabelOverrides } : {})}
           {...(paneIconOverrides ? { paneIconOverrides } : {})}
-          edgeControl={appsLauncher}
           onSelectPane={handleSelectDockPane}
           onClosePane={handleCloseDockPane}
-          onCollapse={() => setDockOpen(props.threadId, false)}
           onOpenChange={(open) => setDockOpen(props.threadId, open)}
-          onAddPane={handleAddDockPane}
           renderPane={renderDockPane}
         />
-        {!dockState.open ? (
-          <div className="absolute right-1.5 top-1.5 z-50 [-webkit-app-region:no-drag]">
-            {appsLauncher}
-          </div>
-        ) : null}
+        <div className="absolute right-1.5 top-1.5 z-50 [-webkit-app-region:no-drag]">
+          {appsLauncher}
+        </div>
       </div>
     </WorkspaceFileOpenerContext.Provider>
   );

@@ -18,11 +18,7 @@ import {
   MessageCircleIcon,
   UsersIcon,
 } from "~/lib/icons";
-import {
-  RIGHT_DOCK_PANE_KINDS,
-  type RightDockPane,
-  type RightDockPaneKind,
-} from "~/rightDockStore.logic";
+import type { RightDockPane, RightDockPaneKind } from "~/rightDockStore.logic";
 import { CHAT_SURFACE_CHIP_ICON_CLASS_NAME, SurfaceChipIcon } from "./chatHeaderControls";
 import { FileEntryIcon } from "./FileEntryIcon";
 
@@ -56,16 +52,6 @@ const FALLBACK_RIGHT_DOCK_PANE_META: RightDockPaneMeta = {
 export function getRightDockPaneMeta(kind: RightDockPaneKind): RightDockPaneMeta {
   return RIGHT_DOCK_PANE_META[kind] ?? FALLBACK_RIGHT_DOCK_PANE_META;
 }
-
-// Add-menu / quick triggers follow the canonical kind order from the single
-// source of truth, so they stay in sync as kinds are added or removed. The
-// Context-driven panes are intentionally excluded: file previews and pull
-// requests open from their source controls, while Profile opens from a project
-// avatar. The add menu offers the richer Explorer pane in place of a single
-// file preview.
-export const RIGHT_DOCK_ADD_MENU_KINDS: readonly RightDockPaneKind[] = RIGHT_DOCK_PANE_KINDS.filter(
-  (kind) => kind !== "app" && kind !== "file" && kind !== "pullRequest" && kind !== "profile",
-);
 
 // Resolves a tab label, preferring caller-provided per-pane overrides (e.g. the
 // embedded sidechat thread title) before falling back to the kind label.

@@ -513,8 +513,8 @@ export function ChatHeader({
     );
   };
 
-  // Diff remains available inside the right dock's Add panel menu. The header owns only the
-  // dock's closed state; once open, the dock's identical control owns collapse.
+  // Diff remains a contextual chat-header action; the Apps launcher separately owns the
+  // fixed panel-edge entry point for the Apps runtime.
   const diffToggleControl = showDiffToggle ? (
     <Tooltip>
       <TooltipTrigger

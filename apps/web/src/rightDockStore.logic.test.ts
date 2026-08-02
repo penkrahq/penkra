@@ -13,7 +13,7 @@ import {
 } from "./rightDockStore.logic";
 
 describe("setDockOpenInState", () => {
-  it("opens an empty dock so its Add panel menu is reachable", () => {
+  it("can represent an open dock before its first pane is attached", () => {
     expect(setDockOpenInState(createDefaultRightDockState(), true)).toEqual({
       open: true,
       panes: [],
