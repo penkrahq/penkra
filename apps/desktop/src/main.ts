@@ -237,6 +237,7 @@ import {
   PENKRA_APPS_PACKAGE_PATH_ENV,
   resolveFirstPartyAppsPackagePath,
 } from "./firstPartyAppsBootstrap";
+import { createInitialWindowPresenter } from "./initialWindowVisibility";
 import {
   parseAppTabIdRequest,
   parseOpenAppTabRequest,
@@ -4062,6 +4063,16 @@ function createWindow(): BrowserWindow {
     },
   });
   const rendererOwnerId = window.webContents.id;
+  // `ready-to-show` is not guaranteed by every development compositor path.
+  // A completed main-frame load is an equally valid event-driven fallback.
+  const showInitialWindow = createInitialWindowPresenter({
+    window,
+    maximize: !savedWindowState || savedWindowState.isMaximized,
+    onShown: (source) => {
+      emitDesktopWindowState(window);
+      writeDesktopLogHeader(`main window shown source=${source}`);
+    },
+  });
   browserManager.setWindow(window);
   attachDesktopZoomFactorSync(window);
   attachRendererCrashRecovery(window);
@@ -4118,6 +4129,7 @@ function createWindow(): BrowserWindow {
   window.webContents.on("did-finish-load", () => {
     window.setTitle(APP_DISPLAY_NAME);
     emitUpdateState();
+    showInitialWindow("did-finish-load");
     if (desktopSmokeUserDataPath) {
       void window.webContents
         .executeJavaScript(
@@ -4128,16 +4140,7 @@ function createWindow(): BrowserWindow {
         });
     }
   });
-  window.once("ready-to-show", () => {
-    // Preserve the original first-launch behavior, then respect the state saved
-    // by subsequent closes. Normal bounds are restored before maximizing so the
-    // native restore control returns to the user's last windowed size.
-    if (!savedWindowState || savedWindowState.isMaximized) {
-      window.maximize();
-    }
-    window.show();
-    emitDesktopWindowState(window);
-  });
+  window.once("ready-to-show", () => showInitialWindow("ready-to-show"));
 
   window.on("maximize", () => emitDesktopWindowState(window));
   window.on("unmaximize", () => emitDesktopWindowState(window));
