@@ -5,6 +5,7 @@
 
 import { Loader2Icon, MicIcon } from "~/lib/icons";
 import { Button } from "../ui/button";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 export const ComposerVoiceButton = function ComposerVoiceButton(props: {
   disabled?: boolean;
@@ -17,23 +18,31 @@ export const ComposerVoiceButton = function ComposerVoiceButton(props: {
     ? "Transcribing voice note"
     : props.isRecording
       ? `Stop voice note (${props.durationLabel})`
-      : "Record voice note";
+      : "Voice input";
 
   return (
-    <Button
-      size="icon-sm"
-      variant="ghost"
-      className="size-[26px] shrink-0 rounded-[13px] sm:size-[26px]"
-      disabled={props.disabled || props.isTranscribing}
-      aria-label={label}
-      title={label}
-      onClick={props.onClick}
-    >
-      {props.isTranscribing ? (
-        <Loader2Icon aria-hidden="true" className="size-4 animate-spin" />
-      ) : (
-        <MicIcon aria-hidden="true" className="size-4" />
-      )}
-    </Button>
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            className="!size-[26px] shrink-0 rounded-full p-0 sm:!size-[26px]"
+            disabled={props.disabled || props.isTranscribing}
+            aria-label={label}
+            onClick={props.onClick}
+          />
+        }
+      >
+        {props.isTranscribing ? (
+          <Loader2Icon aria-hidden="true" className="size-4 animate-spin" />
+        ) : (
+          <MicIcon aria-hidden="true" className="size-4" />
+        )}
+      </TooltipTrigger>
+      <TooltipPopup side="top" sideOffset={8} variant="picker">
+        {label}
+      </TooltipPopup>
+    </Tooltip>
   );
 };

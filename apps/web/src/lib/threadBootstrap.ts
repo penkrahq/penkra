@@ -31,7 +31,6 @@ export interface NewThreadOptions {
   workingDirectory?: string | null;
   envMode?: DraftThreadEnvMode;
   entryPoint?: ThreadPrimarySurface;
-  temporary?: boolean;
   provider?: ProviderKind;
   fresh?: boolean;
 }
@@ -192,7 +191,6 @@ export function createActiveDraftThreadSnapshot(
     workingDirectory: activeDraftThread.workingDirectory ?? null,
     lastKnownPr: activeDraftThread.lastKnownPr ?? null,
     envMode: activeDraftThread.envMode,
-    ...(activeDraftThread.isTemporary ? { isTemporary: true } : {}),
   };
 }
 
@@ -243,7 +241,6 @@ export function createFreshDraftThreadSeed(input: {
     envMode: input.options?.envMode ?? "local",
     runtimeMode: DEFAULT_RUNTIME_MODE,
     entryPoint: input.entryPoint,
-    ...(input.options?.temporary ? { isTemporary: true } : {}),
   };
 }
 

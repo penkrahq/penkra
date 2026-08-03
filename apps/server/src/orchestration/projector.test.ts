@@ -187,6 +187,7 @@ describe("orchestration projector", () => {
         sidechatSourceThreadId: null,
         lastKnownPr: null,
         latestTurn: null,
+        pendingTurnStartMessageId: null,
         createdAt: now,
         updatedAt: now,
         archivedAt: null,
@@ -265,6 +266,7 @@ describe("orchestration projector", () => {
     });
     expect(next.threads[0]?.runtimeMode).toBe("approval-required");
     expect(next.threads[0]?.interactionMode).toBe("default");
+    expect(next.threads[0]?.pendingTurnStartMessageId).toBe("message-1");
     expect(next.threads[0]?.updatedAt).toBe(turnRequestedAt);
     expect(next.threads[0]?.session).toEqual({
       threadId: "thread-1",

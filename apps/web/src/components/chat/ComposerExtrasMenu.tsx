@@ -3,7 +3,7 @@
 // Layer: Chat composer presentation
 // Depends on: shared menu primitives, icon buttons, and caller-owned composer state callbacks.
 
-import { useId, useRef, type ChangeEvent } from "react";
+import { useId, useRef, useState, type ChangeEvent } from "react";
 
 import { PaperclipIcon, PlusIcon } from "~/lib/icons";
 import { ComposerPickerMenuPopup, ComposerPickerMenuSubPopup } from "./ComposerPickerMenuPopup";
@@ -18,6 +18,7 @@ import {
   MenuSubTrigger,
   MenuTrigger,
 } from "../ui/menu";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 export const ComposerExtrasMenu = function ComposerExtrasMenu(props: {
   supportsFastMode: boolean;
@@ -27,6 +28,7 @@ export const ComposerExtrasMenu = function ComposerExtrasMenu(props: {
 }) {
   const inputId = useId();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   // Reset the hidden input so selecting the same image twice still emits a change event.
   const handleFileInputChange = (event: ChangeEvent<HTMLInputElement>) => {
@@ -46,22 +48,34 @@ export const ComposerExtrasMenu = function ComposerExtrasMenu(props: {
         type="file"
         accept="image/*"
         multiple
+        tabIndex={-1}
         className="sr-only"
         onChange={handleFileInputChange}
       />
-      <Menu>
-        <MenuTrigger
-          render={
-            <Button
-              size="icon-sm"
-              variant="chrome"
-              className="shrink-0 rounded-md"
-              aria-label="Composer extras"
-            />
-          }
-        >
-          <PlusIcon aria-hidden="true" className="size-4" />
-        </MenuTrigger>
+      <Menu open={menuOpen} onOpenChange={setMenuOpen}>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <MenuTrigger
+                render={
+                  <Button
+                    size="icon-sm"
+                    variant="chrome"
+                    className="!size-[26px] shrink-0 rounded-full p-0 sm:!size-[26px]"
+                    aria-label="Attach files"
+                  />
+                }
+              />
+            }
+          >
+            <PlusIcon aria-hidden="true" className="size-4" />
+          </TooltipTrigger>
+          {!menuOpen ? (
+            <TooltipPopup side="top" sideOffset={8} variant="picker">
+              Attach files
+            </TooltipPopup>
+          ) : null}
+        </Tooltip>
         <ComposerPickerMenuPopup align="start">
           <MenuItem
             onClick={() => {

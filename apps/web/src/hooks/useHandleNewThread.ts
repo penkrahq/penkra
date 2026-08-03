@@ -28,7 +28,6 @@ import { newCommandId, newThreadId } from "../lib/utils";
 import { readNativeApi } from "../nativeApi";
 import { useFocusedChatContext } from "../focusedChatContext";
 import { useStore } from "../store";
-import { useTemporaryThreadStore } from "../temporaryThreadStore";
 import { useTerminalStateStore } from "../terminalStateStore";
 
 export interface NewThreadNavigationOptions {
@@ -50,8 +49,6 @@ export function useHandleNewThread() {
   const openChatThreadPage = useTerminalStateStore((store) => store.openChatThreadPage);
   const openTerminalThreadPage = useTerminalStateStore((store) => store.openTerminalThreadPage);
   const clearTerminalState = useTerminalStateStore((store) => store.clearTerminalState);
-  const markTemporaryThread = useTemporaryThreadStore((store) => store.markTemporaryThread);
-  const clearTemporaryThread = useTemporaryThreadStore((store) => store.clearTemporaryThread);
 
   const handleNewThread = (
     projectId: ContainerId,
@@ -76,7 +73,6 @@ export function useHandleNewThread() {
       ? { ...requestedOptions, workingDirectory: inferredWorkingDirectory }
       : requestedOptions;
     const entryPoint = options?.entryPoint ?? "chat";
-    const wantsTemporaryThread = options?.temporary === true;
     const applyProviderOverride = (threadId: ThreadId) => {
       if (!options?.provider) {
         return;
@@ -132,18 +128,10 @@ export function useHandleNewThread() {
     const latestActiveDraftThreadCandidate: DraftThreadState | null = focusedThreadId
       ? getDraftThread(focusedThreadId)
       : null;
-    const storedDraftThread =
-      !shouldForceFreshThread &&
-      !wantsTemporaryThread &&
-      storedDraftThreadCandidate?.isTemporary !== true
-        ? storedDraftThreadCandidate
-        : null;
-    const latestActiveDraftThread: DraftThreadState | null =
-      !shouldForceFreshThread &&
-      !wantsTemporaryThread &&
-      latestActiveDraftThreadCandidate?.isTemporary !== true
-        ? latestActiveDraftThreadCandidate
-        : null;
+    const storedDraftThread = !shouldForceFreshThread ? storedDraftThreadCandidate : null;
+    const latestActiveDraftThread: DraftThreadState | null = !shouldForceFreshThread
+      ? latestActiveDraftThreadCandidate
+      : null;
     const bootstrapPlan = resolveThreadBootstrapPlan({
       storedDraftThread,
       latestActiveDraftThread,
@@ -206,9 +194,6 @@ export function useHandleNewThread() {
     };
     if (bootstrapPlan.kind === "stored") {
       return (async (): Promise<ThreadId> => {
-        if (wantsTemporaryThread) {
-          markTemporaryThread(bootstrapPlan.threadId);
-        }
         const preservedComposerDraft =
           useComposerDraftStore.getState().draftsByThreadId[bootstrapPlan.threadId] ?? null;
         let resolvedStoredDraftThread: DraftThreadState | null = bootstrapPlan.draftThread;
@@ -261,9 +246,6 @@ export function useHandleNewThread() {
 
     if (bootstrapPlan.kind === "route") {
       return (async (): Promise<ThreadId> => {
-        if (wantsTemporaryThread) {
-          markTemporaryThread(bootstrapPlan.threadId);
-        }
         const preservedComposerDraft =
           useComposerDraftStore.getState().draftsByThreadId[bootstrapPlan.threadId] ?? null;
         let resolvedActiveDraftThread: DraftThreadState | null = bootstrapPlan.draftThread;
@@ -288,9 +270,6 @@ export function useHandleNewThread() {
 
     return runDraftNavigationOnce(draftNavigationSlotKey(projectId, entryPoint), async () => {
       const threadId = newThreadId();
-      if (wantsTemporaryThread) {
-        markTemporaryThread(threadId);
-      }
       const createdAt = new Date().toISOString();
       const draftSeed = createFreshDraftThreadSeed({ createdAt, entryPoint, options });
       const committed = await stageDraftNavigation({
@@ -322,9 +301,6 @@ export function useHandleNewThread() {
         rollback: () => {
           clearDraftThread(threadId);
           clearTerminalState(threadId);
-          if (wantsTemporaryThread) {
-            clearTemporaryThread(threadId);
-          }
         },
       });
       if (!committed) {

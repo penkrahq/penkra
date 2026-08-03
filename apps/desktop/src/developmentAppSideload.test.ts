@@ -15,33 +15,41 @@ describe("development App sideload bootstrap", () => {
       bootstrapDevelopmentSideload(
         {
           packages: { ingestDirectory: vi.fn(async () => verified) },
-          installations: { snapshot: () => ({ packagesByAppId: {} }), install },
+          installations: { snapshot: () => ({ packagesByInstallationKey: {} }), install },
         } as never,
         "/work/canvas",
+        "personal",
       ),
     ).resolves.toBe("installed");
-    expect(install).toHaveBeenCalledWith(verified);
+    expect(install).toHaveBeenCalledWith(verified, "personal");
   });
 
   it("updates changed sideload bytes through the runtime-safe swap", async () => {
-    const updateSideloadForSpaces = vi.fn(async () => undefined);
+    const updateSideloadForSpace = vi.fn(async () => undefined);
     await expect(
       bootstrapDevelopmentSideload(
         {
           packages: { ingestDirectory: vi.fn(async () => verified) },
           installations: {
             snapshot: () => ({
-              packagesByAppId: {
-                "com.example.canvas": { source: "sideload", sha256: "b".repeat(64) },
+              packagesByInstallationKey: {
+                "personal\0com.example.canvas": {
+                  source: "sideload",
+                  sha256: "b".repeat(64),
+                },
               },
             }),
-            updateSideloadForSpaces,
+            updateSideloadForSpace,
           },
         } as never,
         "/work/canvas",
+        "personal",
       ),
     ).resolves.toBe("updated");
-    expect(updateSideloadForSpaces).toHaveBeenCalledWith({ package: verified });
+    expect(updateSideloadForSpace).toHaveBeenCalledWith({
+      package: verified,
+      spaceId: "personal",
+    });
   });
 
   it("does not override a registry installation", async () => {
@@ -51,13 +59,17 @@ describe("development App sideload bootstrap", () => {
           packages: { ingestDirectory: vi.fn(async () => verified) },
           installations: {
             snapshot: () => ({
-              packagesByAppId: {
-                "com.example.canvas": { source: "registry", sha256: "b".repeat(64) },
+              packagesByInstallationKey: {
+                "personal\0com.example.canvas": {
+                  source: "registry",
+                  sha256: "b".repeat(64),
+                },
               },
             }),
           },
         } as never,
         "/work/canvas",
+        "personal",
       ),
     ).rejects.toThrow("already installed from the registry");
   });

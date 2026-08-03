@@ -1,11 +1,17 @@
-import { type ContainerId, type ProviderKind, type ThreadId, type TurnId } from "@penkra/contracts";
+import {
+  type ContainerId,
+  type DesktopAppTabDescriptor,
+  type ProviderKind,
+  type ThreadId,
+  type TurnId,
+} from "@penkra/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import {
   type CSSProperties,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
   startTransition,
-  Suspense,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -19,7 +25,6 @@ import { PanelStateMessage } from "./PanelStateMessage";
 import {
   ChatMountLoader,
   DeferredChatView,
-  LazyBrowserPanel,
   LazyDiffPanel,
   noopChatSurfaceAction,
 } from "./ChatThreadSurfacePrimitives";
@@ -77,6 +82,8 @@ import {
   CHAT_MAIN_VIEWPORT_SHELL_CLASS_NAME,
 } from "./composerPickerStyles";
 import { cn } from "~/lib/utils";
+import { AppDockPane } from "./AppDockPane";
+import { toastManager } from "../ui/toast";
 
 const SPLIT_PANE_PANEL_DEFAULT_WIDTH_PX = 22 * 16;
 const BROWSER_SPLIT_PANE_PANEL_DEFAULT_WIDTH_PX = 30 * 16;
@@ -104,6 +111,7 @@ function SplitPaneEmbeddedPanel(props: {
   onClosePanel: () => void;
   panelState: Pick<SplitViewPanePanelState, "panel" | "diffTurnId" | "diffFilePath">;
   isFocused: boolean;
+  browserTab: DesktopAppTabDescriptor | null;
   onUpdatePanelState: (
     patch: Partial<Pick<SplitViewPanePanelState, "panel" | "diffTurnId" | "diffFilePath">>,
   ) => void;
@@ -205,13 +213,17 @@ function SplitPaneEmbeddedPanel(props: {
         onPointerDown={startResize}
       />
       {props.panel === "browser" ? (
-        <Suspense fallback={<PanelStateMessage>Loading browser...</PanelStateMessage>}>
-          <LazyBrowserPanel
-            mode="sidebar"
-            threadId={props.threadId}
-            onClosePanel={props.onClosePanel}
+        props.browserTab ? (
+          <AppDockPane
+            appName={props.browserTab.name}
+            iconDataUrl={props.browserTab.iconDataUrl}
+            status={props.browserTab.status}
+            tabId={props.browserTab.id}
+            visible={props.isFocused}
           />
-        </Suspense>
+        ) : (
+          <PanelStateMessage>Loading Browser...</PanelStateMessage>
+        )
       ) : (
         <LazyDiffPanel
           mode="sidebar"
@@ -453,6 +465,7 @@ function SplitPaneSurface(props: {
   threadId: ThreadId | null;
   panelState: SplitViewPanePanelState;
   isFocused: boolean;
+  browserTab: DesktopAppTabDescriptor | null;
   deferChatMount: boolean;
   canDropInDirection: (direction: SplitDirection) => boolean;
   excludedThreadIds: ReadonlySet<ThreadId>;
@@ -561,6 +574,7 @@ function SplitPaneSurface(props: {
         onClosePanel={props.onClosePanel}
         panelState={props.panelState}
         isFocused={props.isFocused}
+        browserTab={props.browserTab}
         onUpdatePanelState={props.onUpdatePanelState}
       />
       {props.isFocused ? (
@@ -596,6 +610,10 @@ export function SplitChatSurface(props: { splitViewId: SplitViewId; routeThreadI
   const removeSplitView = useSplitViewStore((store) => store.removeSplitView);
   const removePaneFromSplitView = useSplitViewStore((store) => store.removePaneFromSplitView);
   const [threadPickerPaneId, setThreadPickerPaneId] = useState<PaneId | null>(null);
+  const [browserTabByPaneId, setBrowserTabByPaneId] = useState<
+    Record<string, DesktopAppTabDescriptor | undefined>
+  >({});
+  const openingBrowserPaneIdsRef = useRef(new Set<string>());
   const { splitView: activeSplitView, routePaneId } = resolveActiveSplitView({
     splitView,
     routeThreadId: props.routeThreadId,
@@ -691,6 +709,70 @@ export function SplitChatSurface(props: { splitViewId: SplitViewId; routeThreadI
     });
   };
 
+  const openBrowserForPane = useCallback(
+    async (paneId: PaneId, threadId: ThreadId, url?: string) => {
+      const bridge = window.desktopBridge?.appTabs;
+      const thread = threads.find((candidate) => candidate.id === threadId);
+      const spaceId = thread?.spaceId ?? null;
+      if (!bridge || !spaceId) return;
+      const existing = browserTabByPaneId[paneId];
+      if (existing) {
+        if (url) await bridge.navigate({ tabId: existing.id, route: "/", state: { url } });
+        return;
+      }
+      if (openingBrowserPaneIdsRef.current.has(paneId)) return;
+      openingBrowserPaneIdsRef.current.add(paneId);
+      try {
+        const descriptor = await bridge.open({
+          appId: "com.penkra.browser",
+          spaceId,
+          threadId,
+          route: "/",
+          ...(url ? { state: { url } } : {}),
+        });
+        setBrowserTabByPaneId((current) => ({ ...current, [paneId]: descriptor }));
+      } catch (error) {
+        toastManager.add({
+          type: "error",
+          title: "Could not open Browser",
+          description: error instanceof Error ? error.message : "The Browser App could not start.",
+        });
+      } finally {
+        openingBrowserPaneIdsRef.current.delete(paneId);
+      }
+    },
+    [browserTabByPaneId, threads],
+  );
+
+  useEffect(() => {
+    if (!activeSplitView) return;
+    for (const leaf of collectLeaves(activeSplitView.root)) {
+      if (leaf.threadId && leaf.panel.panel === "browser" && !browserTabByPaneId[leaf.id]) {
+        void openBrowserForPane(leaf.id, leaf.threadId);
+      }
+    }
+  }, [activeSplitView, browserTabByPaneId, openBrowserForPane]);
+
+  useEffect(() => {
+    const bridge = window.desktopBridge?.appTabs;
+    if (!bridge) return;
+    const removeState = bridge.onState((tab) => {
+      setBrowserTabByPaneId((current) => {
+        const paneId = Object.keys(current).find((key) => current[key]?.id === tab.id);
+        return paneId ? { ...current, [paneId]: tab } : current;
+      });
+    });
+    const removeClosed = bridge.onClosed((tab) => {
+      setBrowserTabByPaneId((current) =>
+        Object.fromEntries(Object.entries(current).filter(([, value]) => value?.id !== tab.id)),
+      );
+    });
+    return () => {
+      removeState();
+      removeClosed();
+    };
+  }, []);
+
   const updatePanePanelState = (
     paneId: PaneId,
     patch: Partial<Pick<SplitViewPanePanelState, "panel" | "diffTurnId" | "diffFilePath">>,
@@ -720,14 +802,34 @@ export function SplitChatSurface(props: { splitViewId: SplitViewId; routeThreadI
 
   useBrowserPanelDesktopBridge({
     onToggle: activeSplitView
-      ? () => togglePanePanel(activeSplitView.focusedPaneId, "browser")
+      ? () => {
+          const leaf = findLeafPaneById(activeSplitView.root, activeSplitView.focusedPaneId);
+          if (!leaf?.threadId) return;
+          if (leaf.panel.panel === "browser") closePanePanel(leaf.id);
+          else {
+            updatePanePanelState(leaf.id, { panel: "browser" });
+            void openBrowserForPane(leaf.id, leaf.threadId);
+          }
+        }
       : null,
     onOpen: activeSplitView
-      ? () => updatePanePanelState(activeSplitView.focusedPaneId, { panel: "browser" })
+      ? () => {
+          const leaf = findLeafPaneById(activeSplitView.root, activeSplitView.focusedPaneId);
+          if (!leaf?.threadId) return;
+          updatePanePanelState(leaf.id, { panel: "browser" });
+          void openBrowserForPane(leaf.id, leaf.threadId);
+        }
       : null,
   });
 
   const closePanePanel = (paneId: PaneId) => {
+    const browserTab = browserTabByPaneId[paneId];
+    if (browserTab) {
+      void window.desktopBridge?.appTabs?.close({ tabId: browserTab.id });
+      setBrowserTabByPaneId((current) =>
+        Object.fromEntries(Object.entries(current).filter(([key]) => key !== paneId)),
+      );
+    }
     updatePanePanelState(paneId, { panel: null });
   };
 
@@ -766,6 +868,13 @@ export function SplitChatSurface(props: { splitViewId: SplitViewId; routeThreadI
 
   const closePaneThread = (paneId: PaneId) => {
     if (!activeSplitView) return;
+    const browserTab = browserTabByPaneId[paneId];
+    if (browserTab) {
+      void window.desktopBridge?.appTabs?.close({ tabId: browserTab.id });
+      setBrowserTabByPaneId((current) =>
+        Object.fromEntries(Object.entries(current).filter(([key]) => key !== paneId)),
+      );
+    }
     const closingLeaf = findLeafPaneById(activeSplitView.root, paneId);
     const closingThread = closingLeaf?.threadId
       ? threads.find((thread) => thread.id === closingLeaf.threadId)
@@ -929,6 +1038,7 @@ export function SplitChatSurface(props: { splitViewId: SplitViewId; routeThreadI
         threadId={leaf.threadId}
         panelState={leaf.panel}
         isFocused={isFocused}
+        browserTab={browserTabByPaneId[leaf.id] ?? null}
         deferChatMount={false}
         canDropInDirection={(direction) =>
           canSubdividePane(activeSplitView.root, leaf.id, direction)
@@ -938,8 +1048,19 @@ export function SplitChatSurface(props: { splitViewId: SplitViewId; routeThreadI
         projects={projects}
         onFocus={() => setPaneFocus(leaf.id)}
         onToggleDiff={() => togglePanePanel(leaf.id, "diff")}
-        onToggleBrowser={() => togglePanePanel(leaf.id, "browser")}
-        onOpenBrowserUrl={() => updatePanePanelState(leaf.id, { panel: "browser" })}
+        onToggleBrowser={() => {
+          if (!leaf.threadId) return;
+          if (leaf.panel.panel === "browser") closePanePanel(leaf.id);
+          else {
+            updatePanePanelState(leaf.id, { panel: "browser" });
+            void openBrowserForPane(leaf.id, leaf.threadId);
+          }
+        }}
+        onOpenBrowserUrl={(url) => {
+          if (!leaf.threadId) return;
+          updatePanePanelState(leaf.id, { panel: "browser" });
+          void openBrowserForPane(leaf.id, leaf.threadId, url);
+        }}
         onOpenTurnDiff={(turnId, filePath) => openPaneTurnDiff(leaf.id, turnId, filePath)}
         onClosePanel={() => closePanePanel(leaf.id)}
         onUpdatePanelState={(patch) => updatePanePanelState(leaf.id, patch)}

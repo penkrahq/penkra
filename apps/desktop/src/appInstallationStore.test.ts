@@ -68,7 +68,11 @@ describe("App installation persistence", () => {
   it("round-trips valid state through an atomic file", async () => {
     const root = createTemporaryDirectory();
     const filePath = resolveAppInstallationStatePath(root);
-    const state = registerVerifiedAppPackage(createEmptyAppInstallationState(), packageInput());
+    const state = registerVerifiedAppPackage(
+      createEmptyAppInstallationState(),
+      packageInput(),
+      "personal",
+    );
 
     await writeAppInstallationState(filePath, state);
 
@@ -113,7 +117,9 @@ describe("App installation persistence", () => {
     const filePath = resolveAppInstallationStatePath(createTemporaryDirectory());
     const store = await AppInstallationStore.open(filePath);
 
-    const install = store.mutate((state) => registerVerifiedAppPackage(state, packageInput()));
+    const install = store.mutate((state) =>
+      registerVerifiedAppPackage(state, packageInput(), "personal"),
+    );
     const enable = store.mutate((state) =>
       setSpaceAppEnabled(state, {
         appId: "com.penkra.apps",
@@ -131,7 +137,9 @@ describe("App installation persistence", () => {
         throw new Error("simulated transition failure");
       }),
     ).rejects.toThrow("simulated transition failure");
-    expect(store.snapshot().packagesByAppId["com.penkra.apps"]?.version).toBe("0.1.0");
+    expect(store.snapshot().packagesByInstallationKey["personal\0com.penkra.apps"]?.version).toBe(
+      "0.1.0",
+    );
 
     await expect(readAppInstallationState(filePath)).resolves.toEqual({
       status: "ready",

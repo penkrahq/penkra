@@ -3,6 +3,7 @@
 // Layer: Trusted desktop App runtime
 
 import {
+  getInstalledAppPackage,
   registerVerifiedAppPackage,
   reconcileSpaceAppSkills,
   removeRetainedAppState,
@@ -42,6 +43,7 @@ export type AppInstallationStateListener = (state: AppInstallationState) => void
 
 export interface UninstallAppInput {
   appId: string;
+  spaceId: string;
   retainData: boolean;
 }
 
@@ -114,8 +116,8 @@ export class AppInstallationService {
     return () => this.#listeners.delete(listener);
   }
 
-  install(input: VerifiedAppPackageInput): Promise<AppInstallationState> {
-    return this.#mutate((state) => registerVerifiedAppPackage(state, input));
+  install(input: VerifiedAppPackageInput, spaceId: string): Promise<AppInstallationState> {
+    return this.#mutate((state) => registerVerifiedAppPackage(state, input, spaceId));
   }
 
   async installForSpace(input: {
@@ -124,7 +126,7 @@ export class AppInstallationService {
     permissions: Readonly<Record<string, AppPermissionGrant>>;
   }): Promise<AppInstallationState> {
     await this.#mutate((state) => {
-      let next = registerVerifiedAppPackage(state, input.package);
+      let next = registerVerifiedAppPackage(state, input.package, input.spaceId);
       for (const [permission, grant] of Object.entries(input.permissions)) {
         next = setSpaceAppPermission(next, {
           appId: input.package.manifest.id,
@@ -140,80 +142,82 @@ export class AppInstallationService {
     return state;
   }
 
-  update(input: VerifiedAppPackageInput & { source: "registry" }): Promise<AppInstallationState> {
+  update(
+    input: VerifiedAppPackageInput & { source: "registry" },
+    spaceId: string,
+  ): Promise<AppInstallationState> {
     return this.#mutate((state) => {
-      if (
-        Object.values(state.spaceStateByKey).some(
-          (space) => space.appId === input.manifest.id && space.enabled,
-        )
-      ) {
+      if (state.spaceStateByKey[`${spaceId}\u0000${input.manifest.id}`]?.enabled) {
         throw new Error("Enabled Apps must be updated through the runtime-safe Space update path.");
       }
-      return replaceVerifiedRegistryAppPackage(state, input);
+      return replaceVerifiedRegistryAppPackage(state, input, spaceId);
     });
   }
 
-  updateForSpaces(input: {
+  updateForSpace(input: {
     package: VerifiedAppPackageInput & { source: "registry" };
-    permissionsBySpace: Readonly<Record<string, Readonly<Record<string, AppPermissionGrant>>>>;
+    spaceId: string;
+    permissions: Readonly<Record<string, AppPermissionGrant>>;
   }): Promise<AppInstallationState> {
-    return this.#updateForSpaces(input);
+    return this.#updateForSpace(input);
   }
 
-  updateSideloadForSpaces(input: {
+  updateSideloadForSpace(input: {
     package: VerifiedAppPackageInput & { source: "sideload" };
+    spaceId: string;
   }): Promise<AppInstallationState> {
     const current = this.#store.snapshot();
-    const existing = current.packagesByAppId[input.package.manifest.id];
+    const existing = getInstalledAppPackage(current, input.package.manifest.id, input.spaceId);
     if (!existing || existing.source !== "sideload") {
       return Promise.reject(
         new Error(`${input.package.manifest.id} is not installed as a sideload.`),
       );
     }
-    const permissionsBySpace = Object.fromEntries(
-      Object.values(current.spaceStateByKey)
-        .filter((space) => space.appId === existing.appId)
-        .map((space) => [space.spaceId, space.permissions]),
-    );
-    return this.#updateForSpaces({ package: input.package, permissionsBySpace });
+    const permissions =
+      current.spaceStateByKey[`${input.spaceId}\u0000${existing.appId}`]?.permissions ?? {};
+    return this.#updateForSpace({
+      package: input.package,
+      spaceId: input.spaceId,
+      permissions,
+    });
   }
 
-  #updateForSpaces(input: {
+  #updateForSpace(input: {
     package: VerifiedAppPackageInput;
-    permissionsBySpace: Readonly<Record<string, Readonly<Record<string, AppPermissionGrant>>>>;
+    spaceId: string;
+    permissions: Readonly<Record<string, AppPermissionGrant>>;
   }): Promise<AppInstallationState> {
     return this.#enqueue(async () => {
       const previous = this.#store.snapshot();
       const appId = input.package.manifest.id;
       applyUpdate(previous, input);
-      const enabledSpaces = Object.values(previous.spaceStateByKey)
-        .filter((space) => space.appId === appId && space.enabled)
-        .map((space) => space.spaceId);
+      const wasEnabled =
+        previous.spaceStateByKey[`${input.spaceId}\u0000${appId}`]?.enabled === true;
       await this.#updates?.prepare({
         appId,
+        spaceId: input.spaceId,
         targetVersion: input.package.manifest.version,
         previousState: previous,
       });
       try {
-        for (const spaceId of enabledSpaces) await this.#lifecycle.disable(appId, spaceId);
+        if (wasEnabled) await this.#lifecycle.disable(appId, input.spaceId);
         await this.#store.mutate((current) => applyUpdate(current, input));
         let state = this.#store.snapshot();
-        for (const spaceId of enabledSpaces) state = await this.#lifecycle.enable(appId, spaceId);
+        if (wasEnabled) state = await this.#lifecycle.enable(appId, input.spaceId);
         await this.#updates?.clear();
         this.#publish(state);
         return state;
       } catch (cause) {
         const rollbackFailures: unknown[] = [];
-        for (const spaceId of enabledSpaces) {
-          if (!this.#lifecycle.isActive(appId, spaceId)) continue;
+        if (wasEnabled && this.#lifecycle.isActive(appId, input.spaceId)) {
           await this.#lifecycle
-            .disable(appId, spaceId)
+            .disable(appId, input.spaceId)
             .catch((error) => rollbackFailures.push(error));
         }
         await this.#store.mutate(() => previous).catch((error) => rollbackFailures.push(error));
-        for (const spaceId of enabledSpaces) {
+        if (wasEnabled) {
           await this.#lifecycle
-            .enable(appId, spaceId)
+            .enable(appId, input.spaceId)
             .catch((error) => rollbackFailures.push(error));
         }
         if (this.#updates) {
@@ -253,8 +257,8 @@ export class AppInstallationService {
   }): Promise<AppInstallationState> {
     return this.#enqueue(async () => {
       const state = this.#store.snapshot();
-      const installed = state.packagesByAppId[input.appId];
-      if (!installed) throw new Error(`${input.appId} is not installed.`);
+      const installed = getInstalledAppPackage(state, input.appId, input.spaceId);
+      if (!installed) throw new Error(`${input.appId} is not installed in this Space.`);
       const declaration = (installed.manifest.permissions ?? []).find(
         (permission) => permission.name === input.permission,
       );
@@ -310,7 +314,7 @@ export class AppInstallationService {
     if (spacePermissionGrant(initial, input) === "granted") return initial;
     const revision = this.#permissionRevisions.get(key) ?? 0;
     const approved = await input.confirm({
-      appName: initial.packagesByAppId[input.appId]!.name,
+      appName: getInstalledAppPackage(initial, input.appId, input.spaceId)!.name,
       permission: input.permission,
       reason: declaration.reason,
     });
@@ -352,8 +356,8 @@ export class AppInstallationService {
 
   listSettings(input: { appId: string; spaceId: string }): ReadonlyArray<AppSettingSnapshot> {
     const state = this.#store.snapshot();
-    const installed = state.packagesByAppId[input.appId];
-    if (!installed) throw new Error(`${input.appId} is not installed.`);
+    const installed = getInstalledAppPackage(state, input.appId, input.spaceId);
+    if (!installed) throw new Error(`${input.appId} is not installed in this Space.`);
     return (installed.manifest.contributions?.settings ?? []).map((declaration) => {
       if (isSensitiveAppSetting(declaration)) {
         return {
@@ -379,7 +383,7 @@ export class AppInstallationService {
 
   getSetting(input: { appId: string; spaceId: string; key: string }): AppSettingValue {
     const state = this.#store.snapshot();
-    const declaration = findAppSettingDeclaration(state, input.appId, input.key);
+    const declaration = findAppSettingDeclaration(state, input.appId, input.spaceId, input.key);
     if (isSensitiveAppSetting(declaration)) {
       return (
         this.#settingSecrets.getSecret(
@@ -398,7 +402,12 @@ export class AppInstallationService {
     key: string;
     value: unknown;
   }): Promise<AppInstallationState> {
-    const declaration = findAppSettingDeclaration(this.#store.snapshot(), input.appId, input.key);
+    const declaration = findAppSettingDeclaration(
+      this.#store.snapshot(),
+      input.appId,
+      input.spaceId,
+      input.key,
+    );
     const value = input.value;
     validateAppSettingValue(declaration, value);
     if (!isSensitiveAppSetting(declaration)) {
@@ -442,7 +451,12 @@ export class AppInstallationService {
     spaceId: string;
     key: string;
   }): Promise<AppInstallationState> {
-    const declaration = findAppSettingDeclaration(this.#store.snapshot(), input.appId, input.key);
+    const declaration = findAppSettingDeclaration(
+      this.#store.snapshot(),
+      input.appId,
+      input.spaceId,
+      input.key,
+    );
     return this.#enqueue(async () => {
       const secretName = appSettingSecretName(input.key);
       const previous = isSensitiveAppSetting(declaration)
@@ -476,44 +490,37 @@ export class AppInstallationService {
   uninstall(input: UninstallAppInput): Promise<AppInstallationState> {
     return this.#enqueue(async () => {
       const snapshot = this.#store.snapshot();
-      const enabledSpaces = Object.values(snapshot.spaceStateByKey).filter(
-        (candidate) => candidate.appId === input.appId && candidate.enabled,
-      );
-      for (const space of enabledSpaces) {
-        await this.#lifecycle.disable(input.appId, space.spaceId);
+      if (!getInstalledAppPackage(snapshot, input.appId, input.spaceId)) {
+        throw new Error(`${input.appId} is not installed in Space ${input.spaceId}.`);
       }
-      const retainedSpaces = Object.values(this.#store.snapshot().spaceStateByKey).filter(
-        (candidate) => candidate.appId === input.appId,
-      );
+      const space = snapshot.spaceStateByKey[`${input.spaceId}\u0000${input.appId}`];
+      if (space?.enabled) await this.#lifecycle.disable(input.appId, input.spaceId);
       if (!input.retainData) {
-        for (const space of retainedSpaces) {
-          await this.#data.eraseData(input.appId, space.spaceId);
-        }
+        await this.#data.eraseData(input.appId, input.spaceId);
       }
       const state = await this.#store.mutate((current) => {
-        const withoutPackage = unregisterAppPackage(current, input.appId);
+        const withoutPackage = unregisterAppPackage(current, input.appId, input.spaceId);
         return input.retainData
           ? withoutPackage
-          : removeRetainedAppState(withoutPackage, { appId: input.appId });
+          : removeRetainedAppState(withoutPackage, {
+              appId: input.appId,
+              spaceId: input.spaceId,
+            });
       });
       this.#publish(state);
       return state;
     });
   }
 
-  removeData(input: { appId: string; spaceId?: string }): Promise<AppInstallationState> {
-    if (
-      Object.values(this.#store.snapshot().packagesByAppId).some((app) => app.appId === input.appId)
-    ) {
+  removeData(input: { appId: string; spaceId: string }): Promise<AppInstallationState> {
+    if (getInstalledAppPackage(this.#store.snapshot(), input.appId, input.spaceId)) {
       return Promise.reject(
         new Error("App data can only be removed after the App is uninstalled."),
       );
     }
     return this.#enqueue(async () => {
       const retainedSpaces = Object.values(this.#store.snapshot().spaceStateByKey).filter(
-        (candidate) =>
-          candidate.appId === input.appId &&
-          (input.spaceId === undefined || candidate.spaceId === input.spaceId),
+        (candidate) => candidate.appId === input.appId && candidate.spaceId === input.spaceId,
       );
       for (const space of retainedSpaces) {
         await this.#data.eraseData(input.appId, space.spaceId);
@@ -565,8 +572,8 @@ function optionalPermissionDeclaration(
   state: AppInstallationState,
   input: { appId: string; spaceId: string; permission: string },
 ) {
-  const installed = state.packagesByAppId[input.appId];
-  if (!installed) throw new Error(`${input.appId} is not installed.`);
+  const installed = getInstalledAppPackage(state, input.appId, input.spaceId);
+  if (!installed) throw new Error(`${input.appId} is not installed in this Space.`);
   const declaration = (installed.manifest.permissions ?? []).find(
     (candidate) => candidate.name === input.permission,
   );
@@ -592,59 +599,52 @@ function applyUpdate(
   state: AppInstallationState,
   input: {
     package: VerifiedAppPackageInput;
-    permissionsBySpace: Readonly<Record<string, Readonly<Record<string, AppPermissionGrant>>>>;
+    spaceId: string;
+    permissions: Readonly<Record<string, AppPermissionGrant>>;
   },
 ): AppInstallationState {
   const appId = input.package.manifest.id;
-  let next = replaceVerifiedAppPackage(state, input.package);
-  next = reconcileAppSettingsAfterUpdate(next, appId);
-  next = reconcileSpaceAppSkills(next, appId);
+  const previousPackage = getInstalledAppPackage(state, appId, input.spaceId);
+  if (!previousPackage) throw new Error(`${appId} is not installed in Space ${input.spaceId}.`);
+  let next = replaceVerifiedAppPackage(state, input.package, input.spaceId);
+  next = reconcileAppSettingsAfterUpdate(next, appId, input.spaceId);
+  next = reconcileSpaceAppSkills(next, appId, input.spaceId);
   const declarations = input.package.manifest.permissions ?? [];
   const reviewRequired = new Set(
-    permissionsRequiringUpdateReview(
-      state.packagesByAppId[appId]?.manifest.permissions ?? [],
-      declarations,
-    ),
+    permissionsRequiringUpdateReview(previousPackage.manifest.permissions ?? [], declarations),
   );
   const declaredNames = new Set(declarations.map((permission) => permission.name));
-  const spaces = Object.values(state.spaceStateByKey).filter((space) => space.appId === appId);
-  const knownSpaces = new Set(spaces.map((space) => space.spaceId));
-  for (const [spaceId, review] of Object.entries(input.permissionsBySpace)) {
-    if (!knownSpaces.has(spaceId)) throw new Error(`App update includes unknown Space ${spaceId}.`);
-    for (const permission of Object.keys(review)) {
-      if (!declaredNames.has(permission))
-        throw new Error(`App update includes undeclared permission ${permission}.`);
-    }
+  for (const permission of Object.keys(input.permissions)) {
+    if (!declaredNames.has(permission))
+      throw new Error(`App update includes undeclared permission ${permission}.`);
   }
-  for (const space of spaces) {
-    const review = input.permissionsBySpace[space.spaceId] ?? {};
-    if (space.enabled) {
-      for (const permission of reviewRequired) {
-        if (!Object.hasOwn(review, permission)) {
-          throw new Error(
-            `New App permission ${permission} must be reviewed for Space ${space.spaceId}.`,
-          );
-        }
+  const space = state.spaceStateByKey[`${input.spaceId}\u0000${appId}`];
+  if (!space) throw new Error(`${appId} has no state in Space ${input.spaceId}.`);
+  if (space.enabled) {
+    for (const permission of reviewRequired) {
+      if (!Object.hasOwn(input.permissions, permission)) {
+        throw new Error(
+          `New App permission ${permission} must be reviewed for Space ${input.spaceId}.`,
+        );
       }
     }
-    const permissions = Object.fromEntries(
-      declarations.map((declaration) => [
-        declaration.name,
-        review[declaration.name] ?? space.permissions[declaration.name] ?? "denied",
-      ]),
-    ) as Record<string, AppPermissionGrant>;
-    if (space.enabled) {
-      for (const declaration of declarations) {
-        if (declaration.required && permissions[declaration.name] !== "granted") {
-          throw new Error(
-            `Required App permission ${declaration.name} must be reviewed for Space ${space.spaceId}.`,
-          );
-        }
+  }
+  const permissions = Object.fromEntries(
+    declarations.map((declaration) => [
+      declaration.name,
+      input.permissions[declaration.name] ?? space.permissions[declaration.name] ?? "denied",
+    ]),
+  ) as Record<string, AppPermissionGrant>;
+  if (space.enabled) {
+    for (const declaration of declarations) {
+      if (declaration.required && permissions[declaration.name] !== "granted") {
+        throw new Error(
+          `Required App permission ${declaration.name} must be reviewed for Space ${input.spaceId}.`,
+        );
       }
     }
-    next = replaceSpaceAppPermissions(next, { appId, spaceId: space.spaceId, permissions });
   }
-  return next;
+  return replaceSpaceAppPermissions(next, { appId, spaceId: input.spaceId, permissions });
 }
 
 function assertRequiredPermissionsGranted(
@@ -652,8 +652,8 @@ function assertRequiredPermissionsGranted(
   appId: string,
   spaceId: string,
 ): void {
-  const installed = state.packagesByAppId[appId];
-  if (!installed) throw new Error(`${appId} is not installed.`);
+  const installed = getInstalledAppPackage(state, appId, spaceId);
+  if (!installed) throw new Error(`${appId} is not installed in Space ${spaceId}.`);
   const space = Object.values(state.spaceStateByKey).find(
     (candidate) => candidate.appId === appId && candidate.spaceId === spaceId,
   );

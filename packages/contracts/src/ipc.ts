@@ -449,6 +449,7 @@ export interface DesktopSpacesMenuInput {
 
 export interface DesktopInstalledApp {
   id: string;
+  spaceId: string;
   slug: string;
   name: string;
   summary: string;
@@ -466,9 +467,9 @@ export interface DesktopInstalledApp {
     | {
         intent: "open-file";
         operation: string;
-        mediaTypes?: ReadonlyArray<string>;
-        extensions?: ReadonlyArray<string>;
+        extensions: ReadonlyArray<string>;
       }
+    | { intent: "open-directory"; operation: string }
   >;
 }
 
@@ -527,12 +528,14 @@ export interface DesktopAppInstallationBridge {
   updateRegistry: (input: {
     slug: string;
     version: string;
-    permissionsBySpace: Readonly<Record<string, Readonly<Record<string, "denied" | "granted">>>>;
+    spaceId: string;
+    permissions: Readonly<Record<string, "denied" | "granted">>;
   }) => Promise<DesktopAppInstallationSnapshot>;
   rollbackRegistry: (input: {
     slug: string;
     version: string;
-    permissionsBySpace: Readonly<Record<string, Readonly<Record<string, "denied" | "granted">>>>;
+    spaceId: string;
+    permissions: Readonly<Record<string, "denied" | "granted">>;
   }) => Promise<DesktopAppInstallationSnapshot>;
   setEnabled: (input: {
     appId: string;
@@ -568,11 +571,12 @@ export interface DesktopAppInstallationBridge {
   }) => Promise<DesktopAppInstallationSnapshot>;
   uninstall: (input: {
     appId: string;
+    spaceId: string;
     retainData: boolean;
   }) => Promise<DesktopAppInstallationSnapshot>;
   removeData: (input: {
     appId: string;
-    spaceId?: string;
+    spaceId: string;
   }) => Promise<DesktopAppInstallationSnapshot>;
   onState: (listener: (state: DesktopAppInstallationSnapshot) => void) => () => void;
 }
@@ -665,10 +669,16 @@ export interface DesktopAppTabDescriptor {
   appId: string;
   slug: string;
   name: string;
+  iconDataUrl: string | null;
   spaceId: string;
   threadId: string;
   route: string;
   status: "loading" | "ready" | "crashed";
+}
+
+export interface DesktopAppTabClosed {
+  id: string;
+  threadId: string;
 }
 
 export interface DesktopAppTabsBridge {
@@ -692,6 +702,24 @@ export interface DesktopAppTabsBridge {
   onListingRequested: (listener: (input: { appId: string }) => void) => () => void;
   onOpened: (listener: (tab: DesktopAppTabDescriptor) => void) => () => void;
   onState: (listener: (tab: DesktopAppTabDescriptor) => void) => () => void;
+  onClosed: (listener: (tab: DesktopAppTabClosed) => void) => () => void;
+}
+
+export interface DesktopResourceOpenInput {
+  path?: string;
+  url?: string;
+  requestedApp?: string;
+  spaceId: string;
+  threadId: string;
+}
+
+export interface DesktopResourcesBridge {
+  open(input: DesktopResourceOpenInput): Promise<{
+    destination: "app" | "system";
+    intent: "open-url" | "open-file" | "open-directory";
+    appId?: string;
+    slug?: string;
+  }>;
 }
 
 export interface DesktopAppDiagnosticEntry {
@@ -722,6 +750,17 @@ export interface DesktopAppDiagnosticsBridge {
     spaceId?: string;
     limit?: number;
   }) => Promise<ReadonlyArray<DesktopAppDiagnosticEntry>>;
+}
+
+export type DesktopAppOpenIntent = "open-url" | "open-file" | "open-directory";
+
+export interface DesktopAppOpenWithBridge {
+  get: (input: { spaceId: string }) => Promise<Partial<Record<DesktopAppOpenIntent, string>>>;
+  set: (input: {
+    spaceId: string;
+    intent: DesktopAppOpenIntent;
+    appId: string | null;
+  }) => Promise<Partial<Record<DesktopAppOpenIntent, string>>>;
 }
 
 export interface DesktopBridge {
@@ -795,7 +834,9 @@ export interface DesktopBridge {
   appInstallations?: DesktopAppInstallationBridge;
   appRegistry?: DesktopAppRegistryBridge;
   appTabs?: DesktopAppTabsBridge;
+  resources?: DesktopResourcesBridge;
   appDiagnostics?: DesktopAppDiagnosticsBridge;
+  appOpenWith?: DesktopAppOpenWithBridge;
   storageMigration: {
     readSnapshot: () => PenkraStorageSnapshot | null;
     acknowledgeSnapshot: () => Promise<void>;
@@ -805,9 +846,8 @@ export interface DesktopBridge {
       input: ServerVoiceTranscriptionInput,
     ) => Promise<ServerVoiceTranscriptionResult>;
   };
-  browser: BrowserControlMethods & {
-    onBrowserUseOpenPanelRequest: (listener: () => void) => () => void;
-    onBrowserCopyLink: (listener: (event: BrowserCopyLinkEvent) => void) => () => void;
+  browserUse: {
+    onOpenRequest: (listener: () => void) => () => void;
   };
 }
 
@@ -1020,8 +1060,5 @@ export interface NativeApi {
     onDomainEvent: (callback: (event: OrchestrationEvent) => void) => () => void;
     onShellEvent: (callback: (event: OrchestrationShellStreamItem) => void) => () => void;
     onThreadEvent: (callback: (event: OrchestrationThreadStreamItem) => void) => () => void;
-  };
-  browser: BrowserControlMethods & {
-    onCopyLink: (callback: (event: BrowserCopyLinkEvent) => void) => () => void;
   };
 }

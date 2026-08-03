@@ -28,7 +28,6 @@ import {
   Minimize2,
   PluginIcon,
   SkillCubeIcon,
-  TemporaryThreadIcon,
   TerminalIcon,
   WorktreeIcon,
 } from "~/lib/icons";
@@ -469,7 +468,7 @@ const SLASH_COMMAND_ICONS: Record<string, LucideIcon> = {
   default: MessageCircleIcon,
   review: BugIcon,
   fork: GitForkIcon,
-  side: TemporaryThreadIcon,
+  side: MessageCircleIcon,
   status: InfoIcon,
   subagents: BotIcon,
   feedback: BugIcon,

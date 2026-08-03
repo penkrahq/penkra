@@ -507,6 +507,28 @@ describe("composerDraftStore queued follow-ups", () => {
     });
   });
 
+  it("persists an explicit queue pause across restart", () => {
+    const store = useComposerDraftStore.getState();
+    store.enqueueQueuedTurn(threadId, makeQueuedTurn("queued-paused"));
+    store.setQueuePaused(threadId, true);
+
+    const persistedState = partializeComposerDraftStoreState(useComposerDraftStore.getState());
+    const persistApi = useComposerDraftStore.persist as unknown as {
+      getOptions: () => {
+        merge: (
+          persistedState: unknown,
+          currentState: ReturnType<typeof useComposerDraftStore.getState>,
+        ) => ReturnType<typeof useComposerDraftStore.getState>;
+      };
+    };
+    const mergedState = persistApi
+      .getOptions()
+      .merge(persistedState, useComposerDraftStore.getInitialState());
+
+    expect(mergedState.draftsByThreadId[threadId]?.queuePaused).toBe(true);
+    expect(mergedState.draftsByThreadId[threadId]?.queuedTurns).toHaveLength(1);
+  });
+
   it("drops the draft entry once the last queued turn is removed", () => {
     const store = useComposerDraftStore.getState();
 

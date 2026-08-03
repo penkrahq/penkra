@@ -167,6 +167,10 @@ contextBridge.exposeInMainWorld("desktopBridge", {
       return () => ipcRenderer.removeListener(IPC.appInstallations.state, wrappedListener);
     },
   },
+  appOpenWith: {
+    get: (input) => ipcRenderer.invoke(IPC.appOpenWith.get, input),
+    set: (input) => ipcRenderer.invoke(IPC.appOpenWith.set, input),
+  },
   appTabs: {
     list: () => ipcRenderer.invoke(IPC.appTabs.list),
     consumeListingRequest: () => ipcRenderer.invoke(IPC.appTabs.consumeListingRequest),
@@ -194,6 +198,15 @@ contextBridge.exposeInMainWorld("desktopBridge", {
       ipcRenderer.on(IPC.appTabs.state, wrapped);
       return () => ipcRenderer.removeListener(IPC.appTabs.state, wrapped);
     },
+    onClosed: (listener) => {
+      const wrapped = (_event: Electron.IpcRendererEvent, tab: Parameters<typeof listener>[0]) =>
+        listener(tab);
+      ipcRenderer.on(IPC.appTabs.closed, wrapped);
+      return () => ipcRenderer.removeListener(IPC.appTabs.closed, wrapped);
+    },
+  },
+  resources: {
+    open: (input) => ipcRenderer.invoke(IPC.resourceOpen, input),
   },
   appDiagnostics: {
     list: (input) => ipcRenderer.invoke(IPC.appDiagnostics.list, input),
@@ -205,57 +218,12 @@ contextBridge.exposeInMainWorld("desktopBridge", {
   server: {
     transcribeVoice: (input) => ipcRenderer.invoke(IPC.transcribeVoice, input),
   },
-  browser: {
-    open: (input) => ipcRenderer.invoke(IPC.browser.open, input),
-    close: (input) => ipcRenderer.invoke(IPC.browser.close, input),
-    hide: (input) => ipcRenderer.invoke(IPC.browser.hide, input),
-    getState: (input) => ipcRenderer.invoke(IPC.browser.getState, input),
-    setPanelBounds: async (input) => {
-      ipcRenderer.send(IPC.browser.setBounds, input);
-    },
-    attachWebview: (input) => ipcRenderer.invoke(IPC.browser.attachWebview, input),
-    detachWebview: (input) => ipcRenderer.invoke(IPC.browser.detachWebview, input),
-    copyLink: (input) => ipcRenderer.invoke(IPC.browser.requestCopyLink, input),
-    copyScreenshotToClipboard: (input) =>
-      ipcRenderer.invoke(IPC.browser.copyScreenshotToClipboard, input),
-    captureScreenshot: (input) => ipcRenderer.invoke(IPC.browser.captureScreenshot, input),
-    executeCdp: (input) => ipcRenderer.invoke(IPC.browser.executeCdp, input),
-    findInPage: (input) => ipcRenderer.invoke(IPC.browser.findInPage, input),
-    stopFindInPage: (input) => ipcRenderer.invoke(IPC.browser.stopFindInPage, input),
-    navigate: (input) => ipcRenderer.invoke(IPC.browser.navigate, input),
-    reload: (input) => ipcRenderer.invoke(IPC.browser.reload, input),
-    goBack: (input) => ipcRenderer.invoke(IPC.browser.goBack, input),
-    goForward: (input) => ipcRenderer.invoke(IPC.browser.goForward, input),
-    newTab: (input) => ipcRenderer.invoke(IPC.browser.newTab, input),
-    closeTab: (input) => ipcRenderer.invoke(IPC.browser.closeTab, input),
-    selectTab: (input) => ipcRenderer.invoke(IPC.browser.selectTab, input),
-    openDevTools: (input) => ipcRenderer.invoke(IPC.browser.openDevTools, input),
-    onState: (listener) => {
-      const wrappedListener = (_event: Electron.IpcRendererEvent, state: unknown) => {
-        if (typeof state !== "object" || state === null) return;
-        listener(state as Parameters<typeof listener>[0]);
-      };
-
-      ipcRenderer.on(IPC.browser.state, wrappedListener);
-      return () => {
-        ipcRenderer.removeListener(IPC.browser.state, wrappedListener);
-      };
-    },
-    onBrowserUseOpenPanelRequest: (listener) => {
+  browserUse: {
+    onOpenRequest: (listener) => {
       const wrappedListener = () => listener();
       ipcRenderer.on(IPC.browser.requestOpenPanel, wrappedListener);
       return () => {
         ipcRenderer.removeListener(IPC.browser.requestOpenPanel, wrappedListener);
-      };
-    },
-    onBrowserCopyLink: (listener) => {
-      const wrappedListener = (_event: Electron.IpcRendererEvent, payload: unknown) => {
-        if (typeof payload !== "object" || payload === null) return;
-        listener(payload as Parameters<typeof listener>[0]);
-      };
-      ipcRenderer.on(IPC.browser.copyLink, wrappedListener);
-      return () => {
-        ipcRenderer.removeListener(IPC.browser.copyLink, wrappedListener);
       };
     },
   },

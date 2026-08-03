@@ -124,6 +124,7 @@ function toThreadTurnState(thread: Thread): ThreadTurnState {
     ...(thread.pendingSourceProposedPlan
       ? { pendingSourceProposedPlan: thread.pendingSourceProposedPlan }
       : {}),
+    pendingTurnStartMessageId: thread.pendingTurnStartMessageId ?? null,
   };
 }
 

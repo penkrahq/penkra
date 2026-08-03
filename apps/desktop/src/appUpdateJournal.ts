@@ -8,19 +8,20 @@ import * as Path from "node:path";
 import { parseAppInstallationState, type AppInstallationState } from "./appInstallationState";
 import type { AppInstallationStore } from "./appInstallationStore";
 
-export const APP_UPDATE_JOURNAL_FILE_NAME = "update-journal-v1.json";
+export const APP_UPDATE_JOURNAL_FILE_NAME = "update-journal-v2.json";
 const APP_UPDATE_JOURNAL_MAX_BYTES = 5 * 1024 * 1024;
 
 type AppUpdateJournalRecord = {
-  schemaVersion: 1;
+  schemaVersion: 2;
   appId: string;
+  spaceId: string;
   targetVersion: string;
   createdAt: string;
   previousState: AppInstallationState;
 };
 
 export type AppUpdateRecovery =
-  | { status: "restored"; appId: string; targetVersion: string }
+  | { status: "restored"; appId: string; spaceId: string; targetVersion: string }
   | { status: "corrupt"; quarantinedPath: string; error: Error };
 
 export function resolveAppUpdateJournalPath(userDataPath: string): string {
@@ -38,12 +39,14 @@ export class AppUpdateJournal {
 
   async prepare(input: {
     appId: string;
+    spaceId: string;
     targetVersion: string;
     previousState: AppInstallationState;
   }): Promise<void> {
     const record: AppUpdateJournalRecord = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       appId: requireText(input.appId, "appId"),
+      spaceId: requireText(input.spaceId, "spaceId"),
       targetVersion: requireText(input.targetVersion, "targetVersion"),
       createdAt: new Date().toISOString(),
       previousState: parseAppInstallationState(input.previousState),
@@ -78,6 +81,7 @@ export class AppUpdateJournal {
     return {
       status: "restored",
       appId: result.record.appId,
+      spaceId: result.record.spaceId,
       targetVersion: result.record.targetVersion,
     };
   }
@@ -107,14 +111,15 @@ async function readJournal(filePath: string): Promise<ReadJournalResult> {
 }
 
 function parseJournal(value: unknown): AppUpdateJournalRecord {
-  if (!isRecord(value) || value.schemaVersion !== 1)
+  if (!isRecord(value) || value.schemaVersion !== 2)
     throw new Error("App update journal schema is invalid.");
   const createdAt = requireText(value.createdAt, "createdAt");
   if (!Number.isFinite(Date.parse(createdAt)))
     throw new Error("App update journal time is invalid.");
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     appId: requireText(value.appId, "appId"),
+    spaceId: requireText(value.spaceId, "spaceId"),
     targetVersion: requireText(value.targetVersion, "targetVersion"),
     createdAt,
     previousState: parseAppInstallationState(value.previousState),

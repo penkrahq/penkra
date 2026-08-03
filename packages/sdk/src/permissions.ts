@@ -16,6 +16,11 @@ export const PENKRA_PERMISSIONS = {
     summary: "Launch a reviewed executable without implicit shell interpolation.",
     risk: "high",
   },
+  "browser-session": {
+    name: "browser-session",
+    summary: "Create and control isolated web pages through Penkra's hosted browser service.",
+    risk: "high",
+  },
 } as const;
 
 export type PenkraPermissionName = keyof typeof PENKRA_PERMISSIONS;

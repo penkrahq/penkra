@@ -152,7 +152,7 @@ export function ComposerModelEffortPicker(props: ComposerModelEffortPickerProps)
       variant="chrome"
       disabled={props.disabled ?? false}
       className={cn(
-        "min-w-0 shrink-0 justify-start gap-1.5 whitespace-nowrap px-2 sm:px-2.5 [&_svg]:mx-0",
+        "!h-[25px] min-w-0 shrink-0 justify-start gap-[5px] whitespace-nowrap rounded-lg px-2 py-0 sm:!h-[25px] sm:px-2 [&_svg]:mx-0",
         COMPOSER_PICKER_TRIGGER_TEXT_CLASS_NAME,
       )}
       aria-label="Change model and reasoning"
@@ -161,12 +161,12 @@ export function ComposerModelEffortPicker(props: ComposerModelEffortPickerProps)
   );
 
   const triggerContent = (
-    <span className="flex min-w-0 items-center gap-1.5 overflow-hidden">
+    <span className="flex min-w-0 items-center gap-[5px] overflow-hidden">
       <ProviderIcon
         aria-hidden="true"
         className={cn(
           // opacity-100 opts out of the Button base's [&_svg]:opacity-80 dimming.
-          "size-3.5 shrink-0 opacity-100",
+          "size-[13px] shrink-0 opacity-100",
           getProviderIconClassName(activeProvider, "text-[var(--color-text-foreground)]"),
         )}
       />
@@ -212,26 +212,24 @@ export function ComposerModelEffortPicker(props: ComposerModelEffortPickerProps)
         setMenuOpen(nextOpen);
       }}
     >
-      {props.shortcutLabel ? (
-        <Tooltip>
-          <TooltipTrigger render={<MenuTrigger render={triggerButton} />}>
-            {triggerContent}
-          </TooltipTrigger>
-          {!isMenuOpen ? (
-            <TooltipPopup side="top" sideOffset={6} variant="picker">
-              <span className="inline-flex items-center gap-2 px-1 py-0.5">
-                <span>Change model</span>
+      <Tooltip>
+        <TooltipTrigger render={<MenuTrigger render={triggerButton} />}>
+          {triggerContent}
+        </TooltipTrigger>
+        {!isMenuOpen ? (
+          <TooltipPopup side="top" sideOffset={6} variant="picker">
+            <span className="inline-flex items-center gap-2 px-1 py-0.5">
+              <span>Select model</span>
+              {props.shortcutLabel ? (
                 <ShortcutKbd
                   shortcutLabel={props.shortcutLabel}
                   className="h-4 min-w-4 px-1 text-[length:var(--app-font-size-ui-2xs,9px)] text-muted-foreground"
                 />
-              </span>
-            </TooltipPopup>
-          ) : null}
-        </Tooltip>
-      ) : (
-        <MenuTrigger render={triggerButton}>{triggerContent}</MenuTrigger>
-      )}
+              ) : null}
+            </span>
+          </TooltipPopup>
+        ) : null}
+      </Tooltip>
       <ComposerPickerMenuPopup align="end" side="top" fixedWidth>
         {hasTraitsTopSection ? (
           <TraitsMenuContent

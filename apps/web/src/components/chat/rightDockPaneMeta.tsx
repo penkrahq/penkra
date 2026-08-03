@@ -10,10 +10,8 @@ import {
   AppsIcon,
   DiffIcon,
   FileIcon,
-  FoldersIcon,
   GitCommitIcon,
   GitPullRequestIcon,
-  GlobeIcon,
   InfoIcon,
   MessageCircleIcon,
   UsersIcon,
@@ -29,9 +27,7 @@ export interface RightDockPaneMeta {
 
 export const RIGHT_DOCK_PANE_META: Record<RightDockPaneKind, RightDockPaneMeta> = {
   app: { label: "App", Icon: AppsIcon },
-  browser: { label: "Browser", Icon: GlobeIcon },
   diff: { label: "Diff", Icon: DiffIcon },
-  explorer: { label: "Explorer", Icon: FoldersIcon },
   file: { label: "File", Icon: FileIcon },
   sidechat: { label: "Side", Icon: MessageCircleIcon },
   git: { label: "Git", Icon: GitCommitIcon },

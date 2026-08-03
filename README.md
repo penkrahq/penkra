@@ -1,67 +1,143 @@
 # Penkra
 
-Penkra is a desktop workspace for knowledge work with AI agents. Its product design
-comes from `penkra.pen`; native React components reproduce that design while retaining
-the application's production routing, state, accessibility, and desktop behavior.
+**A desktop workspace for sustained, agentic work.**
 
-This repository continues from the archived Penkra Console Git history so Penkra can
-retain its proven desktop, provider, storage, browser, packaging, and release
-infrastructure. Pencil is the visual and structural authority; exported HTML is not an
-application runtime.
+![Penkra workspace with Spaces, threads, and the Apps panel](docs/readme-assets/DFDYE.png)
 
-## Development
+Penkra is a desktop environment where you run and organize multiple AI agent threads at once, connect them to purpose-built Apps, and keep control over what each App can access. It is not a chat wrapper, an IDE, or a terminal — it is a workspace built for working _with_ AI, not just talking to it.
 
-Install dependencies:
+## What Penkra does
+
+Penkra lets you spin up multiple concurrent threads, each backed by an AI provider of your choice — Claude, Codex, Gemini, or others. Every thread lives in a **Space**, so you can keep different projects, clients, or research areas cleanly separated.
+
+Each thread runs in the background. You can check in on progress, jump between threads, review output, or hand off follow-up instructions — all without losing context. Penkra handles reconnection, partial streams, and session recovery so your work stays reliable even when connections drop.
+
+![An active Penkra thread with agent output and follow-up controls](docs/readme-assets/O9J2t.png)
+
+### Spaces and organization
+
+Your work is organized into **Spaces** and **Folders**:
+
+- **Spaces** are top-level containers — think of them as separate desks for separate projects.
+- **Folders** live inside Spaces and group related threads.
+- **Threads** are individual agent sessions where the actual work happens.
+
+You can create, rename, archive, and move things around freely. The structure adapts to how you work, not the other way around.
+
+<p align="center">
+  <img src="docs/readme-assets/i0zpy.png" alt="Penkra sidebar showing Spaces, folders, pinned threads, and running work" width="320" />
+</p>
+
+### Apps
+
+Penkra has an Apps platform. Apps are small, self-contained web applications that run inside Penkra's right panel, each in its own isolated tab. They connect to your threads and can read, write, and act on your behalf — with explicit permissions you control.
+
+Penkra ships with three first-party Apps:
+
+| App          | What it does                                           |
+| ------------ | ------------------------------------------------------ |
+| **Apps**     | Browse, install, and manage Apps from the registry     |
+| **Browser**  | Browse the web in a scoped, agent-accessible session   |
+| **Explorer** | Browse, search, preview, and open files on your system |
+
+Third-party developers can build their own Apps using the public SDK. Every App runs in the same isolated environment — there are no hidden first-party privileges.
+
+<p align="center">
+  <img src="docs/readme-assets/DSDog.png" alt="Installed Apps in Penkra's right panel" width="32%" />
+  <img src="docs/readme-assets/Gjw2I.png" alt="The Browser App displaying penkra.com" width="64%" />
+</p>
+
+### Provider agnostic
+
+Penkra does not lock you into one AI provider. You bring the providers you want and Penkra handles the plumbing — threading, state, permissions, and session management — consistently across all of them.
+
+### Built-in tools
+
+Penkra includes tools that agent threads can use out of the box:
+
+- **Terminal** — full terminal access via xterm.js with GPU rendering
+- **File operations** — read, write, and search files with proper scoping
+- **Git integration** — view diffs, stage changes, and commit
+- **Voice notes** — record and transcribe audio directly in a thread
+- **Scheduling** — set timers, cron jobs, and automation policies
+
+## For developers
+
+Penkra is built with Electron and React. If you want to contribute or run it locally:
+
+### Prerequisites
+
+- [Bun](https://bun.sh) (package manager)
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (started automatically by the dev launcher)
+
+### Getting started
 
 ```sh
+# Install dependencies
 bun install --frozen-lockfile
-```
 
-Install the macOS development launcher:
-
-```sh
+# Install the macOS development launcher
 bun run dev:desktop:install-app
 ```
 
-Opening `/Applications/Penkra (Dev).app` starts the complete local development workspace
-and launches the desktop application as **Penkra (Dev)**. The launcher starts Docker Desktop
-when necessary and waits for its engine before bootstrapping the workspace. Startup state is
-written to `~/Penkra_Dev/.launcher/status.json`; a failed startup presents Retry and View Log
-actions instead of exiting silently.
+Open **Penkra (Dev)** from `/Applications` to start the full local development workspace. The launcher starts Docker when necessary and waits for its engine before bootstrapping.
 
-Source builds use Penkra's production account services by default, so public contributors can
-sign in with an ordinary Penkra account without running the private backend. Internal development
-sets both `PENKRA_API_URL` and `PENKRA_WEBSITE_ORIGIN` to the local backend and website. Authentication
-protocol calls use the backend's `/auth` endpoint. A custom
-compatible service must set both values together; see `.env.example`.
+### Tech stack
 
-Run the component library:
+| Layer         | Technology                               |
+| ------------- | ---------------------------------------- |
+| Desktop shell | Electron                                 |
+| UI            | React 19, Vite, Tailwind CSS 4           |
+| State         | Zustand                                  |
+| Routing       | Tanstack Router                          |
+| Rich text     | Lexical, Markdown (remark/rehype), KaTeX |
+| Terminal      | xterm.js (WebGL)                         |
+| Animation     | Motion                                   |
+| Testing       | Vitest, Playwright, Storybook            |
+| Monorepo      | Turborepo, Bun workspaces                |
+| Language      | TypeScript, Effect-TS                    |
+
+### Repository structure
+
+```text
+penkra/
+├── apps/
+│   ├── desktop/       # Electron lifecycle, native integration, IPC, updates
+│   ├── web/           # React/Vite UI — session UX, conversation rendering, state
+│   ├── server/        # Local server, provider harnesses, threads, filesystem
+│   └── marketing/     # Marketing landing page
+├── packages/
+│   ├── contracts/     # Shared schemas — WebSocket protocol, events, models
+│   ├── shared/        # Reusable runtime and domain utilities
+│   ├── sdk/           # Public SDK for App developers
+│   ├── ui/            # Semantic tokens, CSS, icons, framework-neutral primitives
+│   └── create-penkra-app/  # Scaffolding CLI for new Apps
+├── examples/
+│   └── sample-app/    # Framework-neutral example App
+└── docs/
+    └── app-development.md  # App development guide
+```
+
+### Design system
+
+Penkra's visual design is authored in [Pencil](https://pencil.app) (`penkra.pen`). Pencil is the source of truth for component hierarchy, states, and visual composition. React components in the codebase reproduce that design while retaining production routing, state management, accessibility, and desktop behavior.
+
+### Component library
+
+Run the Storybook component library to browse and develop UI components in isolation:
 
 ```sh
 bun run --cwd apps/web storybook
 ```
 
-This is one independent repository organized as a Bun workspace. From its root,
-`bun run test` runs the test task in each internal workspace package; it does not
-cross into `penkra-website` or `penkra-backend`.
+### Environment variables
 
-## Repository structure
+Source builds use Penkra's production account services by default. For internal development, set both `PENKRA_API_URL` and `PENKRA_WEBSITE_ORIGIN` to your local backend and website. See `.env.example` for the full list.
 
-- `penkra.pen` — desktop product-design source
-- `apps/web/src/components/foundations` — Pencil Foundations components
-- `apps/web/src/components/onboarding` — Pencil Onboarding components
-- `apps/web/src/components/apps` — Pencil Apps components
-- `apps/web/.storybook` — isolated component states and design mappings
-- `apps/desktop` — Electron lifecycle, native integration, identity, IPC, and updates
-- `apps/server` — local server, provider harnesses, threads, filesystem, and browser runtime
-- `packages/contracts` — shared application contracts
-- `packages/shared` — reusable runtime and domain utilities
+### Running tests
 
-Pencil components are implemented with the existing React primitives and composed into
-the existing router. As each remaining Pencil group is migrated, it receives the same
-named folder beside these groups. Storybook records variants and Pencil node mappings
-without shipping any iframe or exported-screen runtime in production.
+```sh
+bun run test
+```
 
-App developers can start with the complete framework-neutral sample in
-[`examples/sample-app`](./examples/sample-app) and the vanilla DOM and optional React
-SDK guide in [`docs/app-development.md`](./docs/app-development.md).
+This runs the test task in each workspace package. It does not cross into `penkra-website` or `penkra-backend`.

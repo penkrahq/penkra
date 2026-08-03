@@ -138,6 +138,7 @@ export function getThreadFromState(state: AppState, threadId: ThreadId): Thread 
     session,
     latestTurn: turnState?.latestTurn ?? null,
     pendingSourceProposedPlan: turnState?.pendingSourceProposedPlan,
+    pendingTurnStartMessageId: turnState?.pendingTurnStartMessageId ?? null,
     messages,
     activities,
     proposedPlans,

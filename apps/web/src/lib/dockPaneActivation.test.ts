@@ -11,8 +11,7 @@ import {
 } from "./dockPaneActivation";
 
 describe("dockPaneActivation", () => {
-  it("treats browser and sidechat panes as deferred runtime panes", () => {
-    expect(isDeferredRuntimePaneKind("browser")).toBe(true);
+  it("treats sidechat panes as deferred runtime panes", () => {
     expect(isDeferredRuntimePaneKind("sidechat")).toBe(true);
     expect(isDeferredRuntimePaneKind("diff")).toBe(false);
     expect(isDeferredRuntimePaneKind("git")).toBe(false);
@@ -29,16 +28,16 @@ describe("dockPaneActivation", () => {
 
   it("previews restored heavy panes until they are hydrated", () => {
     expect(
-      resolveDockPaneRuntimeMode({ kind: "browser", reason: "restore", hydrated: false }),
+      resolveDockPaneRuntimeMode({ kind: "sidechat", reason: "restore", hydrated: false }),
     ).toBe("preview");
-    expect(resolveDockPaneRuntimeMode({ kind: "browser", reason: "restore", hydrated: true })).toBe(
-      "live",
-    );
+    expect(
+      resolveDockPaneRuntimeMode({ kind: "sidechat", reason: "restore", hydrated: true }),
+    ).toBe("live");
   });
 
   it("hydrates heavy panes immediately after explicit user actions", () => {
     expect(
-      resolveDockPaneRuntimeMode({ kind: "browser", reason: "explicit", hydrated: false }),
+      resolveDockPaneRuntimeMode({ kind: "sidechat", reason: "explicit", hydrated: false }),
     ).toBe("live");
     expect(
       resolveDockPaneRuntimeMode({ kind: "sidechat", reason: "explicit", hydrated: false }),
@@ -50,39 +49,26 @@ describe("dockPaneActivation", () => {
       dockPaneActivationKey({
         threadId: ThreadId.makeUnsafe("thread-1"),
         paneId: "pane-1",
-        kind: "browser",
+        kind: "app",
       }),
-    ).toBe("thread-1\u0000pane-1\u0000browser");
+    ).toBe("thread-1\u0000pane-1\u0000app");
   });
 
   it("uses two frames for restored heavy-pane hydration", () => {
     expect(DOCK_PANE_DEFERRED_HYDRATION_FRAMES).toBe(2);
   });
 
-  it("keeps stateful panes mounted across tab switches", () => {
-    expect(isKeepMountedPaneKind("explorer")).toBe(true);
-    expect(isKeepMountedPaneKind("browser")).toBe(false);
+  it("does not preserve inactive pane subtrees", () => {
+    expect(isKeepMountedPaneKind("app")).toBe(false);
     expect(isKeepMountedPaneKind("sidechat")).toBe(false);
     expect(isKeepMountedPaneKind("diff")).toBe(false);
     expect(isKeepMountedPaneKind("git")).toBe(false);
   });
 
   describe("reconcileKeepMountedPaneIds", () => {
-    const panes = [
-      { id: "explorer", kind: "explorer" as const },
-      { id: "diff", kind: "diff" as const },
-    ];
+    const panes = [{ id: "diff", kind: "diff" as const }];
 
-    it("adds the active pane only when it is a keep-mounted kind", () => {
-      expect([
-        ...reconcileKeepMountedPaneIds({
-          previous: new Set(),
-          panes,
-          activePaneId: "explorer",
-          activePaneKind: "explorer",
-        }),
-      ]).toEqual(["explorer"]);
-
+    it("does not add an active pane when no pane kind requires preservation", () => {
       expect([
         ...reconcileKeepMountedPaneIds({
           previous: new Set(),
@@ -93,24 +79,24 @@ describe("dockPaneActivation", () => {
       ]).toEqual([]);
     });
 
-    it("retains previously mounted stateful panes after another tab becomes active", () => {
+    it("drops stale preserved ids", () => {
       const result = reconcileKeepMountedPaneIds({
-        previous: new Set(["explorer"]),
+        previous: new Set(["removed-pane"]),
         panes,
         activePaneId: "diff",
         activePaneKind: "diff",
       });
-      expect(result.has("explorer")).toBe(true);
+      expect(result.size).toBe(0);
     });
 
     it("drops kept ids that no longer exist (closed pane or thread switch)", () => {
       const result = reconcileKeepMountedPaneIds({
-        previous: new Set(["explorer", "stale"]),
+        previous: new Set(["removed-pane", "stale"]),
         panes: [{ id: "diff", kind: "diff" as const }],
         activePaneId: "diff",
         activePaneKind: "diff",
       });
-      expect(result.has("explorer")).toBe(false);
+      expect(result.has("removed-pane")).toBe(false);
       expect(result.has("stale")).toBe(false);
     });
 
@@ -119,7 +105,7 @@ describe("dockPaneActivation", () => {
         previous: new Set(),
         panes,
         activePaneId: "ghost",
-        activePaneKind: "explorer",
+        activePaneKind: "diff",
       });
       expect(result.size).toBe(0);
     });

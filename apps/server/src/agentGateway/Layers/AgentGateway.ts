@@ -66,6 +66,7 @@ import { makeCreateThreadsHandler } from "../creationCoordinator.ts";
 import { makeThreadReadTools } from "../threadReadTools.ts";
 import { makeThreadDiagnosticTools } from "../threadDiagnosticTools.ts";
 import { pruneProjectedArchivedManagedWorktrees } from "../../managedWorktrees.ts";
+import { executePenkraExec } from "../../appRuntimeCli.ts";
 
 const AGENT_GATEWAY_INSTRUCTIONS = PENKRA_GATEWAY_HARNESS_POLICY;
 
@@ -538,6 +539,55 @@ export const makeAgentGateway = Effect.gen(function* () {
       }).pipe(Effect.catch((error) => Effect.succeed(mcpToolResultError(errorText(error))))),
   };
 
+  const penkraExec: ToolEntry = {
+    requiredCapability: "thread:write",
+    requiresActiveTurn: true,
+    definition: {
+      name: "penkra_exec",
+      description:
+        "Execute one registered Penkra core or installed-App operation in the caller Thread's Space. This is not a shell: PATH executables, pipes, redirects, substitutions, and environment expansion are never accepted.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          command: {
+            type: "string",
+            description:
+              'One command such as "penkra tabs current" or "linear issues create --title Fix".',
+          },
+        },
+        required: ["command"],
+        additionalProperties: false,
+      },
+      annotations: {
+        title: "Execute a Penkra command",
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    handler: (args, context) =>
+      Effect.gen(function* () {
+        const caller = yield* requireThreadShell(context.callerThreadId);
+        if (!caller.spaceId) {
+          return yield* Effect.fail(
+            new ToolInputError("The caller Thread is not assigned to a Space."),
+          );
+        }
+        const command = readStringArg(args, "command", { required: true })!;
+        const result = yield* Effect.tryPromise({
+          try: () =>
+            executePenkraExec(command, {
+              spaceId: caller.spaceId!,
+              threadId: caller.id,
+              workingDirectory: caller.workingDirectory ?? null,
+            }),
+          catch: (error) => new ToolInputError(errorText(error)),
+        });
+        return mcpToolResultJson(result);
+      }).pipe(Effect.catch((error) => Effect.succeed(mcpToolResultError(errorText(error))))),
+  };
+
   const tools: ReadonlyArray<ToolEntry> = [
     ...readTools,
     ...diagnosticTools,
@@ -547,6 +597,7 @@ export const makeAgentGateway = Effect.gen(function* () {
     interruptThread,
     setThreadTitle,
     setThreadArchived,
+    penkraExec,
   ];
   return {
     handleMcpPost: makeAgentGatewayMcpTransport({

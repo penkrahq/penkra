@@ -28,12 +28,47 @@ const runtime = new AppPreloadRuntime({
   secretDelete: (name) => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.secretDelete, name),
   filePick: (kind) => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.filePick, kind),
   fileList: () => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.fileList),
-  fileReadText: (handleId) => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.fileReadText, handleId),
+  fileReadText: (input) => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.fileReadText, input),
   fileWriteText: (input) => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.fileWriteText, input),
-  fileListDirectory: (handleId) =>
-    ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.fileListDirectory, handleId),
+  fileStat: (input) => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.fileStat, input),
+  fileListDirectory: (input) =>
+    ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.fileListDirectory, input),
+  fileReadBinary: (input) => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.fileReadBinary, input),
+  fileWriteBinary: (input) => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.fileWriteBinary, input),
+  fileCreateDirectory: (input) =>
+    ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.fileCreateDirectory, input),
+  fileRename: (input) => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.fileRename, input),
+  fileRemove: (input) => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.fileRemove, input),
+  fileWatch: async (input, listener) => {
+    const watchId = (await ipcRenderer.invoke(
+      APP_RUNTIME_IPC_CHANNELS.fileWatchStart,
+      input,
+    )) as string;
+    const wrapped = (
+      _event: Electron.IpcRendererEvent,
+      message: { watchId?: string; event?: import("@penkra/sdk").AppFileChangeEvent },
+    ) => {
+      if (message?.watchId === watchId && message.event) listener(message.event);
+    };
+    ipcRenderer.on(APP_RUNTIME_IPC_CHANNELS.fileChanged, wrapped);
+    return () => {
+      ipcRenderer.removeListener(APP_RUNTIME_IPC_CHANNELS.fileChanged, wrapped);
+      void ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.fileWatchStop, { watchId });
+    };
+  },
   fileOpenChild: (input) => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.fileOpenChild, input),
   fileRevoke: (handleId) => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.fileRevoke, handleId),
+  resourceOpen: (input) => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.resourceOpen, input),
+  browserCall: (method, input) =>
+    ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.browserCall, { method, input }),
+  onBrowserState: (listener) => {
+    const wrapped = (
+      _event: Electron.IpcRendererEvent,
+      state: import("@penkra/sdk").AppBrowserSessionState,
+    ) => listener(state);
+    ipcRenderer.on(APP_RUNTIME_IPC_CHANNELS.browserState, wrapped);
+    return () => ipcRenderer.removeListener(APP_RUNTIME_IPC_CHANNELS.browserState, wrapped);
+  },
   networkFetch: (input) => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.networkFetch, input),
   rawSocketExchange: (input) =>
     ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.rawSocketExchange, input),

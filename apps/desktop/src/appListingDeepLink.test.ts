@@ -3,18 +3,18 @@ import { describe, expect, it } from "vitest";
 import { parseAppListingDeepLink } from "./appListingDeepLink";
 
 describe("App listing deep links", () => {
-  it("accepts exactly penkra://apps/<registry-app-id>", () => {
-    expect(parseAppListingDeepLink("penkra://apps/00000000-0000-4000-8000-000000000123")).toEqual({
-      appId: "00000000-0000-4000-8000-000000000123",
+  it("accepts exactly penkra://apps/<canonical-app-id>", () => {
+    expect(parseAppListingDeepLink("penkra://apps/com.acme.canvas")).toEqual({
+      appId: "com.acme.canvas",
     });
   });
 
   it.each([
-    "https://apps/00000000-0000-4000-8000-000000000123",
-    "penkra://app/00000000-0000-4000-8000-000000000123",
+    "https://apps/com.acme.canvas",
+    "penkra://app/com.acme.canvas",
     "penkra://apps/not-a-uuid",
-    "penkra://apps/00000000-0000-4000-8000-000000000123/more",
-    "penkra://apps/00000000-0000-4000-8000-000000000123?tab=permissions",
+    "penkra://apps/com.acme.canvas/more",
+    "penkra://apps/com.acme.canvas?tab=permissions",
   ])("rejects non-canonical input %s", (value) => {
     expect(parseAppListingDeepLink(value)).toBeNull();
   });

@@ -104,6 +104,7 @@ export class AppControllerHost {
                   handler: declaration.handler,
                   input: operationInput,
                   invocation: context.invocation,
+                  caller: context.caller,
                 },
                 {
                   signal: context.signal,

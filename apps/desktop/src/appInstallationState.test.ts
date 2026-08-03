@@ -37,10 +37,11 @@ function verifiedPackage(patch: Partial<VerifiedAppPackageInput> = {}): Verified
 }
 
 describe("App installation state", () => {
-  it("installs one profile package and scopes enablement and permissions by Space", () => {
+  it("installs independent packages and state for each Space", () => {
     const installed = registerVerifiedAppPackage(
       createEmptyAppInstallationState(),
       verifiedPackage(),
+      "personal",
     );
     const personal = setSpaceAppPermission(
       setSpaceAppEnabled(installed, {
@@ -55,14 +56,18 @@ describe("App installation state", () => {
         grant: "granted",
       },
     );
-    const work = setSpaceAppEnabled(personal, {
+    const workInstalled = registerVerifiedAppPackage(personal, verifiedPackage(), "work");
+    const work = setSpaceAppEnabled(workInstalled, {
       appId: manifest.id,
       spaceId: "work",
       enabled: false,
     });
 
-    expect(Object.keys(work.packagesByAppId)).toEqual([manifest.id]);
-    expect(work.packagesByAppId[manifest.id]?.manifest).toEqual(manifest);
+    expect(Object.keys(work.packagesByInstallationKey)).toEqual([
+      `personal\0${manifest.id}`,
+      `work\0${manifest.id}`,
+    ]);
+    expect(work.packagesByInstallationKey[`personal\0${manifest.id}`]?.manifest).toEqual(manifest);
     expect(Object.values(work.spaceStateByKey)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ spaceId: "personal", enabled: true }),
@@ -75,9 +80,10 @@ describe("App installation state", () => {
     const installed = registerVerifiedAppPackage(
       createEmptyAppInstallationState(),
       verifiedPackage(),
+      "personal",
     );
     expect(() =>
-      registerVerifiedAppPackage(installed, verifiedPackage({ source: "sideload" })),
+      registerVerifiedAppPackage(installed, verifiedPackage({ source: "sideload" }), "personal"),
     ).toThrowError(expect.objectContaining({ code: "app-already-installed" }));
 
     expect(() =>
@@ -87,6 +93,7 @@ describe("App installation state", () => {
           source: "sideload",
           manifest: { ...manifest, id: "com.acme.apps" },
         }),
+        "personal",
       ),
     ).toThrowError(expect.objectContaining({ code: "slug-collision" }));
   });
@@ -95,30 +102,36 @@ describe("App installation state", () => {
     const installed = registerVerifiedAppPackage(
       createEmptyAppInstallationState(),
       verifiedPackage(),
+      "personal",
     );
-    const updated = replaceVerifiedRegistryAppPackage(installed, {
-      ...verifiedPackage({
-        manifest: { ...manifest, version: "0.2.0" },
-        packagePath: "/profile/apps/com.penkra.apps/0.2.0",
-        sha256: "b".repeat(64),
-      }),
-      source: "registry" as const,
-    });
-    expect(updated.packagesByAppId[manifest.id]?.version).toBe("0.2.0");
+    const updated = replaceVerifiedRegistryAppPackage(
+      installed,
+      {
+        ...verifiedPackage({
+          manifest: { ...manifest, version: "0.2.0" },
+          packagePath: "/profile/apps/com.penkra.apps/0.2.0",
+          sha256: "b".repeat(64),
+        }),
+        source: "registry" as const,
+      },
+      "personal",
+    );
+    expect(updated.packagesByInstallationKey[`personal\0${manifest.id}`]?.version).toBe("0.2.0");
   });
 
   it("retains Space state on uninstall until explicitly erased", () => {
     const installed = registerVerifiedAppPackage(
       createEmptyAppInstallationState(),
       verifiedPackage(),
+      "personal",
     );
     const enabled = setSpaceAppEnabled(installed, {
       appId: manifest.id,
       spaceId: "personal",
       enabled: true,
     });
-    const uninstalled = unregisterAppPackage(enabled, manifest.id);
-    expect(uninstalled.packagesByAppId).toEqual({});
+    const uninstalled = unregisterAppPackage(enabled, manifest.id, "personal");
+    expect(uninstalled.packagesByInstallationKey).toEqual({});
     expect(Object.values(uninstalled.spaceStateByKey)).toHaveLength(1);
     expect(removeRetainedAppState(uninstalled, { appId: manifest.id }).spaceStateByKey).toEqual({});
   });
@@ -140,7 +153,14 @@ describe("App installation state", () => {
             installedAt: "2026-08-01T00:00:00.000Z",
           },
         },
-        spaceStateByKey: {},
+        spaceStateByKey: {
+          [`personal\0${manifest.id}`]: {
+            appId: manifest.id,
+            spaceId: "personal",
+            enabled: false,
+            permissions: {},
+          },
+        },
       }),
     ).toThrowError(expect.objectContaining({ code: "invalid-state" }));
   });
@@ -149,6 +169,7 @@ describe("App installation state", () => {
     const installed = registerVerifiedAppPackage(
       createEmptyAppInstallationState(),
       verifiedPackage(),
+      "personal",
     );
     const enabled = setSpaceAppEnabled(installed, {
       appId: manifest.id,
@@ -158,6 +179,10 @@ describe("App installation state", () => {
     const legacy = {
       ...enabled,
       schemaVersion: 1,
+      packagesByAppId: {
+        [manifest.id]: enabled.packagesByInstallationKey[`personal\0${manifest.id}`],
+      },
+      packagesByInstallationKey: undefined,
       spaceStateByKey: Object.fromEntries(
         Object.entries(enabled.spaceStateByKey).map(([key, value]) => [
           key,
@@ -172,7 +197,10 @@ describe("App installation state", () => {
     };
 
     expect(parseAppInstallationState(legacy)).toMatchObject({
-      schemaVersion: 2,
+      schemaVersion: 3,
+      packagesByInstallationKey: {
+        [`personal\0${manifest.id}`]: expect.objectContaining({ appId: manifest.id }),
+      },
       spaceStateByKey: {
         [`personal\0${manifest.id}`]: { settings: {}, settingMigrations: {}, skills: {} },
       },
@@ -183,15 +211,16 @@ describe("App installation state", () => {
     const installed = registerVerifiedAppPackage(
       createEmptyAppInstallationState(),
       verifiedPackage(),
+      "personal",
     );
-    const packageRecord = installed.packagesByAppId[manifest.id];
+    const packageRecord = installed.packagesByInstallationKey[`personal\0${manifest.id}`];
     expect(packageRecord).toBeDefined();
 
     expect(() =>
       parseAppInstallationState({
         ...installed,
-        packagesByAppId: {
-          [manifest.id]: { ...packageRecord, version: "9.9.9" },
+        packagesByInstallationKey: {
+          [`personal\0${manifest.id}`]: { ...packageRecord, version: "9.9.9" },
         },
       }),
     ).toThrow("metadata does not match its committed manifest");

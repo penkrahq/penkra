@@ -10,6 +10,7 @@ export function SettingsPermissionsPage() {
   const activeSpaceId = useSpacesUiStore((state) => state.activeSpaceId);
   const apps =
     snapshot?.installed.filter((app) => {
+      if (app.spaceId !== activeSpaceId) return false;
       const state = activeSpaceId
         ? snapshot.spaces.find(
             (candidate) => candidate.appId === app.id && candidate.spaceId === activeSpaceId,
@@ -49,7 +50,7 @@ export function SettingsPermissionsPage() {
         return (
           <section
             className="overflow-hidden rounded-[10px] border border-[var(--color-border)] bg-[var(--color-background-surface)]"
-            key={app.id}
+            key={`${app.spaceId}:${app.id}`}
           >
             <header className="flex items-center gap-2 border-b border-[var(--color-border)] px-4 py-3">
               <IconShieldLock className="size-4 text-[var(--color-text-foreground-secondary)]" />

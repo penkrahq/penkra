@@ -55,23 +55,27 @@ describe("App installation IPC boundary", () => {
       parseUpdateRegistryAppRequest({
         slug: "canvas",
         version: "2.0.0",
-        permissionsBySpace: { work: { "network-fetch": "granted" } },
+        spaceId: "work",
+        permissions: { "network-fetch": "granted" },
       }),
     ).toEqual({
       slug: "canvas",
       version: "2.0.0",
-      permissionsBySpace: { work: { "network-fetch": "granted" } },
+      spaceId: "work",
+      permissions: { "network-fetch": "granted" },
     });
     expect(
       parseRollbackRegistryAppRequest({
         slug: "canvas",
         version: "1.0.0",
-        permissionsBySpace: { work: { "network-fetch": "granted" } },
+        spaceId: "work",
+        permissions: { "network-fetch": "granted" },
       }),
     ).toEqual({
       slug: "canvas",
       version: "1.0.0",
-      permissionsBySpace: { work: { "network-fetch": "granted" } },
+      spaceId: "work",
+      permissions: { "network-fetch": "granted" },
     });
     expect(
       parseSetAppPermissionRequest({
@@ -86,10 +90,13 @@ describe("App installation IPC boundary", () => {
       permission: "apps-install",
       grant: "granted",
     });
-    expect(parseUninstallAppRequest({ appId: "com.penkra.apps", retainData: false })).toEqual({
-      appId: "com.penkra.apps",
-      retainData: false,
-    });
+    expect(
+      parseUninstallAppRequest({
+        appId: "com.penkra.apps",
+        spaceId: "work",
+        retainData: false,
+      }),
+    ).toEqual({ appId: "com.penkra.apps", spaceId: "work", retainData: false });
     expect(parseRemoveAppDataRequest({ appId: "com.penkra.apps", spaceId: "work" })).toEqual({
       appId: "com.penkra.apps",
       spaceId: "work",
@@ -122,14 +129,16 @@ describe("App installation IPC boundary", () => {
       parseUpdateRegistryAppRequest({
         slug: "app",
         version: "2.0.0",
-        permissionsBySpace: { work: { bad: "ask" } },
+        spaceId: "work",
+        permissions: { bad: "ask" },
       }),
     ).toThrow();
     expect(() =>
       parseRollbackRegistryAppRequest({
         slug: "app",
         version: "1.0.0",
-        permissionsBySpace: { work: { bad: "ask" } },
+        spaceId: "work",
+        permissions: { bad: "ask" },
       }),
     ).toThrow();
   });

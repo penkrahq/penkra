@@ -90,6 +90,12 @@ describe("ElectronAppTabHost", () => {
     const releaseIdentity = vi.fn();
     const onRendererCreated = vi.fn(() => releaseIdentity);
     const onOpened = vi.fn();
+    const onState = vi.fn();
+    const onClosed = vi.fn();
+    let markReady: (() => void) | undefined;
+    const ready = new Promise<void>((resolve) => {
+      markReady = resolve;
+    });
     const host = new ElectronAppTabHost({
       window: () =>
         ({
@@ -97,7 +103,9 @@ describe("ElectronAppTabHost", () => {
           contentView: { addChildView, removeChildView },
         }) as never,
       installations: {
-        snapshot: () => ({ packagesByAppId: { [app.appId]: app } }),
+        snapshot: () => ({
+          packagesByInstallationKey: { [`personal\0${app.appId}`]: app },
+        }),
         isActive: () => true,
         setEnabled: vi.fn(),
       } as never,
@@ -107,20 +115,29 @@ describe("ElectronAppTabHost", () => {
         registerTarget: vi.fn(() => unregisterRpc),
         request: vi.fn(),
       },
-      ipcBridge: { waitForReady: vi.fn(async () => undefined) },
+      ipcBridge: { waitForReady: vi.fn(() => ready) },
       preloadPath: "/trusted/appPreload.js",
       onOpened,
-      onState: vi.fn(),
+      onState,
+      onClosed,
       onRendererCreated,
       measureRendererMemory: () => 128 * 1024,
     });
 
-    const descriptor = await host.openInstalled({
+    const opening = host.openInstalled({
       appId: app.appId,
       spaceId: "personal",
       threadId: "thread-1",
       route: "/",
     });
+
+    await vi.waitFor(() =>
+      expect(onOpened).toHaveBeenCalledWith(
+        expect.objectContaining({ appId: app.appId, iconDataUrl: null, status: "loading" }),
+      ),
+    );
+    markReady?.();
+    const descriptor = await opening;
 
     expect(descriptor).toMatchObject({
       appId: app.appId,
@@ -130,10 +147,12 @@ describe("ElectronAppTabHost", () => {
     });
     expect(host.list()).toEqual([descriptor]);
     expect(host.current()).toBeNull();
-    expect(onOpened).toHaveBeenCalledWith(descriptor);
+    expect(onState).toHaveBeenCalledWith(descriptor);
     expect(onRendererCreated).toHaveBeenCalledWith({
       appId: app.appId,
       spaceId: "personal",
+      tabId: descriptor.id,
+      threadId: "thread-1",
       rendererId: 100,
     });
     expect(electron.views).toHaveLength(1);
@@ -163,6 +182,7 @@ describe("ElectronAppTabHost", () => {
     expect(releaseIdentity).toHaveBeenCalledOnce();
     expect(removeChildView).toHaveBeenCalledOnce();
     expect(electron.views[0]?.webContents.close).toHaveBeenCalledOnce();
+    expect(onClosed).toHaveBeenCalledWith({ id: descriptor.id, threadId: "thread-1" });
     expect(host.list()).toEqual([]);
   });
 
@@ -190,7 +210,12 @@ describe("ElectronAppTabHost", () => {
     const host = new ElectronAppTabHost({
       window: () => null,
       installations: {
-        snapshot: () => ({ packagesByAppId: { [apps.appId]: apps, [target.appId]: target } }),
+        snapshot: () => ({
+          packagesByInstallationKey: {
+            [`personal\0${apps.appId}`]: apps,
+            [`personal\0${target.appId}`]: target,
+          },
+        }),
         isActive: () => true,
         setEnabled: vi.fn(),
       } as never,

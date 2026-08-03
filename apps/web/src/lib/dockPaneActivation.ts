@@ -13,19 +13,10 @@ export type DockPaneRuntimeMode = "live" | "preview";
 export const DOCK_PANE_DEFERRED_HYDRATION_FRAMES = 2;
 
 const DEFERRED_RUNTIME_PANE_KINDS: ReadonlySet<RightDockPaneKind> = new Set<RightDockPaneKind>([
-  "browser",
   "sidechat",
 ]);
 
-// Pane kinds whose React subtree must stay mounted while inactive instead of
-// being torn down when another tab is selected. The explorer pane keeps its
-// browse state (selected file, expanded directories, search query, sidebar
-// visibility) in local component state, so keep it mounted while another tab is
-// active — otherwise switching tabs would tear the subtree down and reset the
-// explorer to its workspace root on return.
-const KEEP_MOUNTED_PANE_KINDS: ReadonlySet<RightDockPaneKind> = new Set<RightDockPaneKind>([
-  "explorer",
-]);
+const KEEP_MOUNTED_PANE_KINDS: ReadonlySet<RightDockPaneKind> = new Set();
 
 export function dockPaneActivationKey(input: {
   threadId: ThreadId;

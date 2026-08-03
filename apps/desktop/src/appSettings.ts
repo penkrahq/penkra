@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 
 import type { AppSettingDeclaration } from "@penkra/sdk";
 
-import type { AppInstallationState } from "./appInstallationState";
+import { getInstalledAppPackage, type AppInstallationState } from "./appInstallationState";
 
 export type AppSettingValue = boolean | number | string;
 
@@ -15,10 +15,11 @@ export interface AppSettingSnapshot {
 export function findAppSettingDeclaration(
   state: AppInstallationState,
   appId: string,
+  spaceId: string,
   key: string,
 ): AppSettingDeclaration {
-  const installed = state.packagesByAppId[appId];
-  if (!installed) throw new Error(`${appId} is not installed.`);
+  const installed = getInstalledAppPackage(state, appId, spaceId);
+  if (!installed) throw new Error(`${appId} is not installed in Space ${spaceId}.`);
   const declaration = (installed.manifest.contributions?.settings ?? []).find(
     (candidate) => candidate.key === key,
   );
@@ -108,13 +109,15 @@ export function isSensitiveAppSetting(
 export function reconcileAppSettingsAfterUpdate(
   state: AppInstallationState,
   appId: string,
+  spaceId: string,
 ): AppInstallationState {
-  const declarations = state.packagesByAppId[appId]?.manifest.contributions?.settings ?? [];
+  const declarations =
+    getInstalledAppPackage(state, appId, spaceId)?.manifest.contributions?.settings ?? [];
   const byKey = new Map(declarations.map((declaration) => [declaration.key, declaration]));
   let changed = false;
   const spaceStateByKey = Object.fromEntries(
     Object.entries(state.spaceStateByKey).map(([scopeKey, space]) => {
-      if (space.appId !== appId) return [scopeKey, space];
+      if (space.appId !== appId || space.spaceId !== spaceId) return [scopeKey, space];
       const settings: Record<string, AppSettingValue> = {};
       const settingMigrations: Record<string, string> = {};
       for (const [key, stored] of Object.entries(space.settings)) {

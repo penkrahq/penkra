@@ -12,23 +12,27 @@ import type { OperationCancellationCode } from "@penkra/sdk";
 import type { ActivateAppSessionInput, ActiveAppSession } from "./appSessionManager";
 
 function installedState(enabled = false): AppInstallationState {
-  const installed = registerVerifiedAppPackage(createEmptyAppInstallationState(), {
-    manifest: {
-      manifestVersion: 1,
-      id: "com.penkra.apps",
-      slug: "apps",
-      name: "Apps",
-      summary: "Discover and manage Penkra Apps.",
-      version: "1.0.0",
-      compatibility: { penkra: ">=0.8.0" },
-      icons: [{ src: "icon.svg", sizes: "any", type: "image/svg+xml" }],
-      entrypoints: { app: "app.html", operations: "operations.html" },
+  const installed = registerVerifiedAppPackage(
+    createEmptyAppInstallationState(),
+    {
+      manifest: {
+        manifestVersion: 1,
+        id: "com.penkra.apps",
+        slug: "apps",
+        name: "Apps",
+        summary: "Discover and manage Penkra Apps.",
+        version: "1.0.0",
+        compatibility: { penkra: ">=0.8.0" },
+        icons: [{ src: "icon.svg", sizes: "any", type: "image/svg+xml" }],
+        entrypoints: { app: "app.html", operations: "operations.html" },
+      },
+      source: "registry",
+      packagePath: "/profile/apps/com.penkra.apps/1.0.0",
+      sha256: "a".repeat(64),
+      installedAt: "2026-08-01T00:00:00.000Z",
     },
-    source: "registry",
-    packagePath: "/profile/apps/com.penkra.apps/1.0.0",
-    sha256: "a".repeat(64),
-    installedAt: "2026-08-01T00:00:00.000Z",
-  });
+    "personal",
+  );
   return setSpaceAppEnabled(installed, {
     appId: "com.penkra.apps",
     spaceId: "personal",
@@ -158,18 +162,22 @@ describe("AppRuntimeLifecycle", () => {
   it("restores enabled runtimes independently and reports failures without rewriting intent", async () => {
     let state = installedState(true);
     const secondManifest = {
-      ...state.packagesByAppId["com.penkra.apps"]!.manifest,
+      ...state.packagesByInstallationKey["personal\0com.penkra.apps"]!.manifest,
       id: "com.acme.linear",
       slug: "linear",
       name: "Linear",
     };
-    state = registerVerifiedAppPackage(state, {
-      manifest: secondManifest,
-      source: "registry",
-      packagePath: "/profile/apps/com.acme.linear/1.0.0",
-      sha256: "b".repeat(64),
-      installedAt: "2026-08-01T00:00:00.000Z",
-    });
+    state = registerVerifiedAppPackage(
+      state,
+      {
+        manifest: secondManifest,
+        source: "registry",
+        packagePath: "/profile/apps/com.acme.linear/1.0.0",
+        sha256: "b".repeat(64),
+        installedAt: "2026-08-01T00:00:00.000Z",
+      },
+      "personal",
+    );
     state = setSpaceAppEnabled(state, {
       appId: "com.acme.linear",
       spaceId: "personal",

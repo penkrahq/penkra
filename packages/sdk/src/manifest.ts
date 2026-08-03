@@ -86,8 +86,11 @@ export type AppHandlerDeclaration =
   | {
       intent: "open-file";
       operation: string;
-      mediaTypes?: ReadonlyArray<string>;
-      extensions?: ReadonlyArray<string>;
+      extensions: ReadonlyArray<string>;
+    }
+  | {
+      intent: "open-directory";
+      operation: string;
     };
 
 export interface PenkraAppManifest {
@@ -582,12 +585,16 @@ function validateHandlerContributions(
           issue(issues, path, "invalid-format", `${path} must be an object.`);
           return;
         }
-        if (candidate.intent !== "open-url" && candidate.intent !== "open-file") {
+        if (
+          candidate.intent !== "open-url" &&
+          candidate.intent !== "open-file" &&
+          candidate.intent !== "open-directory"
+        ) {
           issue(
             issues,
             `${path}.intent`,
             "invalid-format",
-            "intent must be open-url or open-file.",
+            "intent must be open-url, open-file, or open-directory.",
           );
           return;
         }
@@ -618,39 +625,34 @@ function validateHandlerContributions(
               "open-url schemes must be a non-empty array of lowercase URL schemes.",
             );
           }
-          if (candidate.mediaTypes !== undefined || candidate.extensions !== undefined) {
+          if (candidate.extensions !== undefined) {
             issue(issues, path, "invalid-format", "open-url handlers cannot declare file filters.");
           }
-        } else {
-          const mediaTypesValid =
-            candidate.mediaTypes === undefined ||
-            (Array.isArray(candidate.mediaTypes) &&
-              candidate.mediaTypes.length > 0 &&
-              candidate.mediaTypes.every(
-                (type) => typeof type === "string" && MIME_TYPE_PATTERN.test(type),
-              ));
+        } else if (candidate.intent === "open-file") {
           const extensionsValid =
-            candidate.extensions === undefined ||
-            (Array.isArray(candidate.extensions) &&
-              candidate.extensions.length > 0 &&
-              candidate.extensions.every(
-                (extension) =>
-                  typeof extension === "string" && /^\.[a-z0-9][a-z0-9._+-]*$/i.test(extension),
-              ));
-          if (
-            !mediaTypesValid ||
-            !extensionsValid ||
-            (candidate.mediaTypes === undefined && candidate.extensions === undefined)
-          ) {
+            Array.isArray(candidate.extensions) &&
+            candidate.extensions.length > 0 &&
+            candidate.extensions.every(
+              (extension) =>
+                typeof extension === "string" && /^\.[a-z0-9][a-z0-9._+-]*$/i.test(extension),
+            );
+          if (!extensionsValid) {
             issue(
               issues,
               path,
               "invalid-format",
-              "open-file handlers require valid mediaTypes or dot-prefixed extensions.",
+              "open-file handlers require non-empty dot-prefixed extensions.",
             );
           }
           if (candidate.schemes !== undefined)
             issue(issues, path, "invalid-format", "open-file handlers cannot declare URL schemes.");
+        } else if (candidate.schemes !== undefined || candidate.extensions !== undefined) {
+          issue(
+            issues,
+            path,
+            "invalid-format",
+            "open-directory handlers cannot declare schemes or extensions.",
+          );
         }
       });
       validateUniqueNames(intents, issues);

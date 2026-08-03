@@ -44,6 +44,7 @@ import {
 import type { ContextWindowSnapshot } from "../lib/contextWindow";
 import { ProviderUsagePanelContent } from "./ProviderUsagePanelContent";
 import { ComposerPickerMenuPopup } from "./chat/ComposerPickerMenuPopup";
+import { AccessPillContent } from "./middle-panel/access-pill-content/AccessPillContent";
 import { Button } from "./ui/button";
 import { Collapsible, CollapsiblePanel } from "./ui/collapsible";
 import { DisclosureChevron } from "./ui/DisclosureChevron";
@@ -57,6 +58,7 @@ import {
   MenuSeparator,
   MenuTrigger,
 } from "./ui/menu";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import type { ThreadWorkspacePatch } from "../types";
 
 function WorktreeGlyph({ className }: { className?: string }) {
@@ -115,6 +117,7 @@ export interface BranchToolbarProps {
   // Studio-like containers bind the toolbar to one concrete local folder and
   // must not persist project/worktree metadata from branch selector actions.
   fixedLocalWorkspaceCwd?: string | null;
+  environmentLabel?: string;
 }
 
 export interface RuntimeUsageControlsProps {
@@ -138,6 +141,7 @@ export function RuntimeUsageControls({
   hideLabel: hideLabelProp,
 }: RuntimeUsageControlsProps) {
   const hideLabel = hideLabelProp ?? false;
+  const [menuOpen, setMenuOpen] = useState(false);
   return (
     <div
       className={cn(
@@ -146,42 +150,52 @@ export function RuntimeUsageControls({
       )}
     >
       {runtimeMode && onRuntimeModeChange ? (
-        <Menu>
-          <MenuTrigger
-            render={
-              <Button
-                size="sm"
-                variant="chrome"
-                className={cn(
-                  "min-w-0 shrink-0 justify-start gap-1.5 whitespace-nowrap px-2 [&_svg]:mx-0 sm:px-2.5",
-                  COMPOSER_PICKER_TRIGGER_TEXT_CLASS_NAME,
-                  runtimeMode === "full-access" && RUNTIME_FULL_ACCESS_ACCENT_CLASS_NAME,
-                )}
-                title={
-                  runtimeMode === "full-access"
-                    ? "Full access — click to change permissions"
-                    : "Default permissions — click to change permissions"
-                }
-              />
-            }
-          >
-            <span className="inline-flex items-center gap-1.5">
+        <Menu open={menuOpen} onOpenChange={setMenuOpen}>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <MenuTrigger
+                  render={
+                    <Button
+                      size="sm"
+                      variant="chrome"
+                      className={cn(
+                        "!h-[26px] min-w-0 shrink-0 justify-start gap-1 whitespace-nowrap rounded-full px-1.5 font-normal sm:!h-[26px] sm:px-1.5 [&_svg]:mx-0",
+                        COMPOSER_PICKER_TRIGGER_TEXT_CLASS_NAME,
+                        runtimeMode === "full-access" && RUNTIME_FULL_ACCESS_ACCENT_CLASS_NAME,
+                      )}
+                      aria-label={
+                        runtimeMode === "full-access" ? "Full access permissions" : "Permissions"
+                      }
+                      data-pencil-component="iP6oE"
+                    />
+                  }
+                />
+              }
+            >
               {runtimeMode === "full-access" ? (
-                <CentralIcon name="shield-access" className="size-3.5 shrink-0" />
+                <AccessPillContent hideLabel={hideLabel} />
               ) : (
-                <HiOutlineHandRaised className="size-3.5 shrink-0" />
+                <span className="inline-flex items-center gap-1">
+                  <HiOutlineHandRaised className="size-[13px] shrink-0" />
+                  <span className={cn("truncate", hideLabel ? "sr-only" : "@max-[480px]:sr-only")}>
+                    Default permissions
+                  </span>
+                  <ChevronDownIcon
+                    className={cn(
+                      "size-[11px] shrink-0 opacity-70",
+                      hideLabel ? "hidden" : "@max-[480px]:hidden",
+                    )}
+                  />
+                </span>
               )}
-              <span className={cn("truncate", hideLabel ? "sr-only" : "@max-[480px]:sr-only")}>
-                {runtimeMode === "full-access" ? "Full access" : "Default permissions"}
-              </span>
-              <ChevronDownIcon
-                className={cn(
-                  "size-3 shrink-0 opacity-70",
-                  hideLabel ? "hidden" : "@max-[480px]:hidden",
-                )}
-              />
-            </span>
-          </MenuTrigger>
+            </TooltipTrigger>
+            {!menuOpen ? (
+              <TooltipPopup side="top" sideOffset={8} variant="picker">
+                Permissions
+              </TooltipPopup>
+            ) : null}
+          </Tooltip>
           <ComposerPickerMenuPopup align="start" side="top" className="min-w-44">
             <MenuRadioGroup
               value={runtimeMode}
@@ -201,7 +215,7 @@ export function RuntimeUsageControls({
                 className="data-checked:text-[var(--runtime-full-access-accent)]"
               >
                 <span className="inline-flex items-center gap-2">
-                  <CentralIcon name="shield-access" className="size-4 shrink-0" />
+                  <AccessPillContent hideLabel />
                   Full access
                 </span>
               </MenuRadioItem>
@@ -232,6 +246,7 @@ export default function BranchToolbar({
   variant: variantProp,
   showBranchSelector: showBranchSelectorProp,
   fixedLocalWorkspaceCwd,
+  environmentLabel,
 }: BranchToolbarProps) {
   const handoffBusy = handoffBusyProp ?? false;
   const variant = variantProp ?? "toolbar";
@@ -466,13 +481,13 @@ export default function BranchToolbar({
               {isPanel ? (
                 <EnvironmentRowBody
                   icon={envGlyph(ENVIRONMENT_ROW_ICON_CLASS_NAME)}
-                  label={environmentPresentation.shortLabel}
+                  label={environmentLabel ?? environmentPresentation.shortLabel}
                   trailing={<EnvironmentRowChevron />}
                 />
               ) : (
                 <>
                   {envGlyph("size-3.5")}
-                  {environmentPresentation.shortLabel}
+                  {environmentLabel ?? environmentPresentation.shortLabel}
                   <ChevronDownIcon className="size-3 opacity-60" />
                 </>
               )}
@@ -561,13 +576,13 @@ export default function BranchToolbar({
           <div className={cn(ENVIRONMENT_ROW_CLASS_NAME, "cursor-default hover:bg-transparent")}>
             <EnvironmentRowBody
               icon={<WorktreeGlyph className={ENVIRONMENT_ROW_ICON_CLASS_NAME} />}
-              label={environmentPresentation.shortLabel}
+              label={environmentLabel ?? environmentPresentation.shortLabel}
             />
           </div>
         ) : (
           <span className="inline-flex items-center gap-2 px-1.5 text-[length:var(--app-font-size-ui-sm,11px)] font-normal text-[var(--color-text-foreground-secondary)]">
             <WorktreeGlyph className="size-3.5" />
-            {environmentPresentation.shortLabel}
+            {environmentLabel ?? environmentPresentation.shortLabel}
           </span>
         )}
 

@@ -1,10 +1,10 @@
 // FILE: appInstallationState.ts
-// Purpose: Owns pure transitions for profile-installed App packages and Space-scoped App state.
+// Purpose: Owns pure transitions for per-Space App installations and retained App state.
 // Layer: Trusted desktop App runtime
 
 import { assertAppManifest, type PenkraAppManifest } from "@penkra/sdk";
 
-export const APP_INSTALLATION_STATE_SCHEMA_VERSION = 2 as const;
+export const APP_INSTALLATION_STATE_SCHEMA_VERSION = 3 as const;
 
 export type InstalledAppSource = "registry" | "sideload";
 export type AppPermissionGrant = "denied" | "granted";
@@ -46,7 +46,8 @@ export interface SpaceAppState {
 
 export interface AppInstallationState {
   schemaVersion: typeof APP_INSTALLATION_STATE_SCHEMA_VERSION;
-  packagesByAppId: Readonly<Record<string, InstalledAppPackage>>;
+  /** Installed package/version for each Space × App pair. Package paths may be shared by digest. */
+  packagesByInstallationKey: Readonly<Record<string, InstalledAppPackage>>;
   spaceStateByKey: Readonly<Record<string, SpaceAppState>>;
 }
 
@@ -94,8 +95,50 @@ function isPermissionGrant(value: unknown): value is AppPermissionGrant {
   return value === "denied" || value === "granted";
 }
 
-function spaceAppStateKey(spaceId: string, appId: string): string {
+export function appInstallationKey(spaceId: string, appId: string): string {
   return `${spaceId}\u0000${appId}`;
+}
+
+function parseAppInstallationKey(recordKey: string): { spaceId: string; appId: string } {
+  const separator = recordKey.indexOf("\u0000");
+  if (separator <= 0 || separator !== recordKey.lastIndexOf("\u0000")) {
+    throw new AppInstallationStateError(
+      "invalid-state",
+      `App installation key ${recordKey} is invalid.`,
+    );
+  }
+  return {
+    spaceId: requireNonEmptyString(recordKey.slice(0, separator), "Installation Space id"),
+    appId: requireNonEmptyString(recordKey.slice(separator + 1), "Installation App id"),
+  };
+}
+
+export function getInstalledAppPackage(
+  state: AppInstallationState,
+  appId: string,
+  spaceId: string,
+): InstalledAppPackage | undefined {
+  return state.packagesByInstallationKey[appInstallationKey(spaceId, appId)];
+}
+
+export function findInstalledAppBySlug(
+  state: AppInstallationState,
+  slug: string,
+  spaceId: string,
+): InstalledAppPackage | undefined {
+  return Object.entries(state.packagesByInstallationKey).find(
+    ([key, candidate]) =>
+      parseAppInstallationKey(key).spaceId === spaceId && candidate.slug === slug,
+  )?.[1];
+}
+
+export function listInstalledAppsForSpace(
+  state: AppInstallationState,
+  spaceId: string,
+): ReadonlyArray<InstalledAppPackage> {
+  return Object.entries(state.packagesByInstallationKey)
+    .filter(([key]) => parseAppInstallationKey(key).spaceId === spaceId)
+    .map(([, installed]) => installed);
 }
 
 function requireNonEmptyString(value: unknown, label: string): string {
@@ -183,7 +226,7 @@ function parseSpaceState(value: unknown, recordKey: string): SpaceAppState {
   }
   const appId = requireNonEmptyString(value.appId, `Space App state ${recordKey} appId`);
   const spaceId = requireNonEmptyString(value.spaceId, `Space App state ${recordKey} spaceId`);
-  if (spaceAppStateKey(spaceId, appId) !== recordKey) {
+  if (appInstallationKey(spaceId, appId) !== recordKey) {
     throw new AppInstallationStateError(
       "invalid-state",
       `Space App state key ${recordKey} does not match its Space and App.`,
@@ -262,40 +305,43 @@ function parseSpaceState(value: unknown, recordKey: string): SpaceAppState {
 export function createEmptyAppInstallationState(): AppInstallationState {
   return {
     schemaVersion: APP_INSTALLATION_STATE_SCHEMA_VERSION,
-    packagesByAppId: {},
+    packagesByInstallationKey: {},
     spaceStateByKey: {},
   };
 }
 
 export function parseAppInstallationState(value: unknown): AppInstallationState {
   if (isRecord(value) && value.schemaVersion === 1) value = migrateSchemaVersionOne(value);
+  if (isRecord(value) && value.schemaVersion === 2) value = migrateSchemaVersionTwo(value);
   if (!isRecord(value) || value.schemaVersion !== APP_INSTALLATION_STATE_SCHEMA_VERSION) {
     throw new AppInstallationStateError(
       "invalid-state",
       `App installation state schemaVersion must be ${APP_INSTALLATION_STATE_SCHEMA_VERSION}.`,
     );
   }
-  if (!isRecord(value.packagesByAppId) || !isRecord(value.spaceStateByKey)) {
+  if (!isRecord(value.packagesByInstallationKey) || !isRecord(value.spaceStateByKey)) {
     throw new AppInstallationStateError(
       "invalid-state",
       "App installation state package and Space records must be objects.",
     );
   }
-  const packagesByAppId = Object.fromEntries(
-    Object.entries(value.packagesByAppId).map(([appId, candidate]) => [
-      appId,
-      parseInstalledPackage(candidate, appId),
-    ]),
+  const packagesByInstallationKey = Object.fromEntries(
+    Object.entries(value.packagesByInstallationKey).map(([key, candidate]) => {
+      const { appId } = parseAppInstallationKey(key);
+      return [key, parseInstalledPackage(candidate, appId)];
+    }),
   );
   const seenSlugs = new Set<string>();
-  for (const installedPackage of Object.values(packagesByAppId)) {
-    if (seenSlugs.has(installedPackage.slug)) {
+  for (const [key, installedPackage] of Object.entries(packagesByInstallationKey)) {
+    const { spaceId } = parseAppInstallationKey(key);
+    const scopedSlug = `${spaceId}\u0000${installedPackage.slug}`;
+    if (seenSlugs.has(scopedSlug)) {
       throw new AppInstallationStateError(
         "invalid-state",
-        `Installed App slug ${installedPackage.slug} is not unique.`,
+        `Installed App slug ${installedPackage.slug} is not unique in Space ${spaceId}.`,
       );
     }
-    seenSlugs.add(installedPackage.slug);
+    seenSlugs.add(scopedSlug);
   }
   const spaceStateByKey = Object.fromEntries(
     Object.entries(value.spaceStateByKey).map(([key, candidate]) => [
@@ -304,7 +350,15 @@ export function parseAppInstallationState(value: unknown): AppInstallationState 
     ]),
   );
   for (const space of Object.values(spaceStateByKey)) {
-    const installed = packagesByAppId[space.appId];
+    const installed = getInstalledAppPackage(
+      {
+        schemaVersion: APP_INSTALLATION_STATE_SCHEMA_VERSION,
+        packagesByInstallationKey,
+        spaceStateByKey,
+      },
+      space.appId,
+      space.spaceId,
+    );
     const declared = new Set(
       (installed?.manifest.contributions?.skills ?? []).map((skill) => skill.path),
     );
@@ -319,7 +373,7 @@ export function parseAppInstallationState(value: unknown): AppInstallationState 
   }
   return {
     schemaVersion: APP_INSTALLATION_STATE_SCHEMA_VERSION,
-    packagesByAppId,
+    packagesByInstallationKey,
     spaceStateByKey,
   };
 }
@@ -333,7 +387,7 @@ function migrateSchemaVersionOne(value: Record<string, unknown>): Record<string,
   }
   return {
     ...value,
-    schemaVersion: APP_INSTALLATION_STATE_SCHEMA_VERSION,
+    schemaVersion: 2,
     spaceStateByKey: Object.fromEntries(
       Object.entries(value.spaceStateByKey).map(([key, candidate]) => [
         key,
@@ -342,6 +396,28 @@ function migrateSchemaVersionOne(value: Record<string, unknown>): Record<string,
           : candidate,
       ]),
     ),
+  };
+}
+
+function migrateSchemaVersionTwo(value: Record<string, unknown>): Record<string, unknown> {
+  if (!isRecord(value.packagesByAppId) || !isRecord(value.spaceStateByKey)) {
+    throw new AppInstallationStateError(
+      "invalid-state",
+      "App installation state package and Space records must be objects.",
+    );
+  }
+  const packagesByInstallationKey: Record<string, unknown> = {};
+  for (const [key, candidate] of Object.entries(value.spaceStateByKey)) {
+    if (!isRecord(candidate)) continue;
+    const appId = requireNonEmptyString(candidate.appId, `Space App state ${key} appId`);
+    const installed = value.packagesByAppId[appId];
+    if (installed !== undefined) packagesByInstallationKey[key] = installed;
+  }
+  const { packagesByAppId: _legacyPackages, ...current } = value;
+  return {
+    ...current,
+    schemaVersion: APP_INSTALLATION_STATE_SCHEMA_VERSION,
+    packagesByInstallationKey,
   };
 }
 
@@ -435,47 +511,68 @@ function parseRegistryRelease(
 export function registerVerifiedAppPackage(
   state: AppInstallationState,
   input: VerifiedAppPackageInput,
+  spaceId: string,
 ): AppInstallationState {
   const installedPackage = toInstalledPackage(input);
-  const existing = state.packagesByAppId[installedPackage.appId];
+  const key = appInstallationKey(spaceId, installedPackage.appId);
+  const existing = state.packagesByInstallationKey[key];
   if (existing) {
     throw new AppInstallationStateError(
       "app-already-installed",
-      `${installedPackage.appId} is already installed; update or uninstall it explicitly.`,
+      `${installedPackage.appId} is already installed in Space ${spaceId}; update or uninstall it explicitly.`,
     );
   }
-  const slugOwner = Object.values(state.packagesByAppId).find(
+  const slugOwner = listInstalledAppsForSpace(state, spaceId).find(
     (candidate) => candidate.slug === installedPackage.slug,
   );
   if (slugOwner) {
     throw new AppInstallationStateError(
       "slug-collision",
-      `Slug ${installedPackage.slug} is already owned by ${slugOwner.appId}.`,
+      `Slug ${installedPackage.slug} is already owned by ${slugOwner.appId} in Space ${spaceId}.`,
     );
   }
+  const currentSpaceState = state.spaceStateByKey[key];
   return {
     ...state,
-    packagesByAppId: { ...state.packagesByAppId, [installedPackage.appId]: installedPackage },
+    packagesByInstallationKey: {
+      ...state.packagesByInstallationKey,
+      [key]: installedPackage,
+    },
+    spaceStateByKey: {
+      ...state.spaceStateByKey,
+      [key]: currentSpaceState ?? {
+        appId: installedPackage.appId,
+        spaceId,
+        enabled: false,
+        permissions: {},
+        settings: {},
+        settingMigrations: {},
+        skills: {},
+      },
+    },
   };
 }
 
 export function replaceVerifiedRegistryAppPackage(
   state: AppInstallationState,
   input: VerifiedAppPackageInput & { source: "registry" },
+  spaceId: string,
 ): AppInstallationState {
-  return replaceVerifiedAppPackage(state, input);
+  return replaceVerifiedAppPackage(state, input, spaceId);
 }
 
 export function replaceVerifiedAppPackage(
   state: AppInstallationState,
   input: VerifiedAppPackageInput,
+  spaceId: string,
 ): AppInstallationState {
   const installedPackage = toInstalledPackage(input);
-  const existing = state.packagesByAppId[installedPackage.appId];
+  const key = appInstallationKey(spaceId, installedPackage.appId);
+  const existing = state.packagesByInstallationKey[key];
   if (!existing) {
     throw new AppInstallationStateError(
       "app-not-installed",
-      `${installedPackage.appId} is not installed.`,
+      `${installedPackage.appId} is not installed in Space ${spaceId}.`,
     );
   }
   if (existing.source !== installedPackage.source || existing.slug !== installedPackage.slug) {
@@ -486,28 +583,36 @@ export function replaceVerifiedAppPackage(
   }
   return {
     ...state,
-    packagesByAppId: { ...state.packagesByAppId, [installedPackage.appId]: installedPackage },
+    packagesByInstallationKey: {
+      ...state.packagesByInstallationKey,
+      [key]: installedPackage,
+    },
   };
 }
 
 export function unregisterAppPackage(
   state: AppInstallationState,
   appId: string,
+  spaceId: string,
 ): AppInstallationState {
-  if (!state.packagesByAppId[appId]) return state;
-  const packagesByAppId = { ...state.packagesByAppId };
-  delete packagesByAppId[appId];
-  return { ...state, packagesByAppId };
+  const key = appInstallationKey(spaceId, appId);
+  if (!state.packagesByInstallationKey[key]) return state;
+  const packagesByInstallationKey = { ...state.packagesByInstallationKey };
+  delete packagesByInstallationKey[key];
+  return { ...state, packagesByInstallationKey };
 }
 
 export function setSpaceAppEnabled(
   state: AppInstallationState,
   input: { appId: string; spaceId: string; enabled: boolean },
 ): AppInstallationState {
-  if (!state.packagesByAppId[input.appId]) {
-    throw new AppInstallationStateError("app-not-installed", `${input.appId} is not installed.`);
+  if (!getInstalledAppPackage(state, input.appId, input.spaceId)) {
+    throw new AppInstallationStateError(
+      "app-not-installed",
+      `${input.appId} is not installed in this Space.`,
+    );
   }
-  const key = spaceAppStateKey(input.spaceId, input.appId);
+  const key = appInstallationKey(input.spaceId, input.appId);
   const current = state.spaceStateByKey[key];
   const next: SpaceAppState = {
     appId: input.appId,
@@ -525,10 +630,13 @@ export function setSpaceAppPermission(
   state: AppInstallationState,
   input: { appId: string; spaceId: string; permission: string; grant: AppPermissionGrant },
 ): AppInstallationState {
-  if (!state.packagesByAppId[input.appId]) {
-    throw new AppInstallationStateError("app-not-installed", `${input.appId} is not installed.`);
+  if (!getInstalledAppPackage(state, input.appId, input.spaceId)) {
+    throw new AppInstallationStateError(
+      "app-not-installed",
+      `${input.appId} is not installed in this Space.`,
+    );
   }
-  const key = spaceAppStateKey(input.spaceId, input.appId);
+  const key = appInstallationKey(input.spaceId, input.appId);
   const current = state.spaceStateByKey[key] ?? {
     appId: input.appId,
     spaceId: input.spaceId,
@@ -553,14 +661,17 @@ export function replaceSpaceAppPermissions(
     permissions: Readonly<Record<string, AppPermissionGrant>>;
   },
 ): AppInstallationState {
-  if (!state.packagesByAppId[input.appId]) {
-    throw new AppInstallationStateError("app-not-installed", `${input.appId} is not installed.`);
+  if (!getInstalledAppPackage(state, input.appId, input.spaceId)) {
+    throw new AppInstallationStateError(
+      "app-not-installed",
+      `${input.appId} is not installed in this Space.`,
+    );
   }
   for (const grant of Object.values(input.permissions)) {
     if (!isPermissionGrant(grant))
       throw new AppInstallationStateError("invalid-state", "Invalid App permission grant.");
   }
-  const key = spaceAppStateKey(input.spaceId, input.appId);
+  const key = appInstallationKey(input.spaceId, input.appId);
   const current = state.spaceStateByKey[key] ?? {
     appId: input.appId,
     spaceId: input.spaceId,
@@ -589,10 +700,13 @@ export function setSpaceAppSetting(
     migrationId?: string;
   },
 ): AppInstallationState {
-  if (!state.packagesByAppId[input.appId]) {
-    throw new AppInstallationStateError("app-not-installed", `${input.appId} is not installed.`);
+  if (!getInstalledAppPackage(state, input.appId, input.spaceId)) {
+    throw new AppInstallationStateError(
+      "app-not-installed",
+      `${input.appId} is not installed in this Space.`,
+    );
   }
-  const key = spaceAppStateKey(input.spaceId, input.appId);
+  const key = appInstallationKey(input.spaceId, input.appId);
   const current = state.spaceStateByKey[key] ?? {
     appId: input.appId,
     spaceId: input.spaceId,
@@ -622,7 +736,7 @@ export function resetSpaceAppSetting(
   state: AppInstallationState,
   input: { appId: string; spaceId: string; key: string },
 ): AppInstallationState {
-  const key = spaceAppStateKey(input.spaceId, input.appId);
+  const key = appInstallationKey(input.spaceId, input.appId);
   const current = state.spaceStateByKey[key];
   if (!current) return state;
   const settings = { ...current.settings };
@@ -642,7 +756,7 @@ export function setSpaceAppSettingMigration(
   state: AppInstallationState,
   input: { appId: string; spaceId: string; key: string; migrationId?: string },
 ): AppInstallationState {
-  const key = spaceAppStateKey(input.spaceId, input.appId);
+  const key = appInstallationKey(input.spaceId, input.appId);
   const current = state.spaceStateByKey[key] ?? {
     appId: input.appId,
     spaceId: input.spaceId,
@@ -668,9 +782,12 @@ export function setSpaceAppSkillEnabled(
   state: AppInstallationState,
   input: { appId: string; spaceId: string; path: string; enabled: boolean },
 ): AppInstallationState {
-  const installed = state.packagesByAppId[input.appId];
+  const installed = getInstalledAppPackage(state, input.appId, input.spaceId);
   if (!installed) {
-    throw new AppInstallationStateError("app-not-installed", `${input.appId} is not installed.`);
+    throw new AppInstallationStateError(
+      "app-not-installed",
+      `${input.appId} is not installed in this Space.`,
+    );
   }
   if (
     !(installed.manifest.contributions?.skills ?? []).some((skill) => skill.path === input.path)
@@ -680,7 +797,7 @@ export function setSpaceAppSkillEnabled(
       `${input.path} is not declared by ${installed.name}.`,
     );
   }
-  const key = spaceAppStateKey(input.spaceId, input.appId);
+  const key = appInstallationKey(input.spaceId, input.appId);
   const current = state.spaceStateByKey[key] ?? {
     appId: input.appId,
     spaceId: input.spaceId,
@@ -702,10 +819,14 @@ export function setSpaceAppSkillEnabled(
 export function reconcileSpaceAppSkills(
   state: AppInstallationState,
   appId: string,
+  spaceId: string,
 ): AppInstallationState {
-  const installed = state.packagesByAppId[appId];
+  const installed = getInstalledAppPackage(state, appId, spaceId);
   if (!installed) {
-    throw new AppInstallationStateError("app-not-installed", `${appId} is not installed.`);
+    throw new AppInstallationStateError(
+      "app-not-installed",
+      `${appId} is not installed in Space ${spaceId}.`,
+    );
   }
   const declared = new Set(
     (installed.manifest.contributions?.skills ?? []).map((skill) => skill.path),
@@ -713,7 +834,7 @@ export function reconcileSpaceAppSkills(
   const spaceStateByKey = Object.fromEntries(
     Object.entries(state.spaceStateByKey).map(([key, space]) => [
       key,
-      space.appId === appId
+      space.appId === appId && space.spaceId === spaceId
         ? {
             ...space,
             skills: Object.fromEntries(

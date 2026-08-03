@@ -689,6 +689,52 @@ describe("composerDraftStore sticky composer settings", () => {
     expect(migratedState.stickyActiveProvider).toBe("claudeAgent");
   });
 
+  it("prunes old drafts and project mappings during the v6 clean-cut migration", () => {
+    const persistApi = useComposerDraftStore.persist as unknown as {
+      getOptions: () => {
+        migrate: (persistedState: unknown, version: number) => unknown;
+      };
+    };
+    const migratedState = persistApi.getOptions().migrate(
+      {
+        draftsByThreadId: {
+          "old-draft": {
+            prompt: "Do not restore this draft",
+            attachments: [],
+          },
+        },
+        draftThreadsByThreadId: {
+          "old-draft": {
+            projectId: "old-project",
+            createdAt: 1,
+          },
+        },
+        projectDraftThreadIdByProjectId: {
+          "old-project::local": "old-draft",
+        },
+        stickyModelSelectionByProvider: {
+          codex: modelSelection("codex", "gpt-5.4"),
+        },
+        stickyActiveProvider: "codex",
+      },
+      5,
+    ) as {
+      draftsByThreadId: Record<string, unknown>;
+      draftThreadsByThreadId: Record<string, unknown>;
+      projectDraftThreadIdByProjectId: Record<string, unknown>;
+      stickyModelSelectionByProvider: Partial<Record<ModelSelection["provider"], ModelSelection>>;
+      stickyActiveProvider: ModelSelection["provider"] | null;
+    };
+
+    expect(migratedState.draftsByThreadId).toEqual({});
+    expect(migratedState.draftThreadsByThreadId).toEqual({});
+    expect(migratedState.projectDraftThreadIdByProjectId).toEqual({});
+    expect(migratedState.stickyModelSelectionByProvider.codex).toEqual(
+      modelSelection("codex", "gpt-5.4"),
+    );
+    expect(migratedState.stickyActiveProvider).toBe("codex");
+  });
+
   it("applies sticky activeProvider to new drafts", () => {
     const store = useComposerDraftStore.getState();
     const threadId = ThreadId.makeUnsafe("thread-sticky-active-provider");

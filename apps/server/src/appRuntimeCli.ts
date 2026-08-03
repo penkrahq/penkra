@@ -1,9 +1,10 @@
 // FILE: appRuntimeCli.ts
-// Purpose: Implements dynamic App-root commands against the authenticated desktop bridge.
-// Layer: CLI adapter
+// Purpose: Implements the agent-only registered-command gateway to the authenticated desktop bridge.
+// Layer: Agent gateway adapter
 
 import * as Crypto from "node:crypto";
 import * as Net from "node:net";
+import * as Path from "node:path";
 
 const PIPE_ENV = "PENKRA_APP_COMMAND_PIPE";
 const TOKEN_ENV = "PENKRA_APP_COMMAND_TOKEN";
@@ -21,73 +22,158 @@ interface CatalogEntry {
   operations: ReadonlyArray<{ key: string; input: Readonly<Record<string, unknown>> }>;
 }
 
-export async function maybeRunAppRuntimeCli(
-  args: ReadonlyArray<string>,
+export interface PenkraExecContext {
+  spaceId: string;
+  threadId: string;
+  workingDirectory?: string | null;
+}
+
+/** Executes exactly one registered Penkra/App command without invoking a shell or consulting PATH. */
+export async function executePenkraExec(
+  command: string,
+  context: PenkraExecContext,
   env: NodeJS.ProcessEnv = process.env,
-): Promise<boolean> {
-  if (!env[PIPE_ENV] || !env[TOKEN_ENV] || args.length === 0) return false;
-  if (args[0] === "tabs") {
-    const action = args[1];
-    if ((action !== "current" && action !== "list") || args.length !== 2) {
-      throw new Error("Usage: penkra tabs current | penkra tabs list");
+): Promise<unknown> {
+  const args = tokenizeRegisteredCommand(command);
+  if (args.length === 0) throw new Error("command must not be empty.");
+  if (args[0] === "penkra") {
+    if (args.length === 3 && args[1] === "tabs" && (args[2] === "current" || args[2] === "list")) {
+      return request(`tabs.${args[2]}`, undefined, env);
     }
-    writeJson(await request(`tabs.${action}`, undefined, env));
-    return true;
+    if (args[1] === "open") {
+      const parsed = parseFlags(args.slice(2));
+      if (parsed.positionals.length > 0 || parsed.help || parsed.input || parsed.tabId) {
+        throw new Error("Usage: penkra open --path <path> | --url <url> [--with <app-slug>]");
+      }
+      const allowed = new Set(["path", "url", "with"]);
+      for (const key of Object.keys(parsed.named)) {
+        if (!allowed.has(key)) throw new Error(`Unknown penkra open option --${key}.`);
+      }
+      const rawPath = parsed.named.path;
+      const url = parsed.named.url;
+      if ((rawPath === undefined) === (url === undefined)) {
+        throw new Error("Supply exactly one of --path or --url.");
+      }
+      let path = rawPath;
+      if (path && !Path.isAbsolute(path)) {
+        if (!context.workingDirectory) {
+          throw new Error("A relative path requires the caller Thread to have a directory.");
+        }
+        path = Path.resolve(context.workingDirectory, path);
+      }
+      return request(
+        "core.open",
+        {
+          ...(path ? { path } : { url }),
+          ...(parsed.named.with ? { requestedApp: parsed.named.with } : {}),
+          spaceId: requireContextText(context.spaceId, "spaceId"),
+          threadId: requireContextText(context.threadId, "threadId"),
+        },
+        env,
+      );
+    }
+    throw new Error(`Unknown Penkra core command: ${args.join(" ")}.`);
   }
-  if (args[0] === "app" || args[0]?.startsWith("-")) return false;
 
   const parsed = parseFlags(args);
-  const catalog = (await request(
-    "catalog.list",
-    parsed.tabId ? { tabId: parsed.tabId } : undefined,
-    env,
-  )) as CatalogEntry[];
+  const scope = {
+    spaceId: requireContextText(context.spaceId, "spaceId"),
+    threadId: requireContextText(context.threadId, "threadId"),
+    ...(parsed.tabId === undefined ? {} : { tabId: parsed.tabId }),
+  };
+  const catalog = (await request("catalog.list", scope, env)) as CatalogEntry[];
   const app = catalog.find((candidate) => candidate.slug === parsed.positionals[0]);
-  if (!app) return false;
-
+  if (!app) throw new Error(`Unknown or disabled App command root ${parsed.positionals[0]}.`);
   const operationWords = parsed.positionals.slice(1);
-  if (parsed.help || operationWords.length === 0) {
+  if (parsed.help || parsed.schema || operationWords.length === 0) {
     const operation =
       operationWords.length === 0 ? undefined : resolveOperation(app, operationWords);
-    const result = await request(
-      "catalog.help",
-      {
-        slug: app.slug,
-        ...(operation === undefined ? {} : { operation }),
-        ...(parsed.tabId === undefined ? {} : { tabId: parsed.tabId }),
-      },
-      env,
-    );
-    process.stdout.write(String(result));
-    return true;
+    return {
+      app: app.slug,
+      help: await request(
+        "catalog.help",
+        {
+          slug: app.slug,
+          ...(operation ? { operation } : {}),
+          ...(parsed.schema ? { schema: true } : {}),
+          ...scope,
+        },
+        env,
+      ),
+    };
   }
-
   const operation = resolveOperation(app, operationWords);
   const declaration = app.operations.find((candidate) => candidate.key === operation)!;
   const input = parseOperationInput(declaration.input, parsed.input, parsed.named);
   const result = await request(
     "operations.invoke",
-    {
-      app: app.slug,
-      operation,
-      input,
-      ...(parsed.tabId === undefined ? {} : { tabId: parsed.tabId }),
-    },
+    { app: app.slug, operation, input, ...scope },
     env,
   );
-  writeJson({ app: app.slug, operation, tabId: parsed.tabId ?? null, result });
-  return true;
+  return { app: app.slug, operation, tabId: parsed.tabId ?? null, result };
+}
+
+export function tokenizeRegisteredCommand(command: string): string[] {
+  if (typeof command !== "string" || !command.trim()) return [];
+  if (/[$`]/.test(command)) {
+    throw new Error("Command expansion is not supported by penkra_exec.");
+  }
+  const words: string[] = [];
+  let current = "";
+  let quote: "'" | '"' | null = null;
+  let escaped = false;
+  for (const character of command) {
+    if (escaped) {
+      current += character;
+      escaped = false;
+      continue;
+    }
+    if (character === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (quote) {
+      if (character === quote) quote = null;
+      else current += character;
+      continue;
+    }
+    if (character === "'" || character === '"') {
+      quote = character;
+      continue;
+    }
+    if (/[|&;<>()[\]{}]/.test(character)) {
+      throw new Error("Shell operators are not supported by penkra_exec.");
+    }
+    if (/\s/.test(character)) {
+      if (current) {
+        words.push(current);
+        current = "";
+      }
+      continue;
+    }
+    current += character;
+  }
+  if (escaped || quote) throw new Error("Command contains an unfinished escape or quote.");
+  if (current) words.push(current);
+  return words;
+}
+
+function requireContextText(value: string, name: string): string {
+  if (typeof value !== "string" || !value.trim()) throw new Error(`${name} is required.`);
+  return value;
 }
 
 function parseFlags(args: ReadonlyArray<string>): {
   positionals: string[];
   help: boolean;
+  schema: boolean;
   input?: string;
   tabId?: string;
   named: Record<string, string>;
 } {
   const positionals: string[] = [];
   let help = false;
+  let schema = false;
   let input: string | undefined;
   let tabId: string | undefined;
   const named: Record<string, string> = {};
@@ -95,6 +181,10 @@ function parseFlags(args: ReadonlyArray<string>): {
     const value = args[index]!;
     if (value === "--help" || value === "-h") {
       help = true;
+      continue;
+    }
+    if (value === "--schema") {
+      schema = true;
       continue;
     }
     if (value === "--input" || value === "--tab-id") {
@@ -130,6 +220,7 @@ function parseFlags(args: ReadonlyArray<string>): {
   return {
     positionals,
     help,
+    schema,
     named,
     ...(input === undefined ? {} : { input }),
     ...(tabId === undefined ? {} : { tabId }),
@@ -244,8 +335,4 @@ export function requestAppRuntimeBridge(
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<unknown> {
   return request(method, params, env);
-}
-
-function writeJson(value: unknown): void {
-  process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
 }

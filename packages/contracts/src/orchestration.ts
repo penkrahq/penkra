@@ -756,6 +756,9 @@ export const OrchestrationThread = Schema.Struct({
     Schema.withDecodingDefault(() => null),
   ),
   latestTurn: Schema.NullOr(OrchestrationLatestTurn),
+  pendingTurnStartMessageId: Schema.optional(Schema.NullOr(MessageId)).pipe(
+    Schema.withDecodingDefault(() => null),
+  ),
   latestUserMessageAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   hasPendingApprovals: Schema.optional(Schema.Boolean),
   hasPendingUserInput: Schema.optional(Schema.Boolean),
@@ -1320,6 +1323,7 @@ const ThreadTurnInterruptCommand = Schema.Struct({
   commandId: CommandId,
   threadId: ThreadId,
   turnId: Schema.optional(TurnId),
+  pendingMessageId: Schema.optional(MessageId),
   createdAt: IsoDateTime,
 });
 
@@ -1590,6 +1594,14 @@ const ThreadConversationRollbackCompleteCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
+const ThreadTurnStartCancelCompleteCommand = Schema.Struct({
+  type: Schema.Literal("thread.turn.start.cancel.complete"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  messageId: MessageId,
+  createdAt: IsoDateTime,
+});
+
 const InternalOrchestrationCommand = Schema.Union([
   ThreadSessionSetCommand,
   ThreadMessagesImportCommand,
@@ -1601,6 +1613,7 @@ const InternalOrchestrationCommand = Schema.Union([
   ThreadRevertCompleteCommand,
   ThreadConversationRollbackCommand,
   ThreadConversationRollbackCompleteCommand,
+  ThreadTurnStartCancelCompleteCommand,
   ThreadDispatchQueuedTurnCommand,
 ]);
 export type InternalOrchestrationCommand = typeof InternalOrchestrationCommand.Type;
@@ -1641,6 +1654,7 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.turn-queued",
   "thread.turn-start-requested",
   "thread.turn-interrupt-requested",
+  "thread.turn-start-cancelled",
   "thread.task-stop-requested",
   "thread.task-background-requested",
   "thread.approval-response-requested",
@@ -1939,7 +1953,14 @@ export const ThreadTurnQueuedPayload = ThreadTurnStartRequestedPayload;
 export const ThreadTurnInterruptRequestedPayload = Schema.Struct({
   threadId: ThreadId,
   turnId: Schema.optional(TurnId),
+  pendingMessageId: Schema.optional(MessageId),
   createdAt: IsoDateTime,
+});
+
+export const ThreadTurnStartCancelledPayload = Schema.Struct({
+  threadId: ThreadId,
+  messageId: MessageId,
+  cancelledAt: IsoDateTime,
 });
 
 export const ThreadTaskStopRequestedPayload = Schema.Struct({
@@ -2206,6 +2227,11 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("thread.turn-interrupt-requested"),
     payload: ThreadTurnInterruptRequestedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.turn-start-cancelled"),
+    payload: ThreadTurnStartCancelledPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,

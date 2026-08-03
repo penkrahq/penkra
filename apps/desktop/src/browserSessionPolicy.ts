@@ -9,6 +9,7 @@ import {
   type BrowserWindowConstructorOptions,
   type WebContents,
 } from "electron";
+import { createHash } from "node:crypto";
 import {
   buildAcceptLanguageHeader,
   buildChromeClientHints,
@@ -16,6 +17,11 @@ import {
 } from "@penkra/shared/browserSession";
 
 export const BROWSER_SESSION_PARTITION = "persist:penkra-browser";
+
+export function createScopedBrowserSessionPartition(appId: string, spaceId: string): string {
+  const digest = createHash("sha256").update(`${appId}\0${spaceId}`).digest("hex").slice(0, 32);
+  return `persist:penkra-browser-${digest}`;
+}
 
 function replaceRequestHeadersCaseInsensitive(
   headers: Record<string, string>,
@@ -37,7 +43,7 @@ function replaceRequestHeadersCaseInsensitive(
 
 export class BrowserSessionPolicy {
   private spoofedUserAgent: string | null = null;
-  private configured = false;
+  private readonly configuredPartitions = new Set<string>();
 
   private resolveUserAgent(): string {
     if (this.spoofedUserAgent === null) {
@@ -46,13 +52,13 @@ export class BrowserSessionPolicy {
     return this.spoofedUserAgent;
   }
 
-  ensureConfigured(): void {
-    if (this.configured) {
+  ensureConfigured(partition = BROWSER_SESSION_PARTITION): void {
+    if (this.configuredPartitions.has(partition)) {
       return;
     }
-    this.configured = true;
+    this.configuredPartitions.add(partition);
     try {
-      const partitionSession = session.fromPartition(BROWSER_SESSION_PARTITION);
+      const partitionSession = session.fromPartition(partition);
       const userAgent = this.resolveUserAgent();
       partitionSession.setUserAgent(userAgent);
 
@@ -69,7 +75,7 @@ export class BrowserSessionPolicy {
     } catch {
       // Session creation can race Electron readiness. Retrying the next call preserves the
       // per-WebContents fallback without permanently disabling partition configuration.
-      this.configured = false;
+      this.configuredPartitions.delete(partition);
     }
   }
 
@@ -77,7 +83,10 @@ export class BrowserSessionPolicy {
     webContents.setUserAgent(this.resolveUserAgent());
   }
 
-  buildOAuthPopupWindowOptions(parent: BrowserWindow | null): BrowserWindowConstructorOptions {
+  buildOAuthPopupWindowOptions(
+    parent: BrowserWindow | null,
+    partition = BROWSER_SESSION_PARTITION,
+  ): BrowserWindowConstructorOptions {
     return {
       width: 480,
       height: 640,
@@ -90,7 +99,7 @@ export class BrowserSessionPolicy {
       title: "Sign in",
       ...(parent ? { parent } : {}),
       webPreferences: {
-        partition: BROWSER_SESSION_PARTITION,
+        partition,
         contextIsolation: true,
         nodeIntegration: false,
         sandbox: true,

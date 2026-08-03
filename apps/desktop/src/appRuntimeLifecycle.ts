@@ -3,6 +3,7 @@
 // Layer: Trusted desktop App runtime
 
 import {
+  getInstalledAppPackage,
   setSpaceAppEnabled,
   type AppInstallationState,
   type InstalledAppPackage,
@@ -148,8 +149,8 @@ export class AppRuntimeLifecycle {
   async #activate(appId: string, spaceId: string, snapshot: AppInstallationState): Promise<void> {
     const key = runtimeKey(appId, spaceId);
     if (this.#active.has(key)) return;
-    const installedApp = snapshot.packagesByAppId[appId];
-    if (!installedApp) throw new Error(`${appId} is not installed.`);
+    const installedApp = getInstalledAppPackage(snapshot, appId, spaceId);
+    if (!installedApp) throw new Error(`${appId} is not installed in Space ${spaceId}.`);
     await this.#assertAppAllowed(installedApp);
 
     const activeSession = await this.#sessions.activate({ installedApp, spaceId });

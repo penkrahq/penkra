@@ -1201,7 +1201,7 @@ function ComposerPromptEditorInner({
           contentEditable={
             <ContentEditable
               className={cn(
-                "block max-h-[200px] w-full overflow-y-auto whitespace-pre-wrap break-words bg-transparent text-foreground focus:outline-none",
+                "block max-h-[200px] w-full overflow-y-auto whitespace-pre-wrap break-words bg-transparent text-left text-foreground focus:outline-none",
                 COMPOSER_EDITOR_TYPOGRAPHY_CLASS_NAME,
                 COMPOSER_EDITOR_MIN_HEIGHT_CLASS_NAME,
                 COMPOSER_EDITOR_CONTENT_RESET_CLASS_NAME,
@@ -1217,7 +1217,7 @@ function ComposerPromptEditorInner({
             terminalContexts.length > 0 ? null : (
               <div
                 className={cn(
-                  "pointer-events-none absolute inset-0",
+                  "pointer-events-none absolute inset-0 text-left",
                   COMPOSER_PLACEHOLDER_TEXT_CLASS_NAME,
                   COMPOSER_EDITOR_TYPOGRAPHY_CLASS_NAME,
                 )}

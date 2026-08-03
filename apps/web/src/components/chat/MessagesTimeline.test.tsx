@@ -141,6 +141,7 @@ describe("MessagesTimeline", () => {
     expect(markup).not.toContain('data-index="0"');
     expect(markup).not.toContain('class="relative" style="height:');
     expect(markup).toContain('data-timeline-row-kind="message"');
+    expect(markup).toContain('data-pencil-component="kUqNe"');
   }, 10_000);
 
   it("renders assistant math through the shared markdown renderer", async () => {
@@ -231,6 +232,7 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain("rounded-[var(--radius-user-message)]");
     expect(markup).toContain("py-1.5");
     expect(markup).toContain("group-hover:opacity-100");
+    expect(markup).toContain('data-pencil-component="BDWPr"');
   });
 
   it("labels only the first message when another task created the conversation", async () => {
@@ -475,7 +477,7 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain('aria-label="Copy message"');
     expect(markup).toContain('aria-label="Edit message"');
     expect(markup).toContain('aria-label="Revert to this message"');
-    expect(markup).toContain("size-[1.125em]");
+    expect(markup).toContain("size-[13px]");
   });
 
   it("keeps edit available and hides undo before a revert checkpoint exists", async () => {

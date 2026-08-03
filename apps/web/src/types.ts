@@ -237,6 +237,7 @@ export interface Thread extends ThreadWorkspaceState {
   notes?: string;
   latestTurn: OrchestrationLatestTurn | null;
   pendingSourceProposedPlan?: OrchestrationLatestTurn["sourceProposedPlan"];
+  pendingTurnStartMessageId?: MessageId | null;
   lastVisitedAt?: string | undefined;
   parentThreadId?: ThreadId | null;
   creationSource?: ThreadCreationSource | null;
@@ -299,6 +300,7 @@ export interface ThreadShell extends ThreadWorkspaceState {
 export interface ThreadTurnState {
   latestTurn: OrchestrationLatestTurn | null;
   pendingSourceProposedPlan?: OrchestrationLatestTurn["sourceProposedPlan"];
+  pendingTurnStartMessageId?: MessageId | null;
 }
 
 export interface SidebarThreadSummary {

@@ -385,7 +385,7 @@ describe("composerDraftStore prompt history saved draft", () => {
     setLocalStorageItem(
       COMPOSER_DRAFT_STORAGE_KEY,
       {
-        version: 5,
+        version: 6,
         state: {
           draftsByThreadId: {
             [threadId]: {

@@ -23,9 +23,9 @@ export function MessageUser({
 }: MessageUserProps) {
   if (layoutMode === "application") {
     return (
-      <div className={cn("contents", className)} data-pencil-component="BDWPr">
+      <article className={cn("group/message w-full", className)} data-pencil-component="BDWPr">
         {children}
-      </div>
+      </article>
     );
   }
 

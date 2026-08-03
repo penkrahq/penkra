@@ -2,6 +2,7 @@
   "name": "@penkra/sdk",
   "version": "0.1.0",
   "files": [
+    "README.md",
     "dist",
     "src/*.ts",
     "!src/*.test.ts"

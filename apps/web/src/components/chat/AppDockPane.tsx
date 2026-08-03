@@ -2,16 +2,27 @@
 // Purpose: Mirrors one host-owned isolated App renderer into its right-dock tab viewport.
 // Layer: Chat right-dock App surface
 
+import { IconPackage } from "@tabler/icons-react";
 import { useEffect, useLayoutEffect, useRef } from "react";
 
 import { PanelStateMessage } from "./PanelStateMessage";
+
+export function shouldShowNativeAppView(
+  visible: boolean,
+  status: "loading" | "ready" | "crashed" | null,
+): boolean {
+  return visible && status === "ready";
+}
 
 export function AppDockPane(props: {
   tabId: string;
   status: "loading" | "ready" | "crashed" | null;
   visible: boolean;
+  appName: string | null;
+  iconDataUrl?: string | null;
 }) {
   const viewportRef = useRef<HTMLDivElement | null>(null);
+  const showNativeView = shouldShowNativeAppView(props.visible, props.status);
 
   useLayoutEffect(() => {
     const bridge = window.desktopBridge?.appTabs;
@@ -23,7 +34,7 @@ export function AppDockPane(props: {
 
     const sync = () => {
       frame = 0;
-      if (stopped || !props.visible) return;
+      if (stopped || !showNativeView) return;
       const bounds = viewport.getBoundingClientRect();
       if (bounds.width <= 0 || bounds.height <= 0) return;
       void bridge.setBounds({
@@ -53,7 +64,7 @@ export function AppDockPane(props: {
     dockShell?.addEventListener("transitionrun", handleTransitionRun);
     void bridge.attach({ tabId: props.tabId }).then(() => {
       if (!stopped) {
-        void bridge.setVisible({ tabId: props.tabId, visible: props.visible });
+        void bridge.setVisible({ tabId: props.tabId, visible: showNativeView });
         schedule();
       }
     });
@@ -66,13 +77,13 @@ export function AppDockPane(props: {
       if (frame) window.cancelAnimationFrame(frame);
       void bridge.setVisible({ tabId: props.tabId, visible: false }).catch(() => undefined);
     };
-  }, [props.tabId, props.visible]);
+  }, [props.tabId, showNativeView]);
 
   useEffect(() => {
     void window.desktopBridge?.appTabs
-      ?.setVisible({ tabId: props.tabId, visible: props.visible })
+      ?.setVisible({ tabId: props.tabId, visible: showNativeView })
       .catch(() => undefined);
-  }, [props.tabId, props.visible]);
+  }, [props.tabId, showNativeView]);
 
   return (
     <div ref={viewportRef} className="relative h-full min-h-0 w-full overflow-hidden">
@@ -81,7 +92,24 @@ export function AppDockPane(props: {
           The App stopped responding. Close this tab and open it again.
         </PanelStateMessage>
       ) : props.status !== "ready" ? (
-        <PanelStateMessage>Loading App…</PanelStateMessage>
+        <div
+          aria-label={`Loading ${props.appName ?? "App"}`}
+          className="flex h-full min-h-0 w-full items-center justify-center"
+          role="status"
+        >
+          {props.iconDataUrl ? (
+            <img
+              alt=""
+              className="size-12 rounded-xl object-contain"
+              draggable={false}
+              src={props.iconDataUrl}
+            />
+          ) : (
+            <span className="flex size-12 items-center justify-center rounded-xl bg-muted text-muted-foreground">
+              <IconPackage aria-hidden="true" className="size-5" />
+            </span>
+          )}
+        </div>
       ) : null}
     </div>
   );

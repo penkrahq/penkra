@@ -70,7 +70,6 @@ import { ChatPaneDropOverlay } from "../chat-drop-overlay/ChatPaneDropOverlay";
 import {
   ChatMountLoader,
   DeferredChatView,
-  LazyBrowserPanel,
   LazyDiffPanel,
   noopChatSurfaceAction,
 } from "./ChatThreadSurfacePrimitives";
@@ -110,11 +109,6 @@ const EditorWorkspaceView = lazy(() =>
   })),
 );
 const GitPanel = lazy(() => import("./GitPanel"));
-const DockExplorerPane = lazy(() =>
-  import("./DockExplorerPane").then((module) => ({
-    default: module.DockExplorerPane,
-  })),
-);
 const DockFilePane = lazy(() =>
   import("./DockFilePane").then((module) => ({
     default: module.DockFilePane,
@@ -262,22 +256,21 @@ export function SingleChatSurface(props: {
   const [editorDiffOptionsControl, setEditorDiffOptionsControl] = useState<ReactNode | null>(null);
 
   const activePane = resolveActivePane(dockState);
-  const {
-    activePaneRuntimeMode,
-    requestActivePaneLive: requestActiveDockPaneLive,
-    requestImmediateHydration: requestImmediateDockHydration,
-  } = useDockPaneRuntimeActivation({
-    threadId: props.threadId,
-    activePane,
-  });
+  const { activePaneRuntimeMode, requestImmediateHydration: requestImmediateDockHydration } =
+    useDockPaneRuntimeActivation({
+      threadId: props.threadId,
+      activePane,
+    });
 
   // Bridge the dock's active browser/diff pane back into the panelState shape the
   // chat shell still consumes (diff badge, toggle pressed state, transcript gating).
   const chatPanelState: SplitViewPanePanelState = {
     panel:
-      activePane && (activePane.kind === "browser" || activePane.kind === "diff")
-        ? activePane.kind
-        : null,
+      activePane?.kind === "diff"
+        ? "diff"
+        : activePane?.appId === "com.penkra.browser"
+          ? "browser"
+          : null,
     diffTurnId: activePane?.kind === "diff" ? activePane.diffTurnId : null,
     diffFilePath: activePane?.kind === "diff" ? activePane.diffFilePath : null,
     hasOpenedPanel: dockState.panes.length > 0,
@@ -289,12 +282,35 @@ export function SingleChatSurface(props: {
     toggleSingletonPane(props.threadId, { kind: "diff" });
   };
   const handleToggleBrowser = () => {
-    requestImmediateDockHydration("browser");
-    toggleSingletonPane(props.threadId, { kind: "browser" });
+    const existing = dockState.panes.find((pane) => pane.appId === "com.penkra.browser");
+    if (existing) {
+      if (dockState.open && dockState.activePaneId === existing.id) {
+        setDockOpen(props.threadId, false);
+      } else {
+        setDockOpen(props.threadId, true);
+        setActivePane(props.threadId, existing.id);
+      }
+      return;
+    }
+    openBundledApp("com.penkra.browser");
   };
-  const handleOpenBrowserUrl = () => {
-    requestImmediateDockHydration("browser");
-    openPane(props.threadId, { kind: "browser" });
+  const handleOpenBrowserUrl = (url: string) => {
+    const resources = window.desktopBridge?.resources;
+    if (!resources || !currentSpaceId) return;
+    void resources
+      .open({
+        url,
+        requestedApp: "browser",
+        spaceId: currentSpaceId,
+        threadId: props.threadId,
+      })
+      .catch((error: unknown) => {
+        toastManager.add({
+          type: "error",
+          title: "Could not open Browser",
+          description: error instanceof Error ? error.message : "The URL could not be opened.",
+        });
+      });
   };
   const handleOpenTurnDiff = (turnId: TurnId, filePath?: string) => {
     requestImmediateDockHydration("diff");
@@ -503,8 +519,7 @@ export function SingleChatSurface(props: {
     }
 
     if (panelPatch.panel === "browser") {
-      requestImmediateDockHydration("browser");
-      openPane(props.threadId, { kind: "browser" });
+      openBundledApp("com.penkra.browser");
     } else if (panelPatch.panel === "diff") {
       requestImmediateDockHydration("diff");
       openPane(props.threadId, {
@@ -531,14 +546,8 @@ export function SingleChatSurface(props: {
   ]);
 
   useBrowserPanelDesktopBridge({
-    onToggle: () => {
-      requestImmediateDockHydration("browser");
-      toggleSingletonPane(props.threadId, { kind: "browser" });
-    },
-    onOpen: () => {
-      requestImmediateDockHydration("browser");
-      openPane(props.threadId, { kind: "browser" });
-    },
+    onToggle: handleToggleBrowser,
+    onOpen: () => openBundledApp("com.penkra.browser"),
   });
 
   const excludedThreadIds = new Set<ThreadId>([props.threadId]);
@@ -558,6 +567,27 @@ export function SingleChatSurface(props: {
     projectSpaceId: activeProject?.spaceId ?? null,
   });
 
+  function openBundledApp(appId: "com.penkra.browser" | "com.penkra.explorer"): void {
+    const bridge = window.desktopBridge?.appTabs;
+    if (!bridge || !currentSpaceId) {
+      toastManager.add({
+        type: "warning",
+        title: "App is unavailable",
+        description: "Open a Thread that belongs to a Space and try again.",
+      });
+      return;
+    }
+    void bridge
+      .open({ appId, spaceId: currentSpaceId, threadId: props.threadId, route: "/" })
+      .catch((error: unknown) => {
+        toastManager.add({
+          type: "error",
+          title: `Could not open ${appId === "com.penkra.browser" ? "Browser" : "Explorer"}`,
+          description: error instanceof Error ? error.message : "The App could not be opened.",
+        });
+      });
+  }
+
   useEffect(() => {
     const bridge = window.desktopBridge?.appTabs;
     if (!bridge) return;
@@ -569,19 +599,29 @@ export function SingleChatSurface(props: {
         appId: tab.appId,
         appSlug: tab.slug,
         appName: tab.name,
+        appIconDataUrl: tab.iconDataUrl,
         appRoute: tab.route,
         appStatus: tab.status,
       });
     });
     const removeState = bridge.onState((tab) => {
       if (tab.threadId !== props.threadId) return;
-      updatePane(props.threadId, tab.id, { appRoute: tab.route, appStatus: tab.status });
+      updatePane(props.threadId, tab.id, {
+        appIconDataUrl: tab.iconDataUrl,
+        appRoute: tab.route,
+        appStatus: tab.status,
+      });
+    });
+    const removeClosed = bridge.onClosed((tab) => {
+      if (tab.threadId !== props.threadId) return;
+      closePane(props.threadId, tab.id);
     });
     return () => {
       removeOpened();
       removeState();
+      removeClosed();
     };
-  }, [openPane, props.threadId, updatePane]);
+  }, [closePane, openPane, props.threadId, updatePane]);
 
   useEffect(() => {
     const bridge = window.desktopBridge?.appTabs;
@@ -599,6 +639,7 @@ export function SingleChatSurface(props: {
           appId: tab.appId,
           appSlug: tab.slug,
           appName: tab.name,
+          appIconDataUrl: tab.iconDataUrl,
           appRoute: tab.route,
           appStatus: tab.status,
         });
@@ -622,7 +663,15 @@ export function SingleChatSurface(props: {
             route: pane.appRoute ?? "/",
           })
           .then(() => closePane(props.threadId, pane.id))
-          .catch(() => updatePane(props.threadId, pane.id, { appStatus: "crashed" }))
+          .catch((error: unknown) => {
+            closePane(props.threadId, pane.id);
+            toastManager.add({
+              type: "error",
+              title: "Could not restore App",
+              description:
+                error instanceof Error ? error.message : "The App tab could not be restored.",
+            });
+          })
           .finally(() => restoringAppPaneIdsRef.current.delete(pane.id));
       }
     });
@@ -670,6 +719,7 @@ export function SingleChatSurface(props: {
             appId: tab.appId,
             appSlug: tab.slug,
             appName: tab.name,
+            appIconDataUrl: tab.iconDataUrl,
             appRoute: tab.route,
             appStatus: tab.status,
           });
@@ -733,6 +783,7 @@ export function SingleChatSurface(props: {
           appId: tab.appId,
           appSlug: tab.slug,
           appName: tab.name,
+          appIconDataUrl: tab.iconDataUrl,
           appRoute: tab.route,
           appStatus: tab.status,
         });
@@ -845,18 +896,14 @@ export function SingleChatSurface(props: {
   ): ReactNode => {
     switch (pane.kind) {
       case "app":
-        return <AppDockPane tabId={pane.id} status={pane.appStatus} visible={context.isVisible} />;
-      case "browser":
         return (
-          <Suspense fallback={<PanelStateMessage>Loading browser...</PanelStateMessage>}>
-            <LazyBrowserPanel
-              mode="sidebar"
-              threadId={props.threadId}
-              onClosePanel={() => closePane(props.threadId, pane.id)}
-              runtimeMode={context.runtimeMode}
-              onRequestLive={requestActiveDockPaneLive}
-            />
-          </Suspense>
+          <AppDockPane
+            appName={pane.appName}
+            {...(pane.appIconDataUrl !== undefined ? { iconDataUrl: pane.appIconDataUrl } : {})}
+            status={pane.appStatus}
+            tabId={pane.id}
+            visible={context.isVisible}
+          />
         );
       case "pullRequest":
         return (
@@ -896,17 +943,6 @@ export function SingleChatSurface(props: {
               hostThreadId={props.threadId}
               projectId={props.projectId}
               onClose={() => closePane(props.threadId, pane.id)}
-            />
-          </Suspense>
-        );
-      case "explorer":
-        return (
-          <Suspense fallback={<PanelStateMessage>Loading explorer...</PanelStateMessage>}>
-            <DockExplorerPane
-              workspaceRoot={workspaceRoot}
-              onReferenceInChat={handleReferenceInChat}
-              onAskWhyInChat={handleAskWhyInChat}
-              onCommentInChat={handleCommentInChat}
             />
           </Suspense>
         );

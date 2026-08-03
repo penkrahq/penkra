@@ -53,6 +53,7 @@ import {
   ThreadSessionSetPayload,
   ThreadTurnDiffCompletedPayload,
   ThreadTurnStartRequestedPayload,
+  ThreadTurnStartCancelledPayload,
 } from "./Schemas.ts";
 import { resolveStableMessageTurnId } from "./messageTurnId.ts";
 import { settleTurnStateFromSession } from "./turnLifecycle.ts";
@@ -915,6 +916,7 @@ export function projectEvent(
             threads: updateThread(nextBase.threads, payload.threadId, {
               ...modelSelectionPatch,
               ...(turnStartSession !== null ? { session: turnStartSession } : {}),
+              pendingTurnStartMessageId: payload.messageId,
               runtimeMode: payload.runtimeMode,
               interactionMode: payload.interactionMode,
               updatedAt: payload.createdAt,
@@ -1025,6 +1027,8 @@ export function projectEvent(
           ...nextBase,
           threads: updateThread(nextBase.threads, payload.threadId, {
             session,
+            pendingTurnStartMessageId:
+              session.status === "starting" ? thread.pendingTurnStartMessageId : null,
             latestTurn:
               session.status === "running" && session.activeTurnId !== null
                 ? thread.latestTurn?.turnId === session.activeTurnId &&
@@ -1226,6 +1230,33 @@ export function projectEvent(
               proposedPlans,
               activities,
               latestTurn,
+              updatedAt: event.occurredAt,
+            }),
+          };
+        }),
+      );
+
+    case "thread.turn-start-cancelled":
+      return decodeForEvent(
+        ThreadTurnStartCancelledPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => {
+          const thread = nextBase.threads.find((entry) => entry.id === payload.threadId);
+          if (!thread) {
+            return nextBase;
+          }
+          const messages = thread.messages.filter((message) => message.id !== payload.messageId);
+          if (messages.length === thread.messages.length) {
+            return nextBase;
+          }
+          return {
+            ...nextBase,
+            threads: updateThread(nextBase.threads, payload.threadId, {
+              messages,
+              pendingTurnStartMessageId: null,
               updatedAt: event.occurredAt,
             }),
           };

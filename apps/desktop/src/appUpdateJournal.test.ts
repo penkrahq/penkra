@@ -50,20 +50,26 @@ describe("App update journal", () => {
   it("restores the exact previous snapshot after an interrupted package switch", async () => {
     const root = temporaryDirectory();
     const store = await AppInstallationStore.open(resolveAppInstallationStatePath(root));
-    await store.mutate((state) => registerVerifiedAppPackage(state, appPackage("1.0.0")));
+    await store.mutate((state) =>
+      registerVerifiedAppPackage(state, appPackage("1.0.0"), "personal"),
+    );
     const previous = store.snapshot();
     const journal = new AppUpdateJournal(resolveAppUpdateJournalPath(root));
     await journal.prepare({
       appId: "com.acme.canvas",
+      spaceId: "personal",
       targetVersion: "2.0.0",
       previousState: previous,
     });
-    await store.mutate((state) => replaceVerifiedRegistryAppPackage(state, appPackage("2.0.0")));
+    await store.mutate((state) =>
+      replaceVerifiedRegistryAppPackage(state, appPackage("2.0.0"), "personal"),
+    );
 
     const restartedStore = await AppInstallationStore.open(resolveAppInstallationStatePath(root));
     await expect(journal.recoverSafe(restartedStore)).resolves.toEqual({
       status: "restored",
       appId: "com.acme.canvas",
+      spaceId: "personal",
       targetVersion: "2.0.0",
     });
     expect(restartedStore.snapshot()).toEqual(previous);
@@ -73,7 +79,9 @@ describe("App update journal", () => {
   it("quarantines a malformed journal without replacing committed installation state", async () => {
     const root = temporaryDirectory();
     const store = await AppInstallationStore.open(resolveAppInstallationStatePath(root));
-    await store.mutate((state) => registerVerifiedAppPackage(state, appPackage("1.0.0")));
+    await store.mutate((state) =>
+      registerVerifiedAppPackage(state, appPackage("1.0.0"), "personal"),
+    );
     const journalPath = resolveAppUpdateJournalPath(root);
     FS.mkdirSync(Path.dirname(journalPath), { recursive: true });
     FS.writeFileSync(journalPath, "{invalid", "utf8");

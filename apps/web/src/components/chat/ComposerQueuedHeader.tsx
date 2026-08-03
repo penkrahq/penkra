@@ -13,15 +13,15 @@ import ChatMarkdown from "../ChatMarkdown";
 import {
   ComposerStackedPanelRow,
   ComposerStackedPanelRowMain,
-} from "./ComposerStackedPanelContent";
+} from "../middle-panel/composer-stacked-status/ComposerStackedPanelContent";
 import {
   COMPOSER_STACKED_PANEL_DIVIDER_CLASS_NAME,
   ComposerStackedPanel,
-} from "./ComposerStackedPanel";
+} from "../middle-panel/composer-stacked-status/ComposerStackedPanel";
 import {
   COMPOSER_STACKED_PANEL_ICON_CLASS_NAME,
   COMPOSER_STACKED_PANEL_PREVIEW_MARKDOWN_CLASS_NAME,
-} from "./composerStackedPanelStyles";
+} from "../middle-panel/composer-stacked-status/composerStackedPanelStyles";
 import { QueuedComposerActions } from "./QueuedComposerActions";
 
 function firstNonEmptyLine(value: string): string {

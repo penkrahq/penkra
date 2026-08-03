@@ -87,8 +87,7 @@
 }
 
 @layer components {
-  [data-slot="input-shared"]:focus-within,
-  [data-pencil-component="TKKOp"]:focus-within {
+  [data-slot="input-shared"]:focus-within {
     border-color: var(--color-border-focus) !important;
     color: var(--color-text-foreground) !important;
   }
@@ -2362,6 +2361,33 @@ diffs-container {
   --composer-radius: 1.125rem;
 }
 
+/* The chat rail responds to the middle pane itself, not the application viewport.
+   Right-dock resizing, split panes, editor chat, and Studio therefore share the
+   same Pencil contract: 560px max, 24px gutters at 560px+, 12px below it. */
+.chat-pane-container {
+  container-name: chat-pane;
+  container-type: inline-size;
+}
+
+.chat-pane-responsive-rail {
+  width: min(560px, calc(100cqw - 24px));
+}
+
+@container chat-pane (min-width: 560px) {
+  .chat-pane-responsive-rail {
+    width: min(560px, calc(100cqw - 48px));
+  }
+}
+
+/* FJKog/ISa9R/fiR2o: the approved 560px-pane story lowers the attached
+   draft-folder bar by one point while retaining the base component geometry
+   at the other responsive sizes. */
+@container chat-pane (width: 560px) {
+  [data-pencil-node="fiR2o"] {
+    top: -39px;
+  }
+}
+
 .chat-composer-shell,
 .chat-composer-surface,
 .chat-composer-stacked-top,
@@ -2446,11 +2472,11 @@ diffs-container {
   border-top-right-radius: 0;
 }
 
-/* Stacked rail above the composer input: the composer's own surface color at
-   half opacity, so the rail reads as a lighter continuation of the input shell
-   rather than a differently-colored block. */
+/* Stacked rail above the composer input: the approved operational-state surface
+   is opaque, matching the composer's control surface rather than the legacy
+   translucent banner treatment. */
 .chat-composer-stacked-top {
-  background: color-mix(in srgb, var(--composer-surface) 50%, transparent);
+  background: var(--color-background-control-opaque);
 }
 
 .chat-composer-surface {

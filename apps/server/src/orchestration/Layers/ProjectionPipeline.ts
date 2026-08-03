@@ -152,6 +152,7 @@ const PROJECT_EVENT_TYPES = new Set<OrchestrationEvent["type"]>([
 
 const THREAD_MESSAGE_PROJECTION_EVENT_TYPES = new Set<OrchestrationEvent["type"]>([
   "thread.message-sent",
+  "thread.turn-start-cancelled",
   "thread.reverted",
   "thread.conversation-rolled-back",
 ]);
@@ -170,6 +171,7 @@ const THREAD_ACTIVITY_PROJECTION_EVENT_TYPES = new Set<OrchestrationEvent["type"
 
 const THREAD_TURN_PROJECTION_EVENT_TYPES = new Set<OrchestrationEvent["type"]>([
   "thread.turn-start-requested",
+  "thread.turn-start-cancelled",
   "thread.session-set",
   "thread.turn-diff-completed",
   "thread.reverted",
@@ -877,6 +879,7 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
           return;
         }
 
+        case "thread.turn-start-cancelled":
         case "thread.reverted":
         case "thread.conversation-rolled-back": {
           const existingRow = yield* projectionThreadRepository.getById({
@@ -1051,6 +1054,27 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
               event.payload.createdAt,
             updatedAt: event.payload.updatedAt,
           });
+          return;
+        }
+
+        case "thread.turn-start-cancelled": {
+          const existingRows = yield* projectionThreadMessageRepository.listByThreadId({
+            threadId: event.payload.threadId,
+          });
+          const keptRows = existingRows.filter(
+            (message) => message.messageId !== event.payload.messageId,
+          );
+          if (keptRows.length === existingRows.length) {
+            return;
+          }
+          yield* projectionThreadMessageRepository.deleteByThreadAndMessageId({
+            threadId: event.payload.threadId,
+            messageId: event.payload.messageId,
+          });
+          attachmentSideEffects.prunedThreadRelativePaths.set(
+            event.payload.threadId,
+            collectThreadAttachmentRelativePaths(event.payload.threadId, keptRows),
+          );
           return;
         }
 
@@ -1282,6 +1306,12 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
           });
           return;
         }
+
+        case "thread.turn-start-cancelled":
+          yield* projectionTurnRepository.deletePendingTurnStartByThreadId({
+            threadId: event.payload.threadId,
+          });
+          return;
 
         case "thread.session-set": {
           const turnId = event.payload.session.activeTurnId;

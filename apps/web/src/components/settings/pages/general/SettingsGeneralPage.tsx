@@ -5,6 +5,8 @@ import {
   IconBrandYoutube,
   IconRefresh,
 } from "@tabler/icons-react";
+import { useEffect, useState } from "react";
+import type { DesktopAppOpenIntent } from "@penkra/contracts";
 
 import { useAppSettings } from "~/appSettings";
 import { useAppInstallationSnapshot } from "~/appInstallationStore";
@@ -30,18 +32,72 @@ export function SettingsGeneralPage() {
     ) === true;
   const urlHandlers =
     installations?.installed.filter(
-      (app) => isEnabled(app.id) && app.handlers.some((handler) => handler.intent === "open-url"),
+      (app) =>
+        app.spaceId === activeSpaceId &&
+        isEnabled(app.id) &&
+        app.handlers.some((handler) => handler.intent === "open-url"),
     ) ?? [];
   const fileHandlers =
     installations?.installed.filter(
-      (app) => isEnabled(app.id) && app.handlers.some((handler) => handler.intent === "open-file"),
+      (app) =>
+        app.spaceId === activeSpaceId &&
+        isEnabled(app.id) &&
+        app.handlers.some((handler) => handler.intent === "open-file"),
     ) ?? [];
+  const directoryHandlers =
+    installations?.installed.filter(
+      (app) =>
+        app.spaceId === activeSpaceId &&
+        isEnabled(app.id) &&
+        app.handlers.some((handler) => handler.intent === "open-directory"),
+    ) ?? [];
+  const [openWith, setOpenWith] = useState<Partial<Record<DesktopAppOpenIntent, string>>>({});
+
+  useEffect(() => {
+    let current = true;
+    if (!activeSpaceId || !window.desktopBridge?.appOpenWith) {
+      setOpenWith({});
+      return () => {
+        current = false;
+      };
+    }
+    void window.desktopBridge.appOpenWith.get({ spaceId: activeSpaceId }).then((value) => {
+      if (current) setOpenWith(value);
+    });
+    return () => {
+      current = false;
+    };
+  }, [activeSpaceId]);
 
   return (
     <div className="flex flex-col gap-6" data-pencil-page="general">
       <SettingsSectionShared title="Open with">
-        <HandlerAvailabilityRow apps={urlHandlers.map((app) => app.name)} label="Links" />
-        <HandlerAvailabilityRow apps={fileHandlers.map((app) => app.name)} label="Files" />
+        <HandlerPreferenceRow
+          apps={urlHandlers}
+          intent="open-url"
+          label="Links"
+          onChange={setOpenWith}
+          spaceId={activeSpaceId}
+          {...(openWith["open-url"] !== undefined ? { value: openWith["open-url"] } : {})}
+        />
+        <HandlerPreferenceRow
+          apps={fileHandlers}
+          intent="open-file"
+          label="Files"
+          onChange={setOpenWith}
+          spaceId={activeSpaceId}
+          {...(openWith["open-file"] !== undefined ? { value: openWith["open-file"] } : {})}
+        />
+        <HandlerPreferenceRow
+          apps={directoryHandlers}
+          intent="open-directory"
+          label="Folders"
+          onChange={setOpenWith}
+          spaceId={activeSpaceId}
+          {...(openWith["open-directory"] !== undefined
+            ? { value: openWith["open-directory"] }
+            : {})}
+        />
       </SettingsSectionShared>
 
       <SettingsSectionShared title="Notifications">
@@ -79,20 +135,36 @@ export function SettingsGeneralPage() {
   );
 }
 
-function HandlerAvailabilityRow({ apps, label }: { apps: ReadonlyArray<string>; label: string }) {
-  const status =
-    apps.length === 0
-      ? "No compatible App installed"
-      : apps.length === 1
-        ? apps[0]
-        : "Choose when opening";
+function HandlerPreferenceRow({
+  apps,
+  intent,
+  label,
+  onChange,
+  spaceId,
+  value,
+}: {
+  apps: ReadonlyArray<{ id: string; name: string }>;
+  intent: DesktopAppOpenIntent;
+  label: string;
+  onChange: (value: Partial<Record<DesktopAppOpenIntent, string>>) => void;
+  spaceId: string | null;
+  value?: string;
+}) {
   return (
-    <SettingRowShared
-      control={
-        <span className="text-xs text-[var(--color-text-foreground-tertiary)]">{status}</span>
-      }
-      description="Resolved from enabled App handler contributions."
-      label={label}
+    <OpenWithRowShared
+      description={`Choose how Penkra opens ${label.toLowerCase()} in this Space.`}
+      onValueChange={(next) => {
+        if (!spaceId || !window.desktopBridge?.appOpenWith) return;
+        void window.desktopBridge.appOpenWith
+          .set({ spaceId, intent, appId: next === "system" ? null : next })
+          .then(onChange);
+      }}
+      options={[
+        { id: "system", label: "System default" },
+        ...apps.map((app) => ({ id: app.id, label: app.name })),
+      ]}
+      title={label}
+      value={value ?? "system"}
     />
   );
 }

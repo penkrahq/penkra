@@ -2,7 +2,7 @@
 // Purpose: Parses canonical registry listing links without accepting navigation ambiguity.
 // Layer: Desktop protocol boundary
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const APP_ID = /^[a-z][a-z0-9]*(?:\.[a-z][a-z0-9-]*){2,}$/;
 
 export function parseAppListingDeepLink(value: string): { appId: string } | null {
   let url: URL;
@@ -29,5 +29,5 @@ export function parseAppListingDeepLink(value: string): { appId: string } | null
   } catch {
     return null;
   }
-  return UUID.test(appId) ? { appId: appId.toLowerCase() } : null;
+  return APP_ID.test(appId) ? { appId } : null;
 }

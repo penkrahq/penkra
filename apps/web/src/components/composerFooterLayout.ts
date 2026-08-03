@@ -13,9 +13,7 @@ export function shouldUseCompactComposerFooter(
 
 // Progressive degradation for the footer's picker cluster.
 // Degradation order (first thing to go first): context-window meter ->
-// traits/effort label (gear icon stays) -> model name (provider icon stays) ->
-// relocate the leading controls (extras "+" menu, access-rules indicator) into
-// the row below the input, next to the branch toolbar.
+// traits/effort label (gear icon stays) -> model name (provider icon stays).
 //
 // Visibility is driven by MEASURED overflow, not estimated widths: label
 // lengths vary per provider/model and the app supports UI font scaling, so any
@@ -28,12 +26,11 @@ export interface ComposerFooterControlsPlan {
   showContextMeter: boolean;
   showModelLabel: boolean;
   showTraitsLabel: boolean;
-  relocateLeadingControls: boolean;
 }
 
-// Tier 0 = everything visible ... tier 3 = icons only, tier 4 = leading
-// controls move below the input.
-export const COMPOSER_FOOTER_MAX_TIER = 4;
+// Tier 0 = everything visible ... tier 3 = icons only. Pencil's narrow
+// variants hide lower-priority actions in place and never add a second row.
+export const COMPOSER_FOOTER_MAX_TIER = 3;
 // Extra width (px) required beyond the recorded overflow point before stepping
 // back to a richer tier, so a 1px resize cannot oscillate between tiers.
 export const COMPOSER_FOOTER_TIER_PROMOTION_SLACK_PX = 32;
@@ -46,7 +43,6 @@ export function composerFooterPlanForTier(
     showContextMeter: hasContextMeter && tier < 1,
     showTraitsLabel: tier < 2,
     showModelLabel: tier < 3,
-    relocateLeadingControls: tier >= 4,
   };
 }
 

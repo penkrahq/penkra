@@ -1,5 +1,5 @@
 // FILE: composerDraftPersistence.ts
-// Purpose: Owns composer draft schema v5, migrations, partialization, merge normalization, and hydration.
+// Purpose: Owns composer draft schema v6, migrations, partialization, merge normalization, and hydration.
 // Exports: Persist middleware transitions and persisted state type.
 
 import {
@@ -213,6 +213,7 @@ const PersistedComposerThreadDraftState = Schema.Struct({
   skills: Schema.optionalKey(Schema.Array(ProviderSkillReference)),
   mentions: Schema.optionalKey(Schema.Array(ProviderMentionReference)),
   queuedTurns: Schema.optionalKey(Schema.Array(PersistedQueuedComposerTurn)),
+  queuePaused: Schema.optionalKey(Schema.Boolean),
   restoredSourceProposedPlan: Schema.optionalKey(PersistedRestoredSourceProposedPlan),
   modelSelectionByProvider: Schema.optionalKey(
     Schema.Record(ProviderKind, Schema.optionalKey(ModelSelection)),
@@ -271,7 +272,6 @@ const PersistedDraftThreadState = Schema.Struct({
   workingDirectory: Schema.optionalKey(Schema.NullOr(Schema.String)),
   lastKnownPr: Schema.optionalKey(Schema.NullOr(OrchestrationThreadPullRequest)),
   envMode: DraftThreadEnvModeSchema,
-  isTemporary: Schema.optionalKey(Schema.Boolean),
   promotedTo: Schema.optionalKey(ThreadId),
 });
 
@@ -691,7 +691,6 @@ function normalizePersistedDraftThreads(
         }
       }
       const normalizedWorktreePath = typeof worktreePath === "string" ? worktreePath : null;
-      const isTemporary = candidateDraftThread.isTemporary === true ? true : undefined;
       const promotedTo =
         typeof candidateDraftThread.promotedTo === "string" &&
         candidateDraftThread.promotedTo.length > 0
@@ -726,7 +725,6 @@ function normalizePersistedDraftThreads(
         workingDirectory: typeof workingDirectory === "string" ? workingDirectory : null,
         ...(lastKnownPr ? { lastKnownPr } : {}),
         envMode: normalizeDraftThreadEnvMode(candidateDraftThread.envMode, normalizedWorktreePath),
-        ...(isTemporary ? { isTemporary: true } : {}),
         ...(promotedTo ? { promotedTo } : {}),
       };
     }
@@ -898,6 +896,7 @@ function normalizePersistedDraftsByThreadId(
     }
 
     const normalizedQueuedTurns = queuedTurns ?? [];
+    const queuePaused = draftCandidate.queuePaused === true;
     const restoredSourceProposedPlan = Schema.is(PersistedRestoredSourceProposedPlan)(
       draftCandidate.restoredSourceProposedPlan,
     )
@@ -917,6 +916,7 @@ function normalizePersistedDraftsByThreadId(
       pastedTexts.length === 0 &&
       !hasReferenceData &&
       !hasQueuedTurns &&
+      !queuePaused &&
       restoredSourceProposedPlan === null &&
       !hasModelData &&
       !runtimeMode &&
@@ -935,6 +935,7 @@ function normalizePersistedDraftsByThreadId(
       ...(skills.length > 0 ? { skills } : {}),
       ...(mentions.length > 0 ? { mentions } : {}),
       ...(hasQueuedTurns ? { queuedTurns: normalizedQueuedTurns } : {}),
+      ...(queuePaused ? { queuePaused: true } : {}),
       ...(restoredSourceProposedPlan ? { restoredSourceProposedPlan } : {}),
       ...(hasModelData ? { modelSelectionByProvider, activeProvider } : {}),
       ...(runtimeMode ? { runtimeMode } : {}),
@@ -948,9 +949,15 @@ function normalizePersistedDraftsByThreadId(
 export function migratePersistedComposerDraftStoreState(
   persistedState: unknown,
 ): PersistedComposerDraftStoreState {
-  // Version bumps should sanitize persisted data without forcing users back
-  // through the legacy sticky-model fields.
-  return normalizeCurrentPersistedComposerDraftStoreState(persistedState);
+  const normalized = normalizeCurrentPersistedComposerDraftStoreState(persistedState);
+  // v6 is an intentional clean cut for the composer/thread redesign. Keep only
+  // sticky model preference; every persisted draft and draft-thread mapping is
+  // discarded instead of applying compatibility transforms or field heuristics.
+  return {
+    ...EMPTY_PERSISTED_DRAFT_STORE_STATE,
+    stickyModelSelectionByProvider: normalized.stickyModelSelectionByProvider ?? {},
+    stickyActiveProvider: normalized.stickyActiveProvider ?? null,
+  };
 }
 
 export function partializeComposerDraftStoreState(
@@ -1068,6 +1075,7 @@ export function partializeComposerDraftStoreState(
       draft.pastedTexts.length === 0 &&
       !hasReferenceData &&
       !hasQueuedTurns &&
+      !draft.queuePaused &&
       draft.restoredSourceProposedPlan == null &&
       !hasModelData &&
       draft.runtimeMode === null &&
@@ -1185,6 +1193,7 @@ export function partializeComposerDraftStoreState(
       ...(draft.skills.length > 0 ? { skills: [...draft.skills] } : {}),
       ...(draft.mentions.length > 0 ? { mentions: [...draft.mentions] } : {}),
       ...(hasQueuedTurns ? { queuedTurns: persistedQueuedTurns } : {}),
+      ...(draft.queuePaused ? { queuePaused: true } : {}),
       ...(draft.restoredSourceProposedPlan
         ? { restoredSourceProposedPlan: draft.restoredSourceProposedPlan }
         : {}),
@@ -1362,6 +1371,7 @@ export function toHydratedThreadDraft(
     skills: [...(persistedDraft.skills ?? [])],
     mentions: [...(persistedDraft.mentions ?? [])],
     queuedTurns: hydrateQueuedTurnsFromPersisted(threadId, persistedDraft.queuedTurns),
+    queuePaused: persistedDraft.queuePaused === true,
     restoredSourceProposedPlan: persistedDraft.restoredSourceProposedPlan ?? null,
     modelSelectionByProvider,
     activeProvider,

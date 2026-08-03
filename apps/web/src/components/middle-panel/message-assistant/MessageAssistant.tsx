@@ -26,9 +26,9 @@ export function MessageAssistant({
 }: MessageAssistantProps) {
   if (layoutMode === "application") {
     return (
-      <div className={cn("contents", className)} data-pencil-component="kUqNe">
+      <article className={cn("group/message w-full", className)} data-pencil-component="kUqNe">
         {children}
-      </div>
+      </article>
     );
   }
 

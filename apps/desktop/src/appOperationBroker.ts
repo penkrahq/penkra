@@ -4,7 +4,11 @@
 
 import type { AppTabHandle, AppTabs, OperationContext, OperationRequest } from "@penkra/sdk";
 
-import type { AppInstallationState, InstalledAppPackage } from "./appInstallationState";
+import {
+  findInstalledAppBySlug,
+  type AppInstallationState,
+  type InstalledAppPackage,
+} from "./appInstallationState";
 import type { AppRuntimeDiagnosticInput } from "./appRuntimeDiagnostics";
 import {
   assertOperationValue,
@@ -40,6 +44,7 @@ export interface InvokeAppOperationRequest<Input = unknown> extends OperationReq
   spaceId: string;
   threadId: string;
   signal?: AbortSignal;
+  callerKind?: "user" | "agent" | "host";
   caller?: { appId: string; slug: string; invocationId: string; depth: number };
 }
 
@@ -182,16 +187,12 @@ export class AppOperationBroker {
       throw new AppOperationBrokerError("invalid-input", toError(error).message);
     }
 
-    const identity = await this.#resolveIdentity(installedApp.appId, request.spaceId);
+    await this.#resolveIdentity(installedApp.appId, request.spaceId);
     const invocation: OperationContext["invocation"] = {
       id: this.#mintInvocationId(),
       app: request.app,
       operation: request.operation,
-      caller: request.caller
-        ? { app: request.caller.slug, invocationId: request.caller.invocationId }
-        : null,
-      subject: identity.subject,
-      space: identity.space,
+      spaceId: request.spaceId,
       threadId: request.threadId,
       ...(request.tabId === undefined ? {} : { tabId: request.tabId }),
     };
@@ -216,6 +217,7 @@ export class AppOperationBroker {
     };
     const context: OperationContext = {
       invocation,
+      caller: { kind: request.caller ? "app" : (request.callerKind ?? "host") },
       ...(tab === undefined ? {} : { tab }),
       tabs,
       operations: {
@@ -272,9 +274,7 @@ export class AppOperationBroker {
 
   #resolveEnabledApp(slug: string, spaceId: string): InstalledAppPackage {
     const state = this.#installationState();
-    const installedApp = Object.values(state.packagesByAppId).find(
-      (candidate) => candidate.slug === slug,
-    );
+    const installedApp = findInstalledAppBySlug(state, slug, spaceId);
     if (!installedApp) {
       throw new AppOperationBrokerError("app-not-installed", `App ${slug} is not installed.`);
     }

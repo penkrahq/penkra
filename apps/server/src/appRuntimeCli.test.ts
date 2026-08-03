@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { parseOperationInput } from "./appRuntimeCli";
+import { parseOperationInput, tokenizeRegisteredCommand } from "./appRuntimeCli";
 
 describe("App runtime CLI operation flags", () => {
   const schema = {
@@ -32,5 +32,39 @@ describe("App runtime CLI operation flags", () => {
     expect(() => parseOperationInput(schema, undefined, { confirm: "yes" })).toThrow(
       "true or false",
     );
+  });
+});
+
+describe("penkra_exec command tokenization", () => {
+  it("preserves quoted structured input without invoking a shell", () => {
+    expect(
+      tokenizeRegisteredCommand(
+        `linear issues create --title "Fix redirect" --input '{"priority":2}'`,
+      ),
+    ).toEqual([
+      "linear",
+      "issues",
+      "create",
+      "--title",
+      "Fix redirect",
+      "--input",
+      '{"priority":2}',
+    ]);
+  });
+
+  it("rejects shell syntax and expansion", () => {
+    for (const command of [
+      "ffmpeg encode | cat",
+      "linear issues list > out",
+      "echo $HOME",
+      "x $(y)",
+    ]) {
+      expect(() => tokenizeRegisteredCommand(command)).toThrow();
+    }
+  });
+
+  it("does not confuse a native executable name with an App root", () => {
+    expect(tokenizeRegisteredCommand("ffmpeg media encode --input '{}'")[0]).toBe("ffmpeg");
+    expect(tokenizeRegisteredCommand("penkra tabs current")[0]).toBe("penkra");
   });
 });

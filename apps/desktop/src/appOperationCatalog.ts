@@ -7,7 +7,12 @@ import * as Path from "node:path";
 
 import { generateAppHelp, PENKRA_APP_INSTRUCTIONS_MAX_BYTES } from "@penkra/sdk";
 
-import type { AppInstallationState, InstalledAppPackage } from "./appInstallationState";
+import {
+  findInstalledAppBySlug,
+  listInstalledAppsForSpace,
+  type AppInstallationState,
+  type InstalledAppPackage,
+} from "./appInstallationState";
 
 export interface AppOperationCatalogEntry {
   appId: string;
@@ -41,7 +46,7 @@ export class AppOperationCatalog {
 
   list(spaceId: string): AppOperationCatalogEntry[] {
     const state = this.#installationState();
-    return Object.values(state.packagesByAppId)
+    return listInstalledAppsForSpace(state, spaceId)
       .filter((app) => isEnabled(state, app.appId, spaceId))
       .map((app) => ({
         appId: app.appId,
@@ -58,11 +63,14 @@ export class AppOperationCatalog {
       .sort((left, right) => left.slug.localeCompare(right.slug));
   }
 
-  async help(input: { spaceId: string; slug: string; operation?: string }): Promise<string> {
+  async help(input: {
+    spaceId: string;
+    slug: string;
+    operation?: string;
+    schema?: boolean;
+  }): Promise<string> {
     const state = this.#installationState();
-    const app = Object.values(state.packagesByAppId).find(
-      (candidate) => candidate.slug === input.slug,
-    );
+    const app = findInstalledAppBySlug(state, input.slug, input.spaceId);
     if (!app || !isEnabled(state, app.appId, input.spaceId)) {
       throw new Error(`App ${input.slug} is not enabled in Space ${input.spaceId}.`);
     }
@@ -70,13 +78,14 @@ export class AppOperationCatalog {
       manifest: app.manifest,
       instructions: await readInstructions(app),
       ...(input.operation === undefined ? {} : { operation: input.operation }),
+      ...(input.schema === undefined ? {} : { schema: input.schema }),
     });
   }
 
   async skills(spaceId: string): Promise<AppSkillCatalogEntry[]> {
     const state = this.#installationState();
     const result: AppSkillCatalogEntry[] = [];
-    for (const app of Object.values(state.packagesByAppId)) {
+    for (const app of listInstalledAppsForSpace(state, spaceId)) {
       const space = Object.values(state.spaceStateByKey).find(
         (candidate) => candidate.appId === app.appId && candidate.spaceId === spaceId,
       );

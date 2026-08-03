@@ -839,14 +839,6 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
     date: "Jun 30",
     features: [
       {
-        id: "temporary-thread-promotion",
-        title: "Temporary chats graduate more naturally",
-        description:
-          "Draft and temporary threads now promote into the main chat flow more predictably, with clearer naming and steadier routing once work becomes real.",
-        details:
-          "Disposable-thread helpers were renamed around temporary-thread behavior, ChatView and sidebar state now share the promotion path, and timeline coverage guards the new handoff from temporary work into durable chat rows.",
-      },
-      {
         id: "archive-undo-toast",
         title: "Archived chats are easier to recover",
         description:

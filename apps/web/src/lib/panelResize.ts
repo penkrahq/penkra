@@ -17,8 +17,8 @@ import { findNearestMeasurableAncestor } from "./domLayout";
 const COMPOSER_COMPACT_MIN_LEFT_CONTROLS_WIDTH_PX = 160;
 
 // Broadcast when the resize overlay is added/removed so embedded surfaces (e.g.
-// BrowserPanel's native webview) can re-sync their bounds. Shared so the event
-// name has a single source of truth across the chat route and BrowserPanel.
+// hosted native surfaces can re-sync their bounds. Shared so the event name has
+// a single source of truth across chat and App-tab routes.
 export const PANEL_RESIZE_OVERLAY_SYNC_EVENT = "penkra:panel-resize-overlay-sync";
 
 // Probe whether the composer can render at `nextWidth` without overflowing its

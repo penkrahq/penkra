@@ -129,7 +129,7 @@ describe("registry App installer", () => {
   it("passes a newer verified release to the rollback-capable update owner", async () => {
     const updatedVersion = { ...version, version: "2.0.0" };
     const updatedApp = { ...app, latestVersion: "2.0.0", versions: [updatedVersion] };
-    const updateForSpaces = vi.fn().mockResolvedValue(createEmptyAppInstallationState());
+    const updateForSpace = vi.fn().mockResolvedValue(createEmptyAppInstallationState());
     const packageBytes = Uint8Array.from([4, 5, 6]);
     const installedPackage = {
       source: "registry" as const,
@@ -153,7 +153,8 @@ describe("registry App installer", () => {
       request: {
         slug: "canvas",
         version: "2.0.0",
-        permissionsBySpace: { personal: { "network-fetch": "granted" } },
+        spaceId: "personal",
+        permissions: { "network-fetch": "granted" },
       },
       hostVersion: "0.8.7",
       registry: {
@@ -181,8 +182,8 @@ describe("registry App installer", () => {
       installations: {
         snapshot: () => ({
           ...createEmptyAppInstallationState(),
-          packagesByAppId: {
-            [app.identifier]: {
+          packagesByInstallationKey: {
+            [`personal\0${app.identifier}`]: {
               ...installedPackage,
               appId: app.identifier,
               slug: app.slug,
@@ -193,12 +194,13 @@ describe("registry App installer", () => {
             },
           },
         }),
-        updateForSpaces,
+        updateForSpace,
       },
     });
-    expect(updateForSpaces).toHaveBeenCalledWith(
+    expect(updateForSpace).toHaveBeenCalledWith(
       expect.objectContaining({
-        permissionsBySpace: { personal: { "network-fetch": "granted" } },
+        spaceId: "personal",
+        permissions: { "network-fetch": "granted" },
         package: expect.objectContaining({
           registryRelease: expect.objectContaining({ appId: app.id }),
         }),
@@ -213,7 +215,7 @@ describe("registry App installer", () => {
       version: "2.0.0",
     };
     const rollbackApp = { ...app, latestVersion: "2.0.0", versions: [version, currentVersion] };
-    const updateForSpaces = vi.fn().mockResolvedValue(createEmptyAppInstallationState());
+    const updateForSpace = vi.fn().mockResolvedValue(createEmptyAppInstallationState());
     const downloadVerifiedRelease = vi.fn().mockResolvedValue({
       packageBytes: Uint8Array.from([7, 8, 9]),
       release: {
@@ -248,7 +250,8 @@ describe("registry App installer", () => {
       request: {
         slug: "canvas",
         version: "1.0.0",
-        permissionsBySpace: { personal: { "network-fetch": "granted" } },
+        spaceId: "personal",
+        permissions: { "network-fetch": "granted" },
       },
       hostVersion: "0.8.7",
       registry: {
@@ -266,8 +269,8 @@ describe("registry App installer", () => {
       installations: {
         snapshot: () => ({
           ...createEmptyAppInstallationState(),
-          packagesByAppId: {
-            [app.identifier]: {
+          packagesByInstallationKey: {
+            [`personal\0${app.identifier}`]: {
               ...rolledBackPackage,
               appId: app.identifier,
               slug: app.slug,
@@ -278,14 +281,15 @@ describe("registry App installer", () => {
             },
           },
         }),
-        updateForSpaces,
+        updateForSpace,
       },
     });
 
     expect(downloadVerifiedRelease).toHaveBeenCalledWith({ app: rollbackApp, version });
-    expect(updateForSpaces).toHaveBeenCalledWith(
+    expect(updateForSpace).toHaveBeenCalledWith(
       expect.objectContaining({
-        permissionsBySpace: { personal: { "network-fetch": "granted" } },
+        spaceId: "personal",
+        permissions: { "network-fetch": "granted" },
         package: expect.objectContaining({
           manifest: expect.objectContaining({ version: "1.0.0" }),
         }),
@@ -297,7 +301,7 @@ describe("registry App installer", () => {
     const downloadVerifiedRelease = vi.fn();
     await expect(
       rollbackRegistryApp({
-        request: { slug: "canvas", version: "1.0.0", permissionsBySpace: {} },
+        request: { slug: "canvas", version: "1.0.0", spaceId: "personal", permissions: {} },
         hostVersion: "0.8.7",
         registry: {
           get: vi.fn().mockResolvedValue(app),
@@ -308,8 +312,8 @@ describe("registry App installer", () => {
         installations: {
           snapshot: () => ({
             ...createEmptyAppInstallationState(),
-            packagesByAppId: {
-              [app.identifier]: {
+            packagesByInstallationKey: {
+              [`personal\0${app.identifier}`]: {
                 appId: app.identifier,
                 slug: app.slug,
                 name: app.displayName,
@@ -334,7 +338,7 @@ describe("registry App installer", () => {
               },
             },
           }),
-          updateForSpaces: vi.fn(),
+          updateForSpace: vi.fn(),
         },
       }),
     ).rejects.toThrow("older than 1.0.0");

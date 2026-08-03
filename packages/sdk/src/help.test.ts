@@ -16,7 +16,14 @@ const manifest = {
     {
       key: "issues.create",
       summary: "Create an issue.",
-      input: { type: "object", required: ["title"] },
+      input: {
+        type: "object",
+        required: ["title"],
+        properties: {
+          title: { type: "string" },
+          priority: { type: "string", enum: ["low", "high"], default: "low" },
+        },
+      },
       output: { type: "object", required: ["id"] },
       handler: "issues.create",
     },
@@ -34,14 +41,27 @@ describe("generated App help", () => {
     expect(help).toContain("penkra linear issues create");
   });
 
-  it("renders operation usage and both declared schemas", () => {
+  it("renders concise required-first flags and hides raw schemas by default", () => {
     const help = generateAppHelp({
       manifest,
       instructions: "Follow workspace conventions.",
       operation: "issues.create",
     });
     expect(help).toContain("[--input '<json>'] [--<property> <value> ...] [--tab-id <tab-id>]");
-    expect(help).toContain('"required": [');
+    expect(help).toContain("--title <string>  required.");
+    expect(help).toContain('--priority <string>  optional; default "low"; one of "low", "high".');
+    expect(help).not.toContain('"required": [');
     expect(help).toContain("App instructions\nFollow workspace conventions.");
+  });
+
+  it("shows validated schemas only when explicitly requested", () => {
+    const help = generateAppHelp({
+      manifest,
+      instructions: "Follow conventions.",
+      operation: "issues.create",
+      schema: true,
+    });
+    expect(help).toContain('"required": [');
+    expect(help).toContain("Output schema");
   });
 });

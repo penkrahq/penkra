@@ -245,6 +245,7 @@ export class DesktopBrowserManager {
   private attachedRuntimeKey: string | null = null;
   private attachedBoundsSignature: string | null = null;
   private readonly states = new Map<ThreadId, ThreadBrowserState>();
+  private readonly sessionPartitionByThreadId = new Map<ThreadId, string>();
   private readonly threadVersionById = new Map<ThreadId, number>();
   private readonly snapshotCacheByThreadId = new Map<
     ThreadId,
@@ -304,6 +305,22 @@ export class DesktopBrowserManager {
     };
   }
 
+  setSessionPartition(threadId: ThreadId, partition: string): void {
+    const existing = this.sessionPartitionByThreadId.get(threadId);
+    if (existing && existing !== partition && this.states.has(threadId)) {
+      throw new Error("A browser session partition cannot change after the session is created.");
+    }
+    this.sessionPartitionByThreadId.set(threadId, partition);
+  }
+
+  hasSession(threadId: ThreadId): boolean {
+    return this.states.has(threadId);
+  }
+
+  private sessionPartition(threadId: ThreadId): string {
+    return this.sessionPartitionByThreadId.get(threadId) ?? BROWSER_SESSION_PARTITION;
+  }
+
   subscribeCopyLink(listener: BrowserCopyLinkListener): () => void {
     this.copyLinkListeners.add(listener);
     return () => {
@@ -341,6 +358,7 @@ export class DesktopBrowserManager {
           action: "allow",
           overrideBrowserWindowOptions: this.sessionPolicy.buildOAuthPopupWindowOptions(
             this.window,
+            this.sessionPartition(threadId),
           ),
         };
       }
@@ -595,6 +613,7 @@ export class DesktopBrowserManager {
     this.markThreadStateChanged(input.threadId);
     this.lastEmittedVersionByThreadId.delete(input.threadId);
     this.emitState(input.threadId);
+    this.sessionPartitionByThreadId.delete(input.threadId);
     return this.snapshotThreadState(input.threadId, state);
   }
 
@@ -805,6 +824,12 @@ export class DesktopBrowserManager {
       void this.loadTab(input.threadId, tab.id, { force: true });
     }
     return this.snapshotThreadState(input.threadId, state);
+  }
+
+  stop(input: BrowserTabInput): ThreadBrowserState {
+    const runtime = this.runtimes.get(buildRuntimeKey(input.threadId, input.tabId));
+    runtime?.webContents.stop();
+    return this.getState({ threadId: input.threadId });
   }
 
   goBack(input: BrowserTabInput): ThreadBrowserState {
@@ -1480,7 +1505,7 @@ export class DesktopBrowserManager {
   private createLiveRuntime(threadId: ThreadId, tabId: string): LiveTabRuntime {
     const view = new WebContentsView({
       webPreferences: {
-        partition: BROWSER_SESSION_PARTITION,
+        partition: this.sessionPartition(threadId),
         contextIsolation: true,
         nodeIntegration: false,
         sandbox: true,
@@ -1876,7 +1901,7 @@ export class DesktopBrowserManager {
   }
 
   private ensureWorkspace(threadId: ThreadId, initialUrl?: string): ThreadBrowserState {
-    this.sessionPolicy.ensureConfigured();
+    this.sessionPolicy.ensureConfigured(this.sessionPartition(threadId));
     const state = this.getOrCreateState(threadId);
     if (state.tabs.length === 0) {
       const initialTab = createBrowserTab(normalizeUrlInput(initialUrl));

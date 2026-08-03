@@ -50,7 +50,7 @@ export function ComposerVoiceRecorderBar(props: ComposerVoiceRecorderBarProps) {
   const visibleLevels = props.waveformLevels.slice(-visibleBarCount);
 
   return (
-    <div className="flex min-w-0 flex-1 items-center gap-2.5">
+    <div className="flex min-w-0 flex-1 items-center gap-2.5" data-pencil-component="XXuHe">
       <div ref={trackRef} className="relative flex h-7 min-w-0 flex-1 items-center overflow-hidden">
         <div
           aria-hidden="true"

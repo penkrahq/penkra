@@ -3902,6 +3902,170 @@ describe("ProviderCommandReactor", () => {
     });
   });
 
+  it("preserves a newer runtime session update when start binding loses its CAS", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+    const lifecycleUpdatedAt = new Date(Date.now() + 1_000).toISOString();
+    const defaultStartSession = harness.startSession.getMockImplementation();
+    if (!defaultStartSession) {
+      throw new Error("Harness startSession mock has no implementation.");
+    }
+    harness.startSession.mockImplementationOnce((threadId: unknown, input: unknown) =>
+      Effect.gen(function* () {
+        yield* harness.engine
+          .dispatch({
+            type: "thread.session.set",
+            commandId: CommandId.makeUnsafe("cmd-runtime-session-wins-start-bind-cas"),
+            threadId: ThreadId.makeUnsafe("thread-1"),
+            session: {
+              threadId: ThreadId.makeUnsafe("thread-1"),
+              status: "starting",
+              providerName: "codex",
+              runtimeMode: "approval-required",
+              activeTurnId: null,
+              lastError: null,
+              updatedAt: lifecycleUpdatedAt,
+            },
+            createdAt: lifecycleUpdatedAt,
+          })
+          .pipe(Effect.orDie);
+        return yield* defaultStartSession(threadId, input);
+      }),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-runtime-session-cas"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-runtime-session-cas"),
+          role: "user",
+          text: "send after the lifecycle update",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    expect((await readHarnessThread(harness))?.session?.lastError).toBeNull();
+  });
+
+  it("cancels a pending start before provider acceptance and removes its prompt", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+    const messageId = asMessageId("user-message-cancel-before-acceptance");
+    let releaseStartSession: (() => void) | undefined;
+    const startSessionGate = new Promise<void>((resolve) => {
+      releaseStartSession = resolve;
+    });
+    const defaultStartSession = harness.startSession.getMockImplementation();
+    if (!defaultStartSession) {
+      throw new Error("Harness startSession mock has no implementation.");
+    }
+    harness.startSession.mockImplementationOnce((threadId: unknown, input: unknown) =>
+      Effect.promise(() => startSessionGate).pipe(
+        Effect.flatMap(() => defaultStartSession(threadId, input)),
+      ),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-cancel-before-acceptance"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId,
+          role: "user",
+          text: "do not send this",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+    await waitFor(async () => (await readHarnessThread(harness))?.session?.status === "starting");
+    expect((await readHarnessThread(harness))?.pendingTurnStartMessageId).toBe(messageId);
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.interrupt",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-cancel-before-acceptance-stop"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        pendingMessageId: messageId,
+        createdAt: new Date().toISOString(),
+      }),
+    );
+    expect((await readHarnessThread(harness))?.session?.status).toBe("interrupted");
+
+    releaseStartSession?.();
+    await waitFor(async () => {
+      const thread = await readHarnessThread(harness);
+      return thread?.messages.every((message) => message.id !== messageId) === true;
+    });
+    expect(harness.sendTurn).not.toHaveBeenCalled();
+    expect(harness.stopRuntimeSession).toHaveBeenCalledWith({
+      threadId: ThreadId.makeUnsafe("thread-1"),
+    });
+  });
+
+  it("interrupts an exact provider turn when cancellation races accepted send", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+    const messageId = asMessageId("user-message-cancel-after-acceptance");
+    const sendGate = Effect.runSync(Deferred.make<void>());
+    harness.sendTurn.mockImplementationOnce(() =>
+      Deferred.await(sendGate).pipe(
+        Effect.as({
+          threadId: ThreadId.makeUnsafe("thread-1"),
+          turnId: asTurnId("turn-cancel-after-acceptance"),
+        }),
+      ),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-cancel-after-acceptance"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId,
+          role: "user",
+          text: "provider accepted this",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.interrupt",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-cancel-after-acceptance-stop"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        pendingMessageId: messageId,
+        createdAt: new Date().toISOString(),
+      }),
+    );
+
+    await Effect.runPromise(Deferred.succeed(sendGate, undefined));
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(harness.interruptTurn.mock.calls).toHaveLength(1);
+    expect(harness.interruptTurn).toHaveBeenCalledWith({
+      threadId: ThreadId.makeUnsafe("thread-1"),
+      turnId: asTurnId("turn-cancel-after-acceptance"),
+    });
+    expect(
+      (await readHarnessThread(harness))?.messages.some((message) => message.id === messageId),
+    ).toBe(true);
+  });
+
   it("clears stale Claude resume state and retries the turn with transcript context", async () => {
     const harness = await createHarness({
       threadModelSelection: { provider: "claudeAgent", model: "claude-opus-4-8" },

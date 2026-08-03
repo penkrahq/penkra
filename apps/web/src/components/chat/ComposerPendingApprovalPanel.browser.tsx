@@ -13,7 +13,7 @@ import { describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
 import { type PendingApproval } from "../../session-logic";
-import { ComposerPendingApprovalPanel } from "./ComposerPendingApprovalPanel";
+import { ComposerPendingApprovalPanel } from "../middle-panel/composer-pending-approval/ComposerPendingApprovalPanel";
 
 const APPROVAL_REQUEST_ID = ApprovalRequestId.makeUnsafe("approval-test-1");
 const LIFECYCLE_GENERATION = "generation-test-1";
@@ -56,10 +56,9 @@ async function mountApprovalPanel(input?: { approval?: PendingApproval; isRespon
 
 describe("ComposerPendingApprovalPanel", () => {
   it.each([
-    ["Approve once", "accept"],
-    ["Always allow this session", "acceptForSession"],
-    ["Decline", "decline"],
-    ["Cancel turn", "cancel"],
+    ["Allow once", "accept"],
+    ["Allow for this session", "acceptForSession"],
+    ["Deny", "decline"],
   ] as const)("sends %s as an approval decision", async (label, decision) => {
     const mounted = await mountApprovalPanel();
 
@@ -84,7 +83,7 @@ describe("ComposerPendingApprovalPanel", () => {
     });
 
     try {
-      await expect.element(page.getByText("Approve this command?")).toBeInTheDocument();
+      await expect.element(page.getByText("Run this command?")).toBeInTheDocument();
       await expect.element(page.getByText("bun run test")).toBeInTheDocument();
     } finally {
       await mounted.cleanup();

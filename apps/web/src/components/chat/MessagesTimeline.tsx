@@ -50,8 +50,9 @@ import {
   CircleCheckIcon,
   LoaderIcon,
   type LucideIcon,
-  NewThreadIcon,
+  PencilIcon,
   PinIcon,
+  RotateCcwIcon,
   SteerIcon,
   Undo2Icon,
   WorktreeIcon,
@@ -69,6 +70,8 @@ import { InlineSkillChip } from "./InlineSkillChip";
 import { InlineAgentChip } from "./InlineAgentChip";
 import { MessageActionButton, MESSAGE_ACTION_ICON_CLASS_NAME } from "./MessageActionButton";
 import { MessageCopyButton } from "./MessageCopyButton";
+import { MessageAssistant } from "../middle-panel/message-assistant/MessageAssistant";
+import { MessageUser } from "../middle-panel/message-user/MessageUser";
 import { AssistantSelectionsSummaryChip } from "./AssistantSelectionsSummaryChip";
 import { FileAttachmentChip } from "./FileAttachmentChip";
 import { FileCommentsSummaryChip } from "./FileCommentsSummaryChip";
@@ -133,8 +136,6 @@ import {
 import { DisclosureChevron } from "../ui/DisclosureChevron";
 import { DisclosureRegion } from "../ui/DisclosureRegion";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
-import { MessageUserAdapter } from "../middle-panel/message-user/MessageUserAdapter";
-import { MessageAssistantAdapter } from "../middle-panel/message-assistant/MessageAssistantAdapter";
 import { DISCLOSURE_TRANSITION_MS, disclosureContentClassName } from "~/lib/disclosureMotion";
 import { getAppTypographyScale } from "../../lib/appTypography";
 import type { SubagentToolTrace } from "./subagentToolTrace.logic";
@@ -1042,6 +1043,15 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     });
     return editTarget.editable ? (editTarget.messageId as MessageId) : null;
   }, [activeTurnId, rows]);
+  const latestEditableUserMessageText = useMemo(() => {
+    if (!latestEditableUserMessageId) return null;
+    const row = rows.find(
+      (candidate) =>
+        candidate.kind === "message" && candidate.message.id === latestEditableUserMessageId,
+    );
+    if (!row || row.kind !== "message" || row.message.role !== "user") return null;
+    return deriveDisplayedUserMessageState(row.message.text).copyText.trim() || null;
+  }, [latestEditableUserMessageId, rows]);
   const previousRowCountRef = useRef(rows.length);
   useEffect(() => {
     const previousRowCount = previousRowCountRef.current;
@@ -1369,7 +1379,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             const showCrossTaskOrigin =
               crossTaskOrigin !== null && row.message.id === firstUserMessageId;
             return (
-              <div className="flex w-full flex-col gap-3">
+              <MessageUser layoutMode="application" className="flex flex-col gap-3">
                 {showCrossTaskOrigin ? (
                   <CrossTaskOriginLabel
                     origin={crossTaskOrigin}
@@ -1487,13 +1497,14 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                     ) : null}
                     {!isEditingThisMessage && (
                       <div
-                        className="flex items-center justify-end gap-2 pr-0.5 font-system-ui font-normal text-muted-foreground/45"
+                        className="flex h-[26px] items-center justify-end font-system-ui font-normal text-muted-foreground/45"
+                        data-pencil-component="Bx6FM"
                         style={chatMessageFooterStyle}
                       >
-                        <p className={cn("tabular-nums", MESSAGE_HOVER_REVEAL_CLASS_NAME)}>
+                        <p className={cn("px-2 tabular-nums", MESSAGE_HOVER_REVEAL_CLASS_NAME)}>
                           {formatShortTimestamp(row.message.createdAt, timestampFormat)}
                         </p>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1">
                           {displayedUserMessage.copyText && (
                             <MessageCopyButton
                               text={displayedUserMessage.copyText}
@@ -1503,7 +1514,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                           {showEditUserMessage && (
                             <MessageActionButton
                               label="Edit message"
-                              tooltip="Edit and resend"
+                              tooltip="Edit message"
                               disabled={isRevertingCheckpoint}
                               className={cn(
                                 MESSAGE_HOVER_REVEAL_CLASS_NAME,
@@ -1511,7 +1522,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                               )}
                               onClick={() => startUserMessageEdit(row.message.id)}
                             >
-                              <NewThreadIcon className={MESSAGE_ACTION_ICON_CLASS_NAME} />
+                              <PencilIcon className={MESSAGE_ACTION_ICON_CLASS_NAME} />
                             </MessageActionButton>
                           )}
                           {canRevertAgentWork ? (
@@ -1533,7 +1544,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                     )}
                   </div>
                 </div>
-              </div>
+              </MessageUser>
             );
           })()}
 
@@ -1858,7 +1869,11 @@ export const MessagesTimeline = memo(function MessagesTimeline({
               );
             };
             return (
-              <>
+              <MessageAssistant
+                layoutMode="application"
+                className="flex min-w-0 flex-col items-start"
+                workedFor={null}
+              >
                 {settledCollapseTransition && (
                   <div
                     aria-hidden="true"
@@ -1964,7 +1979,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                   )}
                   {(showPinToggle || assistantCopyState.visible || assistantMeta.length > 0) && (
                     <div
-                      className="mt-0.5 flex items-center gap-2 font-system-ui font-normal text-muted-foreground/45"
+                      className="mt-0.5 flex h-[26px] items-center gap-1 font-system-ui font-normal text-muted-foreground/45"
+                      data-pencil-component="vI265"
                       style={chatMessageFooterStyle}
                     >
                       {showPinToggle ? (
@@ -1990,10 +2006,29 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                         <MessageCopyButton
                           text={assistantCopyState.text ?? ""}
                           className={MESSAGE_HOVER_REVEAL_CLASS_NAME}
+                          label="Copy response"
                         />
                       ) : null}
+                      {assistantCopyState.visible &&
+                      latestEditableUserMessageId &&
+                      latestEditableUserMessageText &&
+                      onEditUserMessage ? (
+                        <MessageActionButton
+                          label="Retry response"
+                          tooltip="Retry response"
+                          className={MESSAGE_HOVER_REVEAL_CLASS_NAME}
+                          onClick={() =>
+                            void onEditUserMessage(
+                              latestEditableUserMessageId,
+                              latestEditableUserMessageText,
+                            )
+                          }
+                        >
+                          <RotateCcwIcon className={MESSAGE_ACTION_ICON_CLASS_NAME} />
+                        </MessageActionButton>
+                      ) : null}
                       {assistantMeta.length > 0 ? (
-                        <p className={cn("tabular-nums", MESSAGE_HOVER_REVEAL_CLASS_NAME)}>
+                        <p className={cn("px-2 tabular-nums", MESSAGE_HOVER_REVEAL_CLASS_NAME)}>
                           {assistantMeta}
                         </p>
                       ) : null}
@@ -2202,7 +2237,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                     );
                   })()}
                 </div>
-              </>
+              </MessageAssistant>
             );
           })()}
 
@@ -2256,12 +2291,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       </div>
     );
 
-    if (row.kind === "message" && row.message.role === "user") {
-      return <MessageUserAdapter>{content}</MessageUserAdapter>;
-    }
-    if (row.kind === "message" && row.message.role === "assistant") {
-      return <MessageAssistantAdapter>{content}</MessageAssistantAdapter>;
-    }
     return content;
   };
 

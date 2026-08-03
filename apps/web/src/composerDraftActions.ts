@@ -205,7 +205,6 @@ export const createComposerDraftStoreState =
           workingDirectory: options.workingDirectory ?? null,
           lastKnownPr: null,
           envMode: options.envMode ?? (worktreePath ? "worktree" : "local"),
-          ...(options.isTemporary ? { isTemporary: true } : {}),
         };
         return {
           draftThreadsByThreadId: {
@@ -1041,6 +1040,25 @@ export const createComposerDraftStoreState =
           ...current,
           queuedTurns: current.queuedTurns.filter((entry) => entry.id !== queuedTurnId),
         };
+        const nextDraftsByThreadId = { ...state.draftsByThreadId };
+        if (shouldRemoveDraft(nextDraft)) {
+          delete nextDraftsByThreadId[threadId];
+        } else {
+          nextDraftsByThreadId[threadId] = nextDraft;
+        }
+        return { draftsByThreadId: nextDraftsByThreadId };
+      });
+    },
+    setQueuePaused: (threadId, paused) => {
+      if (threadId.length === 0) {
+        return;
+      }
+      set((state) => {
+        const current = state.draftsByThreadId[threadId] ?? createEmptyThreadDraft();
+        if (current.queuePaused === paused) {
+          return state;
+        }
+        const nextDraft: ComposerThreadDraftState = { ...current, queuePaused: paused };
         const nextDraftsByThreadId = { ...state.draftsByThreadId };
         if (shouldRemoveDraft(nextDraft)) {
           delete nextDraftsByThreadId[threadId];

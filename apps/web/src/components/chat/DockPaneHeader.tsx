@@ -3,7 +3,7 @@
 //          an optional action cluster, and the standard chrome close affordance.
 //          Shares the standard chrome-bar row (CHAT_SURFACE_HEADER_ROW_CLASS_NAME — height
 //          + bottom hairline) and the chrome button footprint (DOCK_HEADER_ICON_BUTTON_CLASS)
-//          with the tab strip and the DiffPanelShell/BrowserPanel headers so every dock
+//          with the tab strip and panel headers so every dock
 //          surface lines up.
 // Layer: Chat right-dock UI primitives
 

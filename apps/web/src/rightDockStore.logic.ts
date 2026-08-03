@@ -11,9 +11,7 @@ import { isPlainObject, sanitizeStringKeyedRecord } from "./persistedRecord";
 // from this list so they can never drift apart.
 export const RIGHT_DOCK_PANE_KINDS = [
   "app",
-  "browser",
   "diff",
-  "explorer",
   "file",
   "sidechat",
   "git",
@@ -46,6 +44,8 @@ export interface RightDockPane {
   appId: string | null;
   appSlug: string | null;
   appName: string | null;
+  // Runtime-only presentation data. The persisted store deliberately strips it.
+  appIconDataUrl?: string | null;
   appRoute: string | null;
   appStatus: "loading" | "ready" | "crashed" | null;
 }
@@ -185,6 +185,7 @@ export interface OpenPaneInput {
   appId?: string | null;
   appSlug?: string | null;
   appName?: string | null;
+  appIconDataUrl?: string | null;
   appRoute?: string | null;
   appStatus?: "loading" | "ready" | "crashed" | null;
 }
@@ -205,6 +206,7 @@ function createPane(input: OpenPaneInput): RightDockPane {
     appId: input.appId ?? null,
     appSlug: input.appSlug ?? null,
     appName: input.appName ?? null,
+    ...(input.appIconDataUrl === undefined ? {} : { appIconDataUrl: input.appIconDataUrl }),
     appRoute: input.appRoute ?? null,
     appStatus: input.appStatus ?? null,
   };
@@ -375,6 +377,7 @@ export function updatePaneInState(
       | "pullRequestRepository"
       | "pullRequestNumber"
       | "pullRequestInitialTab"
+      | "appIconDataUrl"
       | "appRoute"
       | "appStatus"
     >
@@ -395,6 +398,7 @@ export function updatePaneInState(
       nextPane.pullRequestRepository !== pane.pullRequestRepository ||
       nextPane.pullRequestNumber !== pane.pullRequestNumber ||
       nextPane.pullRequestInitialTab !== pane.pullRequestInitialTab ||
+      nextPane.appIconDataUrl !== pane.appIconDataUrl ||
       nextPane.appRoute !== pane.appRoute ||
       nextPane.appStatus !== pane.appStatus
     ) {

@@ -24,6 +24,7 @@ type Request = {
     | "catalog.list"
     | "catalog.help"
     | "skills.list"
+    | "core.open"
     | "operations.invoke"
     | "tabs.current"
     | "tabs.list"
@@ -58,6 +59,15 @@ export class AppCommandPipeServer {
     current(): DesktopAppTabDescriptor | null;
   };
   readonly #registry: AppRegistryClient | null;
+  readonly #open:
+    | ((input: {
+        path?: string;
+        url?: string;
+        requestedApp?: string;
+        spaceId: string;
+        threadId: string;
+      }) => Promise<unknown>)
+    | null;
   #started = false;
 
   constructor(input: {
@@ -70,6 +80,13 @@ export class AppCommandPipeServer {
       current(): DesktopAppTabDescriptor | null;
     };
     registry?: AppRegistryClient | null;
+    open?: (input: {
+      path?: string;
+      url?: string;
+      requestedApp?: string;
+      spaceId: string;
+      threadId: string;
+    }) => Promise<unknown>;
   }) {
     this.#path = input.path;
     this.#token = input.token;
@@ -77,6 +94,7 @@ export class AppCommandPipeServer {
     this.#broker = input.broker;
     this.#tabs = input.tabs;
     this.#registry = input.registry ?? null;
+    this.#open = input.open ?? null;
     this.#server = Net.createServer((socket) => this.#accept(socket));
   }
 
@@ -163,6 +181,7 @@ export class AppCommandPipeServer {
         const context = this.#context(params);
         const slug = requiredString(params.slug, "slug");
         const operation = optionalString(params.operation, "operation");
+        const schema = params.schema === true;
         return {
           ok: true,
           id: request.id,
@@ -170,6 +189,7 @@ export class AppCommandPipeServer {
             spaceId: context.spaceId,
             slug,
             ...(operation === null ? {} : { operation }),
+            ...(schema ? { schema: true } : {}),
           }),
         };
       }
@@ -179,6 +199,25 @@ export class AppCommandPipeServer {
           id: request.id,
           result: await this.#catalog.skills(requiredString(params.spaceId, "spaceId")),
         };
+      case "core.open": {
+        if (!this.#open) throw new Error("Penkra open is unavailable.");
+        const context = this.#context(params);
+        const path = optionalString(params.path, "path");
+        const url = optionalString(params.url, "url");
+        if ((path === null) === (url === null)) throw new Error("Supply exactly one path or URL.");
+        const requestedApp = optionalString(params.requestedApp, "requestedApp");
+        return {
+          ok: true,
+          id: request.id,
+          result: await this.#open({
+            ...(path === null ? {} : { path }),
+            ...(url === null ? {} : { url }),
+            ...(requestedApp === null ? {} : { requestedApp }),
+            spaceId: context.spaceId,
+            threadId: context.threadId,
+          }),
+        };
+      }
       case "operations.invoke": {
         const context = this.#context(params);
         const slug = requiredString(params.app, "app");
@@ -191,6 +230,7 @@ export class AppCommandPipeServer {
           input: params.input ?? {},
           spaceId: context.spaceId,
           threadId: context.threadId,
+          callerKind: "agent",
           ...(tabId === undefined ? {} : { tabId }),
         });
         return { ok: true, id: request.id, result };
@@ -282,9 +322,34 @@ export class AppCommandPipeServer {
 
   #context(params: Record<string, unknown>): DesktopAppTabDescriptor {
     const explicitTabId = optionalString(params.tabId, "tabId");
+    const explicitSpaceId = optionalString(params.spaceId, "spaceId");
+    const explicitThreadId = optionalString(params.threadId, "threadId");
+    if ((explicitSpaceId === null) !== (explicitThreadId === null)) {
+      throw new Error("spaceId and threadId must be supplied together.");
+    }
     const tab = explicitTabId
       ? this.#tabs.list().find((candidate) => candidate.id === explicitTabId)
-      : this.#tabs.current();
+      : explicitSpaceId === null
+        ? this.#tabs.current()
+        : undefined;
+    if (explicitSpaceId !== null && explicitThreadId !== null) {
+      if (tab && (tab.spaceId !== explicitSpaceId || tab.threadId !== explicitThreadId)) {
+        throw new Error(`App tab ${tab.id} does not belong to the requested Space and Thread.`);
+      }
+      return (
+        tab ?? {
+          id: "",
+          appId: "",
+          slug: "",
+          name: "",
+          iconDataUrl: null,
+          spaceId: explicitSpaceId,
+          threadId: explicitThreadId,
+          route: "/",
+          status: "ready",
+        }
+      );
+    }
     if (!tab)
       throw new Error(
         explicitTabId

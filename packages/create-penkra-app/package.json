@@ -5,6 +5,7 @@
     "create-penkra-app": "./src/cli.mjs"
   },
   "files": [
+    "README.md",
     "src/cli.mjs"
   ],
   "type": "module",

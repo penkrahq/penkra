@@ -16,7 +16,6 @@ import ThreadSidebar from "../components/Sidebar";
 import { isElectron } from "../env";
 import { useHandleNewChat } from "../hooks/useHandleNewChat";
 import { useHandleNewStudioChat } from "../hooks/useHandleNewStudioChat";
-import { useTemporaryThreadLifecycle } from "../hooks/useTemporaryThreadLifecycle";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useRecentViewSwitcher } from "../hooks/useRecentViewSwitcher";
 import { useLatestProjectStore } from "../latestProjectStore";
@@ -223,7 +222,6 @@ function ChatRouteGlobalShortcuts() {
   const clearLatestProjectId = useLatestProjectStore((state) => state.clearLatestProjectId);
   const threadsHydrated = useStore((state) => state.threadsHydrated);
   const activeSpaceId = useSpacesUiStore((state) => state.activeSpaceId);
-  useTemporaryThreadLifecycle(activeContextThreadId);
   const serverConfigQuery = useQuery(serverConfigQueryOptions());
   const keybindings = serverConfigQuery.data?.keybindings ?? EMPTY_KEYBINDINGS;
   const platform = typeof navigator === "undefined" ? "" : navigator.platform;

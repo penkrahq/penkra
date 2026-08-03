@@ -11,4 +11,7 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 export const Default: Story = {};
-export const Disabled: Story = { args: { disabled: true } };
+export const Hover: Story = { args: { visualState: "hover" } };
+export const Disabled: Story = { args: { visualState: "disabled" } };
+export const Sending: Story = { args: { visualState: "sending" } };
+export const Stop: Story = { args: { type: "button", visualState: "stop" } };

@@ -70,7 +70,7 @@ export function ComposerChoiceRow({
       {shortcut !== null ? (
         <span
           className={cn(
-            "flex size-[18px] shrink-0 items-center justify-center rounded-full text-[11px] font-medium tabular-nums transition-colors duration-150",
+            "flex size-[18px] shrink-0 items-center justify-center rounded-[5px] text-[11px] font-medium tabular-nums transition-colors duration-150",
             selected
               ? "bg-[var(--color-text-foreground)] text-[var(--color-background-surface)]"
               : CHIP_TONE_CLASS_NAME[tone],

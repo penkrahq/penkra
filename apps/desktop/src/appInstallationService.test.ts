@@ -139,7 +139,7 @@ describe("AppInstallationService", () => {
     });
 
     expect(test.lifecycle.enable).toHaveBeenCalledWith("com.acme.figma", "personal");
-    expect(test.state().packagesByAppId["com.acme.figma"]).toBeDefined();
+    expect(test.state().packagesByInstallationKey["personal\0com.acme.figma"]).toBeDefined();
     expect(test.state().spaceStateByKey["personal\0com.acme.figma"]).toMatchObject({
       enabled: true,
       permissions: { "network-fetch": "granted" },
@@ -150,7 +150,7 @@ describe("AppInstallationService", () => {
     const listener = vi.fn();
     test.service.subscribe(listener);
 
-    await test.service.install(verifiedPackage());
+    await test.service.install(verifiedPackage(), "personal");
     await test.service.setEnabled({ appId: "com.acme.figma", spaceId: "personal", enabled: true });
     await test.service.setPermission({
       appId: "com.acme.figma",
@@ -193,7 +193,7 @@ describe("AppInstallationService", () => {
         reason: "Sync designs",
       },
     ];
-    await test.service.install(packageWithPermission);
+    await test.service.install(packageWithPermission, "personal");
 
     await expect(
       test.service.setEnabled({
@@ -215,7 +215,7 @@ describe("AppInstallationService", () => {
         reason: "Sync designs",
       },
     ];
-    await test.service.install(packageWithPermission);
+    await test.service.install(packageWithPermission, "personal");
     await test.service.setPermission({
       appId: "com.acme.figma",
       spaceId: "personal",
@@ -240,7 +240,7 @@ describe("AppInstallationService", () => {
 
   it("coalesces concurrent optional permission requests into one prompt", async () => {
     const test = fixture();
-    await test.service.install(verifiedPackage());
+    await test.service.install(verifiedPackage(), "personal");
     const confirm = vi.fn(async () => true);
 
     const first = test.service.requestOptionalPermission({
@@ -265,7 +265,7 @@ describe("AppInstallationService", () => {
 
   it("lets an explicit Settings change win over a permission prompt already in flight", async () => {
     const test = fixture();
-    await test.service.install(verifiedPackage());
+    await test.service.install(verifiedPackage(), "personal");
     let resolvePrompt!: (value: boolean) => void;
     const prompt = new Promise<boolean>((resolve) => {
       resolvePrompt = resolve;
@@ -300,7 +300,7 @@ describe("AppInstallationService", () => {
         reason: "Sync designs",
       },
     ];
-    await test.service.install(packageWithRequiredPermission);
+    await test.service.install(packageWithRequiredPermission, "personal");
 
     await expect(
       test.service.requestOptionalPermission({
@@ -335,7 +335,7 @@ describe("AppInstallationService", () => {
         },
       ],
     };
-    await test.service.install(app);
+    await test.service.install(app, "personal");
 
     expect(
       test.service.getSetting({ appId: app.manifest.id, spaceId: "personal", key: "font-size" }),
@@ -384,7 +384,7 @@ describe("AppInstallationService", () => {
         },
       ],
     };
-    await test.service.install(app);
+    await test.service.install(app, "personal");
     await test.service.setSetting({
       appId: app.manifest.id,
       spaceId: "personal",
@@ -414,7 +414,7 @@ describe("AppInstallationService", () => {
 
   it("restarts enabled Spaces on update and applies an exact permission review", async () => {
     const test = fixture();
-    await test.service.install(verifiedPackage());
+    await test.service.install(verifiedPackage(), "personal");
     await test.service.setEnabled({ appId: "com.acme.figma", spaceId: "personal", enabled: true });
     const update = verifiedPackage();
     update.manifest.version = "2.0.0";
@@ -422,14 +422,17 @@ describe("AppInstallationService", () => {
       { name: "network-fetch", required: true, reason: "Sync designs" },
     ];
 
-    await test.service.updateForSpaces({
+    await test.service.updateForSpace({
       package: { ...update, source: "registry" },
-      permissionsBySpace: { personal: { "network-fetch": "granted" } },
+      spaceId: "personal",
+      permissions: { "network-fetch": "granted" },
     });
 
     expect(test.lifecycle.disable).toHaveBeenCalledWith("com.acme.figma", "personal");
     expect(test.lifecycle.enable).toHaveBeenLastCalledWith("com.acme.figma", "personal");
-    expect(test.state().packagesByAppId["com.acme.figma"]?.version).toBe("2.0.0");
+    expect(test.state().packagesByInstallationKey["personal\0com.acme.figma"]?.version).toBe(
+      "2.0.0",
+    );
     expect(test.state().spaceStateByKey["personal\0com.acme.figma"]).toMatchObject({
       enabled: true,
       permissions: { "network-fetch": "granted" },
@@ -437,8 +440,11 @@ describe("AppInstallationService", () => {
     expect(test.updates.prepare).toHaveBeenCalledWith(
       expect.objectContaining({
         appId: "com.acme.figma",
+        spaceId: "personal",
         targetVersion: "2.0.0",
-        previousState: expect.objectContaining({ packagesByAppId: expect.any(Object) }),
+        previousState: expect.objectContaining({
+          packagesByInstallationKey: expect.any(Object),
+        }),
       }),
     );
     expect(test.updates.clear).toHaveBeenCalledOnce();
@@ -448,41 +454,47 @@ describe("AppInstallationService", () => {
     const test = fixture();
     const initial = verifiedPackage();
     initial.manifest.permissions = [];
-    await test.service.install(initial);
+    await test.service.install(initial, "personal");
     await test.service.setEnabled({ appId: "com.acme.figma", spaceId: "personal", enabled: true });
     const update = verifiedPackage();
     update.manifest.version = "2.0.0";
 
     await expect(
-      test.service.updateForSpaces({
+      test.service.updateForSpace({
         package: { ...update, source: "registry" },
-        permissionsBySpace: {},
+        spaceId: "personal",
+        permissions: {},
       }),
     ).rejects.toThrow("network-fetch must be reviewed for Space personal");
     expect(test.updates.prepare).not.toHaveBeenCalled();
 
     await expect(
-      test.service.updateForSpaces({
+      test.service.updateForSpace({
         package: { ...update, source: "registry" },
-        permissionsBySpace: { personal: { "network-fetch": "denied" } },
+        spaceId: "personal",
+        permissions: { "network-fetch": "denied" },
       }),
-    ).resolves.toMatchObject({ packagesByAppId: { "com.acme.figma": { version: "2.0.0" } } });
+    ).resolves.toMatchObject({
+      packagesByInstallationKey: {
+        "personal\0com.acme.figma": { version: "2.0.0" },
+      },
+    });
   });
 
   it("restarts enabled Spaces when validated sideload bytes change", async () => {
     const test = fixture();
     const initial = { ...verifiedPackage(), source: "sideload" as const };
-    await test.service.install(initial);
+    await test.service.install(initial, "personal");
     await test.service.setEnabled({ appId: "com.acme.figma", spaceId: "personal", enabled: true });
     const update = { ...verifiedPackage(), source: "sideload" as const };
     update.manifest.version = "1.0.1-dev";
     update.sha256 = "b".repeat(64);
 
-    await test.service.updateSideloadForSpaces({ package: update });
+    await test.service.updateSideloadForSpace({ package: update, spaceId: "personal" });
 
     expect(test.lifecycle.disable).toHaveBeenCalledWith("com.acme.figma", "personal");
     expect(test.lifecycle.enable).toHaveBeenLastCalledWith("com.acme.figma", "personal");
-    expect(test.state().packagesByAppId["com.acme.figma"]).toMatchObject({
+    expect(test.state().packagesByInstallationKey["personal\0com.acme.figma"]).toMatchObject({
       source: "sideload",
       version: "1.0.1-dev",
       sha256: "b".repeat(64),
@@ -491,20 +503,23 @@ describe("AppInstallationService", () => {
 
   it("restores the prior package and runtime when updated activation fails", async () => {
     const test = fixture();
-    await test.service.install(verifiedPackage());
+    await test.service.install(verifiedPackage(), "personal");
     await test.service.setEnabled({ appId: "com.acme.figma", spaceId: "personal", enabled: true });
     const update = verifiedPackage();
     update.manifest.version = "2.0.0";
     test.lifecycle.enable.mockRejectedValueOnce(new Error("new controller failed"));
 
     await expect(
-      test.service.updateForSpaces({
+      test.service.updateForSpace({
         package: { ...update, source: "registry" },
-        permissionsBySpace: {},
+        spaceId: "personal",
+        permissions: {},
       }),
     ).rejects.toThrow("new controller failed");
 
-    expect(test.state().packagesByAppId["com.acme.figma"]?.version).toBe("1.0.0");
+    expect(test.state().packagesByInstallationKey["personal\0com.acme.figma"]?.version).toBe(
+      "1.0.0",
+    );
     expect(test.state().spaceStateByKey["personal\0com.acme.figma"]?.enabled).toBe(true);
     expect(test.lifecycle.enable).toHaveBeenLastCalledWith("com.acme.figma", "personal");
     expect(test.updates.clear).toHaveBeenCalledOnce();
@@ -512,35 +527,44 @@ describe("AppInstallationService", () => {
 
   it("rolls back when the durable journal cannot be cleared at commit", async () => {
     const test = fixture();
-    await test.service.install(verifiedPackage());
+    await test.service.install(verifiedPackage(), "personal");
     await test.service.setEnabled({ appId: "com.acme.figma", spaceId: "personal", enabled: true });
     const update = verifiedPackage();
     update.manifest.version = "2.0.0";
     test.updates.clear.mockRejectedValueOnce(new Error("journal fsync failed"));
 
     await expect(
-      test.service.updateForSpaces({
+      test.service.updateForSpace({
         package: { ...update, source: "registry" },
-        permissionsBySpace: {},
+        spaceId: "personal",
+        permissions: {},
       }),
     ).rejects.toThrow("journal fsync failed");
 
-    expect(test.state().packagesByAppId["com.acme.figma"]?.version).toBe("1.0.0");
+    expect(test.state().packagesByInstallationKey["personal\0com.acme.figma"]?.version).toBe(
+      "1.0.0",
+    );
     expect(test.state().spaceStateByKey["personal\0com.acme.figma"]?.enabled).toBe(true);
     expect(test.updates.clear).toHaveBeenCalledTimes(2);
   });
 
-  it("deactivates every enabled Space before retaining an uninstalled App's data", async () => {
+  it("uninstalls only the selected Space and retains its data", async () => {
     const test = fixture();
-    await test.service.install(verifiedPackage());
+    await test.service.install(verifiedPackage(), "personal");
+    await test.service.install(verifiedPackage(), "work");
     await test.service.setEnabled({ appId: "com.acme.figma", spaceId: "personal", enabled: true });
     await test.service.setEnabled({ appId: "com.acme.figma", spaceId: "work", enabled: true });
 
-    await test.service.uninstall({ appId: "com.acme.figma", retainData: true });
+    await test.service.uninstall({
+      appId: "com.acme.figma",
+      spaceId: "personal",
+      retainData: true,
+    });
 
     expect(test.lifecycle.disable).toHaveBeenCalledWith("com.acme.figma", "personal");
-    expect(test.lifecycle.disable).toHaveBeenCalledWith("com.acme.figma", "work");
-    expect(test.state().packagesByAppId["com.acme.figma"]).toBeUndefined();
+    expect(test.lifecycle.disable).not.toHaveBeenCalledWith("com.acme.figma", "work");
+    expect(test.state().packagesByInstallationKey["personal\0com.acme.figma"]).toBeUndefined();
+    expect(test.state().packagesByInstallationKey["work\0com.acme.figma"]).toBeDefined();
     expect(test.state().spaceStateByKey["personal\0com.acme.figma"]).toMatchObject({
       enabled: false,
     });
@@ -548,22 +572,30 @@ describe("AppInstallationService", () => {
 
   it("erases retained Space state only when explicitly requested", async () => {
     const test = fixture();
-    await test.service.install(verifiedPackage());
+    await test.service.install(verifiedPackage(), "personal");
     await test.service.setEnabled({ appId: "com.acme.figma", spaceId: "personal", enabled: true });
 
-    await test.service.uninstall({ appId: "com.acme.figma", retainData: false });
+    await test.service.uninstall({
+      appId: "com.acme.figma",
+      spaceId: "personal",
+      retainData: false,
+    });
 
-    expect(test.state().packagesByAppId["com.acme.figma"]).toBeUndefined();
+    expect(test.state().packagesByInstallationKey["personal\0com.acme.figma"]).toBeUndefined();
     expect(test.state().spaceStateByKey["personal\0com.acme.figma"]).toBeUndefined();
     expect(test.data.eraseData).toHaveBeenCalledWith("com.acme.figma", "personal");
   });
 
   it("keeps retained data when uninstall requests retention", async () => {
     const test = fixture();
-    await test.service.install(verifiedPackage());
+    await test.service.install(verifiedPackage(), "personal");
     await test.service.setEnabled({ appId: "com.acme.figma", spaceId: "personal", enabled: true });
 
-    await test.service.uninstall({ appId: "com.acme.figma", retainData: true });
+    await test.service.uninstall({
+      appId: "com.acme.figma",
+      spaceId: "personal",
+      retainData: true,
+    });
 
     expect(test.data.eraseData).not.toHaveBeenCalled();
     expect(test.state().spaceStateByKey["personal\0com.acme.figma"]).toBeDefined();
@@ -571,24 +603,33 @@ describe("AppInstallationService", () => {
 
   it("does not remove package metadata when persistent data erasure fails", async () => {
     const test = fixture();
-    await test.service.install(verifiedPackage());
+    await test.service.install(verifiedPackage(), "personal");
     await test.service.setEnabled({ appId: "com.acme.figma", spaceId: "personal", enabled: true });
     test.data.eraseData.mockRejectedValueOnce(new Error("partition clear failed"));
 
     await expect(
-      test.service.uninstall({ appId: "com.acme.figma", retainData: false }),
+      test.service.uninstall({
+        appId: "com.acme.figma",
+        spaceId: "personal",
+        retainData: false,
+      }),
     ).rejects.toThrow("partition clear failed");
 
-    expect(test.state().packagesByAppId["com.acme.figma"]).toBeDefined();
+    expect(test.state().packagesByInstallationKey["personal\0com.acme.figma"]).toBeDefined();
     expect(test.state().spaceStateByKey["personal\0com.acme.figma"]).toBeDefined();
   });
 
   it("erases one retained Space partition after uninstall", async () => {
     const test = fixture();
-    await test.service.install(verifiedPackage());
+    await test.service.install(verifiedPackage(), "personal");
+    await test.service.install(verifiedPackage(), "work");
     await test.service.setEnabled({ appId: "com.acme.figma", spaceId: "personal", enabled: true });
     await test.service.setEnabled({ appId: "com.acme.figma", spaceId: "work", enabled: true });
-    await test.service.uninstall({ appId: "com.acme.figma", retainData: true });
+    await test.service.uninstall({
+      appId: "com.acme.figma",
+      spaceId: "personal",
+      retainData: true,
+    });
 
     await test.service.removeData({ appId: "com.acme.figma", spaceId: "personal" });
 
@@ -600,9 +641,9 @@ describe("AppInstallationService", () => {
 
   it("refuses to erase data while the package is still installed", async () => {
     const test = fixture();
-    await test.service.install(verifiedPackage());
-    await expect(test.service.removeData({ appId: "com.acme.figma" })).rejects.toThrow(
-      "only be removed after",
-    );
+    await test.service.install(verifiedPackage(), "personal");
+    await expect(
+      test.service.removeData({ appId: "com.acme.figma", spaceId: "personal" }),
+    ).rejects.toThrow("only be removed after");
   });
 });

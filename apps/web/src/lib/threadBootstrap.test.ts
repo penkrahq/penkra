@@ -61,6 +61,7 @@ function makeComposerDraftState(
     skills: [],
     mentions: [],
     queuedTurns: [],
+    queuePaused: false,
     modelSelectionByProvider: {
       claudeAgent: modelSelection("claudeAgent", "claude-opus-4-6", { effort: "max" }),
     },
@@ -306,28 +307,6 @@ describe("threadBootstrap", () => {
       envMode: "worktree",
       runtimeMode: "full-access",
       entryPoint: "terminal",
-    });
-  });
-
-  it("marks fresh draft seeds as temporary when requested", () => {
-    expect(
-      createFreshDraftThreadSeed({
-        createdAt: "2026-04-05T10:00:00.000Z",
-        entryPoint: "chat",
-        options: {
-          temporary: true,
-        },
-      }),
-    ).toEqual({
-      createdAt: "2026-04-05T10:00:00.000Z",
-      spaceId: null,
-      branch: null,
-      worktreePath: null,
-      workingDirectory: null,
-      envMode: "local",
-      runtimeMode: "full-access",
-      entryPoint: "chat",
-      isTemporary: true,
     });
   });
 

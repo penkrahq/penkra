@@ -1,11 +1,9 @@
 import {
   forwardRef,
-  type FocusEvent,
   type FormEvent,
   type KeyboardEvent,
   type ReactNode,
   type TextareaHTMLAttributes,
-  useState,
 } from "react";
 
 import { cn } from "~/lib/utils";
@@ -17,10 +15,12 @@ import {
 import { ComposerActions } from "../composer-actions/ComposerActions";
 
 export interface ComposerDefaultProps extends TextareaHTMLAttributes<HTMLTextAreaElement> {
-  onSend?: () => void;
   children?: ReactNode;
+  draftBar?: ReactNode;
   layoutMode?: "application" | "preview";
+  onSend?: () => void;
   showHarness?: boolean;
+  surfaceClassName?: string;
 }
 
 export const ComposerDefault = forwardRef<HTMLTextAreaElement, ComposerDefaultProps>(
@@ -29,23 +29,41 @@ export const ComposerDefault = forwardRef<HTMLTextAreaElement, ComposerDefaultPr
       children,
       className,
       disabled = false,
+      draftBar,
       layoutMode = "preview",
       onBlur,
       onFocus,
       onKeyDown,
       onSend,
-      placeholder = "Do anything",
+      placeholder = "Do something",
       showHarness = true,
+      surfaceClassName,
       ...props
     },
     ref,
   ) {
-    const [focused, setFocused] = useState(false);
-
     if (layoutMode === "application") {
       return (
-        <div className={cn("contents", className)} data-pencil-component="TKKOp">
-          {children}
+        <div
+          className={cn("relative w-full min-w-0 overflow-visible", className)}
+          data-pencil-component="TKKOp"
+        >
+          {draftBar ? (
+            <div
+              className="absolute -top-10 left-4 z-0 h-10 w-[calc(100%-2rem)] rounded-t-[18px] rounded-b-none border border-[var(--color-border)] bg-[var(--color-background-control-opaque)]"
+              data-pencil-node="fiR2o"
+            >
+              {draftBar}
+            </div>
+          ) : null}
+          <div
+            className={cn(
+              "relative z-10 flex min-h-[88.5px] w-full min-w-0 flex-col rounded-[18px] border border-[var(--color-border)] bg-[var(--color-background-control-opaque)] text-left",
+              surfaceClassName,
+            )}
+          >
+            {children}
+          </div>
         </div>
       );
     }
@@ -63,35 +81,24 @@ export const ComposerDefault = forwardRef<HTMLTextAreaElement, ComposerDefaultPr
       }
     };
 
-    const handleFocus = (event: FocusEvent<HTMLTextAreaElement>) => {
-      setFocused(true);
-      onFocus?.(event);
-    };
-
-    const handleBlur = (event: FocusEvent<HTMLTextAreaElement>) => {
-      setFocused(false);
-      onBlur?.(event);
-    };
-
     return (
       <form
         className={cn(
-          "flex min-h-[88.5px] w-full flex-col rounded-[18px] border border-[var(--color-border)] bg-[var(--color-background-control-opaque)] p-2.5 transition-colors data-[focused=true]:!border-[var(--color-border-focus)]",
+          "flex min-h-[88.5px] w-full flex-col rounded-[18px] border border-[var(--color-border)] bg-[var(--color-background-control-opaque)] p-2.5 text-left",
           className,
         )}
-        data-focused={focused}
         data-pencil-component="TKKOp"
         onSubmit={submit}
       >
         <textarea
           className={cn(
-            "w-full flex-1 resize-none border-0 bg-transparent p-0 text-[var(--color-text-foreground)] outline-none placeholder:text-[var(--color-text-foreground-tertiary)] placeholder:opacity-100 disabled:cursor-not-allowed",
+            "w-full flex-1 resize-none border-0 bg-transparent p-0 text-left text-[var(--color-text-foreground)] outline-none placeholder:text-left placeholder:text-[var(--color-text-foreground-tertiary)] placeholder:opacity-100 disabled:cursor-not-allowed",
             COMPOSER_EDITOR_MIN_HEIGHT_CLASS_NAME,
             COMPOSER_EDITOR_TYPOGRAPHY_CLASS_NAME,
           )}
           disabled={disabled}
-          onBlur={handleBlur}
-          onFocus={handleFocus}
+          onBlur={onBlur}
+          onFocus={onFocus}
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
           ref={ref}

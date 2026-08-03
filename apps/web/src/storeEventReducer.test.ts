@@ -93,6 +93,61 @@ describe("store event reducer", () => {
     ]);
   });
 
+  it("removes only the cancelled pre-acceptance prompt and clears its pending identity", () => {
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const pendingMessageId = MessageId.makeUnsafe("message-pending-start");
+    const retainedMessageId = MessageId.makeUnsafe("message-retained");
+    const stateWithPendingStart = applyOrchestrationEvents(makeState(makeThread()), [
+      makeDomainEvent("thread.message-sent", {
+        threadId,
+        messageId: retainedMessageId,
+        role: "user",
+        text: "keep me",
+        attachments: [],
+        turnId: null,
+        streaming: false,
+        source: "native",
+        createdAt: "2026-02-27T00:00:00.000Z",
+        updatedAt: "2026-02-27T00:00:00.000Z",
+      }),
+      makeDomainEvent("thread.message-sent", {
+        threadId,
+        messageId: pendingMessageId,
+        role: "user",
+        text: "cancel me",
+        attachments: [],
+        turnId: null,
+        streaming: false,
+        source: "native",
+        createdAt: "2026-02-27T00:00:01.000Z",
+        updatedAt: "2026-02-27T00:00:01.000Z",
+      }),
+      makeDomainEvent("thread.turn-start-requested", {
+        threadId,
+        messageId: pendingMessageId,
+        runtimeMode: DEFAULT_RUNTIME_MODE,
+        interactionMode: DEFAULT_INTERACTION_MODE,
+        dispatchMode: "queue",
+        createdAt: "2026-02-27T00:00:01.000Z",
+      }),
+    ]);
+
+    expect(threadsOf(stateWithPendingStart)[0]?.pendingTurnStartMessageId).toBe(pendingMessageId);
+
+    const cancelled = applyOrchestrationEvents(stateWithPendingStart, [
+      makeDomainEvent("thread.turn-start-cancelled", {
+        threadId,
+        messageId: pendingMessageId,
+        cancelledAt: "2026-02-27T00:00:02.000Z",
+      }),
+    ]);
+
+    expect(threadsOf(cancelled)[0]?.messages.map((message) => message.id)).toEqual([
+      retainedMessageId,
+    ]);
+    expect(threadsOf(cancelled)[0]?.pendingTurnStartMessageId).toBeNull();
+  });
+
   it("updates thread error and marks the running latest turn failed from session-set events", () => {
     const initialState = makeState(
       makeThread({

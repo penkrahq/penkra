@@ -11,6 +11,7 @@ import { AppContributedSkills } from "./AppContributedSkills";
 export function SettingsAppsPage() {
   const snapshot = useAppInstallationSnapshot();
   const activeSpaceId = useSpacesUiStore((state) => state.activeSpaceId);
+  const apps = snapshot?.installed.filter((app) => app.spaceId === activeSpaceId) ?? [];
 
   if (!snapshot) {
     return (
@@ -19,7 +20,7 @@ export function SettingsAppsPage() {
       </p>
     );
   }
-  if (snapshot.installed.length === 0) {
+  if (apps.length === 0) {
     return (
       <p className="text-xs text-[var(--color-text-foreground-secondary)]">
         No Apps are installed.
@@ -30,7 +31,7 @@ export function SettingsAppsPage() {
   return (
     <div data-pencil-page="apps">
       <div className="flex flex-col gap-2.5">
-        {snapshot.installed.map((app) => {
+        {apps.map((app) => {
           const spaceState = activeSpaceId
             ? snapshot.spaces.find(
                 (space) => space.appId === app.id && space.spaceId === activeSpaceId,
@@ -38,7 +39,7 @@ export function SettingsAppsPage() {
             : undefined;
           const enabled = spaceState?.enabled ?? false;
           return (
-            <div key={app.id}>
+            <div key={`${app.spaceId}:${app.id}`}>
               <SettingsInstalledRow
                 checked={enabled}
                 description={`${app.summary} Version ${app.version}.`}
@@ -82,7 +83,7 @@ export function SettingsAppsPage() {
           );
         })}
       </div>
-      <AppDiagnosticsView apps={snapshot.installed} spaceId={activeSpaceId} />
+      <AppDiagnosticsView apps={apps} spaceId={activeSpaceId} />
     </div>
   );
 }

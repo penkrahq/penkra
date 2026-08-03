@@ -1798,12 +1798,12 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.turn.interrupt": {
-      yield* requireThread({
+      const thread = yield* requireThread({
         readModel,
         command,
         threadId: command.threadId,
       });
-      return {
+      const interruptRequestedEvent: Omit<OrchestrationEvent, "sequence"> = {
         ...withEventBase({
           aggregateKind: "thread",
           aggregateId: command.threadId,
@@ -1814,9 +1814,38 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         payload: {
           threadId: command.threadId,
           ...(command.turnId !== undefined ? { turnId: command.turnId } : {}),
+          ...(command.pendingMessageId !== undefined
+            ? { pendingMessageId: command.pendingMessageId }
+            : {}),
           createdAt: command.createdAt,
         },
       };
+      if (thread.session?.status !== "starting" || command.pendingMessageId === undefined) {
+        return interruptRequestedEvent;
+      }
+      const interruptedSessionEvent: Omit<OrchestrationEvent, "sequence"> = {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.session-set",
+        payload: {
+          threadId: command.threadId,
+          session: {
+            ...thread.session,
+            status: "interrupted",
+            activeTurnId: null,
+            lastError: null,
+            updatedAt: command.createdAt,
+          },
+        },
+      };
+      return [
+        interruptedSessionEvent,
+        { ...interruptRequestedEvent, causationEventId: interruptedSessionEvent.eventId },
+      ];
     }
 
     case "thread.task.stop": {
@@ -2367,6 +2396,28 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           ...(command.skipAttachmentPrune !== undefined
             ? { skipAttachmentPrune: command.skipAttachmentPrune }
             : {}),
+        },
+      };
+    }
+
+    case "thread.turn.start.cancel.complete": {
+      yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.turn-start-cancelled",
+        payload: {
+          threadId: command.threadId,
+          messageId: command.messageId,
+          cancelledAt: command.createdAt,
         },
       };
     }

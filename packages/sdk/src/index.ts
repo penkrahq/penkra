@@ -49,6 +49,7 @@ export {
 
 export {
   operations,
+  browser,
   permissions,
   identity,
   settings,
@@ -59,7 +60,12 @@ export {
   secrets,
   tab,
   type AppIdentity,
+  type AppBrowserFindResult,
+  type AppBrowserPage,
+  type AppBrowserSessionState,
   type AppFileHandle,
+  type AppFileMetadata,
+  type AppFileChangeEvent,
   type AppPermissionStatus,
   type AppOperationHandler,
   type AppTabHandlerContext,

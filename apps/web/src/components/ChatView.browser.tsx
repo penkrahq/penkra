@@ -55,7 +55,6 @@ import {
   sendEffectRpcExit,
 } from "../test/effectRpcWebSocketMock";
 import { createBrowserTestServerConfig, createFullscreenTestHost } from "../test/browserHarness";
-import { useTemporaryThreadStore } from "../temporaryThreadStore";
 import { useTerminalStateStore } from "../terminalStateStore";
 import { resetRetainedThreadDetailSubscriptionsForTests } from "../threadDetailSubscriptionRetention";
 import { useWorkspacePathsStore } from "../workspacePathsStore";
@@ -71,6 +70,7 @@ const THREAD_TITLE = "Browser test thread";
 const UUID_ROUTE_RE = /^\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const PROJECT_ID = "project-1" as ContainerId;
 const OTHER_PROJECT_ID = "project-2" as ContainerId;
+const TEST_SPACE_ID = SpaceId.makeUnsafe("space-browser-test");
 const HOME_PROJECT_ID = "project-home" as ContainerId;
 const STUDIO_PROJECT_ID = "project-studio" as ContainerId;
 const STUDIO_DRAFT_THREAD_ID = "thread-studio-draft" as ThreadId;
@@ -116,14 +116,44 @@ const DEFAULT_VIEWPORT: ViewportSpec = {
 };
 const TEXT_VIEWPORT_MATRIX = [
   DEFAULT_VIEWPORT,
-  { name: "tablet", width: 720, height: 1_024, textTolerancePx: 44, attachmentTolerancePx: 56 },
-  { name: "mobile", width: 430, height: 932, textTolerancePx: 56, attachmentTolerancePx: 56 },
-  { name: "narrow", width: 320, height: 700, textTolerancePx: 84, attachmentTolerancePx: 56 },
+  {
+    name: "tablet",
+    width: 720,
+    height: 1_024,
+    textTolerancePx: 44,
+    attachmentTolerancePx: 56,
+  },
+  {
+    name: "mobile",
+    width: 430,
+    height: 932,
+    textTolerancePx: 56,
+    attachmentTolerancePx: 56,
+  },
+  {
+    name: "narrow",
+    width: 320,
+    height: 700,
+    textTolerancePx: 84,
+    attachmentTolerancePx: 56,
+  },
 ] as const satisfies readonly ViewportSpec[];
 const ATTACHMENT_VIEWPORT_MATRIX = [
   DEFAULT_VIEWPORT,
-  { name: "mobile", width: 430, height: 932, textTolerancePx: 56, attachmentTolerancePx: 56 },
-  { name: "narrow", width: 320, height: 700, textTolerancePx: 84, attachmentTolerancePx: 56 },
+  {
+    name: "mobile",
+    width: 430,
+    height: 932,
+    textTolerancePx: 56,
+    attachmentTolerancePx: 56,
+  },
+  {
+    name: "narrow",
+    width: 320,
+    height: 700,
+    textTolerancePx: 84,
+    attachmentTolerancePx: 56,
+  },
 ] as const satisfies readonly ViewportSpec[];
 
 interface UserRowMeasurement {
@@ -281,10 +311,21 @@ function createSnapshotForTargetUser(options: {
 
   return {
     snapshotSequence: 1,
-    spaces: [],
+    spaces: [
+      {
+        id: TEST_SPACE_ID,
+        name: "Personal",
+        icon: "bag",
+        sortOrder: 0,
+        createdAt: NOW_ISO,
+        updatedAt: NOW_ISO,
+        deletedAt: null,
+      },
+    ],
     projects: [
       {
         id: PROJECT_ID,
+        spaceId: TEST_SPACE_ID,
         kind: "project",
         title: "Project",
         workspaceRoot: "/repo/project",
@@ -302,6 +343,7 @@ function createSnapshotForTargetUser(options: {
       {
         id: THREAD_ID,
         projectId: PROJECT_ID,
+        spaceId: TEST_SPACE_ID,
         title: THREAD_TITLE,
         modelSelection: {
           provider: "codex",
@@ -458,6 +500,7 @@ function addThreadToSnapshot(
       {
         id: threadId,
         projectId: PROJECT_ID,
+        spaceId: TEST_SPACE_ID,
         title: options?.title ?? "New thread",
         modelSelection: {
           provider: "codex",
@@ -509,6 +552,7 @@ function withOpenProjectPickerFixtures(snapshot: OrchestrationReadModel): Orches
       ...snapshot.projects,
       {
         id: OTHER_PROJECT_ID,
+        spaceId: snapshot.projects[0]!.spaceId,
         kind: "project",
         title: "Other Project",
         workspaceRoot: "/repo/other",
@@ -827,8 +871,14 @@ function createSnapshotWithSettledCompletedInlinePlan(): OrchestrationReadModel 
                     ...activity,
                     payload: {
                       tasks: [
-                        { task: "Inspecting ChatView boundaries", status: "completed" },
-                        { task: "Patch the shared checklist receiver", status: "completed" },
+                        {
+                          task: "Inspecting ChatView boundaries",
+                          status: "completed",
+                        },
+                        {
+                          task: "Patch the shared checklist receiver",
+                          status: "completed",
+                        },
                         { task: "Run final validation", status: "completed" },
                       ],
                     },
@@ -1704,7 +1754,11 @@ async function measureUserRow(options: {
     },
   );
 
-  return { measuredRowHeightPx, timelineWidthMeasuredPx, renderedInVirtualizedRegion };
+  return {
+    measuredRowHeightPx,
+    timelineWidthMeasuredPx,
+    renderedInVirtualizedRegion,
+  };
 }
 
 async function measureChatLayout(host: HTMLElement): Promise<ChatLayoutMeasurement> {
@@ -1882,9 +1936,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
       stickyActiveProvider: null,
     });
     useStore.setState({ ...initialState });
-    useTemporaryThreadStore.setState({
-      temporaryThreadIds: {},
-    });
     useTerminalStateStore.setState({
       terminalStateByThreadId: {},
     });
@@ -1952,7 +2003,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
     try {
       const measurements: Array<
-        UserRowMeasurement & { viewport: ViewportSpec; estimatedHeightPx: number }
+        UserRowMeasurement & {
+          viewport: ViewportSpec;
+          estimatedHeightPx: number;
+        }
       > = [];
 
       for (const viewport of TEXT_VIEWPORT_MATRIX) {
@@ -2555,6 +2609,46 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
+  it("renders the approved split empty-thread composer component family", async () => {
+    useComposerDraftStore.setState({
+      draftThreadsByThreadId: {
+        [THREAD_ID]: {
+          projectId: PROJECT_ID,
+          createdAt: NOW_ISO,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          entryPoint: "chat",
+          branch: null,
+          worktreePath: null,
+          envMode: "local",
+        },
+      },
+      projectDraftThreadIdByProjectId: {
+        [PROJECT_ID]: THREAD_ID,
+      },
+    });
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createDraftOnlySnapshot(),
+    });
+
+    try {
+      await waitForComposerEditor();
+      await waitForServerConfigToApply();
+      await vi.waitFor(() => {
+        expect(document.querySelector('[data-pencil-component="BtaMG"]')).not.toBeNull();
+        expect(document.querySelector('[data-pencil-component="chpd8"]')).not.toBeNull();
+        expect(document.querySelector('[data-pencil-component="N4buaG"]')).not.toBeNull();
+        const accessIcon = document.querySelector<HTMLElement>('[data-pencil-node="Bo845"]');
+        expect(accessIcon).not.toBeNull();
+        expect(accessIcon?.style.mask).toContain("shield-access.svg");
+      });
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
   it("runs project scripts from local draft threads at the project cwd", async () => {
     useComposerDraftStore.setState({
       draftThreadsByThreadId: {
@@ -2607,7 +2701,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
     try {
       await waitForServerConfigToApply();
-      dispatchConfiguredShortcut(window, { key: "l", altKey: true, modKey: false });
+      dispatchConfiguredShortcut(window, {
+        key: "l",
+        altKey: true,
+        modKey: false,
+      });
 
       await vi.waitFor(
         () => {
@@ -2697,7 +2795,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
     try {
       await waitForServerConfigToApply();
-      dispatchConfiguredShortcut(window, { key: "t", altKey: true, modKey: false });
+      dispatchConfiguredShortcut(window, {
+        key: "t",
+        altKey: true,
+        modKey: false,
+      });
 
       await vi.waitFor(
         () => {
@@ -3082,6 +3184,83 @@ describe("ChatView timeline estimator parity (full app)", () => {
       );
 
       expect(getComputedStyle(stopButton).cursor).toBe("pointer");
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("keeps the composer usable and durably pauses follow-ups while a turn is starting", async () => {
+    const pendingMessageId = "msg-user-starting-cancellable" as MessageId;
+    const spaceId = SpaceId.makeUnsafe("space-starting-cancellable");
+    const startingSnapshot = createSnapshotForTargetUser({
+      targetMessageId: pendingMessageId,
+      targetText: "pending provider start prompt",
+      sessionStatus: "starting",
+    });
+    const hydratedStartingSnapshot: OrchestrationReadModel = {
+      ...startingSnapshot,
+      spaces: [
+        {
+          id: spaceId,
+          name: "Starting cancellation",
+          icon: "bag",
+          sortOrder: 0,
+          createdAt: NOW_ISO,
+          updatedAt: NOW_ISO,
+          deletedAt: null,
+        },
+      ],
+      projects: startingSnapshot.projects.map((project) => ({
+        ...project,
+        spaceId,
+      })),
+      threads: startingSnapshot.threads.map((thread) =>
+        thread.id === THREAD_ID
+          ? { ...thread, spaceId, pendingTurnStartMessageId: pendingMessageId }
+          : thread,
+      ),
+    };
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: hydratedStartingSnapshot,
+    });
+
+    try {
+      const composerEditor = await waitForComposerEditor();
+      expect(composerEditor.getAttribute("contenteditable")).toBe("true");
+
+      useComposerDraftStore.getState().setPrompt(THREAD_ID, "follow-up typed during startup");
+      const composerForm = await waitForElement(
+        () => document.querySelector<HTMLFormElement>('form[data-chat-composer-form="true"]'),
+        "Unable to find composer form.",
+      );
+      composerForm.requestSubmit();
+      await vi.waitFor(
+        () => {
+          expect(document.querySelectorAll('[data-testid="queued-follow-up-row"]')).toHaveLength(1);
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      const stopButton = await waitForElement(
+        () => document.querySelector<HTMLButtonElement>('button[aria-label="Stop generation"]'),
+        "Unable to find stop generation button during startup.",
+      );
+      stopButton.click();
+
+      await vi.waitFor(
+        () => {
+          const draft = useComposerDraftStore.getState().draftsByThreadId[THREAD_ID];
+          expect(draft?.queuePaused).toBe(true);
+          expect(draft?.prompt).toBe("pending provider start prompt");
+          expect(draft?.queuedTurns).toHaveLength(1);
+          const interrupt = wsRequests
+            .map(readDispatchedCommand)
+            .find((command) => command?.type === "thread.turn.interrupt");
+          expect(interrupt?.pendingMessageId).toBe(pendingMessageId);
+        },
+        { timeout: 8_000, interval: 16 },
+      );
     } finally {
       await mounted.cleanup();
     }
@@ -3505,7 +3684,9 @@ describe("ChatView timeline estimator parity (full app)", () => {
           expect(turnStartRequest).toBeTruthy();
           const command = turnStartRequest!.command as {
             interactionMode?: unknown;
-            message?: { attachments?: Array<{ type?: unknown; name?: unknown }> };
+            message?: {
+              attachments?: Array<{ type?: unknown; name?: unknown }>;
+            };
           };
           // Dispatched as a normal chat turn: it keeps the queued turn's own
           // "default" interaction mode rather than being coerced to "plan" by the
@@ -4955,11 +5136,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
         { timeout: 8_000, interval: 16 },
       );
 
-      useStore
-        .getState()
-        .syncServerReadModel(
-          addThreadToSnapshot(fixture.snapshot, newThreadId, { title: "New terminal" }),
-        );
+      useStore.getState().syncServerReadModel(
+        addThreadToSnapshot(fixture.snapshot, newThreadId, {
+          title: "New terminal",
+        }),
+      );
       useComposerDraftStore.getState().clearDraftThread(newThreadId);
 
       await vi.waitFor(
@@ -4997,6 +5178,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
           skills: [],
           mentions: [],
           queuedTurns: [],
+          queuePaused: false,
           modelSelectionByProvider: {
             claudeAgent: {
               provider: "claudeAgent",

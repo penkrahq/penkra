@@ -6,6 +6,15 @@ function fixture() {
   const sent: AppPreloadRendererMessage[] = [];
   let hostListener: ((message: unknown) => void) | null = null;
   const ready = vi.fn();
+  let browserStateListener: ((state: import("@penkra/sdk").AppBrowserSessionState) => void) | null =
+    null;
+  const browserCall = vi.fn(async () => ({
+    version: 1,
+    open: true,
+    activePageId: "page-1",
+    pages: [],
+    lastError: null,
+  }));
   const runtime = new AppPreloadRuntime({
     send: (message) => sent.push(message),
     onHostMessage: (listener) => {
@@ -38,9 +47,47 @@ function fixture() {
     fileList: vi.fn(async () => []),
     fileReadText: vi.fn(async () => ""),
     fileWriteText: vi.fn(async () => undefined),
+    fileStat: vi.fn(async () => ({
+      name: "root",
+      kind: "directory" as const,
+      relativePath: ".",
+      size: 0,
+      modifiedAt: "2026-08-02T00:00:00.000Z",
+    })),
     fileListDirectory: vi.fn(async () => []),
+    fileReadBinary: vi.fn(async () => ({
+      bytes: new Uint8Array(),
+      offset: 0,
+      totalBytes: 0,
+      complete: true,
+    })),
+    fileWriteBinary: vi.fn(async () => undefined),
+    fileCreateDirectory: vi.fn(async () => ({
+      name: "folder",
+      kind: "directory" as const,
+      relativePath: "folder",
+      size: 0,
+      modifiedAt: "2026-08-02T00:00:00.000Z",
+    })),
+    fileRename: vi.fn(async () => ({
+      name: "next",
+      kind: "file" as const,
+      relativePath: "next",
+      size: 0,
+      modifiedAt: "2026-08-02T00:00:00.000Z",
+    })),
+    fileRemove: vi.fn(async () => undefined),
+    fileWatch: vi.fn(async () => () => undefined),
     fileOpenChild: vi.fn(async () => ({ id: "child", kind: "file" as const, name: "child.txt" })),
     fileRevoke: vi.fn(async () => undefined),
+    resourceOpen: vi.fn(async () => ({ destination: "system" as const })),
+    browserCall,
+    onBrowserState: (listener) => {
+      browserStateListener = listener;
+      return () => {
+        browserStateListener = null;
+      };
+    },
     networkFetch: vi.fn(async () => ({
       url: "https://example.com/",
       status: 200,
@@ -60,6 +107,9 @@ function fixture() {
     runtime,
     sent,
     ready,
+    browserCall,
+    browserState: (state: import("@penkra/sdk").AppBrowserSessionState) =>
+      browserStateListener?.(state),
     host: (message: unknown) => hostListener?.(message),
   };
 }
@@ -77,12 +127,11 @@ function controllerRequest(input: unknown = { title: "Fix redirect" }) {
         id: "inv-1",
         app: "linear",
         operation: "issues.create",
-        caller: null,
-        subject: "sub_test",
-        space: "space_test",
+        spaceId: "personal",
         threadId: "thread-1",
         tabId: "target-tab",
       },
+      caller: { kind: "agent" },
     },
   };
 }
@@ -103,6 +152,26 @@ describe("AppPreloadRuntime", () => {
     );
     unregister();
     expect(() => test.runtime.api.operations.handle("issues.create", vi.fn())).not.toThrow();
+  });
+
+  it("exposes hosted browser calls and state without Electron primitives", async () => {
+    const test = fixture();
+    const listener = vi.fn();
+    const unsubscribe = test.runtime.api.browser.onState(listener);
+    const state = await test.runtime.api.browser.navigate({
+      pageId: "page-1",
+      url: "https://penkra.com",
+    });
+    expect(test.browserCall).toHaveBeenCalledWith("navigate", {
+      pageId: "page-1",
+      url: "https://penkra.com",
+    });
+    expect(state.open).toBe(true);
+    test.browserState(state);
+    expect(listener).toHaveBeenCalledWith(state);
+    unsubscribe();
+    test.browserState(state);
+    expect(listener).toHaveBeenCalledOnce();
   });
 
   it("invokes a controller handler with separate input and host-owned context", async () => {

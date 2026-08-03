@@ -102,7 +102,7 @@ describe("useBrowserPanelDesktopBridge", () => {
     vi.stubGlobal("window", {
       desktopBridge: {
         onMenuAction: bridge.onMenuAction,
-        browser: { onBrowserUseOpenPanelRequest: bridge.onOpenRequest },
+        browserUse: { onOpenRequest: bridge.onOpenRequest },
       },
     });
     const onToggle = vi.fn();
@@ -122,7 +122,7 @@ describe("useBrowserPanelDesktopBridge", () => {
     vi.stubGlobal("window", {
       desktopBridge: {
         onMenuAction: bridge.onMenuAction,
-        browser: { onBrowserUseOpenPanelRequest: bridge.onOpenRequest },
+        browserUse: { onOpenRequest: bridge.onOpenRequest },
       },
     });
 

@@ -93,7 +93,6 @@ const harness = vi.hoisted(() => ({
   clearDraftThread: vi.fn(),
   clearProjectDraftThreadById: vi.fn(),
   removeThreadFromSplitViews: vi.fn(),
-  clearTemporaryThread: vi.fn(),
   clearTerminalState: vi.fn(),
   handleNewChat: vi.fn(),
   removeDeletedThreadFromClientState: vi.fn(),
@@ -142,10 +141,6 @@ vi.mock("../splitViewStore", () => {
     resolveSplitViewPaneIdForThread: harness.resolveSplitViewPaneIdForThread,
   };
 });
-vi.mock("../temporaryThreadStore", () => ({
-  useTemporaryThreadStore: (selector: (state: unknown) => unknown) =>
-    selector({ clearTemporaryThread: harness.clearTemporaryThread }),
-}));
 vi.mock("../threadSelectionStore", () => ({
   useThreadSelectionStore: (selector: (state: unknown) => unknown) =>
     selector({ removeFromSelection: harness.removeFromSelection }),
@@ -273,7 +268,6 @@ beforeEach(() => {
     harness.clearDraftThread,
     harness.clearProjectDraftThreadById,
     harness.removeThreadFromSplitViews,
-    harness.clearTemporaryThread,
     harness.clearTerminalState,
     harness.handleNewChat,
     harness.resolveSplitViewPaneIdForThread,

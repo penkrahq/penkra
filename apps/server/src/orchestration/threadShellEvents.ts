@@ -34,6 +34,7 @@ const OTHER_THREAD_SHELL_EVENT_TYPES = new Set<OrchestrationEvent["type"]>([
   "thread.user-input-response-requested",
   "thread.reverted",
   "thread.conversation-rolled-back",
+  "thread.turn-start-cancelled",
   "thread.session-set",
   "thread.turn-diff-completed",
 ]);
@@ -51,6 +52,7 @@ export function shouldRefreshThreadShellSummary(event: OrchestrationEvent): bool
     case "thread.user-input-response-requested":
     case "thread.reverted":
     case "thread.conversation-rolled-back":
+    case "thread.turn-start-cancelled":
     case "thread.session-set":
     case "thread.turn-diff-completed":
       return true;

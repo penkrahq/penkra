@@ -549,6 +549,11 @@ const make = Effect.gen(function* () {
     readonly clearPriorTranscript: boolean;
   };
   const pendingContextBootstrapAttempts = new Map<string, PendingContextBootstrapAttempt>();
+  // A pending-start interrupt is also delivered as its own durable intent.
+  // Record cancellations completed by the start handler so that later intent
+  // does not issue a second, unscoped provider interrupt. Replay is safe: the
+  // start event is ordered before its interrupt and reconstructs this marker.
+  const completedPendingTurnStartInterrupts = new Set<string>();
   // Explicit stop resets context once: the next successful session start must
   // begin clean even if fork metadata would normally register a bootstrap.
   const suppressContextBootstrapOnNextStartThreadIds = new Set<string>();
@@ -1112,6 +1117,7 @@ const make = Effect.gen(function* () {
           lastError: session.lastError ?? null,
           updatedAt: session.updatedAt,
         },
+        ...(thread.session !== null ? { expectedSession: thread.session } : {}),
         createdAt,
       });
 
@@ -1250,9 +1256,58 @@ const make = Effect.gen(function* () {
     // restart-necessity checks compare against the live spawn state even when
     // the spawning dispatch carried no explicit model selection.
     threadSessionModelSelections.set(threadId, desiredModelSelection);
-    yield* bindSessionToThread(startedSession);
+    yield* bindSessionToThread(startedSession).pipe(
+      // Runtime lifecycle projection or a user interrupt may win this CAS.
+      // Preserve that newer state; the caller immediately performs the exact
+      // pending-message cancellation check before any provider send.
+      Effect.catchTag("OrchestrationCommandInvariantError", () => Effect.void),
+    );
     suppressContextBootstrapOnNextStartThreadIds.delete(threadId);
     return startedSession.threadId;
+  });
+
+  const hasTurnStartCancellationRequest = Effect.fnUntraced(function* (input: {
+    readonly threadId: ThreadId;
+    readonly messageId: string;
+    readonly afterSequence: number;
+  }) {
+    const thread = yield* resolveThread(input.threadId);
+    if (thread?.session?.status === "interrupted" && thread.session.activeTurnId === null) {
+      return true;
+    }
+    const throughSequence = yield* orchestrationEngine.getEventHighWaterSequence;
+    if (throughSequence <= input.afterSequence) {
+      return false;
+    }
+    const events = yield* Stream.runCollect(
+      orchestrationEngine.readEventsThrough(input.afterSequence, throughSequence),
+    );
+    return Array.from(events).some(
+      (event) =>
+        event.type === "thread.turn-interrupt-requested" &&
+        event.payload.threadId === input.threadId &&
+        event.payload.pendingMessageId === input.messageId,
+    );
+  });
+
+  const completeCancelledTurnStart = Effect.fnUntraced(function* (input: {
+    readonly threadId: ThreadId;
+    readonly messageId: string;
+    readonly createdAt: string;
+  }) {
+    if (providerService.stopRuntimeSession) {
+      yield* providerService
+        .stopRuntimeSession({ threadId: input.threadId })
+        .pipe(Effect.catch(() => Effect.void));
+    }
+    yield* orchestrationEngine.dispatch({
+      type: "thread.turn.start.cancel.complete",
+      commandId: serverCommandId("turn-start-cancel-complete"),
+      threadId: input.threadId,
+      messageId: MessageId.makeUnsafe(input.messageId),
+      createdAt: input.createdAt,
+    });
+    completedPendingTurnStartInterrupts.add(input.messageId);
   });
 
   const dispatchTurnForThread = Effect.fnUntraced(function* (input: {
@@ -1269,6 +1324,7 @@ const make = Effect.gen(function* () {
     readonly interactionMode?: "default" | "plan";
     readonly dispatchMode?: "queue" | "steer";
     readonly createdAt: string;
+    readonly startRequestSequence: number;
   }) {
     const thread = yield* resolveThread(input.threadId);
     if (!thread) {
@@ -1363,7 +1419,25 @@ const make = Effect.gen(function* () {
       ...(input.modelSelection !== undefined ? { modelSelection: input.modelSelection } : {}),
       ...(input.providerOptions !== undefined ? { providerOptions: input.providerOptions } : {}),
       ...(input.runtimeMode !== undefined ? { runtimeMode: input.runtimeMode } : {}),
-    });
+    }).pipe(
+      Effect.catch((error) =>
+        hasTurnStartCancellationRequest({
+          threadId: input.threadId,
+          messageId: input.messageId,
+          afterSequence: input.startRequestSequence,
+        }).pipe(Effect.flatMap((cancelled) => (cancelled ? Effect.void : Effect.fail(error)))),
+      ),
+    );
+    if (
+      yield* hasTurnStartCancellationRequest({
+        threadId: input.threadId,
+        messageId: input.messageId,
+        afterSequence: input.startRequestSequence,
+      })
+    ) {
+      yield* completeCancelledTurnStart(input);
+      return;
+    }
     if (input.providerOptions !== undefined) {
       threadProviderOptions.set(input.threadId, input.providerOptions);
     }
@@ -1698,6 +1772,16 @@ const make = Effect.gen(function* () {
           );
           return yield* sendQueuedProviderTurn(retryNormalizedInput);
         });
+      if (
+        yield* hasTurnStartCancellationRequest({
+          threadId: input.threadId,
+          messageId: input.messageId,
+          afterSequence: input.startRequestSequence,
+        })
+      ) {
+        yield* completeCancelledTurnStart(input);
+        return;
+      }
       const sentTurn = yield* sendQueuedProviderTurn(normalizedInput).pipe(
         Effect.catch((error) =>
           Effect.gen(function* () {
@@ -1764,6 +1848,23 @@ const make = Effect.gen(function* () {
         ),
       );
       startedTurn = sentTurn;
+      if (
+        yield* hasTurnStartCancellationRequest({
+          threadId: input.threadId,
+          messageId: input.messageId,
+          afterSequence: input.startRequestSequence,
+        })
+      ) {
+        yield* providerService.interruptTurn({
+          threadId: input.threadId,
+          turnId: sentTurn.turnId,
+        });
+        completedPendingTurnStartInterrupts.add(input.messageId);
+        yield* settleInterruptedProviderTurn({
+          threadId: input.threadId,
+          createdAt: new Date().toISOString(),
+        });
+      }
       if (pendingContextBootstrapAttempt) {
         pendingContextBootstrapAttempt.turnId = sentTurn.turnId;
         const terminalEvent = pendingContextBootstrapAttempt.terminalEvent;
@@ -2250,6 +2351,7 @@ const make = Effect.gen(function* () {
         interactionMode: event.payload.interactionMode,
         dispatchMode: immediateDispatchMode,
         createdAt: event.payload.createdAt,
+        startRequestSequence: event.sequence,
       }).pipe(
         Effect.catchCause((cause) =>
           Cause.hasInterruptsOnly(cause)
@@ -2595,6 +2697,18 @@ const make = Effect.gen(function* () {
   const processTurnInterruptRequested = Effect.fnUntraced(function* (
     event: Extract<ProviderIntentEvent, { type: "thread.turn-interrupt-requested" }>,
   ) {
+    if (event.payload.pendingMessageId !== undefined) {
+      if (completedPendingTurnStartInterrupts.delete(event.payload.pendingMessageId)) {
+        return;
+      }
+      const thread = yield* resolveThread(event.payload.threadId);
+      if (
+        thread?.session?.activeTurnId === null &&
+        (thread.session.status === "interrupted" || thread.session.status === "stopped")
+      ) {
+        return;
+      }
+    }
     yield* interruptProviderTurn({
       threadId: event.payload.threadId,
       turnId: event.payload.turnId,

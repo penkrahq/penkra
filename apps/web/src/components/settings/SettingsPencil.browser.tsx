@@ -109,6 +109,7 @@ describe("Pencil settings structure", () => {
       installed: [
         {
           id: "com.penkra.apps",
+          spaceId: "personal",
           slug: "apps",
           name: "Apps",
           summary: "Discover and manage Apps.",

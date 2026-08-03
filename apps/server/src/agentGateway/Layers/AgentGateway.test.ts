@@ -1282,6 +1282,7 @@ describe("AgentGateway", () => {
         "penkra_interrupt_thread",
         "penkra_set_thread_title",
         "penkra_set_thread_archived",
+        "penkra_exec",
       ]);
       const createThreadProperties = tools.find((tool) => tool.name === "penkra_create_thread")
         ?.inputSchema.properties;

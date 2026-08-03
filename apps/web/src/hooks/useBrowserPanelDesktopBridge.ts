@@ -28,12 +28,12 @@ export function useBrowserPanelDesktopBridge(input: {
   }, [toggleEnabled]);
 
   useEffect(() => {
-    const onOpenBrowserPanelRequest = window.desktopBridge?.browser.onBrowserUseOpenPanelRequest;
-    if (typeof onOpenBrowserPanelRequest !== "function" || !openEnabled) {
+    const onOpenBrowserRequest = window.desktopBridge?.browserUse.onOpenRequest;
+    if (typeof onOpenBrowserRequest !== "function" || !openEnabled) {
       return;
     }
 
-    const unsubscribe = onOpenBrowserPanelRequest(() => {
+    const unsubscribe = onOpenBrowserRequest(() => {
       handleOpen();
     });
 

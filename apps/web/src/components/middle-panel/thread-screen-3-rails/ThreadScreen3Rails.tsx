@@ -29,7 +29,7 @@ export function ThreadScreen3Rails({
     return (
       <section
         className={cn(
-          "relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[var(--color-background-surface-under)]",
+          "chat-pane-container relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[var(--color-background-surface-under)]",
           className,
         )}
         data-pencil-component="y0DmC"

@@ -29,11 +29,12 @@ void app
       window: () => window,
       onTabOpened: () => undefined,
       onTabState: () => undefined,
+      onTabClosed: () => undefined,
       getAccountId: async () => "app-test-account",
     });
     try {
-      await bootstrapDevelopmentSideload(runtime, sourcePath);
-      const installed = Object.values(runtime.installations.snapshot().packagesByAppId);
+      await bootstrapDevelopmentSideload(runtime, sourcePath, TEST_SPACE_ID);
+      const installed = Object.values(runtime.installations.snapshot().packagesByInstallationKey);
       if (installed.length !== 1)
         throw new Error(`Expected one sideloaded App, found ${installed.length}.`);
       const packageRecord = installed[0]!;

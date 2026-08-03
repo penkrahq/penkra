@@ -35,6 +35,7 @@ import { ComposerPickerMenuPopup } from "./ComposerPickerMenuPopup";
 import { getComposerTraitSelection, hasVisibleComposerTraitControls } from "./composerTraits";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { ShortcutKbd } from "../ui/shortcut-kbd";
+import { MenuEffort } from "../middle-panel/menu-effort/MenuEffort";
 
 const ULTRATHINK_PROMPT_PREFIX = "Ultrathink:\n";
 
@@ -498,6 +499,9 @@ export const TraitsPicker = memo(function TraitsPicker({
   onSelectionCommitted,
   shortcutLabel,
   hideLabel: hideLabelProp,
+  pencilMenuComponentId,
+  menuClassName,
+  triggerClassName,
 }: TraitsMenuContentProps & {
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
@@ -506,6 +510,9 @@ export const TraitsPicker = memo(function TraitsPicker({
   // Icon-only trigger (gear + chevron) for narrow composers; the effort/context
   // summary moves to title/sr-only.
   hideLabel?: boolean;
+  pencilMenuComponentId?: string;
+  menuClassName?: string;
+  triggerClassName?: string;
 }) {
   const includeFastMode = includeFastModeProp ?? true;
   const hideLabel = hideLabelProp ?? false;
@@ -576,7 +583,11 @@ export const TraitsPicker = memo(function TraitsPicker({
     <Button
       size="sm"
       variant="chrome"
-      className={`min-w-0 shrink-0 justify-start overflow-hidden whitespace-nowrap px-2 sm:px-2.5 [&_svg]:mx-0 ${COMPOSER_PICKER_TRIGGER_TEXT_CLASS_NAME}`}
+      className={cn(
+        "min-w-0 shrink-0 justify-start overflow-hidden whitespace-nowrap px-2 sm:px-2.5 [&_svg]:mx-0",
+        COMPOSER_PICKER_TRIGGER_TEXT_CLASS_NAME,
+        triggerClassName,
+      )}
       aria-label="Change effort, context, and speed"
       {...(hideLabel && hiddenLabelTitle.length > 0 ? { title: hiddenLabelTitle } : {})}
     />
@@ -641,6 +652,20 @@ export const TraitsPicker = memo(function TraitsPicker({
       <ChevronDownIcon aria-hidden="true" className="size-3 opacity-60" />
     </>
   );
+  const menuContent = (
+    <TraitsMenuContent
+      provider={provider}
+      threadId={threadId}
+      model={model}
+      runtimeModel={runtimeModel}
+      runtimeAgents={runtimeAgents}
+      prompt={prompt}
+      onPromptChange={onPromptChange}
+      includeFastMode={includeFastMode}
+      modelOptions={modelOptions}
+      onSelectionComplete={handleSelectionComplete}
+    />
+  );
 
   return (
     <Menu
@@ -649,40 +674,33 @@ export const TraitsPicker = memo(function TraitsPicker({
         setMenuOpen(open);
       }}
     >
-      {shortcutLabel ? (
-        <Tooltip>
-          <TooltipTrigger render={<MenuTrigger render={triggerButton} />}>
-            {triggerContent}
-          </TooltipTrigger>
-          {!isMenuOpen ? (
-            <TooltipPopup side="top" sideOffset={6} variant="picker">
-              <span className="inline-flex items-center gap-2 px-1 py-0.5">
-                <span>Change effort, context, and speed</span>
+      <Tooltip>
+        <TooltipTrigger render={<MenuTrigger render={triggerButton} />}>
+          {triggerContent}
+        </TooltipTrigger>
+        {!isMenuOpen ? (
+          <TooltipPopup side="top" sideOffset={6} variant="picker">
+            <span className="inline-flex items-center gap-2 px-1 py-0.5">
+              <span>Change effort, context, and speed</span>
+              {shortcutLabel ? (
                 <ShortcutKbd
                   shortcutLabel={shortcutLabel}
                   className="h-4 min-w-4 px-1 text-[length:var(--app-font-size-ui-2xs,9px)] text-muted-foreground"
                 />
-              </span>
-            </TooltipPopup>
-          ) : null}
-        </Tooltip>
+              ) : null}
+            </span>
+          </TooltipPopup>
+        ) : null}
+      </Tooltip>
+      {pencilMenuComponentId === "e4cfzr" ? (
+        <MenuEffort className={menuClassName} fixedWidth>
+          {menuContent}
+        </MenuEffort>
       ) : (
-        <MenuTrigger render={triggerButton}>{triggerContent}</MenuTrigger>
+        <ComposerPickerMenuPopup align="start" className={menuClassName} fixedWidth>
+          {menuContent}
+        </ComposerPickerMenuPopup>
       )}
-      <ComposerPickerMenuPopup align="start" fixedWidth>
-        <TraitsMenuContent
-          provider={provider}
-          threadId={threadId}
-          model={model}
-          runtimeModel={runtimeModel}
-          runtimeAgents={runtimeAgents}
-          prompt={prompt}
-          onPromptChange={onPromptChange}
-          includeFastMode={includeFastMode}
-          modelOptions={modelOptions}
-          onSelectionComplete={handleSelectionComplete}
-        />
-      </ComposerPickerMenuPopup>
     </Menu>
   );
 });

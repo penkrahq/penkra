@@ -43,7 +43,7 @@ import {
 } from "./types";
 
 export const COMPOSER_DRAFT_STORAGE_KEY = "penkra:composer-drafts:v1";
-export const COMPOSER_DRAFT_STORAGE_VERSION = 5;
+export const COMPOSER_DRAFT_STORAGE_VERSION = 6;
 export type DraftThreadEnvMode = "local" | "worktree";
 const TERMINAL_DRAFT_THREAD_MAPPING_SUFFIX = "::terminal";
 
@@ -151,6 +151,7 @@ export interface ComposerThreadDraftState {
   skills: ProviderSkillReference[];
   mentions: ProviderMentionReference[];
   queuedTurns: QueuedComposerTurn[];
+  queuePaused: boolean;
   restoredSourceProposedPlan?: RestoredComposerSourceProposedPlan | null;
   modelSelectionByProvider: Partial<Record<ProviderKind, ModelSelection>>;
   activeProvider: ProviderKind | null;
@@ -170,7 +171,6 @@ export interface DraftThreadState {
   workingDirectory?: string | null;
   lastKnownPr?: OrchestrationThreadPullRequest | null;
   envMode: DraftThreadEnvMode;
-  isTemporary?: boolean;
   promotedTo?: ThreadId;
 }
 
@@ -188,7 +188,6 @@ interface DraftThreadMutationOptions {
   runtimeMode?: RuntimeMode;
   interactionMode?: ProviderInteractionMode;
   entryPoint?: ThreadPrimarySurface;
-  isTemporary?: boolean;
 }
 
 type DraftThreadCreatedAtMode = "accept-empty" | "preserve-existing-on-empty";
@@ -233,7 +232,6 @@ export interface ComposerDraftStoreState {
       runtimeMode?: RuntimeMode;
       interactionMode?: ProviderInteractionMode;
       entryPoint?: ThreadPrimarySurface;
-      isTemporary?: boolean;
     },
   ) => void;
   setDraftThreadContext: (
@@ -297,6 +295,7 @@ export interface ComposerDraftStoreState {
   enqueueQueuedTurn: (threadId: ThreadId, queuedTurn: QueuedComposerTurn) => void;
   insertQueuedTurn: (threadId: ThreadId, queuedTurn: QueuedComposerTurn, index: number) => void;
   removeQueuedTurn: (threadId: ThreadId, queuedTurnId: string) => void;
+  setQueuePaused: (threadId: ThreadId, paused: boolean) => void;
   addImage: (threadId: ThreadId, image: ComposerImageAttachment) => void;
   addImages: (threadId: ThreadId, images: ComposerImageAttachment[]) => void;
   removeImage: (threadId: ThreadId, imageId: string) => void;
@@ -390,12 +389,6 @@ export function buildDraftThreadState(input: {
     options?.entryPoint,
     existingThread?.entryPoint ?? "chat",
   );
-  const nextIsTemporary =
-    options?.isTemporary === true
-      ? true
-      : options?.isTemporary === false
-        ? false
-        : existingThread?.isTemporary === true;
   const nextPromotedTo = existingThread?.promotedTo;
 
   return {
@@ -426,7 +419,6 @@ export function buildDraftThreadState(input: {
         : (options.lastKnownPr ?? null),
     envMode:
       options?.envMode ?? (nextWorktreePath ? "worktree" : (existingThread?.envMode ?? "local")),
-    ...(nextIsTemporary ? { isTemporary: true } : {}),
     ...(nextPromotedTo ? { promotedTo: nextPromotedTo } : {}),
   };
 }
@@ -451,7 +443,6 @@ export function draftThreadStatesEqual(
     (left.workingDirectory ?? null) === (right.workingDirectory ?? null) &&
     Equal.equals(left.lastKnownPr ?? null, right.lastKnownPr ?? null) &&
     left.envMode === right.envMode &&
-    (left.isTemporary === true) === (right.isTemporary === true) &&
     left.promotedTo === right.promotedTo
   );
 }
@@ -488,6 +479,7 @@ export function createEmptyThreadDraft(): ComposerThreadDraftState {
     skills: [],
     mentions: [],
     queuedTurns: [],
+    queuePaused: false,
     restoredSourceProposedPlan: null,
     modelSelectionByProvider: {},
     activeProvider: null,
@@ -782,6 +774,7 @@ export function shouldRemoveDraft(draft: ComposerThreadDraftState): boolean {
     draft.skills.length === 0 &&
     draft.mentions.length === 0 &&
     draft.queuedTurns.length === 0 &&
+    !draft.queuePaused &&
     draft.restoredSourceProposedPlan == null &&
     Object.keys(draft.modelSelectionByProvider).length === 0 &&
     draft.activeProvider === null &&
@@ -832,6 +825,7 @@ const EMPTY_THREAD_DRAFT = Object.freeze<ComposerThreadDraftState>({
   skills: EMPTY_SKILLS,
   mentions: EMPTY_MENTIONS,
   queuedTurns: EMPTY_QUEUED_TURNS,
+  queuePaused: false,
   restoredSourceProposedPlan: null,
   modelSelectionByProvider: EMPTY_MODEL_SELECTION_BY_PROVIDER,
   activeProvider: null,

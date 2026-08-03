@@ -47,13 +47,13 @@ import {
   ComposerStackedPanelHeaderRow,
   ComposerStackedPanelRowLabel,
   ComposerStackedPanelRowMain,
-} from "./ComposerStackedPanelContent";
-import { ComposerStackedPanel } from "./ComposerStackedPanel";
+} from "../middle-panel/composer-stacked-status/ComposerStackedPanelContent";
+import { ComposerStackedPanel } from "../middle-panel/composer-stacked-status/ComposerStackedPanel";
 import {
   COMPOSER_STACKED_PANEL_BODY_PADDING_CLASS_NAME,
   COMPOSER_STACKED_PANEL_ICON_BUTTON_CLASS_NAME,
   COMPOSER_STACKED_PANEL_ICON_CLASS_NAME,
-} from "./composerStackedPanelStyles";
+} from "../middle-panel/composer-stacked-status/composerStackedPanelStyles";
 
 interface WorkflowRunCardProps {
   workflowRun: WorkflowRunState;

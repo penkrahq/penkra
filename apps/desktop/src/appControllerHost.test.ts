@@ -110,12 +110,11 @@ function operationContext(tab?: AppTabHandle): OperationContext {
       id: "inv-1",
       app: "linear",
       operation: "issues.create",
-      caller: null,
-      subject: "sub_test",
-      space: "space_test",
+      spaceId: "personal",
       threadId: "thread-1",
       ...(tab ? { tabId: tab.id } : {}),
     },
+    caller: { kind: "host" },
     ...(tab ? { tab } : {}),
     tabs: {
       open: vi.fn(async () => tabHandle("opened-tab")),
@@ -185,6 +184,7 @@ describe("AppControllerHost", () => {
         handler: "issues.create",
         input: { title: "Fix redirect" },
         invocation: expect.objectContaining({ id: "inv-1", app: "linear" }),
+        caller: { kind: "host" },
       },
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );

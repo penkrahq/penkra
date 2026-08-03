@@ -16,7 +16,6 @@ import { Spinner } from "../ui/spinner";
 import { cn } from "~/lib/utils";
 
 const DiffPanel = lazy(() => import("../DiffPanel"));
-export const LazyBrowserPanel = lazy(() => import("../BrowserPanel"));
 
 export const noopChatSurfaceAction = () => {};
 

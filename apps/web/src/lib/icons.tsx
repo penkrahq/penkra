@@ -117,7 +117,6 @@ export const PanelCollapseIcon: LucideIcon = centralIconWrapper("minimize-45");
 export const BackToParentIcon: LucideIcon = centralIconWrapper("arrow-share-left");
 export const WorkflowIcon: LucideIcon = centralIconWrapper("agents");
 export const SteerIcon: LucideIcon = centralIconWrapper("arrow-corner-down-right");
-export const ComposerSendArrowIcon: LucideIcon = centralIconWrapper("arrow-up");
 export const HandoffIcon: LucideIcon = centralIconWrapper("arrow-left-right");
 export const SkillCubeIcon: LucideIcon = centralIconWrapper("building-blocks");
 export const NewThreadIcon: LucideIcon = centralIconWrapper("compose-pencil");
@@ -257,12 +256,6 @@ export const SquareSplitHorizontal: LucideIcon = (props) => (
 );
 export const SquareSplitVertical: LucideIcon = (props) => (
   <PiSquareSplitVertical className={props.className} style={props.style} />
-);
-const TemporaryThreadGlyph = centralIconWrapper("bubble-annotation-5");
-// Dotted "annotation" chat bubble — the temporary thread marker shown on the
-// composer toggle and beside temporary threads in the sidebar.
-export const TemporaryThreadIcon: LucideIcon = ({ className, ...props }) => (
-  <TemporaryThreadGlyph className={cn("size-3.5 shrink-0", className)} {...props} />
 );
 export const TerminalIcon = centralIconWrapper("console");
 export const TerminalSquare = centralIconWrapper("console");

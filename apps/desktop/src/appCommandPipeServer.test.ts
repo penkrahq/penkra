@@ -32,11 +32,13 @@ describe("AppCommandPipeServer", () => {
     const directory = FS.mkdtempSync(Path.join(OS.tmpdir(), "penkra-app-command-"));
     const path = Path.join(directory, "command.sock");
     const invoke = vi.fn(async () => ({ created: true }));
+    const open = vi.fn(async () => ({ destination: "system" }));
     const current = {
       id: "tab-1",
       appId: "com.acme.linear",
       slug: "linear",
       name: "Linear",
+      iconDataUrl: null,
       spaceId: "personal",
       threadId: "thread-1",
       route: "/issues",
@@ -54,6 +56,7 @@ describe("AppCommandPipeServer", () => {
       } as never,
       broker: { invoke } as never,
       tabs: { list: () => [current], current: () => current },
+      open,
     });
     await server.start();
     disposers.push(async () => {
@@ -71,11 +74,36 @@ describe("AppCommandPipeServer", () => {
     ).resolves.toEqual({ ok: true, id: "request-1", result: { created: true } });
     expect(invoke).toHaveBeenCalledWith({
       app: "linear",
+      callerKind: "agent",
       operation: "issues.create",
       input: { title: "Fix auth" },
       spaceId: "personal",
       threadId: "thread-1",
       tabId: "tab-1",
+    });
+
+    await expect(
+      send(path, {
+        id: "request-open",
+        token: "secret",
+        method: "core.open",
+        params: {
+          path: "/tmp/example.pdf",
+          requestedApp: "explorer",
+          spaceId: "personal",
+          threadId: "thread-1",
+        },
+      }),
+    ).resolves.toEqual({
+      ok: true,
+      id: "request-open",
+      result: { destination: "system" },
+    });
+    expect(open).toHaveBeenCalledWith({
+      path: "/tmp/example.pdf",
+      requestedApp: "explorer",
+      spaceId: "personal",
+      threadId: "thread-1",
     });
 
     await expect(

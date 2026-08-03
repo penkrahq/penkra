@@ -8,12 +8,8 @@ export interface OperationAddress {
 export interface OperationInvocation<Input = unknown> extends OperationAddress {
   /** Host-minted identity for this invocation. */
   id: string;
-  /** Calling App for cross-App invocation; null for agent, CLI, or trusted host calls. */
-  caller: { app: string; invocationId: string } | null;
-  /** Pairwise Account subject for this App, or null while signed out. */
-  subject: string | null;
-  /** Opaque App-scoped Space identity; never the host's local Space ID. */
-  space: string;
+  /** Host-validated Space that owns this invocation. */
+  spaceId: string;
   threadId: string;
   /** Explicitly targeted existing App tab, when the operation needs one. */
   tabId?: string;
@@ -57,6 +53,8 @@ export interface AppTabs {
 
 export interface OperationContext {
   invocation: Omit<OperationInvocation, "input">;
+  /** Host-asserted caller class. Caller identity is deliberately not exposed. */
+  caller: { kind: "user" | "agent" | "app" | "host" };
   /** Present only when the invocation targets a validated existing App tab. */
   tab?: AppTabHandle;
   /** Manager for opening new tabs owned by the invoked App. */

@@ -19,7 +19,6 @@ import {
   type ProviderStartOptions,
   type ProviderUserInputAnswers,
   type PinnedMessage,
-  PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
   type ResolvedKeybindingsConfig,
   type ServerProviderStatus,
   ThreadId,
@@ -112,12 +111,7 @@ import { isStudioContainerProject } from "../lib/studioProjects";
 import { resolveFirstSendTarget } from "../lib/chatFirstSend";
 import { readActiveSpaceId, useSpacesUiStore } from "../spacesUiStore";
 import {
-  maybeResolveBrowserPromptAttachment,
-  type BrowserPromptAttachmentResolution,
-} from "../lib/browserPromptContext";
-import {
   buildComposerFileAttachmentsFromFiles,
-  IMAGE_SIZE_LIMIT_LABEL,
   buildComposerImageAttachmentsFromFiles,
   stageUploadComposerAttachments,
   cloneComposerImageAttachment,
@@ -230,7 +224,7 @@ import {
 } from "../hooks/useComposerCommandMenuItems";
 import { useProviderModelCatalog } from "../hooks/useProviderModelCatalog";
 import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
-import BranchToolbar, { RuntimeUsageControls } from "./BranchToolbar";
+import { RuntimeUsageControls } from "./BranchToolbar";
 import { PenkraMark } from "./foundations/penkra-mark-shared/PenkraMark";
 import { ThreadWorktreeHandoffDialog } from "./ThreadWorktreeHandoffDialog";
 import {
@@ -238,12 +232,7 @@ import {
   resolveShortcutCommand,
   shortcutLabelForCommand,
 } from "../keybindings";
-import {
-  ComposerSendArrowIcon,
-  EllipsisIcon,
-  RefreshCwIcon,
-  TemporaryThreadIcon,
-} from "~/lib/icons";
+import { EllipsisIcon, RefreshCwIcon } from "~/lib/icons";
 import { ComposerQueuedHeader } from "./chat/ComposerQueuedHeader";
 import { ComposerLiveChangesHeader } from "./chat/ComposerLiveChangesHeader";
 import { ComposerPickerMenuPopup } from "./chat/ComposerPickerMenuPopup";
@@ -292,7 +281,6 @@ import {
   useComposerThreadDraft,
   useEffectiveComposerModelState,
 } from "../composerDraftStore";
-import { useTemporaryThreadStore } from "../temporaryThreadStore";
 import { useComposerFocusRequestStore } from "../composerFocusRequestStore";
 import { useWorkflowRunUiStore, useWorkflowRunUiThreadState } from "../workflowRunUiStore";
 import { appendComposerPromptText } from "../lib/chatReferences";
@@ -373,9 +361,11 @@ import { useThreadRecap } from "~/hooks/useThreadRecap";
 import { useRepoDiffTotals } from "~/hooks/useRepoDiffTotals";
 import { useIsMobile } from "~/hooks/useMediaQuery";
 import { ChatTranscriptPane } from "./chat/ChatTranscriptPane";
-import { ThreadScreen3RailsAdapter } from "./middle-panel/thread-screen-3-rails/ThreadScreen3RailsAdapter";
+import { ComposerDefault } from "./middle-panel/composer-default/ComposerDefault";
+import { ThreadScreen3Rails } from "./middle-panel/thread-screen-3-rails/ThreadScreen3Rails";
+import { ThreadScreenEmpty } from "./middle-panel/thread-screen-empty/ThreadScreenEmpty";
+import { ThreadShell } from "./middle-panel/thread-shell/ThreadShell";
 import { TopBarThreadAdapter } from "./middle-panel/top-bar-thread/TopBarThreadAdapter";
-import { ComposerDefaultAdapter } from "./middle-panel/composer-default/ComposerDefaultAdapter";
 import type { MessagesTimelineController } from "./chat/MessagesTimeline";
 import { buildTurnDiffSummaryByAssistantMessageId } from "./chat/MessagesTimeline.logic";
 import { deriveAgentActivityTimelineState } from "./chat/agentActivity.logic";
@@ -392,10 +382,17 @@ import {
   ComposerLocalDirectoryMenu,
   type ComposerLocalDirectoryMenuHandle,
 } from "./chat/ComposerLocalDirectoryMenu";
-import { ComposerPendingApprovalPanel } from "./chat/ComposerPendingApprovalPanel";
+import { ComposerPendingApprovalPanel } from "./middle-panel/composer-pending-approval/ComposerPendingApprovalPanel";
 import { ComposerExtrasMenu } from "./chat/ComposerExtrasMenu";
-import { ContextWindowMeter } from "./chat/ContextWindowMeter";
-import { ComposerPendingUserInputPanel } from "./chat/ComposerPendingUserInputPanel";
+import { ComposerQuickSettings } from "./chat/ComposerQuickSettings";
+import { ComposerPendingUserInputPanel } from "./middle-panel/composer-user-question/ComposerPendingUserInputPanel";
+import { ButtonSend } from "./middle-panel/button-send/ButtonSend";
+import { ComposerActions } from "./middle-panel/composer-actions/ComposerActions";
+import { ComposerActionsEmptyThread } from "./middle-panel/composer-actions-empty-thread/ComposerActionsEmptyThread";
+import { DraftFolderBar } from "./middle-panel/composer-default/DraftFolderBar";
+import { EffortSelectorEmptyThread } from "./middle-panel/effort-selector-empty-thread/EffortSelectorEmptyThread";
+import { FolderPromptShared } from "./middle-panel/folder-prompt-shared/FolderPromptShared";
+import { ModelSelectorEmptyThread } from "./middle-panel/model-selector-empty-thread/ModelSelectorEmptyThread";
 import { ComposerVoiceButton } from "./chat/ComposerVoiceButton";
 import { ComposerVoiceRecorderBar } from "./chat/ComposerVoiceRecorderBar";
 import { ComposerReferenceAttachments } from "./chat/ComposerReferenceAttachments";
@@ -437,7 +434,6 @@ import {
   COMPOSER_COLUMN_FRAME_CLASS_NAME,
   COMPOSER_EDITOR_PADDING_CLASS_NAME,
   COMPOSER_FOOTER_ROW_CLASS_NAME,
-  COMPOSER_MUTED_ACCENT_TEXT_CLASS_NAME,
   CHAT_BACKGROUND_CLASS_NAME,
   CHAT_COLUMN_FRAME_CLASS_NAME,
   CHAT_COLUMN_GUTTER_CLASS_NAME,
@@ -512,6 +508,10 @@ const DRAFT_PROJECT_SYNC_MAX_ATTEMPTS = 6;
 const DRAFT_PROJECT_SYNC_DELAY_MS = 50;
 const SETUP_SCRIPT_TERMINAL_ACTIVITY_START_TIMEOUT_MS = 1_000;
 const SETUP_SCRIPT_TERMINAL_MAX_RUNTIME_MS = 10 * 60 * 1000;
+
+class PendingTurnStartCancelled extends Error {
+  override readonly name = "PendingTurnStartCancelled";
+}
 
 function terminalHasRunningSubprocess(threadId: ThreadId, terminalId: string): boolean {
   const terminalState = selectThreadTerminalState(
@@ -1003,6 +1003,7 @@ export default function ChatView({
   const composerSkills = composerDraft.skills;
   const composerMentions = composerDraft.mentions;
   const queuedComposerTurns = composerDraft.queuedTurns;
+  const queuePaused = composerDraft.queuePaused;
   const restoredSourceProposedPlan = composerDraft.restoredSourceProposedPlan;
   const composerSendState = useMemo(
     () =>
@@ -1047,6 +1048,7 @@ export default function ChatView({
   const removeQueuedComposerTurnFromDraft = useComposerDraftStore(
     (store) => store.removeQueuedTurn,
   );
+  const setComposerQueuePaused = useComposerDraftStore((store) => store.setQueuePaused);
   const addComposerDraftImage = useComposerDraftStore((store) => store.addImage);
   const addComposerDraftImages = useComposerDraftStore((store) => store.addImages);
   const removeComposerDraftImage = useComposerDraftStore((store) => store.removeImage);
@@ -1101,11 +1103,6 @@ export default function ChatView({
   const draftThread = useComposerDraftStore(
     (store) => store.draftThreadsByThreadId[threadId] ?? null,
   );
-  const hasTemporaryThreadMarker = useTemporaryThreadStore((store) =>
-    threadId ? store.temporaryThreadIds[threadId] === true : false,
-  );
-  const markTemporaryThread = useTemporaryThreadStore((store) => store.markTemporaryThread);
-  const clearTemporaryThread = useTemporaryThreadStore((store) => store.clearTemporaryThread);
   const markWorkflowRunPaused = useWorkflowRunUiStore((store) => store.markPaused);
   const markWorkflowRunDismissed = useWorkflowRunUiStore((store) => store.markDismissed);
   const serverThread = useStore(useMemo(() => createThreadSelector(threadId), [threadId]));
@@ -1154,6 +1151,13 @@ export default function ChatView({
     Record<ThreadId, string | null>
   >({});
   const [localDispatch, setLocalDispatch] = useState<LocalDispatchSnapshot | null>(null);
+  const pendingTurnStartMessageRef = useRef<
+    (QueuedComposerChatTurn & { readonly messageId: MessageId }) | null
+  >(null);
+  const restorePendingTurnStartRef = useRef<
+    ((pendingTurn: QueuedComposerChatTurn) => Promise<void>) | null
+  >(null);
+  const cancelPendingTurnStartMessageIdsRef = useRef<Set<MessageId>>(new Set());
   const failedWorktreeSetupDispatchStartedAtRef = useRef<string | null>(null);
   const [isLocalConnecting, _setIsLocalConnecting] = useState(false);
   const [isRevertingCheckpoint, setIsRevertingCheckpoint] = useState(false);
@@ -1544,7 +1548,10 @@ export default function ChatView({
   useEffect(() => {
     if (
       !pendingFileUndo ||
-      !hasFileUndoSettled({ pending: pendingFileUndo, thread: activeThread ?? null })
+      !hasFileUndoSettled({
+        pending: pendingFileUndo,
+        thread: activeThread ?? null,
+      })
     ) {
       return;
     }
@@ -1717,6 +1724,9 @@ export default function ChatView({
   const chatWorkspaceRoot = useWorkspacePathsStore((state) => state.chatWorkspaceRoot);
   const studioWorkspaceRoot = useWorkspacePathsStore((state) => state.studioWorkspaceRoot);
   const selectedSpaceId = useSpacesUiStore((state) => state.activeSpaceId);
+  const selectedSpaceName = useStore(
+    (state) => state.spaces.find((space) => space.id === selectedSpaceId)?.name ?? null,
+  );
   const [renameDialogOpen, setRenameDialogOpen] = useState(false);
   const isHomeChatContainer = isHomeChatContainerProject(activeProject, {
     homeDir,
@@ -1731,6 +1741,7 @@ export default function ChatView({
   const activeProjectDisplayName = isHomeChatContainer
     ? activeProject?.folderName
     : activeProject?.name;
+  const emptyLandingParentName = activeProjectDisplayName ?? selectedSpaceName ?? "this space";
   const isChatProject = isContainerLandingProject;
   const threadLineageThreads = useStore(
     useMemo(() => createThreadLineageSelector(activeThread?.id ?? null), [activeThread?.id]),
@@ -2381,7 +2392,10 @@ export default function ChatView({
         backgroundedProviderThreadIds: backgroundedSubagentToolUseIds,
         viewedThreadId: stripParentThread ? (activeThread?.id ?? null) : null,
         parentRow: stripParentThread
-          ? { threadId: stripParentThread.id, label: stripParentThread.title ?? null }
+          ? {
+              threadId: stripParentThread.id,
+              label: stripParentThread.title ?? null,
+            }
           : null,
       }),
     [
@@ -2468,6 +2482,17 @@ export default function ChatView({
   const activeWorktreeSetup = localDispatch?.worktreeSetup ?? null;
   const isPreparingWorktree = activeWorktreeSetup !== null;
   const hasLiveTurn = phase === "running";
+  const hasControllableTurn = hasLiveTurn || isSendBusy || phase === "connecting";
+  useEffect(() => {
+    if (phase === "connecting" || isSendBusy) {
+      return;
+    }
+    const pendingMessageId = pendingTurnStartMessageRef.current?.messageId;
+    if (pendingMessageId) {
+      cancelPendingTurnStartMessageIdsRef.current.delete(pendingMessageId);
+      pendingTurnStartMessageRef.current = null;
+    }
+  }, [isSendBusy, phase]);
   const isWorking = hasLiveTurn || isSendBusy || isConnecting || isRevertingCheckpoint;
   const hasStreamingAssistantText =
     activeThread?.messages.some((message) => message.role === "assistant" && message.streaming) ??
@@ -2485,7 +2510,7 @@ export default function ChatView({
     activeThreadId === null ? null : `${activeThreadId}:${activeLatestTurn?.turnId ?? "idle"}`;
   const activeTurnInProgress = activeTurnLayoutLive || keepSettledActiveTurnLayout;
   const isComposerApprovalState = activePendingApproval !== null;
-  const isComposerEditorDisabled = isConnecting || isComposerApprovalState;
+  const isComposerEditorDisabled = isLocalConnecting || isComposerApprovalState;
   const canCollapsePastedTextToDraft = shouldEnableComposerPastedTextCollapse({
     isComposerApprovalState,
     hasPendingUserInput: pendingUserInputs.length > 0,
@@ -2842,8 +2867,7 @@ export default function ChatView({
     [activeThreadId],
   );
   // Empty top-level threads render the centered landing composer instead of the transcript pane.
-  // Home-scoped chats get the global "What should we work on?" copy plus the project picker,
-  // while project-scoped drafts reuse the same centered layout with folder-specific copy.
+  // Every empty top-level draft uses the parent-aware Pencil prompt and folder picker.
   const isCenteredEmptyLanding =
     timelineEntries.length === 0 && !activeThread?.parentThreadId && !isEditorRail;
   const isEmptyChatLanding =
@@ -3409,30 +3433,11 @@ export default function ChatView({
   }, [browserOpen, navigate, onToggleBrowserPanel, threadId]);
   const openBrowserUrl = useCallback(
     (url: string) => {
-      const api = readNativeApi();
-      void api?.browser.open({ threadId, initialUrl: url }).catch((error) => {
-        toastManager.add({
-          type: "error",
-          title: "Could not open repository",
-          description:
-            error instanceof Error ? error.message : "The in-app browser could not open GitHub.",
-        });
-      });
       if (onOpenBrowserUrl) {
         onOpenBrowserUrl(url);
-        return;
       }
-      void navigate({
-        to: "/$threadId",
-        params: { threadId },
-        replace: true,
-        search: (previous) => ({
-          ...stripDiffSearchParams(previous),
-          panel: "browser",
-        }),
-      });
     },
-    [navigate, onOpenBrowserUrl, threadId],
+    [onOpenBrowserUrl],
   );
 
   const envLocked = Boolean(
@@ -3671,9 +3676,6 @@ export default function ChatView({
   // or hides the side panel only when this thread already has a pane to show.
   const rightDockOpen = useRightDockStore((store) => selectRightDockState(threadId)(store).open);
   const isMobileViewport = useIsMobile();
-  // Temporary threads are visually identical to regular chats — they use the same
-  // Environment panel + header controls. "Temporary" is purely a sidebar badge +
-  // auto-delete-on-leave concern, never a stripped-down chat UI.
   const environmentEnabled = !isEditorRail;
   const environmentUsesFloatingOverlay =
     isTerminalEnvironmentContext || isMobileViewport || rightDockOpen || surfaceMode === "split";
@@ -3695,7 +3697,9 @@ export default function ChatView({
       const update = resolveEnvironmentPanelPreferenceUpdate({ open, persist });
       setEnvironmentPanelPreferenceOpen(update.userPreferenceOpen);
       if (update.settingsDefaultOpen !== null) {
-        updateSettings({ environmentPanelDefaultOpen: update.settingsDefaultOpen });
+        updateSettings({
+          environmentPanelDefaultOpen: update.settingsDefaultOpen,
+        });
       }
     },
     [setEnvironmentPanelPreferenceOpen, updateSettings],
@@ -4956,13 +4960,61 @@ export default function ChatView({
   const onInterrupt = useCallback(async () => {
     const api = readNativeApi();
     if (!api || !activeThread) return;
-    await api.orchestration.dispatchCommand({
-      type: "thread.turn.interrupt",
-      commandId: newCommandId(),
-      threadId: activeThread.id,
-      createdAt: new Date().toISOString(),
-    });
-  }, [activeThread]);
+    const isPreAcceptanceStop = phase === "connecting" || isSendBusy;
+    const pendingMessageId = isPreAcceptanceStop
+      ? (localDispatch?.expectedUserMessageId ??
+        pendingTurnStartMessageRef.current?.messageId ??
+        activeThread.pendingTurnStartMessageId ??
+        undefined)
+      : undefined;
+    setComposerQueuePaused(activeThread.id, true);
+    let restorePendingTurn: Promise<void> | null = null;
+    if (pendingMessageId) {
+      cancelPendingTurnStartMessageIdsRef.current.add(pendingMessageId);
+      const pending = pendingTurnStartMessageRef.current;
+      const pendingMessage = activeThread.messages.find(
+        (message) => message.id === pendingMessageId,
+      );
+      const hasExactPendingSnapshot = pending !== null && pending.messageId === pendingMessageId;
+      const restoredPrompt = hasExactPendingSnapshot
+        ? pending.prompt
+        : pendingMessage
+          ? pendingMessage.text
+          : "";
+      const currentDraftPrompt =
+        useComposerDraftStore.getState().draftsByThreadId[activeThread.id]?.prompt ?? "";
+      if (hasExactPendingSnapshot && restorePendingTurnStartRef.current) {
+        restorePendingTurn = restorePendingTurnStartRef.current(pending);
+      } else if (restoredPrompt.length > 0 && currentDraftPrompt.length === 0) {
+        promptRef.current = restoredPrompt;
+        setComposerDraftPrompt(activeThread.id, restoredPrompt);
+        setComposerCursor(collapseExpandedComposerCursor(restoredPrompt, restoredPrompt.length));
+        setComposerTrigger(detectComposerTrigger(restoredPrompt, restoredPrompt.length));
+        scheduleComposerFocus();
+      }
+      setOptimisticUserMessages((existing) =>
+        existing.filter((message) => message.id !== pendingMessageId),
+      );
+    }
+    await Promise.all([
+      api.orchestration.dispatchCommand({
+        type: "thread.turn.interrupt",
+        commandId: newCommandId(),
+        threadId: activeThread.id,
+        ...(pendingMessageId ? { pendingMessageId } : {}),
+        createdAt: new Date().toISOString(),
+      }),
+      restorePendingTurn ?? Promise.resolve(),
+    ]);
+  }, [
+    activeThread,
+    localDispatch?.expectedUserMessageId,
+    isSendBusy,
+    phase,
+    scheduleComposerFocus,
+    setComposerDraftPrompt,
+    setComposerQueuePaused,
+  ]);
 
   const onStopWorkflowRun = useCallback(async () => {
     const api = readNativeApi();
@@ -5086,7 +5138,7 @@ export default function ChatView({
       if (!activeThreadId || event.defaultPrevented) return;
       // Mirror terminal interrupt semantics without stealing regular copy shortcuts.
       if (
-        hasLiveTurn &&
+        hasControllableTurn &&
         isMacPlatform(navigator.platform) &&
         event.ctrlKey &&
         !event.metaKey &&
@@ -5254,7 +5306,7 @@ export default function ChatView({
     composerSubagentStripItems,
     onBackgroundAllForegroundSubagentStripItems,
     isFocusedPane,
-    hasLiveTurn,
+    hasControllableTurn,
     handleModelPickerOpenChange,
     handleTraitsPickerOpenChange,
     isComposerApprovalState,
@@ -5582,6 +5634,125 @@ export default function ChatView({
     ],
   );
 
+  const restorePendingTurnStart = useCallback(
+    async (pendingTurn: QueuedComposerChatTurn) => {
+      if (!activeThread) {
+        return;
+      }
+      const liveDraft = useComposerDraftStore.getState().draftsByThreadId[activeThread.id];
+      const livePrompt = composerEditorRef.current?.readSnapshot().value ?? liveDraft?.prompt ?? "";
+      const liveImages = liveDraft?.images ?? [];
+      const liveFiles = liveDraft?.files ?? [];
+      const liveAssistantSelections = liveDraft?.assistantSelections ?? [];
+      const liveFileComments = liveDraft?.fileComments ?? [];
+      const liveTerminalContexts = liveDraft?.terminalContexts ?? [];
+      const livePastedTexts = liveDraft?.pastedTexts ?? [];
+      const liveSkills = liveDraft?.skills ?? [];
+      const liveMentions = liveDraft?.mentions ?? [];
+      const liveSendState = deriveComposerSendState({
+        prompt: livePrompt,
+        imageCount: liveImages.length,
+        fileCount: liveFiles.length,
+        assistantSelectionCount: liveAssistantSelections.length,
+        fileCommentCount: liveFileComments.length,
+        terminalContexts: liveTerminalContexts,
+        pastedTexts: livePastedTexts,
+      });
+      const liveMatchesPendingTurn =
+        livePrompt === pendingTurn.prompt &&
+        liveImages.length === pendingTurn.images.length &&
+        liveImages.every((image, index) => image.id === pendingTurn.images[index]?.id) &&
+        liveFiles.length === pendingTurn.files.length &&
+        liveFiles.every((file, index) => file.id === pendingTurn.files[index]?.id) &&
+        liveAssistantSelections.length === pendingTurn.assistantSelections.length &&
+        liveAssistantSelections.every(
+          (selection, index) => selection.id === pendingTurn.assistantSelections[index]?.id,
+        ) &&
+        liveFileComments.length === pendingTurn.fileComments.length &&
+        liveTerminalContexts.length === pendingTurn.terminalContexts.length &&
+        livePastedTexts.length === pendingTurn.pastedTexts.length;
+      const shouldQueueLiveDraft = liveSendState.hasSendableContent && !liveMatchesPendingTurn;
+      const liveRestoredSource = liveDraft?.restoredSourceProposedPlan;
+
+      // Restore the cancelled turn immediately. Any newer draft was captured
+      // above and is appended to the paused queue after image previews become
+      // durable, so neither composer state can overwrite the other.
+      restoreQueuedTurnToComposer(pendingTurn);
+
+      if (!shouldQueueLiveDraft) {
+        return;
+      }
+      const queuedImages = await Promise.all(
+        liveImages.map(async (image) => {
+          try {
+            return {
+              ...image,
+              previewUrl: await readFileAsDataUrl(image.file),
+            };
+          } catch {
+            return image;
+          }
+        }),
+      );
+      enqueueQueuedComposerTurn(activeThread.id, {
+        id: randomUUID(),
+        kind: "chat",
+        createdAt: new Date().toISOString(),
+        previewText: buildQueuedComposerPreviewText({
+          trimmedPrompt: liveSendState.trimmedPrompt,
+          images: queuedImages,
+          files: liveFiles,
+          assistantSelections: liveAssistantSelections,
+          terminalContexts: liveSendState.sendableTerminalContexts,
+          fileComments: liveFileComments,
+          pastedTexts: liveSendState.sendablePastedTexts,
+        }),
+        prompt: livePrompt,
+        images: queuedImages,
+        files: liveFiles,
+        assistantSelections: liveAssistantSelections,
+        fileComments: liveFileComments,
+        terminalContexts: liveSendState.sendableTerminalContexts,
+        pastedTexts: liveSendState.sendablePastedTexts,
+        skills: liveSkills,
+        mentions: liveMentions,
+        selectedProvider,
+        selectedModel,
+        selectedPromptEffort,
+        modelSelection: selectedModelSelection,
+        ...(providerOptionsForDispatch ? { providerOptionsForDispatch } : {}),
+        ...(liveRestoredSource &&
+        liveRestoredSource.threadId === activeThread.id &&
+        composerPromptStillMatchesRestoredQueuedDraft(liveRestoredSource.restoredPrompt, livePrompt)
+          ? { sourceProposedPlan: liveRestoredSource.sourceProposedPlan }
+          : {}),
+        runtimeMode,
+        interactionMode: DEFAULT_INTERACTION_MODE,
+        envMode,
+      });
+    },
+    [
+      activeThread,
+      enqueueQueuedComposerTurn,
+      envMode,
+      providerOptionsForDispatch,
+      restoreQueuedTurnToComposer,
+      runtimeMode,
+      selectedModel,
+      selectedModelSelection,
+      selectedPromptEffort,
+      selectedProvider,
+    ],
+  );
+  useLayoutEffect(() => {
+    restorePendingTurnStartRef.current = restorePendingTurnStart;
+    return () => {
+      if (restorePendingTurnStartRef.current === restorePendingTurnStart) {
+        restorePendingTurnStartRef.current = null;
+      }
+    };
+  }, [restorePendingTurnStart]);
+
   const removeQueuedComposerTurn = useCallback(
     (queuedTurnId: string) => {
       removeQueuedComposerTurnFromDraft(threadId, queuedTurnId);
@@ -5606,8 +5777,6 @@ export default function ChatView({
       !api ||
       !lateSendHandlers ||
       !activeThread ||
-      isSendBusy ||
-      isConnecting ||
       isVoiceTranscribing ||
       sendPreflightInFlightRef.current ||
       sendInFlightRef.current
@@ -5768,50 +5937,11 @@ export default function ChatView({
       return false;
     }
 
-    const browserPromptAttachment: BrowserPromptAttachmentResolution =
-      await maybeResolveBrowserPromptAttachment({
-        api,
-        threadId: activeThread.id,
-        prompt: promptForSend,
-      }).catch(
-        (): BrowserPromptAttachmentResolution => ({
-          requested: false,
-          image: null,
-        }),
-      );
-    if (browserPromptAttachment.image) {
-      const nextAttachmentCount =
-        composerImagesForSend.length +
-        composerFilesForSend.length +
-        composerAssistantSelectionsForSend.length +
-        (browserPromptAttachment.image ? 1 : 0);
-      if (nextAttachmentCount <= PROVIDER_SEND_TURN_MAX_ATTACHMENTS) {
-        composerImagesForSend = [...composerImagesForSend, browserPromptAttachment.image];
-      } else {
-        toastManager.add({
-          type: "warning",
-          title: `You can attach up to ${PROVIDER_SEND_TURN_MAX_ATTACHMENTS} references per message.`,
-          description:
-            "The current browser screenshot was skipped because this message is already at the attachment limit.",
-        });
-      }
-    } else if (browserPromptAttachment.requested) {
-      const description =
-        browserPromptAttachment.reason === "no-open-browser"
-          ? "Open the in-app browser first, then try again."
-          : browserPromptAttachment.reason === "no-active-tab"
-            ? "The in-app browser has no active tab to capture yet."
-            : browserPromptAttachment.reason === "attachment-too-large"
-              ? `The browser screenshot exceeded the ${IMAGE_SIZE_LIMIT_LABEL} attachment limit.`
-              : "The current browser context could not be attached.";
-      toastManager.add({
-        type: "warning",
-        title: "Couldn’t attach the in-app browser context",
-        description,
-      });
-    }
-
-    if (hasLiveTurn && dispatchMode === "queue" && queuedChatTurn === null) {
+    if (
+      (hasLiveTurn || phase === "connecting" || isSendBusy) &&
+      dispatchMode === "queue" &&
+      queuedChatTurn === null
+    ) {
       clearComposerInput(activeThread.id);
       scheduleComposerFocus();
       const queuedImagesForPersistence = await Promise.all(
@@ -6039,11 +6169,15 @@ export default function ChatView({
     const worktreeSetupScriptName = setupScriptForWorktree?.name ?? null;
     const messageIdForSend = newMessageId();
 
+    setComposerQueuePaused(threadIdForSend, false);
     sendInFlightRef.current = true;
     beginLocalDispatch({
       expectedUserMessageId: messageIdForSend,
       ...(baseBranchForWorktree
-        ? { worktreeSetupStepId: "create-worktree", setupScriptName: worktreeSetupScriptName }
+        ? {
+            worktreeSetupStepId: "create-worktree",
+            setupScriptName: worktreeSetupScriptName,
+          }
         : {}),
     });
 
@@ -6069,6 +6203,46 @@ export default function ChatView({
       composerPastedTextsSnapshot,
     );
     const messageCreatedAt = new Date().toISOString();
+    pendingTurnStartMessageRef.current = {
+      id: messageIdForSend,
+      kind: "chat",
+      createdAt: messageCreatedAt,
+      previewText: buildQueuedComposerPreviewText({
+        trimmedPrompt: trimmedPromptForSend,
+        images: composerImagesSnapshot,
+        files: composerFilesSnapshot,
+        assistantSelections: composerAssistantSelectionsSnapshot,
+        terminalContexts: composerTerminalContextsSnapshot,
+        fileComments: composerFileCommentsSnapshot,
+        pastedTexts: composerPastedTextsSnapshot,
+      }),
+      messageId: messageIdForSend,
+      prompt: promptForSend,
+      images: composerImagesSnapshot,
+      files: composerFilesSnapshot,
+      assistantSelections: composerAssistantSelectionsSnapshot,
+      fileComments: composerFileCommentsSnapshot,
+      terminalContexts: composerTerminalContextsSnapshot,
+      pastedTexts: composerPastedTextsSnapshot,
+      skills: composerSkillsSnapshot,
+      mentions: composerMentionsSnapshot,
+      selectedProvider: selectedProviderForSend,
+      selectedModel: selectedModelForSend,
+      selectedPromptEffort: selectedPromptEffortForSend,
+      modelSelection: selectedModelSelectionForSend,
+      ...(providerOptionsForDispatchForSend
+        ? { providerOptionsForDispatch: providerOptionsForDispatchForSend }
+        : {}),
+      ...(sourceProposedPlanForSend ? { sourceProposedPlan: sourceProposedPlanForSend } : {}),
+      runtimeMode: runtimeModeForSend,
+      interactionMode: interactionModeForSend,
+      envMode: envModeForSend,
+    };
+    const throwIfPendingTurnStartCancelled = () => {
+      if (cancelPendingTurnStartMessageIdsRef.current.has(messageIdForSend)) {
+        throw new PendingTurnStartCancelled();
+      }
+    };
     const outgoingTextSeed =
       messageTextForSend || (composerImagesSnapshot.length > 0 ? IMAGE_ONLY_BOOTSTRAP_PROMPT : "");
     const outgoingMessageText = formatOutgoingComposerPrompt({
@@ -6175,6 +6349,7 @@ export default function ChatView({
     let createdWorktreeForSendPath: string | null = null;
     let turnStartSucceeded = false;
     await (async () => {
+      throwIfPendingTurnStartCancelled();
       // On first message: lock in branch + create worktree if needed.
       if (baseBranchForWorktree) {
         const result = await createWorktreeMutation.mutateAsync({
@@ -6184,6 +6359,7 @@ export default function ChatView({
             ? { copyChangesFrom: targetWorkspaceCwdForSend }
             : {}),
         });
+        throwIfPendingTurnStartCancelled();
         beginLocalDispatch({
           worktreeSetupStepId: "prepare-thread",
           setupScriptName: worktreeSetupScriptName,
@@ -6261,6 +6437,7 @@ export default function ChatView({
           },
           api,
         );
+        throwIfPendingTurnStartCancelled();
         // `thread.create` does not carry notes, so seed the freshly created
         // server thread's notepad with the inherited project instructions via a
         // dedicated meta update. Best-effort: a failure here must not abort the turn.
@@ -6313,6 +6490,7 @@ export default function ChatView({
               terminalId: setupTerminal.terminalId,
             });
           }
+          throwIfPendingTurnStartCancelled();
         }
       }
 
@@ -6324,14 +6502,19 @@ export default function ChatView({
           runtimeMode: nextRuntimeModeForSend,
           interactionMode: interactionModeForSend,
         });
+        throwIfPendingTurnStartCancelled();
       }
 
       beginLocalDispatch(
         baseBranchForWorktree
-          ? { worktreeSetupStepId: "start-session", setupScriptName: worktreeSetupScriptName }
+          ? {
+              worktreeSetupStepId: "start-session",
+              setupScriptName: worktreeSetupScriptName,
+            }
           : undefined,
       );
       const stagedTurnAttachments = await turnAttachmentsPromise;
+      throwIfPendingTurnStartCancelled();
       rememberCustomBinaryPathForDispatch({
         threadId: threadIdForSend,
         provider: selectedModelSelectionForSend.provider,
@@ -6365,6 +6548,15 @@ export default function ChatView({
         }),
       );
       turnStartSucceeded = true;
+      if (cancelPendingTurnStartMessageIdsRef.current.delete(messageIdForSend)) {
+        await api.orchestration.dispatchCommand({
+          type: "thread.turn.interrupt",
+          commandId: newCommandId(),
+          threadId: threadIdForSend,
+          pendingMessageId: messageIdForSend,
+          createdAt: new Date().toISOString(),
+        });
+      }
       // Non-Codex steers interrupt the live turn before re-dispatching; hold
       // queued auto-dispatch through that gap so it can't race the steer. The
       // live session provider decides the interrupt path server-side, so the
@@ -6382,6 +6574,7 @@ export default function ChatView({
         setRestoredQueuedSourceProposedPlan(threadIdForSend, null);
       }
     })().catch(async (err: unknown) => {
+      const wasCancelled = err instanceof PendingTurnStartCancelled;
       // Uploads start in parallel with workspace/session preparation. If any
       // earlier step fails, settle that promise and release every staged blob.
       await turnAttachmentsPromise.then(
@@ -6481,10 +6674,12 @@ export default function ChatView({
         updateSelectedComposerMentions(composerMentionsSnapshot);
         setComposerTrigger(detectComposerTrigger(promptForSend, promptForSend.length));
       }
-      setThreadError(
-        threadIdForSend,
-        err instanceof Error ? err.message : "Failed to send message.",
-      );
+      if (!wasCancelled) {
+        setThreadError(
+          threadIdForSend,
+          err instanceof Error ? err.message : "Failed to send message.",
+        );
+      }
     });
     sendInFlightRef.current = false;
     if (!turnStartSucceeded) {
@@ -6494,6 +6689,7 @@ export default function ChatView({
         resetLocalDispatch();
       }
     }
+    cancelPendingTurnStartMessageIdsRef.current.delete(messageIdForSend);
     return turnStartSucceeded;
   };
 
@@ -7051,6 +7247,7 @@ export default function ChatView({
         return;
       }
       removeQueuedComposerTurnFromDraft(threadId, queuedTurn.id);
+      setComposerQueuePaused(threadId, false);
       const succeeded = await dispatchQueuedComposerTurn(queuedTurn, "steer");
       if (succeeded) {
         return;
@@ -7061,6 +7258,7 @@ export default function ChatView({
       dispatchQueuedComposerTurn,
       insertQueuedComposerTurn,
       removeQueuedComposerTurnFromDraft,
+      setComposerQueuePaused,
       threadId,
     ],
   );
@@ -7117,7 +7315,8 @@ export default function ChatView({
       activePendingApproval !== null ||
       activePendingProgress !== null ||
       pendingUserInputs.length > 0 ||
-      queuedComposerTurns.length === 0
+      queuedComposerTurns.length === 0 ||
+      queuePaused
     ) {
       return;
     }
@@ -7155,6 +7354,7 @@ export default function ChatView({
     hasLiveTurn,
     queuedAutoDispatchTick,
     queuedComposerTurns,
+    queuePaused,
     queuedSteerGate,
     removeQueuedComposerTurnFromDraft,
     threadId,
@@ -7201,11 +7401,11 @@ export default function ChatView({
       }),
     [runtimeUsageContextWindow, composerTraitSelection.contextWindow, selectedProvider],
   );
-  const useSplitComposerPickerControls = isLocalDraftThread && !hasThreadStarted;
   const composerFooterControlsPlan = useMemo(
     () => composerFooterPlanForTier(composerFooterTier, Boolean(runtimeUsageContextWindow)),
     [composerFooterTier, runtimeUsageContextWindow],
   );
+  const useSplitComposerPickerControls = isLocalDraftThread && !hasThreadStarted;
   // The displayed labels changed (model switch, effort change, picker layout):
   // recorded overflow widths no longer apply, so reset to the richest tier and
   // let the measured-overflow loop demote again before paint if needed.
@@ -7272,39 +7472,47 @@ export default function ChatView({
     )
   ) : useSplitComposerPickerControls ? (
     <>
-      <ProviderModelPicker
-        compact={isComposerFooterCompact}
-        hideLabel={!composerFooterControlsPlan.showModelLabel}
-        provider={selectedProvider}
-        model={selectedModelForPickerWithCustomFallback}
-        lockedProvider={lockedProvider}
-        providers={providerStatuses}
-        modelOptionsByProvider={modelOptionsByProvider}
-        loadingModelProviders={loadingModelProviders}
-        hiddenProviders={settings.hiddenProviders}
-        providerOrder={settings.providerOrder}
-        onProviderModelChange={onProviderModelSelect}
-        onSelectionCommitted={scheduleComposerFocus}
-        open={isModelPickerOpen}
-        onOpenChange={handleModelPickerOpenChange}
-        shortcutLabel={modelPickerShortcutLabel}
-      />
-      <TraitsPicker
-        provider={selectedProvider}
-        threadId={threadId}
-        model={selectedModelForPickerWithCustomFallback}
-        runtimeModel={selectedRuntimeModel}
-        runtimeModels={runtimeModelsByProvider[selectedProvider]}
-        runtimeAgents={dynamicAgents}
-        modelOptions={selectedProviderModelOptions}
-        prompt={prompt}
-        onPromptChange={setPromptFromTraits}
-        open={isTraitsPickerOpen}
-        onOpenChange={handleTraitsPickerOpenChange}
-        onSelectionCommitted={scheduleComposerFocus}
-        shortcutLabel={traitsPickerShortcutLabel}
-        hideLabel={!composerFooterControlsPlan.showTraitsLabel}
-      />
+      <ModelSelectorEmptyThread>
+        <ProviderModelPicker
+          compact={isComposerFooterCompact}
+          hideLabel={!composerFooterControlsPlan.showModelLabel}
+          provider={selectedProvider}
+          model={selectedModelForPickerWithCustomFallback}
+          lockedProvider={lockedProvider}
+          providers={providerStatuses}
+          modelOptionsByProvider={modelOptionsByProvider}
+          loadingModelProviders={loadingModelProviders}
+          hiddenProviders={settings.hiddenProviders}
+          providerOrder={settings.providerOrder}
+          onProviderModelChange={onProviderModelSelect}
+          onSelectionCommitted={scheduleComposerFocus}
+          open={isModelPickerOpen}
+          onOpenChange={handleModelPickerOpenChange}
+          shortcutLabel={modelPickerShortcutLabel}
+          triggerClassName="!h-[25px] rounded-lg px-2 py-0 sm:!h-[25px] sm:px-2"
+        />
+      </ModelSelectorEmptyThread>
+      <EffortSelectorEmptyThread>
+        <TraitsPicker
+          provider={selectedProvider}
+          threadId={threadId}
+          model={selectedModelForPickerWithCustomFallback}
+          runtimeModel={selectedRuntimeModel}
+          runtimeModels={runtimeModelsByProvider[selectedProvider]}
+          runtimeAgents={dynamicAgents}
+          modelOptions={selectedProviderModelOptions}
+          prompt={prompt}
+          onPromptChange={setPromptFromTraits}
+          open={isTraitsPickerOpen}
+          onOpenChange={handleTraitsPickerOpenChange}
+          onSelectionCommitted={scheduleComposerFocus}
+          shortcutLabel={traitsPickerShortcutLabel}
+          hideLabel={!composerFooterControlsPlan.showTraitsLabel}
+          menuClassName="w-[200px] min-w-[200px]"
+          pencilMenuComponentId="e4cfzr"
+          triggerClassName="!h-[25px] gap-[5px] rounded-lg px-2 py-0 sm:!h-[25px] sm:px-2"
+        />
+      </EffortSelectorEmptyThread>
     </>
   ) : (
     <ComposerModelEffortPicker
@@ -7333,6 +7541,9 @@ export default function ChatView({
       shortcutLabel={modelPickerShortcutLabel}
     />
   );
+  const ComposerFooterActions = useSplitComposerPickerControls
+    ? ComposerActionsEmptyThread
+    : ComposerActions;
   const toggleFastMode = useCallback(() => {
     if (!composerTraitSelection.caps.supportsFastMode) {
       scheduleComposerFocus();
@@ -8162,7 +8373,10 @@ export default function ChatView({
     // Keep the editor workspace view (and any open file) across the new-thread
     // navigation; the default new-thread flow clears all search params.
     void handleNewThread(activeProjectIdForNewChat, undefined, {
-      search: (previous) => ({ ...stripDiffSearchParams(previous), view: "editor" }),
+      search: (previous) => ({
+        ...stripDiffSearchParams(previous),
+        view: "editor",
+      }),
     });
   }, [activeProjectIdForNewChat, handleNewThread]);
   const onOpenEditorChat = useCallback(
@@ -8306,25 +8520,26 @@ export default function ChatView({
     activeContextWindowLabel: contextWindowSelectionStatus.activeLabel,
     pendingContextWindowLabel: contextWindowSelectionStatus.pendingSelectedLabel,
   };
-  // The composer's leading controls (extras "+" menu, access-rules/runtime
-  // indicator). At the narrowest footer tier they relocate from the footer to
-  // the branch-toolbar row below the input instead of getting clipped; the
-  // relocated variant is icon-only since relocation means space is minimal.
-  const relocateComposerLeadingControls = composerFooterControlsPlan.relocateLeadingControls;
+  // Pencil's narrow variants hide lower-priority actions in place. Controls
+  // never relocate into the removed legacy toolbar row below the composer.
   const renderComposerLeadingControls = (options: { iconOnly: boolean }) => (
     <>
-      <ComposerExtrasMenu
-        supportsFastMode={composerTraitSelection.caps.supportsFastMode}
-        fastModeEnabled={composerTraitSelection.fastModeEnabled}
-        onAddPhotos={addComposerImages}
-        onToggleFastMode={toggleFastMode}
-      />
-      {!isVoiceRecording && !isVoiceTranscribing ? (
-        <RuntimeUsageControls
-          {...runtimeUsageControlsProps}
-          className="shrink-0"
-          hideLabel={options.iconOnly}
+      <span className="inline-flex shrink-0" data-pencil-action="attach">
+        <ComposerExtrasMenu
+          supportsFastMode={composerTraitSelection.caps.supportsFastMode}
+          fastModeEnabled={composerTraitSelection.fastModeEnabled}
+          onAddPhotos={addComposerImages}
+          onToggleFastMode={toggleFastMode}
         />
+      </span>
+      {!isVoiceRecording && !isVoiceTranscribing ? (
+        <span className="inline-flex shrink-0 @max-[390px]:hidden" data-pencil-action="access">
+          <RuntimeUsageControls
+            {...runtimeUsageControlsProps}
+            className="shrink-0"
+            hideLabel={options.iconOnly}
+          />
+        </span>
       ) : null}
     </>
   );
@@ -8340,110 +8555,49 @@ export default function ChatView({
       ? { onCheckoutPullRequestRequest: openPullRequestDialog }
       : {}),
   };
-  const showEmptyLandingBranchToolbar =
-    isCenteredEmptyLanding && activeProject?.kind === "project" && !isHomeChatContainer;
-  // Temporary is chosen while starting a chat. Draft metadata covers local reloads;
-  // the in-memory marker keeps the badge + auto-delete alive through promotion.
-  const isThreadTemporary = draftThread?.isTemporary === true || hasTemporaryThreadMarker;
-  const toggleDraftTemporary = () => {
-    const next = !isThreadTemporary;
-    setDraftThreadContext(threadId, { isTemporary: next });
-    if (next) {
-      markTemporaryThread(threadId);
-    } else {
-      clearTemporaryThread(threadId);
-    }
-  };
   const showEmptyLandingProjectPicker =
     isCenteredEmptyLanding && isLocalDraftThread && activeProject?.kind === "project";
   const emptyLandingProjectChip =
     !isEmptyChatLanding && !showEmptyLandingProjectPicker && activeProjectDisplayName ? (
-      <span className="inline-flex min-w-0 max-w-56 shrink items-center gap-2 overflow-hidden rounded-md px-2 py-1 text-[length:var(--app-font-size-ui-sm,11px)] font-normal text-[var(--color-text-foreground-secondary)] sm:max-w-64">
-        <FolderClosed className="size-3.5 shrink-0" />
+      <span className="inline-flex h-[26px] min-w-0 shrink items-center gap-[7px] overflow-hidden rounded-full px-1.5 text-[12px] font-medium text-[var(--color-text-foreground)]">
+        <FolderClosed className="size-[15px] shrink-0" />
         <span className="min-w-0 truncate">{activeProjectDisplayName}</span>
       </span>
     ) : null;
   const showEmptyLandingControls =
     isCenteredEmptyLanding &&
     isLocalDraftThread &&
-    (isEmptyChatLanding ||
-      showEmptyLandingProjectPicker ||
-      emptyLandingProjectChip !== null ||
-      showEmptyLandingBranchToolbar);
+    (isEmptyChatLanding || showEmptyLandingProjectPicker || emptyLandingProjectChip !== null);
   const emptyLandingControls = showEmptyLandingControls ? (
-    <div
-      className={cn(
-        "chat-composer-shell relative z-20 ml-3 flex h-8 w-fit max-w-[calc(100%-24px)] min-w-0 flex-nowrap items-center gap-x-1.5 overflow-visible rounded-t-[var(--composer-radius)] rounded-b-none border border-b-0 border-[var(--color-border)] bg-[var(--color-background-elevated-secondary)] px-2 transition-colors duration-150 ease-out motion-reduce:transition-none",
-      )}
-    >
-      {isEmptyChatLanding ? (
-        <ProjectPicker
-          align="start"
-          side="top"
-          triggerClassName="h-7 py-1"
-          recentProjectId={activeProject!.id}
-          recentSpaceId={isHomeChatContainer ? selectedSpaceId : null}
-          selectedWorkspaceRoot={resolvedThreadWorkingDirectory}
-          onSelectWorkspaceRoot={handleSelectWorkspaceRoot}
-          onResetToHome={handleResetWorkspaceToHome}
-        />
-      ) : showEmptyLandingProjectPicker ? (
-        <ProjectPicker
-          align="start"
-          side="top"
-          triggerClassName="h-7 py-1"
-          recentProjectId={activeProject.id}
-          recentSpaceId={null}
-          selectedWorkspaceRoot={resolvedThreadWorkingDirectory}
-          onSelectWorkspaceRoot={handleSelectWorkspaceRoot}
-          onResetToHome={handleResetWorkspaceToHome}
-        />
-      ) : (
-        emptyLandingProjectChip
-      )}
-      {/* Reserve the Local/branch slot so project selection fades controls in without resizing. */}
-      <div
-        aria-hidden={showEmptyLandingBranchToolbar ? undefined : true}
-        className={cn(
-          "flex min-w-0 flex-1 items-center transition-[opacity,transform] duration-150 ease-out motion-reduce:transition-none",
-          showEmptyLandingBranchToolbar
-            ? "translate-y-0 opacity-100"
-            : "pointer-events-none opacity-0",
-        )}
-      >
-        {showEmptyLandingBranchToolbar ? (
-          <BranchToolbar
-            {...branchToolbarProps}
-            className="mx-0 min-w-0 flex-1 !justify-start !px-0 !pb-0 !pt-0"
-            showBranchSelector={isGitRepo}
+    <DraftFolderBar
+      folderPicker={
+        isEmptyChatLanding ? (
+          <ProjectPicker
+            align="start"
+            side="top"
+            recentProjectId={activeProject!.id}
+            recentSpaceId={isHomeChatContainer ? selectedSpaceId : null}
+            selectedWorkspaceRoot={resolvedThreadWorkingDirectory}
+            onSelectWorkspaceRoot={handleSelectWorkspaceRoot}
+            onResetToHome={handleResetWorkspaceToHome}
+            variant="draft-bar"
           />
-        ) : null}
-      </div>
-      {showEmptyLandingBranchToolbar ? (
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          aria-pressed={isThreadTemporary}
-          onClick={toggleDraftTemporary}
-          title={
-            isThreadTemporary
-              ? "Temporary chat — deleted when you leave. Click to keep it."
-              : "Make this a temporary chat (deleted when you leave)"
-          }
-          aria-label="Temporary chat"
-          className={cn(
-            "ml-auto shrink-0 gap-1.5 whitespace-nowrap px-2 text-[length:var(--app-font-size-ui-sm,11px)] font-normal transition-colors sm:px-2.5",
-            isThreadTemporary
-              ? "text-[var(--color-text-accent)] hover:bg-[var(--color-background-button-secondary-hover)] hover:text-[var(--color-text-accent)]"
-              : "text-[var(--color-text-foreground-secondary)] hover:bg-[var(--color-background-button-secondary-hover)] hover:text-[var(--color-text-foreground)]",
-          )}
-        >
-          <TemporaryThreadIcon className="size-3.5" />
-          <span className="sr-only sm:not-sr-only">Temporary</span>
-        </Button>
-      ) : null}
-    </div>
+        ) : showEmptyLandingProjectPicker ? (
+          <ProjectPicker
+            align="start"
+            side="top"
+            recentProjectId={activeProject.id}
+            recentSpaceId={null}
+            selectedWorkspaceRoot={resolvedThreadWorkingDirectory}
+            onSelectWorkspaceRoot={handleSelectWorkspaceRoot}
+            onResetToHome={handleResetWorkspaceToHome}
+            variant="draft-bar"
+          />
+        ) : (
+          emptyLandingProjectChip
+        )
+      }
+    />
   ) : null;
 
   // Shared inputs for both Environment panel surfaces (the header Popover when the dock is
@@ -8506,277 +8660,236 @@ export default function ChatView({
         className={cn(isCenteredEmptyLanding ? "w-full overflow-visible" : "contents")}
         data-empty-landing-composer-block={isCenteredEmptyLanding ? "true" : undefined}
       >
-        <ComposerDefaultAdapter>
-          <form
-            ref={composerFormRef}
-            onSubmit={onSend}
-            className="relative z-10 w-full overflow-visible"
-            data-chat-composer-form="true"
-            data-chat-pane-scope={paneScopeId}
-          >
-            <ComposerColumnFrame>
-              {/* A bare wrapper keeps the normal-flow panels' -mb-px seam onto the input shell
+        <form
+          ref={composerFormRef}
+          onSubmit={onSend}
+          className="relative z-10 w-full overflow-visible"
+          data-chat-composer-form="true"
+          data-chat-pane-scope={paneScopeId}
+        >
+          <ComposerColumnFrame>
+            {/* A bare wrapper keeps the normal-flow panels' -mb-px seam onto the input shell
                 via margin collapse. */}
-              <div>
-                {showComposerLiveChangesHeader ? (
-                  <ComposerLiveChangesHeader
-                    fileCount={activeTurnLiveDiffState.fileCount}
-                    additions={activeTurnLiveDiffState.additions}
-                    deletions={activeTurnLiveDiffState.deletions}
-                    onReview={
-                      activeTurnLiveDiffState.turnId ? onReviewComposerLiveChanges : undefined
-                    }
-                  />
-                ) : null}
-                {workflowRunState ? (
-                  <WorkflowRunCard
-                    workflowRun={workflowRunState}
-                    nowMs={workflowNowMs}
-                    compact={workflowRunCardCompact}
-                    onCompactChange={setWorkflowRunCardCompact}
-                    onOpenThread={onNavigateToThread}
-                    onStop={onStopWorkflowRun}
-                    onPause={onPauseWorkflowRun}
-                    onResume={onResumeWorkflowRun}
-                    onDismiss={onDismissWorkflowRun}
-                    attachedToPrevious={showComposerLiveChangesHeader}
-                  />
-                ) : null}
-                {showComposerSubagentStrip ? (
-                  <ComposerSubagentStrip
-                    items={composerSubagentStripItems}
-                    compact={subagentStripCompact}
-                    onCompactChange={setSubagentStripCompact}
-                    onOpenThread={onNavigateToThread}
-                    onBackgroundItem={onBackgroundSubagentStripItem}
-                    onStopItem={onStopSubagentStripItem}
-                    onStopAll={onStopAllSubagentStripItems}
-                    attachedToPrevious={
-                      showComposerLiveChangesHeader || showComposerWorkflowRunCard
-                    }
-                  />
-                ) : null}
-                <ComposerQueuedHeader
-                  queuedTurns={queuedComposerTurns}
-                  onSteer={onSteerQueuedComposerTurn}
-                  onRemove={removeQueuedComposerTurn}
-                  onEdit={onEditQueuedComposerTurn}
-                  cwd={threadWorkspaceCwd ?? undefined}
-                  attachedToPrevious={
-                    showComposerLiveChangesHeader ||
-                    showComposerWorkflowRunCard ||
-                    showComposerSubagentStrip
+            <div>
+              {showComposerLiveChangesHeader ? (
+                <ComposerLiveChangesHeader
+                  fileCount={activeTurnLiveDiffState.fileCount}
+                  additions={activeTurnLiveDiffState.additions}
+                  deletions={activeTurnLiveDiffState.deletions}
+                  onReview={
+                    activeTurnLiveDiffState.turnId ? onReviewComposerLiveChanges : undefined
                   }
                 />
-                {/* Pending approvals and AskUserQuestion prompts both render as a detached
+              ) : null}
+              {workflowRunState ? (
+                <WorkflowRunCard
+                  workflowRun={workflowRunState}
+                  nowMs={workflowNowMs}
+                  compact={workflowRunCardCompact}
+                  onCompactChange={setWorkflowRunCardCompact}
+                  onOpenThread={onNavigateToThread}
+                  onStop={onStopWorkflowRun}
+                  onPause={onPauseWorkflowRun}
+                  onResume={onResumeWorkflowRun}
+                  onDismiss={onDismissWorkflowRun}
+                  attachedToPrevious={showComposerLiveChangesHeader}
+                />
+              ) : null}
+              {showComposerSubagentStrip ? (
+                <ComposerSubagentStrip
+                  items={composerSubagentStripItems}
+                  compact={subagentStripCompact}
+                  onCompactChange={setSubagentStripCompact}
+                  onOpenThread={onNavigateToThread}
+                  onBackgroundItem={onBackgroundSubagentStripItem}
+                  onStopItem={onStopSubagentStripItem}
+                  onStopAll={onStopAllSubagentStripItems}
+                  attachedToPrevious={showComposerLiveChangesHeader || showComposerWorkflowRunCard}
+                />
+              ) : null}
+              <ComposerQueuedHeader
+                queuedTurns={queuedComposerTurns}
+                onSteer={onSteerQueuedComposerTurn}
+                onRemove={removeQueuedComposerTurn}
+                onEdit={onEditQueuedComposerTurn}
+                cwd={threadWorkspaceCwd ?? undefined}
+                attachedToPrevious={
+                  showComposerLiveChangesHeader ||
+                  showComposerWorkflowRunCard ||
+                  showComposerSubagentStrip
+                }
+              />
+              {/* Pending approvals and AskUserQuestion prompts both render as a detached
                   card floating just above the composer (padding gives the measured gap),
                   instead of a banner fused into the composer surface. An approval takes
                   precedence and suppresses the question card while one is active. */}
-                {activePendingApproval ? (
-                  <div className="pb-2">
-                    <ComposerPendingApprovalPanel
-                      approval={activePendingApproval}
-                      pendingCount={pendingApprovals.length}
-                      isResponding={respondingRequestKeys.includes(
-                        pendingRequestInstanceKey(
-                          activePendingApproval.requestId,
-                          activePendingApproval.lifecycleGeneration,
-                        ),
-                      )}
-                      onRespond={onRespondToApproval}
-                    />
-                  </div>
-                ) : pendingUserInputs.length > 0 ? (
-                  <div className="pb-2">
-                    <ComposerPendingUserInputPanel
-                      pendingUserInputs={pendingUserInputs}
-                      isResponding={activePendingIsResponding}
-                      answers={activePendingDraftAnswers}
-                      questionIndex={activePendingQuestionIndex}
-                      onToggleOption={onToggleActivePendingUserInputOption}
-                      onAdvance={onAdvanceActivePendingUserInput}
-                      onPrevious={onPreviousActivePendingUserInputQuestion}
-                      onCancel={onCancelActivePendingUserInput}
-                    />
-                  </div>
-                ) : null}
-              </div>
-              {emptyLandingControls}
+              {activePendingApproval ? (
+                <div className="pb-2">
+                  <ComposerPendingApprovalPanel
+                    approval={activePendingApproval}
+                    pendingCount={pendingApprovals.length}
+                    isResponding={respondingRequestKeys.includes(
+                      pendingRequestInstanceKey(
+                        activePendingApproval.requestId,
+                        activePendingApproval.lifecycleGeneration,
+                      ),
+                    )}
+                    onRespond={onRespondToApproval}
+                  />
+                </div>
+              ) : pendingUserInputs.length > 0 ? (
+                <div className="pb-2">
+                  <ComposerPendingUserInputPanel
+                    pendingUserInputs={pendingUserInputs}
+                    isResponding={activePendingIsResponding}
+                    answers={activePendingDraftAnswers}
+                    questionIndex={activePendingQuestionIndex}
+                    onToggleOption={onToggleActivePendingUserInputOption}
+                    onAdvance={onAdvanceActivePendingUserInput}
+                    onPrevious={onPreviousActivePendingUserInputQuestion}
+                    onCancel={onCancelActivePendingUserInput}
+                  />
+                </div>
+              ) : null}
+            </div>
+            <ComposerDefault
+              layoutMode="application"
+              draftBar={emptyLandingControls}
+              className={cn(
+                COMPOSER_INPUT_SHELL_CLASS_NAME,
+                composerProviderState.composerFrameClassName,
+                composerMenuOpen && !isComposerApprovalState && "overflow-visible",
+              )}
+              surfaceClassName={cn(
+                composerProviderState.composerSurfaceClassName,
+                composerMenuOpen && !isComposerApprovalState
+                  ? "overflow-visible"
+                  : "overflow-hidden",
+              )}
+            >
               <div
                 className={cn(
-                  COMPOSER_INPUT_SHELL_CLASS_NAME,
-                  composerProviderState.composerFrameClassName,
+                  COMPOSER_EDITOR_PADDING_CLASS_NAME,
                   composerMenuOpen && !isComposerApprovalState && "overflow-visible",
                 )}
               >
-                <div
-                  className={cn(
-                    COMPOSER_INPUT_SURFACE_CLASS_NAME,
-                    "min-h-[88.5px] shadow-none",
-                    composerProviderState.composerSurfaceClassName,
-                    composerMenuOpen && !isComposerApprovalState && "overflow-visible",
-                  )}
-                >
-                  <div
-                    className={cn(
-                      COMPOSER_EDITOR_PADDING_CLASS_NAME,
-                      composerMenuOpen && !isComposerApprovalState && "overflow-visible",
+                {composerMenuOpen && !isComposerApprovalState ? (
+                  <div className={COMPOSER_COMMAND_MENU_FLOATING_WRAPPER_CLASS_NAME}>
+                    {isLocalFolderBrowserOpen ? (
+                      <ComposerLocalDirectoryMenu
+                        mentionQuery={mentionTriggerQuery}
+                        rootLabel={localFolderBrowseRootPath ?? "Local folders unavailable"}
+                        homeDir={serverConfigQuery.data?.homeDir ?? null}
+                        onSelectEntry={(absolutePath) =>
+                          handleSelectLocalDirectoryMention(absolutePath)
+                        }
+                        onNavigateFolder={handleNavigateLocalFolder}
+                        handleRef={localDirectoryMenuRef}
+                      />
+                    ) : (
+                      <ComposerCommandMenu
+                        items={composerMenuItems}
+                        resolvedTheme={resolvedTheme}
+                        isLoading={isComposerMenuLoading}
+                        triggerKind={
+                          composerCommandPicker !== null
+                            ? "slash-command"
+                            : effectiveComposerTriggerKind
+                        }
+                        activeItemId={activeComposerMenuItem?.id ?? null}
+                        onHighlightedItemChange={onComposerMenuItemHighlighted}
+                        onSelect={onSelectComposerItem}
+                      />
                     )}
-                  >
-                    {composerMenuOpen && !isComposerApprovalState ? (
-                      <div className={COMPOSER_COMMAND_MENU_FLOATING_WRAPPER_CLASS_NAME}>
-                        {isLocalFolderBrowserOpen ? (
-                          <ComposerLocalDirectoryMenu
-                            mentionQuery={mentionTriggerQuery}
-                            rootLabel={localFolderBrowseRootPath ?? "Local folders unavailable"}
-                            homeDir={serverConfigQuery.data?.homeDir ?? null}
-                            onSelectEntry={(absolutePath) =>
-                              handleSelectLocalDirectoryMention(absolutePath)
-                            }
-                            onNavigateFolder={handleNavigateLocalFolder}
-                            handleRef={localDirectoryMenuRef}
-                          />
-                        ) : (
-                          <ComposerCommandMenu
-                            items={composerMenuItems}
-                            resolvedTheme={resolvedTheme}
-                            isLoading={isComposerMenuLoading}
-                            triggerKind={
-                              composerCommandPicker !== null
-                                ? "slash-command"
-                                : effectiveComposerTriggerKind
-                            }
-                            activeItemId={activeComposerMenuItem?.id ?? null}
-                            onHighlightedItemChange={onComposerMenuItemHighlighted}
-                            onSelect={onSelectComposerItem}
-                          />
-                        )}
-                      </div>
-                    ) : null}
-                    {!isComposerApprovalState &&
-                      pendingUserInputs.length === 0 &&
-                      (composerAssistantSelections.length > 0 ||
-                        composerFileComments.length > 0 ||
-                        composerPastedTexts.length > 0 ||
-                        composerFiles.length > 0 ||
-                        composerImages.length > 0) && (
-                        <ComposerReferenceAttachments
-                          assistantSelections={composerAssistantSelections}
-                          fileComments={composerFileComments}
-                          pastedTexts={composerPastedTexts}
-                          files={composerFiles}
-                          images={composerImages}
-                          nonPersistedImageIdSet={nonPersistedComposerImageIdSet}
-                          onExpandImage={setExpandedImage}
-                          onRemoveAssistantSelections={clearComposerAssistantSelectionsFromDraft}
-                          onRemoveFileComments={clearComposerFileCommentsFromDraft}
-                          onRemovePastedText={removeComposerPastedTextFromDraft}
-                          onShowPastedTextInField={showComposerPastedTextInField}
-                          onRemoveFile={removeComposerFile}
-                          onRemoveImage={removeComposerImage}
-                        />
-                      )}
-                    <ComposerPromptEditor
-                      ref={composerEditorRef}
-                      value={
-                        isComposerApprovalState
-                          ? ""
-                          : activePendingProgress
-                            ? activePendingProgress.customAnswer
-                            : prompt
-                      }
-                      cursor={composerCursor}
-                      terminalContexts={
-                        !isComposerApprovalState && pendingUserInputs.length === 0
-                          ? composerTerminalContexts
-                          : []
-                      }
-                      mentionReferences={selectedComposerMentions}
-                      onRemoveTerminalContext={removeComposerTerminalContextFromDraft}
-                      onChange={onPromptChange}
-                      onCommandKeyDown={onComposerCommandKey}
-                      onPaste={onComposerPaste}
-                      {...(canCollapsePastedTextToDraft
-                        ? { onCollapsePastedText: addPastedTextToDraft }
-                        : {})}
-                      placeholder={
-                        isComposerApprovalState
-                          ? "Resolve this approval request to continue"
-                          : activePendingProgress
-                            ? activePendingProgress.activeQuestion?.options.length === 0
-                              ? "Type your answer to continue"
-                              : "Type your own answer, or leave this blank to use the selected option"
-                            : activeThread?.parentThreadId
-                              ? "Message this subagent while it works"
-                              : hasLiveTurn
-                                ? "Ask for follow-up changes"
-                                : phase === "disconnected"
-                                  ? "Ask for follow-up changes or attach images"
-                                  : "Do anything"
-                      }
-                      disabled={isComposerEditorDisabled}
-                    />
                   </div>
-                  {/* Bottom toolbar — hidden while an approval takes over the composer,
+                ) : null}
+                {!isComposerApprovalState &&
+                  pendingUserInputs.length === 0 &&
+                  (composerAssistantSelections.length > 0 ||
+                    composerFileComments.length > 0 ||
+                    composerPastedTexts.length > 0 ||
+                    composerFiles.length > 0 ||
+                    composerImages.length > 0) && (
+                    <ComposerReferenceAttachments
+                      assistantSelections={composerAssistantSelections}
+                      fileComments={composerFileComments}
+                      pastedTexts={composerPastedTexts}
+                      files={composerFiles}
+                      images={composerImages}
+                      nonPersistedImageIdSet={nonPersistedComposerImageIdSet}
+                      onExpandImage={setExpandedImage}
+                      onRemoveAssistantSelections={clearComposerAssistantSelectionsFromDraft}
+                      onRemoveFileComments={clearComposerFileCommentsFromDraft}
+                      onRemovePastedText={removeComposerPastedTextFromDraft}
+                      onShowPastedTextInField={showComposerPastedTextInField}
+                      onRemoveFile={removeComposerFile}
+                      onRemoveImage={removeComposerImage}
+                    />
+                  )}
+                <ComposerPromptEditor
+                  ref={composerEditorRef}
+                  value={
+                    isComposerApprovalState
+                      ? ""
+                      : activePendingProgress
+                        ? activePendingProgress.customAnswer
+                        : prompt
+                  }
+                  cursor={composerCursor}
+                  terminalContexts={
+                    !isComposerApprovalState && pendingUserInputs.length === 0
+                      ? composerTerminalContexts
+                      : []
+                  }
+                  mentionReferences={selectedComposerMentions}
+                  onRemoveTerminalContext={removeComposerTerminalContextFromDraft}
+                  onChange={onPromptChange}
+                  onCommandKeyDown={onComposerCommandKey}
+                  onPaste={onComposerPaste}
+                  {...(canCollapsePastedTextToDraft
+                    ? { onCollapsePastedText: addPastedTextToDraft }
+                    : {})}
+                  placeholder={
+                    isComposerApprovalState
+                      ? "Resolve this approval request to continue"
+                      : activePendingProgress
+                        ? activePendingProgress.activeQuestion?.options.length === 0
+                          ? "Type your answer to continue"
+                          : "Type your own answer, or leave this blank to use the selected option"
+                        : activeThread?.parentThreadId
+                          ? "Message this subagent while it works"
+                          : hasLiveTurn
+                            ? "Ask for follow-up changes"
+                            : "Do something"
+                  }
+                  disabled={isComposerEditorDisabled}
+                />
+              </div>
+              {/* Bottom toolbar — hidden while an approval takes over the composer,
                     since the approve/decline actions live in the detached approval card
                     floating above (see ComposerPendingApprovalPanel). */}
-                  {activePendingApproval ? null : (
-                    <div
-                      data-chat-composer-footer="true"
-                      className={cn(
-                        "@container",
-                        COMPOSER_FOOTER_ROW_CLASS_NAME,
-                        isComposerFooterCompact
-                          ? "gap-1.5"
-                          : "flex-wrap gap-1.5 sm:flex-nowrap sm:gap-0",
-                      )}
-                    >
-                      <div
-                        data-chat-composer-leading="true"
-                        className={cn(
-                          "flex items-center",
-                          isVoiceRecording || isVoiceTranscribing
-                            ? "min-w-0 shrink-0 gap-1"
-                            : isComposerFooterCompact
-                              ? "min-w-0 flex-1 gap-1 overflow-hidden"
-                              : "min-w-0 flex-1 gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:min-w-max sm:overflow-visible",
-                        )}
-                      >
-                        {relocateComposerLeadingControls
-                          ? null
-                          : renderComposerLeadingControls({ iconOnly: false })}
-                      </div>
-
-                      <div
-                        data-chat-composer-actions="right"
-                        className={cn(
-                          "flex items-center gap-1",
-                          isVoiceRecording || isVoiceTranscribing ? "min-w-0 flex-1" : "shrink-0",
-                        )}
-                      >
+              {activePendingApproval ? null : (
+                <div
+                  data-chat-composer-footer="true"
+                  className={cn("@container", COMPOSER_FOOTER_ROW_CLASS_NAME)}
+                >
+                  <ComposerFooterActions
+                    applicationLeading={renderComposerLeadingControls({
+                      iconOnly: false,
+                    })}
+                    applicationTrailingExpands={isVoiceRecording || isVoiceTranscribing}
+                    applicationTrailing={
+                      <>
                         {!isVoiceRecording && !isVoiceTranscribing ? composerPickerControls : null}
-                        {!isVoiceRecording &&
-                        !isVoiceTranscribing &&
-                        runtimeUsageContextWindow &&
-                        composerFooterControlsPlan.showContextMeter ? (
-                          <ContextWindowMeter
-                            className="size-[26px]"
-                            usage={runtimeUsageContextWindow}
-                            {...(activeCumulativeCostUsd != null
-                              ? { cumulativeCostUsd: activeCumulativeCostUsd }
-                              : {})}
-                            {...(contextWindowSelectionStatus.activeLabel !== undefined
-                              ? {
-                                  activeWindowLabel: contextWindowSelectionStatus.activeLabel,
-                                }
-                              : {})}
-                            {...(contextWindowSelectionStatus.pendingSelectedLabel !== undefined
-                              ? {
-                                  pendingWindowLabel:
-                                    contextWindowSelectionStatus.pendingSelectedLabel,
-                                }
-                              : {})}
-                          />
+                        {!isVoiceRecording && !isVoiceTranscribing ? (
+                          <span
+                            className="inline-flex shrink-0 @max-[280px]:hidden"
+                            data-pencil-action="mode"
+                          >
+                            <ComposerQuickSettings
+                              onSelect={() => handleComposerModelEffortPickerOpenChange(true)}
+                            />
+                          </span>
                         ) : null}
                         {showVoiceNotesControl && (isVoiceRecording || isVoiceTranscribing) ? (
                           <ComposerVoiceRecorderBar
@@ -8815,43 +8928,40 @@ export default function ChatView({
                                 ? "Submit answers"
                                 : "Next question"}
                           </Button>
-                        ) : phase === "running" ? (
-                          <Button
+                        ) : hasControllableTurn ? (
+                          <ButtonSend
                             type="button"
-                            variant="prominent"
-                            size="icon-xs"
-                            className="sm:size-[26px]"
+                            visualState="stop"
                             onClick={() => void onInterrupt()}
                             aria-label="Stop generation"
                             title="Stop the current response. On Mac, press Ctrl+C to interrupt."
-                          >
-                            <span
-                              aria-hidden="true"
-                              className="block size-2 rounded-[1px] bg-current"
-                            />
-                          </Button>
+                          />
                         ) : pendingUserInputs.length === 0 &&
                           !isVoiceRecording &&
                           !isVoiceTranscribing ? (
                           <>
                             {showVoiceNotesControl ? (
-                              <ComposerVoiceButton
-                                disabled={isComposerApprovalState || isConnecting || isSendBusy}
-                                isRecording={isVoiceRecording}
-                                isTranscribing={isVoiceTranscribing}
-                                durationLabel={voiceRecordingDurationLabel}
-                                onClick={toggleComposerVoiceRecording}
-                              />
+                              <span
+                                className="inline-flex shrink-0 @max-[280px]:hidden"
+                                data-pencil-action="voice"
+                              >
+                                <ComposerVoiceButton
+                                  disabled={isComposerApprovalState || isConnecting || isSendBusy}
+                                  isRecording={isVoiceRecording}
+                                  isTranscribing={isVoiceTranscribing}
+                                  durationLabel={voiceRecordingDurationLabel}
+                                  onClick={toggleComposerVoiceRecording}
+                                />
+                              </span>
                             ) : null}
-                            <Button
+                            <ButtonSend
                               type="submit"
-                              variant="prominent"
-                              size="icon-xs"
-                              className="size-[26px] rounded-full sm:size-[26px]"
+                              {...(isPreparingWorktree ? { visualState: "sending" as const } : {})}
                               disabled={
                                 isSendBusy ||
                                 isConnecting ||
                                 isVoiceTranscribing ||
+                                isPreparingWorktree ||
                                 !composerSendState.hasSendableContent
                               }
                               aria-label={
@@ -8865,43 +8975,17 @@ export default function ChatView({
                                         ? "Sending"
                                         : "Send message"
                               }
-                            >
-                              {isConnecting || isSendBusy ? (
-                                <svg
-                                  width="12"
-                                  height="12"
-                                  viewBox="0 0 14 14"
-                                  fill="none"
-                                  className="animate-spin"
-                                  aria-hidden="true"
-                                >
-                                  <circle
-                                    cx="7"
-                                    cy="7"
-                                    r="5.5"
-                                    stroke="currentColor"
-                                    strokeWidth="1.5"
-                                    strokeLinecap="round"
-                                    strokeDasharray="20 12"
-                                  />
-                                </svg>
-                              ) : (
-                                <ComposerSendArrowIcon
-                                  aria-hidden="true"
-                                  className="size-5 shrink-0"
-                                />
-                              )}
-                            </Button>
+                            />
                           </>
                         ) : null}
-                      </div>
-                    </div>
-                  )}
+                      </>
+                    }
+                  />
                 </div>
-              </div>
-            </ComposerColumnFrame>
-          </form>
-        </ComposerDefaultAdapter>
+              )}
+            </ComposerDefault>
+          </ComposerColumnFrame>
+        </form>
       </div>
     ) : (
       <div
@@ -8921,7 +9005,8 @@ export default function ChatView({
     );
 
   return (
-    <ThreadScreen3RailsAdapter
+    <ThreadScreen3Rails
+      layoutMode="application"
       className={cn(CHAT_BACKGROUND_CLASS_NAME)}
       onDragEnter={onComposerDragEnter}
       onDragOver={onComposerDragOver}
@@ -8986,65 +9071,25 @@ export default function ChatView({
         onDismiss={dismissActiveRateLimitBanner}
       />
       {/* Main content area with optional plan sidebar */}
-      <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
+      <ThreadShell>
         {/* Chat column */}
         <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">
             {shouldRenderChatPaneContent && isCenteredEmptyLanding ? (
-              <div
-                className={cn(
-                  "chat-pane-enter flex flex-1 items-center justify-center",
-                  CHAT_COLUMN_GUTTER_CLASS_NAME,
-                )}
-              >
-                {/* Center the heading, composer, and suggestion list together as a
-                    single group: the suggestions live in normal flow so the whole
-                    block (composer + suggestions) stays vertically centered in the
-                    view instead of the composer being centered with the list hanging
-                    below it. */}
-                <div className="flex w-full flex-col justify-center">
-                  <div
-                    className={cn(
-                      "flex flex-col items-center gap-4 px-6 pb-5 text-center select-none",
-                      CHAT_COLUMN_FRAME_CLASS_NAME,
-                    )}
-                  >
-                    <PenkraMark aria-label="Penkra logo" className="size-10" />
-                    <h2
-                      data-testid="empty-landing-heading"
-                      className="text-[26px] font-normal leading-[1.15] tracking-[-0.015em] text-foreground/95 sm:text-[30px]"
-                    >
-                      {isEmptyChatLanding ? (
-                        "What should we work on?"
-                      ) : (
-                        <>
-                          What should we do in{" "}
-                          <span className={COMPOSER_MUTED_ACCENT_TEXT_CLASS_NAME}>
-                            {activeProjectDisplayName ?? "this folder"}
-                          </span>
-                          ?
-                        </>
-                      )}
-                    </h2>
-                  </div>
-                  {composerSection}
-                  {(isGitRepo && !environmentEnabled && !isCenteredEmptyLanding) ||
-                  relocateComposerLeadingControls ? (
-                    <div className={COMPOSER_COLUMN_FRAME_CLASS_NAME}>
-                      <div className="flex w-full items-center gap-1">
-                        {relocateComposerLeadingControls ? (
-                          <div className="flex shrink-0 items-center gap-1 pl-1">
-                            {renderComposerLeadingControls({ iconOnly: true })}
-                          </div>
-                        ) : null}
-                        {isGitRepo && !environmentEnabled && !isCenteredEmptyLanding ? (
-                          <BranchToolbar {...branchToolbarProps} className="min-w-0 flex-1" />
-                        ) : null}
-                      </div>
-                    </div>
-                  ) : null}
+              <ThreadScreenEmpty className={CHAT_COLUMN_GUTTER_CLASS_NAME}>
+                <div
+                  className={cn(
+                    "@container flex flex-col items-center gap-[18px] text-center select-none",
+                    CHAT_COLUMN_FRAME_CLASS_NAME,
+                  )}
+                  data-pencil-node="eofeR"
+                >
+                  <PenkraMark aria-label="Penkra logo" className="size-8" />
+                  <FolderPromptShared folderName={emptyLandingParentName} />
+                  <div aria-hidden="true" className="h-[22px] w-full shrink-0" />
+                  <div className="w-full">{composerSection}</div>
                 </div>
-              </div>
+              </ThreadScreenEmpty>
             ) : null}
 
             {shouldRenderChatPaneContent && !isCenteredEmptyLanding ? (
@@ -9114,9 +9159,7 @@ export default function ChatView({
                     "relative z-10 -mt-5 w-full shrink-0 overflow-visible pt-0 sm:pt-0",
                     ENVIRONMENT_CONTENT_INSET_MOTION_CLASS,
                     CHAT_COLUMN_GUTTER_CLASS_NAME,
-                    // A trailing BranchToolbar only renders for legacy git threads; otherwise the
-                    // composer is the last element, so give it a comfortable bottom margin.
-                    isGitRepo && !environmentEnabled ? "pb-0.5" : "pb-3 sm:pb-4",
+                    "pb-3 sm:pb-4",
                   )}
                   // Match the transcript's right inset so the composer stays aligned with chat
                   // content (and clear of the docked Environment overlay).
@@ -9128,23 +9171,6 @@ export default function ChatView({
                 >
                   {composerSection}
                 </div>
-                {secondaryChromeReady &&
-                ((isGitRepo && !environmentEnabled) || relocateComposerLeadingControls) ? (
-                  <div className={CHAT_COLUMN_GUTTER_CLASS_NAME}>
-                    <div className={COMPOSER_COLUMN_FRAME_CLASS_NAME}>
-                      <div className="flex w-full items-center gap-1">
-                        {relocateComposerLeadingControls ? (
-                          <div className="flex shrink-0 items-center gap-1 pl-1">
-                            {renderComposerLeadingControls({ iconOnly: true })}
-                          </div>
-                        ) : null}
-                        {isGitRepo && !environmentEnabled ? (
-                          <BranchToolbar {...branchToolbarProps} className="min-w-0 flex-1" />
-                        ) : null}
-                      </div>
-                    </div>
-                  </div>
-                ) : null}
               </div>
             ) : null}
 
@@ -9174,7 +9200,7 @@ export default function ChatView({
           ) : null}
         </div>
         {/* end chat column */}
-      </div>
+      </ThreadShell>
       {/* end horizontal flex container */}
 
       <ComposerSlashStatusDialog
@@ -9213,6 +9239,6 @@ export default function ChatView({
         onClose={closeExpandedImage}
         onNavigate={navigateExpandedImage}
       />
-    </ThreadScreen3RailsAdapter>
+    </ThreadScreen3Rails>
   );
 }

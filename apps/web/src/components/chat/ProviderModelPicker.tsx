@@ -470,6 +470,7 @@ type ProviderModelPickerProps = {
   onOpenChange?: (open: boolean) => void;
   onSelectionCommitted?: () => void;
   shortcutLabel?: string | null;
+  triggerClassName?: string;
   onProviderModelChange: (provider: ProviderKind, model: ModelSlug) => void;
 };
 
@@ -522,7 +523,7 @@ export const ProviderModelPicker = function ProviderModelPicker(props: ProviderM
       disabled={props.disabled ?? false}
       compact={props.compact ?? false}
       hideLabel={props.hideLabel ?? false}
-      className="text-[var(--color-text-foreground)]"
+      className={cn("text-[var(--color-text-foreground)]", props.triggerClassName)}
       icon={
         <ProviderIcon
           aria-hidden="true"
@@ -549,28 +550,24 @@ export const ProviderModelPicker = function ProviderModelPicker(props: ProviderM
         setMenuOpen(nextOpen);
       }}
     >
-      {props.shortcutLabel ? (
-        <Tooltip>
-          <TooltipTrigger render={<MenuTrigger render={triggerButton} />}>
-            <span className="sr-only">{selectedModelLabel}</span>
-          </TooltipTrigger>
-          {!isMenuOpen ? (
-            <TooltipPopup side="top" sideOffset={6} variant="picker">
-              <span className="inline-flex items-center gap-2 px-1 py-0.5">
-                <span>Change model</span>
+      <Tooltip>
+        <TooltipTrigger render={<MenuTrigger render={triggerButton} />}>
+          <span className="sr-only">{selectedModelLabel}</span>
+        </TooltipTrigger>
+        {!isMenuOpen ? (
+          <TooltipPopup side="top" sideOffset={6} variant="picker">
+            <span className="inline-flex items-center gap-2 px-1 py-0.5">
+              <span>Select model</span>
+              {props.shortcutLabel ? (
                 <ShortcutKbd
                   shortcutLabel={props.shortcutLabel}
                   className="h-4 min-w-4 px-1 text-[length:var(--app-font-size-ui-2xs,9px)] text-muted-foreground"
                 />
-              </span>
-            </TooltipPopup>
-          ) : null}
-        </Tooltip>
-      ) : (
-        <MenuTrigger render={triggerButton}>
-          <span className="sr-only">{selectedModelLabel}</span>
-        </MenuTrigger>
-      )}
+              ) : null}
+            </span>
+          </TooltipPopup>
+        ) : null}
+      </Tooltip>
       <ComposerPickerMenuPopup align="start" fixedWidth>
         <ProviderModelMenuItems
           provider={props.provider}

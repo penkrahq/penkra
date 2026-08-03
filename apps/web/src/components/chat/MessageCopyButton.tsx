@@ -26,7 +26,15 @@ function showCopyToast(
   });
 }
 
-export function MessageCopyButton({ text, className }: { text: string; className?: string }) {
+export function MessageCopyButton({
+  text,
+  className,
+  label = "Copy message",
+}: {
+  text: string;
+  className?: string;
+  label?: "Copy message" | "Copy response";
+}) {
   const ref = useRef<HTMLButtonElement>(null);
   const { copyToClipboard, isCopied } = useCopyToClipboard<void>({
     onCopy: () => showCopyToast(ref, "Copied!"),
@@ -37,8 +45,8 @@ export function MessageCopyButton({ text, className }: { text: string; className
   return (
     <MessageActionButton
       ref={ref}
-      label="Copy message"
-      tooltip="Copy to clipboard"
+      label={label}
+      tooltip={label}
       disabled={isCopied}
       className={className}
       onClick={() => copyToClipboard(text)}

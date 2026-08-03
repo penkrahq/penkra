@@ -52,6 +52,7 @@ interface RightDockStore {
         | "pullRequestNumber"
         | "pullRequestInitialTab"
         | "profileProjectId"
+        | "appIconDataUrl"
         | "appRoute"
         | "appStatus"
       >
@@ -120,6 +121,19 @@ export const useRightDockStore = create<RightDockStore>()(
     {
       name: RIGHT_DOCK_STORAGE_KEY,
       storage: createJSONStorage(() => localStorage),
+      partialize: (store) => ({
+        dockStateByThreadId: Object.fromEntries(
+          Object.entries(store.dockStateByThreadId).map(([threadId, state]) => [
+            threadId,
+            state
+              ? {
+                  ...state,
+                  panes: state.panes.map(({ appIconDataUrl: _appIconDataUrl, ...pane }) => pane),
+                }
+              : state,
+          ]),
+        ),
+      }),
       // Validate persisted panes on rehydrate so a stale/unknown pane kind from
       // an older app version can never crash the dock during render.
       merge: (persisted, current) => ({

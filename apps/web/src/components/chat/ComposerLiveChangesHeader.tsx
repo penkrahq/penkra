@@ -13,9 +13,9 @@ import {
   ComposerStackedPanelRow,
   ComposerStackedPanelRowLabel,
   ComposerStackedPanelRowMain,
-} from "./ComposerStackedPanelContent";
-import { ComposerStackedPanel } from "./ComposerStackedPanel";
-import { COMPOSER_STACKED_PANEL_ICON_CLASS_NAME } from "./composerStackedPanelStyles";
+} from "../middle-panel/composer-stacked-status/ComposerStackedPanelContent";
+import { ComposerStackedPanel } from "../middle-panel/composer-stacked-status/ComposerStackedPanel";
+import { COMPOSER_STACKED_PANEL_ICON_CLASS_NAME } from "../middle-panel/composer-stacked-status/composerStackedPanelStyles";
 import { DiffStatLabel } from "./DiffStatLabel";
 import { ReviewChangesButton } from "./ReviewChangesButton";
 

@@ -4,11 +4,16 @@
 
 import type { AppHandlerDeclaration } from "@penkra/sdk";
 
-import type { AppInstallationState, InstalledAppPackage } from "./appInstallationState";
+import {
+  listInstalledAppsForSpace,
+  type AppInstallationState,
+  type InstalledAppPackage,
+} from "./appInstallationState";
 
 export type AppIntentRequest =
-  | { intent: "open-url"; url: string; preferredAppId?: string }
-  | { intent: "open-file"; mediaType?: string; extension?: string; preferredAppId?: string };
+  | { intent: "open-url"; url: string; requestedApp?: string; preferredAppId?: string }
+  | { intent: "open-file"; extension: string; requestedApp?: string; preferredAppId?: string }
+  | { intent: "open-directory"; requestedApp?: string; preferredAppId?: string };
 
 export interface ResolvedAppIntent {
   appId: string;
@@ -19,10 +24,7 @@ export interface ResolvedAppIntent {
 
 export class AppIntentRouterError extends Error {
   constructor(
-    readonly code:
-      | "handler-choice-required"
-      | "handler-not-found"
-      | "preferred-handler-unavailable",
+    readonly code: "handler-not-found" | "requested-handler-unavailable",
     message: string,
     readonly candidates: ReadonlyArray<ResolvedAppIntent> = [],
   ) {
@@ -34,9 +36,9 @@ export class AppIntentRouterError extends Error {
 export class AppIntentRouter {
   constructor(readonly installationState: () => AppInstallationState) {}
 
-  resolve(spaceId: string, request: AppIntentRequest): ResolvedAppIntent {
+  resolve(spaceId: string, request: AppIntentRequest): ResolvedAppIntent | null {
     const state = this.installationState();
-    const candidates = Object.values(state.packagesByAppId)
+    const candidates = listInstalledAppsForSpace(state, spaceId)
       .filter((app) => isEnabled(state, app.appId, spaceId))
       .flatMap((app) =>
         matchingHandlers(app, request).map((handler) => ({
@@ -47,31 +49,25 @@ export class AppIntentRouter {
         })),
       )
       .sort((left, right) => left.slug.localeCompare(right.slug));
-    if (request.preferredAppId) {
-      const preferred = candidates.find((candidate) => candidate.appId === request.preferredAppId);
-      if (!preferred) {
+    if (request.requestedApp) {
+      const requested = candidates.find(
+        (candidate) =>
+          candidate.appId === request.requestedApp || candidate.slug === request.requestedApp,
+      );
+      if (!requested) {
         throw new AppIntentRouterError(
-          "preferred-handler-unavailable",
-          `The preferred App cannot handle ${request.intent} in Space ${spaceId}.`,
+          "requested-handler-unavailable",
+          `The requested App cannot handle ${request.intent} in Space ${spaceId}.`,
           candidates,
         );
       }
-      return preferred;
+      return requested;
     }
-    if (candidates.length === 0) {
-      throw new AppIntentRouterError(
-        "handler-not-found",
-        `No enabled App can handle ${request.intent} in Space ${spaceId}.`,
-      );
+    if (request.preferredAppId) {
+      const preferred = candidates.find((candidate) => candidate.appId === request.preferredAppId);
+      if (preferred) return preferred;
     }
-    if (candidates.length > 1) {
-      throw new AppIntentRouterError(
-        "handler-choice-required",
-        `Choose an App to handle ${request.intent}.`,
-        candidates,
-      );
-    }
-    return candidates[0]!;
+    return null;
   }
 }
 
@@ -94,15 +90,10 @@ function matchingHandlers(
       return handler.schemes.includes(scheme);
     }
     if (handler.intent === "open-file" && request.intent === "open-file") {
-      const mediaType = request.mediaType?.toLowerCase();
-      const extension = request.extension?.toLowerCase();
-      return (
-        (mediaType !== undefined &&
-          handler.mediaTypes?.some((value) => value.toLowerCase() === mediaType)) ||
-        (extension !== undefined &&
-          handler.extensions?.some((value) => value.toLowerCase() === extension))
-      );
+      const extension = request.extension.toLowerCase();
+      return handler.extensions.some((value) => value.toLowerCase() === extension);
     }
+    if (handler.intent === "open-directory" && request.intent === "open-directory") return true;
     return false;
   });
 }

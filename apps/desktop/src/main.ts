@@ -28,6 +28,7 @@ import {
   session,
   shell,
   systemPreferences,
+  webContents,
 } from "electron";
 import type {
   BrowserWindowConstructorOptions,
@@ -41,6 +42,8 @@ import type {
   DesktopTheme,
   DesktopUpdateActionResult,
   DesktopUpdateState,
+  ThreadBrowserState,
+  ThreadId,
 } from "@penkra/contracts";
 import {
   autoUpdater,
@@ -189,7 +192,7 @@ import {
 import { buildGitHubReleasesPageUrl, resolveGitHubUpdateSource } from "./githubUpdateFeed";
 import { isArm64HostRunningIntelBuild, resolveDesktopRuntimeInfo } from "./runtimeArch";
 import { BROWSER_SESSION_PARTITION, DesktopBrowserManager } from "./browserManager";
-import { registerBrowserIpcHandlers, sendBrowserCopyLink, sendBrowserState } from "./browserIpc";
+import { createScopedBrowserSessionPartition } from "./browserSessionPolicy";
 import {
   BrowserUsePipeServer,
   PENKRA_BROWSER_USE_PIPE_PATH,
@@ -259,9 +262,9 @@ import {
 } from "./appRegistryIpc";
 import { installRegistryApp, rollbackRegistryApp, updateRegistryApp } from "./registryAppInstaller";
 import {
-  bootstrapFirstPartyAppsPackage,
+  bootstrapFirstPartyAppPackages,
   PENKRA_APPS_PACKAGE_PATH_ENV,
-  resolveFirstPartyAppsPackagePath,
+  resolveFirstPartyAppPackagePaths,
 } from "./firstPartyAppsBootstrap";
 import {
   bootstrapDevelopmentSideload,
@@ -277,6 +280,17 @@ import {
   parseSetAppTabVisibleRequest,
 } from "./appTabIpc";
 import { parseAppListingDeepLink } from "./appListingDeepLink";
+import { getInstalledAppPackage } from "./appInstallationState";
+import {
+  createScopedDirectory,
+  listScopedDirectory,
+  readScopedBinary,
+  removeScopedPath,
+  renameScopedPath,
+  resolveExistingScopedPath,
+  statScopedPath,
+  writeScopedBinary,
+} from "./appScopedFileAccess";
 
 // Capture the real archive identity before any explicit app.asar lookup. Static
 // snapshotting and the runtime watcher both use this same generation as their
@@ -409,6 +423,9 @@ let mainWindow: BrowserWindow | null = null;
 let pendingAppListingRequest: { appId: string } | null = null;
 let desktopAppRuntime: DesktopAppRuntime | null = null;
 let appRegistryClient: AppRegistryClient | null = null;
+let firstPartyAppPackages: ReadonlyArray<{ sourcePath: string; expectedAppId: string }> = [];
+let developmentSideloadSourcePath: string | null = null;
+let configuredAppBootstrapQueue: Promise<void> = Promise.resolve();
 let getPenkraAccountId: () => Promise<string | null> = async () => null;
 const voiceRecordingPowerBlocker = new VoiceRecordingPowerBlocker({
   blocker: powerSaveBlocker,
@@ -418,6 +435,157 @@ const voiceRecordingPowerBlocker = new VoiceRecordingPowerBlocker({
 let spacesMenuState: DesktopSpacesMenuInput = { activeSpaceId: null, spaces: [] };
 let backendProcess: ChildProcess.ChildProcess | null = null;
 let backendPort = 0;
+
+function bootstrapConfiguredAppsForSpaces(): Promise<void> {
+  const operation = async () => {
+    const runtime = desktopAppRuntime;
+    if (!runtime) return;
+    const spaceIds = spacesMenuState.spaces.map((space) => space.id);
+    if (spaceIds.length === 0) return;
+    if (firstPartyAppPackages.length > 0) {
+      await bootstrapFirstPartyAppPackages(runtime, firstPartyAppPackages, spaceIds);
+    }
+    const activeSpaceId = spacesMenuState.activeSpaceId;
+    if (!app.isPackaged && developmentSideloadSourcePath && activeSpaceId) {
+      const status = await bootstrapDevelopmentSideload(
+        runtime,
+        developmentSideloadSourcePath,
+        activeSpaceId,
+      );
+      console.info(
+        `[penkra-app] Development sideload ${status} in Space ${activeSpaceId}: ${developmentSideloadSourcePath}`,
+      );
+    }
+  };
+  const result = configuredAppBootstrapQueue.then(operation);
+  configuredAppBootstrapQueue = result.catch(() => undefined);
+  return result;
+}
+
+async function openPenkraResource(input: {
+  path?: string;
+  url?: string;
+  requestedApp?: string;
+  spaceId: string;
+  threadId: string;
+  callerKind?: "agent" | "user";
+}): Promise<unknown> {
+  const runtime = desktopAppRuntime;
+  if (!runtime) throw new Error("The App runtime is not ready.");
+  if (input.url) {
+    const url = new URL(input.url);
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      throw new Error("Only HTTP and HTTPS URLs can be opened.");
+    }
+    const intent = "open-url" as const;
+    const preferredAppId = runtime.openWith.get(input.spaceId, intent);
+    const resolved = runtime.intents.resolve(input.spaceId, {
+      intent,
+      url: url.href,
+      ...(input.requestedApp ? { requestedApp: input.requestedApp } : {}),
+      ...(preferredAppId ? { preferredAppId } : {}),
+    });
+    if (!resolved) {
+      await shell.openExternal(url.href);
+      return { destination: "system", intent, url: url.href };
+    }
+    const result = await runtime.broker.invoke({
+      app: resolved.slug,
+      operation: resolved.operation,
+      input: { url: url.href },
+      spaceId: input.spaceId,
+      threadId: input.threadId,
+      callerKind: input.callerKind ?? "agent",
+    });
+    return { destination: "app", appId: resolved.appId, slug: resolved.slug, intent, result };
+  }
+
+  if (!input.path || !Path.isAbsolute(input.path)) {
+    throw new Error("Penkra open requires a validated absolute path.");
+  }
+  const path = await FS.promises.realpath(input.path);
+  const stats = await FS.promises.stat(path);
+  const kind = stats.isDirectory() ? "directory" : stats.isFile() ? "file" : null;
+  if (!kind) throw new Error("Only regular files and directories can be opened.");
+  const intent = kind === "directory" ? ("open-directory" as const) : ("open-file" as const);
+  const preferredAppId = runtime.openWith.get(input.spaceId, intent);
+  const intentRequest =
+    intent === "open-file"
+      ? {
+          intent,
+          extension: Path.extname(path).toLowerCase(),
+          ...(input.requestedApp ? { requestedApp: input.requestedApp } : {}),
+          ...(preferredAppId ? { preferredAppId } : {}),
+        }
+      : {
+          intent,
+          ...(input.requestedApp ? { requestedApp: input.requestedApp } : {}),
+          ...(preferredAppId ? { preferredAppId } : {}),
+        };
+  const resolved = runtime.intents.resolve(input.spaceId, intentRequest);
+  if (!resolved) {
+    const error = await shell.openPath(path);
+    if (error) throw new Error(error);
+    return { destination: "system", intent, path };
+  }
+  const handle = await runtime.vault.addHandle(resolved.appId, input.spaceId, { kind, path });
+  const result = await runtime.broker.invoke({
+    app: resolved.slug,
+    operation: resolved.operation,
+    input: { handleId: handle.id, kind: handle.kind, name: handle.name },
+    spaceId: input.spaceId,
+    threadId: input.threadId,
+    callerKind: input.callerKind ?? "agent",
+  });
+  return {
+    destination: "app",
+    appId: resolved.appId,
+    slug: resolved.slug,
+    intent,
+    handle,
+    result,
+  };
+}
+
+function requireAppFileInput(
+  input: unknown,
+  requireRelativePath = false,
+): { handleId: string; relativePath?: string } {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    throw new Error("App file input must be an object.");
+  }
+  const record = input as Record<string, unknown>;
+  if (typeof record.handleId !== "string" || !record.handleId.trim()) {
+    throw new Error("App file handleId is required.");
+  }
+  if (
+    record.relativePath !== undefined &&
+    (typeof record.relativePath !== "string" || !record.relativePath)
+  ) {
+    throw new Error("App relativePath must be a non-empty string.");
+  }
+  if (requireRelativePath && typeof record.relativePath !== "string") {
+    throw new Error("App relativePath is required.");
+  }
+  return {
+    handleId: record.handleId,
+    ...(typeof record.relativePath === "string" ? { relativePath: record.relativePath } : {}),
+  };
+}
+
+function requireNonNegativeInteger(value: unknown, label: string): number {
+  if (!Number.isInteger(value) || (value as number) < 0) {
+    throw new Error(`${label} must be a non-negative integer.`);
+  }
+  return value as number;
+}
+
+function requirePositiveInteger(value: unknown, label: string): number {
+  if (!Number.isInteger(value) || (value as number) < 1) {
+    throw new Error(`${label} must be a positive integer.`);
+  }
+  return value as number;
+}
 let backendAuthToken = "";
 let backendHttpUrl = "";
 let backendWsUrl = "";
@@ -480,15 +648,65 @@ const browserManager = new DesktopBrowserManager({
 });
 let browserUsePipeServer: BrowserUsePipeServer | null = null;
 let appCommandPipeServer: AppCommandPipeServer | null = null;
+const appFileWatchers = new Map<string, { rendererId: number; watcher: FS.FSWatcher }>();
+const appBrowserViewportByRendererId = new Map<
+  number,
+  { x: number; y: number; width: number; height: number }
+>();
+const appBrowserTrackedRendererIds = new Set<number>();
 let configuredUpdaterCacheDirName: string | null = null;
 
 browserManager.subscribe((state) => {
-  sendBrowserState(mainWindow?.webContents, state);
+  const runtime = desktopAppRuntime;
+  if (!runtime) return;
+  const appState = toAppBrowserState(state);
+  for (const contents of webContents.getAllWebContents()) {
+    if (contents.isDestroyed()) continue;
+    const identity = runtime.rendererIdentity(contents.id);
+    if (identity?.tabId === state.threadId) {
+      contents.send(IPC.appRuntime.browserState, appState);
+    }
+  }
 });
 
-browserManager.subscribeCopyLink((event) => {
-  sendBrowserCopyLink(mainWindow?.webContents, event);
-});
+function toAppBrowserState(
+  state: ThreadBrowserState,
+): import("@penkra/sdk").AppBrowserSessionState {
+  return {
+    version: state.version,
+    open: state.open,
+    activePageId: state.activeTabId,
+    pages: state.tabs,
+    lastError: state.lastError,
+  };
+}
+
+function hideHostedBrowserViewport(rendererId: number): void {
+  const identity = desktopAppRuntime?.rendererIdentity(rendererId);
+  if (!identity?.tabId) return;
+  const threadId = identity.tabId as ThreadId;
+  if (browserManager.hasSession(threadId)) {
+    browserManager.setPanelBounds({ threadId, bounds: null, surface: "native" });
+  }
+}
+
+function syncHostedBrowserViewport(rendererId: number): void {
+  const runtime = desktopAppRuntime;
+  const identity = runtime?.rendererIdentity(rendererId);
+  const local = appBrowserViewportByRendererId.get(rendererId);
+  const host = runtime?.appTabs.rendererBounds(rendererId);
+  if (!identity?.tabId || !local || !host) return;
+  browserManager.setPanelBounds({
+    threadId: identity.tabId as ThreadId,
+    surface: "native",
+    bounds: {
+      x: host.x + Math.round(local.x),
+      y: host.y + Math.round(local.y),
+      width: Math.max(0, Math.round(local.width)),
+      height: Math.max(0, Math.round(local.height)),
+    },
+  });
+}
 
 function startBrowserPerformanceLogging(): void {
   if (browserPerfInterval || !browserPerfLoggingEnabled) {
@@ -3695,7 +3913,7 @@ function registerIpcHandlers(): void {
       throw new Error("File picker kind must be file or directory.");
     const result = await dialog.showOpenDialog({
       properties: kind === "directory" ? ["openDirectory"] : ["openFile"],
-      title: `Choose a ${kind} for ${runtime.installations.snapshot().packagesByAppId[identity.appId]?.name ?? "this App"}`,
+      title: `Choose a ${kind} for ${getInstalledAppPackage(runtime.installations.snapshot(), identity.appId, identity.spaceId)?.name ?? "this App"}`,
     });
     const selected = result.canceled ? undefined : result.filePaths[0];
     return selected
@@ -3708,11 +3926,12 @@ function registerIpcHandlers(): void {
     return runtime.vault.listHandles(identity.appId, identity.spaceId);
   });
   ipcMain.removeHandler(IPC.appRuntime.fileReadText);
-  ipcMain.handle(IPC.appRuntime.fileReadText, async (event, handleId: unknown) => {
+  ipcMain.handle(IPC.appRuntime.fileReadText, async (event, input: unknown) => {
     const { runtime, identity } = requireAppRenderer(event.sender.id);
-    if (typeof handleId !== "string") throw new Error("File handle ID must be a string.");
-    const handle = runtime.vault.resolveHandle(identity.appId, identity.spaceId, handleId, "file");
-    const bytes = await FS.promises.readFile(handle.path);
+    const record = requireAppFileInput(input);
+    const handle = runtime.vault.resolveHandle(identity.appId, identity.spaceId, record.handleId);
+    const path = await resolveExistingScopedPath(handle, record.relativePath);
+    const bytes = await FS.promises.readFile(path);
     if (bytes.byteLength > 10 * 1024 * 1024)
       throw new Error("App text files may contain at most 10 MiB.");
     return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
@@ -3720,35 +3939,137 @@ function registerIpcHandlers(): void {
   ipcMain.removeHandler(IPC.appRuntime.fileWriteText);
   ipcMain.handle(IPC.appRuntime.fileWriteText, async (event, input: unknown) => {
     const { runtime, identity } = requireAppRenderer(event.sender.id);
-    if (!input || typeof input !== "object" || Array.isArray(input))
-      throw new Error("File write input must be an object.");
-    const { handleId, contents } = input as Record<string, unknown>;
-    if (typeof handleId !== "string" || typeof contents !== "string")
-      throw new Error("File handle and contents must be strings.");
+    const record = requireAppFileInput(input);
+    const contents = (input as Record<string, unknown>).contents;
+    if (typeof contents !== "string") throw new Error("File handle and contents must be strings.");
     if (Buffer.byteLength(contents) > 10 * 1024 * 1024)
       throw new Error("App text files may contain at most 10 MiB.");
-    const handle = runtime.vault.resolveHandle(identity.appId, identity.spaceId, handleId, "file");
-    await FS.promises.writeFile(handle.path, contents, "utf8");
+    const handle = runtime.vault.resolveHandle(identity.appId, identity.spaceId, record.handleId);
+    const path = await resolveExistingScopedPath(handle, record.relativePath);
+    const stats = await FS.promises.stat(path);
+    if (!stats.isFile()) throw new Error("The requested App path is not a file.");
+    await FS.promises.writeFile(path, contents, "utf8");
+  });
+  ipcMain.removeHandler(IPC.appRuntime.fileStat);
+  ipcMain.handle(IPC.appRuntime.fileStat, async (event, input: unknown) => {
+    const { runtime, identity } = requireAppRenderer(event.sender.id);
+    const record = requireAppFileInput(input);
+    const handle = runtime.vault.resolveHandle(identity.appId, identity.spaceId, record.handleId);
+    return statScopedPath(handle, record.relativePath);
   });
   ipcMain.removeHandler(IPC.appRuntime.fileListDirectory);
-  ipcMain.handle(IPC.appRuntime.fileListDirectory, async (event, handleId: unknown) => {
+  ipcMain.handle(IPC.appRuntime.fileListDirectory, async (event, input: unknown) => {
     const { runtime, identity } = requireAppRenderer(event.sender.id);
-    if (typeof handleId !== "string") throw new Error("Directory handle ID must be a string.");
+    const record = requireAppFileInput(input);
+    const handle = runtime.vault.resolveHandle(identity.appId, identity.spaceId, record.handleId);
+    return listScopedDirectory(handle, record.relativePath);
+  });
+  ipcMain.removeHandler(IPC.appRuntime.fileReadBinary);
+  ipcMain.handle(IPC.appRuntime.fileReadBinary, async (event, input: unknown) => {
+    const { runtime, identity } = requireAppRenderer(event.sender.id);
+    const record = requireAppFileInput(input);
+    const raw = input as Record<string, unknown>;
+    const handle = runtime.vault.resolveHandle(identity.appId, identity.spaceId, record.handleId);
+    return readScopedBinary({
+      root: handle,
+      ...(record.relativePath ? { relativePath: record.relativePath } : {}),
+      ...(raw.offset === undefined
+        ? {}
+        : { offset: requireNonNegativeInteger(raw.offset, "offset") }),
+      ...(raw.length === undefined ? {} : { length: requirePositiveInteger(raw.length, "length") }),
+    });
+  });
+  ipcMain.removeHandler(IPC.appRuntime.fileWriteBinary);
+  ipcMain.handle(IPC.appRuntime.fileWriteBinary, async (event, input: unknown) => {
+    const { runtime, identity } = requireAppRenderer(event.sender.id);
+    const record = requireAppFileInput(input);
+    const bytes = (input as Record<string, unknown>).bytes;
+    if (!(bytes instanceof Uint8Array)) throw new Error("Binary file contents must be bytes.");
+    const handle = runtime.vault.resolveHandle(identity.appId, identity.spaceId, record.handleId);
+    await writeScopedBinary({
+      root: handle,
+      bytes,
+      ...(record.relativePath ? { relativePath: record.relativePath } : {}),
+    });
+  });
+  ipcMain.removeHandler(IPC.appRuntime.fileCreateDirectory);
+  ipcMain.handle(IPC.appRuntime.fileCreateDirectory, async (event, input: unknown) => {
+    const { runtime, identity } = requireAppRenderer(event.sender.id);
+    const record = requireAppFileInput(input, true);
     const handle = runtime.vault.resolveHandle(
       identity.appId,
       identity.spaceId,
-      handleId,
+      record.handleId,
       "directory",
     );
-    const entries = await FS.promises.readdir(handle.path, { withFileTypes: true });
-    if (entries.length > 10_000)
-      throw new Error("This directory contains too many entries to list at once.");
-    return entries
-      .filter((entry) => entry.isFile() || entry.isDirectory())
-      .map((entry) => ({
-        name: entry.name,
-        kind: entry.isDirectory() ? ("directory" as const) : ("file" as const),
-      }));
+    return createScopedDirectory(handle, record.relativePath!);
+  });
+  ipcMain.removeHandler(IPC.appRuntime.fileRename);
+  ipcMain.handle(IPC.appRuntime.fileRename, async (event, input: unknown) => {
+    const { runtime, identity } = requireAppRenderer(event.sender.id);
+    const record = requireAppFileInput(input, true);
+    const nextRelativePath = (input as Record<string, unknown>).nextRelativePath;
+    if (typeof nextRelativePath !== "string" || !nextRelativePath)
+      throw new Error("nextRelativePath is required.");
+    const handle = runtime.vault.resolveHandle(
+      identity.appId,
+      identity.spaceId,
+      record.handleId,
+      "directory",
+    );
+    return renameScopedPath(handle, record.relativePath!, nextRelativePath);
+  });
+  ipcMain.removeHandler(IPC.appRuntime.fileRemove);
+  ipcMain.handle(IPC.appRuntime.fileRemove, async (event, input: unknown) => {
+    const { runtime, identity } = requireAppRenderer(event.sender.id);
+    const record = requireAppFileInput(input, true);
+    const handle = runtime.vault.resolveHandle(
+      identity.appId,
+      identity.spaceId,
+      record.handleId,
+      "directory",
+    );
+    await removeScopedPath(handle, record.relativePath!);
+  });
+  ipcMain.removeHandler(IPC.appRuntime.fileWatchStart);
+  ipcMain.handle(IPC.appRuntime.fileWatchStart, async (event, input: unknown) => {
+    const { runtime, identity } = requireAppRenderer(event.sender.id);
+    const record = requireAppFileInput(input);
+    const handle = runtime.vault.resolveHandle(identity.appId, identity.spaceId, record.handleId);
+    const path = await resolveExistingScopedPath(handle, record.relativePath);
+    const stats = await FS.promises.stat(path);
+    const watchId = Crypto.randomUUID();
+    const watcher = FS.watch(path, { recursive: stats.isDirectory() }, (eventType, filename) => {
+      if (event.sender.isDestroyed()) return;
+      event.sender.send(IPC.appRuntime.fileChanged, {
+        watchId,
+        event: {
+          kind: eventType === "rename" ? "renamed" : "changed",
+          relativePath: filename === null ? null : String(filename),
+        },
+      });
+    });
+    appFileWatchers.set(watchId, { rendererId: event.sender.id, watcher });
+    event.sender.once("destroyed", () => {
+      for (const [id, entry] of appFileWatchers) {
+        if (entry.rendererId !== event.sender.id) continue;
+        entry.watcher.close();
+        appFileWatchers.delete(id);
+      }
+    });
+    return watchId;
+  });
+  ipcMain.removeHandler(IPC.appRuntime.fileWatchStop);
+  ipcMain.handle(IPC.appRuntime.fileWatchStop, async (event, input: unknown) => {
+    if (!input || typeof input !== "object" || Array.isArray(input)) {
+      throw new Error("App file watch input must be an object.");
+    }
+    const watchId = (input as Record<string, unknown>).watchId;
+    if (typeof watchId !== "string") throw new Error("App file watchId is required.");
+    const entry = appFileWatchers.get(watchId);
+    if (!entry || entry.rendererId !== event.sender.id) return;
+    entry.watcher.close();
+    appFileWatchers.delete(watchId);
   });
   ipcMain.removeHandler(IPC.appRuntime.fileOpenChild);
   ipcMain.handle(IPC.appRuntime.fileOpenChild, async (event, input: unknown) => {
@@ -3784,6 +4105,243 @@ function registerIpcHandlers(): void {
     const { runtime, identity } = requireAppRenderer(event.sender.id);
     if (typeof handleId !== "string") throw new Error("File handle ID must be a string.");
     await runtime.vault.revokeHandle(identity.appId, identity.spaceId, handleId);
+  });
+  ipcMain.removeHandler(IPC.appRuntime.resourceOpen);
+  ipcMain.handle(IPC.appRuntime.resourceOpen, async (event, input: unknown) => {
+    const { runtime, identity } = requireAppRenderer(event.sender.id);
+    if (!identity.threadId) throw new Error("Only an interactive App tab can open a resource.");
+    if (!input || typeof input !== "object" || Array.isArray(input)) {
+      throw new Error("App open input must be an object.");
+    }
+    const record = input as Record<string, unknown>;
+    const fileInput = requireAppFileInput(input);
+    if (record.with !== undefined && (typeof record.with !== "string" || !record.with.trim())) {
+      throw new Error("App open with must be a non-empty App slug or system.");
+    }
+    const source = runtime.vault.resolveHandle(
+      identity.appId,
+      identity.spaceId,
+      fileInput.handleId,
+    );
+    const path = await resolveExistingScopedPath(source, fileInput.relativePath);
+    const stats = await FS.promises.stat(path);
+    const kind = stats.isDirectory() ? "directory" : stats.isFile() ? "file" : null;
+    if (!kind) throw new Error("Only regular files and directories can be opened.");
+    const intent = kind === "directory" ? ("open-directory" as const) : ("open-file" as const);
+    const requestedApp = typeof record.with === "string" ? record.with : undefined;
+    const preferredAppId = runtime.openWith.get(identity.spaceId, intent);
+    const intentRequest =
+      intent === "open-file"
+        ? {
+            intent,
+            extension: Path.extname(path).toLowerCase(),
+            ...(requestedApp ? { requestedApp } : {}),
+            ...(preferredAppId ? { preferredAppId } : {}),
+          }
+        : {
+            intent,
+            ...(requestedApp ? { requestedApp } : {}),
+            ...(preferredAppId ? { preferredAppId } : {}),
+          };
+    const resolved =
+      requestedApp === "system" ? null : runtime.intents.resolve(identity.spaceId, intentRequest);
+    if (resolved && resolved.appId !== identity.appId) {
+      const handle = await runtime.vault.addHandle(resolved.appId, identity.spaceId, {
+        kind,
+        path,
+      });
+      await runtime.broker.invoke({
+        app: resolved.slug,
+        operation: resolved.operation,
+        input: { handleId: handle.id, kind: handle.kind, name: handle.name },
+        spaceId: identity.spaceId,
+        threadId: identity.threadId,
+        callerKind: "user",
+      });
+      return { destination: "app", appId: resolved.appId, slug: resolved.slug };
+    }
+    const error = await shell.openPath(path);
+    if (error) throw new Error(error);
+    return { destination: "system" };
+  });
+  ipcMain.removeHandler(IPC.appRuntime.browserCall);
+  ipcMain.handle(IPC.appRuntime.browserCall, async (event, input: unknown) => {
+    const { runtime, identity } = requireAppRenderer(event.sender.id);
+    if (!identity.tabId) throw new Error("Only an interactive App tab can host browser pages.");
+    const permission = queryAppPermission(
+      runtime.installations.snapshot(),
+      identity,
+      "browser-session",
+    );
+    if (!permission.declared || permission.state !== "granted") {
+      throw Object.assign(
+        new Error("browser-session is not granted for this App in the current Space."),
+        { code: "PERMISSION_DENIED" },
+      );
+    }
+    if (!input || typeof input !== "object" || Array.isArray(input)) {
+      throw new Error("Browser call must be an object.");
+    }
+    const { method, input: value } = input as Record<string, unknown>;
+    if (typeof method !== "string") throw new Error("Browser call method is required.");
+    const threadId = identity.tabId as ThreadId;
+    if (!appBrowserTrackedRendererIds.has(event.sender.id)) {
+      appBrowserTrackedRendererIds.add(event.sender.id);
+      event.sender.once("destroyed", () => {
+        appBrowserTrackedRendererIds.delete(event.sender.id);
+        appBrowserViewportByRendererId.delete(event.sender.id);
+        if (browserManager.hasSession(threadId)) browserManager.close({ threadId });
+      });
+    }
+    browserManager.setSessionPartition(
+      threadId,
+      createScopedBrowserSessionPartition(identity.appId, identity.spaceId),
+    );
+    const state = () => toAppBrowserState(browserManager.getState({ threadId }));
+    const pageId = () => {
+      if (typeof value !== "string" || !value) throw new Error("Browser page ID is required.");
+      return value;
+    };
+    switch (method) {
+      case "open":
+        return toAppBrowserState(
+          browserManager.open({
+            threadId,
+            ...(typeof value === "string" && value ? { initialUrl: value } : {}),
+          }),
+        );
+      case "close":
+        browserManager.close({ threadId });
+        return;
+      case "getState":
+        return state();
+      case "setViewport": {
+        if (value === null) {
+          appBrowserViewportByRendererId.delete(event.sender.id);
+          browserManager.setPanelBounds({ threadId, bounds: null, surface: "native" });
+          return;
+        }
+        if (!value || typeof value !== "object" || Array.isArray(value)) {
+          throw new Error("Browser viewport must be bounds or null.");
+        }
+        const local = value as Record<string, unknown>;
+        const values = [local.x, local.y, local.width, local.height];
+        if (
+          !values.every((candidate) => typeof candidate === "number" && Number.isFinite(candidate))
+        ) {
+          throw new Error("Browser viewport bounds must be finite numbers.");
+        }
+        appBrowserViewportByRendererId.set(event.sender.id, {
+          x: local.x as number,
+          y: local.y as number,
+          width: local.width as number,
+          height: local.height as number,
+        });
+        syncHostedBrowserViewport(event.sender.id);
+        return;
+      }
+      case "navigate": {
+        if (!value || typeof value !== "object" || Array.isArray(value))
+          throw new Error("Browser navigation input is required.");
+        const record = value as Record<string, unknown>;
+        if (typeof record.url !== "string" || !record.url.trim())
+          throw new Error("Browser navigation URL is required.");
+        return toAppBrowserState(
+          browserManager.navigate({
+            threadId,
+            url: record.url,
+            ...(typeof record.pageId === "string" ? { tabId: record.pageId } : {}),
+          }),
+        );
+      }
+      case "reload":
+        return toAppBrowserState(browserManager.reload({ threadId, tabId: pageId() }));
+      case "stop":
+        return toAppBrowserState(browserManager.stop({ threadId, tabId: pageId() }));
+      case "back":
+        return toAppBrowserState(browserManager.goBack({ threadId, tabId: pageId() }));
+      case "forward":
+        return toAppBrowserState(browserManager.goForward({ threadId, tabId: pageId() }));
+      case "newPage": {
+        const record =
+          value && typeof value === "object" && !Array.isArray(value)
+            ? (value as Record<string, unknown>)
+            : {};
+        return toAppBrowserState(
+          browserManager.newTab({
+            threadId,
+            ...(typeof record.url === "string" ? { url: record.url } : {}),
+            ...(typeof record.activate === "boolean" ? { activate: record.activate } : {}),
+          }),
+        );
+      }
+      case "closePage":
+        return toAppBrowserState(browserManager.closeTab({ threadId, tabId: pageId() }));
+      case "selectPage":
+        return toAppBrowserState(browserManager.selectTab({ threadId, tabId: pageId() }));
+      case "find": {
+        if (!value || typeof value !== "object" || Array.isArray(value))
+          throw new Error("Browser find input is required.");
+        const record = value as Record<string, unknown>;
+        if (typeof record.pageId !== "string" || typeof record.text !== "string")
+          throw new Error("Browser find requires pageId and text.");
+        const action = record.action;
+        if (
+          action !== undefined &&
+          action !== "search" &&
+          action !== "next" &&
+          action !== "previous"
+        )
+          throw new Error("Browser find action is invalid.");
+        return browserManager.findInPage({
+          threadId,
+          tabId: record.pageId,
+          text: record.text,
+          action: action ?? "search",
+        });
+      }
+      case "stopFind":
+        browserManager.stopFindInPage({ threadId, tabId: pageId() });
+        return;
+      case "capture": {
+        const result = await browserManager.captureScreenshot({ threadId, tabId: pageId() });
+        return {
+          dataUrl: `data:${result.mimeType};base64,${Buffer.from(result.bytes).toString("base64")}`,
+        };
+      }
+      case "evaluate": {
+        if (!value || typeof value !== "object" || Array.isArray(value))
+          throw new Error("Browser evaluate input is required.");
+        const record = value as Record<string, unknown>;
+        if (typeof record.pageId !== "string" || typeof record.expression !== "string")
+          throw new Error("Browser evaluate requires pageId and expression.");
+        if (Buffer.byteLength(record.expression) > 100_000)
+          throw new Error("Browser expressions may contain at most 100,000 bytes.");
+        const response = await browserManager.executeCdp({
+          threadId,
+          tabId: record.pageId,
+          method: "Runtime.evaluate",
+          params: {
+            expression: record.expression,
+            awaitPromise: true,
+            returnByValue: true,
+            userGesture: false,
+          },
+        });
+        const result =
+          response && typeof response === "object"
+            ? (response as {
+                result?: { value?: unknown; description?: string };
+                exceptionDetails?: unknown;
+              })
+            : {};
+        if (result.exceptionDetails)
+          throw new Error(result.result?.description ?? "Browser evaluation failed.");
+        return result.result?.value ?? null;
+      }
+      default:
+        throw new Error(`Unsupported browser method: ${method}.`);
+    }
   });
   ipcMain.removeHandler(IPC.appRuntime.networkFetch);
   ipcMain.handle(IPC.appRuntime.networkFetch, async (event, input: unknown) => {
@@ -4025,7 +4583,9 @@ function registerIpcHandlers(): void {
     const runtime = desktopAppRuntime;
     if (!runtime) throw new Error("The App runtime is not ready.");
     const currentSpaceId = runtime.installationSpaceId(event.sender.id);
-    if (!currentSpaceId) throw new Error("Apps can only be updated from a Space-bound Apps tab.");
+    if (!currentSpaceId || currentSpaceId !== request.spaceId) {
+      throw new Error("Apps can only be updated in the current Space.");
+    }
     const state = await updateRegistryApp({
       request,
       hostVersion: app.getVersion(),
@@ -4041,8 +4601,9 @@ function registerIpcHandlers(): void {
     const runtime = desktopAppRuntime;
     if (!runtime) throw new Error("The App runtime is not ready.");
     const currentSpaceId = runtime.installationSpaceId(event.sender.id);
-    if (!currentSpaceId)
-      throw new Error("Apps can only be rolled back from a Space-bound Apps tab.");
+    if (!currentSpaceId || currentSpaceId !== request.spaceId) {
+      throw new Error("Apps can only be rolled back in the current Space.");
+    }
     const state = await rollbackRegistryApp({
       request,
       hostVersion: app.getVersion(),
@@ -4084,6 +4645,7 @@ function registerIpcHandlers(): void {
     if (
       channel !== IPC.appTabs.opened &&
       channel !== IPC.appTabs.state &&
+      channel !== IPC.appTabs.closed &&
       channel !== IPC.appTabs.listingRequested
     ) {
       ipcMain.removeHandler(channel);
@@ -4114,11 +4676,17 @@ function registerIpcHandlers(): void {
   });
   ipcMain.handle(IPC.appTabs.setBounds, async (event, input: unknown) => {
     const { tabId, bounds } = parseSetAppTabBoundsRequest(input);
-    requireShellAppTabs(event.sender.id).setBounds(tabId, bounds);
+    const tabs = requireShellAppTabs(event.sender.id);
+    tabs.setBounds(tabId, bounds);
+    syncHostedBrowserViewport(tabs.rendererId(tabId));
   });
   ipcMain.handle(IPC.appTabs.setVisible, async (event, input: unknown) => {
     const { tabId, visible } = parseSetAppTabVisibleRequest(input);
-    requireShellAppTabs(event.sender.id).setVisible(tabId, visible);
+    const tabs = requireShellAppTabs(event.sender.id);
+    const rendererId = tabs.rendererId(tabId);
+    tabs.setVisible(tabId, visible);
+    if (visible) syncHostedBrowserViewport(rendererId);
+    else hideHostedBrowserViewport(rendererId);
   });
   ipcMain.handle(IPC.appTabs.navigate, async (event, input: unknown) => {
     const { tabId, route, state } = parseNavigateAppTabRequest(input);
@@ -4130,6 +4698,50 @@ function registerIpcHandlers(): void {
   ipcMain.handle(IPC.appTabs.close, async (event, input: unknown) => {
     const { tabId } = parseAppTabIdRequest(input);
     requireShellAppTabs(event.sender.id).close(tabId);
+  });
+
+  const parseOpenWithInput = (input: unknown) => {
+    if (!input || typeof input !== "object" || Array.isArray(input)) {
+      throw new Error("Open With input must be an object.");
+    }
+    const record = input as Record<string, unknown>;
+    if (typeof record.spaceId !== "string" || !record.spaceId.trim()) {
+      throw new Error("Open With spaceId is required.");
+    }
+    return record;
+  };
+  const requireOpenWithStore = (senderId: number) => {
+    if (mainWindow?.webContents.id !== senderId) {
+      throw new Error("Only the Penkra shell can manage Open With preferences.");
+    }
+    if (!desktopAppRuntime) throw new Error("The App runtime is not ready.");
+    return desktopAppRuntime.openWith;
+  };
+  ipcMain.removeHandler(IPC.appOpenWith.get);
+  ipcMain.handle(IPC.appOpenWith.get, async (event, input: unknown) => {
+    const record = parseOpenWithInput(input);
+    return requireOpenWithStore(event.sender.id).snapshot()[record.spaceId as string] ?? {};
+  });
+  ipcMain.removeHandler(IPC.appOpenWith.set);
+  ipcMain.handle(IPC.appOpenWith.set, async (event, input: unknown) => {
+    const record = parseOpenWithInput(input);
+    if (
+      record.intent !== "open-url" &&
+      record.intent !== "open-file" &&
+      record.intent !== "open-directory"
+    ) {
+      throw new Error("Open With intent is invalid.");
+    }
+    if (record.appId !== null && (typeof record.appId !== "string" || !record.appId.trim())) {
+      throw new Error("Open With appId must be a non-empty string or null.");
+    }
+    const store = requireOpenWithStore(event.sender.id);
+    const state = await store.set(
+      record.spaceId as string,
+      record.intent,
+      record.appId as string | null,
+    );
+    return state[record.spaceId as string] ?? {};
   });
 
   ipcMain.removeHandler(IPC.appDiagnostics.list);
@@ -4254,6 +4866,7 @@ function registerIpcHandlers(): void {
     const nextState = normalizeDesktopSpacesMenuInput(input);
     if (!nextState) return;
     spacesMenuState = nextState;
+    await bootstrapConfiguredAppsForSpaces();
     configureApplicationMenu();
   });
 
@@ -4337,6 +4950,35 @@ function registerIpcHandlers(): void {
     } catch {
       return false;
     }
+  });
+
+  ipcMain.removeHandler(IPC.resourceOpen);
+  ipcMain.handle(IPC.resourceOpen, async (event, input: unknown) => {
+    if (mainWindow?.webContents.id !== event.sender.id) {
+      throw new Error("Only the Penkra shell can open a host resource.");
+    }
+    if (!input || typeof input !== "object" || Array.isArray(input)) {
+      throw new Error("Resource open input must be an object.");
+    }
+    const record = input as Record<string, unknown>;
+    if (typeof record.spaceId !== "string" || typeof record.threadId !== "string") {
+      throw new Error("Resource open requires Space and Thread IDs.");
+    }
+    const path = typeof record.path === "string" ? record.path : undefined;
+    const url = typeof record.url === "string" ? record.url : undefined;
+    if ((path === undefined) === (url === undefined)) {
+      throw new Error("Resource open requires exactly one path or URL.");
+    }
+    const requestedApp = typeof record.requestedApp === "string" ? record.requestedApp : undefined;
+    const context = {
+      ...(requestedApp ? { requestedApp } : {}),
+      spaceId: record.spaceId,
+      threadId: record.threadId,
+      callerKind: "user" as const,
+    };
+    return path
+      ? openPenkraResource({ ...context, path })
+      : openPenkraResource({ ...context, url: url! });
   });
 
   ipcMain.removeHandler(IPC.clipboardWriteImage);
@@ -4521,7 +5163,6 @@ function registerIpcHandlers(): void {
   );
   registerDesktopVoiceTranscriptionHandler();
   startBrowserPerformanceLogging();
-  registerBrowserIpcHandlers(ipcMain, browserManager);
 }
 
 function getIconOption(): { icon: string } | Record<string, never> {
@@ -5017,6 +5658,14 @@ async function bootstrap(): Promise<void> {
       if (!mainWindow || mainWindow.isDestroyed()) return;
       mainWindow.webContents.send(IPC.appTabs.state, descriptor);
     },
+    onTabClosed: (descriptor) => {
+      const browserSessionId = descriptor.id as ThreadId;
+      if (browserManager.hasSession(browserSessionId)) {
+        browserManager.close({ threadId: browserSessionId });
+      }
+      if (!mainWindow || mainWindow.isDestroyed()) return;
+      mainWindow.webContents.send(IPC.appTabs.closed, descriptor);
+    },
     onInvalidRendererMessage: (error, senderId) => {
       console.warn(
         `[penkra-app] Rejected invalid renderer message sender=${senderId}: ${formatErrorMessage(error)}`,
@@ -5063,7 +5712,7 @@ async function bootstrap(): Promise<void> {
       `[penkra-app] Install receipt reconciliation failed: ${formatErrorMessage(error)}`,
     );
   });
-  const firstPartyAppsPath = resolveFirstPartyAppsPackagePath({
+  firstPartyAppPackages = resolveFirstPartyAppPackagePaths({
     ...(process.env[PENKRA_APPS_PACKAGE_PATH_ENV] === undefined
       ? {}
       : { configuredPath: process.env[PENKRA_APPS_PACKAGE_PATH_ENV] }),
@@ -5071,23 +5720,19 @@ async function bootstrap(): Promise<void> {
     desktopBundleDirectory: __dirname,
     packaged: app.isPackaged,
   });
-  if (firstPartyAppsPath) {
-    try {
-      await bootstrapFirstPartyAppsPackage(desktopAppRuntime, firstPartyAppsPath);
-    } catch (error) {
-      console.error("Unable to bootstrap the first-party Apps package.", error);
-    }
-  } else {
-    console.warn("The first-party Apps package is unavailable in this desktop build.");
+  if (firstPartyAppPackages.length === 0) {
+    console.warn("The first-party App packages are unavailable in this desktop build.");
   }
-  const developmentSideloadPath = process.env[PENKRA_SIDELOAD_APP_PATH_ENV]?.trim();
-  if (!app.isPackaged && developmentSideloadPath) {
-    try {
-      const status = await bootstrapDevelopmentSideload(desktopAppRuntime, developmentSideloadPath);
-      console.info(`[penkra-app] Development sideload ${status}: ${developmentSideloadPath}`);
-    } catch (error) {
-      console.error(`[penkra-app] Development sideload failed: ${formatErrorMessage(error)}`);
-    }
+  developmentSideloadSourcePath = process.env[PENKRA_SIDELOAD_APP_PATH_ENV]?.trim() || null;
+  try {
+    await bootstrapConfiguredAppsForSpaces();
+  } catch (error) {
+    console.error("Unable to bootstrap configured Apps.", error);
+  }
+  if (developmentSideloadSourcePath) {
+    console.info(
+      `[penkra-app] Development sideload will target the active Space: ${developmentSideloadSourcePath}`,
+    );
   }
   desktopAppRuntime.installations.subscribe((state) => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -5111,6 +5756,7 @@ async function bootstrap(): Promise<void> {
     broker: desktopAppRuntime.broker,
     tabs: desktopAppRuntime.appTabs,
     registry: appRegistryClient,
+    open: openPenkraResource,
   });
   await appCommandPipeServer.start();
   try {

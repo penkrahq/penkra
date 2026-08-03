@@ -3,7 +3,7 @@
 // Layer: Desktop main-process bootstrap
 
 import { app, safeStorage, webContents, type BrowserWindow, type IpcMain } from "electron";
-import type { DesktopAppTabDescriptor } from "@penkra/contracts";
+import type { DesktopAppTabClosed, DesktopAppTabDescriptor } from "@penkra/contracts";
 
 import { AppControllerHost } from "./appControllerHost";
 import { AppInstallationStore, resolveAppInstallationStatePath } from "./appInstallationStore";
@@ -16,6 +16,10 @@ import {
 import { AppOperationBroker } from "./appOperationBroker";
 import { AppOperationCatalog } from "./appOperationCatalog";
 import { AppIntentRouter } from "./appIntentRouter";
+import {
+  AppOpenWithPreferenceStore,
+  resolveAppOpenWithPreferencesPath,
+} from "./appOpenWithPreferences";
 import { AppRendererIpcBridge } from "./appRendererIpcBridge";
 import { AppRendererRpcHost } from "./appRendererRpc";
 import { AppRuntimeLifecycle, type AppRuntimeRestoreResult } from "./appRuntimeLifecycle";
@@ -39,6 +43,7 @@ export interface DesktopAppRuntime {
   readonly broker: AppOperationBroker;
   readonly operationCatalog: AppOperationCatalog;
   readonly intents: AppIntentRouter;
+  readonly openWith: AppOpenWithPreferenceStore;
   readonly tabs: DeferredAppTabHost;
   readonly appTabs: ElectronAppTabHost;
   readonly restoreResults: ReadonlyArray<AppRuntimeRestoreResult>;
@@ -50,7 +55,9 @@ export interface DesktopAppRuntime {
   readonly packageGarbageCollection: AppPackageGarbageCollectionResult;
   canManageInstallations(rendererId: number): boolean;
   installationSpaceId(rendererId: number): string | null;
-  rendererIdentity(rendererId: number): { appId: string; spaceId: string } | null;
+  rendererIdentity(
+    rendererId: number,
+  ): { appId: string; spaceId: string; threadId?: string; tabId?: string } | null;
   stop(): Promise<void>;
 }
 
@@ -61,6 +68,7 @@ export async function startDesktopAppRuntime(input: {
   window: () => BrowserWindow | null;
   onTabOpened: (descriptor: DesktopAppTabDescriptor) => void;
   onTabState: (descriptor: DesktopAppTabDescriptor) => void;
+  onTabClosed: (descriptor: DesktopAppTabClosed) => void;
   onInvalidRendererMessage?: (error: Error, senderId: number) => void;
   assertAppAllowed?: (app: import("./appInstallationState").InstalledAppPackage) => Promise<void>;
   getAccountId?: () => Promise<string | null>;
@@ -98,7 +106,9 @@ export async function startDesktopAppRuntime(input: {
     });
   };
   const packageGarbageCollection = await packages.collectGarbage(
-    Object.values(store.snapshot().packagesByAppId).map((installed) => installed.packagePath),
+    Object.values(store.snapshot().packagesByInstallationKey).map(
+      (installed) => installed.packagePath,
+    ),
   );
   const tabs = new DeferredAppTabHost();
   const rpc = new AppRendererRpcHost();
@@ -118,6 +128,9 @@ export async function startDesktopAppRuntime(input: {
   });
   const operationCatalog = new AppOperationCatalog(() => store.snapshot());
   const intents = new AppIntentRouter(() => store.snapshot());
+  const openWith = await AppOpenWithPreferenceStore.open(
+    resolveAppOpenWithPreferencesPath(input.userDataPath),
+  );
   let installations!: AppInstallationService;
   const sessions = new AppSessionManager({
     getStandardPermission: (appId, spaceId, permission) => {
@@ -139,17 +152,29 @@ export async function startDesktopAppRuntime(input: {
       return granted;
     },
   });
-  const rendererIdentities = new Map<number, { appId: string; spaceId: string }>();
+  const rendererIdentities = new Map<
+    number,
+    { appId: string; spaceId: string; threadId?: string; tabId?: string }
+  >();
   const registerRendererIdentity = ({
     appId,
     spaceId,
+    threadId,
+    tabId,
     rendererId,
   }: {
     appId: string;
     spaceId: string;
+    threadId?: string;
+    tabId?: string;
     rendererId: number;
   }) => {
-    const identity = { appId, spaceId };
+    const identity = {
+      appId,
+      spaceId,
+      ...(threadId === undefined ? {} : { threadId }),
+      ...(tabId === undefined ? {} : { tabId }),
+    };
     rendererIdentities.set(rendererId, identity);
     return () => {
       if (rendererIdentities.get(rendererId) === identity) rendererIdentities.delete(rendererId);
@@ -194,6 +219,7 @@ export async function startDesktopAppRuntime(input: {
     preloadPath: input.appPreloadPath,
     onOpened: input.onTabOpened,
     onState: input.onTabState,
+    onClosed: input.onTabClosed,
     onDiagnostic: recordDiagnostic,
     measureRendererMemory: (rendererId) => {
       const renderer = webContents.fromId(rendererId);
@@ -224,6 +250,7 @@ export async function startDesktopAppRuntime(input: {
     broker,
     operationCatalog,
     intents,
+    openWith,
     tabs,
     appTabs,
     diagnostics,

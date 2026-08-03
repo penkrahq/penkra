@@ -5,7 +5,11 @@
 import { gt, lt, satisfies } from "semver";
 
 import type { AppInstallationService } from "./appInstallationService";
-import type { AppInstallationState, AppPermissionGrant } from "./appInstallationState";
+import {
+  getInstalledAppPackage,
+  type AppInstallationState,
+  type AppPermissionGrant,
+} from "./appInstallationState";
 import type { AppPackageIngestor } from "./appPackageIngestor";
 import type { AppRegistryClient } from "./appRegistryClient";
 import { assertRegistryReleaseAllowed } from "./appRegistryTrust";
@@ -72,12 +76,13 @@ export async function updateRegistryApp(input: {
   request: {
     slug: string;
     version: string;
-    permissionsBySpace: Readonly<Record<string, Readonly<Record<string, AppPermissionGrant>>>>;
+    spaceId: string;
+    permissions: Readonly<Record<string, AppPermissionGrant>>;
   };
   hostVersion: string;
   registry: Pick<AppRegistryClient, "get" | "downloadVerifiedRelease" | "getSecurityPolicy">;
   packages: Pick<AppPackageIngestor, "ingestRegistryArchive">;
-  installations: Pick<AppInstallationService, "snapshot" | "updateForSpaces">;
+  installations: Pick<AppInstallationService, "snapshot" | "updateForSpace">;
 }): Promise<AppInstallationState> {
   return replaceRegistryApp(input, "update");
 }
@@ -86,12 +91,13 @@ export async function rollbackRegistryApp(input: {
   request: {
     slug: string;
     version: string;
-    permissionsBySpace: Readonly<Record<string, Readonly<Record<string, AppPermissionGrant>>>>;
+    spaceId: string;
+    permissions: Readonly<Record<string, AppPermissionGrant>>;
   };
   hostVersion: string;
   registry: Pick<AppRegistryClient, "get" | "downloadVerifiedRelease" | "getSecurityPolicy">;
   packages: Pick<AppPackageIngestor, "ingestRegistryArchive">;
-  installations: Pick<AppInstallationService, "snapshot" | "updateForSpaces">;
+  installations: Pick<AppInstallationService, "snapshot" | "updateForSpace">;
 }): Promise<AppInstallationState> {
   return replaceRegistryApp(input, "rollback");
 }
@@ -101,19 +107,24 @@ async function replaceRegistryApp(
     request: {
       slug: string;
       version: string;
-      permissionsBySpace: Readonly<Record<string, Readonly<Record<string, AppPermissionGrant>>>>;
+      spaceId: string;
+      permissions: Readonly<Record<string, AppPermissionGrant>>;
     };
     hostVersion: string;
     registry: Pick<AppRegistryClient, "get" | "downloadVerifiedRelease" | "getSecurityPolicy">;
     packages: Pick<AppPackageIngestor, "ingestRegistryArchive">;
-    installations: Pick<AppInstallationService, "snapshot" | "updateForSpaces">;
+    installations: Pick<AppInstallationService, "snapshot" | "updateForSpace">;
   },
   direction: "update" | "rollback",
 ): Promise<AppInstallationState> {
   const app = await input.registry.get({ slug: input.request.slug });
   const version = app.versions.find((candidate) => candidate.version === input.request.version);
   if (!version) throw new Error("The selected App version is no longer available.");
-  const current = input.installations.snapshot().packagesByAppId[app.identifier];
+  const current = getInstalledAppPackage(
+    input.installations.snapshot(),
+    app.identifier,
+    input.request.spaceId,
+  );
   if (!current || current.source !== "registry")
     throw new Error(`${app.displayName} is not installed from the registry.`);
   const correctDirection =
@@ -146,7 +157,7 @@ async function replaceRegistryApp(
     expectedArchiveDigest: verified.release.packageDigest,
   });
   assertPackageMatchesRegistry(installedPackage, app, version);
-  return input.installations.updateForSpaces({
+  return input.installations.updateForSpace({
     package: {
       ...installedPackage,
       source: "registry",
@@ -159,7 +170,8 @@ async function replaceRegistryApp(
         publishedAt: verified.release.publishedAt,
       },
     },
-    permissionsBySpace: input.request.permissionsBySpace,
+    spaceId: input.request.spaceId,
+    permissions: input.request.permissions,
   });
 }
 

@@ -63,7 +63,7 @@ export const COMPOSER_MUTED_ACCENT_TEXT_CLASS_NAME = "text-muted-foreground/45";
 // sync with dropdown group labels like "Git actions". Picker padding is still
 // tuned via the `--picker-section-py` token on `[data-slot="menu-label"]`.
 
-export const COMPOSER_MAX_WIDTH_CLASS_NAME = "max-w-[35rem]";
+export const COMPOSER_MAX_WIDTH_CLASS_NAME = "chat-pane-responsive-rail";
 /** Main chat column background — matches the theme Background setting exactly. */
 export const CHAT_BACKGROUND_CLASS_NAME = "bg-[var(--color-background-surface)]";
 
@@ -81,31 +81,27 @@ export const CHAT_MAIN_VIEWPORT_SHELL_CLASS_NAME =
   "flex h-dvh min-h-0 min-w-0 flex-1 overflow-hidden";
 
 /** Horizontal padding shared by the transcript and composer columns. */
-export const CHAT_COLUMN_GUTTER_CLASS_NAME =
-  "px-[var(--app-density-chat-gutter-x,0.75rem)] sm:px-[var(--app-density-chat-gutter-x-lg,1.25rem)]";
+export const CHAT_COLUMN_GUTTER_CLASS_NAME = "px-0";
 /** Centers the chat column and applies the shared max width. */
-export const CHAT_COLUMN_FRAME_CLASS_NAME = `mx-auto w-full min-w-0 ${COMPOSER_MAX_WIDTH_CLASS_NAME}`;
+export const CHAT_COLUMN_FRAME_CLASS_NAME = `mx-auto min-w-0 ${COMPOSER_MAX_WIDTH_CLASS_NAME}`;
 
 /** Max width for the composer shell only; outer wrappers stay full width for shadow bleed. */
 export const COMPOSER_COLUMN_FRAME_CLASS_NAME = CHAT_COLUMN_FRAME_CLASS_NAME;
 
 /**
  * Frame for rows stacked above the composer (queued steer/queue rows, live file
- * changes, active task list). Sits at `w-11/12` and is centered (`mx-auto`) so the
- * stack reads as an inset rail above the full-width composer input.
+ * changes, active task list). Uses the approved 16px side inset so a 560px composer
+ * produces a 528px rail.
  *
  * Prefer ComposerStackedPanel inside ComposerColumnFrame instead of using this
  * token directly so chrome and attached-radius behavior stay centralized.
  */
-export const COMPOSER_STACKED_HEADER_FRAME_CLASS_NAME = "mx-auto -mb-px w-11/12 min-w-0";
+export const COMPOSER_STACKED_HEADER_FRAME_CLASS_NAME = "mx-4 -mb-px w-auto min-w-0";
 
-/** Opaque base behind the composer shell: the composer overlaps the scrolling
- *  transcript (`-mt-5`), so without a solid backing the frosted surface would let
- *  transcript text bleed through its top edge. Match the chat surface to stay seamless.
- *  `relative z-[1]` keeps the full input outline above the inset stacked rail
+/** `relative z-[1]` keeps the full input outline above the inset stacked rail
  *  (`-mb-px`), so the top border is never covered by live-changes / task / queue chrome. */
 export const COMPOSER_INPUT_SHELL_CLASS_NAME =
-  "group relative z-[1] chat-composer-shell bg-[var(--color-background-surface)] transition-colors duration-200";
+  "group relative z-[1] chat-composer-shell transition-colors duration-200";
 
 /** Defined composer border: the heaviest border token nudged a bit darker with foreground. */
 export const COMPOSER_SURFACE_BORDER_CLASS_NAME =
@@ -215,30 +211,22 @@ export const RUNTIME_FULL_ACCESS_ACCENT_CLASS_NAME =
 
 /** Pencil composer baseline: 14px editor text on a 16px line box. */
 export const COMPOSER_EDITOR_LINE_HEIGHT_CLASS_NAME = "leading-4";
-export const COMPOSER_EDITOR_TEXT_CLASS_NAME =
-  "text-[length:calc(var(--app-font-size-chat,12px)+2px)]";
+export const COMPOSER_EDITOR_TEXT_CLASS_NAME = "text-[14px]";
 /** Font, size, and leading shared by the composer editor and its placeholder so the
  *  placeholder always aligns with typed text. Keep both surfaces on this one token. */
 export const COMPOSER_EDITOR_TYPOGRAPHY_CLASS_NAME = `font-sans ${COMPOSER_EDITOR_TEXT_CLASS_NAME} ${COMPOSER_EDITOR_LINE_HEIGHT_CLASS_NAME}`;
 /** Muted empty-state copy for the composer prompt editor. */
 export const COMPOSER_PLACEHOLDER_TEXT_CLASS_NAME = "text-[var(--color-text-foreground-tertiary)]";
 /** A 28px editor region preserves the 88.5px default shell while still allowing growth. */
-export const COMPOSER_EDITOR_MIN_HEIGHT_CLASS_NAME =
-  "min-h-[var(--app-density-composer-editor-min-height,1.75rem)]";
+export const COMPOSER_EDITOR_MIN_HEIGHT_CLASS_NAME = "min-h-7";
 /** Lexical wraps lines in `<p>` nodes; reset default margins so text sits flush above the footer. */
 export const COMPOSER_EDITOR_CONTENT_RESET_CLASS_NAME = "[&_p]:m-0";
 /** Shared padding around the composer prompt editor. */
 export const COMPOSER_EDITOR_PADDING_CLASS_NAME = [
   "relative",
-  "pl-[var(--app-density-composer-editor-padding-x,0.625rem)]",
-  "pr-[var(--app-density-composer-editor-padding-x-end,0.625rem)]",
-  "pt-[var(--app-density-composer-editor-padding-top,0.875rem)]",
-  "pb-[var(--app-density-composer-editor-padding-bottom,0.5rem)]",
+  "px-[10px]",
+  "pt-[14px]",
+  "pb-2",
 ].join(" ");
 /** Bottom bar row — flush to the composer shell edges. */
-export const COMPOSER_FOOTER_ROW_CLASS_NAME = [
-  "flex items-center justify-between",
-  "pl-[var(--app-density-composer-footer-padding,0.625rem)]",
-  "pr-[var(--app-density-composer-footer-padding-end,0.625rem)]",
-  "pb-[var(--app-density-composer-footer-padding,0.625rem)]",
-].join(" ");
+export const COMPOSER_FOOTER_ROW_CLASS_NAME = ["px-[10px]", "pb-[10px]"].join(" ");

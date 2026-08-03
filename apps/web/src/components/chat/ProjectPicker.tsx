@@ -20,7 +20,6 @@ import {
   ComboboxPopup,
   ComboboxTrigger,
 } from "../ui/combobox";
-import { PickerPanelShell } from "./PickerPanelShell";
 import { PickerTriggerButton } from "./PickerTriggerButton";
 
 interface ProjectPickerProps {
@@ -36,10 +35,11 @@ interface ProjectPickerProps {
   emptyTriggerLabel?: string;
   addActionLabel?: string;
   resetActionLabel?: string;
+  variant?: "default" | "draft-bar";
 }
 
 const PICKER_FOOTER_ACTION_CLASS_NAME = cn(
-  "flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-sm",
+  "flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-[12px] font-normal",
   ELEVATED_HOVER_SURFACE_CLASS_NAME,
   "hover:text-[var(--color-text-foreground)]",
 );
@@ -60,7 +60,10 @@ export function projectPickerProjectLabels(project: {
 }): { primaryLabel: string | null; secondaryLabel: string | null } {
   const folderName = basenameOfPath(project.cwd) ?? project.name;
   if (project.id.startsWith("penkra-client-") || project.id === "penkra-hq") {
-    return { primaryLabel: project.name.trim() || folderName, secondaryLabel: null };
+    return {
+      primaryLabel: project.name.trim() || folderName,
+      secondaryLabel: null,
+    };
   }
   const localName = project.localName?.trim() ?? "";
   return {
@@ -86,6 +89,7 @@ export const ProjectPicker = memo(function ProjectPicker({
   emptyTriggerLabel: emptyTriggerLabelProp,
   addActionLabel: addActionLabelProp,
   resetActionLabel: resetActionLabelProp,
+  variant: variantProp,
 }: ProjectPickerProps) {
   const align = alignProp ?? "start";
   const side = sideProp ?? "top";
@@ -94,6 +98,7 @@ export const ProjectPicker = memo(function ProjectPicker({
   const emptyTriggerLabel = emptyTriggerLabelProp ?? "Choose Folder";
   const addActionLabel = addActionLabelProp ?? "Choose from computer…";
   const resetActionLabel = resetActionLabelProp ?? "Don't work in a folder";
+  const variant = variantProp ?? "default";
   const sidebarThreads = useStore(useMemo(() => createSidebarDisplayThreadsSelector(), []));
   const [open, setOpen] = useState(false);
   const [isPicking, setIsPicking] = useState(false);
@@ -170,47 +175,27 @@ export const ProjectPicker = memo(function ProjectPicker({
           renderTrigger ?? (
             <PickerTriggerButton
               data-testid="workspace-picker-trigger"
-              icon={<FolderClosed className="size-3.5" />}
+              icon={
+                <FolderClosed className={variant === "draft-bar" ? "size-[15px]" : "size-3.5"} />
+              }
               label={selectedLabel ?? emptyTriggerLabel}
-              {...(triggerClassName ? { className: triggerClassName } : {})}
+              className={cn(
+                variant === "draft-bar" &&
+                  "h-[26px] max-w-none shrink-0 gap-[7px] px-1.5 py-0 text-[12px] font-medium text-[var(--color-text-foreground)] sm:max-w-none sm:px-1.5 [&>span]:gap-[7px] [&>span>span:first-child]:size-[15px] [&>span>svg]:size-3 [&>span>svg]:opacity-100",
+                triggerClassName,
+              )}
             />
           )
         }
       />
-      <ComboboxPopup align={align} side={side} sideOffset={6} className="p-0">
-        <PickerPanelShell
-          widthClassName="w-64"
-          footer={
-            <>
-              <button
-                type="button"
-                className={cn(
-                  PICKER_FOOTER_ACTION_CLASS_NAME,
-                  "disabled:cursor-not-allowed disabled:opacity-60",
-                )}
-                onClick={() => void handlePickFromComputer()}
-                disabled={isPicking}
-              >
-                <PlusIcon className="size-3.5 shrink-0 text-muted-foreground/70" />
-                <span className="truncate">
-                  {isPicking ? "Opening folder picker…" : addActionLabel}
-                </span>
-              </button>
-              <button
-                type="button"
-                className={PICKER_FOOTER_ACTION_CLASS_NAME}
-                onClick={handleReset}
-              >
-                <XIcon className="size-3.5 shrink-0 text-muted-foreground/70" />
-                <span className="truncate">{resetActionLabel}</span>
-              </button>
-              {errorMessage ? (
-                <div className="px-2 pb-1 text-destructive text-xs">{errorMessage}</div>
-              ) : null}
-            </>
-          }
-        >
-          <ComboboxList>
+      <ComboboxPopup
+        align={align}
+        side={side}
+        sideOffset={6}
+        className="w-[264px] min-w-[264px] rounded-[10px] p-2"
+      >
+        <div className="flex w-full flex-col gap-0.5" data-pencil-component="MFAws">
+          <ComboboxList className="not-empty:!p-0">
             {recentFolders.map((folder, index) => (
               <ComboboxItem
                 hideIndicator={folder.path !== selectedWorkspaceRoot}
@@ -222,18 +207,43 @@ export const ProjectPicker = memo(function ProjectPicker({
                   setOpen(false);
                 }}
                 className={cn(
+                  "h-8 min-h-8 gap-2 rounded-lg px-2 py-0 text-[12px] font-normal sm:min-h-8 sm:text-[12px] [&>div:last-child_svg]:size-3.5 [&>div:last-child_svg]:text-[var(--color-accent-blue)]",
                   folder.path === selectedWorkspaceRoot &&
                     "bg-[var(--color-background-elevated-secondary)] text-[var(--color-text-foreground)]",
                 )}
               >
                 <div className="flex min-w-0 items-center gap-2">
-                  <FolderClosed className="size-3.5 shrink-0 text-muted-foreground/70" />
+                  <FolderClosed className="size-[15px] shrink-0 text-[var(--color-text-foreground-secondary)]" />
                   <span className="truncate">{folder.label}</span>
                 </div>
               </ComboboxItem>
             ))}
           </ComboboxList>
-        </PickerPanelShell>
+          {recentFolders.length > 0 ? (
+            <div className="h-px w-full bg-[var(--color-border)]" />
+          ) : null}
+          <button
+            type="button"
+            className={cn(
+              PICKER_FOOTER_ACTION_CLASS_NAME,
+              "disabled:cursor-not-allowed disabled:opacity-60",
+            )}
+            onClick={() => void handlePickFromComputer()}
+            disabled={isPicking}
+          >
+            <PlusIcon className="size-[15px] shrink-0 text-[var(--color-text-foreground-tertiary)]" />
+            <span className="truncate">
+              {isPicking ? "Opening folder picker…" : addActionLabel}
+            </span>
+          </button>
+          <button type="button" className={PICKER_FOOTER_ACTION_CLASS_NAME} onClick={handleReset}>
+            <XIcon className="size-[15px] shrink-0 text-[var(--color-text-foreground-tertiary)]" />
+            <span className="truncate">{resetActionLabel}</span>
+          </button>
+          {errorMessage ? (
+            <div className="px-2 pb-1 text-[11px] text-destructive">{errorMessage}</div>
+          ) : null}
+        </div>
       </ComboboxPopup>
     </Combobox>
   );

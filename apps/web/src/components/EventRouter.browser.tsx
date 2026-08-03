@@ -1297,7 +1297,6 @@ describe("EventRouter scoped orchestration sync", () => {
           branch: null,
           worktreePath: null,
           envMode: "local",
-          isTemporary: false,
         },
       },
       projectDraftThreadIdByProjectId: {
@@ -1391,7 +1390,6 @@ describe("EventRouter scoped orchestration sync", () => {
           branch: null,
           worktreePath: null,
           envMode: "local",
-          isTemporary: false,
         },
       },
       projectDraftThreadIdByProjectId: {

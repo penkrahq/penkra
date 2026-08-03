@@ -27,7 +27,11 @@ vi.mock("electron", () => ({
   },
 }));
 
-import { BROWSER_SESSION_PARTITION, BrowserSessionPolicy } from "./browserSessionPolicy";
+import {
+  BROWSER_SESSION_PARTITION,
+  BrowserSessionPolicy,
+  createScopedBrowserSessionPartition,
+} from "./browserSessionPolicy";
 
 describe("BrowserSessionPolicy", () => {
   beforeEach(() => {
@@ -52,6 +56,19 @@ describe("BrowserSessionPolicy", () => {
     expect(electronMocks.fromPartition).toHaveBeenCalledWith(BROWSER_SESSION_PARTITION);
     expect(electronMocks.partitionSetUserAgent).toHaveBeenCalledOnce();
     expect(electronMocks.onBeforeSendHeaders).toHaveBeenCalledOnce();
+  });
+
+  it("derives stable opaque App/Space partitions and configures each independently", () => {
+    const personal = createScopedBrowserSessionPartition("com.penkra.browser", "personal");
+    const work = createScopedBrowserSessionPartition("com.penkra.browser", "work");
+    expect(personal).toBe(createScopedBrowserSessionPartition("com.penkra.browser", "personal"));
+    expect(personal).not.toBe(work);
+    expect(personal).not.toContain("personal");
+    const policy = new BrowserSessionPolicy();
+    policy.ensureConfigured(personal);
+    policy.ensureConfigured(work);
+    expect(electronMocks.fromPartition).toHaveBeenCalledWith(personal);
+    expect(electronMocks.fromPartition).toHaveBeenCalledWith(work);
   });
 
   it("replaces identity headers case-insensitively without Electron product tokens", () => {

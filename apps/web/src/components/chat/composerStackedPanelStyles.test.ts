@@ -9,7 +9,7 @@ import {
   COMPOSER_STACKED_PANEL_ICON_CLASS_NAME,
   COMPOSER_STACKED_PANEL_LABEL_CLASS_NAME,
   COMPOSER_STACKED_PANEL_ROW_CLASS_NAME,
-} from "./composerStackedPanelStyles";
+} from "../middle-panel/composer-stacked-status/composerStackedPanelStyles";
 
 describe("composerStackedPanelStyles", () => {
   it("keeps stacked panel chrome on the recessed stacked-top treatment", () => {
@@ -19,9 +19,9 @@ describe("composerStackedPanelStyles", () => {
     expect(COMPOSER_STACKED_PANEL_CHROME_CLASS_NAME).not.toContain("z-[1]");
   });
 
-  it("keeps stacked panel rows on one shared compact padding and type scale", () => {
-    expect(COMPOSER_STACKED_PANEL_ROW_CLASS_NAME).toContain("px-2.5");
-    expect(COMPOSER_STACKED_PANEL_ROW_CLASS_NAME).toContain("py-1.5");
+  it("keeps stacked panel rows on the approved 42px strip", () => {
+    expect(COMPOSER_STACKED_PANEL_ROW_CLASS_NAME).toContain("h-[42px]");
+    expect(COMPOSER_STACKED_PANEL_ROW_CLASS_NAME).toContain("px-3");
     expect(COMPOSER_STACKED_PANEL_ROW_CLASS_NAME).toContain("text-[12px]");
   });
 

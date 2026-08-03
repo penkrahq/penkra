@@ -59,6 +59,7 @@ export function MessageActions({
         "flex h-[26px] items-center text-[11px] text-[var(--color-text-foreground-tertiary)]",
         className,
       )}
+      data-pencil-component={assistant ? "vI265" : "Bx6FM"}
     >
       {assistant ? actions : null}
       <time className="px-2">{time}</time>

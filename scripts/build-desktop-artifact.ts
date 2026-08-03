@@ -751,6 +751,8 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   const firstPartyAppsPackagePath = configuredAppsPackagePath
     ? path.resolve(configuredAppsPackagePath)
     : path.resolve(repoRoot, "..", "penkra-apps", "apps");
+  const firstPartyAppsRoot = path.dirname(firstPartyAppsPackagePath);
+  const firstPartyAppDirectories = ["apps", "explorer", "browser"] as const;
   const distDirs = {
     desktopDist: path.join(repoRoot, "apps/desktop/dist-electron"),
     desktopResources: path.join(repoRoot, "apps/desktop/resources"),
@@ -781,10 +783,14 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
       message: `Missing bundled server client at ${bundledClientEntry}. Run 'bun run build:desktop' first.`,
     });
   }
-  if (!(yield* fs.exists(path.join(firstPartyAppsPackagePath, "penkra-app.json")))) {
-    return yield* new BuildScriptError({
-      message: `Missing bundled Apps package at ${firstPartyAppsPackagePath}. Set ${PENKRA_APPS_PACKAGE_PATH_ENV} to a verified penkra-apps/apps package checkout or artifact.`,
-    });
+  for (const directory of firstPartyAppDirectories) {
+    const packagePath =
+      directory === "apps" ? firstPartyAppsPackagePath : path.join(firstPartyAppsRoot, directory);
+    if (!(yield* fs.exists(path.join(packagePath, "penkra-app.json")))) {
+      return yield* new BuildScriptError({
+        message: `Missing bundled ${directory} App package at ${packagePath}. Set ${PENKRA_APPS_PACKAGE_PATH_ENV} to the Apps folder in a complete penkra-apps checkout or artifact.`,
+      });
+    }
   }
   yield* validateBundledClientAssets(path.dirname(bundledClientEntry));
 
@@ -795,7 +801,11 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   yield* fs.copy(distDirs.desktopDist, path.join(stageAppDir, "apps/desktop/dist-electron"));
   yield* fs.copy(distDirs.desktopResources, stageResourcesDir);
   yield* fs.copy(distDirs.serverDist, path.join(stageAppDir, "apps/server/dist"));
-  yield* fs.copy(firstPartyAppsPackagePath, path.join(stageAppDir, "penkra-apps/apps"));
+  for (const directory of firstPartyAppDirectories) {
+    const packagePath =
+      directory === "apps" ? firstPartyAppsPackagePath : path.join(firstPartyAppsRoot, directory);
+    yield* fs.copy(packagePath, path.join(stageAppDir, `penkra-apps/${directory}`));
+  }
   yield* assertPlatformBuildResources(options.platform, stageResourcesDir, options.verbose);
 
   // electron-builder is filtering out stageResourcesDir directory in the AppImage for production

@@ -1182,10 +1182,15 @@ function applyOrchestrationEvent(
           const session = normalizeThreadSession(event.payload.session, thread.session);
           const error = normalizeThreadErrorMessage(event.payload.session.lastError);
           const latestTurn = reconcileLatestTurnFromSession(thread, event.payload.session, error);
+          const pendingTurnStartMessageId =
+            event.payload.session.status === "starting"
+              ? (thread.pendingTurnStartMessageId ?? null)
+              : null;
           if (
             session === thread.session &&
             error === thread.error &&
-            latestTurn === thread.latestTurn
+            latestTurn === thread.latestTurn &&
+            pendingTurnStartMessageId === (thread.pendingTurnStartMessageId ?? null)
           ) {
             return thread;
           }
@@ -1194,6 +1199,7 @@ function applyOrchestrationEvent(
             session,
             error,
             latestTurn,
+            pendingTurnStartMessageId,
             updatedAt:
               (thread.updatedAt ?? thread.createdAt) > event.occurredAt
                 ? thread.updatedAt
@@ -1272,6 +1278,7 @@ function applyOrchestrationEvent(
             thread.runtimeMode === runtimeMode &&
             thread.interactionMode === interactionMode &&
             thread.pendingSourceProposedPlan === event.payload.sourceProposedPlan &&
+            thread.pendingTurnStartMessageId === event.payload.messageId &&
             (thread.updatedAt ?? thread.createdAt) >= event.payload.createdAt
           ) {
             return thread;
@@ -1282,6 +1289,7 @@ function applyOrchestrationEvent(
             runtimeMode,
             interactionMode,
             pendingSourceProposedPlan: event.payload.sourceProposedPlan,
+            pendingTurnStartMessageId: event.payload.messageId,
             updatedAt:
               (thread.updatedAt ?? thread.createdAt) > event.payload.createdAt
                 ? thread.updatedAt
@@ -1499,6 +1507,35 @@ function applyOrchestrationEvent(
           ...options,
           updateSidebarSummary: true,
         },
+      );
+
+    case "thread.turn-start-cancelled":
+      return applyThreadUpdate(
+        state,
+        event.payload.threadId,
+        (thread) => {
+          const messages = thread.messages.filter(
+            (message) => message.id !== event.payload.messageId,
+          );
+          if (
+            messages.length === thread.messages.length &&
+            thread.pendingTurnStartMessageId === null &&
+            thread.pendingSourceProposedPlan === undefined
+          ) {
+            return thread;
+          }
+          return {
+            ...thread,
+            messages,
+            pendingSourceProposedPlan: undefined,
+            pendingTurnStartMessageId: null,
+            updatedAt:
+              (thread.updatedAt ?? thread.createdAt) > event.occurredAt
+                ? thread.updatedAt
+                : event.occurredAt,
+          };
+        },
+        { ...options, recomputeSummarySignals: true, updateSidebarSummary: true },
       );
 
     case "thread.conversation-rolled-back":

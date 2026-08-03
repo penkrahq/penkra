@@ -194,7 +194,8 @@ export function threadTurnStatesEqual(
   return (
     left !== undefined &&
     latestTurnsEqual(left.latestTurn, right.latestTurn) &&
-    sourceProposedPlansEqual(left.pendingSourceProposedPlan, right.pendingSourceProposedPlan)
+    sourceProposedPlansEqual(left.pendingSourceProposedPlan, right.pendingSourceProposedPlan) &&
+    (left.pendingTurnStartMessageId ?? null) === (right.pendingTurnStartMessageId ?? null)
   );
 }
 
@@ -1520,6 +1521,7 @@ export function normalizeThreadFromReadModel(
   const pendingSourceProposedPlan =
     latestTurn?.sourceProposedPlan ??
     (incoming.session?.status === "running" ? previous?.pendingSourceProposedPlan : undefined);
+  const pendingTurnStartMessageId = incoming.pendingTurnStartMessageId ?? null;
 
   if (
     previous &&
@@ -1538,6 +1540,7 @@ export function normalizeThreadFromReadModel(
     (previous.isPinned ?? false) === (incoming.isPinned ?? false) &&
     previous.latestTurn === latestTurn &&
     previous.pendingSourceProposedPlan === pendingSourceProposedPlan &&
+    (previous.pendingTurnStartMessageId ?? null) === pendingTurnStartMessageId &&
     previous.lastVisitedAt === lastVisitedAt &&
     (previous.parentThreadId ?? null) === (incoming.parentThreadId ?? null) &&
     (previous.creationSource ?? null) === (incoming.creationSource ?? null) &&
@@ -1590,6 +1593,7 @@ export function normalizeThreadFromReadModel(
     isPinned: incoming.isPinned ?? false,
     latestTurn,
     ...(pendingSourceProposedPlan ? { pendingSourceProposedPlan } : {}),
+    pendingTurnStartMessageId,
     lastVisitedAt,
     parentThreadId: incoming.parentThreadId ?? null,
     creationSource: incoming.creationSource ?? null,

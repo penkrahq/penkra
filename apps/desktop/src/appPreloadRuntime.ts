@@ -39,16 +39,57 @@ export interface AppPreloadTransport {
   secretDelete(name: string): Promise<void>;
   filePick(kind: "file" | "directory"): Promise<import("@penkra/sdk").AppFileHandle | null>;
   fileList(): Promise<ReadonlyArray<import("@penkra/sdk").AppFileHandle>>;
-  fileReadText(handleId: string): Promise<string>;
-  fileWriteText(input: { handleId: string; contents: string }): Promise<void>;
-  fileListDirectory(
-    handleId: string,
-  ): Promise<ReadonlyArray<{ name: string; kind: "file" | "directory" }>>;
+  fileReadText(input: { handleId: string; relativePath?: string }): Promise<string>;
+  fileWriteText(input: {
+    handleId: string;
+    contents: string;
+    relativePath?: string;
+  }): Promise<void>;
+  fileStat(input: {
+    handleId: string;
+    relativePath?: string;
+  }): Promise<import("@penkra/sdk").AppFileMetadata>;
+  fileListDirectory(input: {
+    handleId: string;
+    relativePath?: string;
+  }): Promise<ReadonlyArray<import("@penkra/sdk").AppFileMetadata>>;
+  fileReadBinary(input: {
+    handleId: string;
+    relativePath?: string;
+    offset?: number;
+    length?: number;
+  }): Promise<{ bytes: Uint8Array; offset: number; totalBytes: number; complete: boolean }>;
+  fileWriteBinary(input: {
+    handleId: string;
+    relativePath?: string;
+    bytes: Uint8Array;
+  }): Promise<void>;
+  fileCreateDirectory(input: {
+    handleId: string;
+    relativePath: string;
+  }): Promise<import("@penkra/sdk").AppFileMetadata>;
+  fileRename(input: {
+    handleId: string;
+    relativePath: string;
+    nextRelativePath: string;
+  }): Promise<import("@penkra/sdk").AppFileMetadata>;
+  fileRemove(input: { handleId: string; relativePath: string }): Promise<void>;
+  fileWatch(
+    input: { handleId: string; relativePath?: string },
+    listener: (event: import("@penkra/sdk").AppFileChangeEvent) => void,
+  ): Promise<() => void>;
   fileOpenChild(input: {
     handleId: string;
     relativePath: string;
   }): Promise<import("@penkra/sdk").AppFileHandle>;
   fileRevoke(handleId: string): Promise<void>;
+  resourceOpen(
+    input: Parameters<import("@penkra/sdk").PenkraAppRuntimeApi["open"]>[0],
+  ): ReturnType<import("@penkra/sdk").PenkraAppRuntimeApi["open"]>;
+  browserCall(method: string, input?: unknown): Promise<unknown>;
+  onBrowserState(
+    listener: (state: import("@penkra/sdk").AppBrowserSessionState) => void,
+  ): () => void;
   networkFetch(
     input: Parameters<import("@penkra/sdk").PenkraAppRuntimeApi["network"]["fetch"]>[0],
   ): ReturnType<import("@penkra/sdk").PenkraAppRuntimeApi["network"]["fetch"]>;
@@ -79,6 +120,61 @@ export class AppPreloadRuntime {
   constructor(transport: AppPreloadTransport) {
     this.#transport = transport;
     this.api = {
+      open: (input) => this.#transport.resourceOpen(input),
+      browser: {
+        open: (initialUrl) =>
+          this.#transport.browserCall("open", initialUrl) as Promise<
+            import("@penkra/sdk").AppBrowserSessionState
+          >,
+        close: () => this.#transport.browserCall("close") as Promise<void>,
+        getState: () =>
+          this.#transport.browserCall("getState") as Promise<
+            import("@penkra/sdk").AppBrowserSessionState
+          >,
+        onState: (listener) => this.#transport.onBrowserState(listener),
+        setViewport: (bounds) =>
+          this.#transport.browserCall("setViewport", bounds) as Promise<void>,
+        navigate: (input) =>
+          this.#transport.browserCall("navigate", input) as Promise<
+            import("@penkra/sdk").AppBrowserSessionState
+          >,
+        reload: (pageId) =>
+          this.#transport.browserCall("reload", pageId) as Promise<
+            import("@penkra/sdk").AppBrowserSessionState
+          >,
+        stop: (pageId) =>
+          this.#transport.browserCall("stop", pageId) as Promise<
+            import("@penkra/sdk").AppBrowserSessionState
+          >,
+        back: (pageId) =>
+          this.#transport.browserCall("back", pageId) as Promise<
+            import("@penkra/sdk").AppBrowserSessionState
+          >,
+        forward: (pageId) =>
+          this.#transport.browserCall("forward", pageId) as Promise<
+            import("@penkra/sdk").AppBrowserSessionState
+          >,
+        newPage: (input) =>
+          this.#transport.browserCall("newPage", input) as Promise<
+            import("@penkra/sdk").AppBrowserSessionState
+          >,
+        closePage: (pageId) =>
+          this.#transport.browserCall("closePage", pageId) as Promise<
+            import("@penkra/sdk").AppBrowserSessionState
+          >,
+        selectPage: (pageId) =>
+          this.#transport.browserCall("selectPage", pageId) as Promise<
+            import("@penkra/sdk").AppBrowserSessionState
+          >,
+        find: (input) =>
+          this.#transport.browserCall("find", input) as Promise<
+            import("@penkra/sdk").AppBrowserFindResult
+          >,
+        stopFind: (pageId) => this.#transport.browserCall("stopFind", pageId) as Promise<void>,
+        capture: (pageId) =>
+          this.#transport.browserCall("capture", pageId) as Promise<{ dataUrl: string }>,
+        evaluate: (input) => this.#transport.browserCall("evaluate", input),
+      },
       identity: {
         get: () => this.#transport.getIdentity(),
       },
@@ -95,9 +191,33 @@ export class AppPreloadRuntime {
       files: {
         pick: (kind) => this.#transport.filePick(kind),
         list: () => this.#transport.fileList(),
-        readText: (handleId) => this.#transport.fileReadText(handleId),
-        writeText: (handleId, contents) => this.#transport.fileWriteText({ handleId, contents }),
-        listDirectory: (handleId) => this.#transport.fileListDirectory(handleId),
+        readText: (handleId, relativePath) =>
+          this.#transport.fileReadText({ handleId, ...(relativePath ? { relativePath } : {}) }),
+        writeText: (handleId, contents, relativePath) =>
+          this.#transport.fileWriteText({
+            handleId,
+            contents,
+            ...(relativePath ? { relativePath } : {}),
+          }),
+        stat: (handleId, relativePath) =>
+          this.#transport.fileStat({ handleId, ...(relativePath ? { relativePath } : {}) }),
+        listDirectory: (handleId, relativePath) =>
+          this.#transport.fileListDirectory({
+            handleId,
+            ...(relativePath ? { relativePath } : {}),
+          }),
+        readBinary: (input) => this.#transport.fileReadBinary(input),
+        writeBinary: (input) => this.#transport.fileWriteBinary(input),
+        createDirectory: (handleId, relativePath) =>
+          this.#transport.fileCreateDirectory({ handleId, relativePath }),
+        rename: (handleId, relativePath, nextRelativePath) =>
+          this.#transport.fileRename({ handleId, relativePath, nextRelativePath }),
+        remove: (handleId, relativePath) => this.#transport.fileRemove({ handleId, relativePath }),
+        watch: (handleId, relativePath, listener) =>
+          this.#transport.fileWatch(
+            { handleId, ...(relativePath ? { relativePath } : {}) },
+            listener,
+          ),
         openChild: (handleId, relativePath) =>
           this.#transport.fileOpenChild({ handleId, relativePath }),
         revoke: (handleId) => this.#transport.fileRevoke(handleId),
@@ -243,7 +363,12 @@ export class AppPreloadRuntime {
         `Operation handler ${handlerKey} is not registered.`,
       );
     const invocation = parseInvocation(input.invocation);
-    const context = this.#operationContext(parentId, request, invocation);
+    const context = this.#operationContext(
+      parentId,
+      request,
+      invocation,
+      parseCaller(input.caller),
+    );
     return handler(input.input, context);
   }
 
@@ -280,12 +405,14 @@ export class AppPreloadRuntime {
     parentId: string,
     request: ActiveRequest,
     invocation: OperationContext["invocation"],
+    caller: OperationContext["caller"],
   ): OperationContext {
     const targetTab = invocation.tabId
       ? this.#tabHandle(parentId, request, invocation.tabId, false)
       : undefined;
     return {
       invocation,
+      caller,
       ...(targetTab ? { tab: targetTab } : {}),
       tabs: {
         open: async (input) => {
@@ -412,19 +539,20 @@ function parseInvocation(value: unknown): OperationContext["invocation"] {
     id: requireString(input.id, "invocation.id"),
     app: requireString(input.app, "invocation.app"),
     operation: requireString(input.operation, "invocation.operation"),
-    caller: input.caller === null ? null : parseCaller(input.caller),
-    subject: input.subject === null ? null : requireString(input.subject, "invocation.subject"),
-    space: requireString(input.space, "invocation.space"),
+    spaceId: requireString(input.spaceId, "invocation.spaceId"),
     threadId: requireString(input.threadId, "invocation.threadId"),
     ...(input.tabId === undefined ? {} : { tabId: requireString(input.tabId, "invocation.tabId") }),
   };
 }
 
-function parseCaller(value: unknown): { app: string; invocationId: string } {
+function parseCaller(value: unknown): OperationContext["caller"] {
   const input = requireRecord(value);
+  const kind = requireString(input.kind, "caller.kind");
+  if (kind !== "user" && kind !== "agent" && kind !== "app" && kind !== "host") {
+    throw runtimeError("INVALID_REQUEST", "caller.kind is invalid.");
+  }
   return {
-    app: requireString(input.app, "invocation.caller.app"),
-    invocationId: requireString(input.invocationId, "invocation.caller.invocationId"),
+    kind,
   };
 }
 

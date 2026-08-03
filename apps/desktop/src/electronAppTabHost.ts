@@ -6,10 +6,11 @@ import { randomUUID } from "node:crypto";
 
 import { WebContentsView, type BrowserWindow } from "electron";
 import type { AppTabHandle, OperationCancellationCode } from "@penkra/sdk";
-import type { DesktopAppTabDescriptor } from "@penkra/contracts";
+import type { DesktopAppTabClosed, DesktopAppTabDescriptor } from "@penkra/contracts";
 
 import type { AppInstallationService } from "./appInstallationService";
-import type { InstalledAppPackage } from "./appInstallationState";
+import { resolveInstalledAppIconDataUrl } from "./appIconDataUrl";
+import { getInstalledAppPackage, type InstalledAppPackage } from "./appInstallationState";
 import type {
   AppOperationBroker,
   AppTabEndpoint,
@@ -48,9 +49,12 @@ export class ElectronAppTabHost implements AppTabHost {
   readonly #preloadPath: string;
   readonly #onOpened: (descriptor: DesktopAppTabDescriptor) => void;
   readonly #onState: (descriptor: DesktopAppTabDescriptor) => void;
+  readonly #onClosed: (descriptor: DesktopAppTabClosed) => void;
   readonly #onRendererCreated: (input: {
     appId: string;
     spaceId: string;
+    threadId: string;
+    tabId: string;
     rendererId: number;
   }) => (() => void) | void;
   readonly #assertAppAllowed: (app: InstalledAppPackage) => Promise<void>;
@@ -70,9 +74,12 @@ export class ElectronAppTabHost implements AppTabHost {
     preloadPath: string;
     onOpened: (descriptor: DesktopAppTabDescriptor) => void;
     onState: (descriptor: DesktopAppTabDescriptor) => void;
+    onClosed?: (descriptor: DesktopAppTabClosed) => void;
     onRendererCreated?: (input: {
       appId: string;
       spaceId: string;
+      threadId: string;
+      tabId: string;
       rendererId: number;
     }) => (() => void) | void;
     assertAppAllowed?: (app: InstalledAppPackage) => Promise<void>;
@@ -88,6 +95,7 @@ export class ElectronAppTabHost implements AppTabHost {
     this.#preloadPath = input.preloadPath;
     this.#onOpened = input.onOpened;
     this.#onState = input.onState;
+    this.#onClosed = input.onClosed ?? (() => undefined);
     this.#onRendererCreated = input.onRendererCreated ?? (() => undefined);
     this.#assertAppAllowed = input.assertAppAllowed ?? (async () => undefined);
     this.#onDiagnostic = input.onDiagnostic ?? (() => undefined);
@@ -120,8 +128,8 @@ export class ElectronAppTabHost implements AppTabHost {
     route: string;
     state?: unknown;
   }): Promise<DesktopAppTabDescriptor> {
-    const app = this.#installations.snapshot().packagesByAppId[input.appId];
-    if (!app) throw new Error(`${input.appId} is not installed.`);
+    const app = getInstalledAppPackage(this.#installations.snapshot(), input.appId, input.spaceId);
+    if (!app) throw new Error(`${input.appId} is not installed in this Space.`);
     if (!this.#installations.isActive(input.appId, input.spaceId)) {
       if (input.appId !== "com.penkra.apps")
         throw new Error(`${app.name} is disabled in this Space.`);
@@ -181,6 +189,19 @@ export class ElectronAppTabHost implements AppTabHost {
     record.view.setBounds(normalizeBounds(bounds));
   }
 
+  rendererBounds(
+    rendererId: number,
+  ): { x: number; y: number; width: number; height: number } | null {
+    const record = [...this.#records.values()].find(
+      (candidate) => candidate.view.webContents.id === rendererId,
+    );
+    return record ? record.view.getBounds() : null;
+  }
+
+  rendererId(tabId: string): number {
+    return this.#require(tabId).view.webContents.id;
+  }
+
   setVisible(tabId: string, visible: boolean): void {
     const record = this.#require(tabId);
     record.view.setVisible?.(visible);
@@ -208,6 +229,7 @@ export class ElectronAppTabHost implements AppTabHost {
     if (record.attached && window && !window.isDestroyed())
       window.contentView.removeChildView(record.view);
     if (!record.view.webContents.isDestroyed()) record.view.webContents.close();
+    this.#onClosed({ id: tabId, threadId: record.descriptor.threadId });
   }
 
   closeAll(reason: OperationCancellationCode = "host-stopped"): void {
@@ -242,6 +264,8 @@ export class ElectronAppTabHost implements AppTabHost {
     const releaseRendererIdentity = this.#onRendererCreated({
       appId: input.app.appId,
       spaceId: input.spaceId,
+      threadId: input.threadId,
+      tabId: id,
       rendererId: contents.id,
     });
     let identityReleased = false;
@@ -259,6 +283,7 @@ export class ElectronAppTabHost implements AppTabHost {
       appId: input.app.appId,
       slug: input.app.slug,
       name: input.app.name,
+      iconDataUrl: await resolveInstalledAppIconDataUrl(input.app),
       spaceId: input.spaceId,
       threadId: input.threadId,
       route: input.route,
@@ -291,6 +316,7 @@ export class ElectronAppTabHost implements AppTabHost {
       themeCssKey: null,
     };
     this.#records.set(id, record);
+    this.#onOpened(record.descriptor);
     this.#onDiagnostic({
       kind: "tab-opened",
       appId: input.app.appId,
@@ -345,7 +371,7 @@ export class ElectronAppTabHost implements AppTabHost {
         durationMs: Math.round(performance.now() - openedAt),
         ...(memoryBytes === undefined ? {} : { memoryBytes }),
       });
-      this.#onOpened(record.descriptor);
+      this.#onState(record.descriptor);
       return endpoint;
     } catch (error) {
       this.close(id, "host-stopped");

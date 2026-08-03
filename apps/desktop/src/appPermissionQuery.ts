@@ -4,7 +4,7 @@
 
 import { isPenkraPermissionName, type AppPermissionStatus } from "@penkra/sdk";
 
-import type { AppInstallationState } from "./appInstallationState";
+import { getInstalledAppPackage, type AppInstallationState } from "./appInstallationState";
 
 export function queryAppPermission(
   state: AppInstallationState,
@@ -14,7 +14,7 @@ export function queryAppPermission(
   if (typeof input !== "string" || !isPenkraPermissionName(input)) {
     throw new Error("App permission query has an unsupported permission name.");
   }
-  const installed = state.packagesByAppId[identity.appId];
+  const installed = getInstalledAppPackage(state, identity.appId, identity.spaceId);
   if (!installed) throw new Error("The requesting App is not installed.");
   const declaration = installed.manifest.permissions?.find(
     (permission) => permission.name === input,

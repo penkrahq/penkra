@@ -37,7 +37,6 @@ import {
   useSplitViewStore,
 } from "../splitViewStore";
 import { useStore } from "../store";
-import { useTemporaryThreadStore } from "../temporaryThreadStore";
 import { getThreadFromState } from "../threadDerivation";
 import { useThreadSelectionStore } from "../threadSelectionStore";
 import type { Project, SidebarThreadSummary } from "../types";
@@ -110,7 +109,6 @@ export function useSidebarThreadActions(input: {
   const unpinThread = usePinnedThreadsStore((store) => store.unpinThread);
   const prunePinnedThreads = usePinnedThreadsStore((store) => store.prunePinnedThreads);
   const removeThreadFromSplitViews = useSplitViewStore((store) => store.removeThreadFromSplitViews);
-  const clearTemporaryThread = useTemporaryThreadStore((store) => store.clearTemporaryThread);
   const removeFromSelection = useThreadSelectionStore((store) => store.removeFromSelection);
 
   const archivePendingThreadIdsRef = useRef<Set<ThreadId>>(new Set());
@@ -310,7 +308,6 @@ export function useSidebarThreadActions(input: {
           clearProjectDraftThreadById(thread.projectId, thread.id);
           clearTerminalState(threadId);
           removeThreadFromSplitViews(threadId);
-          clearTemporaryThread(threadId);
 
           if (routeSplitViewId && prepared?.deletedPaneInActiveSplit) {
             const nextActiveSplitView =
@@ -354,7 +351,6 @@ export function useSidebarThreadActions(input: {
       appSettings.sidebarThreadSortOrder,
       clearComposerDraftForThread,
       clearProjectDraftThreadById,
-      clearTemporaryThread,
       clearTerminalState,
       handleNewChat,
       navigate,

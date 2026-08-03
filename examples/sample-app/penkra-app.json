@@ -48,6 +48,20 @@
         "additionalProperties": false
       },
       "handler": "notes.create"
+    },
+    {
+      "key": "catalog.open-listing",
+      "summary": "Open an App listing through Apps without installing it.",
+      "input": {
+        "type": "object",
+        "properties": {
+          "appId": { "type": "string", "minLength": 5, "maxLength": 255 }
+        },
+        "required": ["appId"],
+        "additionalProperties": false
+      },
+      "output": {},
+      "handler": "catalog.open-listing"
     }
   ]
 }

@@ -26,9 +26,7 @@ describe("RIGHT_DOCK_PANE_KINDS (single source of truth)", () => {
   it("lists every supported kind", () => {
     expect([...RIGHT_DOCK_PANE_KINDS]).toEqual([
       "app",
-      "browser",
       "diff",
-      "explorer",
       "file",
       "sidechat",
       "git",
@@ -48,17 +46,7 @@ describe("RIGHT_DOCK_PANE_KINDS (single source of truth)", () => {
 
 describe("isRightDockPaneKind", () => {
   it("accepts the known pane kinds", () => {
-    for (const kind of [
-      "app",
-      "browser",
-      "diff",
-      "explorer",
-      "file",
-      "sidechat",
-      "git",
-      "pullRequest",
-      "profile",
-    ]) {
+    for (const kind of ["app", "diff", "file", "sidechat", "git", "pullRequest", "profile"]) {
       expect(isRightDockPaneKind(kind)).toBe(true);
     }
   });
@@ -188,7 +176,7 @@ describe("sanitizeRightDockThreadState", () => {
       activePaneId: "b",
       panes: [
         { id: "a", kind: "diff", threadId: null, diffTurnId: null, diffFilePath: null },
-        { id: "b", kind: "browser", threadId: null, diffTurnId: null, diffFilePath: null },
+        { id: "b", kind: "diff", threadId: null, diffTurnId: null, diffFilePath: null },
       ],
     });
     expect(state.panes.map((pane) => pane.id)).toEqual(["a", "b"]);
@@ -347,7 +335,7 @@ describe("sanitizeRightDockStateByThreadId", () => {
       t1: {
         open: true,
         activePaneId: "x",
-        panes: [{ id: "x", kind: "browser", threadId: null, diffTurnId: null, diffFilePath: null }],
+        panes: [{ id: "x", kind: "diff", threadId: null, diffTurnId: null, diffFilePath: null }],
       },
       t2: undefined,
     });
