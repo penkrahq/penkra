@@ -5735,11 +5735,10 @@ async function bootstrap(): Promise<void> {
     );
   }
   desktopAppRuntime.installations.subscribe((state) => {
-    if (!mainWindow || mainWindow.isDestroyed()) return;
-    mainWindow.webContents.send(
-      IPC.appInstallations.state,
-      toDesktopAppInstallationSnapshot(state),
-    );
+    void toDesktopAppInstallationSnapshot(state).then((snapshot) => {
+      if (!mainWindow || mainWindow.isDestroyed()) return;
+      mainWindow.webContents.send(IPC.appInstallations.state, snapshot);
+    });
   });
   for (const result of desktopAppRuntime.restoreResults) {
     if (result.status === "failed") {

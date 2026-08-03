@@ -4,6 +4,7 @@
 
 import type { DesktopAppInstallationSnapshot, DesktopAppSetting } from "@penkra/contracts";
 
+import { resolveInstalledAppIconDataUrl } from "./appIconDataUrl";
 import type { AppInstallationState, AppPermissionGrant } from "./appInstallationState";
 import type { AppSettingSnapshot } from "./appSettings";
 
@@ -22,24 +23,27 @@ function requireString(record: Record<string, unknown>, key: string): string {
   return value;
 }
 
-export function toDesktopAppInstallationSnapshot(
+export async function toDesktopAppInstallationSnapshot(
   state: AppInstallationState,
   currentSpaceId?: string,
-): DesktopAppInstallationSnapshot {
+): Promise<DesktopAppInstallationSnapshot> {
   return {
-    installed: Object.entries(state.packagesByInstallationKey).map(([key, installed]) => ({
-      id: installed.appId,
-      spaceId: state.spaceStateByKey[key]!.spaceId,
-      slug: installed.slug,
-      name: installed.name,
-      summary: installed.summary,
-      version: installed.version,
-      source: installed.source,
-      installedAt: installed.installedAt,
-      permissions: installed.manifest.permissions ?? [],
-      skills: installed.manifest.contributions?.skills ?? [],
-      handlers: installed.manifest.contributions?.handlers ?? [],
-    })),
+    installed: await Promise.all(
+      Object.entries(state.packagesByInstallationKey).map(async ([key, installed]) => ({
+        id: installed.appId,
+        spaceId: state.spaceStateByKey[key]!.spaceId,
+        slug: installed.slug,
+        name: installed.name,
+        summary: installed.summary,
+        version: installed.version,
+        source: installed.source,
+        installedAt: installed.installedAt,
+        iconDataUrl: await resolveInstalledAppIconDataUrl(installed),
+        permissions: installed.manifest.permissions ?? [],
+        skills: installed.manifest.contributions?.skills ?? [],
+        handlers: installed.manifest.contributions?.handlers ?? [],
+      })),
+    ),
     spaces: Object.values(state.spaceStateByKey),
     ...(currentSpaceId === undefined ? {} : { currentSpaceId }),
   };

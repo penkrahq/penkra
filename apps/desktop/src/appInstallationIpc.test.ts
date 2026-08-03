@@ -16,18 +16,20 @@ import {
 } from "./appInstallationIpc";
 
 describe("App installation IPC boundary", () => {
-  it("serializes the empty trusted state", () => {
-    expect(toDesktopAppInstallationSnapshot(createEmptyAppInstallationState())).toEqual({
+  it("serializes the empty trusted state", async () => {
+    await expect(
+      toDesktopAppInstallationSnapshot(createEmptyAppInstallationState()),
+    ).resolves.toEqual({
       installed: [],
       spaces: [],
     });
-    expect(toDesktopAppInstallationSnapshot(createEmptyAppInstallationState(), "personal")).toEqual(
-      {
+    await expect(
+      toDesktopAppInstallationSnapshot(createEmptyAppInstallationState(), "personal"),
+    ).resolves.toEqual({
         installed: [],
         spaces: [],
         currentSpaceId: "personal",
-      },
-    );
+      });
   });
 
   it("parses supported mutation requests", () => {

@@ -456,6 +456,8 @@ export interface DesktopInstalledApp {
   version: string;
   source: "registry" | "sideload";
   installedAt: string;
+  /** Verified package icon for trusted launcher and tab presentation. */
+  iconDataUrl: string | null;
   permissions: ReadonlyArray<{
     name: string;
     required: boolean;
