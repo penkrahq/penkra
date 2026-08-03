@@ -12,7 +12,7 @@ Status: research in progress. This document records evidence; it is not an appro
 - Provider installations are Penkra-managed by default. Runtime launch, version checks, staged updates, activation, rollback, and QA must all bind to the same absolute managed installation identity; new users must not need a global CLI installation.
 - Do not begin Pencil or implementation work until the remaining research and architecture are reviewed by the operator.
 
-One approved intent is now constrained by newly verified provider policy: multiple Connections remain required, but the authentication methods offered for each provider must be officially permitted for a third-party host application. In particular, Claude subscription OAuth cannot currently be offered as a Penkra-managed sign-in flow without Anthropic permission; see the Claude policy finding below.
+Multiple Connections remain required. Authentication methods are separately capability-gated so the same architecture can support a method in a personal/development installation while genuinely disabling that method in a distribution channel when provider policy requires it; see the Claude policy finding and operator decision below.
 
 ## Rules for this investigation
 
@@ -111,6 +111,13 @@ Observed credential isolation in current upstream source:
 - Penkra must still scrub inherited OpenAI credentials and force/verify the selected profile before launch.
 - A local no-model-call probe confirmed the installed binary reported the existing default `CODEX_HOME` as logged in and a new empty `CODEX_HOME` as logged out. No account identifiers were emitted. Two-real-account switching and refresh still require QA.
 
+Current official App Server authentication contract:
+
+- Managed ChatGPT login is stable: Codex owns browser/device-code login, credential persistence, refresh, logout, account inspection, and rate-limit reporting.
+- Host-supplied ChatGPT tokens exist, but the protocol marks that mode experimental and makes the host responsible for refresh after authorization failures. It should not be the first-release durability contract.
+- The first release should therefore perform Codex's managed login once inside each Connection-scoped `CODEX_HOME`, require the keyring credential store, and mount only the explicitly verified Penkra-owned native conversation-state bundle into those profiles. The stable shared-session probe already demonstrated resume-by-ID across two otherwise isolated homes.
+- Every launch must verify `account/read` against the selected Connection before accepting a turn. A successful filesystem resume with the wrong authenticated account is not a successful Connection switch.
+
 ### Claude Code / Claude Agent SDK
 
 Documented:
@@ -121,7 +128,8 @@ Documented:
 - `SessionStore.load()` requires entries deep-equal to those appended; byte-identical JSON serialization is unnecessary.
 - Subagent transcript restoration requires `listSubkeys()`.
 - `CLAUDE_CODE_OAUTH_TOKEN` overrides keychain credentials for SDK/automation use.
-- `CLAUDE_CONFIG_DIR` changes settings, credentials, session history, and plugin storage together.
+- Claude's current authentication documentation describes `claude setup-token` as producing a one-year subscription OAuth token for CI/scripts without saving it locally, and says Agent SDK/`claude -p` subscription usage draws from a separate monthly Agent SDK credit beginning June 15, 2026.
+- `CLAUDE_CONFIG_DIR` moves settings, credentials, session history, and plugins together. Claude documents separate values as a way to run multiple accounts side by side, but that also separates their local session histories.
 - `SessionStore` is currently marked alpha by the installed SDK (`0.3.207`). It dual-writes only after the local transcript write succeeds.
 - Store append failures receive bounded retry; after final failure the batch is dropped, a `mirror_error` system message is emitted, and the Claude subprocess continues. Penkra therefore cannot treat the mirror as authoritative without separately fencing/recording that failure.
 - File checkpointing is explicitly unsupported with `SessionStore` because backup blobs are not mirrored. Penkra does not currently enable the SDK's file-checkpointing option, but this must remain an explicit capability constraint.
@@ -137,12 +145,24 @@ Observed isolated authentication probe on macOS:
 - The same installed binary launched with a new empty `CLAUDE_CONFIG_DIR` reported logged out. No account identifiers were emitted by the probe.
 - This demonstrates that separate `CLAUDE_CONFIG_DIR` profiles isolate the effective subscription login on this installed Claude Code version, including on macOS where Claude uses Keychain storage. Two-real-account switching and refresh still require QA.
 
+Leading personal/development Connection strategy after the current authentication findings:
+
+- Store each `claude setup-token` result as a Penkra static secret. Do not copy it into the database, a provider settings file, or a Connection-scoped transcript directory.
+- Launch every Claude runtime with a Penkra-owned, provider-state `CLAUDE_CONFIG_DIR` rather than the operator's global profile, and inject exactly one selected Connection credential. A subscription Connection receives only `CLAUDE_CODE_OAUTH_TOKEN`; an API-key Connection receives only `ANTHROPIC_API_KEY`.
+- Scrub all competing Anthropic, Bedrock, Vertex, Foundry, proxy-auth, refresh-token, and inherited provider-login sources before launch. Environment precedence must be verified through provider-reported auth status; it is not enough to assume the selected variable won.
+- Enable and test Claude's subprocess credential scrubbing so Bash tools, hooks, and MCP subprocesses do not inherit the selected token unless an explicit provider requirement makes that impossible.
+- Keep the exact native session history in the same Penkra-owned provider-state root while changing only the process credential between Connections. This follows Claude's documented local-resume model and avoids reconstructing context or coupling a thread to an account profile.
+
+This is cleaner than using one complete `CLAUDE_CONFIG_DIR` per Connection: Claude explicitly combines credentials and session history under that boundary, which would force Penkra either to move native state between profiles or depend on filesystem links. It is also safer than making the alpha `SessionStore` mirror the sole authority. `SessionStore` remains useful for durability and conformance testing, but its documented best-effort mirror can emit `mirror_error` and continue after a missed batch. The current installed SDK declaration and current web documentation also disagree on whether rejected appends receive bounded retry, so Penkra must treat any mirror error as a checkpoint failure regardless of retry count.
+
+Real-account QA must still prove that a session created and compacted under subscription Connection A resumes under subscription Connection B and an API-key Connection without server-side authorization coupling, that switching back preserves native identity, and that provider-reported usage is charged to the selected account. No production claim is made from environment precedence alone.
+
 Unresolved:
 
 - Cross-account continuation of the same exact native session, including server-side cache behavior and account authorization constraints.
-- Required secure storage and refresh lifecycle for multiple subscription OAuth tokens.
+- Rotation, revocation, expiry, and reauthorization behavior for multiple one-year subscription tokens; Penkra must never silently fall through to keychain login when one expires.
 - Exact behavior of compacted, subagent-heavy, attachment-heavy, and interrupted sessions when restored through a Penkra-owned store.
-- Whether the alpha `SessionStore` contract is stable enough for the first connection release, or whether a complete connection-scoped `CLAUDE_CONFIG_DIR` with an explicitly shared Penkra-owned `projects` state mount is safer until the contract stabilizes.
+- Whether the Penkra-owned Claude native-state root plus per-process selected credential preserves every auxiliary session resource (subagents, spilled tool results, tasks, plans, debug state, and optional file history) across real-account switches. `SessionStore` may be retained as a secondary durability mirror only after its conformance suite and mirror-error recovery pass; it is not the first-release source of truth.
 
 #### Claude subscription OAuth policy blocker
 
@@ -154,12 +174,20 @@ Documented by Anthropic's current Legal and Compliance page:
 
 Implication for Penkra:
 
-- Penkra must not ship a Claude.ai “Add Connection” OAuth flow, collect `claude setup-token` output, or present multiple Pro/Max subscription profiles as a supported product capability under the current published policy.
+- A generally distributed Penkra build must not enable a Claude.ai “Add Connection” flow or multiple Pro/Max subscription profiles under the current published legal restriction unless Anthropic confirms the embedding or its policy changes. The operator's personal/development channel is separately capability-enabled below.
 - The first compliant Claude Connection methods are Claude Console API keys and supported enterprise/cloud-provider credentials (for example Bedrock, Vertex, or Foundry) implemented only when their own isolation/refresh contracts are verified.
 - Multiple Claude Connections are still supported architecturally; they may be two API keys/organizations or other permitted credential types. Team/Enterprise OAuth must also be treated as unavailable unless Anthropic confirms the Penkra embedding in writing or the published policy changes.
 - Existing local subscription usage in the development environment is evidence for technical isolation only, not permission to productize that authentication method.
 
 This is a product-policy constraint, not a technical limitation and not legal advice. It requires an operator decision after contacting Anthropic if subscription Connections remain a desired launch feature.
+
+Operator decision on 2026-08-03:
+
+- Continue researching and implementing multiple Claude subscription Connections for the operator's personal/development installation.
+- Model subscription OAuth as an ordinary adapter-declared authentication capability, not a Claude-specific branch in shared Connection code.
+- Allow release/distribution policy to disable that authentication method without removing Claude API-key Connections or changing thread/session architecture.
+- “Disabled” must be enforced through capability resolution, RPC/command validation, login initiation, runtime launch, settings/default validation, and UI availability. It must not be a cosmetic hidden control with a still-callable backend path.
+- Preserve the documented Anthropic policy finding so a future distribution decision is explicit rather than accidental.
 
 ### OpenCode / Kilo
 
@@ -398,6 +426,28 @@ Unsupported capabilities fail closed and are absent from the UI. There is no sha
 
 `connection.provider_kind` is immutable. A thread's `provider_kind` becomes immutable when its first turn starts. A Connection switch transaction must reject a mismatched provider before stopping the active runtime.
 
+### Authentication-method capability policy
+
+Authentication availability is a three-way adapter contract, not a provider-name conditional:
+
+- `supported` means the installed adapter knows how to create, validate, launch, refresh, and revoke that authentication method.
+- `enabled` means the current trusted release policy permits the supported method in this Penkra channel.
+- `available` means both are true and the required managed provider installation/platform prerequisites are healthy.
+
+Each adapter manifest declares stable authentication-method IDs, credential backend, login mechanism, required environment scrub set, and lifecycle operations. A trusted release capability policy enables a subset of those IDs. Personal/development policy may enable Claude subscription login; a distribution policy may omit it while enabling Claude API-key or supported cloud Connections. Shared orchestration receives only the resolved capability result and never contains a `provider_kind === "claude"` exception.
+
+The release policy is configuration authority, not user data. A client request, stale browser bundle, imported database row, deep link, or inherited shell credential cannot enable a method that the running server policy disabled. The server must perform the same capability check when creating a Connection, beginning login, validating credentials, setting a default, launching a runtime, starting a turn, and switching a thread. Runtime environment construction must also scrub credentials for disabled or unselected methods so a globally logged-in provider executable cannot bypass the selected Connection.
+
+If an application update changes a previously enabled method to disabled:
+
+1. Keep its Connection metadata, opaque credential/profile reference, native thread state, transcript, and transition history. Do not delete, log out, convert, or relabel it as another authentication method.
+2. Mark the Connection unavailable with a stable non-secret reason and show it in management UI so the user understands why bound threads cannot run. It is not offered in new-draft or switch pickers as a usable target.
+3. Reject new turns and runtime launches through it. On a live policy change, fence new turns, allow an already accepted turn to settle or be explicitly cancelled, then stop that runtime; ordinary packaged policy changes take effect on application restart before provider runtimes launch.
+4. Leave a Space default or thread binding pointing at the unavailable Connection visible but unresolved. Do not silently choose another Connection, clear the binding, or use a shell login. The user explicitly selects another same-provider Connection where switching is natively supported.
+5. Re-enabling the same method makes the preserved Connection eligible for an explicit health check and reuse. It does not require transcript migration or automatic rebinding.
+
+`authentication_method_id` is immutable for a Connection. Moving from a subscription login to an API key creates a different Connection; it is never an in-place credential-type conversion. This keeps policy changes reversible without weakening the no-fallback rule.
+
 ### Credential ownership and storage
 
 The database stores Connection metadata and an opaque credential reference, never an API key, access token, refresh token, provider `auth.json`, or serialized keychain payload. A single universal secret mechanism is not appropriate because provider-owned OAuth refresh must durably update the selected Connection without Penkra racing or overwriting it.
@@ -412,8 +462,21 @@ The adapter manifest declares which backend applies to each connection method. S
 Provider-specific implications:
 
 - **Codex subscription/API login:** prefer Codex App Server's managed login methods in a distinct `CODEX_HOME` with `cli_auth_credentials_store = "keyring"`. Codex owns refresh and logout; Penkra records only the connection/profile binding.
-- **Claude permitted product credentials:** store Console API keys through Penkra's static-secret backend and inject only `ANTHROPIC_API_KEY` after removing every higher-precedence Claude credential variable/source from the runtime profile. The technically isolated `CLAUDE_CONFIG_DIR` subscription flow is not a shippable Connection method under Anthropic's current published policy without permission.
+- **Claude subscription in personal/development channels:** store one provider-generated long-lived subscription token per Connection in Penkra's static-secret backend and inject only `CLAUDE_CODE_OAUTH_TOKEN` into a runtime using Penkra-owned native conversation state. Expiry or revocation makes only that Connection unhealthy and requires explicit reauthorization; it must never fall through to keychain login. Availability remains controlled by the resolved authentication-method capability policy.
+- **Claude Console API keys:** store the key through Penkra's static-secret backend and inject only `ANTHROPIC_API_KEY` after removing every higher-precedence Claude credential variable/source from the runtime profile.
 - **OpenCode Go and static upstream providers:** store each API key through Penkra's static-secret backend and expose only the selected provider credential to the Connection server. For other OpenCode integrations that genuinely use OAuth, use a private connection profile with writable `auth.json`, because refresh tokens must be updated by OpenCode.
+
+Recommended first-release resource mapping:
+
+| Adapter authentication method                    | Connection credential boundary                                                    | Native conversation-state boundary                                                          | Explicitly excluded fallback                                                                           |
+| ------------------------------------------------ | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Codex managed ChatGPT or API login               | One Connection-scoped `CODEX_HOME` and provider-owned keyring entry               | Penkra-owned Codex session/rollout state mounted into each isolated runtime profile         | Global `~/.codex`, `PATH` executable, copied `auth.json`, or experimental host-token mode              |
+| Claude subscription, personal/development policy | One Penkra OS-secret reference containing a provider-generated long-lived token   | One Penkra-owned Claude native-state root used with the selected token injected per process | Global Keychain login, inherited API key, transcript reconstruction, or alpha mirror as sole authority |
+| Claude API key                                   | One Penkra OS-secret reference                                                    | Same Penkra-owned Claude native-state root                                                  | Subscription/keychain credential or another API key found in the shell                                 |
+| OpenCode Go/static provider                      | One Penkra OS-secret reference injected through the documented in-memory auth map | One Penkra-owned OpenCode database/state root under a synthetic home                        | Global `auth.json`, `~/.opencode`, project-discovered credential, or Homebrew/npm executable           |
+| Future OpenCode refreshable OAuth                | One writable Connection-scoped private credential profile                         | Explicitly mounted Penkra-owned OpenCode database plus verified auxiliary native state      | Stale `OPENCODE_AUTH_CONTENT` after provider refresh                                                   |
+
+The table describes adapter responsibilities, not special cases in shared orchestration. A new adapter can use another credential or state backend only by declaring it and passing the same isolation, checkpoint, resume, switch, revocation, and crash conformance suite.
 
 Deleting a Connection is a credential-revocation workflow, not a row deletion alone: refuse while it owns an active runtime, invoke the adapter's logout/delete operation, verify the selected profile no longer authenticates, remove its isolated credential material, and only then tombstone metadata. Removing one Connection must not log out another Connection for the same provider.
 
@@ -422,7 +485,7 @@ Deleting a Connection is a credential-revocation workflow, not a row deletion al
 Names remain provisional, but the responsibilities must stay separate:
 
 - `provider_installations`: immutable generation ID, provider kind, version, platform/architecture, absolute executable path, source URL/channel, verified digest/signature result, adapter/protocol version, health state, installed/activated timestamps, and retirement state.
-- `provider_connections`: immutable Connection ID and provider kind, user label, authentication method, opaque credential/profile reference, non-secret provider account/workspace identity, health state, and lifecycle timestamps. No executable path and no native thread/session ID.
+- `provider_connections`: immutable Connection ID, provider kind, and authentication-method ID; user label; opaque credential/profile reference; non-secret provider account/workspace identity; health and resolved availability state; and lifecycle timestamps. No executable path and no native thread/session ID.
 - `thread_provider_states`: one started thread's immutable provider kind, opaque native state locator/version, provider session ID where non-secret, checkpoint generation/status, and last verified resume timestamp. No credential material and no transcript reconstruction.
 - `thread_connection_bindings`: current Connection ID, installation generation ID, binding revision, and transition status for a started thread. This is the explicit answer to “which account and executable will the next turn use?”
 - `provider_connection_transitions`: append-only old/new Connection IDs, old/new installation generations, phase, reason (`manual_switch`, `login_repair`, `installation_activation`, or `rollback`), sanitized provider error classification, timestamps, and recovery outcome.
@@ -434,7 +497,7 @@ Folder-level Connection defaults are not part of the first release. A Space defa
 
 Only one transition lease may exist for a thread. The switch control is unavailable while a provider turn, approval, compaction, fork, import, or another transition is unsettled; the user may explicitly cancel/settle the active operation first.
 
-1. **Validate** — confirm thread and target Connection provider kinds match, target credentials are healthy enough to attempt login, target installation generation is verified, and native resume is declared supported. No runtime is stopped yet.
+1. **Validate** — confirm thread and target Connection provider kinds match, the target authentication method is supported and enabled by the running server policy, target credentials are healthy enough to attempt login, target installation generation is verified, and native resume is declared supported. No runtime is stopped yet.
 2. **Fence** — acquire the thread transition lease and reject new turns. Persist `preparing` with the old binding revision.
 3. **Checkpoint** — ask the old adapter/runtime to flush and checkpoint exact native state. Persist its durable checkpoint identity and `checkpointed` phase. Failure leaves the old binding active.
 4. **Quiesce** — stop or detach the old runtime without deleting its native state or credentials. Persist `old_runtime_stopped` only after process ownership is gone.
@@ -449,6 +512,21 @@ Recovery is phase-driven, not inferred:
 - after target proof but before commit: do not guess—re-run idempotent target proof and commit only when the stored binding revision still matches;
 - after commit: the target binding is authoritative, even if cleanup of the old runtime must be retried;
 - any provider-native state mismatch or corruption fails closed with both Connections preserved and no transcript injection.
+
+### Clean-cut migration for this installation
+
+The existing installation is the only user data in scope, so migration should be exact and intentionally breaking rather than compatibility-driven:
+
+1. Read the active Dev and production installations through Penkra's supported thread/settings/runtime surfaces first. Use direct SQLite inspection only for fields those surfaces explicitly do not expose, and record which database file is actually opened before any migration count.
+2. Inventory started threads by immutable provider, native session ID/state locator, current runtime installation, and Sidechat/Handoff markers. Do not infer a provider or account from a title, model name, folder path, last-opened state, or shell credential.
+3. Install verified Penkra-managed generations for the three initial adapters before changing any thread binding. The existing Homebrew/npm/global binaries are migration sources only and are never runtime fallbacks.
+4. Create Connections through explicit provider verification. Codex managed profiles require fresh provider login in their new `CODEX_HOME`; Claude subscription Connections require a fresh provider-generated token; static API keys are entered/imported into the OS-secret backend. Do not scrape or clone global keychain entries.
+5. Present the exact provider-to-Connection mapping for operator confirmation. Bind existing threads only to the chosen Connection of the same provider. If no verified Connection exists, keep the thread and native state but mark it unavailable until the operator chooses one; never select “the first,” “last used,” or a global login.
+6. Move/copy provider-native conversation state into its adapter-owned Penkra state root using provider-native import or a versioned, verified state migration. Prove native resume without a model turn before committing each binding. Retain a recoverable pre-migration snapshot until manual QA is approved.
+7. Remove Sidechat and cross-provider Handoff records/columns/commands as the approved clean cut. Log only sanitized counts. Do not convert either feature into ordinary threads through reconstructed context.
+8. Atomically advance the schema/data migration only after every retained thread is either natively resumable or explicitly recorded as unavailable with its original state preserved. A failed migration leaves the old application/database generation untouched.
+
+There is no legacy runtime compatibility mode after activation: no global credentials, external executable selection, inferred Connection, transcript bootstrap, Sidechat, or cross-provider Handoff path remains callable.
 
 ## Runtime installation and update boundary
 
@@ -494,7 +572,7 @@ Preserving native conversation state does not guarantee preserving a provider-si
 
 Therefore a switch can continue the exact conversation yet receive a cold cache on the first turn under the new connection. Penkra should not describe that as context loss or attempt to compensate by altering/replaying the transcript. QA should capture provider-reported cache-read/cache-write token fields where available so this cost/latency effect is visible rather than guessed.
 
-## Required test matrix before architecture
+## Required validation matrix before architecture approval
 
 For every supported provider and connection type:
 
@@ -512,9 +590,34 @@ For every supported provider and connection type:
 - provider logout or credential revocation isolation;
 - prompt-cache/token-usage observations where providers expose them;
 - crash between old-session close and new-session binding;
-- application restart during each transition phase.
+- application restart during each transition phase;
+- a globally logged-in provider and globally exported credentials are present while Penkra launches each isolated Connection; provider-reported identity/usage must prove the selected Connection won;
+- stale/malicious client requests attempt to create, log in, launch, default, or switch to a disabled authentication method; every server entry point must reject them;
+- an application policy update changes an existing authentication method from enabled to disabled, including a Space default and started thread already bound to it;
+- re-enable the preserved method and health-check its Connection without automatic thread rebinding;
+- expired/revoked subscription token and API key, with another healthy same-provider Connection present; no automatic failover may occur;
+- Connection labels are duplicated or renamed; selection must remain ID-based;
+- delete one Connection while another Connection for the same provider is active, proving credential revocation and profile cleanup are isolated.
 
 Each run must capture sanitized structured provider events, Penkra orchestration events, connection ID, provider session ID, transition phase, exact failure classification, and visual/manual QA outcome. Credentials, authorization headers, raw tokens, and sensitive tool output must never enter logs.
+
+### Observability and fault-injection contract
+
+Every provider runtime and Connection transition receives a correlation ID. Structured diagnostics should include only:
+
+- adapter/provider kind and adapter version;
+- managed installation generation and absolute executable identity represented by a stable internal ID in ordinary logs;
+- Connection ID, authentication-method ID, and sanitized availability/health classification;
+- Penkra thread ID, opaque native-state generation, provider session ID when the provider documents it as non-secret, binding revision, and transition phase;
+- process start/stop reason, checkpoint/resume result, provider error category, and timing;
+- provider-reported account/workspace fingerprint stored as a keyed local diagnostic HMAC when needed to prove isolation, never a raw or unsalted hash of an email/account ID, token, organization secret, or authorization header;
+- cache/token usage fields only where the provider already reports them and only after confirming they contain no prompt/tool content.
+
+Environment logging is deny-by-default: record the names of credential variables that were scrubbed or selected, never their values or serialized auth maps. Provider stdout/stderr must pass a secret redactor before persistence, with an in-memory raw stream available only to the running protocol parser. Redaction is defense in depth; tests must inject recognizable sentinel secrets and prove they do not appear in logs, database events, crash reports, screenshots, or exported diagnostics.
+
+Deterministic fault points are required after every durable phase in the switch state machine and installer activation protocol. The QA harness must terminate the app/provider process at each point, restart Penkra, and assert the documented phase-driven recovery. Random stress complements these cases but cannot replace them.
+
+Manual QA must start a fresh isolated Penkra (Dev) instance and visibly exercise Connection creation, naming, default selection, new-thread binding, same-provider switching, failure/no-fallback behavior, disabled-method behavior, update/restart, and Connection management for each supported authentication method. The operator-provided real accounts/keys are required for the final identity, quota, refresh/expiry, compaction, and cache observations; synthetic credentials cannot establish those claims.
 
 ## Sources consulted
 
@@ -527,6 +630,8 @@ Each run must capture sanitized structured provider events, Penkra orchestration
 - Claude Code authentication: <https://code.claude.com/docs/en/team>
 - Claude Code installation and binary verification: <https://code.claude.com/docs/en/installation>
 - Claude Code authentication precedence and storage: <https://code.claude.com/docs/en/authentication>
+- Claude Code environment variables: <https://code.claude.com/docs/en/env-vars>
+- Claude Code application-data layout: <https://code.claude.com/docs/en/claude-directory>
 - Claude Code legal, authentication, and credential-use policy: <https://code.claude.com/docs/en/legal-and-compliance>
 - Claude Agent SDK session storage: <https://code.claude.com/docs/en/agent-sdk/session-storage>
 - OpenCode server: <https://opencode.ai/docs/server>
