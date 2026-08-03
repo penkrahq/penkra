@@ -1871,7 +1871,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             return (
               <MessageAssistant
                 layoutMode="application"
-                className="flex min-w-0 flex-col items-start"
                 workedFor={null}
               >
                 {settledCollapseTransition && (

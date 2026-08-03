@@ -87,6 +87,17 @@ const pages = [
   },
 ] as const;
 
+const SETTINGS_PAGE_CONTENT_WIDTH_CLASS_NAME: Record<SettingsPageId, string> = {
+  general: "max-w-[440px]",
+  permissions: "max-w-[440px]",
+  spaces: "max-w-[596px]",
+  agents: "max-w-[440px]",
+  apps: "max-w-[440px]",
+  connectors: "max-w-[440px]",
+  appearance: "max-w-[560px]",
+  account: "max-w-[440px]",
+};
+
 export function SettingsPage({
   children,
   className,
@@ -125,25 +136,32 @@ export function SettingsPage({
         data-pencil-region="settings-content"
         scrollFade
       >
-        <div className="mx-auto flex w-full max-w-[680px] flex-col gap-7 px-8 py-8">
-          <SettingsHeader subtitle={activePage.subtitle} title={activePage.label} />
-          {children ?? (
-            <SettingsSectionShared>
-              {Array.from({ length: 12 }, (_, index) => (
-                <SettingRowShared
-                  control={
-                    <SwitchShared
-                      aria-label={`Setting ${index + 1}`}
-                      defaultChecked={index % 2 === 0}
-                    />
-                  }
-                  description="This preference is saved automatically."
-                  key={index}
-                  label={`Setting ${index + 1}`}
-                />
-              ))}
-            </SettingsSectionShared>
-          )}
+        <div className="w-full px-8 py-8">
+          <div
+            className={cn(
+              "mx-auto flex w-full flex-col gap-7",
+              SETTINGS_PAGE_CONTENT_WIDTH_CLASS_NAME[page],
+            )}
+          >
+            <SettingsHeader subtitle={activePage.subtitle} title={activePage.label} />
+            {children ?? (
+              <SettingsSectionShared>
+                {Array.from({ length: 12 }, (_, index) => (
+                  <SettingRowShared
+                    control={
+                      <SwitchShared
+                        aria-label={`Setting ${index + 1}`}
+                        defaultChecked={index % 2 === 0}
+                      />
+                    }
+                    description="This preference is saved automatically."
+                    key={index}
+                    label={`Setting ${index + 1}`}
+                  />
+                ))}
+              </SettingsSectionShared>
+            )}
+          </div>
         </div>
       </ScrollArea>
     </main>

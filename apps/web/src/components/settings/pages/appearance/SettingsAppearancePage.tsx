@@ -1,9 +1,19 @@
+import { useEffect, useState } from "react";
+
+import {
+  MAX_CHAT_FONT_SIZE_PX,
+  MIN_CHAT_FONT_SIZE_PX,
+  normalizeChatFontSizePx,
+  useAppSettings,
+} from "~/appSettings";
+import { SettingRowShared } from "~/components/settings/setting-row-shared/SettingRowShared";
 import { ThemePanelShared } from "~/components/settings/theme-panel-shared/ThemePanelShared";
 import { ThemePreviewCardShared } from "~/components/settings/theme-preview-card-shared/ThemePreviewCardShared";
 import { toastManager } from "~/components/ui/toast";
 import { useTheme, type ThemeVariant } from "~/hooks/useTheme";
 
 export function SettingsAppearancePage() {
+  const { settings, updateSettings } = useAppSettings();
   const {
     canImportThemeString,
     darkTheme,
@@ -52,8 +62,8 @@ export function SettingsAppearancePage() {
   }
 
   return (
-    <div className="flex flex-col gap-6" data-pencil-page="appearance">
-      <div className="flex w-[440px] justify-between gap-2.5">
+    <div className="flex w-full max-w-[560px] flex-col gap-6" data-pencil-page="appearance">
+      <div className="flex w-full justify-between gap-2.5">
         <ThemePreviewCardShared
           label="System"
           mode="system"
@@ -122,7 +132,76 @@ export function SettingsAppearancePage() {
         translucentSidebar={!darkTheme.theme.opaqueWindows}
         uiFont={darkTheme.theme.fonts.ui}
       />
+      <SettingRowShared
+        className="w-full rounded-xl border border-[var(--color-border)] px-4"
+        control={
+          <UiFontSizeControl
+            onChange={(chatFontSizePx) => updateSettings({ chatFontSizePx })}
+            value={settings.chatFontSizePx}
+          />
+        }
+        description="Adjust the size of text across Penkra"
+        label="UI font size"
+      />
     </div>
+  );
+}
+
+function UiFontSizeControl({
+  value,
+  onChange,
+}: {
+  value: number;
+  onChange: (value: number) => void;
+}) {
+  const [draft, setDraft] = useState(String(value));
+
+  useEffect(() => {
+    setDraft(String(value));
+  }, [value]);
+
+  const commit = () => {
+    const next = draft.trim() === "" ? value : Number(draft);
+    const normalized = normalizeChatFontSizePx(Number.isFinite(next) ? next : value);
+    setDraft(String(normalized));
+    if (normalized !== value) onChange(normalized);
+  };
+
+  return (
+    <span className="flex shrink-0 items-center gap-2">
+      <input
+        aria-label="UI font size"
+        className="h-8 w-16 rounded-lg border border-[var(--color-border)] bg-[var(--color-background-control-opaque)] px-2 text-center text-[length:var(--app-font-size-ui,12px)] text-[var(--color-text-foreground)] outline-none focus:border-[var(--color-border-focus)]"
+        inputMode="numeric"
+        max={MAX_CHAT_FONT_SIZE_PX}
+        min={MIN_CHAT_FONT_SIZE_PX}
+        onBlur={commit}
+        onChange={(event) => {
+          const nextDraft = event.target.value;
+          setDraft(nextDraft);
+
+          if (nextDraft.trim() === "") return;
+          const next = Number(nextDraft);
+          if (
+            Number.isInteger(next) &&
+            next >= MIN_CHAT_FONT_SIZE_PX &&
+            next <= MAX_CHAT_FONT_SIZE_PX &&
+            next !== value
+          ) {
+            onChange(next);
+          }
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") event.currentTarget.blur();
+        }}
+        step="1"
+        type="number"
+        value={draft}
+      />
+      <span className="text-[length:var(--app-font-size-ui-sm,11px)] text-[var(--color-text-foreground-tertiary)]">
+        px
+      </span>
+    </span>
   );
 }
 

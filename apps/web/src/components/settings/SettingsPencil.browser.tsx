@@ -27,6 +27,7 @@ import { OpenWithRowShared } from "./open-with-row-shared/OpenWithRowShared";
 import { SettingsPageContent } from "./pages/SettingsPageContent";
 import { SettingsPage, type SettingsPageId } from "./settings-page/SettingsPage";
 import { ThemePanelShared } from "./theme-panel-shared/ThemePanelShared";
+import { useAppTypography } from "~/hooks/useAppTypography";
 import { useSpacesUiStore } from "~/spacesUiStore";
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -40,6 +41,16 @@ function SettingsPageHarness() {
         <SettingsPageContent page={activePage} />
       </SettingsPage>
     </QueryClientProvider>
+  );
+}
+
+function AppearanceTypographyHarness() {
+  useAppTypography();
+
+  return (
+    <SettingsPage page="appearance">
+      <SettingsPageContent page="appearance" />
+    </SettingsPage>
   );
 }
 
@@ -84,6 +95,37 @@ describe("Pencil settings structure", () => {
     }
   });
 
+  it("matches each Pencil settings page content measure", async () => {
+    const view = await render(
+      <div className="h-[640px] w-[880px]">
+        <SettingsPage page="general">
+          <div data-testid="settings-content-measure" />
+        </SettingsPage>
+      </div>,
+    );
+
+    const measure = () => page.getByTestId("settings-content-measure").element().parentElement!;
+    expect(measure().getBoundingClientRect().width).toBe(440);
+
+    await view.rerender(
+      <div className="h-[640px] w-[880px]">
+        <SettingsPage page="appearance">
+          <div data-testid="settings-content-measure" />
+        </SettingsPage>
+      </div>,
+    );
+    expect(measure().getBoundingClientRect().width).toBe(560);
+
+    await view.rerender(
+      <div className="h-[640px] w-[880px]">
+        <SettingsPage page="spaces">
+          <div data-testid="settings-content-measure" />
+        </SettingsPage>
+      </div>,
+    );
+    expect(measure().getBoundingClientRect().width).toBe(596);
+  });
+
   it("uses native interactive controls for expandable and theme settings", async () => {
     await render(
       <div>
@@ -104,6 +146,27 @@ describe("Pencil settings structure", () => {
     await expect.element(uiFont).toHaveValue("Inter");
   });
 
+  it("applies valid UI font size changes immediately", async () => {
+    const rendered = await render(
+      <QueryClientProvider client={queryClient}>
+        <AppearanceTypographyHarness />
+      </QueryClientProvider>,
+    );
+
+    try {
+      await page.getByRole("spinbutton", { name: "UI font size" }).fill("16");
+      await vi.waitFor(() => {
+        expect(document.documentElement.style.getPropertyValue("--app-font-size-ui")).toBe("16px");
+        expect(document.documentElement.style.getPropertyValue("--app-font-size-chat")).toBe(
+          "16px",
+        );
+      });
+    } finally {
+      rendered.unmount();
+      window.localStorage.removeItem("penkra:app-settings:v1");
+    }
+  });
+
   it("renders the Pencil-defined Settings pages without legacy controls", async () => {
     const installationSnapshot = {
       installed: [
@@ -117,6 +180,8 @@ describe("Pencil settings structure", () => {
           source: "registry" as const,
           installedAt: "2026-08-01T00:00:00.000Z",
           permissions: [],
+          handlers: [],
+          skills: [],
         },
       ],
       spaces: [
@@ -181,7 +246,9 @@ describe("Pencil settings structure", () => {
 
     await page.getByRole("button", { name: "Connectors", exact: true }).click();
     await expect.element(page.getByText("Link external services and integrations.")).toBeVisible();
-    await expect.element(page.getByRole("switch", { name: "Calendar connected" })).toBeChecked();
+    await expect
+      .element(page.getByText("No supported connectors are available in this build."))
+      .toBeVisible();
 
     await page.getByRole("button", { name: "Appearance", exact: true }).click();
     await expect.element(page.getByText("Customize the look and feel of Penkra.")).toBeVisible();

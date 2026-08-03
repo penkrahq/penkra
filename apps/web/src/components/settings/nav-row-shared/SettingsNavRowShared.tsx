@@ -16,7 +16,7 @@ export const SettingsNavRowShared = forwardRef<HTMLButtonElement, SettingsNavRow
       <button
         aria-current={selected ? "page" : undefined}
         className={cn(
-          "flex h-9 w-full cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent px-2.5 font-sans text-[13px] text-[var(--color-text-foreground-secondary)] outline-none transition-colors hover:bg-[var(--color-background-button-secondary-hover)] hover:text-[var(--color-text-foreground)] focus-visible:ring-1 focus-visible:ring-[var(--color-border-focus)] disabled:cursor-not-allowed disabled:text-[var(--color-text-foreground-tertiary)]",
+          "flex h-9 w-full cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent px-2.5 font-sans text-[length:var(--app-font-size-ui,12px)] text-[var(--color-text-foreground-secondary)] outline-none transition-colors hover:bg-[var(--color-background-button-secondary-hover)] hover:text-[var(--color-text-foreground)] focus-visible:ring-1 focus-visible:ring-[var(--color-border-focus)] disabled:cursor-not-allowed disabled:text-[var(--color-text-foreground-tertiary)]",
           selected &&
             "bg-[var(--color-background-button-secondary)] text-[var(--color-text-foreground)]",
           className,

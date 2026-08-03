@@ -27,7 +27,7 @@ export function SettingRowShared({
       {...props}
     >
       <span className="flex min-w-0 flex-1 flex-col py-3">
-        <span className="flex min-h-5 items-center gap-1.5 text-[13px] text-[var(--color-text-foreground)]">
+        <span className="flex min-h-5 items-center gap-1.5 text-[length:var(--app-font-size-ui,12px)] text-[var(--color-text-foreground)]">
           {label}
           {resetAction ? (
             <span className="inline-flex size-5 shrink-0 items-center justify-center">
@@ -36,7 +36,7 @@ export function SettingRowShared({
           ) : null}
         </span>
         {description ? (
-          <span className="mt-0.5 text-xs leading-relaxed text-[var(--color-text-foreground-tertiary)]">
+          <span className="mt-0.5 text-[length:var(--app-font-size-ui-sm,11px)] leading-relaxed text-[var(--color-text-foreground-tertiary)]">
             {description}
           </span>
         ) : null}

@@ -26,7 +26,10 @@ export function MessageAssistant({
 }: MessageAssistantProps) {
   if (layoutMode === "application") {
     return (
-      <article className={cn("group/message w-full", className)} data-pencil-component="kUqNe">
+      <article
+        className={cn("group/message flex w-full min-w-0 flex-col items-stretch", className)}
+        data-pencil-component="kUqNe"
+      >
         {children}
       </article>
     );

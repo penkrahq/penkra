@@ -12,10 +12,56 @@ import { FolderPromptShared } from "./folder-prompt-shared/FolderPromptShared";
 import { MessageAssistant } from "./message-assistant/MessageAssistant";
 import { MessageUser } from "./message-user/MessageUser";
 import { ThreadScreen3Rails } from "./thread-screen-3-rails/ThreadScreen3Rails";
+import { TopBarThread } from "./top-bar-thread/TopBarThread";
 
 describe("Pencil middle panel", () => {
   afterEach(() => {
     document.body.innerHTML = "";
+  });
+
+  it("replaces the thread identity without shifting the collapsed top-bar title", async () => {
+    const view = await render(<TopBarThread title="Initial greeting" />);
+    const expandedHeader = document.querySelector<HTMLElement>("[data-pencil-component='Kpx7i']")!;
+    const expandedIdentity = expandedHeader.querySelector<HTMLElement>(
+      "[data-slot='thread-identity']",
+    )!;
+    const expandedTitle = expandedHeader.querySelector<HTMLElement>("span.truncate")!;
+
+    expect(
+      expandedIdentity.getBoundingClientRect().left - expandedHeader.getBoundingClientRect().left,
+    ).toBe(14);
+    expect(
+      expandedTitle.getBoundingClientRect().left - expandedHeader.getBoundingClientRect().left,
+    ).toBe(36);
+
+    await view.rerender(<TopBarThread leftRailCollapsed title="Initial greeting" />);
+    const collapsedHeader = document.querySelector<HTMLElement>("[data-pencil-component='Kpx7i']")!;
+    const restore = collapsedHeader.querySelector<HTMLElement>("[data-slot='left-rail-restore']")!;
+    const collapsedTitle = collapsedHeader.querySelector<HTMLElement>("span.truncate")!;
+
+    expect(collapsedHeader.querySelector("[data-slot='thread-identity']")).toBeNull();
+    expect(
+      restore.getBoundingClientRect().left - collapsedHeader.getBoundingClientRect().left,
+    ).toBe(14);
+    expect(restore.getBoundingClientRect().width).toBe(16);
+    expect(
+      collapsedTitle.getBoundingClientRect().left - collapsedHeader.getBoundingClientRect().left,
+    ).toBe(36);
+  });
+
+  it("stretches assistant content across the shared message rail", async () => {
+    await render(
+      <div className="w-[560px]">
+        <MessageAssistant layoutMode="application">
+          <div data-testid="assistant-body">Response</div>
+        </MessageAssistant>
+      </div>,
+    );
+
+    const message = document.querySelector<HTMLElement>("[data-pencil-component='kUqNe']")!;
+    const body = page.getByTestId("assistant-body").element();
+    expect(message.getBoundingClientRect().width).toBe(560);
+    expect(body.getBoundingClientRect().width).toBe(560);
   });
 
   it("keeps the composer native, editable, focused, and sendable", async () => {

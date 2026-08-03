@@ -42,9 +42,11 @@ function ThemeValueRow({ label, onValueChange, placeholder, value }: ThemeValueR
   const selectedValue = value === undefined ? internalValue : (value ?? "");
   return (
     <label className="flex min-h-[44px] items-center justify-between gap-4 py-2.5">
-      <span className="text-[13px] text-[var(--color-text-foreground)]">{label}</span>
+      <span className="text-[length:var(--app-font-size-ui,12px)] text-[var(--color-text-foreground)]">
+        {label}
+      </span>
       <input
-        className="w-[170px] rounded-lg border border-[var(--color-border)] bg-[var(--color-background-control-opaque)] px-3 py-1.5 text-xs text-[var(--color-text-foreground-secondary)] outline-none focus:border-[var(--color-border-focus)]"
+        className="w-[170px] rounded-lg border border-[var(--color-border)] bg-[var(--color-background-control-opaque)] px-3 py-1.5 text-[length:var(--app-font-size-ui-sm,11px)] text-[var(--color-text-foreground-secondary)] outline-none focus:border-[var(--color-border-focus)]"
         onChange={(event) => {
           const next = event.target.value;
           if (value === undefined) setInternalValue(next);
@@ -94,16 +96,18 @@ export function ThemePanelShared({
   return (
     <section
       className={cn(
-        "flex w-[440px] flex-col gap-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-background-surface)] p-5 font-sans",
+        "flex w-full max-w-[560px] flex-col gap-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-background-surface)] p-5 font-sans",
         className,
       )}
       data-pencil-component="xRiiX"
     >
       <header className="flex items-center justify-between gap-4">
-        <h3 className="text-[13px] font-semibold text-[var(--color-text-foreground)]">{title}</h3>
+        <h3 className="text-[length:var(--app-font-size-ui,12px)] font-semibold text-[var(--color-text-foreground)]">
+          {title}
+        </h3>
         <div className="flex items-center gap-4">
           <button
-            className="cursor-pointer border-0 bg-transparent p-0 text-xs text-[var(--color-text-foreground-tertiary)] hover:text-[var(--color-text-foreground)] disabled:cursor-not-allowed disabled:opacity-40"
+            className="cursor-pointer border-0 bg-transparent p-0 text-[length:var(--app-font-size-ui-sm,11px)] text-[var(--color-text-foreground-tertiary)] hover:text-[var(--color-text-foreground)] disabled:cursor-not-allowed disabled:opacity-40"
             disabled={!onImport}
             onClick={onImport}
             type="button"
@@ -111,7 +115,7 @@ export function ThemePanelShared({
             Import
           </button>
           <button
-            className="cursor-pointer border-0 bg-transparent p-0 text-xs text-[var(--color-text-foreground-tertiary)] hover:text-[var(--color-text-foreground)] disabled:cursor-not-allowed disabled:opacity-40"
+            className="cursor-pointer border-0 bg-transparent p-0 text-[length:var(--app-font-size-ui-sm,11px)] text-[var(--color-text-foreground-tertiary)] hover:text-[var(--color-text-foreground)] disabled:cursor-not-allowed disabled:opacity-40"
             disabled={!onCopyTheme}
             onClick={onCopyTheme}
             type="button"
@@ -154,7 +158,7 @@ export function ThemePanelShared({
           value={codeFont}
         />
         <div className="flex min-h-[44px] items-center justify-between gap-4 py-2.5">
-          <span className="text-[13px] text-[var(--color-text-foreground)]">
+          <span className="text-[length:var(--app-font-size-ui,12px)] text-[var(--color-text-foreground)]">
             Translucent sidebar
           </span>
           <SwitchShared
@@ -167,7 +171,9 @@ export function ThemePanelShared({
           />
         </div>
         <label className="flex min-h-[44px] items-center justify-between gap-4 py-2.5">
-          <span className="text-[13px] text-[var(--color-text-foreground)]">Contrast</span>
+          <span className="text-[length:var(--app-font-size-ui,12px)] text-[var(--color-text-foreground)]">
+            Contrast
+          </span>
           <span className="flex items-center gap-3">
             <input
               aria-label="Contrast"
@@ -182,7 +188,7 @@ export function ThemePanelShared({
               type="range"
               value={selectedContrast}
             />
-            <output className="w-5 text-xs text-[var(--color-text-foreground-secondary)]">
+            <output className="w-5 text-[length:var(--app-font-size-ui-sm,11px)] text-[var(--color-text-foreground-secondary)]">
               {selectedContrast}
             </output>
           </span>
@@ -205,7 +211,9 @@ function ColorRow({
 }) {
   return (
     <label className="flex min-h-[44px] items-center justify-between gap-4 py-2.5">
-      <span className="text-[13px] text-[var(--color-text-foreground)]">{label}</span>
+      <span className="text-[length:var(--app-font-size-ui,12px)] text-[var(--color-text-foreground)]">
+        {label}
+      </span>
       <span
         className={cn(
           "flex items-center gap-2 rounded-lg border bg-[var(--color-background-surface)] px-2.5 py-1.5",
@@ -223,7 +231,7 @@ function ColorRow({
         />
         <span
           className={cn(
-            "text-xs text-[var(--color-text-foreground-secondary)]",
+            "text-[length:var(--app-font-size-ui-sm,11px)] text-[var(--color-text-foreground-secondary)]",
             accent && "text-[var(--color-text-foreground)]",
           )}
         >

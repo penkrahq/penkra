@@ -10,4 +10,14 @@ const meta = {
 
 export default meta;
 type Story = StoryObj<typeof meta>;
-export const Default: Story = {};
+export const Default: Story = {
+  args: { harness: "codex" },
+};
+
+export const OpenCodePinned: Story = {
+  args: { harness: "opencode", pinned: true },
+};
+
+export const LeftRailCollapsed: Story = {
+  args: { leftRailCollapsed: true },
+};

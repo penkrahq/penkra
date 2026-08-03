@@ -46,7 +46,9 @@ export function ThemePreviewCardShared({
           <ThemePreviewContent dark={dark} />
         )}
       </span>
-      <span className="text-[13px] font-semibold text-[var(--color-text-foreground)]">{label}</span>
+      <span className="text-[length:var(--app-font-size-ui,12px)] font-semibold text-[var(--color-text-foreground)]">
+        {label}
+      </span>
     </button>
   );
 }

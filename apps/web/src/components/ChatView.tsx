@@ -349,11 +349,10 @@ import {
 import { usePinnedMessageActions } from "./chat/environment/usePinnedMessageActions";
 import {
   CHAT_SURFACE_HEADER_DIVIDER_CLASS_NAME,
-  CHAT_SURFACE_HEADER_PADDING_X_CLASS,
   CHAT_SURFACE_HEADER_ROW_CLASS_NAME,
 } from "./chat/chatHeaderControls";
 import { SidebarHeaderNavigationControls } from "./SidebarHeaderNavigationControls";
-import { SidebarHeaderTrigger } from "./ui/sidebar";
+import { SidebarHeaderTrigger, useSidebar } from "./ui/sidebar";
 import {
   useDesktopTopBarTrafficLightGutterClassName,
   useDesktopTopBarWindowControlsGutterClassName,
@@ -988,6 +987,7 @@ export default function ChatView({
   const desktopTopBarTrafficLightGutterClassName = useDesktopTopBarTrafficLightGutterClassName();
   const desktopTopBarWindowControlsGutterClassName =
     useDesktopTopBarWindowControlsGutterClassName();
+  const { open: leftRailOpen, setOpen: setLeftRailOpen } = useSidebar();
   const setComposerDraftModelSelectionAndSticky = useComposerDraftStore(
     (store) => store.setModelSelectionAndSticky,
   );
@@ -9125,7 +9125,6 @@ export default function ChatView({
       <TopBarThreadAdapter
         className={cn(
           CHAT_SURFACE_HEADER_DIVIDER_CLASS_NAME,
-          !isEditorRail && CHAT_SURFACE_HEADER_PADDING_X_CLASS,
           "flex items-center",
           isEditorRail && "h-10",
           isElectron && "drag-region",
@@ -9149,6 +9148,10 @@ export default function ChatView({
             </ComposerPickerMenuPopup>
           </Menu>
         }
+        harness={activeThread.session?.provider ?? activeThread.modelSelection.provider}
+        leftRailCollapsed={!isEditorRail && !leftRailOpen}
+        onRestoreLeftRail={() => setLeftRailOpen(true)}
+        pinned={activeThread.isPinned}
         title={activeThreadDisplayTitle}
       />
 
