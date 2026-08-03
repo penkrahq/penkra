@@ -73,6 +73,7 @@ const runtime = new AppPreloadRuntime({
   rawSocketExchange: (input) =>
     ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.rawSocketExchange, input),
   processRun: (input) => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.processRun, input),
+  showContextMenu: (items) => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.contextMenu, items),
 });
 
 const appId = process.argv

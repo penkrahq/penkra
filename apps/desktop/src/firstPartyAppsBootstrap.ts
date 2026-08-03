@@ -71,6 +71,9 @@ export async function bootstrapFirstPartyAppsPackage(
     const current = runtime.installations.snapshot();
     const existing = getInstalledAppPackage(current, expectedAppId, spaceId);
     if (!existing) {
+      // Retained Space state without a package is the durable uninstall marker. Do not
+      // silently reinstall a bundled App the user explicitly removed.
+      if (current.spaceStateByKey[`${spaceId}\u0000${expectedAppId}`]) continue;
       await runtime.installations.install(verified, spaceId);
       for (const permission of FIRST_PARTY_PERMISSION_GRANTS[expectedAppId] ?? []) {
         await runtime.installations.setPermission({

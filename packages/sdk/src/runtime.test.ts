@@ -58,6 +58,7 @@ describe("framework-neutral App runtime exports", () => {
   it("forwards operation and tab registration to the preload-owned global API", () => {
     const runtime: PenkraAppRuntimeApi = {
       open: vi.fn(),
+      contextMenu: { show: vi.fn(async () => null) },
       browser: createBrowserMock(),
       identity: { get: vi.fn(async () => ({ subject: "sub_test", space: "space_test" })) },
       settings: {
@@ -108,6 +109,7 @@ describe("framework-neutral App runtime exports", () => {
   it("forwards read-only permission inspection to the preload-owned API", async () => {
     const runtime: PenkraAppRuntimeApi = {
       open: vi.fn(),
+      contextMenu: { show: vi.fn(async () => null) },
       browser: createBrowserMock(),
       identity: { get: vi.fn(async () => ({ subject: "sub_test", space: "space_test" })) },
       settings: {

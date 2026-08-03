@@ -5,9 +5,10 @@ separate renderer and stable host-minted `tabId`. Tabs in one App/Space may shar
 storage, but Penkra never broadcasts operation requests for tabs to filter.
 
 The runtime exposes identity, settings, encrypted secrets, scoped file handles, permissions,
-mediated HTTP/socket/process services, hosted browser sessions, operations, and point-to-point tab
-routing. Apps receive a pairwise Account subject and opaque per-App Space identifier, not the
-Space's display name.
+mediated HTTP/socket/process services, hosted browser sessions, native context menus, operations,
+and point-to-point tab routing. Apps receive a pairwise Account subject and opaque per-App Space
+identifier, not the Space's display name. Native context menus accept declarative item labels and
+IDs and return only the chosen ID, keeping Electron menu objects behind the preload boundary.
 
 Special permissions are `network-fetch`, `raw-socket`, `process-spawn`, and `browser-session`.
 Required permissions must be granted before enablement; optional permissions are requested only in

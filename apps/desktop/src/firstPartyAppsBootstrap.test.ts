@@ -133,6 +133,47 @@ describe("first-party Apps bootstrap", () => {
     expect(install).toHaveBeenCalledWith(verified, "space-1");
   });
 
+  it("does not reinstall a bundled App after the user uninstalled it with retained data", async () => {
+    const verified = {
+      manifest: { id: "com.penkra.explorer" },
+      sha256: "a".repeat(64),
+      source: "registry",
+    };
+    const install = vi.fn(async () => undefined);
+    const setEnabled = vi.fn(async () => undefined);
+    const result = await bootstrapFirstPartyAppsPackage(
+      {
+        packages: { ingestDirectory: vi.fn(async () => verified) },
+        installations: {
+          snapshot: () => ({
+            packagesByInstallationKey: {},
+            spaceStateByKey: {
+              "space-1\0com.penkra.explorer": {
+                appId: "com.penkra.explorer",
+                spaceId: "space-1",
+                enabled: false,
+                permissions: {},
+                settings: {},
+                settingMigrations: {},
+                skills: {},
+              },
+            },
+          }),
+          install,
+          setPermission: vi.fn(),
+          setEnabled,
+          updateForSpace: vi.fn(),
+        },
+      } as never,
+      "/package",
+      ["space-1"],
+      "com.penkra.explorer",
+    );
+    expect(result).toBe("current");
+    expect(install).not.toHaveBeenCalled();
+    expect(setEnabled).not.toHaveBeenCalled();
+  });
+
   it("updates changed bundled bytes through the runtime-safe Space transition", async () => {
     const verified = {
       manifest: { id: "com.penkra.apps" },

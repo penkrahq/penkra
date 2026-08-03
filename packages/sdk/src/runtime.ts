@@ -40,6 +40,14 @@ export interface AppOpenResult {
   slug?: string;
 }
 
+export interface AppContextMenuItem<T extends string = string> {
+  id: T;
+  label: string;
+  /** Starts a new visual group before this actionable row. */
+  separatorBefore?: boolean;
+  destructive?: boolean;
+}
+
 export interface AppBrowserPage {
   id: string;
   url: string;
@@ -93,6 +101,10 @@ export type AppTabNavigationHandler<Result = void> = (
 export interface PenkraAppRuntimeApi {
   /** Open one authorized file or directory with another compatible App or the operating system. */
   open(input: { handleId: string; relativePath?: string; with?: string }): Promise<AppOpenResult>;
+  /** Show a native context menu at the current pointer position. */
+  contextMenu: {
+    show<T extends string>(items: ReadonlyArray<AppContextMenuItem<T>>): Promise<T | null>;
+  };
   /** Permission-bound hosted browser pages. The App owns chrome; Penkra owns page isolation. */
   browser: {
     open(initialUrl?: string): Promise<AppBrowserSessionState>;
@@ -237,6 +249,10 @@ function runtime(): PenkraAppRuntimeApi {
 }
 
 export const open: PenkraAppRuntimeApi["open"] = (input) => runtime().open(input);
+
+export const contextMenu: PenkraAppRuntimeApi["contextMenu"] = {
+  show: (items) => runtime().contextMenu.show(items),
+};
 
 export const browser: PenkraAppRuntimeApi["browser"] = {
   open: (initialUrl) => runtime().browser.open(initialUrl),

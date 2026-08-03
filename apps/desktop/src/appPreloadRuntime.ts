@@ -99,6 +99,9 @@ export interface AppPreloadTransport {
   processRun(
     input: Parameters<import("@penkra/sdk").PenkraAppRuntimeApi["processes"]["run"]>[0],
   ): ReturnType<import("@penkra/sdk").PenkraAppRuntimeApi["processes"]["run"]>;
+  showContextMenu<T extends string>(
+    items: ReadonlyArray<import("@penkra/sdk").AppContextMenuItem<T>>,
+  ): Promise<T | null>;
 }
 
 interface ActiveRequest {
@@ -121,6 +124,9 @@ export class AppPreloadRuntime {
     this.#transport = transport;
     this.api = {
       open: (input) => this.#transport.resourceOpen(input),
+      contextMenu: {
+        show: (items) => this.#transport.showContextMenu(items),
+      },
       browser: {
         open: (initialUrl) =>
           this.#transport.browserCall("open", initialUrl) as Promise<

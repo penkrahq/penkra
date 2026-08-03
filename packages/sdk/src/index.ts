@@ -50,6 +50,7 @@ export {
 export {
   operations,
   browser,
+  contextMenu,
   permissions,
   identity,
   settings,
@@ -60,6 +61,7 @@ export {
   secrets,
   tab,
   type AppIdentity,
+  type AppContextMenuItem,
   type AppBrowserFindResult,
   type AppBrowserPage,
   type AppBrowserSessionState,

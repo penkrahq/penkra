@@ -2,7 +2,8 @@
 
 Framework-neutral APIs for Apps running inside Penkra. The package contains manifest validation,
 typed operations, tab routing, scoped files, settings, secrets, identity, permissions, mediated
-network/process access, and hosted browser sessions. It never exposes Electron or Node globals.
+network/process access, hosted browser sessions, and native context menus. It never exposes
+Electron or Node globals.
 
 ```ts
 import { defineApp, files, tab } from "@penkra/sdk";
@@ -28,6 +29,10 @@ Apps may use any browser-compatible framework. React is optional and available f
 `@penkra/sdk/react`. Runtime calls throw when used outside a Penkra App renderer; ordinary unit
 tests should test App logic separately, while `penkra app test` validates the packaged App in the
 real isolated host.
+
+Use `contextMenu.show(...)` from a direct pointer interaction when an App needs a platform-native
+right-click menu. Penkra returns the selected item ID or `null`; Apps never receive Electron menu
+objects.
 
 Privileged APIs require matching manifest declarations and per-Space grants. File APIs accept only
 opaque handles chosen or handed off by the user. Hosted browser APIs require `browser-session` and

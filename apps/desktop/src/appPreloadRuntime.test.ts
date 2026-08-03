@@ -101,6 +101,7 @@ function fixture() {
       stdout: new Uint8Array(),
       stderr: new Uint8Array(),
     })),
+    showContextMenu: vi.fn(async () => null),
   });
   runtime.start();
   return {
@@ -172,6 +173,15 @@ describe("AppPreloadRuntime", () => {
     unsubscribe();
     test.browserState(state);
     expect(listener).toHaveBeenCalledOnce();
+  });
+
+  it("shows native context menus without exposing Electron primitives", async () => {
+    const test = fixture();
+    await expect(
+      test.runtime.api.contextMenu.show([
+        { id: "uninstall", label: "Uninstall", destructive: true },
+      ]),
+    ).resolves.toBeNull();
   });
 
   it("invokes a controller handler with separate input and host-owned context", async () => {
