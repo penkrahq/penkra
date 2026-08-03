@@ -75,12 +75,12 @@ Documented:
 - Codex's standalone installer downloads official versioned artifacts from `releases.openai.com/codex` with a GitHub Releases fallback. Official GitHub releases also publish platform archives, a `codex-package_SHA256SUMS` asset, and per-asset SHA256 digests in release metadata.
 - The Codex repository and CLI are Apache-2.0 licensed.
 
-Unresolved:
+Initial questions and disposition:
 
-- Whether a stored rollout can be resumed under another independently authenticated `CODEX_HOME` through a stable supported operation.
-- Whether experimental history/path resume preserves every compaction, tool, reasoning, goal, approval, and instruction-state semantic needed by Penkra.
-- Whether host-managed ChatGPT tokens can safely provide per-process accounts without mutating shared credential state.
-- Concurrency guarantees if multiple app-server processes reference shared session state.
+- Stable resume across isolated `CODEX_HOME` values is supported when the exact provider state is shared; the controlled probes below prove resume-by-ID without experimental request fields. Real independently authenticated accounts and the full state manifest still require QA.
+- Experimental history/path resume is excluded from the architecture, so its reconstruction fidelity is not a release dependency.
+- Experimental host-managed ChatGPT tokens are excluded from the first release; Codex-managed login in Connection-scoped profiles is the selected credential contract.
+- Multiple app-server processes referencing the same provider state still require model/tool-heavy concurrency and crash QA. Until proven, the adapter may enforce one active owner per Codex native-state generation rather than assume provider concurrency.
 
 Observed in an isolated no-model-call test:
 
@@ -118,6 +118,17 @@ Current official App Server authentication contract:
 - The first release should therefore perform Codex's managed login once inside each Connection-scoped `CODEX_HOME`, require the keyring credential store, and mount only the explicitly verified Penkra-owned native conversation-state bundle into those profiles. The stable shared-session probe already demonstrated resume-by-ID across two otherwise isolated homes.
 - Every launch must verify `account/read` against the selected Connection before accepting a turn. A successful filesystem resume with the wrong authenticated account is not a successful Connection switch.
 
+Current upstream native-state layout finding:
+
+- Codex now exposes an explicit `sqlite_home`/`CODEX_SQLITE_HOME` boundary. The state runtime places thread metadata, goals, memories, logs, and materialized thread history databases beneath it, so those databases can be shared independently of a Connection-scoped `CODEX_HOME`.
+- The thread metadata schema stores `rollout_path` as an absolute path, and current upstream types explicitly describe it that way. A common `sqlite_home` can therefore still point into whichever profile path originally created a rollout. Deleting or relocating that profile could make the shared database unusable even though its SQLite files remain intact.
+- Local rollouts and several required companion resources still resolve from `CODEX_HOME`: active `sessions`, `archived_sessions`, `session_index.jsonl`, user/thread attachments, and shell snapshots. Other tool surfaces may create generated-image, browser, computer-use, and REPL artifacts referenced by thread events.
+- Therefore “share only `sessions`” is insufficient for the complete Penkra experience even though it passed the minimal resume probe. The leading topology is a stable Penkra-owned conversation-state mount path that is identical inside every Connection runtime, with a common `sqlite_home` plus explicit rollout/index/attachment/tool-state resources. Auth, login logs, mutable user config, and provider caches remain Connection-scoped or Penkra-managed. Penkra must not rewrite provider database paths as an undocumented migration shortcut.
+- A controlled no-model-call probe exercised that lifecycle on Codex 0.146.0. A created a thread and injected a marker into its native rollout; B used its own `CODEX_HOME` and the common `CODEX_SQLITE_HOME`, resumed the same thread ID, exited, restarted, and resumed it again. The database continued to point to A's absolute rollout. After A's non-conversation profile entries (`config.toml`, installation marker, skills/temp/migration state) were moved away while its `sessions` and `shell_snapshots` skeleton remained, a fresh B process still resumed and read the same native thread and marker.
+- This validates immutable referenced state skeletons as a viable clean lifecycle: deleting a Connection removes/revokes its credential and mutable account profile, but cannot delete a provider path still referenced by a thread-native state generation. The filesystem resource must be owned by that native-state generation, not semantically by the deleted Connection, even if Codex's absolute path lies beneath the original profile namespace.
+- The probe did not use a real account, model turn, tool, attachment, compaction, subagent, goal, or memory. The exact retained manifest therefore remains a conformance gate. If a complete manifest cannot be proven without unstable protocol fields or provider-file surgery, cross-Connection resume must remain unavailable; visible-transcript replay is not an alternative.
+- A managed Codex update must diff its observed top-level state writes against the previous adapter manifest and fail the upgrade conformance gate when an unclassified path appears. It must not silently leave new conversation state trapped inside one Connection profile.
+
 ### Claude Code / Claude Agent SDK
 
 Documented:
@@ -145,6 +156,15 @@ Observed isolated authentication probe on macOS:
 - The same installed binary launched with a new empty `CLAUDE_CONFIG_DIR` reported logged out. No account identifiers were emitted by the probe.
 - This demonstrates that separate `CLAUDE_CONFIG_DIR` profiles isolate the effective subscription login on this installed Claude Code version, including on macOS where Claude uses Keychain storage. Two-real-account switching and refresh still require QA.
 
+Observed fake-credential precedence probe, with a synthetic home/config directory and no model call:
+
+- OAuth sentinel only: `auth status` reported logged in through `oauth_token`.
+- API-key sentinel only: `auth status` reported logged in through `api_key`.
+- Both sentinels present: `auth status` reported `oauth_token`.
+- Neither present: the synthetic profile reported logged out.
+
+The sentinels were not real credentials and no provider inference request was made. This proves only local credential selection/status behavior, not which account would be billed for a model turn. It also demonstrates why Penkra must inject exactly one method and scrub every competitor instead of relying on a remembered precedence table.
+
 Leading personal/development Connection strategy after the current authentication findings:
 
 - Store each `claude setup-token` result as a Penkra static secret. Do not copy it into the database, a provider settings file, or a Connection-scoped transcript directory.
@@ -157,7 +177,7 @@ This is cleaner than using one complete `CLAUDE_CONFIG_DIR` per Connection: Clau
 
 Real-account QA must still prove that a session created and compacted under subscription Connection A resumes under subscription Connection B and an API-key Connection without server-side authorization coupling, that switching back preserves native identity, and that provider-reported usage is charged to the selected account. No production claim is made from environment precedence alone.
 
-Unresolved:
+Remaining real-account/provider-state gates:
 
 - Cross-account continuation of the same exact native session, including server-side cache behavior and account authorization constraints.
 - Rotation, revocation, expiry, and reauthorization behavior for multiple one-year subscription tokens; Penkra must never silently fall through to keychain login when one expires.
@@ -231,6 +251,22 @@ Observed credential-storage boundary in current upstream source and this install
 
 OpenCode Go is simpler than the generic OAuth case: its official setup gives the subscriber an API key, and OpenCode treats Go like another provider. Two Go accounts can therefore be two Penkra static-secret Connections; they do not require browser OAuth refresh-token isolation. The writable profile mechanism remains necessary for other OpenCode integrations that genuinely use OAuth.
 
+Current upstream native-state layout finding:
+
+- OpenCode exposes `OPENCODE_DB`; an absolute value selects the exact SQLite database independently of the synthetic home/XDG data root. This is cleaner and more portable than the symbolic-link probe used earlier.
+- The database is not the complete experience. The same XDG data root also owns `snapshot` Git stores, plan files, spilled tool output, repositories/worktree metadata, and `auth.json`; MCP OAuth has another credential file.
+- For the first-release static-key methods, use one Penkra-owned OpenCode data/state root with no durable provider `auth.json`, set the common database explicitly, and inject only the selected static credential through `OPENCODE_AUTH_CONTENT`. This preserves database and auxiliary state across Connection changes without sharing a credential file.
+- For a future refreshable OAuth method, use a Connection-private credential data root and the common absolute database, then explicitly mount/version the snapshot, plan, and tool-output resources needed for exact continuation. That method remains unavailable until refresh durability and the auxiliary-state conformance tests pass.
+
+Observed absolute-database/static-credential probe on OpenCode 1.18.10, with no model call:
+
+1. Two servers received different fake API-key auth maps, one common synthetic home/XDG data root, and the same absolute `OPENCODE_DB` path.
+2. Starting both simultaneously against a brand-new database caused one server to fail initialization with `database is locked`; the other completed startup. Retrying the failed server after initialization succeeded.
+3. Server A created a session and one `noReply` text part. Server B read that exact session/message through the ordinary API.
+4. No `auth.json` was created, and `PRAGMA integrity_check` returned `ok` after the cross-server read.
+
+Implication: the absolute database override removes the symbolic-link dependency, but Penkra must own a single-flight initialization/migration lease per OpenCode native-state generation. Only after one verified initializer completes may multiple Connection runtimes open the database. Steady-state concurrency and crash recovery remain covered by the earlier stress probes; first-open migration contention is a distinct lifecycle phase.
+
 Observed complete local profile boundary:
 
 - A second no-model-call server was launched with an isolated `HOME`, XDG data/config/cache/state roots, `OPENCODE_CONFIG_DIR`, inline config, and Claude-compatibility disabled.
@@ -266,12 +302,12 @@ Observed forced-process-death extension, still with no model calls:
 
 This shows database durability under one forced server death and, importantly, that Penkra must treat “create session then append message” as two provider operations that can be interrupted between commits. It does not create corruption, but startup reconciliation must recognize an empty native session rather than infer or replay a missing user message.
 
-Unresolved:
+Remaining gates:
 
-- Export/import fidelity for tool calls, tool outputs, binary/file parts, summaries, reversions, permissions, child sessions, and incomplete turns.
-- Whether importing an already-present session is idempotent or can conflict with local state.
-- Whether OpenCode Go/subscription OAuth credentials can be selected per process without coupling session storage to the credential database.
-- Exact behavior of a synthetic home when native plugins, managed configuration, organizational `.well-known` configuration, or provider OAuth refresh flows are active.
+- Native import is a separate optional capability. Its fidelity and idempotency for tool calls, binary/file parts, summaries, reversions, permissions, child sessions, and incomplete turns must pass its own conformance suite; it is not needed for ordinary Connection switching and has no replay fallback.
+- Real OpenCode Go/static-key accounts must prove provider-reported identity/usage changes while the same native session remains exact. The fake-key probe proves local selection and state isolation only.
+- Refreshable OpenCode OAuth is deferred and unavailable until Connection-private refresh durability and auxiliary-state mounts pass. It does not block the static-key first release.
+- Synthetic-home QA must include native plugins, managed configuration, organizational `.well-known` configuration, and project-discovered settings so none can introduce an undeclared credential or state root.
 
 ### ACP providers: Cursor, Droid, and Grok
 
@@ -424,6 +460,16 @@ Shared orchestration must reason about declared capabilities and stable resource
 
 Unsupported capabilities fail closed and are absent from the UI. There is no shared transcript-replay fallback. Persisted resources should use generic installation, connection, thread-provider-state, runtime-binding, and transition-event records with versioned opaque adapter payloads where provider-native identifiers are required. Adding a provider should require an adapter, manifest/UI metadata, migrations only for genuinely new generic concepts, and the full conformance/QA suite—not edits to core switching rules.
 
+The adapter surface should be lifecycle-shaped rather than a bag of provider commands:
+
+- `installation`: resolve an immutable artifact, stage, verify integrity, probe protocol/capabilities, activate, retire, and roll back;
+- `authentication`: declare method capabilities, create/complete login, identify the selected account safely, health-check, reauthorize, and revoke;
+- `nativeState`: create a versioned state generation, enumerate its manifest, checkpoint, prove exact resume, detect corruption, and invoke native fork/import only when declared;
+- `runtime`: build a scrubbed launch specification, start, fence, quiesce, stop, and report process ownership without exposing raw credentials;
+- `telemetry`: normalize only documented usage/cache/limit fields and sanitized provider errors.
+
+Every method receives stable resource IDs and opaque versioned adapter payloads. Shared orchestration never supplies transcript text to `nativeState.resume`, never mutates provider files directly, and never infers success from a process merely remaining alive. An adapter version cannot become eligible for activation until its manifest and lifecycle pass the generic conformance harness against the exact managed provider generation.
+
 `connection.provider_kind` is immutable. A thread's `provider_kind` becomes immutable when its first turn starts. A Connection switch transaction must reject a mismatched provider before stopping the active runtime.
 
 ### Authentication-method capability policy
@@ -459,6 +505,19 @@ Adapters may implement these credential backends behind the same Connection cont
 
 The adapter manifest declares which backend applies to each connection method. Shared code handles lifecycle and redaction but does not parse or migrate provider tokens. Connection metadata may contain only non-secret fields such as display label, provider kind, authentication method, provider-reported account/workspace label where safe, credential reference ID, health status, and timestamps.
 
+Penkra desktop secret-backend finding:
+
+- Penkra is an Electron application and already uses `safeStorage` in the trusted main process through an atomic encrypted `AppDataVault`. The renderer never receives its raw secret values.
+- Electron documents macOS Keychain and Windows DPAPI as the backing protection. Linux varies by desktop secret service; the synchronous API can select `basic_text`, which uses a hard-coded plaintext password and is not acceptable for provider credentials.
+- The archived `keytar` package is not an appropriate new dependency. Reuse the proven Penkra vault pattern in a dedicated provider-Connection vault whose encrypted records live outside SQLite; the database keeps only an opaque vault record ID.
+- The desktop main process is the secret authority. The backend requests a secret for one authenticated runtime-launch/revocation operation over a private per-launch capability channel; the renderer, browser storage, logs, argv, and ordinary RPC responses never receive it. The backend retains plaintext only long enough to construct the selected provider process input/environment and zeroes owned buffers where the runtime permits.
+- On Linux, `basic_text`, `unknown`, temporarily unavailable encryption, or any inability to identify a protected backend disables Penkra static-secret authentication methods. It never downgrades to plaintext. Provider-native credential profiles can remain available only if their own secure backend independently verifies healthy.
+- A standalone/headless backend without the trusted desktop secret broker must advertise static-secret methods unavailable until a separately verified OS-secret implementation exists. Remote browser access to a backend launched by the desktop still uses the desktop broker and does not expose secrets remotely.
+
+Electron 40 in the current repository exposes the synchronous `safeStorage` API; current Electron documentation recommends newer asynchronous operations for non-blocking access, key rotation, and temporary-unavailability handling. Moving the provider vault to that API requires a separately validated Electron upgrade. The first implementation must at minimum serialize synchronous vault access off latency-sensitive provider/event paths and surface cancellation or OS prompts cleanly.
+
+The vault contract must not promise reliable zeroization of JavaScript strings, which are immutable and runtime-managed. It instead minimizes plaintext lifetime and copies: decrypt only in trusted desktop main for a single capability-scoped request, prefer owned byte buffers at native/process boundaries where they can be cleared, never cache plaintext, and destroy the one-use broker capability after launch or revocation. Encryption-at-rest does not make a secret safe once unnecessarily materialized in renderer or server memory.
+
 Provider-specific implications:
 
 - **Codex subscription/API login:** prefer Codex App Server's managed login methods in a distinct `CODEX_HOME` with `cli_auth_credentials_store = "keyring"`. Codex owns refresh and logout; Penkra records only the connection/profile binding.
@@ -480,18 +539,55 @@ The table describes adapter responsibilities, not special cases in shared orches
 
 Deleting a Connection is a credential-revocation workflow, not a row deletion alone: refuse while it owns an active runtime, invoke the adapter's logout/delete operation, verify the selected profile no longer authenticates, remove its isolated credential material, and only then tombstone metadata. Removing one Connection must not log out another Connection for the same provider.
 
+### Research gate summary
+
+Resolved strongly enough for architecture review:
+
+- Connection, managed installation, native state, and live runtime are separate resources; account switching changes an explicit same-provider thread binding, not the provider or transcript.
+- Transcript replay, inferred credentials, `PATH` executables, automatic failover, Sidechat, and cross-provider Handoff are excluded cleanly.
+- Codex supports stable resume-by-ID across isolated homes when exact native state remains addressable; referenced absolute state paths require immutable state skeletons.
+- Claude can select one injected OAuth token or API key from a shared Penkra-owned state root; Penkra must inject exactly one and scrub every competitor.
+- OpenCode static credentials can be selected per process while sharing an explicit database/state root; first initialization requires a lease.
+- Static secrets belong in a dedicated Electron-main encrypted vault and one-use broker, with Linux insecure backends failing closed.
+- Provider support is adapter/manifest/conformance driven, and release-policy availability is derived rather than persisted as user-editable truth.
+
+Evidence that now requires operator-provided real accounts/keys:
+
+- provider-reported account identity, billing/usage, quota, logout, refresh/expiry, and revocation isolation for two Connections of each enabled method;
+- exact same-provider A→B→A continuation after model turns, native compaction, tools, attachments, subprocesses/subagents, interruption, and application/provider crashes;
+- the complete native-state manifest produced by those features and its survival after the originating Connection is revoked;
+- prompt-cache behavior and any server-side session authorization coupling that cannot be established by synthetic/no-model probes.
+
+Explicitly deferred rather than guessed:
+
+- generally distributed Claude subscription login pending provider-policy permission; personal/development policy may enable it;
+- refreshable OpenCode OAuth and enterprise/cloud Claude methods until their own adapter backends pass conformance;
+- additional providers until they implement the same generic contract;
+- any unsupported cross-account native resume capability. It remains unavailable rather than falling back to projected transcript text.
+
 ### Draft durable model for review
 
 Names remain provisional, but the responsibilities must stay separate:
 
 - `provider_installations`: immutable generation ID, provider kind, version, platform/architecture, absolute executable path, source URL/channel, verified digest/signature result, adapter/protocol version, health state, installed/activated timestamps, and retirement state.
-- `provider_connections`: immutable Connection ID, provider kind, and authentication-method ID; user label; opaque credential/profile reference; non-secret provider account/workspace identity; health and resolved availability state; and lifecycle timestamps. No executable path and no native thread/session ID.
+- `provider_connections`: immutable Connection ID, provider kind, and authentication-method ID; user label; opaque credential/profile reference; non-secret provider account/workspace identity; last observed health; and lifecycle timestamps. No executable path, native thread/session ID, or persisted release-policy truth. Current availability is resolved from adapter support, trusted policy, platform prerequisites, secret-backend health, installation health, and Connection health whenever the server exposes or uses it.
 - `thread_provider_states`: one started thread's immutable provider kind, opaque native state locator/version, provider session ID where non-secret, checkpoint generation/status, and last verified resume timestamp. No credential material and no transcript reconstruction.
 - `thread_connection_bindings`: current Connection ID, installation generation ID, binding revision, and transition status for a started thread. This is the explicit answer to “which account and executable will the next turn use?”
 - `provider_connection_transitions`: append-only old/new Connection IDs, old/new installation generations, phase, reason (`manual_switch`, `login_repair`, `installation_activation`, or `rollback`), sanitized provider error classification, timestamps, and recovery outcome.
 - `space_provider_defaults`: optional default Connection by provider for new drafts in a Space. Defaults never rewrite existing thread bindings.
 
 Folder-level Connection defaults are not part of the first release. A Space default can select the usual Connection for a new draft; a draft can override it. Once the first turn starts, the provider is fixed and the chosen Connection becomes the initial explicit thread binding. Later switching is manual and same-provider only.
+
+Required persistence invariants:
+
+- `provider_kind` and `authentication_method_id` are immutable after Connection creation; a started thread's provider is immutable after its first accepted turn.
+- Availability is computed, never stored as release-policy truth. Persist only observations such as last health check and its reason; re-evaluate support, policy, secret backend, managed installation, and credential health at every authorization boundary.
+- A thread has exactly one current binding. Binding changes use optimistic revision matching, and a partial unique constraint permits at most one unsettled transition lease per thread.
+- A Connection, thread state, binding, Space default, and transition must reference the same provider kind. Because cross-table equality is awkward to express with ordinary foreign keys, one domain transaction validates it and database triggers/constraint tests defend every write path. Provider mismatch is rejected before runtime effects.
+- `space_provider_defaults` is unique by `(space_id, provider_kind)` and references an active Connection of that provider. Archiving/deleting a Space or disabling a Connection never selects a replacement.
+- Opaque adapter payloads always carry adapter ID and schema version. Unknown versions fail closed and remain preservable for rollback; shared migrations do not parse or rewrite them.
+- Secret-vault records are not cascade-deleted with metadata. Connection deletion first completes and verifies adapter revocation, then deletes the isolated secret/profile, then tombstones the Connection in a recoverable transaction record.
+- Native-state generations and installation generations are immutable once referenced. Garbage collection requires a complete reference proof and cannot run while a transition, live runtime, rollback window, or recoverable migration snapshot references them.
 
 ### Draft Connection-switch state machine for review
 
@@ -598,6 +694,12 @@ For every supported provider and connection type:
 - expired/revoked subscription token and API key, with another healthy same-provider Connection present; no automatic failover may occur;
 - Connection labels are duplicated or renamed; selection must remain ID-based;
 - delete one Connection while another Connection for the same provider is active, proving credential revocation and profile cleanup are isolated.
+- create a Codex thread under A, switch to B, remove A's credential/profile while preserving the declared native-state generation, restart, and prove B can still resume from the exact checkpoint; this specifically detects absolute rollout paths trapped inside A.
+- start two OpenCode runtimes simultaneously against a brand-new native-state generation and prove the adapter's initialization lease prevents the observed first-open `database is locked` race; then repeat concurrent steady-state access and crash recovery.
+- make the desktop secret broker unavailable before launch, during a one-use fetch, and after provider spawn; every case must produce a stable fail-closed state without reusing a stale plaintext value.
+- on Linux fixtures, report `basic_text`, `unknown`, and unavailable safe-storage backends and prove static-secret methods are unavailable end to end while provider-native methods remain independent.
+- inject recognizable sentinel secrets into every static method and inspect the provider vault file, application databases, renderer storage, RPC payload capture, process arguments, logs, crash dumps, screenshots, and exported diagnostics; plaintext must be absent everywhere except the selected child environment or documented in-memory provider input for the lifetime of that runtime.
+- restart the desktop main and backend independently, proving secret-broker capabilities cannot be replayed and no plaintext secret cache is required for recovery.
 
 Each run must capture sanitized structured provider events, Penkra orchestration events, connection ID, provider session ID, transition phase, exact failure classification, and visual/manual QA outcome. Credentials, authorization headers, raw tokens, and sensitive tool output must never enter logs.
 
@@ -632,6 +734,7 @@ Manual QA must start a fresh isolated Penkra (Dev) instance and visibly exercise
 - Claude Code authentication precedence and storage: <https://code.claude.com/docs/en/authentication>
 - Claude Code environment variables: <https://code.claude.com/docs/en/env-vars>
 - Claude Code application-data layout: <https://code.claude.com/docs/en/claude-directory>
+- Electron safeStorage: <https://www.electronjs.org/docs/latest/api/safe-storage>
 - Claude Code legal, authentication, and credential-use policy: <https://code.claude.com/docs/en/legal-and-compliance>
 - Claude Agent SDK session storage: <https://code.claude.com/docs/en/agent-sdk/session-storage>
 - OpenCode server: <https://opencode.ai/docs/server>
