@@ -34,7 +34,9 @@ export function FeatureSection({ feature, className }: FeatureSectionProps) {
         <h3 className="font-heading text-[length:calc(var(--app-font-size-base,12px)*1.3333)] font-semibold leading-snug text-foreground">
           {feature.title}
         </h3>
-        <p className="text-[length:calc(var(--app-font-size-base,12px)*1.1667)] leading-relaxed text-muted-foreground">{feature.description}</p>
+        <p className="text-[length:calc(var(--app-font-size-base,12px)*1.1667)] leading-relaxed text-muted-foreground">
+          {feature.description}
+        </p>
       </div>
       {hasMedia && (
         <div className="flex flex-col gap-1.5">
@@ -50,7 +52,9 @@ export function FeatureSection({ feature, className }: FeatureSectionProps) {
             </div>
           )}
           {feature.details !== undefined && (
-            <p className="text-[length:var(--app-font-size-ui,12px)] leading-relaxed text-muted-foreground/85">{feature.details}</p>
+            <p className="text-[length:var(--app-font-size-ui,12px)] leading-relaxed text-muted-foreground/85">
+              {feature.details}
+            </p>
           )}
         </div>
       )}

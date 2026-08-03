@@ -58,7 +58,9 @@ export function OpenWithRowShared({
         type="button"
       >
         <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <span className="text-[length:var(--app-font-size-ui-lg,13px)] text-[var(--color-text-foreground)]">{title}</span>
+          <span className="text-[length:var(--app-font-size-ui-lg,13px)] text-[var(--color-text-foreground)]">
+            {title}
+          </span>
           <span className="text-[length:var(--app-font-size-ui,12px)] text-[var(--color-text-foreground-tertiary)]">
             {description}
           </span>

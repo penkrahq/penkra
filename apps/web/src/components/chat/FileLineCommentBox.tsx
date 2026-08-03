@@ -78,7 +78,9 @@ export function FileLineCommentBox(props: FileLineCommentBoxProps) {
           </span>
           Local comment
         </span>
-        <span className="text-[length:var(--app-font-size-ui,12px)] text-muted-foreground">Comment on {props.lineLabel}</span>
+        <span className="text-[length:var(--app-font-size-ui,12px)] text-muted-foreground">
+          Comment on {props.lineLabel}
+        </span>
       </div>
       <textarea
         ref={textareaRef}

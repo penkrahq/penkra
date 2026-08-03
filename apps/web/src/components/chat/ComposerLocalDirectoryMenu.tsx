@@ -516,9 +516,13 @@ export function ComposerLocalDirectoryMenu(props: {
             Waiting for home directory from server…
           </p>
         ) : isLoading && visibleCount === 0 ? (
-          <p className="px-2 py-1.5 text-muted-foreground/50 text-[length:var(--app-font-size-ui-sm,11px)]">Loading local files…</p>
+          <p className="px-2 py-1.5 text-muted-foreground/50 text-[length:var(--app-font-size-ui-sm,11px)]">
+            Loading local files…
+          </p>
         ) : errorMessage ? (
-          <p className="px-2 py-1.5 text-destructive/80 text-[length:var(--app-font-size-ui-sm,11px)]">{errorMessage}</p>
+          <p className="px-2 py-1.5 text-destructive/80 text-[length:var(--app-font-size-ui-sm,11px)]">
+            {errorMessage}
+          </p>
         ) : isSearchPending ? (
           <p className="px-2 py-1.5 text-muted-foreground/50 text-[length:var(--app-font-size-ui-sm,11px)]">
             Searching nested files…
@@ -563,7 +567,9 @@ function UseCurrentFolderRow(props: {
         <span className="shrink-0 text-[11.5px] font-medium text-foreground/80">
           Use this folder
         </span>
-        <span className="truncate text-[length:var(--app-font-size-ui-sm,11px)] text-muted-foreground/55">{directoryLabel}</span>
+        <span className="truncate text-[length:var(--app-font-size-ui-sm,11px)] text-muted-foreground/55">
+          {directoryLabel}
+        </span>
       </div>
     </CommandItem>
   );

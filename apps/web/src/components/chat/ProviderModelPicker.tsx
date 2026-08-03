@@ -421,7 +421,9 @@ export const ProviderModelMenuItems = function ProviderModelMenuItems(
               className="size-3 shrink-0 text-muted-foreground/85 opacity-80"
             />
             <span>{option.label}</span>
-            <span className="ms-auto text-[length:var(--app-font-size-ui-sm,11px)] text-muted-foreground/80">Coming soon</span>
+            <span className="ms-auto text-[length:var(--app-font-size-ui-sm,11px)] text-muted-foreground/80">
+              Coming soon
+            </span>
           </MenuItem>
         );
       })}

@@ -253,7 +253,10 @@ export function SidebarThreadRowContent({
         {!isSubagentThread && pendingStatusColorClass ? (
           <span
             aria-label="Pending approval"
-            className={cn("shrink-0 text-[length:var(--app-font-size-ui-xs,10px)] font-medium", pendingStatusColorClass)}
+            className={cn(
+              "shrink-0 text-[length:var(--app-font-size-ui-xs,10px)] font-medium",
+              pendingStatusColorClass,
+            )}
           >
             Pending
           </span>

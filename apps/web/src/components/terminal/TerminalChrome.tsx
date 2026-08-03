@@ -190,7 +190,9 @@ export function TerminalSidebar(props: {
                       }`}
                     >
                       {props.showGroupHeaders && (
-                        <span className="text-[length:var(--app-font-size-ui-xs,10px)] text-muted-foreground/80">└</span>
+                        <span className="text-[length:var(--app-font-size-ui-xs,10px)] text-muted-foreground/80">
+                          └
+                        </span>
                       )}
                       <button
                         type="button"

@@ -271,10 +271,16 @@ function TransportCompatibilityView({ issue }: { issue: WsCompatibilityError }) 
         <div className="absolute inset-0 bg-[linear-gradient(145deg,color-mix(in_srgb,var(--background)_90%,var(--color-black))_0%,var(--background)_55%)]" />
       </div>
       <section className="relative w-full max-w-xl rounded-2xl border border-border/80 bg-card/90 p-6 shadow-2xl shadow-black/20 backdrop-blur-md sm:p-8">
-        <p className="text-[length:var(--app-font-size-ui-sm,11px)] font-semibold text-muted-foreground">{APP_DISPLAY_NAME}</p>
+        <p className="text-[length:var(--app-font-size-ui-sm,11px)] font-semibold text-muted-foreground">
+          {APP_DISPLAY_NAME}
+        </p>
         <h1 className="mt-3 text-2xl font-semibold sm:text-3xl">{title}</h1>
-        <p className="mt-2 text-[length:calc(var(--app-font-size-base,12px)*1.1667)] leading-relaxed text-muted-foreground">{issue.message}</p>
-        <p className="mt-2 text-[length:calc(var(--app-font-size-base,12px)*1.1667)] leading-relaxed text-muted-foreground">{guidance}</p>
+        <p className="mt-2 text-[length:calc(var(--app-font-size-base,12px)*1.1667)] leading-relaxed text-muted-foreground">
+          {issue.message}
+        </p>
+        <p className="mt-2 text-[length:calc(var(--app-font-size-base,12px)*1.1667)] leading-relaxed text-muted-foreground">
+          {guidance}
+        </p>
         <p className="mt-4 text-[length:var(--app-font-size-ui,12px)] text-muted-foreground/80">
           Client {APP_VERSION} · Server {issue.serverBuild}
         </p>
@@ -713,9 +719,13 @@ function RootRouteErrorView({ error, reset }: ErrorComponentProps) {
       </div>
 
       <section className="relative w-full max-w-xl rounded-2xl border border-border/80 bg-card/90 p-6 shadow-2xl shadow-black/20 backdrop-blur-md sm:p-8">
-        <p className="text-[length:var(--app-font-size-ui-sm,11px)] font-semibold text-muted-foreground">{APP_DISPLAY_NAME}</p>
+        <p className="text-[length:var(--app-font-size-ui-sm,11px)] font-semibold text-muted-foreground">
+          {APP_DISPLAY_NAME}
+        </p>
         <h1 className="mt-3 text-2xl font-semibold sm:text-3xl">Something went wrong.</h1>
-        <p className="mt-2 text-[length:calc(var(--app-font-size-base,12px)*1.1667)] leading-relaxed text-muted-foreground">{message}</p>
+        <p className="mt-2 text-[length:calc(var(--app-font-size-base,12px)*1.1667)] leading-relaxed text-muted-foreground">
+          {message}
+        </p>
 
         <div className="mt-5 flex flex-wrap gap-2">
           <Button size="sm" className={dialogActionButtonClassName} onClick={() => reset()}>

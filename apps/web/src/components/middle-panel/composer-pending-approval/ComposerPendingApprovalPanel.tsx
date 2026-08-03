@@ -173,7 +173,9 @@ function ApprovalDetail({ parsed }: { parsed: ParsedApproval }) {
   }
 
   return (
-    <p className="mt-2 text-[length:var(--app-font-size-ui,12px)] text-muted-foreground/65">Review the request to continue.</p>
+    <p className="mt-2 text-[length:var(--app-font-size-ui,12px)] text-muted-foreground/65">
+      Review the request to continue.
+    </p>
   );
 }
 

@@ -95,7 +95,10 @@ export function parseDesktopAppTypography(value: unknown): DesktopAppTypography 
   }
   const candidate = value as Record<string, unknown>;
   const names = Object.keys(TYPOGRAPHY_CSS_NAMES) as Array<keyof DesktopAppTypography>;
-  if (Object.keys(candidate).length !== names.length || names.some((name) => !(name in candidate))) {
+  if (
+    Object.keys(candidate).length !== names.length ||
+    names.some((name) => !(name in candidate))
+  ) {
     throw new Error("App Typography must provide the complete semantic token contract.");
   }
   const result = {} as Record<keyof DesktopAppTypography, string>;
@@ -114,9 +117,7 @@ export function parseDesktopAppTypography(value: unknown): DesktopAppTypography 
 }
 
 export function renderDesktopAppTypographyCss(typography: DesktopAppTypography): string {
-  const declarations = (
-    Object.keys(TYPOGRAPHY_CSS_NAMES) as Array<keyof DesktopAppTypography>
-  )
+  const declarations = (Object.keys(TYPOGRAPHY_CSS_NAMES) as Array<keyof DesktopAppTypography>)
     .map((name) => `${TYPOGRAPHY_CSS_NAMES[name]}:${typography[name]}`)
     .join(";");
   return `:root{${declarations}}`;

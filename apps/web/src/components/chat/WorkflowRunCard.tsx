@@ -164,7 +164,9 @@ function WorkflowAgentDetail({
         ) : null}
       </div>
       {statsLine ? (
-        <div className="text-[length:var(--app-font-size-ui-sm,11px)] tabular-nums text-muted-foreground/55">{statsLine}</div>
+        <div className="text-[length:var(--app-font-size-ui-sm,11px)] tabular-nums text-muted-foreground/55">
+          {statsLine}
+        </div>
       ) : null}
       {agent.promptPreview ? (
         <div>
@@ -253,10 +255,15 @@ function WorkflowAgentRowView({
           ) : null}
         </span>
         {meta ? (
-          <span className="shrink-0 text-[length:var(--app-font-size-ui-sm,11px)] tabular-nums text-muted-foreground/60">{meta}</span>
+          <span className="shrink-0 text-[length:var(--app-font-size-ui-sm,11px)] tabular-nums text-muted-foreground/60">
+            {meta}
+          </span>
         ) : null}
         <span
-          className={cn("shrink-0 text-[length:var(--app-font-size-ui-sm,11px)]", subagentStatusTextToneClassName(agent.statusKind))}
+          className={cn(
+            "shrink-0 text-[length:var(--app-font-size-ui-sm,11px)]",
+            subagentStatusTextToneClassName(agent.statusKind),
+          )}
         >
           {agent.statusLabel}
         </span>
@@ -499,7 +506,9 @@ export function WorkflowRunCard({
                   </div>
                 ))
               ) : (
-                <div className="py-1 text-[length:var(--app-font-size-ui-sm,11px)] text-muted-foreground/45">No agents yet</div>
+                <div className="py-1 text-[length:var(--app-font-size-ui-sm,11px)] text-muted-foreground/45">
+                  No agents yet
+                </div>
               )
             ) : workflowRun.agents.length > 0 ? (
               workflowRun.agents.map((agent) => (
@@ -513,7 +522,9 @@ export function WorkflowRunCard({
                 />
               ))
             ) : (
-              <div className="py-1 text-[length:var(--app-font-size-ui-sm,11px)] text-muted-foreground/45">No agents yet</div>
+              <div className="py-1 text-[length:var(--app-font-size-ui-sm,11px)] text-muted-foreground/45">
+                No agents yet
+              </div>
             )}
           </div>
           {savedLine.length > 0 ? (
@@ -521,7 +532,9 @@ export function WorkflowRunCard({
               data-testid="workflow-saved-line"
               className="mt-0.5 flex min-w-0 items-center gap-1.5"
             >
-              <span className="shrink-0 text-[length:var(--app-font-size-ui-sm,11px)] text-muted-foreground/50">Saved</span>
+              <span className="shrink-0 text-[length:var(--app-font-size-ui-sm,11px)] text-muted-foreground/50">
+                Saved
+              </span>
               <span
                 className="min-w-0 flex-1 truncate text-[length:var(--app-font-size-ui-sm,11px)] text-muted-foreground/45"
                 title={savedLine}

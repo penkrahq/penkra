@@ -42,7 +42,9 @@ export function FileCommentsSummaryChip(props: FileCommentsSummaryChipProps) {
           <p className="text-[0.6875rem] font-medium text-muted-foreground">
             {formatFileCommentLabel(comment)}
           </p>
-          <p className="text-[length:var(--app-font-size-ui,12px)] leading-relaxed">{comment.text}</p>
+          <p className="text-[length:var(--app-font-size-ui,12px)] leading-relaxed">
+            {comment.text}
+          </p>
         </div>
       ))}
     />

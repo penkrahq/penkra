@@ -32,13 +32,15 @@ export function showConfirmDialogFallback(message: string): Promise<boolean> {
     header.className = "flex flex-col gap-1.5 px-4 py-3.5 text-center sm:text-left";
 
     const titleEl = document.createElement("h2");
-    titleEl.className = "font-heading font-semibold text-[length:calc(var(--app-font-size-base,12px)*1.3333)] leading-snug";
+    titleEl.className =
+      "font-heading font-semibold text-[length:calc(var(--app-font-size-base,12px)*1.3333)] leading-snug";
     titleEl.textContent = title;
     header.appendChild(titleEl);
 
     if (description) {
       const descEl = document.createElement("p");
-      descEl.className = "text-muted-foreground text-[length:var(--app-font-size-ui-lg,13px)] leading-5";
+      descEl.className =
+        "text-muted-foreground text-[length:var(--app-font-size-ui-lg,13px)] leading-5";
       descEl.textContent = description;
       header.appendChild(descEl);
     }

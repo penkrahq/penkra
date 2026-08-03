@@ -244,7 +244,10 @@ function ComboboxGroup({ className, ...props }: ComboboxPrimitive.Group.Props) {
 function ComboboxGroupLabel({ className, ...props }: ComboboxPrimitive.GroupLabel.Props) {
   return (
     <ComboboxPrimitive.GroupLabel
-      className={cn("px-2 py-1.5 font-medium text-muted-foreground text-[length:var(--app-font-size-ui,12px)]", className)}
+      className={cn(
+        "px-2 py-1.5 font-medium text-muted-foreground text-[length:var(--app-font-size-ui,12px)]",
+        className,
+      )}
       data-slot="combobox-group-label"
       {...props}
     />

@@ -82,9 +82,13 @@ export const RightDockProfilePane = memo(function RightDockProfilePane(props: {
           <CentralIcon name="user" className="size-10 text-zinc-500 dark:text-zinc-400" />
         </div>
         <div className="text-center">
-          <h2 className="text-[length:calc(var(--app-font-size-base,12px)*1.3333)] font-semibold">{project.name}</h2>
+          <h2 className="text-[length:calc(var(--app-font-size-base,12px)*1.3333)] font-semibold">
+            {project.name}
+          </h2>
           {project.localName ? (
-            <p className="mt-0.5 text-[length:var(--app-font-size-ui,12px)] text-muted-foreground">{project.folderName}</p>
+            <p className="mt-0.5 text-[length:var(--app-font-size-ui,12px)] text-muted-foreground">
+              {project.folderName}
+            </p>
           ) : null}
         </div>
       </div>
@@ -92,8 +96,12 @@ export const RightDockProfilePane = memo(function RightDockProfilePane(props: {
       {/* Todo list */}
       <div className="flex-1 overflow-y-auto px-5 py-4">
         <div className="mb-3 flex items-center justify-between">
-          <h3 className="text-[length:calc(var(--app-font-size-base,12px)*1.1667)] font-medium">Todos</h3>
-          <span className="text-[length:var(--app-font-size-ui,12px)] text-muted-foreground">{MOCK_TODOS.length} active</span>
+          <h3 className="text-[length:calc(var(--app-font-size-base,12px)*1.1667)] font-medium">
+            Todos
+          </h3>
+          <span className="text-[length:var(--app-font-size-ui,12px)] text-muted-foreground">
+            {MOCK_TODOS.length} active
+          </span>
         </div>
 
         <div className="space-y-1">
@@ -123,7 +131,9 @@ export const RightDockProfilePane = memo(function RightDockProfilePane(props: {
                     >
                       {config.label}
                     </span>
-                    <span className="text-[length:var(--app-font-size-ui-xs,10px)] text-muted-foreground/60">{todo.kind}</span>
+                    <span className="text-[length:var(--app-font-size-ui-xs,10px)] text-muted-foreground/60">
+                      {todo.kind}
+                    </span>
                   </div>
                   {todo.blockedReason ? (
                     <p className="mt-1 text-[length:var(--app-font-size-ui,12px)] text-amber-600 dark:text-amber-400">

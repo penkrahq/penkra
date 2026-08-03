@@ -31,7 +31,8 @@ import { cn } from "~/lib/utils";
 import { useStore } from "~/store";
 import { createAllThreadsSelector } from "~/storeSelectors";
 
-const PILL_CLASS_NAME = "shrink-0 rounded-full px-2 py-1 text-[length:var(--app-font-size-ui-sm,11px)] font-medium leading-none";
+const PILL_CLASS_NAME =
+  "shrink-0 rounded-full px-2 py-1 text-[length:var(--app-font-size-ui-sm,11px)] font-medium leading-none";
 
 interface StatusPill {
   label: string;
@@ -207,7 +208,9 @@ export function ProviderUsageSettingsPanel() {
     >
       {showInitialLoading ? (
         <SettingsCard>
-          <div className="px-4 py-3.5 text-[length:var(--app-font-size-ui,12px)] text-muted-foreground">Loading provider usage…</div>
+          <div className="px-4 py-3.5 text-[length:var(--app-font-size-ui,12px)] text-muted-foreground">
+            Loading provider usage…
+          </div>
         </SettingsCard>
       ) : (
         <div className="flex flex-col gap-3">

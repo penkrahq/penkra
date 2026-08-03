@@ -20,7 +20,9 @@ export function SplashScreen({
 
         {errorMessage ? (
           <div className="flex max-w-sm flex-col items-center gap-3 px-6 text-center">
-            <span className="text-[length:calc(var(--app-font-size-base,12px)*1.1667)] text-muted-foreground/75">{errorMessage}</span>
+            <span className="text-[length:calc(var(--app-font-size-base,12px)*1.1667)] text-muted-foreground/75">
+              {errorMessage}
+            </span>
             {showRetry ? (
               <button
                 type="button"

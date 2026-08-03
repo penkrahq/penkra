@@ -29,7 +29,10 @@ export function AssistantSelectionsSummaryChip(props: AssistantSelectionsSummary
       removeLabel="Remove selections"
       onRemove={props.onRemove}
       tooltip={props.selections.map((selection) => (
-        <p key={selection.id} className="text-[length:var(--app-font-size-ui,12px)] leading-relaxed">
+        <p
+          key={selection.id}
+          className="text-[length:var(--app-font-size-ui,12px)] leading-relaxed"
+        >
           {selection.text}
         </p>
       ))}

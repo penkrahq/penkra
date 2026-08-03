@@ -51,7 +51,9 @@ export default function ReleaseHistoryDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogPopup className="max-w-lg gap-0 p-0">
         <DialogHeader className="gap-1 p-4 pr-12">
-          <DialogTitle className="text-[length:calc(var(--app-font-size-base,12px)*1.3333)]">Release history</DialogTitle>
+          <DialogTitle className="text-[length:calc(var(--app-font-size-base,12px)*1.3333)]">
+            Release history
+          </DialogTitle>
           <DialogDescription className="text-[length:var(--app-font-size-ui,12px)]">
             Every curated release, newest first.
           </DialogDescription>

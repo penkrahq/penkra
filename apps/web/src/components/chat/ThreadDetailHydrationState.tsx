@@ -17,13 +17,17 @@ export const ThreadDetailHydrationState = function ThreadDetailHydrationState({
     return (
       <div className="flex flex-col items-center gap-3 select-none">
         <Spinner aria-label="Loading conversation" className="size-5 text-muted-foreground/50" />
-        <span className="text-[length:calc(var(--app-font-size-base,12px)*1.1667)] text-muted-foreground/50">Loading conversation</span>
+        <span className="text-[length:calc(var(--app-font-size-base,12px)*1.1667)] text-muted-foreground/50">
+          Loading conversation
+        </span>
       </div>
     );
   }
   return (
     <div className="flex flex-col items-center gap-3 select-none">
-      <span className="text-[length:calc(var(--app-font-size-base,12px)*1.1667)] text-muted-foreground">This conversation didn't load.</span>
+      <span className="text-[length:calc(var(--app-font-size-base,12px)*1.1667)] text-muted-foreground">
+        This conversation didn't load.
+      </span>
       <Button onClick={onRetry} size="sm" variant="outline">
         Try again
       </Button>

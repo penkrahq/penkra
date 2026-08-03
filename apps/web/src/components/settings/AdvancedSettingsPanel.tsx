@@ -211,7 +211,9 @@ export function AdvancedSettingsPanel(props: {
                 aria-expanded={showRecoveryTools}
                 onClick={() => setShowRecoveryTools((current) => !current)}
               >
-                <span className="text-[length:var(--app-font-size-ui,12px)] font-medium text-muted-foreground">What this does</span>
+                <span className="text-[length:var(--app-font-size-ui,12px)] font-medium text-muted-foreground">
+                  What this does
+                </span>
                 <DisclosureChevron
                   open={showRecoveryTools}
                   className="size-4 shrink-0 text-muted-foreground"
@@ -238,7 +240,11 @@ export function AdvancedSettingsPanel(props: {
         <SettingsRow
           title="Version"
           description="Current application version."
-          control={<code className="text-[length:var(--app-font-size-ui,12px)] font-medium text-muted-foreground">{APP_VERSION}</code>}
+          control={
+            <code className="text-[length:var(--app-font-size-ui,12px)] font-medium text-muted-foreground">
+              {APP_VERSION}
+            </code>
+          }
         />
         <SettingsRow
           title="Release history"

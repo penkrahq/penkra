@@ -147,7 +147,9 @@ export function ShareDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogPopup className="sm:max-w-[560px]">
-        <DialogTitle className="text-center text-[length:calc(var(--app-font-size-base,12px)*1.6667)]">Share your activity</DialogTitle>
+        <DialogTitle className="text-center text-[length:calc(var(--app-font-size-base,12px)*1.6667)]">
+          Share your activity
+        </DialogTitle>
         <div className="mt-5 flex flex-col items-center gap-7 px-2 pb-3">
           <div
             ref={previewRef}
@@ -273,7 +275,9 @@ function ShareButton({ label, ariaLabel, busy, disabled, onClick, children }: Sh
       >
         {children}
       </button>
-      <span className="text-[length:var(--app-font-size-ui,12px)] text-muted-foreground">{label}</span>
+      <span className="text-[length:var(--app-font-size-ui,12px)] text-muted-foreground">
+        {label}
+      </span>
     </div>
   );
 }

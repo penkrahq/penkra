@@ -36,7 +36,9 @@ export function BannerFeaturedApp({
           <p className="text-[length:var(--app-font-size-ui-xs,10px)] font-bold tracking-[0.6px] text-[var(--color-text-accent)]">
             FEATURED
           </p>
-          <h3 className="truncate text-[length:calc(var(--app-font-size-base,12px)*1.6667)] font-bold text-[var(--color-text-foreground)]">{name}</h3>
+          <h3 className="truncate text-[length:calc(var(--app-font-size-base,12px)*1.6667)] font-bold text-[var(--color-text-foreground)]">
+            {name}
+          </h3>
           <p className="truncate text-[length:var(--app-font-size-ui-lg,13px)] text-[var(--color-text-foreground-secondary)]">
             {tagline}
           </p>

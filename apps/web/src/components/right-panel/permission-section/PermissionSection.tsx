@@ -31,7 +31,9 @@ export function PermissionSection({
           </span>
           <PermissionToggleShared aria-label={title} defaultChecked={defaultEnabled} />
         </div>
-        <p className="mt-1 text-[length:var(--app-font-size-ui,12px)] text-[var(--color-text-foreground-tertiary)]">{reason}</p>
+        <p className="mt-1 text-[length:var(--app-font-size-ui,12px)] text-[var(--color-text-foreground-tertiary)]">
+          {reason}
+        </p>
       </div>
     </section>
   );

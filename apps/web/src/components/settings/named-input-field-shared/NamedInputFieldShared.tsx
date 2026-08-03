@@ -18,7 +18,9 @@ export const NamedInputFieldShared = forwardRef<HTMLInputElement, NamedInputFiel
           {label}
         </span>
         <InputShared ref={ref} {...props} />
-        <span className="text-[length:var(--app-font-size-ui,12px)] text-[var(--color-text-foreground-tertiary)]">{helper}</span>
+        <span className="text-[length:var(--app-font-size-ui,12px)] text-[var(--color-text-foreground-tertiary)]">
+          {helper}
+        </span>
       </label>
     );
   },

@@ -1363,13 +1363,19 @@ export default function GitActionsControl({
         !gitStatusForActions.hasWorkingTreeChanges &&
         gitStatusForActions.behindCount > 0 &&
         gitStatusForActions.aheadCount === 0 && (
-          <p className="px-3 py-1.5 text-[length:var(--app-font-size-ui,12px)] text-warning">Behind upstream. Pull/rebase first.</p>
+          <p className="px-3 py-1.5 text-[length:var(--app-font-size-ui,12px)] text-warning">
+            Behind upstream. Pull/rebase first.
+          </p>
         )}
       {isGitStatusOutOfSync && (
-        <p className="px-3 py-1.5 text-[length:var(--app-font-size-ui,12px)] text-muted-foreground">Refreshing git status...</p>
+        <p className="px-3 py-1.5 text-[length:var(--app-font-size-ui,12px)] text-muted-foreground">
+          Refreshing git status...
+        </p>
       )}
       {gitStatusError && (
-        <p className="px-3 py-1.5 text-[length:var(--app-font-size-ui,12px)] text-destructive">{gitStatusError.message}</p>
+        <p className="px-3 py-1.5 text-[length:var(--app-font-size-ui,12px)] text-destructive">
+          {gitStatusError.message}
+        </p>
       )}
     </>
   );
@@ -1402,7 +1408,9 @@ export default function GitActionsControl({
                     {gitStatusForActions?.branch ?? "(detached HEAD)"}
                   </span>
                   {isDefaultBranch && (
-                    <span className="text-right text-warning text-[length:var(--app-font-size-ui,12px)]">Warning: default branch</span>
+                    <span className="text-right text-warning text-[length:var(--app-font-size-ui,12px)]">
+                      Warning: default branch
+                    </span>
                   )}
                 </span>
               </div>
@@ -1508,7 +1516,9 @@ export default function GitActionsControl({
               </div>
             </div>
             <div className="space-y-1">
-              <p className="text-[length:var(--app-font-size-ui,12px)] font-medium">Commit message (optional)</p>
+              <p className="text-[length:var(--app-font-size-ui,12px)] font-medium">
+                Commit message (optional)
+              </p>
               <Textarea
                 value={dialogCommitMessage}
                 onChange={(event) => setDialogCommitMessage(event.target.value)}
@@ -1624,7 +1634,10 @@ export default function GitActionsControl({
               }}
             >
               <div className="space-y-1.5">
-                <label className="block font-medium text-[length:calc(var(--app-font-size-base,12px)*1.1667)]" htmlFor="create-branch-name">
+                <label
+                  className="block font-medium text-[length:calc(var(--app-font-size-base,12px)*1.1667)]"
+                  htmlFor="create-branch-name"
+                >
                   Branch name
                 </label>
                 <Input
@@ -1636,7 +1649,9 @@ export default function GitActionsControl({
                 />
               </div>
               {createBranchNameConflicts ? (
-                <p className="text-destructive text-[length:calc(var(--app-font-size-base,12px)*1.1667)]">A branch with this name already exists.</p>
+                <p className="text-destructive text-[length:calc(var(--app-font-size-base,12px)*1.1667)]">
+                  A branch with this name already exists.
+                </p>
               ) : null}
               <DialogFooter variant="bare">
                 <Button

@@ -492,7 +492,11 @@ export default function ProjectScriptsControl({
                   onCheckedChange={(checked) => setRunOnWorktreeCreate(Boolean(checked))}
                 />
               </label>
-              {validationError && <p className="text-[length:calc(var(--app-font-size-base,12px)*1.1667)] text-destructive">{validationError}</p>}
+              {validationError && (
+                <p className="text-[length:calc(var(--app-font-size-base,12px)*1.1667)] text-destructive">
+                  {validationError}
+                </p>
+              )}
             </form>
           </DialogPanel>
           <DialogFooter>

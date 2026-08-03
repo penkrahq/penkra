@@ -87,7 +87,9 @@ export function SettingsAccountPage() {
           <p className="truncate text-[length:var(--app-font-size-ui-lg,13px)] font-semibold text-[var(--color-text-foreground)]">
             {displayName}
           </p>
-          <p className="text-[length:var(--app-font-size-ui,12px)] text-[var(--color-text-foreground-tertiary)]">Personal account</p>
+          <p className="text-[length:var(--app-font-size-ui,12px)] text-[var(--color-text-foreground-tertiary)]">
+            Personal account
+          </p>
         </div>
       </div>
 

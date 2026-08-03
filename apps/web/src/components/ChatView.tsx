@@ -8544,12 +8544,16 @@ export default function ChatView({
             )}
           >
             <SidebarHeaderNavigationControls />
-            <span className="text-[length:var(--app-font-size-ui,12px)] text-muted-foreground/50">No active thread</span>
+            <span className="text-[length:var(--app-font-size-ui,12px)] text-muted-foreground/50">
+              No active thread
+            </span>
           </div>
         )}
         <div className="flex flex-1 items-center justify-center">
           <div className="text-center">
-            <p className="text-[length:calc(var(--app-font-size-base,12px)*1.1667)]">Select a thread or create a new one to get started.</p>
+            <p className="text-[length:calc(var(--app-font-size-base,12px)*1.1667)]">
+              Select a thread or create a new one to get started.
+            </p>
           </div>
         </div>
       </div>

@@ -143,7 +143,9 @@ function CurrentHeader({
     <div className="flex items-center gap-3">
       <PenkraMark aria-hidden className="size-8 shrink-0 text-foreground" />
       <div className="flex min-w-0 flex-col">
-        <DialogTitle className="text-[length:calc(var(--app-font-size-base,12px)*1.3333)]">What&rsquo;s new?</DialogTitle>
+        <DialogTitle className="text-[length:calc(var(--app-font-size-base,12px)*1.3333)]">
+          What&rsquo;s new?
+        </DialogTitle>
         <DialogDescription className="text-[length:var(--app-font-size-ui,12px)]">
           v{currentVersion}
           <span aria-hidden="true"> · </span>
@@ -161,7 +163,9 @@ function ChangelogHeader({ onBack }: { readonly onBack: () => void }) {
         <ArrowLeftIcon className="size-4" />
       </Button>
       <div className="flex min-w-0 flex-col">
-        <DialogTitle className="text-[length:calc(var(--app-font-size-base,12px)*1.3333)]">Complete changelog</DialogTitle>
+        <DialogTitle className="text-[length:calc(var(--app-font-size-base,12px)*1.3333)]">
+          Complete changelog
+        </DialogTitle>
         <DialogDescription className="text-[length:var(--app-font-size-ui,12px)]">
           Every curated release, newest first.
         </DialogDescription>

@@ -148,7 +148,9 @@ export function AgentActivityDetailView({
 function AgentActivitySection(props: { title: string; children: ReactNode }) {
   return (
     <section className="border-b border-border/45 py-4 last:border-b-0">
-      <h3 className="mb-2 text-[length:var(--app-font-size-ui-sm,11px)] font-medium text-muted-foreground/48">{props.title}</h3>
+      <h3 className="mb-2 text-[length:var(--app-font-size-ui-sm,11px)] font-medium text-muted-foreground/48">
+        {props.title}
+      </h3>
       {props.children}
     </section>
   );

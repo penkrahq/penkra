@@ -762,7 +762,9 @@ export function BranchToolbarBranchSelector({
         >
           <div className="flex min-w-0 flex-col items-start py-1">
             <span className="truncate font-medium">Checkout Pull Request</span>
-            <span className="truncate text-muted-foreground text-[length:var(--app-font-size-ui,12px)]">{prReference}</span>
+            <span className="truncate text-muted-foreground text-[length:var(--app-font-size-ui,12px)]">
+              {prReference}
+            </span>
           </div>
         </ComboboxItem>
       );
@@ -804,7 +806,9 @@ export function BranchToolbarBranchSelector({
             <div className="flex items-center justify-between gap-2">
               <span className="truncate">{itemValue}</span>
               {badge && (
-                <span className="shrink-0 text-[length:var(--app-font-size-ui-xs,10px)] text-muted-foreground/45">{badge}</span>
+                <span className="shrink-0 text-[length:var(--app-font-size-ui-xs,10px)] text-muted-foreground/45">
+                  {badge}
+                </span>
               )}
             </div>
             {currentBranchChangeSummary ? (
@@ -945,7 +949,10 @@ export function BranchToolbarBranchSelector({
               }}
             >
               <div className="space-y-1.5">
-                <label className="block font-medium text-[length:calc(var(--app-font-size-base,12px)*1.1667)]" htmlFor="branch-create-name">
+                <label
+                  className="block font-medium text-[length:calc(var(--app-font-size-base,12px)*1.1667)]"
+                  htmlFor="branch-create-name"
+                >
                   Branch name
                 </label>
                 <Input
@@ -957,7 +964,9 @@ export function BranchToolbarBranchSelector({
                 />
               </div>
               {branchByName.has(createBranchName.trim()) ? (
-                <p className="text-destructive text-[length:calc(var(--app-font-size-base,12px)*1.1667)]">A branch with this name already exists.</p>
+                <p className="text-destructive text-[length:calc(var(--app-font-size-base,12px)*1.1667)]">
+                  A branch with this name already exists.
+                </p>
               ) : null}
               <DialogFooter variant="bare">
                 <Button
@@ -1004,7 +1013,9 @@ export function BranchToolbarBranchSelector({
           </DialogHeader>
           <DialogPanel className="space-y-4">
             {stashDiscardDialog?.loading ? (
-              <p className="text-muted-foreground text-[length:calc(var(--app-font-size-base,12px)*1.1667)]">Loading stash details...</p>
+              <p className="text-muted-foreground text-[length:calc(var(--app-font-size-base,12px)*1.1667)]">
+                Loading stash details...
+              </p>
             ) : stashDiscardDialog?.error ? (
               <p className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-destructive text-[length:calc(var(--app-font-size-base,12px)*1.1667)]">
                 {stashDiscardDialog.error}

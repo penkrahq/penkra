@@ -80,9 +80,13 @@ export function ComposerChoiceRow({
         </span>
       ) : null}
       <div className="min-w-0 flex-1 leading-snug">
-        <span className="text-[length:var(--app-font-size-ui-lg,13px)] font-medium text-foreground/90">{label}</span>
+        <span className="text-[length:var(--app-font-size-ui-lg,13px)] font-medium text-foreground/90">
+          {label}
+        </span>
         {description && description !== label ? (
-          <span className="ml-1.5 text-[length:var(--app-font-size-ui,12px)] text-muted-foreground/55">{description}</span>
+          <span className="ml-1.5 text-[length:var(--app-font-size-ui,12px)] text-muted-foreground/55">
+            {description}
+          </span>
         ) : null}
       </div>
       {trailing}

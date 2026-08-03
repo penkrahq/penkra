@@ -596,7 +596,9 @@ const ComposerCommandMenuItem = memo(function ComposerCommandMenuItem({
               : item.label}
           </span>
           {secondaryText ? (
-            <span className="truncate text-[length:var(--app-font-size-ui-sm,11px)] text-muted-foreground/55">{secondaryText}</span>
+            <span className="truncate text-[length:var(--app-font-size-ui-sm,11px)] text-muted-foreground/55">
+              {secondaryText}
+            </span>
           ) : null}
         </div>
         {trailingMeta ? (

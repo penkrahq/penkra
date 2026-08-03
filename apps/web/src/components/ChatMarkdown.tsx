@@ -1027,7 +1027,8 @@ function ChatMarkdown({
   // values in parameter destructuring make React Compiler 1.0.0 bail on the
   // whole component (BuildHIR AssignmentPattern), losing its auto-memoization.
   const isStreaming = isStreamingProp ?? false;
-  const className = classNameProp ?? "text-[length:calc(var(--app-font-size-base,12px)*1.1667)] leading-relaxed";
+  const className =
+    classNameProp ?? "text-[length:calc(var(--app-font-size-base,12px)*1.1667)] leading-relaxed";
   const variant = variantProp ?? "assistant";
   const { resolvedTheme } = useTheme();
   const diffThemeName = resolveDiffThemeName(resolvedTheme);

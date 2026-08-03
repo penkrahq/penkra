@@ -102,7 +102,9 @@ export function PenkraTodoPanel({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetPopup side="right" className="max-w-lg">
         <SheetHeader className="border-b px-5 py-4">
-          <SheetTitle className="text-[length:calc(var(--app-font-size-base,12px)*1.3333)]">{client?.displayName ?? "Client work"}</SheetTitle>
+          <SheetTitle className="text-[length:calc(var(--app-font-size-base,12px)*1.3333)]">
+            {client?.displayName ?? "Client work"}
+          </SheetTitle>
           <SheetDescription>
             {client
               ? `${client.badge.count} ${client.badge.count === 1 ? "todo" : "todos"} need attention`
@@ -112,7 +114,10 @@ export function PenkraTodoPanel({
         <SheetPanel className="space-y-5 px-5 py-4">
           {client ? (
             <div className="space-y-2">
-              <label className="text-[length:calc(var(--app-font-size-base,12px)*1.1667)] font-medium" htmlFor="penkra-client-instructions">
+              <label
+                className="text-[length:calc(var(--app-font-size-base,12px)*1.1667)] font-medium"
+                htmlFor="penkra-client-instructions"
+              >
                 Client-specific instructions
               </label>
               <Textarea
@@ -144,7 +149,9 @@ export function PenkraTodoPanel({
                 </Button>
               </div>
               {updateClientMutation.error ? (
-                <p className="text-[length:calc(var(--app-font-size-base,12px)*1.1667)] text-destructive">{updateClientMutation.error.message}</p>
+                <p className="text-[length:calc(var(--app-font-size-base,12px)*1.1667)] text-destructive">
+                  {updateClientMutation.error.message}
+                </p>
               ) : null}
             </div>
           ) : null}
@@ -175,7 +182,9 @@ export function PenkraTodoPanel({
             </Button>
           </div>
           {createMutation.error ? (
-            <p className="text-[length:calc(var(--app-font-size-base,12px)*1.1667)] text-destructive">{createMutation.error.message}</p>
+            <p className="text-[length:calc(var(--app-font-size-base,12px)*1.1667)] text-destructive">
+              {createMutation.error.message}
+            </p>
           ) : null}
 
           <div className="divide-y border-y">
@@ -203,7 +212,9 @@ export function PenkraTodoPanel({
                         )}
                       />
                       <div className="min-w-0 flex-1">
-                        <p className="text-[length:calc(var(--app-font-size-base,12px)*1.1667)] font-medium">{todo.title}</p>
+                        <p className="text-[length:calc(var(--app-font-size-base,12px)*1.1667)] font-medium">
+                          {todo.title}
+                        </p>
                         <p className="mt-0.5 text-[length:var(--app-font-size-ui,12px)] text-muted-foreground">
                           {todo.kind}
                           {todo.dueAt
@@ -265,16 +276,24 @@ export function PenkraTodoPanel({
 
           {selectedHumanTodo ? (
             <div className="border-t pt-4">
-              <p className="text-[length:calc(var(--app-font-size-base,12px)*1.1667)] font-medium">{selectedHumanTodo.title}</p>
+              <p className="text-[length:calc(var(--app-font-size-base,12px)*1.1667)] font-medium">
+                {selectedHumanTodo.title}
+              </p>
               <p className="mt-1 text-[length:calc(var(--app-font-size-base,12px)*1.1667)] text-muted-foreground">
                 Human work item. Complete it here after the external action is finished.
               </p>
             </div>
           ) : null}
           {updateMutation.error ? (
-            <p className="text-[length:calc(var(--app-font-size-base,12px)*1.1667)] text-destructive">{updateMutation.error.message}</p>
+            <p className="text-[length:calc(var(--app-font-size-base,12px)*1.1667)] text-destructive">
+              {updateMutation.error.message}
+            </p>
           ) : null}
-          {invokeError ? <p className="text-[length:calc(var(--app-font-size-base,12px)*1.1667)] text-destructive">{invokeError}</p> : null}
+          {invokeError ? (
+            <p className="text-[length:calc(var(--app-font-size-base,12px)*1.1667)] text-destructive">
+              {invokeError}
+            </p>
+          ) : null}
         </SheetPanel>
         <SheetFooter variant="bare">
           <Button variant="outline" onClick={() => onOpenChange(false)}>

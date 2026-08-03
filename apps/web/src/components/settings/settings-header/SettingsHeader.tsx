@@ -9,7 +9,9 @@ export function SettingsHeader({
 }: SettingsHeaderProps) {
   return (
     <header className="w-full min-w-0 font-sans" data-pencil-component="w2pbCe">
-      <h1 className="text-[length:calc(var(--app-font-size-base,12px)*1.6667)] font-semibold text-[var(--color-text-foreground)]">{title}</h1>
+      <h1 className="text-[length:calc(var(--app-font-size-base,12px)*1.6667)] font-semibold text-[var(--color-text-foreground)]">
+        {title}
+      </h1>
       <p className="mt-1 text-[length:var(--app-font-size-ui,12px)] text-[var(--color-text-foreground-secondary)]">
         {subtitle}
       </p>

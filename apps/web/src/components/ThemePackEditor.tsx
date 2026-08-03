@@ -124,7 +124,9 @@ export function ThemePackEditor({
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:py-3.5">
         <div className="flex items-center gap-2">
-          <h3 className="text-[length:calc(var(--app-font-size-base,12px)*1.1667)] font-medium text-foreground">{titleLabel}</h3>
+          <h3 className="text-[length:calc(var(--app-font-size-base,12px)*1.1667)] font-medium text-foreground">
+            {titleLabel}
+          </h3>
           {!isPristine ? (
             <button
               type="button"
@@ -294,7 +296,9 @@ function ThemeRow({ label, children }: { label: string; children: React.ReactNod
         "flex min-h-12 items-center justify-between gap-3",
       )}
     >
-      <span className="text-[length:calc(var(--app-font-size-base,12px)*1.1667)] text-foreground/90">{label}</span>
+      <span className="text-[length:calc(var(--app-font-size-base,12px)*1.1667)] text-foreground/90">
+        {label}
+      </span>
       <div className="flex shrink-0 items-center gap-2">{children}</div>
     </div>
   );
@@ -425,7 +429,9 @@ function ColorPill({
             className="block size-5 shrink-0 rounded-full border"
             style={{ borderColor: ringColor }}
           />
-          <span className="font-system-ui flex-1 text-[length:var(--app-font-size-ui,12px)] uppercase">{previewColor}</span>
+          <span className="font-system-ui flex-1 text-[length:var(--app-font-size-ui,12px)] uppercase">
+            {previewColor}
+          </span>
         </PopoverTrigger>
         <PopoverPopup
           align="end"
@@ -485,7 +491,9 @@ function CodeThemeSelectOption({ label, theme }: { label: string; theme: ChromeT
     <div className="flex min-w-0 items-center gap-1.5">
       <CodeThemeBadge theme={theme} />
       <div className="min-w-0 flex-1">
-        <div className="truncate text-[length:var(--app-font-size-ui,12px)] text-[var(--color-text-foreground)]">{label}</div>
+        <div className="truncate text-[length:var(--app-font-size-ui,12px)] text-[var(--color-text-foreground)]">
+          {label}
+        </div>
       </div>
     </div>
   );
@@ -622,7 +630,11 @@ function ImportThemeDialog({
             className="font-chat-code text-[length:var(--app-font-size-ui-sm,11px)]"
             aria-label="Theme share string"
           />
-          {error ? <p className="mt-2 text-[length:var(--app-font-size-ui,12px)] text-destructive">{error}</p> : null}
+          {error ? (
+            <p className="mt-2 text-[length:var(--app-font-size-ui,12px)] text-destructive">
+              {error}
+            </p>
+          ) : null}
         </DialogPanel>
         <DialogFooter>
           <DialogClose

@@ -81,7 +81,9 @@ function ShortcutsDialogContent(props: {
   return (
     <>
       <DialogHeader className="pb-2">
-        <DialogTitle className="text-[length:calc(var(--app-font-size-base,12px)*1.3333)]">Keyboard shortcuts</DialogTitle>
+        <DialogTitle className="text-[length:calc(var(--app-font-size-base,12px)*1.3333)]">
+          Keyboard shortcuts
+        </DialogTitle>
         <DialogDescription className="text-[length:var(--app-font-size-ui,12px)]">
           Reflects the bindings active in your current context.
         </DialogDescription>
@@ -144,7 +146,9 @@ function ShortcutSection({
         >
           {section.title}
         </h3>
-        <p className="truncate text-[length:var(--app-font-size-ui-sm,11px)] text-muted-foreground/70">{section.description}</p>
+        <p className="truncate text-[length:var(--app-font-size-ui-sm,11px)] text-muted-foreground/70">
+          {section.description}
+        </p>
       </header>
       <ul className={cn("px-3 pb-3", muted && "opacity-75")}>
         {section.entries.map((entry) => (
@@ -152,7 +156,9 @@ function ShortcutSection({
             key={entry.id}
             className="group flex items-center justify-between gap-4 rounded-md px-3 py-1.5 hover:bg-muted/60"
           >
-            <span className="min-w-0 truncate text-[length:calc(var(--app-font-size-base,12px)*1.1667)] text-foreground">{entry.label}</span>
+            <span className="min-w-0 truncate text-[length:calc(var(--app-font-size-base,12px)*1.1667)] text-foreground">
+              {entry.label}
+            </span>
             <ShortcutKbd shortcutLabel={entry.shortcutLabel} groupClassName="shrink-0" />
           </li>
         ))}

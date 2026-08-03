@@ -28,7 +28,9 @@ export function PermissionRowShared({
           {title}
         </strong>
         {required ? (
-          <span className="text-[length:var(--app-font-size-ui-sm,11px)] text-[var(--color-text-foreground-tertiary)]">Required</span>
+          <span className="text-[length:var(--app-font-size-ui-sm,11px)] text-[var(--color-text-foreground-tertiary)]">
+            Required
+          </span>
         ) : (
           <SwitchShared
             aria-label={title}
@@ -37,7 +39,9 @@ export function PermissionRowShared({
           />
         )}
       </div>
-      <p className="text-[length:var(--app-font-size-ui,12px)] text-[var(--color-text-foreground-tertiary)]">{reason}</p>
+      <p className="text-[length:var(--app-font-size-ui,12px)] text-[var(--color-text-foreground-tertiary)]">
+        {reason}
+      </p>
     </div>
   );
 }

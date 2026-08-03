@@ -105,7 +105,9 @@ export function SkillsSettingsPanel() {
           description="Skills placed here are available on every provider. When a provider already ships its own copy of a skill, that copy is used; otherwise Penkra's copy is the fallback."
           status={
             penkraSkillsDir ? (
-              <code className="break-all text-[length:var(--app-font-size-ui-sm,11px)] text-muted-foreground">{penkraSkillsDir}</code>
+              <code className="break-all text-[length:var(--app-font-size-ui-sm,11px)] text-muted-foreground">
+                {penkraSkillsDir}
+              </code>
             ) : null
           }
           control={

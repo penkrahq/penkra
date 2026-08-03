@@ -117,12 +117,16 @@ export const ShareCard = forwardRef<HTMLDivElement, ShareCardProps>(function Sha
             <span className="truncate text-2xl font-normal leading-tight tracking-tight">
               {displayName}
             </span>
-            <span className="truncate text-[length:calc(var(--app-font-size-base,12px)*1.3333)] font-normal text-slate-400">{handle}</span>
+            <span className="truncate text-[length:calc(var(--app-font-size-base,12px)*1.3333)] font-normal text-slate-400">
+              {handle}
+            </span>
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2 text-slate-600">
           <PenkraMark monochrome className="size-6 text-slate-700" />
-          <span className="text-[length:calc(var(--app-font-size-base,12px)*1.6667)] font-normal tracking-tight">Penkra</span>
+          <span className="text-[length:calc(var(--app-font-size-base,12px)*1.6667)] font-normal tracking-tight">
+            Penkra
+          </span>
         </div>
       </div>
 
@@ -140,7 +144,9 @@ export const ShareCard = forwardRef<HTMLDivElement, ShareCardProps>(function Sha
         {tiles.map((tile) => (
           <div key={tile.key} className="flex flex-1 flex-col items-start gap-1">
             {tile.value}
-            <span className="text-[length:calc(var(--app-font-size-base,12px)*1.1667)] font-normal text-slate-400">{tile.label}</span>
+            <span className="text-[length:calc(var(--app-font-size-base,12px)*1.1667)] font-normal text-slate-400">
+              {tile.label}
+            </span>
           </div>
         ))}
       </div>

@@ -292,10 +292,8 @@ describe("ElectronAppTabHost", () => {
       ":root{--penkra-color-background:#181818}",
       { cssOrigin: "author" },
     );
-    expect(contents?.insertCSS).toHaveBeenNthCalledWith(
-      2,
-      ":root{--penkra-font-size-base:12px}",
-      { cssOrigin: "author" },
-    );
+    expect(contents?.insertCSS).toHaveBeenNthCalledWith(2, ":root{--penkra-font-size-base:12px}", {
+      cssOrigin: "author",
+    });
   });
 });

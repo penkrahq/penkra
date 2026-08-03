@@ -241,7 +241,9 @@ export const ProjectPicker = memo(function ProjectPicker({
             <span className="truncate">{resetActionLabel}</span>
           </button>
           {errorMessage ? (
-            <div className="px-2 pb-1 text-[length:var(--app-font-size-ui-sm,11px)] text-destructive">{errorMessage}</div>
+            <div className="px-2 pb-1 text-[length:var(--app-font-size-ui-sm,11px)] text-destructive">
+              {errorMessage}
+            </div>
           ) : null}
         </div>
       </ComboboxPopup>

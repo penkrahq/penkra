@@ -167,7 +167,10 @@ function AutocompleteGroup({ className, ...props }: AutocompletePrimitive.Group.
 function AutocompleteGroupLabel({ className, ...props }: AutocompletePrimitive.GroupLabel.Props) {
   return (
     <AutocompletePrimitive.GroupLabel
-      className={cn("px-2 py-1.5 font-medium text-muted-foreground text-[length:var(--app-font-size-ui,12px)]", className)}
+      className={cn(
+        "px-2 py-1.5 font-medium text-muted-foreground text-[length:var(--app-font-size-ui,12px)]",
+        className,
+      )}
       data-slot="autocomplete-group-label"
       {...props}
     />

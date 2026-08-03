@@ -16,7 +16,11 @@ export const ChatEmptyStateHero = function ChatEmptyStateHero({
 
       <div className="flex flex-col items-center gap-0.5">
         <h1 className="text-2xl font-semibold text-foreground/90">Let's build</h1>
-        {projectName && <span className="text-[length:calc(var(--app-font-size-base,12px)*1.5)] text-muted-foreground/40">{projectName}</span>}
+        {projectName && (
+          <span className="text-[length:calc(var(--app-font-size-base,12px)*1.5)] text-muted-foreground/40">
+            {projectName}
+          </span>
+        )}
       </div>
     </div>
   );

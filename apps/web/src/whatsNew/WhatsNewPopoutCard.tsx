@@ -126,7 +126,9 @@ export function WhatsNewPopoutCard({
         </div>
 
         <div className="flex flex-col gap-0.5 px-3 pb-3 pt-2">
-          <p className="text-[length:var(--app-font-size-ui-sm,11px)] font-medium text-primary">New · v{currentVersion}</p>
+          <p className="text-[length:var(--app-font-size-ui-sm,11px)] font-medium text-primary">
+            New · v{currentVersion}
+          </p>
           <p className="truncate text-[length:calc(var(--app-font-size-base,12px)*1.1667)] font-semibold text-foreground">
             {primaryFeatureTitle ?? `What's new in v${currentVersion}`}
           </p>

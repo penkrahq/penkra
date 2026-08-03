@@ -96,7 +96,10 @@ export function SpaceHeaderInlineEdit({
             placeholder={mode === "create" ? "New Space" : undefined}
             value={value}
           />
-          <span aria-hidden="true" className="ml-2 text-[length:var(--app-font-size-ui-xs,10px)] text-muted-foreground">
+          <span
+            aria-hidden="true"
+            className="ml-2 text-[length:var(--app-font-size-ui-xs,10px)] text-muted-foreground"
+          >
             ↵
           </span>
         </div>
@@ -112,7 +115,11 @@ export function SpaceHeaderInlineEdit({
         ) : null}
       </div>
       {visibleError ? (
-        <p className="px-2.5 text-[length:var(--app-font-size-ui-xs,10px)] leading-4 text-destructive" id={errorId} role="alert">
+        <p
+          className="px-2.5 text-[length:var(--app-font-size-ui-xs,10px)] leading-4 text-destructive"
+          id={errorId}
+          role="alert"
+        >
           {visibleError}
         </p>
       ) : null}

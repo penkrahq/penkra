@@ -48,7 +48,9 @@ export function AppDiagnosticsView({
         </span>
       </header>
       {error ? (
-        <p className="px-4 py-3 text-[length:var(--app-font-size-ui,12px)] text-[var(--color-text-danger)]">{error}</p>
+        <p className="px-4 py-3 text-[length:var(--app-font-size-ui,12px)] text-[var(--color-text-danger)]">
+          {error}
+        </p>
       ) : entries.length === 0 ? (
         <p className="px-4 py-3 text-[length:var(--app-font-size-ui,12px)] text-[var(--color-text-foreground-tertiary)]">
           No App runtime events for this Space.
