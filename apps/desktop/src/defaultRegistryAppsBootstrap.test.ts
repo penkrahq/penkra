@@ -81,7 +81,9 @@ describe("default registry Apps bootstrap", () => {
             snapshot: () => ({ packagesByInstallationKey: {}, spaceStateByKey: {} }),
           },
         } as never,
-        registry: { get: vi.fn(async () => ({ ...listing("apps"), identifier: "com.fake.apps" })) } as never,
+        registry: {
+          get: vi.fn(async () => ({ ...listing("apps"), identifier: "com.fake.apps" })),
+        } as never,
         hostVersion: "1.0.0",
         spaceIds: ["personal"],
       }),

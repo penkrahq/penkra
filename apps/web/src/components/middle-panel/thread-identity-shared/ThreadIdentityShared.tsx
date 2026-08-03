@@ -19,7 +19,10 @@ export function ThreadIdentityShared({
 }: ThreadIdentitySharedProps) {
   return (
     <span
-      className={cn("relative inline-flex size-3.5 shrink-0 items-center justify-center", className)}
+      className={cn(
+        "relative inline-flex size-3.5 shrink-0 items-center justify-center",
+        className,
+      )}
       data-pencil-component="Z2u2n"
       data-provider={harness}
       data-slot="thread-identity"

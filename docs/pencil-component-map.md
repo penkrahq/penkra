@@ -10,7 +10,7 @@ document records ownership, not a separate product plan.
 | Middle Panel | `apps/web/src/components/middle-panel/`                                      | `SingleChatSurface` / `ChatView`                        |
 | Right Panel  | `apps/web/src/components/right-panel/`                                       | Right-dock pane and tab composition                     |
 | App Bar      | `packages/ui/src/` and `apps/web/src/components/right-panel/app-bar-shared/` | App-owned framework-neutral primitive plus host preview |
-| Account menu | `apps/web/src/components/left-rail/menu-account/`                            | `AccountMenu`                                           |
+| Account row  | `apps/web/src/components/left-rail/account-control-shared/`                  | `AccountControlShared`                                  |
 | Settings     | `apps/web/src/components/settings/`                                          | Settings shell and page folders                         |
 
 Reusable components keep the Pencil name in their directory and Storybook title. A component used

@@ -151,10 +151,8 @@ const accessInviteCommand = Command.make(
   { appId: Flag.string("app-id"), email: Flag.string("email") },
   (input) => bridge("developer.app-access.invite", input),
 );
-const accessListCommand = Command.make(
-  "list",
-  { appId: Flag.string("app-id") },
-  (input) => bridge("developer.app-access.list", input),
+const accessListCommand = Command.make("list", { appId: Flag.string("app-id") }, (input) =>
+  bridge("developer.app-access.list", input),
 );
 const accessRevokeCommand = Command.make(
   "revoke",

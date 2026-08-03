@@ -3,7 +3,10 @@ import type { ComponentProps } from "react";
 import { ComposerPickerMenuPopup } from "../../chat/ComposerPickerMenuPopup";
 import { cn } from "~/lib/utils";
 
-export function MenuEffort({ className, ...props }: ComponentProps<typeof ComposerPickerMenuPopup>) {
+export function MenuEffort({
+  className,
+  ...props
+}: ComponentProps<typeof ComposerPickerMenuPopup>) {
   return (
     <ComposerPickerMenuPopup
       align="start"

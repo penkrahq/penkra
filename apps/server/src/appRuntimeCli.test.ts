@@ -6,9 +6,7 @@ const context = { spaceId: "personal", threadId: "thread-1" };
 const catalog = [
   {
     slug: "explorer",
-    operations: [
-      { key: "resources.open", input: { type: "object", properties: {} } },
-    ],
+    operations: [{ key: "resources.open", input: { type: "object", properties: {} } }],
   },
 ];
 
@@ -107,8 +105,8 @@ describe("penkra_exec command discovery", () => {
   });
 
   it("points unknown core commands back to the canonical help command", async () => {
-    await expect(
-      executePenkraExec("penkra app list", context, {}, async () => []),
-    ).rejects.toThrow("Run penkra --help");
+    await expect(executePenkraExec("penkra app list", context, {}, async () => [])).rejects.toThrow(
+      "Run penkra --help",
+    );
   });
 });

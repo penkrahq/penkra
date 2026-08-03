@@ -105,7 +105,7 @@ describe("Pencil settings structure", () => {
     );
 
     const measure = () => page.getByTestId("settings-content-measure").element().parentElement!;
-    expect(measure().getBoundingClientRect().width).toBe(440);
+    expect(measure().getBoundingClientRect().width).toBe(560);
 
     await view.rerender(
       <div className="h-[640px] w-[880px]">
@@ -168,6 +168,7 @@ describe("Pencil settings structure", () => {
   });
 
   it("renders the Pencil-defined Settings pages without legacy controls", async () => {
+    const signOut = vi.fn(async () => undefined);
     const installationSnapshot = {
       installed: [
         {
@@ -196,7 +197,22 @@ describe("Pencil settings structure", () => {
     Object.defineProperty(window, "desktopBridge", {
       configurable: true,
       value: {
+        confirm: async () => true,
         setTheme: async () => undefined,
+        accountAuth: {
+          getState: async () => ({
+            status: "authenticated" as const,
+            user: {
+              id: "account-1",
+              email: "gigsama@penkra.com",
+              name: "gigsama",
+              image: null,
+            },
+          }),
+          onAuthenticated: () => () => undefined,
+          onUserUpdated: () => () => undefined,
+          signOut,
+        },
         appInstallations: {
           getState: async () => installationSnapshot,
           onState: () => () => undefined,
@@ -232,6 +248,12 @@ describe("Pencil settings structure", () => {
     expect(document.body.textContent).not.toContain("Restore defaults");
     expect(document.body.textContent).not.toContain("Automatic CLI update checks");
 
+    await page.getByRole("button", { name: "Permissions", exact: true }).click();
+    await expect.element(page.getByText("No additional permissions")).toBeVisible();
+    await expect
+      .element(page.getByText("Installed Apps have not requested additional permissions."))
+      .toBeVisible();
+
     await page.getByRole("button", { name: "Agents", exact: true }).click();
     await expect
       .element(page.getByText("Choose which coding agent runs your threads."))
@@ -266,6 +288,9 @@ describe("Pencil settings structure", () => {
 
     await page.getByRole("button", { name: "Account", exact: true }).click();
     await expect.element(page.getByText("Manage your profile and preferences.")).toBeVisible();
-    await expect.element(page.getByText("Anthropic API key")).toBeVisible();
+    await expect.element(page.getByText("Personal account")).toBeVisible();
+    await expect.element(page.getByText("gigsama@penkra.com")).toBeVisible();
+    await page.getByRole("button", { name: "Log Out" }).click();
+    expect(signOut).toHaveBeenCalledOnce();
   });
 });

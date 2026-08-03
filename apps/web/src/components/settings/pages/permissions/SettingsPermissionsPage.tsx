@@ -1,4 +1,4 @@
-import { IconShieldLock } from "@tabler/icons-react";
+import { IconShieldCheck, IconShieldLock } from "@tabler/icons-react";
 
 import { setInstalledAppPermission, useAppInstallationSnapshot } from "~/appInstallationStore";
 import { SwitchShared } from "~/components/foundations/switch-shared/SwitchShared";
@@ -36,9 +36,18 @@ export function SettingsPermissionsPage() {
     );
   if (apps.length === 0)
     return (
-      <p className="text-xs text-[var(--color-text-foreground-secondary)]">
-        Installed Apps have not requested additional permissions.
-      </p>
+      <div
+        className="flex min-h-44 w-full flex-col items-center justify-center gap-2 rounded-xl border border-[var(--color-border)] bg-[var(--color-background-surface)] px-6 py-8 text-center"
+        data-pencil-page="permissions"
+      >
+        <IconShieldCheck className="size-6 text-[var(--color-text-foreground-tertiary)]" />
+        <p className="text-[13px] font-medium text-[var(--color-text-foreground)]">
+          No additional permissions
+        </p>
+        <p className="max-w-80 text-xs leading-relaxed text-[var(--color-text-foreground-tertiary)]">
+          Installed Apps have not requested additional permissions.
+        </p>
+      </div>
     );
 
   return (

@@ -1869,10 +1869,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
               );
             };
             return (
-              <MessageAssistant
-                layoutMode="application"
-                workedFor={null}
-              >
+              <MessageAssistant layoutMode="application" workedFor={null}>
                 {settledCollapseTransition && (
                   <div
                     aria-hidden="true"

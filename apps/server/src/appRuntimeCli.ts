@@ -33,8 +33,11 @@ export async function executePenkraExec(
   command: string,
   context: PenkraExecContext,
   env: NodeJS.ProcessEnv = process.env,
-  bridgeRequest: (method: string, params: unknown, env: NodeJS.ProcessEnv) => Promise<unknown> =
-    request,
+  bridgeRequest: (
+    method: string,
+    params: unknown,
+    env: NodeJS.ProcessEnv,
+  ) => Promise<unknown> = request,
 ): Promise<unknown> {
   const args = tokenizeRegisteredCommand(command);
   if (args.length === 0) throw new Error("command must not be empty.");
@@ -157,8 +160,7 @@ function summarizeCatalog(catalog: ReadonlyArray<CatalogEntry>): ReadonlyArray<{
 
 function coreHelp(catalog: ReadonlyArray<CatalogEntry>): unknown {
   return {
-    description:
-      "Penkra registered commands run through penkra_exec; they are not shell commands.",
+    description: "Penkra registered commands run through penkra_exec; they are not shell commands.",
     commands: [
       "penkra apps list",
       "penkra tabs current",

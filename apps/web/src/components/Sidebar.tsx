@@ -416,37 +416,6 @@ export default function Sidebar() {
     strict: false,
     select: (params) => (params.threadId ? ThreadId.makeUnsafe(params.threadId) : null),
   });
-  const handleAccountLogout = useCallback(async () => {
-    const accountAuth = window.desktopBridge?.accountAuth;
-    if (!accountAuth) {
-      toastManager.add({ type: "error", title: "Account authentication is unavailable" });
-      return;
-    }
-
-    const confirmed = window.desktopBridge
-      ? await window.desktopBridge.confirm({
-          type: "warning",
-          title: "Penkra",
-          message: "Log out of Penkra?",
-          detail: "You’ll need to sign in again to access your account.",
-          cancelLabel: "Cancel",
-          confirmLabel: "Log Out",
-        })
-      : await ensureNativeApi().dialogs.confirm(
-          "Log out of Penkra?\nYou’ll need to sign in again to access your account.",
-        );
-    if (!confirmed) return;
-
-    try {
-      await accountAuth.signOut();
-    } catch (error) {
-      toastManager.add({
-        type: "error",
-        title: "Unable to log out",
-        description: error instanceof Error ? error.message : undefined,
-      });
-    }
-  }, []);
   const routeSearch = useDiffRouteSearch();
   const activeSplitView = useSplitViewStore(
     useMemo(() => selectSplitView(routeSearch.splitViewId ?? null), [routeSearch.splitViewId]),
@@ -3150,9 +3119,7 @@ export default function Sidebar() {
         ) : null}
         <AccountControlShared
           accountName={profileName}
-          onFeedback={() => openFeedbackDialog()}
-          onLogout={() => void handleAccountLogout()}
-          onSettings={() => void navigate({ to: "/settings" })}
+          onSettings={() => void navigate({ to: "/settings", search: { section: undefined } })}
           onSupport={() => openFeedbackDialog()}
           updateAvailable={showDesktopUpdateButton}
           updateDisabled={desktopUpdateButtonDisabled}

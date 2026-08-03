@@ -699,7 +699,7 @@ describe("Pencil left rail", () => {
     expect(page.getByRole("button", { name: "Help" }).query()).toBeNull();
   });
 
-  it("opens the shared account popup from its semantic menu trigger", async () => {
+  it("opens Settings directly from the account row", async () => {
     const onSettings = vi.fn();
     await render(
       <div className="flex h-64 items-end">
@@ -708,35 +708,14 @@ describe("Pencil left rail", () => {
     );
 
     const trigger = page.getByRole("button", { name: "gigsama" });
-    await expect.element(trigger).toHaveAttribute("aria-expanded", "false");
     await trigger.click();
 
-    await expect.element(trigger).toHaveAttribute("aria-expanded", "true");
+    expect(onSettings).toHaveBeenCalledOnce();
     const row = document.querySelector<HTMLElement>(".group\\/account-row");
     expect(row).not.toBeNull();
-    expect(row!.getAttribute("data-selected")).toBe("true");
+    expect(row!.getAttribute("data-selected")).toBeNull();
     expect(row!.getBoundingClientRect().height).toBe(44);
     expect(getComputedStyle(row!).backgroundColor).toBe("rgba(0, 0, 0, 0)");
-    await expect.element(page.getByRole("menuitem", { name: "Settings" })).toBeVisible();
-    await expect.element(page.getByRole("menuitem", { name: "Give Feedback" })).toBeVisible();
-    await expect.element(page.getByRole("menuitem", { name: "Support Us" })).toBeVisible();
-    await expect.element(page.getByRole("menuitem", { name: "Log Out" })).toBeVisible();
-
-    const popup = document.querySelector<HTMLElement>("[data-slot='menu-popup']");
-    expect(popup).not.toBeNull();
-    expect(popup!.getBoundingClientRect().width).toBe(220);
-    expect(popup!.getBoundingClientRect().height).toBe(139);
-    expect(getComputedStyle(popup!).flexDirection).toBe("column");
-    expect(getComputedStyle(popup!).borderTopWidth).toBe("1px");
-    const popupRect = popup!.getBoundingClientRect();
-    const rowRect = row!.getBoundingClientRect();
-
-    expect(Math.abs(popupRect.bottom - rowRect.top)).toBeLessThan(1);
-    expect(
-      Math.abs(popupRect.left - rowRect.left - (rowRect.width - popupRect.width) / 2),
-    ).toBeLessThan(1);
-
-    await page.getByRole("menuitem", { name: "Settings" }).click();
-    expect(onSettings).toHaveBeenCalledOnce();
+    expect(document.querySelector("[data-slot='menu-popup']")).toBeNull();
   });
 });

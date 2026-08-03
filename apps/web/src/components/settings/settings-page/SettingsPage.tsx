@@ -88,14 +88,14 @@ const pages = [
 ] as const;
 
 const SETTINGS_PAGE_CONTENT_WIDTH_CLASS_NAME: Record<SettingsPageId, string> = {
-  general: "max-w-[440px]",
-  permissions: "max-w-[440px]",
-  spaces: "max-w-[596px]",
-  agents: "max-w-[440px]",
-  apps: "max-w-[440px]",
-  connectors: "max-w-[440px]",
+  general: "max-w-[560px]",
+  permissions: "max-w-[560px]",
+  spaces: "max-w-[680px]",
+  agents: "max-w-[560px]",
+  apps: "max-w-[560px]",
+  connectors: "max-w-[560px]",
   appearance: "max-w-[560px]",
-  account: "max-w-[440px]",
+  account: "max-w-[560px]",
 };
 
 export function SettingsPage({

@@ -7,13 +7,27 @@ import { cn } from "~/lib/utils";
 export function SettingsTextAction({
   children,
   onClick,
+  tone = "default",
 }: {
   children: ReactNode;
   onClick?: () => void;
+  tone?: "default" | "destructive";
 }) {
+  const className = cn(
+    "shrink-0 border-0 bg-transparent p-0 text-xs",
+    tone === "destructive"
+      ? "text-[var(--color-text-destructive)] hover:text-[var(--color-text-destructive)]"
+      : "text-[var(--color-text-foreground-secondary)] hover:text-[var(--color-text-foreground)]",
+  );
+
+  if (!onClick) return <span className={className}>{children}</span>;
+
   return (
     <button
-      className="shrink-0 cursor-pointer border-0 bg-transparent p-0 text-xs text-[var(--color-text-foreground-secondary)] outline-none hover:text-[var(--color-text-foreground)] focus-visible:ring-1 focus-visible:ring-[var(--color-border-focus)]"
+      className={cn(
+        className,
+        "cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-border-focus)]",
+      )}
       onClick={onClick}
       type="button"
     >
@@ -29,9 +43,17 @@ export function SettingsValueAction({
   children: ReactNode;
   onClick?: () => void;
 }) {
+  const className =
+    "shrink-0 border-0 bg-transparent p-0 text-xs text-[var(--color-text-foreground-secondary)]";
+
+  if (!onClick) return <span className={className}>{children} ›</span>;
+
   return (
     <button
-      className="shrink-0 cursor-pointer border-0 bg-transparent p-0 text-xs text-[var(--color-text-foreground-secondary)] outline-none hover:text-[var(--color-text-foreground)] focus-visible:ring-1 focus-visible:ring-[var(--color-border-focus)]"
+      className={cn(
+        className,
+        "cursor-pointer outline-none hover:text-[var(--color-text-foreground)] focus-visible:ring-1 focus-visible:ring-[var(--color-border-focus)]",
+      )}
       onClick={onClick}
       type="button"
     >

@@ -268,7 +268,7 @@ describe("desktop App registry client", () => {
         }),
       )
       .mockResolvedValueOnce(
-        new Response("<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>", {
+        new Response('<svg xmlns="http://www.w3.org/2000/svg"></svg>', {
           status: 200,
           headers: { "content-type": "image/svg+xml" },
         }),
@@ -493,9 +493,11 @@ describe("desktop App registry client", () => {
         });
 
       await expect(
-        Promise.all([createClient(), createClient(), createClient()].map((client) =>
-          client.getSecurityPolicy(),
-        )),
+        Promise.all(
+          [createClient(), createClient(), createClient()].map((client) =>
+            client.getSecurityPolicy(),
+          ),
+        ),
       ).resolves.toHaveLength(3);
 
       await expect(readFile(cachePath, "utf8")).resolves.toBe(signed.jws);
