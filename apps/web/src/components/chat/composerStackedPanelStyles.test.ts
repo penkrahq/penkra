@@ -22,7 +22,7 @@ describe("composerStackedPanelStyles", () => {
   it("keeps stacked panel rows on the approved 42px strip", () => {
     expect(COMPOSER_STACKED_PANEL_ROW_CLASS_NAME).toContain("h-[42px]");
     expect(COMPOSER_STACKED_PANEL_ROW_CLASS_NAME).toContain("px-3");
-    expect(COMPOSER_STACKED_PANEL_ROW_CLASS_NAME).toContain("text-[12px]");
+    expect(COMPOSER_STACKED_PANEL_ROW_CLASS_NAME).toContain("--app-font-size-ui");
   });
 
   it("keeps icon and label treatments aligned across stacked panels", () => {
