@@ -139,6 +139,19 @@ export default defineConfig({
   server: {
     port,
     strictPort: true,
+    // The thread route is Penkra's primary desktop surface, but router-level
+    // code splitting otherwise leaves its large React transform cold until the
+    // index route restores a Thread. Warm the complete route graph while
+    // Electron is starting so the visible app never sits on SplashScreen while
+    // Vite compiles ChatView on first navigation.
+    warmup: {
+      clientFiles: [
+        "./src/routes/_chat.$threadId.tsx",
+        "./src/components/chat/SingleChatSurface.tsx",
+        "./src/components/chat/SplitChatSurface.tsx",
+        "./src/components/ChatView.tsx",
+      ],
+    },
     hmr: {
       // Explicit config so Vite's HMR WebSocket connects reliably
       // inside Electron's BrowserWindow. Vite 8 uses console.debug for
