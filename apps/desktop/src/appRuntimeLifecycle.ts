@@ -29,10 +29,6 @@ export interface AppRuntimeLifecycleDependencies {
   closeTabs?: (appId: string, spaceId: string, reason: OperationCancellationCode) => void;
 }
 
-export type AppRuntimeRestoreResult =
-  | { status: "active"; appId: string; spaceId: string }
-  | { status: "failed"; appId: string; spaceId: string; error: Error };
-
 interface ActiveRuntime {
   appId: string;
   spaceId: string;
@@ -70,28 +66,6 @@ export class AppRuntimeLifecycle {
     this.#closeTabs = dependencies.closeTabs ?? (() => undefined);
   }
 
-  async restoreEnabled(): Promise<ReadonlyArray<AppRuntimeRestoreResult>> {
-    const snapshot = this.#store.snapshot();
-    const enabled = Object.values(snapshot.spaceStateByKey).filter((state) => state.enabled);
-    return Promise.all(
-      enabled.map(async (spaceState): Promise<AppRuntimeRestoreResult> => {
-        try {
-          await this.#enqueue(runtimeKey(spaceState.appId, spaceState.spaceId), () =>
-            this.#activate(spaceState.appId, spaceState.spaceId, snapshot),
-          );
-          return { status: "active", appId: spaceState.appId, spaceId: spaceState.spaceId };
-        } catch (error) {
-          return {
-            status: "failed",
-            appId: spaceState.appId,
-            spaceId: spaceState.spaceId,
-            error: toError(error),
-          };
-        }
-      }),
-    );
-  }
-
   enable(appId: string, spaceId: string): Promise<AppInstallationState> {
     return this.#enqueue(runtimeKey(appId, spaceId), async () => {
       const alreadyActive = this.#active.has(runtimeKey(appId, spaceId));
@@ -104,6 +78,20 @@ export class AppRuntimeLifecycle {
         if (!alreadyActive) await this.#deactivate(appId, spaceId).catch(() => undefined);
         throw error;
       }
+    });
+  }
+
+  ensureActive(appId: string, spaceId: string): Promise<void> {
+    return this.#enqueue(runtimeKey(appId, spaceId), async () => {
+      if (this.#active.has(runtimeKey(appId, spaceId))) return;
+      const snapshot = this.#store.snapshot();
+      const spaceState = Object.values(snapshot.spaceStateByKey).find(
+        (candidate) => candidate.appId === appId && candidate.spaceId === spaceId,
+      );
+      if (!spaceState?.enabled) {
+        throw new Error(`${appId} is not enabled in Space ${spaceId}.`);
+      }
+      await this.#activate(appId, spaceId, snapshot);
     });
   }
 

@@ -3,7 +3,7 @@
 Keep business logic in ordinary framework tests. Validate the package boundary with:
 
 ```sh
-penkra app preflight ./dist
+penkra app preflight ./dist --output ./my-app.penkra
 penkra app test ./dist
 ```
 

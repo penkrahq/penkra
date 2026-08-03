@@ -50,3 +50,7 @@ penkra app package examples/sample-app/dist --output sample.penkra
 `penkra app test` launches the built directory in a temporary profile through the real isolated
 Electron App host, verifies that its tab reaches `ready`, records diagnostics, and removes the
 profile. `penkra app preflight` combines that host test with deterministic package validation.
+
+Continue with [Publishing and sideloading](./app/publishing-and-sideloading.md) for the complete
+publisher, public/private registry, invitation, submission, validation, and local sideload command
+reference.

@@ -545,14 +545,14 @@ export const makeAgentGateway = Effect.gen(function* () {
     definition: {
       name: "penkra_exec",
       description:
-        "Execute one registered Penkra core or installed-App operation in the caller Thread's Space. This is not a shell: PATH executables, pipes, redirects, substitutions, and environment expansion are never accepted.",
+        "Execute one registered Penkra core or installed-App operation in the caller Thread's Space. Start with `penkra --help`; use `penkra apps list` to discover enabled App roots and operations, then `<app-slug> --help` for typed arguments. This is not a shell: PATH executables, pipes, redirects, substitutions, and environment expansion are never accepted.",
       inputSchema: {
         type: "object",
         properties: {
           command: {
             type: "string",
             description:
-              'One command such as "penkra tabs current" or "linear issues create --title Fix".',
+              'One registered command such as "penkra --help", "penkra apps list", "penkra tabs current", or "linear issues create --title Fix".',
           },
         },
         required: ["command"],

@@ -124,12 +124,46 @@ const registryAppCreateCommand = Command.make(
     slug: Flag.string("slug"),
     displayName: Flag.string("name"),
     summary: Flag.string("summary"),
+    visibility: Flag.choice("visibility", ["public", "private"]),
   },
   (input) => bridge("developer.apps.create", input),
 );
 const registryAppCommand = Command.make("registry-app").pipe(
   Command.withDescription("Register and inspect Apps owned by a publisher."),
   Command.withSubcommands([registryAppListCommand, registryAppCreateCommand]),
+);
+
+const visibilitySetCommand = Command.make(
+  "set",
+  {
+    appId: Flag.string("app-id"),
+    visibility: Flag.choice("visibility", ["public", "private"]),
+  },
+  (input) => bridge("developer.apps.visibility.set", input),
+);
+const visibilityCommand = Command.make("visibility").pipe(
+  Command.withDescription("Change whether an App is publicly discoverable or invitation-only."),
+  Command.withSubcommands([visibilitySetCommand]),
+);
+
+const accessInviteCommand = Command.make(
+  "invite",
+  { appId: Flag.string("app-id"), email: Flag.string("email") },
+  (input) => bridge("developer.app-access.invite", input),
+);
+const accessListCommand = Command.make(
+  "list",
+  { appId: Flag.string("app-id") },
+  (input) => bridge("developer.app-access.list", input),
+);
+const accessRevokeCommand = Command.make(
+  "revoke",
+  { appId: Flag.string("app-id"), invitationId: Flag.string("invitation-id") },
+  (input) => bridge("developer.app-access.revoke", input),
+);
+const accessCommand = Command.make("access").pipe(
+  Command.withDescription("Manage invitation-only access to a private App."),
+  Command.withSubcommands([accessInviteCommand, accessListCommand, accessRevokeCommand]),
 );
 
 const submitCommand = Command.make(
@@ -180,6 +214,8 @@ export const appDeveloperCommand = Command.make("app").pipe(
     preflightCommand,
     publisherCommand,
     registryAppCommand,
+    visibilityCommand,
+    accessCommand,
     submitCommand,
     submissionCommand,
   ]),

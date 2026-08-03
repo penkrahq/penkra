@@ -17,4 +17,6 @@ operations.
 Agents call the single registered `penkra_exec` tool. Core commands begin with `penkra`, for
 example `penkra open --url https://penkra.com`. App commands begin with the App slug, for example
 `linear issues create --title "Fix redirect" --tab-id <id>`. `--help` shows typed flags and
-`--schema` adds the full validated schemas. These strings are registered commands, not shell text.
+`--schema` adds the full validated schemas. Start with `penkra --help`; `penkra apps list` returns
+the Apps enabled in the caller Thread's Space and their operation keys. These strings are
+registered commands, not shell text.

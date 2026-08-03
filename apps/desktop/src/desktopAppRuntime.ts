@@ -22,7 +22,7 @@ import {
 } from "./appOpenWithPreferences";
 import { AppRendererIpcBridge } from "./appRendererIpcBridge";
 import { AppRendererRpcHost } from "./appRendererRpc";
-import { AppRuntimeLifecycle, type AppRuntimeRestoreResult } from "./appRuntimeLifecycle";
+import { AppRuntimeLifecycle } from "./appRuntimeLifecycle";
 import { AppSessionManager } from "./appSessionManager";
 import { AppRuntimeDiagnostics, resolveAppRuntimeDiagnosticsPath } from "./appRuntimeDiagnostics";
 import { AppIdentityService } from "./appIdentityService";
@@ -46,7 +46,6 @@ export interface DesktopAppRuntime {
   readonly openWith: AppOpenWithPreferenceStore;
   readonly tabs: DeferredAppTabHost;
   readonly appTabs: ElectronAppTabHost;
-  readonly restoreResults: ReadonlyArray<AppRuntimeRestoreResult>;
   readonly diagnostics: AppRuntimeDiagnostics;
   readonly identities: AppIdentityService;
   readonly vault: AppDataVault;
@@ -120,10 +119,14 @@ export async function startDesktopAppRuntime(input: {
       : { onInvalidMessage: input.onInvalidRendererMessage }),
   });
   ipcBridge.start();
+  let ensureAppRuntimeActive: (appId: string, spaceId: string) => Promise<void> = async () => {
+    throw new Error("The App runtime lifecycle is not ready.");
+  };
   const broker = new AppOperationBroker({
     installationState: () => store.snapshot(),
     tabs,
     resolveIdentity: (appId, spaceId) => identities.resolve(appId, spaceId),
+    ensureController: (appId, spaceId) => ensureAppRuntimeActive(appId, spaceId),
     onDiagnostic: recordDiagnostic,
   });
   const operationCatalog = new AppOperationCatalog(() => store.snapshot());
@@ -197,6 +200,7 @@ export async function startDesktopAppRuntime(input: {
     ...(input.assertAppAllowed === undefined ? {} : { assertAppAllowed: input.assertAppAllowed }),
     closeTabs: (appId, spaceId, reason) => appTabs.closeForAppSpace(appId, spaceId, reason),
   });
+  ensureAppRuntimeActive = (appId, spaceId) => lifecycle.ensureActive(appId, spaceId);
   installations = new AppInstallationService({
     store,
     lifecycle,
@@ -240,7 +244,6 @@ export async function startDesktopAppRuntime(input: {
       message: event.error.message,
     });
   });
-  const restoreResults = await lifecycle.restoreEnabled();
   let stopped = false;
 
   return {
@@ -256,7 +259,6 @@ export async function startDesktopAppRuntime(input: {
     diagnostics,
     identities,
     vault,
-    restoreResults,
     safeStartRecovery: storeResult.recovery,
     updateRecovery,
     packageGarbageCollection,

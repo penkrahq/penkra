@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createHash, generateKeyPairSync, sign } from "node:crypto";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -12,6 +12,7 @@ const summary = {
   slug: "canvas",
   displayName: "Canvas",
   summary: "Create visual documents",
+  visibility: "public",
   publisher: {
     slug: "penkra",
     displayName: "Penkra",
@@ -256,6 +257,40 @@ describe("desktop App registry client", () => {
     ]);
   });
 
+  it("accepts SVG registry artwork used by App manifests", async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          url: "https://downloads.test/icon",
+          contentType: "image/svg+xml",
+          expiresInSeconds: 300,
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response("<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>", {
+          status: 200,
+          headers: { "content-type": "image/svg+xml" },
+        }),
+      );
+    const client = new AppRegistryClient({
+      apiUrl: "https://api.penkra.com",
+      getCookie: () => "cookie=value",
+      fetch,
+    });
+
+    await expect(
+      client.getArtifact({
+        id: "00000000-0000-4000-8000-000000000305",
+        source: "asset",
+      }),
+    ).resolves.toMatchObject({
+      kind: "image",
+      contentType: "image/svg+xml",
+      dataUrl: expect.stringMatching(/^data:image\/svg\+xml;base64,/),
+    });
+  });
+
   it("accepts the registry's UTF-8 Markdown media type without passing MIME parameters through", async () => {
     const fetch = vi
       .fn()
@@ -434,6 +469,36 @@ describe("desktop App registry client", () => {
       await expect(offline.getSecurityPolicy()).resolves.toMatchObject({
         keyId: signed.trustKey.kid,
       });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("lets concurrent registry clients update one shared policy cache", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "penkra-policy-concurrent-test-"));
+    try {
+      const signed = signedPolicy();
+      const cachePath = join(directory, "policy.jws");
+      const createClient = () =>
+        new AppRegistryClient({
+          apiUrl: "https://api.penkra.com",
+          getCookie: () => "",
+          fetch: vi.fn().mockResolvedValue(
+            new Response(signed.jws, {
+              headers: { "content-type": "application/jose" },
+            }),
+          ),
+          trustedRegistryKeys: [signed.trustKey],
+          policyCachePath: cachePath,
+        });
+
+      await expect(
+        Promise.all([createClient(), createClient(), createClient()].map((client) =>
+          client.getSecurityPolicy(),
+        )),
+      ).resolves.toHaveLength(3);
+
+      await expect(readFile(cachePath, "utf8")).resolves.toBe(signed.jws);
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

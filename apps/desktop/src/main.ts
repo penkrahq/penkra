@@ -263,11 +263,7 @@ import {
   parseRegistryReviewRequest,
 } from "./appRegistryIpc";
 import { installRegistryApp, rollbackRegistryApp, updateRegistryApp } from "./registryAppInstaller";
-import {
-  bootstrapFirstPartyAppPackages,
-  PENKRA_APPS_PACKAGE_PATH_ENV,
-  resolveFirstPartyAppPackagePaths,
-} from "./firstPartyAppsBootstrap";
+import { bootstrapDefaultRegistryApps } from "./defaultRegistryAppsBootstrap";
 import {
   bootstrapDevelopmentSideload,
   PENKRA_SIDELOAD_APP_PATH_ENV,
@@ -437,7 +433,6 @@ let mainWindow: BrowserWindow | null = null;
 let pendingAppListingRequest: { appId: string } | null = null;
 let desktopAppRuntime: DesktopAppRuntime | null = null;
 let appRegistryClient: AppRegistryClient | null = null;
-let firstPartyAppPackages: ReadonlyArray<{ sourcePath: string; expectedAppId: string }> = [];
 let developmentSideloadSourcePath: string | null = null;
 let configuredAppBootstrapQueue: Promise<void> = Promise.resolve();
 let getPenkraAccountId: () => Promise<string | null> = async () => null;
@@ -456,8 +451,14 @@ function bootstrapConfiguredAppsForSpaces(): Promise<void> {
     if (!runtime) return;
     const spaceIds = spacesMenuState.spaces.map((space) => space.id);
     if (spaceIds.length === 0) return;
-    if (firstPartyAppPackages.length > 0) {
-      await bootstrapFirstPartyAppPackages(runtime, firstPartyAppPackages, spaceIds);
+    const registry = appRegistryClient;
+    if (registry && (await getPenkraAccountId())) {
+      await bootstrapDefaultRegistryApps({
+        runtime,
+        registry,
+        hostVersion: app.getVersion(),
+        spaceIds,
+      });
     }
     const activeSpaceId = spacesMenuState.activeSpaceId;
     if (!app.isPackaged && developmentSideloadSourcePath && activeSpaceId) {
@@ -5824,17 +5825,6 @@ async function bootstrap(): Promise<void> {
       `[penkra-app] Install receipt reconciliation failed: ${formatErrorMessage(error)}`,
     );
   });
-  firstPartyAppPackages = resolveFirstPartyAppPackagePaths({
-    ...(process.env[PENKRA_APPS_PACKAGE_PATH_ENV] === undefined
-      ? {}
-      : { configuredPath: process.env[PENKRA_APPS_PACKAGE_PATH_ENV] }),
-    resourcesPath: process.resourcesPath,
-    desktopBundleDirectory: __dirname,
-    packaged: app.isPackaged,
-  });
-  if (firstPartyAppPackages.length === 0) {
-    console.warn("The first-party App packages are unavailable in this desktop build.");
-  }
   developmentSideloadSourcePath = process.env[PENKRA_SIDELOAD_APP_PATH_ENV]?.trim() || null;
   try {
     await bootstrapConfiguredAppsForSpaces();
@@ -5852,13 +5842,6 @@ async function bootstrap(): Promise<void> {
       mainWindow.webContents.send(IPC.appInstallations.state, snapshot);
     });
   });
-  for (const result of desktopAppRuntime.restoreResults) {
-    if (result.status === "failed") {
-      console.warn(
-        `[penkra-app] Failed to restore ${result.appId} in Space ${result.spaceId}: ${formatErrorMessage(result.error)}`,
-      );
-    }
-  }
   writeDesktopLogHeader("bootstrap App runtime started");
   appCommandPipeServer = new AppCommandPipeServer({
     path: resolveAppCommandPipePath(app.getPath("userData")),

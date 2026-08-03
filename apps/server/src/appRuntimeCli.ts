@@ -33,12 +33,45 @@ export async function executePenkraExec(
   command: string,
   context: PenkraExecContext,
   env: NodeJS.ProcessEnv = process.env,
+  bridgeRequest: (method: string, params: unknown, env: NodeJS.ProcessEnv) => Promise<unknown> =
+    request,
 ): Promise<unknown> {
   const args = tokenizeRegisteredCommand(command);
   if (args.length === 0) throw new Error("command must not be empty.");
+  const scope = {
+    spaceId: requireContextText(context.spaceId, "spaceId"),
+    threadId: requireContextText(context.threadId, "threadId"),
+  };
   if (args[0] === "penkra") {
+    if (args.length === 2 && args[1] === "--help") {
+      return coreHelp((await bridgeRequest("catalog.list", scope, env)) as CatalogEntry[]);
+    }
+    if (args.length === 3 && args[1] === "apps" && args[2] === "list") {
+      return {
+        spaceId: scope.spaceId,
+        apps: summarizeCatalog((await bridgeRequest("catalog.list", scope, env)) as CatalogEntry[]),
+      };
+    }
+    if (args.length === 3 && args[1] === "apps" && args[2] === "--help") {
+      return {
+        command: "penkra apps list",
+        description: "List enabled Apps and their operation keys in the caller Thread's Space.",
+      };
+    }
+    if (args.length === 3 && args[1] === "tabs" && args[2] === "--help") {
+      return {
+        commands: ["penkra tabs current", "penkra tabs list"],
+        description: "Inspect the current or open App tabs for the caller Thread.",
+      };
+    }
+    if (args.length === 3 && args[1] === "open" && args[2] === "--help") {
+      return {
+        usage: "penkra open --path <path> | --url <url> [--with <app-slug>]",
+        description: "Open a local path or URL through an enabled App or the operating system.",
+      };
+    }
     if (args.length === 3 && args[1] === "tabs" && (args[2] === "current" || args[2] === "list")) {
-      return request(`tabs.${args[2]}`, undefined, env);
+      return bridgeRequest(`tabs.${args[2]}`, undefined, env);
     }
     if (args[1] === "open") {
       const parsed = parseFlags(args.slice(2));
@@ -61,7 +94,7 @@ export async function executePenkraExec(
         }
         path = Path.resolve(context.workingDirectory, path);
       }
-      return request(
+      return bridgeRequest(
         "core.open",
         {
           ...(path ? { path } : { url }),
@@ -72,16 +105,15 @@ export async function executePenkraExec(
         env,
       );
     }
-    throw new Error(`Unknown Penkra core command: ${args.join(" ")}.`);
+    throw new Error(`Unknown Penkra core command: ${args.join(" ")}. Run penkra --help.`);
   }
 
   const parsed = parseFlags(args);
-  const scope = {
-    spaceId: requireContextText(context.spaceId, "spaceId"),
-    threadId: requireContextText(context.threadId, "threadId"),
+  const appScope = {
+    ...scope,
     ...(parsed.tabId === undefined ? {} : { tabId: parsed.tabId }),
   };
-  const catalog = (await request("catalog.list", scope, env)) as CatalogEntry[];
+  const catalog = (await bridgeRequest("catalog.list", appScope, env)) as CatalogEntry[];
   const app = catalog.find((candidate) => candidate.slug === parsed.positionals[0]);
   if (!app) throw new Error(`Unknown or disabled App command root ${parsed.positionals[0]}.`);
   const operationWords = parsed.positionals.slice(1);
@@ -90,13 +122,13 @@ export async function executePenkraExec(
       operationWords.length === 0 ? undefined : resolveOperation(app, operationWords);
     return {
       app: app.slug,
-      help: await request(
+      help: await bridgeRequest(
         "catalog.help",
         {
           slug: app.slug,
           ...(operation ? { operation } : {}),
           ...(parsed.schema ? { schema: true } : {}),
-          ...scope,
+          ...appScope,
         },
         env,
       ),
@@ -105,12 +137,40 @@ export async function executePenkraExec(
   const operation = resolveOperation(app, operationWords);
   const declaration = app.operations.find((candidate) => candidate.key === operation)!;
   const input = parseOperationInput(declaration.input, parsed.input, parsed.named);
-  const result = await request(
+  const result = await bridgeRequest(
     "operations.invoke",
-    { app: app.slug, operation, input, ...scope },
+    { app: app.slug, operation, input, ...appScope },
     env,
   );
   return { app: app.slug, operation, tabId: parsed.tabId ?? null, result };
+}
+
+function summarizeCatalog(catalog: ReadonlyArray<CatalogEntry>): ReadonlyArray<{
+  slug: string;
+  operations: ReadonlyArray<string>;
+}> {
+  return catalog.map((app) => ({
+    slug: app.slug,
+    operations: app.operations.map((operation) => operation.key),
+  }));
+}
+
+function coreHelp(catalog: ReadonlyArray<CatalogEntry>): unknown {
+  return {
+    description:
+      "Penkra registered commands run through penkra_exec; they are not shell commands.",
+    commands: [
+      "penkra apps list",
+      "penkra tabs current",
+      "penkra tabs list",
+      "penkra open --path <path> | --url <url> [--with <app-slug>]",
+    ],
+    appCommands: summarizeCatalog(catalog).map((app) => ({
+      root: app.slug,
+      help: `penkra_exec: ${app.slug} --help`,
+      operations: app.operations,
+    })),
+  };
 }
 
 export function tokenizeRegisteredCommand(command: string): string[] {

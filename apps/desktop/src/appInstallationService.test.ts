@@ -570,6 +570,24 @@ describe("AppInstallationService", () => {
     });
   });
 
+  it("refuses to uninstall the required Apps registry App", async () => {
+    const test = fixture();
+    const appsPackage = verifiedPackage();
+    appsPackage.manifest.id = "com.penkra.apps";
+    appsPackage.manifest.slug = "apps";
+    appsPackage.manifest.name = "Apps";
+    await test.service.install(appsPackage, "personal");
+
+    await expect(
+      test.service.uninstall({
+        appId: "com.penkra.apps",
+        spaceId: "personal",
+        retainData: true,
+      }),
+    ).rejects.toThrow("Apps is required and cannot be uninstalled");
+    expect(test.state().packagesByInstallationKey["personal\0com.penkra.apps"]).toBeDefined();
+  });
+
   it("erases retained Space state only when explicitly requested", async () => {
     const test = fixture();
     await test.service.install(verifiedPackage(), "personal");

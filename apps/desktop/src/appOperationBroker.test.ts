@@ -117,6 +117,35 @@ function broker(state: () => AppInstallationState, tabs?: Partial<AppTabHost>) {
 }
 
 describe("AppOperationBroker", () => {
+  it("activates an enabled App controller only when its first operation is invoked", async () => {
+    let runtime!: AppOperationBroker;
+    const ensureController = vi.fn(async () => {
+      runtime.registerController({
+        appId: "com.acme.linear",
+        spaceId: "personal",
+        handlers: { "issues.create": async () => ({ created: true }) },
+      });
+    });
+    runtime = new AppOperationBroker({
+      installationState: enabledState,
+      resolveIdentity: async () => ({ subject: "sub_test", space: "space_test" }),
+      ensureController,
+      tabs: { open: vi.fn(), openForResult: vi.fn() },
+    });
+
+    await expect(
+      runtime.invoke({
+        app: "linear",
+        operation: "issues.create",
+        spaceId: "personal",
+        threadId: "thread-1",
+        input: {},
+      }),
+    ).resolves.toEqual({ created: true });
+
+    expect(ensureController).toHaveBeenCalledWith("com.acme.linear", "personal");
+  });
+
   it("keeps App slug and App-local operation key separate", async () => {
     const runtime = broker(enabledState);
     const handler = vi.fn(async (input, context) => ({

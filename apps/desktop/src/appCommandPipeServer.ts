@@ -32,6 +32,10 @@ type Request = {
     | "developer.publishers.create"
     | "developer.apps.list"
     | "developer.apps.create"
+    | "developer.apps.visibility.set"
+    | "developer.app-access.invite"
+    | "developer.app-access.list"
+    | "developer.app-access.revoke"
     | "developer.submissions.list"
     | "developer.submissions.get"
     | "developer.submissions.create";
@@ -271,6 +275,42 @@ export class AppCommandPipeServer {
             slug: requiredString(params.slug, "slug"),
             displayName: requiredString(params.displayName, "displayName"),
             summary: requiredString(params.summary, "summary"),
+            visibility: requiredVisibility(params.visibility),
+          }),
+        };
+      case "developer.apps.visibility.set":
+        return {
+          ok: true,
+          id: request.id,
+          result: await this.#requireRegistry().developerSetAppVisibility({
+            appId: requiredString(params.appId, "appId"),
+            visibility: requiredVisibility(params.visibility),
+          }),
+        };
+      case "developer.app-access.invite":
+        return {
+          ok: true,
+          id: request.id,
+          result: await this.#requireRegistry().developerInviteAppUser({
+            appId: requiredString(params.appId, "appId"),
+            email: requiredString(params.email, "email"),
+          }),
+        };
+      case "developer.app-access.list":
+        return {
+          ok: true,
+          id: request.id,
+          result: await this.#requireRegistry().developerListAppInvitations(
+            requiredString(params.appId, "appId"),
+          ),
+        };
+      case "developer.app-access.revoke":
+        return {
+          ok: true,
+          id: request.id,
+          result: await this.#requireRegistry().developerRevokeAppInvitation({
+            appId: requiredString(params.appId, "appId"),
+            invitationId: requiredString(params.invitationId, "invitationId"),
           }),
         };
       case "developer.submissions.list":
@@ -371,6 +411,14 @@ function requiredString(value: unknown, name: string): string {
   const result = optionalString(value, name);
   if (result === null) throw new Error(`${name} is required.`);
   return result;
+}
+
+function requiredVisibility(value: unknown): "public" | "private" {
+  const visibility = requiredString(value, "visibility");
+  if (visibility !== "public" && visibility !== "private") {
+    throw new Error("visibility must be public or private.");
+  }
+  return visibility;
 }
 
 function optionalString(value: unknown, name: string): string | null {

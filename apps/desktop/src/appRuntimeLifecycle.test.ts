@@ -159,50 +159,27 @@ describe("AppRuntimeLifecycle", () => {
     expect(Object.values(test.state().spaceStateByKey)[0]?.enabled).toBe(false);
   });
 
-  it("restores enabled runtimes independently and reports failures without rewriting intent", async () => {
-    let state = installedState(true);
-    const secondManifest = {
-      ...state.packagesByInstallationKey["personal\0com.penkra.apps"]!.manifest,
-      id: "com.acme.linear",
-      slug: "linear",
-      name: "Linear",
-    };
-    state = registerVerifiedAppPackage(
-      state,
-      {
-        manifest: secondManifest,
-        source: "registry",
-        packagePath: "/profile/apps/com.acme.linear/1.0.0",
-        sha256: "b".repeat(64),
-        installedAt: "2026-08-01T00:00:00.000Z",
-      },
-      "personal",
-    );
-    state = setSpaceAppEnabled(state, {
-      appId: "com.acme.linear",
-      spaceId: "personal",
-      enabled: true,
-    });
-    const test = fixture(state);
-    test.sessions.activate.mockImplementation(async (input) => {
-      if (input.installedApp.appId === "com.acme.linear") {
-        throw new Error("package unavailable");
-      }
-      return activeSession(input);
-    });
+  it("lazily activates an enabled runtime without rewriting persisted state", async () => {
+    const test = fixture(installedState(true));
 
-    const result = await test.lifecycle.restoreEnabled();
-    expect(result).toEqual(
-      expect.arrayContaining([
-        { status: "active", appId: "com.penkra.apps", spaceId: "personal" },
-        expect.objectContaining({
-          status: "failed",
-          appId: "com.acme.linear",
-          spaceId: "personal",
-        }),
-      ]),
+    await test.lifecycle.ensureActive("com.penkra.apps", "personal");
+    await test.lifecycle.ensureActive("com.penkra.apps", "personal");
+
+    expect(test.sessions.activate).toHaveBeenCalledOnce();
+    expect(test.controllers.activate).toHaveBeenCalledOnce();
+    expect(test.store.mutate).not.toHaveBeenCalled();
+    expect(test.lifecycle.isActive("com.penkra.apps", "personal")).toBe(true);
+  });
+
+  it("does not lazily activate a disabled runtime", async () => {
+    const test = fixture(installedState(false));
+
+    await expect(test.lifecycle.ensureActive("com.penkra.apps", "personal")).rejects.toThrow(
+      "not enabled",
     );
-    expect(Object.values(test.state().spaceStateByKey).every((item) => item.enabled)).toBe(true);
+
+    expect(test.sessions.activate).not.toHaveBeenCalled();
+    expect(test.controllers.activate).not.toHaveBeenCalled();
   });
 
   it("serializes enable and disable for the same App and Space", async () => {

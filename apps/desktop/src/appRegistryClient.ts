@@ -8,7 +8,7 @@ import type {
   DesktopRegistryAppDetail,
   DesktopRegistryAppSummary,
 } from "@penkra/contracts";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
@@ -119,7 +119,7 @@ export class AppRegistryClient {
       }
       return { kind: "text", contentType: mediaType, text };
     }
-    if (!["image/png", "image/jpeg", "image/webp"].includes(mediaType)) {
+    if (!["image/png", "image/jpeg", "image/svg+xml", "image/webp"].includes(mediaType)) {
       throw new Error("The registry image has an unsupported content type.");
     }
     return {
@@ -292,6 +292,7 @@ export class AppRegistryClient {
     slug: string;
     displayName: string;
     summary: string;
+    visibility: "public" | "private";
   }): Promise<unknown> {
     assertUuid(input.publisherId, "publisher");
     return this.#request("/api/registry/apps", { method: "POST", body: JSON.stringify(input) });
@@ -300,6 +301,42 @@ export class AppRegistryClient {
   async developerListApps(publisherId: string): Promise<unknown[]> {
     assertUuid(publisherId, "publisher");
     return this.#collectPages(`/api/registry/publishers/${encodeURIComponent(publisherId)}/apps`);
+  }
+
+  async developerSetAppVisibility(input: {
+    appId: string;
+    visibility: "public" | "private";
+  }): Promise<unknown> {
+    assertUuid(input.appId, "App");
+    return this.#request(`/api/registry/apps/${encodeURIComponent(input.appId)}/visibility`, {
+      method: "PUT",
+      body: JSON.stringify({ visibility: input.visibility }),
+    });
+  }
+
+  async developerInviteAppUser(input: { appId: string; email: string }): Promise<unknown> {
+    assertUuid(input.appId, "App");
+    return this.#request(`/api/registry/apps/${encodeURIComponent(input.appId)}/invitations`, {
+      method: "POST",
+      body: JSON.stringify({ email: input.email }),
+    });
+  }
+
+  async developerListAppInvitations(appId: string): Promise<unknown[]> {
+    assertUuid(appId, "App");
+    return this.#collectPages(`/api/registry/apps/${encodeURIComponent(appId)}/invitations`);
+  }
+
+  async developerRevokeAppInvitation(input: {
+    appId: string;
+    invitationId: string;
+  }): Promise<unknown> {
+    assertUuid(input.appId, "App");
+    assertUuid(input.invitationId, "invitation");
+    return this.#request(
+      `/api/registry/apps/${encodeURIComponent(input.appId)}/invitations/${encodeURIComponent(input.invitationId)}`,
+      { method: "DELETE" },
+    );
   }
 
   async developerListSubmissions(appId: string): Promise<unknown[]> {
@@ -556,7 +593,7 @@ export class AppRegistryClient {
 
   async #writePolicyCache(compactJws: string): Promise<void> {
     if (!this.#policyCachePath) return;
-    const temporaryPath = `${this.#policyCachePath}.${process.pid}.tmp`;
+    const temporaryPath = temporaryWritePath(this.#policyCachePath);
     try {
       await mkdir(dirname(this.#policyCachePath), { recursive: true });
       await writeFile(temporaryPath, compactJws, { encoding: "utf8", mode: 0o600 });
@@ -604,7 +641,7 @@ export class AppRegistryClient {
 type InstallReceiptQueueEntry = { accountId: string; appId: string; versionId: string };
 
 async function writeAtomic(path: string, contents: string): Promise<void> {
-  const temporaryPath = `${path}.${process.pid}.tmp`;
+  const temporaryPath = temporaryWritePath(path);
   try {
     await mkdir(dirname(path), { recursive: true });
     await writeFile(temporaryPath, contents, { encoding: "utf8", mode: 0o600 });
@@ -613,6 +650,10 @@ async function writeAtomic(path: string, contents: string): Promise<void> {
     await unlink(temporaryPath).catch(() => undefined);
     throw error;
   }
+}
+
+function temporaryWritePath(path: string): string {
+  return `${path}.${process.pid}.${randomUUID()}.tmp`;
 }
 
 function isNodeError(value: unknown): value is NodeJS.ErrnoException {
@@ -689,6 +730,8 @@ function parseDetail(value: unknown): DesktopRegistryAppDetail {
 
 function parseSummary(value: unknown): DesktopRegistryAppSummary {
   if (!isRecord(value) || !isRecord(value.publisher)) throw invalidResponse();
+  const visibility = value.visibility;
+  if (visibility !== "public" && visibility !== "private") throw invalidResponse();
   const rating = value.rating;
   if (rating !== null && (typeof rating !== "number" || rating < 1 || rating > 5)) {
     throw invalidResponse();
@@ -703,6 +746,7 @@ function parseSummary(value: unknown): DesktopRegistryAppSummary {
     slug: stringField(value, "slug"),
     displayName: stringField(value, "displayName"),
     summary: stringField(value, "summary"),
+    visibility,
     publisher: {
       slug: stringField(value.publisher, "slug"),
       displayName: stringField(value.publisher, "displayName"),

@@ -58,7 +58,6 @@ describe("desktop App runtime composition", () => {
     });
 
     expect(runtime.store.snapshot().packagesByInstallationKey).toEqual({});
-    expect(runtime.restoreResults).toEqual([]);
     expect(runtime.safeStartRecovery).toBeNull();
     expect(runtime.updateRecovery).toBeNull();
     expect(runtime.packageGarbageCollection).toEqual({ removedPaths: [], failures: [] });

@@ -32,7 +32,7 @@ You can create, rename, archive, and move things around freely. The structure ad
 
 Penkra has an Apps platform. Apps are small, self-contained web applications that run inside Penkra's right panel, each in its own isolated tab. They connect to your threads and can read, write, and act on your behalf — with explicit permissions you control.
 
-Penkra ships with three first-party Apps:
+Every new Space installs three Penkra-published Apps from the registry:
 
 | App          | What it does                                           |
 | ------------ | ------------------------------------------------------ |

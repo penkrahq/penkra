@@ -86,6 +86,7 @@ export interface AppOperationBrokerOptions {
     appId: string,
     spaceId: string,
   ) => Promise<{ subject: string | null; space: string }>;
+  ensureController?: (appId: string, spaceId: string) => Promise<void>;
   mintInvocationId?: () => string;
   onDiagnostic?: (entry: AppRuntimeDiagnosticInput) => void;
 }
@@ -103,6 +104,7 @@ export class AppOperationBroker {
   readonly #mintInvocationId: () => string;
   readonly #onDiagnostic: (entry: AppRuntimeDiagnosticInput) => void;
   readonly #resolveIdentity: AppOperationBrokerOptions["resolveIdentity"];
+  readonly #ensureController: NonNullable<AppOperationBrokerOptions["ensureController"]>;
   readonly #controllers = new Map<string, AppOperationController>();
   readonly #tabs = new Map<string, AppTabEndpoint>();
   readonly #validators = new Map<string, AppOperationValidators>();
@@ -113,6 +115,7 @@ export class AppOperationBroker {
     this.#mintInvocationId = options.mintInvocationId ?? (() => crypto.randomUUID());
     this.#onDiagnostic = options.onDiagnostic ?? (() => undefined);
     this.#resolveIdentity = options.resolveIdentity;
+    this.#ensureController = options.ensureController ?? (async () => undefined);
   }
 
   registerController(controller: AppOperationController): () => void {
@@ -152,6 +155,7 @@ export class AppOperationBroker {
       );
     }
     const installedApp = this.#resolveEnabledApp(request.app, request.spaceId);
+    await this.#ensureController(installedApp.appId, request.spaceId);
     const controller = this.#controllers.get(controllerKey(installedApp.appId, request.spaceId));
     if (!controller) {
       throw new AppOperationBrokerError(

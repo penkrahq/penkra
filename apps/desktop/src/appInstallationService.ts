@@ -38,6 +38,7 @@ import {
   type AppSettingSnapshot,
   type AppSettingValue,
 } from "./appSettings";
+import { isRequiredApp } from "./appDistributionPolicy";
 
 export type AppInstallationStateListener = (state: AppInstallationState) => void;
 
@@ -488,6 +489,9 @@ export class AppInstallationService {
   }
 
   uninstall(input: UninstallAppInput): Promise<AppInstallationState> {
+    if (isRequiredApp(input.appId)) {
+      return Promise.reject(new Error("Apps is required and cannot be uninstalled."));
+    }
     return this.#enqueue(async () => {
       const snapshot = this.#store.snapshot();
       if (!getInstalledAppPackage(snapshot, input.appId, input.spaceId)) {

@@ -1,6 +1,16 @@
 import { describe, expect, it } from "vitest";
 
-import { parseOperationInput, tokenizeRegisteredCommand } from "./appRuntimeCli";
+import { executePenkraExec, parseOperationInput, tokenizeRegisteredCommand } from "./appRuntimeCli";
+
+const context = { spaceId: "personal", threadId: "thread-1" };
+const catalog = [
+  {
+    slug: "explorer",
+    operations: [
+      { key: "resources.open", input: { type: "object", properties: {} } },
+    ],
+  },
+];
 
 describe("App runtime CLI operation flags", () => {
   const schema = {
@@ -66,5 +76,39 @@ describe("penkra_exec command tokenization", () => {
   it("does not confuse a native executable name with an App root", () => {
     expect(tokenizeRegisteredCommand("ffmpeg media encode --input '{}'")[0]).toBe("ffmpeg");
     expect(tokenizeRegisteredCommand("penkra tabs current")[0]).toBe("penkra");
+  });
+});
+
+describe("penkra_exec command discovery", () => {
+  it("documents every core discovery path and the enabled App roots", async () => {
+    const bridge = async (method: string) => {
+      expect(method).toBe("catalog.list");
+      return catalog;
+    };
+
+    await expect(executePenkraExec("penkra --help", context, {}, bridge)).resolves.toMatchObject({
+      commands: expect.arrayContaining(["penkra apps list", "penkra tabs current"]),
+      appCommands: [
+        { root: "explorer", help: "penkra_exec: explorer --help", operations: ["resources.open"] },
+      ],
+    });
+  });
+
+  it("lists only the Apps and operation keys returned for the caller Space", async () => {
+    const bridge = async (_method: string, params: unknown) => {
+      expect(params).toEqual(context);
+      return catalog;
+    };
+
+    await expect(executePenkraExec("penkra apps list", context, {}, bridge)).resolves.toEqual({
+      spaceId: "personal",
+      apps: [{ slug: "explorer", operations: ["resources.open"] }],
+    });
+  });
+
+  it("points unknown core commands back to the canonical help command", async () => {
+    await expect(
+      executePenkraExec("penkra app list", context, {}, async () => []),
+    ).rejects.toThrow("Run penkra --help");
   });
 });

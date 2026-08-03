@@ -589,6 +589,7 @@ export interface DesktopRegistryAppSummary {
   slug: string;
   displayName: string;
   summary: string;
+  visibility: "public" | "private";
   publisher: {
     slug: string;
     displayName: string;
