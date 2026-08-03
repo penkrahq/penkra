@@ -6,6 +6,10 @@ import {
 
 export interface AppTypographyScale {
   basePx: number;
+  composerPx: number;
+  displayLgPx: number;
+  displayMdPx: number;
+  displaySmPx: number;
   uiPx: number;
   uiLgPx: number;
   uiSmPx: number;
@@ -30,6 +34,10 @@ export function getAppTypographyScale(
 
   return {
     basePx,
+    composerPx: clampTypographyPx((basePx * 14) / 12, basePx),
+    displayLgPx: clampTypographyPx((basePx * 28) / 12, basePx, 32),
+    displayMdPx: clampTypographyPx((basePx * 26) / 12, basePx, 30),
+    displaySmPx: clampTypographyPx((basePx * 24) / 12, basePx, 28),
     uiPx: basePx,
     uiLgPx: clampTypographyPx(basePx * 1.08, basePx),
     uiSmPx: clampTypographyPx(basePx * 0.92, 10),

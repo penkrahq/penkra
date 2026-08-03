@@ -202,7 +202,7 @@ export const RUNTIME_FULL_ACCESS_ACCENT_CLASS_NAME =
 /** Pencil composer baseline: 14px editor text on a 16px line box. */
 export const COMPOSER_EDITOR_LINE_HEIGHT_CLASS_NAME = "leading-4";
 export const COMPOSER_EDITOR_TEXT_CLASS_NAME =
-  "text-[length:calc(var(--app-font-size-base,12px)*1.1667)]";
+  "text-[length:var(--app-font-size-composer,14px)]";
 /** Font, size, and leading shared by the composer editor and its placeholder so the
  *  placeholder always aligns with typed text. Keep both surfaces on this one token. */
 export const COMPOSER_EDITOR_TYPOGRAPHY_CLASS_NAME = `font-sans ${COMPOSER_EDITOR_TEXT_CLASS_NAME} ${COMPOSER_EDITOR_LINE_HEIGHT_CLASS_NAME}`;

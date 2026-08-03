@@ -6,6 +6,10 @@ const TERMINAL_FONT_FAMILY_CSS_VARIABLE = "--terminal-font-family";
 
 const TYPOGRAPHY_CSS_VARIABLES = [
   "--app-font-size-base",
+  "--app-font-size-composer",
+  "--app-font-size-display-lg",
+  "--app-font-size-display-md",
+  "--app-font-size-display-sm",
   "--app-font-size-ui",
   "--app-font-size-ui-lg",
   "--app-font-size-ui-sm",
@@ -28,6 +32,10 @@ export function useAppTypography() {
     const rootStyle = document.documentElement.style;
     const variableValues: Record<(typeof TYPOGRAPHY_CSS_VARIABLES)[number], string> = {
       "--app-font-size-base": `${scale.basePx}px`,
+      "--app-font-size-composer": `${scale.composerPx}px`,
+      "--app-font-size-display-lg": `${scale.displayLgPx}px`,
+      "--app-font-size-display-md": `${scale.displayMdPx}px`,
+      "--app-font-size-display-sm": `${scale.displaySmPx}px`,
       "--app-font-size-ui": `${scale.uiPx}px`,
       "--app-font-size-ui-lg": `${scale.uiLgPx}px`,
       "--app-font-size-ui-sm": `${scale.uiSmPx}px`,

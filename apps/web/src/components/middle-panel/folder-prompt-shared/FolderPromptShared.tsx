@@ -10,7 +10,7 @@ export function FolderPromptShared({
   return (
     <h2
       className={cn(
-        "flex h-[43px] min-h-[43px] max-w-full items-start justify-center pb-2 text-center text-[length:calc(var(--app-font-size-base,12px)*2.3333)] font-medium leading-[35px] tracking-normal text-[var(--color-text-foreground)] @max-[407px]:h-auto @max-[407px]:flex-col @max-[407px]:items-center @max-[407px]:gap-0.5 @max-[407px]:text-[length:calc(var(--app-font-size-base,12px)*2.1667)] @max-[407px]:leading-[32px] @max-[297px]:text-[length:calc(var(--app-font-size-base,12px)*2)] @max-[297px]:leading-[30px]",
+        "flex h-[43px] min-h-[43px] max-w-full items-start justify-center pb-2 text-center text-[length:var(--app-font-size-display-lg,28px)] font-medium leading-[35px] tracking-normal text-[var(--color-text-foreground)] @max-[407px]:h-auto @max-[407px]:flex-col @max-[407px]:items-center @max-[407px]:gap-0.5 @max-[407px]:text-[length:var(--app-font-size-display-md,26px)] @max-[407px]:leading-[32px] @max-[297px]:text-[length:var(--app-font-size-display-sm,24px)] @max-[297px]:leading-[30px]",
         className,
       )}
       data-pencil-component="dZsWR"
