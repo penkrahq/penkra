@@ -1176,7 +1176,7 @@ label:has(> select#reasoning-effort) select {
   /* Override the global `textarea { font-family: mono }` reset — this field is
      UI chrome, not code, so it must use the normal UI font. */
   font-family: var(--font-ui-family);
-  font-size: 13px;
+  font-size: var(--app-font-size-ui-lg, 13px);
   line-height: 1.5;
   color: var(--color-text-foreground);
   outline: none;
@@ -1542,13 +1542,13 @@ label:has(> select#reasoning-effort) select {
   padding: 16px;
   text-align: center;
   color: var(--destructive);
-  font-size: 12px;
+  font-size: var(--app-font-size-ui, 12px);
 }
 
 .pdf-viewer-page__error-detail {
   max-width: 90%;
   color: var(--muted-foreground);
-  font-size: 11px;
+  font-size: var(--app-font-size-ui-sm, 11px);
   word-break: break-word;
 }
 

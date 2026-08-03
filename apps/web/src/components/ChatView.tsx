@@ -8528,7 +8528,7 @@ export default function ChatView({
           <header className={cn(CHAT_SURFACE_HEADER_DIVIDER_CLASS_NAME, "px-3 py-2 md:hidden")}>
             <div className="flex items-center gap-2">
               <SidebarHeaderTrigger className="size-7 shrink-0" />
-              <span className="text-sm font-medium text-[var(--color-text-foreground)]">
+              <span className="text-[length:calc(var(--app-font-size-base,12px)*1.1667)] font-medium text-[var(--color-text-foreground)]">
                 Threads
               </span>
             </div>
@@ -8544,12 +8544,12 @@ export default function ChatView({
             )}
           >
             <SidebarHeaderNavigationControls />
-            <span className="text-xs text-muted-foreground/50">No active thread</span>
+            <span className="text-[length:var(--app-font-size-ui,12px)] text-muted-foreground/50">No active thread</span>
           </div>
         )}
         <div className="flex flex-1 items-center justify-center">
           <div className="text-center">
-            <p className="text-sm">Select a thread or create a new one to get started.</p>
+            <p className="text-[length:calc(var(--app-font-size-base,12px)*1.1667)]">Select a thread or create a new one to get started.</p>
           </div>
         </div>
       </div>
@@ -8657,7 +8657,7 @@ export default function ChatView({
     isCenteredEmptyLanding && isLocalDraftThread && activeProject?.kind === "project";
   const emptyLandingProjectChip =
     !isEmptyChatLanding && !showEmptyLandingProjectPicker && activeProjectDisplayName ? (
-      <span className="inline-flex h-[26px] min-w-0 shrink items-center gap-[7px] overflow-hidden rounded-full px-1.5 text-[12px] font-medium text-[var(--color-text-foreground)]">
+      <span className="inline-flex h-[26px] min-w-0 shrink items-center gap-[7px] overflow-hidden rounded-full px-1.5 text-[length:var(--app-font-size-ui,12px)] font-medium text-[var(--color-text-foreground)]">
         <FolderClosed className="size-[15px] shrink-0" />
         <span className="min-w-0 truncate">{activeProjectDisplayName}</span>
       </span>
@@ -9151,7 +9151,7 @@ export default function ChatView({
         harness={activeThread.session?.provider ?? activeThread.modelSelection.provider}
         leftRailCollapsed={!isEditorRail && !leftRailOpen}
         onRestoreLeftRail={() => setLeftRailOpen(true)}
-        pinned={activeThread.isPinned}
+        pinned={activeThread.isPinned ?? false}
         title={activeThreadDisplayTitle}
       />
 

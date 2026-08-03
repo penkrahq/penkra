@@ -12,7 +12,7 @@ const summary = {
   slug: "canvas",
   displayName: "Canvas",
   summary: "Create visual documents",
-  visibility: "public",
+  visibility: "public" as const,
   publisher: {
     slug: "penkra",
     displayName: "Penkra",

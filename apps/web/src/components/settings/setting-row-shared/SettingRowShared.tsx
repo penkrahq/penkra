@@ -41,7 +41,7 @@ export function SettingRowShared({
           </span>
         ) : null}
         {status ? (
-          <span className="pt-1 text-[11px] text-[var(--color-text-foreground-tertiary)]">
+          <span className="pt-1 text-[length:var(--app-font-size-ui-sm,11px)] text-[var(--color-text-foreground-tertiary)]">
             {status}
           </span>
         ) : null}

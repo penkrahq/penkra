@@ -32,7 +32,7 @@ export const InputShared = forwardRef<HTMLInputElement, InputSharedProps>(functi
       ) : null}
       <input
         aria-invalid={isInvalid || undefined}
-        className="h-full min-w-0 flex-1 border-0 bg-transparent p-0 font-sans text-sm font-normal text-[var(--color-text-foreground)] outline-none placeholder:text-current placeholder:opacity-100 disabled:cursor-not-allowed"
+        className="h-full min-w-0 flex-1 border-0 bg-transparent p-0 font-sans text-[length:calc(var(--app-font-size-base,12px)*1.1667)] font-normal text-[var(--color-text-foreground)] outline-none placeholder:text-current placeholder:opacity-100 disabled:cursor-not-allowed"
         disabled={disabled}
         ref={ref}
         {...props}

@@ -96,14 +96,14 @@ export function SpaceHeaderInlineEdit({
             placeholder={mode === "create" ? "New Space" : undefined}
             value={value}
           />
-          <span aria-hidden="true" className="ml-2 text-[10px] text-muted-foreground">
+          <span aria-hidden="true" className="ml-2 text-[length:var(--app-font-size-ui-xs,10px)] text-muted-foreground">
             ↵
           </span>
         </div>
         {submitLabel ? (
           <button
             type="button"
-            className="h-[27px] shrink-0 rounded-md bg-foreground px-2.5 text-[10px] font-medium text-background disabled:opacity-50"
+            className="h-[27px] shrink-0 rounded-md bg-foreground px-2.5 text-[length:var(--app-font-size-ui-xs,10px)] font-medium text-background disabled:opacity-50"
             disabled={Boolean(validationError) || submitting}
             onClick={() => void submit()}
           >
@@ -112,7 +112,7 @@ export function SpaceHeaderInlineEdit({
         ) : null}
       </div>
       {visibleError ? (
-        <p className="px-2.5 text-[10px] leading-4 text-destructive" id={errorId} role="alert">
+        <p className="px-2.5 text-[length:var(--app-font-size-ui-xs,10px)] leading-4 text-destructive" id={errorId} role="alert">
           {visibleError}
         </p>
       ) : null}

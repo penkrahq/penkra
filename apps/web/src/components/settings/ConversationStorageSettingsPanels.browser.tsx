@@ -116,7 +116,7 @@ describe("ConversationStorageSettingsPanels", () => {
 
     const text = document.body.textContent ?? "";
     expect(text.indexOf("Newer archived")).toBeLessThan(text.indexOf("Older archived"));
-    expect(text).toContain("Unknown project");
+    expect(text).toContain("Unknown folder");
     expect(text).toContain("Orphan archived");
   });
 });

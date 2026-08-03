@@ -58,12 +58,12 @@ export function OpenWithRowShared({
         type="button"
       >
         <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <span className="text-[13px] text-[var(--color-text-foreground)]">{title}</span>
-          <span className="text-xs text-[var(--color-text-foreground-tertiary)]">
+          <span className="text-[length:var(--app-font-size-ui-lg,13px)] text-[var(--color-text-foreground)]">{title}</span>
+          <span className="text-[length:var(--app-font-size-ui,12px)] text-[var(--color-text-foreground-tertiary)]">
             {description}
           </span>
         </span>
-        <span className="flex items-center gap-1 text-xs text-[var(--color-text-foreground-secondary)]">
+        <span className="flex items-center gap-1 text-[length:var(--app-font-size-ui,12px)] text-[var(--color-text-foreground-secondary)]">
           {selectedLabel}
           <IconChevronRight className={disclosureChevronClassName(open)} />
         </span>

@@ -21,7 +21,7 @@ export function OnboardingApiKey({ onBack, onContinue }: OnboardingApiKeyProps) 
       <ButtonBack className="absolute top-7 left-7" onClick={onBack} />
       <div className="w-[488px] font-sans" data-pencil-component="kCRIp">
         <h1 className="text-2xl font-semibold">Enter your API key</h1>
-        <p className="mt-2 text-sm text-[var(--color-text-foreground-secondary)]">
+        <p className="mt-2 text-[length:calc(var(--app-font-size-base,12px)*1.1667)] text-[var(--color-text-foreground-secondary)]">
           Paste your key to connect directly.
         </p>
         <FieldGroupApiKey

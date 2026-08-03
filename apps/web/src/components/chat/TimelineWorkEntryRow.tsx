@@ -457,7 +457,7 @@ function commandTooltipContent(command: string, displayText: string) {
         </div>
         <div className="space-y-0.5">
           <div className="text-muted-foreground/70">Raw call</div>
-          <code className="block whitespace-pre-wrap break-words font-chat-code text-[11px] text-foreground/92">
+          <code className="block whitespace-pre-wrap break-words font-chat-code text-[length:var(--app-font-size-ui-sm,11px)] text-foreground/92">
             {command}
           </code>
         </div>
@@ -766,7 +766,7 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
                           {presentation.nickname ?? primaryLabel}
                         </span>
                         {presentation.role ? (
-                          <span className="ml-1 text-[11px] font-medium text-muted-foreground/48">
+                          <span className="ml-1 text-[length:var(--app-font-size-ui-sm,11px)] font-medium text-muted-foreground/48">
                             ({presentation.role})
                           </span>
                         ) : null}
@@ -828,7 +828,7 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
                       {displayStatusLabel ? (
                         <span
                           className={cn(
-                            "shrink-0 rounded-full border px-2 py-0.5 text-[9px] font-medium tracking-[0.08em]",
+                            "shrink-0 rounded-full border px-2 py-0.5 text-[length:var(--app-font-size-ui-2xs,9px)] font-medium tracking-[0.08em]",
                             subagentStatusClasses(
                               displayStatusLabel,
                               subagent.rawStatus,
@@ -842,7 +842,7 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
                       <button
                         type="button"
                         className={cn(
-                          "shrink-0 rounded-full border border-border/45 px-2.5 py-1 text-[9px] font-medium text-muted-foreground/62 transition-colors",
+                          "shrink-0 rounded-full border border-border/45 px-2.5 py-1 text-[length:var(--app-font-size-ui-2xs,9px)] font-medium text-muted-foreground/62 transition-colors",
                           canOpenThread
                             ? "hover:border-foreground/15 hover:text-foreground/84"
                             : "cursor-default opacity-50",
@@ -861,7 +861,7 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
                 );
               })}
               {hiddenSubagentCount > 0 ? (
-                <div className="pl-4 text-[10px] text-muted-foreground/46">
+                <div className="pl-4 text-[length:var(--app-font-size-ui-xs,10px)] text-muted-foreground/46">
                   +{hiddenSubagentCount} more
                 </div>
               ) : null}

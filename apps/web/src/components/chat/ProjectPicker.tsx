@@ -39,7 +39,7 @@ interface ProjectPickerProps {
 }
 
 const PICKER_FOOTER_ACTION_CLASS_NAME = cn(
-  "flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-[12px] font-normal",
+  "flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-[length:var(--app-font-size-ui,12px)] font-normal",
   ELEVATED_HOVER_SURFACE_CLASS_NAME,
   "hover:text-[var(--color-text-foreground)]",
 );
@@ -181,7 +181,7 @@ export const ProjectPicker = memo(function ProjectPicker({
               label={selectedLabel ?? emptyTriggerLabel}
               className={cn(
                 variant === "draft-bar" &&
-                  "h-[26px] max-w-none shrink-0 gap-[7px] px-1.5 py-0 text-[12px] font-medium text-[var(--color-text-foreground)] sm:max-w-none sm:px-1.5 [&>span]:gap-[7px] [&>span>span:first-child]:size-[15px] [&>span>svg]:size-3 [&>span>svg]:opacity-100",
+                  "h-[26px] max-w-none shrink-0 gap-[7px] px-1.5 py-0 text-[length:var(--app-font-size-ui,12px)] font-medium text-[var(--color-text-foreground)] sm:max-w-none sm:px-1.5 [&>span]:gap-[7px] [&>span>span:first-child]:size-[15px] [&>span>svg]:size-3 [&>span>svg]:opacity-100",
                 triggerClassName,
               )}
             />
@@ -207,7 +207,7 @@ export const ProjectPicker = memo(function ProjectPicker({
                   setOpen(false);
                 }}
                 className={cn(
-                  "h-8 min-h-8 gap-2 rounded-lg px-2 py-0 text-[12px] font-normal sm:min-h-8 sm:text-[12px] [&>div:last-child_svg]:size-3.5 [&>div:last-child_svg]:text-[var(--color-accent-blue)]",
+                  "h-8 min-h-8 gap-2 rounded-lg px-2 py-0 text-[length:var(--app-font-size-ui,12px)] font-normal sm:min-h-8 sm:text-[length:var(--app-font-size-ui,12px)] [&>div:last-child_svg]:size-3.5 [&>div:last-child_svg]:text-[var(--color-accent-blue)]",
                   folder.path === selectedWorkspaceRoot &&
                     "bg-[var(--color-background-elevated-secondary)] text-[var(--color-text-foreground)]",
                 )}
@@ -241,7 +241,7 @@ export const ProjectPicker = memo(function ProjectPicker({
             <span className="truncate">{resetActionLabel}</span>
           </button>
           {errorMessage ? (
-            <div className="px-2 pb-1 text-[11px] text-destructive">{errorMessage}</div>
+            <div className="px-2 pb-1 text-[length:var(--app-font-size-ui-sm,11px)] text-destructive">{errorMessage}</div>
           ) : null}
         </div>
       </ComboboxPopup>

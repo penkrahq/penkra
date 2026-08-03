@@ -470,7 +470,7 @@ export class AppRegistryClient {
 
   async #request(
     path: string,
-    init: { method?: "POST" | "PUT"; body?: string } = {},
+    init: { method?: "DELETE" | "POST" | "PUT"; body?: string } = {},
   ): Promise<unknown> {
     const cookie = this.#getCookie().trim();
     if (!cookie) throw new Error("Sign in to use the Penkra App registry.");

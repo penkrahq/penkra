@@ -33,7 +33,7 @@ function TranscriptSelectionToolbarButton({
       aria-label={label}
       title={label}
       className={cn(
-        "pointer-events-auto inline-flex h-8 items-center gap-1.5 rounded-full px-2.5 text-[11px] font-medium text-[var(--color-text-foreground)]",
+        "pointer-events-auto inline-flex h-8 items-center gap-1.5 rounded-full px-2.5 text-[length:var(--app-font-size-ui-sm,11px)] font-medium text-[var(--color-text-foreground)]",
         ELEVATED_HOVER_SURFACE_CLASS_NAME,
       )}
       onMouseDown={(event) => {

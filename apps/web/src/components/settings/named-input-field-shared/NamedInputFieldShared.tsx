@@ -14,11 +14,11 @@ export const NamedInputFieldShared = forwardRef<HTMLInputElement, NamedInputFiel
   ) {
     return (
       <label className="flex w-full flex-col gap-2 font-sans">
-        <span className="text-[13px] font-semibold text-[var(--color-text-foreground-secondary)]">
+        <span className="text-[length:var(--app-font-size-ui-lg,13px)] font-semibold text-[var(--color-text-foreground-secondary)]">
           {label}
         </span>
         <InputShared ref={ref} {...props} />
-        <span className="text-xs text-[var(--color-text-foreground-tertiary)]">{helper}</span>
+        <span className="text-[length:var(--app-font-size-ui,12px)] text-[var(--color-text-foreground-tertiary)]">{helper}</span>
       </label>
     );
   },

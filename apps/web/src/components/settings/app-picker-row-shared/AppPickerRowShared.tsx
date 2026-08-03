@@ -19,7 +19,7 @@ export function AppPickerRowShared({
     <button
       aria-pressed={selected}
       className={cn(
-        "flex h-[38px] w-full cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent px-2.5 text-[13px] text-[var(--color-text-foreground-secondary)] outline-none hover:bg-[var(--color-background-button-secondary-hover)] hover:text-[var(--color-text-foreground)] focus-visible:ring-1 focus-visible:ring-[var(--color-border-focus)]",
+        "flex h-[38px] w-full cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent px-2.5 text-[length:var(--app-font-size-ui-lg,13px)] text-[var(--color-text-foreground-secondary)] outline-none hover:bg-[var(--color-background-button-secondary-hover)] hover:text-[var(--color-text-foreground)] focus-visible:ring-1 focus-visible:ring-[var(--color-border-focus)]",
         selected &&
           "bg-[var(--color-background-button-secondary)] text-[var(--color-text-foreground)]",
         className,

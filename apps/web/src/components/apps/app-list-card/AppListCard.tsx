@@ -25,7 +25,7 @@ export function AppListCard({
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
-          <h3 className="truncate font-sans text-[15px] leading-[17.5px] font-semibold text-[var(--color-text-foreground)]">
+          <h3 className="truncate font-sans text-[length:calc(var(--app-font-size-base,12px)*1.25)] leading-[17.5px] font-semibold text-[var(--color-text-foreground)]">
             {name}
           </h3>
           <CircleCheckIcon
@@ -33,7 +33,7 @@ export function AppListCard({
             className="size-3.5 shrink-0 text-[var(--color-icon-accent)]"
           />
         </div>
-        <p className="mt-0.5 line-clamp-2 font-sans text-xs leading-[17px] text-[var(--color-text-foreground-secondary)]">
+        <p className="mt-0.5 line-clamp-2 font-sans text-[length:var(--app-font-size-ui,12px)] leading-[17px] text-[var(--color-text-foreground-secondary)]">
           {description}
         </p>
       </div>

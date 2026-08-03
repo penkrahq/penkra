@@ -42,7 +42,7 @@ export const DiffPanelPatchViewport = memo(
             fill="flex"
             className="items-start justify-start px-3 pt-3"
           >
-            <p className="text-left text-[11px] text-red-500/80">{props.error}</p>
+            <p className="text-left text-[length:var(--app-font-size-ui-sm,11px)] text-red-500/80">{props.error}</p>
           </PanelStateMessage>
         </div>
       );
@@ -91,10 +91,10 @@ export const DiffPanelPatchViewport = memo(
     return (
       <div className={cn(viewportClassName, "overflow-auto p-2")}>
         <div className="space-y-2">
-          <p className="text-[11px] text-muted-foreground/75">{props.renderablePatch.reason}</p>
+          <p className="text-[length:var(--app-font-size-ui-sm,11px)] text-muted-foreground/75">{props.renderablePatch.reason}</p>
           <pre
             className={cn(
-              "max-h-[72vh] rounded-md border border-border/70 bg-background/70 p-3 font-mono text-[11px] leading-relaxed text-muted-foreground/90",
+              "max-h-[72vh] rounded-md border border-border/70 bg-background/70 p-3 font-mono text-[length:var(--app-font-size-ui-sm,11px)] leading-relaxed text-muted-foreground/90",
               props.diffWordWrap
                 ? "overflow-auto whitespace-pre-wrap wrap-break-word"
                 : "overflow-auto",

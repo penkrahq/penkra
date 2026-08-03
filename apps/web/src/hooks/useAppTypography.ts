@@ -46,6 +46,15 @@ export function useAppTypography() {
       rootStyle.setProperty(cssVariable, variableValues[cssVariable]);
     }
 
+    void window.desktopBridge
+      ?.setAppTypography?.({
+        base: `${scale.uiPx}px`,
+        small: `${scale.uiSmPx}px`,
+        meta: `${scale.uiMetaPx}px`,
+        large: `${scale.uiLgPx}px`,
+      })
+      .catch(() => undefined);
+
     // Terminal font family overrides the bundled default only when a non-default
     // font is chosen; otherwise leave the index.css value in place. The terminal
     // runtime observes inline `style` mutations and re-applies the font live.

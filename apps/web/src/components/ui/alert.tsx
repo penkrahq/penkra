@@ -19,9 +19,9 @@ const alertVariants = cva(
         warning: "border-warning/32 bg-warning/4 [&>svg]:text-warning",
       },
       size: {
-        default: "px-3.5 py-3 text-sm",
+        default: "px-3.5 py-3 text-[length:calc(var(--app-font-size-base,12px)*1.1667)]",
         // Dense inline callout for panel chrome (source control / diff errors).
-        sm: "rounded-md px-2.5 py-1.5 text-xs",
+        sm: "rounded-md px-2.5 py-1.5 text-[length:var(--app-font-size-ui,12px)]",
       },
     },
   },

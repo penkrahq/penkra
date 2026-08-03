@@ -39,8 +39,8 @@ const IDENTITY_TONE: Record<LocalServerIdentityTone, LocalServerIdentityToneToke
     folder: "text-muted-foreground/45",
   },
   browser: {
-    primary: "text-[14px] font-semibold text-white",
-    meta: "text-[12px] text-white/35",
+    primary: "text-[length:calc(var(--app-font-size-base,12px)*1.1667)] font-semibold text-white",
+    meta: "text-[length:var(--app-font-size-ui,12px)] text-white/35",
     address: "",
     separator: "text-white/20",
     folder: "text-white/30",

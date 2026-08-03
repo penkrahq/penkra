@@ -57,7 +57,7 @@ export function FeedbackDialog({ open, context, onOpenChange }: FeedbackDialogPr
     >
       <DialogPopup className="max-w-xl" showCloseButton={!isSending}>
         <DialogHeader className="gap-0 px-5 pt-5 pb-3">
-          <DialogTitle className="text-xl tracking-[-0.01em]">Share feedback</DialogTitle>
+          <DialogTitle className="text-[length:calc(var(--app-font-size-base,12px)*1.6667)] tracking-[-0.01em]">Share feedback</DialogTitle>
         </DialogHeader>
         {/* The form state lives below DialogPopup, which unmounts its children
             once the close transition ends — every open starts from a blank
@@ -136,7 +136,7 @@ function FeedbackDialogForm({
         onChange={(event) => setDetails(event.target.value)}
       />
 
-      <p className="text-xs leading-relaxed text-muted-foreground">
+      <p className="text-[length:var(--app-font-size-ui,12px)] leading-relaxed text-muted-foreground">
         Diagnostics include app version, OS, provider/model, modes, and session state — never
         prompts, messages, paths, or logs.
       </p>

@@ -26,7 +26,7 @@ function CaptionGlyph({ glyph }: { glyph: string }) {
   return (
     <span
       aria-hidden="true"
-      className="text-[10px] leading-none"
+      className="text-[length:var(--app-font-size-ui-xs,10px)] leading-none"
       style={{ fontFamily: '"Segoe Fluent Icons", "Segoe MDL2 Assets"' }}
     >
       {glyph}

@@ -211,7 +211,7 @@ export function WorktreesSettingsPanel({ active }: { readonly active: boolean })
                     {worktree.path}
                   </div>
                   <div className="space-y-1">
-                    <div className="text-[11px] font-medium text-muted-foreground">
+                    <div className="text-[length:var(--app-font-size-ui-sm,11px)] font-medium text-muted-foreground">
                       Conversations
                     </div>
                     {worktree.linkedThreads.length > 0 ? (
@@ -375,8 +375,8 @@ export function ArchivedSettingsPanel({ active }: { readonly active: boolean }) 
         <div className="mx-auto mb-3 flex size-11 items-center justify-center rounded-full border border-border/70 bg-background/70 text-muted-foreground">
           <ArchiveIcon className="size-5" />
         </div>
-        <div className="text-sm font-medium text-foreground">No archived threads</div>
-        <div className="mt-1 text-sm text-muted-foreground">
+        <div className="text-[length:calc(var(--app-font-size-base,12px)*1.1667)] font-medium text-foreground">No archived threads</div>
+        <div className="mt-1 text-[length:calc(var(--app-font-size-base,12px)*1.1667)] text-muted-foreground">
           Archived threads will appear here and can be restored to the sidebar.
         </div>
       </SettingsEmptyState>

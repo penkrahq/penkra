@@ -235,6 +235,13 @@ export interface DesktopAppTheme {
   };
 }
 
+export interface DesktopAppTypography {
+  base: string;
+  small: string;
+  meta: string;
+  large: string;
+}
+
 export interface DesktopRuntimeInfo {
   hostArch: DesktopRuntimeArch;
   appArch: DesktopRuntimeArch;
@@ -832,6 +839,7 @@ export interface DesktopBridge {
   confirm: (input: string | DesktopConfirmOptions) => Promise<boolean>;
   setTheme: (theme: DesktopTheme) => Promise<void>;
   setAppTheme?: (theme: DesktopAppTheme) => Promise<void>;
+  setAppTypography?: (typography: DesktopAppTypography) => Promise<void>;
   setSpacesMenu?: (input: DesktopSpacesMenuInput) => Promise<void>;
   showContextMenu: <T extends string>(
     items: readonly ContextMenuItem<T>[],

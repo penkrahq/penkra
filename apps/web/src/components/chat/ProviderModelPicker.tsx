@@ -320,7 +320,7 @@ export const ProviderModelMenuItems = function ProviderModelMenuItems(
           />
         </MenuRadioGroup>
       ) : (
-        <div className="px-2 py-2 text-muted-foreground text-sm">
+        <div className="px-2 py-2 text-muted-foreground text-[length:calc(var(--app-font-size-base,12px)*1.1667)]">
           {provider === "pi" && normalizedModelSearchQuery.length === 0
             ? "No Pi models found"
             : "No matches"}
@@ -384,7 +384,7 @@ export const ProviderModelMenuItems = function ProviderModelMenuItems(
                 )}
               />
               <span>{option.label}</span>
-              <span className="ms-auto text-[11px] text-muted-foreground/80">
+              <span className="ms-auto text-[length:var(--app-font-size-ui-sm,11px)] text-muted-foreground/80">
                 {availability.label}
               </span>
             </MenuItem>
@@ -421,7 +421,7 @@ export const ProviderModelMenuItems = function ProviderModelMenuItems(
               className="size-3 shrink-0 text-muted-foreground/85 opacity-80"
             />
             <span>{option.label}</span>
-            <span className="ms-auto text-[11px] text-muted-foreground/80">Coming soon</span>
+            <span className="ms-auto text-[length:var(--app-font-size-ui-sm,11px)] text-muted-foreground/80">Coming soon</span>
           </MenuItem>
         );
       })}

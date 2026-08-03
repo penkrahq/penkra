@@ -8,6 +8,7 @@ export const DESKTOP_IPC_CHANNELS = {
   confirm: "desktop:confirm",
   setTheme: "desktop:set-theme",
   setAppTheme: "desktop:set-app-theme",
+  setAppTypography: "desktop:set-app-typography",
   setSpacesMenu: "desktop:set-spaces-menu",
   contextMenu: "desktop:context-menu",
   openExternal: "desktop:open-external",

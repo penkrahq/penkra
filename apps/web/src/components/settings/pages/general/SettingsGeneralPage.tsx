@@ -117,13 +117,13 @@ export function SettingsGeneralPage() {
       <SettingsSectionShared title="About">
         <SettingRowShared
           control={
-            <span className="text-xs text-[var(--color-text-foreground-tertiary)]">Up to date</span>
+            <span className="text-[length:var(--app-font-size-ui,12px)] text-[var(--color-text-foreground-tertiary)]">Up to date</span>
           }
           description={`Penkra console ${APP_VERSION}`}
           label="Version"
         />
         <div className="flex min-h-[51px] items-center justify-between gap-4">
-          <span className="text-[13px] text-[var(--color-text-foreground)]">Follow us</span>
+          <span className="text-[length:var(--app-font-size-ui-lg,13px)] text-[var(--color-text-foreground)]">Follow us</span>
           <span className="flex items-center gap-3 text-[var(--color-text-foreground-tertiary)]">
             <IconBrandGithub className="size-4" />
             <IconBrandX className="size-4" />

@@ -41,7 +41,7 @@ function ProviderUsagePaceLine({
   }
 
   return (
-    <div className="flex items-center justify-between text-[11px] tabular-nums text-muted-foreground">
+    <div className="flex items-center justify-between text-[length:var(--app-font-size-ui-sm,11px)] tabular-nums text-muted-foreground">
       {paceDetails.amountText ? <span>{paceDetails.amountText}</span> : <span />}
       {paceDetails.etaText ? <span>{paceDetails.etaText}</span> : null}
     </div>
@@ -72,7 +72,7 @@ function SettingsUsageLimitRow({ row }: { row: ProviderUsageDisplayRow }) {
   return (
     <div className="space-y-1.5">
       <div className="flex items-center gap-1.5">
-        <span className="text-xs font-medium text-foreground">{row.label}</span>
+        <span className="text-[length:var(--app-font-size-ui,12px)] font-medium text-foreground">{row.label}</span>
         <span
           className={cn("size-1.5 shrink-0 rounded-full", trackProps.markerClassName)}
           title={row.pace ? `Usage pace: ${row.pace.status}` : undefined}
@@ -80,7 +80,7 @@ function SettingsUsageLimitRow({ row }: { row: ProviderUsageDisplayRow }) {
         />
       </div>
       <ProviderUsageTrack row={row} surface="settings" />
-      <div className="flex items-center justify-between text-[11px] tabular-nums text-muted-foreground">
+      <div className="flex items-center justify-between text-[length:var(--app-font-size-ui-sm,11px)] tabular-nums text-muted-foreground">
         <span>{row.leftText}</span>
         {row.resetText ? <span>{row.resetText}</span> : null}
       </div>
@@ -94,7 +94,7 @@ function PopoverUsageLimitRow({ row }: { row: ProviderUsageDisplayRow }) {
     <div className="space-y-1 text-[length:var(--app-font-size-chat-meta,10px)] leading-tight">
       <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] items-baseline gap-x-3">
         <div className="flex min-w-0 items-baseline gap-1.5">
-          <span className="shrink-0 text-[11px] font-medium text-foreground">{row.label}</span>
+          <span className="shrink-0 text-[length:var(--app-font-size-ui-sm,11px)] font-medium text-foreground">{row.label}</span>
           <span className="min-w-0 truncate tabular-nums text-foreground">{row.leftText}</span>
         </div>
         <div className="min-w-0 text-right text-muted-foreground">

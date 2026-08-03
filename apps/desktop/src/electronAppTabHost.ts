@@ -37,6 +37,7 @@ interface AppTabRecord {
   unregisterRpc: (reason?: OperationCancellationCode) => void;
   releaseIdentity: () => void;
   themeCssKey: string | null;
+  typographyCssKey: string | null;
 }
 
 export class ElectronAppTabHost implements AppTabHost {
@@ -62,6 +63,7 @@ export class ElectronAppTabHost implements AppTabHost {
   readonly #measureRendererMemory: (rendererId: number) => number | undefined;
   readonly #records = new Map<string, AppTabRecord>();
   #themeCss = "";
+  #typographyCss = "";
   #visibleTabId: string | null = null;
 
   constructor(input: {
@@ -171,7 +173,16 @@ export class ElectronAppTabHost implements AppTabHost {
 
   async applyTheme(css: string): Promise<void> {
     this.#themeCss = css;
-    await Promise.all([...this.#records.values()].map((record) => this.#applyTheme(record, css)));
+    await Promise.all(
+      [...this.#records.values()].map((record) => this.#applyCss(record, "themeCssKey", css)),
+    );
+  }
+
+  async applyTypography(css: string): Promise<void> {
+    this.#typographyCss = css;
+    await Promise.all(
+      [...this.#records.values()].map((record) => this.#applyCss(record, "typographyCssKey", css)),
+    );
   }
 
   attach(tabId: string): void {
@@ -314,6 +325,7 @@ export class ElectronAppTabHost implements AppTabHost {
       unregisterRpc,
       releaseIdentity,
       themeCssKey: null,
+      typographyCssKey: null,
     };
     this.#records.set(id, record);
     this.#onOpened(record.descriptor);
@@ -361,7 +373,10 @@ export class ElectronAppTabHost implements AppTabHost {
         ready,
       ]);
       record.descriptor = { ...record.descriptor, status: "ready" };
-      if (this.#themeCss) await this.#applyTheme(record, this.#themeCss);
+      if (this.#themeCss) await this.#applyCss(record, "themeCssKey", this.#themeCss);
+      if (this.#typographyCss) {
+        await this.#applyCss(record, "typographyCssKey", this.#typographyCss);
+      }
       const memoryBytes = this.#measureRendererMemory(contents.id);
       this.#onDiagnostic({
         kind: "tab-ready",
@@ -387,10 +402,14 @@ export class ElectronAppTabHost implements AppTabHost {
     return this.#rpc.request<Result>(this.#require(tabId).view.webContents.id, method, input);
   }
 
-  async #applyTheme(record: AppTabRecord, css: string): Promise<void> {
+  async #applyCss(
+    record: AppTabRecord,
+    keyName: "themeCssKey" | "typographyCssKey",
+    css: string,
+  ): Promise<void> {
     const nextKey = await record.view.webContents.insertCSS(css, { cssOrigin: "author" });
-    const previousKey = record.themeCssKey;
-    record.themeCssKey = nextKey;
+    const previousKey = record[keyName];
+    record[keyName] = nextKey;
     if (previousKey) await record.view.webContents.removeInsertedCSS(previousKey);
   }
 

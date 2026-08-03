@@ -762,7 +762,7 @@ export function BranchToolbarBranchSelector({
         >
           <div className="flex min-w-0 flex-col items-start py-1">
             <span className="truncate font-medium">Checkout Pull Request</span>
-            <span className="truncate text-muted-foreground text-xs">{prReference}</span>
+            <span className="truncate text-muted-foreground text-[length:var(--app-font-size-ui,12px)]">{prReference}</span>
           </div>
         </ComboboxItem>
       );
@@ -804,11 +804,11 @@ export function BranchToolbarBranchSelector({
             <div className="flex items-center justify-between gap-2">
               <span className="truncate">{itemValue}</span>
               {badge && (
-                <span className="shrink-0 text-[10px] text-muted-foreground/45">{badge}</span>
+                <span className="shrink-0 text-[length:var(--app-font-size-ui-xs,10px)] text-muted-foreground/45">{badge}</span>
               )}
             </div>
             {currentBranchChangeSummary ? (
-              <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] leading-4">
+              <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[length:var(--app-font-size-ui-sm,11px)] leading-4">
                 <span className="text-muted-foreground">
                   Uncommitted: {currentBranchChangeSummary.fileCount.toLocaleString()}{" "}
                   {pluralize(currentBranchChangeSummary.fileCount, "file")}
@@ -905,7 +905,7 @@ export function BranchToolbarBranchSelector({
           <div className="border-t border-[color:var(--color-border-light)] p-1">
             <button
               type="button"
-              className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-[var(--color-text-foreground)] disabled:cursor-not-allowed disabled:opacity-50 ${ELEVATED_HOVER_SURFACE_CLASS_NAME}`}
+              className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[length:calc(var(--app-font-size-base,12px)*1.1667)] text-[var(--color-text-foreground)] disabled:cursor-not-allowed disabled:opacity-50 ${ELEVATED_HOVER_SURFACE_CLASS_NAME}`}
               disabled={isBranchActionPending}
               onClick={openCreateBranchDialog}
             >
@@ -945,7 +945,7 @@ export function BranchToolbarBranchSelector({
               }}
             >
               <div className="space-y-1.5">
-                <label className="block font-medium text-sm" htmlFor="branch-create-name">
+                <label className="block font-medium text-[length:calc(var(--app-font-size-base,12px)*1.1667)]" htmlFor="branch-create-name">
                   Branch name
                 </label>
                 <Input
@@ -957,7 +957,7 @@ export function BranchToolbarBranchSelector({
                 />
               </div>
               {branchByName.has(createBranchName.trim()) ? (
-                <p className="text-destructive text-sm">A branch with this name already exists.</p>
+                <p className="text-destructive text-[length:calc(var(--app-font-size-base,12px)*1.1667)]">A branch with this name already exists.</p>
               ) : null}
               <DialogFooter variant="bare">
                 <Button
@@ -1004,14 +1004,14 @@ export function BranchToolbarBranchSelector({
           </DialogHeader>
           <DialogPanel className="space-y-4">
             {stashDiscardDialog?.loading ? (
-              <p className="text-muted-foreground text-sm">Loading stash details...</p>
+              <p className="text-muted-foreground text-[length:calc(var(--app-font-size-base,12px)*1.1667)]">Loading stash details...</p>
             ) : stashDiscardDialog?.error ? (
-              <p className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-destructive text-sm">
+              <p className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-destructive text-[length:calc(var(--app-font-size-base,12px)*1.1667)]">
                 {stashDiscardDialog.error}
               </p>
             ) : stashDiscardDialog?.info ? (
               <>
-                <div className="grid gap-2 rounded-lg border border-[color:var(--color-border-light)] bg-[var(--color-background-elevated-secondary)] p-3 text-sm">
+                <div className="grid gap-2 rounded-lg border border-[color:var(--color-border-light)] bg-[var(--color-background-elevated-secondary)] p-3 text-[length:calc(var(--app-font-size-base,12px)*1.1667)]">
                   <div className="flex min-w-0 gap-2">
                     <span className="w-20 shrink-0 text-muted-foreground">Branch</span>
                     <span className="min-w-0 truncate font-medium">
@@ -1020,13 +1020,13 @@ export function BranchToolbarBranchSelector({
                   </div>
                   <div className="flex min-w-0 gap-2">
                     <span className="w-20 shrink-0 text-muted-foreground">Worktree</span>
-                    <span className="min-w-0 truncate font-mono text-xs">
+                    <span className="min-w-0 truncate font-mono text-[length:var(--app-font-size-ui,12px)]">
                       {stashDiscardDialog.info.cwd}
                     </span>
                   </div>
                   <div className="flex min-w-0 gap-2">
                     <span className="w-20 shrink-0 text-muted-foreground">Stash</span>
-                    <span className="min-w-0 truncate font-mono text-xs">
+                    <span className="min-w-0 truncate font-mono text-[length:var(--app-font-size-ui,12px)]">
                       {stashDiscardDialog.info.stashRef}
                     </span>
                   </div>
@@ -1036,14 +1036,14 @@ export function BranchToolbarBranchSelector({
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <p className="font-medium text-sm">
+                  <p className="font-medium text-[length:calc(var(--app-font-size-base,12px)*1.1667)]">
                     Changed files ({stashDiscardDialog.info.files.length})
                   </p>
                   {stashDiscardDialog.info.files.length > 0 ? (
                     <ul className="max-h-48 overflow-auto rounded-lg border border-[color:var(--color-border-light)] bg-[var(--color-background-control-opaque)] py-1">
                       {stashDiscardDialog.info.files.map((file) => (
                         <li
-                          className="truncate px-3 py-1 font-mono text-muted-foreground text-xs"
+                          className="truncate px-3 py-1 font-mono text-muted-foreground text-[length:var(--app-font-size-ui,12px)]"
                           key={file}
                           title={file}
                         >
@@ -1052,7 +1052,7 @@ export function BranchToolbarBranchSelector({
                       ))}
                     </ul>
                   ) : (
-                    <p className="rounded-lg border border-[color:var(--color-border-light)] px-3 py-2 text-muted-foreground text-sm">
+                    <p className="rounded-lg border border-[color:var(--color-border-light)] px-3 py-2 text-muted-foreground text-[length:calc(var(--app-font-size-base,12px)*1.1667)]">
                       Git did not report changed file names for this stash.
                     </p>
                   )}

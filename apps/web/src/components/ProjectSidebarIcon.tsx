@@ -38,7 +38,7 @@ export function ProjectSidebarIcon({
       </span>
       <span
         aria-label={`${badgeNumber} items`}
-        className="absolute -right-1 -bottom-1 flex size-3 min-w-3 items-center justify-center rounded-full bg-blue-500 px-px text-[7px] leading-none font-semibold text-white"
+        className="absolute -right-1 -bottom-1 flex size-3 min-w-3 items-center justify-center rounded-full bg-blue-500 px-px text-[length:calc(var(--app-font-size-base,12px)*0.5833)] leading-none font-semibold text-white"
       >
         {badgeNumber}
       </span>

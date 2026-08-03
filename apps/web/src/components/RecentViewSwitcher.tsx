@@ -112,14 +112,14 @@ export function RecentViewSwitcher(props: {
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex min-w-0 items-center gap-2">
-                    <span className="truncate text-sm font-medium leading-5">{entry.title}</span>
+                    <span className="truncate text-[length:calc(var(--app-font-size-base,12px)*1.1667)] font-medium leading-5">{entry.title}</span>
                     {entry.isCurrent ? (
-                      <span className="shrink-0 rounded-full border border-border/60 bg-muted/70 px-1.5 py-px text-[10px] font-medium leading-4 text-muted-foreground">
+                      <span className="shrink-0 rounded-full border border-border/60 bg-muted/70 px-1.5 py-px text-[length:var(--app-font-size-ui-xs,10px)] font-medium leading-4 text-muted-foreground">
                         Current
                       </span>
                     ) : null}
                   </div>
-                  <div className="truncate text-xs leading-4 text-muted-foreground">
+                  <div className="truncate text-[length:var(--app-font-size-ui,12px)] leading-4 text-muted-foreground">
                     {entry.subtitle}
                   </div>
                 </div>
@@ -135,7 +135,7 @@ export function RecentViewSwitcher(props: {
             );
           })}
         </div>
-        <div className="flex items-center justify-between gap-3 border-t border-border/60 px-3 py-2 text-[11px] text-muted-foreground">
+        <div className="flex items-center justify-between gap-3 border-t border-border/60 px-3 py-2 text-[length:var(--app-font-size-ui-sm,11px)] text-muted-foreground">
           <span className="shrink-0">
             {props.entries.length} recent {props.entries.length === 1 ? "view" : "views"}
           </span>

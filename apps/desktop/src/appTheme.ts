@@ -2,7 +2,7 @@
 // Purpose: Validates shell-owned Theme tokens and renders the isolated App CSS contract.
 // Layer: Trusted desktop App runtime
 
-import type { DesktopAppTheme } from "@penkra/contracts";
+import type { DesktopAppTheme, DesktopAppTypography } from "@penkra/contracts";
 
 const TOKEN_NAMES = [
   "background",
@@ -80,4 +80,44 @@ export function renderDesktopAppThemeCss(theme: DesktopAppTheme): string {
     ";",
   );
   return `:root{color-scheme:${theme.variant};${declarations}}`;
+}
+
+const TYPOGRAPHY_CSS_NAMES = {
+  base: "--penkra-font-size-base",
+  small: "--penkra-font-size-small",
+  meta: "--penkra-font-size-meta",
+  large: "--penkra-font-size-large",
+} as const satisfies Record<keyof DesktopAppTypography, string>;
+
+export function parseDesktopAppTypography(value: unknown): DesktopAppTypography {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("App Typography must be an object.");
+  }
+  const candidate = value as Record<string, unknown>;
+  const names = Object.keys(TYPOGRAPHY_CSS_NAMES) as Array<keyof DesktopAppTypography>;
+  if (Object.keys(candidate).length !== names.length || names.some((name) => !(name in candidate))) {
+    throw new Error("App Typography must provide the complete semantic token contract.");
+  }
+  const result = {} as Record<keyof DesktopAppTypography, string>;
+  for (const name of names) {
+    const token = candidate[name];
+    if (typeof token !== "string" || !/^\d+(?:\.\d+)?px$/u.test(token)) {
+      throw new Error(`App Typography token ${name} is invalid.`);
+    }
+    const pixels = Number.parseFloat(token);
+    if (pixels < 8 || pixels > 24) {
+      throw new Error(`App Typography token ${name} is outside the supported range.`);
+    }
+    result[name] = token;
+  }
+  return result;
+}
+
+export function renderDesktopAppTypographyCss(typography: DesktopAppTypography): string {
+  const declarations = (
+    Object.keys(TYPOGRAPHY_CSS_NAMES) as Array<keyof DesktopAppTypography>
+  )
+    .map((name) => `${TYPOGRAPHY_CSS_NAMES[name]}:${typography[name]}`)
+    .join(";");
+  return `:root{${declarations}}`;
 }

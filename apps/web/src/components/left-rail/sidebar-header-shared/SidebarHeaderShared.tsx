@@ -23,7 +23,7 @@ export function SidebarHeaderShared({
       data-pencil-component="xpOxQ"
       {...props}
     >
-      <span className="min-w-0 truncate text-sm font-bold text-[var(--color-text-foreground)]">
+      <span className="min-w-0 truncate text-[length:calc(var(--app-font-size-base,12px)*1.1667)] font-bold text-[var(--color-text-foreground)]">
         {brand}
       </span>
       <span className="flex-1" />

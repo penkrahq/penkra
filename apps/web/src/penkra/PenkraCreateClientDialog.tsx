@@ -57,7 +57,7 @@ export function PenkraCreateClientDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogPopup className="max-w-md">
         <DialogHeader>
-          <DialogTitle className="text-base">Add client</DialogTitle>
+          <DialogTitle className="text-[length:calc(var(--app-font-size-base,12px)*1.3333)]">Add client</DialogTitle>
           <DialogDescription>The workspace is created and scoped immediately.</DialogDescription>
         </DialogHeader>
         <DialogPanel className="space-y-3">
@@ -89,7 +89,7 @@ export function PenkraCreateClientDialog({
             rows={4}
           />
           {mutation.error ? (
-            <p className="text-sm text-destructive">{mutation.error.message}</p>
+            <p className="text-[length:calc(var(--app-font-size-base,12px)*1.1667)] text-destructive">{mutation.error.message}</p>
           ) : null}
         </DialogPanel>
         <DialogFooter>

@@ -240,8 +240,8 @@ export function ModelsSettingsPanel({
         removeFirstBorder && "first:border-t-0",
       )}
     >
-      <span className="truncate text-xs text-muted-foreground">{row.providerTitle}</span>
-      <code className="min-w-0 truncate text-sm text-foreground">{row.slug}</code>
+      <span className="truncate text-[length:var(--app-font-size-ui,12px)] text-muted-foreground">{row.providerTitle}</span>
+      <code className="min-w-0 truncate text-[length:calc(var(--app-font-size-base,12px)*1.1667)] text-foreground">{row.slug}</code>
       <button
         type="button"
         className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100 hover:opacity-100"
@@ -378,7 +378,7 @@ export function ModelsSettingsPanel({
             </div>
 
             {selectedCustomModelError ? (
-              <p className="mt-2 text-xs text-destructive">{selectedCustomModelError}</p>
+              <p className="mt-2 text-[length:var(--app-font-size-ui,12px)] text-destructive">{selectedCustomModelError}</p>
             ) : null}
 
             {savedCustomModelRows.length > 0 ? (
@@ -393,7 +393,7 @@ export function ModelsSettingsPanel({
                     </DisclosureRegion>
                     <button
                       type="button"
-                      className="mt-2 text-xs text-muted-foreground transition-colors hover:text-foreground"
+                      className="mt-2 text-[length:var(--app-font-size-ui,12px)] text-muted-foreground transition-colors hover:text-foreground"
                       aria-expanded={showAllCustomModels}
                       onClick={() => setShowAllCustomModels((value) => !value)}
                     >

@@ -254,4 +254,48 @@ describe("ElectronAppTabHost", () => {
       "originating App tab is unavailable",
     );
   });
+
+  it("keeps Theme and Typography CSS as independent replaceable layers", async () => {
+    electron.views.length = 0;
+    const app = installedApp();
+    const host = new ElectronAppTabHost({
+      window: () => null,
+      installations: {
+        snapshot: () => ({
+          packagesByInstallationKey: { [`personal\0${app.appId}`]: app },
+        }),
+        isActive: () => true,
+        setEnabled: vi.fn(),
+      } as never,
+      sessions: { get: () => ({ appId: app.appId, spaceId: "personal" }) as never },
+      broker: { registerTab: vi.fn(() => vi.fn()) },
+      rpc: { registerTarget: vi.fn(() => vi.fn()), request: vi.fn() },
+      ipcBridge: { waitForReady: vi.fn(async () => undefined) },
+      preloadPath: "/trusted/appPreload.js",
+      onOpened: vi.fn(),
+      onState: vi.fn(),
+      measureRendererMemory: () => 128 * 1024,
+    });
+
+    await host.applyTheme(":root{--penkra-color-background:#181818}");
+    await host.applyTypography(":root{--penkra-font-size-base:12px}");
+    await host.openInstalled({
+      appId: app.appId,
+      spaceId: "personal",
+      threadId: "thread-1",
+      route: "/",
+    });
+
+    const contents = electron.views[0]?.webContents;
+    expect(contents?.insertCSS).toHaveBeenNthCalledWith(
+      1,
+      ":root{--penkra-color-background:#181818}",
+      { cssOrigin: "author" },
+    );
+    expect(contents?.insertCSS).toHaveBeenNthCalledWith(
+      2,
+      ":root{--penkra-font-size-base:12px}",
+      { cssOrigin: "author" },
+    );
+  });
 });

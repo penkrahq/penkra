@@ -15,14 +15,14 @@ export function SettingsAppsPage() {
 
   if (!snapshot) {
     return (
-      <p className="text-xs text-[var(--color-text-foreground-secondary)]">
+      <p className="text-[length:var(--app-font-size-ui,12px)] text-[var(--color-text-foreground-secondary)]">
         Loading installed Apps…
       </p>
     );
   }
   if (apps.length === 0) {
     return (
-      <p className="text-xs text-[var(--color-text-foreground-secondary)]">
+      <p className="text-[length:var(--app-font-size-ui,12px)] text-[var(--color-text-foreground-secondary)]">
         No Apps are installed.
       </p>
     );

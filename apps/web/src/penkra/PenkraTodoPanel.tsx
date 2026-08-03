@@ -102,7 +102,7 @@ export function PenkraTodoPanel({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetPopup side="right" className="max-w-lg">
         <SheetHeader className="border-b px-5 py-4">
-          <SheetTitle className="text-base">{client?.displayName ?? "Client work"}</SheetTitle>
+          <SheetTitle className="text-[length:calc(var(--app-font-size-base,12px)*1.3333)]">{client?.displayName ?? "Client work"}</SheetTitle>
           <SheetDescription>
             {client
               ? `${client.badge.count} ${client.badge.count === 1 ? "todo" : "todos"} need attention`
@@ -112,7 +112,7 @@ export function PenkraTodoPanel({
         <SheetPanel className="space-y-5 px-5 py-4">
           {client ? (
             <div className="space-y-2">
-              <label className="text-sm font-medium" htmlFor="penkra-client-instructions">
+              <label className="text-[length:calc(var(--app-font-size-base,12px)*1.1667)] font-medium" htmlFor="penkra-client-instructions">
                 Client-specific instructions
               </label>
               <Textarea
@@ -122,7 +122,7 @@ export function PenkraTodoPanel({
                 onChange={(event) => setInstructions(event.target.value)}
               />
               <div className="flex items-center justify-between gap-3">
-                <p className="text-xs text-muted-foreground">
+                <p className="text-[length:var(--app-font-size-ui,12px)] text-muted-foreground">
                   Applied only to this client workspace after you save.
                 </p>
                 <Button
@@ -144,12 +144,12 @@ export function PenkraTodoPanel({
                 </Button>
               </div>
               {updateClientMutation.error ? (
-                <p className="text-sm text-destructive">{updateClientMutation.error.message}</p>
+                <p className="text-[length:calc(var(--app-font-size-base,12px)*1.1667)] text-destructive">{updateClientMutation.error.message}</p>
               ) : null}
             </div>
           ) : null}
           {clientWarnings.length > 0 ? (
-            <div className="border-l-2 border-amber-500 bg-amber-500/8 px-3 py-2 text-sm">
+            <div className="border-l-2 border-amber-500 bg-amber-500/8 px-3 py-2 text-[length:calc(var(--app-font-size-base,12px)*1.1667)]">
               <div className="flex items-center gap-2 font-medium text-amber-700 dark:text-amber-300">
                 <TriangleAlertIcon className="size-4" /> Program needs work
               </div>
@@ -175,12 +175,12 @@ export function PenkraTodoPanel({
             </Button>
           </div>
           {createMutation.error ? (
-            <p className="text-sm text-destructive">{createMutation.error.message}</p>
+            <p className="text-[length:calc(var(--app-font-size-base,12px)*1.1667)] text-destructive">{createMutation.error.message}</p>
           ) : null}
 
           <div className="divide-y border-y">
             {clientTodos.length === 0 ? (
-              <p className="py-8 text-center text-sm text-muted-foreground">
+              <p className="py-8 text-center text-[length:calc(var(--app-font-size-base,12px)*1.1667)] text-muted-foreground">
                 Nothing needs attention.
               </p>
             ) : (
@@ -203,15 +203,15 @@ export function PenkraTodoPanel({
                         )}
                       />
                       <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium">{todo.title}</p>
-                        <p className="mt-0.5 text-xs text-muted-foreground">
+                        <p className="text-[length:calc(var(--app-font-size-base,12px)*1.1667)] font-medium">{todo.title}</p>
+                        <p className="mt-0.5 text-[length:var(--app-font-size-ui,12px)] text-muted-foreground">
                           {todo.kind}
                           {todo.dueAt
                             ? ` · due ${new Date(todo.dueAt).toLocaleString()}`
                             : " · no date"}
                         </p>
                         {todo.blockedReason ? (
-                          <p className="mt-1 text-xs text-red-600 dark:text-red-300">
+                          <p className="mt-1 text-[length:var(--app-font-size-ui,12px)] text-red-600 dark:text-red-300">
                             {todo.blockedReason}
                           </p>
                         ) : null}
@@ -265,16 +265,16 @@ export function PenkraTodoPanel({
 
           {selectedHumanTodo ? (
             <div className="border-t pt-4">
-              <p className="text-sm font-medium">{selectedHumanTodo.title}</p>
-              <p className="mt-1 text-sm text-muted-foreground">
+              <p className="text-[length:calc(var(--app-font-size-base,12px)*1.1667)] font-medium">{selectedHumanTodo.title}</p>
+              <p className="mt-1 text-[length:calc(var(--app-font-size-base,12px)*1.1667)] text-muted-foreground">
                 Human work item. Complete it here after the external action is finished.
               </p>
             </div>
           ) : null}
           {updateMutation.error ? (
-            <p className="text-sm text-destructive">{updateMutation.error.message}</p>
+            <p className="text-[length:calc(var(--app-font-size-base,12px)*1.1667)] text-destructive">{updateMutation.error.message}</p>
           ) : null}
-          {invokeError ? <p className="text-sm text-destructive">{invokeError}</p> : null}
+          {invokeError ? <p className="text-[length:calc(var(--app-font-size-base,12px)*1.1667)] text-destructive">{invokeError}</p> : null}
         </SheetPanel>
         <SheetFooter variant="bare">
           <Button variant="outline" onClick={() => onOpenChange(false)}>

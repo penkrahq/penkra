@@ -51,7 +51,7 @@ const COLOR_PICKER_COMMIT_DELAY_MS = 220;
 
 /** Borderless text action in the editor's header chrome (Copy, Import). */
 const EDITOR_TEXT_ACTION_CLASS_NAME = cn(
-  "rounded-md px-2 py-1 text-xs text-[var(--color-text-foreground-secondary)]",
+  "rounded-md px-2 py-1 text-[length:var(--app-font-size-ui,12px)] text-[var(--color-text-foreground-secondary)]",
   ELEVATED_HOVER_SURFACE_RAISED_TEXT_CLASS_NAME,
 );
 
@@ -124,13 +124,13 @@ export function ThemePackEditor({
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:py-3.5">
         <div className="flex items-center gap-2">
-          <h3 className="text-sm font-medium text-foreground">{titleLabel}</h3>
+          <h3 className="text-[length:calc(var(--app-font-size-base,12px)*1.1667)] font-medium text-foreground">{titleLabel}</h3>
           {!isPristine ? (
             <button
               type="button"
               onClick={() => resetThemeVariant(variant)}
               className={cn(
-                "rounded-md px-1.5 py-0.5 text-[11px] text-[var(--color-text-foreground-secondary)]",
+                "rounded-md px-1.5 py-0.5 text-[length:var(--app-font-size-ui-sm,11px)] text-[var(--color-text-foreground-secondary)]",
                 ELEVATED_HOVER_SURFACE_RAISED_TEXT_CLASS_NAME,
               )}
             >
@@ -186,7 +186,7 @@ export function ThemePackEditor({
           </Select>
         </div>
       </div>
-      <div className="border-b border-[color:var(--color-border)] px-4 pb-3 text-[11px] text-[var(--color-text-foreground-secondary)]">
+      <div className="border-b border-[color:var(--color-border)] px-4 pb-3 text-[length:var(--app-font-size-ui-sm,11px)] text-[var(--color-text-foreground-secondary)]">
         {contextLabel}
       </div>
 
@@ -294,7 +294,7 @@ function ThemeRow({ label, children }: { label: string; children: React.ReactNod
         "flex min-h-12 items-center justify-between gap-3",
       )}
     >
-      <span className="text-sm text-foreground/90">{label}</span>
+      <span className="text-[length:calc(var(--app-font-size-base,12px)*1.1667)] text-foreground/90">{label}</span>
       <div className="flex shrink-0 items-center gap-2">{children}</div>
     </div>
   );
@@ -425,7 +425,7 @@ function ColorPill({
             className="block size-5 shrink-0 rounded-full border"
             style={{ borderColor: ringColor }}
           />
-          <span className="font-system-ui flex-1 text-[12px] uppercase">{previewColor}</span>
+          <span className="font-system-ui flex-1 text-[length:var(--app-font-size-ui,12px)] uppercase">{previewColor}</span>
         </PopoverTrigger>
         <PopoverPopup
           align="end"
@@ -453,7 +453,7 @@ function ColorPill({
               maxLength={7}
               className={cn(
                 SETTINGS_CONTROL_RADIUS_CLASS_NAME,
-                "h-8 border border-[color:var(--color-border-light)] bg-[var(--color-background-elevated-secondary)] px-2 text-center font-chat-code text-xs uppercase outline-none focus:border-[color:var(--color-border-focus)]",
+                "h-8 border border-[color:var(--color-border-light)] bg-[var(--color-background-elevated-secondary)] px-2 text-center font-chat-code text-[length:var(--app-font-size-ui,12px)] uppercase outline-none focus:border-[color:var(--color-border-focus)]",
               )}
               aria-label={`${ariaLabel} hex value`}
             />
@@ -468,7 +468,7 @@ function CodeThemeBadge({ theme }: { theme: ChromeTheme }) {
   return (
     <span
       aria-hidden
-      className="flex size-[18px] shrink-0 items-center justify-center rounded-sm border text-[9px] font-semibold leading-none"
+      className="flex size-[18px] shrink-0 items-center justify-center rounded-sm border text-[length:var(--app-font-size-ui-2xs,9px)] font-semibold leading-none"
       style={{
         backgroundColor: theme.surface,
         borderColor: mixColor(theme.surface, theme.ink, 0.16),
@@ -485,7 +485,7 @@ function CodeThemeSelectOption({ label, theme }: { label: string; theme: ChromeT
     <div className="flex min-w-0 items-center gap-1.5">
       <CodeThemeBadge theme={theme} />
       <div className="min-w-0 flex-1">
-        <div className="truncate text-xs text-[var(--color-text-foreground)]">{label}</div>
+        <div className="truncate text-[length:var(--app-font-size-ui,12px)] text-[var(--color-text-foreground)]">{label}</div>
       </div>
     </div>
   );
@@ -554,7 +554,7 @@ function ContrastSlider({
           background: `linear-gradient(to right, var(--primary) 0%, var(--primary) ${fillPct}%, var(--input) ${fillPct}%, var(--input) 100%)`,
         }}
       />
-      <span className="w-7 text-right font-chat-code text-xs text-muted-foreground tabular-nums">
+      <span className="w-7 text-right font-chat-code text-[length:var(--app-font-size-ui,12px)] text-muted-foreground tabular-nums">
         {value}
       </span>
     </div>
@@ -602,7 +602,7 @@ function ImportThemeDialog({
       <DialogPopup className="max-w-md">
         <DialogHeader>
           <DialogTitle>Import {variant} theme</DialogTitle>
-          <p className="text-xs text-muted-foreground">
+          <p className="text-[length:var(--app-font-size-ui,12px)] text-muted-foreground">
             Paste a{" "}
             <code className="rounded bg-muted px-1 py-0.5 font-chat-code">codex-theme-v1:</code>{" "}
             share string. The embedded variant must match {variant}, and the selected code theme
@@ -619,10 +619,10 @@ function ImportThemeDialog({
             placeholder='codex-theme-v1:{"codeThemeId":"linear",...}'
             spellCheck={false}
             rows={5}
-            className="font-chat-code text-[11px]"
+            className="font-chat-code text-[length:var(--app-font-size-ui-sm,11px)]"
             aria-label="Theme share string"
           />
-          {error ? <p className="mt-2 text-xs text-destructive">{error}</p> : null}
+          {error ? <p className="mt-2 text-[length:var(--app-font-size-ui,12px)] text-destructive">{error}</p> : null}
         </DialogPanel>
         <DialogFooter>
           <DialogClose

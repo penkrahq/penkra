@@ -226,7 +226,7 @@ function CodeThemeBadge(props: { accent: string; background: string; foreground:
   return (
     <span
       aria-hidden="true"
-      className="inline-flex size-6 shrink-0 items-center justify-center rounded-full border font-medium text-[10px] leading-none tracking-[-0.01em]"
+      className="inline-flex size-6 shrink-0 items-center justify-center rounded-full border font-medium text-[length:var(--app-font-size-ui-xs,10px)] leading-none tracking-[-0.01em]"
       style={{
         backgroundColor: props.background,
         borderColor: `${props.foreground}26`,
@@ -427,8 +427,8 @@ export function SidebarSearchPalette(props: SidebarSearchPaletteProps) {
                   <LuArrowLeft className="size-4" />
                 </Button>
                 <div>
-                  <p className="text-sm font-medium text-foreground">Import thread from provider</p>
-                  <p className="mt-1 text-xs text-muted-foreground">
+                  <p className="text-[length:calc(var(--app-font-size-base,12px)*1.1667)] font-medium text-foreground">Import thread from provider</p>
+                  <p className="mt-1 text-[length:var(--app-font-size-ui,12px)] text-muted-foreground">
                     Create a local app thread and resume it from an existing provider id.
                   </p>
                 </div>
@@ -436,7 +436,7 @@ export function SidebarSearchPalette(props: SidebarSearchPaletteProps) {
             </div>
             <div className="space-y-4 px-4 py-4">
               <div className="space-y-2">
-                <p className="text-xs font-medium text-muted-foreground">Provider</p>
+                <p className="text-[length:var(--app-font-size-ui,12px)] font-medium text-muted-foreground">Provider</p>
                 <div className="flex gap-2">
                   {props.importProviders.map((provider) => (
                     <Button
@@ -463,13 +463,13 @@ export function SidebarSearchPalette(props: SidebarSearchPaletteProps) {
                   ))}
                 </div>
                 {props.importProviders.length === 0 ? (
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-[length:var(--app-font-size-ui,12px)] text-muted-foreground">
                     No connected providers expose chat import in this build.
                   </p>
                 ) : null}
               </div>
               <div className="space-y-2">
-                <p className="text-xs font-medium text-muted-foreground">{importFieldLabel}</p>
+                <p className="text-[length:var(--app-font-size-ui,12px)] font-medium text-muted-foreground">{importFieldLabel}</p>
                 <Input
                   autoFocus
                   nativeInput
@@ -484,7 +484,7 @@ export function SidebarSearchPalette(props: SidebarSearchPaletteProps) {
                     }
                   }}
                 />
-                <p className="text-xs text-muted-foreground">
+                <p className="text-[length:var(--app-font-size-ui,12px)] text-muted-foreground">
                   {importProvider === "claudeAgent"
                     ? "Claude resumes a persisted session by session id."
                     : importProvider === "cursor"
@@ -497,7 +497,7 @@ export function SidebarSearchPalette(props: SidebarSearchPaletteProps) {
                 </p>
               </div>
               {importError ? (
-                <p className="rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+                <p className="rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2 text-[length:calc(var(--app-font-size-base,12px)*1.1667)] text-destructive">
                   {importError}
                 </p>
               ) : null}
@@ -565,7 +565,7 @@ export function SidebarSearchPalette(props: SidebarSearchPaletteProps) {
                             }}
                           >
                             {Icon ? <PaletteIcon icon={Icon} /> : null}
-                            <span className="min-w-0 flex-1 truncate text-sm text-foreground">
+                            <span className="min-w-0 flex-1 truncate text-[length:calc(var(--app-font-size-base,12px)*1.1667)] text-foreground">
                               {action.label}
                             </span>
                             {action.shortcutLabel ? (
@@ -794,7 +794,7 @@ export function SidebarSearchPalette(props: SidebarSearchPaletteProps) {
 
                   {!hasSearchResults ? (
                     <CommandEmpty className="py-10">
-                      <div className="flex flex-col items-center justify-center gap-2 text-center text-sm text-muted-foreground/79">
+                      <div className="flex flex-col items-center justify-center gap-2 text-center text-[length:calc(var(--app-font-size-base,12px)*1.1667)] text-muted-foreground/79">
                         <SearchIcon className="size-4 opacity-70" />
                         <div>No matches.</div>
                       </div>

@@ -31,7 +31,7 @@ import { cn } from "~/lib/utils";
 import { useStore } from "~/store";
 import { createAllThreadsSelector } from "~/storeSelectors";
 
-const PILL_CLASS_NAME = "shrink-0 rounded-full px-2 py-1 text-[11px] font-medium leading-none";
+const PILL_CLASS_NAME = "shrink-0 rounded-full px-2 py-1 text-[length:var(--app-font-size-ui-sm,11px)] font-medium leading-none";
 
 interface StatusPill {
   label: string;
@@ -85,7 +85,7 @@ function ProviderUsageCard({
             <span className="flex size-7 shrink-0 items-center justify-center rounded-lg border border-[color:var(--color-border)] bg-muted/60">
               <ProviderIcon provider={provider} className="size-4" />
             </span>
-            <span className="truncate text-sm font-semibold text-foreground">
+            <span className="truncate text-[length:calc(var(--app-font-size-base,12px)*1.1667)] font-semibold text-foreground">
               {providerUsageDisplayName(provider)}
             </span>
           </div>
@@ -101,7 +101,7 @@ function ProviderUsageCard({
         {status === "ok" && hasUsage ? (
           <>
             {usageSummary.usageNotice ? (
-              <p className="flex items-start gap-1.5 text-xs leading-relaxed text-amber-600 dark:text-amber-300/90">
+              <p className="flex items-start gap-1.5 text-[length:var(--app-font-size-ui,12px)] leading-relaxed text-amber-600 dark:text-amber-300/90">
                 <TriangleAlertIcon className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
                 <span>{usageSummary.usageNotice}</span>
               </p>
@@ -120,7 +120,7 @@ function ProviderUsageCard({
             ) : null}
           </>
         ) : (
-          <p className="text-xs leading-relaxed text-muted-foreground">
+          <p className="text-[length:var(--app-font-size-ui,12px)] leading-relaxed text-muted-foreground">
             {status === "ok"
               ? "No usage data reported yet."
               : (snapshot.detail ?? providerUsageNeedsAuthDetail(provider))}
@@ -207,7 +207,7 @@ export function ProviderUsageSettingsPanel() {
     >
       {showInitialLoading ? (
         <SettingsCard>
-          <div className="px-4 py-3.5 text-xs text-muted-foreground">Loading provider usage…</div>
+          <div className="px-4 py-3.5 text-[length:var(--app-font-size-ui,12px)] text-muted-foreground">Loading provider usage…</div>
         </SettingsCard>
       ) : (
         <div className="flex flex-col gap-3">
@@ -222,7 +222,7 @@ export function ProviderUsageSettingsPanel() {
         </div>
       )}
 
-      <p className="px-2 text-[11px] leading-relaxed text-muted-foreground">
+      <p className="px-2 text-[length:var(--app-font-size-ui-sm,11px)] leading-relaxed text-muted-foreground">
         Usage is read locally from each provider CLI&apos;s stored credentials and fetched directly
         from the provider. OAuth providers may refresh short-lived tokens through their official
         token endpoint; if a provider shows “Not signed in”, re-authenticate with its CLI.

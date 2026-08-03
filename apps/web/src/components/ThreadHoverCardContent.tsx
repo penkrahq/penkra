@@ -64,7 +64,7 @@ export function ThreadHoverCardContent({
           {title}
         </span>
         {timeLabel ? (
-          <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground/55">
+          <span className="shrink-0 text-[length:var(--app-font-size-ui-xs,10px)] tabular-nums text-muted-foreground/55">
             {timeLabel}
           </span>
         ) : null}

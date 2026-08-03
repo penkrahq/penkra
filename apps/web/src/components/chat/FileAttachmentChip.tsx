@@ -189,7 +189,7 @@ export function FileAttachmentChip({
       <TooltipTrigger render={trigger} />
       <TooltipPopup side="top" className="max-w-80 whitespace-normal leading-tight">
         <div className="space-y-1">
-          <p className="text-xs font-medium text-foreground">{file.name}</p>
+          <p className="text-[length:var(--app-font-size-ui,12px)] font-medium text-foreground">{file.name}</p>
           <p className="text-[0.6875rem] text-muted-foreground">{detail}</p>
           {nonPersisted ? (
             <p className="text-[0.6875rem] text-amber-600">

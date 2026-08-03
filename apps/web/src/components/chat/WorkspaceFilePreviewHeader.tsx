@@ -102,7 +102,7 @@ export const WorkspaceFilePreviewHeader = function WorkspaceFilePreviewHeader(
     >
       <nav
         aria-label="File path"
-        className="flex min-w-0 flex-1 items-center text-[12px] leading-none"
+        className="flex min-w-0 flex-1 items-center text-[length:var(--app-font-size-ui,12px)] leading-none"
       >
         {/* Dir prefix shrinks far faster than the filename (shrink-[9999]), so under
             width pressure it collapses to nothing before the filename gives up any
@@ -126,7 +126,7 @@ export const WorkspaceFilePreviewHeader = function WorkspaceFilePreviewHeader(
       </nav>
 
       {props.truncated ? (
-        <span className="hidden shrink-0 text-[10px] text-muted-foreground/70 @sm/header-actions:inline">
+        <span className="hidden shrink-0 text-[length:var(--app-font-size-ui-xs,10px)] text-muted-foreground/70 @sm/header-actions:inline">
           Shown partially
         </span>
       ) : null}
@@ -148,7 +148,7 @@ export const WorkspaceFilePreviewHeader = function WorkspaceFilePreviewHeader(
                   aria-checked={selected}
                   title={segment.title}
                   className={cn(
-                    "flex h-6 cursor-pointer items-center gap-1.5 rounded-md px-2 text-[11px] transition-colors",
+                    "flex h-6 cursor-pointer items-center gap-1.5 rounded-md px-2 text-[length:var(--app-font-size-ui-sm,11px)] transition-colors",
                     selected
                       ? "bg-[var(--color-background-button-secondary)] text-[var(--color-text-foreground)]"
                       : "text-muted-foreground hover:text-foreground",

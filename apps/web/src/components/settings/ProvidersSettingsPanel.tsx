@@ -480,7 +480,7 @@ function SortableProviderVisibilityRow(props: {
         >
           <CentralIcon name="dot-grid-2x3" className="size-4" />
         </button>
-        <span className="min-w-0 text-sm text-foreground">{props.option.title}</span>
+        <span className="min-w-0 text-[length:calc(var(--app-font-size-base,12px)*1.1667)] text-foreground">{props.option.title}</span>
       </div>
       <Switch
         checked={!props.isHidden}
@@ -495,7 +495,7 @@ function ProviderDocsLinks({ docs }: { docs: ProviderInstallSettings["docs"] }) 
   return (
     <div className={cn(SETTINGS_OUTLINED_SURFACE_CLASS_NAME, "px-3 py-2.5")}>
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <span className="text-xs font-medium text-foreground">CLI docs</span>
+        <span className="text-[length:var(--app-font-size-ui,12px)] font-medium text-foreground">CLI docs</span>
         <div className="flex flex-wrap gap-2">
           {docs.map((doc) => (
             <Button
@@ -585,8 +585,8 @@ function ProviderInstallFieldControl(props: {
         className="flex items-start justify-between gap-3 rounded-md border border-border/70 bg-background/60 px-3 py-2"
       >
         <span className="min-w-0">
-          <span className="block text-xs font-medium text-foreground">{props.field.label}</span>
-          <span className="mt-1 block text-xs text-muted-foreground">
+          <span className="block text-[length:var(--app-font-size-ui,12px)] font-medium text-foreground">{props.field.label}</span>
+          <span className="mt-1 block text-[length:var(--app-font-size-ui,12px)] text-muted-foreground">
             {props.field.description}
           </span>
         </span>
@@ -606,7 +606,7 @@ function ProviderInstallFieldControl(props: {
   const isPassword = props.field.kind === "password";
   return (
     <label htmlFor={id} className="block">
-      <span className="block text-xs font-medium text-foreground">{props.field.label}</span>
+      <span className="block text-[length:var(--app-font-size-ui,12px)] font-medium text-foreground">{props.field.label}</span>
       <DebouncedSettingTextInput
         id={id}
         size="sm"
@@ -625,7 +625,7 @@ function ProviderInstallFieldControl(props: {
         autoComplete={isPassword ? "new-password" : undefined}
         spellCheck={false}
       />
-      <span className="mt-1 block text-xs text-muted-foreground">{props.field.description}</span>
+      <span className="mt-1 block text-[length:var(--app-font-size-ui,12px)] text-muted-foreground">{props.field.description}</span>
     </label>
   );
 }
@@ -677,14 +677,14 @@ function ProviderToolRow(props: {
             type="button"
             className="flex min-w-0 flex-1 items-center gap-2 text-left"
           >
-            <span className="min-w-0 flex-1 text-sm font-medium text-foreground">{title}</span>
+            <span className="min-w-0 flex-1 text-[length:calc(var(--app-font-size-base,12px)*1.1667)] font-medium text-foreground">{title}</span>
             {isDirty ? (
-              <span className="shrink-0 text-[11px] text-muted-foreground">Custom</span>
+              <span className="shrink-0 text-[length:var(--app-font-size-ui-sm,11px)] text-muted-foreground">Custom</span>
             ) : null}
             {providerUpdateLabel ? (
               <span
                 className={cn(
-                  "shrink-0 text-[11px]",
+                  "shrink-0 text-[length:var(--app-font-size-ui-sm,11px)]",
                   updateAdvisory?.status === "behind_latest"
                     ? "text-foreground"
                     : "text-muted-foreground",
@@ -713,7 +713,7 @@ function ProviderToolRow(props: {
             <div className="space-y-3">
               <ProviderDocsLinks docs={props.config.docs} />
               {showProviderUpdateStatus && updateAdvisory?.status === "behind_latest" ? (
-                <div className="text-xs text-muted-foreground">
+                <div className="text-[length:var(--app-font-size-ui,12px)] text-muted-foreground">
                   {updateAdvisory.canUpdate && updateAdvisory.updateCommand ? (
                     <>
                       <span>Command: </span>
@@ -911,7 +911,7 @@ export function ProvidersSettingsPanel({
                             onUpdate={(provider) => void runProviderUpdate(provider)}
                           />
                         ) : (
-                          <span className="text-[11px] text-muted-foreground">Manual update</span>
+                          <span className="text-[length:var(--app-font-size-ui-sm,11px)] text-muted-foreground">Manual update</span>
                         )
                       }
                     />

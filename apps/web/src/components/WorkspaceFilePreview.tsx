@@ -499,7 +499,7 @@ export function WorkspaceFilePreview(props: WorkspaceFilePreviewProps) {
     if (localPreviewGrantQuery.error) {
       return (
         <PanelStateMessage density="compact" fill="flex" className="items-start justify-start p-3">
-          <p className="text-left text-[11px] text-destructive/85">
+          <p className="text-left text-[length:var(--app-font-size-ui-sm,11px)] text-destructive/85">
             {localPreviewGrantQuery.error instanceof Error
               ? localPreviewGrantQuery.error.message
               : "Could not create local file preview grant."}
@@ -562,7 +562,7 @@ export function WorkspaceFilePreview(props: WorkspaceFilePreviewProps) {
         <FilePreviewLoadingState />
       ) : fileQuery.error ? (
         <PanelStateMessage density="compact" fill="flex" className="items-start justify-start p-3">
-          <p className="text-left text-[11px] text-destructive/85">
+          <p className="text-left text-[length:var(--app-font-size-ui-sm,11px)] text-destructive/85">
             {fileQuery.error instanceof Error ? fileQuery.error.message : "Could not read file."}
           </p>
         </PanelStateMessage>
@@ -584,7 +584,7 @@ export function WorkspaceFilePreview(props: WorkspaceFilePreviewProps) {
                 text={fileContents}
                 cwd={markdownPreviewCwd(props.workspaceRoot, filePath)}
                 isStreaming={false}
-                className="editor-markdown-preview__body text-sm leading-relaxed"
+                className="editor-markdown-preview__body text-[length:calc(var(--app-font-size-base,12px)*1.1667)] leading-relaxed"
                 {...(canToggleTasks ? { onTaskToggle: handleTaskToggle } : {})}
               />
             </div>

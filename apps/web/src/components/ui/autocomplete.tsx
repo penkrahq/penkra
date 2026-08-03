@@ -133,7 +133,7 @@ function AutocompleteItem({ className, children, ...props }: AutocompletePrimiti
   return (
     <AutocompletePrimitive.Item
       className={cn(
-        "flex min-h-8 cursor-default select-none items-center rounded-sm px-2 py-1 text-base outline-none data-disabled:pointer-events-none data-highlighted:bg-[var(--color-background-button-secondary-hover)] data-highlighted:text-[var(--color-text-foreground)] data-disabled:opacity-64 sm:min-h-7 sm:text-sm",
+        "flex min-h-8 cursor-default select-none items-center rounded-sm px-2 py-1 text-[length:calc(var(--app-font-size-base,12px)*1.3333)] outline-none data-disabled:pointer-events-none data-highlighted:bg-[var(--color-background-button-secondary-hover)] data-highlighted:text-[var(--color-text-foreground)] data-disabled:opacity-64 sm:min-h-7 sm:text-[length:calc(var(--app-font-size-base,12px)*1.1667)]",
         className,
       )}
       data-slot="autocomplete-item"
@@ -167,7 +167,7 @@ function AutocompleteGroup({ className, ...props }: AutocompletePrimitive.Group.
 function AutocompleteGroupLabel({ className, ...props }: AutocompletePrimitive.GroupLabel.Props) {
   return (
     <AutocompletePrimitive.GroupLabel
-      className={cn("px-2 py-1.5 font-medium text-muted-foreground text-xs", className)}
+      className={cn("px-2 py-1.5 font-medium text-muted-foreground text-[length:var(--app-font-size-ui,12px)]", className)}
       data-slot="autocomplete-group-label"
       {...props}
     />
@@ -178,7 +178,7 @@ function AutocompleteEmpty({ className, ...props }: AutocompletePrimitive.Empty.
   return (
     <AutocompletePrimitive.Empty
       className={cn(
-        "not-empty:p-2 text-center text-base text-muted-foreground sm:text-sm",
+        "not-empty:p-2 text-center text-[length:calc(var(--app-font-size-base,12px)*1.3333)] text-muted-foreground sm:text-[length:calc(var(--app-font-size-base,12px)*1.1667)]",
         className,
       )}
       data-slot="autocomplete-empty"
@@ -228,7 +228,7 @@ function AutocompleteStatus({ className, ...props }: AutocompletePrimitive.Statu
   return (
     <AutocompletePrimitive.Status
       className={cn(
-        "px-3 py-2 font-medium text-muted-foreground text-xs empty:m-0 empty:p-0",
+        "px-3 py-2 font-medium text-muted-foreground text-[length:var(--app-font-size-ui,12px)] empty:m-0 empty:p-0",
         className,
       )}
       data-slot="autocomplete-status"

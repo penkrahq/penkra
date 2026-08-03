@@ -234,7 +234,12 @@ import { DESKTOP_IPC_CHANNELS } from "./ipcChannels";
 import { ComposerDraftJournal } from "./composerDraftJournal";
 import { resolveVoiceQaAudioInput } from "./voiceQaAudioInput";
 import { startDesktopAppRuntime, type DesktopAppRuntime } from "./desktopAppRuntime";
-import { parseDesktopAppTheme, renderDesktopAppThemeCss } from "./appTheme";
+import {
+  parseDesktopAppTheme,
+  parseDesktopAppTypography,
+  renderDesktopAppThemeCss,
+  renderDesktopAppTypographyCss,
+} from "./appTheme";
 import { mediatedAppFetch } from "./appNetworkFetch";
 import { exchangeRawSocket } from "./appRawSocket";
 import { runAppProcess } from "./appProcessRunner";
@@ -4971,6 +4976,16 @@ function registerIpcHandlers(): void {
     if (!desktopAppRuntime) throw new Error("The App runtime is not ready.");
     await desktopAppRuntime.appTabs.applyTheme(
       renderDesktopAppThemeCss(parseDesktopAppTheme(rawTheme)),
+    );
+  });
+  ipcMain.removeHandler(IPC.setAppTypography);
+  ipcMain.handle(IPC.setAppTypography, async (event, rawTypography: unknown) => {
+    if (mainWindow?.webContents.id !== event.sender.id) {
+      throw new Error("Only the Penkra shell can set the App Typography contract.");
+    }
+    if (!desktopAppRuntime) throw new Error("The App runtime is not ready.");
+    await desktopAppRuntime.appTabs.applyTypography(
+      renderDesktopAppTypographyCss(parseDesktopAppTypography(rawTypography)),
     );
   });
 

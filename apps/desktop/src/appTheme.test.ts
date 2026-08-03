@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { parseDesktopAppTheme, renderDesktopAppThemeCss } from "./appTheme";
+import {
+  parseDesktopAppTheme,
+  parseDesktopAppTypography,
+  renderDesktopAppThemeCss,
+  renderDesktopAppTypographyCss,
+} from "./appTheme";
 
 const tokens = {
   background: "#181818",
@@ -36,5 +41,27 @@ describe("App Theme bridge", () => {
         tokens: { ...tokens, background: "red;}body{display:none" },
       }),
     ).toThrow("background is invalid");
+  });
+});
+
+describe("App Typography bridge", () => {
+  const typography = { base: "12px", small: "11px", meta: "10px", large: "13px" };
+
+  it("renders the complete semantic typography contract", () => {
+    expect(renderDesktopAppTypographyCss(parseDesktopAppTypography(typography))).toBe(
+      ":root{--penkra-font-size-base:12px;--penkra-font-size-small:11px;--penkra-font-size-meta:10px;--penkra-font-size-large:13px}",
+    );
+  });
+
+  it("rejects incomplete, non-pixel, and out-of-range values", () => {
+    expect(() => parseDesktopAppTypography({ ...typography, meta: undefined })).toThrow(
+      "meta is invalid",
+    );
+    expect(() => parseDesktopAppTypography({ ...typography, base: "1rem" })).toThrow(
+      "base is invalid",
+    );
+    expect(() => parseDesktopAppTypography({ ...typography, large: "100px" })).toThrow(
+      "large is outside the supported range",
+    );
   });
 });

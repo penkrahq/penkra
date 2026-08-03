@@ -21,13 +21,13 @@ export function OnboardingWelcome({
   return (
     <OnboardingLayout brandImage={onboardingIllustrations.welcome} showBrandLogo>
       <div className="w-[488px] font-sans" data-pencil-component="X3BOc">
-        <p className="text-[13px] font-light text-[var(--color-text-foreground-tertiary)]">
+        <p className="text-[length:var(--app-font-size-ui-lg,13px)] font-light text-[var(--color-text-foreground-tertiary)]">
           Welcome to Penkra
         </p>
-        <h1 className="mt-1.5 text-[28px] font-semibold tracking-tight">
+        <h1 className="mt-1.5 text-[length:calc(var(--app-font-size-base,12px)*2.3333)] font-semibold tracking-tight">
           Best app to work with AI
         </h1>
-        <p className="mt-2 text-[15px] leading-5 text-[var(--color-text-foreground-secondary)]">
+        <p className="mt-2 text-[length:calc(var(--app-font-size-base,12px)*1.25)] leading-5 text-[var(--color-text-foreground-secondary)]">
           Install apps, connect your subscriptions and work seamlessly with any AI model
         </p>
         <AgentLogos className="mt-8" />

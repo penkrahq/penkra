@@ -36,10 +36,10 @@ export function RowInstalledApp({
     >
       <IconTileApp className="size-10 [&_svg]:size-[18px]" icon={icon} tone={tone} />
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <strong className="truncate text-sm font-semibold text-[var(--color-text-foreground)]">
+        <strong className="truncate text-[length:calc(var(--app-font-size-base,12px)*1.1667)] font-semibold text-[var(--color-text-foreground)]">
           {name}
         </strong>
-        <span className="truncate text-xs text-[var(--color-text-foreground-tertiary)]">
+        <span className="truncate text-[length:var(--app-font-size-ui,12px)] text-[var(--color-text-foreground-tertiary)]">
           {description}
         </span>
       </span>

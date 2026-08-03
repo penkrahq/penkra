@@ -38,7 +38,7 @@ export const LeftRailRow = forwardRef<HTMLButtonElement, LeftRailRowProps>(funct
   return (
     <button
       className={cn(
-        "group/left-rail-row flex h-[27px] w-full min-w-0 cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent px-2.5 font-sans text-[13px] leading-4 font-normal text-[var(--color-text-foreground-secondary)] outline-none transition-colors",
+        "group/left-rail-row flex h-[27px] w-full min-w-0 cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent px-2.5 font-sans text-[length:var(--app-font-size-ui-lg,13px)] leading-4 font-normal text-[var(--color-text-foreground-secondary)] outline-none transition-colors",
         "hover:bg-[var(--color-background-button-secondary-hover)] hover:text-[var(--color-text-foreground)] active:bg-transparent active:text-[var(--color-text-foreground)] focus-visible:ring-1 focus-visible:ring-[var(--color-border-focus)]",
         state === "hover" &&
           "bg-[var(--color-background-button-secondary-hover)] text-[var(--color-text-foreground)]",

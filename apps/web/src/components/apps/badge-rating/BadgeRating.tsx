@@ -12,7 +12,7 @@ export function BadgeRating({ className, value = "4.9", ...props }: BadgeRatingP
     <span
       aria-label={`${value} out of 5 stars`}
       className={cn(
-        "inline-flex items-center gap-0.5 text-[11px] leading-[13px] text-[var(--color-text-foreground-tertiary)]",
+        "inline-flex items-center gap-0.5 text-[length:var(--app-font-size-ui-sm,11px)] leading-[13px] text-[var(--color-text-foreground-tertiary)]",
         className,
       )}
       data-pencil-component="gqhMw"

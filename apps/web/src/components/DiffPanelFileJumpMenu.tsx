@@ -60,13 +60,13 @@ function DiffFileJumpRow(props: {
         <div className="min-w-0 flex flex-1 items-baseline gap-1.5 overflow-hidden">
           <span className="shrink-0 text-[11.5px] font-medium text-foreground/85">{name}</span>
           {dir ? (
-            <span className="truncate text-[11px] text-muted-foreground/55">{dir}</span>
+            <span className="truncate text-[length:var(--app-font-size-ui-sm,11px)] text-muted-foreground/55">{dir}</span>
           ) : null}
         </div>
         <DiffStat
           additions={stat.additions}
           deletions={stat.deletions}
-          className="shrink-0 text-[10px] tabular-nums"
+          className="shrink-0 text-[length:var(--app-font-size-ui-xs,10px)] tabular-nums"
         />
       </div>
     </MenuItem>
@@ -121,9 +121,9 @@ export function DiffPanelFileJumpMenu(props: {
           listMaxHeightClassName="max-h-64"
         >
           {props.renderableFiles.length === 0 ? (
-            <p className="px-2.5 py-3 text-[11px] text-muted-foreground">No files in this diff.</p>
+            <p className="px-2.5 py-3 text-[length:var(--app-font-size-ui-sm,11px)] text-muted-foreground">No files in this diff.</p>
           ) : filteredFiles.length === 0 ? (
-            <p className="px-2.5 py-3 text-[11px] text-muted-foreground">No matching files.</p>
+            <p className="px-2.5 py-3 text-[length:var(--app-font-size-ui-sm,11px)] text-muted-foreground">No matching files.</p>
           ) : (
             filteredFiles.map((fileDiff) => {
               const filePath = resolveFileDiffPath(fileDiff);

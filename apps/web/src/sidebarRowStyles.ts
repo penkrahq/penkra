@@ -54,7 +54,7 @@ export const SIDEBAR_THREAD_ROW_BASE_CLASS_NAME = [
   "w-full translate-x-0 cursor-pointer justify-start text-left select-none",
   SIDEBAR_ROW_HEIGHT_CLASS_NAME,
   SIDEBAR_ROW_RADIUS_CLASS_NAME,
-  "pl-8 text-[13px]",
+  "pl-8 text-[length:var(--app-font-size-ui-lg,13px)]",
   SIDEBAR_ROW_FOCUS_CLASS_NAME,
 ].join(" ");
 

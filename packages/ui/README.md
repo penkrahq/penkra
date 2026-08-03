@@ -21,3 +21,7 @@ document.body.prepend(bar.element);
 tokens and should use those tokens instead of detecting or hardcoding a Penkra preset. Apps can
 omit the App Bar on any page or provide their own UI; they cannot replace the trusted Panel tab
 strip or other shell surfaces.
+
+The host also injects the user's semantic typography scale as `--penkra-font-size-base`,
+`--penkra-font-size-small`, `--penkra-font-size-meta`, and `--penkra-font-size-large`. Apps may
+consume these variables directly; shared `@penkra/ui` primitives already do so.

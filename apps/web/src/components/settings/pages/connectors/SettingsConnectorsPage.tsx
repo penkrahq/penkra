@@ -5,7 +5,7 @@ export function SettingsConnectorsPage() {
   if (connectors.length === 0) {
     return (
       <p
-        className="text-xs leading-relaxed text-[var(--color-text-foreground-secondary)]"
+        className="text-[length:var(--app-font-size-ui,12px)] leading-relaxed text-[var(--color-text-foreground-secondary)]"
         data-pencil-page="connectors"
       >
         No supported connectors are available in this build.

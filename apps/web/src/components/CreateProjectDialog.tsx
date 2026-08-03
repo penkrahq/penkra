@@ -197,7 +197,7 @@ export function CreateProjectDialog(props: {
           </div>
 
           {formError ? (
-            <p id={errorId} role="alert" className="text-xs text-destructive">
+            <p id={errorId} role="alert" className="text-[length:var(--app-font-size-ui,12px)] text-destructive">
               {formError}
             </p>
           ) : null}

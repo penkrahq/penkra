@@ -43,14 +43,14 @@ export function AppDiagnosticsView({
     >
       <header className="flex items-center gap-2 border-b border-[var(--color-border)] px-4 py-3">
         <IconActivityHeartbeat className="size-4 text-[var(--color-text-foreground-secondary)]" />
-        <span className="text-[13px] font-medium text-[var(--color-text-foreground)]">
+        <span className="text-[length:var(--app-font-size-ui-lg,13px)] font-medium text-[var(--color-text-foreground)]">
           Runtime diagnostics
         </span>
       </header>
       {error ? (
-        <p className="px-4 py-3 text-xs text-[var(--color-text-danger)]">{error}</p>
+        <p className="px-4 py-3 text-[length:var(--app-font-size-ui,12px)] text-[var(--color-text-danger)]">{error}</p>
       ) : entries.length === 0 ? (
-        <p className="px-4 py-3 text-xs text-[var(--color-text-foreground-tertiary)]">
+        <p className="px-4 py-3 text-[length:var(--app-font-size-ui,12px)] text-[var(--color-text-foreground-tertiary)]">
           No App runtime events for this Space.
         </p>
       ) : (
@@ -58,16 +58,16 @@ export function AppDiagnosticsView({
           {entries.map((entry) => (
             <li className="flex items-start justify-between gap-4 px-4 py-2.5" key={entry.id}>
               <span className="min-w-0">
-                <span className="block truncate text-xs text-[var(--color-text-foreground)]">
+                <span className="block truncate text-[length:var(--app-font-size-ui,12px)] text-[var(--color-text-foreground)]">
                   {names.get(entry.appId) ?? entry.appId} · {diagnosticLabel(entry.kind)}
                 </span>
                 {(entry.message || entry.operation) && (
-                  <span className="block truncate text-[11px] text-[var(--color-text-foreground-tertiary)]">
+                  <span className="block truncate text-[length:var(--app-font-size-ui-sm,11px)] text-[var(--color-text-foreground-tertiary)]">
                     {entry.operation ?? entry.message}
                   </span>
                 )}
               </span>
-              <span className="shrink-0 text-[11px] text-[var(--color-text-foreground-tertiary)]">
+              <span className="shrink-0 text-[length:var(--app-font-size-ui-sm,11px)] text-[var(--color-text-foreground-tertiary)]">
                 {metric(entry)}
               </span>
             </li>

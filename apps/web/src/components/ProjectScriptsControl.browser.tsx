@@ -63,7 +63,7 @@ describe("ProjectScriptsControl", () => {
 
     await expect.poll(() => document.body.textContent).toContain("Add Action");
     expect(document.body.textContent).toContain(
-      "Actions are project-scoped commands you can run from the top bar or keybindings.",
+      "Actions are folder-scoped commands you can run from the top bar or keybindings.",
     );
   });
 

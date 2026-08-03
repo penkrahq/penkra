@@ -209,7 +209,7 @@ function PullRequestThreadDialogContent({
       </DialogHeader>
       <DialogPanel className="space-y-4">
         <label className="grid gap-1.5">
-          <span className="text-xs font-medium text-foreground">Pull request</span>
+          <span className="text-[length:var(--app-font-size-ui,12px)] font-medium text-foreground">Pull request</span>
           <Input
             ref={referenceInputRef}
             placeholder="https://github.com/owner/repo/pull/42 or #42"
@@ -234,13 +234,13 @@ function PullRequestThreadDialogContent({
           <div className="rounded-xl border border-border/70 bg-muted/24 p-3">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <p className="truncate font-medium text-sm">{resolvedPullRequest.title}</p>
-                <p className="truncate text-muted-foreground text-xs">
+                <p className="truncate font-medium text-[length:calc(var(--app-font-size-base,12px)*1.1667)]">{resolvedPullRequest.title}</p>
+                <p className="truncate text-muted-foreground text-[length:var(--app-font-size-ui,12px)]">
                   #{resolvedPullRequest.number} · {resolvedPullRequest.headBranch} to{" "}
                   {resolvedPullRequest.baseBranch}
                 </p>
               </div>
-              <span className={cn("shrink-0 text-xs capitalize", statusTone)}>
+              <span className={cn("shrink-0 text-[length:var(--app-font-size-ui,12px)] capitalize", statusTone)}>
                 {resolvedPullRequest.state}
               </span>
             </div>
@@ -248,13 +248,13 @@ function PullRequestThreadDialogContent({
         ) : null}
 
         {isResolving ? (
-          <div className="flex items-center gap-2 text-muted-foreground text-xs">
+          <div className="flex items-center gap-2 text-muted-foreground text-[length:var(--app-font-size-ui,12px)]">
             <Spinner className="size-3.5" />
             Resolving pull request...
           </div>
         ) : null}
 
-        {errorMessage ? <p className="text-destructive text-xs">{errorMessage}</p> : null}
+        {errorMessage ? <p className="text-destructive text-[length:var(--app-font-size-ui,12px)]">{errorMessage}</p> : null}
       </DialogPanel>
       <DialogFooter>
         <Button

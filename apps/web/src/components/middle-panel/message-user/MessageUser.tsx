@@ -34,7 +34,7 @@ export function MessageUser({
       className={cn("group/message flex w-full flex-col items-end", className)}
       data-pencil-component="BDWPr"
     >
-      <div className="max-w-[80%] rounded-[14px] bg-[var(--color-background-user-message)] px-3.5 py-2.5 font-sans text-sm leading-normal text-[var(--color-text-foreground)]">
+      <div className="max-w-[80%] rounded-[14px] bg-[var(--color-background-user-message)] px-3.5 py-2.5 font-sans text-[length:calc(var(--app-font-size-base,12px)*1.1667)] leading-normal text-[var(--color-text-foreground)]">
         {children}
       </div>
       <MessageActions

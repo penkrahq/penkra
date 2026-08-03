@@ -42,14 +42,14 @@ export function MessageAssistant({
     >
       {workedFor ? (
         <button
-          className="mb-0.5 inline-flex cursor-pointer items-center gap-1 border-0 bg-transparent p-0 font-sans text-[13px] text-[var(--color-text-foreground-tertiary)] outline-none hover:text-[var(--color-text-foreground-secondary)] focus-visible:ring-1 focus-visible:ring-[var(--color-border-focus)]"
+          className="mb-0.5 inline-flex cursor-pointer items-center gap-1 border-0 bg-transparent p-0 font-sans text-[length:var(--app-font-size-ui-lg,13px)] text-[var(--color-text-foreground-tertiary)] outline-none hover:text-[var(--color-text-foreground-secondary)] focus-visible:ring-1 focus-visible:ring-[var(--color-border-focus)]"
           type="button"
         >
           {workedFor}
           <IconChevronRight className="size-3" />
         </button>
       ) : null}
-      <div className="max-w-full font-sans text-sm leading-normal text-[var(--color-text-foreground)]">
+      <div className="max-w-full font-sans text-[length:calc(var(--app-font-size-base,12px)*1.1667)] leading-normal text-[var(--color-text-foreground)]">
         {children}
       </div>
       <MessageActions

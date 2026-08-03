@@ -322,7 +322,7 @@ function MenuGroupLabel({
       // headers (e.g. "Effort"). Picker menus may still override padding-block
       // via the `--picker-section-py` token on `[data-slot="menu-label"]`.
       className={cn(
-        "px-2 py-1.5 font-normal text-xs text-muted-foreground/45 data-inset:ps-9 sm:data-inset:ps-8",
+        "px-2 py-1.5 font-normal text-[length:var(--app-font-size-ui,12px)] text-muted-foreground/45 data-inset:ps-9 sm:data-inset:ps-8",
         className,
       )}
       data-inset={inset}

@@ -68,7 +68,7 @@ export const AccountRowShared = forwardRef<HTMLDivElement, AccountRowSharedProps
     return (
       <div
         className={cn(
-          "group/account-row flex h-11 w-60 items-center rounded-[6px] bg-transparent py-2 font-sans text-[13px] text-[var(--color-text-foreground-secondary)]",
+          "group/account-row flex h-11 w-60 items-center rounded-[6px] bg-transparent py-2 font-sans text-[length:var(--app-font-size-ui-lg,13px)] text-[var(--color-text-foreground-secondary)]",
           selected && "text-[var(--color-text-foreground)]",
           disabled &&
             "pointer-events-none bg-transparent text-[var(--color-text-foreground-tertiary)]",
@@ -87,7 +87,7 @@ export const AccountRowShared = forwardRef<HTMLDivElement, AccountRowSharedProps
                 aria-label={updateLabel}
                 aria-disabled={updateDisabled || undefined}
                 className={cn(
-                  "flex h-[26px] cursor-pointer items-center justify-center gap-1 rounded-full border-0 px-1.5 text-xs leading-none font-normal outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)]",
+                  "flex h-[26px] cursor-pointer items-center justify-center gap-1 rounded-full border-0 px-1.5 text-[length:var(--app-font-size-ui,12px)] leading-none font-normal outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)]",
                   updateIsActionable
                     ? "bg-[#339cff] text-white hover:bg-[#1f8fef] active:bg-[#147bca] dark:bg-[#5bafff] dark:hover:bg-[#79bfff] dark:active:bg-[#339cff]"
                     : "bg-[#ecedef] text-[#6d7075] dark:bg-[#2a2a2a] dark:text-[#a6a6a6]",
@@ -105,7 +105,7 @@ export const AccountRowShared = forwardRef<HTMLDivElement, AccountRowSharedProps
             ) : (
               <span
                 className={cn(
-                  "flex h-[26px] items-center justify-center gap-1 rounded-full px-1.5 text-xs leading-none font-normal",
+                  "flex h-[26px] items-center justify-center gap-1 rounded-full px-1.5 text-[length:var(--app-font-size-ui,12px)] leading-none font-normal",
                   updateIsActionable
                     ? "bg-[#339cff] text-white dark:bg-[#5bafff]"
                     : "bg-[#ecedef] text-[#6d7075] dark:bg-[#2a2a2a] dark:text-[#a6a6a6]",

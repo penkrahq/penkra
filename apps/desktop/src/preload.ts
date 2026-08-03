@@ -30,6 +30,7 @@ contextBridge.exposeInMainWorld("desktopBridge", {
   confirm: (input) => ipcRenderer.invoke(IPC.confirm, input),
   setTheme: (theme) => ipcRenderer.invoke(IPC.setTheme, theme),
   setAppTheme: (theme) => ipcRenderer.invoke(IPC.setAppTheme, theme),
+  setAppTypography: (typography) => ipcRenderer.invoke(IPC.setAppTypography, typography),
   setSpacesMenu: (input) => ipcRenderer.invoke(IPC.setSpacesMenu, input),
   showContextMenu: (items, position) => ipcRenderer.invoke(IPC.contextMenu, items, position),
   openExternal: (url: string) => ipcRenderer.invoke(IPC.openExternal, url),

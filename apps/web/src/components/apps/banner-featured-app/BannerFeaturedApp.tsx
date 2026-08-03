@@ -33,11 +33,11 @@ export function BannerFeaturedApp({
       <div className="flex min-w-0 items-center gap-4">
         <IconTileApp className="size-16 rounded-2xl bg-[#5e6ad2] [&_svg]:size-7" icon={icon} />
         <div className="min-w-0">
-          <p className="text-[10px] font-bold tracking-[0.6px] text-[var(--color-text-accent)]">
+          <p className="text-[length:var(--app-font-size-ui-xs,10px)] font-bold tracking-[0.6px] text-[var(--color-text-accent)]">
             FEATURED
           </p>
-          <h3 className="truncate text-xl font-bold text-[var(--color-text-foreground)]">{name}</h3>
-          <p className="truncate text-[13px] text-[var(--color-text-foreground-secondary)]">
+          <h3 className="truncate text-[length:calc(var(--app-font-size-base,12px)*1.6667)] font-bold text-[var(--color-text-foreground)]">{name}</h3>
+          <p className="truncate text-[length:var(--app-font-size-ui-lg,13px)] text-[var(--color-text-foreground-secondary)]">
             {tagline}
           </p>
         </div>

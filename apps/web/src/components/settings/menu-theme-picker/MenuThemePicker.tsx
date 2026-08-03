@@ -33,7 +33,7 @@ export function MenuThemePicker({
           <button
             aria-selected={selected}
             className={cn(
-              "flex h-7 w-full shrink-0 cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent px-2 text-xs text-[var(--color-text-foreground-secondary)] outline-none hover:bg-[var(--color-background-button-secondary-hover)] focus-visible:ring-1 focus-visible:ring-[var(--color-border-focus)]",
+              "flex h-7 w-full shrink-0 cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent px-2 text-[length:var(--app-font-size-ui,12px)] text-[var(--color-text-foreground-secondary)] outline-none hover:bg-[var(--color-background-button-secondary-hover)] focus-visible:ring-1 focus-visible:ring-[var(--color-border-focus)]",
               selected &&
                 "bg-[var(--color-background-button-secondary)] text-[var(--color-text-foreground)]",
             )}
@@ -44,7 +44,7 @@ export function MenuThemePicker({
           >
             <span
               className={cn(
-                "inline-flex size-[18px] items-center justify-center rounded text-[9px] font-bold text-[var(--color-text-accent)]",
+                "inline-flex size-[18px] items-center justify-center rounded text-[length:var(--app-font-size-ui-2xs,9px)] font-bold text-[var(--color-text-accent)]",
                 selected
                   ? "bg-[var(--color-text-accent)] text-[var(--color-text-on-accent)]"
                   : "bg-[var(--color-background-accent)]",

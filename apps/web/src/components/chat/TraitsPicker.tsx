@@ -420,7 +420,7 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
             }
             note={
               ultrathinkPromptControlled ? (
-                <div className="px-2 pb-1.5 text-muted-foreground/80 text-xs">
+                <div className="px-2 pb-1.5 text-muted-foreground/80 text-[length:var(--app-font-size-ui,12px)]">
                   Remove Ultrathink from the prompt to change effort.
                 </div>
               ) : undefined

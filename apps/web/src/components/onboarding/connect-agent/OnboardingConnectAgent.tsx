@@ -32,7 +32,7 @@ export function OnboardingConnectAgent({ onBack, onContinue }: OnboardingConnect
       <ButtonBack className="absolute top-7 left-7" onClick={onBack} />
       <div className="w-[488px] font-sans" data-pencil-component="X4Yqda">
         <h1 className="text-2xl font-semibold">Connect an agent to get started</h1>
-        <p className="mt-2 text-sm text-[var(--color-text-foreground-secondary)]">
+        <p className="mt-2 text-[length:calc(var(--app-font-size-base,12px)*1.1667)] text-[var(--color-text-foreground-secondary)]">
           Pick at least one — you can add more anytime.
         </p>
         <ScrollArea

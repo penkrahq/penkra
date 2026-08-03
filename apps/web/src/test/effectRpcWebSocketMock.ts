@@ -150,6 +150,7 @@ export function createShellSnapshotFromReadModel(
       .map((thread) => ({
         id: thread.id,
         projectId: thread.projectId,
+        spaceId: thread.spaceId,
         title: thread.title,
         modelSelection: thread.modelSelection,
         interactionMode: thread.interactionMode,
@@ -157,6 +158,7 @@ export function createShellSnapshotFromReadModel(
         envMode: thread.envMode,
         branch: thread.branch,
         worktreePath: thread.worktreePath,
+        workingDirectory: thread.workingDirectory ?? null,
         associatedWorktreePath: thread.associatedWorktreePath ?? null,
         associatedWorktreeBranch: thread.associatedWorktreeBranch ?? null,
         associatedWorktreeRef: thread.associatedWorktreeRef ?? null,

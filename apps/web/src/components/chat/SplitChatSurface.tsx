@@ -261,7 +261,7 @@ function SplitPaneEmptyState(props: {
       onMouseDown={props.onFocus}
     >
       <div className="w-full max-w-sm space-y-4">
-        <p className="text-center text-sm font-medium text-foreground/70">Select a chat</p>
+        <p className="text-center text-[length:calc(var(--app-font-size-base,12px)*1.1667)] font-medium text-foreground/70">Select a chat</p>
         <div className="max-h-[60vh] space-y-1 overflow-y-auto">
           {props.threads.map((thread) => {
             const isUsed = props.excludedThreadIds.has(thread.id);
@@ -287,10 +287,10 @@ function SplitPaneEmptyState(props: {
                   className="size-4 shrink-0"
                 />
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm font-medium text-foreground">
+                  <div className="truncate text-[length:calc(var(--app-font-size-base,12px)*1.1667)] font-medium text-foreground">
                     {resolveThreadPickerTitle(thread.title)}
                   </div>
-                  <div className="truncate text-xs text-muted-foreground">{projectName}</div>
+                  <div className="truncate text-[length:var(--app-font-size-ui,12px)] text-muted-foreground">{projectName}</div>
                 </div>
               </button>
             );
@@ -1131,10 +1131,10 @@ export function SplitChatSurface(props: { splitViewId: SplitViewId; routeThreadI
                       className="size-4 shrink-0"
                     />
                     <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm font-medium text-foreground">
+                      <div className="truncate text-[length:calc(var(--app-font-size-base,12px)*1.1667)] font-medium text-foreground">
                         {resolveThreadPickerTitle(thread.title)}
                       </div>
-                      <div className="truncate text-xs text-muted-foreground">{projectName}</div>
+                      <div className="truncate text-[length:var(--app-font-size-ui,12px)] text-muted-foreground">{projectName}</div>
                     </div>
                   </button>
                 );

@@ -40,12 +40,12 @@ export function CardAppStore({
       <IconTileApp icon={icon} {...(tone === undefined ? {} : { tone })} />
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <div className="flex items-center gap-1.5">
-          <strong className="truncate text-sm font-semibold text-[var(--color-text-foreground)]">
+          <strong className="truncate text-[length:calc(var(--app-font-size-base,12px)*1.1667)] font-semibold text-[var(--color-text-foreground)]">
             {name}
           </strong>
           <BadgeRating value={rating} />
         </div>
-        <p className="line-clamp-2 text-xs leading-[1.4] text-[var(--color-text-foreground-tertiary)]">
+        <p className="line-clamp-2 text-[length:var(--app-font-size-ui,12px)] leading-[1.4] text-[var(--color-text-foreground-tertiary)]">
           {description}
         </p>
       </div>

@@ -32,13 +32,13 @@ export function showConfirmDialogFallback(message: string): Promise<boolean> {
     header.className = "flex flex-col gap-1.5 px-4 py-3.5 text-center sm:text-left";
 
     const titleEl = document.createElement("h2");
-    titleEl.className = "font-heading font-semibold text-base leading-snug";
+    titleEl.className = "font-heading font-semibold text-[length:calc(var(--app-font-size-base,12px)*1.3333)] leading-snug";
     titleEl.textContent = title;
     header.appendChild(titleEl);
 
     if (description) {
       const descEl = document.createElement("p");
-      descEl.className = "text-muted-foreground text-[13px] leading-5";
+      descEl.className = "text-muted-foreground text-[length:var(--app-font-size-ui-lg,13px)] leading-5";
       descEl.textContent = description;
       header.appendChild(descEl);
     }
@@ -74,7 +74,7 @@ export function showConfirmDialogFallback(message: string): Promise<boolean> {
     cancelBtn.type = "button";
     cancelBtn.textContent = "Cancel";
     cancelBtn.className =
-      "inline-flex h-8 min-w-20 cursor-pointer items-center justify-center whitespace-nowrap rounded-md border border-[color:var(--color-border)] bg-[var(--color-background-elevated-primary-opaque)] px-3 text-[13px] font-medium text-[var(--color-text-foreground)] outline-none focus-visible:ring-1 focus-visible:ring-ring/60 " +
+      "inline-flex h-8 min-w-20 cursor-pointer items-center justify-center whitespace-nowrap rounded-md border border-[color:var(--color-border)] bg-[var(--color-background-elevated-primary-opaque)] px-3 text-[length:var(--app-font-size-ui-lg,13px)] font-medium text-[var(--color-text-foreground)] outline-none focus-visible:ring-1 focus-visible:ring-ring/60 " +
       ELEVATED_HOVER_SURFACE_CLASS_NAME;
     cancelBtn.addEventListener("click", () => cleanup(false));
 
@@ -83,7 +83,7 @@ export function showConfirmDialogFallback(message: string): Promise<boolean> {
     confirmBtn.type = "button";
     confirmBtn.textContent = "Confirm";
     confirmBtn.className =
-      "inline-flex h-8 min-w-20 cursor-pointer items-center justify-center whitespace-nowrap rounded-md border border-foreground bg-foreground px-3 text-[13px] font-medium text-background outline-none transition-all duration-150 hover:scale-[1.02] hover:bg-foreground/92 focus-visible:ring-1 focus-visible:ring-ring/60";
+      "inline-flex h-8 min-w-20 cursor-pointer items-center justify-center whitespace-nowrap rounded-md border border-foreground bg-foreground px-3 text-[length:var(--app-font-size-ui-lg,13px)] font-medium text-background outline-none transition-all duration-150 hover:scale-[1.02] hover:bg-foreground/92 focus-visible:ring-1 focus-visible:ring-ring/60";
 
     confirmBtn.addEventListener("click", () => cleanup(true));
 

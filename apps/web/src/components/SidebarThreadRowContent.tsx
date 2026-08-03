@@ -88,7 +88,7 @@ function ProviderAvatarWithTerminal({
                 {terminalCount > 1 ? (
                   <span
                     className={cn(
-                      "text-[8px] font-semibold leading-none tabular-nums",
+                      "text-[length:calc(var(--app-font-size-base,12px)*0.6667)] font-semibold leading-none tabular-nums",
                       badgeColorClass,
                     )}
                   >
@@ -253,7 +253,7 @@ export function SidebarThreadRowContent({
         {!isSubagentThread && pendingStatusColorClass ? (
           <span
             aria-label="Pending approval"
-            className={cn("shrink-0 text-[10px] font-medium", pendingStatusColorClass)}
+            className={cn("shrink-0 text-[length:var(--app-font-size-ui-xs,10px)] font-medium", pendingStatusColorClass)}
           >
             Pending
           </span>

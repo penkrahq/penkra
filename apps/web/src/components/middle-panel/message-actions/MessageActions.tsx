@@ -56,7 +56,7 @@ export function MessageActions({
   return (
     <div
       className={cn(
-        "flex h-[26px] items-center text-[11px] text-[var(--color-text-foreground-tertiary)]",
+        "flex h-[26px] items-center text-[length:var(--app-font-size-ui-sm,11px)] text-[var(--color-text-foreground-tertiary)]",
         className,
       )}
       data-pencil-component={assistant ? "vI265" : "Bx6FM"}

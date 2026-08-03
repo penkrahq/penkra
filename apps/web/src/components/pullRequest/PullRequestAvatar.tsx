@@ -12,8 +12,8 @@ import type { PullRequestActor } from "@penkra/contracts";
 import { cn } from "~/lib/utils";
 
 const SIZE_CLASS_NAME = {
-  sm: "size-4 text-[8px]",
-  md: "size-5 text-[9px]",
+  sm: "size-4 text-[length:calc(var(--app-font-size-base,12px)*0.6667)]",
+  md: "size-5 text-[length:var(--app-font-size-ui-2xs,9px)]",
   lg: "size-7 text-[length:var(--app-font-size-ui-sm,11px)]",
 } as const;
 

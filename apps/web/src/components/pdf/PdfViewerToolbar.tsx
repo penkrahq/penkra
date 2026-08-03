@@ -64,7 +64,7 @@ export const PdfViewerToolbar = function PdfViewerToolbar(props: PdfViewerToolba
       )}
     >
       <div className="flex min-w-0 flex-1 items-center gap-2">
-        <span className="truncate text-[12px] font-medium text-foreground" title={props.fileName}>
+        <span className="truncate text-[length:var(--app-font-size-ui,12px)] font-medium text-foreground" title={props.fileName}>
           {props.fileName}
         </span>
         <Badge variant="outline" size="sm" className="text-muted-foreground/80">
@@ -183,12 +183,12 @@ function PdfPageIndicator({
   };
 
   return (
-    <span className="flex items-center gap-1 text-[11px] tabular-nums text-muted-foreground">
+    <span className="flex items-center gap-1 text-[length:var(--app-font-size-ui-sm,11px)] tabular-nums text-muted-foreground">
       <input
         value={draft}
         inputMode="numeric"
         aria-label="Current page"
-        className="h-6 w-8 rounded-sm border border-border/60 bg-transparent text-center text-[11px] text-foreground tabular-nums outline-none focus-visible:border-[color:var(--color-border-focus)]"
+        className="h-6 w-8 rounded-sm border border-border/60 bg-transparent text-center text-[length:var(--app-font-size-ui-sm,11px)] text-foreground tabular-nums outline-none focus-visible:border-[color:var(--color-border-focus)]"
         onChange={(event) => setDraft(event.target.value.replace(/[^0-9]/g, ""))}
         onBlur={commit}
         onKeyDown={(event) => {

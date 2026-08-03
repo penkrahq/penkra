@@ -69,7 +69,7 @@ export function FileLineCommentBox(props: FileLineCommentBoxProps) {
       onContextMenu={(event) => event.stopPropagation()}
     >
       <div className="flex items-center justify-between gap-2">
-        <span className="inline-flex items-center gap-2 text-[13px] font-semibold text-[var(--color-text-foreground)]">
+        <span className="inline-flex items-center gap-2 text-[length:var(--app-font-size-ui-lg,13px)] font-semibold text-[var(--color-text-foreground)]">
           <span className="editor-file-viewer__comment-badge">
             <PenkraMark
               monochrome
@@ -78,7 +78,7 @@ export function FileLineCommentBox(props: FileLineCommentBoxProps) {
           </span>
           Local comment
         </span>
-        <span className="text-[12px] text-muted-foreground">Comment on {props.lineLabel}</span>
+        <span className="text-[length:var(--app-font-size-ui,12px)] text-muted-foreground">Comment on {props.lineLabel}</span>
       </div>
       <textarea
         ref={textareaRef}

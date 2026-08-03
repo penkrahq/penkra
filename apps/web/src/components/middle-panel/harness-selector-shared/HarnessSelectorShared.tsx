@@ -26,7 +26,7 @@ export const HarnessSelectorShared = forwardRef<HTMLButtonElement, HarnessSelect
     return (
       <button
         className={cn(
-          "inline-flex h-[25px] cursor-pointer items-center gap-[5px] rounded-lg border-0 bg-transparent px-2 font-sans text-xs text-[var(--color-text-foreground-secondary)] outline-none transition-colors hover:bg-[var(--color-background-button-secondary-hover)] hover:text-[var(--color-text-foreground)] focus-visible:ring-1 focus-visible:ring-[var(--color-border-focus)]",
+          "inline-flex h-[25px] cursor-pointer items-center gap-[5px] rounded-lg border-0 bg-transparent px-2 font-sans text-[length:var(--app-font-size-ui,12px)] text-[var(--color-text-foreground-secondary)] outline-none transition-colors hover:bg-[var(--color-background-button-secondary-hover)] hover:text-[var(--color-text-foreground)] focus-visible:ring-1 focus-visible:ring-[var(--color-border-focus)]",
           className,
         )}
         ref={ref}

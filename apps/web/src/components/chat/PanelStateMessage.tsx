@@ -10,8 +10,8 @@ import { type ReactNode } from "react";
 
 import { cn } from "~/lib/utils";
 
-// `comfortable` matches the larger pane placeholders (text-sm, p-6); `compact`
-// matches dense in-panel hints (text-xs, dimmer). `fill` chooses between filling
+// `comfortable` matches the larger pane placeholders (text-[length:calc(var(--app-font-size-base,12px)*1.1667)], p-6); `compact`
+// matches dense in-panel hints (text-[length:var(--app-font-size-ui,12px)], dimmer). `fill` chooses between filling
 // a fixed-height parent (`full`) or flexing within a column (`flex`).
 export function PanelStateMessage(props: {
   children: ReactNode;
@@ -27,8 +27,8 @@ export function PanelStateMessage(props: {
         "flex w-full items-center justify-center text-center",
         fill === "full" ? "h-full min-h-0" : "flex-1",
         density === "comfortable"
-          ? "p-6 text-sm text-muted-foreground"
-          : "px-5 text-xs text-muted-foreground/70",
+          ? "p-6 text-[length:calc(var(--app-font-size-base,12px)*1.1667)] text-muted-foreground"
+          : "px-5 text-[length:var(--app-font-size-ui,12px)] text-muted-foreground/70",
         props.className,
       )}
     >

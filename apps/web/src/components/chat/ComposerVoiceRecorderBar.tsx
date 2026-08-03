@@ -84,7 +84,7 @@ export function ComposerVoiceRecorderBar(props: ComposerVoiceRecorderBarProps) {
         </div>
       </div>
 
-      <span className="shrink-0 text-xs font-medium tabular-nums tracking-[0.02em] text-zinc-500 dark:text-zinc-400">
+      <span className="shrink-0 text-[length:var(--app-font-size-ui,12px)] font-medium tabular-nums tracking-[0.02em] text-zinc-500 dark:text-zinc-400">
         {props.durationLabel}
       </span>
 

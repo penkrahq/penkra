@@ -31,7 +31,6 @@ function HoverSubmenuFixture() {
           <MenuSubTrigger>Move to space</MenuSubTrigger>
           <MenuSubPopup>
             <MenuItem>Work</MenuItem>
-            <MenuItem>Work</MenuItem>
           </MenuSubPopup>
         </MenuSub>
       </MenuPopupBase>

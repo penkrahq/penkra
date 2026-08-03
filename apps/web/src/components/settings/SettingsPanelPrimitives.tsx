@@ -93,7 +93,7 @@ export function SettingsEmptyState({
     <div
       className={cn(
         SETTINGS_EMPTY_STATE_CLASS_NAME,
-        "px-4 text-sm",
+        "px-4 text-[length:calc(var(--app-font-size-base,12px)*1.1667)]",
         layout === "block" ? "py-10 text-center" : "py-6",
         tone === "destructive"
           ? "border-destructive/30 bg-destructive/5 text-destructive"

@@ -22,7 +22,7 @@ export function FieldGroupApiKey({
   return (
     <div className={cn("flex w-[488px] flex-col gap-6", className)} data-pencil-component="YzDKb">
       <label className="flex flex-col gap-[7px]">
-        <span className="text-[13px] font-semibold text-[var(--color-text-foreground-secondary)]">
+        <span className="text-[length:var(--app-font-size-ui-lg,13px)] font-semibold text-[var(--color-text-foreground-secondary)]">
           API key
         </span>
         <InputShared

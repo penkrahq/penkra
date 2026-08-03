@@ -102,7 +102,7 @@ function EditorDiffOptionsCountBadge(props: { count: number | undefined }) {
     return null;
   }
   return (
-    <span className="ml-auto rounded-full bg-muted px-1.5 text-[10px] font-medium text-muted-foreground tabular-nums">
+    <span className="ml-auto rounded-full bg-muted px-1.5 text-[length:var(--app-font-size-ui-xs,10px)] font-medium text-muted-foreground tabular-nums">
       {props.count}
     </span>
   );
@@ -219,7 +219,7 @@ function EditorDiffOptionsMenu(props: {
                 return (
                   <MenuRadioItem key={summary.turnId} value={summary.turnId}>
                     <span className="min-w-0 flex-1 truncate">Turn {turnNumber}</span>
-                    <span className="shrink-0 text-[10px] text-muted-foreground tabular-nums">
+                    <span className="shrink-0 text-[length:var(--app-font-size-ui-xs,10px)] text-muted-foreground tabular-nums">
                       {formatShortTimestamp(summary.completedAt, props.timestampFormat)}
                     </span>
                   </MenuRadioItem>

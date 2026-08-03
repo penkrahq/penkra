@@ -32,7 +32,7 @@ describe("shared tooltip chrome", () => {
 
     expect(popup.dataset.pencilComponent).toBe("Q5AL4");
     expect(getComputedStyle(popup).backgroundColor).toBe("rgb(0, 0, 0)");
-    expect(popupStyle.borderRadius).toBe("8px");
+    expect(popupStyle.borderRadius).toBe("10px");
     expect(popupStyle.fontSize).toBe("12px");
     expect(popupStyle.lineHeight).toBe("16px");
     expect(popupStyle.fontWeight).toBe("400");

@@ -81,7 +81,7 @@
   border-radius: var(--penkra-radius-control);
   background: transparent;
   color: var(--penkra-color-text-secondary);
-  font-size: 12px;
+  font-size: var(--penkra-font-size-base);
 }
 
 .penkra-app-bar__input:hover,

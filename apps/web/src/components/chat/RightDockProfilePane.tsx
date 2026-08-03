@@ -68,7 +68,7 @@ export const RightDockProfilePane = memo(function RightDockProfilePane(props: {
 
   if (!project) {
     return (
-      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+      <div className="flex h-full items-center justify-center text-[length:calc(var(--app-font-size-base,12px)*1.1667)] text-muted-foreground">
         Profile not found
       </div>
     );
@@ -82,9 +82,9 @@ export const RightDockProfilePane = memo(function RightDockProfilePane(props: {
           <CentralIcon name="user" className="size-10 text-zinc-500 dark:text-zinc-400" />
         </div>
         <div className="text-center">
-          <h2 className="text-base font-semibold">{project.name}</h2>
+          <h2 className="text-[length:calc(var(--app-font-size-base,12px)*1.3333)] font-semibold">{project.name}</h2>
           {project.localName ? (
-            <p className="mt-0.5 text-xs text-muted-foreground">{project.folderName}</p>
+            <p className="mt-0.5 text-[length:var(--app-font-size-ui,12px)] text-muted-foreground">{project.folderName}</p>
           ) : null}
         </div>
       </div>
@@ -92,8 +92,8 @@ export const RightDockProfilePane = memo(function RightDockProfilePane(props: {
       {/* Todo list */}
       <div className="flex-1 overflow-y-auto px-5 py-4">
         <div className="mb-3 flex items-center justify-between">
-          <h3 className="text-sm font-medium">Todos</h3>
-          <span className="text-xs text-muted-foreground">{MOCK_TODOS.length} active</span>
+          <h3 className="text-[length:calc(var(--app-font-size-base,12px)*1.1667)] font-medium">Todos</h3>
+          <span className="text-[length:var(--app-font-size-ui,12px)] text-muted-foreground">{MOCK_TODOS.length} active</span>
         </div>
 
         <div className="space-y-1">
@@ -103,7 +103,7 @@ export const RightDockProfilePane = memo(function RightDockProfilePane(props: {
               <div
                 key={todo.id}
                 className={cn(
-                  "group flex items-start gap-2.5 rounded-md px-2 py-2 text-sm",
+                  "group flex items-start gap-2.5 rounded-md px-2 py-2 text-[length:calc(var(--app-font-size-base,12px)*1.1667)]",
                   "hover:bg-muted/50",
                 )}
               >
@@ -113,7 +113,7 @@ export const RightDockProfilePane = memo(function RightDockProfilePane(props: {
                   <div className="mt-1 flex items-center gap-2">
                     <span
                       className={cn(
-                        "inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium",
+                        "inline-flex items-center rounded-full px-1.5 py-0.5 text-[length:var(--app-font-size-ui-xs,10px)] font-medium",
                         todo.status === "open" && "bg-muted text-muted-foreground",
                         todo.status === "doing" &&
                           "bg-blue-500/10 text-blue-600 dark:text-blue-400",
@@ -123,10 +123,10 @@ export const RightDockProfilePane = memo(function RightDockProfilePane(props: {
                     >
                       {config.label}
                     </span>
-                    <span className="text-[10px] text-muted-foreground/60">{todo.kind}</span>
+                    <span className="text-[length:var(--app-font-size-ui-xs,10px)] text-muted-foreground/60">{todo.kind}</span>
                   </div>
                   {todo.blockedReason ? (
-                    <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
+                    <p className="mt-1 text-[length:var(--app-font-size-ui,12px)] text-amber-600 dark:text-amber-400">
                       {todo.blockedReason}
                     </p>
                   ) : null}
@@ -145,11 +145,11 @@ export const RightDockProfilePane = memo(function RightDockProfilePane(props: {
             placeholder="Add a todo..."
             value={newTodoTitle}
             onChange={(e) => setNewTodoTitle(e.target.value)}
-            className="flex-1 rounded-md border bg-transparent px-2.5 py-1.5 text-sm placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring"
+            className="flex-1 rounded-md border bg-transparent px-2.5 py-1.5 text-[length:calc(var(--app-font-size-base,12px)*1.1667)] placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring"
           />
           <button
             type="button"
-            className="rounded-md bg-primary px-2.5 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+            className="rounded-md bg-primary px-2.5 py-1.5 text-[length:var(--app-font-size-ui,12px)] font-medium text-primary-foreground hover:bg-primary/90"
           >
             Add
           </button>

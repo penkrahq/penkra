@@ -12,7 +12,7 @@ export function MenuLocalRuntime() {
       className="w-40 min-w-40 rounded-[10px] p-2"
       data-pencil-component="DJLI5"
     >
-      <MenuItem className="h-8 gap-2 rounded-lg px-2 py-0 text-[12px] font-normal">
+      <MenuItem className="h-8 gap-2 rounded-lg px-2 py-0 text-[length:var(--app-font-size-ui,12px)] font-normal">
         <IconDeviceDesktop
           aria-hidden="true"
           className="size-[15px] text-[var(--color-text-foreground-secondary)]"

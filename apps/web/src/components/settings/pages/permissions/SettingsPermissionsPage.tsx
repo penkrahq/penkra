@@ -24,13 +24,13 @@ export function SettingsPermissionsPage() {
 
   if (!snapshot)
     return (
-      <p className="text-xs text-[var(--color-text-foreground-secondary)]">
+      <p className="text-[length:var(--app-font-size-ui,12px)] text-[var(--color-text-foreground-secondary)]">
         Loading App permissions…
       </p>
     );
   if (!activeSpaceId)
     return (
-      <p className="text-xs text-[var(--color-text-foreground-secondary)]">
+      <p className="text-[length:var(--app-font-size-ui,12px)] text-[var(--color-text-foreground-secondary)]">
         Open a Space to manage its App permissions.
       </p>
     );
@@ -41,10 +41,10 @@ export function SettingsPermissionsPage() {
         data-pencil-page="permissions"
       >
         <IconShieldCheck className="size-6 text-[var(--color-text-foreground-tertiary)]" />
-        <p className="text-[13px] font-medium text-[var(--color-text-foreground)]">
+        <p className="text-[length:var(--app-font-size-ui-lg,13px)] font-medium text-[var(--color-text-foreground)]">
           No additional permissions
         </p>
-        <p className="max-w-80 text-xs leading-relaxed text-[var(--color-text-foreground-tertiary)]">
+        <p className="max-w-80 text-[length:var(--app-font-size-ui,12px)] leading-relaxed text-[var(--color-text-foreground-tertiary)]">
           Installed Apps have not requested additional permissions.
         </p>
       </div>
@@ -64,10 +64,10 @@ export function SettingsPermissionsPage() {
             <header className="flex items-center gap-2 border-b border-[var(--color-border)] px-4 py-3">
               <IconShieldLock className="size-4 text-[var(--color-text-foreground-secondary)]" />
               <div className="min-w-0">
-                <h3 className="text-[13px] font-medium text-[var(--color-text-foreground)]">
+                <h3 className="text-[length:var(--app-font-size-ui-lg,13px)] font-medium text-[var(--color-text-foreground)]">
                   {app.name}
                 </h3>
-                <p className="text-xs text-[var(--color-text-foreground-tertiary)]">
+                <p className="text-[length:var(--app-font-size-ui,12px)] text-[var(--color-text-foreground-tertiary)]">
                   Permissions for this Space
                 </p>
               </div>
@@ -78,10 +78,10 @@ export function SettingsPermissionsPage() {
                 return (
                   <div className="flex min-h-16 items-center gap-4 px-4 py-3" key={permission.name}>
                     <span className="min-w-0 flex-1">
-                      <span className="block text-[13px] text-[var(--color-text-foreground)]">
+                      <span className="block text-[length:var(--app-font-size-ui-lg,13px)] text-[var(--color-text-foreground)]">
                         {permissionLabel(permission.name)}
                       </span>
-                      <span className="block text-xs leading-relaxed text-[var(--color-text-foreground-tertiary)]">
+                      <span className="block text-[length:var(--app-font-size-ui,12px)] leading-relaxed text-[var(--color-text-foreground-tertiary)]">
                         {permission.reason}
                         {permission.required ? " Required while the App is enabled." : " Optional."}
                       </span>

@@ -411,7 +411,7 @@ function ToastSurface({
               "gap-2 px-3 py-1.5 pr-1.5 text-[length:var(--app-font-size-ui-sm,11px)] leading-normal",
               compactContextual ? "items-start py-2" : "items-center",
             )
-          : "items-start gap-2 px-3.5 py-3 pr-10 text-sm",
+          : "items-start gap-2 px-3.5 py-3 pr-10 text-[length:calc(var(--app-font-size-base,12px)*1.1667)]",
         hideCollapsedContent && "not-data-expanded:pointer-events-none not-data-expanded:opacity-0",
       )}
     >
@@ -694,7 +694,7 @@ function AnchoredToasts() {
                   className={cn(
                     "relative text-balance transition-[scale,opacity] data-ending-style:scale-98 data-starting-style:scale-98 data-ending-style:opacity-0 data-starting-style:opacity-0",
                     tooltipStyle
-                      ? "rounded-lg border bg-popover text-popover-foreground text-xs shadow-md/5 [-webkit-app-region:no-drag] before:pointer-events-none before:absolute before:inset-0 before:rounded-[calc(var(--radius-lg)-1px)] before:shadow-[0_1px_--theme(--color-black/4%)] dark:before:shadow-[0_-1px_--theme(--color-white/6%)]"
+                      ? "rounded-lg border bg-popover text-popover-foreground text-[length:var(--app-font-size-ui,12px)] shadow-md/5 [-webkit-app-region:no-drag] before:pointer-events-none before:absolute before:inset-0 before:rounded-[calc(var(--radius-lg)-1px)] before:shadow-[0_1px_--theme(--color-black/4%)] dark:before:shadow-[0_-1px_--theme(--color-white/6%)]"
                       : compact
                         ? COMPACT_NOTIFICATION_SURFACE_CLASS_NAME
                         : EXPANDED_NOTIFICATION_SURFACE_CLASS_NAME,

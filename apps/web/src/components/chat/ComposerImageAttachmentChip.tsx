@@ -45,7 +45,7 @@ export function ComposerImageAttachmentChip({
         {image.previewUrl ? (
           <img src={image.previewUrl} alt={image.name} className="size-full object-cover" />
         ) : (
-          <span className="flex size-full items-center justify-center text-[10px] font-medium text-muted-foreground/70">
+          <span className="flex size-full items-center justify-center text-[length:var(--app-font-size-ui-xs,10px)] font-medium text-muted-foreground/70">
             IMG
           </span>
         )}

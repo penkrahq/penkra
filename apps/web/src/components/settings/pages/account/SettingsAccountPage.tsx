@@ -84,10 +84,10 @@ export function SettingsAccountPage() {
       <div className="flex items-center gap-3 px-1 py-1">
         <AvatarAccount className="size-10" />
         <div className="min-w-0">
-          <p className="truncate text-[13px] font-semibold text-[var(--color-text-foreground)]">
+          <p className="truncate text-[length:var(--app-font-size-ui-lg,13px)] font-semibold text-[var(--color-text-foreground)]">
             {displayName}
           </p>
-          <p className="text-xs text-[var(--color-text-foreground-tertiary)]">Personal account</p>
+          <p className="text-[length:var(--app-font-size-ui,12px)] text-[var(--color-text-foreground-tertiary)]">Personal account</p>
         </div>
       </div>
 

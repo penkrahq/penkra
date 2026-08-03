@@ -39,10 +39,10 @@ export const AgentCardVerticalShared = forwardRef<HTMLButtonElement, AgentCardVe
       >
         {icon ?? <ProviderIcon className="size-10" provider={provider} />}
         <span className="flex flex-col items-center">
-          <span className="text-[13px] font-semibold text-[var(--color-text-foreground)]">
+          <span className="text-[length:var(--app-font-size-ui-lg,13px)] font-semibold text-[var(--color-text-foreground)]">
             {children}
           </span>
-          <span className="text-xs text-[var(--color-text-foreground-tertiary)]">
+          <span className="text-[length:var(--app-font-size-ui,12px)] text-[var(--color-text-foreground-tertiary)]">
             {description}
           </span>
         </span>

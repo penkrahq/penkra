@@ -91,7 +91,7 @@ function SettingControl({
     return (
       <select
         aria-label={setting.label}
-        className="h-8 min-w-36 rounded-lg border border-[var(--color-border)] bg-[var(--color-background-surface)] px-2 text-xs text-[var(--color-text-foreground)] outline-none focus-visible:border-[var(--color-border-focus)]"
+        className="h-8 min-w-36 rounded-lg border border-[var(--color-border)] bg-[var(--color-background-surface)] px-2 text-[length:var(--app-font-size-ui,12px)] text-[var(--color-text-foreground)] outline-none focus-visible:border-[var(--color-border-focus)]"
         onChange={(event) => update(event.currentTarget.value)}
         value={setting.value}
       >
@@ -130,7 +130,7 @@ function CommittedInput({
     <form className="flex items-center gap-1.5" onSubmit={submit}>
       <input
         aria-label={setting.label}
-        className="h-8 w-40 rounded-lg border border-[var(--color-border)] bg-[var(--color-background-surface)] px-2 text-xs text-[var(--color-text-foreground)] outline-none placeholder:text-[var(--color-text-foreground-tertiary)] focus-visible:border-[var(--color-border-focus)]"
+        className="h-8 w-40 rounded-lg border border-[var(--color-border)] bg-[var(--color-background-surface)] px-2 text-[length:var(--app-font-size-ui,12px)] text-[var(--color-text-foreground)] outline-none placeholder:text-[var(--color-text-foreground-tertiary)] focus-visible:border-[var(--color-border-focus)]"
         max={setting.type === "number" ? setting.validation?.maximum : undefined}
         maxLength={setting.type === "string" ? setting.validation?.maxLength : undefined}
         min={setting.type === "number" ? setting.validation?.minimum : undefined}
@@ -146,7 +146,7 @@ function CommittedInput({
         value={draft}
       />
       <button
-        className="h-8 rounded-lg border border-[var(--color-border)] px-2 text-xs text-[var(--color-text-foreground-secondary)] hover:text-[var(--color-text-foreground)]"
+        className="h-8 rounded-lg border border-[var(--color-border)] px-2 text-[length:var(--app-font-size-ui,12px)] text-[var(--color-text-foreground-secondary)] hover:text-[var(--color-text-foreground)]"
         type="submit"
       >
         Save

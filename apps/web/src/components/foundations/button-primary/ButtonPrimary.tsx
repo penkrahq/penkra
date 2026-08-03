@@ -18,7 +18,7 @@ export const ButtonPrimary = forwardRef<HTMLButtonElement, ButtonPrimaryProps>(
       <Button
         aria-busy={loading || undefined}
         className={cn(
-          "!h-[41px] w-full !rounded-[10px] !px-4 font-sans !text-sm !font-semibold sm:!h-[41px]",
+          "!h-[41px] w-full !rounded-[10px] !px-4 font-sans !text-[length:calc(var(--app-font-size-base,12px)*1.1667)] !font-semibold sm:!h-[41px]",
           "focus-visible:!ring-2 focus-visible:!ring-[var(--color-border-focus)] disabled:!border disabled:!border-[var(--color-border)] disabled:!bg-[var(--color-background-button-secondary-active)] disabled:!text-[var(--color-text-foreground-tertiary)] disabled:!opacity-100",
           loading
             ? "!border !border-[var(--color-border-heavy)] !bg-[var(--color-background-button-secondary-active)] !text-[var(--color-text-foreground-secondary)] disabled:!border-[var(--color-border-heavy)] disabled:!bg-[var(--color-background-button-secondary-active)] disabled:!text-[var(--color-text-foreground-secondary)]"

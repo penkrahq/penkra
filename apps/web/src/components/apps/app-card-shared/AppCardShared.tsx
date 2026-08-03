@@ -40,14 +40,14 @@ export function AppCardShared({
       </span>
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="flex items-center gap-1">
-          <strong className="truncate text-[15px] font-semibold text-[var(--color-text-foreground)]">
+          <strong className="truncate text-[length:calc(var(--app-font-size-base,12px)*1.25)] font-semibold text-[var(--color-text-foreground)]">
             {name}
           </strong>
           {verified ? (
             <IconCircleCheck className="size-3.5 shrink-0 text-[var(--color-text-accent)]" />
           ) : null}
         </span>
-        <span className="line-clamp-4 text-xs leading-[1.4] text-[var(--color-text-foreground-secondary)]">
+        <span className="line-clamp-4 text-[length:var(--app-font-size-ui,12px)] leading-[1.4] text-[var(--color-text-foreground-secondary)]">
           {description}
         </span>
       </span>

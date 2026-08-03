@@ -36,7 +36,7 @@ export function ChangelogAccordion({
   const defaultExpandedVersion = defaultExpandedVersionProp ?? null;
   if (entries.length === 0) {
     return (
-      <p className={cn("text-xs text-muted-foreground", className)}>
+      <p className={cn("text-[length:var(--app-font-size-ui,12px)] text-muted-foreground", className)}>
         No release notes yet — check back after the next update.
       </p>
     );
@@ -76,9 +76,9 @@ function ChangelogAccordionRow({
         <CollapsibleTrigger className="group flex w-full items-center gap-3 py-3 text-left">
           <DisclosureChevron open={open} />
           <span className="flex flex-1 items-baseline gap-2">
-            <span className="text-xs text-muted-foreground">{entry.date}</span>
-            <span className="text-sm font-semibold text-foreground">Version {entry.version}</span>
-            <span className="text-xs text-muted-foreground/70">({featureLabel})</span>
+            <span className="text-[length:var(--app-font-size-ui,12px)] text-muted-foreground">{entry.date}</span>
+            <span className="text-[length:calc(var(--app-font-size-base,12px)*1.1667)] font-semibold text-foreground">Version {entry.version}</span>
+            <span className="text-[length:var(--app-font-size-ui,12px)] text-muted-foreground/70">({featureLabel})</span>
           </span>
         </CollapsibleTrigger>
         <CollapsiblePanel>

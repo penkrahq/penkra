@@ -21,17 +21,17 @@ export function PermissionSection({
 
   return (
     <section className="w-full font-sans">
-      <h3 className="text-[11px] font-semibold text-[var(--color-text-foreground-tertiary)]">
+      <h3 className="text-[length:var(--app-font-size-ui-sm,11px)] font-semibold text-[var(--color-text-foreground-tertiary)]">
         {resolvedHeading}
       </h3>
       <div className="mt-0.5 flex min-h-[58px] flex-col justify-center">
         <div className="flex items-center gap-3">
-          <span className="flex-1 text-[13px] font-semibold text-[var(--color-text-foreground)]">
+          <span className="flex-1 text-[length:var(--app-font-size-ui-lg,13px)] font-semibold text-[var(--color-text-foreground)]">
             {title}
           </span>
           <PermissionToggleShared aria-label={title} defaultChecked={defaultEnabled} />
         </div>
-        <p className="mt-1 text-xs text-[var(--color-text-foreground-tertiary)]">{reason}</p>
+        <p className="mt-1 text-[length:var(--app-font-size-ui,12px)] text-[var(--color-text-foreground-tertiary)]">{reason}</p>
       </div>
     </section>
   );

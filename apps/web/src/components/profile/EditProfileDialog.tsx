@@ -117,7 +117,7 @@ function EditProfileDialogContent({
 
   return (
     <>
-      <DialogTitle className="px-4 pt-4 text-lg">Edit profile</DialogTitle>
+      <DialogTitle className="px-4 pt-4 text-[length:calc(var(--app-font-size-base,12px)*1.5)]">Edit profile</DialogTitle>
 
       <div className="flex flex-col gap-4 px-4 pt-3">
         {/* Avatar */}
@@ -204,14 +204,14 @@ function EditProfileDialogContent({
               </div>
 
               {draftImage && (
-                <p className="text-center text-xs text-muted-foreground">
+                <p className="text-center text-[length:var(--app-font-size-ui,12px)] text-muted-foreground">
                   Colors apply when no photo is set.
                 </p>
               )}
             </div>
           )}
 
-          {error && <p className="text-center text-xs text-destructive">{error}</p>}
+          {error && <p className="text-center text-[length:var(--app-font-size-ui,12px)] text-destructive">{error}</p>}
         </div>
 
         {/* Fields */}
@@ -265,7 +265,7 @@ function EditProfileDialogContent({
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="flex items-center justify-between gap-4 px-3.5 py-3">
-      <span className="shrink-0 text-sm text-muted-foreground">{label}</span>
+      <span className="shrink-0 text-[length:calc(var(--app-font-size-base,12px)*1.1667)] text-muted-foreground">{label}</span>
       <div className="w-56 shrink-0">{children}</div>
     </div>
   );

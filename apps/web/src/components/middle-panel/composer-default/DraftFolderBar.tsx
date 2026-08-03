@@ -14,7 +14,7 @@ export function DraftFolderBar({ folderPicker }: { folderPicker: ReactNode }) {
           render={
             <button
               type="button"
-              className="inline-flex h-[26px] shrink-0 items-center gap-[7px] rounded-full px-1.5 text-[12px] font-medium text-[var(--color-text-foreground)] outline-none transition-colors hover:bg-[var(--color-background-button-secondary-hover)] focus-visible:ring-1 focus-visible:ring-[var(--color-border-focus)]"
+              className="inline-flex h-[26px] shrink-0 items-center gap-[7px] rounded-full px-1.5 text-[length:var(--app-font-size-ui,12px)] font-medium text-[var(--color-text-foreground)] outline-none transition-colors hover:bg-[var(--color-background-button-secondary-hover)] focus-visible:ring-1 focus-visible:ring-[var(--color-border-focus)]"
               data-pencil-node="B1ZyM"
             />
           }

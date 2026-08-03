@@ -148,7 +148,7 @@ export function EnvironmentLocalServersSection({ enabled }: { enabled: boolean }
           {serverCount > 0 ? (
             <span className="size-1.5 rounded-full bg-success" aria-hidden />
           ) : null}
-          <span className="text-[11px] tabular-nums text-[var(--color-text-foreground-secondary)]">
+          <span className="text-[length:var(--app-font-size-ui-sm,11px)] tabular-nums text-[var(--color-text-foreground-secondary)]">
             {serverCount}
           </span>
         </span>

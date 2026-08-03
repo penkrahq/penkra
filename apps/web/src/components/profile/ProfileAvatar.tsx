@@ -12,7 +12,7 @@ interface ProfileAvatarProps {
   readonly image?: string | null;
   /** Sizing/shape utility classes for the circle, e.g. "size-16". */
   readonly className?: string;
-  /** Type scale for the initials fallback, e.g. "text-xl". */
+  /** Type scale for the initials fallback, e.g. "text-[length:calc(var(--app-font-size-base,12px)*1.6667)]". */
   readonly textClassName?: string;
 }
 

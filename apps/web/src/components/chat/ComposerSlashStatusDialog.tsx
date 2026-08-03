@@ -83,27 +83,27 @@ export function ComposerSlashStatusDialog(props: {
           </DialogDescription>
         </DialogHeader>
         <DialogPanel className="space-y-4">
-          <div className="grid gap-3 rounded-lg border border-border/60 bg-muted/20 p-4 text-sm sm:grid-cols-2">
+          <div className="grid gap-3 rounded-lg border border-border/60 bg-muted/20 p-4 text-[length:calc(var(--app-font-size-base,12px)*1.1667)] sm:grid-cols-2">
             <div className="space-y-1">
-              <p className="text-xs text-muted-foreground">Model</p>
+              <p className="text-[length:var(--app-font-size-ui,12px)] text-muted-foreground">Model</p>
               <p className="font-medium text-foreground">{selectedModel}</p>
             </div>
             <div className="space-y-1">
-              <p className="text-xs text-muted-foreground">Fast Mode</p>
+              <p className="text-[length:var(--app-font-size-ui,12px)] text-muted-foreground">Fast Mode</p>
               <p className="font-medium text-foreground">{fastModeEnabled ? "On" : "Off"}</p>
             </div>
             <div className="space-y-1">
-              <p className="text-xs text-muted-foreground">Reasoning</p>
+              <p className="text-[length:var(--app-font-size-ui,12px)] text-muted-foreground">Reasoning</p>
               <p className="font-medium text-foreground">{selectedPromptEffort ?? "Default"}</p>
             </div>
             <div className="space-y-1">
-              <p className="text-xs text-muted-foreground">Environment</p>
+              <p className="text-[length:var(--app-font-size-ui,12px)] text-muted-foreground">Environment</p>
               <p className="font-medium text-foreground">
                 {formatEnvironmentLabel(envMode, envState)}
               </p>
             </div>
             <div className="space-y-1">
-              <p className="text-xs text-muted-foreground">Branch</p>
+              <p className="text-[length:var(--app-font-size-ui,12px)] text-muted-foreground">Branch</p>
               <p className="font-medium text-foreground">{branch ?? "Unknown"}</p>
             </div>
           </div>
@@ -111,12 +111,12 @@ export function ComposerSlashStatusDialog(props: {
           <div className="space-y-3 rounded-lg border border-border/60 bg-card p-4">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <p className="text-xs text-muted-foreground">Context Window</p>
-                <p className="text-sm text-muted-foreground">
+                <p className="text-[length:var(--app-font-size-ui,12px)] text-muted-foreground">Context Window</p>
+                <p className="text-[length:calc(var(--app-font-size-base,12px)*1.1667)] text-muted-foreground">
                   Latest usage reported by the active thread.
                 </p>
                 {pendingContextWindowLabel ? (
-                  <p className="text-sm text-muted-foreground">
+                  <p className="text-[length:calc(var(--app-font-size-base,12px)*1.1667)] text-muted-foreground">
                     Current session: {activeContextWindowLabel ?? "Unknown"}. Next turn:{" "}
                     {pendingContextWindowLabel}.
                   </p>
@@ -132,7 +132,7 @@ export function ComposerSlashStatusDialog(props: {
               ) : null}
             </div>
             {contextWindow ? (
-              <div className="grid gap-3 text-sm sm:grid-cols-2">
+              <div className="grid gap-3 text-[length:calc(var(--app-font-size-base,12px)*1.1667)] sm:grid-cols-2">
                 <div>
                   <p className="text-muted-foreground">Used</p>
                   <p className="font-medium text-foreground">
@@ -161,18 +161,18 @@ export function ComposerSlashStatusDialog(props: {
                 </div>
               </div>
             ) : (
-              <p className="text-sm text-muted-foreground">
+              <p className="text-[length:calc(var(--app-font-size-base,12px)*1.1667)] text-muted-foreground">
                 Context usage has not been reported yet for this thread.
               </p>
             )}
           </div>
 
           <div className="space-y-2 rounded-lg border border-border/60 bg-card p-4">
-            <p className="text-xs text-muted-foreground">Rate Limits</p>
+            <p className="text-[length:var(--app-font-size-ui,12px)] text-muted-foreground">Rate Limits</p>
             {rateLimitStatus ? (
-              <p className="text-sm text-foreground">{formatRateLimitMessage(rateLimitStatus)}</p>
+              <p className="text-[length:calc(var(--app-font-size-base,12px)*1.1667)] text-foreground">{formatRateLimitMessage(rateLimitStatus)}</p>
             ) : (
-              <p className="text-sm text-muted-foreground">
+              <p className="text-[length:calc(var(--app-font-size-base,12px)*1.1667)] text-muted-foreground">
                 No active rate-limit warning for this thread.
               </p>
             )}

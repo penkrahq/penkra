@@ -32,7 +32,7 @@ export function TopBarThread({
   return (
     <header
       className={cn(
-        "flex w-full items-center bg-transparent px-3.5 font-sans text-[13px]",
+        "flex w-full items-center bg-transparent px-3.5 font-sans text-[length:var(--app-font-size-ui-lg,13px)]",
         CHAT_SURFACE_HEADER_HEIGHT_CLASS,
         className,
       )}

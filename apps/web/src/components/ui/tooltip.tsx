@@ -17,7 +17,7 @@ function TooltipShortcut({ children, className }: { children: ReactNode; classNa
   return (
     <kbd
       className={cn(
-        "inline-flex shrink-0 items-center justify-center rounded-[999px] bg-[var(--color-background-button-secondary-hover)] px-1 py-0.5 font-sans text-[11px] leading-[13px] font-normal text-[var(--color-text-foreground-tertiary)]",
+        "inline-flex shrink-0 items-center justify-center rounded-[999px] bg-[var(--color-background-button-secondary-hover)] px-1 py-0.5 font-sans text-[length:var(--app-font-size-ui-sm,11px)] leading-[13px] font-normal text-[var(--color-text-foreground-tertiary)]",
         className,
       )}
       data-pencil-node="qrW5C"
@@ -69,7 +69,7 @@ function TooltipPopup({
       >
         <TooltipPrimitive.Popup
           className={cn(
-            "flex h-(--popup-height,auto) w-(--popup-width,auto) origin-(--transform-origin) overflow-visible rounded-lg bg-black font-sans text-xs leading-4 font-normal text-white shadow-none ring-1 ring-black ring-inset transition-[width,height,scale,opacity] data-ending-style:scale-98 data-starting-style:scale-98 data-ending-style:opacity-0 data-starting-style:opacity-0 data-instant:duration-0",
+            "flex h-(--popup-height,auto) w-(--popup-width,auto) origin-(--transform-origin) overflow-visible rounded-lg bg-black font-sans text-[length:var(--app-font-size-ui,12px)] leading-4 font-normal text-white shadow-none ring-1 ring-black ring-inset transition-[width,height,scale,opacity] data-ending-style:scale-98 data-starting-style:scale-98 data-ending-style:opacity-0 data-starting-style:opacity-0 data-instant:duration-0",
             className,
           )}
           data-pencil-component="Q5AL4"

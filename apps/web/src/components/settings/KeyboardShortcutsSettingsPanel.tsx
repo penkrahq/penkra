@@ -83,7 +83,7 @@ export function KeyboardShortcutsSettingsPanel() {
 
       {filteredSections.length > 0 ? (
         <SettingsCard>
-          <div className="flex items-center justify-between gap-4 px-3 py-2 text-[11px] font-medium text-muted-foreground">
+          <div className="flex items-center justify-between gap-4 px-3 py-2 text-[length:var(--app-font-size-ui-sm,11px)] font-medium text-muted-foreground">
             <span>Command</span>
             <span>Keybinding</span>
           </div>

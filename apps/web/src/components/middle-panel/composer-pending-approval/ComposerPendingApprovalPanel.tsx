@@ -104,10 +104,10 @@ export const ComposerPendingApprovalPanel = function ComposerPendingApprovalPane
       data-pencil-component="mXomv"
     >
       <div className="flex items-start justify-between gap-3">
-        <p className="min-w-0 text-[13px] font-medium leading-snug text-foreground/90">
+        <p className="min-w-0 text-[length:var(--app-font-size-ui-lg,13px)] font-medium leading-snug text-foreground/90">
           {KIND_PROMPT[approval.requestKind]}
           {parsed.tool ? (
-            <span className="ml-1.5 text-[11px] font-normal text-muted-foreground/50">
+            <span className="ml-1.5 text-[length:var(--app-font-size-ui-sm,11px)] font-normal text-muted-foreground/50">
               {parsed.tool}
             </span>
           ) : null}
@@ -173,7 +173,7 @@ function ApprovalDetail({ parsed }: { parsed: ParsedApproval }) {
   }
 
   return (
-    <p className="mt-2 text-[12px] text-muted-foreground/65">Review the request to continue.</p>
+    <p className="mt-2 text-[length:var(--app-font-size-ui,12px)] text-muted-foreground/65">Review the request to continue.</p>
   );
 }
 

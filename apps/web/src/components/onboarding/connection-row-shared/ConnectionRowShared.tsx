@@ -20,8 +20,8 @@ export function ConnectionRowShared({
     >
       <IconUser className="size-4 text-[var(--color-text-foreground-secondary)]" />
       <span className="flex min-w-0 flex-1 flex-col">
-        <span className="truncate text-[13px] text-[var(--color-text-foreground)]">{label}</span>
-        <span className="truncate text-xs text-[var(--color-text-foreground-tertiary)]">
+        <span className="truncate text-[length:var(--app-font-size-ui-lg,13px)] text-[var(--color-text-foreground)]">{label}</span>
+        <span className="truncate text-[length:var(--app-font-size-ui,12px)] text-[var(--color-text-foreground-tertiary)]">
           {detail}
         </span>
       </span>

@@ -255,7 +255,7 @@ type ComposerCommandGroupModel = {
 };
 
 const COMPOSER_COMMAND_GROUP_LABEL_CLASSNAME =
-  "px-2 pt-1.5 pb-1 text-[11px] font-normal text-muted-foreground/60";
+  "px-2 pt-1.5 pb-1 text-[length:var(--app-font-size-ui-sm,11px)] font-normal text-muted-foreground/60";
 
 export function groupCommandItems(
   items: ComposerCommandItem[],
@@ -401,12 +401,12 @@ export function ComposerCommandMenu(props: {
                   <p
                     className={cn(
                       COMPOSER_COMMAND_GROUP_LABEL_CLASSNAME,
-                      "px-2 py-0 font-medium text-muted-foreground text-xs",
+                      "px-2 py-0 font-medium text-muted-foreground text-[length:var(--app-font-size-ui,12px)]",
                     )}
                   >
                     Files
                   </p>
-                  <p className="px-2 pt-0.5 text-[11px] text-muted-foreground/55">
+                  <p className="px-2 pt-0.5 text-[length:var(--app-font-size-ui-sm,11px)] text-muted-foreground/55">
                     Type to search for files
                   </p>
                 </div>
@@ -417,7 +417,7 @@ export function ComposerCommandMenu(props: {
         {props.items.length === 0 && (
           <p
             className={cn(
-              "text-muted-foreground/50 text-[11px]",
+              "text-muted-foreground/50 text-[length:var(--app-font-size-ui-sm,11px)]",
               props.isLoading
                 ? "flex h-[calc(1.625rem+0.5rem)] items-center px-2 text-left"
                 : "px-2 py-1.5",
@@ -596,7 +596,7 @@ const ComposerCommandMenuItem = memo(function ComposerCommandMenuItem({
               : item.label}
           </span>
           {secondaryText ? (
-            <span className="truncate text-[11px] text-muted-foreground/55">{secondaryText}</span>
+            <span className="truncate text-[length:var(--app-font-size-ui-sm,11px)] text-muted-foreground/55">{secondaryText}</span>
           ) : null}
         </div>
         {trailingMeta ? (

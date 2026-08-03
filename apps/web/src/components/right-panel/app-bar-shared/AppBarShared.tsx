@@ -76,7 +76,7 @@ export function AppBarShared({
         </div>
 
         <div className="flex h-full min-w-0 flex-1 items-center justify-center">
-          <div className="flex h-[22px] w-full items-center justify-center gap-1.5 rounded-lg border border-[var(--color-border-light)] bg-[var(--color-background-control-opaque)] px-3 text-[11px] text-[var(--color-text-foreground-secondary)]">
+          <div className="flex h-[22px] w-full items-center justify-center gap-1.5 rounded-lg border border-[var(--color-border-light)] bg-[var(--color-background-control-opaque)] px-3 text-[length:var(--app-font-size-ui-sm,11px)] text-[var(--color-text-foreground-secondary)]">
             <IconLock aria-hidden="true" className="size-3 shrink-0" />
             <span className="min-w-0 truncate">{address}</span>
           </div>

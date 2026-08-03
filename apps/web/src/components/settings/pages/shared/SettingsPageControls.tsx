@@ -14,7 +14,7 @@ export function SettingsTextAction({
   tone?: "default" | "destructive";
 }) {
   const className = cn(
-    "shrink-0 border-0 bg-transparent p-0 text-xs",
+    "shrink-0 border-0 bg-transparent p-0 text-[length:var(--app-font-size-ui,12px)]",
     tone === "destructive"
       ? "text-[var(--color-text-destructive)] hover:text-[var(--color-text-destructive)]"
       : "text-[var(--color-text-foreground-secondary)] hover:text-[var(--color-text-foreground)]",
@@ -44,7 +44,7 @@ export function SettingsValueAction({
   onClick?: () => void;
 }) {
   const className =
-    "shrink-0 border-0 bg-transparent p-0 text-xs text-[var(--color-text-foreground-secondary)]";
+    "shrink-0 border-0 bg-transparent p-0 text-[length:var(--app-font-size-ui,12px)] text-[var(--color-text-foreground-secondary)]";
 
   if (!onClick) return <span className={className}>{children} ›</span>;
 
@@ -95,11 +95,11 @@ export function SettingsInstalledRow({
         <RowIcon className="size-7" />
       </span>
       <span className="flex min-w-0 flex-1 flex-col">
-        <span className="flex items-center gap-1.5 text-[13px] font-medium text-[var(--color-text-foreground)]">
+        <span className="flex items-center gap-1.5 text-[length:var(--app-font-size-ui-lg,13px)] font-medium text-[var(--color-text-foreground)]">
           {label}
           <IconCheck className="size-3.5 text-[var(--color-text-accent)]" />
         </span>
-        <span className="mt-0.5 text-xs leading-relaxed text-[var(--color-text-foreground-tertiary)]">
+        <span className="mt-0.5 text-[length:var(--app-font-size-ui,12px)] leading-relaxed text-[var(--color-text-foreground-tertiary)]">
           {description}
         </span>
       </span>

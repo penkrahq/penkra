@@ -24,11 +24,11 @@ export function PermissionRowShared({
       data-pencil-component="t8z9QM"
     >
       <div className="flex items-center gap-2">
-        <strong className="min-w-0 flex-1 text-[13px] font-semibold text-[var(--color-text-foreground)]">
+        <strong className="min-w-0 flex-1 text-[length:var(--app-font-size-ui-lg,13px)] font-semibold text-[var(--color-text-foreground)]">
           {title}
         </strong>
         {required ? (
-          <span className="text-[11px] text-[var(--color-text-foreground-tertiary)]">Required</span>
+          <span className="text-[length:var(--app-font-size-ui-sm,11px)] text-[var(--color-text-foreground-tertiary)]">Required</span>
         ) : (
           <SwitchShared
             aria-label={title}
@@ -37,7 +37,7 @@ export function PermissionRowShared({
           />
         )}
       </div>
-      <p className="text-xs text-[var(--color-text-foreground-tertiary)]">{reason}</p>
+      <p className="text-[length:var(--app-font-size-ui,12px)] text-[var(--color-text-foreground-tertiary)]">{reason}</p>
     </div>
   );
 }

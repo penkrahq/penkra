@@ -3347,7 +3347,7 @@ export default function Sidebar() {
       >
         <DialogPopup className="max-w-md">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-base">
+            <DialogTitle className="flex items-center gap-2 text-[length:calc(var(--app-font-size-base,12px)*1.3333)]">
               <PlayIcon className="size-4 text-emerald-500" />
               Start dev
             </DialogTitle>

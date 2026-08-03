@@ -89,7 +89,7 @@ function GitFileRow(props: {
         title={filePath}
       >
         <FileEntryIcon pathValue={filePath} kind="file" theme={props.theme} className="size-4" />
-        <span className="min-w-0 truncate text-[12px] text-foreground">
+        <span className="min-w-0 truncate text-[length:var(--app-font-size-ui,12px)] text-foreground">
           {dir ? <span className="text-muted-foreground/70">{dir}</span> : null}
           <span>{name}</span>
         </span>
@@ -97,7 +97,7 @@ function GitFileRow(props: {
       <DiffStat
         additions={stat.additions}
         deletions={stat.deletions}
-        className="shrink-0 text-[11px]"
+        className="shrink-0 text-[length:var(--app-font-size-ui-sm,11px)]"
       />
       <IconButton
         size="icon-xs"
@@ -137,11 +137,11 @@ function GitFileSection(props: {
   return (
     <section className="min-w-0">
       <header className="flex items-center gap-2 px-1.5 py-1">
-        <span className="text-[11px] font-semibold text-muted-foreground">{props.title}</span>
-        <span className="rounded-full bg-muted px-1.5 text-[10px] font-medium text-muted-foreground">
+        <span className="text-[length:var(--app-font-size-ui-sm,11px)] font-semibold text-muted-foreground">{props.title}</span>
+        <span className="rounded-full bg-muted px-1.5 text-[length:var(--app-font-size-ui-xs,10px)] font-medium text-muted-foreground">
           {props.files.length}
         </span>
-        <DiffStat additions={stat.additions} deletions={stat.deletions} className="text-[10px]" />
+        <DiffStat additions={stat.additions} deletions={stat.deletions} className="text-[length:var(--app-font-size-ui-xs,10px)]" />
         {props.files.length > 0 ? (
           <Button
             type="button"
@@ -156,7 +156,7 @@ function GitFileSection(props: {
         ) : null}
       </header>
       {props.files.length === 0 ? (
-        <p className="px-1.5 py-1 text-[11px] text-muted-foreground/70">{props.emptyLabel}</p>
+        <p className="px-1.5 py-1 text-[length:var(--app-font-size-ui-sm,11px)] text-muted-foreground/70">{props.emptyLabel}</p>
       ) : (
         <div className="flex flex-col gap-0.5">
           {props.files.map((file) => {
@@ -316,10 +316,10 @@ export function GitPanel(props: {
           </Alert>
         ) : null}
         {!error && isLoading && !hasChanges ? (
-          <p className="px-1.5 py-1 text-[11px] text-muted-foreground/70">Loading changes...</p>
+          <p className="px-1.5 py-1 text-[length:var(--app-font-size-ui-sm,11px)] text-muted-foreground/70">Loading changes...</p>
         ) : null}
         {!error && !isLoading && !hasChanges ? (
-          <p className="px-1.5 py-2 text-center text-[12px] text-muted-foreground/70">
+          <p className="px-1.5 py-2 text-center text-[length:var(--app-font-size-ui,12px)] text-muted-foreground/70">
             No changes in the working tree.
           </p>
         ) : null}

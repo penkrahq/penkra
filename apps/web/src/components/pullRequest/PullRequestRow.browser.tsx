@@ -207,8 +207,8 @@ describe("PullRequestRow pin control", () => {
       />,
     );
 
-    expect(page.getByText("2 projects")).toBeVisible();
-    expect(page.getByRole("button", { name: "Pin pull request #42 in 2 projects" })).toBeVisible();
+    expect(page.getByText("2 folders")).toBeVisible();
+    expect(page.getByRole("button", { name: "Pin pull request #42 in 2 folders" })).toBeVisible();
   });
 
   it("keeps scoped rows minimal", async () => {
@@ -269,12 +269,12 @@ describe("PullRequestProjectFilterPopover", () => {
     );
 
     const trigger = page.getByRole("button", {
-      name: "Filter pull requests by project: Project One",
+      name: "Filter pull requests by folder: Project One",
     });
     expect(trigger).toBeVisible();
     expect(
       document
-        .querySelector('button[aria-label="Filter pull requests by project: Project One"]')
+        .querySelector('button[aria-label="Filter pull requests by folder: Project One"]')
         ?.getAttribute("aria-pressed"),
     ).toBe("true");
     await trigger.click();
@@ -283,12 +283,12 @@ describe("PullRequestProjectFilterPopover", () => {
       (button) => button.textContent?.trim() === "Project One",
     );
     const allProjectsOption = optionButtons.find(
-      (button) => button.textContent?.trim() === "All projects",
+      (button) => button.textContent?.trim() === "All folders",
     );
     expect(selectedOption?.getAttribute("aria-pressed")).toBe("true");
     expect(allProjectsOption?.getAttribute("aria-pressed")).toBe("false");
     // Close the portalled popover before the browser renderer unmounts this test root.
-    await page.getByRole("button", { name: "All projects" }).click();
+    await page.getByRole("button", { name: "All folders" }).click();
   });
 });
 

@@ -120,7 +120,7 @@ function ScopeCountBadge(props: { count: number | undefined }) {
     return null;
   }
   return (
-    <span className="rounded-full bg-muted px-1.5 text-[10px] font-medium text-muted-foreground tabular-nums">
+    <span className="rounded-full bg-muted px-1.5 text-[length:var(--app-font-size-ui-xs,10px)] font-medium text-muted-foreground tabular-nums">
       {props.count}
     </span>
   );
@@ -285,7 +285,7 @@ export const DiffPanelToolbar = function DiffPanelToolbar(props: DiffPanelToolba
         <DiffStat
           additions={props.activeStats.additions}
           deletions={props.activeStats.deletions}
-          className="shrink-0 text-[11px] font-medium"
+          className="shrink-0 text-[length:var(--app-font-size-ui-sm,11px)] font-medium"
         />
       ) : null}
 
@@ -453,7 +453,7 @@ export const DiffPanelToolbar = function DiffPanelToolbar(props: DiffPanelToolba
                     <span className="min-w-0 flex-1 truncate">
                       Turn {resolveTurnNumber(summary, props.inferredCheckpointTurnCountByTurnId)}
                     </span>
-                    <span className="shrink-0 text-[10px] text-muted-foreground tabular-nums">
+                    <span className="shrink-0 text-[length:var(--app-font-size-ui-xs,10px)] text-muted-foreground tabular-nums">
                       {formatShortTimestamp(summary.completedAt, props.timestampFormat)}
                     </span>
                   </MenuRadioItem>
@@ -463,7 +463,7 @@ export const DiffPanelToolbar = function DiffPanelToolbar(props: DiffPanelToolba
                 <button
                   type="button"
                   className={cn(
-                    "mx-1 mt-1 flex h-8 w-[calc(100%-0.5rem)] cursor-pointer items-center justify-center rounded-md px-2 text-[11px]",
+                    "mx-1 mt-1 flex h-8 w-[calc(100%-0.5rem)] cursor-pointer items-center justify-center rounded-md px-2 text-[length:var(--app-font-size-ui-sm,11px)]",
                     "text-muted-foreground",
                     ELEVATED_HOVER_SURFACE_RAISED_TEXT_CLASS_NAME,
                   )}

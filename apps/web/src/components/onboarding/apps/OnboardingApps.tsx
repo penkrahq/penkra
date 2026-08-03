@@ -109,7 +109,7 @@ export function OnboardingApps({ onBack, onContinue }: OnboardingAppsProps) {
             >
               Add your first apps
             </h1>
-            <p className="mt-[7px] font-sans text-sm leading-[17px] text-[var(--color-text-foreground-secondary)]">
+            <p className="mt-[7px] font-sans text-[length:calc(var(--app-font-size-base,12px)*1.1667)] leading-[17px] text-[var(--color-text-foreground-secondary)]">
               Choose a few essentials — you can always add more later.
             </p>
           </header>
@@ -136,7 +136,7 @@ export function OnboardingApps({ onBack, onContinue }: OnboardingAppsProps) {
                 );
               })}
               {visibleApps.length === 0 ? (
-                <p className="py-10 text-center text-sm text-[var(--color-text-foreground-secondary)]">
+                <p className="py-10 text-center text-[length:calc(var(--app-font-size-base,12px)*1.1667)] text-[var(--color-text-foreground-secondary)]">
                   No apps match “{query}”.
                 </p>
               ) : null}

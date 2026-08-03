@@ -69,7 +69,7 @@ export const ChatSearchBar = memo(function ChatSearchBar(props: ChatSearchBarPro
           value={state.query}
           onChange={(event) => setQuery(event.target.value)}
           onKeyDown={handleKeyDown}
-          className="min-w-0 flex-1 appearance-none bg-transparent py-2.5 pr-2 text-sm outline-none placeholder:text-muted-foreground/50 [&::-webkit-search-cancel-button]:hidden"
+          className="min-w-0 flex-1 appearance-none bg-transparent py-2.5 pr-2 text-[length:calc(var(--app-font-size-base,12px)*1.1667)] outline-none placeholder:text-muted-foreground/50 [&::-webkit-search-cancel-button]:hidden"
         />
         <button
           type="button"
@@ -87,7 +87,7 @@ export const ChatSearchBar = memo(function ChatSearchBar(props: ChatSearchBarPro
           aria-live="polite"
           aria-atomic="true"
         >
-          <span className="mr-auto px-1 text-xs tabular-nums text-muted-foreground">
+          <span className="mr-auto px-1 text-[length:var(--app-font-size-ui,12px)] tabular-nums text-muted-foreground">
             {state.pending
               ? "Searching…"
               : state.total === 0

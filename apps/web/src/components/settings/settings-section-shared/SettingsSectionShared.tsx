@@ -17,7 +17,7 @@ export function SettingsSectionShared({
 }: SettingsSectionSharedProps) {
   return (
     <section className={cn("w-full font-sans", className)} data-pencil-component="jDh8n" {...props}>
-      <h2 className="text-[11px] font-semibold uppercase tracking-wide text-[var(--color-text-foreground-tertiary)]">
+      <h2 className="text-[length:var(--app-font-size-ui-sm,11px)] font-semibold uppercase tracking-wide text-[var(--color-text-foreground-tertiary)]">
         {title}
       </h2>
       <div

@@ -142,7 +142,7 @@ export function PdfFilePreview(props: {
       <div className={outerClassName}>
         <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-4 text-center">
           <TriangleAlertIcon className="size-5 text-destructive/80" aria-hidden="true" />
-          <p className="text-[12px] text-muted-foreground">
+          <p className="text-[length:var(--app-font-size-ui,12px)] text-muted-foreground">
             {doc.error ?? "Could not open this PDF."}
           </p>
         </div>

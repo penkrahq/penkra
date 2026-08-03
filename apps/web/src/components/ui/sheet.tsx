@@ -153,7 +153,7 @@ function SheetFooter({
 function SheetTitle({ className, ...props }: SheetPrimitive.Title.Props) {
   return (
     <SheetPrimitive.Title
-      className={cn("font-heading font-semibold text-xl leading-none", className)}
+      className={cn("font-heading font-semibold text-[length:calc(var(--app-font-size-base,12px)*1.6667)] leading-none", className)}
       data-slot="sheet-title"
       {...props}
     />
@@ -163,7 +163,7 @@ function SheetTitle({ className, ...props }: SheetPrimitive.Title.Props) {
 function SheetDescription({ className, ...props }: SheetPrimitive.Description.Props) {
   return (
     <SheetPrimitive.Description
-      className={cn("text-muted-foreground text-sm", className)}
+      className={cn("text-muted-foreground text-[length:calc(var(--app-font-size-base,12px)*1.1667)]", className)}
       data-slot="sheet-description"
       {...props}
     />

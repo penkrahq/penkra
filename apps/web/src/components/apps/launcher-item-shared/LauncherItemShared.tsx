@@ -29,7 +29,7 @@ export function LauncherItemShared({
       {...props}
     >
       <IconTileApp className="size-14 rounded-[14px] [&_svg]:size-6" icon={icon} tone={tone} />
-      <span className="w-full text-center text-xs font-medium text-[var(--color-text-foreground-secondary)]">
+      <span className="w-full text-center text-[length:var(--app-font-size-ui,12px)] font-medium text-[var(--color-text-foreground-secondary)]">
         {label}
       </span>
     </button>

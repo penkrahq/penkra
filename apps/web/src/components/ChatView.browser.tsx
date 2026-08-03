@@ -319,6 +319,7 @@ function createSnapshotForTargetUser(options: {
         sortOrder: 0,
         createdAt: NOW_ISO,
         updatedAt: NOW_ISO,
+        archivedAt: null,
         deletedAt: null,
       },
     ],
@@ -546,6 +547,7 @@ function createDraftOnlySnapshot(): OrchestrationReadModel {
 }
 
 function withOpenProjectPickerFixtures(snapshot: OrchestrationReadModel): OrchestrationReadModel {
+  const sourceThread = snapshot.threads[0];
   return {
     ...snapshot,
     projects: [
@@ -566,6 +568,24 @@ function withOpenProjectPickerFixtures(snapshot: OrchestrationReadModel): Orches
         deletedAt: null,
       },
     ],
+    threads: sourceThread
+      ? [
+          { ...sourceThread, workingDirectory: "/repo/project" },
+          {
+            ...sourceThread,
+            id: OTHER_THREAD_ID,
+            title: "Other folder thread",
+            workingDirectory: "/repo/other",
+            messages: [],
+            activities: [],
+            proposedPlans: [],
+            checkpoints: [],
+            session: sourceThread.session
+              ? { ...sourceThread.session, threadId: OTHER_THREAD_ID }
+              : null,
+          },
+        ]
+      : [],
   };
 }
 
@@ -1080,12 +1100,16 @@ function recordProjectCreateCommand(command: unknown): boolean {
         ...fixture.snapshot.projects.filter((project) => project.id !== projectId),
         {
           id: projectId,
+          spaceId:
+            "spaceId" in command && typeof command.spaceId === "string"
+              ? SpaceId.makeUnsafe(command.spaceId)
+              : TEST_SPACE_ID,
           kind:
             "kind" in command && (command.kind === "chat" || command.kind === "studio")
               ? command.kind
               : "project",
           title: String(command.title),
-          workspaceRoot: String(command.workspaceRoot),
+          workspaceRoot: command.workspaceRoot === null ? null : String(command.workspaceRoot),
           defaultModelSelection:
             "defaultModelSelection" in command &&
             command.defaultModelSelection &&
@@ -1110,6 +1134,44 @@ function recordProjectCreateCommand(command: unknown): boolean {
   return true;
 }
 
+function recordSpaceCreateCommand(command: unknown): boolean {
+  if (
+    !command ||
+    typeof command !== "object" ||
+    !("type" in command) ||
+    command.type !== "space.create" ||
+    !("spaceId" in command) ||
+    typeof command.spaceId !== "string" ||
+    !("name" in command) ||
+    typeof command.name !== "string"
+  ) {
+    return false;
+  }
+  const spaceId = SpaceId.makeUnsafe(command.spaceId);
+  fixture = {
+    ...fixture,
+    snapshot: {
+      ...fixture.snapshot,
+      snapshotSequence: fixture.snapshot.snapshotSequence + 1,
+      spaces: [
+        ...fixture.snapshot.spaces.filter((space) => space.id !== spaceId),
+        {
+          id: spaceId,
+          name: command.name,
+          icon: "bag",
+          sortOrder: fixture.snapshot.spaces.length,
+          createdAt: NOW_ISO,
+          updatedAt: NOW_ISO,
+          archivedAt: null,
+          deletedAt: null,
+        },
+      ],
+      updatedAt: NOW_ISO,
+    },
+  };
+  return true;
+}
+
 function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
   const tag = body._tag;
   if (tag === ORCHESTRATION_WS_METHODS.getShellSnapshot) {
@@ -1119,7 +1181,7 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
     return fixture.snapshot;
   }
   if (tag === ORCHESTRATION_WS_METHODS.dispatchCommand) {
-    if (recordProjectCreateCommand(body.command)) {
+    if (recordSpaceCreateCommand(body.command) || recordProjectCreateCommand(body.command)) {
       return { sequence: fixture.snapshot.snapshotSequence };
     }
     return { sequence: fixture.snapshot.snapshotSequence + 1 };
@@ -2602,7 +2664,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
     try {
       await expect.element(page.getByText("What should we do in")).toBeInTheDocument();
-      await expect.element(page.getByRole("button", { name: "Local" })).toBeInTheDocument();
+      await expect.element(page.getByRole("button", { name: "This Mac" })).not.toBeInTheDocument();
       expect(document.body.textContent).toContain("main");
     } finally {
       await mounted.cleanup();
@@ -2814,7 +2876,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
             threadId: THREAD_ID,
             cwd: "/repo/worktrees/feature-draft",
             env: {
-              PENKRA_PROJECT_ROOT: "/repo/project",
+              PENKRA_PROJECT_ROOT: "/repo/worktrees/feature-draft",
               PENKRA_WORKTREE_PATH: "/repo/worktrees/feature-draft",
             },
           });
@@ -3208,6 +3270,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
           sortOrder: 0,
           createdAt: NOW_ISO,
           updatedAt: NOW_ISO,
+          archivedAt: null,
           deletedAt: null,
         },
       ],
@@ -3775,7 +3838,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("uses the latest ordinary project from Home for the command-palette New thread action", async () => {
+  it("does not expose the removed global New thread action in the command palette", async () => {
     useLatestProjectStore.setState({ latestProjectId: PROJECT_ID });
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
@@ -3808,24 +3871,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
     try {
       await waitForServerConfigToApply();
       dispatchConfiguredShortcut(window, { key: "k" });
-      const paletteNewThreadAction = await waitForElement(
-        () =>
-          Array.from(document.querySelectorAll<HTMLElement>('[data-slot="command-item"]')).find(
-            (item) => item.textContent?.trim().startsWith("New thread"),
-          ) ?? null,
-        "Unable to find the command-palette New thread action.",
-      );
-      paletteNewThreadAction.click();
-
-      const newThreadPath = await waitForURL(
-        mounted.router,
-        (path) => UUID_ROUTE_RE.test(path),
-        "Command-palette New thread should create a draft in the latest ordinary project.",
-      );
-      const newThreadId = newThreadPath.slice(1) as ThreadId;
-      expect(useComposerDraftStore.getState().getDraftThread(newThreadId)?.projectId).toBe(
-        PROJECT_ID,
-      );
+      expect(
+        Array.from(document.querySelectorAll<HTMLElement>('[data-slot="command-item"]')).some(
+          (item) => item.textContent?.trim().startsWith("New thread"),
+        ),
+      ).toBe(false);
     } finally {
       await mounted.cleanup();
     }
@@ -3852,9 +3902,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await waitForNewThreadShortcutLabel();
       dispatchChatNewShortcut();
 
-      await expect
-        .element(page.getByRole("heading", { name: "Create project" }))
-        .toBeInTheDocument();
+      await expect.element(page.getByRole("heading", { name: "New folder" })).toBeInTheDocument();
       expect(mounted.router.state.location.pathname).toBe(initialPath);
     } finally {
       await mounted.cleanup();
@@ -3882,7 +3930,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await waitForLayout();
 
       await expect
-        .element(page.getByRole("heading", { name: "Create project" }))
+        .element(page.getByRole("heading", { name: "New folder" }))
         .not.toBeInTheDocument();
       expect(mounted.router.state.location.pathname).toBe(initialPath);
     } finally {
@@ -3890,7 +3938,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("lets an empty project draft switch to another open project", async () => {
+  it("renders the selected working directory and folder picker actions", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
       snapshot: withOpenProjectPickerFixtures(
@@ -3913,7 +3961,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       useComposerDraftStore.getState().setProjectDraftThreadId(OTHER_PROJECT_ID, OTHER_THREAD_ID);
       useComposerDraftStore.getState().setPrompt(OTHER_THREAD_ID, "replace this other draft");
 
-      const projectPickerTrigger = page.getByTestId("project-picker-trigger");
+      const projectPickerTrigger = page.getByTestId("workspace-picker-trigger");
       await expect.element(projectPickerTrigger).toHaveTextContent("project");
       await projectPickerTrigger.click();
 
@@ -3921,44 +3969,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await expect.element(page.getByText("Don't work in a folder")).toBeInTheDocument();
       await expect.element(page.getByText(/Folders on this/)).not.toBeInTheDocument();
 
-      const currentProjectOption = await waitForElement(
-        () =>
-          Array.from(document.querySelectorAll<HTMLElement>('[data-slot="combobox-item"]')).find(
-            (item) => item.textContent?.trim() === "project",
-          ) ?? null,
-        "Unable to find current project option.",
-      );
-      currentProjectOption.click();
-      await vi.waitFor(
-        () => {
-          expect(useComposerDraftStore.getState().getDraftThread(newThreadId)).toMatchObject({
-            projectId: PROJECT_ID,
-            envMode: "worktree",
-            branch: "feature/keep-out",
-            worktreePath: "/repo/project/.worktrees/feature-keep-out",
-          });
-        },
-        { timeout: 8_000, interval: 16 },
-      );
-
-      await projectPickerTrigger.click();
-      await page.getByText("other", { exact: true }).click();
-
-      await vi.waitFor(
-        () => {
-          expect(useComposerDraftStore.getState().getDraftThread(newThreadId)).toMatchObject({
-            projectId: OTHER_PROJECT_ID,
-            envMode: "local",
-            branch: null,
-            worktreePath: null,
-          });
-          expect(useComposerDraftStore.getState().getDraftThread(OTHER_THREAD_ID)).toBeNull();
-          expect(
-            useComposerDraftStore.getState().draftsByThreadId[OTHER_THREAD_ID],
-          ).toBeUndefined();
-        },
-        { timeout: 8_000, interval: 16 },
-      );
       expect(mounted.router.state.location.pathname).toBe(newThreadPath);
     } finally {
       await mounted.cleanup();
@@ -4062,7 +4072,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("can detach an empty project draft back to a normal chat before first send", async () => {
+  it("can clear an empty draft's working directory before first send", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
       snapshot: withHomeChatProject(
@@ -4083,7 +4093,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
     try {
       const { threadId: newThreadId } = await createProjectThreadWithShortcut(mounted);
 
-      const projectPickerTrigger = page.getByTestId("project-picker-trigger");
+      useComposerDraftStore.getState().setDraftThreadContext(newThreadId, {
+        workingDirectory: "/repo/project",
+      });
+
+      const projectPickerTrigger = page.getByTestId("workspace-picker-trigger");
       await expect.element(projectPickerTrigger).toBeInTheDocument();
       await projectPickerTrigger.click();
       await page.getByText("Don't work in a folder").click();
@@ -4096,10 +4110,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
             useComposerDraftStore.getState().getDraftThread(newThreadId),
             `Project reset did not complete. Picker content: ${pickerText}`,
           ).toMatchObject({
-            projectId: HOME_PROJECT_ID,
+            projectId: PROJECT_ID,
             envMode: "local",
-            branch: null,
+            branch: "main",
             worktreePath: null,
+            workingDirectory: null,
           });
         },
         { timeout: 8_000, interval: 16 },
@@ -4110,7 +4125,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("moves a home draft into an existing project from the home picker without carrying branch", async () => {
+  it("moves a home draft into a recent folder without carrying branch", async () => {
     useComposerDraftStore.setState({
       draftThreadsByThreadId: {
         [THREAD_ID]: {
@@ -4129,9 +4144,27 @@ describe("ChatView timeline estimator parity (full app)", () => {
       },
     });
 
+    const recentHomeSnapshot = withStudioProject(
+      withHomeChatProject(
+        createSnapshotForTargetUser({
+          targetMessageId: "msg-user-home-recent-folder" as MessageId,
+          targetText: "recent home folder",
+        }),
+      ),
+    );
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
-      snapshot: withStudioProject(withHomeChatProject(createDraftOnlySnapshot())),
+      snapshot: {
+        ...recentHomeSnapshot,
+        threads: recentHomeSnapshot.threads.map((thread) => ({
+          ...thread,
+          id: OTHER_THREAD_ID,
+          projectId: HOME_PROJECT_ID,
+          spaceId: TEST_SPACE_ID,
+          workingDirectory: "/repo/project",
+          session: thread.session ? { ...thread.session, threadId: OTHER_THREAD_ID } : null,
+        })),
+      },
       configureFixture: (nextFixture) => {
         nextFixture.welcome = {
           ...nextFixture.welcome,
@@ -4171,16 +4204,17 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await vi.waitFor(
         () => {
           expect(useComposerDraftStore.getState().getDraftThread(THREAD_ID)).toMatchObject({
-            projectId: PROJECT_ID,
+            projectId: HOME_PROJECT_ID,
             envMode: "local",
             branch: null,
             worktreePath: null,
+            workingDirectory: "/repo/project",
           });
         },
         { timeout: 8_000, interval: 16 },
       );
-      await expect.element(page.getByTestId("project-picker-trigger")).toBeInTheDocument();
-      await expect.element(page.getByRole("button", { name: "Local" })).toBeInTheDocument();
+      await expect.element(page.getByTestId("workspace-picker-trigger")).toBeInTheDocument();
+      await expect.element(page.getByRole("button", { name: "This Mac" })).toBeInTheDocument();
       await new Promise<void>((resolve) => {
         requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
       });
@@ -4208,7 +4242,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("creates and selects a new project from an empty project draft without navigating away", async () => {
+  it("selects a folder from the system picker without creating another folder", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
       snapshot: createSnapshotForTargetUser({
@@ -4220,16 +4254,12 @@ describe("ChatView timeline estimator parity (full app)", () => {
     const wsNativeApi = readNativeApi();
     expect(wsNativeApi).toBeDefined();
     const pickFolder = vi.fn(async () => "/repo/new-project");
-    let createdProjectId: ContainerId | null = null;
     const dispatchCommand = vi.fn(async (command: unknown) => {
       wsRequests.push({
         _tag: ORCHESTRATION_WS_METHODS.dispatchCommand,
         command,
       });
       if (recordProjectCreateCommand(command)) {
-        if (command && typeof command === "object" && "projectId" in command) {
-          createdProjectId = command.projectId as ContainerId;
-        }
         return { sequence: fixture.snapshot.snapshotSequence };
       }
       return { sequence: fixture.snapshot.snapshotSequence + 1 };
@@ -4253,7 +4283,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     try {
       const { threadId: newThreadId } = await createProjectThreadWithShortcut(mounted);
 
-      const projectPickerTrigger = page.getByTestId("project-picker-trigger");
+      const projectPickerTrigger = page.getByTestId("workspace-picker-trigger");
       await expect.element(projectPickerTrigger).toBeInTheDocument();
       await projectPickerTrigger.click();
       await page.getByText("Choose from computer…").click();
@@ -4270,12 +4300,9 @@ describe("ChatView timeline estimator parity (full app)", () => {
               request.command &&
               typeof request.command === "object" &&
               "type" in request.command &&
-              request.command.type === "project.create" &&
-              "workspaceRoot" in request.command &&
-              request.command.workspaceRoot === "/repo/new-project",
+              request.command.type === "project.create",
           );
-          expect(projectCreateRequest).toBeDefined();
-          expect(createdProjectId).not.toBeNull();
+          expect(projectCreateRequest).toBeUndefined();
         },
         { timeout: 8_000, interval: 16 },
       );
@@ -4283,10 +4310,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await vi.waitFor(
         () => {
           expect(useComposerDraftStore.getState().getDraftThread(newThreadId)).toMatchObject({
-            projectId: createdProjectId,
+            projectId: PROJECT_ID,
             envMode: "local",
-            branch: null,
+            branch: "main",
             worktreePath: null,
+            workingDirectory: "/repo/new-project",
           });
         },
         { timeout: 8_000, interval: 16 },
@@ -4317,12 +4345,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
     try {
       await waitForServerConfigToApply();
       dispatchAddProjectShortcut();
-      await expect
-        .element(page.getByRole("heading", { name: "Create project" }))
-        .toBeInTheDocument();
+      await expect.element(page.getByRole("heading", { name: "New folder" })).toBeInTheDocument();
 
-      await page.getByLabelText("Project folder path").fill("/repo/new-project");
-      await page.getByRole("button", { name: "Create project", exact: true }).click();
+      await page.getByLabelText("Folder name").fill("New Project");
+      await page.getByRole("button", { name: "Create folder", exact: true }).click();
 
       await vi.waitFor(
         () => {
@@ -4335,7 +4361,9 @@ describe("ChatView timeline estimator parity (full app)", () => {
               "type" in request.command &&
               request.command.type === "project.create" &&
               "workspaceRoot" in request.command &&
-              request.command.workspaceRoot === "/repo/new-project",
+              request.command.workspaceRoot === null &&
+              "title" in request.command &&
+              request.command.title === "New Project",
           );
           expect(projectCreateRequest).toBeDefined();
         },
@@ -4345,10 +4373,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
       // The dialog closes on success and the sidebar picks the project up from
       // the refreshed shell snapshot.
       await expect
-        .element(page.getByRole("heading", { name: "Create project" }))
+        .element(page.getByRole("heading", { name: "New folder" }))
         .not.toBeInTheDocument();
       await expect
-        .element(page.getByText("new-project", { exact: true }).first())
+        .element(page.getByText("New Project", { exact: true }).first())
         .toBeInTheDocument();
     } finally {
       await mounted.cleanup();
@@ -4381,13 +4409,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
     try {
       await waitForServerConfigToApply();
       dispatchAddProjectShortcut();
-      await expect
-        .element(page.getByRole("heading", { name: "Create project" }))
-        .toBeInTheDocument();
+      await expect.element(page.getByRole("heading", { name: "New folder" })).toBeInTheDocument();
 
       await page.getByRole("button", { name: "New space", exact: true }).click();
       await expect.element(page.getByRole("heading", { name: "New space" })).toBeInTheDocument();
-      await page.getByLabelText("Name").fill("Focus");
+      await page.getByRole("textbox", { name: "Name", exact: true }).fill("Focus");
       await page.getByRole("button", { name: "Create space", exact: true }).click();
 
       // The nested editor closes, the space.create command is dispatched, and
@@ -4407,8 +4433,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
       );
       await expect.element(page.getByText("Focus", { exact: true }).first()).toBeInTheDocument();
 
-      await page.getByLabelText("Project folder path").fill("/repo/spaced-project");
-      await page.getByRole("button", { name: "Create project", exact: true }).click();
+      await page.getByLabelText("Folder name").fill("Spaced Project");
+      await page.getByRole("button", { name: "Create folder", exact: true }).click();
 
       await vi.waitFor(
         () => {
@@ -4423,9 +4449,9 @@ describe("ChatView timeline estimator parity (full app)", () => {
                 ? (request.command as Record<string, unknown>)
                 : null,
             )
-            .find((command) => command?.workspaceRoot === "/repo/spaced-project");
+            .find((command) => command?.title === "Spaced Project");
           expect(projectCreateCommand).toBeDefined();
-          expect(projectCreateCommand?.workspaceRoot).toBe("/repo/spaced-project");
+          expect(projectCreateCommand?.workspaceRoot).toBeNull();
           expect(projectCreateCommand?.spaceId).toBe(createdSpaceId);
         },
         { timeout: 8_000, interval: 16 },
@@ -4455,6 +4481,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
             sortOrder: 0,
             createdAt: NOW_ISO,
             updatedAt: NOW_ISO,
+            archivedAt: null,
             deletedAt: null,
           },
           {
@@ -4464,6 +4491,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
             sortOrder: 1,
             createdAt: NOW_ISO,
             updatedAt: NOW_ISO,
+            archivedAt: null,
             deletedAt: null,
           },
         ],
@@ -4492,7 +4520,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     try {
       await waitForServerConfigToApply();
       dispatchAddProjectShortcut();
-      await page.getByLabelText("Project folder path").fill("/repo/failing-project");
+      await page.getByLabelText("Folder name").fill("Failing Project");
       const spaceTrigger = await waitForElement(
         () =>
           document.querySelector<HTMLButtonElement>(
@@ -4509,15 +4537,13 @@ describe("ChatView timeline estimator parity (full app)", () => {
         "Unable to find the destination Space option.",
       );
       destinationOption.click();
-      await page.getByRole("button", { name: "Create project", exact: true }).click();
+      await page.getByRole("button", { name: "Create folder", exact: true }).click();
 
       await expect
         .element(page.getByRole("alert"))
         .toHaveTextContent("Project creation failed for test.");
       expect(useSpacesUiStore.getState().activeSpaceId).toBe(currentSpaceId);
-      await expect
-        .element(page.getByRole("heading", { name: "Create project" }))
-        .toBeInTheDocument();
+      await expect.element(page.getByRole("heading", { name: "New folder" })).toBeInTheDocument();
     } finally {
       useSpacesUiStore.getState().setActiveSpaceId(currentSpaceId);
       if (previousNativeApi) {
@@ -4841,7 +4867,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
         _tag: WS_METHODS.terminalOpen,
         cwd: worktreePath,
         env: {
-          PENKRA_PROJECT_ROOT: "/repo/project",
+          PENKRA_PROJECT_ROOT: worktreePath,
           PENKRA_WORKTREE_PATH: worktreePath,
         },
       });
@@ -5301,7 +5327,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     });
 
     try {
-      await page.getByLabelText("Composer extras").click();
+      await page.getByLabelText("Attach files").click();
       expect(document.body.textContent).not.toContain("Plan mode");
       expect(document.body.textContent).not.toContain("Plan details");
       expect(document.querySelector('[aria-label="Show plan details sidebar"]')).toBeNull();
