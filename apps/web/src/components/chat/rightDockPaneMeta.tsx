@@ -64,6 +64,16 @@ export function resolveRightDockPaneLabel(
 // of its extension color, so dock tabs read like the changed-file rows rather
 // than carrying a loud per-type tint.
 export function resolveRightDockPaneIcon(pane: RightDockPane): ReactNode {
+  if (pane.kind === "app" && pane.appIconDataUrl) {
+    return (
+      <img
+        alt=""
+        className="size-3.5 shrink-0 object-contain"
+        draggable={false}
+        src={pane.appIconDataUrl}
+      />
+    );
+  }
   if (pane.kind === "file" && pane.filePath) {
     return (
       <FileEntryIcon
