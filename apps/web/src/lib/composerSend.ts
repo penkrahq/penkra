@@ -28,7 +28,7 @@ import {
   type ComposerImageAttachment,
   type PersistedComposerImageAttachment,
 } from "../composerDraftDomain";
-import { readComposerImageBlob } from "./composerImageBlobStore";
+import { readComposerAsset } from "./composerAssetStore";
 import { randomUUID } from "./utils";
 import { resolveWsHttpUrl } from "./wsHttpUrl";
 
@@ -278,6 +278,15 @@ export async function stageUploadComposerAttachments(input: {
   const managedAttachmentIds: string[] = [];
   try {
     for (const attachment of [...input.images, ...(input.files ?? [])]) {
+      const uploadFile =
+        attachment.type === "file" && attachment.assetKey && attachment.file.size === 0
+          ? await readComposerAsset({
+              assetKey: attachment.assetKey,
+              name: attachment.name,
+              mimeType: attachment.mimeType,
+            })
+          : attachment.file;
+      if (!uploadFile) throw new Error(`The saved attachment '${attachment.name}' is unavailable.`);
       const params = new URLSearchParams({
         threadId: input.threadId,
         type: attachment.type,
@@ -289,7 +298,7 @@ export async function stageUploadComposerAttachments(input: {
         {
           method: "POST",
           credentials: "include",
-          body: attachment.file,
+          body: uploadFile,
         },
       );
       const payload = (await response.json().catch(() => null)) as
@@ -399,8 +408,9 @@ export function findPendingBlobComposerAttachments(input: {
 
 /**
  * Reads pending blob-backed persisted attachments (see
- * `findPendingBlobComposerAttachments`) from IndexedDB and reconstructs them
- * as live `ComposerImageAttachment`s so a send in flight can include them.
+ * `findPendingBlobComposerAttachments`) from the durable composer asset store
+ * and reconstructs them as live `ComposerImageAttachment`s so the UI or a send
+ * in flight can include them.
  * An attachment whose blob is missing or fails to read is skipped rather than
  * failing the whole send — the caller keeps sending whatever did hydrate.
  */
@@ -411,7 +421,11 @@ export async function hydratePendingBlobComposerAttachments(
     pending.map(async (attachment): Promise<ComposerImageAttachment | null> => {
       if (!attachment.blobKey) return null;
       try {
-        const file = await readComposerImageBlob(attachment.blobKey);
+        const file = await readComposerAsset({
+          assetKey: attachment.blobKey,
+          name: attachment.name,
+          mimeType: attachment.mimeType,
+        });
         if (!file) return null;
         return {
           type: "image",
@@ -423,7 +437,7 @@ export async function hydratePendingBlobComposerAttachments(
           file,
         };
       } catch (error) {
-        console.warn("[composer-send] Could not hydrate a pending attachment before send", error);
+        console.warn("[composer-images] Could not hydrate a pending attachment", error);
         return null;
       }
     }),

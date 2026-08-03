@@ -106,6 +106,55 @@ describe("composerDraftStore addImages", () => {
   });
 });
 
+describe("composerDraftStore voice transcript durability", () => {
+  const threadId = ThreadId.makeUnsafe("thread-voice-draft");
+
+  beforeEach(() => resetComposerDraftStore());
+
+  it("applies a recovered voice job exactly once in one draft mutation", () => {
+    const store = useComposerDraftStore.getState();
+    store.setPrompt(threadId, "Existing text");
+
+    expect(store.applyVoiceTranscript(threadId, "voice-job-1", "Recovered words")).toBe(
+      "Existing text\n\nRecovered words",
+    );
+    expect(store.applyVoiceTranscript(threadId, "voice-job-1", "Recovered words")).toBe(
+      "Existing text\n\nRecovered words",
+    );
+    const draft = useComposerDraftStore.getState().draftsByThreadId[threadId];
+    expect(draft?.prompt).toBe("Existing text\n\nRecovered words");
+    expect(draft?.appliedVoiceJobIds).toEqual(["voice-job-1"]);
+    expect(
+      partializeComposerDraftStoreState(useComposerDraftStore.getState()).draftsByThreadId[threadId]
+        ?.appliedVoiceJobIds,
+    ).toEqual(["voice-job-1"]);
+  });
+});
+
+describe("composerDraftStore file durability", () => {
+  const threadId = ThreadId.makeUnsafe("thread-file-draft");
+
+  beforeEach(() => resetComposerDraftStore());
+
+  it("persists an asset-backed ordinary file in the composer snapshot", () => {
+    const file = makeFile({ id: "file-1", name: "notes.txt", mimeType: "text/plain" });
+    useComposerDraftStore.getState().addFiles(threadId, [{ ...file, assetKey: "asset-file-1" }]);
+
+    expect(
+      partializeComposerDraftStoreState(useComposerDraftStore.getState()).draftsByThreadId[threadId]
+        ?.files,
+    ).toEqual([
+      {
+        id: "file-1",
+        name: "notes.txt",
+        mimeType: "text/plain",
+        sizeBytes: file.sizeBytes,
+        assetKey: "asset-file-1",
+      },
+    ]);
+  });
+});
+
 describe("composerDraftStore prompt history saved draft", () => {
   const threadId = ThreadId.makeUnsafe("thread-prompt-history-attachments");
 

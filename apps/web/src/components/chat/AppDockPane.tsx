@@ -3,7 +3,7 @@
 // Layer: Chat right-dock App surface
 
 import { IconPackage } from "@tabler/icons-react";
-import { useEffect, useLayoutEffect, useRef } from "react";
+import { useLayoutEffect, useRef } from "react";
 
 import { PanelStateMessage } from "./PanelStateMessage";
 
@@ -12,6 +12,12 @@ export function shouldShowNativeAppView(
   status: "loading" | "ready" | "crashed" | null,
 ): boolean {
   return visible && status === "ready";
+}
+
+export function hasRunningNativeViewExitTransition(
+  animations: ReadonlyArray<Pick<Animation, "playState">>,
+): boolean {
+  return animations.some((animation) => animation.playState === "running");
 }
 
 export function AppDockPane(props: {
@@ -23,6 +29,10 @@ export function AppDockPane(props: {
 }) {
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const showNativeView = shouldShowNativeAppView(props.visible, props.status);
+  const nativeViewVisibleRef = useRef(false);
+  const visibilityRequestRef = useRef(showNativeView);
+  const visibilityGenerationRef = useRef(0);
+  const scheduleBoundsRef = useRef<(() => void) | null>(null);
 
   useLayoutEffect(() => {
     const bridge = window.desktopBridge?.appTabs;
@@ -34,7 +44,7 @@ export function AppDockPane(props: {
 
     const sync = () => {
       frame = 0;
-      if (stopped || !showNativeView) return;
+      if (stopped || !nativeViewVisibleRef.current) return;
       const bounds = viewport.getBoundingClientRect();
       if (bounds.width <= 0 || bounds.height <= 0) return;
       void bridge.setBounds({
@@ -62,14 +72,19 @@ export function AppDockPane(props: {
     window.addEventListener("resize", schedule);
     window.addEventListener("scroll", schedule, true);
     dockShell?.addEventListener("transitionrun", handleTransitionRun);
+    scheduleBoundsRef.current = schedule;
     void bridge.attach({ tabId: props.tabId }).then(() => {
       if (!stopped) {
-        void bridge.setVisible({ tabId: props.tabId, visible: showNativeView });
-        schedule();
+        void bridge.setVisible({
+          tabId: props.tabId,
+          visible: nativeViewVisibleRef.current,
+        });
+        if (nativeViewVisibleRef.current) schedule();
       }
     });
     return () => {
       stopped = true;
+      scheduleBoundsRef.current = null;
       observer.disconnect();
       window.removeEventListener("resize", schedule);
       window.removeEventListener("scroll", schedule, true);
@@ -77,13 +92,65 @@ export function AppDockPane(props: {
       if (frame) window.cancelAnimationFrame(frame);
       void bridge.setVisible({ tabId: props.tabId, visible: false }).catch(() => undefined);
     };
-  }, [props.tabId, showNativeView]);
+  }, [props.tabId]);
 
-  useEffect(() => {
-    void window.desktopBridge?.appTabs
-      ?.setVisible({ tabId: props.tabId, visible: showNativeView })
-      .catch(() => undefined);
-  }, [props.tabId, showNativeView]);
+  useLayoutEffect(() => {
+    const bridge = window.desktopBridge?.appTabs;
+    const viewport = viewportRef.current;
+    if (!bridge || !viewport) return;
+
+    visibilityRequestRef.current = showNativeView;
+    const generation = ++visibilityGenerationRef.current;
+
+    const setNativeViewVisible = (visible: boolean) => {
+      if (generation !== visibilityGenerationRef.current) return;
+      nativeViewVisibleRef.current = visible;
+      void bridge.setVisible({ tabId: props.tabId, visible }).catch(() => undefined);
+      if (visible) scheduleBoundsRef.current?.();
+    };
+
+    if (showNativeView) {
+      setNativeViewVisible(true);
+      return;
+    }
+
+    // Loading/crashed renderers hide immediately. Exit retention applies only
+    // when the host has actually closed or switched away from a ready App pane.
+    if (props.visible) {
+      setNativeViewVisible(false);
+      return;
+    }
+
+    if (!nativeViewVisibleRef.current) {
+      setNativeViewVisible(false);
+      return;
+    }
+
+    // App content lives in a native Electron WebContentsView, outside the DOM.
+    // Keep it visible while its dock ancestor is animating out, update its bounds
+    // through the existing transition follower above, and hide it only when the
+    // browser reports that transition as finished. A tab switch has no running
+    // dock transition, so its previous native view still hides on the next frame.
+    let frame = window.requestAnimationFrame(() => {
+      frame = 0;
+      const transitionRoot = viewport.closest<HTMLElement>("[data-slot='sidebar-container']");
+      const animations = transitionRoot?.getAnimations() ?? [];
+      if (!hasRunningNativeViewExitTransition(animations)) {
+        setNativeViewVisible(false);
+        return;
+      }
+
+      void Promise.allSettled(animations.map((animation) => animation.finished)).then(() => {
+        if (generation === visibilityGenerationRef.current && !visibilityRequestRef.current) {
+          setNativeViewVisible(false);
+        }
+      });
+    });
+
+    return () => {
+      if (frame) window.cancelAnimationFrame(frame);
+    };
+  }, [props.tabId, props.visible, showNativeView]);
 
   return (
     <div ref={viewportRef} className="relative h-full min-h-0 w-full overflow-hidden">

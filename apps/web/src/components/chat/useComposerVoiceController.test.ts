@@ -79,6 +79,11 @@ const voiceAvailability = vi.hoisted(() => ({
   canStartVoiceNotes: true,
   showVoiceNotesControl: true,
 }));
+const voiceJobStore = vi.hoisted(() => ({
+  persist: vi.fn(),
+  list: vi.fn(),
+  delete: vi.fn(),
+}));
 
 vi.mock("react", () => ({
   useEffect: reactHarness.useEffect,
@@ -89,6 +94,7 @@ vi.mock("react", () => ({
 
 vi.mock("../../lib/voiceRecorder", () => ({
   formatVoiceRecordingDuration: () => "0:00",
+  serializeCapturedVoiceRecording: (recording: unknown) => Promise.resolve(recording),
   useVoiceRecorder: () => ({
     isRecording: recorder.isRecording,
     durationMs: 0,
@@ -108,6 +114,12 @@ vi.mock("../../nativeApi", () => ({
           },
         }
       : null,
+}));
+
+vi.mock("../../lib/voiceTranscriptionJobStore", () => ({
+  persistVoiceTranscriptionJob: voiceJobStore.persist,
+  listVoiceTranscriptionJobs: voiceJobStore.list,
+  deleteVoiceTranscriptionJob: voiceJobStore.delete,
 }));
 
 vi.mock("../ui/toast", () => ({ toastManager: toast }));
@@ -181,6 +193,9 @@ describe("useComposerVoiceController", () => {
     nativeApi.available = true;
     voiceAvailability.canStartVoiceNotes = true;
     voiceAvailability.showVoiceNotesControl = true;
+    voiceJobStore.persist.mockReset().mockResolvedValue(undefined);
+    voiceJobStore.list.mockReset().mockResolvedValue([]);
+    voiceJobStore.delete.mockReset().mockResolvedValue(undefined);
     toast.add.mockReset();
     options = {
       activeProject: PROJECT,
@@ -201,7 +216,34 @@ describe("useComposerVoiceController", () => {
     await result.submitComposerVoiceRecording();
 
     expect(options.onTranscriptReady).toHaveBeenCalledTimes(1);
-    expect(options.onTranscriptReady).toHaveBeenCalledWith("transcribed once");
+    expect(options.onTranscriptReady).toHaveBeenCalledWith(
+      THREAD_A,
+      "transcribed once",
+      expect.any(String),
+    );
+    expect(voiceJobStore.persist).toHaveBeenCalledTimes(1);
+    expect(voiceJobStore.delete).toHaveBeenCalledTimes(1);
+  });
+
+  it("recovers a saved recording after the composer remounts", async () => {
+    const recoveredJob = {
+      id: "saved-voice-job",
+      threadId: THREAD_A,
+      providerThreadId: THREAD_A,
+      cwd: PROJECT.cwd,
+      recording: AUDIO_PAYLOAD,
+      createdAt: "2026-08-03T01:00:00.000Z",
+      updatedAt: "2026-08-03T01:00:00.000Z",
+    };
+    voiceJobStore.list.mockResolvedValueOnce([recoveredJob]);
+    const onTranscriptReady = vi.fn();
+
+    reactHarness.reset();
+    render({ onTranscriptReady });
+
+    await vi.waitFor(() => expect(onTranscriptReady).toHaveBeenCalledTimes(1));
+    expect(onTranscriptReady).toHaveBeenCalledWith(THREAD_A, "transcribed once", "saved-voice-job");
+    expect(voiceJobStore.delete).toHaveBeenCalledWith("saved-voice-job");
   });
 
   it("transcribes rolling chunks in order and applies one merged result", async () => {
@@ -223,33 +265,47 @@ describe("useComposerVoiceController", () => {
       "second",
     ]);
     expect(options.onTranscriptReady).toHaveBeenCalledWith(
+      THREAD_A,
       "A sentence crosses the boundary. Then it continues.",
+      expect.any(String),
     );
   });
 
-  it.each(["thread", "provider", "cancel"] as const)(
-    "ignores a stale transcription after %s changes",
-    async (staleCause) => {
+  it.each(["thread", "provider"] as const)(
+    "keeps transcription bound to its originating thread after %s changes",
+    async (navigationCause) => {
       const transcription = deferred<{ text: string }>();
       nativeApi.transcribeVoice.mockReturnValueOnce(transcription.promise);
 
       const submission = result.submitComposerVoiceRecording();
       await vi.waitFor(() => expect(nativeApi.transcribeVoice).toHaveBeenCalledTimes(1));
 
-      if (staleCause === "thread") {
+      if (navigationCause === "thread") {
         render({ activeThreadId: THREAD_B, threadId: THREAD_B });
-      } else if (staleCause === "provider") {
-        render({ selectedProvider: "claudeAgent" as ProviderKind });
       } else {
-        result.cancelComposerVoiceRecording();
+        render({ selectedProvider: "claudeAgent" as ProviderKind });
       }
 
-      transcription.resolve({ text: "stale" });
+      transcription.resolve({ text: "kept" });
       await submission;
 
-      expect(options.onTranscriptReady).not.toHaveBeenCalled();
+      expect(options.onTranscriptReady).toHaveBeenCalledWith(THREAD_A, "kept", expect.any(String));
     },
   );
+
+  it("keeps a cancelled transcription saved without applying it", async () => {
+    const transcription = deferred<{ text: string }>();
+    nativeApi.transcribeVoice.mockReturnValueOnce(transcription.promise);
+
+    const submission = result.submitComposerVoiceRecording();
+    await vi.waitFor(() => expect(nativeApi.transcribeVoice).toHaveBeenCalledTimes(1));
+    result.cancelComposerVoiceRecording();
+    transcription.resolve({ text: "cancelled" });
+    await submission;
+
+    expect(options.onTranscriptReady).not.toHaveBeenCalled();
+    expect(voiceJobStore.delete).not.toHaveBeenCalled();
+  });
 
   it("blocks submit and cancel until the configured action-arm delay elapses", async () => {
     let now = 1_000;
@@ -284,7 +340,8 @@ describe("useComposerVoiceController", () => {
     expect(toast.add).toHaveBeenCalledWith({
       type: "error",
       title: "Couldn't transcribe voice note",
-      description: "network failed",
+      description:
+        "network failed Your voice note is saved and will be retried next time Penkra opens.",
     });
   });
 
@@ -303,12 +360,9 @@ describe("useComposerVoiceController", () => {
     expect(options.refreshVoiceStatus).toHaveBeenCalledTimes(2);
   });
 
-  it("cancels and invalidates transcription when voice becomes unavailable", async () => {
+  it("does not discard a durable voice note when provider availability changes", async () => {
     const transcription = deferred<{ text: string }>();
     nativeApi.transcribeVoice.mockReturnValueOnce(transcription.promise);
-    recorder.cancelRecording.mockImplementationOnce(async () => {
-      recorder.isRecording = false;
-    });
 
     const submission = result.submitComposerVoiceRecording();
     await vi.waitFor(() => expect(nativeApi.transcribeVoice).toHaveBeenCalledTimes(1));
@@ -324,48 +378,14 @@ describe("useComposerVoiceController", () => {
         checkedAt: "2026-07-20T00:00:00.000Z",
       },
     });
-    await vi.waitFor(() => expect(recorder.cancelRecording).toHaveBeenCalledTimes(1));
-    render();
+    expect(recorder.cancelRecording).not.toHaveBeenCalled();
 
-    expect(result.isVoiceRecording).toBe(false);
-    expect(result.isVoiceTranscribing).toBe(false);
-
-    transcription.resolve({ text: "stale after availability loss" });
+    transcription.resolve({ text: "kept after availability loss" });
     await submission;
-    expect(options.onTranscriptReady).not.toHaveBeenCalled();
-  });
-
-  it("does not let an older availability cancellation clear a newer transcription", async () => {
-    const firstTranscription = deferred<{ text: string }>();
-    const secondTranscription = deferred<{ text: string }>();
-    const cancellation = deferred<void>();
-    nativeApi.transcribeVoice
-      .mockReturnValueOnce(firstTranscription.promise)
-      .mockReturnValueOnce(secondTranscription.promise);
-    recorder.cancelRecording.mockReturnValueOnce(cancellation.promise);
-
-    const firstSubmission = result.submitComposerVoiceRecording();
-    await vi.waitFor(() => expect(nativeApi.transcribeVoice).toHaveBeenCalledTimes(1));
-
-    voiceAvailability.canStartVoiceNotes = false;
-    render();
-    await vi.waitFor(() => expect(recorder.cancelRecording).toHaveBeenCalledTimes(1));
-
-    voiceAvailability.canStartVoiceNotes = true;
-    render();
-    const secondSubmission = result.submitComposerVoiceRecording();
-    await vi.waitFor(() => expect(nativeApi.transcribeVoice).toHaveBeenCalledTimes(2));
-
-    cancellation.resolve();
-    await cancellation.promise;
-    render();
-    expect(result.isVoiceTranscribing).toBe(true);
-
-    firstTranscription.resolve({ text: "stale first transcript" });
-    secondTranscription.resolve({ text: "current second transcript" });
-    await Promise.all([firstSubmission, secondSubmission]);
-
-    expect(options.onTranscriptReady).toHaveBeenCalledTimes(1);
-    expect(options.onTranscriptReady).toHaveBeenCalledWith("current second transcript");
+    expect(options.onTranscriptReady).toHaveBeenCalledWith(
+      THREAD_A,
+      "kept after availability loss",
+      expect.any(String),
+    );
   });
 });

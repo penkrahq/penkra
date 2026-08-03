@@ -130,15 +130,8 @@ export const APP_TRANSLUCENT_POPUP_SURFACE_BASE_CLASS_NAME =
 /** Default floating popup shell (dropdown menus, selects, popovers). */
 export const APP_TRANSLUCENT_POPUP_SURFACE_CLASS_NAME = `${APP_TRANSLUCENT_POPUP_SURFACE_BASE_CLASS_NAME} rounded-2xl shadow-xl`;
 
-/**
- * Frosted surface chrome shared by every plain tooltip (default TooltipPopup) and
- * the sidebar hover cards: the translucent shell at the tooltip's tighter
- * `rounded-lg` radius with a lifted shadow. The sidebar hover cards extend this
- * with their fixed width, so a plain tooltip, the thread card, and the project
- * card all read as one surface and can never drift apart. Composer-attached
- * picker tooltips deliberately stay on the picker chrome instead (see
- * COMPOSER_PICKER_TOOLTIP_SURFACE_CLASS_NAME) so they match the menus they open.
- */
+/** Black popup chrome for richer hover cards, message previews, and archive undo.
+ * The Pencil Q5AL4 hover tooltip owns its exact chrome in `ui/tooltip.tsx`. */
 export const APP_TOOLTIP_SURFACE_CLASS_NAME =
   "relative overflow-visible rounded-md border border-black bg-black text-white shadow-xl";
 
@@ -164,9 +157,6 @@ export const COMPOSER_PICKER_MENU_OPTION_CLASS_NAME = `[&>svg,&>[data-slot=centr
 
 /** Same as menu options, adapted for select item grid layout. */
 export const COMPOSER_PICKER_SELECT_OPTION_CLASS_NAME = `${COMPOSER_PICKER_MENU_OPTION_CLASS_NAME} grid in-data-[side=none]:min-w-[calc(var(--anchor-width)+1.25rem)]`;
-
-/** Same chrome as picker menus, for composer-attached tooltips. */
-export const COMPOSER_PICKER_TOOLTIP_SURFACE_CLASS_NAME = `${COMPOSER_PICKER_MENU_SURFACE_CLASS_NAME} font-normal text-[var(--color-text-foreground)]`;
 
 /** Opaque floating panel for the slash/mention command menu and @local browser.
  *  Picker border/radius/shadow, but a solid fill: the menu floats over the

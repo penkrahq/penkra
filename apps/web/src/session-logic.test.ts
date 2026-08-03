@@ -8,6 +8,7 @@ import {
   deriveActiveWorkStartedAt,
   findLatestProposedPlan,
   findSidebarProposedPlan,
+  formatElapsed,
   hasActionableProposedPlan,
   hasLiveLatestTurn,
   hasLiveTurnTailWork,
@@ -15,6 +16,23 @@ import {
   PROVIDER_OPTIONS,
 } from "./session-logic";
 import { makeActivity } from "./storeTestFixtures";
+
+describe("formatElapsed", () => {
+  const start = "2026-01-01T00:00:00.000Z";
+
+  it("normalizes durations over 60 minutes into hours", () => {
+    expect(formatElapsed(start, "2026-01-01T01:36:25.000Z")).toBe("1h 36m 25s");
+  });
+
+  it("omits empty duration units", () => {
+    expect(formatElapsed(start, "2026-01-01T01:00:00.000Z")).toBe("1h");
+    expect(formatElapsed(start, "2026-01-01T01:00:25.000Z")).toBe("1h 25s");
+  });
+
+  it("carries rounded seconds into the next hour", () => {
+    expect(formatElapsed(start, "2026-01-01T00:59:59.600Z")).toBe("1h");
+  });
+});
 
 describe("deriveActiveTaskListState", () => {
   it("returns the latest plan update for the active turn", () => {

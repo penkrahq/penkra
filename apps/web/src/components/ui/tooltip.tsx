@@ -1,10 +1,7 @@
 import { Tooltip as TooltipPrimitive } from "@base-ui/react/tooltip";
+import type { ReactNode } from "react";
 
 import { cn } from "~/lib/utils";
-import {
-  APP_TOOLTIP_SURFACE_CLASS_NAME,
-  COMPOSER_PICKER_TOOLTIP_SURFACE_CLASS_NAME,
-} from "../chat/composerPickerStyles";
 
 const TooltipCreateHandle = TooltipPrimitive.createHandle;
 
@@ -12,33 +9,28 @@ const TooltipProvider = TooltipPrimitive.Provider;
 
 const Tooltip = TooltipPrimitive.Root;
 
-/**
- * Tooltip surface variants. Every tooltip in the app is the same `TooltipPopup`;
- * the variant only swaps its chrome, so different tooltips can wear different
- * looks without forking the component. Add a new style here (and a key) to make it
- * available everywhere.
- *
- * - `default`: the frosted sidebar hover-card surface, shared with the
- *   project/thread cards so plain tooltips and the cards read as one system.
- * - `picker`: the composer picker chrome (tighter radius + soft shadow) for
- *   tooltips that sit next to picker menus and should match them.
- */
-export type TooltipVariant = "default" | "picker";
-
-const TOOLTIP_SURFACE_BY_VARIANT: Record<TooltipVariant, string> = {
-  default: APP_TOOLTIP_SURFACE_CLASS_NAME,
-  picker: COMPOSER_PICKER_TOOLTIP_SURFACE_CLASS_NAME,
-};
-
 function TooltipTrigger(props: TooltipPrimitive.Trigger.Props) {
   return <TooltipPrimitive.Trigger data-slot="tooltip-trigger" {...props} />;
+}
+
+function TooltipShortcut({ children, className }: { children: ReactNode; className?: string }) {
+  return (
+    <kbd
+      className={cn(
+        "inline-flex shrink-0 items-center justify-center rounded-[999px] bg-[var(--color-background-button-secondary-hover)] px-1 py-0.5 font-sans text-[11px] leading-[13px] font-normal text-[var(--color-text-foreground-tertiary)]",
+        className,
+      )}
+      data-pencil-node="qrW5C"
+    >
+      {children}
+    </kbd>
+  );
 }
 
 function TooltipPopup({
   className,
   positionerClassName,
   viewportClassName,
-  variant: variantProp,
   align: alignProp,
   sideOffset: sideOffsetProp,
   side: sideProp,
@@ -50,19 +42,17 @@ function TooltipPopup({
   side?: TooltipPrimitive.Positioner.Props["side"];
   sideOffset?: TooltipPrimitive.Positioner.Props["sideOffset"];
   anchor?: TooltipPrimitive.Positioner.Props["anchor"];
-  // Surface chrome preset; see TOOLTIP_SURFACE_BY_VARIANT. `className` still wins
-  // for per-tooltip tweaks (max-width, wrapping) on top of the chosen variant.
-  variant?: TooltipVariant;
   // Stacking lives on the positioner (the portaled, positioned element), so a
   // z-index override has to land here rather than on the popup className.
   positionerClassName?: string;
-  // The viewport owns the inner inset (px-2 py-1) for plain text tooltips; rich
+  // The viewport owns the Pencil 10px/6px inset for plain text tooltips; rich
   // cards that bring their own padding can zero it here so they don't double up.
   viewportClassName?: string;
 }) {
-  const variant = variantProp ?? "default";
   const align = alignProp ?? "center";
-  const sideOffset = sideOffsetProp ?? 4;
+  // Pencil Q5AL4 places the 4px arrow 3px clear of the trigger, so the popup
+  // body itself sits 7px away from the anchor.
+  const sideOffset = sideOffsetProp ?? 7;
   const side = sideProp ?? "top";
   return (
     <TooltipPrimitive.Portal>
@@ -79,28 +69,20 @@ function TooltipPopup({
       >
         <TooltipPrimitive.Popup
           className={cn(
-            // Structure + type are shared by every tooltip; the variant supplies the
-            // surface chrome (frosted card, picker, …) and `className` adds per-tooltip
-            // tweaks like max-width or wrapping.
-            "flex h-(--popup-height,auto) w-(--popup-width,auto) origin-(--transform-origin) text-balance text-[length:var(--app-font-size-ui-sm,11px)] transition-[width,height,scale,opacity] data-ending-style:scale-98 data-starting-style:scale-98 data-ending-style:opacity-0 data-starting-style:opacity-0 data-instant:duration-0",
-            TOOLTIP_SURFACE_BY_VARIANT[variant],
+            "flex h-(--popup-height,auto) w-(--popup-width,auto) origin-(--transform-origin) overflow-visible rounded-lg bg-black font-sans text-xs leading-4 font-normal text-white shadow-none ring-1 ring-black ring-inset transition-[width,height,scale,opacity] data-ending-style:scale-98 data-starting-style:scale-98 data-ending-style:opacity-0 data-starting-style:opacity-0 data-instant:duration-0",
             className,
           )}
+          data-pencil-component="Q5AL4"
           data-slot="tooltip-popup"
           {...props}
         >
           <TooltipPrimitive.Arrow
-            className={cn(
-              "flex size-2 items-center justify-center text-black",
-              variant === "picker" && "text-popover",
-            )}
+            className="bg-black data-[side=bottom]:-top-1 data-[side=bottom]:h-1 data-[side=bottom]:w-2 data-[side=bottom]:[clip-path:polygon(50%_0,100%_100%,0_100%)] data-[side=left]:-right-1 data-[side=left]:h-2 data-[side=left]:w-1 data-[side=left]:[clip-path:polygon(0_0,100%_50%,0_100%)] data-[side=right]:-left-1 data-[side=right]:h-2 data-[side=right]:w-1 data-[side=right]:[clip-path:polygon(100%_0,0_50%,100%_100%)] data-[side=top]:-bottom-1 data-[side=top]:h-1 data-[side=top]:w-2 data-[side=top]:[clip-path:polygon(0_0,100%_0,50%_100%)]"
             data-slot="tooltip-arrow"
-          >
-            <span className="block size-2 rotate-45 bg-current" />
-          </TooltipPrimitive.Arrow>
+          />
           <TooltipPrimitive.Viewport
             className={cn(
-              "relative size-full overflow-clip px-(--viewport-inline-padding) py-1 [--viewport-inline-padding:--spacing(2)] data-instant:transition-none **:data-current:data-ending-style:opacity-0 **:data-current:data-starting-style:opacity-0 **:data-previous:data-ending-style:opacity-0 **:data-previous:data-starting-style:opacity-0 **:data-current:w-[calc(var(--popup-width)-2*var(--viewport-inline-padding)-2px)] **:data-previous:w-[calc(var(--popup-width)-2*var(--viewport-inline-padding)-2px)] **:data-previous:truncate **:data-current:opacity-100 **:data-previous:opacity-100 **:data-current:transition-opacity **:data-previous:transition-opacity",
+              "relative flex size-full items-center gap-2 overflow-clip px-(--viewport-inline-padding) py-1.5 [--viewport-inline-padding:--spacing(2.5)] data-instant:transition-none **:data-current:data-ending-style:opacity-0 **:data-current:data-starting-style:opacity-0 **:data-previous:data-ending-style:opacity-0 **:data-previous:data-starting-style:opacity-0 **:data-current:w-[calc(var(--popup-width)-2*var(--viewport-inline-padding)-2px)] **:data-previous:w-[calc(var(--popup-width)-2*var(--viewport-inline-padding)-2px)] **:data-previous:truncate **:data-current:opacity-100 **:data-previous:opacity-100 **:data-current:transition-opacity **:data-previous:transition-opacity",
               viewportClassName,
             )}
             data-slot="tooltip-viewport"
@@ -113,4 +95,11 @@ function TooltipPopup({
   );
 }
 
-export { TooltipCreateHandle, TooltipProvider, Tooltip, TooltipTrigger, TooltipPopup };
+export {
+  TooltipCreateHandle,
+  TooltipProvider,
+  Tooltip,
+  TooltipTrigger,
+  TooltipPopup,
+  TooltipShortcut,
+};

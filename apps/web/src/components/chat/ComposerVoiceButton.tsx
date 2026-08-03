@@ -40,9 +40,7 @@ export const ComposerVoiceButton = function ComposerVoiceButton(props: {
           <MicIcon aria-hidden="true" className="size-4" />
         )}
       </TooltipTrigger>
-      <TooltipPopup side="top" sideOffset={8} variant="picker">
-        {label}
-      </TooltipPopup>
+      <TooltipPopup side="top">{label}</TooltipPopup>
     </Tooltip>
   );
 };

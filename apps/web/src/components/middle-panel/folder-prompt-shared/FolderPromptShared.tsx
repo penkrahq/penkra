@@ -16,11 +16,11 @@ export function FolderPromptShared({
       data-pencil-component="dZsWR"
       data-testid="empty-landing-heading"
     >
-      <span>
+      <span className="shrink-0 whitespace-nowrap">
         What should we do in<span className="@max-[407px]:hidden">&nbsp;</span>
       </span>
       <span className="inline-flex min-w-0 items-start">
-        <span className="min-w-0 border-b border-current leading-[35px] @max-[407px]:leading-[32px] @max-[297px]:leading-[30px]">
+        <span className="min-w-0 truncate whitespace-nowrap border-b border-current leading-[35px] @max-[407px]:max-w-full @max-[407px]:leading-[32px] @max-[297px]:leading-[30px]">
           {folderName}
         </span>
         <span>?</span>

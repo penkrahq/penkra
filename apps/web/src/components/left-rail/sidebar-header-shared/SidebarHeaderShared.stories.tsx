@@ -11,4 +11,3 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 export const Penkra: Story = {};
-export const WithBrandMenu: Story = { args: { brand: "Codex", showBrandMenu: true } };

@@ -231,6 +231,8 @@ import {
   resolvePenkraStorageSnapshotPath,
 } from "./desktopStorageMigration";
 import { DESKTOP_IPC_CHANNELS } from "./ipcChannels";
+import { ComposerDraftJournal } from "./composerDraftJournal";
+import { resolveVoiceQaAudioInput } from "./voiceQaAudioInput";
 import { startDesktopAppRuntime, type DesktopAppRuntime } from "./desktopAppRuntime";
 import { parseDesktopAppTheme, renderDesktopAppThemeCss } from "./appTheme";
 import { mediatedAppFetch } from "./appNetworkFetch";
@@ -312,6 +314,11 @@ const shellEnvironmentSync = syncShellEnvironment();
 
 const IPC = DESKTOP_IPC_CHANNELS;
 const MAX_CLIPBOARD_IMAGE_DATA_URL_LENGTH = 16 * 1024 * 1024;
+function composerBytesFromIpc(value: unknown): Uint8Array {
+  if (value instanceof Uint8Array) return value;
+  if (value instanceof ArrayBuffer) return new Uint8Array(value);
+  throw new Error("Invalid composer asset bytes.");
+}
 const desktopFlavor = resolvePenkraDesktopFlavor({
   isPackaged: app.isPackaged,
   ...(process.env.PENKRA_DESKTOP_FLAVOR
@@ -376,11 +383,18 @@ if (desktopSmokeUserDataPath && Path.isAbsolute(desktopSmokeUserDataPath)) {
   // purpose-built test keychain; normal Dev and production launches use the real one.
   app.commandLine.appendSwitch("use-mock-keychain");
 }
+const voiceQaAudioInput = resolveVoiceQaAudioInput(process.env.PENKRA_VOICE_QA_WAV);
+if (voiceQaAudioInput) {
+  app.commandLine.appendSwitch("no-sandbox");
+  app.commandLine.appendSwitch("use-fake-device-for-media-stream");
+  app.commandLine.appendSwitch("use-file-for-fake-audio-capture", voiceQaAudioInput);
+}
 const userDataPath =
   desktopSmokeUserDataPath && Path.isAbsolute(desktopSmokeUserDataPath)
     ? Path.resolve(desktopSmokeUserDataPath)
     : resolveUserDataPath();
 app.setPath("userData", userDataPath);
+const composerDraftJournal = new ComposerDraftJournal(userDataPath);
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 const AUTO_UPDATE_STARTUP_DELAY_MS = 15_000;
 const AUTO_UPDATE_POLL_INTERVAL_MS = 4 * 60 * 60 * 1000;
@@ -3804,6 +3818,104 @@ function requestGracefulAppQuit(reason: string): void {
 
 function registerIpcHandlers(): void {
   const storageSnapshotPath = resolvePenkraStorageSnapshotPath(app.getPath("userData"));
+
+  const requireMainRenderer = (event: Electron.IpcMainInvokeEvent): void => {
+    if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) {
+      throw new Error("Composer drafts are available only to the Penkra shell.");
+    }
+  };
+  for (const channel of Object.values(IPC.composerDrafts)) ipcMain.removeHandler(channel);
+  ipcMain.handle(IPC.composerDrafts.readSnapshot, async (event) => {
+    requireMainRenderer(event);
+    return composerDraftJournal.readSnapshot();
+  });
+  ipcMain.handle(IPC.composerDrafts.writeSnapshot, async (event, value: unknown) => {
+    requireMainRenderer(event);
+    if (typeof value !== "string") throw new Error("Invalid composer draft snapshot.");
+    await composerDraftJournal.writeSnapshot(value);
+  });
+  ipcMain.handle(IPC.composerDrafts.removeSnapshot, async (event) => {
+    requireMainRenderer(event);
+    await composerDraftJournal.removeSnapshot();
+  });
+  ipcMain.handle(IPC.composerDrafts.writeAsset, async (event, input: unknown) => {
+    requireMainRenderer(event);
+    if (!input || typeof input !== "object") throw new Error("Invalid composer asset.");
+    const candidate = input as Record<string, unknown>;
+    if (
+      typeof candidate.id !== "string" ||
+      typeof candidate.draftId !== "string" ||
+      typeof candidate.name !== "string" ||
+      typeof candidate.mimeType !== "string"
+    ) {
+      throw new Error("Invalid composer asset metadata.");
+    }
+    return composerDraftJournal.writeAsset({
+      id: candidate.id,
+      draftId: candidate.draftId,
+      name: candidate.name,
+      mimeType: candidate.mimeType,
+      bytes: composerBytesFromIpc(candidate.bytes),
+    });
+  });
+  ipcMain.handle(IPC.composerDrafts.readAsset, async (event, id: unknown) => {
+    requireMainRenderer(event);
+    if (typeof id !== "string") throw new Error("Invalid composer asset id.");
+    return composerDraftJournal.readAsset(id);
+  });
+  ipcMain.handle(IPC.composerDrafts.deleteAsset, async (event, id: unknown) => {
+    requireMainRenderer(event);
+    if (typeof id !== "string") throw new Error("Invalid composer asset id.");
+    await composerDraftJournal.deleteAsset(id);
+  });
+  ipcMain.handle(IPC.composerDrafts.createVoice, async (event, input: unknown) => {
+    requireMainRenderer(event);
+    if (!input || typeof input !== "object") throw new Error("Invalid voice draft.");
+    const job = input as Parameters<typeof composerDraftJournal.createVoice>[0];
+    if (
+      typeof job.id !== "string" ||
+      typeof job.threadId !== "string" ||
+      typeof job.cwd !== "string" ||
+      typeof job.sampleRateHz !== "number" ||
+      typeof job.createdAt !== "string" ||
+      typeof job.updatedAt !== "string"
+    ) {
+      throw new Error("Invalid voice draft metadata.");
+    }
+    await composerDraftJournal.createVoice(job);
+  });
+  ipcMain.handle(IPC.composerDrafts.appendVoice, async (event, input: unknown) => {
+    requireMainRenderer(event);
+    if (!input || typeof input !== "object") throw new Error("Invalid voice draft batch.");
+    const candidate = input as Record<string, unknown>;
+    if (typeof candidate.id !== "string" || typeof candidate.sequence !== "number") {
+      throw new Error("Invalid voice draft batch metadata.");
+    }
+    return composerDraftJournal.appendVoice({
+      id: candidate.id,
+      sequence: candidate.sequence,
+      bytes: composerBytesFromIpc(candidate.bytes),
+    });
+  });
+  ipcMain.handle(IPC.composerDrafts.completeVoice, async (event, id: unknown) => {
+    requireMainRenderer(event);
+    if (typeof id !== "string") throw new Error("Invalid voice draft id.");
+    return composerDraftJournal.completeVoice(id);
+  });
+  ipcMain.handle(IPC.composerDrafts.listVoices, async (event) => {
+    requireMainRenderer(event);
+    return composerDraftJournal.listVoices();
+  });
+  ipcMain.handle(IPC.composerDrafts.readVoice, async (event, id: unknown) => {
+    requireMainRenderer(event);
+    if (typeof id !== "string") throw new Error("Invalid voice draft id.");
+    return composerDraftJournal.readVoice(id);
+  });
+  ipcMain.handle(IPC.composerDrafts.deleteVoice, async (event, id: unknown) => {
+    requireMainRenderer(event);
+    if (typeof id !== "string") throw new Error("Invalid voice draft id.");
+    await composerDraftJournal.deleteVoice(id);
+  });
 
   ipcMain.removeAllListeners(IPC.storageMigration.read);
   ipcMain.on(IPC.storageMigration.read, (event: IpcMainEvent) => {

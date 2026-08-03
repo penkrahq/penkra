@@ -86,12 +86,15 @@ describe("Pencil middle panel", () => {
     expect(page.getByRole("button", { name: "Stop" }).element()).not.toBeDisabled();
   });
 
-  it("uses the exact Penkra shield-access glyph for full access", async () => {
+  it("uses the exact Pencil shield geometry for full access", async () => {
     await render(<AccessPillTrigger />);
 
-    const icon = document.querySelector<HTMLElement>("[data-pencil-node='Bo845']");
+    const icon = document.querySelector<SVGSVGElement>("[data-pencil-node='Bo845']");
+    const path = icon?.querySelector<SVGPathElement>("[data-pencil-node='z9iYLc']");
     expect(icon).not.toBeNull();
-    expect(icon?.style.mask).toContain("shield-access.svg");
+    expect(icon?.getAttribute("viewBox")).toBe("0 0 13.99993896484375 14");
+    expect(path?.getAttribute("d")).toContain("M6.84619 0.60156");
+    expect(path?.getAttribute("d")).not.toContain("15.7001");
     expect(icon?.getBoundingClientRect().width).toBe(13);
     expect(icon?.getBoundingClientRect().height).toBe(13);
   });
@@ -175,6 +178,20 @@ describe("Pencil middle panel", () => {
     expect(prompts[0]!.getBoundingClientRect().height).toBeCloseTo(43, 0);
     expect(prompts[1]!.getBoundingClientRect().height).toBeGreaterThan(64);
     expect(prompts[2]!.getBoundingClientRect().height).toBeGreaterThan(60);
+  });
+
+  it("keeps a long parent name on one line at the full composer size", async () => {
+    await render(
+      <div className="@container" style={{ width: 512 }}>
+        <FolderPromptShared className="w-full" folderName="emmanuelgyekyeatta-penkra" />
+      </div>,
+    );
+
+    const prompt = document.querySelector<HTMLElement>("[data-pencil-component='dZsWR']")!;
+    const folderName = prompt.querySelector<HTMLElement>("span > span.border-current")!;
+    expect(prompt.getBoundingClientRect().height).toBeCloseTo(43, 0);
+    expect(getComputedStyle(folderName).whiteSpace).toBe("nowrap");
+    expect(folderName.scrollWidth).toBeGreaterThanOrEqual(folderName.clientWidth);
   });
 
   it("uses the compact Pencil runtime menu above the draft bar", async () => {

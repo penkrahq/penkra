@@ -70,11 +70,7 @@ export const ComposerExtrasMenu = function ComposerExtrasMenu(props: {
           >
             <PlusIcon aria-hidden="true" className="size-4" />
           </TooltipTrigger>
-          {!menuOpen ? (
-            <TooltipPopup side="top" sideOffset={8} variant="picker">
-              Attach files
-            </TooltipPopup>
-          ) : null}
+          {!menuOpen ? <TooltipPopup side="top">Attach files</TooltipPopup> : null}
         </Tooltip>
         <ComposerPickerMenuPopup align="start">
           <MenuItem

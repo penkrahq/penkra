@@ -31,6 +31,10 @@ import {
   flushStorageBeforePageHide,
   type StateStorage,
 } from "./lib/storage";
+import {
+  awaitDesktopComposerDraftWrites,
+  createDesktopComposerDraftStorage,
+} from "./lib/desktopComposerDraftStorage";
 
 export {
   findSupersededComposerImageBlobAttachments,
@@ -63,9 +67,13 @@ export {
 export type { EffectiveComposerModelState } from "./composerDraftModels";
 export { partializeComposerDraftStoreState } from "./composerDraftPersistence";
 
-const COMPOSER_PERSIST_DEBOUNCE_MS = 300;
-const composerBaseStorage: StateStorage =
+const COMPOSER_PERSIST_DEBOUNCE_MS = 250;
+const composerFallbackStorage: StateStorage =
   typeof localStorage !== "undefined" ? localStorage : createMemoryStorage();
+const composerBaseStorage: StateStorage =
+  typeof window !== "undefined"
+    ? createDesktopComposerDraftStorage(composerFallbackStorage)
+    : composerFallbackStorage;
 const composerPersistStorage = createDeferredPersistStorage<
   ComposerDraftStoreState,
   PersistedComposerDraftStoreState
@@ -86,7 +94,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
       name: COMPOSER_DRAFT_STORAGE_KEY,
       version: COMPOSER_DRAFT_STORAGE_VERSION,
       // Partialization is owned by deferred storage so serialization does not run
-      // on each keystroke and instead happens once per 300ms flush window.
+      // on each keystroke and instead happens once per 250ms checkpoint window.
       storage: composerPersistStorage,
       migrate: migratePersistedComposerDraftStoreState,
       merge: (persistedState, currentState) => {
@@ -110,6 +118,11 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
     },
   ),
 );
+
+export async function flushComposerDraftsDurably(): Promise<void> {
+  composerPersistStorage.flush();
+  await awaitDesktopComposerDraftWrites();
+}
 
 export function useComposerThreadDraft(threadId: ThreadId): ComposerThreadDraftState {
   return useComposerDraftStore((state) => selectComposerThreadDraft(state, threadId));

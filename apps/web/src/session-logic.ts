@@ -85,11 +85,15 @@ function formatDuration(durationMs: number): string {
   if (durationMs < 1_000) return `${Math.max(1, Math.round(durationMs))}ms`;
   if (durationMs < 10_000) return `${(durationMs / 1_000).toFixed(1)}s`;
   if (durationMs < 60_000) return `${Math.round(durationMs / 1_000)}s`;
-  const minutes = Math.floor(durationMs / 60_000);
-  const seconds = Math.round((durationMs % 60_000) / 1_000);
-  if (seconds === 0) return `${minutes}m`;
-  if (seconds === 60) return `${minutes + 1}m`;
-  return `${minutes}m ${seconds}s`;
+  const totalSeconds = Math.round(durationMs / 1_000);
+  const hours = Math.floor(totalSeconds / 3_600);
+  const minutes = Math.floor((totalSeconds % 3_600) / 60);
+  const seconds = totalSeconds % 60;
+  const parts: string[] = [];
+  if (hours > 0) parts.push(`${hours}h`);
+  if (minutes > 0) parts.push(`${minutes}m`);
+  if (seconds > 0) parts.push(`${seconds}s`);
+  return parts.join(" ");
 }
 
 export function formatClockDuration(durationMs: number): string {

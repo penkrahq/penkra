@@ -33,8 +33,7 @@ import {
 import { COMPOSER_PICKER_TRIGGER_TEXT_CLASS_NAME } from "./composerPickerStyles";
 import { ComposerPickerMenuPopup } from "./ComposerPickerMenuPopup";
 import { getComposerTraitSelection, hasVisibleComposerTraitControls } from "./composerTraits";
-import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import { ShortcutKbd } from "../ui/shortcut-kbd";
+import { Tooltip, TooltipPopup, TooltipShortcut, TooltipTrigger } from "../ui/tooltip";
 import { MenuEffort } from "../middle-panel/menu-effort/MenuEffort";
 
 const ULTRATHINK_PROMPT_PREFIX = "Ultrathink:\n";
@@ -178,9 +177,7 @@ function FastModeToggle({ enabled, onToggle }: { enabled: boolean; onToggle: () 
           )}
         />
       </TooltipTrigger>
-      <TooltipPopup side="top" variant="picker">
-        {enabled ? "Fast mode on" : "Fast mode off"}
-      </TooltipPopup>
+      <TooltipPopup side="top">{enabled ? "Fast mode on" : "Fast mode off"}</TooltipPopup>
     </Tooltip>
   );
 }
@@ -243,11 +240,7 @@ function TraitRadioSection({
           return option.description ? (
             <Tooltip key={option.value}>
               <TooltipTrigger render={item} />
-              <TooltipPopup
-                side="right"
-                variant="picker"
-                className="max-w-80 whitespace-normal leading-tight"
-              >
+              <TooltipPopup side="right" className="max-w-80 whitespace-normal">
                 {option.description}
               </TooltipPopup>
             </Tooltip>
@@ -679,16 +672,9 @@ export const TraitsPicker = memo(function TraitsPicker({
           {triggerContent}
         </TooltipTrigger>
         {!isMenuOpen ? (
-          <TooltipPopup side="top" sideOffset={6} variant="picker">
-            <span className="inline-flex items-center gap-2 px-1 py-0.5">
-              <span>Change effort, context, and speed</span>
-              {shortcutLabel ? (
-                <ShortcutKbd
-                  shortcutLabel={shortcutLabel}
-                  className="h-4 min-w-4 px-1 text-[length:var(--app-font-size-ui-2xs,9px)] text-muted-foreground"
-                />
-              ) : null}
-            </span>
+          <TooltipPopup side="top">
+            <span>Change effort</span>
+            {shortcutLabel ? <TooltipShortcut>{shortcutLabel}</TooltipShortcut> : null}
           </TooltipPopup>
         ) : null}
       </Tooltip>

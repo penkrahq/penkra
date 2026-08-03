@@ -28,9 +28,10 @@ describe("Pencil left rail", () => {
   });
 
   it("keeps the sidebar and thread chrome on the shared 46px titlebar baseline", async () => {
+    const onClose = vi.fn();
     await render(
       <div>
-        <SidebarHeaderShared />
+        <SidebarHeaderShared onClose={onClose} />
         <TopBarThread />
       </div>,
     );
@@ -43,10 +44,25 @@ describe("Pencil left rail", () => {
     expect(sidebarHeader!.getBoundingClientRect().height).toBe(46);
     expect(threadHeader!.getBoundingClientRect().height).toBe(46);
 
-    const search = page.getByRole("button", { name: "Search" }).element();
-    const searchGlyph = search.querySelector<HTMLElement>("[data-slot='central-icon']");
-    expect(searchGlyph).not.toBeNull();
-    expect(searchGlyph!.style.mask).toContain("magnifying-glass.svg");
+    const brand = page.getByText("Penkra").element();
+    expect(
+      Math.abs(
+        brand.getBoundingClientRect().left - sidebarHeader!.getBoundingClientRect().left - 18,
+      ),
+    ).toBeLessThan(1);
+
+    const closeButton = page.getByRole("button", { name: "Close left panel" });
+    const close = closeButton.element();
+    const closeGlyph = close.querySelector<HTMLElement>("[data-slot='central-icon']");
+    expect(closeGlyph).not.toBeNull();
+    expect(closeGlyph!.style.mask).toContain("sidebar-simple-right-wide.svg");
+    expect(
+      Math.abs(
+        sidebarHeader!.getBoundingClientRect().right - close.getBoundingClientRect().right - 10,
+      ),
+    ).toBeLessThan(1);
+    await closeButton.click();
+    expect(onClose).toHaveBeenCalledOnce();
   });
 
   it("uses a real bounded vertical scroll viewport for overflowing projects", async () => {

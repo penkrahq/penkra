@@ -4,11 +4,21 @@
 // Depends on: useVoiceRecorder, ChatView voice helper logic, and the native API voice endpoint.
 
 import { type ProviderKind, type ServerProviderStatus, type ThreadId } from "@penkra/contracts";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import type { Project } from "../../types";
-import { formatVoiceRecordingDuration, useVoiceRecorder } from "../../lib/voiceRecorder";
+import {
+  formatVoiceRecordingDuration,
+  serializeCapturedVoiceRecording,
+  useVoiceRecorder,
+} from "../../lib/voiceRecorder";
 import { transcribeVoiceRecording } from "../../lib/voiceTranscriptionSequence";
+import {
+  deleteVoiceTranscriptionJob,
+  listVoiceTranscriptionJobs,
+  persistVoiceTranscriptionJob,
+  type VoiceTranscriptionJob,
+} from "../../lib/voiceTranscriptionJobStore";
 import { readNativeApi } from "../../nativeApi";
 import type { RefreshProviderStatusesNow } from "../../hooks/useProviderStatusRefresh";
 import { toastManager } from "../ui/toast";
@@ -38,7 +48,11 @@ export interface UseComposerVoiceControllerOptions {
   selectedProvider: ProviderKind;
   activeProviderStatus: ServerProviderStatus | null;
   pendingUserInputCount: number;
-  onTranscriptReady: (transcript: string) => void;
+  onTranscriptReady: (
+    threadId: ThreadId,
+    transcript: string,
+    jobId: string,
+  ) => void | Promise<void>;
   refreshVoiceStatus: RefreshProviderStatusesNow;
   actionArmDelayMs?: number;
   failureCopy?: Partial<ComposerVoiceFailureCopy>;
@@ -65,6 +79,91 @@ const DEFAULT_FAILURE_COPY: ComposerVoiceFailureCopy = {
   refreshActionLabel: "Refresh status",
 };
 
+const activeVoiceTranscriptionJobIds = new Set<string>();
+const attemptedRecoveredVoiceTranscriptionJobIds = new Set<string>();
+
+function runVoiceTranscriptionJob(input: {
+  readonly job: VoiceTranscriptionJob;
+  readonly isCurrent: () => boolean;
+  readonly onTranscriptReady: (
+    threadId: ThreadId,
+    transcript: string,
+    jobId: string,
+  ) => void | Promise<void>;
+}): Promise<void> {
+  if (activeVoiceTranscriptionJobIds.has(input.job.id)) return Promise.resolve();
+  activeVoiceTranscriptionJobIds.add(input.job.id);
+  const api = readNativeApi();
+  if (!api) {
+    activeVoiceTranscriptionJobIds.delete(input.job.id);
+    return Promise.reject(new Error("Voice transcription is unavailable right now."));
+  }
+
+  return serializeCapturedVoiceRecording(input.job.recording)
+    .then((recording) =>
+      transcribeVoiceRecording({
+        recording,
+        isCurrent: input.isCurrent,
+        transcribeChunk: (chunk) =>
+          api.server.transcribeVoice({
+            provider: "codex",
+            cwd: input.job.cwd,
+            ...(input.job.providerThreadId ? { threadId: input.job.providerThreadId } : {}),
+            ...chunk,
+          }),
+      }),
+    )
+    .then(async (transcript) => {
+      if (!transcript || !input.isCurrent()) return;
+      await input.onTranscriptReady(input.job.threadId, transcript, input.job.id);
+      await deleteVoiceTranscriptionJob(input.job.id);
+    })
+    .finally(() => {
+      activeVoiceTranscriptionJobIds.delete(input.job.id);
+    })
+    .then(() => undefined);
+}
+
+function recoverVoiceTranscriptionJobs(input: {
+  readonly onTranscriptReady: (
+    threadId: ThreadId,
+    transcript: string,
+    jobId: string,
+  ) => void | Promise<void>;
+  readonly fallbackDescription: string;
+  readonly failureTitle: string;
+}): void {
+  void listVoiceTranscriptionJobs()
+    .then((jobs) =>
+      Promise.all(
+        jobs.map((job) => {
+          if (attemptedRecoveredVoiceTranscriptionJobIds.has(job.id)) {
+            return Promise.resolve();
+          }
+          attemptedRecoveredVoiceTranscriptionJobIds.add(job.id);
+          return runVoiceTranscriptionJob({
+            job,
+            isCurrent: () => true,
+            onTranscriptReady: input.onTranscriptReady,
+          }).catch((error: unknown) => {
+            const description =
+              error instanceof Error
+                ? sanitizeVoiceErrorMessage(error.message)
+                : input.fallbackDescription;
+            toastManager.add({
+              type: "error",
+              title: input.failureTitle,
+              description: `${description} Your voice note is saved and will be retried next time Penkra opens.`,
+            });
+          });
+        }),
+      ),
+    )
+    .catch((error: unknown) => {
+      console.error("[voice-recorder] Could not recover saved voice notes.", error);
+    });
+}
+
 // Keeps the async transcription lifecycle out of ChatView so the component can stay UI-focused.
 export function useComposerVoiceController(
   options: UseComposerVoiceControllerOptions,
@@ -73,7 +172,6 @@ export function useComposerVoiceController(
     activeProject,
     activeThreadId,
     threadId,
-    selectedProvider,
     activeProviderStatus,
     pendingUserInputCount,
     onTranscriptReady,
@@ -93,20 +191,16 @@ export function useComposerVoiceController(
   } = useVoiceRecorder();
   const [isVoiceTranscribing, setIsVoiceTranscribing] = useState(false);
   const voiceTranscriptionRequestIdRef = useRef(0);
-  const voiceThreadIdRef = useRef(threadId);
-  const voiceProviderRef = useRef<ProviderKind>(selectedProvider);
+  const voiceOriginRef = useRef<{
+    readonly threadId: ThreadId;
+    readonly providerThreadId: ThreadId | null;
+    readonly cwd: string;
+  } | null>(null);
   const voiceRecordingStartedAtRef = useRef<number | null>(null);
   const failureCopy = {
     ...DEFAULT_FAILURE_COPY,
     ...failureCopyOverrides,
   };
-  // A transcription can resolve immediately after navigation commits, so stamp
-  // its identity before passive effects and browser events can observe it.
-  useLayoutEffect(() => {
-    voiceThreadIdRef.current = threadId;
-    voiceProviderRef.current = selectedProvider;
-  }, [threadId, selectedProvider]);
-
   const voiceRecordingDurationLabel = formatVoiceRecordingDuration(voiceRecordingDurationMs);
   const { canStartVoiceNotes, showVoiceNotesControl } = deriveComposerVoiceState({
     authStatus: activeProviderStatus?.authStatus,
@@ -116,43 +210,12 @@ export function useComposerVoiceController(
   });
 
   useEffect(() => {
-    const invalidatedRequestId = voiceTranscriptionRequestIdRef.current + 1;
-    voiceTranscriptionRequestIdRef.current = invalidatedRequestId;
-    voiceRecordingStartedAtRef.current = null;
-    // The spinner reset rides the cancel promise so no state is written
-    // synchronously inside the effect (keeps the hook compiler-eligible).
-    void cancelVoiceRecording().finally(() => {
-      if (voiceTranscriptionRequestIdRef.current === invalidatedRequestId) {
-        setIsVoiceTranscribing(false);
-      }
+    recoverVoiceTranscriptionJobs({
+      onTranscriptReady,
+      fallbackDescription: failureCopy.fallbackDescription,
+      failureTitle: failureCopy.transcriptionFailedTitle,
     });
-  }, [cancelVoiceRecording, threadId]);
-
-  useEffect(() => {
-    if (canStartVoiceNotes || !isVoiceRecording) {
-      return;
-    }
-    onGuardWarning?.("cancelled active voice recording because voice became unavailable", {
-      authStatus: activeProviderStatus?.authStatus ?? null,
-      voiceTranscriptionAvailable: activeProviderStatus?.voiceTranscriptionAvailable ?? null,
-      isVoiceRecording,
-    });
-    const invalidatedRequestId = voiceTranscriptionRequestIdRef.current + 1;
-    voiceTranscriptionRequestIdRef.current = invalidatedRequestId;
-    voiceRecordingStartedAtRef.current = null;
-    void cancelVoiceRecording().finally(() => {
-      if (voiceTranscriptionRequestIdRef.current === invalidatedRequestId) {
-        setIsVoiceTranscribing(false);
-      }
-    });
-  }, [
-    activeProviderStatus?.authStatus,
-    activeProviderStatus?.voiceTranscriptionAvailable,
-    canStartVoiceNotes,
-    cancelVoiceRecording,
-    isVoiceRecording,
-    onGuardWarning,
-  ]);
+  }, [failureCopy.fallbackDescription, failureCopy.transcriptionFailedTitle, onTranscriptReady]);
 
   const isVoiceActionArmed = () => {
     if (actionArmDelayMs <= 0 || voiceRecordingStartedAtRef.current === null) {
@@ -195,7 +258,13 @@ export function useComposerVoiceController(
     }
 
     try {
-      await startVoiceRecording();
+      const origin = {
+        threadId,
+        providerThreadId: activeThreadId,
+        cwd: activeProject.cwd,
+      };
+      voiceOriginRef.current = origin;
+      await startVoiceRecording(origin);
       voiceRecordingStartedAtRef.current = performance.now();
     } catch (error) {
       console.error("[voice-recorder] Could not start microphone capture.", error);
@@ -228,12 +297,13 @@ export function useComposerVoiceController(
     setIsVoiceTranscribing(true);
     const requestId = voiceTranscriptionRequestIdRef.current + 1;
     voiceTranscriptionRequestIdRef.current = requestId;
-    const requestThreadId = threadId;
-    const requestProvider = selectedProvider;
-    const isCurrentVoiceRequest = () =>
-      voiceTranscriptionRequestIdRef.current === requestId &&
-      voiceThreadIdRef.current === requestThreadId &&
-      voiceProviderRef.current === requestProvider;
+    const origin = voiceOriginRef.current ?? {
+      threadId,
+      providerThreadId: activeThreadId,
+      cwd: activeProject.cwd,
+    };
+    let voiceJobSaved = false;
+    const isCurrentVoiceRequest = () => voiceTranscriptionRequestIdRef.current === requestId;
 
     // Promise chain instead of async/try-catch-finally: React Compiler does
     // not yet support try/finally, and it would skip optimizing this hook.
@@ -249,21 +319,23 @@ export function useComposerVoiceController(
           });
           return;
         }
-        return transcribeVoiceRecording({
+        const now = new Date().toISOString();
+        const job: VoiceTranscriptionJob = {
+          id: payload.durableVoiceDraftId ?? globalThis.crypto.randomUUID(),
+          threadId: origin.threadId,
+          ...(origin.providerThreadId ? { providerThreadId: origin.providerThreadId } : {}),
+          cwd: origin.cwd,
           recording: payload,
-          isCurrent: isCurrentVoiceRequest,
-          transcribeChunk: (chunk) =>
-            api.server.transcribeVoice({
-              provider: "codex",
-              cwd: activeProject.cwd,
-              ...(activeThreadId ? { threadId: activeThreadId } : {}),
-              ...chunk,
-            }),
-        }).then((transcript) => {
-          if (!transcript || !isCurrentVoiceRequest()) {
-            return;
-          }
-          onTranscriptReady(transcript);
+          createdAt: now,
+          updatedAt: now,
+        };
+        return persistVoiceTranscriptionJob(job).then(() => {
+          voiceJobSaved = true;
+          return runVoiceTranscriptionJob({
+            job,
+            isCurrent: isCurrentVoiceRequest,
+            onTranscriptReady,
+          });
         });
       })
       .catch((error: unknown) => {
@@ -282,7 +354,11 @@ export function useComposerVoiceController(
         toastManager.add({
           type: "error",
           title: authExpired ? failureCopy.authExpiredTitle : failureCopy.transcriptionFailedTitle,
-          description: authExpired ? failureCopy.authExpiredDescription : description,
+          description: `${authExpired ? failureCopy.authExpiredDescription : description}${
+            voiceJobSaved
+              ? " Your voice note is saved and will be retried next time Penkra opens."
+              : ""
+          }`,
           ...(authExpired
             ? {
                 actionProps: {
@@ -298,6 +374,7 @@ export function useComposerVoiceController(
       .finally(() => {
         if (isCurrentVoiceRequest()) {
           voiceRecordingStartedAtRef.current = null;
+          voiceOriginRef.current = null;
           setIsVoiceTranscribing(false);
         }
       })
@@ -310,6 +387,7 @@ export function useComposerVoiceController(
     }
     voiceTranscriptionRequestIdRef.current += 1;
     voiceRecordingStartedAtRef.current = null;
+    voiceOriginRef.current = null;
     setIsVoiceTranscribing(false);
     void cancelVoiceRecording();
   };

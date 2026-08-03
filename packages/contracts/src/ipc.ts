@@ -765,6 +765,53 @@ export interface DesktopAppOpenWithBridge {
   }) => Promise<Partial<Record<DesktopAppOpenIntent, string>>>;
 }
 
+export interface DesktopComposerAssetDescriptor {
+  id: string;
+  draftId: string;
+  name: string;
+  mimeType: string;
+  sizeBytes: number;
+  committedBytes: number;
+}
+
+export interface DesktopVoiceDraftDescriptor {
+  id: string;
+  threadId: string;
+  providerThreadId?: string;
+  cwd: string;
+  sampleRateHz: number;
+  state: "recording" | "ready";
+  committedBytes: number;
+  lastSequence: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DesktopComposerDraftsBridge {
+  readSnapshot: () => Promise<string | null>;
+  writeSnapshot: (value: string) => Promise<void>;
+  removeSnapshot: () => Promise<void>;
+  writeAsset: (input: {
+    id: string;
+    draftId: string;
+    name: string;
+    mimeType: string;
+    bytes: Uint8Array;
+  }) => Promise<DesktopComposerAssetDescriptor>;
+  readAsset: (id: string) => Promise<Uint8Array | null>;
+  deleteAsset: (id: string) => Promise<void>;
+  createVoice: (input: DesktopVoiceDraftDescriptor) => Promise<void>;
+  appendVoice: (input: {
+    id: string;
+    sequence: number;
+    bytes: Uint8Array;
+  }) => Promise<DesktopVoiceDraftDescriptor>;
+  completeVoice: (id: string) => Promise<DesktopVoiceDraftDescriptor>;
+  listVoices: () => Promise<DesktopVoiceDraftDescriptor[]>;
+  readVoice: (id: string) => Promise<Uint8Array | null>;
+  deleteVoice: (id: string) => Promise<void>;
+}
+
 export interface DesktopBridge {
   getWsUrl: () => string | null;
   /**
@@ -823,6 +870,7 @@ export interface DesktopBridge {
     /** Keep the display awake only while this renderer is actively recording voice. */
     setVoiceRecordingActive: (recordingId: string, active: boolean) => Promise<void>;
   };
+  composerDrafts?: DesktopComposerDraftsBridge;
   accountAuth?: {
     getState: () => Promise<DesktopAccountAuthState>;
     requestSignIn: () => Promise<void>;

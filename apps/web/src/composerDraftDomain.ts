@@ -67,6 +67,7 @@ export interface ComposerImageAttachment extends Omit<ChatImageAttachment, "prev
 
 export interface ComposerFileAttachment extends ChatFileAttachment {
   file: File;
+  assetKey?: string;
 }
 
 export interface ComposerPromptHistorySavedDraft {
@@ -135,6 +136,7 @@ export type QueuedComposerTurn = QueuedComposerChatTurn | QueuedComposerPlanFoll
 
 export interface ComposerThreadDraftState {
   prompt: string;
+  appliedVoiceJobIds?: string[] | undefined;
   // Non-null only while composer prompt-history browsing is active: the user's
   // real draft, kept safe while `prompt` temporarily holds a recalled history
   // entry. Restored (and cleared) when a browse is interrupted by a thread
@@ -255,6 +257,7 @@ export interface ComposerDraftStoreState {
   clearDraftThread: (threadId: ThreadId) => void;
   setStickyModelSelection: (modelSelection: ModelSelection | null | undefined) => void;
   setPrompt: (threadId: ThreadId, prompt: string) => void;
+  applyVoiceTranscript: (threadId: ThreadId, jobId: string, transcript: string) => string | null;
   setPromptHistorySavedDraft: (
     threadId: ThreadId,
     savedDraft: ComposerPromptHistorySavedDraft | null,
@@ -467,6 +470,7 @@ export function removeProjectDraftMappingsForThread(
 export function createEmptyThreadDraft(): ComposerThreadDraftState {
   return {
     prompt: "",
+    appliedVoiceJobIds: [],
     promptHistorySavedDraft: null,
     images: [],
     files: [],
@@ -763,6 +767,7 @@ function clonePromptHistorySavedDraft(
 export function shouldRemoveDraft(draft: ComposerThreadDraftState): boolean {
   return (
     draft.prompt.length === 0 &&
+    (draft.appliedVoiceJobIds?.length ?? 0) === 0 &&
     draft.promptHistorySavedDraft === null &&
     draft.images.length === 0 &&
     draft.files.length === 0 &&

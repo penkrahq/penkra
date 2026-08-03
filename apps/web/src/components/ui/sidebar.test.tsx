@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import {
+  Sidebar,
   SidebarHeaderTrigger,
   SidebarInset,
   SidebarMenuAction,
@@ -96,5 +97,23 @@ describe("sidebar interactive cursors", () => {
     expect(html).toContain('data-slot="sidebar-wrapper"');
     expect(html).not.toContain('data-slot="sidebar-trigger"');
     expect(html).not.toContain("Toggle Sidebar");
+  });
+
+  it("keeps a collapsed right sidebar visible through its exit slide", () => {
+    const html = renderToStaticMarkup(
+      <SidebarProvider open={false}>
+        <Sidebar className="invisible" collapsible="offcanvas" side="right">
+          Content
+        </Sidebar>
+      </SidebarProvider>,
+    );
+
+    const container = html.match(/<div[^>]*data-slot="sidebar-container"[^>]*>/)?.[0];
+
+    expect(container).toBeDefined();
+    expect(container).toContain("transition-[transform,width,visibility]");
+    expect(container).toContain("group-data-[collapsible=offcanvas]:translate-x-full");
+    expect(container).toContain("invisible");
+    expect(container).not.toContain("right-[calc(var(--sidebar-width)*-1)]");
   });
 });

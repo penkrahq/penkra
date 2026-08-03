@@ -236,7 +236,7 @@ import {
   MenuSub,
   MenuSubTrigger,
 } from "./ui/menu";
-import { SidebarFooter, SidebarHeader, SidebarTrigger } from "./ui/sidebar";
+import { SidebarFooter, SidebarHeader, SidebarTrigger, useSidebar } from "./ui/sidebar";
 import { toastManager } from "./ui/toast";
 import { useSpacesController } from "./useSpacesController";
 const AddPlusIcon = createCentralIconComponent("plus-medium");
@@ -354,6 +354,7 @@ function buildThreadJumpLabelMap(input: {
 }
 
 export default function Sidebar() {
+  const { setOpen: setSidebarOpen } = useSidebar();
   const [showDebugFeatureFlagsMenu, setShowDebugFeatureFlagsMenu] = useState(
     readDebugFeatureFlagsMenuVisibility,
   );
@@ -2959,7 +2960,7 @@ export default function Sidebar() {
       <SidebarHeaderShared
         brand="Penkra"
         className={cn("h-full w-full", showMacTrafficLightAffordance && "px-0")}
-        onSearch={() => setSearchPaletteOpen(true)}
+        onClose={() => setSidebarOpen(false)}
       />
     </SidebarHeader>
   ) : (

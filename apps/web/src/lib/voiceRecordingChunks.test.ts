@@ -4,6 +4,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  captureVoiceRecordingFromFloat32Bytes,
   encodeVoiceChunkWav,
   RollingVoiceChunker,
   VOICE_TARGET_SAMPLE_RATE_HZ,
@@ -64,5 +65,24 @@ describe("RollingVoiceChunker", () => {
     expect(view.getUint32(24, true)).toBe(VOICE_TARGET_SAMPLE_RATE_HZ);
     expect(view.getUint16(34, true)).toBe(16);
     expect(view.getUint32(40, true)).toBe(VOICE_TARGET_SAMPLE_RATE_HZ * 2);
+  });
+
+  it("reconstructs an interrupted recording from only complete float samples", () => {
+    const bytes = new Uint8Array(10 * 4 + 2);
+    const view = new DataView(bytes.buffer);
+    for (let index = 0; index < 10; index += 1) {
+      view.setFloat32(index * 4, index / 10, true);
+    }
+    bytes.set([255, 255], 40);
+
+    const recovered = captureVoiceRecordingFromFloat32Bytes({
+      bytes,
+      sampleRateHz: 10,
+      durableVoiceDraftId: "voice-recovered",
+    });
+
+    expect(recovered?.durationMs).toBe(1_000);
+    expect(recovered?.durableVoiceDraftId).toBe("voice-recovered");
+    expect(recovered?.chunks).toHaveLength(1);
   });
 });

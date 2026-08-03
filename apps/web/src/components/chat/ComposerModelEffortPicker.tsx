@@ -20,8 +20,7 @@ import { cn } from "~/lib/utils";
 import { type ProviderModelOption } from "../../providerModelOptions";
 import { Button } from "../ui/button";
 import { Menu, MenuSeparator, MenuSub, MenuSubTrigger, MenuTrigger } from "../ui/menu";
-import { ShortcutKbd } from "../ui/shortcut-kbd";
-import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { Tooltip, TooltipPopup, TooltipShortcut, TooltipTrigger } from "../ui/tooltip";
 import { PROVIDER_ICON_COMPONENT_BY_PROVIDER } from "../ProviderIcon";
 import {
   COMPOSER_MUTED_ACCENT_TEXT_CLASS_NAME,
@@ -217,16 +216,9 @@ export function ComposerModelEffortPicker(props: ComposerModelEffortPickerProps)
           {triggerContent}
         </TooltipTrigger>
         {!isMenuOpen ? (
-          <TooltipPopup side="top" sideOffset={6} variant="picker">
-            <span className="inline-flex items-center gap-2 px-1 py-0.5">
-              <span>Select model</span>
-              {props.shortcutLabel ? (
-                <ShortcutKbd
-                  shortcutLabel={props.shortcutLabel}
-                  className="h-4 min-w-4 px-1 text-[length:var(--app-font-size-ui-2xs,9px)] text-muted-foreground"
-                />
-              ) : null}
-            </span>
+          <TooltipPopup side="top">
+            <span>Select model</span>
+            {props.shortcutLabel ? <TooltipShortcut>{props.shortcutLabel}</TooltipShortcut> : null}
           </TooltipPopup>
         ) : null}
       </Tooltip>

@@ -19,7 +19,7 @@ import {
   type QueuedComposerTurn,
 } from "./composerDraftDomain";
 import { getLocalStorageItem } from "./hooks/useLocalStorage";
-import { deleteComposerImageBlob } from "./lib/composerImageBlobStore";
+import { deleteComposerAsset } from "./lib/composerAssetStore";
 
 const composerAttachmentPersistenceQueueByThreadId = new Map<string, Promise<void>>();
 // Tracks the newest in-flight sync per (slot, thread) so a superseded verification knows not to
@@ -198,7 +198,7 @@ export function deletePersistedComposerImageBlobs(
     const draftsByThreadId = getDraftsByThreadId();
     for (const blobKey of candidateBlobKeys) {
       if (isComposerImageBlobReferenced(draftsByThreadId, blobKey)) continue;
-      void deleteComposerImageBlob(blobKey).catch((error) => {
+      void deleteComposerAsset(blobKey).catch((error) => {
         console.warn("[composer-images] Could not delete persisted image blob", error);
       });
     }

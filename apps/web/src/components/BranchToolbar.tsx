@@ -190,11 +190,7 @@ export function RuntimeUsageControls({
                 </span>
               )}
             </TooltipTrigger>
-            {!menuOpen ? (
-              <TooltipPopup side="top" sideOffset={8} variant="picker">
-                Permissions
-              </TooltipPopup>
-            ) : null}
+            {!menuOpen ? <TooltipPopup side="top">Permissions</TooltipPopup> : null}
           </Tooltip>
           <ComposerPickerMenuPopup align="start" side="top" className="min-w-44">
             <MenuRadioGroup

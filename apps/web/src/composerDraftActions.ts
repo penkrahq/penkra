@@ -21,13 +21,12 @@ import {
   revokeQueuedTurnPreviewUrls,
   syncPersistedAttachmentsForSlot,
 } from "./composerDraftAttachments";
+import { deleteComposerAsset } from "./lib/composerAssetStore";
 import {
   type ComposerDraftStoreState,
   type ComposerFileAttachment,
-  type ComposerImageAttachment,
   type ComposerThreadDraftState,
   type DraftThreadState,
-  type PersistedComposerImageAttachment,
   assistantSelectionDedupKey,
   buildDraftThreadState,
   buildTransferredComposerDraft,
@@ -48,6 +47,7 @@ import {
   shouldRemoveDraft,
   terminalContextDedupKey,
 } from "./composerDraftDomain";
+
 import {
   COMPOSER_PROVIDER_KINDS,
   makeModelSelection,
@@ -60,6 +60,39 @@ import {
 import { ensureInlineTerminalContextPlaceholders } from "./lib/terminalContext";
 import { buildModelSelection } from "./providerModelOptions";
 import { DEFAULT_INTERACTION_MODE, DEFAULT_RUNTIME_MODE } from "./types";
+
+function draftReferencesComposerAsset(draft: ComposerThreadDraftState, assetKey: string): boolean {
+  if (draft.files.some((file) => file.assetKey === assetKey)) return true;
+  if (draft.promptHistorySavedDraft?.files.some((file) => file.assetKey === assetKey)) return true;
+  return draft.queuedTurns.some(
+    (turn) => turn.kind === "chat" && turn.files.some((file) => file.assetKey === assetKey),
+  );
+}
+
+function deleteUnreferencedComposerFileAssets(
+  assetKeys: ReadonlyArray<string>,
+  getDrafts: () => ComposerDraftStoreState["draftsByThreadId"],
+): void {
+  if (assetKeys.length === 0) return;
+  Promise.resolve().then(() => {
+    const drafts = Object.values(getDrafts());
+    for (const assetKey of new Set(assetKeys)) {
+      if (drafts.some((draft) => draftReferencesComposerAsset(draft, assetKey))) continue;
+      void deleteComposerAsset(assetKey).catch((error: unknown) => {
+        console.warn("[composer-files] Could not delete persisted attachment.", error);
+      });
+    }
+  });
+}
+
+function composerFileAssetKeys(draft: ComposerThreadDraftState | undefined): string[] {
+  if (!draft) return [];
+  return [
+    ...draft.files,
+    ...(draft.promptHistorySavedDraft?.files ?? []),
+    ...draft.queuedTurns.flatMap((turn) => (turn.kind === "chat" ? turn.files : [])),
+  ].flatMap((file) => (file.assetKey ? [file.assetKey] : []));
+}
 
 function removeDraftThreadIfUnmapped(input: {
   threadId: ThreadId | undefined;
@@ -93,6 +126,10 @@ function removeDraftThreadIfUnmapped(input: {
 
   revokeDraftPreviewUrls(removedDraft);
   deleteDraftComposerImageBlobs(removedDraft, input.getDraftsByThreadId);
+  deleteUnreferencedComposerFileAssets(
+    composerFileAssetKeys(removedDraft),
+    input.getDraftsByThreadId,
+  );
   const nextDraftsByThreadId = { ...input.draftsByThreadId };
   delete nextDraftsByThreadId[input.threadId];
   return {
@@ -445,6 +482,10 @@ export const createComposerDraftStoreState =
       const removedDraft = get().draftsByThreadId[threadId];
       revokeDraftPreviewUrls(removedDraft);
       deleteDraftComposerImageBlobs(removedDraft, () => get().draftsByThreadId);
+      deleteUnreferencedComposerFileAssets(
+        composerFileAssetKeys(removedDraft),
+        () => get().draftsByThreadId,
+      );
       set((state) => {
         const hasDraftThread = state.draftThreadsByThreadId[threadId] !== undefined;
         const hasProjectMapping = Object.values(state.projectDraftThreadIdByProjectId).includes(
@@ -550,6 +591,35 @@ export const createComposerDraftStoreState =
         }
         return { draftsByThreadId: nextDraftsByThreadId };
       });
+    },
+    applyVoiceTranscript: (threadId, jobId, transcript) => {
+      if (threadId.length === 0 || jobId.length === 0) return null;
+      const normalizedTranscript = transcript.trim();
+      if (normalizedTranscript.length === 0) return null;
+      let appliedPrompt: string | null = null;
+      set((state) => {
+        const existing = state.draftsByThreadId[threadId] ?? createEmptyThreadDraft();
+        if (existing.appliedVoiceJobIds?.includes(jobId)) {
+          appliedPrompt = existing.prompt;
+          return state;
+        }
+        const currentPrompt = existing.prompt.trimEnd();
+        appliedPrompt =
+          currentPrompt.length > 0
+            ? `${currentPrompt}\n\n${normalizedTranscript}`
+            : normalizedTranscript;
+        return {
+          draftsByThreadId: {
+            ...state.draftsByThreadId,
+            [threadId]: {
+              ...existing,
+              prompt: appliedPrompt,
+              appliedVoiceJobIds: [...(existing.appliedVoiceJobIds ?? []), jobId],
+            },
+          },
+        };
+      });
+      return appliedPrompt;
     },
     setPromptHistorySavedDraft: (threadId, savedDraft) => {
       if (threadId.length === 0) {
@@ -1172,6 +1242,9 @@ export const createComposerDraftStoreState =
       if (threadId.length === 0) {
         return;
       }
+      const removedFile = get().draftsByThreadId[threadId]?.files.find(
+        (file) => file.id === fileId,
+      );
       set((state) => {
         const current = state.draftsByThreadId[threadId];
         if (!current) {
@@ -1189,6 +1262,9 @@ export const createComposerDraftStoreState =
         }
         return { draftsByThreadId: nextDraftsByThreadId };
       });
+      if (removedFile?.assetKey) {
+        deleteUnreferencedComposerFileAssets([removedFile.assetKey], () => get().draftsByThreadId);
+      }
     },
     addAssistantSelection: (threadId, selection) => {
       if (threadId.length === 0) {
@@ -1619,6 +1695,10 @@ export const createComposerDraftStoreState =
       }
       const clearedDraft = get().draftsByThreadId[threadId];
       deleteDraftComposerImageBlobs(clearedDraft, () => get().draftsByThreadId);
+      deleteUnreferencedComposerFileAssets(
+        composerFileAssetKeys(clearedDraft),
+        () => get().draftsByThreadId,
+      );
       if (options?.preservePreviewUrls !== true) {
         revokeDraftComposerImagePreviewUrls(clearedDraft);
       }
@@ -1630,6 +1710,7 @@ export const createComposerDraftStoreState =
         const nextDraft: ComposerThreadDraftState = {
           ...current,
           prompt: "",
+          appliedVoiceJobIds: [],
           promptHistorySavedDraft: null,
           images: [],
           files: [],

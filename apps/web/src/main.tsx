@@ -9,6 +9,7 @@ import { appHistory } from "./appNavigation";
 import { getRouter } from "./router";
 import { APP_DISPLAY_NAME } from "./branding";
 import { isElectron } from "./env";
+import { TooltipProvider } from "./components/ui/tooltip";
 
 const router = getRouter(appHistory);
 
@@ -20,6 +21,8 @@ if (isElectron) {
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
-    <RouterProvider router={router} />
+    <TooltipProvider>
+      <RouterProvider router={router} />
+    </TooltipProvider>
   </React.StrictMode>,
 );

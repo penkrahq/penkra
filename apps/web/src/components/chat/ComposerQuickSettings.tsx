@@ -28,11 +28,7 @@ export function ComposerQuickSettings({ onSelect }: { onSelect: () => void }) {
         >
           <IconCircle aria-hidden="true" className="!size-[13px]" stroke={1.75} />
         </TooltipTrigger>
-        {!open ? (
-          <TooltipPopup side="top" sideOffset={8} variant="picker">
-            Change mode
-          </TooltipPopup>
-        ) : null}
+        {!open ? <TooltipPopup side="top">Change mode</TooltipPopup> : null}
       </Tooltip>
       <PopoverPopup
         align="end"

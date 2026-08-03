@@ -30,8 +30,7 @@ import {
   COMPOSER_PICKER_MODEL_LIST_SCROLL_CLASS_NAME,
   COMPOSER_PICKER_MODEL_SUBMENU_HEIGHT_CLASS_NAME,
 } from "./composerPickerStyles";
-import { ShortcutKbd } from "../ui/shortcut-kbd";
-import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { Tooltip, TooltipPopup, TooltipShortcut, TooltipTrigger } from "../ui/tooltip";
 import {
   groupProviderModelOptions,
   groupProviderModelOptionsWithFavorites,
@@ -555,16 +554,9 @@ export const ProviderModelPicker = function ProviderModelPicker(props: ProviderM
           <span className="sr-only">{selectedModelLabel}</span>
         </TooltipTrigger>
         {!isMenuOpen ? (
-          <TooltipPopup side="top" sideOffset={6} variant="picker">
-            <span className="inline-flex items-center gap-2 px-1 py-0.5">
-              <span>Select model</span>
-              {props.shortcutLabel ? (
-                <ShortcutKbd
-                  shortcutLabel={props.shortcutLabel}
-                  className="h-4 min-w-4 px-1 text-[length:var(--app-font-size-ui-2xs,9px)] text-muted-foreground"
-                />
-              ) : null}
-            </span>
+          <TooltipPopup side="top">
+            <span>Select model</span>
+            {props.shortcutLabel ? <TooltipShortcut>{props.shortcutLabel}</TooltipShortcut> : null}
           </TooltipPopup>
         ) : null}
       </Tooltip>

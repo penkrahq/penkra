@@ -19,6 +19,17 @@ export interface VoiceRecordingPayload {
   readonly durationMs: number;
 }
 
+export interface CapturedVoiceRecordingChunk {
+  readonly blob: Blob;
+  readonly durationMs: number;
+}
+
+export interface CapturedVoiceRecordingPayload {
+  readonly chunks: readonly CapturedVoiceRecordingChunk[];
+  readonly durationMs: number;
+  readonly durableVoiceDraftId?: string;
+}
+
 export interface RawVoiceChunk {
   readonly samples: Float32Array;
   readonly sampleRateHz: number;
@@ -135,6 +146,37 @@ export function encodeVoiceChunkWav(
 ): ArrayBuffer {
   const resampledSamples = resampleLinear(chunk.samples, chunk.sampleRateHz, outputSampleRateHz);
   return encodeMono16BitWav(resampledSamples, outputSampleRateHz);
+}
+
+export function captureVoiceRecordingFromFloat32Bytes(input: {
+  readonly bytes: Uint8Array;
+  readonly sampleRateHz: number;
+  readonly durableVoiceDraftId: string;
+}): CapturedVoiceRecordingPayload | null {
+  const committedByteLength = input.bytes.byteLength - (input.bytes.byteLength % 4);
+  if (committedByteLength === 0) return null;
+  const samples = new Float32Array(committedByteLength / 4);
+  const view = new DataView(input.bytes.buffer, input.bytes.byteOffset, committedByteLength);
+  for (let index = 0; index < samples.length; index += 1) {
+    samples[index] = view.getFloat32(index * 4, true);
+  }
+  const chunker = new RollingVoiceChunker(input.sampleRateHz);
+  const rawChunks: RawVoiceChunk[] = [];
+  const batchSize = Math.max(1, Math.round(input.sampleRateHz));
+  for (let offset = 0; offset < samples.length; offset += batchSize) {
+    rawChunks.push(...chunker.push(samples.subarray(offset, offset + batchSize)));
+  }
+  const finalChunk = chunker.finish();
+  if (finalChunk) rawChunks.push(finalChunk);
+  if (rawChunks.length === 0) return null;
+  return {
+    chunks: rawChunks.map((chunk) => ({
+      blob: new Blob([encodeVoiceChunkWav(chunk)], { type: "audio/wav" }),
+      durationMs: chunk.durationMs,
+    })),
+    durationMs: chunker.totalDurationMs,
+    durableVoiceDraftId: input.durableVoiceDraftId,
+  };
 }
 
 function mergeFloat32Chunks(chunks: readonly Float32Array[], totalLength: number): Float32Array {

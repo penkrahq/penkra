@@ -106,6 +106,16 @@ const PersistedPastedTextDraft = Schema.Struct({
 
 type PersistedPastedTextDraft = typeof PersistedPastedTextDraft.Type;
 
+const PersistedComposerFileAttachment = Schema.Struct({
+  id: Schema.String,
+  name: Schema.String,
+  mimeType: Schema.String,
+  sizeBytes: Schema.Number,
+  assetKey: Schema.String,
+});
+
+type PersistedComposerFileAttachment = typeof PersistedComposerFileAttachment.Type;
+
 const PersistedSourceProposedPlanReference = Schema.Struct({
   threadId: ThreadId,
   planId: OrchestrationProposedPlanId,
@@ -132,6 +142,7 @@ const PersistedQueuedComposerChatTurn = Schema.Struct({
   previewText: Schema.String,
   prompt: Schema.String,
   images: Schema.Array(PersistedComposerImageAttachment),
+  files: Schema.optionalKey(Schema.Array(PersistedComposerFileAttachment)),
   assistantSelections: Schema.optionalKey(Schema.Array(PersistedAssistantSelectionDraft)),
   terminalContexts: Schema.Array(PersistedQueuedTerminalContextDraft),
   fileComments: Schema.optionalKey(Schema.Array(PersistedFileCommentDraft)),
@@ -180,6 +191,7 @@ const PersistedComposerPromptHistorySavedDraft = Schema.Union([
   Schema.Struct({
     prompt: Schema.String,
     attachments: Schema.optionalKey(Schema.Array(PersistedComposerImageAttachment)),
+    files: Schema.optionalKey(Schema.Array(PersistedComposerFileAttachment)),
     assistantSelections: Schema.optionalKey(Schema.Array(PersistedAssistantSelectionDraft)),
     terminalContexts: Schema.optionalKey(Schema.Array(PersistedTerminalContextDraft)),
     fileComments: Schema.optionalKey(Schema.Array(PersistedFileCommentDraft)),
@@ -194,10 +206,12 @@ type PersistedComposerPromptHistorySavedDraft =
 
 const PersistedComposerThreadDraftState = Schema.Struct({
   prompt: Schema.String,
+  appliedVoiceJobIds: Schema.optionalKey(Schema.Array(Schema.String)),
   // Set only while composer prompt-history browsing is active: the user's real
   // draft snapshot, kept safe while `prompt` temporarily holds a recalled history entry.
   promptHistorySavedDraft: Schema.optionalKey(PersistedComposerPromptHistorySavedDraft),
   attachments: Schema.Array(PersistedComposerImageAttachment),
+  files: Schema.optionalKey(Schema.Array(PersistedComposerFileAttachment)),
   assistantSelections: Schema.optionalKey(
     Schema.Array(
       Schema.Struct({
@@ -975,9 +989,7 @@ export function partializeComposerDraftStoreState(
     > = [];
     for (const queuedTurn of draft.queuedTurns) {
       if (queuedTurn.kind === "chat") {
-        // File attachments are intentionally in-memory only; persisting the
-        // queued turn without them would make a later send incomplete.
-        if (queuedTurn.files.length > 0) {
+        if (queuedTurn.files.some((file) => !file.assetKey)) {
           continue;
         }
         const images = persistQueuedComposerImages(queuedTurn.images);
@@ -991,6 +1003,13 @@ export function partializeComposerDraftStoreState(
           previewText: queuedTurn.previewText,
           prompt: queuedTurn.prompt,
           images,
+          files: queuedTurn.files.map((file) => ({
+            id: file.id,
+            name: file.name,
+            mimeType: file.mimeType,
+            sizeBytes: file.sizeBytes,
+            assetKey: file.assetKey!,
+          })),
           assistantSelections: queuedTurn.assistantSelections.map((selection) => ({
             id: selection.id,
             assistantMessageId: selection.assistantMessageId,
@@ -1067,8 +1086,10 @@ export function partializeComposerDraftStoreState(
     const hasReferenceData = draft.skills.length > 0 || draft.mentions.length > 0;
     if (
       draft.prompt.length === 0 &&
+      (draft.appliedVoiceJobIds?.length ?? 0) === 0 &&
       draft.promptHistorySavedDraft === null &&
       draft.persistedAttachments.length === 0 &&
+      draft.files.length === 0 &&
       draft.assistantSelections.length === 0 &&
       draft.terminalContexts.length === 0 &&
       draft.fileComments.length === 0 &&
@@ -1085,12 +1106,28 @@ export function partializeComposerDraftStoreState(
     }
     const persistedDraft: DeepMutable<PersistedComposerThreadDraftState> = {
       prompt: draft.prompt,
+      ...((draft.appliedVoiceJobIds?.length ?? 0) > 0
+        ? { appliedVoiceJobIds: [...(draft.appliedVoiceJobIds ?? [])] }
+        : {}),
       ...(draft.promptHistorySavedDraft !== null
         ? {
             promptHistorySavedDraft: {
               prompt: draft.promptHistorySavedDraft.prompt,
               attachments: draft.promptHistorySavedDraft.persistedAttachments.map(
                 toStorageSafePersistedAttachment,
+              ),
+              files: draft.promptHistorySavedDraft.files.flatMap((file) =>
+                file.assetKey
+                  ? [
+                      {
+                        id: file.id,
+                        name: file.name,
+                        mimeType: file.mimeType,
+                        sizeBytes: file.sizeBytes,
+                        assetKey: file.assetKey,
+                      },
+                    ]
+                  : [],
               ),
               ...(draft.promptHistorySavedDraft.assistantSelections.length > 0
                 ? {
@@ -1148,6 +1185,19 @@ export function partializeComposerDraftStoreState(
           }
         : {}),
       attachments: draft.persistedAttachments.map(toStorageSafePersistedAttachment),
+      files: draft.files.flatMap((file) =>
+        file.assetKey
+          ? [
+              {
+                id: file.id,
+                name: file.name,
+                mimeType: file.mimeType,
+                sizeBytes: file.sizeBytes,
+                assetKey: file.assetKey,
+              },
+            ]
+          : [],
+      ),
       ...(draft.assistantSelections.length > 0
         ? {
             assistantSelections: draft.assistantSelections.map((selection) => ({
@@ -1290,7 +1340,7 @@ function hydrateQueuedTurnsFromPersisted(
       return {
         ...queuedTurn,
         images: hydrateImagesFromPersisted(queuedTurn.images),
-        files: [],
+        files: hydrateFilesFromPersisted(queuedTurn.files),
         assistantSelections: normalizeAssistantSelections(queuedTurn.assistantSelections ?? []),
         terminalContexts: normalizeTerminalContextsForThread(threadId, queuedTurn.terminalContexts),
         fileComments: normalizeFileComments(queuedTurn.fileComments ?? []),
@@ -1328,7 +1378,7 @@ function hydratePromptHistorySavedDraft(
   return {
     prompt: savedDraft.prompt,
     images: hydrateImagesFromPersisted(attachments),
-    files: [],
+    files: hydrateFilesFromPersisted(savedDraft.files),
     nonPersistedImageIds: [],
     persistedAttachments: [...attachments],
     assistantSelections: normalizeAssistantSelections(savedDraft.assistantSelections ?? []),
@@ -1355,9 +1405,10 @@ export function toHydratedThreadDraft(
 
   return {
     prompt: persistedDraft.prompt,
+    appliedVoiceJobIds: [...(persistedDraft.appliedVoiceJobIds ?? [])],
     promptHistorySavedDraft: hydratePromptHistorySavedDraft(persistedDraft.promptHistorySavedDraft),
     images: hydrateImagesFromPersisted(persistedDraft.attachments),
-    files: [],
+    files: hydrateFilesFromPersisted(persistedDraft.files),
     nonPersistedImageIds: [],
     persistedAttachments: [...persistedDraft.attachments],
     assistantSelections: normalizeAssistantSelections(persistedDraft.assistantSelections ?? []),
@@ -1378,4 +1429,19 @@ export function toHydratedThreadDraft(
     runtimeMode: persistedDraft.runtimeMode ?? null,
     interactionMode: persistedDraft.interactionMode ?? null,
   };
+}
+
+function hydrateFilesFromPersisted(
+  files: ReadonlyArray<PersistedComposerFileAttachment> | undefined,
+): ComposerThreadDraftState["files"] {
+  return (files ?? []).map((file) => ({
+    type: "file" as const,
+    id: file.id,
+    name: file.name,
+    mimeType: file.mimeType,
+    sizeBytes: file.sizeBytes,
+    assetKey: file.assetKey,
+    // The binary body is hydrated lazily immediately before upload.
+    file: new File([], file.name, { type: file.mimeType }),
+  }));
 }

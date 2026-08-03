@@ -121,6 +121,7 @@ import {
   hydratePendingBlobComposerAttachments,
   readFileAsDataUrl,
 } from "../lib/composerSend";
+import { persistComposerAsset } from "../lib/composerAssetStore";
 import { reconcileDeletedThreadFromClient } from "../lib/deletedThreadClientReconciliation";
 import { dispatchThreadRename } from "../lib/threadRename";
 import { useHandleNewChat } from "../hooks/useHandleNewChat";
@@ -277,6 +278,7 @@ import {
   type QueuedComposerTurn,
   type RestoredComposerSourceProposedPlan,
   captureComposerPromptHistorySavedDraft,
+  flushComposerDraftsDurably,
   useComposerDraftStore,
   useComposerThreadDraft,
   useEffectiveComposerModelState,
@@ -452,7 +454,6 @@ import {
 } from "./chat/RateLimitBanner";
 import {
   ACTIVE_TURN_LAYOUT_SETTLE_DELAY_MS,
-  appendVoiceTranscriptToPrompt,
   shouldStartActiveTurnLayoutGrace,
   buildExpiredTerminalContextToastCopy,
   buildLocalDraftThread,
@@ -640,6 +641,7 @@ function revokeBlobPreviewUrlsAfterPaint(previewUrls: readonly string[]): void {
 // Images inline a data URL and fall back to an already-persisted attachment
 // when serialization fails.
 async function stagePersistedComposerImageAttachments(input: {
+  threadId: string;
   images: ReadonlyArray<ComposerImageAttachment>;
   getPersistedAttachments: () => PersistedComposerImageAttachment[];
 }): Promise<PersistedComposerImageAttachment[]> {
@@ -651,6 +653,21 @@ async function stagePersistedComposerImageAttachments(input: {
     await Promise.all(
       input.images.map(async (image) => {
         try {
+          if (window.desktopBridge?.composerDrafts) {
+            const assetKey = await persistComposerAsset({
+              threadId: input.threadId,
+              assetId: image.id,
+              file: image.file,
+            });
+            stagedAttachmentById.set(image.id, {
+              id: image.id,
+              name: image.name,
+              mimeType: image.mimeType,
+              sizeBytes: image.sizeBytes,
+              blobKey: assetKey,
+            });
+            return;
+          }
           const dataUrl = await readFileAsDataUrl(image.file);
           stagedAttachmentById.set(image.id, {
             id: image.id,
@@ -1393,21 +1410,70 @@ export default function ChatView({
   const addComposerImage = useCallback(
     (image: ComposerImageAttachment) => {
       discardPromptHistoryNavigationForComposerMutation();
-      addComposerDraftImage(threadId, image);
+      if (!window.desktopBridge?.composerDrafts) {
+        addComposerDraftImage(threadId, image);
+        return;
+      }
+      void persistComposerAsset({ threadId, assetId: image.id, file: image.file })
+        .then(() => addComposerDraftImage(threadId, image))
+        .catch((error: unknown) => {
+          console.error("[composer-images] Could not persist image.", error);
+          toastManager.add({
+            type: "error",
+            title: "Could not save image",
+            description: "The image was not added because Penkra could not store it safely.",
+          });
+        });
     },
     [addComposerDraftImage, discardPromptHistoryNavigationForComposerMutation, threadId],
   );
   const addComposerImagesToDraft = useCallback(
     (images: ComposerImageAttachment[]) => {
       discardPromptHistoryNavigationForComposerMutation();
-      addComposerDraftImages(threadId, images);
+      if (!window.desktopBridge?.composerDrafts) {
+        addComposerDraftImages(threadId, images);
+        return;
+      }
+      void Promise.all(
+        images.map((image) =>
+          persistComposerAsset({ threadId, assetId: image.id, file: image.file }),
+        ),
+      )
+        .then(() => addComposerDraftImages(threadId, images))
+        .catch((error: unknown) => {
+          console.error("[composer-images] Could not persist images.", error);
+          toastManager.add({
+            type: "error",
+            title: "Could not save images",
+            description: "The images were not added because Penkra could not store them safely.",
+          });
+        });
     },
     [addComposerDraftImages, discardPromptHistoryNavigationForComposerMutation, threadId],
   );
   const addComposerFilesToDraft = useCallback(
     (files: ComposerFileAttachment[]) => {
       discardPromptHistoryNavigationForComposerMutation();
-      addComposerDraftFiles(threadId, files);
+      void Promise.all(
+        files.map(async (file) => {
+          if (file.assetKey) return file;
+          const assetKey = await persistComposerAsset({
+            threadId,
+            assetId: file.id,
+            file: file.file,
+          });
+          return { ...file, assetKey };
+        }),
+      )
+        .then((persistedFiles) => addComposerDraftFiles(threadId, persistedFiles))
+        .catch((error: unknown) => {
+          console.error("[composer-files] Could not persist attachment.", error);
+          toastManager.add({
+            type: "error",
+            title: "Could not save attachment",
+            description: "The file was not added because Penkra could not store it safely.",
+          });
+        });
     },
     [addComposerDraftFiles, discardPromptHistoryNavigationForComposerMutation, threadId],
   );
@@ -3565,19 +3631,22 @@ export default function ChatView({
     }
   }, []);
   const appendVoiceTranscriptToComposer = useCallback(
-    (transcript: string) => {
-      const nextPrompt = appendVoiceTranscriptToPrompt(promptRef.current, transcript);
+    async (targetThreadId: ThreadId, transcript: string, voiceJobId: string) => {
+      const draftStore = useComposerDraftStore.getState();
+      const nextPrompt = draftStore.applyVoiceTranscript(targetThreadId, voiceJobId, transcript);
       if (!nextPrompt) {
         return;
       }
-
+      await flushComposerDraftsDurably();
+      if (targetThreadId !== threadId) {
+        return;
+      }
       promptRef.current = nextPrompt;
-      setPrompt(nextPrompt);
       setComposerCursor(collapseExpandedComposerCursor(nextPrompt, nextPrompt.length));
       setComposerTrigger(detectComposerTrigger(nextPrompt, nextPrompt.length));
       scheduleComposerFocus();
     },
-    [scheduleComposerFocus, setPrompt],
+    [scheduleComposerFocus, threadId],
   );
   const {
     isVoiceRecording,
@@ -4664,6 +4733,33 @@ export default function ChatView({
   }, [threadId]);
 
   useEffect(() => {
+    const pendingBlobAttachments = findPendingBlobComposerAttachments({
+      persistedAttachments: durablyPersistedComposerImageIds,
+      images: composerImages,
+    });
+    if (pendingBlobAttachments.length === 0) {
+      return;
+    }
+
+    let cancelled = false;
+    void hydratePendingBlobComposerAttachments(pendingBlobAttachments).then((hydratedImages) => {
+      if (cancelled) {
+        for (const image of hydratedImages) {
+          revokeBlobPreviewUrl(image.previewUrl);
+        }
+        return;
+      }
+      if (hydratedImages.length > 0) {
+        addComposerDraftImages(threadId, hydratedImages);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [addComposerDraftImages, composerImages, durablyPersistedComposerImageIds, threadId]);
+
+  useEffect(() => {
     let cancelled = false;
     void (async () => {
       if (composerImages.length === 0) {
@@ -4680,6 +4776,7 @@ export default function ChatView({
         return;
       }
       const staged = await stagePersistedComposerImageAttachments({
+        threadId,
         images: composerImages,
         getPersistedAttachments: () =>
           useComposerDraftStore.getState().draftsByThreadId[threadId]?.persistedAttachments ?? [],
@@ -4710,6 +4807,7 @@ export default function ChatView({
     let cancelled = false;
     void (async () => {
       const staged = await stagePersistedComposerImageAttachments({
+        threadId,
         images: composerPromptHistorySavedDraftImages,
         getPersistedAttachments: () =>
           useComposerDraftStore.getState().draftsByThreadId[threadId]?.promptHistorySavedDraft

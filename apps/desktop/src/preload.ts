@@ -107,6 +107,20 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     setVoiceRecordingActive: (recordingId, active) =>
       ipcRenderer.invoke(IPC.mediaSetVoiceRecordingActive, recordingId, active),
   },
+  composerDrafts: {
+    readSnapshot: () => ipcRenderer.invoke(IPC.composerDrafts.readSnapshot),
+    writeSnapshot: (value) => ipcRenderer.invoke(IPC.composerDrafts.writeSnapshot, value),
+    removeSnapshot: () => ipcRenderer.invoke(IPC.composerDrafts.removeSnapshot),
+    writeAsset: (input) => ipcRenderer.invoke(IPC.composerDrafts.writeAsset, input),
+    readAsset: (id) => ipcRenderer.invoke(IPC.composerDrafts.readAsset, id),
+    deleteAsset: (id) => ipcRenderer.invoke(IPC.composerDrafts.deleteAsset, id),
+    createVoice: (input) => ipcRenderer.invoke(IPC.composerDrafts.createVoice, input),
+    appendVoice: (input) => ipcRenderer.invoke(IPC.composerDrafts.appendVoice, input),
+    completeVoice: (id) => ipcRenderer.invoke(IPC.composerDrafts.completeVoice, id),
+    listVoices: () => ipcRenderer.invoke(IPC.composerDrafts.listVoices),
+    readVoice: (id) => ipcRenderer.invoke(IPC.composerDrafts.readVoice, id),
+    deleteVoice: (id) => ipcRenderer.invoke(IPC.composerDrafts.deleteVoice, id),
+  },
   accountAuth: {
     getState: () => ipcRenderer.invoke(IPC.accountAuth.getState),
     requestSignIn: () => ipcRenderer.invoke(IPC.accountAuth.requestSignIn),
