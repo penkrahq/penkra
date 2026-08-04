@@ -27,10 +27,7 @@ interface CodexOverlayEntryLinker {
 }
 
 function isSafePluginSectionHeader(value: unknown): value is string {
-  return (
-    typeof value === "string" &&
-    /^\[plugins\."[^"\r\n]+"\]$/.test(value)
-  );
+  return typeof value === "string" && /^\[plugins\."[^"\r\n]+"\]$/.test(value);
 }
 
 function findPluginSectionHeaders(config: string): readonly string[] {
@@ -542,7 +539,10 @@ async function preparePenkraCodexHomeOverlayUnlocked(input: {
   // competing browser, connector catalog, MCP server, or developer policy.
   // Standalone provider skills and Penkra skills remain available through the
   // provider-neutral skills catalog.
-  let overlayConfig = disableCodexConfigSections(sourceConfig, findPluginSectionHeaders(sourceConfig));
+  let overlayConfig = disableCodexConfigSections(
+    sourceConfig,
+    findPluginSectionHeaders(sourceConfig),
+  );
   const managedSection =
     input.appendConfigToml ??
     (await fs

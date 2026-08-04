@@ -82,10 +82,7 @@ export function AppDockPane(props: {
       const changed = sync();
       stableFrameCount = changed ? 0 : stableFrameCount + 1;
       remainingSettleFrames -= 1;
-      if (
-        stableFrameCount < NATIVE_VIEW_SETTLED_FRAME_COUNT &&
-        remainingSettleFrames > 0
-      ) {
+      if (stableFrameCount < NATIVE_VIEW_SETTLED_FRAME_COUNT && remainingSettleFrames > 0) {
         frame = window.requestAnimationFrame(settle);
       }
     };
