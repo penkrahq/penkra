@@ -1,7 +1,7 @@
 import { EventEmitter } from "node:events";
 
 import { ThreadId } from "@penkra/contracts";
-import type { BrowserWindow, WebContents } from "electron";
+import type { BrowserWindow, View, WebContents, WebContentsView } from "electron";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DesktopBrowserManager } from "./browserManager";
@@ -23,6 +23,11 @@ vi.mock("electron", () => ({
     }),
   },
   webContents: { fromId: vi.fn(() => null) },
+  View: class {
+    readonly addChildView = vi.fn();
+    readonly removeChildView = vi.fn();
+    readonly setBounds = vi.fn();
+  },
   WebContentsView: class {},
 }));
 
@@ -52,6 +57,13 @@ class FakeWebContents extends EventEmitter {
 
 class FakePopupWindow extends EventEmitter {
   readonly webContents = new FakeWebContents();
+}
+
+class FakeNativeView {
+  readonly addChildView = vi.fn();
+  readonly removeChildView = vi.fn();
+  readonly setBounds = vi.fn();
+  readonly setVisible = vi.fn();
 }
 
 interface BrowserManagerCharacterizationAccess {
@@ -281,5 +293,124 @@ describe("DesktopBrowserManager repeated workflow characterization", () => {
 
     expect(beforeInputEvent).toHaveBeenCalledWith(event, input);
     expect(event.preventDefault).toHaveBeenCalledOnce();
+  });
+
+  it("contains hosted native pages in an App-aligned clipping view using App-local bounds", () => {
+    const manager = new DesktopBrowserManager();
+    const windowRoot = new FakeNativeView();
+    manager.setWindow({
+      contentView: windowRoot,
+      isDestroyed: () => false,
+    } as unknown as BrowserWindow);
+
+    const opened = manager.open({ threadId: THREAD_ID });
+    const tabId = opened.activeTabId;
+    expect(tabId).not.toBeNull();
+    if (!tabId) return;
+
+    const internalState = (
+      manager as unknown as {
+        states: Map<ThreadId, { tabs: Array<{ id: string; status: "live" | "suspended" }> }>;
+      }
+    ).states.get(THREAD_ID);
+    const activeTab = internalState?.tabs.find((tab) => tab.id === tabId);
+    expect(activeTab).toBeDefined();
+    if (!activeTab) return;
+    activeTab.status = "live";
+
+    const pageContents = new FakeWebContents() as unknown as WebContents & {
+      getURL: () => string;
+      getTitle: () => string;
+      isLoading: () => boolean;
+      canGoBack: () => boolean;
+      canGoForward: () => boolean;
+      isDestroyed: () => boolean;
+    };
+    pageContents.getURL = () => "about:blank";
+    pageContents.getTitle = () => "New tab";
+    pageContents.isLoading = () => false;
+    pageContents.canGoBack = () => false;
+    pageContents.canGoForward = () => false;
+    pageContents.isDestroyed = () => false;
+    const pageView = new FakeNativeView();
+    (
+      manager as unknown as {
+        runtimes: Map<
+          string,
+          {
+            key: string;
+            threadId: ThreadId;
+            tabId: string;
+            webContents: WebContents;
+            view: WebContentsView;
+            ownsWebContents: true;
+            listenerDisposers: Array<() => void>;
+          }
+        >;
+      }
+    ).runtimes.set(`${THREAD_ID}:${tabId}`, {
+      key: `${THREAD_ID}:${tabId}`,
+      threadId: THREAD_ID,
+      tabId,
+      webContents: pageContents,
+      view: pageView as unknown as WebContentsView,
+      ownsWebContents: true,
+      listenerDisposers: [],
+    });
+
+    const firstHost = new FakeNativeView();
+    const hostBounds = { x: 860, y: 42, width: 420, height: 700 };
+    const localBounds = { x: 0, y: 84, width: 420, height: 616 };
+    manager.setHostedPanelBounds({
+      threadId: THREAD_ID,
+      parentView: firstHost as unknown as View,
+      hostBounds,
+      bounds: localBounds,
+    });
+
+    const hostedContainer = (
+      manager as unknown as {
+        hostedContainerByThreadId: Map<ThreadId, { view: FakeNativeView }>;
+      }
+    ).hostedContainerByThreadId.get(THREAD_ID)?.view;
+    expect(hostedContainer).toBeDefined();
+    if (!hostedContainer) return;
+    expect(hostedContainer.setBounds).toHaveBeenLastCalledWith(hostBounds);
+    expect(hostedContainer.addChildView).toHaveBeenCalledWith(pageView);
+    expect(windowRoot.addChildView).toHaveBeenCalledWith(hostedContainer);
+    expect(pageView.setBounds).toHaveBeenLastCalledWith(localBounds);
+
+    const resizedLocalBounds = { x: 0, y: 84, width: 320, height: 516 };
+    manager.setHostedPanelBounds({
+      threadId: THREAD_ID,
+      parentView: firstHost as unknown as View,
+      hostBounds: { ...hostBounds, width: 320, height: 600 },
+      bounds: resizedLocalBounds,
+    });
+
+    expect(pageView.setBounds).toHaveBeenLastCalledWith(resizedLocalBounds);
+
+    const replacementHost = new FakeNativeView();
+    manager.setHostedPanelBounds({
+      threadId: THREAD_ID,
+      parentView: replacementHost as unknown as View,
+      hostBounds: { ...hostBounds, width: 320, height: 600 },
+      bounds: resizedLocalBounds,
+    });
+
+    expect(hostedContainer.removeChildView).toHaveBeenCalledWith(pageView);
+    expect(hostedContainer.addChildView).toHaveBeenCalledTimes(3);
+
+    manager.setHostedPanelBounds({
+      threadId: THREAD_ID,
+      parentView: null,
+      hostBounds: null,
+      bounds: null,
+    });
+
+    expect(hostedContainer.removeChildView).toHaveBeenCalledWith(pageView);
+    expect(windowRoot.removeChildView).toHaveBeenCalledWith(hostedContainer);
+    expect(pageView.setVisible).toHaveBeenLastCalledWith(false);
+    expect(pageView.setBounds).toHaveBeenLastCalledWith({ x: 0, y: 0, width: 0, height: 0 });
   });
 });

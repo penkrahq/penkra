@@ -90,8 +90,8 @@ export const COMPOSER_COLUMN_FRAME_CLASS_NAME = CHAT_COLUMN_FRAME_CLASS_NAME;
 
 /**
  * Frame for rows stacked above the composer (queued steer/queue rows, live file
- * changes, active task list). Uses the approved 16px side inset so a 560px composer
- * produces a 528px rail.
+ * changes, active task list). Uses the approved 16px side inset so a 640px composer
+ * produces a 608px rail.
  *
  * Prefer ComposerStackedPanel inside ComposerColumnFrame instead of using this
  * token directly so chrome and attached-radius behavior stay centralized.
@@ -207,7 +207,7 @@ export const COMPOSER_EDITOR_TEXT_CLASS_NAME = "text-[length:var(--app-font-size
 export const COMPOSER_EDITOR_TYPOGRAPHY_CLASS_NAME = `font-sans ${COMPOSER_EDITOR_TEXT_CLASS_NAME} ${COMPOSER_EDITOR_LINE_HEIGHT_CLASS_NAME}`;
 /** Muted empty-state copy for the composer prompt editor. */
 export const COMPOSER_PLACEHOLDER_TEXT_CLASS_NAME = "text-[var(--color-text-foreground-tertiary)]";
-/** A 28px editor region preserves the 88.5px default shell while still allowing growth. */
+/** A 28px editor region preserves the 100px default shell while still allowing growth. */
 export const COMPOSER_EDITOR_MIN_HEIGHT_CLASS_NAME = "min-h-7";
 /** Lexical wraps lines in `<p>` nodes; reset default margins so text sits flush above the footer. */
 export const COMPOSER_EDITOR_CONTENT_RESET_CLASS_NAME = "[&_p]:m-0";
@@ -218,5 +218,5 @@ export const COMPOSER_EDITOR_PADDING_CLASS_NAME = [
   "pt-[14px]",
   "pb-2",
 ].join(" ");
-/** Bottom bar row — flush to the composer shell edges. */
-export const COMPOSER_FOOTER_ROW_CLASS_NAME = ["px-[10px]", "pb-[10px]"].join(" ");
+/** Bottom bar row — absorb spare shell height so actions stay pinned to the bottom. */
+export const COMPOSER_FOOTER_ROW_CLASS_NAME = ["mt-auto", "px-[10px]", "pb-[10px]"].join(" ");

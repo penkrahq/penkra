@@ -213,6 +213,7 @@ export function createPackagedDesktopSmokeEnvironment(
     XDG_CONFIG_HOME: join(root, "xdg-config"),
     XDG_CACHE_HOME: join(root, "xdg-cache"),
     XDG_DATA_HOME: join(root, "xdg-data"),
+    PENKRA_DESKTOP_SMOKE_USER_DATA: join(root, "user-data"),
     PENKRA_DISABLE_AUTO_UPDATE: "1",
     ELECTRON_ENABLE_LOGGING: "1",
   };
@@ -226,6 +227,7 @@ export function createPackagedDesktopSmokeEnvironment(
     env.XDG_CONFIG_HOME,
     env.XDG_CACHE_HOME,
     env.XDG_DATA_HOME,
+    env.PENKRA_DESKTOP_SMOKE_USER_DATA,
   ]) {
     if (path) mkdirSync(path, { recursive: true });
   }

@@ -10,7 +10,7 @@ const meta = {
   component: MessageAssistant,
   decorators: [
     (Story) => (
-      <div className="w-[560px]">
+      <div className="w-[640px]">
         <Story />
       </div>
     ),

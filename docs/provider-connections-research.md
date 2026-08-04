@@ -129,6 +129,23 @@ Current upstream native-state layout finding:
 - The probe did not use a real account, model turn, tool, attachment, compaction, subagent, goal, or memory. The exact retained manifest therefore remains a conformance gate. If a complete manifest cannot be proven without unstable protocol fields or provider-file surgery, cross-Connection resume must remain unavailable; visible-transcript replay is not an alternative.
 - A managed Codex update must diff its observed top-level state writes against the previous adapter manifest and fail the upgrade conformance gate when an unclassified path appears. It must not silently leave new conversation state trapped inside one Connection profile.
 
+Observed two-real-account A→B→A continuation on 2026-08-03:
+
+1. Two temporary Connection-scoped `CODEX_HOME` profiles completed Codex's device authorization with `cli_auth_credentials_store = "keyring"`. App Server `account/read` reported two distinct keyed-local identity fingerprints; one account reported Pro and the other Free. Raw identifiers were not logged.
+2. An initial status check without the managed keyring requirement reported logged out even though login had succeeded; applying the same requirement reported the expected ChatGPT login. The adapter must therefore apply and verify its credential-store requirement consistently across login, status, App Server launch, logout, and recovery.
+3. Connection A created one native thread and completed a short `gpt-5.4-mini`/low-effort marker turn. Connection B, using a separate authenticated home and the common provider state, resumed the same thread ID and correctly returned A's prior marker plus B's new marker. A fresh A runtime then resumed the same ID and correctly returned both prior markers plus a third.
+4. The native rollout contained exactly three assistant message items with the expected cumulative marker visibility. It remained at A's absolute `sessions` path while all three turns and the shared SQLite metadata completed successfully. No Penkra transcript text or experimental path/history resume field was supplied.
+
+This proves real cross-account native context continuity and credential selection for the simple-turn case. The following probes extend that evidence beyond plain text.
+
+Observed tool and image continuation across the same two real Codex accounts:
+
+- In a new thread, A executed one native shell-command item to read a fixture and persisted one `function_call` plus one `function_call_output`. B resumed the same thread with no new command and returned the tool-derived marker.
+- In another thread, A attached a PNG through Codex's native image input and persisted one inline `input_image` block in the rollout. B resumed the same thread without the image or any command and correctly identified the earlier icon.
+- Isolating the process `HOME` as well as `CODEX_HOME` caused the macOS keyring backend to fail before inference because no default Keychain was reachable. Restoring the real OS user home while retaining isolated `CODEX_HOME` fixed it. The launch contract must isolate provider state without severing the OS credential service.
+
+These tests extend the retained-state proof to structured tool and image items. Compaction, subagents/goals/memory, interruption, usage attribution, and revocation remain open.
+
 ### Claude Code / Claude Agent SDK
 
 Documented:
@@ -175,13 +192,37 @@ Leading personal/development Connection strategy after the current authenticatio
 
 This is cleaner than using one complete `CLAUDE_CONFIG_DIR` per Connection: Claude explicitly combines credentials and session history under that boundary, which would force Penkra either to move native state between profiles or depend on filesystem links. It is also safer than making the alpha `SessionStore` mirror the sole authority. `SessionStore` remains useful for durability and conformance testing, but its documented best-effort mirror can emit `mirror_error` and continue after a missed batch. The current installed SDK declaration and current web documentation also disagree on whether rejected appends receive bounded retry, so Penkra must treat any mirror error as a checkpoint failure regardless of retry count.
 
-Real-account QA must still prove that a session created and compacted under subscription Connection A resumes under subscription Connection B and an API-key Connection without server-side authorization coupling, that switching back preserves native identity, and that provider-reported usage is charged to the selected account. No production claim is made from environment precedence alone.
+Real-account QA must distinguish simple native continuation from the harder cases: compaction, tools/subagents, attachments, interruption, API-key switching, expiry/revocation, and provider-reported account/usage attribution. No production claim is made from environment precedence alone.
+
+Observed two-subscription-token A→B→A continuation on 2026-08-03:
+
+1. The operator completed two separate `claude setup-token` subscription authorizations. Each resulting one-year token was captured directly into a distinct `0600` temporary file, never printed into chat/tool output, and had a distinct local fingerprint. `claude auth status --json` reported `oauth_token` for both, but exposes no account identifier; Penkra must not claim provider-verified identity from that status shape.
+2. Both Connections launched with an otherwise empty environment, the same Penkra-owned `CLAUDE_CONFIG_DIR`, and exactly one selected `CLAUDE_CODE_OAUTH_TOKEN`. A created a Haiku/low-effort native session; B resumed the exact session ID and returned A's prior marker plus B's marker; A resumed it again and returned both prior markers plus a third. All commands reported success and no visible transcript was supplied.
+3. Provider usage showed a cold account switch: A's first turn created 6,250 cache-input tokens; B read zero cached tokens and created 6,333; returning to A read 6,250 cached tokens and created only 185. This demonstrates exact native context continuity does not imply a shared provider-side cache, and switching back can recover the original account's cache entry.
+4. The shared state root contained the native project/session JSONL plus provider policy/remote settings and local metadata. It did not require a Connection-specific transcript copy.
+
+Observed native compaction and API-key failure isolation on the same session:
+
+1. Subscription A invoked Claude's native `/compact`. The provider wrote a `compact_boundary` and compact summary into the same JSONL, reporting 6,546 pre-compaction tokens, 495 post-compaction tokens, and 6,051 cumulatively dropped tokens.
+2. Subscription B resumed that exact session ID after compaction and returned all three prior markers plus a fourth. It reported 6,133 cache-read tokens and 912 cache-creation tokens; no Penkra-generated summary or transcript was supplied.
+3. A separately captured Claude Console API key then attempted to resume the compacted session with an otherwise empty credential environment. The provider selected the API-key path but returned `Credit balance is too low` before inference, with zero input/output/cache tokens. It did not fall through to either subscription token.
+4. Subscription A immediately resumed the unchanged native session afterward and returned every prior marker. The failed Connection did not mutate the binding/state into an unrecoverable form.
+
+This proves subscription-token switching, cache isolation, native compaction continuity, and fail-closed API-key selection. The following probes extend that evidence to provider-native structured items.
+
+Observed tool, image, and subagent continuation across the same two subscription Connections:
+
+- A used one native `Read` tool call and persisted one tool-use plus one tool-result block. B resumed the same session with tools disabled and returned the marker produced by that tool result.
+- A sent a PNG as an actual SDK base64 image content block. B resumed the same session without the image or tools and correctly identified the earlier icon. The native JSONL retained one image block.
+- A delegated fixture reading to a native subagent. The provider wrote the main session JSONL plus `<session-id>/subagents/agent-*.jsonl` and a companion `.meta.json`; B resumed with tools disabled and returned the subagent-derived marker. Copying only the main JSONL would therefore be incomplete even when ordinary turns appear to work.
+
+The first-release Claude manifest must retain the complete project-session entry and its same-ID auxiliary directory. Tasks, spilled tool output, plans, interruption, expiry/revocation, and funded API-key inference still require proof.
 
 Remaining real-account/provider-state gates:
 
-- Cross-account continuation of the same exact native session, including server-side cache behavior and account authorization constraints.
+- A funded API-key Connection must complete a model turn on the same compacted native session and switch back; the captured key currently cannot establish this because its Console account has insufficient credit.
 - Rotation, revocation, expiry, and reauthorization behavior for multiple one-year subscription tokens; Penkra must never silently fall through to keychain login when one expires.
-- Exact behavior of compacted, subagent-heavy, attachment-heavy, and interrupted sessions when restored through a Penkra-owned store.
+- Exact behavior of subagent-heavy, attachment-heavy, and interrupted sessions when restored through a Penkra-owned store. Simple manual compaction across subscription Connections is now proven.
 - Whether the Penkra-owned Claude native-state root plus per-process selected credential preserves every auxiliary session resource (subagents, spilled tool results, tasks, plans, debug state, and optional file history) across real-account switches. `SessionStore` may be retained as a secondary durability mirror only after its conformance suite and mirror-error recovery pass; it is not the first-release source of truth.
 
 #### Claude subscription OAuth policy blocker
@@ -249,7 +290,7 @@ Observed credential-storage boundary in current upstream source and this install
 - OpenCode subscription/OAuth Connections should use one isolated connection profile and writable connection-scoped `auth.json`, with a single adapter-owned server/runtime pool per Connection. Conversation state remains a separately mounted Penkra-owned resource.
 - Penkra may later wrap the credential file with an OS-secret materialization layer, but it must first solve concurrent runtimes and refreshed-token durability without copying stale tokens over newer ones. File mode alone is not equivalent to an OS keychain.
 
-OpenCode Go is simpler than the generic OAuth case: its official setup gives the subscriber an API key, and OpenCode treats Go like another provider. Two Go accounts can therefore be two Penkra static-secret Connections; they do not require browser OAuth refresh-token isolation. The writable profile mechanism remains necessary for other OpenCode integrations that genuinely use OAuth.
+OpenCode Go is simpler than the generic OAuth case: its official setup gives the subscriber an API key, and OpenCode treats Go like another provider. Two Go accounts can therefore be two Penkra static-secret Connections; they do not require browser OAuth refresh-token isolation. Go is specifically provider ID `opencode-go` with model IDs `opencode-go/<model-id>` and the Go endpoint/catalog; it is not the general `opencode` Zen/pay-as-you-go provider. The adapter manifest must keep those authentication methods, catalogs, usage limits, and billing errors distinct even though both are operated by OpenCode. The writable profile mechanism remains necessary for other OpenCode integrations that genuinely use OAuth.
 
 Current upstream native-state layout finding:
 
@@ -266,6 +307,24 @@ Observed absolute-database/static-credential probe on OpenCode 1.18.10, with no 
 4. No `auth.json` was created, and `PRAGMA integrity_check` returned `ok` after the cross-server read.
 
 Implication: the absolute database override removes the symbolic-link dependency, but Penkra must own a single-flight initialization/migration lease per OpenCode native-state generation. Only after one verified initializer completes may multiple Connection runtimes open the database. Steady-state concurrency and crash recovery remain covered by the earlier stress probes; first-open migration contention is a distinct lifecycle phase.
+
+Observed two-real-OpenCode-Go-key A→B→A continuation on 2026-08-03:
+
+1. The operator supplied two distinct protected API keys. With each key injected only under `OPENCODE_AUTH_CONTENT` for provider `opencode-go`, OpenCode 1.18.10 exposed the current Go catalog, including DeepSeek V4 Flash/Pro, GLM-5.1/5.2, Kimi, MiMo, MiniMax, Qwen, Grok 4.5, and other current entries.
+2. An initial QA attempt incorrectly selected `opencode/gpt-5.4-mini`, which is the separate Zen/pay-as-you-go provider. One key returned a Zen `CreditsError` and the other completed through Zen balance. Those calls are excluded from Go evidence. This demonstrates why catalog visibility is not proof of subscription entitlement and why stable provider/authentication-method IDs must control the picker.
+3. Corrected QA used the Go-included `opencode-go/deepseek-v4-flash` model in a fresh native-state generation. A created a session and marker turn; B resumed the same native session ID and returned A's marker plus B's marker; A resumed it again and returned both markers plus a third. No projected transcript was supplied.
+4. Each turn produced provider token/cost telemetry; B and returning A also reported cache reads. The shared SQLite integrity check returned `ok`, and no `auth.json` existed anywhere in the synthetic state root.
+
+This proves simple Go static-key switching and exact native continuation. The runtime does not expose a provider account identity for these keys, so Penkra must not label them with an inferred workspace. Operator labels and explicit key replacement remain separate from any provider-verified identity.
+
+Observed tool and image continuation across the same two Go keys:
+
+- Using the Go-included DeepSeek V4 Flash model, A persisted a native tool part/result after reading a fixture. B resumed the same session and returned the tool-derived marker.
+- DeepSeek V4 Flash's authenticated model metadata declares `attachment: false` and `image: false`. An attempted image turn persisted the native `image/png` file part but correctly reported that the model could not inspect it; this is a capability rejection, not state loss.
+- The authenticated Go metadata declares `opencode-go/gpt-5.6-luna` attachment/image/PDF capable. With that model, A inspected the PNG and B resumed the same session without receiving it again, then correctly identified the earlier icon. The file part remained in the native session export.
+- In a real in-flight interruption probe, Connection A was terminated immediately after the native `step-start` of a long generation, before any text or `step-finish`. Connection B resumed that exact session ID, completed an explicit recovery turn instead of continuing the aborted output, and the database integrity check remained `ok`. A separate sleep-tool attempt completed too early and is excluded from crash evidence.
+
+Model capability metadata must gate the composer and adapter request before a turn; provider membership alone is insufficient. The state manifest must preserve the common database plus file/snapshot/tool-output resources used by declared capabilities.
 
 Observed complete local profile boundary:
 
@@ -305,7 +364,7 @@ This shows database durability under one forced server death and, importantly, t
 Remaining gates:
 
 - Native import is a separate optional capability. Its fidelity and idempotency for tool calls, binary/file parts, summaries, reversions, permissions, child sessions, and incomplete turns must pass its own conformance suite; it is not needed for ordinary Connection switching and has no replay fallback.
-- Real OpenCode Go/static-key accounts must prove provider-reported identity/usage changes while the same native session remains exact. The fake-key probe proves local selection and state isolation only.
+- OpenCode Go usage and same-session continuity are now proven with two real keys. Provider-verified workspace identity remains unavailable in the tested surface and must not be inferred; revocation, exhaustion, and complete auxiliary-state behavior still require QA.
 - Refreshable OpenCode OAuth is deferred and unavailable until Connection-private refresh durability and auxiliary-state mounts pass. It does not block the static-key first release.
 - Synthetic-home QA must include native plugins, managed configuration, organizational `.well-known` configuration, and project-discovered settings so none can introduce an undeclared credential or state root.
 
@@ -551,16 +610,43 @@ Resolved strongly enough for architecture review:
 - Static secrets belong in a dedicated Electron-main encrypted vault and one-use broker, with Linux insecure backends failing closed.
 - Provider support is adapter/manifest/conformance driven, and release-policy availability is derived rather than persisted as user-editable truth.
 
-Evidence that now requires operator-provided real accounts/keys:
+Real-account evidence completed:
 
-- provider-reported account identity, billing/usage, quota, logout, refresh/expiry, and revocation isolation for two Connections of each enabled method;
-- exact same-provider A→B→A continuation after model turns, native compaction, tools, attachments, subprocesses/subagents, interruption, and application/provider crashes;
-- the complete native-state manifest produced by those features and its survival after the originating Connection is revoked;
-- prompt-cache behavior and any server-side session authorization coupling that cannot be established by synthetic/no-model probes.
+- Codex ChatGPT A→B→A across distinct provider-reported identities, plus native tool and image items;
+- Claude subscription A→B→A across operator-authorized tokens, native compaction, cache behavior, tool results, image input, and a separate subagent transcript directory;
+- OpenCode Go A→B→A through the correct `opencode-go` provider and Go-included models, plus native tool and capability-gated image state;
+- fail-closed Claude API-key selection when the selected Console account lacked credit, with successful recovery on the prior subscription Connection.
+
+Remaining evidence gates:
+
+- funded Claude API-key inference on the same native session (explicitly deferred by the operator on 2026-08-03; subscription-login validation is sufficient for the current design and architecture phase);
+- interruption and application/provider crash recovery with real in-flight turns;
+- explicit logout/revocation, expiry/refresh, quota exhaustion, and removal of an originating Connection while retained native state remains usable;
+- tasks/plans/spilled outputs and any other auxiliary state not exercised by the tool/image/subagent probes;
+- managed installation update N→N+1, rollback, and manifest-diff conformance using Penkra-owned binaries.
+
+### Verified native-state manifest baseline
+
+The manifest is adapter-versioned and provider-generation-specific. These are the minimum resources observed with current managed-source candidates; they are not permission to ignore future writes.
+
+| Provider                          | Verified authoritative/required state                                                                                                                                                                          | Structured items proven                                                                                                                | Still unclassified or unproven                                                                                                                                      |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Codex 0.146.0                     | Common `CODEX_SQLITE_HOME` databases plus the original absolute `CODEX_HOME/sessions` rollout path retained as an immutable state skeleton; `shell_snapshots` must remain eligible when a thread references it | user/assistant messages, reasoning, native function call/output, inline image input, resume-by-ID across real accounts                 | archived sessions/index, attachments outside inline images, goals, memories, generated-image/browser/computer-use/REPL artifacts, subagents, compaction, live crash |
+| Claude Code 2.1.220 / SDK 0.3.207 | One Penkra-owned `CLAUDE_CONFIG_DIR`, especially `projects/<cwd-key>/<session-id>.jsonl` and `<session-id>/subagents/*`; same-root settings/policy metadata must be classified rather than copied blindly      | messages, manual compact boundary/summary, tool use/result, SDK image block, subagent JSONL/meta, cross-token resume                   | tasks, plans, spilled tool output, optional file history/checkpoints, debug/session-env/shell snapshots, live crash, funded API-key turn                            |
+| OpenCode 1.18.10                  | Explicit common `OPENCODE_DB` plus the synthetic XDG data/state resources declared by the adapter; no `auth.json` for static Go keys                                                                           | messages/parts, tool part/result, `image/png` file part, model-capability rejection, cross-key resume, in-flight interruption recovery | snapshots/reversions, plan files, spilled tool output, child sessions, repository metadata, managed plugins/config, update-version skew                             |
+
+Manifest ownership rules:
+
+- A native-state generation owns every referenced path, including paths physically nested beneath the Connection profile that first created them. Connection deletion revokes credentials and mutable account configuration but cannot remove a referenced state skeleton.
+- Inline structured data remains provider-owned; Penkra indexes/projects it for UI but does not recreate it from rendered transcript text.
+- Companion paths are retained by opaque adapter manifest entries with content type, relative/absolute mount identity, durability/checkpoint class, and adapter schema version. Shared orchestration does not interpret them.
+- Every managed provider update runs a write-set discovery fixture covering plain turns, tools, images/files, compaction, subagents/child sessions, interruption, rollback/reversion, and crash. Any new or relocated unclassified write blocks activation.
+- Garbage collection requires zero thread/state/binding/transition/runtime/rollback references, a verified credential-independent state snapshot, and expiration of the operator-approved recovery window.
 
 Explicitly deferred rather than guessed:
 
 - generally distributed Claude subscription login pending provider-policy permission; personal/development policy may enable it;
+- funded Claude Console API-key inference; the fail-closed credential-selection path was proven, while a billable model turn remains deferred rather than treated as passed;
 - refreshable OpenCode OAuth and enterprise/cloud Claude methods until their own adapter backends pass conformance;
 - additional providers until they implement the same generic contract;
 - any unsupported cross-account native resume capability. It remains unavailable rather than falling back to projected transcript text.

@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   AppDockPane,
   hasRunningNativeViewExitTransition,
+  nativeAppViewBoundsSignature,
   shouldShowNativeAppView,
 } from "./AppDockPane";
 
@@ -21,6 +22,15 @@ describe("AppDockPane", () => {
     expect(
       hasRunningNativeViewExitTransition([{ playState: "finished" }, { playState: "running" }]),
     ).toBe(true);
+  });
+
+  it("deduplicates native geometry using position and size", () => {
+    expect(nativeAppViewBoundsSignature({ x: 12, y: 24, width: 480, height: 720 })).toBe(
+      "12:24:480:720",
+    );
+    expect(nativeAppViewBoundsSignature({ x: 13, y: 24, width: 480, height: 720 })).not.toBe(
+      nativeAppViewBoundsSignature({ x: 12, y: 24, width: 480, height: 720 }),
+    );
   });
 
   it("renders only the selected App icon while loading", () => {

@@ -4,7 +4,7 @@
 
 import { randomUUID } from "node:crypto";
 
-import { WebContentsView, type BrowserWindow } from "electron";
+import { WebContentsView, type BrowserWindow, type WebContents } from "electron";
 import type { AppTabHandle, OperationCancellationCode } from "@penkra/sdk";
 import type { DesktopAppTabClosed, DesktopAppTabDescriptor } from "@penkra/contracts";
 
@@ -133,13 +133,18 @@ export class ElectronAppTabHost implements AppTabHost {
     const app = getInstalledAppPackage(this.#installations.snapshot(), input.appId, input.spaceId);
     if (!app) throw new Error(`${input.appId} is not installed in this Space.`);
     if (!this.#installations.isActive(input.appId, input.spaceId)) {
-      if (input.appId !== "com.penkra.apps")
-        throw new Error(`${app.name} is disabled in this Space.`);
-      await this.#installations.setEnabled({
-        appId: input.appId,
-        spaceId: input.spaceId,
-        enabled: true,
-      });
+      if (input.appId === "com.penkra.apps") {
+        await this.#installations.setEnabled({
+          appId: input.appId,
+          spaceId: input.spaceId,
+          enabled: true,
+        });
+      } else {
+        // Enabled Apps are activated lazily after launch. Opening their UI must
+        // reconcile persisted enablement with the live controller just like an
+        // operation invocation does.
+        await this.#installations.ensureActive(input.appId, input.spaceId);
+      }
     }
     const handle = await this.open({ app, ...input });
     return this.#require(handle.id).descriptor;
@@ -165,10 +170,25 @@ export class ElectronAppTabHost implements AppTabHost {
     return [...this.#records.values()].map((record) => record.descriptor);
   }
 
+  listFor(spaceId: string, threadId: string): ReadonlyArray<DesktopAppTabDescriptor> {
+    return this.list().filter(
+      (descriptor) => descriptor.spaceId === spaceId && descriptor.threadId === threadId,
+    );
+  }
+
   current(): DesktopAppTabDescriptor | null {
     return this.#visibleTabId === null
       ? null
       : (this.#records.get(this.#visibleTabId)?.descriptor ?? null);
+  }
+
+  currentFor(spaceId: string, threadId: string): DesktopAppTabDescriptor | null {
+    const current = this.current();
+    return current?.spaceId === spaceId && current.threadId === threadId ? current : null;
+  }
+
+  observationWebContents(tabId: string): WebContents {
+    return this.#require(tabId).view.webContents;
   }
 
   async applyTheme(css: string): Promise<void> {
@@ -209,18 +229,31 @@ export class ElectronAppTabHost implements AppTabHost {
     return record ? record.view.getBounds() : null;
   }
 
+  rendererView(rendererId: number): WebContentsView | null {
+    return (
+      [...this.#records.values()].find((candidate) => candidate.view.webContents.id === rendererId)
+        ?.view ?? null
+    );
+  }
+
   rendererId(tabId: string): number {
     return this.#require(tabId).view.webContents.id;
   }
 
   setVisible(tabId: string, visible: boolean): void {
     const record = this.#require(tabId);
+    const window = this.#window();
     record.view.setVisible?.(visible);
     if (visible) {
       this.#visibleTabId = tabId;
+      record.view.webContents.focus();
     } else {
       if (this.#visibleTabId === tabId) this.#visibleTabId = null;
       record.view.setBounds({ x: 0, y: 0, width: 0, height: 0 });
+      // Electron does not transfer focus when a WebContentsView is hidden. Without
+      // this explicit handoff, an invisible App can continue receiving keystrokes
+      // intended for the shell composer.
+      if (window && !window.isDestroyed()) window.webContents.focus();
     }
   }
 

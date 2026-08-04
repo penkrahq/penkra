@@ -3,12 +3,13 @@
 // Layer: Desktop App policy
 
 export const REQUIRED_APPS_APP_ID = "com.penkra.apps";
+export const BROWSER_APP_ID = "com.penkra.browser";
 
 export const DEFAULT_REGISTRY_APPS = [
   { appId: REQUIRED_APPS_APP_ID, slug: "apps", permissions: {} },
   { appId: "com.penkra.explorer", slug: "explorer", permissions: {} },
   {
-    appId: "com.penkra.browser",
+    appId: BROWSER_APP_ID,
     slug: "browser",
     permissions: { "browser-session": "granted" as const },
   },

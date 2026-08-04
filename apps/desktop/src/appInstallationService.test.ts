@@ -85,6 +85,7 @@ function fixture() {
       };
       return state;
     }),
+    ensureActive: vi.fn(async () => undefined),
     isActive: vi.fn(() => false),
     subscribeUnexpectedDisable: vi.fn((listener) => {
       unexpectedDisableListener = listener;

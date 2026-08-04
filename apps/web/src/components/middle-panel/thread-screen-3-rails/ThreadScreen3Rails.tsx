@@ -57,10 +57,10 @@ export function ThreadScreen3Rails({
         hideScrollbars
         scrollFade
       >
-        <div className="mx-auto flex w-[560px] flex-col gap-2 py-6">{children}</div>
+        <div className="mx-auto flex w-[640px] flex-col gap-2 py-6">{children}</div>
       </ScrollArea>
       <div className="w-[760px] shrink-0 self-center px-6 pb-6">
-        <div className="mx-auto w-[560px]">{composer}</div>
+        <div className="mx-auto w-[640px]">{composer}</div>
       </div>
     </section>
   );

@@ -51,7 +51,10 @@ export interface McpToolDefinition {
 }
 
 export interface McpToolCallResult {
-  readonly content: ReadonlyArray<{ readonly type: "text"; readonly text: string }>;
+  readonly content: ReadonlyArray<
+    | { readonly type: "text"; readonly text: string }
+    | { readonly type: "image"; readonly data: string; readonly mimeType: string }
+  >;
   readonly isError?: boolean;
 }
 
@@ -65,6 +68,19 @@ export function mcpToolResultError(text: string): McpToolCallResult {
 
 export function mcpToolResultJson(value: unknown): McpToolCallResult {
   return { content: [{ type: "text", text: JSON.stringify(value, null, 2) }] };
+}
+
+export function mcpToolResultImage(input: {
+  data: string;
+  mimeType: string;
+  description: string;
+}): McpToolCallResult {
+  return {
+    content: [
+      { type: "text", text: input.description },
+      { type: "image", data: input.data, mimeType: input.mimeType },
+    ],
+  };
 }
 
 export function jsonRpcResult(id: JsonRpcId, result: unknown): Record<string, unknown> {

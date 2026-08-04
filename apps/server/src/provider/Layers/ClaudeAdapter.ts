@@ -931,9 +931,7 @@ const SUPPORTED_CLAUDE_IMAGE_MIME_TYPES = new Set([
   "image/webp",
 ]);
 const CLAUDE_SETTING_SOURCES = [
-  "user",
   "project",
-  "local",
 ] as const satisfies ReadonlyArray<SettingSource>;
 const CLAUDE_CONTEXT_USAGE_TIMEOUT_MS = 1_000;
 // The SDK's interrupt resolves only once the CLI acknowledges it; a wedged CLI
@@ -4667,6 +4665,11 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           ...(apiModelId ? { model: apiModelId } : {}),
           pathToClaudeCodeExecutable: providerOptions?.binaryPath ?? "claude",
           settingSources: [...CLAUDE_SETTING_SOURCES],
+          // Penkra owns the provider-neutral integration surface. Ignore MCP
+          // servers discovered through Claude settings, plugins, and agent
+          // frontmatter; the thread-scoped Penkra gateway below is the only
+          // integration authority supplied to this embedded runtime.
+          strictMcpConfig: true,
           systemPrompt: {
             type: "preset",
             preset: "claude_code",

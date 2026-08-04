@@ -141,7 +141,7 @@ export interface EnvironmentPanelProps {
   onCopyProjectInstructionsToNotes: () => void;
   /** Toggle the Diff panel/route (same handler the header diff toggle used). */
   onToggleDiff: () => void;
-  /** Open the repository URL in the in-app browser panel. */
+  /** Open the repository URL through Penkra's configured URL handler. */
   onOpenGithubRepository?: (url: string) => void;
   /** Scroll the transcript to a pinned message. */
   onJumpToPinnedMessage: (messageId: MessageId) => void;

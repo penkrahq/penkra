@@ -49,7 +49,7 @@ describe("Penkra harness policy", () => {
             scopedGatewayConnectionAvailable: true,
           })?.text ?? "";
         assert.include(first, PENKRA_HARNESS_POLICY_MARKER, `${provider}/${lifecycle}`);
-        assert.include(first, "Use the penkra_* tools", `${provider}/${lifecycle}`);
+        assert.include(first, "Use Penkra's named MCP tools", `${provider}/${lifecycle}`);
         assert.isNull(
           takePenkraHarnessPolicyForProviderSession(state, {
             provider,

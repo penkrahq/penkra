@@ -20,6 +20,18 @@ export function hasRunningNativeViewExitTransition(
   return animations.some((animation) => animation.playState === "running");
 }
 
+const NATIVE_VIEW_SETTLED_FRAME_COUNT = 4;
+const NATIVE_VIEW_MAX_SETTLE_FRAME_COUNT = 180;
+
+export function nativeAppViewBoundsSignature(bounds: {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}): string {
+  return `${bounds.x}:${bounds.y}:${bounds.width}:${bounds.height}`;
+}
+
 export function AppDockPane(props: {
   tabId: string;
   status: "loading" | "ready" | "crashed" | null;
@@ -33,6 +45,7 @@ export function AppDockPane(props: {
   const visibilityRequestRef = useRef(showNativeView);
   const visibilityGenerationRef = useRef(0);
   const scheduleBoundsRef = useRef<(() => void) | null>(null);
+  const lastBoundsSignatureRef = useRef<string | null>(null);
 
   useLayoutEffect(() => {
     const bridge = window.desktopBridge?.appTabs;
@@ -40,38 +53,60 @@ export function AppDockPane(props: {
     if (!bridge || !viewport) return;
     let stopped = false;
     let frame = 0;
-    const dockShell = viewport.closest<HTMLElement>("[data-slot='sidebar-wrapper']")?.parentElement;
+    const dockShell = viewport.closest<HTMLElement>("[data-slot='sidebar-container']");
+    let stableFrameCount = 0;
+    let remainingSettleFrames = 0;
 
-    const sync = () => {
-      frame = 0;
-      if (stopped || !nativeViewVisibleRef.current) return;
+    const sync = (): boolean => {
+      if (stopped || !nativeViewVisibleRef.current) return false;
       const bounds = viewport.getBoundingClientRect();
-      if (bounds.width <= 0 || bounds.height <= 0) return;
+      if (bounds.width <= 0 || bounds.height <= 0) return false;
+      const nextBounds = {
+        x: bounds.x,
+        y: bounds.y,
+        width: bounds.width,
+        height: bounds.height,
+      };
+      const signature = nativeAppViewBoundsSignature(nextBounds);
+      if (signature === lastBoundsSignatureRef.current) return false;
+      lastBoundsSignatureRef.current = signature;
       void bridge.setBounds({
         tabId: props.tabId,
-        bounds: { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height },
+        bounds: nextBounds,
       });
+      return true;
+    };
+    const settle = () => {
+      frame = 0;
+      if (stopped || !nativeViewVisibleRef.current) return;
+      const changed = sync();
+      stableFrameCount = changed ? 0 : stableFrameCount + 1;
+      remainingSettleFrames -= 1;
+      if (
+        stableFrameCount < NATIVE_VIEW_SETTLED_FRAME_COUNT &&
+        remainingSettleFrames > 0
+      ) {
+        frame = window.requestAnimationFrame(settle);
+      }
     };
     const schedule = () => {
-      if (!frame) frame = window.requestAnimationFrame(sync);
-    };
-    const followRunningTransitions = () => {
-      if (stopped) return;
-      sync();
-      const hasRunningTransition = dockShell
-        ?.getAnimations({ subtree: true })
-        .some((animation) => animation.playState === "running");
-      if (hasRunningTransition) frame = window.requestAnimationFrame(followRunningTransitions);
-    };
-    const handleTransitionRun = () => {
-      if (frame) window.cancelAnimationFrame(frame);
-      frame = window.requestAnimationFrame(followRunningTransitions);
+      stableFrameCount = 0;
+      remainingSettleFrames = NATIVE_VIEW_MAX_SETTLE_FRAME_COUNT;
+      if (!frame) frame = window.requestAnimationFrame(settle);
     };
     const observer = new ResizeObserver(schedule);
     observer.observe(viewport);
+    if (dockShell) observer.observe(dockShell);
     window.addEventListener("resize", schedule);
     window.addEventListener("scroll", schedule, true);
-    dockShell?.addEventListener("transitionrun", handleTransitionRun);
+    window.visualViewport?.addEventListener("resize", schedule);
+    window.visualViewport?.addEventListener("scroll", schedule);
+    dockShell?.addEventListener("transitionrun", schedule);
+    dockShell?.addEventListener("transitionend", schedule);
+    dockShell?.addEventListener("transitioncancel", schedule);
+    dockShell?.addEventListener("animationstart", schedule);
+    dockShell?.addEventListener("animationend", schedule);
+    dockShell?.addEventListener("animationcancel", schedule);
     scheduleBoundsRef.current = schedule;
     void bridge.attach({ tabId: props.tabId }).then(() => {
       if (!stopped) {
@@ -88,7 +123,14 @@ export function AppDockPane(props: {
       observer.disconnect();
       window.removeEventListener("resize", schedule);
       window.removeEventListener("scroll", schedule, true);
-      dockShell?.removeEventListener("transitionrun", handleTransitionRun);
+      window.visualViewport?.removeEventListener("resize", schedule);
+      window.visualViewport?.removeEventListener("scroll", schedule);
+      dockShell?.removeEventListener("transitionrun", schedule);
+      dockShell?.removeEventListener("transitionend", schedule);
+      dockShell?.removeEventListener("transitioncancel", schedule);
+      dockShell?.removeEventListener("animationstart", schedule);
+      dockShell?.removeEventListener("animationend", schedule);
+      dockShell?.removeEventListener("animationcancel", schedule);
       if (frame) window.cancelAnimationFrame(frame);
       void bridge.setVisible({ tabId: props.tabId, visible: false }).catch(() => undefined);
     };
@@ -105,6 +147,7 @@ export function AppDockPane(props: {
     const setNativeViewVisible = (visible: boolean) => {
       if (generation !== visibilityGenerationRef.current) return;
       nativeViewVisibleRef.current = visible;
+      if (visible) lastBoundsSignatureRef.current = null;
       void bridge.setVisible({ tabId: props.tabId, visible }).catch(() => undefined);
       if (visible) scheduleBoundsRef.current?.();
     };

@@ -68,7 +68,7 @@ export const AccountRowShared = forwardRef<HTMLDivElement, AccountRowSharedProps
     return (
       <div
         className={cn(
-          "group/account-row flex h-11 w-60 items-center rounded-[6px] bg-transparent py-2 font-sans text-[length:var(--app-font-size-ui-lg,13px)] text-[var(--color-text-foreground-secondary)]",
+          "group/account-row flex h-11 w-60 items-center rounded-[6px] bg-transparent py-2 font-sans text-[length:var(--app-font-size-ui,12px)] text-[var(--color-text-foreground-secondary)]",
           selected && "text-[var(--color-text-foreground)]",
           disabled &&
             "pointer-events-none bg-transparent text-[var(--color-text-foreground-tertiary)]",

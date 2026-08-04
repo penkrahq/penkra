@@ -56,6 +56,18 @@ describe("AppCommandPipeServer", () => {
       } as never,
       broker: { invoke } as never,
       tabs: { list: () => [current], current: () => current },
+      observer: {
+        snapshot: vi.fn(async () => ({ nodes: [] })),
+        extract: vi.fn(async () => ({ text: "" })),
+        screenshot: vi.fn(async () => ({ kind: "image" })),
+        click: vi.fn(async () => ({})),
+        hover: vi.fn(async () => ({})),
+        type: vi.fn(async () => ({})),
+        press: vi.fn(async () => ({})),
+        select: vi.fn(async () => ({})),
+        scroll: vi.fn(async () => ({})),
+        wait: vi.fn(async () => ({})),
+      },
       open,
     });
     await server.start();
@@ -108,11 +120,32 @@ describe("AppCommandPipeServer", () => {
 
     await expect(
       send(path, {
+        id: "request-tabs",
+        token: "secret",
+        method: "tabs.list",
+        params: { spaceId: "personal", threadId: "thread-1" },
+      }),
+    ).resolves.toEqual({ ok: true, id: "request-tabs", result: [current] });
+
+    await expect(
+      send(path, {
+        id: "request-tabs-other-thread",
+        token: "secret",
+        method: "tabs.list",
+        params: { spaceId: "personal", threadId: "thread-2" },
+      }),
+    ).resolves.toEqual({ ok: true, id: "request-tabs-other-thread", result: [] });
+
+    await expect(
+      send(path, {
         id: "request-2",
         token: "wrong",
         method: "tabs.list",
       }),
-    ).resolves.toMatchObject({ ok: false, error: "Invalid App command capability." });
+    ).resolves.toMatchObject({
+      ok: false,
+      error: { code: "APP_COMMAND_FAILED", message: "Invalid App command capability." },
+    });
   });
 });
 

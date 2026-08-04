@@ -70,7 +70,7 @@ export class AppInstallationService {
   readonly #store: Pick<AppInstallationStore, "snapshot" | "mutate">;
   readonly #lifecycle: Pick<
     AppRuntimeLifecycle,
-    "enable" | "disable" | "isActive" | "subscribeUnexpectedDisable"
+    "enable" | "disable" | "ensureActive" | "isActive" | "subscribeUnexpectedDisable"
   >;
   readonly #data: AppInstallationDataEraser;
   readonly #updates: Pick<AppUpdateJournal, "prepare" | "clear"> | undefined;
@@ -84,7 +84,7 @@ export class AppInstallationService {
     store: Pick<AppInstallationStore, "snapshot" | "mutate">;
     lifecycle: Pick<
       AppRuntimeLifecycle,
-      "enable" | "disable" | "isActive" | "subscribeUnexpectedDisable"
+      "enable" | "disable" | "ensureActive" | "isActive" | "subscribeUnexpectedDisable"
     >;
     data: AppInstallationDataEraser;
     updates?: Pick<AppUpdateJournal, "prepare" | "clear">;
@@ -537,6 +537,10 @@ export class AppInstallationService {
 
   isActive(appId: string, spaceId: string): boolean {
     return this.#lifecycle.isActive(appId, spaceId);
+  }
+
+  ensureActive(appId: string, spaceId: string): Promise<void> {
+    return this.#lifecycle.ensureActive(appId, spaceId);
   }
 
   #mutate(

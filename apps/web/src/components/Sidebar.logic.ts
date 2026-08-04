@@ -1142,33 +1142,87 @@ export function sortThreadsForSidebar<T extends { id: Thread["id"] } & SidebarTh
   threads: readonly T[],
   sortOrder: SidebarThreadSortOrder,
 ): T[] {
-  return threads.toSorted((left, right) => {
-    if (sortOrder === "updated_at") {
-      const leftStatus = resolveSidebarThreadSortStatus(left);
-      const rightStatus = resolveSidebarThreadSortStatus(right);
-      const byStatusRank =
-        SIDEBAR_THREAD_SORT_STATUS_RANK[rightStatus] - SIDEBAR_THREAD_SORT_STATUS_RANK[leftStatus];
-      if (byStatusRank !== 0) return byStatusRank;
+  return threads.toSorted((left, right) => compareThreadsForSidebar(left, right, sortOrder));
+}
 
-      const rightStatusChangedAt = getSidebarThreadStatusChangedTimestamp(right, rightStatus);
-      const leftStatusChangedAt = getSidebarThreadStatusChangedTimestamp(left, leftStatus);
-      const byStatusChangedAt =
-        rightStatusChangedAt === leftStatusChangedAt
-          ? 0
-          : rightStatusChangedAt > leftStatusChangedAt
-            ? 1
-            : -1;
-      if (byStatusChangedAt !== 0) return byStatusChangedAt;
-      return right.id.localeCompare(left.id);
-    }
+function compareThreadsForSidebar(
+  left: { id: Thread["id"] } & SidebarThreadSortInput,
+  right: { id: Thread["id"] } & SidebarThreadSortInput,
+  sortOrder: SidebarThreadSortOrder,
+): number {
+  if (sortOrder === "updated_at") {
+    const leftStatus = resolveSidebarThreadSortStatus(left);
+    const rightStatus = resolveSidebarThreadSortStatus(right);
+    const byStatusRank =
+      SIDEBAR_THREAD_SORT_STATUS_RANK[rightStatus] - SIDEBAR_THREAD_SORT_STATUS_RANK[leftStatus];
+    if (byStatusRank !== 0) return byStatusRank;
 
-    const rightTimestamp = getThreadSortTimestamp(right, sortOrder);
-    const leftTimestamp = getThreadSortTimestamp(left, sortOrder);
-    const byTimestamp =
-      rightTimestamp === leftTimestamp ? 0 : rightTimestamp > leftTimestamp ? 1 : -1;
-    if (byTimestamp !== 0) return byTimestamp;
+    const rightStatusChangedAt = getSidebarThreadStatusChangedTimestamp(right, rightStatus);
+    const leftStatusChangedAt = getSidebarThreadStatusChangedTimestamp(left, leftStatus);
+    const byStatusChangedAt =
+      rightStatusChangedAt === leftStatusChangedAt
+        ? 0
+        : rightStatusChangedAt > leftStatusChangedAt
+          ? 1
+          : -1;
+    if (byStatusChangedAt !== 0) return byStatusChangedAt;
     return right.id.localeCompare(left.id);
-  });
+  }
+
+  const rightTimestamp = getThreadSortTimestamp(right, sortOrder);
+  const leftTimestamp = getThreadSortTimestamp(left, sortOrder);
+  const byTimestamp =
+    rightTimestamp === leftTimestamp ? 0 : rightTimestamp > leftTimestamp ? 1 : -1;
+  if (byTimestamp !== 0) return byTimestamp;
+  return right.id.localeCompare(left.id);
+}
+
+type SidebarSpaceSortCandidate<T> = {
+  id: string;
+  pinned: boolean;
+  threads: readonly ({ id: Thread["id"] } & SidebarThreadSortInput)[];
+  fallbackCreatedAt?: string | undefined;
+  fallbackUpdatedAt?: string | undefined;
+  value: T;
+};
+
+export function orderSidebarSpaceItems<TThreadItem, TProjectItem>(input: {
+  threadItems: readonly SidebarSpaceSortCandidate<TThreadItem>[];
+  projectItems: readonly SidebarSpaceSortCandidate<TProjectItem>[];
+  sortOrder: SidebarThreadSortOrder;
+}): Array<TThreadItem | TProjectItem> {
+  const items: ReadonlyArray<SidebarSpaceSortCandidate<TThreadItem | TProjectItem>> = [
+    ...input.threadItems,
+    ...input.projectItems,
+  ];
+  const representative = (item: (typeof items)[number]) => {
+    const thread = sortThreadsForSidebar(item.threads, input.sortOrder)[0];
+    if (thread) return thread;
+    const fallbackTimestamp =
+      input.sortOrder === "created_at"
+        ? item.fallbackCreatedAt
+        : (item.fallbackUpdatedAt ?? item.fallbackCreatedAt);
+    return {
+      id: item.id as Thread["id"],
+      createdAt: fallbackTimestamp ?? "",
+      updatedAt: item.fallbackUpdatedAt,
+    };
+  };
+
+  return items
+    .toSorted((left, right) => {
+      const byPinned = Number(right.pinned) - Number(left.pinned);
+      if (byPinned !== 0) return byPinned;
+
+      const byActivity = compareThreadsForSidebar(
+        representative(left),
+        representative(right),
+        input.sortOrder,
+      );
+      if (byActivity !== 0) return byActivity;
+      return left.id.localeCompare(right.id);
+    })
+    .map((item) => item.value);
 }
 
 export function getFallbackThreadIdAfterDelete<

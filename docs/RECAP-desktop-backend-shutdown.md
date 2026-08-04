@@ -27,13 +27,13 @@ Penkra launches a backend process, and the backend launches provider runtimes su
 
 ### Approach
 
-The desktop main process now treats app quit as a bounded async shutdown. It prevents the first `before-quit`, waits for backend cleanup, disposes browser-use pipe state, then calls `app.quit()` again once shutdown is complete.
+The desktop main process now treats app quit as a bounded async shutdown. It prevents the first `before-quit`, waits for backend cleanup, disposes the registered App-command pipe state, then calls `app.quit()` again once shutdown is complete.
 
 ### Step-by-step
 
 1. `BACKEND_FORCE_KILL_DELAY_MS` and `BACKEND_SHUTDOWN_TIMEOUT_MS` centralize the backend shutdown budget.
 2. `stopBackendAndWaitForExit` gives the backend time to run finalizers, then sends `SIGKILL` before the overall timeout if it still has not exited.
-3. `shutdownDesktopRuntime` clears update/readiness timers, disposes the browser-use pipe server, waits for backend exit, disposes the browser manager, and restores stdio capture.
+3. `shutdownDesktopRuntime` clears update/readiness timers, disposes the App-command pipe server, waits for backend exit, disposes the hosted Browser runtime, and restores stdio capture.
 4. `before-quit`, `SIGINT`, and `SIGTERM` all route through `requestGracefulAppQuit`, so normal quits and signal-based quits use the same cleanup path.
 
 ### Tradeoffs & Edge Cases
@@ -50,7 +50,7 @@ Quit can now wait up to ten seconds when the backend is stuck, but that is bound
 flowchart TD
     A[app before-quit] -->|prevent first quit| B[requestGracefulAppQuit]
     B -->|shutdown reason| C[shutdownDesktopRuntime]
-    C -->|dispose pipe| D[disposeBrowserUsePipeServerForShutdown]
+    C -->|dispose pipe| D[disposeAppCommandPipeServerForShutdown]
     C -->|SIGTERM and wait| E[stopBackendAndWaitForExit]
     E -->|backend exits| F[desktopShutdownComplete]
     F -->|second quit allowed| G[app.quit]

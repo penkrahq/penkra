@@ -210,13 +210,13 @@ describe("buildOpenCodeServerProcessEnv", () => {
       baseEnv: {
         OPENAI_API_KEY: "provider-key",
         PENKRA_AUTH_TOKEN: "server-secret",
-        PENKRA_BROWSER_USE_PIPE_PATH: "/tmp/browser.sock",
+        PENKRA_TEST_CONTROL_SOCKET: "/tmp/control.sock",
       },
     });
 
     expect(env.OPENAI_API_KEY).toBe("provider-key");
     expect(env.PENKRA_AUTH_TOKEN).toBeUndefined();
-    expect(env.PENKRA_BROWSER_USE_PIPE_PATH).toBeUndefined();
+    expect(env.PENKRA_TEST_CONTROL_SOCKET).toBeUndefined();
   });
 });
 
@@ -257,7 +257,7 @@ describe("OpenCodeRuntime startup diagnostics", () => {
     expect(OpenCodeRuntimeError.is(error)).toBe(true);
     expect(error.detail).toContain("Timed out waiting for OpenCode server start after 5ms.");
     expect(error.detail).toContain(
-      "command: /custom/bin/opencode serve --hostname 127.0.0.1 --port 58123",
+      "command: /custom/bin/opencode serve --pure --hostname 127.0.0.1 --port 58123",
     );
     expect(error.detail).toContain('OpenCode ready prefix: "opencode server listening"');
     expect(error.detail).toContain("stdout:\nbooting custom OpenCode wrapper");

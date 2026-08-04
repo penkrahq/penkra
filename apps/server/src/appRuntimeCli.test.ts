@@ -104,6 +104,35 @@ describe("penkra_exec command discovery", () => {
     });
   });
 
+  it("scopes tab discovery and observation to the caller Thread and Space", async () => {
+    const calls: Array<{ method: string; params: unknown }> = [];
+    const bridge = async (method: string, params: unknown) => {
+      calls.push({ method, params });
+      return { ok: true };
+    };
+
+    await executePenkraExec("penkra tabs list", context, {}, bridge);
+    await executePenkraExec("penkra tabs snapshot --tab-id tab-A", context, {}, bridge);
+    await executePenkraExec(
+      'penkra tabs type --tab-id tab-A --ref a7 --text "Updated copy"',
+      context,
+      {},
+      bridge,
+    );
+
+    expect(calls).toEqual([
+      { method: "tabs.list", params: context },
+      {
+        method: "tabs.snapshot",
+        params: { ...context, tabId: "tab-A" },
+      },
+      {
+        method: "tabs.type",
+        params: { ...context, tabId: "tab-A", ref: "a7", text: "Updated copy" },
+      },
+    ]);
+  });
+
   it("points unknown core commands back to the canonical help command", async () => {
     await expect(executePenkraExec("penkra app list", context, {}, async () => [])).rejects.toThrow(
       "Run penkra --help",

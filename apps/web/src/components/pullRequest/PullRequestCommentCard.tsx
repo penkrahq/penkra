@@ -3,7 +3,7 @@
 //          chrome): avatar + author leading, timestamp + per-row collapse chevron trailing,
 //          finding-style comments elevated into a title + severity subheading, and a "Reply"
 //          affordance that always opens the comment's own GitHub URL externally (falling back
-//          to the PR URL when the comment has none) — never the in-app browser, since replying
+//          to the PR URL when the comment has none) — never the Browser App, since replying
 //          has to happen on GitHub itself.
 // Layer: Pull request presentation
 // Exports: PullRequestCommentCard

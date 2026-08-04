@@ -105,7 +105,7 @@ describe("Pencil settings structure", () => {
     );
 
     const measure = () => page.getByTestId("settings-content-measure").element().parentElement!;
-    expect(measure().getBoundingClientRect().width).toBe(560);
+    expect(measure().getBoundingClientRect().width).toBe(640);
 
     await view.rerender(
       <div className="h-[640px] w-[880px]">
@@ -114,7 +114,7 @@ describe("Pencil settings structure", () => {
         </SettingsPage>
       </div>,
     );
-    expect(measure().getBoundingClientRect().width).toBe(560);
+    expect(measure().getBoundingClientRect().width).toBe(640);
 
     await view.rerender(
       <div className="h-[640px] w-[880px]">
@@ -123,7 +123,7 @@ describe("Pencil settings structure", () => {
         </SettingsPage>
       </div>,
     );
-    expect(measure().getBoundingClientRect().width).toBe(596);
+    expect(measure().getBoundingClientRect().width).toBe(640);
   });
 
   it("uses native interactive controls for expandable and theme settings", async () => {

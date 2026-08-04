@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { open } from "node:fs/promises";
 import type { ProviderKind } from "@penkra/contracts";
 import { prepareWindowsSafeProcess } from "@penkra/shared/windowsProcess";
 import { Duration, Effect, FileSystem, Option, Path, Stream } from "effect";
@@ -31,6 +32,53 @@ interface ManagedProviderCommandResult {
   readonly stdout: string;
   readonly stderr: string;
   readonly exitCode: number;
+}
+
+const EXECUTABLE_PREFIX_BYTES = 4;
+
+function executablePrefixIs(input: Uint8Array, expected: ReadonlyArray<number>): boolean {
+  return expected.every((byte, index) => input[index] === byte);
+}
+
+export function isSpawnableManagedExecutablePrefix(
+  prefix: Uint8Array,
+  platform: NodeJS.Platform = process.platform,
+): boolean {
+  if (platform === "win32") return true;
+  if (executablePrefixIs(prefix, [0x23, 0x21])) return true;
+  if (platform === "linux") return executablePrefixIs(prefix, [0x7f, 0x45, 0x4c, 0x46]);
+  if (platform !== "darwin") return true;
+  return [
+    [0xfe, 0xed, 0xfa, 0xce],
+    [0xce, 0xfa, 0xed, 0xfe],
+    [0xfe, 0xed, 0xfa, 0xcf],
+    [0xcf, 0xfa, 0xed, 0xfe],
+    [0xca, 0xfe, 0xba, 0xbe],
+    [0xbe, 0xba, 0xfe, 0xca],
+    [0xca, 0xfe, 0xba, 0xbf],
+    [0xbf, 0xba, 0xfe, 0xca],
+  ].some((magic) => executablePrefixIs(prefix, magic));
+}
+
+function validateManagedExecutable(executablePath: string) {
+  if (process.platform === "win32") return Effect.void;
+  return Effect.tryPromise({
+    try: async () => {
+      const file = await open(executablePath, "r");
+      try {
+        const prefix = new Uint8Array(EXECUTABLE_PREFIX_BYTES);
+        const { bytesRead } = await file.read(prefix, 0, prefix.length, 0);
+        if (!isSpawnableManagedExecutablePrefix(prefix.subarray(0, bytesRead))) {
+          throw new Error(
+            "Managed provider package did not install a directly executable binary or shebang script.",
+          );
+        }
+      } finally {
+        await file.close();
+      }
+    },
+    catch: (cause) => (cause instanceof Error ? cause : new Error(String(cause))),
+  });
 }
 
 export type ManagedProviderCommandRunner = (input: {
@@ -150,6 +198,7 @@ export function installManagedProviderRuntime(
     });
 
     if (yield* fs.exists(finalExecutable)) {
+      yield* validateManagedExecutable(finalExecutable);
       const probe = yield* (options?.runCommand ?? runCommand)({
         executable: finalExecutable,
         args: ["--version"],
@@ -211,6 +260,7 @@ export function installManagedProviderRuntime(
           ),
         );
       }
+      yield* validateManagedExecutable(stagingExecutable);
       const probe = yield* (options?.runCommand ?? runCommand)({
         executable: stagingExecutable,
         args: ["--version"],

@@ -62,4 +62,52 @@ describe("AppDockPane native exit motion", () => {
     await new Promise((resolve) => setTimeout(resolve, 300));
     expect(setVisible).toHaveBeenCalledWith({ tabId: "tab-1", visible: false });
   });
+
+  it("tracks a dock position transition even when its size does not change", async () => {
+    const setBounds = vi.fn(
+      async (_input: {
+        tabId: string;
+        bounds: { x: number; y: number; width: number; height: number };
+      }) => undefined,
+    );
+    Object.defineProperty(window, "desktopBridge", {
+      configurable: true,
+      value: {
+        appTabs: {
+          attach: vi.fn(async () => undefined),
+          setBounds,
+          setVisible: vi.fn(async () => undefined),
+        },
+      },
+    });
+
+    function Harness() {
+      const [shifted, setShifted] = useState(false);
+      return (
+        <>
+          <button onClick={() => setShifted(true)} type="button">
+            Shift dock
+          </button>
+          <div
+            className="h-40 w-80 transition-transform duration-300 ease-linear"
+            data-slot="sidebar-container"
+            style={{ transform: shifted ? "translateX(120px)" : "translateX(0)" }}
+          >
+            <AppDockPane appName="Apps" status="ready" tabId="tab-1" visible={true} />
+          </div>
+        </>
+      );
+    }
+
+    await render(<Harness />);
+    await new Promise((resolve) => setTimeout(resolve, 75));
+    const initialX = setBounds.mock.calls.at(-1)?.[0].bounds.x;
+    expect(initialX).toBeTypeOf("number");
+
+    await page.getByRole("button", { name: "Shift dock" }).click();
+    await new Promise((resolve) => setTimeout(resolve, 375));
+    const finalX = setBounds.mock.calls.at(-1)?.[0].bounds.x;
+
+    expect(finalX).toBeGreaterThan((initialX ?? 0) + 115);
+  });
 });

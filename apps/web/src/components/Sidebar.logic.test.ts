@@ -10,6 +10,7 @@ import {
   getFallbackThreadIdAfterDelete,
   getVisibleSidebarEntriesForPreview,
   orderPinnedProjectsForSidebar,
+  orderSidebarSpaceItems,
   getNextVisibleSidebarThreadId,
   getSidebarThreadIdForJumpCommand,
   getSidebarThreadIdsToPrewarm,
@@ -2024,6 +2025,98 @@ describe("sortThreadsForSidebar", () => {
       ThreadId.makeUnsafe("thread-starting"),
       ThreadId.makeUnsafe("thread-newer"),
     ]);
+  });
+});
+
+describe("orderSidebarSpaceItems", () => {
+  it("places a pinned folder above unpinned direct threads", () => {
+    const directThread = {
+      ...makeThread({ id: ThreadId.makeUnsafe("thread-running") }),
+      hasLiveTailWork: true,
+    };
+    const folderThread = makeThread({ id: ThreadId.makeUnsafe("thread-in-folder") });
+
+    const ordered = orderSidebarSpaceItems({
+      threadItems: [
+        {
+          id: "direct",
+          pinned: false,
+          threads: [directThread],
+          value: "direct-thread",
+        },
+      ],
+      projectItems: [
+        {
+          id: "folder",
+          pinned: true,
+          threads: [folderThread],
+          value: "folder",
+        },
+      ],
+      sortOrder: "updated_at",
+    });
+
+    expect(ordered).toEqual(["folder", "direct-thread"]);
+  });
+
+  it("treats a folder as the highest-ranked activity among its threads", () => {
+    const directIdle = makeThread({
+      id: ThreadId.makeUnsafe("direct-idle"),
+      createdAt: "2026-03-09T12:00:00.000Z",
+    });
+    const folderIdle = makeThread({
+      id: ThreadId.makeUnsafe("folder-idle"),
+      createdAt: "2026-03-09T08:00:00.000Z",
+    });
+    const folderRunning = {
+      ...makeThread({
+        id: ThreadId.makeUnsafe("folder-running"),
+        latestTurn: makeLatestTurn({
+          startedAt: "2026-03-09T09:00:00.000Z",
+          completedAt: null,
+        }),
+      }),
+      hasLiveTailWork: true,
+    };
+
+    const ordered = orderSidebarSpaceItems({
+      threadItems: [{ id: "direct", pinned: false, threads: [directIdle], value: "direct-thread" }],
+      projectItems: [
+        {
+          id: "folder",
+          pinned: false,
+          threads: [folderIdle, folderRunning],
+          value: "folder",
+        },
+      ],
+      sortOrder: "updated_at",
+    });
+
+    expect(ordered).toEqual(["folder", "direct-thread"]);
+  });
+
+  it("uses a folder timestamp only when the folder has no threads", () => {
+    const directIdle = makeThread({
+      id: ThreadId.makeUnsafe("direct-idle"),
+      createdAt: "2026-03-09T10:00:00.000Z",
+    });
+
+    const ordered = orderSidebarSpaceItems({
+      threadItems: [{ id: "direct", pinned: false, threads: [directIdle], value: "direct-thread" }],
+      projectItems: [
+        {
+          id: "empty-folder",
+          pinned: false,
+          threads: [],
+          fallbackCreatedAt: "2026-03-09T11:00:00.000Z",
+          fallbackUpdatedAt: "2026-03-09T12:00:00.000Z",
+          value: "empty-folder",
+        },
+      ],
+      sortOrder: "updated_at",
+    });
+
+    expect(ordered).toEqual(["empty-folder", "direct-thread"]);
   });
 });
 

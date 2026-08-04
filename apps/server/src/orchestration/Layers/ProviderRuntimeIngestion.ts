@@ -801,6 +801,20 @@ const make = Effect.gen(function* () {
     threadId: ThreadId,
     activity: OrchestrationThreadActivity,
   ) {
+    const commandId = providerCommandId(
+      event,
+      "thread-activity-append",
+      `${threadId}:${activity.kind}:${activity.id}`,
+    );
+    // The provider event id is the durable identity of this projection. Its
+    // presentation payload may include bounded process-local aggregation (for
+    // example streamed command output). If the exact source event was already
+    // accepted before a crash, its durable activity is complete; do not
+    // recompute and redispatch it from a shorter retained aggregation window.
+    const existingReceipt = yield* commandReceipts.getByCommandId({ commandId });
+    if (Option.isSome(existingReceipt) && existingReceipt.value.status === "accepted") {
+      return;
+    }
     const key = providerActivityUpdateDedupeKey(event, threadId, activity);
     const fingerprint = key ? providerActivityUpdateFingerprint(activity) : undefined;
     if (key && fingerprint) {
@@ -812,11 +826,7 @@ const make = Effect.gen(function* () {
 
     yield* orchestrationEngine.dispatch({
       type: "thread.activity.append",
-      commandId: providerCommandId(
-        event,
-        "thread-activity-append",
-        `${threadId}:${activity.kind}:${activity.id}`,
-      ),
+      commandId,
       threadId,
       activity,
       createdAt: activity.createdAt,
@@ -1861,9 +1871,22 @@ const make = Effect.gen(function* () {
       const activeTurnId = thread.session?.activeTurnId ?? null;
       const isTerminalTurnEvent = event.type === "turn.completed" || event.type === "turn.aborted";
       const rawEventTurnId = toTurnId(event.turnId);
-      if (event.type === "turn.started" && rawEventTurnId) {
-        yield* rememberOutstandingTurn(thread.id, rawEventTurnId);
-      }
+      const isSettledTurnRestart =
+        event.type === "turn.started" && rawEventTurnId
+          ? yield* projectionTurnRepository
+              .getByTurnId({ threadId: thread.id, turnId: rawEventTurnId })
+              .pipe(
+                Effect.map(
+                  Option.exists(
+                    (turn) =>
+                      turn.completedAt !== null ||
+                      turn.state === "completed" ||
+                      turn.state === "interrupted" ||
+                      turn.state === "error",
+                  ),
+                ),
+              )
+          : false;
       const terminalApplicability = isTerminalTurnEvent
         ? classifyTerminalTurnApplicability({
             activeTurnId,
@@ -1879,9 +1902,13 @@ const make = Effect.gen(function* () {
 
       const shouldApplyThreadLifecycle =
         event.type === "turn.started"
-          ? !STRICT_PROVIDER_LIFECYCLE_GUARD ||
-            isStartedTurnApplicable({ activeTurnId, eventTurnId })
+          ? !isSettledTurnRestart &&
+            (!STRICT_PROVIDER_LIFECYCLE_GUARD ||
+              isStartedTurnApplicable({ activeTurnId, eventTurnId }))
           : !isTerminalTurnEvent || (terminalApplicability?.applicable ?? true);
+      if (event.type === "turn.started" && eventTurnId && shouldApplyThreadLifecycle) {
+        yield* rememberOutstandingTurn(thread.id, eventTurnId);
+      }
       if (isTerminalTurnEvent) {
         if (eventTurnId) {
           yield* forgetOutstandingTurn(thread.id, eventTurnId);
@@ -1893,10 +1920,10 @@ const make = Effect.gen(function* () {
           });
         }
       }
-      // ProviderService permits overlapping sends on one thread. Even when a
-      // later turn.started cannot replace the active lifecycle, it still binds
-      // exactly one queued delivery policy for that provider turn.
-      if (event.type === "turn.started" && eventTurnId) {
+      // ProviderService permits overlapping sends on one thread. An accepted
+      // start binds exactly one queued delivery policy; a replay for a turn
+      // that is already durable-terminal must not consume another policy.
+      if (event.type === "turn.started" && eventTurnId && shouldApplyThreadLifecycle) {
         yield* matchStartedTurnAssistantDeliveryMode(thread.id, eventTurnId);
       }
       // A terminal event can be the first lifecycle signal for a provider
@@ -2708,6 +2735,10 @@ const make = Effect.gen(function* () {
     }
     const turnId = toTurnId(event.turnId);
     if (!turnId) return;
+    const turnKey = providerTurnKey(event.threadId, turnId);
+    if (Option.isSome(yield* Cache.getOption(assistantDeliveryModeByTurnKey, turnKey))) {
+      return;
+    }
     const messageId = MessageId.makeUnsafe(
       `assistant:${event.itemId ?? event.turnId ?? event.eventId}`,
     );
@@ -2716,16 +2747,71 @@ const make = Effect.gen(function* () {
     });
     yield* Cache.set(
       assistantDeliveryModeByTurnKey,
-      providerTurnKey(event.threadId, turnId),
+      turnKey,
       Option.isSome(streamingReceipt) ? "streaming" : "buffered",
     );
   });
 
-  // Accepted open-turn rows may have updated only bounded process-local
-  // aggregation state. Re-run them before new output; stable command receipts
-  // deduplicate durable effects while the caches are rebuilt in event order.
+  // Accepted rows have already completed every durable effect. Startup replay
+  // therefore rebuilds only the bounded process-local aggregators that a later
+  // terminal event may consume. Re-running the full event projector here is
+  // both semantically wrong (a previously inert notification can become a new
+  // command after a code change) and catastrophically expensive on long-lived
+  // turns because it drives thousands of redundant SQLite transactions before
+  // the server can become ready.
+  const rebuildAcceptedRuntimeAggregation = Effect.fnUntraced(function* (
+    event: ProviderRuntimeEvent,
+  ) {
+    if (event.type === "content.delta") {
+      const itemKey = event.itemId
+        ? [event.threadId, event.turnId ?? "no-turn", event.itemId].join(":")
+        : null;
+      if (
+        itemKey &&
+        (event.payload.streamKind === "command_output" ||
+          event.payload.streamKind === "file_change_output") &&
+        event.payload.delta.length > 0
+      ) {
+        yield* appendBufferedToolOutput(itemKey, event.payload.delta);
+      }
+
+      const reasoningKey = reasoningSummaryBufferKey(event);
+      if (reasoningKey && event.payload.delta.length > 0) {
+        yield* appendBufferedReasoningSummary(reasoningKey, event);
+      }
+
+      if (event.payload.streamKind === "assistant_text" && event.payload.delta.length > 0) {
+        yield* prepareAcceptedRuntimeEventReplay(event);
+        const messageId = MessageId.makeUnsafe(
+          `assistant:${event.itemId ?? event.turnId ?? event.eventId}`,
+        );
+        const turnId = toTurnId(event.turnId);
+        if (turnId) {
+          yield* rememberAssistantMessageId(event.threadId, turnId, messageId);
+        }
+        const deliveryMode = yield* getAssistantDeliveryMode(event.threadId, turnId);
+        if (deliveryMode === "buffered") {
+          // A non-empty return value was already durably spilled during the
+          // original projection. Ignoring it here intentionally leaves only
+          // the post-spill suffix in memory for the eventual completion event.
+          yield* appendBufferedAssistantText(messageId, event.payload.delta);
+        }
+      }
+      return;
+    }
+
+    if (event.type === "turn.proposed.delta" && event.payload.delta.length > 0) {
+      yield* appendBufferedProposedPlan(
+        proposedPlanIdFromEvent(event, event.threadId),
+        event.payload.delta,
+        event.createdAt,
+      );
+    }
+  });
+
   const rebuildAcceptedOpenTurnState = Effect.gen(function* () {
     let sequence = 0;
+    const blockedThreadIds = new Set<ThreadId>();
     while (true) {
       const page = yield* runtimeEvents.readAcceptedOpenTurnEvents({
         consumerName: PROVIDER_RUNTIME_INGESTION_CONSUMER,
@@ -2734,8 +2820,25 @@ const make = Effect.gen(function* () {
       });
       if (page.length === 0) return;
       for (const entry of page) {
-        yield* prepareAcceptedRuntimeEventReplay(entry.event);
-        yield* processRuntimeEvent(entry.event);
+        if (!blockedThreadIds.has(entry.event.threadId)) {
+          yield* rebuildAcceptedRuntimeAggregation(entry.event).pipe(
+            Effect.catchCause((cause) => {
+              if (Cause.hasInterruptsOnly(cause)) return Effect.failCause(cause);
+              blockedThreadIds.add(entry.event.threadId);
+              return Effect.logError(
+                "provider runtime accepted-state rebuild isolated a failed thread",
+                {
+                  threadId: entry.event.threadId,
+                  turnId: entry.event.turnId,
+                  sequence: entry.sequence,
+                  eventId: entry.event.eventId,
+                  eventType: entry.event.type,
+                  cause: Cause.pretty(cause),
+                },
+              );
+            }),
+          );
+        }
         sequence = entry.sequence;
       }
       if (page.length < PROVIDER_RUNTIME_REPLAY_PAGE_SIZE) return;

@@ -62,7 +62,7 @@ export function SettingsAppearancePage() {
   }
 
   return (
-    <div className="flex w-full max-w-[560px] flex-col gap-6" data-pencil-page="appearance">
+    <div className="flex w-full max-w-[640px] flex-col gap-6" data-pencil-page="appearance">
       <div className="flex w-full justify-between gap-2.5">
         <ThemePreviewCardShared
           label="System"

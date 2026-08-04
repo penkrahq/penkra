@@ -9,7 +9,7 @@ export interface NavItemSharedProps extends Omit<ComponentProps<typeof LeftRailR
 export function NavItemShared({ icon, ...props }: NavItemSharedProps) {
   return (
     <LeftRailRow
-      className="h-[29px] gap-2.5 text-[length:calc(var(--app-font-size-base,12px)*1.1667)] leading-[17px]"
+      className="h-[29px] gap-2.5 text-[length:var(--app-font-size-ui,12px)] leading-[17px]"
       leading={icon}
       leadingClassName="size-4 [&_svg]:size-4"
       {...props}

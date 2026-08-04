@@ -13,7 +13,7 @@ describe("buildProviderChildEnvironment", () => {
         HOME: "/home/test",
         GEMINI_API_KEY: "provider-key",
         PENKRA_AUTH_TOKEN: "control-plane-secret",
-        PENKRA_BROWSER_USE_PIPE_PATH: "/tmp/browser.sock",
+        PENKRA_TEST_CONTROL_SOCKET: "/tmp/control.sock",
         NODE_OPTIONS: "--require=/tmp/inject.js",
         NODE_REPL_SANDBOX_ALLOWED_UNIX_SOCKETS: "/tmp/other.sock",
       },
@@ -31,16 +31,16 @@ describe("buildProviderChildEnvironment", () => {
       provider: "codex",
       baseEnv: {
         PENKRA_AUTH_TOKEN: "control-plane-secret",
-        PENKRA_BROWSER_USE_PIPE_PATH: "/tmp/browser.sock",
-        NODE_REPL_SANDBOX_ALLOWED_UNIX_SOCKETS: "/tmp/browser.sock",
+        PENKRA_TEST_CONTROL_SOCKET: "/tmp/control.sock",
+        NODE_REPL_SANDBOX_ALLOWED_UNIX_SOCKETS: "/tmp/control.sock",
       },
-      inheritedPenkraKeys: ["PENKRA_BROWSER_USE_PIPE_PATH"],
+      inheritedPenkraKeys: ["PENKRA_TEST_CONTROL_SOCKET"],
       inheritedNativeCapabilityKeys: ["NODE_REPL_SANDBOX_ALLOWED_UNIX_SOCKETS"],
     });
 
     expect(env).toEqual({
-      PENKRA_BROWSER_USE_PIPE_PATH: "/tmp/browser.sock",
-      NODE_REPL_SANDBOX_ALLOWED_UNIX_SOCKETS: "/tmp/browser.sock",
+      PENKRA_TEST_CONTROL_SOCKET: "/tmp/control.sock",
+      NODE_REPL_SANDBOX_ALLOWED_UNIX_SOCKETS: "/tmp/control.sock",
     });
   });
 

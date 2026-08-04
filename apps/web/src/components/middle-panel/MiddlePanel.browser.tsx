@@ -4,10 +4,13 @@ import { page } from "vitest/browser";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
+import { COMPOSER_FOOTER_ROW_CLASS_NAME } from "../chat/composerPickerStyles";
+
 import { ComposerDefault } from "./composer-default/ComposerDefault";
 import { DraftFolderBar } from "./composer-default/DraftFolderBar";
 import { ButtonSend } from "./button-send/ButtonSend";
 import { AccessPillTrigger } from "./access-pill-trigger/AccessPillTrigger";
+import { ComposerActions } from "./composer-actions/ComposerActions";
 import { FolderPromptShared } from "./folder-prompt-shared/FolderPromptShared";
 import { MessageAssistant } from "./message-assistant/MessageAssistant";
 import { MessageUser } from "./message-user/MessageUser";
@@ -51,7 +54,7 @@ describe("Pencil middle panel", () => {
 
   it("stretches assistant content across the shared message rail", async () => {
     await render(
-      <div className="w-[560px]">
+      <div className="w-[640px]">
         <MessageAssistant layoutMode="application">
           <div data-testid="assistant-body">Response</div>
         </MessageAssistant>
@@ -60,8 +63,8 @@ describe("Pencil middle panel", () => {
 
     const message = document.querySelector<HTMLElement>("[data-pencil-component='kUqNe']")!;
     const body = page.getByTestId("assistant-body").element();
-    expect(message.getBoundingClientRect().width).toBe(560);
-    expect(body.getBoundingClientRect().width).toBe(560);
+    expect(message.getBoundingClientRect().width).toBe(640);
+    expect(body.getBoundingClientRect().width).toBe(640);
   });
 
   it("keeps the composer native, editable, focused, and sendable", async () => {
@@ -94,13 +97,13 @@ describe("Pencil middle panel", () => {
     const editorRect = element.getBoundingClientRect();
     const actions = form!.querySelector<HTMLElement>("[data-pencil-component='JwTiI']")!;
     const actionsRect = actions.getBoundingClientRect();
-    expect(formRect.height).toBeCloseTo(88.5, 0);
+    expect(formRect.height).toBeCloseTo(100, 0);
     expect(getComputedStyle(element).fontSize).toBe("14px");
     expect(getComputedStyle(element).lineHeight).toBe("16px");
     expect(getComputedStyle(element).textAlign).toBe("left");
     expect(Math.abs(editorRect.left - formRect.left - 11)).toBeLessThan(1);
     expect(Math.abs(actionsRect.left - formRect.left - 11)).toBeLessThan(1);
-    expect(Math.abs(actionsRect.top - formRect.top - 51.5)).toBeLessThan(1);
+    expect(Math.abs(actionsRect.top - formRect.top - 63)).toBeLessThan(1);
   });
 
   it("shows the model selector in the default composer", async () => {
@@ -161,14 +164,14 @@ describe("Pencil middle panel", () => {
     expect(root).not.toBeNull();
     expect(surface).not.toBeNull();
     expect(draftBar).not.toBeNull();
-    expect(getComputedStyle(surface!).minHeight).toBe("88.5px");
+    expect(getComputedStyle(surface!).minHeight).toBe("100px");
     expect(getComputedStyle(surface!).borderRadius).toBe("18px");
     expect(getComputedStyle(surface!).textAlign).toBe("left");
     const rootRect = root!.getBoundingClientRect();
     const surfaceRect = surface!.getBoundingClientRect();
     const draftBarRect = draftBar!.getBoundingClientRect();
-    expect(rootRect.height).toBeCloseTo(88.5, 0);
-    expect(surfaceRect.height).toBeCloseTo(88.5, 0);
+    expect(rootRect.height).toBeCloseTo(100, 0);
+    expect(surfaceRect.height).toBeCloseTo(100, 0);
     expect(draftBarRect.height).toBe(40);
     expect(draftBarRect.left - rootRect.left).toBe(16);
     expect(draftBarRect.top - rootRect.top).toBe(-40);
@@ -177,10 +180,56 @@ describe("Pencil middle panel", () => {
     await expect.element(page.getByTestId("live-editor")).toBeVisible();
   });
 
+  it("pins production composer actions to the bottom of the 100px shell", async () => {
+    await render(
+      <ComposerDefault layoutMode="application">
+        <div className="min-h-7 px-[10px] pt-[14px] pb-2" data-testid="live-editor">
+          Do something
+        </div>
+        <div className={COMPOSER_FOOTER_ROW_CLASS_NAME} data-testid="composer-footer">
+          <div className="h-[26px]" data-testid="composer-actions" />
+        </div>
+      </ComposerDefault>,
+    );
+
+    const root = document.querySelector<HTMLElement>("[data-pencil-component='TKKOp']")!;
+    const surface = root.lastElementChild as HTMLElement;
+    const footer = page.getByTestId("composer-footer").element();
+    const actions = page.getByTestId("composer-actions").element();
+    const surfaceRect = surface.getBoundingClientRect();
+    const footerRect = footer.getBoundingClientRect();
+    const actionsRect = actions.getBoundingClientRect();
+
+    expect(footerRect.bottom).toBeCloseTo(surfaceRect.bottom - 1, 0);
+    expect(surfaceRect.bottom - actionsRect.bottom).toBeCloseTo(11, 0);
+  });
+
+  it("lets the recording controls fill the toolbar after the attach action", async () => {
+    await render(
+      <div className="w-[618px]">
+        <ComposerActions
+          applicationLeading={<div className="h-[26px] w-[26px]" data-testid="attach-action" />}
+          applicationTrailing={<div className="h-[26px] w-full" data-testid="voice-recorder" />}
+          applicationTrailingExpands
+        />
+      </div>,
+    );
+
+    const actions = document.querySelector<HTMLElement>("[data-pencil-component='JwTiI']")!;
+    const attach = page.getByTestId("attach-action").element();
+    const recorder = page.getByTestId("voice-recorder").element();
+    const actionsRect = actions.getBoundingClientRect();
+    const attachRect = attach.getBoundingClientRect();
+    const recorderRect = recorder.getBoundingClientRect();
+
+    expect(recorderRect.left - attachRect.right).toBe(4);
+    expect(actionsRect.right - recorderRect.right).toBeCloseTo(0, 0);
+  });
+
   it("matches every approved responsive rail width without shrinking the screen", async () => {
     await render(
       <div>
-        {[800, 560, 430, 320].map((width) => (
+        {[800, 780, 640, 560, 430, 320].map((width) => (
           <div className="chat-pane-container" key={width} style={{ width }}>
             <div className="chat-pane-responsive-rail" data-testid={`responsive-rail-${width}`} />
           </div>
@@ -189,7 +238,9 @@ describe("Pencil middle panel", () => {
     );
 
     for (const [containerWidth, railWidth] of [
-      [800, 560],
+      [800, 640],
+      [780, 640],
+      [640, 592],
       [560, 512],
       [430, 406],
       [320, 296],

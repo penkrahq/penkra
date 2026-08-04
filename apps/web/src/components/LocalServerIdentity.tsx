@@ -1,6 +1,6 @@
 // FILE: LocalServerIdentity.tsx
 // Purpose: Shared name + "address · folder" identity column for a detected local dev server.
-// Layer: Web UI primitive (shared between the Environment menu and the in-app browser home).
+// Layer: Web UI primitive (shared between the Environment menu and the Browser App home).
 // Depends on: shared local-server presentation helpers.
 
 import type { ServerLocalServerProcess } from "@penkra/contracts";
@@ -17,7 +17,7 @@ import { cn } from "~/lib/utils";
  * identical structure — a truncating primary label above a horizontal
  * "address · folder" meta line — and differ only in typography/color tokens:
  * - "menu": the Environment panel's Local Servers popup (app font tokens, muted foreground).
- * - "browser": the in-app browser's local-servers home (larger white-on-dark cards).
+ * - "browser": the Browser App's local-servers home (larger white-on-dark cards).
  */
 export type LocalServerIdentityTone = "menu" | "browser";
 

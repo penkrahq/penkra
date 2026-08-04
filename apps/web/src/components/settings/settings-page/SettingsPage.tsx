@@ -87,16 +87,7 @@ const pages = [
   },
 ] as const;
 
-const SETTINGS_PAGE_CONTENT_WIDTH_CLASS_NAME: Record<SettingsPageId, string> = {
-  general: "max-w-[560px]",
-  permissions: "max-w-[560px]",
-  spaces: "max-w-[680px]",
-  agents: "max-w-[560px]",
-  apps: "max-w-[560px]",
-  connectors: "max-w-[560px]",
-  appearance: "max-w-[560px]",
-  account: "max-w-[560px]",
-};
+const SETTINGS_PAGE_CONTENT_WIDTH_CLASS_NAME = "max-w-[640px]";
 
 export function SettingsPage({
   children,
@@ -136,11 +127,11 @@ export function SettingsPage({
         data-pencil-region="settings-content"
         scrollFade
       >
-        <div className="w-full px-8 py-8">
+        <div className="w-full px-[10px] py-8">
           <div
             className={cn(
               "mx-auto flex w-full flex-col gap-7",
-              SETTINGS_PAGE_CONTENT_WIDTH_CLASS_NAME[page],
+              SETTINGS_PAGE_CONTENT_WIDTH_CLASS_NAME,
             )}
           >
             <SettingsHeader subtitle={activePage.subtitle} title={activePage.label} />

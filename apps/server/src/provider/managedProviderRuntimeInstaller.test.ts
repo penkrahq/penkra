@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 import { resolveProviderBinary } from "./managedProviderRuntime";
 import {
   installManagedProviderRuntime,
+  isSpawnableManagedExecutablePrefix,
   type ManagedProviderCommandRunner,
 } from "./managedProviderRuntimeInstaller";
 
@@ -52,6 +53,21 @@ function successfulRunner(): ManagedProviderCommandRunner {
 }
 
 describe("managed provider runtime installer", () => {
+  it("recognizes native executables and shebang scripts without accepting plain text stubs", () => {
+    expect(
+      isSpawnableManagedExecutablePrefix(new TextEncoder().encode("#!/bin/sh"), "darwin"),
+    ).toBe(true);
+    expect(
+      isSpawnableManagedExecutablePrefix(Uint8Array.from([0xcf, 0xfa, 0xed, 0xfe]), "darwin"),
+    ).toBe(true);
+    expect(
+      isSpawnableManagedExecutablePrefix(Uint8Array.from([0x7f, 0x45, 0x4c, 0x46]), "linux"),
+    ).toBe(true);
+    expect(
+      isSpawnableManagedExecutablePrefix(new TextEncoder().encode("echo error"), "darwin"),
+    ).toBe(false);
+  });
+
   it("stages, validates, retains, and activates an exact package version", async () => {
     const runner = successfulRunner();
     const result = await runInTemp((stateDir) =>
@@ -133,5 +149,41 @@ describe("managed provider runtime installer", () => {
     expect(result.failed._tag).toBe("Failure");
     expect(result.resolved.version).toBe("1.0.0");
     expect(result.resolved.binaryPath).toContain("/versions/1.0.0/");
+  });
+
+  it("rejects a package text stub before attempting to spawn it", async () => {
+    const runner = vi.fn<ManagedProviderCommandRunner>((command) =>
+      Effect.gen(function* () {
+        if (command.executable === "npm") {
+          const fileSystem = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
+          const prefixIndex = command.args.indexOf("--prefix");
+          const prefix = command.args[prefixIndex + 1]!;
+          const executablePath = path.join(prefix, "node_modules", ".bin", "claude");
+          yield* fileSystem.makeDirectory(path.dirname(executablePath), {
+            recursive: true,
+          });
+          yield* fileSystem.writeFileString(executablePath, "echo failed install >&2\n");
+          return { stdout: "", stderr: "", exitCode: 0 };
+        }
+        return { stdout: "claude 2.1.221", stderr: "", exitCode: 0 };
+      }),
+    );
+
+    await expect(
+      runInTemp((stateDir) =>
+        installManagedProviderRuntime(
+          {
+            stateDir,
+            provider: "claudeAgent",
+            version: "2.1.221",
+            packageName: "@anthropic-ai/claude-code",
+            binaryName: "claude",
+          },
+          { runCommand: runner },
+        ),
+      ),
+    ).rejects.toThrow(/directly executable binary or shebang script/i);
+    expect(runner).toHaveBeenCalledTimes(1);
   });
 });

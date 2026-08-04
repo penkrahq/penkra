@@ -83,6 +83,7 @@ describe("packaged desktop startup verification", () => {
       "XDG_CONFIG_HOME",
       "XDG_CACHE_HOME",
       "XDG_DATA_HOME",
+      "PENKRA_DESKTOP_SMOKE_USER_DATA",
     ] as const) {
       expect(env[name]?.startsWith(root)).toBe(true);
       expect(existsSync(env[name]!)).toBe(true);

@@ -15,11 +15,7 @@ import path from "node:path";
 import { PassThrough } from "node:stream";
 import { ApprovalRequestId, ThreadId } from "@penkra/contracts";
 
-import {
-  buildCodexProcessEnv,
-  disableCodexConfigSections,
-  resolveCodexBrowserUsePipePath,
-} from "./codexProcessEnv";
+import { buildCodexProcessEnv, disableCodexConfigSections } from "./codexProcessEnv";
 import {
   buildCodexInitializeParams,
   CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS,
@@ -922,71 +918,7 @@ describe("buildCodexProcessEnv", () => {
     expect(env.AZURE_OPENAI_API_KEY).toBe("existing-secret");
   });
 
-  it("allows the configured desktop browser-use socket in the Codex sandbox", async () => {
-    const env = await buildCodexProcessEnv({
-      env: {
-        PENKRA_BROWSER_USE_PIPE_PATH: "/tmp/codex-browser-use/penkra.sock",
-        NODE_REPL_SANDBOX_ALLOWED_UNIX_SOCKETS: "/tmp/existing.sock",
-      },
-      platform: "darwin",
-    });
-
-    expect(env.NODE_REPL_SANDBOX_ALLOWED_UNIX_SOCKETS).toBe("/tmp/codex-browser-use/penkra.sock");
-  });
-
-  it("forwards the browser-use socket capability to the Browser MCP helper", async () => {
-    const tempDir = mkdtempSync(path.join(os.tmpdir(), "penkra-codex-env-"));
-    const runtimeHome = mkdtempSync(path.join(os.tmpdir(), "penkra-runtime-home-"));
-    try {
-      writeFileSync(
-        path.join(tempDir, "config.toml"),
-        [
-          "[mcp_servers.node_repl]",
-          'command = "/tmp/node_repl"',
-          'env_vars = ["EXISTING_BROWSER_ENV"]',
-          "",
-          "[mcp_servers.node_repl.env]",
-          'BROWSER_USE_AVAILABLE_BACKENDS = "chrome,iab"',
-        ].join("\n"),
-        "utf8",
-      );
-
-      const env = await buildCodexProcessEnv({
-        env: {
-          PENKRA_HOME: runtimeHome,
-          PENKRA_BROWSER_USE_PIPE_PATH: "/tmp/codex-browser-use/penkra.sock",
-        },
-        homePath: tempDir,
-        platform: "darwin",
-      });
-
-      const codexHome = env.CODEX_HOME;
-      if (typeof codexHome !== "string") {
-        throw new Error("Expected CODEX_HOME to be set.");
-      }
-      const overlayConfig = readFileSync(path.join(codexHome, "config.toml"), "utf8");
-      expect(overlayConfig).toContain(
-        'env_vars = ["NODE_REPL_SANDBOX_ALLOWED_UNIX_SOCKETS", "EXISTING_BROWSER_ENV"]',
-      );
-      expect(readFileSync(path.join(tempDir, "config.toml"), "utf8")).toContain(
-        'env_vars = ["EXISTING_BROWSER_ENV"]',
-      );
-    } finally {
-      rmSync(tempDir, { recursive: true, force: true });
-      rmSync(runtimeHome, { recursive: true, force: true });
-    }
-  });
-
-  it("resolves the browser-use pipe path from desktop env aliases", () => {
-    expect(
-      resolveCodexBrowserUsePipePath({
-        env: { PENKRA_BROWSER_USE_PIPE_PATH: "/tmp/codex-browser-use/penkra.sock" },
-        platform: "darwin",
-      }),
-    ).toBe("/tmp/codex-browser-use/penkra.sock");
-  });
-
-  it("applies durable section suppressions inside Penkra's Codex overlay", async () => {
+  it("disables every provider-native plugin only inside Penkra's Codex overlay", async () => {
     const tempDir = mkdtempSync(path.join(os.tmpdir(), "penkra-codex-env-"));
     const runtimeHome = mkdtempSync(path.join(os.tmpdir(), "penkra-runtime-home-"));
     try {
@@ -1002,17 +934,6 @@ describe("buildCodexProcessEnv", () => {
         "utf8",
       );
 
-      const overlayHome = path.join(runtimeHome, "codex-home-overlay");
-      mkdirSync(overlayHome, { recursive: true });
-      writeFileSync(
-        path.join(overlayHome, "penkra-config-suppressions-v1.json"),
-        `${JSON.stringify({
-          version: 1,
-          sectionHeaders: ['[plugins."historical-plugin@local"]'],
-        })}\n`,
-        "utf8",
-      );
-
       const env = await buildCodexProcessEnv({
         env: { PENKRA_HOME: runtimeHome },
         homePath: tempDir,
@@ -1024,88 +945,12 @@ describe("buildCodexProcessEnv", () => {
       if (typeof codexHome !== "string") {
         throw new Error("Expected CODEX_HOME to be set.");
       }
-      expect(readFileSync(path.join(codexHome, "config.toml"), "utf8")).toContain(
-        '[plugins."historical-plugin@local"]\nenabled = false',
-      );
-      expect(readFileSync(path.join(tempDir, "config.toml"), "utf8")).toContain(
-        '[plugins."historical-plugin@local"]\nenabled = true',
-      );
-    } finally {
-      rmSync(tempDir, { recursive: true, force: true });
-      rmSync(runtimeHome, { recursive: true, force: true });
-    }
-  });
-
-  it("seeds markerless suppressions for conflicting local browser plugins", async () => {
-    const tempDir = mkdtempSync(path.join(os.tmpdir(), "penkra-codex-env-"));
-    const runtimeHome = mkdtempSync(path.join(os.tmpdir(), "penkra-runtime-home-"));
-    try {
-      const conflictingHeader = '[plugins."bridge-browser@local"]';
-      writeFileSync(
-        path.join(tempDir, "config.toml"),
-        [conflictingHeader, "enabled = true", "", '[plugins."other@local"]', "enabled = true"].join(
-          "\n",
-        ),
-        "utf8",
-      );
-
-      const overlayHome = path.join(runtimeHome, "codex-home-overlay");
-      const env = await buildCodexProcessEnv({
-        env: { PENKRA_HOME: runtimeHome },
-        homePath: tempDir,
-        platform: "darwin",
-      });
-
-      expect(env.CODEX_HOME).toBe(overlayHome);
-      const overlayConfig = readFileSync(path.join(overlayHome, "config.toml"), "utf8");
-      expect(overlayConfig).toContain(`${conflictingHeader}\nenabled = false`);
-      expect(overlayConfig).toContain('[plugins."other@local"]\nenabled = true');
-      expect(readFileSync(path.join(tempDir, "config.toml"), "utf8")).toContain(
-        `${conflictingHeader}\nenabled = true`,
-      );
-      const suppressionMarker = JSON.parse(
-        readFileSync(path.join(overlayHome, "penkra-config-suppressions-v1.json"), "utf8"),
-      ) as { sectionHeaders?: string[] };
-      expect(suppressionMarker.sectionHeaders).toContain(conflictingHeader);
-    } finally {
-      rmSync(tempDir, { recursive: true, force: true });
-      rmSync(runtimeHome, { recursive: true, force: true });
-    }
-  });
-
-  it("preserves a recorded suppression after its plugin disappears from source config", async () => {
-    const tempDir = mkdtempSync(path.join(os.tmpdir(), "penkra-codex-env-"));
-    const runtimeHome = mkdtempSync(path.join(os.tmpdir(), "penkra-runtime-home-"));
-    try {
-      writeFileSync(path.join(tempDir, "config.toml"), 'model = "gpt-5.5"', "utf8");
-
-      const overlayHome = path.join(runtimeHome, "codex-home-overlay");
-      mkdirSync(overlayHome, { recursive: true });
-      writeFileSync(
-        path.join(overlayHome, "penkra-config-suppressions-v1.json"),
-        `${JSON.stringify({
-          version: 1,
-          sectionHeaders: ['[plugins."historical-plugin@local"]'],
-        })}\n`,
-        "utf8",
-      );
-
-      const env = await buildCodexProcessEnv({
-        env: { PENKRA_HOME: runtimeHome },
-        homePath: tempDir,
-        platform: "darwin",
-      });
-
-      const codexHome = env.CODEX_HOME;
-      if (typeof codexHome !== "string") {
-        throw new Error("Expected CODEX_HOME to be set.");
-      }
-      expect(readFileSync(path.join(codexHome, "config.toml"), "utf8")).toContain(
-        '[plugins."historical-plugin@local"]\nenabled = false',
-      );
-      expect(readFileSync(path.join(tempDir, "config.toml"), "utf8")).not.toContain(
-        "historical-plugin@local",
-      );
+      const overlayConfig = readFileSync(path.join(codexHome, "config.toml"), "utf8");
+      expect(overlayConfig).toContain('[plugins."github@openai-curated"]\nenabled = false');
+      expect(overlayConfig).toContain('[plugins."historical-plugin@local"]\nenabled = false');
+      const sourceConfig = readFileSync(path.join(tempDir, "config.toml"), "utf8");
+      expect(sourceConfig).toContain('[plugins."github@openai-curated"]\nenabled = true');
+      expect(sourceConfig).toContain('[plugins."historical-plugin@local"]\nenabled = true');
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
       rmSync(runtimeHome, { recursive: true, force: true });

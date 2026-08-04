@@ -58,7 +58,7 @@ export const ComposerDefault = forwardRef<HTMLTextAreaElement, ComposerDefaultPr
           ) : null}
           <div
             className={cn(
-              "relative z-10 flex min-h-[88.5px] w-full min-w-0 flex-col rounded-[18px] border border-[var(--color-border)] bg-[var(--color-background-control-opaque)] text-left",
+              "relative z-10 flex min-h-[100px] w-full min-w-0 flex-col rounded-[18px] border border-[var(--color-border)] bg-[var(--color-background-control-opaque)] text-left",
               surfaceClassName,
             )}
           >
@@ -84,7 +84,7 @@ export const ComposerDefault = forwardRef<HTMLTextAreaElement, ComposerDefaultPr
     return (
       <form
         className={cn(
-          "flex min-h-[88.5px] w-full flex-col rounded-[18px] border border-[var(--color-border)] bg-[var(--color-background-control-opaque)] p-2.5 text-left",
+          "flex min-h-[100px] w-full flex-col rounded-[18px] border border-[var(--color-border)] bg-[var(--color-background-control-opaque)] p-2.5 text-left",
           className,
         )}
         data-pencil-component="TKKOp"

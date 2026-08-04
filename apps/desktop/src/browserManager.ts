@@ -1,5 +1,5 @@
 // FILE: browserManager.ts
-// Purpose: Owns the desktop in-app browser runtime and maps thread/tab state onto Electron views.
+// Purpose: Owns Browser App hosted-page sessions and maps App-tab/page state onto Electron views.
 // Layer: Desktop runtime manager
 // Depends on: Electron BrowserWindow/WebContentsView, shared browser IPC contracts
 
@@ -9,6 +9,7 @@ import {
   BrowserWindow,
   clipboard,
   nativeImage,
+  View,
   webContents as electronWebContents,
   WebContentsView,
 } from "electron";
@@ -103,18 +104,20 @@ interface BrowserPerformanceSnapshot {
   trackedProcessIds: number[];
 }
 
-export interface BrowserUseSnapshot {
-  threadId: ThreadId;
-  state: ThreadBrowserState;
-}
-
-export interface BrowserUseCdpEvent {
-  method: string;
-  params?: unknown;
-}
-
 export interface DesktopBrowserManagerOptions {
   beforeInputEvent?: (event: Electron.Event, input: Electron.Input) => boolean;
+}
+
+export interface BrowserHostedPanelBoundsInput {
+  threadId: ThreadId;
+  bounds: BrowserPanelBounds | null;
+  hostBounds: BrowserPanelBounds | null;
+  parentView: View | null;
+}
+
+interface HostedBrowserContainer {
+  view: View;
+  ownerView: View;
 }
 
 function createBrowserTab(url = ABOUT_BLANK_URL): BrowserTabState {
@@ -244,6 +247,8 @@ export class DesktopBrowserManager {
   private activeBoundsThreadId: ThreadId | null = null;
   private attachedRuntimeKey: string | null = null;
   private attachedBoundsSignature: string | null = null;
+  private attachedParentView: View | null = null;
+  private readonly hostedContainerByThreadId = new Map<ThreadId, HostedBrowserContainer>();
   private readonly states = new Map<ThreadId, ThreadBrowserState>();
   private readonly sessionPartitionByThreadId = new Map<ThreadId, string>();
   private readonly threadVersionById = new Map<ThreadId, number>();
@@ -296,6 +301,7 @@ export class DesktopBrowserManager {
     this.detachAttachedRuntime();
     this.destroyAllRuntimes();
     this.closeAllPopupWindows();
+    this.destroyHostedContainers();
   }
 
   subscribe(listener: BrowserStateListener): () => void {
@@ -521,11 +527,13 @@ export class DesktopBrowserManager {
     this.threadVersionById.clear();
     this.snapshotCacheByThreadId.clear();
     this.lastEmittedVersionByThreadId.clear();
+    this.destroyHostedContainers();
     this.window = null;
     this.activeThreadId = null;
     this.activeBounds = null;
     this.activeBoundsThreadId = null;
     this.attachedBoundsSignature = null;
+    this.attachedParentView = null;
     this.runtimeSyncFlushScheduled = false;
   }
 
@@ -537,26 +545,11 @@ export class DesktopBrowserManager {
     };
   }
 
-  getBrowserUseSnapshot(): BrowserUseSnapshot | null {
-    if (this.activeThreadId) {
-      const activeState = this.states.get(this.activeThreadId);
-      if (activeState?.open) {
-        return {
-          threadId: this.activeThreadId,
-          state: this.snapshotThreadState(this.activeThreadId, activeState),
-        };
-      }
-    }
-
-    for (const [threadId, state] of this.states) {
-      if (state.open) {
-        return {
-          threadId,
-          state: this.snapshotThreadState(threadId, state),
-        };
-      }
-    }
-    return null;
+  async observationWebContents(threadId: ThreadId): Promise<WebContents | null> {
+    const state = this.states.get(threadId);
+    if (!state?.open || !state.activeTabId) return null;
+    await this.prepareObservationTab({ threadId, tabId: state.activeTabId });
+    return this.runtimes.get(buildRuntimeKey(threadId, state.activeTabId))?.webContents ?? null;
   }
 
   open(input: BrowserOpenInput): ThreadBrowserState {
@@ -601,6 +594,7 @@ export class DesktopBrowserManager {
       this.activeThreadId = null;
     }
     this.clearActiveBoundsForThread(input.threadId);
+    this.destroyHostedContainer(input.threadId);
     this.closePopupWindowsForThread(input.threadId);
 
     this.destroyThreadRuntimes(input.threadId);
@@ -703,6 +697,30 @@ export class DesktopBrowserManager {
     }
 
     this.activateThread(input.threadId, nextBounds);
+  }
+
+  /**
+   * Hosts a native browser page in a clipped native container aligned with the
+   * App renderer that owns its chrome. Page bounds remain App-local.
+   */
+  setHostedPanelBounds(input: BrowserHostedPanelBoundsInput): void {
+    if (!input.bounds || !input.hostBounds || !input.parentView) {
+      this.setPanelBounds({ threadId: input.threadId, bounds: null, surface: "native" });
+      this.destroyHostedContainer(input.threadId);
+      return;
+    }
+
+    let hosted = this.hostedContainerByThreadId.get(input.threadId);
+    if (!hosted) {
+      hosted = { view: new View(), ownerView: input.parentView };
+      this.hostedContainerByThreadId.set(input.threadId, hosted);
+    }
+    hosted.view.setBounds(input.hostBounds);
+    if (hosted.ownerView !== input.parentView) {
+      hosted.ownerView = input.parentView;
+      if (this.activeThreadId === input.threadId) this.attachedBoundsSignature = null;
+    }
+    this.setPanelBounds({ threadId: input.threadId, bounds: input.bounds, surface: "native" });
   }
 
   // Adopts the renderer-owned <webview> so the visible page and browser-use tools
@@ -1090,7 +1108,7 @@ export class DesktopBrowserManager {
     }
   }
 
-  async attachBrowserUseTab(input: BrowserTabInput): Promise<void> {
+  async prepareObservationTab(input: BrowserTabInput): Promise<void> {
     const state = this.ensureWorkspace(input.threadId);
     const tab = this.resolveTab(state, input.tabId);
     this.activateTab(input.threadId, state, tab);
@@ -1111,39 +1129,6 @@ export class DesktopBrowserManager {
     if (!runtime.webContents.debugger.isAttached()) {
       runtime.webContents.debugger.attach("1.3");
     }
-  }
-
-  subscribeToCdpEvents(
-    input: BrowserTabInput,
-    listener: (event: BrowserUseCdpEvent) => void,
-  ): () => void {
-    const runtime = this.runtimes.get(buildRuntimeKey(input.threadId, input.tabId));
-    if (!runtime) {
-      return () => {};
-    }
-
-    const handleMessage = (_event: Electron.Event, method: string, params?: unknown) => {
-      listener({
-        method,
-        ...(params !== undefined ? { params } : {}),
-      });
-    };
-
-    const webContents = runtime.webContents;
-    const debuggerSession = webContents.debugger;
-    debuggerSession.on("message", handleMessage);
-    let disposed = false;
-    return () => {
-      if (disposed) return;
-      disposed = true;
-      if (webContents.isDestroyed()) return;
-      try {
-        debuggerSession.removeListener("message", handleMessage);
-      } catch {
-        // Destruction can race the check above. The listener belongs to the
-        // destroyed WebContents, so there is nothing left to detach safely.
-      }
-    };
   }
 
   private activateThread(threadId: ThreadId, bounds: BrowserPanelBounds): void {
@@ -1439,28 +1424,62 @@ export class DesktopBrowserManager {
       return;
     }
 
+    const hosted = this.hostedContainerByThreadId.get(runtime.threadId);
+    const nextParent = hosted?.view ?? window.contentView;
+
+    if (hosted) {
+      try {
+        window.contentView.removeChildView(hosted.view);
+      } catch {
+        // The clipping container may not be attached yet.
+      }
+      window.contentView.addChildView(hosted.view);
+    }
+
     try {
-      window.contentView.removeChildView(runtime.view);
+      (this.attachedParentView ?? nextParent).removeChildView(runtime.view);
     } catch {
       // Electron throws when the view is not attached yet; adding it below is the desired state.
     }
-    window.contentView.addChildView(runtime.view);
+    nextParent.addChildView(runtime.view);
+    this.attachedParentView = nextParent;
+  }
+
+  private destroyHostedContainer(threadId: ThreadId): void {
+    const hosted = this.hostedContainerByThreadId.get(threadId);
+    if (!hosted) return;
+    if (this.window) {
+      try {
+        this.window.contentView.removeChildView(hosted.view);
+      } catch {
+        // The container may already be detached during window teardown.
+      }
+    }
+    this.hostedContainerByThreadId.delete(threadId);
+  }
+
+  private destroyHostedContainers(): void {
+    for (const threadId of [...this.hostedContainerByThreadId.keys()]) {
+      this.destroyHostedContainer(threadId);
+    }
   }
 
   private detachAttachedRuntime(): void {
     if (!this.window || !this.attachedRuntimeKey) {
       this.attachedRuntimeKey = null;
       this.attachedBoundsSignature = null;
+      this.attachedParentView = null;
       return;
     }
 
     const runtime = this.runtimes.get(this.attachedRuntimeKey);
     if (runtime?.view) {
       this.setRuntimeViewHidden(runtime, true);
-      this.window.contentView.removeChildView(runtime.view);
+      (this.attachedParentView ?? this.window.contentView).removeChildView(runtime.view);
     }
     this.attachedRuntimeKey = null;
     this.attachedBoundsSignature = null;
+    this.attachedParentView = null;
   }
 
   private setRuntimeViewHidden(runtime: LiveTabRuntime, hidden: boolean): void {

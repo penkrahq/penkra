@@ -19,6 +19,7 @@ import { resolveThreadWorkspaceCwd } from "@penkra/shared/threadEnvironment";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate, useParams } from "@tanstack/react-router";
 import {
+  Fragment,
   Suspense,
   lazy,
   useCallback,
@@ -95,7 +96,7 @@ import {
   resolveNewThreadModelPrefetchProvider,
 } from "../lib/providerModelPrefetch";
 import { serverConfigQueryOptions } from "../lib/serverReactQuery";
-import { resolveActiveSpaceId, spaceDisplayName } from "../lib/spaceGrouping";
+import { activeSpaceDisplayNameForReference, resolveActiveSpaceId } from "../lib/spaceGrouping";
 import { archiveSpace, isOrdinarySpaceProject } from "../lib/spaces";
 import { collectStudioProjectIds } from "../lib/studioProjects";
 import { isTerminalFocused } from "../lib/terminalFocus";
@@ -125,7 +126,7 @@ import { getThreadFromState } from "../threadDerivation";
 import { useThreadDetailPrewarm } from "../threadDetailPrewarm";
 import { retainThreadDetailSubscription } from "../threadDetailSubscriptionRetention";
 import { useThreadSelectionStore } from "../threadSelectionStore";
-import type { Project, SidebarThreadSummary, Space, Thread } from "../types";
+import type { SidebarThreadSummary, Space, Thread } from "../types";
 import { useWorkspacePathsStore } from "../workspacePathsStore";
 import { subscribeToSpaceUiActions } from "../spaceUiEvents";
 import { shouldRenderTerminalWorkspace } from "./ChatView.logic";
@@ -144,6 +145,7 @@ import {
   isLatestPinnedProjectMutation,
   isProjectsSidebarSurface,
   orderPinnedProjectsForSidebar,
+  orderSidebarSpaceItems,
   pruneProjectThreadListPagingForCollapsedProjects,
   resolveSidebarNewThreadEnvMode,
   resolveSidebarWorkStatus,
@@ -360,6 +362,7 @@ export default function Sidebar() {
   );
   const projects = useStore((store) => store.projects);
   const spaces = useStore((store) => store.spaces);
+  const archivedSpaces = useStore((store) => store.archivedSpaces);
   // Selection state only; the handlers and sync effects live in useSpacesController.
   const storedActiveSpaceId = useSpacesUiStore((store) => store.activeSpaceId);
   const pendingActiveSpaceId = useSpacesUiStore(
@@ -1922,23 +1925,69 @@ export default function Sidebar() {
         canShowLess: paging.canShowLess,
       };
     };
-    const sections: Array<{
-      key: string;
-      label: string;
-      space: Space;
-      projects: Project[];
-      chatData: ReturnType<typeof buildChatData>;
-    }> = spaces.map((space) => ({
-      key: space.id as string,
-      label: space.name,
-      space,
-      projects: standardProjects.filter((project) => project.spaceId === space.id),
-      chatData: buildChatData(space.id),
-    }));
+    const sections = spaces.map((space) => {
+      const projects = standardProjects.filter((project) => project.spaceId === space.id);
+      const chatData = buildChatData(space.id);
+      const chatEntryGroupsByRootId = new Map<ThreadId, typeof chatData.entries>();
+      for (const entry of chatData.entries) {
+        const existing = chatEntryGroupsByRootId.get(entry.rootRowId);
+        if (existing) existing.push(entry);
+        else chatEntryGroupsByRootId.set(entry.rootRowId, [entry]);
+      }
+      const threadItems = [...chatEntryGroupsByRootId].flatMap(([rootRowId, entries]) => {
+        const rootEntry = entries.find((entry) => entry.rowId === rootRowId) ?? entries[0];
+        return rootEntry
+          ? [
+              {
+                kind: "thread" as const,
+                id: rootRowId,
+                entries,
+                thread: rootEntry.row.thread,
+              },
+            ]
+          : [];
+      });
+      const projectItems = projects.map((project) => ({
+        kind: "project" as const,
+        id: project.id,
+        project,
+      }));
+      const items = orderSidebarSpaceItems({
+        threadItems: threadItems.map((item) => ({
+          id: item.id,
+          pinned: pinnedThreadIds.includes(item.id),
+          threads: [item.thread],
+          fallbackCreatedAt: item.thread.createdAt,
+          fallbackUpdatedAt: item.thread.updatedAt,
+          value: item,
+        })),
+        projectItems: projectItems.map((item) => ({
+          id: item.id,
+          pinned: pinnedProjectIdSet.has(item.id),
+          threads: sortedSidebarThreadsByProjectId.get(item.id) ?? [],
+          fallbackCreatedAt: item.project.createdAt,
+          fallbackUpdatedAt: item.project.updatedAt,
+          value: item,
+        })),
+        sortOrder: appSettings.sidebarThreadSortOrder,
+      });
+
+      return {
+        key: space.id as string,
+        label: space.name,
+        space,
+        items,
+        chatData,
+      };
+    });
     return sections;
   }, [
     activeSidebarThreadId,
+    appSettings.sidebarThreadSortOrder,
     chatThreadListExtraPages,
+    pinnedProjectIdSet,
+    pinnedThreadIds,
+    sortedSidebarThreadsByProjectId,
     spaces,
     standardProjects,
     visibleChatPreviewEntries,
@@ -2076,11 +2125,12 @@ export default function Sidebar() {
     };
 
     for (const section of sidebarSpaceSections) {
-      for (const entry of section.chatData.entries) {
-        addVisibleThreadId(entry.rowId);
-      }
-
-      for (const project of section.projects) {
+      for (const item of section.items) {
+        if (item.kind === "thread") {
+          for (const entry of item.entries) addVisibleThreadId(entry.rowId);
+          continue;
+        }
+        const { project } = item;
         const projectSidebarData = surfaceProjectSidebarDataById.get(project.id);
         if (!projectSidebarData) {
           continue;
@@ -2390,7 +2440,14 @@ export default function Sidebar() {
         return;
       }
       if (command === "space.previous" || command === "space.next") {
-        if (!isProjectsSidebarSurface({ isOnSettings, isOnStudio: false, isOnWorkspace })) return;
+        if (
+          !isProjectsSidebarSurface({
+            isOnSettings,
+            isOnStudio: false,
+            isOnWorkspace,
+          })
+        )
+          return;
         event.preventDefault();
         event.stopPropagation();
         const orderedSpaceIds = spaces.map((space) => space.id);
@@ -2406,7 +2463,14 @@ export default function Sidebar() {
       }
       const spaceJumpIndex = spaceJumpIndexFromCommand(command ?? "");
       if (spaceJumpIndex !== null) {
-        if (!isProjectsSidebarSurface({ isOnSettings, isOnStudio: false, isOnWorkspace })) return;
+        if (
+          !isProjectsSidebarSurface({
+            isOnSettings,
+            isOnStudio: false,
+            isOnWorkspace,
+          })
+        )
+          return;
         const orderedSpaceIds = spaces.map((space) => space.id);
         if (spaceJumpIndex >= orderedSpaceIds.length) return;
         event.preventDefault();
@@ -2611,33 +2675,42 @@ export default function Sidebar() {
   const usageSettingsShortcutLabel = shortcutLabelForCommand(keybindings, "settings.usage");
   const searchPaletteProjects = useMemo<SidebarSearchProject[]>(
     () =>
-      projects.map((project) => ({
-        id: project.id,
-        name: project.name,
-        remoteName: project.remoteName,
-        folderName: project.folderName,
-        localName: project.localName,
-        cwd: project.cwd,
-        // Containers (Chats, Studio) are reachable from every Space, so they search as "Global".
-        spaceName: (() => {
-          if (
-            !isOrdinarySpaceProject(project, {
-              homeDir,
-              chatWorkspaceRoot,
-              studioWorkspaceRoot,
-            })
-          ) {
-            return "Global";
-          }
+      projects.flatMap((project) => {
+        let spaceName = "Global";
+        if (
+          isOrdinarySpaceProject(project, {
+            homeDir,
+            chatWorkspaceRoot,
+            studioWorkspaceRoot,
+          })
+        ) {
           if (project.spaceId == null) {
             throw new Error(`Folder '${project.id}' is missing its required Space assignment.`);
           }
-          return spaceDisplayName(project.spaceId, spaces);
-        })(),
-        createdAt: project.createdAt,
-        updatedAt: project.updatedAt,
-      })),
-    [chatWorkspaceRoot, homeDir, projects, spaces, studioWorkspaceRoot],
+          const activeSpaceName = activeSpaceDisplayNameForReference(
+            project.spaceId,
+            spaces,
+            archivedSpaces,
+          );
+          if (activeSpaceName === null) return [];
+          spaceName = activeSpaceName;
+        }
+        return [
+          {
+            id: project.id,
+            name: project.name,
+            remoteName: project.remoteName,
+            folderName: project.folderName,
+            localName: project.localName,
+            cwd: project.cwd,
+            // Containers (Chats, Studio) are reachable from every Space, so they search as "Global".
+            spaceName,
+            createdAt: project.createdAt,
+            updatedAt: project.updatedAt,
+          },
+        ];
+      }),
+    [archivedSpaces, chatWorkspaceRoot, homeDir, projects, spaces, studioWorkspaceRoot],
   );
   const searchPaletteActions = useMemo<SidebarSearchAction[]>(
     () => [
@@ -2929,7 +3002,20 @@ export default function Sidebar() {
       <SidebarHeaderShared
         brand="Penkra"
         className={cn("h-full w-full", showMacTrafficLightAffordance && "px-0")}
-        onClose={() => setSidebarOpen(false)}
+        {...(isOnSettings
+          ? {
+              onBack: () => {
+                if (lastThreadRoute) {
+                  const rememberedThreadId = ThreadId.makeUnsafe(lastThreadRoute.threadId);
+                  if (sidebarThreadSummaryById[rememberedThreadId]) {
+                    activateThreadFromSidebarIntent(rememberedThreadId);
+                    return;
+                  }
+                }
+                void navigate({ to: "/" });
+              },
+            }
+          : { onClose: () => setSidebarOpen(false) })}
       />
     </SidebarHeader>
   ) : (
@@ -3027,8 +3113,7 @@ export default function Sidebar() {
             {sidebarSpaceSections.map((section) => {
               const expanded = !collapsedSpaceIds.has(section.key);
               const hasContent =
-                section.projects.length > 0 ||
-                section.chatData.entries.length > 0 ||
+                section.items.length > 0 ||
                 section.chatData.canShowMore ||
                 section.chatData.canShowLess;
               const editingThisSpace =
@@ -3048,7 +3133,10 @@ export default function Sidebar() {
                           mode="rename"
                           onCancel={closeSpaceEditor}
                           onSubmit={async (name) => {
-                            await handleSpaceEditorSubmit({ name, icon: editedSpace.icon });
+                            await handleSpaceEditorSubmit({
+                              name,
+                              icon: editedSpace.icon,
+                            });
                             closeSpaceEditor();
                           }}
                         />
@@ -3071,11 +3159,19 @@ export default function Sidebar() {
                       void handleSpaceHeaderContextMenu(event, section.space)
                     }
                   >
-                    {section.chatData.entries.map((entry) =>
-                      renderPencilThreadRow(
-                        entry.row.thread,
-                        visibleChatOrderedThreadIds,
-                        entry.row.depth,
+                    {section.items.map((item) =>
+                      item.kind === "thread" ? (
+                        <Fragment key={`thread:${item.id}`}>
+                          {item.entries.map((entry) =>
+                            renderPencilThreadRow(
+                              entry.row.thread,
+                              visibleChatOrderedThreadIds,
+                              entry.row.depth,
+                            ),
+                          )}
+                        </Fragment>
+                      ) : (
+                        renderPencilProjectItem(item.project)
                       ),
                     )}
                     {section.chatData.canShowMore ? (
@@ -3098,9 +3194,6 @@ export default function Sidebar() {
                         Show less
                       </ShowMoreRow>
                     ) : null}
-                    <div className="flex flex-col gap-0.5">
-                      {section.projects.map((project) => renderPencilProjectItem(project))}
-                    </div>
                   </SpaceGroupShared>
                 </div>
               );

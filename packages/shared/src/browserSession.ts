@@ -1,5 +1,5 @@
 // FILE: browserSession.ts
-// Purpose: Shared helpers for the in-app browser session so the desktop main process (and any
+// Purpose: Shared helpers for Browser App hosted sessions so the desktop main process (and any
 //   other surface) agree on the spoofed Chrome user agent and on how `window.open` requests
 //   are classified into OAuth popups vs. ordinary new tabs.
 // Layer: Shared runtime utility

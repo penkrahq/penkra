@@ -61,6 +61,7 @@ export interface OpenCodeCompatibleCliSpec {
   readonly defaultBinaryPath: string;
   readonly displayName: string;
   readonly serverReadyPrefix: string;
+  readonly managedServerArgs: ReadonlyArray<string>;
   readonly configContentEnvVar: string;
   readonly dataDirectoryName: string;
   readonly serverAuthUsername: string;
@@ -70,6 +71,7 @@ export const OPENCODE_CLI_SPEC: OpenCodeCompatibleCliSpec = {
   defaultBinaryPath: "opencode",
   displayName: "OpenCode",
   serverReadyPrefix: "opencode server listening",
+  managedServerArgs: ["--pure"],
   configContentEnvVar: "OPENCODE_CONFIG_CONTENT",
   dataDirectoryName: "opencode",
   serverAuthUsername: "opencode",
@@ -79,6 +81,7 @@ export const KILO_CLI_SPEC: OpenCodeCompatibleCliSpec = {
   defaultBinaryPath: "kilo",
   displayName: "Kilo",
   serverReadyPrefix: "kilo server listening",
+  managedServerArgs: [],
   configContentEnvVar: "KILO_CONFIG_CONTENT",
   dataDirectoryName: "kilo",
   serverAuthUsername: "kilo",
@@ -324,6 +327,7 @@ function pooledOpenCodeServerKey(input: {
       defaultBinaryPath: cliSpec.defaultBinaryPath,
       displayName: cliSpec.displayName,
       serverReadyPrefix: cliSpec.serverReadyPrefix,
+      managedServerArgs: cliSpec.managedServerArgs,
       configContentEnvVar: cliSpec.configContentEnvVar,
       dataDirectoryName: cliSpec.dataDirectoryName,
       serverAuthUsername: cliSpec.serverAuthUsername,
@@ -946,7 +950,14 @@ const makeOpenCodeRuntime = (options?: OpenCodeRuntimeLiveOptions) =>
             ),
           ));
         const timeoutMs = input.timeoutMs ?? DEFAULT_OPENCODE_SERVER_TIMEOUT_MS;
-        const args = ["serve", "--hostname", hostname, "--port", String(port)];
+        const args = [
+          "serve",
+          ...cliSpec.managedServerArgs,
+          "--hostname",
+          hostname,
+          "--port",
+          String(port),
+        ];
 
         const child = yield* spawner
           .spawn(

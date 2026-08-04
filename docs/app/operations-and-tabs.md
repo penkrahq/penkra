@@ -20,3 +20,8 @@ example `penkra open --url https://penkra.com`. App commands begin with the App 
 `--schema` adds the full validated schemas. Start with `penkra --help`; `penkra apps list` returns
 the Apps enabled in the caller Thread's Space and their operation keys. These strings are
 registered commands, not shell text.
+
+Operations are the preferred boundary for domain behavior. Penkra core separately provides a
+trusted, provider-neutral way for agents to observe and operate visible App tabs. That host-only
+boundary is documented in [Agent observation and interaction](agent-observation.md); it is not
+available to Apps through `@penkra/sdk`.

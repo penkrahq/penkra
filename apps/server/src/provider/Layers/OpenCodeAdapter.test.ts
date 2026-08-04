@@ -829,7 +829,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
     ]);
     expect(runtime.promptCalls).toHaveLength(2);
     for (const prompt of runtime.promptCalls) {
-      expect(JSON.stringify(prompt)).toContain("Use the penkra_* tools");
+      expect(JSON.stringify(prompt)).toContain("Use Penkra's named MCP tools");
     }
     expect(gateway.revoked).toEqual(["gateway-token-1", "gateway-token-2"]);
   });

@@ -41,7 +41,7 @@ export function ComposerActions({
         {applicationLeading ? (
           <div className="flex min-w-0 shrink items-center gap-1">{applicationLeading}</div>
         ) : null}
-        <span className="min-w-0 flex-1" />
+        {applicationTrailingExpands ? null : <span className="min-w-0 flex-1" />}
         {applicationTrailing ? (
           <div
             className={

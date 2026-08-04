@@ -45,7 +45,7 @@ import {
   AGENT_GATEWAY_TARGET_OPTIONS_DESCRIPTION,
   type AgentGatewayProviderAvailability,
 } from "../targetResolver.ts";
-import { mcpToolResultError, mcpToolResultJson } from "../protocol.ts";
+import { mcpToolResultError, mcpToolResultImage, mcpToolResultJson } from "../protocol.ts";
 import { gatewayIsoNow as isoNow } from "../creationUtils.ts";
 import {
   MODEL_SELECTION_INPUT_SCHEMA,
@@ -341,7 +341,8 @@ export const makeAgentGateway = Effect.gen(function* () {
         ).pipe(
           Effect.map((result) => {
             if (result.isError) return result;
-            const batch = JSON.parse(result.content[0]?.text ?? "{}") as {
+            const textContent = result.content.find((content) => content.type === "text");
+            const batch = JSON.parse(textContent?.text ?? "{}") as {
               operationId?: string;
               requestId?: string;
               threads?: Array<Record<string, unknown>>;
@@ -545,14 +546,14 @@ export const makeAgentGateway = Effect.gen(function* () {
     definition: {
       name: "penkra_exec",
       description:
-        "Execute one registered Penkra core or installed-App operation in the caller Thread's Space. Start with `penkra --help`; use `penkra apps list` to discover enabled App roots and operations, then `<app-slug> --help` for typed arguments. This is not a shell: PATH executables, pipes, redirects, substitutions, and environment expansion are never accepted.",
+        "Execute exactly one registered Penkra core command or installed-App operation in the caller Thread's Space. Use this when the task involves Penkra Apps, App tabs, opening a URL/path through Penkra, or invoking an App's declared capability. Start with `penkra --help`; run `penkra apps list` to discover what is actually enabled in this Space; then run `<app-slug> --help` or `<app-slug> <operation words> --help` before using unfamiliar operations. App declarations retain dotted local keys such as `issues.create`, while commands use words such as `linear issues create`. The App slug is the command root: use `browser pages open`, never the invalid `penkra browser pages open`; only Penkra core commands begin with `penkra`. Use `penkra tabs current/list` to discover this Thread's App tabs and the tab observation commands to snapshot, extract, screenshot, or manually interact with visible App UI by explicit tab ID. Prefer typed semantic App operations for domain work. Use `penkra open --url` or `penkra open --path` for configured/default resource routing and add `--with` only for an explicitly selected App. This is not a shell: it never searches PATH and rejects programs, pipes, redirects, substitutions, and environment expansion. Penkra Apps are distinct from provider plugins/connectors and Agent Skills; never infer App availability from those surfaces.",
       inputSchema: {
         type: "object",
         properties: {
           command: {
             type: "string",
             description:
-              'One registered command such as "penkra --help", "penkra apps list", "penkra tabs current", or "linear issues create --title Fix".',
+              'One registered command, for example: "penkra --help", "penkra apps list", "penkra tabs list", "penkra tabs snapshot --tab-id <id>", "penkra open --url https://example.com", or "linear issues create --title Fix".',
           },
         },
         required: ["command"],
@@ -584,9 +585,28 @@ export const makeAgentGateway = Effect.gen(function* () {
             }),
           catch: (error) => new ToolInputError(errorText(error)),
         });
+        if (isPenkraExecImage(result)) {
+          return mcpToolResultImage({
+            data: result.data,
+            mimeType: result.mimeType,
+            description: "Screenshot of the explicitly targeted Penkra App tab.",
+          });
+        }
         return mcpToolResultJson(result);
       }).pipe(Effect.catch((error) => Effect.succeed(mcpToolResultError(errorText(error))))),
   };
+
+  function isPenkraExecImage(
+    value: unknown,
+  ): value is { kind: "image"; data: string; mimeType: string } {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+    const record = value as Record<string, unknown>;
+    return (
+      record.kind === "image" &&
+      typeof record.data === "string" &&
+      typeof record.mimeType === "string"
+    );
+  }
 
   const tools: ReadonlyArray<ToolEntry> = [
     ...readTools,

@@ -96,7 +96,7 @@ export function ThemePanelShared({
   return (
     <section
       className={cn(
-        "flex w-full max-w-[560px] flex-col gap-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-background-surface)] p-5 font-sans",
+        "flex w-full max-w-[640px] flex-col gap-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-background-surface)] p-5 font-sans",
         className,
       )}
       data-pencil-component="xRiiX"

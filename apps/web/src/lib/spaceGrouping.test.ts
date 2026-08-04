@@ -2,7 +2,7 @@ import { SpaceId } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 
 import type { Space } from "~/types";
-import { resolveActiveSpaceId } from "./spaceGrouping";
+import { activeSpaceDisplayNameForReference, resolveActiveSpaceId } from "./spaceGrouping";
 
 const workSpaceId = SpaceId.makeUnsafe("space-work");
 const workSpace: Space = {
@@ -25,5 +25,15 @@ describe("resolveActiveSpaceId", () => {
     const pendingSpaceId = SpaceId.makeUnsafe("space-pending");
 
     expect(resolveActiveSpaceId(pendingSpaceId, [workSpace], pendingSpaceId)).toBe(pendingSpaceId);
+  });
+});
+
+describe("activeSpaceDisplayNameForReference", () => {
+  it("names active references, hides archived references, and rejects dangling ids", () => {
+    expect(activeSpaceDisplayNameForReference(workSpaceId, [workSpace], [])).toBe("Work");
+    expect(activeSpaceDisplayNameForReference(workSpaceId, [], [workSpace])).toBeNull();
+    expect(() =>
+      activeSpaceDisplayNameForReference(SpaceId.makeUnsafe("space-missing"), [], [workSpace]),
+    ).toThrow(/missing from the authoritative snapshot/i);
   });
 });

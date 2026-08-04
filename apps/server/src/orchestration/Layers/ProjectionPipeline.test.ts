@@ -4373,6 +4373,37 @@ it.layer(
             },
           },
         });
+
+        if (scenario.expectedCompleted) {
+          const replayedAt = `2026-02-27T12:01:${String(index).padStart(2, "0")}.000Z`;
+          yield* eventStore.append({
+            type: "thread.session-set",
+            eventId: EventId.makeUnsafe(`evt-session-settlement-${scenario.key}-running-replay`),
+            aggregateKind: "thread",
+            aggregateId: threadId,
+            occurredAt: replayedAt,
+            commandId: CommandId.makeUnsafe(
+              `cmd-session-settlement-${scenario.key}-running-replay`,
+            ),
+            causationEventId: null,
+            correlationId: CorrelationId.makeUnsafe(
+              `cmd-session-settlement-${scenario.key}-running-replay`,
+            ),
+            metadata: {},
+            payload: {
+              threadId,
+              session: {
+                threadId,
+                status: "running",
+                providerName: "codex",
+                runtimeMode: "full-access",
+                activeTurnId: turnId,
+                lastError: null,
+                updatedAt: replayedAt,
+              },
+            },
+          });
+        }
       }
 
       yield* projectionPipeline.bootstrap;

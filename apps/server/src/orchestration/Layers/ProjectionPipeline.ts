@@ -1365,7 +1365,9 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
           });
           if (Option.isSome(existingTurn)) {
             const nextState =
-              existingTurn.value.state === "completed" || existingTurn.value.state === "error"
+              existingTurn.value.state === "completed" ||
+              existingTurn.value.state === "interrupted" ||
+              existingTurn.value.state === "error"
                 ? existingTurn.value.state
                 : "running";
             yield* projectionTurnRepository.upsertByTurnId({

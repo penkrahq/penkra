@@ -30,6 +30,7 @@ const electron = vi.hoisted(() => {
         loadURL: vi.fn(async () => undefined),
         insertCSS: vi.fn(async () => "theme-css"),
         removeInsertedCSS: vi.fn(async () => undefined),
+        focus: vi.fn(),
         isDestroyed: vi.fn(() => false),
         close: vi.fn(),
         listeners,
@@ -85,6 +86,7 @@ describe("ElectronAppTabHost", () => {
     const app = installedApp();
     const addChildView = vi.fn();
     const removeChildView = vi.fn();
+    const focusShell = vi.fn();
     const unregisterBroker = vi.fn();
     const unregisterRpc = vi.fn();
     const releaseIdentity = vi.fn();
@@ -101,6 +103,7 @@ describe("ElectronAppTabHost", () => {
         ({
           isDestroyed: () => false,
           contentView: { addChildView, removeChildView },
+          webContents: { focus: focusShell },
         }) as never,
       installations: {
         snapshot: () => ({
@@ -164,6 +167,8 @@ describe("ElectronAppTabHost", () => {
         preload: "/trusted/appPreload.js",
       }),
     });
+    expect(host.rendererView(100)).toBe(electron.views[0]);
+    expect(host.rendererView(999)).toBeNull();
 
     host.attach(descriptor.id);
     host.attach(descriptor.id);
@@ -172,8 +177,10 @@ describe("ElectronAppTabHost", () => {
     expect(electron.views[0]?.bounds.at(-1)).toEqual({ x: 1, y: 3, width: 300, height: 401 });
     host.setVisible(descriptor.id, true);
     expect(host.current()).toEqual(descriptor);
+    expect(electron.views[0]?.webContents.focus).toHaveBeenCalledOnce();
     host.setVisible(descriptor.id, false);
     expect(host.current()).toBeNull();
+    expect(focusShell).toHaveBeenCalledOnce();
 
     host.closeForAppSpace(app.appId, "personal");
     host.close(descriptor.id);
@@ -184,6 +191,54 @@ describe("ElectronAppTabHost", () => {
     expect(electron.views[0]?.webContents.close).toHaveBeenCalledOnce();
     expect(onClosed).toHaveBeenCalledWith({ id: descriptor.id, threadId: "thread-1" });
     expect(host.list()).toEqual([]);
+  });
+
+  it("lazily activates a persisted enabled App before opening its UI", async () => {
+    electron.views.length = 0;
+    const base = installedApp();
+    const app: InstalledAppPackage = {
+      ...base,
+      appId: "com.penkra.browser",
+      slug: "browser",
+      name: "Browser",
+      packagePath: "/profile/apps/com.penkra.browser/0.1.0",
+      manifest: {
+        ...base.manifest,
+        id: "com.penkra.browser",
+        slug: "browser",
+        name: "Browser",
+      },
+    };
+    const ensureActive = vi.fn(async () => undefined);
+    const host = new ElectronAppTabHost({
+      window: () => null,
+      installations: {
+        snapshot: () => ({
+          packagesByInstallationKey: { [`personal\0${app.appId}`]: app },
+        }),
+        isActive: () => false,
+        ensureActive,
+        setEnabled: vi.fn(),
+      } as never,
+      sessions: { get: () => ({ appId: app.appId, spaceId: "personal" }) as never },
+      broker: { registerTab: vi.fn(() => vi.fn()) },
+      rpc: { registerTarget: vi.fn(() => vi.fn()), request: vi.fn() },
+      ipcBridge: { waitForReady: vi.fn(async () => undefined) },
+      preloadPath: "/trusted/appPreload.js",
+      onOpened: vi.fn(),
+      onState: vi.fn(),
+      measureRendererMemory: () => 128 * 1024,
+    });
+
+    await expect(
+      host.openInstalled({
+        appId: app.appId,
+        spaceId: "personal",
+        threadId: "thread-1",
+        route: "/",
+      }),
+    ).resolves.toMatchObject({ appId: app.appId, status: "ready" });
+    expect(ensureActive).toHaveBeenCalledWith(app.appId, "personal");
   });
 
   it("opens an installed App in the calling Apps tab context", async () => {

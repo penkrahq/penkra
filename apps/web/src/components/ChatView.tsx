@@ -9099,7 +9099,7 @@ export default function ChatView({
           className={cn(
             COMPOSER_INPUT_SURFACE_CLASS_NAME,
             COMPOSER_COLUMN_FRAME_CLASS_NAME,
-            "min-h-[88.5px] shadow-none",
+            "min-h-[100px] shadow-none",
           )}
           style={{ height: secondaryChromePlaceholderHeight }}
         />

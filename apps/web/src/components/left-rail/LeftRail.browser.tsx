@@ -65,6 +65,16 @@ describe("Pencil left rail", () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 
+  it("replaces the close action with a back action in settings", async () => {
+    const onBack = vi.fn();
+    await render(<SidebarHeaderShared onBack={onBack} />);
+
+    expect(page.getByRole("button", { name: "Close left panel" }).query()).toBeNull();
+    const backButton = page.getByRole("button", { name: "Back to thread" });
+    await backButton.click();
+    expect(onBack).toHaveBeenCalledOnce();
+  });
+
   it("uses a real bounded vertical scroll viewport for overflowing projects", async () => {
     await render(
       <div className="h-32 w-60">

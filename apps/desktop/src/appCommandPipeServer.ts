@@ -28,6 +28,16 @@ type Request = {
     | "operations.invoke"
     | "tabs.current"
     | "tabs.list"
+    | "tabs.snapshot"
+    | "tabs.extract"
+    | "tabs.screenshot"
+    | "tabs.click"
+    | "tabs.hover"
+    | "tabs.type"
+    | "tabs.press"
+    | "tabs.select"
+    | "tabs.scroll"
+    | "tabs.wait"
     | "developer.publishers.list"
     | "developer.publishers.create"
     | "developer.apps.list"
@@ -41,6 +51,19 @@ type Request = {
     | "developer.submissions.create";
   params?: unknown;
 };
+
+interface AppTabObserverBridge {
+  snapshot(tabId: string): Promise<unknown>;
+  extract(tabId: string): Promise<unknown>;
+  screenshot(tabId: string): Promise<unknown>;
+  click(tabId: string, reference: string): Promise<unknown>;
+  hover(tabId: string, reference: string): Promise<unknown>;
+  type(tabId: string, reference: string, text: string): Promise<unknown>;
+  press(tabId: string, key: string): Promise<unknown>;
+  select(tabId: string, reference: string, value: string): Promise<unknown>;
+  scroll(tabId: string, deltaX: number, deltaY: number): Promise<unknown>;
+  wait(tabId: string, text: string, timeoutMs: number): Promise<unknown>;
+}
 
 export function resolveAppCommandPipePath(_userDataPath: string): string {
   if (process.platform === "win32") {
@@ -62,6 +85,7 @@ export class AppCommandPipeServer {
     list(): ReadonlyArray<DesktopAppTabDescriptor>;
     current(): DesktopAppTabDescriptor | null;
   };
+  readonly #observer: AppTabObserverBridge;
   readonly #registry: AppRegistryClient | null;
   readonly #open:
     | ((input: {
@@ -83,6 +107,7 @@ export class AppCommandPipeServer {
       list(): ReadonlyArray<DesktopAppTabDescriptor>;
       current(): DesktopAppTabDescriptor | null;
     };
+    observer: AppTabObserverBridge;
     registry?: AppRegistryClient | null;
     open?: (input: {
       path?: string;
@@ -97,6 +122,7 @@ export class AppCommandPipeServer {
     this.#catalog = input.catalog;
     this.#broker = input.broker;
     this.#tabs = input.tabs;
+    this.#observer = input.observer;
     this.#registry = input.registry ?? null;
     this.#open = input.open ?? null;
     this.#server = Net.createServer((socket) => this.#accept(socket));
@@ -152,9 +178,16 @@ export class AppCommandPipeServer {
       socket.pause();
       void this.#handle(raw)
         .then((response) => socket.end(`${JSON.stringify(response)}\n`))
-        .catch((error) =>
-          socket.end(`${JSON.stringify({ ok: false, error: toError(error).message })}\n`),
-        );
+        .catch((error) => {
+          const normalized = toError(error);
+          const code =
+            typeof (normalized as Error & { code?: unknown }).code === "string"
+              ? (normalized as Error & { code: string }).code
+              : "APP_COMMAND_FAILED";
+          socket.end(
+            `${JSON.stringify({ ok: false, error: { code, message: normalized.message } })}\n`,
+          );
+        });
     });
     const release = () => this.#sockets.delete(socket);
     socket.on("close", release);
@@ -174,9 +207,98 @@ export class AppCommandPipeServer {
     const params = asRecord(request.params);
     switch (request.method) {
       case "tabs.list":
-        return { ok: true, id: request.id, result: this.#tabs.list() };
+        return { ok: true, id: request.id, result: this.#scopedTabs(params) };
       case "tabs.current":
-        return { ok: true, id: request.id, result: this.#tabs.current() };
+        return {
+          ok: true,
+          id: request.id,
+          result: this.#scopedCurrentTab(params),
+        };
+      case "tabs.snapshot":
+        return {
+          ok: true,
+          id: request.id,
+          result: await this.#observer.snapshot(this.#tab(params).id),
+        };
+      case "tabs.extract":
+        return {
+          ok: true,
+          id: request.id,
+          result: await this.#observer.extract(this.#tab(params).id),
+        };
+      case "tabs.screenshot":
+        return {
+          ok: true,
+          id: request.id,
+          result: await this.#observer.screenshot(this.#tab(params).id),
+        };
+      case "tabs.click":
+        return {
+          ok: true,
+          id: request.id,
+          result: await this.#observer.click(
+            this.#tab(params).id,
+            requiredString(params.ref, "ref"),
+          ),
+        };
+      case "tabs.hover":
+        return {
+          ok: true,
+          id: request.id,
+          result: await this.#observer.hover(
+            this.#tab(params).id,
+            requiredString(params.ref, "ref"),
+          ),
+        };
+      case "tabs.type":
+        return {
+          ok: true,
+          id: request.id,
+          result: await this.#observer.type(
+            this.#tab(params).id,
+            requiredString(params.ref, "ref"),
+            requiredStringAllowEmpty(params.text, "text"),
+          ),
+        };
+      case "tabs.press":
+        return {
+          ok: true,
+          id: request.id,
+          result: await this.#observer.press(
+            this.#tab(params).id,
+            requiredString(params.key, "key"),
+          ),
+        };
+      case "tabs.select":
+        return {
+          ok: true,
+          id: request.id,
+          result: await this.#observer.select(
+            this.#tab(params).id,
+            requiredString(params.ref, "ref"),
+            requiredStringAllowEmpty(params.value, "value"),
+          ),
+        };
+      case "tabs.scroll":
+        return {
+          ok: true,
+          id: request.id,
+          result: await this.#observer.scroll(
+            this.#tab(params).id,
+            optionalNumber(params.deltaX, "deltaX") ?? 0,
+            optionalNumber(params.deltaY, "deltaY") ?? 0,
+          ),
+        };
+      case "tabs.wait":
+        return {
+          ok: true,
+          id: request.id,
+          result: await this.#observer.wait(
+            this.#tab(params).id,
+            requiredString(params.text, "text"),
+            optionalNumber(params.timeoutMs, "timeoutMs") ?? 10_000,
+          ),
+        };
       case "catalog.list": {
         const context = this.#context(params);
         return { ok: true, id: request.id, result: this.#catalog.list(context.spaceId) };
@@ -398,6 +520,35 @@ export class AppCommandPipeServer {
       );
     return tab;
   }
+
+  #scope(params: Record<string, unknown>): { spaceId: string; threadId: string } {
+    return {
+      spaceId: requiredString(params.spaceId, "spaceId"),
+      threadId: requiredString(params.threadId, "threadId"),
+    };
+  }
+
+  #scopedTabs(params: Record<string, unknown>): ReadonlyArray<DesktopAppTabDescriptor> {
+    const scope = this.#scope(params);
+    return this.#tabs
+      .list()
+      .filter((tab) => tab.spaceId === scope.spaceId && tab.threadId === scope.threadId);
+  }
+
+  #scopedCurrentTab(params: Record<string, unknown>): DesktopAppTabDescriptor | null {
+    const scope = this.#scope(params);
+    const current = this.#tabs.current();
+    return current?.spaceId === scope.spaceId && current.threadId === scope.threadId
+      ? current
+      : null;
+  }
+
+  #tab(params: Record<string, unknown>): DesktopAppTabDescriptor {
+    const tabId = requiredString(params.tabId, "tabId");
+    const tab = this.#scopedTabs(params).find((candidate) => candidate.id === tabId);
+    if (!tab) throw new Error(`App tab ${tabId} is not open in the caller Thread and Space.`);
+    return tab;
+  }
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -411,6 +562,19 @@ function requiredString(value: unknown, name: string): string {
   const result = optionalString(value, name);
   if (result === null) throw new Error(`${name} is required.`);
   return result;
+}
+
+function requiredStringAllowEmpty(value: unknown, name: string): string {
+  if (typeof value !== "string") throw new Error(`${name} must be a string.`);
+  return value;
+}
+
+function optionalNumber(value: unknown, name: string): number | null {
+  if (value === undefined) return null;
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new Error(`${name} must be a finite number.`);
+  }
+  return value;
 }
 
 function requiredVisibility(value: unknown): "public" | "private" {

@@ -1,16 +1,19 @@
 import type { HTMLAttributes } from "react";
 
+import { ArrowLeftIcon } from "~/lib/icons";
 import { CentralIcon } from "~/lib/central-icons";
 import { cn } from "~/lib/utils";
 
 export interface SidebarHeaderSharedProps extends HTMLAttributes<HTMLElement> {
   brand?: string;
+  onBack?: () => void;
   onClose?: () => void;
 }
 
 export function SidebarHeaderShared({
   brand = "Penkra",
   className,
+  onBack,
   onClose,
   ...props
 }: SidebarHeaderSharedProps) {
@@ -28,12 +31,16 @@ export function SidebarHeaderShared({
       </span>
       <span className="flex-1" />
       <button
-        aria-label="Close left panel"
+        aria-label={onBack ? "Back to thread" : "Close left panel"}
         className="inline-flex size-4 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-[var(--color-text-foreground-secondary)] outline-none hover:text-[var(--color-text-foreground)] focus-visible:ring-1 focus-visible:ring-[var(--color-border-focus)]"
-        onClick={onClose}
+        onClick={onBack ?? onClose}
         type="button"
       >
-        <CentralIcon className="size-4" name="sidebar-simple-right-wide" />
+        {onBack ? (
+          <ArrowLeftIcon className="size-4" />
+        ) : (
+          <CentralIcon className="size-4" name="sidebar-simple-right-wide" />
+        )}
       </button>
     </header>
   );

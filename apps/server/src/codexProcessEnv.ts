@@ -1,7 +1,7 @@
 // FILE: codexProcessEnv.ts
 // Purpose: Builds the exact environment used when Penkra launches Codex subprocesses.
 // Layer: Server runtime utility
-// Exports: Codex process env builder and browser-plugin overlay helpers.
+// Exports: Codex process env builder and provider-overlay helpers.
 // Depends on: Codex home path helpers, shared Codex config parsing, login-shell env reader.
 
 import * as fs from "node:fs/promises";
@@ -18,67 +18,28 @@ import { resolveBaseCodexHomePath, resolvePenkraCodexHomeOverlayPath } from "./c
 import { buildProviderChildEnvironment } from "./providerChildEnvironment.ts";
 
 const CODEX_PROCESS_SHELL_ENV_NAMES = ["PATH", "SSH_AUTH_SOCK"] as const;
-const NODE_REPL_SANDBOX_ALLOWED_UNIX_SOCKETS = "NODE_REPL_SANDBOX_ALLOWED_UNIX_SOCKETS";
-const NODE_REPL_MCP_SERVER_HEADER = "[mcp_servers.node_repl]";
 const CODEX_OVERLAY_SHARED_STATE_FILES = new Set(["auth.json"]);
-const PENKRA_CONFIG_SUPPRESSIONS_FILE = "penkra-config-suppressions-v1.json";
-const MAX_CONFIG_SUPPRESSION_SECTIONS = 32;
-const MAX_CONFIG_SUPPRESSION_HEADER_LENGTH = 256;
 const codexOverlayPreparationQueues = new Map<string, Promise<void>>();
-// Retired local browser integrations used a stable six-character namespace.
-// Match the structural conflict without retaining any previous product name.
-const CONFLICTING_LOCAL_BROWSER_PLUGIN_SECTION_PATTERN =
-  /^\[plugins\."[a-z0-9][a-z0-9-]{5}-browser@local"\]$/;
 
 interface CodexOverlayEntryLinker {
   readonly symlink: typeof fs.symlink;
   readonly copyFile: typeof fs.copyFile;
 }
 
-export function resolveCodexBrowserUsePipePath(
-  input: {
-    readonly env?: NodeJS.ProcessEnv;
-    readonly platform?: NodeJS.Platform;
-  } = {},
-): string {
-  const env = input.env ?? process.env;
-  const configured = env.PENKRA_BROWSER_USE_PIPE_PATH?.trim();
-  if (configured) {
-    return configured;
-  }
-  return (input.platform ?? process.platform) === "win32"
-    ? String.raw`\\.\pipe\codex-browser-use`
-    : "/tmp/codex-browser-use.sock";
-}
-
 function isSafePluginSectionHeader(value: unknown): value is string {
   return (
     typeof value === "string" &&
-    value.length <= MAX_CONFIG_SUPPRESSION_HEADER_LENGTH &&
     /^\[plugins\."[^"\r\n]+"\]$/.test(value)
   );
 }
 
-export async function readPenkraConfigSuppressions(markerPath: string): Promise<readonly string[]> {
-  try {
-    const parsed = JSON.parse(await fs.readFile(markerPath, "utf8")) as unknown;
-    if (typeof parsed !== "object" || parsed === null) return [];
-    const marker = parsed as { version?: unknown; sectionHeaders?: unknown };
-    if (marker.version !== 1 || !Array.isArray(marker.sectionHeaders)) return [];
-    if (marker.sectionHeaders.length > MAX_CONFIG_SUPPRESSION_SECTIONS) return [];
-    return [...new Set(marker.sectionHeaders.filter(isSafePluginSectionHeader))];
-  } catch {
-    return [];
-  }
-}
-
-function findConflictingLocalBrowserPluginSections(config: string): readonly string[] {
+function findPluginSectionHeaders(config: string): readonly string[] {
   return [
     ...new Set(
       config
         .split(/\r?\n/)
         .map((line) => line.trim())
-        .filter((line) => CONFLICTING_LOCAL_BROWSER_PLUGIN_SECTION_PATTERN.test(line)),
+        .filter(isSafePluginSectionHeader),
     ),
   ];
 }
@@ -134,23 +95,6 @@ export function disableCodexConfigSections(
   }
 
   return output.join("\n");
-}
-
-async function writePenkraConfigSuppressions(
-  markerPath: string,
-  sectionHeaders: readonly string[],
-): Promise<void> {
-  const normalized = [...new Set(sectionHeaders.filter(isSafePluginSectionHeader))].slice(
-    0,
-    MAX_CONFIG_SUPPRESSION_SECTIONS,
-  );
-  const temporaryPath = `${markerPath}.${process.pid}.tmp`;
-  await fs.writeFile(
-    temporaryPath,
-    `${JSON.stringify({ version: 1, sectionHeaders: normalized }, null, 2)}\n`,
-    { encoding: "utf8", mode: 0o600 },
-  );
-  await fs.rename(temporaryPath, markerPath);
 }
 
 export async function linkOrCopyCodexOverlayEntry(
@@ -592,15 +536,13 @@ async function preparePenkraCodexHomeOverlayUnlocked(input: {
     }
     throw cause;
   });
-  const suppressionMarkerPath = path.join(overlayHomePath, PENKRA_CONFIG_SUPPRESSIONS_FILE);
-  const suppressedSections = [
-    ...new Set([
-      ...findConflictingLocalBrowserPluginSections(sourceConfig),
-      ...(await readPenkraConfigSuppressions(suppressionMarkerPath)),
-    ]),
-  ].slice(0, MAX_CONFIG_SUPPRESSION_SECTIONS);
   const overlayConfigPath = path.join(overlayHomePath, "config.toml");
-  let overlayConfig = disableCodexConfigSections(sourceConfig, suppressedSections, true);
+  // Penkra owns its App, connector, and tool surfaces. Provider-native plugins
+  // are disabled only in Penkra's isolated overlay so they cannot inject a
+  // competing browser, connector catalog, MCP server, or developer policy.
+  // Standalone provider skills and Penkra skills remain available through the
+  // provider-neutral skills catalog.
+  let overlayConfig = disableCodexConfigSections(sourceConfig, findPluginSectionHeaders(sourceConfig));
   const managedSection =
     input.appendConfigToml ??
     (await fs
@@ -619,16 +561,7 @@ async function preparePenkraCodexHomeOverlayUnlocked(input: {
       overlayConfig = mergeShellEnvPolicyExclude(overlayConfig, tokenEnvVar);
     }
   }
-  // Codex launches stdio MCP helpers with an environment allowlist, so the
-  // Browser helper must opt in to the socket capability set on its parent.
-  overlayConfig = mergeTomlStringArrayValues(
-    overlayConfig,
-    NODE_REPL_MCP_SERVER_HEADER,
-    "env_vars",
-    [NODE_REPL_SANDBOX_ALLOWED_UNIX_SOCKETS],
-  );
   await fs.writeFile(overlayConfigPath, overlayConfig, "utf8");
-  await writePenkraConfigSuppressions(suppressionMarkerPath, suppressedSections);
 
   return overlayHomePath;
 }
@@ -668,10 +601,6 @@ export async function buildCodexProcessEnv(
       ? { ...baseEnv, CODEX_HOME: overlayHomePath ?? input.homePath }
       : baseEnv;
   const platform = input.platform ?? process.platform;
-  const browserUsePipePath =
-    platform === "win32"
-      ? undefined
-      : resolveCodexBrowserUsePipePath({ env: configuredEnv, platform });
   const effectiveEnv = buildProviderChildEnvironment({
     provider: "codex",
     baseEnv: configuredEnv,
@@ -700,10 +629,6 @@ export async function buildCodexProcessEnv(
     } catch {
       // Keep inherited environment if shell lookup fails.
     }
-  }
-
-  if (browserUsePipePath) {
-    effectiveEnv[NODE_REPL_SANDBOX_ALLOWED_UNIX_SOCKETS] = browserUsePipePath;
   }
 
   return effectiveEnv;

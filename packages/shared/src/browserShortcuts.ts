@@ -1,5 +1,5 @@
 // FILE: browserShortcuts.ts
-// Purpose: Shared key-chord matching for in-app browser shortcuts so the renderer and
+// Purpose: Shared key-chord matching for Browser App shortcuts so the renderer and
 //   desktop main process agree on the same bindings without duplicating modifier logic.
 // Layer: Shared runtime utility
 // Depends on: nothing

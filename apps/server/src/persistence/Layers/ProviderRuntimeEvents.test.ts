@@ -176,11 +176,32 @@ layer("ProviderRuntimeEventRepository", (it) => {
 
       yield* sql`
         UPDATE projection_turns
-        SET state = 'interrupted', completed_at = ${"2026-07-14T00:01:01.000Z"}
+        SET state = 'running', completed_at = ${"2026-07-14T00:01:01.000Z"}
         WHERE thread_id = ${event.threadId} AND turn_id = ${event.turnId}
       `;
       yield* repository.pruneSettledOpenTurns;
 
+      assert.lengthOf(
+        yield* repository.readAcceptedOpenTurnEvents({
+          consumerName: PROVIDER_RUNTIME_INGESTION_CONSUMER,
+          sequenceExclusive: 0,
+          limit: 10,
+        }),
+        0,
+      );
+
+      const lateEvent = yield* repository.append({
+        ...runtimeEvent("runtime-event-settled-turn-late", "late bookkeeping"),
+        threadId: event.threadId,
+        turnId: event.turnId,
+      });
+      assert.isTrue(
+        yield* repository.advanceThreadCursor({
+          threadId: event.threadId,
+          eventSequence: lateEvent.sequence,
+          updatedAt: "2026-07-14T00:01:02.000Z",
+        }),
+      );
       assert.lengthOf(
         yield* repository.readAcceptedOpenTurnEvents({
           consumerName: PROVIDER_RUNTIME_INGESTION_CONSUMER,

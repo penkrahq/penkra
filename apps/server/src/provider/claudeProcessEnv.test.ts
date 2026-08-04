@@ -53,7 +53,7 @@ describe("claudeProcessEnv", () => {
       env: {
         ANTHROPIC_API_KEY: "api-key-auth",
         PENKRA_AUTH_TOKEN: "server-secret",
-        PENKRA_BROWSER_USE_PIPE_PATH: "/tmp/browser.sock",
+        PENKRA_TEST_CONTROL_SOCKET: "/tmp/control.sock",
         NODE_OPTIONS: "--require=/tmp/inject.js",
       },
       hasClaudeCliCredentials: false,
@@ -61,7 +61,7 @@ describe("claudeProcessEnv", () => {
 
     assert.equal(result.ANTHROPIC_API_KEY, "api-key-auth");
     assert.equal(result.PENKRA_AUTH_TOKEN, undefined);
-    assert.equal(result.PENKRA_BROWSER_USE_PIPE_PATH, undefined);
+    assert.equal(result.PENKRA_TEST_CONTROL_SOCKET, undefined);
     assert.equal(result.NODE_OPTIONS, undefined);
   });
 

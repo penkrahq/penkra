@@ -193,12 +193,10 @@ import { buildGitHubReleasesPageUrl, resolveGitHubUpdateSource } from "./githubU
 import { isArm64HostRunningIntelBuild, resolveDesktopRuntimeInfo } from "./runtimeArch";
 import { BROWSER_SESSION_PARTITION, DesktopBrowserManager } from "./browserManager";
 import { createScopedBrowserSessionPartition } from "./browserSessionPolicy";
-import {
-  BrowserUsePipeServer,
-  PENKRA_BROWSER_USE_PIPE_PATH,
-  resolveBrowserUsePipeBackendEnv,
-} from "./browserUsePipeServer";
+import { normalizeHostedBrowserViewportBounds } from "./hostedBrowserViewport";
 import { AppCommandPipeServer, resolveAppCommandPipePath } from "./appCommandPipeServer";
+import { AppTabObserver, resolveAppTabObservationTarget } from "./appTabObserver";
+import { BROWSER_APP_ID } from "./appDistributionPolicy";
 import { normalizeDesktopWsUrl, resolveDesktopWsUrlFromEnv } from "./desktopWsBridge";
 import {
   repairBrowserProfileFromBridgeManifest,
@@ -666,7 +664,6 @@ const browserManager = new DesktopBrowserManager({
     return target ? handleDesktopPhysicalZoomShortcut(event, input, target) : false;
   },
 });
-let browserUsePipeServer: BrowserUsePipeServer | null = null;
 let appCommandPipeServer: AppCommandPipeServer | null = null;
 const appFileWatchers = new Map<string, { rendererId: number; watcher: FS.FSWatcher }>();
 const appBrowserViewportByRendererId = new Map<
@@ -706,7 +703,12 @@ function hideHostedBrowserViewport(rendererId: number): void {
   if (!identity?.tabId) return;
   const threadId = identity.tabId as ThreadId;
   if (browserManager.hasSession(threadId)) {
-    browserManager.setPanelBounds({ threadId, bounds: null, surface: "native" });
+    browserManager.setHostedPanelBounds({
+      threadId,
+      bounds: null,
+      hostBounds: null,
+      parentView: null,
+    });
   }
 }
 
@@ -715,16 +717,13 @@ function syncHostedBrowserViewport(rendererId: number): void {
   const identity = runtime?.rendererIdentity(rendererId);
   const local = appBrowserViewportByRendererId.get(rendererId);
   const host = runtime?.appTabs.rendererBounds(rendererId);
-  if (!identity?.tabId || !local || !host) return;
-  browserManager.setPanelBounds({
+  const parentView = runtime?.appTabs.rendererView(rendererId) ?? null;
+  if (!identity?.tabId || !local || !host || !parentView) return;
+  browserManager.setHostedPanelBounds({
     threadId: identity.tabId as ThreadId,
-    surface: "native",
-    bounds: {
-      x: host.x + Math.round(local.x),
-      y: host.y + Math.round(local.y),
-      width: Math.max(0, Math.round(local.width)),
-      height: Math.max(0, Math.round(local.height)),
-    },
+    parentView,
+    hostBounds: normalizeHostedBrowserViewportBounds(host),
+    bounds: normalizeHostedBrowserViewportBounds(local),
   });
 }
 
@@ -754,19 +753,6 @@ function startBrowserPerformanceLogging(): void {
     });
   }, BROWSER_PERF_SAMPLE_INTERVAL_MS);
   browserPerfInterval.unref();
-}
-
-async function ensureBrowserUsePipeServer(): Promise<void> {
-  if (browserUsePipeServer || !PENKRA_BROWSER_USE_PIPE_PATH) {
-    return;
-  }
-  const server = new BrowserUsePipeServer(browserManager, {
-    requestOpenPanel: () => {
-      mainWindow?.webContents.send(IPC.browser.requestOpenPanel);
-    },
-  });
-  await server.start();
-  browserUsePipeServer = server;
 }
 
 let destructiveMenuIconCache: Electron.NativeImage | null | undefined;
@@ -3301,10 +3287,7 @@ function backendEnv(): NodeJS.ProcessEnv {
   const servedStaticRoot = resolveServedStaticRoot();
   const env = bindDesktopParentPid(
     {
-      ...resolveBrowserUsePipeBackendEnv(
-        process.env,
-        browserUsePipeServer ? PENKRA_BROWSER_USE_PIPE_PATH : null,
-      ),
+      ...process.env,
       ...(appCommandPipeServer?.environment ?? {}),
       // Point the backend's HTTP static route at the same swap-immune snapshot the
       // penkra:// protocol serves, so both surfaces survive app.asar being replaced.
@@ -3722,20 +3705,6 @@ async function stopBackendAndWaitForExit(options?: {
   }
 }
 
-async function disposeBrowserUsePipeServerForShutdown(reason: string): Promise<void> {
-  const pipeServer = browserUsePipeServer;
-  browserUsePipeServer = null;
-  if (!pipeServer) return;
-
-  try {
-    await pipeServer.dispose();
-  } catch (error: unknown) {
-    const message = formatErrorMessage(error);
-    writeDesktopLogHeader(`${reason} browser-use pipe dispose failed message=${message}`);
-    console.warn(`[desktop] Failed to dispose browser-use pipe during ${reason}: ${message}`);
-  }
-}
-
 async function disposeAppCommandPipeServerForShutdown(reason: string): Promise<void> {
   const pipeServer = appCommandPipeServer;
   appCommandPipeServer = null;
@@ -3785,7 +3754,6 @@ async function shutdownDesktopRuntime(reason: string): Promise<void> {
       clearUpdateCheckTimeoutTimer();
       clearUpdatePollTimer();
       cancelBackendReadinessWait();
-      await disposeBrowserUsePipeServerForShutdown(reason);
       await disposeAppCommandPipeServerForShutdown(reason);
       browserManager.dispose();
       restoreStdIoCapture?.();
@@ -4336,7 +4304,12 @@ function registerIpcHandlers(): void {
       case "setViewport": {
         if (value === null) {
           appBrowserViewportByRendererId.delete(event.sender.id);
-          browserManager.setPanelBounds({ threadId, bounds: null, surface: "native" });
+          browserManager.setHostedPanelBounds({
+            threadId,
+            bounds: null,
+            hostBounds: null,
+            parentView: null,
+          });
           return;
         }
         if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -5858,21 +5831,35 @@ async function bootstrap(): Promise<void> {
     });
   });
   writeDesktopLogHeader("bootstrap App runtime started");
+  const appTabObserver = new AppTabObserver({
+    resolve: async (tabId) => {
+      const descriptor = desktopAppRuntime!.appTabs
+        .list()
+        .find((candidate) => candidate.id === tabId);
+      if (!descriptor) throw new Error(`App tab ${tabId} is unavailable.`);
+      return resolveAppTabObservationTarget({
+        descriptor,
+        browserAppId: BROWSER_APP_ID,
+        appWebContents: (targetTabId) =>
+          desktopAppRuntime!.appTabs.observationWebContents(targetTabId),
+        // A public browser-session is isolated to the App tab that owns it;
+        // DesktopBrowserManager retains the older `threadId` parameter name.
+        browserWebContents: (appTabId) =>
+          browserManager.observationWebContents(appTabId as ThreadId),
+      });
+    },
+  });
   appCommandPipeServer = new AppCommandPipeServer({
     path: resolveAppCommandPipePath(app.getPath("userData")),
     token: Crypto.randomBytes(32).toString("hex"),
     catalog: desktopAppRuntime.operationCatalog,
     broker: desktopAppRuntime.broker,
     tabs: desktopAppRuntime.appTabs,
+    observer: appTabObserver,
     registry: appRegistryClient,
     open: openPenkraResource,
   });
   await appCommandPipeServer.start();
-  try {
-    await ensureBrowserUsePipeServer();
-  } catch (error) {
-    console.warn("[Penkra browser] Failed to start browser-use native pipe", error);
-  }
   startBackend();
   writeDesktopLogHeader("bootstrap backend start requested");
 

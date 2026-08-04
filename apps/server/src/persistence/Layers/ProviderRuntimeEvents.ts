@@ -365,7 +365,10 @@ const make = Effect.gen(function* () {
         FROM projection_turns AS turn
         WHERE turn.thread_id = provider_runtime_open_turns.thread_id
           AND turn.turn_id = provider_runtime_open_turns.turn_id
-          AND turn.state IN ('interrupted', 'completed', 'error')
+          AND (
+            turn.state IN ('interrupted', 'completed', 'error')
+            OR turn.completed_at IS NOT NULL
+          )
       )
     `.pipe(
     Effect.asVoid,
@@ -398,8 +401,18 @@ const make = Effect.gen(function* () {
         yield* sql`
           INSERT INTO provider_runtime_open_turns (
             thread_id, turn_id, first_sequence, updated_at
-          ) VALUES (
+          )
+          SELECT
             ${input.threadId}, ${input.turnId}, ${input.eventSequence}, ${input.updatedAt}
+          WHERE NOT EXISTS (
+            SELECT 1
+            FROM projection_turns AS turn
+            WHERE turn.thread_id = ${input.threadId}
+              AND turn.turn_id = ${input.turnId}
+              AND (
+                turn.state IN ('interrupted', 'completed', 'error')
+                OR turn.completed_at IS NOT NULL
+              )
           )
           ON CONFLICT (thread_id, turn_id) DO UPDATE SET
             first_sequence = MIN(

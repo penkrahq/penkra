@@ -367,7 +367,7 @@ export interface BrowserFindInPageResult {
   matches: number;
 }
 
-// Pushed from the desktop main process when the in-app browser copy-link chord fires
+// Pushed from the desktop main process when the Browser App copy-link chord fires
 // while the native page (not the React chrome) holds keyboard focus.
 export interface BrowserCopyLinkEvent {
   threadId: ThreadId;

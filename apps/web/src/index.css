@@ -2363,19 +2363,19 @@ diffs-container {
 
 /* The chat rail responds to the middle pane itself, not the application viewport.
    Right-dock resizing, split panes, editor chat, and Studio therefore share the
-   same Pencil contract: 560px max, 24px gutters at 560px+, 12px below it. */
+   same Pencil contract: 640px max, 24px gutters at 560px+, 12px below it. */
 .chat-pane-container {
   container-name: chat-pane;
   container-type: inline-size;
 }
 
 .chat-pane-responsive-rail {
-  width: min(560px, calc(100cqw - 24px));
+  width: min(640px, calc(100cqw - 24px));
 }
 
 @container chat-pane (min-width: 560px) {
   .chat-pane-responsive-rail {
-    width: min(560px, calc(100cqw - 48px));
+    width: min(640px, calc(100cqw - 48px));
   }
 }
 

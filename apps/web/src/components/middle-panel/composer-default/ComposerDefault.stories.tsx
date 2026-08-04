@@ -6,7 +6,7 @@ const meta = {
   component: ComposerDefault,
   decorators: [
     (Story) => (
-      <div className="w-[560px]">
+      <div className="w-[640px]">
         <Story />
       </div>
     ),

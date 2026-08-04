@@ -207,7 +207,7 @@ export function EnvironmentPullRequestSection({
   activeThreadId: ThreadId | null;
   projectId: ContainerId | null;
   configuredRepositories: ReadonlyArray<{ readonly nameWithOwner: string }>;
-  /** Open non-PR URLs in the in-app browser panel. */
+  /** Open non-PR URLs through Penkra's configured URL handler. */
   onOpenUrl: (url: string) => void;
   onClose: () => void;
 }) {
