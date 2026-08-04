@@ -126,6 +126,7 @@ function createSendTurnHarness(runtimeMode: "approval-required" | "full-access" 
     collabReceiverTurns: new Map(),
     collabReceiverParents: new Map(),
     reviewTurnIds: new Set<string>(),
+    terminalTurnIds: new Set<string>(),
   };
 
   const requireSession = vi
@@ -171,6 +172,7 @@ function createThreadControlHarness() {
     collabReceiverTurns: new Map(),
     collabReceiverParents: new Map(),
     reviewTurnIds: new Set<string>(),
+    terminalTurnIds: new Set<string>(),
   };
 
   const requireSession = vi
@@ -221,6 +223,7 @@ function createPendingUserInputHarness() {
     collabReceiverTurns: new Map(),
     collabReceiverParents: new Map(),
     reviewTurnIds: new Set<string>(),
+    terminalTurnIds: new Set<string>(),
   };
 
   const requireSession = vi
@@ -286,6 +289,7 @@ function createPendingApprovalHarness(
     collabReceiverTurns: new Map(),
     collabReceiverParents: new Map(),
     reviewTurnIds: new Set<string>(),
+    terminalTurnIds: new Set<string>(),
   };
 
   const requireSession = vi
@@ -359,6 +363,7 @@ function createCollabNotificationHarness() {
     collabReceiverTurns: new Map<string, string>(),
     collabReceiverParents: new Map<string, string>(),
     reviewTurnIds: new Set<string>(),
+    terminalTurnIds: new Set<string>(),
     nextRequestId: 1,
     stopping: false,
   };
@@ -422,6 +427,7 @@ function createProcessOutputHarness() {
       updatedAt: "2026-02-10T00:00:00.000Z",
     },
     reviewTurnIds: new Set<string>(),
+    terminalTurnIds: new Set<string>(),
     stopping: false,
   };
   const emitEvent = vi
@@ -465,6 +471,7 @@ describe("Codex app-server teardown", () => {
       collabReceiverTurns: new Map(),
       collabReceiverParents: new Map(),
       reviewTurnIds: new Set(),
+      terminalTurnIds: new Set(),
       nextRequestId: 1,
       stopping: false,
     };
@@ -540,6 +547,7 @@ describe("Codex app-server teardown", () => {
       collabReceiverTurns: new Map(),
       collabReceiverParents: new Map(),
       reviewTurnIds: new Set(),
+      terminalTurnIds: new Set(),
       nextRequestId: 1,
       stopping: false,
     };
@@ -610,6 +618,7 @@ describe("Codex app-server teardown", () => {
       collabReceiverTurns: new Map(),
       collabReceiverParents: new Map(),
       reviewTurnIds: new Set(),
+      terminalTurnIds: new Set(),
       nextRequestId: 1,
       stopping: false,
     };
@@ -2993,7 +3002,7 @@ describe("collab child conversation routing", () => {
     );
   });
 
-  it("reconstructs a missing turn start from resumed live item activity", () => {
+  it("does not infer a running turn from item activity without a lifecycle edge", () => {
     const { manager, context, emitEvent, updateSession } = createCollabNotificationHarness();
     context.session.status = "ready";
     context.session.activeTurnId = undefined as unknown as string;
@@ -3007,18 +3016,71 @@ describe("collab child conversation routing", () => {
       },
     });
 
-    expect(updateSession).toHaveBeenCalledWith(
-      context,
-      expect.objectContaining({ status: "running", activeTurnId: "turn-resumed-live" }),
-    );
-    expect(emitEvent.mock.calls.map(([event]) => event)).toEqual([
-      expect.objectContaining({
-        method: "turn/started",
-        turnId: "turn-resumed-live",
-        payload: expect.objectContaining({ recoveredFrom: "item/started" }),
-      }),
+    expect(updateSession).not.toHaveBeenCalled();
+    expect(emitEvent).toHaveBeenCalledTimes(1);
+    expect(emitEvent).toHaveBeenCalledWith(
       expect.objectContaining({ method: "item/started", turnId: "turn-resumed-live" }),
-    ]);
+    );
+  });
+
+  it("keeps a completed turn terminal when a background command emits late output", () => {
+    const { manager, context, emitEvent, updateSession } = createCollabNotificationHarness();
+
+    handleServerNotificationForTest(manager, context, {
+      method: "turn/completed",
+      params: {
+        threadId: "provider_parent",
+        turn: { id: "turn_parent", status: "completed" },
+      },
+    });
+    updateSession.mockClear();
+    emitEvent.mockClear();
+
+    handleServerNotificationForTest(manager, context, {
+      method: "item/commandExecution/outputDelta",
+      params: {
+        threadId: "provider_parent",
+        turnId: "turn_parent",
+        itemId: "exec-background",
+        delta: "GET / 200 in 62ms",
+      },
+    });
+
+    expect(context.terminalTurnIds).toContain("turn_parent");
+    expect(updateSession).not.toHaveBeenCalled();
+    expect(emitEvent).toHaveBeenCalledTimes(1);
+    expect(emitEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: "item/commandExecution/outputDelta",
+        turnId: "turn_parent",
+      }),
+    );
+  });
+
+  it("ignores a delayed duplicate start after the same turn completed", () => {
+    const { manager, context, emitEvent, updateSession } = createCollabNotificationHarness();
+
+    handleServerNotificationForTest(manager, context, {
+      method: "turn/completed",
+      params: {
+        threadId: "provider_parent",
+        turn: { id: "turn_parent", status: "completed" },
+      },
+    });
+    updateSession.mockClear();
+    emitEvent.mockClear();
+
+    handleServerNotificationForTest(manager, context, {
+      method: "turn/started",
+      params: {
+        threadId: "provider_parent",
+        turn: { id: "turn_parent", status: "inProgress" },
+      },
+    });
+
+    expect(context.terminalTurnIds).toContain("turn_parent");
+    expect(updateSession).not.toHaveBeenCalled();
+    expect(emitEvent).not.toHaveBeenCalled();
   });
 
   it("suppresses child lifecycle notifications when only the provider parent is known", () => {
@@ -3473,6 +3535,7 @@ describe("CodexAppServerManager process teardown", () => {
       collabReceiverTurns: new Map(),
       collabReceiverParents: new Map(),
       reviewTurnIds: new Set(),
+      terminalTurnIds: new Set(),
       nextRequestId: 1,
       stopping: false,
     };
@@ -3547,6 +3610,7 @@ describe("CodexAppServerManager process teardown", () => {
       collabReceiverTurns: new Map(),
       collabReceiverParents: new Map(),
       reviewTurnIds: new Set(),
+      terminalTurnIds: new Set(),
       nextRequestId: 1,
       stopping: false,
     };

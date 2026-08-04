@@ -151,6 +151,13 @@ interface CodexSessionContext {
   collabReceiverTurns: Map<string, TurnId>;
   collabReceiverParents: Map<string, string>;
   reviewTurnIds: Set<TurnId>;
+  /**
+   * Turn ids that reached a terminal lifecycle edge in this app-server
+   * session. Codex may continue emitting output from background command items
+   * after the parent turn completes. Those notifications remain useful
+   * activity, but they are not evidence that the turn became active again.
+   */
+  terminalTurnIds: Set<TurnId>;
   taskCompleteFallback?:
     | {
         readonly turnId: TurnId;
@@ -998,6 +1005,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         collabReceiverTurns: new Map(),
         collabReceiverParents: new Map(),
         reviewTurnIds: new Set(),
+        terminalTurnIds: new Set(),
         nextRequestId: 1,
         stopping: false,
       };
@@ -1664,6 +1672,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         collabReceiverTurns: new Map(),
         collabReceiverParents: new Map(),
         reviewTurnIds: new Set(),
+        terminalTurnIds: new Set(),
         nextRequestId: 1,
         stopping: false,
       };
@@ -2432,6 +2441,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       collabReceiverTurns: new Map(),
       collabReceiverParents: new Map(),
       reviewTurnIds: new Set(),
+      terminalTurnIds: new Set(),
       nextRequestId: 1,
       stopping: false,
       discovery: true,
@@ -2708,39 +2718,17 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     ) {
       return;
     }
-    const isLiveTurnEvidence =
-      rawRoute.turnId !== undefined &&
-      !isChildConversation &&
-      (notification.method.startsWith("item/") ||
-        notification.method.endsWith("/delta") ||
-        notification.method === "turn/diff/updated");
-    if (isLiveTurnEvidence && context.session.activeTurnId === undefined) {
-      // A resumed app-server can continue an existing turn without replaying
-      // turn/started. Promote the first live, ordered notification to the
-      // missing lifecycle edge before forwarding its payload.
-      this.clearTaskCompleteFallback(context);
-      this.updateSession(context, {
-        status: "running",
-        activeTurnId: rawRoute.turnId,
-        lastError: undefined,
-      });
-      this.emitEvent({
-        id: EventId.makeUnsafe(randomUUID()),
-        kind: "notification",
-        provider: "codex",
+    const isTerminalTurn =
+      rawRoute.turnId !== undefined && context.terminalTurnIds.has(rawRoute.turnId);
+    if (notification.method === "turn/started" && !isChildConversation && isTerminalTurn) {
+      // A terminal turn is immutable within one app-server lifecycle. Do not
+      // forward a delayed duplicate start, because the projection would
+      // otherwise make an already-finished turn active again.
+      log.warn("Ignoring turn/started for a terminal Codex turn", {
         threadId: context.session.threadId,
-        createdAt: new Date().toISOString(),
-        ...(context.lifecycleGeneration !== undefined
-          ? { lifecycleGeneration: context.lifecycleGeneration }
-          : {}),
-        method: "turn/started",
         turnId: rawRoute.turnId,
-        message: "Recovered active Codex turn from live runtime activity.",
-        payload: {
-          turn: { id: rawRoute.turnId, status: "inProgress" },
-          recoveredFrom: notification.method,
-        },
       });
+      return;
     }
     const textDelta =
       notification.method === "item/agentMessage/delta"
@@ -2824,6 +2812,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       context.collabReceiverTurns.clear();
       context.collabReceiverParents.clear();
       if (rawRoute.turnId) {
+        context.terminalTurnIds.add(rawRoute.turnId);
         context.reviewTurnIds.delete(rawRoute.turnId);
       }
       const turn = this.readObject(notification.params, "turn");
@@ -2849,6 +2838,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       context.collabReceiverTurns.clear();
       context.collabReceiverParents.clear();
       if (rawRoute.turnId) {
+        context.terminalTurnIds.add(rawRoute.turnId);
         context.reviewTurnIds.delete(rawRoute.turnId);
       }
       this.updateSession(context, {
@@ -3196,6 +3186,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
 
       context.collabReceiverTurns.clear();
       context.collabReceiverParents.clear();
+      context.terminalTurnIds.add(turnId);
       context.reviewTurnIds.delete(turnId);
       this.updateSession(context, {
         status: "ready",
@@ -3253,6 +3244,8 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     if (!terminalTurnId) {
       return;
     }
+
+    context.terminalTurnIds.add(terminalTurnId);
 
     this.emitEvent({
       id: EventId.makeUnsafe(randomUUID()),
