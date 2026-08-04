@@ -25,6 +25,11 @@ export default mergeConfig(
         provider: playwright(),
         instances: [{ browser: "chromium" }],
         headless: true,
+        // A cold Playwright connection on release-QA machines can spend close
+        // to a minute launching Chromium before the Vitest WebSocket is ready.
+        // This governs only that documented connection boundary; assertion and
+        // hook timeouts remain independently bounded below.
+        connectTimeout: 120_000,
         // Large route-level suites can saturate Vite's transform server when
         // several browser files import concurrently, leaving Chromium with a
         // failed dynamic import instead of a test result. Run browser files in

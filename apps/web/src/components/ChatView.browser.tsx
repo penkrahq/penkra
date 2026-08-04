@@ -62,6 +62,7 @@ import { resetWsNativeApiForTest } from "../wsNativeApi";
 // Pre-transform the compiler-heavy component outside the first case's timeout.
 // The router's auto-split route otherwise requests this module on first mount.
 import "./ChatView";
+import { getChatTranscriptUserMessageLineHeightPx } from "./chat/chatTypography";
 import { estimateTimelineMessageHeight } from "./timelineHeight";
 
 const THREAD_ID = "thread-browser-test" as ThreadId;
@@ -2142,9 +2143,13 @@ describe("ChatView timeline estimator parity (full app)", () => {
     const estimatedDeltaPx = estimatedMobilePx - estimatedDesktopPx;
     expect(measuredDeltaPx).toBeGreaterThan(0);
     expect(estimatedDeltaPx).toBeGreaterThan(0);
-    const ratio = estimatedDeltaPx / measuredDeltaPx;
-    expect(ratio).toBeGreaterThan(0.65);
-    expect(ratio).toBeLessThan(1.35);
+    // The estimator and browser both wrap in whole lines. Their width models
+    // may cross an adjacent line boundary, but the responsive delta must stay
+    // within one shared transcript line rather than a percentage that becomes
+    // unstable when the measured delta is only a few lines.
+    expect(Math.abs(estimatedDeltaPx - measuredDeltaPx)).toBeLessThanOrEqual(
+      getChatTranscriptUserMessageLineHeightPx(),
+    );
   });
 
   it("[geometry:linux] truncates the Pencil header title before its controls can overlap", async () => {
