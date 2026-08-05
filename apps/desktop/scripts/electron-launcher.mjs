@@ -19,7 +19,10 @@ import { resolvePenkraDesktopFlavor, penkraDesktopIdentity } from "@penkra/share
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildMacosIcon, resolvePenkraDevIconSource } from "../../../scripts/lib/macos-icon.ts";
-import { APP_DATA_USAGE_DESCRIPTION } from "../../../scripts/lib/macos-privacy.ts";
+import {
+  APP_DATA_USAGE_DESCRIPTION,
+  APPLE_EVENTS_USAGE_DESCRIPTION,
+} from "../../../scripts/lib/macos-privacy.ts";
 import { resolveMacDevelopmentSigningIdentity } from "../../../scripts/lib/macos-dev-signing.ts";
 
 const desktopFlavor = resolvePenkraDesktopFlavor({
@@ -82,6 +85,7 @@ function patchMainBundleInfoPlist(appBundlePath, iconPath) {
   setPlistString(infoPlistPath, "CFBundleIconFile", "icon.icns");
   setPlistString(infoPlistPath, "NSMicrophoneUsageDescription", MICROPHONE_USAGE_DESCRIPTION);
   setPlistString(infoPlistPath, "NSAppDataUsageDescription", APP_DATA_USAGE_DESCRIPTION);
+  setPlistString(infoPlistPath, "NSAppleEventsUsageDescription", APPLE_EVENTS_USAGE_DESCRIPTION);
   setPlistJson(infoPlistPath, "CFBundleURLTypes", [
     {
       CFBundleURLName: "Penkra Account Authentication",

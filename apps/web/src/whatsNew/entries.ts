@@ -2663,7 +2663,7 @@ export const WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         description:
           "Penkra Apps, built-in host commands, and provider tools remain distinct so agents can discover and use the right capability.",
         details:
-          "Provider plugins and user MCP servers retain their normal configuration, Penkra replaces only its authenticated gateway entry, browser work starts with Penkra capability discovery, and Computer Use follows its supported node_repl route.",
+          "Provider plugins and user MCP servers retain their normal configuration, Penkra replaces only its authenticated gateway entry, browser work starts with Penkra capability discovery, and Computer Use follows its supported node_repl route with the required macOS Automation capability.",
       },
     ],
   },

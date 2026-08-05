@@ -8,7 +8,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { buildMacosIcon, resolvePenkraDevIconSource } from "./lib/macos-icon.ts";
-import { APP_DATA_USAGE_DESCRIPTION } from "./lib/macos-privacy.ts";
+import { APP_DATA_USAGE_DESCRIPTION, APPLE_EVENTS_USAGE_DESCRIPTION } from "./lib/macos-privacy.ts";
 import { resolveMacDevelopmentSigningIdentity } from "./lib/macos-dev-signing.ts";
 export { parseAppleDevelopmentIdentity } from "./lib/macos-dev-signing.ts";
 import {
@@ -116,6 +116,8 @@ export function makeInfoPlist(): string {
   <true/>
   <key>NSAppDataUsageDescription</key>
   <string>${APP_DATA_USAGE_DESCRIPTION}</string>
+  <key>NSAppleEventsUsageDescription</key>
+  <string>${APPLE_EVENTS_USAGE_DESCRIPTION}</string>
   <key>NSHighResolutionCapable</key>
   <true/>
   <key>NSMicrophoneUsageDescription</key>

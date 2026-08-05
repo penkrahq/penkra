@@ -23,7 +23,7 @@ import {
   resolvePenkraDevLauncherCompileArgs,
 } from "./install-penkra-dev-app";
 import { resolvePenkraDevIconSource } from "./lib/macos-icon";
-import { APP_DATA_USAGE_DESCRIPTION } from "./lib/macos-privacy";
+import { APP_DATA_USAGE_DESCRIPTION, APPLE_EVENTS_USAGE_DESCRIPTION } from "./lib/macos-privacy";
 import { resolvePenkraDevWorkspaceConfigPath } from "./lib/penkra-dev-workspace";
 
 describe("Penkra Dev launcher", () => {
@@ -270,11 +270,14 @@ describe("Penkra Dev launcher", () => {
     expect(makeInfoPlist()).toContain(
       `<key>NSAppDataUsageDescription</key>\n  <string>${APP_DATA_USAGE_DESCRIPTION}</string>`,
     );
+    expect(makeInfoPlist()).toContain(
+      `<key>NSAppleEventsUsageDescription</key>\n  <string>${APPLE_EVENTS_USAGE_DESCRIPTION}</string>`,
+    );
     expect(makeInfoPlist()).toContain("<key>NSMicrophoneUsageDescription</key>");
     expect(makeInfoPlist()).toContain("Penkra needs microphone access");
   });
 
-  it("signs the launcher with the microphone entitlement", () => {
+  it("signs the launcher with its explicit privacy entitlements", () => {
     expect(
       resolvePenkraDevLauncherSignArgs({
         entitlementsPath: "/repo/scripts/resources/penkra-dev-launcher.entitlements.plist",
@@ -289,6 +292,12 @@ describe("Penkra Dev launcher", () => {
         "/repo/scripts/resources/penkra-dev-launcher.entitlements.plist",
       ]),
     );
+    const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+    const entitlements = readFileSync(
+      resolve(repoRoot, "scripts/resources/penkra-dev-launcher.entitlements.plist"),
+      "utf8",
+    );
+    expect(entitlements).toContain("<key>com.apple.security.automation.apple-events</key>");
   });
 
   it("passes local platform identity through Turbo to Electron", () => {

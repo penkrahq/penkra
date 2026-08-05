@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { assert, describe, it } from "@effect/vitest";
 
 import {
@@ -10,10 +13,10 @@ import {
   PARCEL_WATCHER_ASAR_UNPACK_GLOBS,
 } from "./lib/desktop-platform-build-config.ts";
 import { BRAND_ASSET_PATHS } from "./lib/brand-assets.ts";
-import { APP_DATA_USAGE_DESCRIPTION } from "./lib/macos-privacy.ts";
+import { APP_DATA_USAGE_DESCRIPTION, APPLE_EVENTS_USAGE_DESCRIPTION } from "./lib/macos-privacy.ts";
 
 describe("createDesktopPlatformBuildConfig", () => {
-  it("adds explicit microphone entitlements to macOS builds", () => {
+  it("adds explicit privacy descriptions and main-process entitlements to macOS builds", () => {
     const config = createDesktopPlatformBuildConfig({
       platform: "mac",
       target: "dmg",
@@ -38,8 +41,20 @@ describe("createDesktopPlatformBuildConfig", () => {
     assert.equal(mac.entitlements, MAC_ENTITLEMENTS_PATH);
     assert.equal(mac.entitlementsInherit, MAC_INHERITED_ENTITLEMENTS_PATH);
     assert.equal(extendInfo.NSAppDataUsageDescription, APP_DATA_USAGE_DESCRIPTION);
+    assert.equal(extendInfo.NSAppleEventsUsageDescription, APPLE_EVENTS_USAGE_DESCRIPTION);
     assert.equal(extendInfo.NSMicrophoneUsageDescription, MICROPHONE_USAGE_DESCRIPTION);
     assert.equal(extendInfo.NSScreenCaptureUsageDescription, undefined);
+    const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+    const mainEntitlements = readFileSync(resolve(repoRoot, MAC_ENTITLEMENTS_PATH), "utf8");
+    const inheritedEntitlements = readFileSync(
+      resolve(repoRoot, MAC_INHERITED_ENTITLEMENTS_PATH),
+      "utf8",
+    );
+    assert.match(mainEntitlements, /<key>com\.apple\.security\.automation\.apple-events<\/key>/u);
+    assert.equal(
+      /<key>com\.apple\.security\.automation\.apple-events<\/key>/u.test(inheritedEntitlements),
+      false,
+    );
   });
 
   it("supports production Developer ID signing without notarization for local QA", () => {
