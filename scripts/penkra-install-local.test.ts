@@ -97,9 +97,13 @@ describe("replaceAppAtomically", () => {
 describe("schedulePenkraRelaunch", () => {
   it("uses a detached helper after the installer has returned", () => {
     const unref = vi.fn();
-    const spawnProcess = vi.fn(() => ({ unref }));
+    const spawnProcess = vi.fn(
+      (_command: string, _args: string[], _options: { detached: true; stdio: "ignore" }) => ({
+        unref,
+      }),
+    );
 
-    schedulePenkraRelaunch("/Applications/Penkra.app", spawnProcess as never);
+    schedulePenkraRelaunch("/Applications/Penkra.app", spawnProcess);
 
     expect(spawnProcess).toHaveBeenCalledWith(
       "/bin/sh",
