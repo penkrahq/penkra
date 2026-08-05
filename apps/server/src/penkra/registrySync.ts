@@ -159,6 +159,7 @@ export async function ensureRegistryFolder(
       commandId: CommandId.makeUnsafe(`penkra:project:update:${existing.id}:${revision}`),
       projectId: existing.id,
       title: desired.title,
+      spaceId: PERSONAL_SPACE_ID,
       ...(desired.enforcePin ? { isPinned: desired.isPinned } : {}),
     })
     .pipe(Effect.runPromise);
@@ -170,6 +171,7 @@ function projectMatches(
 ): boolean {
   return (
     project.title === desired.title &&
+    project.spaceId === PERSONAL_SPACE_ID &&
     (!desired.enforcePin || project.isPinned === desired.isPinned)
   );
 }

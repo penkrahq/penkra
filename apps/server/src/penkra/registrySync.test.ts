@@ -50,4 +50,39 @@ describe("registry Folder projection", () => {
       }),
     );
   });
+
+  it("moves an existing legacy client Folder into Personal", async () => {
+    const dispatch = vi.fn(() => Effect.succeed(undefined));
+    await ensureRegistryFolder(
+      {
+        getReadModel: () =>
+          Effect.succeed({
+            projects: [
+              {
+                id: "penkra-client-client-1",
+                title: "Client One",
+                isPinned: false,
+                spaceId: null,
+                deletedAt: null,
+              },
+            ],
+          }),
+        dispatch,
+      } as never,
+      {
+        id: "penkra-client-client-1",
+        title: "Client One",
+        isPinned: false,
+        enforcePin: false,
+      },
+    );
+
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "project.meta.update",
+        projectId: "penkra-client-client-1",
+        spaceId: "penkra-personal",
+      }),
+    );
+  });
 });
