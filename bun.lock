@@ -86,7 +86,6 @@
         "@effect/vitest": "catalog:",
         "@penkra/contracts": "workspace:*",
         "@penkra/shared": "workspace:*",
-        "@penkra/web": "workspace:*",
         "@types/bun": "catalog:",
         "@types/node": "catalog:",
         "@types/semver": "^7.7.1",

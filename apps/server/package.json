@@ -21,7 +21,9 @@
     "start": "node dist/index.mjs",
     "prepare": "effect-language-service patch",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --maxWorkers=1 --no-file-parallelism"
+    "test": "bun run test:isolated && bun run test:serial",
+    "test:isolated": "vitest run src/git/Layers/GitCore.test.ts src/git/Layers/GitManager.test.ts src/orchestration/Layers/CheckpointReactor.test.ts --maxWorkers=3 --fileParallelism --silent=passed-only",
+    "test:serial": "vitest run --maxWorkers=1 --no-file-parallelism --exclude src/git/Layers/GitCore.test.ts --exclude src/git/Layers/GitManager.test.ts --exclude src/orchestration/Layers/CheckpointReactor.test.ts --silent=passed-only"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "1.2.1",
@@ -50,7 +52,6 @@
     "@effect/vitest": "catalog:",
     "@penkra/contracts": "workspace:*",
     "@penkra/shared": "workspace:*",
-    "@penkra/web": "workspace:*",
     "@types/bun": "catalog:",
     "@types/node": "catalog:",
     "@types/semver": "^7.7.1",

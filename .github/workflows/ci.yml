@@ -12,48 +12,18 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  quality:
-    name: Format, Lint, Typecheck, Test, Browser Test, Build
+  static:
+    name: Format, Lint, and Typecheck
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
         with:
-          bun-version-file: package.json
-
-      - name: Setup Node
-        uses: actions/setup-node@v6
-        with:
-          node-version-file: package.json
-
-      - name: Cache Bun and Turbo
-        uses: actions/cache@v5
-        with:
-          path: |
-            ~/.bun/install/cache
-            .turbo
-          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}-${{ hashFiles('turbo.json') }}
-          restore-keys: |
-            ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}-
-
-      - name: Cache Playwright browsers
-        uses: actions/cache@v5
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ hashFiles('bun.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-playwright-
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Verify Linux terminal PTY native dependency
-        if: runner.os == 'Linux'
-        run: node scripts/node-pty-smoke.mjs
+          cache-suffix: static
 
       - name: Verify Penkra identity
         run: bun run brand:check
@@ -67,28 +37,148 @@ jobs:
       - name: Typecheck
         run: bun run typecheck
 
-      - name: Test
-        run: bun run test
+  workspace_tests:
+    name: Workspace Tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
 
-      # Run the workspace-local playwright binary directly: bunx stalled after
-      # the chromium download on hosted runners. The step timeout stops any
-      # remaining apt/download stalls from eating the whole job budget.
-      - name: Install browser test runtime
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
+        with:
+          cache-suffix: workspace-tests
+
+      - name: Verify Linux terminal PTY native dependency
+        run: node scripts/node-pty-smoke.mjs
+
+      - name: Test non-server packages
+        run: bunx turbo run test --filter='!@penkra/cli'
+
+  server_isolated:
+    name: Isolated Server Integration Tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
+        with:
+          cache-suffix: server-isolated
+
+      - name: Build server test dependencies
+        run: bunx turbo run build --filter='@penkra/cli^...'
+
+      - name: Run isolated filesystem and database suites
+        run: bun run --cwd apps/server test:isolated
+
+  server_serial:
+    name: Serial Server Tests (${{ matrix.shard }}/2)
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
+        with:
+          cache-suffix: server-serial-${{ matrix.shard }}
+
+      - name: Build server test dependencies
+        run: bunx turbo run build --filter='@penkra/cli^...'
+
+      - name: Run serial server shard
+        run: bun run --cwd apps/server test:serial -- --shard=${{ matrix.shard }}/2
+
+  browser_stable:
+    name: Stable Browser Tests (${{ matrix.shard }}/2)
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
+        with:
+          cache-suffix: browser-stable-${{ matrix.shard }}
+
+      - name: Cache Playwright browser
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+
+      - name: Install Chromium runtime
         timeout-minutes: 15
         env:
           DEBIAN_FRONTEND: noninteractive
-        run: |
-          cd apps/web
-          ./node_modules/.bin/playwright install --with-deps chromium
+        working-directory: apps/web
+        run: ./node_modules/.bin/playwright install --with-deps chromium
 
-      # Non-blocking: the ChatView geometry parity tests currently fail on headless
-      # Linux (they were never exercised in CI while the runner queue was dead).
-      # Keep the suite running for signal; make this blocking again once the
-      # Linux-rendering failures are fixed.
-      - name: Browser test
+      - name: Run stable browser tests
+        timeout-minutes: 20
+        run: bun run --cwd apps/web test:browser:stable -- --shard=${{ matrix.shard }}/2
+
+  browser_geometry:
+    name: Linux Browser Geometry Signal
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
+        with:
+          cache-suffix: browser-geometry
+
+      - name: Cache Playwright browser
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+
+      - name: Install Chromium runtime
+        timeout-minutes: 15
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        working-directory: apps/web
+        run: ./node_modules/.bin/playwright install --with-deps chromium
+
+      - name: Run quarantined Linux geometry tests
         continue-on-error: true
         timeout-minutes: 20
-        run: bun run --cwd apps/web test:browser
+        run: bun run --cwd apps/web test:browser:geometry
+
+  build:
+    name: Desktop Build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
+        with:
+          cache-suffix: build
 
       - name: Build desktop pipeline
         run: bun run build:desktop
@@ -141,3 +231,41 @@ jobs:
 
       - name: Exercise release-only workflow steps
         run: node scripts/release-smoke.ts
+
+  quality_gate:
+    name: Penkra CI Quality Gate
+    if: ${{ always() }}
+    needs:
+      - static
+      - workspace_tests
+      - server_isolated
+      - server_serial
+      - browser_stable
+      - browser_geometry
+      - build
+      - migration_lineage
+      - release_smoke
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require every blocking quality lane
+        env:
+          STATIC_RESULT: ${{ needs.static.result }}
+          WORKSPACE_TEST_RESULT: ${{ needs.workspace_tests.result }}
+          SERVER_ISOLATED_RESULT: ${{ needs.server_isolated.result }}
+          SERVER_SERIAL_RESULT: ${{ needs.server_serial.result }}
+          BROWSER_STABLE_RESULT: ${{ needs.browser_stable.result }}
+          BROWSER_GEOMETRY_RESULT: ${{ needs.browser_geometry.result }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          MIGRATION_RESULT: ${{ needs.migration_lineage.result }}
+          RELEASE_SMOKE_RESULT: ${{ needs.release_smoke.result }}
+        run: |
+          set -euo pipefail
+          test "$STATIC_RESULT" = success
+          test "$WORKSPACE_TEST_RESULT" = success
+          test "$SERVER_ISOLATED_RESULT" = success
+          test "$SERVER_SERIAL_RESULT" = success
+          test "$BROWSER_STABLE_RESULT" = success
+          test "$BROWSER_GEOMETRY_RESULT" = success
+          test "$BUILD_RESULT" = success
+          test "$MIGRATION_RESULT" = success
+          test "$RELEASE_SMOKE_RESULT" = success

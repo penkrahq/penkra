@@ -2,6 +2,9 @@
   "$schema": "https://turbo.build/schema.json",
   "extends": ["//"],
   "tasks": {
+    "build": {
+      "dependsOn": ["^build", "@penkra/web#build"],
+    },
     "start": {
       "dependsOn": ["build"],
       "cache": false,

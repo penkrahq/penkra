@@ -71,7 +71,8 @@ a release tag from an uncommitted or unreviewed worktree.
 
 6. The `Release Penkra Desktop` workflow:
    - verifies the tag and package versions;
-   - runs formatting, linting, typechecking, tests, and release contract checks;
+   - requires the aggregate Penkra CI quality gate to have passed for the exact tagged commit;
+   - consumes that commit-bound result instead of repeating the same validation suite;
    - builds macOS arm64 on a standard GitHub-hosted runner;
    - signs and notarizes the application and DMG;
    - creates the DMG, update ZIP, blockmap, and `latest-mac.yml` together;
@@ -123,7 +124,15 @@ distribution channel.
 
 ## Local verification
 
-The complete local quality pass remains:
+During implementation, run the commit-aware validation path to check only changed packages and
+their dependents:
+
+```sh
+bun run verify:affected
+```
+
+This is an iteration accelerator, not a release gate. The complete local quality pass remains
+mandatory before production-artifact QA:
 
 ```sh
 bun run release:verify

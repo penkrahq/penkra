@@ -117,6 +117,21 @@ function verifyReleaseWorkflowSafety(): void {
     "Expected CI on pushes to main.",
   );
   assertContains(
+    ciWorkflow,
+    "name: Penkra CI Quality Gate",
+    "Expected one durable aggregate CI result for release provenance.",
+  );
+  assertContains(
+    ciWorkflow,
+    "test:browser:stable",
+    "Expected stable browser behavior to block CI.",
+  );
+  assertContains(
+    ciWorkflow,
+    "test:browser:geometry",
+    "Expected quarantined Linux geometry checks to remain independently visible.",
+  );
+  assertContains(
     workflow,
     'tags:\n      - "v*.*.*"',
     "Expected stable desktop releases to build from version tags.",
@@ -126,6 +141,21 @@ function verifyReleaseWorkflowSafety(): void {
     workflow,
     '[[ ! "$version" =~ ^[0-9]+\\.[0-9]+\\.[0-9]+$ ]]',
     "Expected release tags to require stable semantic versions.",
+  );
+  assertContains(
+    workflow,
+    'select(.name == "Penkra CI Quality Gate" and .conclusion == "success"',
+    "Expected releases to require successful CI for the exact tagged commit.",
+  );
+  assertNotContains(
+    workflow,
+    "bun run typecheck",
+    "Release builds must consume the exact commit CI result instead of repeating typecheck.",
+  );
+  assertNotContains(
+    workflow,
+    "bun run test",
+    "Release builds must consume the exact commit CI result instead of repeating tests.",
   );
   assertContains(workflow, "runs-on: macos-14", "Expected the release to run on macOS.");
   assertContains(

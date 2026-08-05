@@ -10,17 +10,26 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
+  actions: read
+  checks: read
   contents: read
 
 jobs:
-  preflight:
-    name: Validate release source
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
+  build:
+    name: Build signed macOS arm64 release
+    runs-on: macos-14
+    timeout-minutes: 60
+    environment: desktop-release
     outputs:
       version: ${{ steps.release.outputs.version }}
       source_commit: ${{ steps.release.outputs.source_commit }}
       lockfile_sha256: ${{ steps.release.outputs.lockfile_sha256 }}
+    permissions:
+      actions: read
+      checks: read
+      contents: read
+      id-token: write
+      attestations: write
     steps:
       - name: Checkout tagged source
         uses: actions/checkout@v6
@@ -65,36 +74,21 @@ jobs:
             echo "lockfile_sha256=$lockfile_sha256"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version-file: package.json
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Verify release source
+      - name: Require successful CI for the exact tagged commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_COMMIT: ${{ steps.release.outputs.source_commit }}
+        shell: bash
         run: |
-          bun run brand:check
-          bun run fmt:check
-          bun run lint
-          bun run typecheck
-          bun run test
-          bun run release:smoke
-
-  build:
-    name: Build signed macOS arm64 release
-    needs: preflight
-    runs-on: macos-14
-    timeout-minutes: 60
-    environment: desktop-release
-    permissions:
-      contents: read
-      id-token: write
-      attestations: write
-    steps:
-      - name: Checkout tagged source
-        uses: actions/checkout@v6
+          set -euo pipefail
+          successful_gate_count="$(
+            gh api "repos/${GITHUB_REPOSITORY}/commits/${SOURCE_COMMIT}/check-runs?per_page=100" \
+              --jq '[.check_runs[] | select(.name == "Penkra CI Quality Gate" and .conclusion == "success" and .app.slug == "github-actions")] | length'
+          )"
+          if (( successful_gate_count < 1 )); then
+            echo "Release requires a successful Penkra CI Quality Gate for ${SOURCE_COMMIT}." >&2
+            exit 1
+          fi
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -134,10 +128,10 @@ jobs:
             --platform mac \
             --target dmg \
             --arch arm64 \
-            --build-version "${{ needs.preflight.outputs.version }}" \
-            --source-commit "${{ needs.preflight.outputs.source_commit }}" \
+            --build-version "${{ steps.release.outputs.version }}" \
+            --source-commit "${{ steps.release.outputs.source_commit }}" \
             --source-tag "${GITHUB_REF_NAME}" \
-            --lockfile-sha256 "${{ needs.preflight.outputs.lockfile_sha256 }}" \
+            --lockfile-sha256 "${{ steps.release.outputs.lockfile_sha256 }}" \
             --signed \
             --verbose
 
@@ -150,7 +144,7 @@ jobs:
             --assets-dir release \
             --platform mac \
             --arch arm64 \
-            --version "${{ needs.preflight.outputs.version }}"
+            --version "${{ steps.release.outputs.version }}"
           if ditto -l -k release/*.zip | grep -q '/Contents/Resources/penkra-cli/'; then
             echo "Public desktop artifact contains the private Penkra CLI." >&2
             exit 1
@@ -177,14 +171,14 @@ jobs:
       - name: Retain exact release artifacts
         uses: actions/upload-artifact@v6
         with:
-          name: penkra-${{ needs.preflight.outputs.version }}-mac-arm64
+          name: penkra-${{ steps.release.outputs.version }}-mac-arm64
           path: release/*
           if-no-files-found: error
           retention-days: 30
 
   draft_release:
     name: Create draft GitHub Release
-    needs: [preflight, build]
+    needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -193,7 +187,7 @@ jobs:
       - name: Download verified release artifacts
         uses: actions/download-artifact@v8
         with:
-          name: penkra-${{ needs.preflight.outputs.version }}-mac-arm64
+          name: penkra-${{ needs.build.outputs.version }}-mac-arm64
           path: release
 
       - name: Create or refresh draft release

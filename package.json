@@ -39,6 +39,7 @@
     "build:marketing": "turbo run build --filter=@penkra/marketing",
     "build:desktop": "turbo run build --filter=@penkra/desktop --filter=@penkra/cli",
     "typecheck": "turbo run typecheck",
+    "verify:affected": "bun run brand:check && bun run fmt:check && bun run lint && turbo run typecheck --affected && turbo run test --affected",
     "lint": "oxlint --report-unused-disable-directives",
     "test": "turbo run test",
     "brand:check": "node scripts/check-brand-identity.ts",
