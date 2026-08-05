@@ -85,3 +85,25 @@ export function parseSetAppTabBoundsRequest(input: unknown): {
     },
   };
 }
+
+/**
+ * DOM rectangles are expressed in the shell renderer's CSS pixels. Electron
+ * View bounds are expressed in the BrowserWindow content view's native DIPs.
+ * Page zoom changes the relationship between those coordinate spaces without
+ * changing the window, so the trusted desktop boundary must scale the complete
+ * rectangle before positioning a host-owned App view.
+ */
+export function appTabCssBoundsToNativeBounds(
+  bounds: { x: number; y: number; width: number; height: number },
+  zoomFactor: number,
+): { x: number; y: number; width: number; height: number } {
+  if (!Number.isFinite(zoomFactor) || zoomFactor <= 0) {
+    throw new Error("Invalid App tab zoom factor.");
+  }
+  return {
+    x: bounds.x * zoomFactor,
+    y: bounds.y * zoomFactor,
+    width: bounds.width * zoomFactor,
+    height: bounds.height * zoomFactor,
+  };
+}

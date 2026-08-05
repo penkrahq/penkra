@@ -4,11 +4,10 @@
 
 import "../../index.css";
 
-import { TurnId } from "@penkra/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
-import { WorkspaceFileOpenerContext } from "../../lib/workspaceFileOpener";
+import { ThreadResourceOpenerContext } from "../../lib/threadResourceOpener";
 import { MessagesTimeline } from "./MessagesTimeline";
 import { TimelineWorkEntryRow } from "./TimelineWorkEntryRow";
 
@@ -47,7 +46,6 @@ function ToolDetailsTimeline() {
       nowIso="2026-03-17T19:12:30.000Z"
       expandedWorkGroups={{}}
       onToggleWorkGroup={() => {}}
-      onOpenTurnDiff={() => {}}
       revertTurnCountByUserMessageId={new Map()}
       onRevertUserMessage={() => {}}
       isRevertingCheckpoint={false}
@@ -263,34 +261,33 @@ describe("MessagesTimeline tool details", () => {
     }
   });
 
-  it("opens the turn diff for activity-only file rows", async () => {
-    const onOpenTurnDiff = vi.fn();
-    const turnId = TurnId.makeUnsafe("turn-file-activity");
+  it("opens activity-only changed files through the Thread resource handler", async () => {
+    const openFile = vi.fn(() => true);
     const host = createTimelineHost();
     const screen = await render(
-      <TimelineWorkEntryRow
-        workEntry={{
-          id: "file-live-activity",
-          createdAt: "2026-03-17T19:12:28.000Z",
-          label: "Edited file",
-          tone: "tool",
-          itemType: "file_change",
-          changedFiles: ["src/app.ts"],
-          liveActivity: {
-            state: "completed",
+      <ThreadResourceOpenerContext.Provider value={{ openFile, openUrl: () => false }}>
+        <TimelineWorkEntryRow
+          workEntry={{
+            id: "file-live-activity",
+            createdAt: "2026-03-17T19:12:28.000Z",
             label: "Edited file",
-            lastActivityAt: "2026-03-17T19:12:29.000Z",
-          },
-        }}
-        chatMetaFontSizePx={12}
-        textFontSizePx={13}
-        density="compact"
-        onImageExpand={() => {}}
-        markdownCwd={undefined}
-        turnId={turnId}
-        onOpenTurnDiff={onOpenTurnDiff}
-        timestampFormat="locale"
-      />,
+            tone: "tool",
+            itemType: "file_change",
+            changedFiles: ["src/app.ts"],
+            liveActivity: {
+              state: "completed",
+              label: "Edited file",
+              lastActivityAt: "2026-03-17T19:12:29.000Z",
+            },
+          }}
+          chatMetaFontSizePx={12}
+          textFontSizePx={13}
+          density="compact"
+          onImageExpand={() => {}}
+          markdownCwd={undefined}
+          timestampFormat="locale"
+        />
+      </ThreadResourceOpenerContext.Provider>,
       { container: host },
     );
 
@@ -298,7 +295,7 @@ describe("MessagesTimeline tool details", () => {
       const fileRow = document.querySelector<HTMLButtonElement>("[data-file-change-row='true']");
       expect(fileRow).not.toBeNull();
       fileRow?.click();
-      expect(onOpenTurnDiff).toHaveBeenCalledWith(turnId, "src/app.ts");
+      expect(openFile).toHaveBeenCalledWith("src/app.ts");
       expect(document.querySelector("[data-tool-details-inline='true']")).toBeNull();
     } finally {
       await screen.unmount();
@@ -311,7 +308,7 @@ describe("MessagesTimeline tool details", () => {
     const openFile = vi.fn(() => true);
     const host = createTimelineHost();
     const screen = await render(
-      <WorkspaceFileOpenerContext.Provider value={{ openFile }}>
+      <ThreadResourceOpenerContext.Provider value={{ openFile, openUrl: () => false }}>
         <TimelineWorkEntryRow
           workEntry={{
             id: "read-live-activity",
@@ -333,7 +330,7 @@ describe("MessagesTimeline tool details", () => {
           markdownCwd={undefined}
           timestampFormat="locale"
         />
-      </WorkspaceFileOpenerContext.Provider>,
+      </ThreadResourceOpenerContext.Provider>,
       { container: host },
     );
 

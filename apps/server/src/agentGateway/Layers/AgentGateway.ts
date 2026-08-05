@@ -1,10 +1,10 @@
 /**
  * AgentGatewayLive - Penkra app-control MCP tool surface.
  *
- * Implements the `penkra_*` tools served over `POST /mcp` (streamable HTTP,
- * stateless JSON responses). Every provider session gets this endpoint plus a
- * thread-bound bearer token injected at session start, so any agent running in
- * a Penkra thread can list/read/create/steer threads.
+ * Implements the single `penkra_exec_command` tool served over `POST /mcp`
+ * (streamable HTTP, stateless JSON responses). Every provider session gets
+ * this endpoint plus a thread-bound bearer token injected at session start, so
+ * any agent running in a Penkra thread can use Penkra's registered commands.
  *
  * All tools delegate to existing services (OrchestrationEngine dispatch,
  * ProjectionSnapshotQuery reads and GitCore); no orchestration
@@ -61,12 +61,19 @@ import {
 } from "../toolInput.ts";
 import { WRITE_TOOL_ANNOTATIONS, type ToolEntry } from "../toolRuntime.ts";
 import { makeAgentGatewayMcpTransport } from "../mcpTransport.ts";
+import {
+  agentGatewayCommandCatalog,
+  invokeResolvedAgentGatewayCommand,
+  resolveAgentGatewayCommand,
+  type AgentGatewayCommandEntry,
+} from "../commandSurface.ts";
 import { recoverInterruptedAgentGatewayOperations } from "../startupRecovery.ts";
 import { makeCreateThreadsHandler } from "../creationCoordinator.ts";
 import { makeThreadReadTools } from "../threadReadTools.ts";
 import { makeThreadDiagnosticTools } from "../threadDiagnosticTools.ts";
 import { pruneProjectedArchivedManagedWorktrees } from "../../managedWorktrees.ts";
-import { executePenkraExec } from "../../appRuntimeCli.ts";
+import { executePenkraExecCommand } from "../../appRuntimeCli.ts";
+import { requireThreadSpaceId } from "../threadSpaceContext.ts";
 
 const AGENT_GATEWAY_INSTRUCTIONS = PENKRA_GATEWAY_HARNESS_POLICY;
 
@@ -540,20 +547,72 @@ export const makeAgentGateway = Effect.gen(function* () {
       }).pipe(Effect.catch((error) => Effect.succeed(mcpToolResultError(errorText(error))))),
   };
 
-  const penkraExec: ToolEntry = {
-    requiredCapability: "thread:write",
-    requiresActiveTurn: true,
+  const internalCommandTools = [
+    ...readTools,
+    ...diagnosticTools,
+    createThreads,
+    createThread,
+    sendMessage,
+    interruptThread,
+    setThreadTitle,
+    setThreadArchived,
+  ] as const;
+  const requireInternalTool = (name: string): ToolEntry => {
+    const tool = internalCommandTools.find((candidate) => candidate.definition.name === name);
+    if (!tool) throw new Error(`Missing internal Penkra command handler ${name}.`);
+    return tool;
+  };
+  const gatewayCommands: ReadonlyArray<AgentGatewayCommandEntry> = [
+    { words: ["context"], tool: requireInternalTool("penkra_context") },
+    { words: ["capabilities"], tool: requireInternalTool("penkra_capabilities") },
+    { words: ["projects", "list"], tool: requireInternalTool("penkra_list_projects") },
+    { words: ["threads", "list"], tool: requireInternalTool("penkra_list_threads") },
+    { words: ["threads", "read"], tool: requireInternalTool("penkra_read_thread") },
+    { words: ["threads", "wait"], tool: requireInternalTool("penkra_wait_for_threads") },
+    {
+      words: ["threads", "activity"],
+      tool: requireInternalTool("penkra_read_thread_activity"),
+    },
+    { words: ["threads", "events"], tool: requireInternalTool("penkra_read_thread_events") },
+    {
+      words: ["threads", "runtime-events"],
+      tool: requireInternalTool("penkra_read_thread_runtime_events"),
+    },
+    { words: ["threads", "diagnose"], tool: requireInternalTool("penkra_diagnose_thread") },
+    {
+      words: ["threads", "retry-projection"],
+      tool: requireInternalTool("penkra_retry_thread_projection"),
+    },
+    { words: ["threads", "create-many"], tool: createThreads },
+    { words: ["threads", "create"], tool: createThread },
+    { words: ["threads", "send"], tool: sendMessage },
+    { words: ["threads", "interrupt"], tool: interruptThread },
+    { words: ["threads", "rename"], tool: setThreadTitle },
+    {
+      words: ["threads", "archive"],
+      tool: setThreadArchived,
+      fixedArguments: { archived: true },
+    },
+    {
+      words: ["threads", "unarchive"],
+      tool: setThreadArchived,
+      fixedArguments: { archived: false },
+    },
+  ];
+
+  const penkraExecCommand: ToolEntry = {
+    requiredCapability: "thread:read",
     definition: {
-      name: "penkra_exec",
+      name: "penkra_exec_command",
       description:
-        "Execute exactly one registered Penkra core command or installed-App operation in the caller Thread's Space. Use this when the task involves Penkra Apps, App tabs, opening a URL/path through Penkra, or invoking an App's declared capability. Start with `penkra --help`; run `penkra apps list` to discover what is actually enabled in this Space; then run `<app-slug> --help` or `<app-slug> <operation words> --help` before using unfamiliar operations. App declarations retain dotted local keys such as `issues.create`, while commands use words such as `linear issues create`. The App slug is the command root: use `browser pages open`, never the invalid `penkra browser pages open`; only Penkra core commands begin with `penkra`. Use `penkra tabs current/list` to discover this Thread's App tabs and the tab observation commands to snapshot, extract, screenshot, or manually interact with visible App UI by explicit tab ID. Prefer typed semantic App operations for domain work. Use `penkra open --url` or `penkra open --path` for configured/default resource routing and add `--with` only for an explicitly selected App. This is not a shell: it never searches PATH and rejects programs, pipes, redirects, substitutions, and environment expansion. Penkra Apps are distinct from provider plugins/connectors and Agent Skills; never infer App availability from those surfaces.",
+        "Execute exactly one registered Penkra command in the caller Thread's trusted context. This is the complete agent command surface for Penkra core, Threads, Apps, App tabs, resource opening, diagnostics, and available native Connectors. It is a peer of the provider's ordinary shell/command tool, but it is not a shell: it never searches PATH and rejects programs, pipes, redirects, substitutions, and environment expansion. Start with `penkra --help`, then use the relevant nested `--help` before an unfamiliar command. Use `penkra apps list` to discover Apps enabled in this Space and `penkra connectors list` to discover native Connectors when that command is available. App declarations retain dotted local operation keys such as `issues.create`, while commands use words such as `linear issues create`. Core commands alone use the reserved `penkra` root; installed-App commands begin with the App slug. A Skill or instruction that mentions an App, Connector, plugin, MCP server, executable, or other capability is never proof that capability is available: verify it through this command surface or the provider's literal callable tools before use.",
       inputSchema: {
         type: "object",
         properties: {
           command: {
             type: "string",
             description:
-              'One registered command, for example: "penkra --help", "penkra apps list", "penkra tabs list", "penkra tabs snapshot --tab-id <id>", "penkra open --url https://example.com", or "linear issues create --title Fix".',
+              'One registered command, for example: "penkra --help", "penkra threads list", "penkra apps list", "penkra tabs snapshot --tab-id <id>", "penkra open --url https://example.com", or "linear issues create --title Fix".',
           },
         },
         required: ["command"],
@@ -569,19 +628,28 @@ export const makeAgentGateway = Effect.gen(function* () {
     },
     handler: (args, context) =>
       Effect.gen(function* () {
+        const command = readStringArg(args, "command", { required: true })!;
+        const resolution = resolveAgentGatewayCommand(command, gatewayCommands);
+        if (resolution.kind === "result") return resolution.result;
+        if (resolution.kind === "call") {
+          return yield* invokeResolvedAgentGatewayCommand({ resolution, context });
+        }
+
         const caller = yield* requireThreadShell(context.callerThreadId);
-        if (!caller.spaceId) {
+        const callerSpaceId = yield* requireThreadSpaceId(snapshotQuery, caller);
+        if (!context.callerCapabilities.has("thread:write")) {
           return yield* Effect.fail(
-            new ToolInputError("The caller Thread is not assigned to a Space."),
+            new ToolInputError("This provider session cannot execute mutable Penkra commands."),
           );
         }
-        const command = readStringArg(args, "command", { required: true })!;
+        yield* context.assertCallerTurnActive();
         const result = yield* Effect.tryPromise({
           try: () =>
-            executePenkraExec(command, {
-              spaceId: caller.spaceId!,
+            executePenkraExecCommand(command, {
+              spaceId: callerSpaceId,
               threadId: caller.id,
               workingDirectory: caller.workingDirectory ?? null,
+              additionalCoreCommands: agentGatewayCommandCatalog(gatewayCommands),
             }),
           catch: (error) => new ToolInputError(errorText(error)),
         });
@@ -608,17 +676,7 @@ export const makeAgentGateway = Effect.gen(function* () {
     );
   }
 
-  const tools: ReadonlyArray<ToolEntry> = [
-    ...readTools,
-    ...diagnosticTools,
-    createThreads,
-    createThread,
-    sendMessage,
-    interruptThread,
-    setThreadTitle,
-    setThreadArchived,
-    penkraExec,
-  ];
+  const tools: ReadonlyArray<ToolEntry> = [penkraExecCommand];
   return {
     handleMcpPost: makeAgentGatewayMcpTransport({
       credentials,

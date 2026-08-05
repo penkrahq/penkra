@@ -31,6 +31,19 @@ export interface FileDiffTreeDirectoryNode {
 
 export type FileDiffTreeNode = FileDiffTreeDirectoryNode | FileDiffTreeFileNode;
 
+export function filterRenderableFilesForSearch(
+  files: ReadonlyArray<FileDiffMetadata>,
+  query: string,
+): FileDiffMetadata[] {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) {
+    return [...files];
+  }
+  return files.filter((fileDiff) =>
+    resolveFileDiffPath(fileDiff).toLowerCase().includes(normalizedQuery),
+  );
+}
+
 interface MutableDirectory {
   name: string;
   path: string;

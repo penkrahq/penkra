@@ -21,13 +21,6 @@ function makeSplitViewFixture(input: {
 }): SplitView {
   const firstId = `${input.id}-pane-first`;
   const secondId = `${input.id}-pane-second`;
-  const panel = {
-    panel: null,
-    diffTurnId: null,
-    diffFilePath: null,
-    hasOpenedPanel: false,
-    lastOpenPanel: "browser" as const,
-  };
   return {
     id: input.id,
     sourceThreadId: input.sourceThreadId,
@@ -40,8 +33,8 @@ function makeSplitViewFixture(input: {
       id: `${input.id}-root`,
       direction: "horizontal",
       ratio: 0.5,
-      first: { kind: "leaf", id: firstId, threadId: input.firstThreadId, panel },
-      second: { kind: "leaf", id: secondId, threadId: input.secondThreadId, panel },
+      first: { kind: "leaf", id: firstId, threadId: input.firstThreadId },
+      second: { kind: "leaf", id: secondId, threadId: input.secondThreadId },
     },
   };
 }

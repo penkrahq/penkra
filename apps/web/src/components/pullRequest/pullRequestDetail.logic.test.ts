@@ -1,19 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import type {
-  PullRequestComment,
-  PullRequestCommit,
-  PullRequestDetailInput,
-} from "@penkra/contracts";
-
-import type { RightDockPane } from "~/rightDockStore.logic";
+import type { PullRequestComment, PullRequestCommit } from "@penkra/contracts";
 
 import {
   buildPullRequestTimelineEvents,
   describePullRequestState,
-  pullRequestDetailInputFromPane,
-  pullRequestDetailInputKey,
-  pullRequestPaneTabLabel,
   stripHtmlComments,
 } from "./pullRequestDetail.logic";
 
@@ -53,23 +44,6 @@ function makeTimelineSource() {
     closedAt: null,
   };
 }
-
-describe("pullRequestDetailInputKey", () => {
-  it("builds a stable projectId:repository#number identity", () => {
-    const input: PullRequestDetailInput = {
-      projectId: "project-1" as PullRequestDetailInput["projectId"],
-      repository: "acme/widgets",
-      number: 350,
-    };
-    expect(pullRequestDetailInputKey(input)).toBe("project-1:acme/widgets#350");
-  });
-});
-
-describe("pullRequestPaneTabLabel", () => {
-  it("formats the shared tab chip label", () => {
-    expect(pullRequestPaneTabLabel(350)).toBe("PR #350");
-  });
-});
 
 describe("describePullRequestState", () => {
   it("describes each state, with draft only applying to open pull requests", () => {
@@ -129,40 +103,6 @@ describe("buildPullRequestTimelineEvents", () => {
       closedAt: "2026-07-04T10:00:00Z",
     });
     expect(events.at(-1)?.title).toBe("Pull request closed");
-  });
-});
-
-describe("pullRequestDetailInputFromPane", () => {
-  const basePane: RightDockPane = {
-    id: "pane-1",
-    kind: "pullRequest",
-    threadId: null,
-    diffTurnId: null,
-    diffFilePath: null,
-    filePath: null,
-    pullRequestProjectId: "project-1" as RightDockPane["pullRequestProjectId"],
-    pullRequestRepository: "acme/widgets",
-    pullRequestNumber: 350,
-    pullRequestInitialTab: null,
-    profileProjectId: null,
-    appId: null,
-    appSlug: null,
-    appName: null,
-    appRoute: null,
-    appStatus: null,
-  };
-
-  it("builds the detail input from a fully-populated pull request pane", () => {
-    expect(pullRequestDetailInputFromPane(basePane)).toEqual({
-      projectId: "project-1",
-      repository: "acme/widgets",
-      number: 350,
-    });
-  });
-
-  it("returns null for empty pull request panes and other pane kinds", () => {
-    expect(pullRequestDetailInputFromPane({ ...basePane, pullRequestNumber: null })).toBeNull();
-    expect(pullRequestDetailInputFromPane({ ...basePane, kind: "diff" })).toBeNull();
   });
 });
 

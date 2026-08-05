@@ -98,7 +98,7 @@ describe("Pencil middle panel", () => {
     const actions = form!.querySelector<HTMLElement>("[data-pencil-component='JwTiI']")!;
     const actionsRect = actions.getBoundingClientRect();
     expect(formRect.height).toBeCloseTo(100, 0);
-    expect(getComputedStyle(element).fontSize).toBe("14px");
+    expect(getComputedStyle(element).fontSize).toBe("13px");
     expect(getComputedStyle(element).lineHeight).toBe("16px");
     expect(getComputedStyle(element).textAlign).toBe("left");
     expect(Math.abs(editorRect.left - formRect.left - 11)).toBeLessThan(1);

@@ -13,7 +13,9 @@ describe("Cursor Penkra harness policy", () => {
       const state: { harnessPolicyDelivered?: boolean } = {};
       const first = takeCursorPenkraHarnessPolicyTextPart(state, true);
       expect(first?.text, lifecycle).toContain(PENKRA_HARNESS_POLICY_MARKER);
-      expect(first?.text, lifecycle).toContain("Use Penkra's named MCP tools");
+      expect(first?.text, lifecycle).toContain(
+        "Use `penkra_exec_command` for every Penkra operation",
+      );
       expect(takeCursorPenkraHarnessPolicyTextPart(state, true), lifecycle).toBeNull();
     }
   });

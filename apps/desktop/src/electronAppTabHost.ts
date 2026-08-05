@@ -205,6 +205,17 @@ export class ElectronAppTabHost implements AppTabHost {
     );
   }
 
+  setZoomFactor(zoomFactor: number): void {
+    if (!Number.isFinite(zoomFactor) || zoomFactor <= 0) {
+      throw new Error("Invalid App tab zoom factor.");
+    }
+    for (const record of this.#records.values()) {
+      if (!record.view.webContents.isDestroyed()) {
+        record.view.webContents.setZoomFactor(zoomFactor);
+      }
+    }
+  }
+
   attach(tabId: string): void {
     const record = this.#require(tabId);
     const window = this.#window();
@@ -305,6 +316,10 @@ export class ElectronAppTabHost implements AppTabHost {
       }),
     });
     const contents = view.webContents;
+    const window = this.#window();
+    if (window && !window.isDestroyed()) {
+      contents.setZoomFactor(window.webContents.getZoomFactor());
+    }
     const releaseRendererIdentity = this.#onRendererCreated({
       appId: input.app.appId,
       spaceId: input.spaceId,

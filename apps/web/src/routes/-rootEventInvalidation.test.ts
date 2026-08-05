@@ -11,7 +11,6 @@ import {
   getStudioOutputInvalidationThreadIdForEvent,
   resolveGitInvalidationCwdForThreadId,
   shouldInvalidateGitQueriesForEvent,
-  shouldInvalidateProviderQueriesForEvent,
 } from "./-rootEventInvalidation";
 import type { AppState } from "../store";
 import type { Thread } from "../types";
@@ -28,7 +27,6 @@ describe("root event invalidation", () => {
     const turnDiffEvent = event("thread.turn-diff-completed");
 
     expect(shouldInvalidateGitQueriesForEvent(turnDiffEvent)).toBe(false);
-    expect(shouldInvalidateProviderQueriesForEvent(turnDiffEvent)).toBe(true);
     expect(shouldInvalidateGitQueriesForEvent(event("thread.reverted"))).toBe(false);
     expect(shouldInvalidateGitQueriesForEvent(event("thread.conversation-rolled-back"))).toBe(
       false,
@@ -43,7 +41,6 @@ describe("root event invalidation", () => {
 
   it("leaves unrelated events alone", () => {
     expect(shouldInvalidateGitQueriesForEvent(event("thread.message-sent"))).toBe(false);
-    expect(shouldInvalidateProviderQueriesForEvent(event("thread.message-sent"))).toBe(false);
   });
 
   it("extracts affected thread ids for scoped git invalidation", () => {

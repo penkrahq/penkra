@@ -13,21 +13,21 @@ describe("Penkra harness policy", () => {
     const policy = renderPenkraHarnessPolicy({ gatewayControlAvailable: true });
     assert.include(policy, PENKRA_HARNESS_POLICY_MARKER);
     assert.include(policy, "Penkra is the host and harness");
-    assert.include(policy, "one exact penkra_create_threads plan");
+    assert.include(policy, "one exact `penkra threads create-many` command");
     assert.include(policy, "before returning an operationId");
-    assert.include(policy, "penkra_wait_for_threads");
+    assert.include(policy, "`penkra threads wait`");
     assert.include(policy, "do not create Penkra threads");
     assert.include(policy, "3–8 word outcome-oriented task label");
     assert.include(policy, "no assumed chat context");
     assert.include(policy, "notifying the user versus staying silent");
     assert.include(policy, 'later manual follow-up such as "continue"');
-    assert.include(policy, "Never call this tool for a manual follow-up turn");
+    assert.include(policy, "Never use it for a manual follow-up turn");
   });
 
   it("never advertises gateway mutation to providers without scoped MCP", () => {
     const policy = renderPenkraHarnessPolicy({ gatewayControlAvailable: false });
     assert.include(policy, "Penkra MCP control is unavailable");
-    assert.notInclude(policy, "one exact penkra_create_threads plan");
+    assert.notInclude(policy, "one exact `penkra threads create-many` command");
   });
 
   it("delivers a private host-context block once per provider session", () => {
@@ -49,7 +49,7 @@ describe("Penkra harness policy", () => {
             scopedGatewayConnectionAvailable: true,
           })?.text ?? "";
         assert.include(first, PENKRA_HARNESS_POLICY_MARKER, `${provider}/${lifecycle}`);
-        assert.include(first, "Use Penkra's named MCP tools", `${provider}/${lifecycle}`);
+        assert.include(first, "Use `penkra_exec_command`", `${provider}/${lifecycle}`);
         assert.isNull(
           takePenkraHarnessPolicyForProviderSession(state, {
             provider,
@@ -70,7 +70,7 @@ describe("Penkra harness policy", () => {
         ) ?? "";
       assert.include(text, PENKRA_HARNESS_POLICY_MARKER, provider);
       assert.include(text, "Penkra MCP control is unavailable", provider);
-      assert.notInclude(text, "one exact penkra_create_threads plan", provider);
+      assert.notInclude(text, "one exact `penkra threads create-many` command", provider);
     }
   });
 });

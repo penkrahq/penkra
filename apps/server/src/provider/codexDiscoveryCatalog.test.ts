@@ -54,6 +54,37 @@ describe("Codex discovery catalog", () => {
     ]);
   });
 
+  it("does not expose hidden Codex catalog entries as selectable models", () => {
+    expect(
+      parseCodexModelListResponse({
+        result: {
+          items: [
+            {
+              id: "hidden-internal-model",
+              name: "Hidden internal model",
+              visibility: "hide",
+            },
+            {
+              id: "codex-auto-review",
+              name: "Codex Auto Review",
+              description: "Automatic approval review model for Codex.",
+            },
+            {
+              id: "gpt-5.6-luna",
+              name: "GPT-5.6-Luna",
+              visibility: "list",
+            },
+          ],
+        },
+      }),
+    ).toEqual([
+      {
+        slug: "gpt-5.6-luna",
+        name: "GPT-5.6-Luna",
+      },
+    ]);
+  });
+
   it("normalizes bucketed skills/list responses for the requested cwd", () => {
     expect(
       parseCodexSkillsListResponse(

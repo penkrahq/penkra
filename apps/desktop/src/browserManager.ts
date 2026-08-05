@@ -106,6 +106,7 @@ interface BrowserPerformanceSnapshot {
 
 export interface DesktopBrowserManagerOptions {
   beforeInputEvent?: (event: Electron.Event, input: Electron.Input) => boolean;
+  getWindowZoomFactor?: () => number;
 }
 
 export interface BrowserHostedPanelBoundsInput {
@@ -285,6 +286,15 @@ export class DesktopBrowserManager {
   };
 
   constructor(private readonly options: DesktopBrowserManagerOptions = {}) {}
+
+  setZoomFactor(zoomFactor: number): void {
+    if (!Number.isFinite(zoomFactor) || zoomFactor <= 0) {
+      throw new Error("Invalid browser zoom factor.");
+    }
+    for (const runtime of this.runtimes.values()) {
+      if (!runtime.webContents.isDestroyed()) runtime.webContents.setZoomFactor(zoomFactor);
+    }
+  }
 
   setWindow(window: BrowserWindow | null): void {
     this.window = window;
@@ -1545,6 +1555,15 @@ export class DesktopBrowserManager {
 
   private configureRuntimeWebContents(runtime: LiveTabRuntime): void {
     const { threadId, tabId, webContents } = runtime;
+
+    const windowZoomFactor = this.options.getWindowZoomFactor?.();
+    if (
+      typeof windowZoomFactor === "number" &&
+      Number.isFinite(windowZoomFactor) &&
+      windowZoomFactor > 0
+    ) {
+      webContents.setZoomFactor(windowZoomFactor);
+    }
 
     // Belt-and-suspenders alongside the session-level UA: also covers an adopted renderer
     // <webview> for any navigation after it attaches.

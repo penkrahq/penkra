@@ -2,7 +2,14 @@
 // Purpose: Composes trusted App persistence, isolation, controller, broker, and IPC services.
 // Layer: Desktop main-process bootstrap
 
-import { app, safeStorage, webContents, type BrowserWindow, type IpcMain } from "electron";
+import {
+  app,
+  safeStorage,
+  webContents,
+  type BrowserWindow,
+  type IpcMain,
+  type WebContents,
+} from "electron";
 import type { DesktopAppTabClosed, DesktopAppTabDescriptor } from "@penkra/contracts";
 
 import { AppControllerHost } from "./appControllerHost";
@@ -68,6 +75,7 @@ export async function startDesktopAppRuntime(input: {
   onTabOpened: (descriptor: DesktopAppTabDescriptor) => void;
   onTabState: (descriptor: DesktopAppTabDescriptor) => void;
   onTabClosed: (descriptor: DesktopAppTabClosed) => void;
+  onTabRendererCreated?: (renderer: WebContents) => (() => void) | void;
   onInvalidRendererMessage?: (error: Error, senderId: number) => void;
   assertAppAllowed?: (app: import("./appInstallationState").InstalledAppPackage) => Promise<void>;
   getAccountId?: () => Promise<string | null>;
@@ -179,7 +187,10 @@ export async function startDesktopAppRuntime(input: {
       ...(tabId === undefined ? {} : { tabId }),
     };
     rendererIdentities.set(rendererId, identity);
+    const renderer = tabId === undefined ? null : webContents.fromId(rendererId);
+    const releaseTabRenderer = renderer ? input.onTabRendererCreated?.(renderer) : undefined;
     return () => {
+      releaseTabRenderer?.();
       if (rendererIdentities.get(rendererId) === identity) rendererIdentities.delete(rendererId);
     };
   };

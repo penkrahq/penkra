@@ -1,7 +1,6 @@
 // FILE: FileDiffView.tsx
-// Purpose: Shared diff viewer chrome — a virtualized scroll surface plus a themed
-//          per-file card — used by both the turn/repo DiffPanel and the source
-//          control GitPanel so they share font/theme behavior, the Penkra file
+// Purpose: Pull-request diff viewer chrome — a virtualized scroll surface plus a
+//          themed per-file card with shared font/theme behavior, the Penkra file
 //          header, and the @pierre/diffs `unsafeCSS` theming.
 // Layer: Chat/diff UI primitives
 // Depends on: @pierre/diffs FileDiff/Virtualizer, diffRendering (theme + unsafeCSS), FileDiffHeader
@@ -9,7 +8,7 @@
 import { FileDiff, type FileDiffMetadata, Virtualizer } from "@pierre/diffs/react";
 import { type ReactNode } from "react";
 
-import { buildDiffPanelUnsafeCSS, resolveDiffThemeName } from "~/lib/diffRendering";
+import { buildFileDiffUnsafeCSS, resolveDiffThemeName } from "~/lib/diffRendering";
 import { cn } from "~/lib/utils";
 import { FileDiffHeader } from "./FileDiffHeader";
 
@@ -19,8 +18,8 @@ const DIFF_VIRTUALIZER_CONFIG = {
   intersectionObserverMargin: 600,
 };
 
-// Virtualized scroll container shared by single-file (GitPanel) and multi-file
-// (DiffPanel) diff lists. Callers own the inner per-file wrapper markup because
+// Virtualized scroll container for multi-file pull-request diff lists. Callers
+// own the inner per-file wrapper markup because
 // it differs (collapse click capture, data-diff-file-path scroll anchors, etc.).
 export function FileDiffSurface(props: { className?: string; children: ReactNode }) {
   return (
@@ -54,7 +53,7 @@ export function FileDiffCard(props: {
         overflow: props.overflow ?? "scroll",
         theme: resolveDiffThemeName(props.theme),
         themeType: props.theme,
-        unsafeCSS: buildDiffPanelUnsafeCSS(props.theme),
+        unsafeCSS: buildFileDiffUnsafeCSS(props.theme),
         ...(props.collapsed !== undefined ? { collapsed: props.collapsed } : {}),
       }}
       renderCustomHeader={(fileDiff) => (

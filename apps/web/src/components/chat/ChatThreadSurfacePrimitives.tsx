@@ -1,81 +1,12 @@
-import type { FileDiffMetadata } from "@pierre/diffs/react";
-import type { ThreadId, TurnId } from "@penkra/contracts";
-import { lazy, type ReactNode, Suspense, useEffect, useState } from "react";
+import type { ThreadId } from "@penkra/contracts";
+import { useEffect, useState } from "react";
 
 import ChatView from "../ChatView";
-import { DiffWorkerPoolProvider } from "../DiffWorkerPoolProvider";
-import {
-  DiffPanelHeaderSkeleton,
-  DiffPanelLoadingState,
-  DiffPanelShell,
-  type DiffPanelMode,
-} from "../DiffPanelShell";
-import type { SplitViewPanePanelState } from "../../splitViewStore";
 import { CHAT_BACKGROUND_CLASS_NAME } from "./composerPickerStyles";
 import { Spinner } from "../ui/spinner";
 import { cn } from "~/lib/utils";
 
-const DiffPanel = lazy(() => import("../DiffPanel"));
-
 export const noopChatSurfaceAction = () => {};
-
-function DiffLoadingFallback(props: { mode: DiffPanelMode; hideHeader?: boolean }) {
-  return (
-    <DiffPanelShell
-      mode={props.mode}
-      header={props.hideHeader ? null : <DiffPanelHeaderSkeleton />}
-    >
-      <DiffPanelLoadingState label="Loading diff viewer..." />
-    </DiffPanelShell>
-  );
-}
-
-export function LazyDiffPanel(props: {
-  mode: DiffPanelMode;
-  threadId?: ThreadId | null;
-  panelState?: Pick<SplitViewPanePanelState, "panel" | "diffTurnId" | "diffFilePath">;
-  onUpdatePanelState?: (
-    patch: Partial<Pick<SplitViewPanePanelState, "panel" | "diffTurnId" | "diffFilePath">>,
-  ) => void;
-  onClosePanel?: () => void;
-  liveRefreshEnabled?: boolean;
-  queriesEnabled?: boolean;
-  hideHeader?: boolean;
-  onRenderableFilesChange?: (files: ReadonlyArray<FileDiffMetadata>, isLoading: boolean) => void;
-  onEditorDiffOptionsChange?: (control: ReactNode | null) => void;
-}) {
-  return (
-    <DiffWorkerPoolProvider>
-      <Suspense
-        fallback={
-          <DiffLoadingFallback
-            mode={props.mode}
-            {...(props.hideHeader !== undefined ? { hideHeader: props.hideHeader } : {})}
-          />
-        }
-      >
-        <DiffPanel
-          mode={props.mode}
-          {...(props.threadId !== undefined ? { threadId: props.threadId } : {})}
-          {...(props.panelState ? { panelState: props.panelState } : {})}
-          {...(props.onUpdatePanelState ? { onUpdatePanelState: props.onUpdatePanelState } : {})}
-          {...(props.onClosePanel ? { onClosePanel: props.onClosePanel } : {})}
-          {...(props.liveRefreshEnabled !== undefined
-            ? { liveRefreshEnabled: props.liveRefreshEnabled }
-            : {})}
-          {...(props.queriesEnabled !== undefined ? { queriesEnabled: props.queriesEnabled } : {})}
-          {...(props.hideHeader !== undefined ? { hideHeader: props.hideHeader } : {})}
-          {...(props.onRenderableFilesChange
-            ? { onRenderableFilesChange: props.onRenderableFilesChange }
-            : {})}
-          {...(props.onEditorDiffOptionsChange
-            ? { onEditorDiffOptionsChange: props.onEditorDiffOptionsChange }
-            : {})}
-        />
-      </Suspense>
-    </DiffWorkerPoolProvider>
-  );
-}
 
 export function ChatMountLoader() {
   return (
@@ -85,9 +16,6 @@ export function ChatMountLoader() {
         CHAT_BACKGROUND_CLASS_NAME,
       )}
     >
-      {/* Inline @keyframes so the delayed fade needs no global stylesheet; the
-          delay keeps the common fast mount (a couple of frames) from flashing a
-          spinner — short waits show only the plain chat background. */}
       <style>{`@keyframes chat-mount-loader-in { from { opacity: 0; } to { opacity: 1; } }`}</style>
       <div className="opacity-0 [animation:chat-mount-loader-in_200ms_ease-out_150ms_forwards] motion-reduce:animate-none motion-reduce:opacity-100">
         <Spinner className="size-5 text-muted-foreground" />
@@ -101,20 +29,9 @@ export function DeferredChatView(props: {
   paneScopeId: string;
   deferMount: boolean;
   surfaceMode: "single" | "split";
-  presentationMode?: "default" | "editor";
   isFocusedPane: boolean;
-  panelState: SplitViewPanePanelState;
-  onToggleDiff: () => void;
-  onToggleBrowser: () => void;
-  onOpenBrowserUrl: (url: string) => void;
-  onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
   onSplitSurface?: () => void;
   onMaximize?: () => void;
-  viewModeAction?: {
-    label: string;
-    active: boolean;
-    onClick: () => void;
-  } | null;
   onChangeThread?: () => void;
   onCloseThreadPane?: () => void;
   onMounted?: () => void;
@@ -130,9 +47,6 @@ export function DeferredChatView(props: {
     if (!props.deferMount) {
       return;
     }
-    // readyMountKey is keyed by mountKey, so a changed mountKey already makes
-    // canMountChatView false (loader) without an eager reset here; the double
-    // rAF then stamps the new key once the paint has settled.
     let firstFrame = 0;
     let secondFrame = 0;
     firstFrame = window.requestAnimationFrame(() => {
@@ -160,16 +74,9 @@ export function DeferredChatView(props: {
       threadId={props.threadId}
       paneScopeId={props.paneScopeId}
       surfaceMode={props.surfaceMode}
-      presentationMode={props.presentationMode ?? "default"}
       isFocusedPane={props.isFocusedPane}
-      panelState={props.panelState}
-      onToggleDiffPanel={props.onToggleDiff}
-      onToggleBrowserPanel={props.onToggleBrowser}
-      onOpenBrowserUrl={props.onOpenBrowserUrl}
-      onOpenTurnDiffPanel={props.onOpenTurnDiff}
       {...(props.onSplitSurface ? { onSplitSurface: props.onSplitSurface } : {})}
       {...(props.onMaximize ? { onMaximizeSurface: props.onMaximize } : {})}
-      {...(props.viewModeAction !== undefined ? { viewModeAction: props.viewModeAction } : {})}
       {...(props.onChangeThread ? { onChangeThreadInSplitPane: props.onChangeThread } : {})}
       {...(props.onCloseThreadPane ? { onCloseThreadPane: props.onCloseThreadPane } : {})}
     />

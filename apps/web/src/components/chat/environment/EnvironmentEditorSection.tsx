@@ -1,14 +1,10 @@
 // FILE: EnvironmentEditorSection.tsx
-// Purpose: "Editor" section of the Environment panel — the in-app Editor view as the
-//          default first row, followed by the "Open in <editor>" external-launcher picker
-//          (same skin as Commit and Push / env pickers). The menu lists every installed
-//          editor (same entries as the header OpenInPicker).
+// Purpose: External editor launcher for the active Thread directory.
 // Layer: Environment panel section
 
 import type { EditorId, ResolvedKeybindingsConfig } from "@penkra/contracts";
 
 import { useEditorLaunchers } from "~/hooks/useEditorLaunchers";
-import { LayoutSidebarIcon } from "~/lib/icons";
 
 import { ComposerPickerMenuPopup } from "../ComposerPickerMenuPopup";
 import { Menu, MenuRadioGroup, MenuRadioItem, MenuShortcut, MenuTrigger } from "../../ui/menu";
@@ -25,13 +21,10 @@ export function EnvironmentEditorSection({
   keybindings,
   availableEditors,
   openInTarget,
-  onOpenEditorView,
 }: {
   keybindings: ResolvedKeybindingsConfig;
   availableEditors: ReadonlyArray<EditorId>;
   openInTarget: string | null;
-  /** Open the in-app editor workspace view; omitted on surfaces that can't host it. */
-  onOpenEditorView?: () => void;
 }) {
   const {
     options,
@@ -46,9 +39,7 @@ export function EnvironmentEditorSection({
     openInTarget,
   });
 
-  // Render the section whenever there is at least one entry to show — the in-app
-  // editor view, an external editor, or both.
-  if (options.length === 0 && !onOpenEditorView) {
+  if (options.length === 0) {
     return null;
   }
 
@@ -57,13 +48,6 @@ export function EnvironmentEditorSection({
 
   return (
     <EnvironmentLabeledSection label="Editor">
-      {onOpenEditorView ? (
-        <EnvironmentRow
-          icon={<LayoutSidebarIcon aria-hidden className={ENVIRONMENT_ROW_ICON_CLASS_NAME} />}
-          label="Editor view"
-          onClick={onOpenEditorView}
-        />
-      ) : null}
       {options.length === 0 ? null : (
         <Menu>
           <MenuTrigger

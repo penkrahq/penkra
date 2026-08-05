@@ -4,7 +4,7 @@
 // Exports: split route helpers shared by chat surface, sidebar, and thread-scoped UI
 
 import { type ThreadId } from "@penkra/contracts";
-import { type DiffRouteSearch } from "./diffRouteSearch";
+import { type ChatRouteSearch } from "./chatRouteSearch";
 import {
   resolveSplitViewFocusedThreadId,
   resolveSplitViewPaneIdForThread,
@@ -36,6 +36,6 @@ export function resolveActiveSplitView(input: {
   };
 }
 
-export function isSplitRoute(search: DiffRouteSearch): boolean {
+export function isSplitRoute(search: ChatRouteSearch): boolean {
   return typeof search.splitViewId === "string" && search.splitViewId.length > 0;
 }

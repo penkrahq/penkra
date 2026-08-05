@@ -1,7 +1,7 @@
 // FILE: splitView.logic.test.ts
 // Purpose: Verify pure pane-tree helpers used by the store and chat surfaces.
 // Layer: UI state helpers test
-// Targets: tree traversal, immutable replace, leaf removal/collapse, depth-cap rule, legacy migration.
+// Targets: tree traversal, immutable replace, leaf removal/collapse, and depth-cap rule.
 
 import { ContainerId, ThreadId } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
@@ -15,13 +15,12 @@ import {
   findPaneDepth,
   findParentSplitNode,
   findSplitNodeById,
-  isLegacySplitViewLike,
   removeLeafByPaneId,
   removeLeafByThreadId,
   replacePaneInTree,
   resolveDefaultFocusLeafId,
 } from "./splitView.logic";
-import type { LeafPane, Pane, SplitNode, SplitViewPanePanelState } from "./splitViewStore";
+import type { LeafPane, Pane, SplitNode } from "./splitViewStore";
 
 const THREAD_A = ThreadId.makeUnsafe("thread-a");
 const THREAD_B = ThreadId.makeUnsafe("thread-b");
@@ -29,18 +28,8 @@ const THREAD_C = ThreadId.makeUnsafe("thread-c");
 const THREAD_D = ThreadId.makeUnsafe("thread-d");
 const PROJECT_ID = ContainerId.makeUnsafe("project-1");
 
-function makePanel(): SplitViewPanePanelState {
-  return {
-    panel: null,
-    diffTurnId: null,
-    diffFilePath: null,
-    hasOpenedPanel: false,
-    lastOpenPanel: "browser",
-  };
-}
-
 function makeLeaf(id: string, threadId: ThreadId | null): LeafPane {
-  return { kind: "leaf", id, threadId, panel: makePanel() };
+  return { kind: "leaf", id, threadId };
 }
 
 function makeSplit(input: {
@@ -293,26 +282,5 @@ describe("resolveDefaultFocusLeafId", () => {
     const leafB = makeLeaf("leaf-b", THREAD_B);
     const root = makeSplit({ id: "root", direction: "horizontal", first: leafA, second: leafB });
     expect(resolveDefaultFocusLeafId(root)).toBe("leaf-a");
-  });
-});
-
-describe("isLegacySplitViewLike", () => {
-  it("matches the v1 persisted shape", () => {
-    const legacy = {
-      id: "split-1",
-      sourceThreadId: THREAD_A,
-      ownerProjectId: PROJECT_ID,
-      leftThreadId: THREAD_A,
-      rightThreadId: THREAD_B,
-      focusedPane: "left",
-      ratio: 0.5,
-      leftPanel: makePanel(),
-      rightPanel: makePanel(),
-      createdAt: "2026-01-01T00:00:00.000Z",
-      updatedAt: "2026-01-01T00:00:00.000Z",
-    };
-    expect(isLegacySplitViewLike(legacy)).toBe(true);
-    expect(isLegacySplitViewLike(null)).toBe(false);
-    expect(isLegacySplitViewLike({})).toBe(false);
   });
 });

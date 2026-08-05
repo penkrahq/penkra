@@ -15,7 +15,6 @@ import { PullRequestList } from "./PullRequestList";
 import { PullRequestProjectFilterPopover } from "./PullRequestListFilters";
 import { PullRequestRow } from "./PullRequestRow";
 import { groupPullRequestEntriesByInvolvement } from "./pullRequestList.logic";
-import { focusPullRequestRow, isFocusInsideRightDock } from "./pullRequestFocus";
 
 function makeEntry(isPinned: boolean): PullRequestListEntry {
   return {
@@ -61,30 +60,6 @@ function StatefulGroupedList() {
       onSelect={() => {}}
       onTogglePinned={(current) => setEntry({ ...current, isPinned: !current.isPinned })}
     />
-  );
-}
-
-function FocusRestoreHarness() {
-  const entry = makeEntry(false);
-  const [dockOpen, setDockOpen] = useState(true);
-  const closeDock = () => {
-    const shouldRestore = isFocusInsideRightDock(document.activeElement);
-    setDockOpen(false);
-    if (shouldRestore) {
-      requestAnimationFrame(() => focusPullRequestRow(document, entry));
-    }
-  };
-  return (
-    <>
-      <PullRequestRow entry={entry} selected onClick={() => {}} onTogglePinned={() => {}} />
-      {dockOpen ? (
-        <div data-right-dock-content>
-          <button type="button" onClick={closeDock}>
-            Close panel
-          </button>
-        </div>
-      ) : null}
-    </>
   );
 }
 
@@ -223,33 +198,6 @@ describe("PullRequestRow pin control", () => {
 
     expect(document.body.textContent).not.toContain("Project One");
     expect(page.getByRole("button", { name: "Pin pull request #42" })).toBeVisible();
-  });
-
-  it("restores focus by remote identity when aggregate project context changes", async () => {
-    const entry = makeEntry(false);
-    await render(
-      <PullRequestRow entry={entry} selected={false} onClick={vi.fn()} onTogglePinned={vi.fn()} />,
-    );
-
-    expect(
-      focusPullRequestRow(document, {
-        ...entry,
-        projectId: "different-project" as PullRequestListEntry["projectId"],
-      }),
-    ).toBe(true);
-    expect(document.activeElement?.getAttribute("data-pull-request-number")).toBe("42");
-  });
-
-  it("returns focus to the selected row when the focused dock closes", async () => {
-    await render(<FocusRestoreHarness />);
-
-    await page.getByRole("button", { name: "Close panel" }).click();
-
-    await vi.waitFor(() => {
-      expect(document.activeElement?.hasAttribute("data-pull-request-row")).toBe(true);
-    });
-    expect(document.activeElement?.getAttribute("data-project-id")).toBe("project-1");
-    expect(document.activeElement?.getAttribute("data-pull-request-number")).toBe("42");
   });
 });
 

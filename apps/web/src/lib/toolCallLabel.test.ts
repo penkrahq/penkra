@@ -62,6 +62,7 @@ describe("normalizeCompactToolLabel", () => {
 describe("derivePenkraMcpToolTitle", () => {
   it("has intentional running and completed copy for every Penkra gateway action", () => {
     const cases = [
+      ["penkra_exec_command", "Penkra is running a command", "Penkra ran a command"],
       ["penkra_context", "Penkra is checking its context", "Penkra checked its context"],
       [
         "penkra_capabilities",

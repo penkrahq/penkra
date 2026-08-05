@@ -1,5 +1,5 @@
 // FILE: ReviewFileTreePanel.tsx
-// Purpose: Compact, searchable file-tree side panel for the review/diff panel.
+// Purpose: Compact, searchable file-tree side panel for pull-request changes.
 //          Renders the changed files of the active diff as a nested, collapsible
 //          tree and navigates the diff on click. Reuses the diff path helpers,
 //          file-row chrome, file icons, and disclosure motion shared with the
@@ -20,7 +20,7 @@ import { buildFileDiffTree, type FileDiffTreeNode } from "~/lib/fileDiffTree";
 import { XIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
 
-import { filterRenderableFilesForSearch } from "./DiffPanel.logic";
+import { filterRenderableFilesForSearch } from "~/lib/fileDiffTree";
 import { FileEntryIcon } from "./chat/FileEntryIcon";
 import { fileRowClassName, fileRowIndentStyle } from "./chat/fileRowStyles";
 import { PanelStateMessage } from "./chat/PanelStateMessage";

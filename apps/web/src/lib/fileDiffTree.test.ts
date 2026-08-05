@@ -6,7 +6,7 @@
 import type { FileDiffMetadata } from "@pierre/diffs/react";
 import { describe, expect, it } from "vitest";
 
-import { filterRenderableFilesForSearch } from "~/components/DiffPanel.logic";
+import { filterRenderableFilesForSearch } from "./fileDiffTree";
 import {
   buildFileDiffTree,
   collectFileDiffTreeDirectoryPaths,

@@ -73,6 +73,8 @@ function createMockOpenCodeRuntime(options?: {
   readonly questionList?: () => Promise<unknown>;
   readonly permissionReply?: (input: Record<string, unknown>) => Promise<unknown>;
   readonly mcpAdd?: (input: Record<string, unknown>) => Promise<unknown>;
+  readonly mcpStatus?: () => Promise<unknown>;
+  readonly mcpDisconnect?: (input: Record<string, unknown>) => Promise<unknown>;
   readonly serverExit?: Effect.Effect<number>;
   readonly sessionCreateError?: Error;
   readonly sessionUpdate?: (input: Record<string, unknown>) => Promise<unknown>;
@@ -89,6 +91,7 @@ function createMockOpenCodeRuntime(options?: {
   const permissionReplyCalls: Array<Record<string, unknown>> = [];
   const promptCalls: Array<Record<string, unknown>> = [];
   const mcpAddCalls: Array<Record<string, unknown>> = [];
+  const mcpDisconnectCalls: Array<Record<string, unknown>> = [];
   let eventSubscribeCallCount = 0;
   const emptySubscription = {
     async *[Symbol.asyncIterator]() {
@@ -168,6 +171,11 @@ function createMockOpenCodeRuntime(options?: {
       list: options?.commandList ?? (async () => ({ data: [] })),
     },
     mcp: {
+      status: async () => (options?.mcpStatus ? options.mcpStatus() : { data: {} }),
+      disconnect: async (input: Record<string, unknown>) => {
+        mcpDisconnectCalls.push(input);
+        return options?.mcpDisconnect ? options.mcpDisconnect(input) : { data: true };
+      },
       add: async (input: Record<string, unknown>) => {
         mcpAddCalls.push(input);
         return options?.mcpAdd
@@ -256,6 +264,7 @@ function createMockOpenCodeRuntime(options?: {
     permissionReplyCalls,
     promptCalls,
     mcpAddCalls,
+    mcpDisconnectCalls,
     get eventSubscribeCallCount() {
       return eventSubscribeCallCount;
     },
@@ -771,7 +780,14 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
   });
 
   it("isolates same-cwd managed sessions, injects distinct gateway tokens, and revokes them", async () => {
-    const runtime = createMockOpenCodeRuntime();
+    const runtime = createMockOpenCodeRuntime({
+      mcpStatus: async () => ({
+        data: {
+          pencil: { status: "connected" },
+          github: { status: "disabled" },
+        },
+      }),
+    });
     const gateway = makeGatewayCredentials();
     const firstThread = asThreadId("thread-gateway-a");
     const secondThread = asThreadId("thread-gateway-b");
@@ -819,6 +835,12 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
       runtime.connectCalls[1]?.poolIsolationKey,
     );
     expect(runtime.mcpAddCalls).toHaveLength(2);
+    expect(runtime.mcpDisconnectCalls).toEqual([
+      { directory: "/same/repo", name: "pencil" },
+      { directory: "/same/repo", name: "github" },
+      { directory: "/same/repo", name: "pencil" },
+      { directory: "/same/repo", name: "github" },
+    ]);
     expect(runtime.mcpAddCalls.map((call) => call.config)).toEqual([
       expect.objectContaining({
         headers: { Authorization: "Bearer gateway-token-1" },
@@ -829,7 +851,9 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
     ]);
     expect(runtime.promptCalls).toHaveLength(2);
     for (const prompt of runtime.promptCalls) {
-      expect(JSON.stringify(prompt)).toContain("Use Penkra's named MCP tools");
+      expect(JSON.stringify(prompt)).toContain(
+        "Use `penkra_exec_command` for every Penkra operation",
+      );
     }
     expect(gateway.revoked).toEqual(["gateway-token-1", "gateway-token-2"]);
   });

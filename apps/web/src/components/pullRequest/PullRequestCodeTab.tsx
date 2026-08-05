@@ -9,9 +9,9 @@ import type { PullRequestDetail, PullRequestDetailInput } from "@penkra/contract
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 
-import { DiffPanelPatchViewport } from "~/components/DiffPanelPatchViewport";
+import { FileDiffPatchViewport } from "~/components/FileDiffPatchViewport";
 import { DiffWorkerPoolProvider } from "~/components/DiffWorkerPoolProvider";
-import { DiffPanelLoadingState } from "~/components/DiffPanelShell";
+import { FileDiffLoadingState } from "~/components/FileDiffLoadingState";
 import { useTheme } from "~/hooks/useTheme";
 import { getRenderablePatch, sortFileDiffsByPath, summarizePatchTotals } from "~/lib/diffRendering";
 import { pullRequestDiffQueryOptions } from "~/lib/pullRequestReactQuery";
@@ -64,9 +64,9 @@ export function PullRequestCodeTab({
           </PullRequestMetaLine>
         ) : null}
         {diffQuery.isPending ? (
-          <DiffPanelLoadingState label="Loading pull request diff…" />
+          <FileDiffLoadingState label="Loading pull request diff…" />
         ) : (
-          <DiffPanelPatchViewport
+          <FileDiffPatchViewport
             renderablePatch={renderablePatch}
             renderableFiles={renderableFiles}
             resolvedTheme={resolvedTheme}

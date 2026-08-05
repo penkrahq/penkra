@@ -5,7 +5,6 @@ import {
   buildSubagentsPrompt,
   canOfferForkSlashCommand,
   canOfferReviewSlashCommand,
-  canOfferSideSlashCommand,
   filterComposerSlashCommands,
   getAvailableComposerSlashCommands,
   hasProviderNativeSlashCommand,
@@ -52,10 +51,7 @@ describe("composerSlashCommands", () => {
       command: "fast",
       args: "",
     });
-    expect(parseComposerSlashInvocation("/side is this safe?")).toEqual({
-      command: "side",
-      args: "is this safe?",
-    });
+    expect(parseComposerSlashInvocation("/side is this safe?")).toBeNull();
     expect(parseComposerSlashInvocation("/automation every 6h check the page")).toBeNull();
     expect(parseComposerSlashInvocation("/feedback")).toEqual({
       command: "feedback",
@@ -139,32 +135,6 @@ describe("composerSlashCommands", () => {
     ).toBe(false);
   });
 
-  it("only offers /side for a main-thread empty default composer", () => {
-    expect(
-      canOfferSideSlashCommand({
-        prompt: "",
-        imageCount: 0,
-        terminalContextCount: 0,
-        selectedSkillCount: 0,
-        selectedMentionCount: 0,
-        interactionMode: "default",
-        isSidechat: false,
-      }),
-    ).toBe(true);
-
-    expect(
-      canOfferSideSlashCommand({
-        prompt: "",
-        imageCount: 0,
-        terminalContextCount: 0,
-        selectedSkillCount: 0,
-        selectedMentionCount: 0,
-        interactionMode: "default",
-        isSidechat: true,
-      }),
-    ).toBe(false);
-  });
-
   it("only offers /review for an otherwise empty composer", () => {
     expect(
       canOfferReviewSlashCommand({
@@ -201,7 +171,6 @@ describe("composerSlashCommands", () => {
       canOfferCompactCommand: true,
       canOfferReviewCommand: true,
       canOfferForkCommand: true,
-      canOfferSideCommand: true,
       canOfferExportCommand: true,
       providerNativeCommandNames: ["fast", "/model", "status"],
     });
@@ -222,7 +191,6 @@ describe("composerSlashCommands", () => {
       canOfferCompactCommand: true,
       canOfferReviewCommand: true,
       canOfferForkCommand: true,
-      canOfferSideCommand: true,
       canOfferExportCommand: true,
       providerNativeCommandNames: ["review"],
     });
@@ -242,7 +210,6 @@ describe("composerSlashCommands", () => {
       canOfferCompactCommand: true,
       canOfferReviewCommand: true,
       canOfferForkCommand: true,
-      canOfferSideCommand: true,
       canOfferExportCommand: true,
       providerNativeCommandNames: ["review", "status"],
     });
@@ -262,7 +229,6 @@ describe("composerSlashCommands", () => {
       canOfferCompactCommand: true,
       canOfferReviewCommand: true,
       canOfferForkCommand: true,
-      canOfferSideCommand: true,
       canOfferExportCommand: true,
       providerNativeCommandNames: ["feedback"],
     });
@@ -279,10 +245,9 @@ describe("composerSlashCommands", () => {
         canOfferCompactCommand: true,
         canOfferReviewCommand: true,
         canOfferForkCommand: true,
-        canOfferSideCommand: true,
         canOfferExportCommand: true,
       }),
-    ).toEqual(["side", "export", "feedback"]);
+    ).toEqual(["export", "feedback"]);
   });
 
   it("offers the app-level /export command on every provider", () => {
@@ -293,7 +258,6 @@ describe("composerSlashCommands", () => {
         canOfferCompactCommand: true,
         canOfferReviewCommand: true,
         canOfferForkCommand: true,
-        canOfferSideCommand: true,
         canOfferExportCommand: true,
       }),
     ).toContain("export");
@@ -307,7 +271,6 @@ describe("composerSlashCommands", () => {
         canOfferCompactCommand: true,
         canOfferReviewCommand: true,
         canOfferForkCommand: true,
-        canOfferSideCommand: true,
         canOfferExportCommand: false,
       }),
     ).not.toContain("export");
@@ -320,7 +283,6 @@ describe("composerSlashCommands", () => {
       canOfferCompactCommand: true,
       canOfferReviewCommand: true,
       canOfferForkCommand: true,
-      canOfferSideCommand: true,
       canOfferExportCommand: true,
       providerNativeCommandNames: ["export"],
     });
@@ -353,7 +315,6 @@ describe("composerSlashCommands", () => {
         canOfferCompactCommand: true,
         canOfferReviewCommand: true,
         canOfferForkCommand: true,
-        canOfferSideCommand: true,
         canOfferExportCommand: true,
       }),
     ).toContain("compact");
@@ -365,7 +326,6 @@ describe("composerSlashCommands", () => {
         canOfferCompactCommand: false,
         canOfferReviewCommand: true,
         canOfferForkCommand: true,
-        canOfferSideCommand: true,
         canOfferExportCommand: true,
       }),
     ).not.toContain("compact");
@@ -379,20 +339,9 @@ describe("composerSlashCommands", () => {
         canOfferCompactCommand: false,
         canOfferReviewCommand: true,
         canOfferForkCommand: true,
-        canOfferSideCommand: true,
         canOfferExportCommand: true,
       }),
-    ).toEqual([
-      "clear",
-      "model",
-      "review",
-      "fork",
-      "side",
-      "status",
-      "subagents",
-      "export",
-      "feedback",
-    ]);
+    ).toEqual(["clear", "model", "review", "fork", "status", "subagents", "export", "feedback"]);
   });
 
   it("treats claude aliases like /fork as provider-native collisions", () => {

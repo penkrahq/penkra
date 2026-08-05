@@ -1,350 +1,107 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  RIGHT_DOCK_PANE_KINDS,
-  SINGLETON_PANE_KINDS,
+  closePaneInState,
   createDefaultRightDockState,
-  isRightDockPaneKind,
   openPaneInState,
   sanitizeRightDockStateByThreadId,
   sanitizeRightDockThreadState,
+  setActivePaneInState,
   setDockOpenInState,
   updatePaneInState,
 } from "./rightDockStore.logic";
 
-describe("setDockOpenInState", () => {
-  it("can represent an open dock before its first pane is attached", () => {
-    expect(setDockOpenInState(createDefaultRightDockState(), true)).toEqual({
-      open: true,
-      panes: [],
-      activePaneId: null,
-    });
-  });
-});
+const APP_PANE = {
+  paneId: "tab-1",
+  kind: "app" as const,
+  appId: "com.penkra.explorer",
+  appSlug: "explorer",
+  appName: "Explorer",
+  appRoute: "/",
+  appStatus: "ready" as const,
+};
 
-describe("RIGHT_DOCK_PANE_KINDS (single source of truth)", () => {
-  it("lists every supported kind", () => {
-    expect([...RIGHT_DOCK_PANE_KINDS]).toEqual([
-      "app",
-      "diff",
-      "file",
-      "sidechat",
-      "git",
-      "pullRequest",
-      "profile",
-    ]);
-  });
-
-  it("derives singletons as every kind except the multi-instance ones", () => {
-    for (const kind of RIGHT_DOCK_PANE_KINDS) {
-      expect(SINGLETON_PANE_KINDS.has(kind)).toBe(
-        kind !== "app" && kind !== "sidechat" && kind !== "file",
-      );
-    }
-  });
-});
-
-describe("isRightDockPaneKind", () => {
-  it("accepts the known pane kinds", () => {
-    for (const kind of ["app", "diff", "file", "sidechat", "git", "pullRequest", "profile"]) {
-      expect(isRightDockPaneKind(kind)).toBe(true);
-    }
-  });
-
-  it("rejects unknown or malformed kinds", () => {
-    expect(isRightDockPaneKind("plan")).toBe(false);
-    expect(isRightDockPaneKind("instructions")).toBe(false);
-    expect(isRightDockPaneKind(undefined)).toBe(false);
-    expect(isRightDockPaneKind(null)).toBe(false);
-    expect(isRightDockPaneKind(42)).toBe(false);
-  });
-});
-
-describe("removed pane kinds", () => {
-  it("drops stale persisted terminal panes", () => {
-    const state = sanitizeRightDockThreadState({
-      open: true,
-      activePaneId: "terminal",
-      panes: [{ id: "terminal", kind: "terminal" }],
-    });
-
-    expect(state.panes).toEqual([]);
-    expect(state.activePaneId).toBeNull();
-    expect(state.open).toBe(false);
-  });
-
-  it("drops stale persisted instruction panes", () => {
-    const state = sanitizeRightDockThreadState({
-      open: true,
-      activePaneId: "instructions-1",
-      panes: [
-        {
-          id: "instructions-1",
-          kind: "instructions",
-          instructionsScope: "client-specific",
-          instructionsClientId: "client-1",
-          body: "must not survive",
-        },
-      ],
-    });
-    expect(state).toEqual(createDefaultRightDockState());
-  });
-});
-
-describe("pull request pane", () => {
-  it("reuses the singleton pane and updates its PR identity", () => {
-    const first = openPaneInState(createDefaultRightDockState(), {
-      paneId: "pr-1",
-      kind: "pullRequest",
-      pullRequestProjectId: "project-1" as never,
-      pullRequestRepository: "acme/one",
-      pullRequestNumber: 12,
-      pullRequestInitialTab: "summary",
-    });
-    const reopened = openPaneInState(first, {
-      paneId: "pr-2",
-      kind: "pullRequest",
-      pullRequestProjectId: "project-2" as never,
-      pullRequestRepository: "acme/two",
-      pullRequestNumber: 24,
-      pullRequestInitialTab: "code",
-    });
-    expect(reopened.panes).toHaveLength(1);
-    expect(reopened.activePaneId).toBe("pr-1");
-    expect(reopened.panes[0]?.pullRequestProjectId).toBe("project-2");
-    expect(reopened.panes[0]?.pullRequestRepository).toBe("acme/two");
-    expect(reopened.panes[0]?.pullRequestNumber).toBe(24);
-    expect(reopened.panes[0]?.pullRequestInitialTab).toBe("code");
-  });
-
-  it("drops a non-integer persisted pull request number", () => {
-    const sanitized = sanitizeRightDockThreadState({
-      open: true,
-      activePaneId: "pr-1",
-      panes: [
-        {
-          paneId: "ignored",
-          id: "pr-1",
-          kind: "pullRequest",
-          pullRequestNumber: 1.5,
-        },
-      ],
-    });
-    expect(sanitized.panes[0]?.pullRequestNumber).toBeNull();
-  });
-});
-
-describe("profile pane", () => {
-  it("reuses the singleton pane and switches to the clicked client", () => {
-    const first = openPaneInState(createDefaultRightDockState(), {
-      paneId: "profile-1",
-      kind: "profile",
-      profileProjectId: "penkra-client-one" as never,
-    });
-    const reopened = openPaneInState(first, {
-      paneId: "profile-2",
-      kind: "profile",
-      profileProjectId: "penkra-client-two" as never,
-    });
-
-    expect(reopened.panes).toHaveLength(1);
-    expect(reopened.activePaneId).toBe("profile-1");
-    expect(reopened.panes[0]?.profileProjectId).toBe("penkra-client-two");
-  });
-
-  it("keeps the selected client when persisted state is restored", () => {
-    const state = sanitizeRightDockThreadState({
-      open: true,
-      activePaneId: "profile-1",
-      panes: [
-        {
-          id: "profile-1",
-          kind: "profile",
-          profileProjectId: "penkra-client-one",
-        },
-      ],
-    });
-
-    expect(state.panes[0]?.profileProjectId).toBe("penkra-client-one");
-  });
-});
-
-describe("sanitizeRightDockThreadState", () => {
-  it("keeps recognized panes and a valid active tab", () => {
-    const state = sanitizeRightDockThreadState({
-      open: true,
-      activePaneId: "b",
-      panes: [
-        { id: "a", kind: "diff", threadId: null, diffTurnId: null, diffFilePath: null },
-        { id: "b", kind: "diff", threadId: null, diffTurnId: null, diffFilePath: null },
-      ],
-    });
-    expect(state.panes.map((pane) => pane.id)).toEqual(["a", "b"]);
-    expect(state.activePaneId).toBe("b");
-    expect(state.open).toBe(true);
-  });
-
-  it("drops panes with an unknown kind and repoints the active tab", () => {
-    const state = sanitizeRightDockThreadState({
-      open: true,
-      activePaneId: "legacy",
-      panes: [
-        { id: "legacy", kind: "scrabble", threadId: null, diffTurnId: null, diffFilePath: null },
-        { id: "keep", kind: "git", threadId: null, diffTurnId: null, diffFilePath: null },
-      ],
-    });
-    expect(state.panes.map((pane) => pane.id)).toEqual(["keep"]);
-    expect(state.activePaneId).toBe("keep");
-    expect(state.open).toBe(true);
-  });
-
-  it("forces the dock closed when no valid panes survive", () => {
-    const state = sanitizeRightDockThreadState({
-      open: true,
-      activePaneId: "legacy",
-      panes: [
-        { id: "legacy", kind: "scrabble", threadId: null, diffTurnId: null, diffFilePath: null },
-      ],
-    });
-    expect(state.panes).toEqual([]);
-    expect(state.activePaneId).toBeNull();
-    expect(state.open).toBe(false);
-  });
-
-  it("returns the default state for malformed input", () => {
-    expect(sanitizeRightDockThreadState(null)).toEqual({
-      open: false,
-      panes: [],
-      activePaneId: null,
-    });
-    expect(sanitizeRightDockThreadState({ panes: "nope" })).toEqual({
-      open: false,
-      panes: [],
-      activePaneId: null,
-    });
-  });
-});
-
-describe("file panes", () => {
-  it("opens a file pane carrying the file path", () => {
-    const state = openPaneInState(createDefaultRightDockState(), {
-      paneId: "f1",
-      kind: "file",
-      filePath: "src/page.tsx",
-    });
-    expect(state.open).toBe(true);
-    expect(state.activePaneId).toBe("f1");
-    expect(state.panes).toHaveLength(1);
-    expect(state.panes[0]?.filePath).toBe("src/page.tsx");
-  });
-
-  it("opens another file in a new tab instead of swapping the existing pane", () => {
-    const first = openPaneInState(createDefaultRightDockState(), {
-      paneId: "f1",
-      kind: "file",
-      filePath: "src/page.tsx",
-    });
+describe("App tab state", () => {
+  it("opens, activates, updates, and closes App tabs", () => {
+    const first = openPaneInState(createDefaultRightDockState(), APP_PANE);
     const second = openPaneInState(first, {
-      paneId: "f2",
-      kind: "file",
-      filePath: "README.md",
+      ...APP_PANE,
+      paneId: "tab-2",
+      appId: "com.penkra.browser",
+      appSlug: "browser",
+      appName: "Browser",
     });
-    expect(second.panes).toHaveLength(2);
-    expect(second.panes[0]?.filePath).toBe("src/page.tsx");
-    expect(second.panes[1]?.filePath).toBe("README.md");
-    expect(second.activePaneId).toBe("f2");
+    expect(second.open).toBe(true);
+    expect(second.activePaneId).toBe("tab-2");
+    expect(second.panes.map((pane) => pane.appSlug)).toEqual(["explorer", "browser"]);
+
+    const activated = setActivePaneInState(second, "tab-1");
+    const updated = updatePaneInState(activated, "tab-1", {
+      appRoute: "/files/readme",
+      appStatus: "loading",
+    });
+    expect(updated.panes[0]?.appRoute).toBe("/files/readme");
+    expect(updated.panes[0]?.appStatus).toBe("loading");
+
+    const closed = closePaneInState(updated, "tab-1");
+    expect(closed.activePaneId).toBe("tab-2");
+    expect(closed.panes).toHaveLength(1);
   });
 
-  it("focuses the existing tab when the same file is opened again", () => {
-    const first = openPaneInState(createDefaultRightDockState(), {
-      paneId: "f1",
-      kind: "file",
-      filePath: "src/page.tsx",
-    });
-    const second = openPaneInState(first, {
-      paneId: "f2",
-      kind: "file",
-      filePath: "README.md",
-    });
-    const reopened = openPaneInState(second, {
-      paneId: "f3",
-      kind: "file",
-      filePath: "src/page.tsx",
-    });
-    expect(reopened.panes).toHaveLength(2);
-    expect(reopened.activePaneId).toBe("f1");
-  });
-
-  it("reuses an existing empty file pane on a bare open", () => {
-    const first = openPaneInState(createDefaultRightDockState(), {
-      paneId: "f1",
-      kind: "file",
-    });
-    const reopened = openPaneInState({ ...first, open: false }, { paneId: "f2", kind: "file" });
-    expect(reopened.open).toBe(true);
-    expect(reopened.panes).toHaveLength(1);
-    expect(reopened.activePaneId).toBe("f1");
-  });
-
-  it("adds a new empty tab on a bare open when every file pane is occupied", () => {
-    const first = openPaneInState(createDefaultRightDockState(), {
-      paneId: "f1",
-      kind: "file",
-      filePath: "src/page.tsx",
-    });
-    const second = openPaneInState(first, { paneId: "f2", kind: "file" });
-    expect(second.panes).toHaveLength(2);
-    expect(second.panes[1]?.filePath).toBeNull();
-    expect(second.activePaneId).toBe("f2");
-  });
-
-  it("updates the file path through updatePaneInState", () => {
-    const state = openPaneInState(createDefaultRightDockState(), {
-      paneId: "f1",
-      kind: "file",
-      filePath: "src/page.tsx",
-    });
-    const updated = updatePaneInState(state, "f1", { filePath: "src/other.tsx" });
-    expect(updated.panes[0]?.filePath).toBe("src/other.tsx");
-    expect(updatePaneInState(updated, "f1", { filePath: "src/other.tsx" })).toBe(updated);
-  });
-
-  it("sanitizes persisted file panes, preserving the file path", () => {
-    const state = sanitizeRightDockThreadState({
-      open: true,
-      activePaneId: "f1",
-      panes: [
-        {
-          id: "f1",
-          kind: "file",
-          threadId: null,
-          diffTurnId: null,
-          diffFilePath: null,
-          filePath: "src/page.tsx",
-        },
-      ],
-    });
-    expect(state.panes[0]?.kind).toBe("file");
-    expect(state.panes[0]?.filePath).toBe("src/page.tsx");
+  it("does not open an empty dock", () => {
+    expect(setDockOpenInState(createDefaultRightDockState(), true)).toEqual(
+      createDefaultRightDockState(),
+    );
   });
 });
 
-describe("sanitizeRightDockStateByThreadId", () => {
-  it("sanitizes every thread entry and skips undefined values", () => {
+describe("persisted App tabs", () => {
+  it("restores only complete App records", () => {
+    const state = sanitizeRightDockThreadState({
+      open: true,
+      activePaneId: "valid",
+      panes: [
+        {
+          id: "valid",
+          kind: "app",
+          appId: "com.penkra.explorer",
+          appSlug: "explorer",
+          appName: "Explorer",
+          appRoute: "/",
+          appStatus: "ready",
+        },
+        { id: "unsupported", kind: "unknown" },
+      ],
+    });
+    expect(state.panes.map((pane) => pane.id)).toEqual(["valid"]);
+    expect(state.activePaneId).toBe("valid");
+    expect(state.open).toBe(true);
+  });
+
+  it("closes malformed or empty state", () => {
+    expect(sanitizeRightDockThreadState({ open: true, panes: [{ kind: "app" }] })).toEqual(
+      createDefaultRightDockState(),
+    );
+  });
+
+  it("sanitizes the per-Thread map", () => {
     const result = sanitizeRightDockStateByThreadId({
-      t1: {
+      thread: {
         open: true,
-        activePaneId: "x",
-        panes: [{ id: "x", kind: "diff", threadId: null, diffTurnId: null, diffFilePath: null }],
+        activePaneId: "app",
+        panes: [
+          {
+            id: "app",
+            kind: "app",
+            appId: "com.penkra.apps",
+            appSlug: "apps",
+            appName: "Apps",
+            appRoute: "/",
+            appStatus: "ready",
+          },
+        ],
       },
-      t2: undefined,
     });
-    expect(Object.keys(result)).toEqual(["t1"]);
-    expect(result.t1?.panes).toHaveLength(1);
-  });
-
-  it("returns an empty map for non-object input", () => {
-    expect(sanitizeRightDockStateByThreadId(null)).toEqual({});
-    expect(sanitizeRightDockStateByThreadId("oops")).toEqual({});
+    expect(result.thread?.panes[0]?.appSlug).toBe("apps");
   });
 });

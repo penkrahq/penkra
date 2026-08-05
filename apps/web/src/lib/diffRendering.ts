@@ -22,14 +22,12 @@ export function resolveDiffThemeName(theme: "light" | "dark"): DiffThemeName {
 
 // The `unsafeCSS` payload is identical per theme and only ever has two values,
 // so cache it instead of rebuilding the (large) template string per file/render.
-const diffPanelUnsafeCssCache = new Map<"light" | "dark", string>();
+const fileDiffUnsafeCssCache = new Map<"light" | "dark", string>();
 
 // Themed CSS injected into the @pierre/diffs shadow markup so the diff viewer
 // adopts the app's chat code font and themed addition/deletion backgrounds.
-// Shared by every diff surface (turn diffs, repo diffs, the git pane) so they
-// render consistently — previously the git pane omitted this entirely.
-export function buildDiffPanelUnsafeCSS(theme: "light" | "dark"): string {
-  const cached = diffPanelUnsafeCssCache.get(theme);
+export function buildFileDiffUnsafeCSS(theme: "light" | "dark"): string {
+  const cached = fileDiffUnsafeCssCache.get(theme);
   if (cached) {
     return cached;
   }
@@ -175,7 +173,7 @@ export function buildDiffPanelUnsafeCSS(theme: "light" | "dark"): string {
   font-variant-numeric: tabular-nums !important;
 }
 `;
-  diffPanelUnsafeCssCache.set(theme, css);
+  fileDiffUnsafeCssCache.set(theme, css);
   return css;
 }
 

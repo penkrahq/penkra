@@ -175,12 +175,6 @@ const COMPOSER_SLASH_COMMAND_DEFINITIONS: Record<
     description: "Fork this thread into local or a new worktree",
     source: "app",
   },
-  side: {
-    command: "side",
-    label: "/side",
-    description: "Open a guarded Side from this thread",
-    source: "app",
-  },
   status: {
     command: "status",
     label: "/status",
@@ -277,26 +271,6 @@ export function canOfferForkSlashCommand(input: {
   );
 }
 
-export function canOfferSideSlashCommand(input: {
-  prompt: string;
-  imageCount: number;
-  terminalContextCount: number;
-  selectedSkillCount: number;
-  selectedMentionCount: number;
-  interactionMode: "default" | "plan";
-  isSidechat: boolean;
-}): boolean {
-  return (
-    !hasMeaningfulComposerText(input.prompt) &&
-    input.imageCount === 0 &&
-    input.terminalContextCount === 0 &&
-    input.selectedSkillCount === 0 &&
-    input.selectedMentionCount === 0 &&
-    input.interactionMode === "default" &&
-    !input.isSidechat
-  );
-}
-
 export function canOfferReviewSlashCommand(input: {
   prompt: string;
   imageCount: number;
@@ -375,7 +349,6 @@ export function getAvailableComposerSlashCommands(input: {
   canOfferCompactCommand: boolean;
   canOfferReviewCommand: boolean;
   canOfferForkCommand: boolean;
-  canOfferSideCommand: boolean;
   canOfferExportCommand: boolean;
   providerNativeCommandNames?: ReadonlyArray<string>;
 }): ComposerSlashCommand[] {
@@ -399,18 +372,14 @@ export function getAvailableComposerSlashCommands(input: {
           ...(input.supportsFastSlashCommand ? (["fast"] as const) : []),
           ...(input.canOfferReviewCommand ? (["review"] as const) : []),
           ...(input.canOfferForkCommand ? (["fork"] as const) : []),
-          ...(input.canOfferSideCommand ? (["side"] as const) : []),
           "status",
           "subagents",
           ...(input.canOfferExportCommand ? (["export"] as const) : []),
           "feedback",
         ]
       : [
-          // Claude owns most slash-command UX natively; sidechat remains app-level because it
-          // creates a Penkra split/context clone before the provider sees the first turn.
-          // /export is app-level too — Penkra owns the thread transcript, so the download
+          // /export is app-level — Penkra owns the thread transcript, so the download
           // happens in the app rather than being forwarded to Claude's native /export.
-          ...(input.canOfferSideCommand ? (["side"] as const) : []),
           ...(input.canOfferExportCommand ? (["export"] as const) : []),
           "feedback",
         ];

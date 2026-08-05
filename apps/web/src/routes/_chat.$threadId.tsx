@@ -16,7 +16,7 @@ import {
   waitForEmptyRouteRestoreFallbackDelay,
 } from "../chatRouteRecovery";
 import { useComposerDraftStore } from "../composerDraftStore";
-import { parseDiffRouteSearch, stripDiffSearchParams } from "../diffRouteSearch";
+import { parseChatRouteSearch } from "../chatRouteSearch";
 import { readNativeApi } from "../nativeApi";
 import { isSplitRoute } from "../splitViewRoute";
 import { selectSplitView, useSplitViewStore } from "../splitViewStore";
@@ -140,10 +140,7 @@ function ChatThreadRouteView() {
           to: "/$threadId",
           params: { threadId },
           replace: true,
-          search: (previous) => ({
-            ...stripDiffSearchParams(previous),
-            splitViewId: undefined,
-          }),
+          search: () => ({}),
         });
       }
       return;
@@ -184,10 +181,10 @@ function ChatThreadRouteView() {
     return null;
   }
 
-  return <SingleChatSurface threadId={threadId} search={search} projectId={activeProjectId} />;
+  return <SingleChatSurface threadId={threadId} projectId={activeProjectId} />;
 }
 
 export const Route = createFileRoute("/_chat/$threadId")({
-  validateSearch: (search) => parseDiffRouteSearch(search),
+  validateSearch: (search) => parseChatRouteSearch(search),
   component: ChatThreadRouteView,
 });

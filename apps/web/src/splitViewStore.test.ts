@@ -1,8 +1,8 @@
 // FILE: splitViewStore.test.ts
 // Purpose: Verify tree-aware split view state operations: drop creation, perpendicular subdivision,
-// pane focus/ratio mutations, deleted-thread collapse semantics, and v1 -> v2 persisted-state migration.
+// pane focus/ratio mutations and deleted-thread collapse semantics.
 
-import { ContainerId, ThreadId, TurnId } from "@penkra/contracts";
+import { ContainerId, ThreadId } from "@penkra/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { collectLeaves, findParentSplitNode } from "./splitView.logic";
@@ -22,7 +22,6 @@ const THREAD_A = ThreadId.makeUnsafe("thread-a");
 const THREAD_B = ThreadId.makeUnsafe("thread-b");
 const THREAD_C = ThreadId.makeUnsafe("thread-c");
 const THREAD_D = ThreadId.makeUnsafe("thread-d");
-const TURN_ID = TurnId.makeUnsafe("turn-1");
 const ORIGINAL_LOCAL_STORAGE = globalThis.localStorage;
 
 function createMemoryStorage(): Storage {
@@ -104,7 +103,7 @@ describe("splitViewStore", () => {
     expect(splitView.focusedPaneId).toBe(root.first.id);
   });
 
-  it("keeps writing split views to the Penkra v1 storage key so persisted state can migrate", async () => {
+  it("writes split Threads only to the current storage key", async () => {
     vi.resetModules();
     globalThis.localStorage = createMemoryStorage();
     const { useSplitViewStore: freshSplitViewStore } = await import("./splitViewStore");
@@ -114,10 +113,10 @@ describe("splitViewStore", () => {
       ownerProjectId: PROJECT_ID,
     });
 
-    const persisted = globalThis.localStorage.getItem("penkra:split-view-state:v1");
+    const persisted = globalThis.localStorage.getItem("penkra:split-threads:v1");
     expect(persisted).not.toBeNull();
-    expect(globalThis.localStorage.getItem("penkra:split-view-state:v2")).toBeNull();
-    expect(JSON.parse(persisted ?? "{}")).toMatchObject({ version: 2 });
+    expect(globalThis.localStorage.getItem("penkra:split-view-state:v1")).toBeNull();
+    expect(JSON.parse(persisted ?? "{}")).toHaveProperty("state.splitViewsById");
   });
 
   it("replaces an existing source split when creating a drop split for the same source", () => {
@@ -143,58 +142,6 @@ describe("splitViewStore", () => {
       [THREAD_A, THREAD_B].toSorted(),
     );
     expect(findRootSplitNode(snapshot(firstSplitId)).direction).toBe("vertical");
-  });
-
-  it("migrates legacy v1 flat split views from the stable storage key", async () => {
-    vi.resetModules();
-    globalThis.localStorage = createMemoryStorage();
-    globalThis.localStorage.setItem(
-      "penkra:split-view-state:v1",
-      JSON.stringify({
-        state: {
-          splitViewsById: {
-            "split-legacy": {
-              id: "split-legacy",
-              sourceThreadId: THREAD_A,
-              ownerProjectId: PROJECT_ID,
-              leftThreadId: THREAD_A,
-              rightThreadId: THREAD_B,
-              focusedPane: "right",
-              ratio: 0.6,
-              leftPanel: {
-                panel: null,
-                diffTurnId: null,
-                diffFilePath: null,
-                hasOpenedPanel: false,
-                lastOpenPanel: "browser",
-              },
-              rightPanel: {
-                panel: "diff",
-                diffTurnId: TURN_ID,
-                diffFilePath: "src/example.ts",
-                hasOpenedPanel: true,
-                lastOpenPanel: "diff",
-              },
-              createdAt: "2026-04-01T00:00:00.000Z",
-              updatedAt: "2026-04-01T00:00:00.000Z",
-            },
-          },
-        },
-        version: 0,
-      }),
-    );
-    const {
-      resolveSplitViewFocusedThreadId: resolveFreshFocusedThreadId,
-      resolveSplitViewThreadIds: resolveFreshThreadIds,
-      useSplitViewStore: freshSplitViewStore,
-    } = await import("./splitViewStore");
-
-    const migrated = freshSplitViewStore.getState().splitViewsById["split-legacy"];
-    expect(migrated).toBeDefined();
-    if (!migrated) return;
-    expect(migrated.root.kind).toBe("split");
-    expect(resolveFreshThreadIds(migrated).toSorted()).toEqual([THREAD_A, THREAD_B].toSorted());
-    expect(resolveFreshFocusedThreadId(migrated)).toBe(THREAD_B);
   });
 
   it("subdivides a target leaf perpendicular to its parent on dropThreadOnPane", () => {
@@ -488,15 +435,6 @@ describe("splitViewStore", () => {
     });
     const firstEmptyId = findEmptyLeafId(snapshot(firstSplitId));
     store.replacePaneThread(firstSplitId, firstEmptyId, THREAD_B);
-    const firstThreadAPaneId = findLeafIdForThread(snapshot(firstSplitId), THREAD_A);
-    store.setPanePanelState(firstSplitId, firstThreadAPaneId, {
-      panel: "diff",
-      diffTurnId: TURN_ID,
-      diffFilePath: "src/left.ts",
-      hasOpenedPanel: true,
-      lastOpenPanel: "diff",
-    });
-
     const secondSplitId = store.createFromThread({
       sourceThreadId: THREAD_C,
       ownerProjectId: PROJECT_ID,

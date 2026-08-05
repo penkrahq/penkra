@@ -1,5 +1,5 @@
 // FILE: rightDockStore.ts
-// Purpose: Persist the tabbed right-dock state (open panes + active tab) per host thread.
+// Purpose: Persist App-tab state per host Thread.
 // Layer: UI state store
 // Exports: dock store hook, per-thread selector, and stable default snapshot.
 
@@ -7,7 +7,6 @@ import type { ThreadId } from "@penkra/contracts";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
-import { randomUUID } from "./lib/utils";
 import {
   type OpenPaneInput,
   type RightDockPane,
@@ -18,45 +17,21 @@ import {
   sanitizeRightDockStateByThreadId,
   setActivePaneInState,
   setDockOpenInState,
-  toggleSingletonPaneInState,
   updatePaneInState,
 } from "./rightDockStore.logic";
 
-const RIGHT_DOCK_STORAGE_KEY = "penkra:right-dock-state:v1";
+const RIGHT_DOCK_STORAGE_KEY = "penkra:app-tabs-by-thread:v1";
 
 interface RightDockStore {
   dockStateByThreadId: Record<string, RightDockThreadState | undefined>;
-  openPane: (
-    threadId: ThreadId,
-    input: Omit<OpenPaneInput, "paneId"> & { paneId?: string },
-  ) => void;
-  toggleSingletonPane: (
-    threadId: ThreadId,
-    input: Omit<OpenPaneInput, "paneId"> & { paneId?: string },
-  ) => void;
+  openPane: (threadId: ThreadId, input: OpenPaneInput) => void;
   closePane: (threadId: ThreadId, paneId: string) => void;
   setActivePane: (threadId: ThreadId, paneId: string) => void;
   setDockOpen: (threadId: ThreadId, open: boolean) => void;
   updatePane: (
     threadId: ThreadId,
     paneId: string,
-    patch: Partial<
-      Pick<
-        RightDockPane,
-        | "diffTurnId"
-        | "diffFilePath"
-        | "filePath"
-        | "threadId"
-        | "pullRequestProjectId"
-        | "pullRequestRepository"
-        | "pullRequestNumber"
-        | "pullRequestInitialTab"
-        | "profileProjectId"
-        | "appIconDataUrl"
-        | "appRoute"
-        | "appStatus"
-      >
-    >,
+    patch: Partial<Pick<RightDockPane, "appIconDataUrl" | "appRoute" | "appStatus">>,
   ) => void;
   clearThreadDockState: (threadId: ThreadId) => void;
 }
@@ -93,13 +68,7 @@ export const useRightDockStore = create<RightDockStore>()(
     (set) => ({
       dockStateByThreadId: {},
       openPane: (threadId, input) =>
-        commit(set, threadId, (state) =>
-          openPaneInState(state, { ...input, paneId: input.paneId ?? randomUUID() }),
-        ),
-      toggleSingletonPane: (threadId, input) =>
-        commit(set, threadId, (state) =>
-          toggleSingletonPaneInState(state, { ...input, paneId: input.paneId ?? randomUUID() }),
-        ),
+        commit(set, threadId, (state) => openPaneInState(state, input)),
       closePane: (threadId, paneId) =>
         commit(set, threadId, (state) => closePaneInState(state, paneId)),
       setActivePane: (threadId, paneId) =>
@@ -134,8 +103,6 @@ export const useRightDockStore = create<RightDockStore>()(
           ]),
         ),
       }),
-      // Validate persisted panes on rehydrate so a stale/unknown pane kind from
-      // an older app version can never crash the dock during render.
       merge: (persisted, current) => ({
         ...current,
         dockStateByThreadId: sanitizeRightDockStateByThreadId(

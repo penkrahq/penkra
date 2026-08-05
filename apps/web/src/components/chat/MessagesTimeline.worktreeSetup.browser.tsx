@@ -79,7 +79,6 @@ function WorktreeSetupTimeline() {
           nowIso="2026-03-17T19:12:30.000Z"
           expandedWorkGroups={{}}
           onToggleWorkGroup={() => {}}
-          onOpenTurnDiff={() => {}}
           revertTurnCountByUserMessageId={new Map()}
           onRevertUserMessage={() => {}}
           isRevertingCheckpoint={false}
@@ -108,7 +107,6 @@ function SetupActionTimeline() {
         nowIso="2026-03-17T19:12:30.000Z"
         expandedWorkGroups={{}}
         onToggleWorkGroup={() => {}}
-        onOpenTurnDiff={() => {}}
         revertTurnCountByUserMessageId={new Map()}
         onRevertUserMessage={() => {}}
         isRevertingCheckpoint={false}
@@ -136,7 +134,6 @@ function FailedSetupWithoutMessagesTimeline() {
         nowIso="2026-03-17T19:12:30.000Z"
         expandedWorkGroups={{}}
         onToggleWorkGroup={() => {}}
-        onOpenTurnDiff={() => {}}
         revertTurnCountByUserMessageId={new Map()}
         onRevertUserMessage={() => {}}
         isRevertingCheckpoint={false}

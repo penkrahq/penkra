@@ -71,7 +71,7 @@ export const OPENCODE_CLI_SPEC: OpenCodeCompatibleCliSpec = {
   defaultBinaryPath: "opencode",
   displayName: "OpenCode",
   serverReadyPrefix: "opencode server listening",
-  managedServerArgs: ["--pure"],
+  managedServerArgs: [],
   configContentEnvVar: "OPENCODE_CONFIG_CONTENT",
   dataDirectoryName: "opencode",
   serverAuthUsername: "opencode",

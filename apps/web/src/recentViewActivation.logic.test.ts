@@ -20,14 +20,6 @@ function makeSplitView(input: {
 }): SplitView {
   const emptyPaneId = `${input.id}-empty`;
   const threadPaneId = `${input.id}-thread`;
-  const panel = {
-    panel: null,
-    diffTurnId: null,
-    diffFilePath: null,
-    hasOpenedPanel: false,
-    lastOpenPanel: "browser" as const,
-  };
-
   return {
     id: input.id,
     sourceThreadId: input.threadId,
@@ -40,8 +32,8 @@ function makeSplitView(input: {
       id: `${input.id}-root`,
       direction: "horizontal",
       ratio: 0.5,
-      first: { kind: "leaf", id: emptyPaneId, threadId: null, panel },
-      second: { kind: "leaf", id: threadPaneId, threadId: input.threadId, panel },
+      first: { kind: "leaf", id: emptyPaneId, threadId: null },
+      second: { kind: "leaf", id: threadPaneId, threadId: input.threadId },
     },
   };
 }

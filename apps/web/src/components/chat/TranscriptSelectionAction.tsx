@@ -12,7 +12,7 @@ interface TranscriptSelectionActionProps {
   top: number;
   placement: "top" | "bottom";
   // Highlight/underline only make sense for transcript text; read-only code
-  // surfaces (file preview, diff view) omit them and get an add-only toolbar.
+  // surfaces without thread context omit them and get an add-only toolbar.
   onHighlight?: (() => void) | undefined;
   onUnderline?: (() => void) | undefined;
   onAddToChat: () => void;

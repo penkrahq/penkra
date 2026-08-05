@@ -42,17 +42,17 @@ describe("Pi native Penkra gateway tools", () => {
             ? {
                 tools: [
                   {
-                    name: "penkra_list_threads",
-                    description: "List Penkra threads.",
+                    name: "penkra_exec_command",
+                    description: "Execute one registered Penkra command.",
                     inputSchema: {
                       type: "object",
-                      properties: { limit: { type: "number" } },
+                      properties: { command: { type: "string" } },
                     },
                   },
                 ],
               }
             : {
-                content: [{ type: "text", text: body.params.arguments.owner }],
+                content: [{ type: "text", text: body.params.arguments.command }],
               },
       });
     };
@@ -70,22 +70,42 @@ describe("Pi native Penkra gateway tools", () => {
 
     expect(first[0]?.parameters).toEqual({
       type: "object",
-      properties: { limit: { type: "number" } },
+      properties: { command: { type: "string" } },
     });
     await expect(
-      first[0]?.execute("call-a", { owner: "thread-a" }, undefined, undefined, {} as never),
-    ).resolves.toMatchObject({ content: [{ type: "text", text: "thread-a" }] });
+      first[0]?.execute(
+        "call-a",
+        { command: "penkra threads read --thread-id thread-a" },
+        undefined,
+        undefined,
+        {} as never,
+      ),
+    ).resolves.toMatchObject({
+      content: [{ type: "text", text: "penkra threads read --thread-id thread-a" }],
+    });
     await expect(
-      second[0]?.execute("call-b", { owner: "thread-b" }, undefined, undefined, {} as never),
-    ).resolves.toMatchObject({ content: [{ type: "text", text: "thread-b" }] });
+      second[0]?.execute(
+        "call-b",
+        { command: "penkra threads read --thread-id thread-b" },
+        undefined,
+        undefined,
+        {} as never,
+      ),
+    ).resolves.toMatchObject({
+      content: [{ type: "text", text: "penkra threads read --thread-id thread-b" }],
+    });
     expect(requests.map((request) => request.token)).toEqual([
       "Bearer token-a",
       "Bearer token-b",
       "Bearer token-a",
       "Bearer token-b",
     ]);
-    expect(requests[2]?.body.params.arguments).toEqual({ owner: "thread-a" });
-    expect(requests[3]?.body.params.arguments).toEqual({ owner: "thread-b" });
+    expect(requests[2]?.body.params.arguments).toEqual({
+      command: "penkra threads read --thread-id thread-a",
+    });
+    expect(requests[3]?.body.params.arguments).toEqual({
+      command: "penkra threads read --thread-id thread-b",
+    });
   });
 
   it("forwards Pi tool cancellation to the in-flight MCP request", async () => {
@@ -99,9 +119,12 @@ describe("Pi native Penkra gateway tools", () => {
           result: {
             tools: [
               {
-                name: "penkra_create_threads",
-                description: "Create Penkra threads.",
-                inputSchema: { type: "object", properties: {} },
+                name: "penkra_exec_command",
+                description: "Execute one registered Penkra command.",
+                inputSchema: {
+                  type: "object",
+                  properties: { command: { type: "string" } },
+                },
               },
             ],
           },

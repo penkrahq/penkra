@@ -12,7 +12,7 @@ inspect itself or another App.
 
 ## Discovery and targeting
 
-Run all commands through the single `penkra_exec` harness tool:
+Run all commands through the single `penkra_exec_command` harness tool:
 
 ```text
 penkra tabs current
@@ -37,7 +37,7 @@ than controls. Large results use the host artifact boundary instead of oversized
 
 `screenshot` returns an image result of the tab's current observable document. For an ordinary App
 that is its renderer; for Browser it is the active hosted website. It is an image-capable
-`penkra_exec` result, not a filesystem path that the model must rediscover.
+`penkra_exec_command` result, not a filesystem path that the model must rediscover.
 
 References belong to one tab and one document/navigation generation. A navigation, reload, App
 replacement, or tab close invalidates them. Penkra returns a typed stale-reference or closed-tab
@@ -99,8 +99,11 @@ DOM scraping.
   instructions.
 - Provider adapters receive the same commands, descriptions, results, typed errors, and conformance
   tests. Provider-native browser or connector terminology is never presented as a Penkra feature.
-- Codex, Claude Agent, and OpenCode isolate provider-bundled integration surfaces in their Penkra
-  runtime: Codex disables provider plugins in its private overlay, Claude accepts only Penkra's
-  explicitly supplied MCP gateway, and OpenCode starts its managed server in `--pure` mode.
-  Standalone Skills remain separate; connectors become available only through a Penkra-owned,
-  provider-neutral bridge.
+- Managed providers exclude external/user/project/provider-bundled MCP servers and provider
+  connector catalogs. The private Penkra Agent Gateway is the only MCP transport Penkra injects;
+  it exposes the same `penkra_exec_command` contract and is invisible product infrastructure.
+- Approved local artifact tools, native Computer Use, and control of the external Chrome
+  application may remain literal provider capabilities. They are never presented as Penkra Apps or
+  Connectors and cannot silently replace this observation boundary.
+- Standalone Skills remain instructions rather than capabilities. Native Connectors become
+  available only through Penkra's trusted, provider-neutral Connector catalog.

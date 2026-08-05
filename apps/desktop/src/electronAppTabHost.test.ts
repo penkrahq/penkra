@@ -31,6 +31,8 @@ const electron = vi.hoisted(() => {
         insertCSS: vi.fn(async () => "theme-css"),
         removeInsertedCSS: vi.fn(async () => undefined),
         focus: vi.fn(),
+        getZoomFactor: vi.fn(() => 1.2),
+        setZoomFactor: vi.fn(),
         isDestroyed: vi.fn(() => false),
         close: vi.fn(),
         listeners,
@@ -103,7 +105,7 @@ describe("ElectronAppTabHost", () => {
         ({
           isDestroyed: () => false,
           contentView: { addChildView, removeChildView },
-          webContents: { focus: focusShell },
+          webContents: { focus: focusShell, getZoomFactor: () => 1.2 },
         }) as never,
       installations: {
         snapshot: () => ({
@@ -141,6 +143,10 @@ describe("ElectronAppTabHost", () => {
     );
     markReady?.();
     const descriptor = await opening;
+
+    expect(electron.views[0]?.webContents.setZoomFactor).toHaveBeenCalledWith(1.2);
+    host.setZoomFactor(0.8);
+    expect(electron.views[0]?.webContents.setZoomFactor).toHaveBeenLastCalledWith(0.8);
 
     expect(descriptor).toMatchObject({
       appId: app.appId,

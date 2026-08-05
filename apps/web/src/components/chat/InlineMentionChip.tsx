@@ -5,14 +5,14 @@
 //          composer mention. Supports a static (span) and an interactive
 //          (anchor) variant so the same UI can stay clickable. File-like chips
 //          without an explicit handler become openable automatically when a
-//          surface provides a workspace file opener (right-dock file pane).
+//          Thread supplies its configured resource handler.
 // Layer: UI shared component
 // Exports: InlineMentionChip
 
 import { type MouseEvent, type ReactNode } from "react";
 import type { ProviderMentionReference } from "@penkra/contracts";
 import { basenameOfPath, pathLooksLikeKnownFile } from "~/file-icons";
-import { openWorkspaceFileReference, useWorkspaceFileOpener } from "~/lib/workspaceFileOpener";
+import { openThreadFileReference, useThreadResourceOpener } from "~/lib/threadResourceOpener";
 import {
   COMPOSER_INLINE_MENTION_CHIP_CLASS_NAME,
   COMPOSER_INLINE_MENTION_CHIP_INTERACTIVE_CLASS_NAME,
@@ -36,7 +36,7 @@ interface InlineMentionChipProps {
 }
 
 export function InlineMentionChip(props: InlineMentionChipProps) {
-  const opener = useWorkspaceFileOpener();
+  const opener = useThreadResourceOpener();
   const resolvedKind = resolveMentionChipKind(props.path, {
     ...(props.kind ? { kind: props.kind } : {}),
     ...(props.mentionReferences ? { mentionReferences: props.mentionReferences } : {}),
@@ -75,14 +75,10 @@ export function InlineMentionChip(props: InlineMentionChipProps) {
         ? (event: MouseEvent<HTMLAnchorElement>) => {
             event.preventDefault();
             event.stopPropagation();
-            openWorkspaceFileReference(opener, props.path);
+            openThreadFileReference(opener, props.path);
           }
         : undefined);
-    const handleHoverPrefetch =
-      props.onHoverPrefetch ??
-      (contextOpenable && opener?.prefetchFile
-        ? () => opener.prefetchFile?.(props.path)
-        : undefined);
+    const handleHoverPrefetch = props.onHoverPrefetch;
     return (
       <a
         className={COMPOSER_INLINE_MENTION_CHIP_INTERACTIVE_CLASS_NAME}

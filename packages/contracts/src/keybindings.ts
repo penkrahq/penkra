@@ -35,8 +35,6 @@ const STATIC_KEYBINDING_COMMANDS = [
   "terminal.workspace.closeActive",
   "terminal.workspace.terminal",
   "terminal.workspace.chat",
-  "browser.toggle",
-  "diff.toggle",
   "composer.focus.toggle",
   "modelPicker.toggle",
   "model.next",

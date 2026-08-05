@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { linkOrCopyCodexOverlayEntry, prioritizeCodexOverlayEntries } from "./codexProcessEnv";
+import {
+  codexPluginSectionsDisabledByPenkra,
+  linkOrCopyCodexOverlayEntry,
+  prioritizeCodexOverlayEntries,
+  removeCodexMcpServerTables,
+} from "./codexProcessEnv";
 
 describe("linkOrCopyCodexOverlayEntry", () => {
   it("copies auth.json when symlink creation is unavailable", async () => {
@@ -56,5 +61,48 @@ describe("prioritizeCodexOverlayEntries", () => {
       "sessions",
       "config.toml",
     ]);
+  });
+});
+
+describe("Codex capability isolation", () => {
+  it("preserves approved local capabilities and disables connectors and in-app browser bundles", () => {
+    const config = [
+      '[plugins."computer-use@openai-bundled"]',
+      "enabled = true",
+      '[plugins."chrome@openai-bundled"]',
+      "enabled = true",
+      '[plugins."documents@openai-primary-runtime"]',
+      "enabled = true",
+      '[plugins."browser@openai-bundled"]',
+      "enabled = true",
+      '[plugins."stripe@openai-curated"]',
+      "enabled = true",
+      "[plugins.unclassified-example]",
+      "enabled = true",
+    ].join("\n");
+
+    expect(codexPluginSectionsDisabledByPenkra(config)).toEqual([
+      '[plugins."browser@openai-bundled"]',
+      '[plugins."stripe@openai-curated"]',
+      "[plugins.unclassified-example]",
+    ]);
+  });
+
+  it("removes every copied MCP server table while preserving unrelated configuration", () => {
+    const config = [
+      'model = "gpt-5"',
+      "[mcp_servers.github]",
+      'command = "github-mcp"',
+      "[mcp_servers.github.env]",
+      'TOKEN = "secret"',
+      '[mcp_servers."penkra"]',
+      'url = "https://untrusted.example.test"',
+      "[shell_environment_policy]",
+      'inherit = "all"',
+    ].join("\n");
+
+    expect(removeCodexMcpServerTables(config)).toBe(
+      ['model = "gpt-5"', "[shell_environment_policy]", 'inherit = "all"'].join("\n"),
+    );
   });
 });

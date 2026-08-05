@@ -9,6 +9,19 @@ import { describe, expect, it } from "vitest";
 import { ProviderIcon, PROVIDER_ICON_COMPONENT_BY_PROVIDER } from "./ProviderIcon";
 
 describe("ProviderIcon", () => {
+  it("uses the canonical Codex and Claude brand icons", () => {
+    const markup = renderToStaticMarkup(
+      <>
+        <ProviderIcon provider="codex" className="size-3" />
+        <ProviderIcon provider="claudeAgent" className="size-3" />
+      </>,
+    );
+
+    expect(markup).toContain("/central-icons-reversed/openai-codex.svg");
+    expect(markup).toContain("/central-icons-reversed/claudeai.svg");
+    expect(markup).not.toContain("tabler-icon-brand-openai");
+  });
+
   it("uses Antigravity branding", () => {
     expect(PROVIDER_ICON_COMPONENT_BY_PROVIDER).not.toHaveProperty("gemini");
 

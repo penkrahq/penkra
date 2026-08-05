@@ -2,7 +2,7 @@
 // Purpose: Map file/folder paths to Central icon names (the central-icons-reversed
 //          asset set). Anything we don't have a dedicated glyph for falls back to
 //          the generic `code-brackets` icon.
-// Layer: app-level utility shared by composer, diff panel, timeline, sidebar.
+// Layer: app-level utility shared by composer, file changes, timeline, sidebar.
 // Depends on: Central icon assets served from /central-icons-reversed (see central-icons.tsx).
 
 // Generic bracket glyph used whenever a file type has no dedicated Central icon.

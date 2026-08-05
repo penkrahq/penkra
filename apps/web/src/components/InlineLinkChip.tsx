@@ -7,6 +7,7 @@
 import { type MouseEvent } from "react";
 
 import { describeLinkChip, openExternalLink } from "~/lib/linkChips";
+import { useThreadResourceOpener } from "~/lib/threadResourceOpener";
 import {
   COMPOSER_INLINE_CHIP_INLINE_ICON_CLASS_NAME,
   COMPOSER_INLINE_LINK_CHIP_CLASS_NAME,
@@ -28,13 +29,16 @@ export function InlineLinkChip({
   className,
 }: InlineLinkChipProps) {
   const interactive = interactiveProp ?? false;
+  const resourceOpener = useThreadResourceOpener();
   const { label } = describeLinkChip(url);
   const chipClassName = className ?? COMPOSER_INLINE_LINK_CHIP_CLASS_NAME;
 
   const onClick = (event: MouseEvent) => {
     event.preventDefault();
     event.stopPropagation();
-    openExternalLink(url);
+    if (!resourceOpener?.openUrl(url)) {
+      openExternalLink(url);
+    }
   };
 
   const content = (

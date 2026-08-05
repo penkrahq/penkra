@@ -35,7 +35,7 @@ import { CentralIcon } from "~/lib/central-icons";
 import { isLocalImageMarkdownSrc } from "../lib/localImageUrls";
 import { useTheme } from "../hooks/useTheme";
 import { useSmoothStreamedText } from "../hooks/useSmoothStreamedText";
-import { openWorkspaceFileReference, useWorkspaceFileOpener } from "../lib/workspaceFileOpener";
+import { openThreadFileReference, useThreadResourceOpener } from "../lib/threadResourceOpener";
 import { resolveMarkdownFileLinkTarget, rewriteMarkdownFileUriHref } from "../markdown-links";
 import type { ExpandedImagePreview } from "./chat/ExpandedImagePreview";
 import { GeneratedMarkdownImage } from "./chat/GeneratedMarkdownImage";
@@ -757,17 +757,15 @@ function inlineCodeFilePath(raw: string): string | null {
 
 // Shared openable file chip: the same mention-chip UI (file icon + medium label)
 // used for both assistant markdown file links and inline code that names a file.
-// A plain click prefers the surface's in-app viewer (right-dock file pane);
-// meta/ctrl-click — or a surface without a viewer — opens the preferred
-// external editor. `targetPath` may carry a `:line` suffix (used to open); the
-// chip icon and title use the position-free path.
+// File chips delegate to the Thread's configured resource handler. `targetPath`
+// may carry a `:line` suffix; the chip icon and title use the position-free path.
 function OpenableFileChip(props: {
   targetPath: string;
   theme: "light" | "dark";
   label?: ReactNode;
   href?: string;
 }) {
-  const opener = useWorkspaceFileOpener();
+  const opener = useThreadResourceOpener();
   const chipPath = props.targetPath.replace(MARKDOWN_LINK_POSITION_SUFFIX_PATTERN, "");
   return (
     <InlineMentionChip
@@ -777,12 +775,8 @@ function OpenableFileChip(props: {
       onActivate={(event) => {
         event.preventDefault();
         event.stopPropagation();
-        const forceExternalEditor = event.metaKey || event.ctrlKey;
-        openWorkspaceFileReference(forceExternalEditor ? null : opener, props.targetPath);
+        openThreadFileReference(opener, props.targetPath);
       }}
-      {...(opener?.prefetchFile
-        ? { onHoverPrefetch: () => opener.prefetchFile?.(props.targetPath) }
-        : {})}
       {...(props.label !== undefined ? { label: props.label } : {})}
     />
   );
@@ -1031,6 +1025,7 @@ function ChatMarkdown({
     classNameProp ?? "text-[length:calc(var(--app-font-size-base,12px)*1.1667)] leading-relaxed";
   const variant = variantProp ?? "assistant";
   const { resolvedTheme } = useTheme();
+  const resourceOpener = useThreadResourceOpener();
   const diffThemeName = resolveDiffThemeName(resolvedTheme);
   const isUserVariant = variant === "user";
   // Reveal streamed text at a steady, adaptive cadence so tokens appear fluidly instead of
@@ -1105,6 +1100,13 @@ function ChatMarkdown({
               target="_blank"
               rel="noopener noreferrer"
               className={isExternalHttp ? MARKDOWN_EXTERNAL_LINK_CLASS_NAME : props.className}
+              onClick={(event) => {
+                if (!isExternalHttp || !restoredHref || !resourceOpener?.openUrl(restoredHref)) {
+                  return;
+                }
+                event.preventDefault();
+                event.stopPropagation();
+              }}
             >
               {isExternalHttp ? (
                 <LinkChipIcon
@@ -1249,6 +1251,7 @@ function ChatMarkdown({
       onImageExpand,
       onTaskToggle,
       resolvedTheme,
+      resourceOpener,
       terminalContexts,
     ],
   );

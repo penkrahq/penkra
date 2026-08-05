@@ -15,7 +15,7 @@ import { useQuery } from "@tanstack/react-query";
 import { formatRelativeTime } from "~/lib/relativeTime";
 import { studioThreadOutputsQueryOptions } from "~/lib/serverReactQuery";
 import { humanizeStudioOutputName } from "~/lib/studioOutputDisplay";
-import { useWorkspaceFileOpener } from "~/lib/workspaceFileOpener";
+import { useThreadResourceOpener } from "~/lib/threadResourceOpener";
 import { readNativeApi } from "~/nativeApi";
 
 import { FileEntryIcon } from "../FileEntryIcon";
@@ -34,7 +34,7 @@ export function EnvironmentStudioOutputsSection({
   enabled: boolean;
 }) {
   const outputsQuery = useQuery(studioThreadOutputsQueryOptions({ threadId, enabled }));
-  const fileOpener = useWorkspaceFileOpener();
+  const fileOpener = useThreadResourceOpener();
 
   // Plain click opens the output in the in-app side panel; meta/ctrl-click — or a
   // file the panel can't view — reveals it in the Finder instead.
@@ -80,7 +80,6 @@ export function EnvironmentStudioOutputsSection({
             </span>
           }
           onClick={(event) => openEntry(entry, event.metaKey || event.ctrlKey)}
-          onMouseEnter={() => fileOpener?.prefetchFile?.(entry.fullPath)}
         />
       ))}
     </EnvironmentLabeledSection>

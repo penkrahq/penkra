@@ -179,6 +179,36 @@ const VALID_TOKENS: Record<string, string> = {
   "token-ghost": "thread-ghost",
 };
 
+const LEGACY_TEST_TOOL_COMMANDS: Readonly<Record<string, string>> = {
+  penkra_context: "penkra context",
+  penkra_capabilities: "penkra capabilities",
+  penkra_list_projects: "penkra projects list",
+  penkra_list_threads: "penkra threads list",
+  penkra_read_thread: "penkra threads read",
+  penkra_wait_for_threads: "penkra threads wait",
+  penkra_read_thread_activity: "penkra threads activity",
+  penkra_read_thread_events: "penkra threads events",
+  penkra_read_thread_runtime_events: "penkra threads runtime-events",
+  penkra_diagnose_thread: "penkra threads diagnose",
+  penkra_retry_thread_projection: "penkra threads retry-projection",
+  penkra_create_threads: "penkra threads create-many",
+  penkra_create_thread: "penkra threads create",
+  penkra_send_message: "penkra threads send",
+  penkra_interrupt_thread: "penkra threads interrupt",
+  penkra_set_thread_title: "penkra threads rename",
+};
+
+function testCommandForTool(name: string, args: Record<string, unknown>): string | undefined {
+  if (name === "penkra_set_thread_archived") {
+    const { archived, ...input } = args;
+    return `penkra threads ${archived === false ? "unarchive" : "archive"} --input '${JSON.stringify(input).replaceAll("'", "\\'")}'`;
+  }
+  const command = LEGACY_TEST_TOOL_COMMANDS[name];
+  return command
+    ? `${command} --input '${JSON.stringify(args).replaceAll("'", "\\'")}'`
+    : undefined;
+}
+
 function makeHarnessLayer(
   threads: ReadonlyArray<OrchestrationThreadShell>,
   options: {
@@ -983,15 +1013,18 @@ function makeHarnessLayer(
   const makeHarness = Effect.gen(function* () {
     const gateway = yield* AgentGateway;
     const postRaw: GatewayHarness["postRaw"] = (input) => gateway.handleMcpPost(input);
-    const callTool: GatewayHarness["callTool"] = ({ token, name, args }) =>
-      gateway
+    const callTool: GatewayHarness["callTool"] = ({ token, name, args }) => {
+      const translatedCommand = testCommandForTool(name, args);
+      return gateway
         .handleMcpPost({
           authorizationHeader: `Bearer ${token}`,
           body: {
             jsonrpc: "2.0",
             id: 1,
             method: "tools/call",
-            params: { name, arguments: args },
+            params: translatedCommand
+              ? { name: "penkra_exec_command", arguments: { command: translatedCommand } }
+              : { name, arguments: args },
           },
         })
         .pipe(
@@ -1000,6 +1033,7 @@ function makeHarnessLayer(
             result: (response.body as { result?: Record<string, unknown> } | undefined)?.result,
           })),
         );
+    };
     return {
       dispatched,
       worktreeCreates,
@@ -1200,15 +1234,17 @@ describe("AgentGateway", () => {
         id,
         method: "tools/call",
         params: {
-          name: "penkra_create_threads",
+          name: "penkra_exec_command",
           arguments: {
-            requestId,
-            threads: [
-              {
-                prompt: requestId,
-                target: { provider: "codex", model: "gpt-5.5" },
-              },
-            ],
+            command: testCommandForTool("penkra_create_threads", {
+              requestId,
+              threads: [
+                {
+                  prompt: requestId,
+                  target: { provider: "codex", model: "gpt-5.5" },
+                },
+              ],
+            }),
           },
         },
       });
@@ -1264,31 +1300,8 @@ describe("AgentGateway", () => {
         }
       ).result.tools;
       const names = tools.map((tool) => tool.name);
-      assert.includeMembers(names, [
-        "penkra_context",
-        "penkra_capabilities",
-        "penkra_list_projects",
-        "penkra_list_threads",
-        "penkra_read_thread",
-        "penkra_read_thread_activity",
-        "penkra_read_thread_events",
-        "penkra_read_thread_runtime_events",
-        "penkra_diagnose_thread",
-        "penkra_retry_thread_projection",
-        "penkra_wait_for_threads",
-        "penkra_create_threads",
-        "penkra_create_thread",
-        "penkra_send_message",
-        "penkra_interrupt_thread",
-        "penkra_set_thread_title",
-        "penkra_set_thread_archived",
-        "penkra_exec",
-      ]);
-      const createThreadProperties = tools.find((tool) => tool.name === "penkra_create_thread")
-        ?.inputSchema.properties;
-      assert.property(createThreadProperties, "baseRef");
-      assert.notProperty(createThreadProperties, "baseBranch");
-      assert.notProperty(createThreadProperties, "branchName");
+      assert.deepEqual(names, ["penkra_exec_command"]);
+      assert.property(tools[0]?.inputSchema.properties, "command");
 
       assert.notInclude(names, "penkra_create_automation");
       assert.notInclude(names, "penkra_list_automations");
@@ -2426,16 +2439,18 @@ describe("AgentGateway", () => {
             id: 1,
             method: "tools/call",
             params: {
-              name: "penkra_create_threads",
+              name: "penkra_exec_command",
               arguments: {
-                requestId: "turn-a-plan",
-                threads: [
-                  {
-                    prompt: "worker from turn A",
-                    target: { provider: "codex", model: "gpt-5.5" },
-                    environment: "worktree",
-                  },
-                ],
+                command: testCommandForTool("penkra_create_threads", {
+                  requestId: "turn-a-plan",
+                  threads: [
+                    {
+                      prompt: "worker from turn A",
+                      target: { provider: "codex", model: "gpt-5.5" },
+                      environment: "worktree",
+                    },
+                  ],
+                }),
               },
             },
           },
@@ -2444,15 +2459,17 @@ describe("AgentGateway", () => {
             id: 2,
             method: "tools/call",
             params: {
-              name: "penkra_create_threads",
+              name: "penkra_exec_command",
               arguments: {
-                requestId: "must-not-use-turn-b",
-                threads: [
-                  {
-                    prompt: "late worker",
-                    target: { provider: "codex", model: "gpt-5.5" },
-                  },
-                ],
+                command: testCommandForTool("penkra_create_threads", {
+                  requestId: "must-not-use-turn-b",
+                  threads: [
+                    {
+                      prompt: "late worker",
+                      target: { provider: "codex", model: "gpt-5.5" },
+                    },
+                  ],
+                }),
               },
             },
           },

@@ -57,7 +57,7 @@ describe("Codex Penkra harness policy", () => {
       expect(instructions).toContain(PENKRA_HARNESS_POLICY_MARKER);
       expect(instructions.split(PENKRA_HARNESS_POLICY_MARKER)).toHaveLength(2);
       expect(instructions).toContain("Penkra is the host and harness");
-      expect(instructions).toContain("one exact penkra_create_threads plan");
+      expect(instructions).toContain("one exact `penkra threads create-many` command");
     }
   });
 
@@ -1723,6 +1723,57 @@ describe("steerTurn", () => {
         input: "Keep going",
       }),
     ).rejects.toThrow("turn/steer response did not include a turn id.");
+  });
+
+  it("starts a new turn after a rejected steer when authoritative thread state is idle", async () => {
+    const { manager, context, sendRequest, updateSession } = createSendTurnHarness();
+    context.session.status = "running";
+    context.session.activeTurnId = "turn_completed";
+    const steerError = new Error("turn/steer failed");
+    sendRequest
+      .mockRejectedValueOnce(steerError)
+      .mockResolvedValueOnce({
+        thread: { id: "thread_1", status: { type: "idle" }, turns: [] },
+      })
+      .mockResolvedValueOnce({ turn: { id: "turn_new" } });
+
+    const result = await manager.steerTurn({
+      threadId: asThreadId("thread_1"),
+      input: "Use this as the next turn",
+    });
+
+    expect(result.turnId).toBe("turn_new");
+    expect(sendRequest.mock.calls.map(([, method]) => method)).toEqual([
+      "turn/steer",
+      "thread/read",
+      "turn/start",
+    ]);
+    expect(updateSession).toHaveBeenCalledWith(context, {
+      status: "ready",
+      activeTurnId: undefined,
+      lastError: undefined,
+    });
+  });
+
+  it("does not retry a rejected steer while authoritative thread state remains active", async () => {
+    const { manager, context, sendRequest } = createSendTurnHarness();
+    context.session.status = "running";
+    context.session.activeTurnId = "turn_active";
+    const steerError = new Error("turn/steer failed");
+    sendRequest.mockRejectedValueOnce(steerError).mockResolvedValueOnce({
+      thread: { id: "thread_1", status: { type: "active" }, turns: [] },
+    });
+
+    await expect(
+      manager.steerTurn({
+        threadId: asThreadId("thread_1"),
+        input: "Keep going",
+      }),
+    ).rejects.toBe(steerError);
+    expect(sendRequest.mock.calls.map(([, method]) => method)).toEqual([
+      "turn/steer",
+      "thread/read",
+    ]);
   });
 });
 

@@ -154,16 +154,6 @@ const AVAILABLE_NOW_DEFINITIONS: readonly ShortcutDefinition[] = [
     description: "Focus or blur the chat prompt composer.",
   },
   {
-    command: "diff.toggle",
-    label: "Toggle diff",
-    description: "Open or close the working tree diff panel.",
-  },
-  {
-    command: "browser.toggle",
-    label: "Toggle browser",
-    description: "Reveal the built-in browser panel for the active thread.",
-  },
-  {
     command: "chat.visible.previous",
     label: "Previous visible thread",
     description: "Cycle to the previous thread that is currently visible in the sidebar.",

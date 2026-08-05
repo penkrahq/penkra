@@ -1,23 +1,11 @@
 // FILE: RightDock.tsx
-// Purpose: Tabbed multi-pane right sidebar shell.
+// Purpose: Tabbed App panel beside a Thread.
 // Layer: Chat right-dock UI
 // Depends on: ui/sidebar primitive, right-dock pane metadata, and a caller-provided pane renderer.
 
-import {
-  type CSSProperties,
-  type ReactNode,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from "react";
+import { type CSSProperties, type ReactNode, useEffect, useRef, useState } from "react";
 
 import { cn } from "~/lib/utils";
-import {
-  type DockPaneRuntimeMode,
-  EMPTY_PANE_ID_SET,
-  reconcileKeepMountedPaneIds,
-} from "~/lib/dockPaneActivation";
 import type { RightDockPane, RightDockThreadState } from "~/rightDockStore.logic";
 import { resolveActivePane } from "~/rightDockStore.logic";
 import { PanelTabShared } from "../right-panel/panel-tab-shared/PanelTabShared";
@@ -47,21 +35,11 @@ interface RightDockProps {
   minWidth: number;
   defaultWidth: string;
   shouldAcceptWidth: (context: { nextWidth: number; wrapper: HTMLElement }) => boolean;
-  paneLabelOverrides?: Record<string, string | undefined>;
-  // Per-pane tab glyph overrides (same shape as label overrides) — e.g. a pull request pane
-  // swapping the generic kind icon for its live state glyph.
-  paneIconOverrides?: Record<string, ReactNode | undefined>;
-  // Single-pane hosts omit selection so their lone tab label is static; multi-pane chat hosts
-  // provide the callback and keep the normal selectable-tab behavior.
-  onSelectPane?: ((paneId: string) => void) | undefined;
+  onSelectPane: (paneId: string) => void;
   onClosePane: (paneId: string) => void;
   onOpenChange: (open: boolean) => void;
   motionKey?: string;
-  activePaneRuntimeMode?: DockPaneRuntimeMode;
-  renderPane: (
-    pane: RightDockPane,
-    context: { runtimeMode: DockPaneRuntimeMode; isActive: boolean; isVisible: boolean },
-  ) => ReactNode;
+  renderPane: (pane: RightDockPane, context: { isVisible: boolean }) => ReactNode;
 }
 
 function RightDockTab(props: {
@@ -69,7 +47,7 @@ function RightDockTab(props: {
   label: string;
   icon?: ReactNode;
   active: boolean;
-  onSelect?: (() => void) | undefined;
+  onSelect: () => void;
   onClose: () => void;
 }) {
   return (
@@ -85,55 +63,14 @@ function RightDockTab(props: {
   );
 }
 
-// Persist which keep-mounted panes have been activated so they
-// stay in the DOM while another tab is selected, pruned to live panes so closed
-// panes drop out and the set never leaks across thread switches. The set is
-// The rendered set is derived synchronously so a kept pane never unmounts for a
-// frame. A layout effect commits that set for the next render without mutating a
-// ref during render (which is unsafe when React replays or abandons work).
-function useKeepMountedPaneIds(
-  panes: readonly RightDockPane[],
-  activePane: RightDockPane | null,
-): ReadonlySet<string> {
-  const [committedPaneIds, setCommittedPaneIds] = useState<ReadonlySet<string>>(EMPTY_PANE_ID_SET);
-  const activePaneId = activePane?.id ?? null;
-  const activePaneKind = activePane?.kind ?? null;
-  const renderedPaneIds = reconcileKeepMountedPaneIds({
-    previous: committedPaneIds,
-    panes,
-    activePaneId,
-    activePaneKind,
-  });
-
-  useLayoutEffect(() => {
-    setCommittedPaneIds((current) => {
-      const next = reconcileKeepMountedPaneIds({
-        previous: current,
-        panes,
-        activePaneId,
-        activePaneKind,
-      });
-      if (next.size === current.size && [...next].every((paneId) => current.has(paneId))) {
-        return current;
-      }
-      return next;
-    });
-  }, [activePaneId, activePaneKind, panes]);
-
-  return renderedPaneIds;
-}
-
 export function RightDock(props: RightDockProps) {
   const registerFindSurface = useOptionalFind()?.register;
   const activePane = resolveActivePane(props.state);
-  const onSelectPane = props.onSelectPane;
-  const activePaneRuntimeMode = props.activePaneRuntimeMode ?? "live";
   // The dock is the right-most surface when open, so its header sits under the
   // fixed Windows caption cluster — reserve the same gutter the chat header uses.
   const desktopTopBarWindowControlsGutterClassName =
     useDesktopTopBarWindowControlsGutterClassName();
 
-  const keepMountedPaneIds = useKeepMountedPaneIds(props.state.panes, activePane);
   // The dock must open as an exact 50/50 split of the chat shell. The CSS
   // default can only approximate half (it cannot observe the resizable left
   // sidebar), so on every open we measure the shell row hosting chat + dock and
@@ -167,9 +104,6 @@ export function RightDock(props: RightDockProps) {
       wrapper.style.setProperty("--sidebar-width", `${Math.max(minWidth, halfWidth)}px`);
     }
   }, [props.state.open, minWidth]);
-  const renderedPanes = props.state.panes.filter(
-    (pane) => pane.id === activePane?.id || keepMountedPaneIds.has(pane.id),
-  );
   // Motion allowance keyed to the current motionKey: a key change (reposition/
   // remount) derives straight back to "suppressed" in that same render, and the
   // rAF below re-enables motion once the suppressed frame has painted. Mounting
@@ -247,37 +181,20 @@ export function RightDock(props: RightDockProps) {
                 <RightDockTab
                   key={pane.id}
                   pane={pane}
-                  label={resolveRightDockPaneLabel(pane, props.paneLabelOverrides)}
-                  icon={props.paneIconOverrides?.[pane.id]}
+                  label={resolveRightDockPaneLabel(pane)}
                   active={pane.id === props.state.activePaneId}
-                  onSelect={onSelectPane ? () => onSelectPane(pane.id) : undefined}
+                  onSelect={() => props.onSelectPane(pane.id)}
                   onClose={() => props.onClosePane(pane.id)}
                 />
               ))}
             </div>
           </div>
           <div className="relative min-h-0 flex-1">
-            {renderedPanes.map((pane) => {
-              const isActive = pane.id === activePane?.id;
-              const isVisible = isActive && props.state.open;
-              // Keep-mounted panes that are not the active tab are already
-              // hydrated, so they render live (just hidden); the active pane uses
-              // the deferred-aware runtime mode from the activation hook.
-              const runtimeMode: DockPaneRuntimeMode = isActive ? activePaneRuntimeMode : "live";
-              return (
-                <div
-                  key={pane.id}
-                  className={cn(
-                    "absolute inset-0 flex min-h-0 w-full",
-                    isActive ? undefined : "invisible pointer-events-none",
-                  )}
-                  aria-hidden={isVisible ? undefined : true}
-                  inert={isVisible ? undefined : true}
-                >
-                  {props.renderPane(pane, { runtimeMode, isActive, isVisible })}
-                </div>
-              );
-            })}
+            {activePane ? (
+              <div key={activePane.id} className="absolute inset-0 flex min-h-0 w-full">
+                {props.renderPane(activePane, { isVisible: props.state.open })}
+              </div>
+            ) : null}
           </div>
         </div>
         <SidebarRail />

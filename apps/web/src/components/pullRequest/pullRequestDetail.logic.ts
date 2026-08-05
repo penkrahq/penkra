@@ -1,52 +1,12 @@
 // FILE: pullRequestDetail.logic.ts
-// Purpose: Pure helpers shared by every host of the pull request detail surface (the
-//          /pull-requests route overlay and the chat right-dock pane): the canonical
-//          pane identity key, the "PR #n" tab chip label, the plain-language state
-//          descriptor, and the flattened chronological timeline event list.
+// Purpose: Pure presentation helpers for pull request detail data.
 // Layer: Web domain helpers (no React)
-// Exports: pullRequestDetailInputKey, pullRequestPaneTabLabel, pullRequestDetailInputFromPane,
-//          describePullRequestState, stripHtmlComments, PullRequestTimelineEvent,
-//          buildPullRequestTimelineEvents
+// Exports: describePullRequestState, stripHtmlComments, PullRequestTimelineEvent,
+// buildPullRequestTimelineEvents
 
-import type {
-  PullRequestDetail,
-  PullRequestDetailInput,
-  PullRequestState,
-} from "@penkra/contracts";
-
-import type { RightDockPane } from "~/rightDockStore.logic";
+import type { PullRequestDetail, PullRequestState } from "@penkra/contracts";
 
 import { pullRequestMarkdownPreview } from "./pullRequestMarkdown.logic";
-
-/** Canonical identity for one detail surface — used as the React key so switching the
- *  selected pull request remounts the panel (resetting its tab and diff state). */
-export function pullRequestDetailInputKey(input: PullRequestDetailInput): string {
-  return `${input.projectId}:${input.repository}#${input.number}`;
-}
-
-/** Tab chip label shared by the route overlay chip and the right-dock pane tab. */
-export function pullRequestPaneTabLabel(number: number): string {
-  return `PR #${number}`;
-}
-
-/** The detail input a dock "pullRequest" pane points at, or null while the pane is empty.
- *  Single owner of the identity-fields guard so every pane consumer (content, tab icon)
- *  validates the same way. */
-export function pullRequestDetailInputFromPane(pane: RightDockPane): PullRequestDetailInput | null {
-  if (
-    pane.kind !== "pullRequest" ||
-    !pane.pullRequestProjectId ||
-    !pane.pullRequestRepository ||
-    !pane.pullRequestNumber
-  ) {
-    return null;
-  }
-  return {
-    projectId: pane.pullRequestProjectId,
-    repository: pane.pullRequestRepository,
-    number: pane.pullRequestNumber,
-  };
-}
 
 // Plain-language state descriptor shown next to the author line — the state color itself is
 // already conveyed by the PullRequestStateGlyph in the header, so this stays neutral text.

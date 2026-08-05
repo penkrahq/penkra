@@ -33,8 +33,8 @@ import { useTerminalStateStore } from "../terminalStateStore";
 export interface NewThreadNavigationOptions {
   /**
    * Search params applied when the hook navigates to the created thread.
-   * Lets callers keep view-level state (e.g. the editor workspace view)
-   * across the route change; default navigation clears all search params.
+   * Lets callers preserve explicit route state across the route change;
+   * default navigation clears all search params.
    */
   search?: (previous: Record<string, unknown>) => Record<string, unknown>;
 }

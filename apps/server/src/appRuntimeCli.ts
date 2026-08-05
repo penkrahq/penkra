@@ -26,10 +26,11 @@ export interface PenkraExecContext {
   spaceId: string;
   threadId: string;
   workingDirectory?: string | null;
+  additionalCoreCommands?: ReadonlyArray<string>;
 }
 
 /** Executes exactly one registered Penkra/App command without invoking a shell or consulting PATH. */
-export async function executePenkraExec(
+export async function executePenkraExecCommand(
   command: string,
   context: PenkraExecContext,
   env: NodeJS.ProcessEnv = process.env,
@@ -47,7 +48,10 @@ export async function executePenkraExec(
   };
   if (args[0] === "penkra") {
     if (args.length === 2 && args[1] === "--help") {
-      return coreHelp((await bridgeRequest("catalog.list", scope, env)) as CatalogEntry[]);
+      return coreHelp(
+        (await bridgeRequest("catalog.list", scope, env)) as CatalogEntry[],
+        context.additionalCoreCommands ?? [],
+      );
     }
     if (args.length === 3 && args[1] === "apps" && args[2] === "list") {
       return {
@@ -107,7 +111,7 @@ export async function executePenkraExec(
       if (!allowedActions.has(action)) {
         throw new Error(`Unknown Penkra tabs command ${action}. Run penkra tabs --help.`);
       }
-      const parsed = parseFlags(args.slice(3));
+      const parsed = parseRegisteredCommandFlags(args.slice(3));
       if (parsed.positionals.length > 0 || parsed.help || parsed.schema || parsed.input) {
         throw new Error(`Invalid arguments for penkra tabs ${action}. Run penkra tabs --help.`);
       }
@@ -166,7 +170,7 @@ export async function executePenkraExec(
       return bridgeRequest(`tabs.${action}`, params, env);
     }
     if (args[1] === "open") {
-      const parsed = parseFlags(args.slice(2));
+      const parsed = parseRegisteredCommandFlags(args.slice(2));
       if (parsed.positionals.length > 0 || parsed.help || parsed.input || parsed.tabId) {
         throw new Error("Usage: penkra open --path <path> | --url <url> [--with <app-slug>]");
       }
@@ -200,7 +204,7 @@ export async function executePenkraExec(
     throw new Error(`Unknown Penkra core command: ${args.join(" ")}. Run penkra --help.`);
   }
 
-  const parsed = parseFlags(args);
+  const parsed = parseRegisteredCommandFlags(args);
   const appScope = {
     ...scope,
     ...(parsed.tabId === undefined ? {} : { tabId: parsed.tabId }),
@@ -247,10 +251,15 @@ function summarizeCatalog(catalog: ReadonlyArray<CatalogEntry>): ReadonlyArray<{
   }));
 }
 
-function coreHelp(catalog: ReadonlyArray<CatalogEntry>): unknown {
+function coreHelp(
+  catalog: ReadonlyArray<CatalogEntry>,
+  additionalCoreCommands: ReadonlyArray<string>,
+): unknown {
   return {
-    description: "Penkra registered commands run through penkra_exec; they are not shell commands.",
+    description:
+      "Penkra registered commands run through penkra_exec_command; they are not shell commands.",
     commands: [
+      ...additionalCoreCommands,
       "penkra apps list",
       "penkra tabs current",
       "penkra tabs list",
@@ -260,7 +269,7 @@ function coreHelp(catalog: ReadonlyArray<CatalogEntry>): unknown {
     ],
     appCommands: summarizeCatalog(catalog).map((app) => ({
       root: app.slug,
-      help: `penkra_exec: ${app.slug} --help`,
+      help: `penkra_exec_command: ${app.slug} --help`,
       operations: app.operations,
     })),
   };
@@ -275,7 +284,7 @@ function parseFiniteNumber(value: string, name: string): number {
 export function tokenizeRegisteredCommand(command: string): string[] {
   if (typeof command !== "string" || !command.trim()) return [];
   if (/[$`]/.test(command)) {
-    throw new Error("Command expansion is not supported by penkra_exec.");
+    throw new Error("Command expansion is not supported by penkra_exec_command.");
   }
   const words: string[] = [];
   let current = "";
@@ -301,7 +310,7 @@ export function tokenizeRegisteredCommand(command: string): string[] {
       continue;
     }
     if (/[|&;<>()[\]{}]/.test(character)) {
-      throw new Error("Shell operators are not supported by penkra_exec.");
+      throw new Error("Shell operators are not supported by penkra_exec_command.");
     }
     if (/\s/.test(character)) {
       if (current) {
@@ -322,7 +331,7 @@ function requireContextText(value: string, name: string): string {
   return value;
 }
 
-function parseFlags(args: ReadonlyArray<string>): {
+export function parseRegisteredCommandFlags(args: ReadonlyArray<string>): {
   positionals: string[];
   help: boolean;
   schema: boolean;

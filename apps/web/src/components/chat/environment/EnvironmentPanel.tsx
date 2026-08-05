@@ -1,6 +1,5 @@
 // FILE: EnvironmentPanel.tsx
-// Purpose: Codex-style "Environment" panel. Consolidates the chat-header diff toggle,
-//          the composer-footer env/branch pickers, the header git actions, and the
+// Purpose: Environment panel for thread-local tools, notes, repository actions, and
 //          "Open in editor" controls into one vertical list of full-width rows. Always
 //          rendered as the same rounded floating card; the only difference is whether it
 //          overlays pinned top-right of the chat column (p-3 gutters). Full-width single
@@ -35,8 +34,7 @@ import { IconButton } from "~/components/ui/icon-button";
 import { toastManager } from "~/components/ui/toast";
 import { isElectron } from "~/env";
 import { basenameOfPath } from "~/file-icons";
-import type { RepoDiffTotals } from "~/hooks/useRepoDiffTotals";
-import { ArrowUpRightIcon, ChangesIcon, GitHubIcon, SettingsIcon } from "~/lib/icons";
+import { ArrowUpRightIcon, GitHubIcon, SettingsIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
 
@@ -85,7 +83,6 @@ export interface EnvironmentPanelProps {
     readonly nameWithOwner: string;
     readonly url: string;
   } | null;
-  githubRepositories?: ReadonlyArray<{ readonly nameWithOwner: string }>;
   isGitRepo: boolean;
   keybindings: ResolvedKeybindingsConfig;
   availableEditors: ReadonlyArray<EditorId>;
@@ -105,12 +102,6 @@ export interface EnvironmentPanelProps {
   studioFolderPath?: string | null;
   /** Whether the active runtime exposes git actions (hides "Commit and Push" otherwise). */
   showGitActions: boolean;
-  /** Current diff-panel open state, so the "Changes" row reflects/toggles it. */
-  diffOpen: boolean;
-  /** Non-null when the diff panel cannot be opened (e.g. no repo / no changes yet). */
-  diffDisabledReason?: string | null;
-  /** Shared diff totals from ChatView so the mounted panel does not duplicate patch parsing. */
-  diffTotals: RepoDiffTotals;
   /** Env/branch picker config — `variant` is supplied by the panel. */
   branchToolbar: Omit<BranchToolbarProps, "variant">;
   /** Compact idle-generated chat memory for the top of the panel. */
@@ -139,8 +130,6 @@ export interface EnvironmentPanelProps {
   onProjectInstructionsChange: (projectId: ContainerId, instructions: string) => void;
   /** Copy/append current project instructions into the active thread's notepad. */
   onCopyProjectInstructionsToNotes: () => void;
-  /** Toggle the Diff panel/route (same handler the header diff toggle used). */
-  onToggleDiff: () => void;
   /** Open the repository URL through Penkra's configured URL handler. */
   onOpenGithubRepository?: (url: string) => void;
   /** Scroll the transcript to a pinned message. */
@@ -161,8 +150,6 @@ export interface EnvironmentPanelProps {
   onRenameThreadMarker: (markerId: ThreadMarkerId, label: string | null) => void;
   /** Persist updated notes for the given thread (bound per section instance, not the active thread). */
   onNotesChange: (threadId: ThreadId, notes: string) => Promise<void>;
-  /** Open the in-app editor workspace view (the Editor section's default first row). */
-  onOpenEditorView?: (() => void) | null;
   /** Dismiss the panel overlay — invoked after actions that open the dock. */
   onClose: () => void;
   /** Registers the panel's "Commit and Push" row as the target for the global shortcut. */
@@ -205,7 +192,6 @@ export function EnvironmentPanel({
   gitCwd,
   openInTarget,
   githubRepository = null,
-  githubRepositories = [],
   isGitRepo,
   keybindings,
   availableEditors,
@@ -214,9 +200,6 @@ export function EnvironmentPanel({
   isStudioChat,
   studioFolderPath = null,
   showGitActions,
-  diffOpen,
-  diffDisabledReason = null,
-  diffTotals,
   branchToolbar,
   recap = null,
   pinnedMessages,
@@ -229,7 +212,6 @@ export function EnvironmentPanel({
   canCopyProjectInstructionsToNotes,
   onProjectInstructionsChange,
   onCopyProjectInstructionsToNotes,
-  onToggleDiff,
   onOpenGithubRepository,
   onJumpToPinnedMessage,
   onTogglePinnedMessageDone,
@@ -240,17 +222,11 @@ export function EnvironmentPanel({
   onRemoveThreadMarker,
   onRenameThreadMarker,
   onNotesChange,
-  onOpenEditorView = null,
   onClose,
   onRegisterCommitAndPushTrigger,
 }: EnvironmentPanelProps) {
   const navigate = useNavigate();
   const { settings } = useAppSettings();
-  const { additions, deletions, hasChanges } = diffTotals;
-
-  // Disable the Changes row only when the diff cannot be opened *and* is not already open
-  // (so an open diff stays toggleable closed even when there are no pending changes).
-  const changesDisabled = diffDisabledReason !== null && !diffOpen;
   const showRecap = Boolean(recap?.text) || recap?.status === "pending";
   const markdownCwd = openInTarget ?? gitCwd ?? undefined;
   const showStudioFolderRow = shouldShowStudioFolderRow({
@@ -319,26 +295,6 @@ export function EnvironmentPanel({
         />
       ) : null}
 
-      {isGitRepo ? (
-        <EnvironmentRow
-          icon={<ChangesIcon className={ENVIRONMENT_ROW_ICON_CLASS_NAME} aria-hidden />}
-          label="Changes"
-          trailing={
-            hasChanges ? (
-              <>
-                <span className="text-success">+{additions}</span>
-                <span className="text-destructive">-{deletions}</span>
-              </>
-            ) : null
-          }
-          disabled={changesDisabled}
-          onClick={() => {
-            onToggleDiff();
-            onClose();
-          }}
-        />
-      ) : null}
-
       {isGitRepo ? <BranchToolbar {...branchToolbar} variant="panel" /> : null}
 
       {showGitActions ? (
@@ -378,8 +334,6 @@ export function EnvironmentPanel({
           gitCwd={gitCwd}
           enabled={open}
           activeThreadId={activeThreadId}
-          projectId={activeProjectId}
-          configuredRepositories={githubRepositories}
           onOpenUrl={onOpenGithubRepository}
           onClose={onClose}
         />
@@ -394,14 +348,6 @@ export function EnvironmentPanel({
           keybindings={keybindings}
           availableEditors={availableEditors}
           openInTarget={openInTarget}
-          {...(onOpenEditorView
-            ? {
-                onOpenEditorView: () => {
-                  onOpenEditorView();
-                  onClose();
-                },
-              }
-            : {})}
         />
       ) : null}
 

@@ -14,7 +14,7 @@ Apps may invoke another enabled App's published operation through `context.opera
 The callee's schemas and permissions still apply. Apps cannot invoke Apps' private installation
 operations.
 
-Agents call the single registered `penkra_exec` tool. Core commands begin with `penkra`, for
+Agents call the single registered `penkra_exec_command` tool. Core commands begin with `penkra`, for
 example `penkra open --url https://penkra.com`. App commands begin with the App slug, for example
 `linear issues create --title "Fix redirect" --tab-id <id>`. `--help` shows typed flags and
 `--schema` adds the full validated schemas. Start with `penkra --help`; `penkra apps list` returns

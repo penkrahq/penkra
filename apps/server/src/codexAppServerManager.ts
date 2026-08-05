@@ -1315,11 +1315,41 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       throw new Error("Session is missing provider resume thread id.");
     }
 
-    const response = await this.sendRequest(context, "turn/steer", {
-      threadId: providerThreadId,
-      input: turnInput,
-      expectedTurnId: activeTurnId,
-    });
+    let response: unknown;
+    try {
+      response = await this.sendRequest(context, "turn/steer", {
+        threadId: providerThreadId,
+        input: turnInput,
+        expectedTurnId: activeTurnId,
+      });
+    } catch (steerError) {
+      // The turn can complete after the caller's live-state check but before
+      // app-server handles turn/steer. A JSON-RPC error proves the steer was
+      // not accepted, but its generic error code does not identify that race.
+      // Resolve it from authoritative thread state instead of matching error
+      // text: only an idle thread can safely receive the saved input as a new
+      // turn. If state cannot be read or remains active, preserve the original
+      // failure and do not risk a duplicate.
+      let activity: ReturnType<typeof inspectCodexThreadActivity>;
+      try {
+        const threadResponse = await this.sendRequest(context, "thread/read", {
+          threadId: providerThreadId,
+          includeTurns: false,
+        });
+        activity = inspectCodexThreadActivity(threadResponse);
+      } catch {
+        throw steerError;
+      }
+      if (activity.active) {
+        throw steerError;
+      }
+      this.updateSession(context, {
+        status: "ready",
+        activeTurnId: undefined,
+        lastError: undefined,
+      });
+      return this.sendTurn(input);
+    }
 
     const turnIdRaw = this.readString(this.readObject(response), "turnId");
     if (!turnIdRaw) {

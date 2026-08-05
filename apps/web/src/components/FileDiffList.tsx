@@ -1,4 +1,4 @@
-// FILE: DiffPanelFileList.tsx
+// FILE: FileDiffList.tsx
 // Purpose: Multi-file diff list for the review panel, including per-file actions and previews.
 // Layer: Diff panel UI
 
@@ -181,7 +181,7 @@ function DiffFileCollapseChevron(props: { collapsed: boolean }) {
   );
 }
 
-const DiffPanelFileRow = function DiffPanelFileRow(props: {
+const FileDiffRow = function FileDiffRow(props: {
   fileDiff: FileDiffMetadata;
   resolvedTheme: "light" | "dark";
   diffRenderMode: DiffRenderMode;
@@ -257,7 +257,7 @@ const DiffPanelFileRow = function DiffPanelFileRow(props: {
   );
 };
 
-export const DiffPanelFileList = function DiffPanelFileList(props: {
+export const FileDiffList = function FileDiffList(props: {
   renderableFiles: ReadonlyArray<FileDiffMetadata>;
   resolvedTheme: "light" | "dark";
   diffRenderMode: DiffRenderMode;
@@ -389,7 +389,7 @@ export const DiffPanelFileList = function DiffPanelFileList(props: {
           const fileKey = buildFileDiffRenderKey(fileDiff);
           const themedFileKey = `${fileKey}:${props.resolvedTheme}`;
           return (
-            <DiffPanelFileRow
+            <FileDiffRow
               key={themedFileKey}
               fileDiff={fileDiff}
               resolvedTheme={props.resolvedTheme}

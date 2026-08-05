@@ -3,7 +3,7 @@
 // Exports: useThreadActivationController
 
 import type { useNavigate } from "@tanstack/react-router";
-import type { ContainerId, ThreadId } from "@penkra/contracts";
+import type { ThreadId } from "@penkra/contracts";
 import type { LastThreadRoute } from "../chatRouteRestore";
 import { type PaneId, type SplitView, type SplitViewId } from "../splitViewStore";
 import { selectThreadTerminalState } from "../terminalStateStore";
@@ -15,21 +15,13 @@ import {
 
 type Navigate = ReturnType<typeof useNavigate>;
 type ThreadTerminalStateById = Parameters<typeof selectThreadTerminalState>[0];
-type SidebarThreadActivationSummary = Pick<
-  SidebarThreadSummary,
-  "id" | "projectId" | "sidechatSourceThreadId"
->;
+type SidebarThreadActivationSummary = Pick<SidebarThreadSummary, "id" | "projectId">;
 
 export type ThreadActivationControllerInput = {
   activeSplitView: SplitView | null;
   clearSelection: () => void;
   navigate: Navigate;
   openChatThreadPage: (threadId: ThreadId) => void;
-  openSidechatSplit: (input: {
-    sidechatThreadId: ThreadId;
-    sourceThreadId: ThreadId;
-    ownerProjectId: ContainerId;
-  }) => SplitViewId;
   openTerminalThreadPage: (threadId: ThreadId) => void;
   prewarmThreadDetailForIntent: (threadId: ThreadId) => void;
   rememberLastThreadRouteNow: (nextLastThreadRoute: LastThreadRoute) => void;
@@ -80,15 +72,6 @@ export function activateThreadFromSidebarIntent(
     splitPaneId: preferredSplit?.paneId ?? null,
   });
 
-  const sidechatSplitActivation = resolveSidechatSplitActivation(input, {
-    threadId,
-    targetThread,
-  });
-  if (sidechatSplitActivation && activation.kind !== "split") {
-    activateSidechatSplit(input, sidechatSplitActivation);
-    return;
-  }
-
   if (activation.kind === "ignore") {
     return;
   }
@@ -119,63 +102,6 @@ export function activateThreadFromSidebarIntent(
     search: (previous) => ({
       ...previous,
       splitViewId: activation.splitViewId,
-    }),
-  });
-}
-
-function resolveSidechatSplitActivation(
-  input: ThreadActivationControllerInput,
-  options: {
-    threadId: ThreadId;
-    targetThread: SidebarThreadActivationSummary | undefined;
-  },
-): { threadId: ThreadId; sourceThreadId: ThreadId; ownerProjectId: ContainerId } | null {
-  if (!options.targetThread?.sidechatSourceThreadId) {
-    return null;
-  }
-  const sourceThread = input.sidebarThreadSummaryById[options.targetThread.sidechatSourceThreadId];
-  if (!sourceThread || input.routeSplitViewId) {
-    return null;
-  }
-  return {
-    threadId: options.threadId,
-    sourceThreadId: options.targetThread.sidechatSourceThreadId,
-    ownerProjectId: sourceThread.projectId,
-  };
-}
-
-// Sidechat rows reopen as source-left + sidechat-right when no split route is active.
-function activateSidechatSplit(
-  input: ThreadActivationControllerInput,
-  activation: {
-    threadId: ThreadId;
-    sourceThreadId: ThreadId;
-    ownerProjectId: ContainerId;
-  },
-): void {
-  input.prewarmThreadDetailForIntent(activation.sourceThreadId);
-  input.prewarmThreadDetailForIntent(activation.threadId);
-  input.setOptimisticActiveThreadId(activation.threadId);
-  if (input.selectedThreadCount > 0) {
-    input.clearSelection();
-  }
-  input.setSelectionAnchor(activation.threadId);
-
-  const splitViewId = input.openSidechatSplit({
-    sourceThreadId: activation.sourceThreadId,
-    ownerProjectId: activation.ownerProjectId,
-    sidechatThreadId: activation.threadId,
-  });
-  input.rememberLastThreadRouteNow({
-    threadId: activation.threadId,
-    splitViewId,
-  });
-  void input.navigate({
-    to: "/$threadId",
-    params: { threadId: activation.threadId },
-    search: (previous) => ({
-      ...previous,
-      splitViewId,
     }),
   });
 }
@@ -219,7 +145,6 @@ export function useThreadActivationController(input: ThreadActivationControllerI
     clearSelection,
     navigate,
     openChatThreadPage,
-    openSidechatSplit,
     openTerminalThreadPage,
     prewarmThreadDetailForIntent,
     rememberLastThreadRouteNow,
@@ -241,7 +166,6 @@ export function useThreadActivationController(input: ThreadActivationControllerI
         clearSelection,
         navigate,
         openChatThreadPage,
-        openSidechatSplit,
         openTerminalThreadPage,
         prewarmThreadDetailForIntent,
         rememberLastThreadRouteNow,

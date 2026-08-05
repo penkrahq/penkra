@@ -1,4 +1,4 @@
-// FILE: DiffPanelPatchViewport.tsx
+// FILE: FileDiffPatchViewport.tsx
 // Purpose: Memoized diff body for the review panel — only re-renders when the active
 //          patch or display settings change, not on unrelated chat activity.
 // Layer: Diff panel UI
@@ -7,14 +7,14 @@ import type { FileDiffMetadata } from "@pierre/diffs/react";
 import { memo } from "react";
 import { cn } from "~/lib/utils";
 import type { RenderablePatch } from "~/lib/diffRendering";
-import { DiffPanelFileList, type DiffFileChatActions } from "./DiffPanelFileList";
-import { DiffPanelLoadingState } from "./DiffPanelShell";
+import { FileDiffList, type DiffFileChatActions } from "./FileDiffList";
+import { FileDiffLoadingState } from "./FileDiffLoadingState";
 import { PanelStateMessage } from "./chat/PanelStateMessage";
 
 type DiffRenderMode = "stacked" | "split";
 
-export const DiffPanelPatchViewport = memo(
-  function DiffPanelPatchViewport(props: {
+export const FileDiffPatchViewport = memo(
+  function FileDiffPatchViewport(props: {
     renderablePatch: RenderablePatch | null;
     renderableFiles: ReadonlyArray<FileDiffMetadata>;
     resolvedTheme: "light" | "dark";
@@ -54,7 +54,7 @@ export const DiffPanelPatchViewport = memo(
       if (props.isLoading) {
         return (
           <div className={viewportClassName}>
-            <DiffPanelLoadingState label={props.loadingLabel} />
+            <FileDiffLoadingState label={props.loadingLabel} />
           </div>
         );
       }
@@ -76,7 +76,7 @@ export const DiffPanelPatchViewport = memo(
     if (props.renderablePatch.kind === "files") {
       return (
         <div className={viewportClassName}>
-          <DiffPanelFileList
+          <FileDiffList
             renderableFiles={props.renderableFiles}
             resolvedTheme={props.resolvedTheme}
             diffRenderMode={props.diffRenderMode}

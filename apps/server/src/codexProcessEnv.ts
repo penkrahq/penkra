@@ -27,7 +27,11 @@ interface CodexOverlayEntryLinker {
 }
 
 function isSafePluginSectionHeader(value: unknown): value is string {
-  return typeof value === "string" && /^\[plugins\."[^"\r\n]+"\]$/.test(value);
+  if (typeof value !== "string") return false;
+  const normalized = normalizeTomlTableHeaderName(value);
+  if (!normalized) return false;
+  const parts = JSON.parse(normalized) as string[];
+  return parts.length === 2 && parts[0] === "plugins" && Boolean(parts[1]);
 }
 
 function findPluginSectionHeaders(config: string): readonly string[] {
@@ -39,6 +43,59 @@ function findPluginSectionHeaders(config: string): readonly string[] {
         .filter(isSafePluginSectionHeader),
     ),
   ];
+}
+
+const PENKRA_APPROVED_CODEX_PLUGIN_IDS = new Set([
+  "documents@openai-primary-runtime",
+  "spreadsheets@openai-primary-runtime",
+  "presentations@openai-primary-runtime",
+  "computer-use@openai-bundled",
+  "pdf@openai-primary-runtime",
+  "chrome@openai-bundled",
+  "template-creator@openai-primary-runtime",
+  "sites@openai-bundled",
+  "visualize@openai-bundled",
+]);
+
+function pluginIdFromSectionHeader(header: string): string | undefined {
+  const normalized = normalizeTomlTableHeaderName(header);
+  if (!normalized) return undefined;
+  const parts = JSON.parse(normalized) as string[];
+  return parts.length === 2 && parts[0] === "plugins" ? parts[1] : undefined;
+}
+
+export function codexPluginSectionsDisabledByPenkra(config: string): readonly string[] {
+  return findPluginSectionHeaders(config).filter((header) => {
+    const pluginId = pluginIdFromSectionHeader(header);
+    return pluginId === undefined || !PENKRA_APPROVED_CODEX_PLUGIN_IDS.has(pluginId);
+  });
+}
+
+function isMcpServerTableHeader(line: string): boolean {
+  const normalized = normalizeTomlTableHeaderName(line);
+  if (!normalized) return false;
+  const parts = JSON.parse(normalized) as string[];
+  return parts[0] === "mcp_servers";
+}
+
+/**
+ * Removes provider/user/project MCP configuration from the isolated Codex
+ * overlay. Penkra appends its private Agent Gateway afterward, so a copied
+ * server (including one also named `penkra`) can neither survive nor shadow
+ * the trusted transport.
+ */
+export function removeCodexMcpServerTables(config: string): string {
+  const output: string[] = [];
+  let removingMcpTable = false;
+
+  for (const line of config.split(/\r?\n/)) {
+    if (normalizeTomlTableHeaderName(line) !== undefined) {
+      removingMcpTable = isMcpServerTableHeader(line);
+    }
+    if (!removingMcpTable) output.push(line);
+  }
+
+  return output.join("\n").replace(/\n{3,}/g, "\n\n");
 }
 
 export function disableCodexConfigSections(
@@ -534,14 +591,14 @@ async function preparePenkraCodexHomeOverlayUnlocked(input: {
     throw cause;
   });
   const overlayConfigPath = path.join(overlayHomePath, "config.toml");
-  // Penkra owns its App, connector, and tool surfaces. Provider-native plugins
-  // are disabled only in Penkra's isolated overlay so they cannot inject a
-  // competing browser, connector catalog, MCP server, or developer policy.
-  // Standalone provider skills and Penkra skills remain available through the
-  // provider-neutral skills catalog.
+  // Penkra preserves explicitly classified local artifact, native Computer
+  // Use, and external-Chrome capabilities. Provider connector catalogs,
+  // provider-controlled in-app browsers, and unclassified plugin bundles stay
+  // disabled in the isolated overlay. This is an explicit capability policy,
+  // not name guessing at invocation time.
   let overlayConfig = disableCodexConfigSections(
-    sourceConfig,
-    findPluginSectionHeaders(sourceConfig),
+    removeCodexMcpServerTables(sourceConfig),
+    codexPluginSectionsDisabledByPenkra(sourceConfig),
   );
   const managedSection =
     input.appendConfigToml ??

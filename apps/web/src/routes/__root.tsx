@@ -70,11 +70,9 @@ import {
   addWsTransportStateListener,
   readLatestWsCompatibilityIssue,
 } from "../wsTransportEvents";
-import { providerQueryKeys } from "../lib/providerReactQuery";
 import { invalidateProjectFileQueriesForCwds, projectQueryKeys } from "../lib/projectReactQuery";
 import { collectActiveTerminalThreadIds } from "../lib/terminalStateCleanup";
 import { useProjectRunStore } from "../projectRunStore";
-import { dockTerminalThreadId } from "../lib/dockTerminalScope";
 import { TaskCompletionNotifications } from "../notifications/taskCompletion";
 import { useWorkspacePathsStore } from "../workspacePathsStore";
 import {
@@ -94,7 +92,7 @@ import { useTheme } from "../hooks/useTheme";
 import { useNativeFontSmoothing } from "../hooks/useNativeFontSmoothing";
 import { invalidateGitQueries, invalidateGitQueriesForCwds } from "../lib/gitReactQuery";
 import { hasLiveThreadsWithMissingProjects } from "../lib/desktopProjectRecovery";
-import { useDiffRouteSearch } from "../hooks/useDiffRouteSearch";
+import { useChatRouteSearch } from "../hooks/useChatRouteSearch";
 import { resolveSplitViewThreadIds, selectSplitView, useSplitViewStore } from "../splitViewStore";
 import { providerModelDiscoveryInvalidationFingerprint } from "../lib/providerDiscoveryInvalidation";
 import { providerDiscoveryQueryKeys } from "../lib/providerDiscoveryReactQuery";
@@ -110,7 +108,6 @@ import {
   getStudioOutputInvalidationThreadIdForEvent,
   resolveGitInvalidationCwdForThreadId,
   shouldInvalidateGitQueriesForEvent,
-  shouldInvalidateProviderQueriesForEvent,
 } from "./-rootEventInvalidation";
 
 const SHELL_SNAPSHOT_BOOTSTRAP_FALLBACK_DELAY_MS = 1_500;
@@ -959,7 +956,7 @@ function EventRouter() {
     strict: false,
     select: (params) => (params.threadId ? ThreadId.makeUnsafe(params.threadId) : null),
   });
-  const routeSearch = useDiffRouteSearch();
+  const routeSearch = useChatRouteSearch();
   const activeSplitView = useSplitViewStore(
     useMemo(() => selectSplitView(routeSearch.splitViewId ?? null), [routeSearch.splitViewId]),
   );
@@ -1006,7 +1003,6 @@ function EventRouter() {
     const api = readNativeApi();
     if (!api) return;
     let disposed = false;
-    let needsProviderInvalidation = false;
     let needsBroadGitInvalidation = false;
     let pendingGitInvalidationThreadIds = new Set<ThreadId>();
     let pendingStudioOutputInvalidationThreadIds = new Set<ThreadId>();
@@ -1252,12 +1248,6 @@ function EventRouter() {
         })),
         draftThreadIds,
       });
-      // Right-dock terminals live under a synthetic scope derived from each active
-      // thread; retain those scopes so docked terminals are not pruned mid-session.
-      // Snapshot first: we mutate the set while iterating its prior membership.
-      for (const activeThreadId of Array.from(activeThreadIds)) {
-        activeThreadIds.add(dockTerminalThreadId(activeThreadId));
-      }
       removeOrphanedTerminalStates(activeThreadIds);
     };
 
@@ -1265,10 +1255,6 @@ function EventRouter() {
       if (pendingDomainEvents.length > 0) {
         applyOrchestrationEventsHotPath(coalesceOrchestrationUiEvents(pendingDomainEvents));
         pendingDomainEvents = [];
-      }
-      if (needsProviderInvalidation) {
-        needsProviderInvalidation = false;
-        void queryClient.invalidateQueries({ queryKey: providerQueryKeys.all });
       }
       if (pendingStudioOutputInvalidationThreadIds.size > 0) {
         // File-change activities cover non-Git Studio chats; finalized checkpoints cover Git.
@@ -1306,9 +1292,6 @@ function EventRouter() {
 
     const queueDomainEvent = (event: OrchestrationEvent) => {
       pendingDomainEvents.push(event);
-      if (shouldInvalidateProviderQueriesForEvent(event)) {
-        needsProviderInvalidation = true;
-      }
       const studioOutputThreadId = getStudioOutputInvalidationThreadIdForEvent(event);
       if (studioOutputThreadId) {
         pendingStudioOutputInvalidationThreadIds.add(studioOutputThreadId);
@@ -1425,7 +1408,6 @@ function EventRouter() {
         if (projectionSettlesCurrentTurn || projectionRepairsTerminalFence) {
           // Mirror terminal-event invalidation when recovery came from the
           // projection rather than the live stream.
-          needsProviderInvalidation = true;
           pendingGitInvalidationThreadIds.add(threadId);
           pendingStudioOutputInvalidationThreadIds.add(threadId);
           domainEventFlushThrottler.maybeExecute();
@@ -1840,7 +1822,6 @@ function EventRouter() {
       disposed = true;
       window.clearTimeout(shellBootstrapFallbackTimer);
       window.clearInterval(threadDetailCatchupInterval);
-      needsProviderInvalidation = false;
       needsBroadGitInvalidation = false;
       pendingGitInvalidationThreadIds = new Set();
       pendingStudioOutputInvalidationThreadIds = new Set();

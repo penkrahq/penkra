@@ -8,10 +8,8 @@ import {
 } from "@penkra/contracts";
 import {
   formatShortcutLabel,
-  isBrowserToggleShortcut,
   isChatNewShortcut,
   isChatNewChatShortcut,
-  isDiffToggleShortcut,
   isKeyboardShortcutsHelpShortcut,
   isOpenFavoriteEditorShortcut,
   isSidebarToggleShortcut,
@@ -262,16 +260,6 @@ const DEFAULT_BINDINGS = compile([
     shortcut: modShortcut("2"),
     command: "terminal.workspace.chat",
     whenAst: whenIdentifier("terminalWorkspaceOpen"),
-  },
-  {
-    shortcut: modShortcut("d"),
-    command: "diff.toggle",
-    whenAst: whenNot(whenIdentifier("terminalFocus")),
-  },
-  {
-    shortcut: modShortcut("b", { shiftKey: true }),
-    command: "browser.toggle",
-    whenAst: whenNot(whenIdentifier("terminalFocus")),
   },
   {
     shortcut: modShortcut("m", { shiftKey: true }),
@@ -950,7 +938,6 @@ describe("shortcutLabelForCommand", () => {
       shortcutLabelForCommand(DEFAULT_BINDINGS, "chat.newTerminal", "MacIntel"),
       "⇧⌘T",
     );
-    assert.strictEqual(shortcutLabelForCommand(DEFAULT_BINDINGS, "diff.toggle", "Linux"), "Ctrl+D");
     assert.strictEqual(
       shortcutLabelForCommand(DEFAULT_BINDINGS, "sidebar.toggle", "MacIntel"),
       "⌘B",
@@ -958,10 +945,6 @@ describe("shortcutLabelForCommand", () => {
     assert.strictEqual(
       shortcutLabelForCommand(DEFAULT_BINDINGS, "sidebar.search", "MacIntel"),
       "⌘K",
-    );
-    assert.strictEqual(
-      shortcutLabelForCommand(DEFAULT_BINDINGS, "browser.toggle", "MacIntel"),
-      "⇧⌘B",
     );
     assert.strictEqual(
       shortcutLabelForCommand(DEFAULT_BINDINGS, "modelPicker.toggle", "MacIntel"),
@@ -1262,21 +1245,6 @@ describe("chat/editor shortcuts", () => {
     );
   });
 
-  it("matches diff.toggle shortcut outside terminal focus", () => {
-    assert.isTrue(
-      isDiffToggleShortcut(event({ key: "d", metaKey: true }), DEFAULT_BINDINGS, {
-        platform: "MacIntel",
-        context: { terminalFocus: false },
-      }),
-    );
-    assert.isFalse(
-      isDiffToggleShortcut(event({ key: "d", metaKey: true }), DEFAULT_BINDINGS, {
-        platform: "MacIntel",
-        context: { terminalFocus: true },
-      }),
-    );
-  });
-
   it("matches sidebar.toggle shortcut outside terminal focus", () => {
     assert.isTrue(
       isSidebarToggleShortcut(event({ key: "b", metaKey: true }), DEFAULT_BINDINGS, {
@@ -1344,29 +1312,6 @@ describe("chat/editor shortcuts", () => {
     assert.strictEqual(
       shortcutLabelForCommand(DEFAULT_BINDINGS, "sidebar.search", "Win32"),
       "Ctrl+K",
-    );
-  });
-
-  it("matches browser.toggle shortcut outside terminal focus", () => {
-    assert.isTrue(
-      isBrowserToggleShortcut(
-        event({ key: "b", metaKey: true, shiftKey: true }),
-        DEFAULT_BINDINGS,
-        {
-          platform: "MacIntel",
-          context: { terminalFocus: false },
-        },
-      ),
-    );
-    assert.isFalse(
-      isBrowserToggleShortcut(
-        event({ key: "b", metaKey: true, shiftKey: true }),
-        DEFAULT_BINDINGS,
-        {
-          platform: "MacIntel",
-          context: { terminalFocus: true },
-        },
-      ),
     );
   });
 });

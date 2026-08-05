@@ -77,18 +77,6 @@ it.effect("parses keybinding rules", () =>
     });
     assert.strictEqual(parsedWorkspaceChat.command, "terminal.workspace.chat");
 
-    const parsedDiffToggle = yield* decode(KeybindingRule, {
-      key: "mod+d",
-      command: "diff.toggle",
-    });
-    assert.strictEqual(parsedDiffToggle.command, "diff.toggle");
-
-    const parsedBrowserToggle = yield* decode(KeybindingRule, {
-      key: "mod+shift+b",
-      command: "browser.toggle",
-    });
-    assert.strictEqual(parsedBrowserToggle.command, "browser.toggle");
-
     const parsedModelPickerToggle = yield* decode(KeybindingRule, {
       key: "mod+shift+m",
       command: "modelPicker.toggle",

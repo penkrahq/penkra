@@ -68,7 +68,6 @@ interface ChatTranscriptPaneProps {
   onIsAtEndChange: (isAtEnd: boolean) => void;
   onCloseAgentActivityDetail?: () => void;
   onOpenAgentActivity?: ComponentProps<typeof MessagesTimeline>["onOpenAgentActivity"];
-  onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
   onOpenThread: (threadId: ThreadId) => void;
   onRevertUserMessage: (messageId: MessageId) => void;
   onUndoTurnFiles?: ComponentProps<typeof MessagesTimeline>["onUndoTurnFiles"];
@@ -126,7 +125,6 @@ export function ChatTranscriptPane({
   onIsAtEndChange,
   onCloseAgentActivityDetail,
   onOpenAgentActivity,
-  onOpenTurnDiff,
   onOpenThread,
   onRevertUserMessage,
   onUndoTurnFiles,
@@ -197,7 +195,6 @@ export function ChatTranscriptPane({
             {...(crossTaskOrigin ? { crossTaskOrigin } : {})}
             timelineEntries={timelineEntries}
             turnDiffSummaryByAssistantMessageId={turnDiffSummaryByAssistantMessageId}
-            onOpenTurnDiff={onOpenTurnDiff}
             onOpenThread={onOpenThread}
             {...(subagentToolTraceByThreadId ? { subagentToolTraceByThreadId } : {})}
             revertTurnCountByUserMessageId={revertTurnCountByUserMessageId}

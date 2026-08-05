@@ -9,7 +9,6 @@ import {
   createWorktreeSetupSnapshot,
   derivePromptHistoryFromMessages,
   failWorktreeSetupSnapshot,
-  filterSidechatTranscriptMessages,
   hasFileUndoSettled,
   isComposerCursorOnFirstLine,
   isComposerCursorOnLastLine,
@@ -655,39 +654,6 @@ describe("voice helpers", () => {
         isEmpty: false,
       }),
     ).toBe("Reviewer / Fix follow-up");
-  });
-
-  it("hides fork-imported transcript rows only for sidechats", () => {
-    const messages = [
-      {
-        id: "message-imported" as never,
-        role: "assistant",
-        text: "Previous context",
-        turnId: null,
-        streaming: false,
-        source: "fork-import",
-        createdAt: "2026-05-02T10:00:00.000Z",
-        completedAt: "2026-05-02T10:00:00.000Z",
-      },
-      {
-        id: "message-native" as never,
-        role: "user",
-        text: "Fresh side question",
-        turnId: null,
-        streaming: false,
-        source: "native",
-        createdAt: "2026-05-02T10:01:00.000Z",
-        completedAt: "2026-05-02T10:01:00.000Z",
-      },
-    ] as const;
-
-    expect(filterSidechatTranscriptMessages(messages, true).map((message) => message.id)).toEqual([
-      "message-native",
-    ]);
-    expect(filterSidechatTranscriptMessages(messages, false).map((message) => message.id)).toEqual([
-      "message-imported",
-      "message-native",
-    ]);
   });
 
   it("appends a transcript to the existing prompt without disturbing spacing", () => {

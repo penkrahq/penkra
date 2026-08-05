@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { executePenkraExec, parseOperationInput, tokenizeRegisteredCommand } from "./appRuntimeCli";
+import {
+  executePenkraExecCommand,
+  parseOperationInput,
+  tokenizeRegisteredCommand,
+} from "./appRuntimeCli";
 
 const context = { spaceId: "personal", threadId: "thread-1" };
 const catalog = [
@@ -43,7 +47,7 @@ describe("App runtime CLI operation flags", () => {
   });
 });
 
-describe("penkra_exec command tokenization", () => {
+describe("penkra_exec_command tokenization", () => {
   it("preserves quoted structured input without invoking a shell", () => {
     expect(
       tokenizeRegisteredCommand(
@@ -77,17 +81,23 @@ describe("penkra_exec command tokenization", () => {
   });
 });
 
-describe("penkra_exec command discovery", () => {
+describe("penkra_exec_command discovery", () => {
   it("documents every core discovery path and the enabled App roots", async () => {
     const bridge = async (method: string) => {
       expect(method).toBe("catalog.list");
       return catalog;
     };
 
-    await expect(executePenkraExec("penkra --help", context, {}, bridge)).resolves.toMatchObject({
+    await expect(
+      executePenkraExecCommand("penkra --help", context, {}, bridge),
+    ).resolves.toMatchObject({
       commands: expect.arrayContaining(["penkra apps list", "penkra tabs current"]),
       appCommands: [
-        { root: "explorer", help: "penkra_exec: explorer --help", operations: ["resources.open"] },
+        {
+          root: "explorer",
+          help: "penkra_exec_command: explorer --help",
+          operations: ["resources.open"],
+        },
       ],
     });
   });
@@ -98,7 +108,9 @@ describe("penkra_exec command discovery", () => {
       return catalog;
     };
 
-    await expect(executePenkraExec("penkra apps list", context, {}, bridge)).resolves.toEqual({
+    await expect(
+      executePenkraExecCommand("penkra apps list", context, {}, bridge),
+    ).resolves.toEqual({
       spaceId: "personal",
       apps: [{ slug: "explorer", operations: ["resources.open"] }],
     });
@@ -111,9 +123,9 @@ describe("penkra_exec command discovery", () => {
       return { ok: true };
     };
 
-    await executePenkraExec("penkra tabs list", context, {}, bridge);
-    await executePenkraExec("penkra tabs snapshot --tab-id tab-A", context, {}, bridge);
-    await executePenkraExec(
+    await executePenkraExecCommand("penkra tabs list", context, {}, bridge);
+    await executePenkraExecCommand("penkra tabs snapshot --tab-id tab-A", context, {}, bridge);
+    await executePenkraExecCommand(
       'penkra tabs type --tab-id tab-A --ref a7 --text "Updated copy"',
       context,
       {},
@@ -134,8 +146,8 @@ describe("penkra_exec command discovery", () => {
   });
 
   it("points unknown core commands back to the canonical help command", async () => {
-    await expect(executePenkraExec("penkra app list", context, {}, async () => [])).rejects.toThrow(
-      "Run penkra --help",
-    );
+    await expect(
+      executePenkraExecCommand("penkra app list", context, {}, async () => []),
+    ).rejects.toThrow("Run penkra --help");
   });
 });

@@ -5,7 +5,7 @@
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { SINGLE_CHAT_PANE_SCOPE_ID, dockSidechatPaneScopeId } from "./chatPaneScope";
+import { SINGLE_CHAT_PANE_SCOPE_ID } from "./chatPaneScope";
 import { canComposerHandlePanelWidth } from "./panelResize";
 
 interface MountedComposer {
@@ -85,9 +85,9 @@ describe("canComposerHandlePanelWidth", () => {
     expect(composer.viewport.style.width).toBe("520px");
   });
 
-  it("defaults to the single-chat composer when dock panes mount sidechat composers first", () => {
-    const sidechatComposer = mountComposer({
-      scopeId: dockSidechatPaneScopeId("pane-1"),
+  it("defaults to the single-chat composer when another scoped composer mounts first", () => {
+    const otherComposer = mountComposer({
+      scopeId: "split-1:pane-1",
       widthPx: 520,
       rightActionsWidthPx: 520,
     });
@@ -100,17 +100,17 @@ describe("canComposerHandlePanelWidth", () => {
     const accepted = canComposerHandlePanelWidth({
       nextWidth: 360,
       applyWidth: (width) => {
-        sidechatComposer.viewport.style.width = `${width}px`;
+        otherComposer.viewport.style.width = `${width}px`;
         singleComposer.viewport.style.width = `${width}px`;
       },
       resetWidth: () => {
-        sidechatComposer.viewport.style.width = "520px";
+        otherComposer.viewport.style.width = "520px";
         singleComposer.viewport.style.width = "520px";
       },
     });
 
     expect(accepted).toBe(true);
-    expect(sidechatComposer.viewport.style.width).toBe("520px");
+    expect(otherComposer.viewport.style.width).toBe("520px");
     expect(singleComposer.viewport.style.width).toBe("520px");
   });
 });

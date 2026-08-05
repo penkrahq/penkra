@@ -790,46 +790,6 @@ function createSnapshotWithActiveInlinePlan(): OrchestrationReadModel {
   };
 }
 
-function createSnapshotWithTallComposerStack(): OrchestrationReadModel {
-  const snapshot = createSnapshotWithActiveInlinePlan();
-  const activeTurnId = TurnId.makeUnsafe("turn-inline-plan");
-
-  return {
-    ...snapshot,
-    threads: snapshot.threads.map((thread) =>
-      thread.id === THREAD_ID
-        ? {
-            ...thread,
-            checkpoints: [
-              {
-                turnId: activeTurnId,
-                checkpointTurnCount: 1,
-                checkpointRef: CheckpointRef.makeUnsafe("checkpoint-inline-plan"),
-                status: "ready",
-                files: [
-                  {
-                    path: "apps/web/src/components/ChatView.tsx",
-                    kind: "modified",
-                    additions: 12,
-                    deletions: 4,
-                  },
-                  {
-                    path: "apps/web/src/components/ChatView.browser.tsx",
-                    kind: "modified",
-                    additions: 36,
-                    deletions: 0,
-                  },
-                ],
-                assistantMessageId: null,
-                completedAt: isoAt(1_004),
-              },
-            ],
-          }
-        : thread,
-    ),
-  };
-}
-
 function createSnapshotWithSettledInlinePlan(): OrchestrationReadModel {
   const snapshot = createSnapshotWithActiveInlinePlan();
   const activeTurnId = TurnId.makeUnsafe("turn-inline-plan");
@@ -2154,7 +2114,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
   it("[geometry:linux] truncates the Pencil header title before its controls can overlap", async () => {
     const longTitle =
-      'remove "ago" from the sidebar while the diff panel stays open on smaller viewports';
+      'remove "ago" from the sidebar while the Apps panel stays open on smaller viewports';
     const headerOverflowSnapshot = (() => {
       const snapshot = createSnapshotForTargetUser({
         targetMessageId: "msg-user-header-overflow-target" as MessageId,
@@ -5419,13 +5379,12 @@ describe("ChatView timeline estimator parity (full app)", () => {
   it("does not mount a task-progress panel above the composer", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
-      snapshot: createSnapshotWithTallComposerStack(),
+      snapshot: createSnapshotWithActiveInlinePlan(),
     });
 
     try {
       await vi.waitFor(
         () => {
-          expect(document.body.textContent).toContain("2 files changed");
           expect(document.body.textContent).not.toContain("1 out of 3 tasks completed");
           expect(document.querySelector('[data-testid="active-task-list-card"]')).toBeNull();
         },

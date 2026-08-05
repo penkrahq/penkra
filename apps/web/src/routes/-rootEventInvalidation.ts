@@ -13,15 +13,11 @@ import { resolveThreadWorkspaceCwd } from "@penkra/shared/threadEnvironment";
 import type { AppState } from "../storeState";
 import { getThreadFromState } from "../threadDerivation";
 
-const FILE_CHANGE_EVENT_TYPES = new Set<OrchestrationEvent["type"]>([
+const STUDIO_OUTPUT_REFRESH_EVENT_TYPES = new Set<OrchestrationEvent["type"]>([
   "thread.turn-diff-completed",
   "thread.reverted",
   "thread.conversation-rolled-back",
 ]);
-
-export function shouldInvalidateProviderQueriesForEvent(event: OrchestrationEvent): boolean {
-  return FILE_CHANGE_EVENT_TYPES.has(event.type);
-}
 
 export function shouldInvalidateGitQueriesForEvent(event: OrchestrationEvent): boolean {
   if (event.type !== "thread.meta-updated") {
@@ -43,9 +39,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 // Activities stream while a turn is still running; file-change tool calls are the
-// earliest signal that workspace files were touched. Invalidating the project
-// file queries on them lets the editor file tree and open file preview refresh
-// mid-turn instead of waiting for the turn diff to complete.
+// earliest signal that workspace files were touched. Invalidate project-file
+// queries immediately so App resource handlers receive current metadata.
 function getFileChangeActivityThreadId(event: OrchestrationEvent): ThreadId | null {
   if (event.type !== "thread.activity-appended") {
     return null;
@@ -76,7 +71,7 @@ export function getStudioOutputInvalidationThreadIdForEvent(
       ? getFileChangeActivityThreadId(event)
       : null;
   }
-  if (!FILE_CHANGE_EVENT_TYPES.has(event.type)) {
+  if (!STUDIO_OUTPUT_REFRESH_EVENT_TYPES.has(event.type)) {
     return null;
   }
   return "threadId" in event.payload ? (event.payload.threadId as ThreadId) : null;

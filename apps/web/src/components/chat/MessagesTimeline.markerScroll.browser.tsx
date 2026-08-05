@@ -62,7 +62,6 @@ function MarkerTimeline({
       nowIso="2026-06-06T00:00:01.000Z"
       expandedWorkGroups={{}}
       onToggleWorkGroup={() => {}}
-      onOpenTurnDiff={() => {}}
       revertTurnCountByUserMessageId={new Map()}
       onRevertUserMessage={() => {}}
       isRevertingCheckpoint={false}

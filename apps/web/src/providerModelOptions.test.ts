@@ -64,6 +64,19 @@ describe("formatProviderModelOptionName", () => {
 });
 
 describe("mergeDynamicModelOptions", () => {
+  it("does not expose Codex's internal auto-review model", () => {
+    expect(
+      mergeDynamicModelOptions({
+        provider: "codex",
+        staticOptions: [],
+        dynamicModels: [
+          { slug: "codex-auto-review", name: "Codex Auto Review" },
+          { slug: "gpt-5.6-luna", name: "GPT-5.6 Luna" },
+        ],
+      }),
+    ).toEqual([{ slug: "gpt-5.6-luna", name: "GPT-5.6 Luna" }]);
+  });
+
   it("uses Claude's live catalog without rewriting future models through legacy aliases", () => {
     expect(
       mergeDynamicModelOptions({

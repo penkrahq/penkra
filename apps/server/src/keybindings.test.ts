@@ -52,6 +52,14 @@ const readKeybindingsConfig = (configPath: string) =>
   });
 
 it.layer(NodeServices.layer)("keybindings", (it) => {
+  it.effect("keeps every canonical default inside the public command contract", () =>
+    Schema.decodeUnknownEffect(KeybindingsConfig)(DEFAULT_KEYBINDINGS).pipe(
+      Effect.map((decoded) => {
+        assert.deepEqual(decoded, DEFAULT_KEYBINDINGS);
+      }),
+    ),
+  );
+
   it.effect("parses shortcuts including plus key", () =>
     Effect.sync(() => {
       assert.deepEqual(parseKeybindingShortcut("mod+j"), {

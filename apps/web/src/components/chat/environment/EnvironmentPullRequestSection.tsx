@@ -4,13 +4,7 @@
 // Layer: Environment panel section
 // Depends on: git status/PR-snapshot React Query helpers and the shared Environment row skin.
 
-import type {
-  GitPullRequestCheck,
-  GitPullRequestComment,
-  ContainerId,
-  ThreadId,
-} from "@penkra/contracts";
-import { parseGitHubRepositoryNameWithOwnerFromPullRequestUrl } from "@penkra/shared/githubRepository";
+import type { GitPullRequestCheck, GitPullRequestComment, ThreadId } from "@penkra/contracts";
 import { useQuery } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 
@@ -35,7 +29,6 @@ import {
 import { formatRelativeTime } from "~/lib/relativeTime";
 import { cn } from "~/lib/utils";
 import { ELEVATED_HOVER_SURFACE_CLASS_NAME } from "~/surfaceStyles";
-import { useRightDockStore } from "~/rightDockStore";
 import {
   ENVIRONMENT_ROW_CLASS_NAME,
   ENVIRONMENT_ROW_ICON_CLASS_NAME,
@@ -196,8 +189,6 @@ export function EnvironmentPullRequestSection({
   gitCwd,
   enabled,
   activeThreadId,
-  projectId,
-  configuredRepositories,
   onOpenUrl,
   onClose,
 }: {
@@ -205,13 +196,10 @@ export function EnvironmentPullRequestSection({
   /** Gate polling on the panel being open (mirrors the Local Servers section). */
   enabled: boolean;
   activeThreadId: ThreadId | null;
-  projectId: ContainerId | null;
-  configuredRepositories: ReadonlyArray<{ readonly nameWithOwner: string }>;
   /** Open non-PR URLs through Penkra's configured URL handler. */
   onOpenUrl: (url: string) => void;
   onClose: () => void;
 }) {
-  const openPane = useRightDockStore((store) => store.openPane);
   // Shares the cached git status the git block already fetches — no extra RPC.
   const { data: gitStatus } = useQuery(gitStatusQueryOptions(gitCwd));
   const pr = gitStatus?.pr ?? null;
@@ -238,22 +226,8 @@ export function EnvironmentPullRequestSection({
   const settledState = displayPr.state !== "open" ? displayPr.state : null;
   const diffStat = summarizePullRequestDiffStat(displayPr);
   const hasConflicts = settledState === null && displayPr.mergeability === "conflicting";
-  const pullRequestRepository = parseGitHubRepositoryNameWithOwnerFromPullRequestUrl(displayPr.url);
-  const repositoryBelongsToProject = configuredRepositories.some(
-    (repository) => repository.nameWithOwner.toLowerCase() === pullRequestRepository?.toLowerCase(),
-  );
   const openPullRequest = (initialTab: "summary" | "code" = "summary") => {
-    if (activeThreadId && projectId && pullRequestRepository && repositoryBelongsToProject) {
-      openPane(activeThreadId, {
-        kind: "pullRequest",
-        pullRequestProjectId: projectId,
-        pullRequestRepository,
-        pullRequestNumber: displayPr.number,
-        pullRequestInitialTab: initialTab,
-      });
-    } else {
-      onOpenUrl(initialTab === "code" ? `${displayPr.url}/files` : displayPr.url);
-    }
+    onOpenUrl(initialTab === "code" ? `${displayPr.url}/files` : displayPr.url);
     onClose();
   };
 

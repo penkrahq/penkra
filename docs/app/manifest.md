@@ -16,7 +16,7 @@ declarative contributions interpreted by the host.
 
 Operation keys are local, such as `issues.create`; do not prefix them with the App slug. Penkra
 addresses the operation as `{ app: "linear", operation: "issues.create" }` and presents it to an
-agent as `linear issues create` inside `penkra_exec`.
+agent as `linear issues create` inside `penkra_exec_command`.
 
 Package paths are relative, must stay within the immutable package, and cannot be symlinks.
 Compatibility declares host versions; it grants no permission.

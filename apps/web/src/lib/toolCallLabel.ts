@@ -115,6 +115,11 @@ interface PenkraMcpToolPresentation {
 }
 
 const PENKRA_MCP_TOOL_PRESENTATIONS = {
+  penkra_exec_command: {
+    running: "Penkra is running a command",
+    completed: "Penkra ran a command",
+    failed: "Penkra couldn't run a command",
+  },
   penkra_context: {
     running: "Penkra is checking its context",
     completed: "Penkra checked its context",

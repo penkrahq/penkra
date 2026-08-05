@@ -206,9 +206,13 @@ describe("agent gateway MCP injection", () => {
             ? {
                 tools: [
                   {
-                    name: "penkra_list_threads",
-                    description: "List Penkra threads.",
-                    inputSchema: { type: "object", properties: {} },
+                    name: "penkra_exec_command",
+                    description: "Execute one registered Penkra command.",
+                    inputSchema: {
+                      type: "object",
+                      properties: { command: { type: "string" } },
+                      required: ["command"],
+                    },
                   },
                 ],
               }
@@ -218,16 +222,20 @@ describe("agent gateway MCP injection", () => {
 
     assert.deepEqual(await listAgentGatewayMcpTools({ connection, fetch }), [
       {
-        name: "penkra_list_threads",
-        description: "List Penkra threads.",
-        inputSchema: { type: "object", properties: {} },
+        name: "penkra_exec_command",
+        description: "Execute one registered Penkra command.",
+        inputSchema: {
+          type: "object",
+          properties: { command: { type: "string" } },
+          required: ["command"],
+        },
       },
     ]);
     assert.deepEqual(
       await callAgentGatewayMcpTool({
         connection,
-        name: "penkra_list_threads",
-        arguments: { limit: 2 },
+        name: "penkra_exec_command",
+        arguments: { command: "penkra threads list --limit 2" },
         fetch,
       }),
       { content: [{ type: "text", text: "ok" }] },
@@ -237,8 +245,8 @@ describe("agent gateway MCP injection", () => {
       [`Bearer ${connection.bearerToken}`, `Bearer ${connection.bearerToken}`],
     );
     assert.deepEqual((requests[1]?.body as { readonly params: unknown }).params, {
-      name: "penkra_list_threads",
-      arguments: { limit: 2 },
+      name: "penkra_exec_command",
+      arguments: { command: "penkra threads list --limit 2" },
     });
   });
 

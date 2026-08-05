@@ -112,6 +112,11 @@ export function mergeDynamicModelOptions(input: {
     }
 
     const normalizedSlug = normalizeDynamicModelSlug(input.provider, dynamicModel.slug);
+    // Defense in depth for Codex runtime catalogs that omit the upstream
+    // visibility marker on internal models.
+    if (input.provider === "codex" && normalizedSlug.toLowerCase() === "codex-auto-review") {
+      continue;
+    }
     const rawSlug = dynamicModel.slug.trim().toLowerCase();
     const isGenericClaudeFamilyName =
       input.provider === "claudeAgent" &&

@@ -63,7 +63,6 @@ import { CrossTaskOriginLabel, type CrossTaskOrigin } from "./CrossTaskOriginLab
 import { PenkraThreadCreationCard } from "./PenkraThreadCreationCard";
 import { buildExpandedImagePreview, ExpandedImagePreview } from "./ExpandedImagePreview";
 import { DiffStatLabel } from "./DiffStatLabel";
-import { ReviewChangesButton } from "./ReviewChangesButton";
 import { FileEntryIcon } from "./FileEntryIcon";
 import { InlineMentionChip } from "./InlineMentionChip";
 import { InlineSkillChip } from "./InlineSkillChip";
@@ -389,7 +388,6 @@ interface MessagesTimelineProps {
   expandedWorkGroups?: Record<string, boolean>;
   onToggleWorkGroup?: (groupId: string) => void;
   onOpenAgentActivity?: (activityId: string) => void;
-  onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
   onOpenThread?: (threadId: ThreadId) => void;
   /** Recent child-thread tool calls rendered under subagent rows, keyed by child thread id. */
   subagentToolTraceByThreadId?: ReadonlyMap<string, SubagentToolTrace>;
@@ -447,7 +445,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   expandedWorkGroups,
   onToggleWorkGroup,
   onOpenAgentActivity,
-  onOpenTurnDiff,
   onOpenThread,
   subagentToolTraceByThreadId,
   revertTurnCountByUserMessageId,
@@ -1688,11 +1685,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                   fileDiffStatByPath={fileDiffStatByPath}
                   markdownCwd={markdownCwd}
                   onImageExpand={onImageExpand}
-                  onOpenTurnDiff={onOpenTurnDiff}
                   {...(onOpenAgentActivity ? { onOpenAgentActivity } : {})}
                   {...(onOpenThread ? { onOpenThread } : {})}
                   {...(subagentToolTraceByThreadId ? { subagentToolTraceByThreadId } : {})}
-                  {...(turnSummary?.turnId ? { turnId: turnSummary.turnId } : {})}
                 />
               );
               const isLiveGroup =
@@ -1955,12 +1950,10 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                   {inlineEditedFilesFromTurnSummary.length > 0 && (
                     <div className="mt-2 space-y-0.5">
                       {inlineEditedFilesFromTurnSummary.map((file) => (
-                        <button
+                        <div
                           key={`inline-summary-edit:${row.message.id}:${file.path}`}
-                          type="button"
-                          className="group/file-row flex w-full max-w-full items-center gap-2 px-0 py-1.5 text-left transition-colors duration-150 focus-visible:outline-none"
+                          className="flex w-full max-w-full items-center gap-2 px-0 py-1.5 text-left"
                           title={file.path}
-                          onClick={() => onOpenTurnDiff(turnSummary!.turnId, file.path)}
                         >
                           <EditedFileRowContent
                             filePath={file.path}
@@ -1969,7 +1962,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                             fontSizePx={normalizedChatFontSizePx}
                             compact={false}
                           />
-                        </button>
+                        </div>
                       ))}
                     </div>
                   )}
@@ -2101,14 +2094,12 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                         </span>
                       ) : null;
                       return (
-                        <button
+                        <div
                           key={file.path}
-                          type="button"
                           className={cn(
-                            "group/file-row flex w-full items-center gap-2 border-t border-[color:var(--color-border-light)] bg-transparent px-3 py-2.5 text-left transition-colors hover:bg-[var(--color-background-button-secondary-hover)] dark:bg-transparent dark:hover:bg-transparent",
+                            "flex w-full items-center gap-2 border-t border-[color:var(--color-border-light)] bg-transparent px-3 py-2.5 text-left dark:bg-transparent",
                             withFirstReset && "first:border-t-0",
                           )}
-                          onClick={() => onOpenTurnDiff(turnSummary.turnId, file.path)}
                         >
                           <FileEntryIcon
                             pathValue={file.path}
@@ -2118,13 +2109,13 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                             className="size-4 shrink-0 text-[var(--color-text-foreground)] opacity-70 dark:opacity-80"
                           />
                           <span
-                            className="font-system-ui truncate font-normal text-[var(--color-text-foreground)] underline-offset-2 group-hover/file-row:underline group-focus-visible/file-row:underline"
+                            className="font-system-ui truncate font-normal text-[var(--color-text-foreground)]"
                             style={{ fontSize: chatTypographyStyle.fontSize }}
                           >
                             {file.path}
                           </span>
                           {diffStats}
-                        </button>
+                        </div>
                       );
                     };
                     return (
@@ -2170,10 +2161,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                                 <Undo2Icon className="size-3" />
                               </button>
                             )}
-                            <ReviewChangesButton
-                              style={{ fontSize: chatTypographyStyle.fontSize }}
-                              onClick={() => onOpenTurnDiff(turnSummary.turnId)}
-                            />
                             <button
                               type="button"
                               className="inline-flex items-center justify-center rounded-md p-1 text-muted-foreground/70 transition-colors hover:bg-[var(--color-background-button-secondary-hover)] hover:text-foreground/80"

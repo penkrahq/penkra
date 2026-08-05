@@ -34,7 +34,7 @@ export function getAppTypographyScale(
 
   return {
     basePx,
-    composerPx: clampTypographyPx((basePx * 14) / 12, basePx),
+    composerPx: basePx,
     displayLgPx: clampTypographyPx((basePx * 28) / 12, basePx, 32),
     displayMdPx: clampTypographyPx((basePx * 26) / 12, basePx, 30),
     displaySmPx: clampTypographyPx((basePx * 24) / 12, basePx, 28),

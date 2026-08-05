@@ -7,7 +7,7 @@ import { ThreadId, type ThreadId as ThreadIdType } from "@penkra/contracts";
 import { useMemo } from "react";
 import { useParams } from "@tanstack/react-router";
 import { type DraftThreadState, useComposerDraftStore } from "./composerDraftStore";
-import { useDiffRouteSearch } from "./hooks/useDiffRouteSearch";
+import { useChatRouteSearch } from "./hooks/useChatRouteSearch";
 import {
   resolveSplitViewFocusedPaneThreadId,
   selectSplitView,
@@ -71,7 +71,7 @@ export function useFocusedChatContext(): FocusedChatContext {
     strict: false,
     select: (params) => (params.threadId ? ThreadId.makeUnsafe(params.threadId) : null),
   });
-  const routeSearch = useDiffRouteSearch();
+  const routeSearch = useChatRouteSearch();
   const activeSplitView = useSplitViewStore(
     useMemo(() => selectSplitView(routeSearch.splitViewId ?? null), [routeSearch.splitViewId]),
   );

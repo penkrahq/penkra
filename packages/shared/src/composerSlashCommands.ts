@@ -12,7 +12,6 @@ export const BUILT_IN_COMPOSER_SLASH_COMMANDS = [
   "default",
   "review",
   "fork",
-  "side",
   "status",
   "subagents",
   "fast",

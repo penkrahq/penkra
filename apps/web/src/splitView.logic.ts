@@ -1,17 +1,10 @@
 // FILE: splitView.logic.ts
-// Purpose: Pure helpers for the split-view pane tree (find/replace/collapse leaves, depth caps, panel resets).
+// Purpose: Pure helpers for the split-view Thread pane tree.
 // Layer: UI state helpers
 // Exports: tree traversal/mutation utilities and migration helpers consumed by the store and route surfaces
 
-import type { ContainerId, ThreadId } from "@penkra/contracts";
-import type {
-  LeafPane,
-  Pane,
-  PaneId,
-  SplitDirection,
-  SplitNode,
-  SplitViewPanePanelState,
-} from "./splitViewStore";
+import type { ThreadId } from "@penkra/contracts";
+import type { LeafPane, Pane, PaneId, SplitDirection, SplitNode } from "./splitViewStore";
 
 // --- pane lookup ---
 
@@ -192,34 +185,4 @@ export function canSubdividePane(
 export function resolveDefaultFocusLeafId(root: Pane): PaneId {
   const leaves = collectLeaves(root);
   return leaves[0]?.id ?? root.id;
-}
-
-// --- legacy split-view migration ---
-
-export interface LegacySplitViewLike {
-  id: string;
-  sourceThreadId: ThreadId;
-  ownerProjectId: ContainerId;
-  leftThreadId: ThreadId | null;
-  rightThreadId: ThreadId | null;
-  focusedPane: "left" | "right";
-  ratio: number;
-  leftPanel: SplitViewPanePanelState;
-  rightPanel: SplitViewPanePanelState;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export function isLegacySplitViewLike(value: unknown): value is LegacySplitViewLike {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-  const candidate = value as Record<string, unknown>;
-  return (
-    typeof candidate.id === "string" &&
-    typeof candidate.sourceThreadId === "string" &&
-    "leftThreadId" in candidate &&
-    "rightThreadId" in candidate &&
-    typeof candidate.focusedPane === "string"
-  );
 }

@@ -1,70 +1,20 @@
 // FILE: rightDockPaneMeta.tsx
-// Purpose: Shared semantic metadata (icon + label) for right-dock pane kinds.
+// Purpose: App-tab label and icon presentation for the right panel.
 // Layer: Chat right-dock UI primitives
-// Exports: per-kind meta map, ordered add-menu kinds, and pane label/icon resolvers.
+// Exports: App-tab label and icon resolvers.
 
 import type { ReactNode } from "react";
 
-import type { LucideIcon } from "~/lib/icons";
-import {
-  AppsIcon,
-  DiffIcon,
-  FileIcon,
-  GitCommitIcon,
-  GitPullRequestIcon,
-  InfoIcon,
-  MessageCircleIcon,
-  UsersIcon,
-} from "~/lib/icons";
-import type { RightDockPane, RightDockPaneKind } from "~/rightDockStore.logic";
-import { CHAT_SURFACE_CHIP_ICON_CLASS_NAME, SurfaceChipIcon } from "./chatHeaderControls";
-import { FileEntryIcon } from "./FileEntryIcon";
+import { AppsIcon } from "~/lib/icons";
+import type { RightDockPane } from "~/rightDockStore.logic";
+import { SurfaceChipIcon } from "./chatHeaderControls";
 
-export interface RightDockPaneMeta {
-  label: string;
-  Icon: LucideIcon;
+export function resolveRightDockPaneLabel(pane: RightDockPane): string {
+  return pane.appName;
 }
 
-export const RIGHT_DOCK_PANE_META: Record<RightDockPaneKind, RightDockPaneMeta> = {
-  app: { label: "App", Icon: AppsIcon },
-  diff: { label: "Diff", Icon: DiffIcon },
-  file: { label: "File", Icon: FileIcon },
-  sidechat: { label: "Side", Icon: MessageCircleIcon },
-  git: { label: "Git", Icon: GitCommitIcon },
-  pullRequest: { label: "Pull request", Icon: GitPullRequestIcon },
-  profile: { label: "Profile", Icon: UsersIcon },
-};
-
-// Neutral fallback for any pane kind we no longer recognize (e.g. stale
-// persisted state). Persisted dock state is sanitized on rehydrate, so this is
-// only a defensive guard to keep a single bad pane from crashing render.
-const FALLBACK_RIGHT_DOCK_PANE_META: RightDockPaneMeta = {
-  label: "Panel",
-  Icon: InfoIcon,
-};
-
-// Always resolve pane meta through this helper instead of indexing the map
-// directly, so an unknown kind degrades gracefully rather than throwing.
-export function getRightDockPaneMeta(kind: RightDockPaneKind): RightDockPaneMeta {
-  return RIGHT_DOCK_PANE_META[kind] ?? FALLBACK_RIGHT_DOCK_PANE_META;
-}
-
-// Resolves a tab label, preferring caller-provided per-pane overrides (e.g. the
-// embedded sidechat thread title) before falling back to the kind label.
-export function resolveRightDockPaneLabel(
-  pane: RightDockPane,
-  overrides?: Record<string, string | undefined>,
-): string {
-  return overrides?.[pane.id] ?? pane.appName ?? getRightDockPaneMeta(pane.kind).label;
-}
-
-// Resolves a tab glyph: file panes show the per-file-type icon (matching the
-// pane header and explorer rows), every other pane uses its kind icon. The file
-// glyph inherits the tab's muted foreground color (colorMode="inherit") instead
-// of its extension color, so dock tabs read like the changed-file rows rather
-// than carrying a loud per-type tint.
 export function resolveRightDockPaneIcon(pane: RightDockPane): ReactNode {
-  if (pane.kind === "app" && pane.appIconDataUrl) {
+  if (pane.appIconDataUrl) {
     return (
       <img
         alt=""
@@ -74,15 +24,5 @@ export function resolveRightDockPaneIcon(pane: RightDockPane): ReactNode {
       />
     );
   }
-  if (pane.kind === "file" && pane.filePath) {
-    return (
-      <FileEntryIcon
-        pathValue={pane.filePath}
-        kind="file"
-        colorMode="inherit"
-        className={CHAT_SURFACE_CHIP_ICON_CLASS_NAME}
-      />
-    );
-  }
-  return <SurfaceChipIcon icon={getRightDockPaneMeta(pane.kind).Icon} />;
+  return <SurfaceChipIcon icon={AppsIcon} />;
 }

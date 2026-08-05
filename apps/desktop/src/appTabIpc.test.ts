@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  appTabCssBoundsToNativeBounds,
   parseAppTabIdRequest,
   parseOpenAppFromAppsRequest,
   parseOpenAppTabRequest,
@@ -34,5 +35,19 @@ describe("App tab IPC boundary", () => {
         bounds: { x: 0, y: 0, width: Infinity, height: 4 },
       }),
     ).toThrow();
+  });
+
+  it("converts shell CSS geometry into native View geometry at page zoom", () => {
+    expect(
+      appTabCssBoundsToNativeBounds({ x: 984, y: 58, width: 744, height: 900 }, Math.sqrt(1.2)),
+    ).toEqual({
+      x: 984 * Math.sqrt(1.2),
+      y: 58 * Math.sqrt(1.2),
+      width: 744 * Math.sqrt(1.2),
+      height: 900 * Math.sqrt(1.2),
+    });
+    expect(() => appTabCssBoundsToNativeBounds({ x: 0, y: 0, width: 1, height: 1 }, 0)).toThrow(
+      "Invalid App tab zoom factor",
+    );
   });
 });

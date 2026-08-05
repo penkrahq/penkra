@@ -61,7 +61,6 @@ import { Debouncer, useDebouncedValue } from "@tanstack/react-pacer";
 import { useNavigate } from "@tanstack/react-router";
 import { type LegendListRef } from "@legendapp/list/react";
 import {
-  GIT_WORKING_TREE_DIFF_LIVE_REFETCH_INTERVAL_MS,
   gitCreateDetachedWorktreeMutationOptions,
   gitGithubRepositoryQueryOptions,
   gitBranchesQueryOptions,
@@ -104,7 +103,8 @@ import {
 } from "../confirmedCustomBinaryPathStore";
 import { isElectron } from "../env";
 import { isScrollContainerNearBottom } from "../chat-scroll";
-import { stripDiffSearchParams } from "../diffRouteSearch";
+import { parseChatRouteSearch } from "../chatRouteSearch";
+import { openThreadUrlReference, useThreadResourceOpener } from "../lib/threadResourceOpener";
 import { resolveSubagentPresentationForThread } from "../lib/subagentPresentation";
 import { isHomeChatContainerProject } from "../lib/chatProjects";
 import { isStudioContainerProject } from "../lib/studioProjects";
@@ -126,7 +126,7 @@ import { reconcileDeletedThreadFromClient } from "../lib/deletedThreadClientReco
 import { dispatchThreadRename } from "../lib/threadRename";
 import { useHandleNewChat } from "../hooks/useHandleNewChat";
 import { useComposerDropzone } from "../hooks/useComposerDropzone";
-import { useDiffRouteSearch } from "../hooks/useDiffRouteSearch";
+import { useChatRouteSearch } from "../hooks/useChatRouteSearch";
 import {
   buildTranscriptAutoFollowSignal,
   derivePromptHistoryFromMessages,
@@ -136,7 +136,6 @@ import {
   type PendingFileUndo,
   type PromptHistoryNavigationState,
   resolveActiveThreadTitle,
-  resolveActiveTurnLiveDiffState,
   resolveCommittedProviderModel,
   resolveCycledModelSlug,
   resolveDefaultEnvironmentPanelOpen,
@@ -178,7 +177,6 @@ import {
 import { retainThreadDetailSubscription } from "../threadDetailSubscriptionRetention";
 import {
   canOfferForkSlashCommand,
-  canOfferSideSlashCommand,
   canOfferReviewSlashCommand,
   hasProviderNativeSlashCommand,
   providerSupportsTextNativeReviewCommand,
@@ -235,7 +233,6 @@ import {
 } from "../keybindings";
 import { EllipsisIcon, RefreshCwIcon } from "~/lib/icons";
 import { ComposerQueuedHeader } from "./chat/ComposerQueuedHeader";
-import { ComposerLiveChangesHeader } from "./chat/ComposerLiveChangesHeader";
 import { ComposerPickerMenuPopup } from "./chat/ComposerPickerMenuPopup";
 import { Button } from "./ui/button";
 import { Skeleton } from "./ui/skeleton";
@@ -331,7 +328,6 @@ import { selectThreadTerminalState, useTerminalStateStore } from "../terminalSta
 import {
   resolveSplitViewFocusedThreadId,
   selectSplitView,
-  type SplitViewPanePanelState,
   useSplitViewStore,
 } from "../splitViewStore";
 import { ComposerPromptEditor, type ComposerPromptEditorHandle } from "./ComposerPromptEditor";
@@ -359,7 +355,6 @@ import {
 } from "~/hooks/useDesktopTopBarGutter";
 import { useNowMs } from "~/hooks/useNowMs";
 import { useThreadRecap } from "~/hooks/useThreadRecap";
-import { useRepoDiffTotals } from "~/hooks/useRepoDiffTotals";
 import { useIsMobile } from "~/hooks/useMediaQuery";
 import { ChatTranscriptPane } from "./chat/ChatTranscriptPane";
 import { ComposerDefault } from "./middle-panel/composer-default/ComposerDefault";
@@ -461,7 +456,6 @@ import {
   collectUserMessageBlobPreviewUrls,
   deriveComposerSendState,
   failWorktreeSetupSnapshot,
-  filterSidechatTranscriptMessages,
   hasServerAcknowledgedLocalDispatch,
   resolveNextLocalDispatchSnapshot,
   WORKTREE_SETUP_ERROR_HOLD_MS,
@@ -482,10 +476,7 @@ import { useLocalStorage } from "~/hooks/useLocalStorage";
 import { useComposerSlashCommands } from "../hooks/useComposerSlashCommands";
 import { useFeatureFlags } from "../featureFlags";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
-import {
-  resolveDiffEnvironmentState,
-  resolveThreadEnvironmentMode,
-} from "../lib/threadEnvironment";
+import { resolveThreadEnvironmentMode } from "../lib/threadEnvironment";
 import { buildModelSelection, buildNextProviderOptions } from "../providerModelOptions";
 import {
   isDuplicateProjectCreateError,
@@ -896,20 +887,9 @@ interface ChatViewProps {
   threadId: ThreadId;
   paneScopeId?: string;
   surfaceMode?: "single" | "split";
-  presentationMode?: "default" | "editor";
   isFocusedPane?: boolean;
-  panelState?: SplitViewPanePanelState;
-  onToggleDiffPanel?: () => void;
-  onToggleBrowserPanel?: () => void;
-  onOpenBrowserUrl?: (url: string) => void;
-  onOpenTurnDiffPanel?: (turnId: TurnId, filePath?: string) => void;
   onSplitSurface?: () => void;
   onMaximizeSurface?: () => void;
-  viewModeAction?: {
-    label: string;
-    active: boolean;
-    onClick: () => void;
-  } | null;
   onChangeThreadInSplitPane?: () => void;
   onCloseThreadPane?: () => void;
 }
@@ -957,16 +937,9 @@ export default function ChatView({
   threadId,
   paneScopeId: paneScopeIdProp,
   surfaceMode: surfaceModeProp,
-  presentationMode: presentationModeProp,
   isFocusedPane: isFocusedPaneProp,
-  panelState,
-  onToggleDiffPanel,
-  onToggleBrowserPanel,
-  onOpenBrowserUrl,
-  onOpenTurnDiffPanel,
   onSplitSurface,
   onMaximizeSurface,
-  viewModeAction: viewModeActionProp,
   onChangeThreadInSplitPane,
   onCloseThreadPane,
 }: ChatViewProps) {
@@ -975,9 +948,7 @@ export default function ChatView({
   // into a full long-thread render.
   const paneScopeId = paneScopeIdProp ?? SINGLE_CHAT_PANE_SCOPE_ID;
   const surfaceMode = surfaceModeProp ?? "single";
-  const presentationMode = presentationModeProp ?? "default";
   const isFocusedPane = isFocusedPaneProp ?? true;
-  const viewModeAction = viewModeActionProp ?? null;
   const markThreadVisited = useStore((store) => store.markThreadVisited);
   const syncServerShellSnapshot = useStore((store) => store.syncServerShellSnapshot);
   const setStoreThreadError = useStore((store) => store.setError);
@@ -995,17 +966,17 @@ export default function ChatView({
   const navigate = useNavigate();
   const { handleNewThread } = useHandleNewThread();
   const { handleNewChat } = useHandleNewChat();
-  const rawSearch = useDiffRouteSearch();
+  const rawSearch = useChatRouteSearch();
   const activeSplitView = useSplitViewStore(
     useMemo(() => selectSplitView(rawSearch.splitViewId ?? null), [rawSearch.splitViewId]),
   );
   const removeThreadFromSplitViews = useSplitViewStore((store) => store.removeThreadFromSplitViews);
   const { resolvedTheme } = useTheme();
   const queryClient = useQueryClient();
+  const threadResourceOpener = useThreadResourceOpener();
   const createWorktreeMutation = useMutation(
     gitCreateDetachedWorktreeMutationOptions({ queryClient }),
   );
-  const isEditorRail = presentationMode === "editor";
   const isInactiveSplitPane = surfaceMode === "split" && !isFocusedPane;
   const composerDraft = useComposerThreadDraft(threadId);
   const prompt = composerDraft.prompt;
@@ -1638,9 +1609,6 @@ export default function ChatView({
   const isServerThread = serverThread !== undefined;
   const isLocalDraftThread = !isServerThread && localDraftThread !== undefined;
   const canCheckoutPullRequestIntoThread = isLocalDraftThread;
-  const diffOpen = rawSearch.panel === "diff";
-  const browserOpen = rawSearch.panel === "browser";
-  const resolvedDiffOpen = panelState ? panelState.panel === "diff" : diffOpen;
   const activeThreadId = activeThread?.id ?? null;
   const activeLatestTurn = activeThread?.latestTurn ?? null;
   const activeLatestTurnId = activeLatestTurn?.turnId ?? null;
@@ -1751,7 +1719,6 @@ export default function ChatView({
     setTerminalHeight,
     setTerminalMetadataInStore: storeSetTerminalMetadata,
     setTerminalActivityInStore: storeSetTerminalActivity,
-    openChatThreadPageInStore: storeOpenChatThreadPage,
     openTerminalThreadPageInStore: storeOpenTerminalThreadPage,
     newTerminalInStore: storeNewTerminal,
     setActiveTerminalInStore: storeSetActiveTerminal,
@@ -1821,18 +1788,6 @@ export default function ChatView({
   const resolvedThreadWorkingDirectory = isServerThread
     ? (activeThread?.workingDirectory ?? null)
     : (draftThread?.workingDirectory ?? null);
-  const diffEnvironmentState = resolveDiffEnvironmentState({
-    projectCwd: activeProject?.cwd ?? null,
-    envMode: resolvedThreadEnvMode,
-    worktreePath: resolvedThreadWorktreePath,
-    workingDirectory: resolvedThreadWorkingDirectory,
-  });
-  const diffEnvironmentPending = diffEnvironmentState.pending;
-  const diffDisabledReason = diffEnvironmentState.disabledReason;
-  const repoDiffBadgeRefreshIntervalMs =
-    isFocusedPane && latestTurnLive && !diffEnvironmentPending && !resolvedDiffOpen
-      ? GIT_WORKING_TREE_DIFF_LIVE_REFETCH_INTERVAL_MS
-      : false;
   const activeThreadAssociatedWorktree = useMemo(
     () =>
       deriveAssociatedWorktreeMetadata({
@@ -2721,10 +2676,7 @@ export default function ChatView({
   }, []);
   const serverMessages = activeThread?.messages;
   const timelineMessages = useMemo(() => {
-    const messages = filterSidechatTranscriptMessages(
-      serverMessages ?? [],
-      Boolean(activeThread?.sidechatSourceThreadId),
-    );
+    const messages = serverMessages ?? [];
     const serverMessagesWithPreviewHandoff =
       Object.keys(attachmentPreviewHandoffByMessageId).length === 0
         ? messages
@@ -2778,12 +2730,7 @@ export default function ChatView({
         ? serverMessagesWithPreviewHandoff
         : [...serverMessagesWithPreviewHandoff, ...pendingMessages];
     return withPending;
-  }, [
-    activeThread?.sidechatSourceThreadId,
-    serverMessages,
-    attachmentPreviewHandoffByMessageId,
-    optimisticUserMessages,
-  ]);
+  }, [serverMessages, attachmentPreviewHandoffByMessageId, optimisticUserMessages]);
   const promptHistory = useMemo(() => {
     const activeMessages = activeThread?.messages ?? EMPTY_MESSAGES;
     // Optimistic messages exist only briefly after a send; skip the full-transcript
@@ -2934,8 +2881,7 @@ export default function ChatView({
   );
   // Empty top-level threads render the centered landing composer instead of the transcript pane.
   // Every empty top-level draft uses the parent-aware Pencil prompt and folder picker.
-  const isCenteredEmptyLanding =
-    timelineEntries.length === 0 && !activeThread?.parentThreadId && !isEditorRail;
+  const isCenteredEmptyLanding = timelineEntries.length === 0 && !activeThread?.parentThreadId;
   const isEmptyChatLanding =
     isCenteredEmptyLanding && Boolean(homeDir) && isContainerLandingProject;
   const { turnDiffSummaries, inferredCheckpointTurnCountByTurnId } =
@@ -3191,18 +3137,6 @@ export default function ChatView({
       selectedMentionCount: selectedComposerMentions.length,
       interactionMode,
     });
-  const canOfferSideCommand =
-    isServerThread &&
-    activeThread !== undefined &&
-    canOfferSideSlashCommand({
-      prompt: composerPromptWithoutActiveSlashTrigger,
-      imageCount: composerImages.length,
-      terminalContextCount: composerTerminalContexts.length,
-      selectedSkillCount: selectedComposerSkills.length,
-      selectedMentionCount: selectedComposerMentions.length,
-      interactionMode,
-      isSidechat: Boolean(activeThread.sidechatSourceThreadId),
-    });
   // Export is hidden while the thread is running so archives cannot capture a
   // partial assistant response. Same shared predicate as the server's 409
   // guard, so the composer and the export route cannot drift.
@@ -3227,7 +3161,6 @@ export default function ChatView({
       activeThread?.session?.status !== "closed",
     canOfferReviewCommand,
     canOfferForkCommand,
-    canOfferSideCommand,
     canOfferExportCommand,
     dynamicAgents,
     threadMentionSources: {
@@ -3425,26 +3358,6 @@ export default function ChatView({
   const showGitActions = isStudioContainer
     ? Boolean(resolvedThreadWorktreePath) && isGitRepo
     : !isContainerLandingProject || Boolean(resolvedThreadWorktreePath);
-  const repoDiffTotals = useRepoDiffTotals({
-    gitCwd: threadWorkspaceCwd,
-    isGitRepo,
-    refetchInterval: repoDiffBadgeRefreshIntervalMs,
-  });
-  // The composer live strip is turn-scoped; repoDiffTotals can include unrelated
-  // local edits that existed before the active agent turn started.
-  const activeTurnLiveDiffState = useMemo(
-    () =>
-      resolveActiveTurnLiveDiffState({
-        latestTurnId: activeLatestTurn?.turnId ?? null,
-        turnDiffSummaries,
-        workLogEntries: rawWorkLogEntries,
-      }),
-    [activeLatestTurn?.turnId, rawWorkLogEntries, turnDiffSummaries],
-  );
-  const diffPanelShortcutLabel = useMemo(
-    () => shortcutLabelForCommand(keybindings, "diff.toggle"),
-    [keybindings],
-  );
   const modelPickerShortcutLabel = useMemo(
     () =>
       shortcutLabelForCommand(keybindings, "modelPicker.toggle") ??
@@ -3461,49 +3374,6 @@ export default function ChatView({
   const traitsPickerShortcutLabel = useMemo(
     () => shortcutLabelForCommand(keybindings, "traitsPicker.toggle"),
     [keybindings],
-  );
-  const onToggleDiff = useCallback(() => {
-    if (diffEnvironmentPending && !diffOpen) {
-      return;
-    }
-    if (onToggleDiffPanel) {
-      onToggleDiffPanel();
-      return;
-    }
-    void navigate({
-      to: "/$threadId",
-      params: { threadId },
-      replace: true,
-      search: (previous) => {
-        const rest = stripDiffSearchParams(previous);
-        return diffOpen
-          ? { ...rest, panel: undefined, diff: undefined }
-          : { ...rest, panel: "diff", diff: "1" };
-      },
-    });
-  }, [diffEnvironmentPending, diffOpen, navigate, onToggleDiffPanel, threadId]);
-  const onToggleBrowser = useCallback(() => {
-    if (onToggleBrowserPanel) {
-      onToggleBrowserPanel();
-      return;
-    }
-    void navigate({
-      to: "/$threadId",
-      params: { threadId },
-      replace: true,
-      search: (previous) => {
-        const rest = stripDiffSearchParams(previous);
-        return browserOpen ? { ...rest, panel: undefined } : { ...rest, panel: "browser" };
-      },
-    });
-  }, [browserOpen, navigate, onToggleBrowserPanel, threadId]);
-  const openBrowserUrl = useCallback(
-    (url: string) => {
-      if (onOpenBrowserUrl) {
-        onOpenBrowserUrl(url);
-      }
-    },
-    [onOpenBrowserUrl],
   );
 
   const envLocked = Boolean(
@@ -3745,7 +3615,7 @@ export default function ChatView({
   // or hides the side panel only when this thread already has a pane to show.
   const rightDockOpen = useRightDockStore((store) => selectRightDockState(threadId)(store).open);
   const isMobileViewport = useIsMobile();
-  const environmentEnabled = !isEditorRail;
+  const environmentEnabled = true;
   const environmentUsesFloatingOverlay =
     isTerminalEnvironmentContext || isMobileViewport || rightDockOpen || surfaceMode === "split";
   const environmentDefaultOpen = resolveDefaultEnvironmentPanelOpen({
@@ -5334,13 +5204,6 @@ export default function ChatView({
         return;
       }
 
-      if (command === "diff.toggle") {
-        event.preventDefault();
-        event.stopPropagation();
-        onToggleDiff();
-        return;
-      }
-
       if (command === "git.commitAndPush") {
         if (commitAndPushTriggerRef.current) {
           event.preventDefault();
@@ -5360,14 +5223,6 @@ export default function ChatView({
             title: "Nothing to commit or push.",
           });
         }
-        return;
-      }
-
-      if (command === "browser.toggle") {
-        event.preventDefault();
-        event.stopPropagation();
-        if (!isElectron) return;
-        onToggleBrowser();
         return;
       }
 
@@ -5395,8 +5250,6 @@ export default function ChatView({
     activeThreadId,
     runProjectScript,
     keybindings,
-    onToggleBrowser,
-    onToggleDiff,
     onInterrupt,
     onSplitSurface,
     showGitActions,
@@ -7960,7 +7813,6 @@ export default function ChatView({
       isServerThread &&
       activeThread?.session !== null &&
       activeThread?.session?.status !== "closed",
-    canOfferSideCommand,
     canOfferExportCommand,
     supportsTextNativeReviewCommand,
     fastModeEnabled,
@@ -8416,73 +8268,15 @@ export default function ChatView({
     setShowScrollToBottom(false);
     scrollToEnd(true);
   }, [scrollToEnd]);
-  const onOpenTurnDiff = useCallback(
-    (turnId: TurnId, filePath?: string) => {
-      if (diffEnvironmentPending) {
-        return;
-      }
-      if (onOpenTurnDiffPanel) {
-        onOpenTurnDiffPanel(turnId, filePath);
-        return;
-      }
-      void navigate({
-        to: "/$threadId",
-        params: { threadId },
-        search: (previous) => {
-          const rest = stripDiffSearchParams(previous);
-          return filePath
-            ? {
-                ...rest,
-                panel: "diff",
-                diff: "1",
-                diffTurnId: turnId,
-                diffFilePath: filePath,
-              }
-            : { ...rest, panel: "diff", diff: "1", diffTurnId: turnId };
-        },
-      });
-    },
-    [diffEnvironmentPending, navigate, onOpenTurnDiffPanel, threadId],
-  );
-  const onReviewComposerLiveChanges = useCallback(() => {
-    if (!activeTurnLiveDiffState.turnId) {
-      return;
-    }
-    onOpenTurnDiff(activeTurnLiveDiffState.turnId);
-  }, [activeTurnLiveDiffState.turnId, onOpenTurnDiff]);
   const onNavigateToThread = useCallback(
     (nextThreadId: ThreadId) => {
       void navigate({
         to: "/$threadId",
         params: { threadId: nextThreadId },
-        search: (previous) =>
-          isEditorRail
-            ? { ...stripDiffSearchParams(previous), view: "editor" }
-            : stripDiffSearchParams(previous),
+        search: (previous) => parseChatRouteSearch(previous),
       });
     },
-    [isEditorRail, navigate],
-  );
-  const activeProjectIdForNewChat = activeProject?.id ?? null;
-  const onNewEditorChat = useCallback(() => {
-    if (!activeProjectIdForNewChat) {
-      return;
-    }
-    // Keep the editor workspace view (and any open file) across the new-thread
-    // navigation; the default new-thread flow clears all search params.
-    void handleNewThread(activeProjectIdForNewChat, undefined, {
-      search: (previous) => ({
-        ...stripDiffSearchParams(previous),
-        view: "editor",
-      }),
-    });
-  }, [activeProjectIdForNewChat, handleNewThread]);
-  const onOpenEditorChat = useCallback(
-    (nextThreadId: ThreadId) => {
-      storeOpenChatThreadPage(nextThreadId);
-      onNavigateToThread(nextThreadId);
-    },
-    [onNavigateToThread, storeOpenChatThreadPage],
+    [navigate],
   );
   const onRevertUserMessage = useCallback(
     (messageId: MessageId) => {
@@ -8708,7 +8502,6 @@ export default function ChatView({
     gitCwd: threadWorkspaceCwd,
     openInTarget: threadWorkspaceCwd,
     githubRepository: githubRepositoryQuery.data?.repository ?? null,
-    githubRepositories: githubRepositoryQuery.data?.repositories ?? [],
     isGitRepo,
     keybindings,
     availableEditors,
@@ -8717,9 +8510,6 @@ export default function ChatView({
     isStudioChat: isStudioContainer,
     studioFolderPath: isStudioContainer ? resolvedThreadWorktreePath : null,
     showGitActions,
-    diffOpen: resolvedDiffOpen,
-    diffDisabledReason,
-    diffTotals: repoDiffTotals,
     branchToolbar: branchToolbarProps,
     recap: threadRecap,
     pinnedMessages,
@@ -8732,8 +8522,7 @@ export default function ChatView({
     canCopyProjectInstructionsToNotes: !isLocalDraftThread,
     onProjectInstructionsChange: setProjectInstructions,
     onCopyProjectInstructionsToNotes: handleCopyProjectInstructionsToNotes,
-    onToggleDiff,
-    onOpenGithubRepository: openBrowserUrl,
+    onOpenGithubRepository: (url) => openThreadUrlReference(threadResourceOpener, url),
     onJumpToPinnedMessage: handleJumpToPinnedMessage,
     onTogglePinnedMessageDone: handleTogglePinnedMessageDone,
     onUnpinMessage: handleUnpinMessage,
@@ -8743,7 +8532,6 @@ export default function ChatView({
     onRemoveThreadMarker: handleRemoveThreadMarker,
     onRenameThreadMarker: handleRenameThreadMarker,
     onNotesChange: handleNotesChange,
-    onOpenEditorView: viewModeAction?.onClick ?? null,
     onClose: closeEnvironmentPanelAfterAction,
     onRegisterCommitAndPushTrigger,
   };
@@ -8752,7 +8540,6 @@ export default function ChatView({
   // Terminal surfaces always float so opening Environment never resizes the terminal workspace.
   const environmentAppliesContentInset = environmentPanelVisible && !environmentUsesFloatingOverlay;
   const environmentOverlayVariant = environmentUsesFloatingOverlay ? "floating" : "docked";
-  const showComposerLiveChangesHeader = latestTurnLive && activeTurnLiveDiffState.hasChanges;
   const showComposerWorkflowRunCard = workflowRunState !== null;
   const showComposerSubagentStrip = composerSubagentStripItems.length > 0;
 
@@ -8773,16 +8560,6 @@ export default function ChatView({
             {/* A bare wrapper keeps the normal-flow panels' -mb-px seam onto the input shell
                 via margin collapse. */}
             <div>
-              {showComposerLiveChangesHeader ? (
-                <ComposerLiveChangesHeader
-                  fileCount={activeTurnLiveDiffState.fileCount}
-                  additions={activeTurnLiveDiffState.additions}
-                  deletions={activeTurnLiveDiffState.deletions}
-                  onReview={
-                    activeTurnLiveDiffState.turnId ? onReviewComposerLiveChanges : undefined
-                  }
-                />
-              ) : null}
               {workflowRunState ? (
                 <WorkflowRunCard
                   workflowRun={workflowRunState}
@@ -8794,7 +8571,7 @@ export default function ChatView({
                   onPause={onPauseWorkflowRun}
                   onResume={onResumeWorkflowRun}
                   onDismiss={onDismissWorkflowRun}
-                  attachedToPrevious={showComposerLiveChangesHeader}
+                  attachedToPrevious={false}
                 />
               ) : null}
               {showComposerSubagentStrip ? (
@@ -8806,7 +8583,7 @@ export default function ChatView({
                   onBackgroundItem={onBackgroundSubagentStripItem}
                   onStopItem={onStopSubagentStripItem}
                   onStopAll={onStopAllSubagentStripItems}
-                  attachedToPrevious={showComposerLiveChangesHeader || showComposerWorkflowRunCard}
+                  attachedToPrevious={showComposerWorkflowRunCard}
                 />
               ) : null}
               <ComposerQueuedHeader
@@ -8815,11 +8592,7 @@ export default function ChatView({
                 onRemove={removeQueuedComposerTurn}
                 onEdit={onEditQueuedComposerTurn}
                 cwd={threadWorkspaceCwd ?? undefined}
-                attachedToPrevious={
-                  showComposerLiveChangesHeader ||
-                  showComposerWorkflowRunCard ||
-                  showComposerSubagentStrip
-                }
+                attachedToPrevious={showComposerWorkflowRunCard || showComposerSubagentStrip}
               />
               {/* Pending approvals and AskUserQuestion prompts both render as a detached
                   card floating just above the composer (padding gives the measured gap),
@@ -9130,14 +8903,13 @@ export default function ChatView({
         className={cn(
           CHAT_SURFACE_HEADER_DIVIDER_CLASS_NAME,
           "flex items-center",
-          isEditorRail && "h-10",
           isElectron && "drag-region",
           // The editor-rail chat header sits in the editor's second row (inside the
           // right-side chat pane), not flush against the window edges — the editor's
           // own top bar already reserves both desktop window-control gutters. Applying
           // them here just leaves redundant empty space on the sides.
-          !isEditorRail && desktopTopBarTrafficLightGutterClassName,
-          !isEditorRail && desktopTopBarWindowControlsGutterClassName,
+          desktopTopBarTrafficLightGutterClassName,
+          desktopTopBarWindowControlsGutterClassName,
         )}
         menuTrigger={
           <Menu modal={false}>
@@ -9153,7 +8925,7 @@ export default function ChatView({
           </Menu>
         }
         harness={activeThread.session?.provider ?? activeThread.modelSelection.provider}
-        leftRailCollapsed={!isEditorRail && !leftRailOpen}
+        leftRailCollapsed={!leftRailOpen}
         onRestoreLeftRail={() => setLeftRailOpen(true)}
         pinned={activeThread.isPinned ?? false}
         title={activeThreadDisplayTitle}
@@ -9219,7 +8991,6 @@ export default function ChatView({
                     crossTaskOrigin={crossTaskOrigin}
                     timelineEntries={timelineEntries}
                     turnDiffSummaryByAssistantMessageId={turnDiffSummaryByAssistantMessageId}
-                    onOpenTurnDiff={onOpenTurnDiff}
                     onOpenThread={onNavigateToThread}
                     subagentToolTraceByThreadId={subagentToolTraceByThreadId}
                     revertTurnCountByUserMessageId={revertTurnCountByUserMessageId}
@@ -9235,7 +9006,6 @@ export default function ChatView({
                     chatFontSizePx={settings.chatFontSizePx}
                     timestampFormat={timestampFormat}
                     workspaceRoot={threadWorkspaceCwd ?? undefined}
-                    emptyStateContent={isEditorRail ? <span aria-hidden="true" /> : undefined}
                     emptyStateProjectName={activeProjectDisplayName}
                     onMessagesScroll={onMessagesScroll}
                     onMessagesClickCapture={onMessagesClickCapture}

@@ -148,11 +148,9 @@ import {
 } from "./updateState";
 import { registerDesktopVoiceTranscriptionHandler } from "./voiceTranscription";
 import {
-  applyDesktopPhysicalZoomAction,
   resolveDesktopMenuAccelerator,
-  resolveDesktopPhysicalZoomAction,
+  resolveDesktopWindowZoomAction,
   resolveKeyboardShortcutsMenuAccelerator,
-  shouldUseNativeZoomMenuRoles,
 } from "./menuShortcuts";
 import {
   createInitialDesktopUpdateState,
@@ -273,6 +271,7 @@ import {
 } from "./developmentAppSideload";
 import { createInitialWindowPresenter } from "./initialWindowVisibility";
 import {
+  appTabCssBoundsToNativeBounds,
   parseAppTabIdRequest,
   parseNavigateAppTabRequest,
   parseOpenAppFromAppsRequest,
@@ -424,7 +423,7 @@ const UPDATE_BACKEND_SHUTDOWN_TIMEOUT_MS = 130_000;
 const BACKEND_MAX_OLD_SPACE_ENV_KEYS = ["PENKRA_BACKEND_MAX_OLD_SPACE_MB"] as const;
 const DESKTOP_UPDATE_ALLOW_PRERELEASE = false;
 const BROWSER_PERF_SAMPLE_INTERVAL_MS = 5_000;
-const DESKTOP_MENU_ZOOM_FACTOR_STEP = 1.1;
+const DESKTOP_MENU_ZOOM_FACTOR_STEP = Math.sqrt(1.2);
 const DESKTOP_MENU_MIN_ZOOM_FACTOR = 0.25;
 const DESKTOP_MENU_MAX_ZOOM_FACTOR = 5;
 const PENKRA_BROWSER_LABEL = "Penkra browser";
@@ -660,9 +659,9 @@ const browserManager = new DesktopBrowserManager({
       return true;
     }
 
-    const target = resolveMenuTargetWindow()?.webContents;
-    return target ? handleDesktopPhysicalZoomShortcut(event, input, target) : false;
+    return handleDesktopWindowZoomShortcut(event, input);
   },
+  getWindowZoomFactor: () => mainWindow?.webContents.getZoomFactor() ?? 1,
 });
 let appCommandPipeServer: AppCommandPipeServer | null = null;
 const appFileWatchers = new Map<string, { rendererId: number; watcher: FS.FSWatcher }>();
@@ -1686,43 +1685,59 @@ function attachDesktopZoomFactorSync(window: BrowserWindow): void {
   window.webContents.on("did-finish-load", notify);
 }
 
-function adjustWebContentsZoom(webContents: Electron.WebContents, multiplier: number): void {
+function setWindowZoomFactor(zoomFactor: number): void {
+  const window = resolveMenuTargetWindow();
+  if (!window || window.isDestroyed()) return;
   const nextZoomFactor = Math.min(
     DESKTOP_MENU_MAX_ZOOM_FACTOR,
-    Math.max(DESKTOP_MENU_MIN_ZOOM_FACTOR, webContents.getZoomFactor() * multiplier),
+    Math.max(DESKTOP_MENU_MIN_ZOOM_FACTOR, zoomFactor),
   );
-  webContents.setZoomFactor(nextZoomFactor);
+  window.webContents.setZoomFactor(nextZoomFactor);
+  desktopAppRuntime?.appTabs.setZoomFactor(nextZoomFactor);
+  browserManager.setZoomFactor(nextZoomFactor);
+  sendDesktopZoomFactor(window.webContents);
 }
 
-function handleDesktopPhysicalZoomShortcut(
-  event: Electron.Event,
-  input: Electron.Input,
-  target: Electron.WebContents,
-): boolean {
-  const action = resolveDesktopPhysicalZoomAction(process.platform, input);
-  if (!action || target.isDestroyed()) {
-    return false;
+function applyDesktopWindowZoomAction(
+  action: Exclude<ReturnType<typeof resolveDesktopWindowZoomAction>, null>,
+): void {
+  const currentZoomFactor = resolveMenuTargetWindow()?.webContents.getZoomFactor();
+  if (!currentZoomFactor) return;
+  if (action === "reset") {
+    setWindowZoomFactor(1);
+    return;
   }
+  setWindowZoomFactor(
+    currentZoomFactor *
+      (action === "zoomIn" ? DESKTOP_MENU_ZOOM_FACTOR_STEP : 1 / DESKTOP_MENU_ZOOM_FACTOR_STEP),
+  );
+}
+
+function handleDesktopWindowZoomShortcut(event: Electron.Event, input: Electron.Input): boolean {
+  const action = resolveDesktopWindowZoomAction(process.platform, input);
+  if (!action) return false;
 
   event.preventDefault();
-  applyDesktopPhysicalZoomAction(target, action);
+  applyDesktopWindowZoomAction(action);
   return true;
 }
 
-function attachDesktopPhysicalZoomShortcuts(window: BrowserWindow): void {
-  window.webContents.on("before-input-event", (event, input) => {
-    handleDesktopPhysicalZoomShortcut(event, input, window.webContents);
-  });
+function attachDesktopWindowZoomShortcuts(webContents: Electron.WebContents): () => void {
+  const beforeInputEvent = (event: Electron.Event, input: Electron.Input) => {
+    handleDesktopWindowZoomShortcut(event, input);
+  };
+  webContents.on("before-input-event", beforeInputEvent);
+  return () => webContents.removeListener("before-input-event", beforeInputEvent);
 }
 
 function resetWindowZoomFromMenu(): void {
-  resolveMenuTargetWindow()?.webContents.setZoomFactor(1);
+  setWindowZoomFactor(1);
 }
 
 function adjustWindowZoomFromMenu(multiplier: number): void {
-  const webContents = resolveMenuTargetWindow()?.webContents;
-  if (!webContents) return;
-  adjustWebContentsZoom(webContents, multiplier);
+  const zoomFactor = resolveMenuTargetWindow()?.webContents.getZoomFactor();
+  if (!zoomFactor) return;
+  setWindowZoomFactor(zoomFactor * multiplier);
 }
 
 // A configured app-update.yml (or the mock-updates flag) is the prerequisite for any
@@ -1806,28 +1821,32 @@ function configureApplicationMenu(): void {
     const resolved = resolveDesktopMenuAccelerator(process.platform, accelerator);
     return resolved ? { accelerator: resolved } : {};
   };
-  const zoomMenuItems: MenuItemConstructorOptions[] = shouldUseNativeZoomMenuRoles(process.platform)
-    ? [
-        { role: "resetZoom" },
-        { role: "zoomIn", ...acceleratorProps("CmdOrCtrl+=") },
-        {
-          role: "zoomIn",
-          ...acceleratorProps("CmdOrCtrl+Plus"),
-          visible: false,
-        },
-        { role: "zoomOut" },
-      ]
-    : [
-        { label: "Reset Zoom", click: () => resetWindowZoomFromMenu() },
-        {
-          label: "Zoom In",
-          click: () => adjustWindowZoomFromMenu(DESKTOP_MENU_ZOOM_FACTOR_STEP),
-        },
-        {
-          label: "Zoom Out",
-          click: () => adjustWindowZoomFromMenu(1 / DESKTOP_MENU_ZOOM_FACTOR_STEP),
-        },
-      ];
+  // Native zoom roles target whichever WebContents has focus. Penkra presents its
+  // shell and hosted App views as one window, so all zoom entry points route through
+  // the main-process window coordinator instead.
+  const zoomMenuItems: MenuItemConstructorOptions[] = [
+    {
+      label: "Reset Zoom",
+      ...acceleratorProps("CmdOrCtrl+0"),
+      click: () => resetWindowZoomFromMenu(),
+    },
+    {
+      label: "Zoom In",
+      ...acceleratorProps("CmdOrCtrl+="),
+      click: () => adjustWindowZoomFromMenu(DESKTOP_MENU_ZOOM_FACTOR_STEP),
+    },
+    {
+      label: "Zoom In",
+      ...acceleratorProps("CmdOrCtrl+Plus"),
+      visible: false,
+      click: () => adjustWindowZoomFromMenu(DESKTOP_MENU_ZOOM_FACTOR_STEP),
+    },
+    {
+      label: "Zoom Out",
+      ...acceleratorProps("CmdOrCtrl+-"),
+      click: () => adjustWindowZoomFromMenu(1 / DESKTOP_MENU_ZOOM_FACTOR_STEP),
+    },
+  ];
 
   if (process.platform === "darwin") {
     template.push({
@@ -4322,12 +4341,18 @@ function registerIpcHandlers(): void {
         ) {
           throw new Error("Browser viewport bounds must be finite numbers.");
         }
-        appBrowserViewportByRendererId.set(event.sender.id, {
-          x: local.x as number,
-          y: local.y as number,
-          width: local.width as number,
-          height: local.height as number,
-        });
+        appBrowserViewportByRendererId.set(
+          event.sender.id,
+          appTabCssBoundsToNativeBounds(
+            {
+              x: local.x as number,
+              y: local.y as number,
+              width: local.width as number,
+              height: local.height as number,
+            },
+            event.sender.getZoomFactor(),
+          ),
+        );
         syncHostedBrowserViewport(event.sender.id);
         return;
       }
@@ -4768,7 +4793,7 @@ function registerIpcHandlers(): void {
   ipcMain.handle(IPC.appTabs.setBounds, async (event, input: unknown) => {
     const { tabId, bounds } = parseSetAppTabBoundsRequest(input);
     const tabs = requireShellAppTabs(event.sender.id);
-    tabs.setBounds(tabId, bounds);
+    tabs.setBounds(tabId, appTabCssBoundsToNativeBounds(bounds, event.sender.getZoomFactor()));
     syncHostedBrowserViewport(tabs.rendererId(tabId));
   });
   ipcMain.handle(IPC.appTabs.setVisible, async (event, input: unknown) => {
@@ -5366,7 +5391,7 @@ function createWindow(): BrowserWindow {
   browserManager.setWindow(window);
   attachDesktopZoomFactorSync(window);
   attachRendererCrashRecovery(window);
-  attachDesktopPhysicalZoomShortcuts(window);
+  attachDesktopWindowZoomShortcuts(window.webContents);
 
   window.webContents.on("context-menu", (event, params) => {
     event.preventDefault();
@@ -5767,6 +5792,7 @@ async function bootstrap(): Promise<void> {
       if (!mainWindow || mainWindow.isDestroyed()) return;
       mainWindow.webContents.send(IPC.appTabs.closed, descriptor);
     },
+    onTabRendererCreated: (renderer) => attachDesktopWindowZoomShortcuts(renderer),
     onInvalidRendererMessage: (error, senderId) => {
       console.warn(
         `[penkra-app] Rejected invalid renderer message sender=${senderId}: ${formatErrorMessage(error)}`,

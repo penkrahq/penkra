@@ -3,23 +3,20 @@
 // Layer: UI state store
 // Exports: pane/split types, tree-aware selectors, and id-based mutation helpers used by sidebar and route surfaces
 
-import { type ContainerId, type ThreadId, type TurnId } from "@penkra/contracts";
+import { type ContainerId, type ThreadId } from "@penkra/contracts";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
-import { type ChatRightPanel } from "./diffRouteSearch";
 import { randomUUID } from "./lib/utils";
 import {
   canSubdividePane,
   collectLeaves,
   findLeafPaneById,
   findSplitNodeById,
-  isLegacySplitViewLike,
   removeLeafByPaneId,
   removeLeafByThreadId as removeLeafByThreadIdInTree,
   replacePaneInTree,
   resolveDefaultFocusLeafId,
-  type LegacySplitViewLike,
 } from "./splitView.logic";
 
 export type SplitViewId = string;
@@ -28,19 +25,10 @@ export type SplitDirection = "horizontal" | "vertical";
 // "first" maps to the top/left side of a split; "second" maps to the bottom/right side.
 export type SplitDropSide = "first" | "second";
 
-export interface SplitViewPanePanelState {
-  panel: ChatRightPanel | null;
-  diffTurnId: TurnId | null;
-  diffFilePath: string | null;
-  hasOpenedPanel: boolean;
-  lastOpenPanel: ChatRightPanel;
-}
-
 export interface LeafPane {
   kind: "leaf";
   id: PaneId;
   threadId: ThreadId | null;
-  panel: SplitViewPanePanelState;
 }
 
 export interface SplitNode {
@@ -103,21 +91,11 @@ interface SplitViewStore {
   removePaneFromSplitView: (input: RemovePaneFromSplitViewInput) => boolean;
   setFocusedPane: (splitViewId: SplitViewId, paneId: PaneId) => void;
   setRatioForNode: (splitViewId: SplitViewId, splitNodeId: PaneId, ratio: number) => void;
-  setPanePanelState: (
-    splitViewId: SplitViewId,
-    paneId: PaneId,
-    patch: Partial<SplitViewPanePanelState>,
-  ) => void;
   removeThreadFromSplitViews: (threadId: ThreadId) => void;
   setHasHydrated: (hasHydrated: boolean) => void;
 }
 
-// Keep the v1 suffix stable while using the Penkra namespace; legacy
-// `penkra:*` and `penkra:*` keys are copied over by
-// `storageKeyMigration` before this store hydrates, so older payloads still
-// flow through the v1 -> v2 schema migration below.
-const SPLIT_VIEW_STORAGE_KEY = "penkra:split-view-state:v1";
-const SPLIT_VIEW_STORAGE_VERSION = 2;
+const SPLIT_VIEW_STORAGE_KEY = "penkra:split-threads:v1";
 const DEFAULT_RATIO = 0.5;
 const MIN_RATIO = 0.25;
 const MAX_RATIO = 0.75;
@@ -127,22 +105,11 @@ function clampRatio(value: number): number {
   return Math.min(MAX_RATIO, Math.max(MIN_RATIO, value));
 }
 
-function createDefaultPanePanelState(): SplitViewPanePanelState {
-  return {
-    panel: null,
-    diffTurnId: null,
-    diffFilePath: null,
-    hasOpenedPanel: false,
-    lastOpenPanel: "browser",
-  };
-}
-
 function createLeafPane(threadId: ThreadId | null): LeafPane {
   return {
     kind: "leaf",
     id: randomUUID(),
     threadId,
-    panel: createDefaultPanePanelState(),
   };
 }
 
@@ -202,71 +169,6 @@ function buildSplitViewFromDrop(
     focusedPaneId: droppedLeaf.id,
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
-  };
-}
-
-function migrateLegacySplitView(legacy: LegacySplitViewLike): SplitView | null {
-  const now = new Date().toISOString();
-  const leftLeaf: LeafPane = {
-    kind: "leaf",
-    id: randomUUID(),
-    threadId: legacy.leftThreadId ?? null,
-    panel: { ...legacy.leftPanel },
-  };
-  const rightLeaf: LeafPane = {
-    kind: "leaf",
-    id: randomUUID(),
-    threadId: legacy.rightThreadId ?? null,
-    panel: { ...legacy.rightPanel },
-  };
-
-  if (!leftLeaf.threadId && !rightLeaf.threadId) {
-    return null;
-  }
-
-  const root = createSplitNode({
-    direction: "horizontal",
-    first: leftLeaf,
-    second: rightLeaf,
-    ratio: legacy.ratio,
-  });
-  return {
-    id: legacy.id,
-    sourceThreadId: legacy.sourceThreadId,
-    ownerProjectId: legacy.ownerProjectId,
-    root,
-    focusedPaneId: legacy.focusedPane === "right" ? rightLeaf.id : leftLeaf.id,
-    createdAt: legacy.createdAt ?? now,
-    updatedAt: legacy.updatedAt ?? now,
-  };
-}
-
-function migrateLegacyPersistedState(state: unknown): SplitViewStoreState | null {
-  if (!state || typeof state !== "object") {
-    return null;
-  }
-  const legacyMap = (state as { splitViewsById?: Record<string, unknown> }).splitViewsById;
-  if (!legacyMap || typeof legacyMap !== "object") {
-    return null;
-  }
-  const splitViewsById: Record<SplitViewId, SplitView | undefined> = {};
-  const splitViewIdBySourceThreadId: Record<string, SplitViewId | undefined> = {};
-
-  for (const [splitViewId, value] of Object.entries(legacyMap)) {
-    if (!isLegacySplitViewLike(value)) {
-      continue;
-    }
-    const migrated = migrateLegacySplitView(value);
-    if (!migrated) {
-      continue;
-    }
-    splitViewsById[splitViewId] = migrated;
-    splitViewIdBySourceThreadId[migrated.sourceThreadId] = splitViewId;
-  }
-
-  return {
-    splitViewsById,
-    splitViewIdBySourceThreadId,
   };
 }
 
@@ -645,29 +547,6 @@ export const useSplitViewStore = create<SplitViewStore>()(
             };
           }),
         ),
-      setPanePanelState: (splitViewId, paneId, patch) =>
-        set((state) =>
-          updateSplitView(state, splitViewId, (splitView) => {
-            const leaf = findLeafPaneById(splitView.root, paneId);
-            if (!leaf) return splitView;
-            const nextPanel: SplitViewPanePanelState = { ...leaf.panel, ...patch };
-            if (
-              leaf.panel.panel === nextPanel.panel &&
-              leaf.panel.diffTurnId === nextPanel.diffTurnId &&
-              leaf.panel.diffFilePath === nextPanel.diffFilePath &&
-              leaf.panel.hasOpenedPanel === nextPanel.hasOpenedPanel &&
-              leaf.panel.lastOpenPanel === nextPanel.lastOpenPanel
-            ) {
-              return splitView;
-            }
-            const nextLeaf: LeafPane = { ...leaf, panel: nextPanel };
-            return {
-              ...splitView,
-              root: replacePaneInTree(splitView.root, paneId, nextLeaf),
-              updatedAt: resolveUpdatedAt(),
-            };
-          }),
-        ),
       removeThreadFromSplitViews: (threadId) =>
         set((state) => {
           let didChange = false;
@@ -740,7 +619,6 @@ export const useSplitViewStore = create<SplitViewStore>()(
     }),
     {
       name: SPLIT_VIEW_STORAGE_KEY,
-      version: SPLIT_VIEW_STORAGE_VERSION,
       storage: createJSONStorage(() => localStorage),
       partialize: (state) => ({
         splitViewsById: state.splitViewsById,
@@ -755,19 +633,6 @@ export const useSplitViewStore = create<SplitViewStore>()(
         return (state) => {
           state?.setHasHydrated(true);
         };
-      },
-      // Pre-v2 storage used a flat left/right pane shape. We migrate any persisted state to the
-      // tree shape; if migration cannot recover anything, we silently drop it instead of crashing.
-      migrate: (persistedState, version) => {
-        if (version >= SPLIT_VIEW_STORAGE_VERSION) {
-          return persistedState as SplitViewStoreState;
-        }
-        return (
-          migrateLegacyPersistedState(persistedState) ?? {
-            splitViewsById: {},
-            splitViewIdBySourceThreadId: {},
-          }
-        );
       },
     },
   ),

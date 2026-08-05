@@ -35,7 +35,6 @@ function renderTranscriptPaneMarkup(
       onMessagesTouchMove={() => {}}
       onMessagesTouchStart={() => {}}
       onMessagesWheel={() => {}}
-      onOpenTurnDiff={() => {}}
       onOpenThread={(_threadId: ThreadId) => {}}
       onRevertUserMessage={(_messageId: MessageId) => {}}
       onScrollToBottom={() => {}}

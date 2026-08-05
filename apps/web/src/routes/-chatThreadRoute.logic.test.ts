@@ -1,375 +1,65 @@
-import { ContainerId, ThreadId, TurnId } from "@penkra/contracts";
+import { ContainerId, ThreadId } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
-  collectParentDirectoryPaths,
-  normalizeSingleSearchFromPane,
-  resolveFilePreviewWorkspaceRoot,
-  resolveRoutePanelBootstrap,
   resolveSingleProjectId,
   resolveSplitPaneCloseDecision,
   resolveSplitPaneMaximizeDecision,
   resolveThreadPickerTitle,
-  resolveToggledChatPanelPatch,
-  stripEditorViewSearchParams,
+  resolveThreadWorkingDirectory,
 } from "./-chatThreadRoute.logic";
 
-const THREAD_ID = ThreadId.makeUnsafe("thread-1");
-const SIDECHAT_THREAD_ID = ThreadId.makeUnsafe("thread-sidechat");
-const OTHER_THREAD_ID = ThreadId.makeUnsafe("thread-2");
-const TURN_ID = TurnId.makeUnsafe("turn-1");
-const OTHER_TURN_ID = TurnId.makeUnsafe("turn-2");
-const PROJECT_ID = ContainerId.makeUnsafe("project-1");
-const DRAFT_PROJECT_ID = ContainerId.makeUnsafe("project-draft");
+const THREAD_A = ThreadId.makeUnsafe("thread-a");
+const THREAD_B = ThreadId.makeUnsafe("thread-b");
 
-describe("resolveThreadPickerTitle", () => {
-  it("falls back to a stable untitled label", () => {
+describe("Thread route logic", () => {
+  it("resolves the Thread's effective working directory", () => {
+    expect(
+      resolveThreadWorkingDirectory({
+        projectCwd: "/project",
+        threadEnvMode: "worktree",
+        threadWorktreePath: "/worktree",
+      }),
+    ).toBe("/worktree");
+    expect(
+      resolveThreadWorkingDirectory({
+        projectCwd: "/project",
+        threadEnvMode: "local",
+        threadWorkingDirectory: "/chosen",
+      }),
+    ).toBe("/chosen");
+  });
+
+  it("uses draft project identity only when the server Thread has none", () => {
+    const server = ContainerId.makeUnsafe("server-project");
+    const draft = ContainerId.makeUnsafe("draft-project");
+    expect(resolveSingleProjectId({ threadProjectId: server, draftProjectId: draft })).toBe(server);
+    expect(resolveSingleProjectId({ threadProjectId: null, draftProjectId: draft })).toBe(draft);
+  });
+
+  it("normalizes empty Thread picker titles", () => {
     expect(resolveThreadPickerTitle(null)).toBe("New chat");
-    expect(resolveThreadPickerTitle("")).toBe("New chat");
+    expect(resolveThreadPickerTitle("Design review")).toBe("Design review");
   });
 
-  it("preserves non-empty thread titles", () => {
-    expect(resolveThreadPickerTitle("Bug bash")).toBe("Bug bash");
-  });
-});
-
-describe("resolveFilePreviewWorkspaceRoot", () => {
-  it("uses the project cwd for local threads", () => {
+  it("maximizes the focused split Thread", () => {
     expect(
-      resolveFilePreviewWorkspaceRoot({
-        projectCwd: "/repo/project",
-        threadEnvMode: "local",
-        threadWorktreePath: null,
-      }),
-    ).toBe("/repo/project");
-  });
-
-  it("uses a Studio thread working directory ahead of its container project", () => {
+      resolveSplitPaneMaximizeDecision({ splitViewId: "split-1", focusedThreadId: THREAD_B }),
+    ).toEqual({ splitViewIdToRemove: "split-1", threadId: THREAD_B });
     expect(
-      resolveFilePreviewWorkspaceRoot({
-        projectCwd: "/penkra/studio",
-        threadEnvMode: "local",
-        threadWorktreePath: null,
-        threadWorkingDirectory: "/repo/external",
-      }),
-    ).toBe("/repo/external");
-  });
-
-  it("uses the materialized worktree for worktree-backed threads", () => {
-    expect(
-      resolveFilePreviewWorkspaceRoot({
-        projectCwd: "/repo/project",
-        threadEnvMode: "worktree",
-        threadWorktreePath: "/repo/.worktrees/feature",
-      }),
-    ).toBe("/repo/.worktrees/feature");
-  });
-
-  it("does not fall back to the project cwd while a worktree is still pending", () => {
-    expect(
-      resolveFilePreviewWorkspaceRoot({
-        projectCwd: "/repo/project",
-        threadEnvMode: "worktree",
-        threadWorktreePath: null,
-      }),
+      resolveSplitPaneMaximizeDecision({ splitViewId: "split-1", focusedThreadId: null }),
     ).toBeNull();
   });
-});
 
-describe("single chat route helpers", () => {
-  it("prefers the server thread project and falls back to the draft project", () => {
-    expect(
-      resolveSingleProjectId({
-        threadProjectId: PROJECT_ID,
-        draftProjectId: DRAFT_PROJECT_ID,
-      }),
-    ).toBe(PROJECT_ID);
-    expect(
-      resolveSingleProjectId({
-        threadProjectId: null,
-        draftProjectId: DRAFT_PROJECT_ID,
-      }),
-    ).toBe(DRAFT_PROJECT_ID);
-    expect(resolveSingleProjectId({ threadProjectId: null, draftProjectId: null })).toBeNull();
-  });
-
-  it("normalizes split pane browser and diff state for single-chat navigation", () => {
-    expect(
-      normalizeSingleSearchFromPane({
-        panel: "browser",
-        diffTurnId: TURN_ID,
-        diffFilePath: "src/ignored.tsx",
-      }),
-    ).toEqual({ panel: "browser" });
-    expect(
-      normalizeSingleSearchFromPane({
-        panel: "diff",
-        diffTurnId: TURN_ID,
-        diffFilePath: "src/chat.tsx",
-      }),
-    ).toEqual({
-      panel: "diff",
-      diff: "1",
-      diffTurnId: TURN_ID,
-      diffFilePath: "src/chat.tsx",
-    });
-    expect(
-      normalizeSingleSearchFromPane({
-        panel: null,
-        diffTurnId: TURN_ID,
-        diffFilePath: "src/chat.tsx",
-      }),
-    ).toEqual({});
-  });
-
-  it("strips only editor-owned search fields", () => {
-    expect(
-      stripEditorViewSearchParams({
-        view: "editor",
-        editorFilePath: "src/chat.tsx",
-        splitViewId: "split-1",
-        q: "keep",
-      }),
-    ).toEqual({ splitViewId: "split-1", q: "keep" });
-  });
-
-  it("collects workspace-relative parent directories from shallow to deep", () => {
-    expect(collectParentDirectoryPaths("src/components/chat/View.tsx")).toEqual([
-      "src",
-      "src/components",
-      "src/components/chat",
-    ]);
-    expect(collectParentDirectoryPaths("View.tsx")).toEqual([]);
-    expect(collectParentDirectoryPaths("/src//chat/View.tsx")).toEqual(["src", "src/chat"]);
-  });
-});
-
-describe("resolveRoutePanelBootstrap", () => {
-  it("hydrates diff deep links exactly once per scope and search payload", () => {
-    const first = resolveRoutePanelBootstrap({
-      scopeId: "thread-1",
-      search: {
-        panel: "diff",
-        diff: "1",
-        diffTurnId: TURN_ID,
-        diffFilePath: "src/chat.tsx",
-      },
-      lastAppliedSearchKey: null,
-    });
-
-    expect(first.panelPatch).toEqual({
-      panel: "diff",
-      diffTurnId: TURN_ID,
-      diffFilePath: "src/chat.tsx",
-    });
-    expect(first.nextAppliedSearchKey).toEqual(expect.any(String));
-
-    const duplicate = resolveRoutePanelBootstrap({
-      scopeId: "thread-1",
-      search: {
-        panel: "diff",
-        diff: "1",
-        diffTurnId: TURN_ID,
-        diffFilePath: "src/chat.tsx",
-      },
-      lastAppliedSearchKey: first.nextAppliedSearchKey,
-    });
-
-    expect(duplicate).toEqual({
-      nextAppliedSearchKey: first.nextAppliedSearchKey,
-      panelPatch: null,
-    });
-  });
-
-  it("resets once route search params are stripped so the same deep link can replay", () => {
-    const first = resolveRoutePanelBootstrap({
-      scopeId: "thread-1",
-      search: {
-        panel: "diff",
-        diff: "1",
-        diffTurnId: TURN_ID,
-        diffFilePath: "src/chat.tsx",
-      },
-      lastAppliedSearchKey: null,
-    });
-
-    const cleared = resolveRoutePanelBootstrap({
-      scopeId: "thread-1",
-      search: {},
-      lastAppliedSearchKey: first.nextAppliedSearchKey,
-    });
-
-    expect(cleared).toEqual({
-      nextAppliedSearchKey: null,
-      panelPatch: null,
-    });
-
-    const replay = resolveRoutePanelBootstrap({
-      scopeId: "thread-1",
-      search: {
-        panel: "diff",
-        diff: "1",
-        diffTurnId: TURN_ID,
-        diffFilePath: "src/chat.tsx",
-      },
-      lastAppliedSearchKey: cleared.nextAppliedSearchKey,
-    });
-
-    expect(replay.panelPatch).toEqual({
-      panel: "diff",
-      diffTurnId: TURN_ID,
-      diffFilePath: "src/chat.tsx",
-    });
-  });
-
-  it("reapplies the same deep link when the mounted thread scope changes", () => {
-    const first = resolveRoutePanelBootstrap({
-      scopeId: "thread-1",
-      search: {
-        panel: "diff",
-        diff: "1",
-        diffTurnId: TURN_ID,
-      },
-      lastAppliedSearchKey: null,
-    });
-
-    const nextThread = resolveRoutePanelBootstrap({
-      scopeId: "thread-2",
-      search: {
-        panel: "diff",
-        diff: "1",
-        diffTurnId: TURN_ID,
-      },
-      lastAppliedSearchKey: first.nextAppliedSearchKey,
-    });
-
-    expect(nextThread.panelPatch).toEqual({
-      panel: "diff",
-      diffTurnId: TURN_ID,
-      diffFilePath: null,
-    });
-  });
-});
-
-describe("resolveToggledChatPanelPatch", () => {
-  it("preserves the last diff target when switching from diff to browser", () => {
-    expect(
-      resolveToggledChatPanelPatch(
-        {
-          panel: "diff",
-          diffTurnId: TURN_ID,
-          diffFilePath: "src/chat.tsx",
-        },
-        "browser",
-      ),
-    ).toEqual({
-      panel: "browser",
-      diffTurnId: TURN_ID,
-      diffFilePath: "src/chat.tsx",
-    });
-  });
-
-  it("keeps diff context even when closing the browser panel", () => {
-    expect(
-      resolveToggledChatPanelPatch(
-        {
-          panel: "browser",
-          diffTurnId: OTHER_TURN_ID,
-          diffFilePath: "src/browser.tsx",
-        },
-        "browser",
-      ),
-    ).toEqual({
-      panel: null,
-      diffTurnId: OTHER_TURN_ID,
-      diffFilePath: "src/browser.tsx",
-    });
-  });
-});
-
-describe("resolveSplitPaneMaximizeDecision", () => {
-  it("targets the focused thread and preserves its panel state for single-chat navigation", () => {
-    expect(
-      resolveSplitPaneMaximizeDecision({
-        splitViewId: "split-1",
-        focusedThreadId: THREAD_ID,
-        focusedPanelState: {
-          panel: "diff",
-          diffTurnId: TURN_ID,
-          diffFilePath: "src/chat.tsx",
-        },
-      }),
-    ).toEqual({
-      splitViewIdToRemove: "split-1",
-      threadId: THREAD_ID,
-      panelState: {
-        panel: "diff",
-        diffTurnId: TURN_ID,
-        diffFilePath: "src/chat.tsx",
-      },
-    });
-  });
-
-  it("does not invent a target when the focused pane is empty", () => {
-    expect(
-      resolveSplitPaneMaximizeDecision({
-        splitViewId: "split-1",
-        focusedThreadId: null,
-        focusedPanelState: null,
-      }),
-    ).toBeNull();
-  });
-});
-
-describe("resolveSplitPaneCloseDecision", () => {
-  it("returns to the original thread when closing a sidechat pane", () => {
+  it("closes a secondary Thread back to the source Thread", () => {
     expect(
       resolveSplitPaneCloseDecision({
-        splitViewId: "split-sidechat",
-        sourceThreadId: THREAD_ID,
-        closingThreadId: SIDECHAT_THREAD_ID,
-        closingSidechatSourceThreadId: THREAD_ID,
-        nextFocusedThreadId: SIDECHAT_THREAD_ID,
+        splitViewId: "split-1",
+        sourceThreadId: THREAD_A,
+        closingThreadId: THREAD_B,
+        nextFocusedThreadId: THREAD_A,
         nextLeafCount: 1,
       }),
-    ).toEqual({
-      kind: "single-thread",
-      threadId: THREAD_ID,
-      splitViewIdToRemove: "split-sidechat",
-    });
-  });
-
-  it("collapses a generic one-pane remainder to single chat", () => {
-    expect(
-      resolveSplitPaneCloseDecision({
-        splitViewId: "split-1",
-        sourceThreadId: THREAD_ID,
-        closingThreadId: THREAD_ID,
-        closingSidechatSourceThreadId: null,
-        nextFocusedThreadId: OTHER_THREAD_ID,
-        nextLeafCount: 1,
-      }),
-    ).toEqual({
-      kind: "single-thread",
-      threadId: OTHER_THREAD_ID,
-      splitViewIdToRemove: "split-1",
-    });
-  });
-
-  it("keeps a multi-pane split when there are still multiple leaves", () => {
-    expect(
-      resolveSplitPaneCloseDecision({
-        splitViewId: "split-1",
-        sourceThreadId: THREAD_ID,
-        closingThreadId: THREAD_ID,
-        closingSidechatSourceThreadId: null,
-        nextFocusedThreadId: OTHER_THREAD_ID,
-        nextLeafCount: 2,
-      }),
-    ).toEqual({
-      kind: "split-thread",
-      threadId: OTHER_THREAD_ID,
-      splitViewId: "split-1",
-    });
+    ).toEqual({ kind: "single-thread", threadId: THREAD_A, splitViewIdToRemove: "split-1" });
   });
 });

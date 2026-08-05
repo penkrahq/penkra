@@ -72,7 +72,7 @@ import {
   sanitizePenkraMcpToolPreview,
   type PenkraMcpToolStatus,
 } from "../../lib/toolCallLabel";
-import { openWorkspaceFileReference, useWorkspaceFileOpener } from "../../lib/workspaceFileOpener";
+import { openThreadFileReference, useThreadResourceOpener } from "../../lib/threadResourceOpener";
 import type { TimestampFormat } from "../../appSettings";
 import {
   formatSubagentModelLabel,
@@ -296,11 +296,9 @@ function isGitHubMcpToolCall(workEntry: TimelineWorkEntry): boolean {
   return Boolean(toolName?.startsWith("mcp__codex_apps__github"));
 }
 
-// Penkra's own agent-gateway tools (penkra_list_threads, penkra_create_thread,
-// ...) get the Penkra mark instead of the generic MCP glyph. Providers report
-// the call differently: Claude prefixes the MCP server (mcp__penkra__*), ACP
-// agents surface the bare tool name (penkra_*), and Codex reports server/tool
-// pairs that the label humanizer renders as "Penkra: ...".
+// Penkra's agent gateway command gets the Penkra mark instead of the generic
+// MCP glyph. Providers may report the same command with their transport prefix
+// or as a bare tool name, so presentation normalizes the provider spelling.
 function toolWorkEntryStatus(workEntry: TimelineWorkEntry): PenkraMcpToolStatus {
   if (workEntry.toolStatus) return workEntry.toolStatus;
   return workEntry.activityKind !== undefined && workEntry.activityKind !== "tool.completed"
@@ -506,8 +504,6 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
   fileDiffStatByPath?: ReadonlyMap<string, { additions: number; deletions: number }>;
   markdownCwd: string | undefined;
   onImageExpand: (preview: ExpandedImagePreview) => void;
-  turnId?: TurnId;
-  onOpenTurnDiff?: (turnId: TurnId, filePath?: string) => void;
   onOpenAgentActivity?: (activityId: string) => void;
   onOpenThread?: (threadId: ThreadId) => void;
   subagentToolTraceByThreadId?: ReadonlyMap<string, SubagentToolTrace>;
@@ -521,8 +517,6 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
     fileDiffStatByPath,
     markdownCwd,
     onImageExpand,
-    turnId,
-    onOpenTurnDiff,
     onOpenAgentActivity,
     onOpenThread,
     subagentToolTraceByThreadId,
@@ -589,9 +583,9 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
     ? () => onOpenAgentActivity?.(workEntry.id)
     : undefined;
   const canOpenToolDetails = Boolean(workEntry.toolDetails);
-  // File-read rows open the referenced file in the in-app viewer when the
-  // hosting surface provides an opener (right-dock file pane / editor pane).
-  const opener = useWorkspaceFileOpener();
+  // File references use the Thread's App-handler bridge. Explorer or another
+  // configured handler owns the visual surface; chat never mounts a file viewer.
+  const opener = useThreadResourceOpener();
   // Per-file +N/-M parsed from this tool call's own patch, used as a fallback when
   // the turn-diff summary isn't in scope (e.g. standalone work rows) so every
   // "Edited <file>" row can still show diff stats.
@@ -612,10 +606,8 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
       : null;
   const canOpenReadFile = readFilePath !== null;
   const openReadFile = readFilePath
-    ? () => openWorkspaceFileReference(opener, readFilePath)
+    ? () => openThreadFileReference(opener, readFilePath)
     : undefined;
-  const prefetchReadFile =
-    readFilePath && opener?.prefetchFile ? () => opener.prefetchFile?.(readFilePath) : undefined;
 
   // Use the text font size (matching the UI settings) for tool call rows
   const rowFontSizePx = textFontSizePx;
@@ -637,8 +629,8 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
                     changedFilePath,
                     changedFiles.length,
                   ) ?? summaryStat);
-            const canOpenEditedDiff = Boolean(turnId && onOpenTurnDiff);
-            const canOpenEditedRow = canOpenToolDetails || canOpenEditedDiff;
+            const canOpenEditedFile = opener !== null;
+            const canOpenEditedRow = canOpenToolDetails || canOpenEditedFile;
             const editedRowClassName = cn(
               "group/file-row flex w-full max-w-full items-center text-left transition-colors duration-150",
               compact ? "gap-1.5" : "gap-2",
@@ -676,12 +668,11 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
                 data-file-change-row="true"
                 className={editedRowClassName}
                 title={changedFilePath}
-                disabled={!canOpenEditedRow}
+                disabled={!canOpenEditedFile}
                 onClick={() => {
-                  if (!turnId || !onOpenTurnDiff) {
-                    return;
+                  if (opener) {
+                    openThreadFileReference(opener, changedFilePath);
                   }
-                  onOpenTurnDiff(turnId, changedFilePath);
                 }}
               >
                 {editedRowChildren}
@@ -955,7 +946,6 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
               canOpen={canOpenAgentActivity || canOpenReadFile}
               compact={compact}
               onOpen={openAgentActivity ?? openReadFile}
-              onHover={prefetchReadFile}
               tooltip={toolRowTooltipContent(
                 rawCommand,
                 displayText,

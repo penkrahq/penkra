@@ -77,8 +77,6 @@ function commandMenuTitle(
       return "Code Review";
     case "fork":
       return "Fork";
-    case "side":
-      return "Sidechat";
     case "status":
       return "Status";
     case "subagents":

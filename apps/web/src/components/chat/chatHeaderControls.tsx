@@ -22,8 +22,8 @@ import { cn } from "~/lib/utils";
 import { Button } from "../ui/button";
 
 /**
- * Fixed height of the top chrome bar shared by the chat header, the diff panel
- * header, and the right-dock tab strip. Keeping these on one token ensures their
+ * Fixed height of the top chrome bar shared by chat, App, and detail surfaces.
+ * Keeping these on one token ensures their
  * bottom borders line up across the vertical pane divider.
  *
  * Tall enough that the vertically-centered controls clear the macOS title bar with
@@ -46,8 +46,7 @@ export const CHAT_SURFACE_HEADER_HEIGHT_CLASS: `h-[${typeof CHAT_SURFACE_HEADER_
 export const CHAT_SURFACE_HEADER_PADDING_X_CLASS = "px-3 sm:px-5";
 
 /**
- * Bottom hairline shared by every chat-surface chrome bar (chat header, workspace
- * header, dock pane + tab strip headers, diff panel header).
+ * Bottom hairline shared by every chat-surface chrome bar.
  * Implemented as the `.chat-surface-divider` component class (a 1px background gradient,
  * see index.css) rather than a CSS border: it reads from the SAME `--app-surface-divider`
  * token as the vertical sidebar↔chat seam, and — because it's a gradient — the seam corner
@@ -58,13 +57,8 @@ export const CHAT_SURFACE_HEADER_PADDING_X_CLASS = "px-3 sm:px-5";
 export const CHAT_SURFACE_HEADER_DIVIDER_CLASS_NAME = "chat-surface-divider";
 
 /**
- * Standard chat-surface chrome-bar row: the shared flex baseline + fixed height + bottom
- * hairline that the simple headers all repeat (empty-state chat header, dock pane header,
- * right-dock tab strip). Call sites add only their own gap/padding
- * and extras (drag-region, traffic-light gutter). Headers with bespoke layout (the main
- * chat header with its split toolbar, the diff panel header with `justify-between`) compose
- * {@link CHAT_SURFACE_HEADER_HEIGHT_CLASS} + {@link CHAT_SURFACE_HEADER_DIVIDER_CLASS_NAME}
- * directly instead of forcing this baseline.
+ * Standard chat-surface chrome-bar row: shared flex baseline, fixed height, and
+ * bottom hairline. Call sites add only their own gap, padding, and platform chrome.
  */
 export const CHAT_SURFACE_HEADER_ROW_CLASS_NAME = cn(
   "flex shrink-0 items-center",
@@ -98,8 +92,7 @@ export const CHAT_SURFACE_CONTROL_HOVER_CLASS_NAME =
   "hover:bg-[var(--color-background-button-secondary-hover)] hover:text-[var(--color-text-foreground)]";
 
 /**
- * Shared flat "chip" skin for the header diff toggle and the right-dock tabs so
- * the two read as the exact same control: 28px tall, lg radius, no border, ui-sm
+ * Shared flat chip skin for header toggles and App-panel tabs: 28px tall, lg radius, no border, ui-sm
  * muted text that brightens + fills on hover, with a smooth color transition.
  * The active (pressed/selected) background is layered on per call site because
  * the mechanism differs (Toggle `data-pressed` vs the dock tab's `active` flag),
@@ -121,8 +114,8 @@ export const CHAT_SURFACE_CHIP_CLASS_NAME = cn(
 export const CHAT_SURFACE_CHIP_GLYPH_CLASS_NAME = "size-3.5 shrink-0";
 
 /**
- * Icon treatment shared by every chrome chip glyph (the header diff toggle + the
- * dock tabs) so size and muted strength stay identical. Color rides `currentColor`,
+ * Icon treatment shared by every chrome chip glyph so size and muted strength
+ * stay identical. Color rides `currentColor`,
  * which both chips drive to `--color-text-foreground-secondary` at rest, so the
  * tint is inherited from the chip instead of redeclared per call site.
  */
@@ -142,7 +135,7 @@ export function SurfaceChipIcon({
   return <Icon aria-hidden className={cn(CHAT_SURFACE_CHIP_ICON_CLASS_NAME, className)} />;
 }
 
-/** Header diff toggle — shared chip skin + Toggle's pressed text treatment. */
+/** Header toggle — shared chip skin + Toggle's pressed text treatment. */
 export const CHAT_HEADER_TOGGLE_CLASS_NAME = cn(
   CHAT_SURFACE_CHIP_CLASS_NAME,
   "data-pressed:text-[var(--color-text-foreground)]",

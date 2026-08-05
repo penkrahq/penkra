@@ -15,41 +15,25 @@ export interface DesktopKeyboardInput {
   alt: boolean;
 }
 
-export type DesktopPhysicalZoomAction = "zoomOut" | null;
+export type DesktopWindowZoomAction = "reset" | "zoomIn" | "zoomOut" | null;
 
-export interface DesktopNativeZoomTarget {
-  getZoomLevel(): number;
-  setZoomLevel(level: number): void;
-}
-
-export function resolveDesktopPhysicalZoomAction(
+export function resolveDesktopWindowZoomAction(
   platform: NodeJS.Platform,
   input: DesktopKeyboardInput,
-): DesktopPhysicalZoomAction {
-  if (
-    platform !== "win32" ||
-    input.type !== "keyDown" ||
-    !input.control ||
-    input.meta ||
-    input.shift ||
-    input.alt
-  ) {
+): DesktopWindowZoomAction {
+  const usesMeta = platform === "darwin";
+  const hasPrimaryModifier = usesMeta ? input.meta && !input.control : input.control && !input.meta;
+  if (input.type !== "keyDown" || !hasPrimaryModifier || input.alt) {
     return null;
   }
 
   const isMinusKey = input.key === "-" || input.code === "Minus" || input.code === "NumpadSubtract";
-  return isMinusKey ? "zoomOut" : null;
-}
-
-export function applyDesktopPhysicalZoomAction(
-  target: DesktopNativeZoomTarget,
-  action: Exclude<DesktopPhysicalZoomAction, null>,
-): void {
-  if (action === "zoomOut") {
-    // Electron's native zoomOut role subtracts half a zoom level. Reuse that
-    // exact step so alternating native zoom-in and fallback zoom-out cannot drift.
-    target.setZoomLevel(target.getZoomLevel() - 0.5);
-  }
+  if (isMinusKey && !input.shift) return "zoomOut";
+  const isPlusKey =
+    input.key === "+" || input.key === "=" || input.code === "Equal" || input.code === "NumpadAdd";
+  if (isPlusKey) return "zoomIn";
+  const isZeroKey = input.key === "0" || input.code === "Digit0" || input.code === "Numpad0";
+  return isZeroKey && !input.shift ? "reset" : null;
 }
 
 export function resolveDesktopMenuAccelerator(
@@ -59,12 +43,6 @@ export function resolveDesktopMenuAccelerator(
   // Several Linux desktops surface Electron menu accelerators as noisy native
   // keybinding notifications; the web app handles these shortcuts itself.
   return platform === "linux" ? undefined : accelerator;
-}
-
-export function shouldUseNativeZoomMenuRoles(platform: NodeJS.Platform): boolean {
-  // Zoom roles provide their own accelerators when Electron builds the menu.
-  // Linux uses custom click handlers so no hidden native keybindings are registered.
-  return platform !== "linux";
 }
 
 export function resolveKeyboardShortcutsMenuAccelerator(

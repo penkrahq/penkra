@@ -48,6 +48,8 @@ class FakeWebContents extends EventEmitter {
   windowOpenHandler: WindowOpenHandler | null = null;
 
   setUserAgent = vi.fn();
+  setZoomFactor = vi.fn();
+  isDestroyed = vi.fn(() => false);
   findInPage = vi.fn(() => 7);
 
   setWindowOpenHandler(handler: WindowOpenHandler): void {
@@ -255,7 +257,10 @@ describe("DesktopBrowserManager repeated workflow characterization", () => {
       event.preventDefault();
       return true;
     });
-    const manager = new DesktopBrowserManager({ beforeInputEvent });
+    const manager = new DesktopBrowserManager({
+      beforeInputEvent,
+      getWindowZoomFactor: () => 1.2,
+    });
     const initial = manager.open({ threadId: THREAD_ID });
     const tabId = initial.activeTabId;
     expect(tabId).not.toBeNull();
@@ -271,6 +276,7 @@ describe("DesktopBrowserManager repeated workflow characterization", () => {
       ownsWebContents: false,
       listenerDisposers: [],
     });
+    expect(tabContents.setZoomFactor).toHaveBeenCalledWith(1.2);
     const event = {
       preventDefault: vi.fn(),
       defaultPrevented: false,
@@ -293,6 +299,13 @@ describe("DesktopBrowserManager repeated workflow characterization", () => {
 
     expect(beforeInputEvent).toHaveBeenCalledWith(event, input);
     expect(event.preventDefault).toHaveBeenCalledOnce();
+
+    (manager as unknown as { runtimes: Map<string, { webContents: WebContents }> }).runtimes.set(
+      "zoom-test",
+      { webContents: tabContents as unknown as WebContents },
+    );
+    manager.setZoomFactor(0.8);
+    expect(tabContents.setZoomFactor).toHaveBeenLastCalledWith(0.8);
   });
 
   it("contains hosted native pages in an App-aligned clipping view using App-local bounds", () => {
