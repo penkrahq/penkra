@@ -23,7 +23,7 @@ import {
 import { RouterProvider, createMemoryHistory } from "@tanstack/react-router";
 import { HttpResponse, http, ws } from "msw";
 import { setupWorker } from "msw/browser";
-import { page } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
@@ -3437,6 +3437,75 @@ describe("ChatView timeline estimator parity (full app)", () => {
           expect(mounted.router.state.location.pathname).toBe(`/${THREAD_ID}`);
           expect(document.querySelectorAll('[data-testid="queued-follow-up-row"]')).toHaveLength(1);
           expect(document.body.textContent).toContain("queue survives thread switch");
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("switches threads repeatedly through real pointer clicks without starting a drag", async () => {
+    const otherThreadTitle = "Pointer navigation target";
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: addThreadToSnapshot(
+        createSnapshotForTargetUser({
+          targetMessageId: "msg-user-pointer-navigation" as MessageId,
+          targetText: "pointer navigation target",
+        }),
+        OTHER_THREAD_ID,
+        { title: otherThreadTitle },
+      ),
+    });
+    try {
+      const targets = [
+        { id: OTHER_THREAD_ID, title: otherThreadTitle },
+        { id: THREAD_ID, title: THREAD_TITLE },
+      ] as const;
+
+      for (let index = 0; index < 8; index += 1) {
+        const target = targets[index % targets.length]!;
+        await page.getByRole("button", { name: target.title, exact: true }).click();
+        await vi.waitFor(
+          () => {
+            expect(mounted.router.state.location.pathname).toBe(`/${target.id}`);
+            expect(document.querySelector('[data-sidebar-drag-overlay="true"]')).toBeNull();
+            expect(document.body.textContent).not.toContain("Something went wrong");
+          },
+          { timeout: 8_000, interval: 16 },
+        );
+      }
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("keeps React ownership of sidebar rows through a real pointer drag", async () => {
+    const otherThreadTitle = "Pointer drag target";
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: addThreadToSnapshot(
+        createSnapshotForTargetUser({
+          targetMessageId: "msg-user-pointer-drag" as MessageId,
+          targetText: "pointer drag target",
+        }),
+        OTHER_THREAD_ID,
+        { title: otherThreadTitle },
+      ),
+    });
+    try {
+      const source = page.getByRole("button", { name: otherThreadTitle, exact: true });
+      const target = page.getByRole("button", { name: THREAD_TITLE, exact: true });
+
+      await userEvent.dragAndDrop(source, target);
+      await target.click();
+
+      await vi.waitFor(
+        () => {
+          expect(mounted.router.state.location.pathname).toBe(`/${THREAD_ID}`);
+          expect(document.querySelector('[data-sidebar-drag-overlay="true"]')).toBeNull();
+          expect(document.body.textContent).not.toContain("Something went wrong");
         },
         { timeout: 8_000, interval: 16 },
       );

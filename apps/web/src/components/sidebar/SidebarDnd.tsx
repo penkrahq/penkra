@@ -3,10 +3,10 @@
 
 import { useDragDropMonitor, useDroppable } from "@dnd-kit/react";
 import { useSortable } from "@dnd-kit/react/sortable";
-import type { DragEndEvent } from "@dnd-kit/react";
+import type { DragEndEvent, DragOverEvent } from "@dnd-kit/react";
 import type { ProviderKind, SidebarItemParent, SidebarItemReference } from "@penkra/contracts";
 import { ContainerId, SpaceId } from "@penkra/contracts";
-import { type ReactNode } from "react";
+import { createContext, type ReactNode, useContext, useState } from "react";
 
 import { cn } from "~/lib/utils";
 import { FolderRowShared } from "../left-rail/folder-row-shared/FolderRowShared";
@@ -20,6 +20,13 @@ import type { WorkStatus } from "../left-rail/work-status-shared/WorkStatusShare
 export const SIDEBAR_SPACE_DRAG_TYPE = "penkra/sidebar-space";
 export const SIDEBAR_PROJECT_DRAG_TYPE = "penkra/sidebar-project";
 export const SIDEBAR_THREAD_DRAG_TYPE = "penkra/sidebar-thread";
+
+export type SidebarDropPlacement = "before" | "after";
+
+const SidebarDropIndicatorContext = createContext<{
+  placement: SidebarDropPlacement;
+  targetId: string;
+} | null>(null);
 
 function sidebarItemDragType(kind: "project" | "thread", pinned: boolean): string {
   const base = kind === "project" ? SIDEBAR_PROJECT_DRAG_TYPE : SIDEBAR_THREAD_DRAG_TYPE;
@@ -139,11 +146,41 @@ export function acceptedTypesForData(data: SidebarDndData): string[] {
 export function SidebarDndMonitor(props: {
   children: ReactNode;
   onDragEnd: (event: DragEndEvent) => void;
+  onDragOver: (event: DragOverEvent, placement: SidebarDropPlacement) => void;
 }) {
+  const [indicator, setIndicator] = useState<{
+    placement: SidebarDropPlacement;
+    targetId: string;
+  } | null>(null);
   useDragDropMonitor({
-    onDragEnd: props.onDragEnd,
+    onDragOver(event) {
+      // The optimistic sorting plugin mutates the DOM outside React. Prevent it
+      // for every sidebar hover so React remains the sole owner of row ordering.
+      event.preventDefault();
+      const targetId = event.operation.target?.id;
+      const placement = resolveSidebarDropPlacement(event);
+      setIndicator(typeof targetId === "string" ? { targetId, placement } : null);
+      props.onDragOver(event, placement);
+    },
+    onDragEnd(event) {
+      setIndicator(null);
+      props.onDragEnd(event);
+    },
   });
-  return props.children;
+  return (
+    <SidebarDropIndicatorContext.Provider value={indicator}>
+      {props.children}
+    </SidebarDropIndicatorContext.Provider>
+  );
+}
+
+export function resolveSidebarDropPlacement(event: DragOverEvent): SidebarDropPlacement {
+  const target = event.operation.target;
+  const targetRect = target?.element?.getBoundingClientRect();
+  if (!targetRect || targetRect.height <= 0) return "before";
+  return event.operation.position.current.y >= targetRect.top + targetRect.height / 2
+    ? "after"
+    : "before";
 }
 
 export function SidebarDragPreview(props: { preview: SidebarDndPreview }) {
@@ -189,6 +226,7 @@ export function SortableSidebarNode(props: {
   id: string;
   index: number;
 }) {
+  const indicator = useContext(SidebarDropIndicatorContext);
   const sortable = useSortable({
     id: props.id,
     index: props.index,
@@ -220,8 +258,15 @@ export function SortableSidebarNode(props: {
       {sortable.isDropTarget ? (
         <span
           aria-hidden="true"
-          className="pointer-events-none absolute right-2 left-2 top-0 z-30 h-0.5 rounded-full bg-[var(--color-border-focus)]"
-          data-sidebar-drop-indicator="before"
+          className={cn(
+            "pointer-events-none absolute right-2 left-2 z-30 h-0.5 rounded-full bg-[var(--color-border-focus)]",
+            indicator?.targetId === props.id && indicator.placement === "after"
+              ? "bottom-0"
+              : "top-0",
+          )}
+          data-sidebar-drop-indicator={
+            indicator?.targetId === props.id ? indicator.placement : "before"
+          }
         />
       ) : null}
       {props.children}

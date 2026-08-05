@@ -2,7 +2,13 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import type { SidebarDndData } from "./SidebarDnd";
-import { acceptedTypesForData, dragTypeForData, SidebarDragPreview } from "./SidebarDnd";
+import {
+  acceptedTypesForData,
+  dragTypeForData,
+  resolveSidebarDropPlacement,
+  SidebarDragPreview,
+} from "./SidebarDnd";
+import type { DragOverEvent } from "@dnd-kit/react";
 
 describe("SidebarDragPreview", () => {
   it("renders a folder as a complete sidebar row", () => {
@@ -102,5 +108,22 @@ describe("SidebarDragPreview", () => {
 
     expect(acceptedTypesForData(container)).toContain(dragTypeForData(pinnedThread));
     expect(acceptedTypesForData(container)).toContain(dragTypeForData(unpinnedThread));
+  });
+
+  it("derives before and after placement from the target row midpoint", () => {
+    const eventAt = (y: number) =>
+      ({
+        operation: {
+          position: { current: { x: 0, y } },
+          target: {
+            element: {
+              getBoundingClientRect: () => ({ height: 24, top: 100 }),
+            },
+          },
+        },
+      }) as unknown as DragOverEvent;
+
+    expect(resolveSidebarDropPlacement(eventAt(111))).toBe("before");
+    expect(resolveSidebarDropPlacement(eventAt(112))).toBe("after");
   });
 });

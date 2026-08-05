@@ -15,9 +15,7 @@ import {
   type SidebarItemParent,
   type SidebarItemReference,
 } from "@penkra/contracts";
-import type { DragEndEvent } from "@dnd-kit/react";
-import { isSortable } from "@dnd-kit/react/sortable";
-import { arrayMove } from "@dnd-kit/helpers";
+import type { DragEndEvent, DragOverEvent } from "@dnd-kit/react";
 import { getDefaultModel } from "@penkra/shared/model";
 import { pluralize } from "@penkra/shared/text";
 import { resolveThreadWorkspaceCwd } from "@penkra/shared/threadEnvironment";
@@ -199,9 +197,9 @@ import {
 } from "./desktopUpdate.logic";
 import {
   readSidebarDndData,
+  type SidebarDropPlacement,
   sidebarItemDndId,
   sidebarParentDndGroup,
-  sidebarParentFromDndGroup,
   sidebarSpaceDndId,
   SidebarContainerDropTarget,
   SidebarDndMonitor,
@@ -263,6 +261,19 @@ const THREAD_PREVIEW_PAGE_SIZE = 5;
 const EMPTY_THREAD_JUMP_LABELS = new Map<ThreadId, string>();
 const ADD_PROJECT_SNAPSHOT_CATCH_UP_MAX_ATTEMPTS = 6;
 const ADD_PROJECT_SNAPSHOT_CATCH_UP_DELAY_MS = 50;
+
+type SidebarDropIntent =
+  | {
+      kind: "space";
+      placement: SidebarDropPlacement;
+      targetSpaceId: SpaceId;
+    }
+  | {
+      kind: "item";
+      placement: SidebarDropPlacement;
+      target: SidebarItemParent;
+      targetItem?: SidebarItemReference;
+    };
 const DebugFeatureFlagsMenu = import.meta.env.DEV
   ? lazy(() =>
       import("./DebugFeatureFlagsMenu").then((module) => ({
@@ -2076,7 +2087,12 @@ export default function Sidebar() {
       const api = readNativeApi();
       if (!api) return false;
       try {
-        await moveSidebarItem({ api, item, target: input.target, orderedItems });
+        await moveSidebarItem({
+          api,
+          item,
+          target: input.target,
+          orderedItems,
+        });
         return true;
       } catch (error) {
         toastManager.add({
@@ -2089,59 +2105,90 @@ export default function Sidebar() {
     },
     [getOrderedSidebarItems, isSidebarItemPinned],
   );
+  const sidebarDropIntentRef = useRef<SidebarDropIntent | null>(null);
+  const handleSidebarDragOver = useCallback(
+    (event: DragOverEvent, placement: SidebarDropPlacement) => {
+      const sourceData = readSidebarDndData(event.operation.source?.data);
+      const targetData = readSidebarDndData(event.operation.target?.data);
+      if (!sourceData || !targetData) {
+        sidebarDropIntentRef.current = null;
+        return;
+      }
+
+      if (sourceData.type === "space" && targetData.type === "space") {
+        sidebarDropIntentRef.current =
+          sourceData.spaceId === targetData.spaceId
+            ? null
+            : {
+                kind: "space",
+                placement,
+                targetSpaceId: targetData.spaceId,
+              };
+        return;
+      }
+
+      if (sourceData.type !== "item") {
+        sidebarDropIntentRef.current = null;
+        return;
+      }
+      if (targetData.type === "container") {
+        sidebarDropIntentRef.current = {
+          kind: "item",
+          placement: "before",
+          target: targetData.parent,
+        };
+        return;
+      }
+      if (targetData.type !== "item") {
+        sidebarDropIntentRef.current = null;
+        return;
+      }
+      if (
+        sourceData.item.kind === targetData.item.kind &&
+        sourceData.item.id === targetData.item.id
+      ) {
+        sidebarDropIntentRef.current = null;
+        return;
+      }
+      sidebarDropIntentRef.current = {
+        kind: "item",
+        placement,
+        target: targetData.parent,
+        targetItem: targetData.item,
+      };
+    },
+    [],
+  );
   const handleSidebarDragEnd = useCallback(
     (event: DragEndEvent) => {
-      if (event.canceled) return;
+      const intent = sidebarDropIntentRef.current;
+      sidebarDropIntentRef.current = null;
+      if (event.canceled || !intent) return;
       const source = event.operation.source;
-      const target = event.operation.target;
       const sourceData = readSidebarDndData(source?.data);
-      const targetData = readSidebarDndData(target?.data);
       if (!source || !sourceData) return;
 
-      if (sourceData.type === "space") {
-        if (!isSortable(source) || source.initialIndex === source.index) return;
-        const reordered = arrayMove([...spaces], source.initialIndex, source.index);
+      if (sourceData.type === "space" && intent.kind === "space") {
+        const sourceSpace = spaces.find((space) => space.id === sourceData.spaceId);
+        if (!sourceSpace) return;
+        const reordered = spaces.filter((space) => space.id !== sourceData.spaceId);
+        const targetIndex = reordered.findIndex((space) => space.id === intent.targetSpaceId);
+        if (targetIndex < 0) return;
+        reordered.splice(targetIndex + (intent.placement === "after" ? 1 : 0), 0, sourceSpace);
         handleReorderSpaces(
           reordered.map((space) => space.id),
           sourceData.spaceId,
         );
         return;
       }
-      if (sourceData.type !== "item") return;
-
-      const explicitContainer = targetData?.type === "container" ? targetData.parent : null;
-      const targetParent =
-        explicitContainer ??
-        (isSortable(source) ? sidebarParentFromDndGroup(source.group) : null) ??
-        (targetData?.type === "item" ? targetData.parent : null);
-      if (!targetParent) return;
-
-      const insertionIndex = explicitContainer
-        ? undefined
-        : isSortable(source)
-          ? source.index
-          : undefined;
-      const parentUnchanged =
-        sourceData.parent.kind === targetParent.kind &&
-        (sourceData.parent.kind === "space"
-          ? sourceData.parent.spaceId ===
-            (targetParent.kind === "space" ? targetParent.spaceId : null)
-          : sourceData.parent.projectId ===
-            (targetParent.kind === "project" ? targetParent.projectId : null));
-      if (
-        parentUnchanged &&
-        isSortable(source) &&
-        source.initialIndex === source.index &&
-        !explicitContainer
-      ) {
-        return;
-      }
+      if (sourceData.type !== "item" || intent.kind !== "item") return;
 
       const suspended = event.suspend();
       void commitSidebarItemMove({
         item: sourceData.item,
-        target: targetParent,
-        insertionIndex,
+        target: intent.target,
+        targetItem: intent.targetItem,
+        placement: intent.placement,
       }).then((committed) => {
         if (committed) suspended.resume();
         else suspended.abort();
@@ -2404,7 +2451,10 @@ export default function Sidebar() {
       <SortableSidebarNode
         key={project.id}
         id={sidebarItemDndId({ kind: "project", id: project.id })}
-        group={sidebarParentDndGroup({ kind: "space", spaceId: project.spaceId })}
+        group={sidebarParentDndGroup({
+          kind: "space",
+          spaceId: project.spaceId,
+        })}
         index={sortableIndex}
         data={{
           type: "item",
@@ -3340,7 +3390,7 @@ export default function Sidebar() {
               }}
             />
           ) : null}
-          <SidebarDndMonitor onDragEnd={handleSidebarDragEnd}>
+          <SidebarDndMonitor onDragEnd={handleSidebarDragEnd} onDragOver={handleSidebarDragOver}>
             <div className="flex flex-col gap-4" data-slot="space-list">
               {sidebarSpaceSections.map((section, spaceIndex) => {
                 const expanded = !collapsedSpaceIds.has(section.key);
