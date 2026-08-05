@@ -1,12 +1,7 @@
 import { readFile, readdir, rm } from "node:fs/promises";
 import path from "node:path";
 
-import {
-  CommandId,
-  ContainerId,
-  SpaceId,
-  type OrchestrationProject,
-} from "@penkra/contracts";
+import { CommandId, ContainerId, SpaceId, type OrchestrationProject } from "@penkra/contracts";
 import { Effect } from "effect";
 
 import type { OrchestrationEngineShape } from "../orchestration/Services/OrchestrationEngine";
@@ -30,9 +25,7 @@ export type RegistrySyncResult = {
   archivedClients: string[];
 };
 
-export function coalesceRegistryReconciliations<T>(
-  reconcile: () => Promise<T>,
-): () => Promise<T> {
+export function coalesceRegistryReconciliations<T>(reconcile: () => Promise<T>): () => Promise<T> {
   let running: Promise<T> | null = null;
   let rerunRequested = false;
 
@@ -62,20 +55,14 @@ export async function reconcilePenkraRegistry(input: {
   engine: OrchestrationEngineShape;
 }): Promise<RegistrySyncResult> {
   if (!input.config) return emptyResult("disabled");
-  const backend = await PenkraBackendClient.fromHqConfig(
-    input.config.hqConfigPath,
-  );
+  const backend = await PenkraBackendClient.fromHqConfig(input.config.hqConfigPath);
   if (!backend) return emptyResult("needs-hq-auth");
 
   const [hqInstructions, clientInstructions] = await Promise.all([
     backend.getInstructionDocument("hq"),
     backend.getInstructionDocument("client"),
   ]);
-  await scaffoldHq(
-    input.config.root,
-    hqInstructions.body,
-    clientInstructions.body,
-  );
+  await scaffoldHq(input.config.root, hqInstructions.body, clientInstructions.body);
   await ensureRegistryFolder(input.engine, {
     id: "penkra-hq",
     title: "Penkra HQ",
@@ -84,15 +71,11 @@ export async function reconcilePenkraRegistry(input: {
   });
 
   const clients = await backend.listClients();
-  const activeClients = clients.filter(
-    (client) => client.status !== "archived",
-  );
+  const activeClients = clients.filter((client) => client.status !== "archived");
   for (const client of activeClients) {
     const workspace = path.join(input.config.root, client.id);
     const configured = await hasClientConfig(workspace, client.id);
-    const token = configured
-      ? null
-      : await backend.reissueClientToken(client.id);
+    const token = configured ? null : await backend.reissueClientToken(client.id);
     await scaffoldClient({
       root: input.config.root,
       endpoint: input.config.endpoint,
@@ -136,13 +119,9 @@ export async function cleanupInstructionViewFiles(
     // must not present stale remote state as current.
     ...clients
       .filter((client) => client.status === "archived")
-      .map((client) =>
-        path.join(root, client.id, CLIENT_INSTRUCTION_VIEW_FILE),
-      ),
+      .map((client) => path.join(root, client.id, CLIENT_INSTRUCTION_VIEW_FILE)),
   ];
-  await Promise.all(
-    stalePaths.map((filePath) => rm(filePath, { force: true })),
-  );
+  await Promise.all(stalePaths.map((filePath) => rm(filePath, { force: true })));
 }
 
 export async function ensureRegistryFolder(
@@ -155,9 +134,7 @@ export async function ensureRegistryFolder(
   },
 ): Promise<void> {
   const readModel = await Effect.runPromise(engine.getReadModel());
-  const activeProjects = readModel.projects.filter(
-    (project) => project.deletedAt === null,
-  );
+  const activeProjects = readModel.projects.filter((project) => project.deletedAt === null);
   const existing = activeProjects.find((project) => project.id === desired.id);
   const now = new Date().toISOString();
   if (!existing) {
@@ -189,9 +166,7 @@ export async function ensureRegistryFolder(
   }).value;
   await engine
     .dispatch({
-      commandId: CommandId.makeUnsafe(
-        `penkra:project:update:${existing.id}:${revision}`,
-      ),
+      commandId: CommandId.makeUnsafe(`penkra:project:update:${existing.id}:${revision}`),
       ...commandIntent,
     })
     .pipe(Effect.runPromise);
@@ -208,10 +183,7 @@ function projectMatches(
   );
 }
 
-async function findUnknownFolders(
-  root: string,
-  clients: PenkraClientRecord[],
-): Promise<string[]> {
+async function findUnknownFolders(root: string, clients: PenkraClientRecord[]): Promise<string[]> {
   const known = new Set(clients.map((client) => client.id));
   const entries = await readdir(root, { withFileTypes: true });
   const unknown: string[] = [];
@@ -224,10 +196,7 @@ async function findUnknownFolders(
     )
       continue;
     try {
-      const text = await readFile(
-        path.join(root, entry.name, ".penkra", "config.json"),
-        "utf8",
-      );
+      const text = await readFile(path.join(root, entry.name, ".penkra", "config.json"), "utf8");
       const config = JSON.parse(text) as Record<string, unknown>;
       if (config.scope === "client") unknown.push(entry.name);
     } catch {

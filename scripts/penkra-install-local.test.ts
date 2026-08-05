@@ -12,10 +12,7 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import {
-  replaceAppAtomically,
-  schedulePenkraRelaunch,
-} from "./penkra-install-local.mjs";
+import { replaceAppAtomically, schedulePenkraRelaunch } from "./penkra-install-local.mjs";
 
 const roots: string[] = [];
 
@@ -31,8 +28,7 @@ function fixture() {
 }
 
 afterEach(() => {
-  for (const root of roots.splice(0))
-    rmSync(root, { force: true, recursive: true });
+  for (const root of roots.splice(0)) rmSync(root, { force: true, recursive: true });
 });
 
 describe("replaceAppAtomically", () => {
@@ -107,11 +103,7 @@ describe("schedulePenkraRelaunch", () => {
 
     expect(spawnProcess).toHaveBeenCalledWith(
       "/bin/sh",
-      expect.arrayContaining([
-        "-c",
-        "penkra-relaunch",
-        "/Applications/Penkra.app",
-      ]),
+      expect.arrayContaining(["-c", "penkra-relaunch", "/Applications/Penkra.app"]),
       { detached: true, stdio: "ignore" },
     );
     expect(spawnProcess.mock.calls[0]?.[1]?.[1]).toContain("sleep 3");

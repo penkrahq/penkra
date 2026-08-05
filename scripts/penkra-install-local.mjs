@@ -1,14 +1,7 @@
 #!/usr/bin/env node
 import { randomUUID } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
-import {
-  cpSync,
-  existsSync,
-  mkdtempSync,
-  readdirSync,
-  renameSync,
-  rmSync,
-} from "node:fs";
+import { cpSync, existsSync, mkdtempSync, readdirSync, renameSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -16,9 +9,7 @@ import { pathToFileURL } from "node:url";
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, { encoding: "utf8", ...options });
   if (result.status !== 0) {
-    throw new Error(
-      `${command} ${args.join(" ")} failed: ${result.stderr || result.stdout}`,
-    );
+    throw new Error(`${command} ${args.join(" ")} failed: ${result.stderr || result.stdout}`);
   }
   return result.stdout.trim();
 }
@@ -32,13 +23,9 @@ export function replaceAppAtomically({
   target,
   backupLabel = "Previous",
   timestamp = new Date().toISOString(),
-  staging = join(
-    dirname(target),
-    `.${basename(target)}.install-${randomUUID()}`,
-  ),
+  staging = join(dirname(target), `.${basename(target)}.install-${randomUUID()}`),
   exists = existsSync,
-  copy = (from, to) =>
-    cpSync(from, to, { recursive: true, preserveTimestamps: true }),
+  copy = (from, to) => cpSync(from, to, { recursive: true, preserveTimestamps: true }),
   rename = renameSync,
   remove = (path) => rmSync(path, { force: true, recursive: true }),
   verify,
@@ -58,8 +45,7 @@ export function replaceAppAtomically({
         dirname(target),
         `Penkra ${safePathComponent(backupLabel)} Backup ${suffix}.app`,
       );
-      if (exists(backup))
-        throw new Error(`Local install backup already exists: ${backup}`);
+      if (exists(backup)) throw new Error(`Local install backup already exists: ${backup}`);
       rename(target, backup);
       targetMoved = true;
     }
@@ -85,36 +71,25 @@ export function schedulePenkraRelaunch(target, spawnProcess = spawn) {
     "sleep 2",
     '/usr/bin/open -n "$1"',
   ].join("; ");
-  const child = spawnProcess(
-    "/bin/sh",
-    ["-c", script, "penkra-relaunch", target],
-    {
-      detached: true,
-      stdio: "ignore",
-    },
-  );
+  const child = spawnProcess("/bin/sh", ["-c", script, "penkra-relaunch", target], {
+    detached: true,
+    stdio: "ignore",
+  });
   child.unref();
 }
 
 export function installLocalRelease(artifactDir = resolve("release")) {
-  const zipNames = readdirSync(artifactDir).filter((name) =>
-    name.endsWith(".zip"),
-  );
+  const zipNames = readdirSync(artifactDir).filter((name) => name.endsWith(".zip"));
   if (zipNames.length !== 1 || !zipNames[0]) {
-    throw new Error(
-      `Expected one update ZIP in ${artifactDir}, found ${zipNames.length}.`,
-    );
+    throw new Error(`Expected one update ZIP in ${artifactDir}, found ${zipNames.length}.`);
   }
 
   const extractionRoot = mkdtempSync(join(tmpdir(), "penkra-local-install-"));
   const target = "/Applications/Penkra.app";
   try {
     run("ditto", ["-x", "-k", join(artifactDir, zipNames[0]), extractionRoot]);
-    const appNames = readdirSync(extractionRoot).filter((name) =>
-      name.endsWith(".app"),
-    );
-    if (appNames.length !== 1 || !appNames[0])
-      throw new Error("Update ZIP must contain one app.");
+    const appNames = readdirSync(extractionRoot).filter((name) => name.endsWith(".app"));
+    if (appNames.length !== 1 || !appNames[0]) throw new Error("Update ZIP must contain one app.");
     const source = join(extractionRoot, appNames[0]);
     const verify = (path) =>
       run("codesign", ["--verify", "--deep", "--strict", "--verbose=4", path]);
@@ -124,16 +99,9 @@ export function installLocalRelease(artifactDir = resolve("release")) {
       join(source, "Contents", "Info"),
       "CFBundleShortVersionString",
     ]);
-    const manifest = readdirSync(artifactDir).find(
-      (name) => name === "latest-mac.yml",
-    );
-    if (!manifest)
-      throw new Error("Release directory does not contain latest-mac.yml.");
-    const manifestVersion = run("sed", [
-      "-n",
-      "s/^version: *//p",
-      join(artifactDir, manifest),
-    ]);
+    const manifest = readdirSync(artifactDir).find((name) => name === "latest-mac.yml");
+    if (!manifest) throw new Error("Release directory does not contain latest-mac.yml.");
+    const manifestVersion = run("sed", ["-n", "s/^version: *//p", join(artifactDir, manifest)]);
     if (version !== manifestVersion) {
       throw new Error(
         `Local artifact version ${version} does not match update manifest ${manifestVersion}.`,
@@ -170,9 +138,6 @@ export function installLocalRelease(artifactDir = resolve("release")) {
   }
 }
 
-if (
-  process.argv[1] &&
-  import.meta.url === pathToFileURL(process.argv[1]).href
-) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   installLocalRelease(resolve(process.argv[2] ?? "release"));
 }

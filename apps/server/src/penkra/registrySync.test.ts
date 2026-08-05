@@ -1,10 +1,7 @@
 import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
-import {
-  coalesceRegistryReconciliations,
-  ensureRegistryFolder,
-} from "./registrySync";
+import { coalesceRegistryReconciliations, ensureRegistryFolder } from "./registrySync";
 
 describe("registry reconciliation scheduling", () => {
   it("coalesces overlapping requests into one trailing reconciliation", async () => {
@@ -122,9 +119,7 @@ describe("registry Folder projection", () => {
     const first = dispatch.mock.calls[0]?.[0];
     const second = dispatch.mock.calls[1]?.[0];
     expect(first.commandId).toBe(second.commandId);
-    expect(first.commandId).toMatch(
-      /^penkra:project:update:penkra-hq:[0-9a-f]{64}$/,
-    );
+    expect(first.commandId).toMatch(/^penkra:project:update:penkra-hq:[0-9a-f]{64}$/);
     expect(first).toEqual(
       expect.objectContaining({
         type: "project.meta.update",
