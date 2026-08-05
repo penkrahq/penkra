@@ -3,7 +3,7 @@
 // Layer: Marketing util
 // Exports: repo/release URLs plus the latest-release fetch helper.
 
-const REPO = "Emanuele-web04/Penkra";
+const REPO = "penkrahq/penkra";
 export const REPO_URL = `https://github.com/${REPO}`;
 
 export const RELEASES_URL = `https://github.com/${REPO}/releases`;
