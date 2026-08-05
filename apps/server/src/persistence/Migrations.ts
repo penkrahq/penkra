@@ -100,6 +100,7 @@ import Migration0091 from "./Migrations/091_SpaceNavigationState.ts";
 import Migration0092 from "./Migrations/092_RemoveProjectionThreadWorktreePath.ts";
 import Migration0093 from "./Migrations/093_VirtualFolders.ts";
 import Migration0094 from "./Migrations/094_RequireSpaces.ts";
+import Migration0095 from "./Migrations/095_SidebarManualOrdering.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -199,6 +200,7 @@ export const migrationEntries = [
   [92, "RemoveProjectionThreadWorktreePath", Migration0092],
   [93, "VirtualFolders", Migration0093],
   [94, "RequireSpaces", Migration0094],
+  [95, "SidebarManualOrdering", Migration0095],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

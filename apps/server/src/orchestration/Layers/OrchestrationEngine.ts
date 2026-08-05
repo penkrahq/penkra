@@ -118,6 +118,16 @@ function commandToAggregateRef(command: OrchestrationCommand): {
         aggregateKind: "space",
         aggregateId: command.spaceId,
       };
+    case "sidebar.item.move":
+      return command.target.kind === "space"
+        ? {
+            aggregateKind: "space",
+            aggregateId: command.target.spaceId,
+          }
+        : {
+            aggregateKind: "project",
+            aggregateId: command.target.projectId,
+          };
     case "project.create":
     case "project.meta.update":
     case "project.delete":
@@ -143,6 +153,7 @@ function isShellMetadataEvent(event: OrchestrationEvent): event is ShellMetadata
     event.type === "space.archived" ||
     event.type === "space.restored" ||
     event.type === "space.deleted" ||
+    event.type === "sidebar.layout-updated" ||
     event.type === "project.created" ||
     event.type === "project.meta-updated" ||
     event.type === "project.deleted"

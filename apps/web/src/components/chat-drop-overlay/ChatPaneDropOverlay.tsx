@@ -3,14 +3,13 @@
 // Layer: UI component (route surfaces wrap it around <ChatView /> or empty-state placeholders)
 // Exports: ChatPaneDropOverlay component, drag MIME constant, drop-zone helpers used by tests
 
-import { useEffect, useRef, type DragEvent as ReactDragEvent, type ReactNode } from "react";
+import { useDragDropMonitor, useDroppable } from "@dnd-kit/react";
+import { useEffect, useId, useRef, type ReactNode } from "react";
 import { type ThreadId } from "@penkra/contracts";
 
 import { type SplitDirection, type SplitDropSide } from "../../splitViewStore";
 import { cn } from "../../lib/utils";
-
-// Custom MIME so external file drops on the composer (which listen for `Files`) cannot trigger us.
-export const THREAD_DRAG_MIME = "application/x-penkra-thread";
+import { readSidebarDndData, SIDEBAR_THREAD_DRAG_TYPES } from "../sidebar/SidebarDnd";
 
 export interface ThreadDragPayload {
   threadId: ThreadId;
@@ -112,30 +111,6 @@ export function dropZoneToDirectionSide(zone: DropZone): {
   return { direction: "horizontal", side: "second" };
 }
 
-function isThreadDrag(event: ReactDragEvent): boolean {
-  const types = event.dataTransfer.types;
-  for (let index = 0; index < types.length; index += 1) {
-    if (types[index] === THREAD_DRAG_MIME) return true;
-  }
-  return false;
-}
-
-function parseThreadDragPayload(event: ReactDragEvent): ThreadDragPayload | null {
-  try {
-    const raw = event.dataTransfer.getData(THREAD_DRAG_MIME);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<ThreadDragPayload>;
-    if (typeof parsed.threadId === "string") {
-      return {
-        threadId: parsed.threadId as ThreadId,
-      };
-    }
-  } catch {
-    return null;
-  }
-  return null;
-}
-
 // Applies the same thread constraints for hover feedback and the final drop.
 export function isThreadDragPayloadAllowed(
   payload: ThreadDragPayload,
@@ -147,11 +122,24 @@ export function isThreadDragPayloadAllowed(
 
 export function ChatPaneDropOverlay(props: ChatPaneDropOverlayProps) {
   const { onDrop, canDropInDirection, excludedThreadIds, paneScopeId, className, children } = props;
+  const generatedScopeId = useId();
+  const dropTargetId = `chat-pane:${paneScopeId ?? generatedScopeId}`;
   const wrapperRef = useRef<HTMLDivElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
   const rectRef = useRef<DOMRect | null>(null);
   const rectMeasuredAtRef = useRef(0);
   const activeZoneRef = useRef<DropZone | null>(null);
+  const droppable = useDroppable({
+    id: dropTargetId,
+    type: "penkra/chat-pane",
+    accept: SIDEBAR_THREAD_DRAG_TYPES,
+    data: { type: "chat-pane", paneScopeId: paneScopeId ?? generatedScopeId },
+  });
+
+  const setWrapperRef = (element: HTMLDivElement | null) => {
+    wrapperRef.current = element;
+    droppable.ref(element);
+  };
 
   const isZoneAllowed = (zone: DropZone): boolean => {
     const { direction } = dropZoneToDirectionSide(zone);
@@ -192,72 +180,44 @@ export function ChatPaneDropOverlay(props: ChatPaneDropOverlayProps) {
     return rectRef.current;
   };
 
-  const getZoneForEvent = (event: ReactDragEvent<HTMLDivElement>) =>
-    getDropZoneFromPointer(
-      getCurrentRect() ?? EMPTY_RECT,
-      event.clientX,
-      event.clientY,
-      isZoneAllowed,
-    );
+  const getZoneForCoordinates = (clientX: number, clientY: number) =>
+    getDropZoneFromPointer(getCurrentRect() ?? EMPTY_RECT, clientX, clientY, isZoneAllowed);
 
-  const getAllowedZoneForEvent = (event: ReactDragEvent<HTMLDivElement>) => {
-    const zone = getZoneForEvent(event);
+  const getAllowedZone = (clientX: number, clientY: number, threadId: ThreadId) => {
+    const zone = getZoneForCoordinates(clientX, clientY);
     if (!zone) return null;
-    const payload = parseThreadDragPayload(event);
-    if (
-      payload &&
-      !isThreadDragPayloadAllowed(payload, {
-        excludedThreadIds,
-      })
-    ) {
+    if (!isThreadDragPayloadAllowed({ threadId }, { excludedThreadIds })) {
       return null;
     }
     return zone;
   };
 
-  const handleDragEnter = (event: ReactDragEvent<HTMLDivElement>) => {
-    if (!isThreadDrag(event)) return;
-    event.preventDefault();
-    event.stopPropagation();
-    rectRef.current = wrapperRef.current?.getBoundingClientRect() ?? null;
-    rectMeasuredAtRef.current = performance.now();
-    const zone = getAllowedZoneForEvent(event);
-    event.dataTransfer.dropEffect = zone ? "move" : "none";
-    setPreviewZone(zone);
-  };
-
-  const handleDragOver = (event: ReactDragEvent<HTMLDivElement>) => {
-    if (!isThreadDrag(event)) return;
-    event.preventDefault();
-    event.stopPropagation();
-    const zone = getAllowedZoneForEvent(event);
-    event.dataTransfer.dropEffect = zone ? "move" : "none";
-    setPreviewZone(zone);
-  };
-
-  const handleDragLeave = (event: ReactDragEvent<HTMLDivElement>) => {
-    if (!isThreadDrag(event)) return;
-    const wrapper = wrapperRef.current;
-    if (!wrapper) return;
-    const related = event.relatedTarget as Node | null;
-    if (related && wrapper.contains(related)) return;
-    resetOverlayState();
-  };
-
-  const handleDrop = (event: ReactDragEvent<HTMLDivElement>) => {
-    if (!isThreadDrag(event)) return;
-    event.preventDefault();
-    event.stopPropagation();
-    const zone = getZoneForEvent(event);
-    const payload = parseThreadDragPayload(event);
-
-    resetOverlayState();
-
-    if (!zone || !payload) return;
-    if (!isThreadDragPayloadAllowed(payload, { excludedThreadIds })) return;
-    const { direction, side } = dropZoneToDirectionSide(zone);
-    onDrop({ ...payload, direction, side });
-  };
+  useDragDropMonitor({
+    onDragMove(event) {
+      const sourceData = readSidebarDndData(event.operation.source?.data);
+      if (sourceData?.type !== "item" || sourceData.item.kind !== "thread") return;
+      const position = event.operation.position.current;
+      setPreviewZone(getAllowedZone(position.x, position.y, sourceData.item.id));
+    },
+    onDragEnd(event) {
+      const sourceData = readSidebarDndData(event.operation.source?.data);
+      const zone = activeZoneRef.current;
+      const isThisPane = event.operation.target?.id === dropTargetId;
+      resetOverlayState();
+      if (
+        event.canceled ||
+        !isThisPane ||
+        !zone ||
+        sourceData?.type !== "item" ||
+        sourceData.item.kind !== "thread" ||
+        !isThreadDragPayloadAllowed({ threadId: sourceData.item.id }, { excludedThreadIds })
+      ) {
+        return;
+      }
+      const { direction, side } = dropZoneToDirectionSide(zone);
+      onDrop({ threadId: sourceData.item.id, direction, side });
+    },
+  });
 
   useEffect(() => {
     resetOverlayState();
@@ -266,13 +226,9 @@ export function ChatPaneDropOverlay(props: ChatPaneDropOverlayProps) {
 
   return (
     <div
-      ref={wrapperRef}
+      ref={setWrapperRef}
       data-chat-pane-drop-overlay="true"
       className={cn("relative flex min-h-0 min-w-0 flex-1 flex-col", className)}
-      onDragEnter={handleDragEnter}
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
     >
       {children}
       <div className="pointer-events-none absolute inset-0 z-50" data-chat-pane-drop-zones="true">

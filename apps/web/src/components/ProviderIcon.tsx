@@ -11,11 +11,13 @@ import { CentralIcon } from "~/lib/central-icons";
 import { cn } from "~/lib/utils";
 import {
   AntigravityIcon,
+  ClaudeAI,
   CursorIcon,
   DroidIcon,
   GrokIcon,
   type Icon,
   KiloIcon,
+  OpenAI,
   OpenCodeIcon,
   PiIcon,
 } from "./Icons";
@@ -61,41 +63,9 @@ const OpenCodeProviderIcon = ({
   );
 };
 
-// Provider branding is served from the canonical Central icon set. Keep the
-// adapter typed like the existing SVG icon components so callers can use the
-// same className and accessibility props on both SVG and masked icons.
-function createCentralProviderIcon(name: string): Icon {
-  return function CentralProviderIcon({
-    className,
-    style,
-    role,
-    "aria-hidden": ariaHidden,
-    "aria-label": ariaLabel,
-  }) {
-    const centralIconLabel =
-      ariaHidden === true || ariaHidden === "true" || typeof ariaLabel !== "string"
-        ? undefined
-        : ariaLabel;
-
-    return (
-      <CentralIcon
-        name={name}
-        label={centralIconLabel}
-        role={role}
-        aria-hidden={ariaHidden}
-        className={className}
-        style={style}
-      />
-    );
-  };
-}
-
-const CodexProviderIcon = createCentralProviderIcon("openai-codex");
-const ClaudeProviderIcon = createCentralProviderIcon("claudeai");
-
 export const PROVIDER_ICON_COMPONENT_BY_PROVIDER: Record<ProviderKind, Icon> = {
-  codex: CodexProviderIcon,
-  claudeAgent: ClaudeProviderIcon,
+  codex: OpenAI,
+  claudeAgent: ClaudeAI,
   cursor: CursorIcon,
   antigravity: AntigravityIcon,
   grok: GrokIcon,

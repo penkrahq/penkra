@@ -421,6 +421,45 @@ export function projectEvent(
         })),
       );
 
+    case "sidebar.layout-updated": {
+      const projectUpdates = new Map(
+        event.payload.projectUpdates.map((update) => [update.projectId, update] as const),
+      );
+      const threadUpdates = new Map(
+        event.payload.threadUpdates.map((update) => [update.threadId, update] as const),
+      );
+      return Effect.succeed({
+        ...nextBase,
+        projects: nextBase.projects.map((project) => {
+          const update = projectUpdates.get(project.id);
+          return update
+            ? {
+                ...project,
+                ...(update.spaceId !== undefined ? { spaceId: update.spaceId } : {}),
+                ...(update.sidebarSortOrder !== undefined
+                  ? { sidebarSortOrder: update.sidebarSortOrder }
+                  : {}),
+                updatedAt: event.payload.updatedAt,
+              }
+            : project;
+        }),
+        threads: nextBase.threads.map((thread) => {
+          const update = threadUpdates.get(thread.id);
+          return update
+            ? {
+                ...thread,
+                ...(update.projectId !== undefined ? { projectId: update.projectId } : {}),
+                ...(update.spaceId !== undefined ? { spaceId: update.spaceId } : {}),
+                ...(update.sidebarSortOrder !== undefined
+                  ? { sidebarSortOrder: update.sidebarSortOrder }
+                  : {}),
+                updatedAt: event.payload.updatedAt,
+              }
+            : thread;
+        }),
+      });
+    }
+
     case "project.created":
       return decodeForEvent(ProjectCreatedPayload, event.payload, event.type, "payload").pipe(
         Effect.map((payload) => {
@@ -434,6 +473,7 @@ export function projectEvent(
             scripts: payload.scripts,
             isPinned: payload.isPinned ?? false,
             spaceId: payload.spaceId ?? null,
+            sidebarSortOrder: payload.sidebarSortOrder ?? 0,
             createdAt: payload.createdAt,
             updatedAt: payload.updatedAt,
             deletedAt: null,
@@ -469,6 +509,9 @@ export function projectEvent(
                   ...(payload.scripts !== undefined ? { scripts: payload.scripts } : {}),
                   ...(payload.isPinned !== undefined ? { isPinned: payload.isPinned } : {}),
                   ...(payload.spaceId !== undefined ? { spaceId: payload.spaceId } : {}),
+                  ...(payload.sidebarSortOrder !== undefined
+                    ? { sidebarSortOrder: payload.sidebarSortOrder }
+                    : {}),
                   updatedAt: payload.updatedAt,
                 }
               : project,
@@ -508,6 +551,7 @@ export function projectEvent(
             id: payload.threadId,
             projectId: payload.projectId,
             spaceId: payload.spaceId ?? null,
+            sidebarSortOrder: payload.sidebarSortOrder ?? 0,
             title: payload.title,
             modelSelection: payload.modelSelection,
             runtimeMode: payload.runtimeMode,
@@ -668,6 +712,9 @@ export function projectEvent(
                   }
                 : {}),
               ...(payload.isPinned !== undefined ? { isPinned: payload.isPinned } : {}),
+              ...(payload.sidebarSortOrder !== undefined
+                ? { sidebarSortOrder: payload.sidebarSortOrder }
+                : {}),
               ...(payload.parentThreadId !== undefined
                 ? { parentThreadId: payload.parentThreadId }
                 : {}),

@@ -922,10 +922,6 @@ const makeAntigravityAdapter = Effect.gen(function* () {
         cwd: context.session.cwd ?? serverConfig.cwd,
         env: buildProviderChildEnvironment({
           provider: PROVIDER,
-          penkraContext: {
-            threadId: input.threadId,
-            workspace: context.session.cwd ?? serverConfig.cwd,
-          },
           inheritedPenkraKeys: ["PENKRA_ANTIGRAVITY_EVENTS", "PENKRA_ANTIGRAVITY_HOOK_DECISION"],
           overrides: {
             PENKRA_ANTIGRAVITY_EVENTS: eventFile,

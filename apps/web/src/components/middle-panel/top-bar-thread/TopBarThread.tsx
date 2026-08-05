@@ -1,5 +1,4 @@
 import type { ProviderKind } from "@penkra/contracts";
-import { IconDots } from "@tabler/icons-react";
 import type { HTMLAttributes, ReactNode } from "react";
 
 import { CHAT_SURFACE_HEADER_HEIGHT_CLASS } from "~/components/chat/chatHeaderControls";
@@ -10,8 +9,6 @@ import { ThreadIdentityShared } from "../thread-identity-shared/ThreadIdentitySh
 export interface TopBarThreadProps extends HTMLAttributes<HTMLElement> {
   harness?: ProviderKind;
   leftRailCollapsed?: boolean;
-  menuTrigger?: ReactNode;
-  onMenu?: () => void;
   onRestoreLeftRail?: () => void;
   pinned?: boolean;
   title?: string;
@@ -22,8 +19,6 @@ export function TopBarThread({
   className,
   harness = "codex",
   leftRailCollapsed = false,
-  menuTrigger,
-  onMenu,
   onRestoreLeftRail,
   pinned = false,
   title = "Audit HIPAA compliance",
@@ -62,18 +57,6 @@ export function TopBarThread({
             )}
           >
             {title}
-          </span>
-          <span className="ml-2 inline-flex shrink-0">
-            {menuTrigger ?? (
-              <button
-                aria-label="Thread menu"
-                className="inline-flex size-3.5 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-[var(--color-text-foreground-tertiary)] outline-none hover:text-[var(--color-text-foreground)] focus-visible:ring-1 focus-visible:ring-[var(--color-border-focus)]"
-                onClick={onMenu}
-                type="button"
-              >
-                <IconDots className="size-3.5" />
-              </button>
-            )}
           </span>
           <span className="ml-2 flex-1" />
         </>

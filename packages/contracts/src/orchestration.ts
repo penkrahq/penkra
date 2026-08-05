@@ -380,6 +380,7 @@ export const SPACE_NAME_MAX_LENGTH = 32;
 export const SPACES_MAX_COUNT = 50;
 /** Per-command cap for bulk assignment; clients chunk larger selections. */
 export const SPACE_PROJECTS_ASSIGN_MAX_COUNT = 200;
+export const SIDEBAR_ITEMS_MAX_COUNT = 10_000;
 export const SPACE_ICON_NAMES = [
   "bag",
   "home",
@@ -440,6 +441,7 @@ export const OrchestrationProject = Schema.Struct({
   scripts: Schema.Array(ProjectScript),
   isPinned: Schema.optional(Schema.Boolean).pipe(Schema.withDecodingDefault(() => false)),
   spaceId: Schema.optional(Schema.NullOr(SpaceId)).pipe(Schema.withDecodingDefault(() => null)),
+  sidebarSortOrder: Schema.optional(NonNegativeInt).pipe(Schema.withDecodingDefault(() => 0)),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   deletedAt: Schema.NullOr(IsoDateTime),
@@ -455,6 +457,7 @@ export const OrchestrationProjectShell = Schema.Struct({
   scripts: Schema.Array(ProjectScript),
   isPinned: Schema.optional(Schema.Boolean).pipe(Schema.withDecodingDefault(() => false)),
   spaceId: Schema.optional(Schema.NullOr(SpaceId)).pipe(Schema.withDecodingDefault(() => null)),
+  sidebarSortOrder: Schema.optional(NonNegativeInt).pipe(Schema.withDecodingDefault(() => 0)),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
@@ -698,6 +701,7 @@ export const OrchestrationThread = Schema.Struct({
   id: ThreadId,
   projectId: ContainerId,
   spaceId: Schema.optional(Schema.NullOr(SpaceId)).pipe(Schema.withDecodingDefault(() => null)),
+  sidebarSortOrder: Schema.optional(NonNegativeInt).pipe(Schema.withDecodingDefault(() => 0)),
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,
@@ -786,6 +790,7 @@ export const OrchestrationThreadShell = Schema.Struct({
   id: ThreadId,
   projectId: ContainerId,
   spaceId: Schema.optional(Schema.NullOr(SpaceId)).pipe(Schema.withDecodingDefault(() => null)),
+  sidebarSortOrder: Schema.optional(NonNegativeInt).pipe(Schema.withDecodingDefault(() => 0)),
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode,
@@ -900,6 +905,12 @@ export const OrchestrationShellStreamEvent = Schema.Union([
     orderedSpaceIds: Schema.Array(SpaceId),
   }),
   Schema.Struct({
+    kind: Schema.Literal("sidebar-layout-updated"),
+    sequence: NonNegativeInt,
+    projects: Schema.Array(OrchestrationProjectShell),
+    threads: Schema.Array(OrchestrationThreadShell),
+  }),
+  Schema.Struct({
     kind: Schema.Literal("project-upserted"),
     sequence: NonNegativeInt,
     project: OrchestrationProjectShell,
@@ -982,6 +993,29 @@ export const SpaceProjectsAssignCommand = Schema.Struct({
   projectIds: Schema.Array(ContainerId).check(
     Schema.isMinLength(1),
     Schema.isMaxLength(SPACE_PROJECTS_ASSIGN_MAX_COUNT),
+  ),
+});
+
+export const SidebarItemReference = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("project"), id: ContainerId }),
+  Schema.Struct({ kind: Schema.Literal("thread"), id: ThreadId }),
+]);
+export type SidebarItemReference = typeof SidebarItemReference.Type;
+
+export const SidebarItemParent = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("space"), spaceId: SpaceId }),
+  Schema.Struct({ kind: Schema.Literal("project"), projectId: ContainerId }),
+]);
+export type SidebarItemParent = typeof SidebarItemParent.Type;
+
+export const SidebarItemMoveCommand = Schema.Struct({
+  type: Schema.Literal("sidebar.item.move"),
+  commandId: CommandId,
+  item: SidebarItemReference,
+  target: SidebarItemParent,
+  orderedItems: Schema.Array(SidebarItemReference).check(
+    Schema.isMinLength(1),
+    Schema.isMaxLength(SIDEBAR_ITEMS_MAX_COUNT),
   ),
 });
 
@@ -1439,6 +1473,7 @@ const DispatchableClientOrchestrationCommand = Schema.Union([
   SpaceRestoreCommand,
   SpaceDeleteCommand,
   SpaceProjectsAssignCommand,
+  SidebarItemMoveCommand,
   ProjectCreateCommand,
   ProjectMetaUpdateCommand,
   ProjectDeleteCommand,
@@ -1481,6 +1516,7 @@ export const ClientOrchestrationCommand = Schema.Union([
   SpaceRestoreCommand,
   SpaceDeleteCommand,
   SpaceProjectsAssignCommand,
+  SidebarItemMoveCommand,
   ProjectCreateCommand,
   ProjectMetaUpdateCommand,
   ProjectDeleteCommand,
@@ -1631,6 +1667,7 @@ export const OrchestrationEventType = Schema.Literals([
   "space.archived",
   "space.restored",
   "space.deleted",
+  "sidebar.layout-updated",
   "project.created",
   "project.meta-updated",
   "project.deleted",
@@ -1723,6 +1760,7 @@ export const ProjectCreatedPayload = Schema.Struct({
   scripts: Schema.Array(ProjectScript),
   isPinned: Schema.optional(Schema.Boolean).pipe(Schema.withDecodingDefault(() => false)),
   spaceId: Schema.optional(Schema.NullOr(SpaceId)).pipe(Schema.withDecodingDefault(() => null)),
+  sidebarSortOrder: Schema.optional(NonNegativeInt).pipe(Schema.withDecodingDefault(() => 0)),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
@@ -1736,6 +1774,7 @@ export const ProjectMetaUpdatedPayload = Schema.Struct({
   scripts: Schema.optional(Schema.Array(ProjectScript)),
   isPinned: Schema.optional(Schema.Boolean),
   spaceId: Schema.optional(Schema.NullOr(SpaceId)),
+  sidebarSortOrder: Schema.optional(NonNegativeInt),
   updatedAt: IsoDateTime,
 });
 
@@ -1744,10 +1783,30 @@ export const ProjectDeletedPayload = Schema.Struct({
   deletedAt: IsoDateTime,
 });
 
+export const SidebarLayoutUpdatedPayload = Schema.Struct({
+  projectUpdates: Schema.Array(
+    Schema.Struct({
+      projectId: ContainerId,
+      spaceId: Schema.optional(SpaceId),
+      sidebarSortOrder: Schema.optional(NonNegativeInt),
+    }),
+  ).check(Schema.isMaxLength(SIDEBAR_ITEMS_MAX_COUNT)),
+  threadUpdates: Schema.Array(
+    Schema.Struct({
+      threadId: ThreadId,
+      projectId: Schema.optional(ContainerId),
+      spaceId: Schema.optional(Schema.NullOr(SpaceId)),
+      sidebarSortOrder: Schema.optional(NonNegativeInt),
+    }),
+  ).check(Schema.isMaxLength(SIDEBAR_ITEMS_MAX_COUNT)),
+  updatedAt: IsoDateTime,
+});
+
 export const ThreadCreatedPayload = Schema.Struct({
   threadId: ThreadId,
   projectId: ContainerId,
   spaceId: Schema.optional(Schema.NullOr(SpaceId)).pipe(Schema.withDecodingDefault(() => null)),
+  sidebarSortOrder: Schema.optional(NonNegativeInt).pipe(Schema.withDecodingDefault(() => 0)),
   title: TrimmedNonEmptyString,
   modelSelection: ModelSelection,
   runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(() => DEFAULT_RUNTIME_MODE)),
@@ -1836,6 +1895,7 @@ export const ThreadMetaUpdatedPayload = Schema.Struct({
   associatedWorktreeRef: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   createBranchFlowCompleted: Schema.optional(Schema.Boolean),
   isPinned: Schema.optional(Schema.Boolean),
+  sidebarSortOrder: Schema.optional(NonNegativeInt),
   parentThreadId: Schema.optional(Schema.NullOr(ThreadId)),
   subagentAgentId: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   subagentNickname: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
@@ -2117,6 +2177,11 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("space.deleted"),
     payload: SpaceDeletedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("sidebar.layout-updated"),
+    payload: SidebarLayoutUpdatedPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,

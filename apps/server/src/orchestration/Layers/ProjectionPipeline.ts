@@ -145,6 +145,7 @@ const PROJECT_EVENT_TYPES = new Set<OrchestrationEvent["type"]>([
   "space.archived",
   "space.restored",
   "space.deleted",
+  "sidebar.layout-updated",
   "project.created",
   "project.meta-updated",
   "project.deleted",
@@ -510,6 +511,23 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
           ),
           Effect.asVoid,
         );
+      case "sidebar.layout-updated":
+        return Effect.forEach(event.payload.projectUpdates, (update) =>
+          projectionProjectRepository.getById({ projectId: update.projectId }).pipe(
+            Effect.flatMap((existing) =>
+              Option.isSome(existing)
+                ? projectionProjectRepository.upsert({
+                    ...existing.value,
+                    ...(update.spaceId !== undefined ? { spaceId: update.spaceId } : {}),
+                    ...(update.sidebarSortOrder !== undefined
+                      ? { sidebarSortOrder: update.sidebarSortOrder }
+                      : {}),
+                    updatedAt: event.payload.updatedAt,
+                  })
+                : Effect.void,
+            ),
+          ),
+        ).pipe(Effect.asVoid);
       default:
         return Effect.void;
     }
@@ -528,6 +546,19 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
   const applyThreadsProjection: ProjectorDefinition["apply"] = (event, attachmentSideEffects) =>
     Effect.gen(function* () {
       switch (event.type) {
+        case "sidebar.layout-updated":
+          yield* Effect.forEach(event.payload.threadUpdates, (update) =>
+            updateThreadProjection(update.threadId, (thread) => ({
+              ...thread,
+              ...(update.projectId !== undefined ? { projectId: update.projectId } : {}),
+              ...(update.spaceId !== undefined ? { spaceId: update.spaceId } : {}),
+              ...(update.sidebarSortOrder !== undefined
+                ? { sidebarSortOrder: update.sidebarSortOrder }
+                : {}),
+              updatedAt: event.payload.updatedAt,
+            })),
+          );
+          return;
         case "thread.created": {
           const project = yield* projectionProjectRepository.getById({
             projectId: event.payload.projectId,
@@ -558,6 +589,7 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
               ? false
               : (event.payload.createBranchFlowCompleted ?? false),
             isPinned: event.payload.isPinned ?? false,
+            sidebarSortOrder: event.payload.sidebarSortOrder ?? 0,
             parentThreadId: event.payload.parentThreadId ?? null,
             creationSource: event.payload.creationSource ?? null,
             sourceThreadId: event.payload.sourceThreadId ?? null,
@@ -658,6 +690,9 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
                   }
                 : {}),
               ...(event.payload.isPinned !== undefined ? { isPinned: event.payload.isPinned } : {}),
+              ...(event.payload.sidebarSortOrder !== undefined
+                ? { sidebarSortOrder: event.payload.sidebarSortOrder }
+                : {}),
               ...(event.payload.parentThreadId !== undefined
                 ? { parentThreadId: event.payload.parentThreadId }
                 : {}),
@@ -1903,7 +1938,11 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
       );
 
     return filterProjectors(
-      PROJECT_EVENT_TYPES.has(event.type) && projectsProjector ? [projectsProjector] : projectors,
+      PROJECT_EVENT_TYPES.has(event.type) &&
+        event.type !== "sidebar.layout-updated" &&
+        projectsProjector
+        ? [projectsProjector]
+        : projectors,
     );
   };
 
@@ -2154,6 +2193,18 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
 
   const applyShellMetadataProjection = (event: ShellMetadataOrchestrationEvent) => {
     switch (event.type) {
+      case "sidebar.layout-updated":
+        return applyProjectsProjection(event, {
+          deletedThreadIds: new Set(),
+          prunedThreadRelativePaths: new Map(),
+        }).pipe(
+          Effect.andThen(
+            applyThreadsProjection(event, {
+              deletedThreadIds: new Set(),
+              prunedThreadRelativePaths: new Map(),
+            }),
+          ),
+        );
       case "space.created":
       case "space.meta-updated":
       case "space.order-updated":

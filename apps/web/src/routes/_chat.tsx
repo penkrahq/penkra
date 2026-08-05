@@ -11,6 +11,7 @@ import {
 import ShortcutsDialog from "../components/ShortcutsDialog";
 import { RecentViewSwitcher } from "../components/RecentViewSwitcher";
 import { ChatSearchBar } from "../components/ChatSearchBar";
+import { ChatShellDndProvider } from "../components/chat-dnd/ChatShellDndProvider";
 import { FindProvider } from "../components/find/FindProvider";
 import ThreadSidebar from "../components/Sidebar";
 import { isElectron } from "../env";
@@ -586,20 +587,22 @@ function ChatRouteLayout() {
 
   return (
     <FindProvider>
-      <SidebarProvider
-        defaultOpen
-        open={resolvedSidebarOpen}
-        onOpenChange={setSidebarOpen}
-        className="bg-[var(--app-shell-background)]"
-        data-sidebar-side="left"
-        data-find-application-root
-        style={{ "--sidebar-width": "15rem" } as CSSProperties}
-      >
-        <ThreadRetentionMaintenanceToast />
-        <ChatRouteGlobalShortcuts />
-        {sidebarElement}
-        {mainContentShell}
-      </SidebarProvider>
+      <ChatShellDndProvider>
+        <SidebarProvider
+          defaultOpen
+          open={resolvedSidebarOpen}
+          onOpenChange={setSidebarOpen}
+          className="bg-[var(--app-shell-background)]"
+          data-sidebar-side="left"
+          data-find-application-root
+          style={{ "--sidebar-width": "15rem" } as CSSProperties}
+        >
+          <ThreadRetentionMaintenanceToast />
+          <ChatRouteGlobalShortcuts />
+          {sidebarElement}
+          {mainContentShell}
+        </SidebarProvider>
+      </ChatShellDndProvider>
     </FindProvider>
   );
 }

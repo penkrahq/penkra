@@ -2,17 +2,38 @@
 
 Status: research in progress. This document records evidence; it is not an approved architecture or implementation plan.
 
-## Approved product constraints (2026-08-03)
+## Approved product constraints (updated 2026-08-05)
 
 - Remove Sidechats as a clean cut. Do not preserve a compatibility path or convert old Sidechats into a new feature. Verify this installation before migration; if records exist, they may be discarded as explicitly authorized by the operator.
 - Remove Penkra's cross-provider `Handoff to <provider>` feature and its transcript-reconstruction behavior.
 - Keep native session import and provider-native fork as distinct features. An unsupported native operation must be unavailable rather than emulated with visible-transcript replay.
-- The first connection release supports Codex, Claude Code, and OpenCode. The core architecture must remain provider-neutral: support for another provider is added through an adapter, manifest, and conformance tests—not provider-name branches or inferred filesystem behavior in shared orchestration code.
-- A Connection has one immutable provider. A started thread has one immutable provider. The draft composer may choose a provider before the first turn, but changing a started thread's Connection is restricted to another Connection for that same provider.
+- The first connection release enables the Codex, Claude Code, and OpenCode harnesses. Other designed harnesses may remain visible only as disabled states. The core architecture must remain harness-neutral: support for another harness is added through an adapter, manifest, and conformance tests—not harness-name branches or inferred filesystem behavior in shared orchestration code.
+- A started thread has one immutable harness. Within that harness, the user may manually change any model or internal upstream provider that the harness natively supports and that the adapter has separately validated. Examples include model changes inside Codex or Claude and Zen-to-Go provider/model changes inside an OpenCode thread. Cross-harness switching remains unavailable.
+- A Connection belongs to one immutable harness authentication target, such as Claude access, Codex first-party access, OpenCode Zen paid access, or OpenCode Go. A Connection is optional when the effective managed runtime catalog declares a model anonymously usable; anonymous OpenCode Zen usage stores no fabricated Connection.
+- Harness visibility is capability-driven. A harness with no configured Connection and no anonymously usable model does not appear as available. OpenCode may appear with only its current anonymous Zen catalog. A Connection exposes only routes declared by that exact managed runtime and selected authentication context; Penkra does not hardcode model IDs or infer entitlement from names. A declared model may still return an ordinary live quota/credit error, which Penkra surfaces without automatic switching.
+- Connection lifecycle is intentionally terminal in the first release. There is no reconnect, sign-in-again, replace-key, or returning-account identity flow. Signing out, disconnecting, or removing a Connection terminates its ID. A later login creates a new Connection even when the human believes it is the same upstream account.
+- Threads bound to a terminated Connection retain that historical ID and receive the ordinary unavailable-Connection error on their next attempted turn. Penkra never rebinds a thread automatically. Space defaults are different: when their Connection terminates, they deterministically fall back to the most recently created usable Connection for the same harness, or become unset when none exists.
+- Connection API-key labels are required. Provider-reported account identity is stored only when the provider exposes a verified stable identifier; Penkra never matches returning Connections from display labels, emails, secret fingerprints, or inferred account details.
+- Free-model exhaustion or retirement produces the ordinary provider/runtime error. The user manually chooses another model or Connection. The first release adds no automatic switch, automatic Connection chooser, or separate privacy-notice surface.
 - Provider installations are Penkra-managed by default. Runtime launch, version checks, staged updates, activation, rollback, and QA must all bind to the same absolute managed installation identity; new users must not need a global CLI installation.
-- Do not begin Pencil or implementation work until the remaining research and architecture are reviewed by the operator.
+- Complete and present Pencil before implementation. Implementation remains blocked until the operator explicitly approves the current designs as final.
 
 Multiple Connections remain required. Authentication methods are separately capability-gated so the same architecture can support a method in a personal/development installation while genuinely disabling that method in a distribution channel when provider policy requires it; see the Claude policy finding and operator decision below.
+
+## Assumption and validity ledger
+
+Every implementation dependency must be classified as documented, observed, inferred, or unresolved. An inferred or unresolved behavior cannot become a fallback. It becomes a bounded validity probe with the exact managed runtime version, credential method, input, returned identifiers, durable writes, and sanitized error shape recorded before the design or adapter relies on it.
+
+| Contract question                                                                           | Current evidence                                                                                                                                                                                                                                                                                    | Status / next gate                                                                                                                                |
+| ------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Can credentials be isolated while exact native conversation state remains shared?           | Real A→B→A probes passed for two Codex accounts, two Claude subscription tokens, and two OpenCode Go keys; structured tool/image state and Claude compaction/subagent state were also exercised.                                                                                                    | Observed for the recorded versions. Keep provider-version conformance gates.                                                                      |
+| Can one native thread change models without transcript reconstruction?                      | Codex 0.146.0 completed `gpt-5.6-terra → gpt-5.5 → gpt-5.6-terra`; Claude Code 2.1.220 completed `claude-sonnet-5 → claude-opus-5 → claude-sonnet-5`. Each used one exact native thread/session, retained prior markers, and recorded the requested model sequence.                                 | Observed for both first-release model-switching harnesses. Keep versioned conformance gates.                                                      |
+| Can one OpenCode native thread change internal providers, such as anonymous Zen → Go → Zen? | OpenCode 1.18.10 completed `opencode/big-pickle → opencode-go/deepseek-v4-flash → opencode/big-pickle` on one native session. Both later turns retained the exact earlier markers. The shared database retained zero credential and account rows while the Go key was supplied only to its process. | Observed. Model/internal-provider selection and nullable Connection binding are independent dimensions inside the immutable OpenCode harness.     |
+| Does OpenCode require a Connection for its free Zen models?                                 | A clean OpenCode 1.18.10 profile exposed only active zero-cost Zen models. Current upstream source removes nonzero-input-cost Zen models when no credential exists and launches the remainder with its public access path.                                                                          | Observed and source-confirmed. Consume the effective runtime catalog; never maintain a Penkra model list.                                         |
+| Does a provider expose a stable account identifier suitable for returning-account matching? | Codex exposes provider identity sufficient to distinguish the two tested accounts; Claude subscription status and OpenCode Go keys do not expose a verified account/workspace identity in the tested surfaces.                                                                                      | Returning-account matching is out of scope regardless. Every new login receives a new Connection ID.                                              |
+| What survives Connection termination?                                                       | Native state ownership has been separated from credentials in the tested topologies; complete deletion/revocation and auxiliary-resource coverage remain incomplete.                                                                                                                                | Validate removal without deleting referenced native state. Threads error until manually rebound; Space defaults alone use deterministic fallback. |
+| What happens when a free model is exhausted or retired?                                     | OpenCode classifies free-tier limit errors and its anonymous catalog changes dynamically.                                                                                                                                                                                                           | Preserve the ordinary sanitized error. No automatic model or Connection action. Validate catalog refresh and a controlled failure fixture.        |
+| Can a managed runtime update without changing state paths or protocol behavior?             | Artifact/version/integrity mechanisms are documented; full N→N+1 write-set discovery and rollback are not yet executed.                                                                                                                                                                             | Mandatory installation-generation conformance gate before activation.                                                                             |
 
 ## Rules for this investigation
 
@@ -146,6 +167,16 @@ Observed tool and image continuation across the same two real Codex accounts:
 
 These tests extend the retained-state proof to structured tool and image items. Compaction, subagents/goals/memory, interruption, usage attribution, and revocation remain open.
 
+Observed same-thread model A→B→A continuation on Codex 0.146.0 (2026-08-05):
+
+1. App Server `model/list` on the authenticated local profile returned both `gpt-5.6-terra` and `gpt-5.5` as picker-visible models. The probe selected only returned IDs; it did not guess a model slug.
+2. One native thread ran a marker turn on `gpt-5.6-terra`, resumed by its 36-character native thread ID on `gpt-5.5`, then resumed again on `gpt-5.6-terra`.
+3. The replies retained the exact marker across both changes. The native rollout recorded three `turn_context` entries in the exact order `gpt-5.6-terra`, `gpt-5.5`, `gpt-5.6-terra`.
+4. No Penkra transcript, experimental history/path request, or `thread/inject_items` operation was supplied. Only normal native resume plus the next prompt was used.
+5. Current official App Server documentation independently states that `turn/start` accepts per-turn model/effort overrides, that specified values become defaults for later turns, and that resuming with a different model applies a one-time native model-switch instruction on the next turn.
+
+This closes the Codex model-change validity gate for the installed generation. It does not generalize to Claude or OpenCode; their adapters must pass their own versioned conformance probes.
+
 ### Claude Code / Claude Agent SDK
 
 Documented:
@@ -218,10 +249,20 @@ Observed tool, image, and subagent continuation across the same two subscription
 
 The first-release Claude manifest must retain the complete project-session entry and its same-ID auxiliary directory. Tasks, spilled tool output, plans, interruption, expiry/revocation, and funded API-key inference still require proof.
 
+Observed same-session model A→B→A continuation and catalog behavior on Claude Code 2.1.220 (2026-08-05):
+
+1. An isolated `CLAUDE_CONFIG_DIR` completed Claude's native subscription login. Sanitized status reported `claude.ai` authentication and Pro; no token or raw account identifier entered Penkra's research log.
+2. One 36-character native session ran `claude-sonnet-5`, resumed on `claude-opus-5`, then resumed again on `claude-sonnet-5`. Both later turns returned all exact earlier markers. The provider JSONL recorded that exact three-model sequence.
+3. No Penkra transcript, summary, import, or reconstructed prompt was supplied. Each step used the provider's ordinary session resume and explicit model selection.
+4. Claude Agent SDK `supportedModels()` returned canonical identities for Sonnet, Fable, Opus, and Haiku plus their effort levels. This is the adapter's machine-readable catalog authority; evergreen selector aliases are not persisted as canonical IDs.
+5. The same authenticated profile returned a live `429` when Fable was attempted because usage credits were required, while Sonnet and Opus succeeded. The SDK catalog describes provider-supported choices, not a guarantee that current quota/credits will accept the next turn.
+
+Penkra should render the runtime-declared catalog, persist canonical `resolvedModel` IDs, and surface a live quota/credit rejection through the ordinary provider error. It should not probe every model with billable turns, hide a model using an account heuristic, or automatically switch to another model.
+
 Remaining real-account/provider-state gates:
 
 - A funded API-key Connection must complete a model turn on the same compacted native session and switch back; the captured key currently cannot establish this because its Console account has insufficient credit.
-- Rotation, revocation, expiry, and reauthorization behavior for multiple one-year subscription tokens; Penkra must never silently fall through to keychain login when one expires.
+- Provider-owned refresh behavior plus explicit revocation and expiry for multiple one-year subscription tokens; expiry or rejection terminates only the selected Connection ID, and Penkra must never silently fall through to keychain login.
 - Exact behavior of subagent-heavy, attachment-heavy, and interrupted sessions when restored through a Penkra-owned store. Simple manual compaction across subscription Connections is now proven.
 - Whether the Penkra-owned Claude native-state root plus per-process selected credential preserves every auxiliary session resource (subagents, spilled tool results, tasks, plans, debug state, and optional file history) across real-account switches. `SessionStore` may be retained as a secondary durability mirror only after its conformance suite and mirror-error recovery pass; it is not the first-release source of truth.
 
@@ -291,6 +332,25 @@ Observed credential-storage boundary in current upstream source and this install
 - Penkra may later wrap the credential file with an OS-secret materialization layer, but it must first solve concurrent runtimes and refreshed-token durability without copying stale tokens over newer ones. File mode alone is not equivalent to an OS keychain.
 
 OpenCode Go is simpler than the generic OAuth case: its official setup gives the subscriber an API key, and OpenCode treats Go like another provider. Two Go accounts can therefore be two Penkra static-secret Connections; they do not require browser OAuth refresh-token isolation. Go is specifically provider ID `opencode-go` with model IDs `opencode-go/<model-id>` and the Go endpoint/catalog; it is not the general `opencode` Zen/pay-as-you-go provider. The adapter manifest must keep those authentication methods, catalogs, usage limits, and billing errors distinct even though both are operated by OpenCode. The writable profile mechanism remains necessary for other OpenCode integrations that genuinely use OAuth.
+
+Observed anonymous Zen catalog behavior on OpenCode 1.18.10 on 2026-08-04:
+
+1. A clean synthetic HOME/XDG/config/data/cache/state profile with no credential or inherited configuration ran `opencode models opencode --pure --refresh --verbose`.
+2. The effective `opencode` catalog contained only active zero-cost Zen models and exposed their provider ID, model ID, cost, limits, reasoning variants, and input/output capabilities. It did not expose paid Zen models as runnable.
+3. The current upstream loader independently confirms the mechanism: when no environment key, stored auth, or configured key exists, it removes models whose input cost is nonzero and supplies OpenCode's public access credential only to the remainder. The current OpenCode model UI uses the same provider-and-zero-input-cost classification for its Free badge.
+4. Names are not an eligibility contract: `big-pickle` was anonymously available without a `-free` suffix, and the active list differed from the human documentation because free offers retire and appear over time. The unauthenticated Zen `/v1/models` endpoint also lists paid and free IDs without pricing, so that endpoint alone cannot authorize a turn.
+
+Penkra must therefore ask the exact managed OpenCode runtime for its effective catalog under the selected nullable Connection context. It must not maintain a free-model table, parse a name suffix, call the public Zen endpoint as an entitlement oracle, or treat a stale cached catalog as proof that the next turn can run. A null Connection is a real binding state, not a Connection record.
+
+Observed anonymous Zen → keyed Go → anonymous Zen continuation on OpenCode 1.18.10 (2026-08-05):
+
+1. A fresh synthetic HOME/XDG profile with an empty credential store ran a real inference on the effective anonymous catalog's `opencode/big-pickle` model. It returned the requested marker and created a 30-character native session ID.
+2. A fresh process resumed that exact session with only the selected `opencode-go` static credential supplied through OpenCode's in-memory auth input. The Go effective catalog returned `opencode-go/deepseek-v4-flash`; that model returned the earlier anonymous marker plus a new Go marker.
+3. A third fresh process resumed the same session with no credential and `opencode/big-pickle`. It returned both earlier markers plus the final marker.
+4. The shared native database recorded the assistant routes in the exact order `opencode/big-pickle`, `opencode-go/deepseek-v4-flash`, `opencode/big-pickle`. Its credential and account tables remained empty, and the synthetic profile contained no auth file.
+5. No Penkra transcript, summary, reconstructed prompt, credential row, or automatic fallback was supplied. The selected Go credential existed only in the keyed process environment for its turn.
+
+This validates the intended OpenCode boundary: the thread harness remains OpenCode, while internal provider/model and nullable Connection may change manually. A future catalog change still requires the adapter to revalidate the requested route against the effective managed-runtime catalog before launch.
 
 Current upstream native-state layout finding:
 
@@ -509,7 +569,7 @@ Automatic failover is out of scope. A user manually switches after seeing the no
 
 ### Provider-neutral extension contract
 
-Shared orchestration must reason about declared capabilities and stable resource IDs, never about the three initial provider names. Each provider adapter owns its filesystem layout, environment construction, authentication mechanisms, installation source, native-session operations, and event normalization. A prospective adapter must declare and pass conformance tests for capabilities such as:
+Shared orchestration must reason about declared capabilities and stable resource IDs, never about the three initial harness names. Each harness adapter owns its filesystem layout, environment construction, internal upstream-provider catalog, authentication mechanisms, installation source, native-session operations, and event normalization. A prospective adapter must declare and pass conformance tests for capabilities such as:
 
 - connection isolation and credential scrubbing;
 - managed installation, version probing, staged activation, and rollback;
@@ -522,14 +582,14 @@ Unsupported capabilities fail closed and are absent from the UI. There is no sha
 The adapter surface should be lifecycle-shaped rather than a bag of provider commands:
 
 - `installation`: resolve an immutable artifact, stage, verify integrity, probe protocol/capabilities, activate, retire, and roll back;
-- `authentication`: declare method capabilities, create/complete login, identify the selected account safely, health-check, reauthorize, and revoke;
+- `authentication`: declare method capabilities, create/complete the initial login, identify the selected account safely when the harness exposes one, health-check, and terminate/revoke the Connection;
 - `nativeState`: create a versioned state generation, enumerate its manifest, checkpoint, prove exact resume, detect corruption, and invoke native fork/import only when declared;
 - `runtime`: build a scrubbed launch specification, start, fence, quiesce, stop, and report process ownership without exposing raw credentials;
 - `telemetry`: normalize only documented usage/cache/limit fields and sanitized provider errors.
 
 Every method receives stable resource IDs and opaque versioned adapter payloads. Shared orchestration never supplies transcript text to `nativeState.resume`, never mutates provider files directly, and never infers success from a process merely remaining alive. An adapter version cannot become eligible for activation until its manifest and lifecycle pass the generic conformance harness against the exact managed provider generation.
 
-`connection.provider_kind` is immutable. A thread's `provider_kind` becomes immutable when its first turn starts. A Connection switch transaction must reject a mismatched provider before stopping the active runtime.
+`connection.harness_kind` and `connection.authentication_target_id` are immutable. A thread's `harness_kind` becomes immutable when its first turn starts. The adapter may permit a validated internal upstream-provider/model change within that harness. A Connection transition must reject a mismatched harness or an authentication target that cannot authorize the selected internal provider/model before stopping the active runtime.
 
 ### Authentication-method capability policy
 
@@ -548,8 +608,8 @@ If an application update changes a previously enabled method to disabled:
 1. Keep its Connection metadata, opaque credential/profile reference, native thread state, transcript, and transition history. Do not delete, log out, convert, or relabel it as another authentication method.
 2. Mark the Connection unavailable with a stable non-secret reason and show it in management UI so the user understands why bound threads cannot run. It is not offered in new-draft or switch pickers as a usable target.
 3. Reject new turns and runtime launches through it. On a live policy change, fence new turns, allow an already accepted turn to settle or be explicitly cancelled, then stop that runtime; ordinary packaged policy changes take effect on application restart before provider runtimes launch.
-4. Leave a Space default or thread binding pointing at the unavailable Connection visible but unresolved. Do not silently choose another Connection, clear the binding, or use a shell login. The user explicitly selects another same-provider Connection where switching is natively supported.
-5. Re-enabling the same method makes the preserved Connection eligible for an explicit health check and reuse. It does not require transcript migration or automatic rebinding.
+4. Leave a thread binding pointing at the unavailable Connection and return the ordinary unavailable-Connection error on its next attempted turn. Never switch the thread automatically or use a shell login. Space defaults are not historical bindings: replace an unavailable default with the most recently created usable Connection for the same harness, or clear it when none exists.
+5. Re-enabling a policy-disabled method makes its preserved Connection eligible for a background health check and reuse. It does not require transcript migration or automatic thread rebinding. This policy lifecycle is distinct from a user sign-out, credential rejection, disconnect, or removal, all of which terminate the first-release Connection ID.
 
 `authentication_method_id` is immutable for a Connection. Moving from a subscription login to an API key creates a different Connection; it is never an in-place credential-type conversion. This keeps policy changes reversible without weakening the no-fallback rule.
 
@@ -580,7 +640,7 @@ The vault contract must not promise reliable zeroization of JavaScript strings, 
 Provider-specific implications:
 
 - **Codex subscription/API login:** prefer Codex App Server's managed login methods in a distinct `CODEX_HOME` with `cli_auth_credentials_store = "keyring"`. Codex owns refresh and logout; Penkra records only the connection/profile binding.
-- **Claude subscription in personal/development channels:** store one provider-generated long-lived subscription token per Connection in Penkra's static-secret backend and inject only `CLAUDE_CODE_OAUTH_TOKEN` into a runtime using Penkra-owned native conversation state. Expiry or revocation makes only that Connection unhealthy and requires explicit reauthorization; it must never fall through to keychain login. Availability remains controlled by the resolved authentication-method capability policy.
+- **Claude subscription in personal/development channels:** store one provider-generated long-lived subscription token per Connection in Penkra's static-secret backend and inject only `CLAUDE_CODE_OAUTH_TOKEN` into a runtime using Penkra-owned native conversation state. Expiry or revocation terminates only that Connection; it must never fall through to keychain login. A later login creates a new Connection ID. Availability remains controlled by the resolved authentication-method capability policy.
 - **Claude Console API keys:** store the key through Penkra's static-secret backend and inject only `ANTHROPIC_API_KEY` after removing every higher-precedence Claude credential variable/source from the runtime profile.
 - **OpenCode Go and static upstream providers:** store each API key through Penkra's static-secret backend and expose only the selected provider credential to the Connection server. For other OpenCode integrations that genuinely use OAuth, use a private connection profile with writable `auth.json`, because refresh tokens must be updated by OpenCode.
 
@@ -596,13 +656,13 @@ Recommended first-release resource mapping:
 
 The table describes adapter responsibilities, not special cases in shared orchestration. A new adapter can use another credential or state backend only by declaring it and passing the same isolation, checkpoint, resume, switch, revocation, and crash conformance suite.
 
-Deleting a Connection is a credential-revocation workflow, not a row deletion alone: refuse while it owns an active runtime, invoke the adapter's logout/delete operation, verify the selected profile no longer authenticates, remove its isolated credential material, and only then tombstone metadata. Removing one Connection must not log out another Connection for the same provider.
+Deleting a Connection is a terminal credential-revocation workflow, not a row deletion alone. Once any accepted turn settles or is explicitly cancelled, fence and stop runtimes using the Connection, invoke the adapter's logout/delete operation, verify the selected profile no longer authenticates, remove its isolated credential material, and tombstone the immutable ID. There is no reconnect or credential-replacement path. Removing one Connection must not log out another Connection for the same harness/authentication target.
 
 ### Research gate summary
 
 Resolved strongly enough for architecture review:
 
-- Connection, managed installation, native state, and live runtime are separate resources; account switching changes an explicit same-provider thread binding, not the provider or transcript.
+- Connection, managed installation, native state, and live runtime are separate resources; account switching changes an explicit same-harness thread binding, not the harness or transcript. Internal provider/model selection is a separate adapter-validated dimension.
 - Transcript replay, inferred credentials, `PATH` executables, automatic failover, Sidechat, and cross-provider Handoff are excluded cleanly.
 - Codex supports stable resume-by-ID across isolated homes when exact native state remains addressable; referenced absolute state paths require immutable state skeletons.
 - Claude can select one injected OAuth token or API key from a shared Penkra-owned state root; Penkra must inject exactly one and scrub every competitor.
@@ -613,8 +673,10 @@ Resolved strongly enough for architecture review:
 Real-account evidence completed:
 
 - Codex ChatGPT A→B→A across distinct provider-reported identities, plus native tool and image items;
+- Codex model `gpt-5.6-terra → gpt-5.5 → gpt-5.6-terra` on one exact native thread;
 - Claude subscription A→B→A across operator-authorized tokens, native compaction, cache behavior, tool results, image input, and a separate subagent transcript directory;
 - OpenCode Go A→B→A through the correct `opencode-go` provider and Go-included models, plus native tool and capability-gated image state;
+- OpenCode anonymous Zen → keyed Go → anonymous Zen on one exact native session with no persisted credential/account row;
 - fail-closed Claude API-key selection when the selected Console account lacked credit, with successful recovery on the prior subscription Connection.
 
 Remaining evidence gates:
@@ -624,6 +686,18 @@ Remaining evidence gates:
 - explicit logout/revocation, expiry/refresh, quota exhaustion, and removal of an originating Connection while retained native state remains usable;
 - tasks/plans/spilled outputs and any other auxiliary state not exercised by the tool/image/subagent probes;
 - managed installation update N→N+1, rollback, and manifest-diff conformance using Penkra-owned binaries.
+
+Gate classification:
+
+| Evidence item                                                                                      | Classification                     | Why it does or does not block the next phase                                                                                                                                   |
+| -------------------------------------------------------------------------------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Claude same-session model A→B→A                                                                    | Completed pre-design gate          | The real `sonnet → opus → sonnet` probe passed on 2026-08-05 with exact native state.                                                                                          |
+| Funded Claude Console API-key inference                                                            | Explicitly deferred                | The operator approved subscription-login validation for now. The failed-credit probe already proved fail-closed credential selection. Do not mark funded API inference passed. |
+| Explicit logout/revocation/expiry and originating-profile removal                                  | Implementation conformance gate    | The terminal lifecycle and state-ownership contract are already decided. The implementation must prove the adapter performs it without losing native state.                    |
+| Auxiliary tasks/plans/spilled outputs and live crash matrix                                        | Adapter/version conformance gate   | These determine each adapter's exact state manifest and activation eligibility; they do not introduce another product choice unless native continuation fails.                 |
+| Managed installation N→N+1, rollback, and manifest diff                                            | Managed-installer conformance gate | The staged-generation architecture is decided. A generation that fails this gate stays ineligible and cannot become the default.                                               |
+| Real quota exhaustion, token expiry, multiple-account identity, compaction, and cache observations | Final operator-assisted QA         | These require the operator's existing accounts/keys. Ordinary errors and no automatic switching are already the product contract.                                              |
+| Pencil inspection/editing capability                                                               | Design tooling gate                | The `.pen` source is authoritative. Figma and filesystem parsing are not substitutes, and implementation cannot start without finalized, operator-approved Pencil.             |
 
 ### Verified native-state manifest baseline
 
@@ -655,22 +729,22 @@ Explicitly deferred rather than guessed:
 
 Names remain provisional, but the responsibilities must stay separate:
 
-- `provider_installations`: immutable generation ID, provider kind, version, platform/architecture, absolute executable path, source URL/channel, verified digest/signature result, adapter/protocol version, health state, installed/activated timestamps, and retirement state.
-- `provider_connections`: immutable Connection ID, provider kind, and authentication-method ID; user label; opaque credential/profile reference; non-secret provider account/workspace identity; last observed health; and lifecycle timestamps. No executable path, native thread/session ID, or persisted release-policy truth. Current availability is resolved from adapter support, trusted policy, platform prerequisites, secret-backend health, installation health, and Connection health whenever the server exposes or uses it.
-- `thread_provider_states`: one started thread's immutable provider kind, opaque native state locator/version, provider session ID where non-secret, checkpoint generation/status, and last verified resume timestamp. No credential material and no transcript reconstruction.
-- `thread_connection_bindings`: current Connection ID, installation generation ID, binding revision, and transition status for a started thread. This is the explicit answer to “which account and executable will the next turn use?”
-- `provider_connection_transitions`: append-only old/new Connection IDs, old/new installation generations, phase, reason (`manual_switch`, `login_repair`, `installation_activation`, or `rollback`), sanitized provider error classification, timestamps, and recovery outcome.
-- `space_provider_defaults`: optional default Connection by provider for new drafts in a Space. Defaults never rewrite existing thread bindings.
+- `provider_installations`: immutable generation ID, harness kind, version, platform/architecture, absolute executable path, source URL/channel, verified digest/signature result, adapter/protocol version, health state, installed/activated timestamps, and retirement state.
+- `provider_connections`: immutable Connection ID, harness kind, authentication-target ID, and authentication-method ID; required user label for key-based methods; opaque credential/profile reference; non-secret provider account/workspace identity only when verified; last observed health; terminal lifecycle state; and timestamps. No executable path, native thread/session ID, or persisted release-policy truth. Current availability is resolved from adapter support, trusted policy, platform prerequisites, secret-backend health, installation health, Connection health, and the effective internal provider/model catalog whenever the server exposes or uses it.
+- `thread_harness_states`: one started thread's immutable harness kind, opaque native state locator/version, provider session ID where non-secret, checkpoint generation/status, and last verified resume timestamp. No credential material and no transcript reconstruction.
+- `thread_runtime_bindings`: nullable current Connection ID, current internal provider/model selection, installation generation ID, binding revision, and transition status for a started thread. This is the explicit answer to “which harness installation, upstream route, model, and optional account will the next turn use?” Anonymous OpenCode Zen bindings use a null Connection, not a synthetic record.
+- `provider_connection_transitions`: append-only old/new nullable Connection IDs, old/new internal provider/model selections, old/new installation generations, phase, reason (`manual_switch`, `model_change`, `installation_activation`, or `rollback`), sanitized provider error classification, timestamps, and recovery outcome.
+- `space_connection_defaults`: optional default Connection by harness for new drafts in a Space. A terminated default falls back to the most recently created usable Connection for that harness; defaults never rewrite existing thread bindings.
 
-Folder-level Connection defaults are not part of the first release. A Space default can select the usual Connection for a new draft; a draft can override it. Once the first turn starts, the provider is fixed and the chosen Connection becomes the initial explicit thread binding. Later switching is manual and same-provider only.
+Folder-level Connection defaults are not part of the first release. A Space default can select the usual Connection for a new draft; a draft can override it. Once the first turn starts, the harness is fixed and the selected internal provider/model plus optional Connection become the initial binding. Later model, internal-provider, and Connection changes are manual and must be declared exact-resume capabilities of that same harness adapter.
 
 Required persistence invariants:
 
-- `provider_kind` and `authentication_method_id` are immutable after Connection creation; a started thread's provider is immutable after its first accepted turn.
+- `harness_kind`, `authentication_target_id`, and `authentication_method_id` are immutable after Connection creation; a started thread's harness is immutable after its first accepted turn.
 - Availability is computed, never stored as release-policy truth. Persist only observations such as last health check and its reason; re-evaluate support, policy, secret backend, managed installation, and credential health at every authorization boundary.
-- A thread has exactly one current binding. Binding changes use optimistic revision matching, and a partial unique constraint permits at most one unsettled transition lease per thread.
-- A Connection, thread state, binding, Space default, and transition must reference the same provider kind. Because cross-table equality is awkward to express with ordinary foreign keys, one domain transaction validates it and database triggers/constraint tests defend every write path. Provider mismatch is rejected before runtime effects.
-- `space_provider_defaults` is unique by `(space_id, provider_kind)` and references an active Connection of that provider. Archiving/deleting a Space or disabling a Connection never selects a replacement.
+- A thread has exactly one current binding, whose Connection may be null only when the adapter's effective catalog proves the selected model anonymously usable. Binding changes use optimistic revision matching, and a partial unique constraint permits at most one unsettled transition lease per thread.
+- A Connection, thread harness state, binding, Space default, and transition must reference a compatible harness and authentication target. Because cross-table compatibility is awkward to express with ordinary foreign keys, one domain transaction validates it and database triggers/constraint tests defend every write path. Harness or authorization mismatch is rejected before runtime effects.
+- `space_connection_defaults` is unique by `(space_id, harness_kind)` and references a usable Connection for that harness. When the selected Connection terminates, one transaction selects the most recently created usable same-harness Connection by descending creation timestamp with immutable ID as the stable tie-breaker, or clears the default when none exists.
 - Opaque adapter payloads always carry adapter ID and schema version. Unknown versions fail closed and remain preservable for rollback; shared migrations do not parse or rewrite them.
 - Secret-vault records are not cascade-deleted with metadata. Connection deletion first completes and verifies adapter revocation, then deletes the isolated secret/profile, then tombstones the Connection in a recoverable transaction record.
 - Native-state generations and installation generations are immutable once referenced. Garbage collection requires a complete reference proof and cannot run while a transition, live runtime, rollback window, or recoverable migration snapshot references them.
@@ -679,7 +753,7 @@ Required persistence invariants:
 
 Only one transition lease may exist for a thread. The switch control is unavailable while a provider turn, approval, compaction, fork, import, or another transition is unsettled; the user may explicitly cancel/settle the active operation first.
 
-1. **Validate** — confirm thread and target Connection provider kinds match, the target authentication method is supported and enabled by the running server policy, target credentials are healthy enough to attempt login, target installation generation is verified, and native resume is declared supported. No runtime is stopped yet.
+1. **Validate** — confirm the thread and target remain in the same harness, the target internal provider/model transition is adapter-declared, the nullable target Connection authorizes that exact selection (or the effective catalog proves anonymous access), the authentication method is supported and enabled by policy, the installation generation is verified, and native resume is declared supported. No runtime is stopped yet.
 2. **Fence** — acquire the thread transition lease and reject new turns. Persist `preparing` with the old binding revision.
 3. **Checkpoint** — ask the old adapter/runtime to flush and checkpoint exact native state. Persist its durable checkpoint identity and `checkpointed` phase. Failure leaves the old binding active.
 4. **Quiesce** — stop or detach the old runtime without deleting its native state or credentials. Persist `old_runtime_stopped` only after process ownership is gone.
@@ -768,18 +842,21 @@ For every supported provider and connection type:
 - switch after provider update;
 - missing/stale/corrupt native session state;
 - concurrent threads on different connections;
-- credential refresh while another connection remains active;
-- provider logout or credential revocation isolation;
+- provider-owned credential refresh while another Connection remains active, without exposing a Penkra reconnect surface;
+- provider logout, credential rejection, disconnect, and revocation isolation, each terminating only the selected Connection ID;
 - prompt-cache/token-usage observations where providers expose them;
 - crash between old-session close and new-session binding;
 - application restart during each transition phase;
 - a globally logged-in provider and globally exported credentials are present while Penkra launches each isolated Connection; provider-reported identity/usage must prove the selected Connection won;
 - stale/malicious client requests attempt to create, log in, launch, default, or switch to a disabled authentication method; every server entry point must reject them;
 - an application policy update changes an existing authentication method from enabled to disabled, including a Space default and started thread already bound to it;
-- re-enable the preserved method and health-check its Connection without automatic thread rebinding;
-- expired/revoked subscription token and API key, with another healthy same-provider Connection present; no automatic failover may occur;
+- re-enable a policy-disabled preserved method and health-check its Connection without automatic thread rebinding; this does not revive a signed-out or removed Connection;
+- expired/revoked subscription token and API key, with another healthy same-harness Connection present; no automatic thread failover may occur, while affected Space defaults use the deterministic fallback rule;
 - Connection labels are duplicated or renamed; selection must remain ID-based;
-- delete one Connection while another Connection for the same provider is active, proving credential revocation and profile cleanup are isolated.
+- delete one Connection while another Connection for the same harness/authentication target is active, proving credential revocation and profile cleanup are isolated and the deleted ID cannot be revived.
+- create a new Connection using the same human account or key source after termination and prove it receives a new ID; old threads must still error until manually switched.
+- change Codex and Claude models A→B→A inside one exact native thread, proving harness identity remains stable and no projected transcript is supplied.
+- change an OpenCode thread anonymous Zen → keyed Go → anonymous Zen, proving internal-provider/model selection and nullable Connection binding are independent from the immutable OpenCode harness.
 - create a Codex thread under A, switch to B, remove A's credential/profile while preserving the declared native-state generation, restart, and prove B can still resume from the exact checkpoint; this specifically detects absolute rollout paths trapped inside A.
 - start two OpenCode runtimes simultaneously against a brand-new native-state generation and prove the adapter's initialization lease prevents the observed first-open `database is locked` race; then repeat concurrent steady-state access and crash recovery.
 - make the desktop secret broker unavailable before launch, during a one-use fetch, and after provider spawn; every case must produce a stable fail-closed state without reusing a stale plaintext value.
@@ -805,7 +882,7 @@ Environment logging is deny-by-default: record the names of credential variables
 
 Deterministic fault points are required after every durable phase in the switch state machine and installer activation protocol. The QA harness must terminate the app/provider process at each point, restart Penkra, and assert the documented phase-driven recovery. Random stress complements these cases but cannot replace them.
 
-Manual QA must start a fresh isolated Penkra (Dev) instance and visibly exercise Connection creation, naming, default selection, new-thread binding, same-provider switching, failure/no-fallback behavior, disabled-method behavior, update/restart, and Connection management for each supported authentication method. The operator-provided real accounts/keys are required for the final identity, quota, refresh/expiry, compaction, and cache observations; synthetic credentials cannot establish those claims.
+Manual QA must start a fresh isolated Penkra (Dev) instance and visibly exercise the clean new-user flow, existing-user migration, Connection creation and required naming, Space default selection/fallback, anonymous OpenCode usage, new-thread binding, within-harness model/internal-provider/Connection switching, terminal logout/disconnect behavior, ordinary unavailable-Connection errors, disabled harness/method states, update/restart, and thread continuity for each supported authentication method. The operator-provided existing accounts/keys are required only for authentication-sensitive steps and final real identity, quota, expiry, compaction, and cache observations; Penkra does not create new provider accounts and synthetic credentials cannot establish those claims.
 
 ## Sources consulted
 
@@ -829,6 +906,8 @@ Manual QA must start a fresh isolated Penkra (Dev) instance and visibly exercise
 - OpenCode installation: <https://opencode.ai/docs>
 - OpenCode releases: <https://github.com/anomalyco/opencode/releases>
 - OpenCode Go: <https://opencode.ai/docs/go>
+- OpenCode Zen: <https://opencode.ai/docs/zen>
+- OpenCode effective unauthenticated-model filtering (observed source generation): <https://github.com/anomalyco/opencode/blob/2f17fc9613771af3de3b5a2715b836037d80c4b1/packages/opencode/src/provider/provider.ts>
 - OpenCode hosted-services terms: <https://opencode.ai/legal/terms-of-service>
 - OpenAI Agents SDK handoffs: <https://openai.github.io/openai-agents-python/handoffs/>
 - Claude Code Remote Control: <https://code.claude.com/docs/en/remote-control>

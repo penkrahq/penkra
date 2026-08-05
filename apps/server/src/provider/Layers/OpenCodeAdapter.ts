@@ -3442,20 +3442,20 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                       cliSpec: adapterConfig.cliSpec,
                       ...(server.external && serverPassword ? { serverPassword } : {}),
                     });
-                    // OpenCode/Kilo load their normal provider configuration so
-                    // approved native capabilities remain available. Their MCP
-                    // registry is isolated separately: disconnect every copied
-                    // server before installing Penkra's private Agent Gateway.
-                    // The managed process has a per-thread pool key whenever the
-                    // gateway is present, so this never mutates another thread's
-                    // runtime.
+                    // OpenCode/Kilo retain their normal provider capabilities.
+                    // Only a copied entry occupying Penkra's reserved gateway
+                    // name is disconnected before the authenticated gateway is
+                    // installed for this isolated thread runtime.
                     if (agentGatewayConnection) {
                       const configuredMcpServers = yield* runOpenCodeSdk("mcp.status", () =>
                         client.mcp.status({ directory }),
                       );
-                      for (const name of Object.keys(configuredMcpServers.data ?? {})) {
+                      if (configuredMcpServers.data?.[PENKRA_MCP_SERVER_NAME]) {
                         yield* runOpenCodeSdk("mcp.disconnect", () =>
-                          client.mcp.disconnect({ directory, name }),
+                          client.mcp.disconnect({
+                            directory,
+                            name: PENKRA_MCP_SERVER_NAME,
+                          }),
                         );
                       }
                     }

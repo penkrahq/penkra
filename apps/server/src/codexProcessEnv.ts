@@ -26,129 +26,97 @@ interface CodexOverlayEntryLinker {
   readonly copyFile: typeof fs.copyFile;
 }
 
-function isSafePluginSectionHeader(value: unknown): value is string {
-  if (typeof value !== "string") return false;
-  const normalized = normalizeTomlTableHeaderName(value);
-  if (!normalized) return false;
-  const parts = JSON.parse(normalized) as string[];
-  return parts.length === 2 && parts[0] === "plugins" && Boolean(parts[1]);
-}
-
-function findPluginSectionHeaders(config: string): readonly string[] {
-  return [
-    ...new Set(
-      config
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .filter(isSafePluginSectionHeader),
-    ),
-  ];
-}
-
-const PENKRA_APPROVED_CODEX_PLUGIN_IDS = new Set([
-  "documents@openai-primary-runtime",
-  "spreadsheets@openai-primary-runtime",
-  "presentations@openai-primary-runtime",
-  "computer-use@openai-bundled",
-  "pdf@openai-primary-runtime",
-  "chrome@openai-bundled",
-  "template-creator@openai-primary-runtime",
-  "sites@openai-bundled",
-  "visualize@openai-bundled",
-]);
-
-function pluginIdFromSectionHeader(header: string): string | undefined {
-  const normalized = normalizeTomlTableHeaderName(header);
-  if (!normalized) return undefined;
-  const parts = JSON.parse(normalized) as string[];
-  return parts.length === 2 && parts[0] === "plugins" ? parts[1] : undefined;
-}
-
-export function codexPluginSectionsDisabledByPenkra(config: string): readonly string[] {
-  return findPluginSectionHeaders(config).filter((header) => {
-    const pluginId = pluginIdFromSectionHeader(header);
-    return pluginId === undefined || !PENKRA_APPROVED_CODEX_PLUGIN_IDS.has(pluginId);
-  });
-}
-
-function isMcpServerTableHeader(line: string): boolean {
+function tomlTablePath(line: string): readonly string[] | undefined {
   const normalized = normalizeTomlTableHeaderName(line);
-  if (!normalized) return false;
-  const parts = JSON.parse(normalized) as string[];
-  return parts[0] === "mcp_servers";
+  if (!normalized) return undefined;
+  return JSON.parse(normalized) as string[];
 }
 
 /**
- * Removes provider/user/project MCP configuration from the isolated Codex
- * overlay. Penkra appends its private Agent Gateway afterward, so a copied
- * server (including one also named `penkra`) can neither survive nor shadow
- * the trusted transport.
+ * Removes only a copied server that occupies Penkra's reserved gateway name.
+ * Every unrelated provider/user/project MCP server remains under the provider's
+ * normal configuration. Penkra appends its authenticated gateway afterward.
  */
-export function removeCodexMcpServerTables(config: string): string {
+export function removeReservedPenkraMcpServer(config: string): string {
   const output: string[] = [];
-  let removingMcpTable = false;
+  let removingReservedTable = false;
+  let inMcpRootTable = false;
+  let atTomlRoot = true;
 
   for (const line of config.split(/\r?\n/)) {
-    if (normalizeTomlTableHeaderName(line) !== undefined) {
-      removingMcpTable = isMcpServerTableHeader(line);
+    const tablePath = tomlTablePath(line);
+    if (tablePath !== undefined) {
+      removingReservedTable = tablePath[0] === "mcp_servers" && tablePath[1] === "penkra";
+      inMcpRootTable = tablePath.length === 1 && tablePath[0] === "mcp_servers";
+      atTomlRoot = false;
     }
-    if (!removingMcpTable) output.push(line);
+    if (removingReservedTable) continue;
+    if (inMcpRootTable && /^\s*(?:penkra|["']penkra["'])\s*=/.test(line)) continue;
+    if (
+      atTomlRoot &&
+      /^\s*(?:mcp_servers|["']mcp_servers["'])\s*\.\s*(?:penkra|["']penkra["'])\s*=/.test(line)
+    ) {
+      continue;
+    }
+    output.push(line);
   }
 
   return output.join("\n").replace(/\n{3,}/g, "\n\n");
 }
 
-export function disableCodexConfigSections(
-  config: string,
-  sectionHeaders: readonly string[],
-  appendMissing = false,
-): string {
-  const targets = new Set(sectionHeaders.filter(isSafePluginSectionHeader));
+const COMPUTER_USE_PLUGIN_MCP_SERVER_HEADER =
+  '[plugins."computer-use@openai-bundled".mcp_servers."computer-use"]';
+
+function forceCodexConfigTableDisabled(config: string, header: string): string {
+  const target = normalizeTomlTableHeaderName(header);
   const lines = config.split(/\r?\n/);
   const output: string[] = [];
-  let inTargetSection = false;
-  const seenTargetSections = new Set<string>();
-  let targetSectionHasEnabled = false;
+  let inTargetTable = false;
+  let sawTargetTable = false;
+  let wroteEnabled = false;
 
-  const closeTargetSection = () => {
-    if (inTargetSection && !targetSectionHasEnabled) {
+  const closeTargetTable = () => {
+    if (inTargetTable && !wroteEnabled) {
       output.push("enabled = false");
     }
   };
 
   for (const line of lines) {
-    const trimmed = line.trim();
-    if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
-      closeTargetSection();
-      inTargetSection = targets.has(trimmed);
-      if (inTargetSection) seenTargetSections.add(trimmed);
-      targetSectionHasEnabled = false;
+    const table = normalizeTomlTableHeaderName(line);
+    if (table !== undefined) {
+      closeTargetTable();
+      inTargetTable = table === target;
+      if (inTargetTable) sawTargetTable = true;
+      wroteEnabled = false;
       output.push(line);
       continue;
     }
 
-    if (inTargetSection && /^\s*enabled\s*=/.test(line)) {
+    if (inTargetTable && /^\s*enabled\s*=/.test(line)) {
       output.push("enabled = false");
-      targetSectionHasEnabled = true;
+      wroteEnabled = true;
       continue;
     }
 
     output.push(line);
   }
 
-  closeTargetSection();
-
-  if (appendMissing) {
-    for (const header of targets) {
-      if (seenTargetSections.has(header)) continue;
-      if (output.length > 0 && output.at(-1)?.trim()) {
-        output.push("");
-      }
-      output.push(header, "enabled = false");
-    }
+  closeTargetTable();
+  if (!sawTargetTable) {
+    const base = output.join("\n").trimEnd();
+    return `${base}\n\n${header}\nenabled = false\n`;
   }
 
   return output.join("\n");
+}
+
+/**
+ * The bundled Computer Use skill is the node_repl variant. Its raw MCP server
+ * exposes the same operations without the plugin-owned wrapper and must not be
+ * available as a competing route.
+ */
+export function disableRawComputerUsePluginServer(config: string): string {
+  return forceCodexConfigTableDisabled(config, COMPUTER_USE_PLUGIN_MCP_SERVER_HEADER);
 }
 
 export async function linkOrCopyCodexOverlayEntry(
@@ -591,15 +559,10 @@ async function preparePenkraCodexHomeOverlayUnlocked(input: {
     throw cause;
   });
   const overlayConfigPath = path.join(overlayHomePath, "config.toml");
-  // Penkra preserves explicitly classified local artifact, native Computer
-  // Use, and external-Chrome capabilities. Provider connector catalogs,
-  // provider-controlled in-app browsers, and unclassified plugin bundles stay
-  // disabled in the isolated overlay. This is an explicit capability policy,
-  // not name guessing at invocation time.
-  let overlayConfig = disableCodexConfigSections(
-    removeCodexMcpServerTables(sourceConfig),
-    codexPluginSectionsDisabledByPenkra(sourceConfig),
-  );
+  // Provider plugins and MCP servers retain their normal Codex configuration.
+  // Penkra owns only its reserved gateway entry, which is appended below.
+  let overlayConfig = removeReservedPenkraMcpServer(sourceConfig);
+  overlayConfig = disableRawComputerUsePluginServer(overlayConfig);
   const managedSection =
     input.appendConfigToml ??
     (await fs

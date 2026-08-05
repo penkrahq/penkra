@@ -801,14 +801,6 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
           "Editor metadata, open-route handling, and focused coverage were extended so Muxy is treated as a supported external app alongside the existing editor launch targets.",
       },
       {
-        id: "live-message-trail",
-        title: "Live chats leave a clearer message trail",
-        description:
-          "Active replies now expose a calmer live trail through the transcript, making long-running turns easier to follow while new work arrives.",
-        details:
-          "The transcript gained MessageTrail rendering, shared message-trail logic, browser coverage, and timeline integration so live assistant activity can stay visible without fighting the normal message rows.",
-      },
-      {
         id: "clipboard-image-sharing",
         title: "Image sharing works better on desktop",
         description:
@@ -2646,48 +2638,32 @@ export const UPSTREAM_WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
 
 export const WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
   {
-    version: "0.5.5",
-    date: "Jul 17",
+    version: "0.9.1",
+    date: "Aug 5",
     features: [
       {
-        id: "penkra-client-workspaces",
-        title: "Client workspaces are ready",
+        id: "durable-sidebar-arrangement",
+        title: "Arrange your workspace directly",
         description:
-          "Create a client from HQ and Penkra materializes its isolated folder, configuration, and agent workspace.",
+          "Drag folders and tasks into the order and Space where they belong, and Penkra keeps that layout after a restart.",
         details:
-          "Each client receives a dedicated project with server-scoped credentials, startup reconciliation, and the context agents need to work without exposing another client's data.",
+          "Sidebar moves now commit as one durable layout update, preserve pinned-item boundaries, carry nested task trees with their parent, and keep folder and loose-task ordering synchronized across reconnects and projection rebuilds.",
       },
       {
-        id: "penkra-todos-programs",
-        title: "Todos stay visible",
+        id: "unified-task-layout-dragging",
+        title: "Drag tasks into split views",
         description:
-          "Client badges, quick add, blocked work, partner handoffs, and due work now stay available beside every project.",
+          "The same task drag can reorganize the sidebar or place a conversation beside another one.",
         details:
-          "Programs advance through ordered work while health warnings surface broken chains before a client obligation is missed.",
+          "Penkra now uses one typed drag system for sidebar sorting and chat-pane drop zones, with explicit eligibility checks so invalid or duplicate placements are rejected consistently.",
       },
       {
-        id: "penkra-skills",
-        title: "Penkra skills work in chat",
+        id: "clear-agent-capability-boundaries",
+        title: "Agent tools stay clear and predictable",
         description:
-          "Use the existing skill picker to invoke server-backed Penkra workflows with any supported agent harness.",
+          "Penkra Apps, built-in host commands, and provider tools remain distinct so agents can discover and use the right capability.",
         details:
-          "Business setup, document intake, Ghana registration, and partner dispatch skills load from the authoritative backend instead of stale local copies.",
-      },
-      {
-        id: "penkra-cli",
-        title: "The Penkra CLI ships with the app",
-        description:
-          "Agents and terminals can use the bundled penkra command for scoped data, objects, todos, programs, partners, dispatch, and providers.",
-        details:
-          "Penkra refreshes the platform-matched CLI on launch and keeps the client token out of provider process environments.",
-      },
-      {
-        id: "penkra-private-operations",
-        title: "Private operations are built in",
-        description:
-          "Auditing, encrypted object storage, backups, provider credentials, and private update feeds are integrated into the Penkra backend.",
-        details:
-          "Production activation still depends on the configured database, AWS controls, deployment secrets, and signed release identity.",
+          "Provider plugins and user MCP servers retain their normal configuration, Penkra replaces only its authenticated gateway entry, browser work starts with Penkra capability discovery, and Computer Use follows its supported node_repl route.",
       },
     ],
   },

@@ -144,11 +144,6 @@ import {
   userMessageLikelyOverflows,
 } from "./userMessageCollapse";
 import { observeUserMessageOverflow } from "./userMessageOverflowObserver";
-import {
-  resolveActiveTrailSnapshot,
-  type ActiveTrailSnapshot,
-  type MessageTrailAnchor,
-} from "./messageTrail.logic";
 import { useOptionalFind } from "../find/FindProvider";
 import {
   createVirtualTextFindSurface,
@@ -175,10 +170,6 @@ const MARKER_FINE_SCROLL_RETRY_TIMEOUT_MS = 900;
 const MARKER_FINE_SCROLL_MAX_RETRY_FRAMES = 90;
 const MESSAGE_SEND_ENTER_ANIMATION_MS = 180;
 const MESSAGE_SEND_ENTER_CLEANUP_BUFFER_MS = 60;
-// Treat any partially visible row (>= 1px) as in view, so the navigation trail's
-// "active" tick tracks the topmost rendered row rather than waiting for a turn to
-// be substantially on-screen.
-const TRAIL_VIEWABILITY_CONFIG = { itemVisiblePercentThreshold: 0 } as const;
 // The deep-link "active" ring is applied imperatively to the rendered marker spans so jumping
 // never re-parses a message's markdown tree (the className is purely a CSS box-shadow).
 const ACTIVE_MARKER_CLASS_NAME = "thread-marker-active";
@@ -399,8 +390,6 @@ interface MessagesTimelineProps {
   isRevertingCheckpoint: boolean;
   onImageExpand: (preview: ExpandedImagePreview) => void;
   onIsAtEndChange?: (isAtEnd: boolean) => void;
-  /** Emits current + visible sent-message anchors as the viewport scrolls (drives the trail). */
-  onTrailHighlightsChange?: (snapshot: ActiveTrailSnapshot) => void;
   onMessagesClickCapture?: ComponentProps<typeof LegendList>["onClickCapture"];
   onMessagesMouseUp?: ComponentProps<typeof LegendList>["onMouseUp"];
   onMessagesPointerCancel?: ComponentProps<typeof LegendList>["onPointerCancel"];
@@ -455,7 +444,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   isRevertingCheckpoint,
   onImageExpand,
   onIsAtEndChange,
-  onTrailHighlightsChange,
   onMessagesClickCapture,
   onMessagesMouseUp,
   onMessagesPointerCancel,
@@ -1064,74 +1052,16 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       window.cancelAnimationFrame(frameId);
     };
   }, [onIsAtEndChange, resolvedListRef, rows.length]);
-  // Sent-message anchors (id + position in the virtualized row list) for the
-  // navigation trail. Held in a ref so the viewability callback stays stable and
-  // doesn't re-subscribe LegendList on every transcript change.
-  const userMessageAnchors = useMemo<MessageTrailAnchor[]>(() => {
-    const anchors: MessageTrailAnchor[] = [];
-    rows.forEach((row, index) => {
-      if (row.kind === "message" && row.message.role === "user") {
-        anchors.push({ id: row.message.id, rowIndex: index });
-      }
-    });
-    return anchors;
-  }, [rows]);
-  const userMessageAnchorsRef = useRef(userMessageAnchors);
-  useLayoutEffect(() => {
-    userMessageAnchorsRef.current = userMessageAnchors;
-  }, [userMessageAnchors]);
-  const emitTrailHighlightsForViewport = useCallback(
-    (topRowIndex: number, bottomRowIndex: number) => {
-      if (!onTrailHighlightsChange || !Number.isFinite(topRowIndex)) {
-        return;
-      }
-      onTrailHighlightsChange(
-        resolveActiveTrailSnapshot(userMessageAnchorsRef.current, topRowIndex, bottomRowIndex),
-      );
-    },
-    [onTrailHighlightsChange],
-  );
   const handleListScroll = useCallback<NonNullable<MessagesTimelineProps["onMessagesScroll"]>>(
     (event) => {
       onMessagesScroll?.(event);
       const state = readLegendListState(resolvedListRef);
       if (state) {
         onIsAtEndChange?.(state.isAtEnd);
-        emitTrailHighlightsForViewport(state.start, state.end);
       }
     },
-    [emitTrailHighlightsForViewport, onIsAtEndChange, onMessagesScroll, resolvedListRef],
+    [onIsAtEndChange, onMessagesScroll, resolvedListRef],
   );
-  const handleViewableItemsChanged = useCallback<
-    NonNullable<ComponentProps<typeof LegendList>["onViewableItemsChanged"]>
-  >(
-    ({ viewableItems }) => {
-      let topIndex = Number.POSITIVE_INFINITY;
-      let bottomIndex = Number.NEGATIVE_INFINITY;
-      for (const token of viewableItems) {
-        if (token.isViewable) {
-          topIndex = Math.min(topIndex, token.index);
-          bottomIndex = Math.max(bottomIndex, token.index);
-        }
-      }
-      emitTrailHighlightsForViewport(topIndex, bottomIndex);
-    },
-    [emitTrailHighlightsForViewport],
-  );
-  useEffect(() => {
-    if (!onTrailHighlightsChange) {
-      return;
-    }
-    const frameId = window.requestAnimationFrame(() => {
-      const state = readLegendListState(resolvedListRef);
-      if (state) {
-        emitTrailHighlightsForViewport(state.start, state.end);
-      }
-    });
-    return () => {
-      window.cancelAnimationFrame(frameId);
-    };
-  }, [emitTrailHighlightsForViewport, onTrailHighlightsChange, resolvedListRef, rows.length]);
   const toggleFileChangesExpanded = useCallback((turnId: TurnId) => {
     setExpandedFileChangesByTurnId((current) => ({
       ...current,
@@ -2313,12 +2243,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         onPointerDown={onMessagesPointerDown}
         onPointerUp={onMessagesPointerUp}
         onScroll={handleListScroll}
-        {...(onTrailHighlightsChange
-          ? {
-              onViewableItemsChanged: handleViewableItemsChanged,
-              viewabilityConfig: TRAIL_VIEWABILITY_CONFIG,
-            }
-          : {})}
         onTouchEnd={onMessagesTouchEnd}
         onTouchMove={onMessagesTouchMove}
         onTouchStart={onMessagesTouchStart}

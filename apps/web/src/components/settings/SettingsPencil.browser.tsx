@@ -266,12 +266,6 @@ describe("Pencil settings structure", () => {
     await expect.element(page.getByRole("switch", { name: "Apps installed" })).toBeChecked();
     expect(document.body.textContent).not.toContain("Installed appsInstalled");
 
-    await page.getByRole("button", { name: "Connectors", exact: true }).click();
-    await expect.element(page.getByText("Link external services and integrations.")).toBeVisible();
-    await expect
-      .element(page.getByText("No supported connectors are available in this build."))
-      .toBeVisible();
-
     await page.getByRole("button", { name: "Appearance", exact: true }).click();
     await expect.element(page.getByText("Customize the look and feel of Penkra.")).toBeVisible();
     await expect

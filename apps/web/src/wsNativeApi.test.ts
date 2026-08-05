@@ -140,17 +140,11 @@ afterEach(() => {
 });
 
 describe("wsNativeApi", () => {
-  it("preserves Penkra registry and project workspace-change adapters", async () => {
-    requestMock.mockResolvedValue({});
+  it("preserves the project workspace-change adapter", async () => {
     const { createWsNativeApi } = await import("./wsNativeApi");
     const api = createWsNativeApi();
 
-    expect(api.penkra.getSnapshot).toBeTypeOf("function");
-    expect(api.penkra.onSnapshot).toBeTypeOf("function");
     expect(api.projects.onWorkspaceChange).toBeTypeOf("function");
-
-    await api.penkra.getSnapshot();
-    expect(requestMock).toHaveBeenCalledWith(WS_METHODS.penkraGetSnapshot);
   });
 
   it("delivers and caches valid server.welcome payloads", async () => {

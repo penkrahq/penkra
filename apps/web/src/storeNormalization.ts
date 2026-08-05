@@ -48,6 +48,7 @@ export type ProjectNormalizationInput = Pick<
   | "scripts"
   | "isPinned"
   | "spaceId"
+  | "sidebarSortOrder"
   | "createdAt"
   | "updatedAt"
 >;
@@ -148,6 +149,8 @@ export function threadShellsEqual(left: ThreadShell | undefined, right: ThreadSh
     left.id === right.id &&
     left.codexThreadId === right.codexThreadId &&
     left.projectId === right.projectId &&
+    (left.spaceId ?? null) === (right.spaceId ?? null) &&
+    (left.sidebarSortOrder ?? 0) === (right.sidebarSortOrder ?? 0) &&
     left.title === right.title &&
     left.modelSelection === right.modelSelection &&
     left.runtimeMode === right.runtimeMode &&
@@ -344,6 +347,7 @@ export function normalizeProject(
     previous.expanded === expanded &&
     (previous.isPinned ?? false) === (incoming.isPinned ?? false) &&
     (previous.spaceId ?? null) === (incoming.spaceId ?? null) &&
+    (previous.sidebarSortOrder ?? 0) === (incoming.sidebarSortOrder ?? 0) &&
     previous.createdAt === incoming.createdAt &&
     previous.updatedAt === incoming.updatedAt &&
     previous.scripts === scripts
@@ -363,6 +367,7 @@ export function normalizeProject(
     expanded,
     isPinned: incoming.isPinned ?? false,
     spaceId: incoming.spaceId ?? null,
+    sidebarSortOrder: incoming.sidebarSortOrder ?? 0,
     createdAt: incoming.createdAt,
     updatedAt: incoming.updatedAt,
     scripts,
@@ -1526,6 +1531,8 @@ export function normalizeThreadFromReadModel(
   if (
     previous &&
     previous.projectId === incoming.projectId &&
+    (previous.spaceId ?? null) === (incoming.spaceId ?? null) &&
+    (previous.sidebarSortOrder ?? 0) === (incoming.sidebarSortOrder ?? 0) &&
     previous.title === incoming.title &&
     previous.modelSelection === modelSelection &&
     previous.runtimeMode === incoming.runtimeMode &&
@@ -1579,6 +1586,7 @@ export function normalizeThreadFromReadModel(
     codexThreadId: null,
     projectId: incoming.projectId,
     spaceId: incoming.spaceId ?? null,
+    sidebarSortOrder: incoming.sidebarSortOrder ?? 0,
     title: incoming.title,
     modelSelection,
     runtimeMode: incoming.runtimeMode,
@@ -1685,6 +1693,7 @@ export function normalizeThreadShellSnapshot(
     codexThreadId: previous?.codexThreadId ?? null,
     projectId: incoming.projectId,
     spaceId: incoming.spaceId ?? null,
+    sidebarSortOrder: incoming.sidebarSortOrder ?? 0,
     title: incoming.title,
     modelSelection,
     runtimeMode: incoming.runtimeMode,

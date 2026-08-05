@@ -367,6 +367,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           updatedAt: "2026-02-24T00:00:01.000Z",
           deletedAt: null,
           isPinned: false,
+          sidebarSortOrder: 0,
         },
       ]);
       assert.deepEqual(snapshot.threads, [
@@ -390,6 +391,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           associatedWorktreeRef: null,
           createBranchFlowCompleted: false,
           isPinned: false,
+          sidebarSortOrder: 0,
           parentThreadId: null,
           creationSource: null,
           sourceThreadId: null,
@@ -1206,10 +1208,12 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         Option.getOrNull(activeProject)?.defaultModelSelection,
         expectedProjectSelection,
       );
+      assert.equal(Option.getOrNull(activeProject)?.sidebarSortOrder, 0);
       assert.deepStrictEqual(
         Option.getOrNull(projectShell)?.defaultModelSelection,
         expectedProjectSelection,
       );
+      assert.equal(Option.getOrNull(projectShell)?.sidebarSortOrder, 0);
       assert.deepStrictEqual(
         Option.getOrNull(threadShell)?.modelSelection,
         expectedThreadSelection,
@@ -1691,6 +1695,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           associatedWorktreeRef: null,
           createBranchFlowCompleted: false,
           isPinned: false,
+          sidebarSortOrder: 0,
           parentThreadId: null,
           creationSource: null,
           sourceThreadId: null,

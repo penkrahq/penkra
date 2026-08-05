@@ -1683,6 +1683,38 @@ describe("deriveSidebarProjectData", () => {
 });
 
 describe("sortThreadsForSidebar", () => {
+  it("keeps pinned items in a manually ordered top block", () => {
+    const sorted = sortThreadsForSidebar(
+      [
+        makeThread({
+          id: ThreadId.makeUnsafe("unpinned-first"),
+          createdAt: "2026-03-09T12:00:00.000Z",
+          sidebarSortOrder: 0,
+          isPinned: false,
+        }),
+        makeThread({
+          id: ThreadId.makeUnsafe("pinned-second"),
+          createdAt: "2026-03-09T08:00:00.000Z",
+          sidebarSortOrder: 1,
+          isPinned: true,
+        }),
+        makeThread({
+          id: ThreadId.makeUnsafe("pinned-first"),
+          createdAt: "2026-03-09T07:00:00.000Z",
+          sidebarSortOrder: 0,
+          isPinned: true,
+        }),
+      ],
+      "updated_at",
+    );
+
+    expect(sorted.map((thread) => thread.id)).toEqual([
+      ThreadId.makeUnsafe("pinned-first"),
+      ThreadId.makeUnsafe("pinned-second"),
+      ThreadId.makeUnsafe("unpinned-first"),
+    ]);
+  });
+
   it("does not reorder idle threads when updatedAt changes", () => {
     const sorted = sortThreadsForSidebar(
       [
@@ -1760,7 +1792,7 @@ describe("sortThreadsForSidebar", () => {
     ]);
   });
 
-  it("falls back to id ordering when threads have no sortable timestamps", () => {
+  it("uses deterministic id ordering when manual positions tie", () => {
     const sorted = sortThreadsForSidebar(
       [
         makeThread({
@@ -1780,8 +1812,8 @@ describe("sortThreadsForSidebar", () => {
     );
 
     expect(sorted.map((thread) => thread.id)).toEqual([
-      ThreadId.makeUnsafe("thread-2"),
       ThreadId.makeUnsafe("thread-1"),
+      ThreadId.makeUnsafe("thread-2"),
     ]);
   });
 
@@ -1808,7 +1840,7 @@ describe("sortThreadsForSidebar", () => {
     ]);
   });
 
-  it("orders status groups as running, attention, completed, then idle", () => {
+  it("does not let work status change the persisted order", () => {
     const sorted = sortThreadsForSidebar(
       [
         makeThread({
@@ -1841,10 +1873,10 @@ describe("sortThreadsForSidebar", () => {
     );
 
     expect(sorted.map((thread) => thread.id)).toEqual([
-      ThreadId.makeUnsafe("thread-running"),
-      ThreadId.makeUnsafe("thread-attention"),
-      ThreadId.makeUnsafe("thread-completed"),
       ThreadId.makeUnsafe("thread-idle"),
+      ThreadId.makeUnsafe("thread-completed"),
+      ThreadId.makeUnsafe("thread-attention"),
+      ThreadId.makeUnsafe("thread-running"),
     ]);
   });
 
@@ -1878,8 +1910,8 @@ describe("sortThreadsForSidebar", () => {
     );
 
     expect(sorted.map((thread) => thread.id)).toEqual([
-      ThreadId.makeUnsafe("thread-started-later"),
       ThreadId.makeUnsafe("thread-started-earlier"),
+      ThreadId.makeUnsafe("thread-started-later"),
     ]);
   });
 
@@ -1903,8 +1935,8 @@ describe("sortThreadsForSidebar", () => {
     );
 
     expect(sorted.map((thread) => thread.id)).toEqual([
-      ThreadId.makeUnsafe("thread-finished"),
       ThreadId.makeUnsafe("thread-newer"),
+      ThreadId.makeUnsafe("thread-finished"),
     ]);
   });
 
@@ -1960,9 +1992,9 @@ describe("sortThreadsForSidebar", () => {
     );
 
     expect(sorted.map((thread) => thread.id)).toEqual([
-      ThreadId.makeUnsafe("thread-working"),
-      ThreadId.makeUnsafe("thread-finished"),
       ThreadId.makeUnsafe("thread-newest-plain"),
+      ThreadId.makeUnsafe("thread-finished"),
+      ThreadId.makeUnsafe("thread-working"),
     ]);
   });
 
@@ -1991,8 +2023,8 @@ describe("sortThreadsForSidebar", () => {
     );
 
     expect(sorted.map((thread) => thread.id)).toEqual([
-      ThreadId.makeUnsafe("thread-running"),
       ThreadId.makeUnsafe("thread-newer"),
+      ThreadId.makeUnsafe("thread-running"),
     ]);
   });
 
@@ -2022,8 +2054,8 @@ describe("sortThreadsForSidebar", () => {
     );
 
     expect(sorted.map((thread) => thread.id)).toEqual([
-      ThreadId.makeUnsafe("thread-starting"),
       ThreadId.makeUnsafe("thread-newer"),
+      ThreadId.makeUnsafe("thread-starting"),
     ]);
   });
 });
@@ -2059,7 +2091,7 @@ describe("orderSidebarSpaceItems", () => {
     expect(ordered).toEqual(["folder", "direct-thread"]);
   });
 
-  it("treats a folder as the highest-ranked activity among its threads", () => {
+  it("does not let folder activity change mixed manual order", () => {
     const directIdle = makeThread({
       id: ThreadId.makeUnsafe("direct-idle"),
       createdAt: "2026-03-09T12:00:00.000Z",
@@ -2092,7 +2124,7 @@ describe("orderSidebarSpaceItems", () => {
       sortOrder: "updated_at",
     });
 
-    expect(ordered).toEqual(["folder", "direct-thread"]);
+    expect(ordered).toEqual(["direct-thread", "folder"]);
   });
 
   it("uses a folder timestamp only when the folder has no threads", () => {
@@ -2236,7 +2268,7 @@ describe("sortProjectsForSidebar", () => {
     ]);
   });
 
-  it("falls back to project timestamps when a project has no threads", () => {
+  it("does not let project activity timestamps change manual order", () => {
     const sorted = sortProjectsForSidebar(
       [
         makeProject({
@@ -2255,8 +2287,8 @@ describe("sortProjectsForSidebar", () => {
     );
 
     expect(sorted.map((project) => project.id)).toEqual([
-      ContainerId.makeUnsafe("project-2"),
       ContainerId.makeUnsafe("project-1"),
+      ContainerId.makeUnsafe("project-2"),
     ]);
   });
 
@@ -2288,8 +2320,16 @@ describe("sortProjectsForSidebar", () => {
 
   it("preserves manual project ordering", () => {
     const projects = [
-      makeProject({ id: ContainerId.makeUnsafe("project-2"), name: "Second" }),
-      makeProject({ id: ContainerId.makeUnsafe("project-1"), name: "First" }),
+      makeProject({
+        id: ContainerId.makeUnsafe("project-2"),
+        name: "Second",
+        sidebarSortOrder: 0,
+      }),
+      makeProject({
+        id: ContainerId.makeUnsafe("project-1"),
+        name: "First",
+        sidebarSortOrder: 1,
+      }),
     ];
 
     const sorted = sortProjectsForSidebar(projects, [], "manual");

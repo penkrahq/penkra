@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
-  codexPluginSectionsDisabledByPenkra,
+  disableRawComputerUsePluginServer,
   linkOrCopyCodexOverlayEntry,
   prioritizeCodexOverlayEntries,
-  removeCodexMcpServerTables,
+  removeReservedPenkraMcpServer,
 } from "./codexProcessEnv";
 
 describe("linkOrCopyCodexOverlayEntry", () => {
@@ -64,33 +64,18 @@ describe("prioritizeCodexOverlayEntries", () => {
   });
 });
 
-describe("Codex capability isolation", () => {
-  it("preserves approved local capabilities and disables connectors and in-app browser bundles", () => {
-    const config = [
-      '[plugins."computer-use@openai-bundled"]',
-      "enabled = true",
-      '[plugins."chrome@openai-bundled"]',
-      "enabled = true",
-      '[plugins."documents@openai-primary-runtime"]',
-      "enabled = true",
-      '[plugins."browser@openai-bundled"]',
-      "enabled = true",
-      '[plugins."stripe@openai-curated"]',
-      "enabled = true",
-      "[plugins.unclassified-example]",
-      "enabled = true",
-    ].join("\n");
-
-    expect(codexPluginSectionsDisabledByPenkra(config)).toEqual([
-      '[plugins."browser@openai-bundled"]',
-      '[plugins."stripe@openai-curated"]',
-      "[plugins.unclassified-example]",
-    ]);
-  });
-
-  it("removes every copied MCP server table while preserving unrelated configuration", () => {
+describe("Codex provider configuration", () => {
+  it("removes only Penkra's reserved gateway entry", () => {
     const config = [
       'model = "gpt-5"',
+      'mcp_servers."penkra" = { url = "https://untrusted-dotted.example.test" }',
+      "[mcp_servers]",
+      'inline_server = { command = "inline" }',
+      'penkra = { url = "https://untrusted-inline.example.test" }',
+      "[mcp_servers.node_repl]",
+      'command = "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node_repl"',
+      "[mcp_servers.node_repl.env]",
+      'SKY_CUA_SERVICE_PATH = "/Users/test/.codex/computer-use/Codex Computer Use.app"',
       "[mcp_servers.github]",
       'command = "github-mcp"',
       "[mcp_servers.github.env]",
@@ -101,8 +86,52 @@ describe("Codex capability isolation", () => {
       'inherit = "all"',
     ].join("\n");
 
-    expect(removeCodexMcpServerTables(config)).toBe(
-      ['model = "gpt-5"', "[shell_environment_policy]", 'inherit = "all"'].join("\n"),
+    expect(removeReservedPenkraMcpServer(config)).toBe(
+      [
+        'model = "gpt-5"',
+        "[mcp_servers]",
+        'inline_server = { command = "inline" }',
+        "[mcp_servers.node_repl]",
+        'command = "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node_repl"',
+        "[mcp_servers.node_repl.env]",
+        'SKY_CUA_SERVICE_PATH = "/Users/test/.codex/computer-use/Codex Computer Use.app"',
+        "[mcp_servers.github]",
+        'command = "github-mcp"',
+        "[mcp_servers.github.env]",
+        'TOKEN = "secret"',
+        "[shell_environment_policy]",
+        'inherit = "all"',
+      ].join("\n"),
+    );
+  });
+
+  it("forces the bundled raw Computer Use server off", () => {
+    const config = [
+      'model = "gpt-5"',
+      '[plugins."computer-use@openai-bundled".mcp_servers."computer-use"]',
+      "enabled = true",
+      'enabled_tools = ["get_app_state"]',
+    ].join("\n");
+
+    expect(disableRawComputerUsePluginServer(config)).toBe(
+      [
+        'model = "gpt-5"',
+        '[plugins."computer-use@openai-bundled".mcp_servers."computer-use"]',
+        "enabled = false",
+        'enabled_tools = ["get_app_state"]',
+      ].join("\n"),
+    );
+  });
+
+  it("adds a raw Computer Use server denial when the source config omitted it", () => {
+    expect(disableRawComputerUsePluginServer('model = "gpt-5"')).toBe(
+      [
+        'model = "gpt-5"',
+        "",
+        '[plugins."computer-use@openai-bundled".mcp_servers."computer-use"]',
+        "enabled = false",
+        "",
+      ].join("\n"),
     );
   });
 });

@@ -41,11 +41,15 @@ export function isProjectsSidebarSurface(input: {
 type SidebarProject = {
   id: string;
   name: string;
+  isPinned?: boolean | undefined;
+  sidebarSortOrder?: number | undefined;
   createdAt?: string | undefined;
   updatedAt?: string | undefined;
 };
 type SidebarThreadSortInput = {
   createdAt: string;
+  isPinned?: boolean | undefined;
+  sidebarSortOrder?: number | undefined;
   updatedAt?: string | undefined;
   latestTurn?: Thread["latestTurn"] | undefined;
   lastVisitedAt?: Thread["lastVisitedAt"] | undefined;
@@ -1140,9 +1144,16 @@ function getSidebarThreadStatusChangedTimestamp(
 
 export function sortThreadsForSidebar<T extends { id: Thread["id"] } & SidebarThreadSortInput>(
   threads: readonly T[],
-  sortOrder: SidebarThreadSortOrder,
+  _sortOrder: SidebarThreadSortOrder,
 ): T[] {
-  return threads.toSorted((left, right) => compareThreadsForSidebar(left, right, sortOrder));
+  return threads.toSorted((left, right) => {
+    const byPinned = Number(right.isPinned === true) - Number(left.isPinned === true);
+    if (byPinned !== 0) return byPinned;
+    const byManualOrder = (left.sidebarSortOrder ?? 0) - (right.sidebarSortOrder ?? 0);
+    if (byManualOrder !== 0) return byManualOrder;
+    const byCreatedAt = right.createdAt.localeCompare(left.createdAt);
+    return byCreatedAt || left.id.localeCompare(right.id);
+  });
 }
 
 function compareThreadsForSidebar(
@@ -1180,6 +1191,7 @@ function compareThreadsForSidebar(
 type SidebarSpaceSortCandidate<T> = {
   id: string;
   pinned: boolean;
+  sidebarSortOrder?: number | undefined;
   threads: readonly ({ id: Thread["id"] } & SidebarThreadSortInput)[];
   fallbackCreatedAt?: string | undefined;
   fallbackUpdatedAt?: string | undefined;
@@ -1195,31 +1207,16 @@ export function orderSidebarSpaceItems<TThreadItem, TProjectItem>(input: {
     ...input.threadItems,
     ...input.projectItems,
   ];
-  const representative = (item: (typeof items)[number]) => {
-    const thread = sortThreadsForSidebar(item.threads, input.sortOrder)[0];
-    if (thread) return thread;
-    const fallbackTimestamp =
-      input.sortOrder === "created_at"
-        ? item.fallbackCreatedAt
-        : (item.fallbackUpdatedAt ?? item.fallbackCreatedAt);
-    return {
-      id: item.id as Thread["id"],
-      createdAt: fallbackTimestamp ?? "",
-      updatedAt: item.fallbackUpdatedAt,
-    };
-  };
-
   return items
     .toSorted((left, right) => {
       const byPinned = Number(right.pinned) - Number(left.pinned);
       if (byPinned !== 0) return byPinned;
-
-      const byActivity = compareThreadsForSidebar(
-        representative(left),
-        representative(right),
-        input.sortOrder,
+      const byManualOrder = (left.sidebarSortOrder ?? 0) - (right.sidebarSortOrder ?? 0);
+      if (byManualOrder !== 0) return byManualOrder;
+      const byCreatedAt = (right.fallbackCreatedAt ?? "").localeCompare(
+        left.fallbackCreatedAt ?? "",
       );
-      if (byActivity !== 0) return byActivity;
+      if (byCreatedAt !== 0) return byCreatedAt;
       return left.id.localeCompare(right.id);
     })
     .map((item) => item.value);
@@ -1278,32 +1275,15 @@ export function sortProjectsForSidebar<
   threads: readonly TThread[],
   sortOrder: SidebarProjectSortOrder,
 ): TProject[] {
-  if (sortOrder === "manual") {
-    return [...projects];
-  }
-
-  const threadsByProjectId = new Map<string, TThread[]>();
-  for (const thread of threads) {
-    const existing = threadsByProjectId.get(thread.projectId) ?? [];
-    existing.push(thread);
-    threadsByProjectId.set(thread.projectId, existing);
-  }
-
+  void threads;
+  void sortOrder;
   return [...projects].toSorted((left, right) => {
-    const rightTimestamp = getProjectSortTimestamp(
-      right,
-      threadsByProjectId.get(right.id) ?? [],
-      sortOrder,
-    );
-    const leftTimestamp = getProjectSortTimestamp(
-      left,
-      threadsByProjectId.get(left.id) ?? [],
-      sortOrder,
-    );
-    const byTimestamp =
-      rightTimestamp === leftTimestamp ? 0 : rightTimestamp > leftTimestamp ? 1 : -1;
-    if (byTimestamp !== 0) return byTimestamp;
-    return left.name.localeCompare(right.name) || left.id.localeCompare(right.id);
+    const byPinned = Number(right.isPinned === true) - Number(left.isPinned === true);
+    if (byPinned !== 0) return byPinned;
+    const byManualOrder = (left.sidebarSortOrder ?? 0) - (right.sidebarSortOrder ?? 0);
+    if (byManualOrder !== 0) return byManualOrder;
+    const byCreatedAt = (right.createdAt ?? "").localeCompare(left.createdAt ?? "");
+    return byCreatedAt || left.id.localeCompare(right.id);
   });
 }
 

@@ -44,7 +44,6 @@ import { ManagedAttachmentCleanupLive } from "./managedAttachmentCleanup";
 import { PullRequestServiceLive } from "./pullRequests/Layers/PullRequestService";
 import { ProviderHealthLive } from "./provider/Layers/ProviderHealth";
 import { makeServerProviderLayer } from "./provider/runtimeLayer";
-import { PenkraRegistryLive } from "./penkra/layer";
 import { WorkspaceWatcherLive } from "./workspaceWatcher";
 
 export { makeServerProviderLayer } from "./provider/runtimeLayer";
@@ -145,11 +144,9 @@ export function makeServerRuntimeServicesLayer(
     Layer.provideMerge(ProjectPullRequestPinsLive),
     Layer.provideMerge(OrchestrationLayerLive),
   );
-  const penkraRegistryLayer = PenkraRegistryLive.pipe(Layer.provideMerge(runtimeServicesLayer));
   const workspaceWatcherLayer = WorkspaceWatcherLive.pipe(Layer.provideMerge(runtimeServicesLayer));
 
   return Layer.mergeAll(
-    penkraRegistryLayer,
     workspaceWatcherLayer,
     agentGatewayCredentialsLayer,
     agentGatewayLayer,

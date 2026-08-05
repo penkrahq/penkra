@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest";
 import { ProviderIcon, PROVIDER_ICON_COMPONENT_BY_PROVIDER } from "./ProviderIcon";
 
 describe("ProviderIcon", () => {
-  it("uses the canonical Codex and Claude brand icons", () => {
+  it("uses the ChatGPT and Claude provider icons", () => {
     const markup = renderToStaticMarkup(
       <>
         <ProviderIcon provider="codex" className="size-3" />
@@ -17,8 +17,8 @@ describe("ProviderIcon", () => {
       </>,
     );
 
-    expect(markup).toContain("/central-icons-reversed/openai-codex.svg");
-    expect(markup).toContain("/central-icons-reversed/claudeai.svg");
+    expect(markup).toContain('viewBox="0 0 24 24"');
+    expect(markup).toContain('viewBox="0 0 256 257"');
     expect(markup).not.toContain("tabler-icon-brand-openai");
   });
 

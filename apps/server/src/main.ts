@@ -49,7 +49,6 @@ import { AnalyticsService } from "./telemetry/Services/AnalyticsService";
 import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine";
 import { ensureDefaultSpaces } from "./orchestration/defaultSpacesBootstrap";
 import { startThreadRetentionJob } from "./threadRetention";
-import { PenkraRegistry } from "./penkra/layer";
 import { appDeveloperCommand } from "./appDeveloperCli";
 import {
   consumeDesktopParentPidFromEnvironment,
@@ -423,7 +422,6 @@ const makeServerProgram = (input: CliInput) => {
         : undefined;
 
     const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
-    const penkraRegistry = yield* PenkraRegistry;
     // Start the retention loop after the server is live so startup can serve
     // existing history first, then hide inactive threads from the app in the background.
     yield* startThreadRetentionJob(orchestrationEngine, projectionSnapshotQuery);
@@ -434,17 +432,6 @@ const makeServerProgram = (input: CliInput) => {
       config,
     });
     yield* Effect.forkChild(recordStartupHeartbeat);
-    yield* Effect.forkChild(
-      penkraRegistry.reconcile.pipe(
-        Effect.tap((result) => Effect.logInfo("Penkra registry sync completed", result)),
-        Effect.catch((cause) =>
-          Effect.logWarning("Penkra registry sync unavailable", {
-            cause,
-            hint: "Chats remain available; registry sync retries on the next app launch.",
-          }),
-        ),
-      ),
-    );
     // Optional Claude OAuth keepalive. Disabled by default because it touches
     // Claude Code auth data in the background; users can opt in with
     // PENKRA_CLAUDE_KEEPALIVE=1.

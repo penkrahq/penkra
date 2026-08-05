@@ -803,7 +803,6 @@ export function makeDroidAdapter(
             droidSettings: effectiveDroidSettings,
             childProcessSpawner,
             cwd,
-            penkraThreadId: input.threadId,
             ...(resumeSessionId ? { resumeSessionId } : {}),
             clientCapabilities: { elicitation: { form: {} } },
             clientInfo: { name: "Penkra", version: "0.0.0" },

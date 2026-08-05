@@ -16,6 +16,7 @@ describe("TopBarThread", () => {
     expect(markup).not.toContain("tabler-icon-folder");
     expect(markup).not.toContain("Restore left rail");
     expect(markup).not.toContain("Toggle panel");
+    expect(markup).not.toContain("Thread menu");
   });
 
   it("replaces the thread identity with the left-rail restore control when collapsed", () => {

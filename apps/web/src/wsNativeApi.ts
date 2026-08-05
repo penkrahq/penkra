@@ -21,7 +21,6 @@ import {
   type OrchestrationEvent,
   type OrchestrationShellStreamItem,
   type OrchestrationThreadStreamItem,
-  type PenkraSnapshot,
   type ProjectDevServerEvent,
   type ProjectWorkspaceChangeEvent,
   type ServerProviderStatusesUpdatedPayload,
@@ -121,7 +120,6 @@ function omitNullUserInputAnswers(
 const terminalEventListeners = createListenerRegistry<TerminalEvent>();
 const projectDevServerEventListeners = createListenerRegistry<ProjectDevServerEvent>();
 const projectWorkspaceChangeListeners = createListenerRegistry<ProjectWorkspaceChangeEvent>();
-const penkraSnapshotListeners = createListenerRegistry<PenkraSnapshot>();
 const orchestrationDomainEventListeners = createListenerRegistry<OrchestrationEvent>();
 const orchestrationShellEventListeners = createListenerRegistry<OrchestrationShellStreamItem>();
 const orchestrationThreadEventListeners = createListenerRegistry<OrchestrationThreadStreamItem>();
@@ -137,7 +135,6 @@ function clearWsNativeApiListeners(): void {
   terminalEventListeners.clear();
   projectDevServerEventListeners.clear();
   projectWorkspaceChangeListeners.clear();
-  penkraSnapshotListeners.clear();
   orchestrationDomainEventListeners.clear();
   orchestrationShellEventListeners.clear();
   orchestrationThreadEventListeners.clear();
@@ -329,9 +326,6 @@ export function createWsNativeApi(): NativeApi {
   transport.subscribe(WS_CHANNELS.projectWorkspaceChange, (message) => {
     projectWorkspaceChangeListeners.emit(message.data);
   });
-  transport.subscribe(WS_CHANNELS.penkraSnapshot, (message) => {
-    penkraSnapshotListeners.emit(message.data);
-  });
   transport.subscribe(ORCHESTRATION_WS_CHANNELS.shellEvent, (message) => {
     orchestrationShellEventListeners.emit(message.data);
   });
@@ -342,15 +336,6 @@ export function createWsNativeApi(): NativeApi {
     threadStreamFailureListeners.emit(failure);
   });
   const api: NativeApi = {
-    penkra: {
-      getSnapshot: () => transport.request(WS_METHODS.penkraGetSnapshot),
-      createClient: (input) => transport.request(WS_METHODS.penkraCreateClient, input),
-      updateClient: (input) => transport.request(WS_METHODS.penkraUpdateClient, input),
-      createTodo: (input) => transport.request(WS_METHODS.penkraCreateTodo, input),
-      updateTodo: (input) => transport.request(WS_METHODS.penkraUpdateTodo, input),
-      reconcile: () => transport.request(WS_METHODS.penkraReconcile),
-      onSnapshot: penkraSnapshotListeners.subscribe,
-    },
     dialogs: {
       pickFolder: async () => {
         if (!window.desktopBridge) return null;

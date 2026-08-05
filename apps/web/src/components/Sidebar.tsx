@@ -12,7 +12,12 @@ import {
   type OrchestrationShellSnapshot,
   type ProviderKind,
   type ResolvedKeybindingsConfig,
+  type SidebarItemParent,
+  type SidebarItemReference,
 } from "@penkra/contracts";
+import type { DragEndEvent } from "@dnd-kit/react";
+import { isSortable } from "@dnd-kit/react/sortable";
+import { arrayMove } from "@dnd-kit/helpers";
 import { getDefaultModel } from "@penkra/shared/model";
 import { pluralize } from "@penkra/shared/text";
 import { resolveThreadWorkspaceCwd } from "@penkra/shared/threadEnvironment";
@@ -97,6 +102,7 @@ import {
 } from "../lib/providerModelPrefetch";
 import { serverConfigQueryOptions } from "../lib/serverReactQuery";
 import { activeSpaceDisplayNameForReference, resolveActiveSpaceId } from "../lib/spaceGrouping";
+import { moveSidebarItem } from "../lib/sidebarOrdering";
 import { archiveSpace, isOrdinarySpaceProject } from "../lib/spaces";
 import { collectStudioProjectIds } from "../lib/studioProjects";
 import { isTerminalFocused } from "../lib/terminalFocus";
@@ -107,8 +113,6 @@ import {
 import { dispatchThreadRename } from "../lib/threadRename";
 import { isMacPlatform, newCommandId, newProjectId, newThreadId } from "../lib/utils";
 import { readNativeApi } from "../nativeApi";
-import { PenkraCreateClientDialog } from "../penkra/PenkraCreateClientDialog";
-import { penkraQueryKeys } from "../penkra/reactQuery";
 import { usePinnedProjectsStore } from "../pinnedProjectsStore";
 import { reconcileOptimisticPinState } from "../pinning.logic";
 import { derivePendingApprovals, derivePendingUserInputs } from "../session-logic";
@@ -174,7 +178,6 @@ import type {
   SidebarSearchProject,
   SidebarSearchThread,
 } from "./SidebarSearchPalette.logic";
-import { THREAD_DRAG_MIME } from "./chat-drop-overlay/ChatPaneDropOverlay";
 import {
   ComposerPickerMenuPopup,
   ComposerPickerMenuSubPopup,
@@ -194,6 +197,16 @@ import {
   shouldShowDesktopUpdateButton,
   shouldToastDesktopUpdateActionResult,
 } from "./desktopUpdate.logic";
+import {
+  readSidebarDndData,
+  sidebarItemDndId,
+  sidebarParentDndGroup,
+  sidebarParentFromDndGroup,
+  sidebarSpaceDndId,
+  SidebarContainerDropTarget,
+  SidebarDndMonitor,
+  SortableSidebarNode,
+} from "./sidebar/SidebarDnd";
 import { subscribeToDesktopUpdateState } from "./desktopUpdate.subscription";
 import { FolderGroupShared } from "./left-rail/folder-group-shared/FolderGroupShared";
 import { AccountControlShared } from "./left-rail/account-control-shared/AccountControlShared";
@@ -407,14 +420,6 @@ export default function Sidebar() {
   const { handleNewThread } = useHandleNewThread();
   const { handleNewChat } = useHandleNewChat();
   const { createThreadHandoff } = useThreadHandoff();
-  useEffect(
-    () =>
-      ensureNativeApi().penkra.onSnapshot((snapshot) => {
-        queryClient.setQueryData(penkraQueryKeys.snapshot, snapshot);
-      }),
-    [queryClient],
-  );
-  const [penkraCreateClientOpen, setPenkraCreateClientOpen] = useState(false);
   const routeThreadId = useParams({
     strict: false,
     select: (params) => (params.threadId ? ThreadId.makeUnsafe(params.threadId) : null),
@@ -1506,6 +1511,7 @@ export default function Sidebar() {
     closeSpaceEditor,
     handleSelectSpace,
     handleSelectSpaceForIncomingProject,
+    handleReorderSpaces,
     handleMoveProjectToSpace,
     handleSpaceEditorSubmit,
   } = useSpacesController({
@@ -1947,6 +1953,7 @@ export default function Sidebar() {
         threadItems: threadItems.map((item) => ({
           id: item.id,
           pinned: pinnedThreadIds.includes(item.id),
+          sidebarSortOrder: item.thread.sidebarSortOrder ?? 0,
           threads: [item.thread],
           fallbackCreatedAt: item.thread.createdAt,
           fallbackUpdatedAt: item.thread.updatedAt,
@@ -1955,6 +1962,7 @@ export default function Sidebar() {
         projectItems: projectItems.map((item) => ({
           id: item.id,
           pinned: pinnedProjectIdSet.has(item.id),
+          sidebarSortOrder: item.project.sidebarSortOrder ?? 0,
           threads: sortedSidebarThreadsByProjectId.get(item.id) ?? [],
           fallbackCreatedAt: item.project.createdAt,
           fallbackUpdatedAt: item.project.updatedAt,
@@ -1983,6 +1991,164 @@ export default function Sidebar() {
     standardProjects,
     visibleChatPreviewEntries,
   ]);
+  const isSidebarItemPinned = useCallback(
+    (item: SidebarItemReference) =>
+      item.kind === "project" ? pinnedProjectIdSet.has(item.id) : pinnedThreadIdSet.has(item.id),
+    [pinnedProjectIdSet, pinnedThreadIdSet],
+  );
+  const getOrderedSidebarItems = useCallback(
+    (parent: SidebarItemParent): SidebarItemReference[] => {
+      if (parent.kind === "project") {
+        return (sortedSidebarThreadsByProjectId.get(parent.projectId) ?? [])
+          .filter((thread) => thread.parentThreadId == null && thread.archivedAt == null)
+          .map((thread) => ({ kind: "thread" as const, id: thread.id }));
+      }
+
+      const threadItems = visibleChatThreadRows
+        .filter(
+          (row) => row.rootThreadId === row.thread.id && row.thread.spaceId === parent.spaceId,
+        )
+        .map((row) => ({
+          id: row.thread.id,
+          pinned: pinnedThreadIdSet.has(row.thread.id),
+          sidebarSortOrder: row.thread.sidebarSortOrder ?? 0,
+          threads: [row.thread],
+          fallbackCreatedAt: row.thread.createdAt,
+          fallbackUpdatedAt: row.thread.updatedAt,
+          value: { kind: "thread" as const, id: row.thread.id },
+        }));
+      const projectItems = standardProjects
+        .filter((project) => project.spaceId === parent.spaceId)
+        .map((project) => ({
+          id: project.id,
+          pinned: pinnedProjectIdSet.has(project.id),
+          sidebarSortOrder: project.sidebarSortOrder ?? 0,
+          threads: sortedSidebarThreadsByProjectId.get(project.id) ?? [],
+          fallbackCreatedAt: project.createdAt,
+          fallbackUpdatedAt: project.updatedAt,
+          value: { kind: "project" as const, id: project.id },
+        }));
+      return orderSidebarSpaceItems({
+        threadItems,
+        projectItems,
+        sortOrder: appSettings.sidebarThreadSortOrder,
+      });
+    },
+    [
+      appSettings.sidebarThreadSortOrder,
+      pinnedProjectIdSet,
+      pinnedThreadIdSet,
+      sortedSidebarThreadsByProjectId,
+      standardProjects,
+      visibleChatThreadRows,
+    ],
+  );
+  const commitSidebarItemMove = useCallback(
+    async (input: {
+      item: SidebarItemReference;
+      target: SidebarItemParent;
+      targetItem?: SidebarItemReference | undefined;
+      placement?: "before" | "after" | undefined;
+      insertionIndex?: number | undefined;
+    }) => {
+      const { item } = input;
+
+      const orderedItems = getOrderedSidebarItems(input.target).filter(
+        (candidate) => candidate.kind !== item.kind || candidate.id !== item.id,
+      );
+      const pinnedCount = orderedItems.filter(isSidebarItemPinned).length;
+      let insertionIndex = input.insertionIndex ?? pinnedCount;
+      if (input.insertionIndex === undefined && input.targetItem) {
+        const targetIndex = orderedItems.findIndex(
+          (candidate) =>
+            candidate.kind === input.targetItem?.kind && candidate.id === input.targetItem.id,
+        );
+        if (targetIndex >= 0) {
+          insertionIndex = targetIndex + (input.placement === "after" ? 1 : 0);
+        }
+      }
+      insertionIndex = isSidebarItemPinned(item)
+        ? Math.min(insertionIndex, pinnedCount)
+        : Math.max(insertionIndex, pinnedCount);
+      insertionIndex = Math.max(0, Math.min(insertionIndex, orderedItems.length));
+      orderedItems.splice(insertionIndex, 0, item);
+
+      const api = readNativeApi();
+      if (!api) return false;
+      try {
+        await moveSidebarItem({ api, item, target: input.target, orderedItems });
+        return true;
+      } catch (error) {
+        toastManager.add({
+          type: "error",
+          title: "Unable to move sidebar item",
+          description: error instanceof Error ? error.message : "Try again.",
+        });
+        return false;
+      }
+    },
+    [getOrderedSidebarItems, isSidebarItemPinned],
+  );
+  const handleSidebarDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      if (event.canceled) return;
+      const source = event.operation.source;
+      const target = event.operation.target;
+      const sourceData = readSidebarDndData(source?.data);
+      const targetData = readSidebarDndData(target?.data);
+      if (!source || !sourceData) return;
+
+      if (sourceData.type === "space") {
+        if (!isSortable(source) || source.initialIndex === source.index) return;
+        const reordered = arrayMove([...spaces], source.initialIndex, source.index);
+        handleReorderSpaces(
+          reordered.map((space) => space.id),
+          sourceData.spaceId,
+        );
+        return;
+      }
+      if (sourceData.type !== "item") return;
+
+      const explicitContainer = targetData?.type === "container" ? targetData.parent : null;
+      const targetParent =
+        explicitContainer ??
+        (isSortable(source) ? sidebarParentFromDndGroup(source.group) : null) ??
+        (targetData?.type === "item" ? targetData.parent : null);
+      if (!targetParent) return;
+
+      const insertionIndex = explicitContainer
+        ? undefined
+        : isSortable(source)
+          ? source.index
+          : undefined;
+      const parentUnchanged =
+        sourceData.parent.kind === targetParent.kind &&
+        (sourceData.parent.kind === "space"
+          ? sourceData.parent.spaceId ===
+            (targetParent.kind === "space" ? targetParent.spaceId : null)
+          : sourceData.parent.projectId ===
+            (targetParent.kind === "project" ? targetParent.projectId : null));
+      if (
+        parentUnchanged &&
+        isSortable(source) &&
+        source.initialIndex === source.index &&
+        !explicitContainer
+      ) {
+        return;
+      }
+
+      const suspended = event.suspend();
+      void commitSidebarItemMove({
+        item: sourceData.item,
+        target: targetParent,
+        insertionIndex,
+      }).then((committed) => {
+        if (committed) suspended.resume();
+        else suspended.abort();
+      });
+    },
+    [commitSidebarItemMove, handleReorderSpaces, spaces],
+  );
   const standardProjectSidebarDataById = useMemo<
     ReadonlyMap<ContainerId, SidebarDerivedProjectData>
   >(
@@ -2194,9 +2360,12 @@ export default function Sidebar() {
     };
   }, [activeSidebarThreadId, visibleSidebarThreadIds]);
 
-  function renderPencilProjectItem(project: (typeof sortedProjects)[number]) {
+  function renderPencilProjectItem(
+    project: (typeof sortedProjects)[number],
+    sortableIndex: number,
+  ) {
     const projectSidebarData = surfaceProjectSidebarDataById.get(project.id);
-    if (!projectSidebarData) {
+    if (!projectSidebarData || !project.spaceId) {
       return null;
     }
     const {
@@ -2208,7 +2377,13 @@ export default function Sidebar() {
       canShowMoreThreads,
       canShowLessThreads,
     } = projectSidebarData;
+    const visibleRootIndexByThreadId = new Map(
+      visibleEntries
+        .filter((entry) => entry.thread.id === entry.rootRowId)
+        .map((entry, index) => [entry.rootRowId, index] as const),
+    );
     const hasProjectContent = projectThreads.length > 0 || canShowMoreThreads || canShowLessThreads;
+    const projectWorkStatus = resolveSidebarWorkStatus(projectStatus);
     const createProjectThread = () => {
       prefetchModelsForProjectNewThread(project.id, { includeDroid: true });
       void handleNewThread(project.id, {
@@ -2226,37 +2401,77 @@ export default function Sidebar() {
     };
 
     return (
-      <FolderGroupShared
+      <SortableSidebarNode
         key={project.id}
-        expanded={project.expanded}
-        hasContent={hasProjectContent}
-        label={project.name}
-        onExpandedChange={() => toggleProject(project.id)}
-        onHeaderAction={createProjectThread}
-        onHeaderContextMenu={openProjectContextMenu}
-        pinned={pinnedProjectIdSet.has(project.id)}
-        workStatus={resolveSidebarWorkStatus(projectStatus)}
+        id={sidebarItemDndId({ kind: "project", id: project.id })}
+        group={sidebarParentDndGroup({ kind: "space", spaceId: project.spaceId })}
+        index={sortableIndex}
+        data={{
+          type: "item",
+          item: { kind: "project", id: project.id },
+          parent: { kind: "space", spaceId: project.spaceId },
+          label: project.name,
+          preview: {
+            kind: "project",
+            label: project.name,
+            expanded: project.expanded,
+            pinned: pinnedProjectIdSet.has(project.id),
+            workStatus: projectWorkStatus,
+          },
+        }}
       >
-        <div className="flex flex-col gap-0.5" data-pencil-project-id={project.id}>
-          {visibleEntries.map((entry) =>
-            renderPencilThreadRow(entry.thread, orderedProjectThreadIds, entry.depth, "nested"),
-          )}
-          {canShowMoreThreads ? (
-            <ShowMoreRow
-              onClick={() => showMoreThreadsForProject(project.cwd, threadListExtraPages)}
-            >
-              Show more
-            </ShowMoreRow>
-          ) : null}
-          {canShowLessThreads ? (
-            <ShowMoreRow
-              onClick={() => showLessThreadsForProject(project.cwd, threadListExtraPages)}
-            >
-              Show less
-            </ShowMoreRow>
-          ) : null}
-        </div>
-      </FolderGroupShared>
+        <SidebarContainerDropTarget
+          id={`sidebar-container:project:${project.id}`}
+          className="pointer-events-none absolute inset-x-0 top-0 z-20 h-[27px]"
+          data={{
+            type: "container",
+            parent: { kind: "project", projectId: project.id },
+            label: project.name,
+          }}
+        />
+        <FolderGroupShared
+          expanded={project.expanded}
+          hasContent={hasProjectContent}
+          label={project.name}
+          onExpandedChange={() => toggleProject(project.id)}
+          onHeaderAction={createProjectThread}
+          onHeaderContextMenu={openProjectContextMenu}
+          pinned={pinnedProjectIdSet.has(project.id)}
+          workStatus={projectWorkStatus}
+        >
+          <div className="flex flex-col gap-0.5" data-pencil-project-id={project.id}>
+            {visibleEntries.map((entry) =>
+              renderPencilThreadRow(
+                entry.thread,
+                orderedProjectThreadIds,
+                entry.depth,
+                "nested",
+                entry.rootRowId,
+                entry.thread.id === entry.rootRowId
+                  ? {
+                      index: visibleRootIndexByThreadId.get(entry.rootRowId) ?? 0,
+                      parent: { kind: "project", projectId: project.id },
+                    }
+                  : undefined,
+              ),
+            )}
+            {canShowMoreThreads ? (
+              <ShowMoreRow
+                onClick={() => showMoreThreadsForProject(project.cwd, threadListExtraPages)}
+              >
+                Show more
+              </ShowMoreRow>
+            ) : null}
+            {canShowLessThreads ? (
+              <ShowMoreRow
+                onClick={() => showLessThreadsForProject(project.cwd, threadListExtraPages)}
+              >
+                Show less
+              </ShowMoreRow>
+            ) : null}
+          </div>
+        </FolderGroupShared>
+      </SortableSidebarNode>
     );
   }
 
@@ -2265,19 +2480,23 @@ export default function Sidebar() {
     orderedProjectThreadIds: readonly ThreadId[],
     depth = 0,
     levelOverride?: "root" | "nested",
+    dragRootThreadId: ThreadId = thread.id,
+    sortablePosition?: { index: number; parent: SidebarItemParent },
   ) {
     const isActive = visualActiveSidebarThreadId === thread.id;
     const isSelected = selectedThreadIds.has(thread.id);
     const threadStatus = resolveThreadStatusForSidebar(thread);
     const workStatus: ThreadWorkStatus = resolveSidebarWorkStatus(threadStatus);
-
-    return (
+    const harness =
+      thread.title.trim().toLowerCase() === "main"
+        ? ("github" as const)
+        : thread.modelSelection.provider;
+    const level = levelOverride ?? (depth > 0 ? "nested" : "root");
+    const row = (
       <ThreadRowShared
         aria-label={thread.title}
         className={cn(isSelected && "ring-1 ring-[var(--color-border-focus)]")}
         data-thread-item
-        draggable
-        key={thread.id}
         onClick={(event) => handleThreadClick(event, thread.id, orderedProjectThreadIds)}
         onContextMenu={(event) => {
           event.preventDefault();
@@ -2301,10 +2520,6 @@ export default function Sidebar() {
           event.stopPropagation();
           openRenameThreadDialog(thread.id);
         }}
-        onDragStart={(event) => {
-          event.dataTransfer.effectAllowed = "move";
-          event.dataTransfer.setData(THREAD_DRAG_MIME, JSON.stringify({ threadId: thread.id }));
-        }}
         onKeyDown={(event) => {
           if (event.key !== "Enter" && event.key !== " ") return;
           event.preventDefault();
@@ -2312,16 +2527,41 @@ export default function Sidebar() {
         }}
         onPointerDown={(event) => primeThreadActivation(event, thread.id)}
         onPointerUp={(event) => handleThreadRenamePointerUp(event, thread.id)}
-        harness={
-          thread.title.trim().toLowerCase() === "main" ? "github" : thread.modelSelection.provider
-        }
-        level={levelOverride ?? (depth > 0 ? "nested" : "root")}
+        harness={harness}
+        level={level}
         pinned={pinnedThreadIdSet.has(thread.id)}
         state={isActive ? "active" : "default"}
         workStatus={workStatus}
       >
         {thread.title}
       </ThreadRowShared>
+    );
+
+    if (!sortablePosition) return row;
+
+    return (
+      <SortableSidebarNode
+        key={thread.id}
+        id={sidebarItemDndId({ kind: "thread", id: dragRootThreadId })}
+        group={sidebarParentDndGroup(sortablePosition.parent)}
+        index={sortablePosition.index}
+        data={{
+          type: "item",
+          item: { kind: "thread", id: dragRootThreadId },
+          parent: sortablePosition.parent,
+          label: thread.title,
+          preview: {
+            kind: "thread",
+            label: thread.title,
+            harness,
+            level,
+            pinned: pinnedThreadIdSet.has(thread.id),
+            workStatus,
+          },
+        }}
+      >
+        {row}
+      </SortableSidebarNode>
     );
   }
 
@@ -3100,96 +3340,135 @@ export default function Sidebar() {
               }}
             />
           ) : null}
-          <div className="flex flex-col gap-4" data-slot="space-list">
-            {sidebarSpaceSections.map((section) => {
-              const expanded = !collapsedSpaceIds.has(section.key);
-              const hasContent =
-                section.items.length > 0 ||
-                section.chatData.canShowMore ||
-                section.chatData.canShowLess;
-              const editingThisSpace =
-                spaceEditorOpen &&
-                spaceEditorMode === "edit" &&
-                editedSpace?.id === section.space.id;
-              return (
-                <div data-space-id={section.space.id} key={section.key}>
-                  <SpaceGroupShared
-                    expanded={expanded}
-                    hasContent={hasContent}
-                    header={
-                      editingThisSpace && editedSpace ? (
-                        <SpaceHeaderInlineEdit
-                          defaultValue={editedSpace.name}
-                          existingNames={spaceEditorExistingNames}
-                          mode="rename"
-                          onCancel={closeSpaceEditor}
-                          onSubmit={async (name) => {
-                            await handleSpaceEditorSubmit({
-                              name,
-                              icon: editedSpace.icon,
-                            });
-                            closeSpaceEditor();
-                          }}
-                        />
-                      ) : undefined
-                    }
-                    label={section.label}
-                    onExpandedChange={(nextExpanded) => {
-                      setCollapsedSpaceIds((current) => {
-                        const next = new Set(current);
-                        if (nextExpanded) next.delete(section.key);
-                        else next.add(section.key);
-                        return next;
-                      });
+          <SidebarDndMonitor onDragEnd={handleSidebarDragEnd}>
+            <div className="flex flex-col gap-4" data-slot="space-list">
+              {sidebarSpaceSections.map((section, spaceIndex) => {
+                const expanded = !collapsedSpaceIds.has(section.key);
+                const hasContent =
+                  section.items.length > 0 ||
+                  section.chatData.canShowMore ||
+                  section.chatData.canShowLess;
+                const editingThisSpace =
+                  spaceEditorOpen &&
+                  spaceEditorMode === "edit" &&
+                  editedSpace?.id === section.space.id;
+                return (
+                  <SortableSidebarNode
+                    key={section.key}
+                    id={sidebarSpaceDndId(section.space.id)}
+                    group="sidebar-space-order"
+                    index={spaceIndex}
+                    data={{
+                      type: "space",
+                      spaceId: section.space.id,
+                      label: section.label,
+                      preview: {
+                        kind: "space",
+                        label: section.label,
+                        expanded,
+                      },
                     }}
-                    onHeaderAction={() => {
-                      handleSelectSpace(section.space.id);
-                      void handleCreateHomeChat(section.space.id);
-                    }}
-                    onHeaderContextMenu={(event: MouseEvent<HTMLButtonElement>) =>
-                      void handleSpaceHeaderContextMenu(event, section.space)
-                    }
                   >
-                    {section.items.map((item) =>
-                      item.kind === "thread" ? (
-                        <Fragment key={`thread:${item.id}`}>
-                          {item.entries.map((entry) =>
-                            renderPencilThreadRow(
-                              entry.row.thread,
-                              visibleChatOrderedThreadIds,
-                              entry.row.depth,
-                            ),
-                          )}
-                        </Fragment>
-                      ) : (
-                        renderPencilProjectItem(item.project)
-                      ),
-                    )}
-                    {section.chatData.canShowMore ? (
-                      <ShowMoreRow
-                        onClick={() =>
-                          setChatThreadListExtraPages(section.chatData.effectiveExtraPages + 1)
+                    <SidebarContainerDropTarget
+                      id={`sidebar-container:space:${section.space.id}`}
+                      className="pointer-events-none absolute inset-x-0 top-0 z-20 h-[27px]"
+                      data={{
+                        type: "container",
+                        parent: { kind: "space", spaceId: section.space.id },
+                        label: section.label,
+                      }}
+                    />
+                    <div data-space-id={section.space.id}>
+                      <SpaceGroupShared
+                        expanded={expanded}
+                        hasContent={hasContent}
+                        header={
+                          editingThisSpace && editedSpace ? (
+                            <SpaceHeaderInlineEdit
+                              defaultValue={editedSpace.name}
+                              existingNames={spaceEditorExistingNames}
+                              mode="rename"
+                              onCancel={closeSpaceEditor}
+                              onSubmit={async (name) => {
+                                await handleSpaceEditorSubmit({
+                                  name,
+                                  icon: editedSpace.icon,
+                                });
+                                closeSpaceEditor();
+                              }}
+                            />
+                          ) : undefined
+                        }
+                        label={section.label}
+                        onExpandedChange={(nextExpanded) => {
+                          setCollapsedSpaceIds((current) => {
+                            const next = new Set(current);
+                            if (nextExpanded) next.delete(section.key);
+                            else next.add(section.key);
+                            return next;
+                          });
+                        }}
+                        onHeaderAction={() => {
+                          handleSelectSpace(section.space.id);
+                          void handleCreateHomeChat(section.space.id);
+                        }}
+                        onHeaderContextMenu={(event: MouseEvent<HTMLButtonElement>) =>
+                          void handleSpaceHeaderContextMenu(event, section.space)
                         }
                       >
-                        Show more
-                      </ShowMoreRow>
-                    ) : null}
-                    {section.chatData.canShowLess ? (
-                      <ShowMoreRow
-                        onClick={() =>
-                          setChatThreadListExtraPages(
-                            Math.max(0, section.chatData.effectiveExtraPages - 1),
-                          )
-                        }
-                      >
-                        Show less
-                      </ShowMoreRow>
-                    ) : null}
-                  </SpaceGroupShared>
-                </div>
-              );
-            })}
-          </div>
+                        {section.items.map((item, itemIndex) =>
+                          item.kind === "thread" ? (
+                            <Fragment key={`thread:${item.id}`}>
+                              {item.entries.map((entry) =>
+                                renderPencilThreadRow(
+                                  entry.row.thread,
+                                  visibleChatOrderedThreadIds,
+                                  entry.row.depth,
+                                  undefined,
+                                  entry.rootRowId,
+                                  entry.row.thread.id === entry.rootRowId
+                                    ? {
+                                        index: itemIndex,
+                                        parent: {
+                                          kind: "space",
+                                          spaceId: section.space.id,
+                                        },
+                                      }
+                                    : undefined,
+                                ),
+                              )}
+                            </Fragment>
+                          ) : (
+                            renderPencilProjectItem(item.project, itemIndex)
+                          ),
+                        )}
+                        {section.chatData.canShowMore ? (
+                          <ShowMoreRow
+                            onClick={() =>
+                              setChatThreadListExtraPages(section.chatData.effectiveExtraPages + 1)
+                            }
+                          >
+                            Show more
+                          </ShowMoreRow>
+                        ) : null}
+                        {section.chatData.canShowLess ? (
+                          <ShowMoreRow
+                            onClick={() =>
+                              setChatThreadListExtraPages(
+                                Math.max(0, section.chatData.effectiveExtraPages - 1),
+                              )
+                            }
+                          >
+                            Show less
+                          </ShowMoreRow>
+                        ) : null}
+                      </SpaceGroupShared>
+                    </div>
+                  </SortableSidebarNode>
+                );
+              })}
+            </div>
+          </SidebarDndMonitor>
         </SidebarProjects>
       </LeftRailContentShared>
 
@@ -3521,11 +3800,6 @@ export default function Sidebar() {
             renameProjectDialogProject.localName,
           );
         }}
-      />
-
-      <PenkraCreateClientDialog
-        open={penkraCreateClientOpen}
-        onOpenChange={setPenkraCreateClientOpen}
       />
 
       {searchPaletteOpen ? (

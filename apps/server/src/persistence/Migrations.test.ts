@@ -311,10 +311,11 @@ managedAttachmentsLegacyLayer("managed attachment migration after private migrat
         [92, "RemoveProjectionThreadWorktreePath"],
         [93, "VirtualFolders"],
         [94, "RequireSpaces"],
+        [95, "SidebarManualOrdering"],
       ]);
 
       const tracker = yield* trackerRows(sql);
-      assert.deepStrictEqual(tracker.slice(-31), [
+      assert.deepStrictEqual(tracker.slice(-32), [
         { migration_id: 54, name: "DurableProviderCommandDelivery" },
         { migration_id: 55, name: "ManagedAttachments" },
         { migration_id: 56, name: "CommandReceiptFingerprints" },
@@ -346,6 +347,7 @@ managedAttachmentsLegacyLayer("managed attachment migration after private migrat
         { migration_id: 92, name: "RemoveProjectionThreadWorktreePath" },
         { migration_id: 93, name: "VirtualFolders" },
         { migration_id: 94, name: "RequireSpaces" },
+        { migration_id: 95, name: "SidebarManualOrdering" },
       ]);
       const preserved = yield* sql<{ readonly count: number }>`
         SELECT COUNT(*) AS count FROM orchestration_consumer_state
@@ -422,6 +424,7 @@ agentGatewayRetentionLegacyLayer(
           [92, "RemoveProjectionThreadWorktreePath"],
           [93, "VirtualFolders"],
           [94, "RequireSpaces"],
+          [95, "SidebarManualOrdering"],
         ]);
 
         const columns = yield* sql<{ readonly name: string }>`
@@ -501,11 +504,12 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
         [92, "RemoveProjectionThreadWorktreePath"],
         [93, "VirtualFolders"],
         [94, "RequireSpaces"],
+        [95, "SidebarManualOrdering"],
       ]);
 
       const tracker = yield* trackerRows(sql);
       assert.deepStrictEqual(
-        tracker.slice(-15).map((row) => [row.migration_id, row.name]),
+        tracker.slice(-16).map((row) => [row.migration_id, row.name]),
         [
           [70, "AgentGatewayOperations"],
           [71, "ProjectionThreadsGatewayProvenance"],
@@ -522,6 +526,7 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
           [92, "RemoveProjectionThreadWorktreePath"],
           [93, "VirtualFolders"],
           [94, "RequireSpaces"],
+          [95, "SidebarManualOrdering"],
         ],
       );
 
@@ -595,11 +600,12 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
         [92, "RemoveProjectionThreadWorktreePath"],
         [93, "VirtualFolders"],
         [94, "RequireSpaces"],
+        [95, "SidebarManualOrdering"],
       ]);
 
       const tracker = yield* trackerRows(sql);
       assert.deepStrictEqual(
-        tracker.slice(-12).map((row) => [row.migration_id, row.name]),
+        tracker.slice(-13).map((row) => [row.migration_id, row.name]),
         [
           [74, "Spaces"],
           [79, "Spaces"],
@@ -613,6 +619,7 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
           [92, "RemoveProjectionThreadWorktreePath"],
           [93, "VirtualFolders"],
           [94, "RequireSpaces"],
+          [95, "SidebarManualOrdering"],
         ],
       );
       const preservedSpaces = yield* sql<{ readonly spaceId: string }>`
@@ -660,6 +667,7 @@ retiredMigration80CompatibilityLayer("v0.8.4 migration compatibility", (it) => {
         [92, "RemoveProjectionThreadWorktreePath"],
         [93, "VirtualFolders"],
         [94, "RequireSpaces"],
+        [95, "SidebarManualOrdering"],
       ]);
 
       const tracker = yield* trackerRows(sql);

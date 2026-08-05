@@ -2,8 +2,6 @@
 // Purpose: Builds provider child environments without Penkra control-plane authority.
 // Layer: Server provider process security
 
-import { withPenkraProviderEnv } from "./penkra/providerEnv.ts";
-
 export type ProviderChildKind =
   | "acp"
   | "antigravity"
@@ -71,7 +69,6 @@ export function buildProviderChildEnvironment(input: {
   readonly inheritedPenkraKeys?: ReadonlyArray<string>;
   readonly inheritedNativeCapabilityKeys?: ReadonlyArray<string>;
   readonly overrides?: NodeJS.ProcessEnv;
-  readonly penkraContext?: { readonly workspace?: string; readonly threadId: string };
 }): NodeJS.ProcessEnv {
   const baseEnv = {
     ...(input.baseEnv ?? process.env),
@@ -103,5 +100,5 @@ export function buildProviderChildEnvironment(input: {
     childEnv[key] = value;
   }
 
-  return input.penkraContext ? withPenkraProviderEnv(childEnv, input.penkraContext) : childEnv;
+  return childEnv;
 }

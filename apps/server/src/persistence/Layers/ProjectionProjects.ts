@@ -46,6 +46,7 @@ const makeProjectionProjectRepository = Effect.gen(function* () {
           scripts_json,
           is_pinned,
           space_id,
+          sidebar_sort_order,
           created_at,
           updated_at,
           deleted_at
@@ -59,6 +60,7 @@ const makeProjectionProjectRepository = Effect.gen(function* () {
           ${JSON.stringify(row.scripts)},
           ${row.isPinned ? 1 : 0},
           ${row.spaceId},
+          ${row.sidebarSortOrder ?? 0},
           ${row.createdAt},
           ${row.updatedAt},
           ${row.deletedAt}
@@ -72,6 +74,7 @@ const makeProjectionProjectRepository = Effect.gen(function* () {
           scripts_json = excluded.scripts_json,
           is_pinned = excluded.is_pinned,
           space_id = excluded.space_id,
+          sidebar_sort_order = excluded.sidebar_sort_order,
           created_at = excluded.created_at,
           updated_at = excluded.updated_at,
           deleted_at = excluded.deleted_at
@@ -92,6 +95,7 @@ const makeProjectionProjectRepository = Effect.gen(function* () {
           scripts_json AS "scripts",
           is_pinned AS "isPinned",
           space_id AS "spaceId",
+          sidebar_sort_order AS "sidebarSortOrder",
           created_at AS "createdAt",
           updated_at AS "updatedAt",
           deleted_at AS "deletedAt"
@@ -114,6 +118,7 @@ const makeProjectionProjectRepository = Effect.gen(function* () {
           scripts_json AS "scripts",
           is_pinned AS "isPinned",
           space_id AS "spaceId",
+          sidebar_sort_order AS "sidebarSortOrder",
           created_at AS "createdAt",
           updated_at AS "updatedAt",
           deleted_at AS "deletedAt"

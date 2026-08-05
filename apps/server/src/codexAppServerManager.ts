@@ -51,7 +51,6 @@ import { PENKRA_GATEWAY_HARNESS_POLICY } from "./agentGateway/harnessPolicy.ts";
 import type { AgentGatewaySessionLease } from "./agentGateway/sessionLease.ts";
 import { isNonFatalCodexErrorMessage } from "./codexErrorClassification.ts";
 import { buildCodexProcessEnv } from "./codexProcessEnv.ts";
-import { withPenkraProviderEnv } from "./penkra/providerEnv.ts";
 import { assertCodexWorkingDirectoryExists } from "./codexWorkingDirectory.ts";
 import { executableIdentity, resolveExecutable } from "./executableLookup.ts";
 import {
@@ -908,7 +907,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
   private async buildSessionProcessEnv(
     homePath: string | undefined,
     gatewayBearerToken: string | undefined,
-    penkraContext: { readonly threadId: ThreadId; readonly workspace: string },
   ) {
     const env = await buildCodexProcessEnv({
       ...(homePath ? { homePath } : {}),
@@ -919,7 +917,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     if (gatewayBearerToken) {
       env[PENKRA_AGENT_GATEWAY_TOKEN_ENV] = gatewayBearerToken;
     }
-    return withPenkraProviderEnv(env, penkraContext);
+    return env;
   }
 
   // Registers `~/.penkra/skills` as a codex skill root so portable skills are
@@ -981,7 +979,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         env: await this.buildSessionProcessEnv(
           codexHomePath,
           gatewaySessionLease?.connection.bearerToken,
-          { threadId, workspace: resolvedCwd },
         ),
       });
 
@@ -1681,7 +1678,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         env: await this.buildSessionProcessEnv(
           codexHomePath,
           gatewaySessionLease?.connection.bearerToken,
-          { threadId, workspace: resolvedCwd },
         ),
       });
 

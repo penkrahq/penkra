@@ -3,7 +3,6 @@ import { SettingsAccountPage } from "./account/SettingsAccountPage";
 import { SettingsAgentsPage } from "./agents/SettingsAgentsPage";
 import { SettingsAppearancePage } from "./appearance/SettingsAppearancePage";
 import { SettingsAppsPage } from "./apps/SettingsAppsPage";
-import { SettingsConnectorsPage } from "./connectors/SettingsConnectorsPage";
 import { SettingsGeneralPage } from "./general/SettingsGeneralPage";
 import { SettingsPermissionsPage } from "./permissions/SettingsPermissionsPage";
 import { SettingsSpacesPage } from "./spaces/SettingsSpacesPage";
@@ -20,8 +19,6 @@ export function SettingsPageContent({ page }: { page: SettingsPageId }) {
       return <SettingsAgentsPage />;
     case "apps":
       return <SettingsAppsPage />;
-    case "connectors":
-      return <SettingsConnectorsPage />;
     case "appearance":
       return <SettingsAppearancePage />;
     case "account":

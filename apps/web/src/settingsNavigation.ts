@@ -18,7 +18,6 @@ export const SETTINGS_SECTION_IDS = [
   "providers",
   "skills",
   "usage",
-  "integrations",
   "advanced",
 ] as const;
 

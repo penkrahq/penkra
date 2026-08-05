@@ -73,16 +73,6 @@ import {
   OrchestrationShellStreamItem,
   OrchestrationThreadStreamItem,
 } from "./orchestration";
-import {
-  PenkraCreateClientInput,
-  PenkraCreateClientResult,
-  PenkraCreateTodoInput,
-  PenkraMutationResult,
-  PenkraReconcileResult,
-  PenkraSnapshot,
-  PenkraUpdateClientInput,
-  PenkraUpdateTodoInput,
-} from "./penkra";
 import { ProviderCompactThreadInput } from "./provider";
 import {
   ProviderGetComposerCapabilitiesInput,
@@ -877,59 +867,9 @@ export const WsProviderListAgentsRpc = Rpc.make(WS_METHODS.providerListAgents, {
   error: WsRpcError,
 });
 
-export const WsPenkraGetSnapshotRpc = Rpc.make(WS_METHODS.penkraGetSnapshot, {
-  payload: Schema.Struct({}),
-  success: PenkraSnapshot,
-  error: WsRpcError,
-});
-
-export const WsPenkraCreateClientRpc = Rpc.make(WS_METHODS.penkraCreateClient, {
-  payload: PenkraCreateClientInput,
-  success: PenkraCreateClientResult,
-  error: WsRpcError,
-});
-
-export const WsPenkraUpdateClientRpc = Rpc.make(WS_METHODS.penkraUpdateClient, {
-  payload: PenkraUpdateClientInput,
-  success: PenkraCreateClientResult,
-  error: WsRpcError,
-});
-
-export const WsPenkraCreateTodoRpc = Rpc.make(WS_METHODS.penkraCreateTodo, {
-  payload: PenkraCreateTodoInput,
-  success: PenkraMutationResult,
-  error: WsRpcError,
-});
-
-export const WsPenkraUpdateTodoRpc = Rpc.make(WS_METHODS.penkraUpdateTodo, {
-  payload: PenkraUpdateTodoInput,
-  success: PenkraMutationResult,
-  error: WsRpcError,
-});
-
-export const WsPenkraReconcileRpc = Rpc.make(WS_METHODS.penkraReconcile, {
-  payload: Schema.Struct({}),
-  success: PenkraReconcileResult,
-  error: WsRpcError,
-});
-
-export const WsSubscribePenkraSnapshotsRpc = Rpc.make(WS_METHODS.subscribePenkraSnapshots, {
-  payload: Schema.Struct({}),
-  success: PenkraSnapshot,
-  error: WsRpcError,
-  stream: true,
-});
-
 export const WsBootstrapRpcGroup = RpcGroup.make(WsBootstrapNegotiateRpc);
 
 export const WsFeatureRpcGroup = RpcGroup.make(
-  WsPenkraGetSnapshotRpc,
-  WsPenkraCreateClientRpc,
-  WsPenkraUpdateClientRpc,
-  WsPenkraCreateTodoRpc,
-  WsPenkraUpdateTodoRpc,
-  WsPenkraReconcileRpc,
-  WsSubscribePenkraSnapshotsRpc,
   WsOrchestrationDispatchCommandRpc,
   WsOrchestrationImportThreadRpc,
   WsOrchestrationGetSnapshotRpc,

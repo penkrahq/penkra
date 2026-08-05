@@ -3,7 +3,6 @@ import {
   IconBrush,
   IconKey,
   IconFolders,
-  IconPlug,
   IconRobot,
   IconSettings,
   IconUser,
@@ -25,7 +24,6 @@ export type SettingsPageId =
   | "spaces"
   | "agents"
   | "apps"
-  | "connectors"
   | "appearance"
   | "account";
 
@@ -66,12 +64,6 @@ const pages = [
     id: "apps",
     label: "Apps",
     subtitle: "Installed apps from the Penkra registry.",
-  },
-  {
-    icon: IconPlug,
-    id: "connectors",
-    label: "Connectors",
-    subtitle: "Link external services and integrations.",
   },
   {
     icon: IconBrush,

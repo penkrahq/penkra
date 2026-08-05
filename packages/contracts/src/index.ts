@@ -23,4 +23,3 @@ export * from "./project";
 export * from "./studio";
 export * from "./filesystem";
 export * from "./rpc";
-export * from "./penkra";

@@ -22,6 +22,12 @@ describe("Penkra harness policy", () => {
     assert.include(policy, "notifying the user versus staying silent");
     assert.include(policy, 'later manual follow-up such as "continue"');
     assert.include(policy, "Never use it for a manual follow-up turn");
+    assert.notInclude(policy, "Connector");
+    assert.notInclude(policy, "sole MCP transport");
+    assert.notInclude(policy, "duplicate");
+    assert.include(policy, "check whether Penkra currently exposes a browser capability");
+    assert.include(policy, "do not assume that capability is implemented by a specific Penkra App");
+    assert.include(policy, "retain their normal provider behavior");
   });
 
   it("never advertises gateway mutation to providers without scoped MCP", () => {

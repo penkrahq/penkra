@@ -202,6 +202,29 @@ function validateProjectPinLimit(input: {
   );
 }
 
+function isLiveSidebarThread(thread: OrchestrationThread): boolean {
+  return thread.deletedAt === null && thread.archivedAt == null;
+}
+
+function collectThreadTreeIds(
+  readModel: OrchestrationReadModel,
+  rootThreadId: OrchestrationThread["id"],
+): Set<OrchestrationThread["id"]> {
+  const ids = new Set<OrchestrationThread["id"]>([rootThreadId]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const thread of readModel.threads) {
+      if (thread.deletedAt !== null || !thread.parentThreadId || ids.has(thread.id)) continue;
+      if (ids.has(thread.parentThreadId)) {
+        ids.add(thread.id);
+        changed = true;
+      }
+    }
+  }
+  return ids;
+}
+
 function deriveCommandAssociatedWorktreeMetadata(input: {
   readonly branch: string | null;
   readonly worktreePath: string | null;
@@ -658,6 +681,205 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       return events;
     }
 
+    case "sidebar.item.move": {
+      const targetProject =
+        command.target.kind === "project"
+          ? yield* requireProject({
+              readModel,
+              command,
+              projectId: command.target.projectId,
+            })
+          : null;
+      if (targetProject && (targetProject.kind ?? "project") !== "project") {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "Threads can only be dropped into ordinary folders.",
+        });
+      }
+      if (targetProject && targetProject.spaceId === null) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "The destination folder is not assigned to a Space.",
+        });
+      }
+      const targetSpace =
+        command.target.kind === "space"
+          ? yield* requireSpace({ readModel, command, spaceId: command.target.spaceId })
+          : yield* requireSpace({
+              readModel,
+              command,
+              spaceId: targetProject!.spaceId!,
+            });
+
+      const movedProject =
+        command.item.kind === "project"
+          ? yield* requireProject({ readModel, command, projectId: command.item.id })
+          : null;
+      const movedThread =
+        command.item.kind === "thread"
+          ? yield* requireThread({ readModel, command, threadId: command.item.id })
+          : null;
+      if (movedProject && (movedProject.kind ?? "project") !== "project") {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "Only ordinary folders can be reordered in Spaces.",
+        });
+      }
+      if (movedProject && command.target.kind !== "space") {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "Folders cannot be nested inside other folders.",
+        });
+      }
+      if (movedThread && movedThread.parentThreadId !== null) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "Nested child threads move together with their root thread.",
+        });
+      }
+      if (movedThread && !isLiveSidebarThread(movedThread)) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "Archived or deleted threads cannot be moved in the sidebar.",
+        });
+      }
+
+      const destinationItems =
+        command.target.kind === "space"
+          ? [
+              ...readModel.projects
+                .filter(
+                  (project) =>
+                    project.deletedAt === null &&
+                    (project.kind ?? "project") === "project" &&
+                    project.spaceId === targetSpace.id &&
+                    project.id !== movedProject?.id,
+                )
+                .map((project) => ({ kind: "project" as const, id: project.id })),
+              ...readModel.threads
+                .filter((thread) => {
+                  if (!isLiveSidebarThread(thread) || thread.parentThreadId !== null) return false;
+                  if (thread.id === movedThread?.id) return false;
+                  const project = readModel.projects.find(
+                    (candidate) => candidate.id === thread.projectId,
+                  );
+                  return project?.kind === "chat" && thread.spaceId === targetSpace.id;
+                })
+                .map((thread) => ({ kind: "thread" as const, id: thread.id })),
+            ]
+          : readModel.threads
+              .filter(
+                (thread) =>
+                  isLiveSidebarThread(thread) &&
+                  thread.parentThreadId === null &&
+                  thread.projectId === targetProject!.id &&
+                  thread.id !== movedThread?.id,
+              )
+              .map((thread) => ({ kind: "thread" as const, id: thread.id }));
+      const expectedItemKeySet = new Set([
+        ...destinationItems.map((item) => `${item.kind}:${item.id}`),
+        `${command.item.kind}:${command.item.id}`,
+      ]);
+      const orderedItemKeys = command.orderedItems.map((item) => `${item.kind}:${item.id}`);
+      if (
+        orderedItemKeys.length !== expectedItemKeySet.size ||
+        new Set(orderedItemKeys).size !== orderedItemKeys.length ||
+        orderedItemKeys.some((key) => !expectedItemKeySet.has(key))
+      ) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "The destination changed while the sidebar item was being moved. Try again.",
+        });
+      }
+
+      let encounteredUnpinned = false;
+      for (const item of command.orderedItems) {
+        const pinned =
+          item.kind === "project"
+            ? readModel.projects.find((project) => project.id === item.id)?.isPinned === true
+            : readModel.threads.find((thread) => thread.id === item.id)?.isPinned === true;
+        if (!pinned) encounteredUnpinned = true;
+        if (pinned && encounteredUnpinned) {
+          return yield* new OrchestrationCommandInvariantError({
+            commandType: command.type,
+            detail: "Pinned items must remain above unpinned items.",
+          });
+        }
+      }
+
+      const projectUpdates = new Map<
+        string,
+        {
+          projectId: OrchestrationReadModel["projects"][number]["id"];
+          spaceId?: typeof targetSpace.id;
+          sidebarSortOrder?: number;
+        }
+      >();
+      const threadUpdates = new Map<
+        string,
+        {
+          threadId: OrchestrationThread["id"];
+          projectId?: OrchestrationReadModel["projects"][number]["id"];
+          spaceId?: typeof targetSpace.id | null;
+          sidebarSortOrder?: number;
+        }
+      >();
+      command.orderedItems.forEach((item, sidebarSortOrder) => {
+        if (item.kind === "project") {
+          projectUpdates.set(item.id, { projectId: item.id, sidebarSortOrder });
+        } else {
+          threadUpdates.set(item.id, { threadId: item.id, sidebarSortOrder });
+        }
+      });
+
+      if (movedProject) {
+        projectUpdates.set(movedProject.id, {
+          ...projectUpdates.get(movedProject.id),
+          projectId: movedProject.id,
+          spaceId: targetSpace.id,
+        });
+      }
+      if (movedThread) {
+        const destinationProject =
+          targetProject ??
+          readModel.projects.find(
+            (project) => project.deletedAt === null && project.kind === "chat",
+          ) ??
+          null;
+        if (!destinationProject) {
+          return yield* new OrchestrationCommandInvariantError({
+            commandType: command.type,
+            detail: "No managed chat container is available for a loose Space thread.",
+          });
+        }
+        const treeIds = collectThreadTreeIds(readModel, movedThread.id);
+        for (const threadId of treeIds) {
+          threadUpdates.set(threadId, {
+            ...threadUpdates.get(threadId),
+            threadId,
+            projectId: destinationProject.id,
+            spaceId: targetProject ? null : targetSpace.id,
+          });
+        }
+      }
+
+      const occurredAt = nowIso();
+      return {
+        ...withEventBase({
+          aggregateKind: "space",
+          aggregateId: targetSpace.id,
+          occurredAt,
+          commandId: command.commandId,
+        }),
+        type: "sidebar.layout-updated",
+        payload: {
+          projectUpdates: [...projectUpdates.values()],
+          threadUpdates: [...threadUpdates.values()],
+          updatedAt: occurredAt,
+        },
+      };
+    }
+
     case "project.create": {
       yield* requireProjectAbsent({
         readModel,
@@ -908,6 +1130,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             : {}),
           ...(command.scripts !== undefined ? { scripts: command.scripts } : {}),
           ...(command.isPinned !== undefined ? { isPinned: command.isPinned } : {}),
+          ...(command.isPinned !== undefined && command.isPinned !== existingProject.isPinned
+            ? { sidebarSortOrder: 0 }
+            : {}),
           ...(changedSpaceId !== undefined ? { spaceId: changedSpaceId } : {}),
           updatedAt: occurredAt,
         },
@@ -1309,6 +1534,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             : {}),
           ...resolveThreadWorkspaceMetadataPatch(project?.kind, command, thread),
           ...(command.isPinned !== undefined ? { isPinned: command.isPinned } : {}),
+          ...(command.isPinned !== undefined && command.isPinned !== thread.isPinned
+            ? { sidebarSortOrder: 0 }
+            : {}),
           ...(command.parentThreadId !== undefined
             ? { parentThreadId: command.parentThreadId }
             : {}),

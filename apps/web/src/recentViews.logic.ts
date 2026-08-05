@@ -54,7 +54,6 @@ const SETTINGS_LABELS: Readonly<Record<string, string>> = {
   general: "General",
   appearance: "Appearance",
   providers: "Providers",
-  integrations: "Integrations",
   keybindings: "Keybindings",
 };
 

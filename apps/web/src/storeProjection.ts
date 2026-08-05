@@ -70,6 +70,7 @@ function toThreadShell(thread: Thread): ThreadShell {
     codexThreadId: thread.codexThreadId,
     projectId: thread.projectId,
     spaceId: thread.spaceId ?? null,
+    sidebarSortOrder: thread.sidebarSortOrder ?? 0,
     title: thread.title,
     modelSelection: thread.modelSelection,
     runtimeMode: thread.runtimeMode,
@@ -325,6 +326,8 @@ function sidebarThreadSummariesEqual(
     left !== undefined &&
     left.id === right.id &&
     left.projectId === right.projectId &&
+    (left.spaceId ?? null) === (right.spaceId ?? null) &&
+    (left.sidebarSortOrder ?? 0) === (right.sidebarSortOrder ?? 0) &&
     left.title === right.title &&
     left.modelSelection === right.modelSelection &&
     left.interactionMode === right.interactionMode &&
@@ -367,6 +370,7 @@ function buildSidebarThreadSummary(
     id: thread.id,
     projectId: thread.projectId,
     spaceId: thread.spaceId ?? null,
+    sidebarSortOrder: thread.sidebarSortOrder ?? 0,
     title: thread.title,
     modelSelection: thread.modelSelection,
     interactionMode: thread.interactionMode,
@@ -1347,6 +1351,29 @@ export function applyShellEvent(state: AppState, event: OrchestrationShellStream
       return removeSpace(state, event.spaceId, event.updatedAt, event.preserveAssignments ?? false);
     case "space-order-updated":
       return applySpaceOrder(state, event.orderedSpaceIds);
+    case "sidebar-layout-updated": {
+      let nextState = state;
+      for (const project of event.projects) {
+        nextState = upsertProject(nextState, project, "id-only");
+      }
+      for (const thread of event.threads) {
+        if (
+          nextState.deletedProjectIdsById?.[thread.projectId] !== undefined ||
+          nextState.deletedThreadIdsById?.[thread.id] !== undefined
+        ) {
+          nextState = removeThreadState(nextState, thread.id);
+          continue;
+        }
+        nextState = commitThreadProjection(
+          writeThreadShellProjection(
+            nextState,
+            normalizeThreadShellSnapshot(thread, getThreadFromState(nextState, thread.id)),
+          ),
+          thread.id,
+        );
+      }
+      return nextState;
+    }
     case "project-upserted":
       return upsertProject(state, event.project, "id-only");
     case "project-removed":

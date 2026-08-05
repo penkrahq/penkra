@@ -59,12 +59,6 @@ export function projectPickerProjectLabels(project: {
   cwd: string;
 }): { primaryLabel: string | null; secondaryLabel: string | null } {
   const folderName = basenameOfPath(project.cwd) ?? project.name;
-  if (project.id.startsWith("penkra-client-") || project.id === "penkra-hq") {
-    return {
-      primaryLabel: project.name.trim() || folderName,
-      secondaryLabel: null,
-    };
-  }
   const localName = project.localName?.trim() ?? "";
   return {
     primaryLabel: localName || folderName,

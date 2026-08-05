@@ -22,10 +22,8 @@ describe("WS RPC contracts", () => {
     expect(WsFeatureRpcGroup.requests.has(ORCHESTRATION_WS_METHODS.reconcileProviderDelivery)).toBe(
       true,
     );
-    expect(WsFeatureRpcGroup.requests.has(WS_METHODS.penkraGetSnapshot)).toBe(true);
     expect(WsFeatureRpcGroup.requests.has(WS_METHODS.serverGetSpaceNavigationState)).toBe(true);
     expect(WsFeatureRpcGroup.requests.has(WS_METHODS.serverUpdateSpaceNavigationState)).toBe(true);
-    expect(WsFeatureRpcGroup.requests.has(WS_METHODS.subscribePenkraSnapshots)).toBe(true);
     expect(WsFeatureRpcGroup.requests.has(WS_METHODS.subscribeProjectWorkspaceChanges)).toBe(true);
   });
 

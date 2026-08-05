@@ -18,7 +18,6 @@ const SETTINGS_SECTION_BY_PAGE: Readonly<Record<SettingsPageId, SettingsSectionI
   spaces: "spaces",
   agents: "providers",
   apps: "apps",
-  connectors: "integrations",
   appearance: "appearance",
   account: "profile",
 };
@@ -36,7 +35,6 @@ function settingsPageFromSection(section: SettingsSectionId): SettingsPageId {
     return "agents";
   }
   if (section === "apps") return "apps";
-  if (section === "integrations") return "connectors";
   if (section === "behavior" || section === "advanced") return "permissions";
   return "general";
 }

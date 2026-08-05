@@ -1371,8 +1371,7 @@ const worker = setupWorker(
         method === WS_METHODS.subscribeTerminalEvents ||
         method === WS_METHODS.subscribeOrchestrationDomainEvents ||
         method === WS_METHODS.subscribeProjectDevServerEvents ||
-        method === WS_METHODS.subscribeProjectWorkspaceChanges ||
-        method === WS_METHODS.subscribePenkraSnapshots
+        method === WS_METHODS.subscribeProjectWorkspaceChanges
       ) {
         return;
       }
@@ -2159,16 +2158,12 @@ describe("ChatView timeline estimator parity (full app)", () => {
           const title = [...(header?.querySelectorAll<HTMLElement>("span") ?? [])].find(
             (candidate) => candidate.textContent === longTitle,
           );
-          const menuButton = header?.querySelector<HTMLButtonElement>(
-            'button[aria-label="Thread menu"]',
-          );
 
           expect(title, "Unable to find the chat header title.").toBeTruthy();
-          expect(menuButton, "Unable to find the thread menu trigger.").toBeTruthy();
+          expect(header?.querySelector('button[aria-label="Thread menu"]')).toBeNull();
 
           const titleRight = title!.getBoundingClientRect().right;
-          const actionsLeft = menuButton!.getBoundingClientRect().left;
-          expect(titleRight).toBeLessThanOrEqual(actionsLeft + 1);
+          expect(titleRight).toBeLessThanOrEqual(header!.getBoundingClientRect().right + 1);
         },
         { timeout: 8_000, interval: 16 },
       );

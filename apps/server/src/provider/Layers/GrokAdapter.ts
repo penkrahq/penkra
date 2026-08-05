@@ -1036,7 +1036,6 @@ export function makeGrokAdapter(
             grokSettings: effectiveGrokSettings,
             childProcessSpawner,
             cwd,
-            penkraThreadId: input.threadId,
             ...(resumeSessionId ? { resumeSessionId } : {}),
             clientInfo: { name: "Penkra", version: "0.0.0" },
             // Grok registers client hooks from session setup metadata, not

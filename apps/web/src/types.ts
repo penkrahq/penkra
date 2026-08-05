@@ -179,6 +179,7 @@ export interface Project {
   isPinned?: boolean;
   /** Missing on renderer state written before Spaces; normalized snapshots always set it. */
   spaceId?: SpaceId | null;
+  sidebarSortOrder?: number;
   createdAt?: string | undefined;
   updatedAt?: string | undefined;
   scripts: ProjectScript[];
@@ -220,6 +221,7 @@ export interface Thread extends ThreadWorkspaceState {
   codexThreadId: string | null;
   projectId: ContainerId;
   spaceId?: SpaceId | null;
+  sidebarSortOrder?: number;
   title: string;
   modelSelection: ModelSelection;
   runtimeMode: RuntimeMode;
@@ -263,6 +265,7 @@ export interface ThreadShell extends ThreadWorkspaceState {
   codexThreadId: string | null;
   projectId: ContainerId;
   spaceId?: SpaceId | null;
+  sidebarSortOrder?: number;
   title: string;
   modelSelection: ModelSelection;
   runtimeMode: RuntimeMode;
@@ -307,6 +310,7 @@ export interface SidebarThreadSummary {
   id: ThreadId;
   projectId: ContainerId;
   spaceId?: SpaceId | null;
+  sidebarSortOrder?: number;
   title: string;
   modelSelection: ModelSelection;
   interactionMode: ProviderInteractionMode;

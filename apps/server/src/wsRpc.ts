@@ -105,7 +105,6 @@ import {
   makeWsStreamAdmission,
 } from "./wsStreamAdmission";
 import { ThreadDiagnosticsQuery } from "./diagnostics/Services/ThreadDiagnosticsQuery";
-import { PenkraRegistry } from "./penkra/layer";
 import { WorkspaceWatcher } from "./workspaceWatcher";
 import { makeWsRequestAdmission } from "./wsRequestAdmission";
 import {
@@ -259,6 +258,7 @@ function isShellRelevantEvent(event: OrchestrationEvent): boolean {
     event.type === "space.archived" ||
     event.type === "space.restored" ||
     event.type === "space.deleted" ||
+    event.type === "sidebar.layout-updated" ||
     event.type === "project.created" ||
     event.type === "project.meta-updated" ||
     event.type === "project.deleted" ||
@@ -307,7 +307,6 @@ const makeWsRpcHandlersLayer = () =>
       const orchestrationEngine = yield* OrchestrationEngineService;
       const providerCommandReactor = yield* ProviderCommandReactor;
       const path = yield* Path.Path;
-      const penkraRegistry = yield* PenkraRegistry;
       const pullRequests = yield* PullRequestService;
       const profileStatsQuery = yield* ProfileStatsQuery;
       const projectionReadModelQuery = yield* ProjectionSnapshotQuery;
@@ -696,6 +695,30 @@ const makeWsRpcHandlersLayer = () =>
                 preserveAssignments: event.type === "space.archived",
               }),
             );
+          case "sidebar.layout-updated":
+            return Effect.all({
+              projects: Effect.forEach(event.payload.projectUpdates, (update) =>
+                projectionReadModelQuery.getProjectShellById(update.projectId).pipe(
+                  Effect.map(Option.getOrNull),
+                  Effect.catch(() => Effect.succeed(null)),
+                ),
+              ),
+              threads: Effect.forEach(event.payload.threadUpdates, (update) =>
+                projectionReadModelQuery.getThreadShellById(update.threadId).pipe(
+                  Effect.map(Option.getOrNull),
+                  Effect.catch(() => Effect.succeed(null)),
+                ),
+              ),
+            }).pipe(
+              Effect.map(({ projects, threads }) =>
+                Option.some({
+                  kind: "sidebar-layout-updated" as const,
+                  sequence: event.sequence,
+                  projects: projects.filter((project) => project !== null),
+                  threads: threads.filter((thread) => thread !== null),
+                }),
+              ),
+            );
           case "project.created":
           case "project.meta-updated":
             return projectionReadModelQuery.getProjectShellById(event.payload.projectId).pipe(
@@ -745,23 +768,6 @@ const makeWsRpcHandlersLayer = () =>
         effect.pipe(Effect.mapError((cause) => toWsRpcError(cause, fallbackMessage)));
 
       return AdmittedWsFeatureRpcGroup.of({
-        [WS_METHODS.penkraGetSnapshot]: () => penkraRegistry.getSnapshot,
-        [WS_METHODS.penkraCreateClient]: (input) =>
-          rpcEffect(penkraRegistry.createClient(input), "Failed to create Penkra client"),
-        [WS_METHODS.penkraUpdateClient]: (input) =>
-          rpcEffect(penkraRegistry.updateClient(input), "Failed to update Penkra client"),
-        [WS_METHODS.penkraCreateTodo]: (input) =>
-          rpcEffect(penkraRegistry.createTodo(input), "Failed to create Penkra todo"),
-        [WS_METHODS.penkraUpdateTodo]: (input) =>
-          rpcEffect(penkraRegistry.updateTodo(input), "Failed to update Penkra todo"),
-        [WS_METHODS.penkraReconcile]: () =>
-          rpcEffect(penkraRegistry.reconcile, "Failed to reconcile Penkra registry"),
-        [WS_METHODS.subscribePenkraSnapshots]: (_, { clientId }) =>
-          streamAdmission.guard(
-            clientId,
-            { key: "penkra.snapshots" },
-            penkraRegistry.streamSnapshots,
-          ),
         [ORCHESTRATION_WS_METHODS.dispatchCommand]: (command) =>
           rpcEffect(
             Effect.gen(function* () {

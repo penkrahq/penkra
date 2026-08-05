@@ -6,7 +6,6 @@ import {
   type ProviderKind,
   type ProviderPluginDescriptor,
   type ProviderSkillDescriptor,
-  type PenkraSkillSummary,
 } from "@penkra/contracts";
 import { memo, useEffect, useRef, type ReactNode } from "react";
 import { type ComposerTriggerKind } from "../../composer-logic";
@@ -109,10 +108,6 @@ function commandMenuTrailingMeta(item: ComposerCommandItem): string | null {
     return formatSkillScope(item.skill.scope);
   }
 
-  if (item.type === "penkra-skill") {
-    return "Penkra";
-  }
-
   if (item.type === "model") {
     return "Model";
   }
@@ -142,7 +137,6 @@ function commandMenuSecondaryText(item: ComposerCommandItem): string | null {
   if (
     item.type === "plugin" ||
     item.type === "skill" ||
-    item.type === "penkra-skill" ||
     item.type === "local-root" ||
     item.type === "thread"
   ) {
@@ -231,13 +225,6 @@ export type ComposerCommandItem =
     }
   | {
       id: string;
-      type: "penkra-skill";
-      skill: PenkraSkillSummary;
-      label: string;
-      description: string;
-    }
-  | {
-      id: string;
       type: "agent";
       provider: ProviderKind;
       alias: string;
@@ -299,13 +286,12 @@ export function groupCommandItems(
 
   const builtInItems = items.filter((item) => item.type === "slash-command");
   const providerItems = items.filter((item) => item.type === "provider-native-command");
-  const skillItems = items.filter((item) => item.type === "skill" || item.type === "penkra-skill");
+  const skillItems = items.filter((item) => item.type === "skill");
   const otherItems = items.filter(
     (item) =>
       item.type !== "slash-command" &&
       item.type !== "provider-native-command" &&
-      item.type !== "skill" &&
-      item.type !== "penkra-skill",
+      item.type !== "skill",
   );
 
   const groups: ComposerCommandGroupModel[] = [];

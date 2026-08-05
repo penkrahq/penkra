@@ -1,7 +1,14 @@
 // FILE: spaces.test.ts
 // Purpose: Covers the clean persisted-Space lifecycle and folder assignment invariants.
 
-import { CommandId, ContainerId, SpaceId, type OrchestrationCommand } from "@penkra/contracts";
+import {
+  CommandId,
+  ContainerId,
+  DEFAULT_PROVIDER_INTERACTION_MODE,
+  SpaceId,
+  ThreadId,
+  type OrchestrationCommand,
+} from "@penkra/contracts";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 
@@ -42,6 +49,42 @@ async function addFolder(readModel: ReadModel, id: string, spaceId: SpaceId) {
     title: id,
     workspaceRoot: null,
     spaceId,
+    createdAt: CREATED_AT,
+  });
+}
+
+async function addChatContainer(readModel: ReadModel) {
+  return dispatch(readModel, {
+    type: "project.create",
+    commandId: CommandId.makeUnsafe("create-chat-container"),
+    projectId: ContainerId.makeUnsafe("chat-container"),
+    kind: "chat",
+    title: "Chats",
+    workspaceRoot: "/tmp/chats",
+    createdAt: CREATED_AT,
+  });
+}
+
+async function addThread(input: {
+  readModel: ReadModel;
+  id: string;
+  projectId: ContainerId;
+  spaceId?: SpaceId;
+  parentThreadId?: ThreadId;
+}) {
+  return dispatch(input.readModel, {
+    type: "thread.create",
+    commandId: CommandId.makeUnsafe(`create-${input.id}`),
+    threadId: ThreadId.makeUnsafe(input.id),
+    projectId: input.projectId,
+    ...(input.spaceId ? { spaceId: input.spaceId } : {}),
+    title: input.id,
+    modelSelection: { provider: "codex", model: "gpt-5-codex" },
+    runtimeMode: "full-access",
+    interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+    branch: null,
+    worktreePath: null,
+    ...(input.parentThreadId ? { parentThreadId: input.parentThreadId } : {}),
     createdAt: CREATED_AT,
   });
 }
@@ -238,5 +281,101 @@ describe("Spaces", () => {
     });
     expect(moved.events).toHaveLength(1);
     expect(moved.readModel.projects.map((project) => project.spaceId)).toEqual([work, work]);
+  });
+
+  it("persists a mixed folder order while moving a folder across Spaces", async () => {
+    const personal = SpaceId.makeUnsafe("personal");
+    const work = SpaceId.makeUnsafe("work");
+    let readModel = (await addSpace(createEmptyReadModel(CREATED_AT), personal, "Personal"))
+      .readModel;
+    ({ readModel } = await addSpace(readModel, work, "Work"));
+    ({ readModel } = await addFolder(readModel, "first", personal));
+    ({ readModel } = await addFolder(readModel, "second", work));
+
+    const moved = await dispatch(readModel, {
+      type: "sidebar.item.move",
+      commandId: CommandId.makeUnsafe("move-first-after-second"),
+      item: { kind: "project", id: ContainerId.makeUnsafe("first") },
+      target: { kind: "space", spaceId: work },
+      orderedItems: [
+        { kind: "project", id: ContainerId.makeUnsafe("second") },
+        { kind: "project", id: ContainerId.makeUnsafe("first") },
+      ],
+    });
+
+    expect(moved.events).toHaveLength(1);
+    expect(
+      moved.readModel.projects.map(({ id, spaceId, sidebarSortOrder }) => ({
+        id,
+        spaceId,
+        sidebarSortOrder,
+      })),
+    ).toEqual([
+      { id: "first", spaceId: work, sidebarSortOrder: 1 },
+      { id: "second", spaceId: work, sidebarSortOrder: 0 },
+    ]);
+  });
+
+  it("moves a root thread and its child tree into a folder atomically", async () => {
+    const personal = SpaceId.makeUnsafe("personal");
+    let readModel = (await addSpace(createEmptyReadModel(CREATED_AT), personal, "Personal"))
+      .readModel;
+    ({ readModel } = await addChatContainer(readModel));
+    ({ readModel } = await addFolder(readModel, "folder", personal));
+    ({ readModel } = await addThread({
+      readModel,
+      id: "root-thread",
+      projectId: ContainerId.makeUnsafe("chat-container"),
+      spaceId: personal,
+    }));
+    ({ readModel } = await addThread({
+      readModel,
+      id: "child-thread",
+      projectId: ContainerId.makeUnsafe("chat-container"),
+      spaceId: personal,
+      parentThreadId: ThreadId.makeUnsafe("root-thread"),
+    }));
+
+    const moved = await dispatch(readModel, {
+      type: "sidebar.item.move",
+      commandId: CommandId.makeUnsafe("move-thread-tree"),
+      item: { kind: "thread", id: ThreadId.makeUnsafe("root-thread") },
+      target: { kind: "project", projectId: ContainerId.makeUnsafe("folder") },
+      orderedItems: [{ kind: "thread", id: ThreadId.makeUnsafe("root-thread") }],
+    });
+
+    expect(
+      moved.readModel.threads.map(({ id, projectId, spaceId }) => ({ id, projectId, spaceId })),
+    ).toEqual([
+      { id: "root-thread", projectId: "folder", spaceId: null },
+      { id: "child-thread", projectId: "folder", spaceId: null },
+    ]);
+  });
+
+  it("rejects an order that places an unpinned item above a pinned item", async () => {
+    const personal = SpaceId.makeUnsafe("personal");
+    let readModel = (await addSpace(createEmptyReadModel(CREATED_AT), personal, "Personal"))
+      .readModel;
+    ({ readModel } = await addFolder(readModel, "pinned", personal));
+    ({ readModel } = await addFolder(readModel, "regular", personal));
+    ({ readModel } = await dispatch(readModel, {
+      type: "project.meta.update",
+      commandId: CommandId.makeUnsafe("pin-folder"),
+      projectId: ContainerId.makeUnsafe("pinned"),
+      isPinned: true,
+    }));
+
+    await expect(
+      dispatch(readModel, {
+        type: "sidebar.item.move",
+        commandId: CommandId.makeUnsafe("cross-pin-boundary"),
+        item: { kind: "project", id: ContainerId.makeUnsafe("regular") },
+        target: { kind: "space", spaceId: personal },
+        orderedItems: [
+          { kind: "project", id: ContainerId.makeUnsafe("regular") },
+          { kind: "project", id: ContainerId.makeUnsafe("pinned") },
+        ],
+      }),
+    ).rejects.toThrow(/pinned items must remain above/i);
   });
 });

@@ -6,7 +6,6 @@ import type {
   ProviderMentionReference,
   ProviderPluginDescriptor,
   ProviderSkillDescriptor,
-  PenkraSkillSummary,
 } from "@penkra/contracts";
 import { getAgentMentionAutocompleteAliases } from "@penkra/contracts";
 import {
@@ -56,34 +55,18 @@ const THREAD_MENTION_SUGGESTION_LIMIT = 20;
 
 export function buildSkillCommandItems(
   providerSkills: readonly ProviderSkillDescriptor[],
-  penkraSkills: readonly PenkraSkillSummary[],
   query: string,
 ): ComposerCommandItem[] {
   const normalizedQuery = normalizeProviderDiscoveryText(query);
-  const rankedPenkraSkills = rankProviderDiscoveryItems(penkraSkills, normalizedQuery, (skill) => [
-    { value: skill.name },
-    { value: skill.description },
-  ]);
-  const penkraNames = new Set(rankedPenkraSkills.map((skill) => skill.name.toLowerCase()));
-  const providerItems: ComposerCommandItem[] = rankProviderDiscoveryItems(
-    providerSkills.filter((skill) => !penkraNames.has(skill.name.toLowerCase())),
-    normalizedQuery,
-    buildSkillSearchFields,
-  ).map((skill) => ({
-    id: `skill:${skill.path}`,
-    type: "skill",
-    skill,
-    label: skill.interface?.displayName ?? skill.name,
-    description: skill.interface?.shortDescription ?? skill.description ?? skill.path,
-  }));
-  const penkraItems: ComposerCommandItem[] = rankedPenkraSkills.map((skill) => ({
-    id: `penkra-skill:${skill.name}`,
-    type: "penkra-skill",
-    skill,
-    label: skill.name,
-    description: skill.description,
-  }));
-  return [...penkraItems, ...providerItems];
+  return rankProviderDiscoveryItems(providerSkills, normalizedQuery, buildSkillSearchFields).map(
+    (skill) => ({
+      id: `skill:${skill.path}`,
+      type: "skill",
+      skill,
+      label: skill.interface?.displayName ?? skill.name,
+      description: skill.interface?.shortDescription ?? skill.description ?? skill.path,
+    }),
+  );
 }
 
 function threadSuggestionTitle(title: string): string {
@@ -276,7 +259,6 @@ export function useComposerCommandMenuItems(input: {
   providerPlugins: readonly ComposerPluginSuggestion[];
   providerNativeCommands: readonly ProviderNativeCommandDescriptor[];
   providerSkills: readonly ProviderSkillDescriptor[];
-  penkraSkills: readonly PenkraSkillSummary[];
   workspaceEntries: readonly ProjectEntry[];
   searchableModelOptions: readonly SearchableModelOption[];
   supportsFastSlashCommand: boolean;
@@ -298,7 +280,6 @@ export function useComposerCommandMenuItems(input: {
     providerPlugins,
     providerNativeCommands,
     providerSkills,
-    penkraSkills,
     workspaceEntries,
     searchableModelOptions,
     supportsFastSlashCommand,
@@ -460,7 +441,7 @@ export function useComposerCommandMenuItems(input: {
   }
 
   if (composerTrigger.kind === "skill") {
-    return buildSkillCommandItems(providerSkills, penkraSkills, composerTrigger.query);
+    return buildSkillCommandItems(providerSkills, composerTrigger.query);
   }
 
   return rankProviderDiscoveryItems(searchableModelOptions, composerTrigger.query, (option) => [

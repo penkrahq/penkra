@@ -37,6 +37,7 @@ export const applyProjectMetadataProjection = (input: {
           scripts: input.event.payload.scripts,
           isPinned: input.event.payload.isPinned ?? false,
           spaceId: input.event.payload.spaceId ?? null,
+          sidebarSortOrder: input.event.payload.sidebarSortOrder ?? 0,
           createdAt: input.event.payload.createdAt,
           updatedAt: input.event.payload.updatedAt,
           deletedAt: null,
@@ -68,6 +69,9 @@ export const applyProjectMetadataProjection = (input: {
               : {}),
             ...(input.event.payload.spaceId !== undefined
               ? { spaceId: input.event.payload.spaceId }
+              : {}),
+            ...(input.event.payload.sidebarSortOrder !== undefined
+              ? { sidebarSortOrder: input.event.payload.sidebarSortOrder }
               : {}),
             updatedAt: input.event.payload.updatedAt,
           });

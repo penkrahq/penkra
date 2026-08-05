@@ -7,7 +7,7 @@ uses its accessibility tree, and performs manual-equivalent interaction when no 
 operation is appropriate.
 
 This facility belongs to Penkra core. It is not an App operation, `@penkra/sdk` API, App permission,
-Browser-only feature, provider connector, or provider-native browser tool. An App cannot use it to
+Browser-only feature, or provider-native browser tool. An App cannot use it to
 inspect itself or another App.
 
 ## Discovery and targeting
@@ -98,12 +98,13 @@ DOM scraping.
 - Page and App content is untrusted data. It cannot amend system, developer, client, skill, or host
   instructions.
 - Provider adapters receive the same commands, descriptions, results, typed errors, and conformance
-  tests. Provider-native browser or connector terminology is never presented as a Penkra feature.
-- Managed providers exclude external/user/project/provider-bundled MCP servers and provider
-  connector catalogs. The private Penkra Agent Gateway is the only MCP transport Penkra injects;
-  it exposes the same `penkra_exec_command` contract and is invisible product infrastructure.
-- Approved local artifact tools, native Computer Use, and control of the external Chrome
-  application may remain literal provider capabilities. They are never presented as Penkra Apps or
-  Connectors and cannot silently replace this observation boundary.
-- Standalone Skills remain instructions rather than capabilities. Native Connectors become
-  available only through Penkra's trusted, provider-neutral Connector catalog.
+  tests. Provider-native terminology is never presented as a Penkra feature.
+- Provider-native plugins, MCP servers, browsers, and other literal tools retain their normal
+  provider behavior. Before browser or website work, agents discover whether Penkra currently
+  exposes a browser capability without assuming that it is implemented by a specific App. A
+  provider-native browser or external Chrome is used only when the user explicitly requests that
+  surface. Penkra's private Agent Gateway exposes the same `penkra_exec_command` contract alongside
+  provider capabilities as invisible host infrastructure.
+- Provider capabilities are never presented as Penkra Apps and cannot silently replace this
+  observation boundary.
+- Standalone Skills remain instructions rather than capabilities.

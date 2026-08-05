@@ -779,12 +779,13 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
     expect(runtime.connectCalls[0]).toMatchObject({ cwd });
   });
 
-  it("isolates same-cwd managed sessions, injects distinct gateway tokens, and revokes them", async () => {
+  it("isolates same-cwd managed sessions, replaces only the reserved gateway, and revokes tokens", async () => {
     const runtime = createMockOpenCodeRuntime({
       mcpStatus: async () => ({
         data: {
           pencil: { status: "connected" },
           github: { status: "disabled" },
+          penkra: { status: "connected" },
         },
       }),
     });
@@ -836,10 +837,8 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
     );
     expect(runtime.mcpAddCalls).toHaveLength(2);
     expect(runtime.mcpDisconnectCalls).toEqual([
-      { directory: "/same/repo", name: "pencil" },
-      { directory: "/same/repo", name: "github" },
-      { directory: "/same/repo", name: "pencil" },
-      { directory: "/same/repo", name: "github" },
+      { directory: "/same/repo", name: "penkra" },
+      { directory: "/same/repo", name: "penkra" },
     ]);
     expect(runtime.mcpAddCalls.map((call) => call.config)).toEqual([
       expect.objectContaining({

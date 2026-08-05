@@ -78,7 +78,6 @@ import {
 } from "~/lib/providerDiscoveryReactQuery";
 import { projectSearchEntriesQueryOptions } from "~/lib/projectReactQuery";
 import { serverConfigQueryOptions, serverQueryKeys } from "~/lib/serverReactQuery";
-import { penkraSnapshotQueryOptions } from "~/penkra/reactQuery";
 import { useRefreshProviderStatusesNow } from "~/hooks/useProviderStatusRefresh";
 import { SINGLE_CHAT_PANE_SCOPE_ID } from "~/lib/chatPaneScope";
 import {
@@ -123,7 +122,6 @@ import {
 } from "../lib/composerSend";
 import { persistComposerAsset } from "../lib/composerAssetStore";
 import { reconcileDeletedThreadFromClient } from "../lib/deletedThreadClientReconciliation";
-import { dispatchThreadRename } from "../lib/threadRename";
 import { useHandleNewChat } from "../hooks/useHandleNewChat";
 import { useComposerDropzone } from "../hooks/useComposerDropzone";
 import { useChatRouteSearch } from "../hooks/useChatRouteSearch";
@@ -205,7 +203,6 @@ import {
 } from "../pendingUserInput";
 import { selectRightDockState, useRightDockStore } from "../rightDockStore";
 import { useStore } from "../store";
-import { RenameThreadDialog } from "./RenameThreadDialog";
 import { getThreadFromState } from "../threadDerivation";
 import { useWorkspacePathsStore } from "../workspacePathsStore";
 import {
@@ -231,12 +228,10 @@ import {
   resolveShortcutCommand,
   shortcutLabelForCommand,
 } from "../keybindings";
-import { EllipsisIcon, RefreshCwIcon } from "~/lib/icons";
+import { RefreshCwIcon } from "~/lib/icons";
 import { ComposerQueuedHeader } from "./chat/ComposerQueuedHeader";
-import { ComposerPickerMenuPopup } from "./chat/ComposerPickerMenuPopup";
 import { Button } from "./ui/button";
 import { Skeleton } from "./ui/skeleton";
-import { Menu, MenuItem, MenuTrigger } from "./ui/menu";
 import { randomTerminalId } from "./terminal/terminalSession";
 import { cn, isMacPlatform, randomUUID } from "~/lib/utils";
 import { toastManager } from "./ui/toast";
@@ -1760,7 +1755,6 @@ export default function ChatView({
   const selectedSpaceName = useStore(
     (state) => state.spaces.find((space) => space.id === selectedSpaceId)?.name ?? null,
   );
-  const [renameDialogOpen, setRenameDialogOpen] = useState(false);
   const isHomeChatContainer = isHomeChatContainerProject(activeProject, {
     homeDir,
     chatWorkspaceRoot,
@@ -3024,16 +3018,6 @@ export default function ChatView({
         composerSkillCwd !== null,
     }),
   );
-  const penkraSkillScope =
-    activeProject?.id === "penkra-hq"
-      ? "hq"
-      : activeProject?.id.startsWith("penkra-client-")
-        ? "client"
-        : null;
-  const penkraSnapshotQuery = useQuery({
-    ...penkraSnapshotQueryOptions(),
-    enabled: penkraSkillScope !== null && isSkillTrigger,
-  });
   const providerPluginsQuery = useQuery(
     providerPluginsQueryOptions({
       provider: selectedProvider,
@@ -3101,9 +3085,6 @@ export default function ChatView({
     [providerNativeCommands, selectedProvider],
   );
   const providerSkills = providerSkillsQuery.data?.skills ?? EMPTY_PROVIDER_SKILLS;
-  const penkraSkills = penkraSkillScope
-    ? (penkraSnapshotQuery.data?.skills ?? []).filter((skill) => skill.scope === penkraSkillScope)
-    : [];
   const selectedModelCaps = useMemo(
     () => getModelCapabilities(selectedProvider, selectedModel),
     [selectedModel, selectedProvider],
@@ -3150,7 +3131,6 @@ export default function ChatView({
     providerPlugins,
     providerNativeCommands,
     providerSkills,
-    penkraSkills,
     workspaceEntries,
     searchableModelOptions,
     supportsFastSlashCommand,
@@ -4400,7 +4380,6 @@ export default function ChatView({
     showScrollDebouncer.current.cancel();
     const settle = window.setTimeout(() => {
       setPullRequestDialogState(null);
-      setRenameDialogOpen(false);
       setShowScrollToBottom(false);
     }, 0);
     return () => window.clearTimeout(settle);
@@ -7935,14 +7914,6 @@ export default function ChatView({
         });
         return;
       }
-      if (item.type === "penkra-skill") {
-        applyComposerTriggerReplacement({
-          snapshot,
-          trigger,
-          base: `$${item.skill.name} `,
-        });
-        return;
-      }
       if (item.type === "plugin" || item.type === "thread") {
         applyComposerTriggerReplacement({
           snapshot,
@@ -8028,9 +7999,7 @@ export default function ChatView({
       (providerComposerCapabilitiesQuery.isLoading ||
         providerComposerCapabilitiesQuery.isFetching ||
         providerSkillsQuery.isLoading ||
-        providerSkillsQuery.isFetching ||
-        penkraSnapshotQuery.isLoading ||
-        penkraSnapshotQuery.isFetching));
+        providerSkillsQuery.isFetching));
 
   const onPromptChange = useCallback(
     (
@@ -8365,48 +8334,6 @@ export default function ChatView({
     isHomeChat: isChatProject,
     isEmpty: timelineEntries.length === 0,
   });
-
-  const handleRenameActiveThread = async (newTitle: string) => {
-    const outcome = await dispatchThreadRename({
-      threadId: activeThread.id,
-      newTitle,
-      unchangedTitles: [activeThread.title],
-      createIfMissing: isLocalDraftThread
-        ? {
-            projectId: activeThread.projectId,
-            modelSelection: activeThread.modelSelection,
-            runtimeMode: activeThread.runtimeMode,
-            interactionMode: activeThread.interactionMode,
-            envMode: activeThread.envMode ?? "local",
-            branch: activeThread.branch,
-            worktreePath: activeThread.worktreePath,
-            workingDirectory: activeThread.workingDirectory ?? null,
-            ...(activeThread.lastKnownPr !== undefined
-              ? { lastKnownPr: activeThread.lastKnownPr }
-              : {}),
-            createdAt: activeThread.createdAt,
-          }
-        : undefined,
-    }).catch((error) => {
-      toastManager.add({
-        type: "error",
-        title: "Failed to rename thread",
-        description: error instanceof Error ? error.message : "An error occurred.",
-      });
-      throw error;
-    });
-
-    if (outcome === "empty") {
-      toastManager.add({
-        type: "warning",
-        title: "Thread title cannot be empty",
-      });
-      return;
-    }
-    if (outcome === "unchanged" || outcome === "unavailable") {
-      return;
-    }
-  };
 
   const runtimeUsageControlsProps = {
     runtimeMode,
@@ -8911,19 +8838,6 @@ export default function ChatView({
           desktopTopBarTrafficLightGutterClassName,
           desktopTopBarWindowControlsGutterClassName,
         )}
-        menuTrigger={
-          <Menu modal={false}>
-            <MenuTrigger
-              aria-label="Thread menu"
-              className="inline-flex size-3.5 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-[var(--color-text-foreground-tertiary)] outline-none hover:text-[var(--color-text-foreground)] focus-visible:ring-1 focus-visible:ring-[var(--color-border-focus)] [-webkit-app-region:no-drag]"
-            >
-              <EllipsisIcon className="size-3.5" />
-            </MenuTrigger>
-            <ComposerPickerMenuPopup align="start" side="bottom" sideOffset={6}>
-              <MenuItem onClick={() => setRenameDialogOpen(true)}>Rename thread</MenuItem>
-            </ComposerPickerMenuPopup>
-          </Menu>
-        }
         harness={activeThread.session?.provider ?? activeThread.modelSelection.provider}
         leftRailCollapsed={!leftRailOpen}
         onRestoreLeftRail={() => setLeftRailOpen(true)}
@@ -8931,12 +8845,6 @@ export default function ChatView({
         title={activeThreadDisplayTitle}
       />
 
-      <RenameThreadDialog
-        open={renameDialogOpen}
-        currentTitle={activeThread.title}
-        onOpenChange={setRenameDialogOpen}
-        onSave={handleRenameActiveThread}
-      />
       {/* Error banner */}
       <ProviderHealthBanner
         status={shouldShowProviderHealthBanner ? visibleActiveProviderStatus : null}

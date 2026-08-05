@@ -15,7 +15,7 @@ import path from "node:path";
 import { PassThrough } from "node:stream";
 import { ApprovalRequestId, ThreadId } from "@penkra/contracts";
 
-import { buildCodexProcessEnv, disableCodexConfigSections } from "./codexProcessEnv";
+import { buildCodexProcessEnv } from "./codexProcessEnv";
 import {
   buildCodexInitializeParams,
   CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS,
@@ -82,13 +82,9 @@ describe("Codex Penkra harness policy", () => {
           buildSessionProcessEnv: (
             homePath: string | undefined,
             token: string | undefined,
-            penkraContext: { threadId: ThreadId; workspace: string },
           ) => Promise<NodeJS.ProcessEnv>;
         }
-      ).buildSessionProcessEnv(homePath, "token", {
-        threadId: asThreadId("thread_gateway_endpoint"),
-        workspace: homePath,
-      });
+      ).buildSessionProcessEnv(homePath, "token");
       const configPath = path.join(env.CODEX_HOME ?? homePath, "config.toml");
       expect(readFileSync(configPath, "utf8")).toContain('url = "http://127.0.0.1:48123/mcp"');
     } finally {
@@ -927,7 +923,7 @@ describe("buildCodexProcessEnv", () => {
     expect(env.AZURE_OPENAI_API_KEY).toBe("existing-secret");
   });
 
-  it("disables every provider-native plugin only inside Penkra's Codex overlay", async () => {
+  it("preserves provider-native plugins inside Penkra's Codex overlay", async () => {
     const tempDir = mkdtempSync(path.join(os.tmpdir(), "penkra-codex-env-"));
     const runtimeHome = mkdtempSync(path.join(os.tmpdir(), "penkra-runtime-home-"));
     try {
@@ -938,6 +934,9 @@ describe("buildCodexProcessEnv", () => {
           "enabled = true",
           "",
           '[plugins."historical-plugin@local"]',
+          "enabled = true",
+          "",
+          '[plugins."browser@openai-bundled"]',
           "enabled = true",
         ].join("\n"),
         "utf8",
@@ -955,11 +954,60 @@ describe("buildCodexProcessEnv", () => {
         throw new Error("Expected CODEX_HOME to be set.");
       }
       const overlayConfig = readFileSync(path.join(codexHome, "config.toml"), "utf8");
-      expect(overlayConfig).toContain('[plugins."github@openai-curated"]\nenabled = false');
-      expect(overlayConfig).toContain('[plugins."historical-plugin@local"]\nenabled = false');
+      expect(overlayConfig).toContain('[plugins."github@openai-curated"]\nenabled = true');
+      expect(overlayConfig).toContain('[plugins."historical-plugin@local"]\nenabled = true');
+      expect(overlayConfig).toContain('[plugins."browser@openai-bundled"]\nenabled = true');
       const sourceConfig = readFileSync(path.join(tempDir, "config.toml"), "utf8");
       expect(sourceConfig).toContain('[plugins."github@openai-curated"]\nenabled = true');
       expect(sourceConfig).toContain('[plugins."historical-plugin@local"]\nenabled = true');
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+      rmSync(runtimeHome, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps the supported Computer Use bridge and disables its competing raw plugin server", async () => {
+    const tempDir = mkdtempSync(path.join(os.tmpdir(), "penkra-codex-env-"));
+    const runtimeHome = mkdtempSync(path.join(os.tmpdir(), "penkra-runtime-home-"));
+    try {
+      writeFileSync(
+        path.join(tempDir, "config.toml"),
+        [
+          '[plugins."computer-use@openai-bundled"]',
+          "enabled = true",
+          "",
+          "[mcp_servers.node_repl]",
+          'command = "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node_repl"',
+          "",
+          "[mcp_servers.node_repl.env]",
+          'SKY_CUA_SERVICE_PATH = "/Users/test/.codex/computer-use/Codex Computer Use.app"',
+          "",
+          "[mcp_servers.untrusted]",
+          'command = "untrusted-mcp"',
+        ].join("\n"),
+        "utf8",
+      );
+
+      const env = await buildCodexProcessEnv({
+        env: { PENKRA_HOME: runtimeHome },
+        homePath: tempDir,
+        platform: "darwin",
+      });
+
+      const codexHome = env.CODEX_HOME;
+      if (typeof codexHome !== "string") {
+        throw new Error("Expected CODEX_HOME to be set.");
+      }
+      const overlayConfig = readFileSync(path.join(codexHome, "config.toml"), "utf8");
+      expect(overlayConfig).toContain("[mcp_servers.node_repl]");
+      expect(overlayConfig).toContain("[mcp_servers.node_repl.env]");
+      expect(overlayConfig).toContain("[mcp_servers.untrusted]");
+      expect(overlayConfig).toContain(
+        [
+          '[plugins."computer-use@openai-bundled".mcp_servers."computer-use"]',
+          "enabled = false",
+        ].join("\n"),
+      );
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
       rmSync(runtimeHome, { recursive: true, force: true });
@@ -1051,17 +1099,6 @@ describe("buildCodexProcessEnv", () => {
       rmSync(tempDir, { recursive: true, force: true });
       rmSync(runtimeHome, { recursive: true, force: true });
     }
-  });
-
-  it("disables only explicitly recorded plugin sections", () => {
-    expect(
-      disableCodexConfigSections(
-        '[plugins."historical-plugin@local"]\nenabled = true\n\n[plugins."other@local"]\nenabled = true',
-        ['[plugins."historical-plugin@local"]'],
-      ),
-    ).toBe(
-      '[plugins."historical-plugin@local"]\nenabled = false\n\n[plugins."other@local"]\nenabled = true',
-    );
   });
 });
 

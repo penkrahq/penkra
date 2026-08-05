@@ -101,13 +101,6 @@ import {
 } from "./providerDiscovery";
 import { ProviderCompactThreadInput } from "./provider";
 import {
-  PenkraCreateClientInput,
-  PenkraUpdateClientInput,
-  PenkraCreateTodoInput,
-  PenkraSnapshot,
-  PenkraUpdateTodoInput,
-} from "./penkra";
-import {
   PullRequestActionInput,
   PullRequestCommentInput,
   PullRequestDetailInput,
@@ -211,15 +204,6 @@ export const WS_METHODS = {
   subscribeServerProviderStatuses: "server.subscribeProviderStatuses",
   subscribeServerSettings: "server.subscribeSettings",
 
-  // Penkra domain methods
-  penkraGetSnapshot: "penkra.getSnapshot",
-  penkraCreateClient: "penkra.createClient",
-  penkraUpdateClient: "penkra.updateClient",
-  penkraCreateTodo: "penkra.createTodo",
-  penkraUpdateTodo: "penkra.updateTodo",
-  penkraReconcile: "penkra.reconcile",
-  subscribePenkraSnapshots: "penkra.subscribeSnapshots",
-
   // Streaming subscriptions
   subscribeTerminalEvents: "terminal.subscribeEvents",
   subscribeOrchestrationDomainEvents: "orchestration.subscribeDomainEvents",
@@ -239,7 +223,6 @@ export const WS_METHODS = {
 // ── Push Event Channels ──────────────────────────────────────────────
 
 export const WS_CHANNELS = {
-  penkraSnapshot: "penkra.snapshot",
   gitActionProgress: "git.actionProgress",
   terminalEvent: "terminal.event",
   projectDevServerEvent: "project.devServerEvent",
@@ -389,15 +372,6 @@ const WebSocketRequestBody = Schema.Union([
   tagRequestBody(WS_METHODS.providerReadPlugin, ProviderReadPluginInput),
   tagRequestBody(WS_METHODS.providerListModels, ProviderListModelsInput),
   tagRequestBody(WS_METHODS.providerListAgents, ProviderListAgentsInput),
-
-  // Penkra domain methods
-  tagRequestBody(WS_METHODS.penkraGetSnapshot, Schema.Struct({})),
-  tagRequestBody(WS_METHODS.penkraCreateClient, PenkraCreateClientInput),
-  tagRequestBody(WS_METHODS.penkraUpdateClient, PenkraUpdateClientInput),
-  tagRequestBody(WS_METHODS.penkraCreateTodo, PenkraCreateTodoInput),
-  tagRequestBody(WS_METHODS.penkraUpdateTodo, PenkraUpdateTodoInput),
-  tagRequestBody(WS_METHODS.penkraReconcile, Schema.Struct({})),
-  tagRequestBody(WS_METHODS.subscribePenkraSnapshots, Schema.Struct({})),
 ]);
 
 export const WebSocketRequest = Schema.Struct({
@@ -432,7 +406,6 @@ export const WsWelcomePayload = Schema.Struct({
 export type WsWelcomePayload = typeof WsWelcomePayload.Type;
 
 export interface WsPushPayloadByChannel {
-  readonly [WS_CHANNELS.penkraSnapshot]: typeof PenkraSnapshot.Type;
   readonly [WS_CHANNELS.serverWelcome]: WsWelcomePayload;
   readonly [WS_CHANNELS.serverMaintenanceUpdated]: ServerLifecycleStreamEvent;
   readonly [WS_CHANNELS.serverConfigUpdated]: typeof ServerConfigUpdatedPayload.Type;
@@ -478,7 +451,6 @@ export const WsPushServerSettingsUpdated = makeWsPushSchema(
   WS_CHANNELS.serverSettingsUpdated,
   ServerSettingsUpdatedPayload,
 );
-export const WsPushPenkraSnapshot = makeWsPushSchema(WS_CHANNELS.penkraSnapshot, PenkraSnapshot);
 export const WsPushGitActionProgress = makeWsPushSchema(
   WS_CHANNELS.gitActionProgress,
   GitActionProgressEvent,
@@ -506,7 +478,6 @@ export const WsPushOrchestrationThreadEvent = makeWsPushSchema(
 );
 
 export const WsPushChannelSchema = Schema.Literals([
-  WS_CHANNELS.penkraSnapshot,
   WS_CHANNELS.gitActionProgress,
   WS_CHANNELS.serverWelcome,
   WS_CHANNELS.serverMaintenanceUpdated,
@@ -523,7 +494,6 @@ export const WsPushChannelSchema = Schema.Literals([
 export type WsPushChannelSchema = typeof WsPushChannelSchema.Type;
 
 export const WsPush = Schema.Union([
-  WsPushPenkraSnapshot,
   WsPushServerWelcome,
   WsPushServerMaintenanceUpdated,
   WsPushServerConfigUpdated,
