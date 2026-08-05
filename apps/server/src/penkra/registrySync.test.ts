@@ -1,3 +1,4 @@
+import type { OrchestrationCommand } from "@penkra/contracts";
 import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
@@ -26,7 +27,7 @@ describe("registry reconciliation scheduling", () => {
 
 describe("registry Folder projection", () => {
   it("creates a virtual Folder in Personal without attaching the physical client directory", async () => {
-    const dispatch = vi.fn(() => Effect.succeed(undefined));
+    const dispatch = vi.fn((_command: OrchestrationCommand) => Effect.succeed(undefined));
     await ensureRegistryFolder(
       {
         getReadModel: () => Effect.succeed({ projects: [] }),
@@ -52,7 +53,7 @@ describe("registry Folder projection", () => {
   });
 
   it("moves an existing legacy client Folder into Personal", async () => {
-    const dispatch = vi.fn(() => Effect.succeed(undefined));
+    const dispatch = vi.fn((_command: OrchestrationCommand) => Effect.succeed(undefined));
     await ensureRegistryFolder(
       {
         getReadModel: () =>
@@ -84,13 +85,13 @@ describe("registry Folder projection", () => {
         spaceId: "penkra-personal",
       }),
     );
-    expect(dispatch.mock.calls[0]?.[0].commandId).toMatch(
+    expect(dispatch.mock.calls[0]?.[0]?.commandId).toMatch(
       /^penkra:project:update:penkra-client-client-1:[0-9a-f]{64}$/,
     );
   });
 
   it("derives the registry command identity from the complete durable command intent", async () => {
-    const dispatch = vi.fn(() => Effect.succeed(undefined));
+    const dispatch = vi.fn((_command: OrchestrationCommand) => Effect.succeed(undefined));
     const engine = {
       getReadModel: () =>
         Effect.succeed({
@@ -118,6 +119,9 @@ describe("registry Folder projection", () => {
 
     const first = dispatch.mock.calls[0]?.[0];
     const second = dispatch.mock.calls[1]?.[0];
+    expect(first).toBeDefined();
+    expect(second).toBeDefined();
+    if (!first || !second) throw new Error("Expected two registry update commands.");
     expect(first.commandId).toBe(second.commandId);
     expect(first.commandId).toMatch(/^penkra:project:update:penkra-hq:[0-9a-f]{64}$/);
     expect(first).toEqual(
