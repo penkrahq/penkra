@@ -38,13 +38,24 @@ describe("AppRuntimeDiagnostics", () => {
         spaceId: "work",
         tabId: "b",
       }),
+      diagnostics.record({
+        kind: "app-update-failed",
+        appId: "com.example.canvas",
+        spaceId: "personal",
+        operation: "automatic-update",
+        message: "Verified package activation failed; 1.0.0 remains active.",
+      }),
     ]);
 
     const entries = await diagnostics.list({ appId: "com.example.canvas" });
-    expect(entries.map((entry) => entry.kind)).toEqual(["tab-ready", "tab-opened"]);
+    expect(entries.map((entry) => entry.kind)).toEqual([
+      "app-update-failed",
+      "tab-ready",
+      "tab-opened",
+    ]);
     expect(
       (await readFile(join(root, "diagnostics.jsonl"), "utf8")).trim().split("\n"),
-    ).toHaveLength(3);
+    ).toHaveLength(4);
   });
 
   it("fails visibly when the journal contains invalid data", async () => {

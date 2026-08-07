@@ -38,12 +38,14 @@ interface QueryResultLike {
     readonly source?: string;
   };
   readonly isFetching: boolean;
+  readonly isError: boolean;
   readonly isLoading: boolean;
   readonly isPlaceholderData: boolean;
 }
 
 const EMPTY_QUERY: QueryResultLike = {
   isFetching: false,
+  isError: false,
   isLoading: false,
   isPlaceholderData: false,
 };
@@ -126,6 +128,7 @@ describe("useProviderModelCatalog", () => {
     expect(second?.customModelsByProvider).toBe(first?.customModelsByProvider);
     expect(second?.modelOptionsByProvider).toBe(first?.modelOptionsByProvider);
     expect(second?.loadingModelProviders).toBe(first?.loadingModelProviders);
+    expect(second?.unavailableModelProviders).toBe(first?.unavailableModelProviders);
     expect(second?.runtimeModelsByProvider).toBe(first?.runtimeModelsByProvider);
     expect(second?.selectedRuntimeAgents).toBe(first?.selectedRuntimeAgents);
   });
@@ -153,6 +156,7 @@ describe("useProviderModelCatalog", () => {
         cached: false,
       },
       isFetching: true,
+      isError: false,
       isLoading: false,
       isPlaceholderData: true,
     });
@@ -172,5 +176,40 @@ describe("useProviderModelCatalog", () => {
     expect(catalog?.runtimeModelsByProvider.cursor).toEqual([
       { slug: "composer-2", name: "Composer 2" },
     ]);
+  });
+
+  it("marks Codex unavailable instead of presenting its static fallback as live", () => {
+    modelQueries.set("codex", {
+      isFetching: false,
+      isError: true,
+      isLoading: false,
+      isPlaceholderData: true,
+    });
+
+    const catalog = readCatalogRenders({
+      selectedProvider: "codex",
+      discoveryEnabled: true,
+    }).at(-1);
+
+    expect(catalog?.loadingModelProviders.codex).toBe(false);
+    expect(catalog?.unavailableModelProviders.codex).toBe(true);
+  });
+
+  it("keeps Codex pending until its authoritative catalog arrives", () => {
+    modelQueries.set("codex", {
+      isFetching: true,
+      isError: false,
+      isLoading: true,
+      isPlaceholderData: true,
+    });
+
+    const catalog = readCatalogRenders({
+      selectedProvider: "codex",
+      discoveryEnabled: false,
+    }).at(-1);
+
+    expect(catalog?.loadingModelProviders.codex).toBe(true);
+    expect(catalog?.selectedProviderModelsLoading).toBe(true);
+    expect(catalog?.unavailableModelProviders.codex).toBe(false);
   });
 });

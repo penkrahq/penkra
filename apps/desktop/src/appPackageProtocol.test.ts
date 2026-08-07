@@ -34,8 +34,30 @@ describe("App package protocol", () => {
     expect(response.status).toBe(200);
     await expect(response.text()).resolves.toBe("export const ready = true;");
     expect(response.headers.get("content-type")).toBe("text/javascript; charset=utf-8");
-    expect(response.headers.get("content-security-policy")).toContain("connect-src 'none'");
+    const contentSecurityPolicy = response.headers.get("content-security-policy");
+    expect(contentSecurityPolicy).toContain("script-src 'self' 'wasm-unsafe-eval'");
+    expect(contentSecurityPolicy).toContain("connect-src 'self'");
+    expect(contentSecurityPolicy).not.toContain("connect-src http:");
+    expect(contentSecurityPolicy).not.toContain("connect-src https:");
     expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+  });
+
+  it("serves verified package-local WebAssembly with its required MIME type", async () => {
+    const root = await packageFixture();
+    await FS.promises.writeFile(
+      Path.join(root, "assets", "engine.wasm"),
+      Uint8Array.from([0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]),
+    );
+    const handle = await createAppPackageProtocolHandler({
+      appId: "com.penkra.canvas",
+      packageRoot: root,
+      entrypoint: "app.html",
+    });
+
+    const response = await handle(new Request("penkra-app://com.penkra.canvas/assets/engine.wasm"));
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("application/wasm");
+    expect((await response.arrayBuffer()).byteLength).toBe(8);
   });
 
   it("falls back to the App entrypoint only for extensionless client routes", async () => {

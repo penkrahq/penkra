@@ -438,6 +438,43 @@ describe("composerDraftStore modelSelection", () => {
     expect(state.selectedModel).toBe("opencode/gpt-5-nano");
   });
 
+  it("replaces a stale Codex selection with the first model available to the signed-in account", () => {
+    const state = deriveEffectiveComposerModelState({
+      draft: {
+        modelSelectionByProvider: {
+          codex: modelSelection("codex", "gpt-5.2", { reasoningEffort: "medium" }),
+        },
+        activeProvider: "codex",
+      },
+      selectedProvider: "codex",
+      threadModelSelection: modelSelection("codex", "gpt-5.2", {
+        reasoningEffort: "medium",
+      }),
+      projectModelSelection: modelSelection("codex", "gpt-5.5", {
+        reasoningEffort: "medium",
+      }),
+      customModelsByProvider: {
+        codex: [],
+        claudeAgent: [],
+        cursor: [],
+        antigravity: [],
+        grok: [],
+        droid: [],
+        kilo: [],
+        opencode: [],
+        pi: [],
+      },
+      availableModelOptionsByProvider: {
+        codex: [
+          { slug: "gpt-5.6-sol", name: "GPT-5.6 Sol" },
+          { slug: "gpt-5.6-terra", name: "GPT-5.6 Terra" },
+        ],
+      },
+    });
+
+    expect(state.selectedModel).toBe("gpt-5.6-sol");
+  });
+
   it("preserves a selected Pi custom model when discovery omits it", () => {
     const state = deriveEffectiveComposerModelState({
       draft: {

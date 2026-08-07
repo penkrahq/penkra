@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { resolvePenkraAccountSignInUrl } from "./accountAuthSignInUrl";
 import {
   isPenkraAccountAuthCallbackUrl,
   readPenkraAccountAuthCallbackToken,
@@ -23,6 +24,17 @@ describe("Penkra account website origin", () => {
 });
 
 describe("Penkra account auth callback", () => {
+  it("routes numbered development sign-in back to the requesting instance", () => {
+    expect(
+      resolvePenkraAccountSignInUrl({
+        path: "/sign-in",
+        websiteOrigin: "http://localhost:3000",
+        desktopFlavor: "development",
+        developmentInstance: 2,
+      }).toString(),
+    ).toBe("http://localhost:3000/sign-in?desktop_flavor=development&desktop_instance=2");
+  });
+
   it("accepts the registered Penkra callback with a token", () => {
     expect(
       isPenkraAccountAuthCallbackUrl("com.penkra.app://auth/callback#token=encoded-auth-return"),

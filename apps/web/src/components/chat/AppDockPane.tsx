@@ -31,6 +31,7 @@ export function nativeAppViewBoundsSignature(bounds: {
 
 export function AppDockPane(props: {
   tabId: string;
+  rendererId: number;
   status: "loading" | "ready" | "crashed" | null;
   visible: boolean;
   appName: string | null;
@@ -68,6 +69,7 @@ export function AppDockPane(props: {
       lastBoundsSignatureRef.current = signature;
       void bridge.setBounds({
         tabId: props.tabId,
+        rendererId: props.rendererId,
         bounds: nextBounds,
       });
     };
@@ -105,10 +107,11 @@ export function AppDockPane(props: {
       schedule();
     });
     scheduleBoundsRef.current = schedule;
-    void bridge.attach({ tabId: props.tabId }).then(() => {
+    void bridge.attach({ tabId: props.tabId, rendererId: props.rendererId }).then(() => {
       if (!stopped) {
         void bridge.setVisible({
           tabId: props.tabId,
+          rendererId: props.rendererId,
           visible: nativeViewVisibleRef.current,
         });
         if (nativeViewVisibleRef.current) schedule();
@@ -130,9 +133,11 @@ export function AppDockPane(props: {
       dockShell?.removeEventListener("animationcancel", schedule);
       unsubscribeZoomFactor?.();
       if (frame) window.cancelAnimationFrame(frame);
-      void bridge.setVisible({ tabId: props.tabId, visible: false }).catch(() => undefined);
+      void bridge
+        .setVisible({ tabId: props.tabId, rendererId: props.rendererId, visible: false })
+        .catch(() => undefined);
     };
-  }, [props.tabId]);
+  }, [props.rendererId, props.tabId]);
 
   useLayoutEffect(() => {
     const bridge = window.desktopBridge?.appTabs;
@@ -146,7 +151,9 @@ export function AppDockPane(props: {
       if (generation !== visibilityGenerationRef.current) return;
       nativeViewVisibleRef.current = visible;
       if (visible) lastBoundsSignatureRef.current = null;
-      void bridge.setVisible({ tabId: props.tabId, visible }).catch(() => undefined);
+      void bridge
+        .setVisible({ tabId: props.tabId, rendererId: props.rendererId, visible })
+        .catch(() => undefined);
       if (visible) scheduleBoundsRef.current?.();
     };
 
@@ -191,7 +198,7 @@ export function AppDockPane(props: {
     return () => {
       if (frame) window.cancelAnimationFrame(frame);
     };
-  }, [props.tabId, props.visible, showNativeView]);
+  }, [props.rendererId, props.tabId, props.visible, showNativeView]);
 
   return (
     <div ref={viewportRef} className="relative h-full min-h-0 w-full overflow-hidden">

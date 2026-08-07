@@ -64,6 +64,22 @@ describe("formatProviderModelOptionName", () => {
 });
 
 describe("mergeDynamicModelOptions", () => {
+  it("uses the signed-in Codex catalog without re-adding unavailable static models", () => {
+    expect(
+      mergeDynamicModelOptions({
+        provider: "codex",
+        staticOptions: [
+          { slug: "gpt-5.2", name: "GPT-5.2" },
+          { slug: "custom/private-model", name: "Custom model", isCustom: true },
+        ],
+        dynamicModels: [{ slug: "gpt-5.6-sol", name: "GPT-5.6 Sol" }],
+      }),
+    ).toEqual([
+      { slug: "gpt-5.6-sol", name: "GPT-5.6 Sol" },
+      { slug: "custom/private-model", name: "Custom model", isCustom: true },
+    ]);
+  });
+
   it("does not expose Codex's internal auto-review model", () => {
     expect(
       mergeDynamicModelOptions({

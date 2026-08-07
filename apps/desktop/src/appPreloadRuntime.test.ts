@@ -6,6 +6,7 @@ function fixture() {
   const sent: AppPreloadRendererMessage[] = [];
   let hostListener: ((message: unknown) => void) | null = null;
   const ready = vi.fn();
+  const tabSetRoute = vi.fn(async () => undefined);
   let browserStateListener: ((state: import("@penkra/sdk").AppBrowserSessionState) => void) | null =
     null;
   const browserCall = vi.fn(async () => ({
@@ -24,6 +25,7 @@ function fixture() {
       };
     },
     ready,
+    tabSetRoute,
     queryPermission: vi.fn(async (name) => ({
       name,
       declared: true,
@@ -37,6 +39,12 @@ function fixture() {
       state: "granted" as const,
     })),
     getIdentity: vi.fn(async () => ({ subject: "sub_test", space: "space_test" })),
+    accountDataRequest: vi.fn(async () => ({
+      status: 200,
+      headers: {},
+      body: new Uint8Array(),
+    })),
+    accountDataSubscribe: vi.fn(async () => () => undefined),
     settingGet: vi.fn(async () => "value"),
     settingSet: vi.fn(async () => undefined),
     settingReset: vi.fn(async () => undefined),
@@ -108,6 +116,7 @@ function fixture() {
     runtime,
     sent,
     ready,
+    tabSetRoute,
     browserCall,
     browserState: (state: import("@penkra/sdk").AppBrowserSessionState) =>
       browserStateListener?.(state),
@@ -138,6 +147,17 @@ function controllerRequest(input: unknown = { title: "Fix redirect" }) {
 }
 
 describe("AppPreloadRuntime", () => {
+  it("records the current App route through the narrow preload transport", async () => {
+    const test = fixture();
+
+    await test.runtime.api.tab.setRoute({ route: "/document", state: { documentId: "doc-1" } });
+
+    expect(test.tabSetRoute).toHaveBeenCalledWith({
+      route: "/document",
+      state: { documentId: "doc-1" },
+    });
+  });
+
   it("announces readiness once and enforces unique handler registration", () => {
     const test = fixture();
     test.runtime.start();
@@ -312,6 +332,34 @@ describe("AppPreloadRuntime", () => {
           },
         ]),
       );
+    });
+  });
+
+  it("holds initial navigation until the App registers its handler", async () => {
+    const test = fixture();
+    test.host({
+      type: "request",
+      id: "initial-navigation",
+      method: "tab.navigate",
+      input: { route: "/document", state: { documentId: "doc-1" } },
+    });
+
+    await Promise.resolve();
+    expect(test.sent).toEqual([]);
+
+    const handler = vi.fn(async ({ route, state }) => ({ route, state }));
+    test.runtime.api.tab.onNavigate(handler);
+
+    await vi.waitFor(() => {
+      expect(handler).toHaveBeenCalledWith(
+        { route: "/document", state: { documentId: "doc-1" } },
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      );
+      expect(test.sent).toContainEqual({
+        type: "result",
+        id: "initial-navigation",
+        result: { route: "/document", state: { documentId: "doc-1" } },
+      });
     });
   });
 

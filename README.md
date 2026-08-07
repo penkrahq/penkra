@@ -80,7 +80,9 @@ bun install --frozen-lockfile
 bun run dev:desktop:install-app
 ```
 
-Open **Penkra (Dev)** from `/Applications` to start the full local development workspace. The launcher starts Docker when necessary and waits for its engine before bootstrapping.
+Open **Penkra Dev**, **Penkra Dev 2**, or **Penkra Dev 3** from `/Applications`. The first app starts Docker and the shared local services; each numbered app has its own login, local database, tabs, Threads, Chromium profile, and logs. Closing one app leaves the others running, and the shared services stop after the last app closes.
+
+The default installer provisions slots 1–3 without imposing a maximum. Install another stable slot with `bun run dev:desktop:install-app -- 4`; after that, **Penkra Dev 4** launches normally from Applications.
 
 ### Tech stack
 
@@ -110,8 +112,7 @@ penkra/
 │   ├── contracts/     # Shared schemas — WebSocket protocol, events, models
 │   ├── shared/        # Reusable runtime and domain utilities
 │   ├── sdk/           # Public SDK for App developers
-│   ├── ui/            # Semantic tokens, CSS, icons, framework-neutral primitives
-│   └── create-penkra-app/  # Scaffolding CLI for new Apps
+│   └── ui/            # Semantic tokens, CSS, icons, framework-neutral primitives
 ├── examples/
 │   └── sample-app/    # Framework-neutral example App
 └── docs/

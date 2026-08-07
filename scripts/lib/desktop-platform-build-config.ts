@@ -18,16 +18,46 @@ export const PARCEL_WATCHER_ASAR_UNPACK_GLOBS = [
   "node_modules/@parcel/watcher-*/**",
 ] as const;
 
+const AZURE_TRUSTED_SIGNING_ENV = {
+  endpoint: "AZURE_TRUSTED_SIGNING_ENDPOINT",
+  codeSigningAccountName: "AZURE_TRUSTED_SIGNING_ACCOUNT_NAME",
+  certificateProfileName: "AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME",
+  publisherName: "AZURE_TRUSTED_SIGNING_PUBLISHER_NAME",
+} as const;
+
+function resolveAzureTrustedSigningOptions(): Record<string, string> | null {
+  const values = Object.fromEntries(
+    Object.entries(AZURE_TRUSTED_SIGNING_ENV).map(([key, environmentName]) => [
+      key,
+      process.env[environmentName]?.trim() ?? "",
+    ]),
+  ) as Record<keyof typeof AZURE_TRUSTED_SIGNING_ENV, string>;
+  const populated = Object.values(values).filter(Boolean);
+  if (populated.length === 0) return null;
+  if (populated.length !== Object.keys(AZURE_TRUSTED_SIGNING_ENV).length) {
+    const missing = Object.entries(AZURE_TRUSTED_SIGNING_ENV)
+      .filter(([key]) => !values[key as keyof typeof values])
+      .map(([, environmentName]) => environmentName);
+    throw new Error(
+      `Azure Trusted Signing configuration is incomplete: missing ${missing.join(", ")}.`,
+    );
+  }
+  return values;
+}
+
 export interface DesktopPlatformBuildConfig {
   readonly asarUnpack?: ReadonlyArray<string>;
   readonly dmg?: Record<string, unknown>;
   readonly extraFiles?: ReadonlyArray<Record<string, string>>;
   readonly files?: ReadonlyArray<string>;
+  readonly linux?: Record<string, unknown>;
   readonly mac?: Record<string, unknown>;
+  readonly nsis?: Record<string, unknown>;
+  readonly win?: Record<string, unknown>;
 }
 
 export interface CreateDesktopPlatformBuildConfigInput {
-  readonly platform: "mac";
+  readonly platform: "linux" | "mac" | "win";
   readonly target: string;
   readonly signed?: boolean;
   readonly notarize?: boolean;
@@ -39,6 +69,36 @@ export function createDesktopPlatformBuildConfig(
   const nativePackaging = {
     asarUnpack: [...NODE_PTY_ASAR_UNPACK_GLOBS, ...PARCEL_WATCHER_ASAR_UNPACK_GLOBS],
   };
+
+  if (input.platform === "win") {
+    const azureSignOptions = input.signed ? resolveAzureTrustedSigningOptions() : null;
+    return {
+      ...nativePackaging,
+      win: {
+        target: [input.target],
+        icon: "icon.ico",
+        verifyUpdateCodeSignature: true,
+        ...(azureSignOptions === null ? {} : { azureSignOptions }),
+      },
+      nsis: {
+        // A user-level installer works without elevation and is compatible with
+        // electron-updater's normal install/update ownership model.
+        perMachine: false,
+        oneClick: true,
+      },
+    };
+  }
+
+  if (input.platform === "linux") {
+    return {
+      ...nativePackaging,
+      linux: {
+        target: [input.target],
+        icon: "icon.png",
+        category: "Development",
+      },
+    };
+  }
 
   const mac = {
     target: input.target === "dmg" ? [input.target, "zip"] : [input.target],

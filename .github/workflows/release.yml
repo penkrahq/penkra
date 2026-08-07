@@ -16,14 +16,26 @@ permissions:
 
 jobs:
   build:
-    name: Build signed macOS arm64 release
-    runs-on: macos-14
+    name: Build ${{ matrix.name }} release
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
     environment: desktop-release
-    outputs:
-      version: ${{ steps.release.outputs.version }}
-      source_commit: ${{ steps.release.outputs.source_commit }}
-      lockfile_sha256: ${{ steps.release.outputs.lockfile_sha256 }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS arm64
+            runner: macos-15
+            platform: mac
+            target: dmg
+            arch: arm64
+            artifact: mac-arm64
+          - name: Linux x64
+            runner: ubuntu-24.04
+            platform: linux
+            target: AppImage
+            arch: x64
+            artifact: linux-x64
     permissions:
       actions: read
       checks: read
@@ -67,7 +79,7 @@ jobs:
           NODE
 
           source_commit="$(git rev-parse HEAD)"
-          lockfile_sha256="$(shasum -a 256 bun.lock | awk '{print $1}')"
+          lockfile_sha256="$(node --input-type=module -e 'import { createHash } from "node:crypto"; import { readFileSync } from "node:fs"; process.stdout.write(createHash("sha256").update(readFileSync("bun.lock")).digest("hex"));')"
           {
             echo "version=$version"
             echo "source_commit=$source_commit"
@@ -98,70 +110,91 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Build, sign, and notarize
+      - name: Require macOS signing configuration
+        if: matrix.platform == 'mac'
         env:
-          NODE_OPTIONS: --max-old-space-size=4096
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         shell: bash
         run: |
           set -euo pipefail
-          required=(
-            CSC_LINK
-            CSC_KEY_PASSWORD
-            APPLE_API_KEY
-            APPLE_API_KEY_ID
-            APPLE_API_ISSUER
-          )
-          for name in "${required[@]}"; do
+          for name in CSC_LINK CSC_KEY_PASSWORD APPLE_API_KEY APPLE_API_KEY_ID APPLE_API_ISSUER APPLE_TEAM_ID; do
             test -n "${!name:-}" || { echo "Missing required release secret: $name" >&2; exit 1; }
           done
+          printf '%s' "$APPLE_API_KEY" > "$RUNNER_TEMP/AuthKey_${APPLE_API_KEY_ID}.p8"
 
-          key_path="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY_ID}.p8"
-          printf '%s' "$APPLE_API_KEY" > "$key_path"
-          export APPLE_API_KEY="$key_path"
-
+      - name: Build signed and notarized macOS artifact
+        if: matrix.platform == 'mac'
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_API_KEY: ${{ runner.temp }}/AuthKey_${{ secrets.APPLE_API_KEY_ID }}.p8
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        shell: bash
+        run: |
+          set -euo pipefail
           bun run dist:desktop:artifact -- \
-            --platform mac \
-            --target dmg \
-            --arch arm64 \
+            --platform mac --target dmg --arch arm64 \
             --build-version "${{ steps.release.outputs.version }}" \
             --source-commit "${{ steps.release.outputs.source_commit }}" \
             --source-tag "${GITHUB_REF_NAME}" \
             --lockfile-sha256 "${{ steps.release.outputs.lockfile_sha256 }}" \
-            --signed \
-            --verbose
+            --signed --verbose
 
-      - name: Verify updater artifact and public-package boundary
+      - name: Build Linux artifact
+        if: matrix.platform == 'linux'
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+        shell: bash
+        run: |
+          set -euo pipefail
+          bun run dist:desktop:artifact -- \
+            --platform linux --target AppImage --arch x64 \
+            --build-version "${{ steps.release.outputs.version }}" \
+            --source-commit "${{ steps.release.outputs.source_commit }}" \
+            --source-tag "${GITHUB_REF_NAME}" \
+            --lockfile-sha256 "${{ steps.release.outputs.lockfile_sha256 }}" --verbose
+
+      - name: Verify macOS artifact
+        if: matrix.platform == 'mac'
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         shell: bash
         run: |
           set -euo pipefail
           bun run release:smoke:mac-update -- --artifact-dir release
-          node scripts/verify-packaged-desktop-startup.ts \
-            --assets-dir release \
-            --platform mac \
-            --arch arm64 \
-            --version "${{ steps.release.outputs.version }}"
+          node scripts/verify-packaged-desktop-startup.ts --assets-dir release --platform mac --arch arm64 --version "${{ steps.release.outputs.version }}"
           if ditto -l -k release/*.zip | grep -q '/Contents/Resources/penkra-cli/'; then
             echo "Public desktop artifact contains the private Penkra CLI." >&2
             exit 1
           fi
+          node scripts/write-release-artifact-provenance.ts \
+            --assets-dir release --platform mac --arch arm64 --target dmg \
+            --version "${{ steps.release.outputs.version }}" \
+            --source-commit "${{ steps.release.outputs.source_commit }}" \
+            --source-tag "${GITHUB_REF_NAME}" \
+            --lockfile-sha256 "${{ steps.release.outputs.lockfile_sha256 }}" \
+            --publication true --signed true --expected-mac-team-id "$APPLE_TEAM_ID"
 
-      - name: Write SHA-256 checksums
-        working-directory: release
+      - name: Verify Linux artifact
+        if: matrix.platform == 'linux'
         shell: bash
         run: |
           set -euo pipefail
-          shopt -s nullglob
-          artifacts=(*.dmg *.zip *.blockmap *.yml)
-          if (( ${#artifacts[@]} == 0 )); then
-            echo "No release artifacts found for checksums." >&2
-            exit 1
-          fi
-          shasum -a 256 "${artifacts[@]}" > SHA256SUMS.txt
+          node scripts/verify-packaged-desktop-startup.ts --assets-dir release --platform linux --arch x64 --version "${{ steps.release.outputs.version }}"
+          node scripts/write-release-artifact-provenance.ts \
+            --assets-dir release --platform linux --arch x64 --target AppImage \
+            --version "${{ steps.release.outputs.version }}" \
+            --source-commit "${{ steps.release.outputs.source_commit }}" \
+            --source-tag "${GITHUB_REF_NAME}" \
+            --lockfile-sha256 "${{ steps.release.outputs.lockfile_sha256 }}" \
+            --publication true --signed false
 
       - name: Attest release artifacts
         uses: actions/attest@v4
@@ -171,7 +204,7 @@ jobs:
       - name: Retain exact release artifacts
         uses: actions/upload-artifact@v6
         with:
-          name: penkra-${{ steps.release.outputs.version }}-mac-arm64
+          name: penkra-${{ steps.release.outputs.version }}-${{ matrix.artifact }}
           path: release/*
           if-no-files-found: error
           retention-days: 30
@@ -187,8 +220,22 @@ jobs:
       - name: Download verified release artifacts
         uses: actions/download-artifact@v8
         with:
-          name: penkra-${{ needs.build.outputs.version }}-mac-arm64
+          pattern: penkra-*
           path: release
+          merge-multiple: true
+
+      - name: Write aggregate SHA-256 checksums
+        working-directory: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          artifacts=(*.dmg *.zip *.blockmap *.yml *.AppImage)
+          if (( ${#artifacts[@]} == 0 )); then
+            echo "No release artifacts found for checksums." >&2
+            exit 1
+          fi
+          sha256sum "${artifacts[@]}" | sort > SHA256SUMS.txt
 
       - name: Create or refresh draft release
         env:
@@ -203,14 +250,7 @@ jobs:
               echo "Release $RELEASE_TAG is already published; refusing to replace it." >&2
               exit 1
             fi
-            gh release upload "$RELEASE_TAG" release/* \
-              --repo "$GITHUB_REPOSITORY" \
-              --clobber
+            gh release upload "$RELEASE_TAG" release/* --repo "$GITHUB_REPOSITORY" --clobber
           else
-            gh release create "$RELEASE_TAG" release/* \
-              --repo "$GITHUB_REPOSITORY" \
-              --verify-tag \
-              --draft \
-              --generate-notes \
-              --title "Penkra $RELEASE_TAG"
+            gh release create "$RELEASE_TAG" release/* --repo "$GITHUB_REPOSITORY" --verify-tag --draft --generate-notes --title "Penkra $RELEASE_TAG"
           fi

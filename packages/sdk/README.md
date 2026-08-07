@@ -1,5 +1,8 @@
 # @penkra/sdk
 
+Complete App-development guide:
+https://github.com/Emanuele-web04/Penkra/blob/main/docs/app-development.md
+
 Framework-neutral APIs for Apps running inside Penkra. The package contains manifest validation,
 typed operations, tab routing, scoped files, settings, secrets, identity, permissions, mediated
 network/process access, hosted browser sessions, and native context menus. It never exposes
@@ -23,7 +26,14 @@ export const manifest = defineApp({
 tab.onNavigate(async ({ state }) => {
   if (state?.handleId) console.log(await files.readText(state.handleId));
 });
+
+// When navigation begins inside the App, record the current route for restoration.
+await tab.setRoute({ route: "/note", state: { noteId: "note-123" } });
 ```
+
+`tab.setRoute` records the visual App's current route and state without navigating it or calling its
+`tab.onNavigate` handler. Penkra restores the latest recorded route after an App update or host
+restart. `tab.onNavigate` receives navigation initiated outside the App.
 
 Apps may use any browser-compatible framework. React is optional and available from
 `@penkra/sdk/react`. Runtime calls throw when used outside a Penkra App renderer; ordinary unit

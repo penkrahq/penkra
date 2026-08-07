@@ -6,12 +6,13 @@ import {
   IconRefresh,
 } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
-import type { DesktopAppOpenIntent } from "@penkra/contracts";
+import type { DesktopAppOpenIntent, DesktopAppOpenWithPreferences } from "@penkra/contracts";
 
 import { useAppSettings } from "~/appSettings";
 import { useAppInstallationSnapshot } from "~/appInstallationStore";
 import { useSpacesUiStore } from "~/spacesUiStore";
 import { APP_VERSION } from "~/branding";
+import { collectFileHandlerRows, fileTypeLabel } from "~/lib/appOpenWith";
 import { OpenWithRowShared } from "~/components/settings/open-with-row-shared/OpenWithRowShared";
 import { SettingRowShared } from "~/components/settings/setting-row-shared/SettingRowShared";
 import { SettingsSectionShared } from "~/components/settings/settings-section-shared/SettingsSectionShared";
@@ -37,13 +38,6 @@ export function SettingsGeneralPage() {
         isEnabled(app.id) &&
         app.handlers.some((handler) => handler.intent === "open-url"),
     ) ?? [];
-  const fileHandlers =
-    installations?.installed.filter(
-      (app) =>
-        app.spaceId === activeSpaceId &&
-        isEnabled(app.id) &&
-        app.handlers.some((handler) => handler.intent === "open-file"),
-    ) ?? [];
   const directoryHandlers =
     installations?.installed.filter(
       (app) =>
@@ -51,12 +45,27 @@ export function SettingsGeneralPage() {
         isEnabled(app.id) &&
         app.handlers.some((handler) => handler.intent === "open-directory"),
     ) ?? [];
-  const [openWith, setOpenWith] = useState<Partial<Record<DesktopAppOpenIntent, string>>>({});
+  const [openWith, setOpenWith] = useState<DesktopAppOpenWithPreferences>({ files: {} });
+  const discoveredFileHandlerRows = collectFileHandlerRows(
+    installations?.installed.filter((app) => app.spaceId === activeSpaceId && isEnabled(app.id)) ??
+      [],
+  );
+  const fileHandlerRows = [
+    ...discoveredFileHandlerRows,
+    ...Object.keys(openWith.files)
+      .filter(
+        (extension) =>
+          !discoveredFileHandlerRows.some((candidate) => candidate.extension === extension),
+      )
+      .map((extension) => ({ extension, apps: [] })),
+  ]
+    .filter((row) => row.apps.length > 1 || openWith.files[row.extension] !== undefined)
+    .sort((left, right) => left.extension.localeCompare(right.extension));
 
   useEffect(() => {
     let current = true;
     if (!activeSpaceId || !window.desktopBridge?.appOpenWith) {
-      setOpenWith({});
+      setOpenWith({ files: {} });
       return () => {
         current = false;
       };
@@ -81,14 +90,6 @@ export function SettingsGeneralPage() {
           {...(openWith["open-url"] !== undefined ? { value: openWith["open-url"] } : {})}
         />
         <HandlerPreferenceRow
-          apps={fileHandlers}
-          intent="open-file"
-          label="Files"
-          onChange={setOpenWith}
-          spaceId={activeSpaceId}
-          {...(openWith["open-file"] !== undefined ? { value: openWith["open-file"] } : {})}
-        />
-        <HandlerPreferenceRow
           apps={directoryHandlers}
           intent="open-directory"
           label="Folders"
@@ -98,6 +99,20 @@ export function SettingsGeneralPage() {
             ? { value: openWith["open-directory"] }
             : {})}
         />
+        {fileHandlerRows.map((row) => (
+          <HandlerPreferenceRow
+            apps={row.apps}
+            extension={row.extension}
+            intent="open-file"
+            key={row.extension}
+            label={fileTypeLabel(row.extension)}
+            onChange={setOpenWith}
+            spaceId={activeSpaceId}
+            {...(openWith.files[row.extension] !== undefined
+              ? { value: openWith.files[row.extension] }
+              : {})}
+          />
+        ))}
       </SettingsSectionShared>
 
       <SettingsSectionShared title="Notifications">
@@ -141,6 +156,7 @@ export function SettingsGeneralPage() {
 
 function HandlerPreferenceRow({
   apps,
+  extension,
   intent,
   label,
   onChange,
@@ -148,19 +164,29 @@ function HandlerPreferenceRow({
   value,
 }: {
   apps: ReadonlyArray<{ id: string; name: string }>;
+  extension?: string;
   intent: DesktopAppOpenIntent;
   label: string;
-  onChange: (value: Partial<Record<DesktopAppOpenIntent, string>>) => void;
+  onChange: (value: DesktopAppOpenWithPreferences) => void;
   spaceId: string | null;
   value?: string;
 }) {
   return (
     <OpenWithRowShared
-      description={`Choose how Penkra opens ${label.toLowerCase()} in this Space.`}
+      description={
+        extension
+          ? `Choose how Penkra opens ${extension} files in this Space.`
+          : `Choose how Penkra opens ${label.toLowerCase()} in this Space.`
+      }
       onValueChange={(next) => {
         if (!spaceId || !window.desktopBridge?.appOpenWith) return;
         void window.desktopBridge.appOpenWith
-          .set({ spaceId, intent, appId: next === "system" ? null : next })
+          .set({
+            spaceId,
+            intent,
+            ...(extension ? { extension } : {}),
+            appId: next === "system" ? null : next,
+          })
           .then(onChange);
       }}
       options={[

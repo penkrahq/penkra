@@ -73,6 +73,7 @@ import {
 import { invalidateProjectFileQueriesForCwds, projectQueryKeys } from "../lib/projectReactQuery";
 import { collectActiveTerminalThreadIds } from "../lib/terminalStateCleanup";
 import { useProjectRunStore } from "../projectRunStore";
+import { VoiceRecordingSessionProvider } from "../voiceRecordingSession";
 import { TaskCompletionNotifications } from "../notifications/taskCompletion";
 import { useWorkspacePathsStore } from "../workspacePathsStore";
 import {
@@ -229,17 +230,19 @@ function RootRouteView() {
     <>
       <DesktopOnboardingGate>
         <ToastProvider position="top-center">
-          <AnchoredToastProvider>
-            <GitProgressToastPreviewDev />
-            <EventRouter />
-            <GlobalShortcutsDialog />
-            <GlobalFeedbackDialog />
-            <GlobalWhatsNewSurface />
-            <TaskCompletionNotifications />
-            <ProviderUpdateNotifications />
-            <DesktopProjectBootstrap />
-            <Outlet />
-          </AnchoredToastProvider>
+          <VoiceRecordingSessionProvider>
+            <AnchoredToastProvider>
+              <GitProgressToastPreviewDev />
+              <EventRouter />
+              <GlobalShortcutsDialog />
+              <GlobalFeedbackDialog />
+              <GlobalWhatsNewSurface />
+              <TaskCompletionNotifications />
+              <ProviderUpdateNotifications />
+              <DesktopProjectBootstrap />
+              <Outlet />
+            </AnchoredToastProvider>
+          </VoiceRecordingSessionProvider>
         </ToastProvider>
       </DesktopOnboardingGate>
       {desktopWindowControls}

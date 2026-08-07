@@ -1,12 +1,24 @@
 # Penkra Desktop Releases
 
-Penkra publishes its public macOS desktop application through GitHub Releases. Stable releases are
-signed, notarized, built from an exact semantic-version tag, and exposed to `electron-updater` only
-after a draft release has passed manual installation and startup QA.
+Penkra publishes its public desktop application through GitHub Releases. Stable releases are built
+from an exact semantic-version tag and exposed to `electron-updater` only after a draft release has
+passed native installed-App QA on every advertised platform.
+
+The current release matrix is macOS arm64 and Linux x64. macOS uses a signed/notarized DMG plus
+update ZIP, and Linux uses AppImage. Windows x64 packaging and startup remain mandatory CI signals,
+but Windows is not advertised or published until its signing identity is provisioned and its signed
+installer/update QA is complete. Penkra does not advertise or publish any platform or architecture
+until that native evidence exists.
 
 The public desktop package does not contain the private Penkra backend or CLI. Account and hosted
 service requests use the authenticated Penkra API. The desktop's local application runtime is built
 from this repository at the same tagged commit as the Electron application.
+
+This release workflow versions and publishes only the Penkra desktop product in this repository. It
+does not publish registry Apps and does not version or deploy the Penkra backend. Registry Apps use
+their own manifest versions and release process; backend deployments use their own source and
+deployment process. An App compatibility range or a required backend deployment order may constrain
+compatibility, but neither creates a shared release version.
 
 ## Release channel and cadence
 
@@ -16,7 +28,7 @@ Penkra has one published channel: `stable`.
 - Minor releases are made at most once per week and represent a coherent product milestone.
 - Security or updater recovery releases may bypass the normal cadence.
 - Releases are never created automatically from a schedule.
-- `Penkra (Dev)` is a local development application, not a release channel.
+- `Penkra Dev` and its numbered local instances are development applications, not release channels.
 - Release candidates use the signed draft-release workflow; Penkra has no separate Canary app or
   data profile.
 
@@ -43,7 +55,11 @@ a release tag from an uncommitted or unreviewed worktree.
 
 ## Creating a release
 
-1. Merge the intended release changes into `main` and confirm CI passes.
+1. Merge the intended release changes into `main` and confirm CI passes. The blocking CI gate builds
+   unsigned native QA packages on Windows x64 and Linux x64, then launches each from isolated state.
+   This catches platform-native PTY, packaging, installer extraction, desktop bootstrap, and embedded
+   server failures before a release tag exists. Release signing remains isolated to the protected
+   `desktop-release` environment.
 2. Update every product package to the intended version and commit the exact release source locally.
 3. Build and verify the production artifact from that clean commit:
 
@@ -73,19 +89,22 @@ a release tag from an uncommitted or unreviewed worktree.
    - verifies the tag and package versions;
    - requires the aggregate Penkra CI quality gate to have passed for the exact tagged commit;
    - consumes that commit-bound result instead of repeating the same validation suite;
-   - builds macOS arm64 on a standard GitHub-hosted runner;
-   - signs and notarizes the application and DMG;
-   - creates the DMG, update ZIP, blockmap, and `latest-mac.yml` together;
+   - builds each advertised platform on a native GitHub-hosted runner;
+   - signs/notarizes macOS and emits Linux checksum/provenance evidence;
+   - creates each installer, update payload, blockmap where applicable, and matching updater manifest
+     together;
    - rejects any package containing the private `penkra-cli`;
    - records SHA-256 checksums and GitHub artifact attestations;
    - creates or refreshes a draft GitHub Release.
-7. Download the draft DMG, install it on a clean Mac account or test Mac, and verify:
-   - Gatekeeper accepts the application;
+7. Download each draft installer and test it on a clean native account or test machine. Verify:
+   - the platform's install/security flow accepts the application;
    - onboarding and account authentication complete;
    - the local desktop runtime starts;
    - the packaged version and source commit are correct;
    - update checks do not surface draft or prerelease builds.
-8. Publish the draft from GitHub only after those checks pass.
+8. On every advertised platform, test an actual installed previous version updating to the draft
+   artifact, including restart and restored App tabs.
+9. Publish the draft from GitHub only after every applicable check passes.
 
 Draft releases are invisible to stable desktop update checks. Publishing the draft makes the
 installer, update payload, and matching manifest available as one reviewed release.
@@ -100,9 +119,28 @@ environment:
 - `APPLE_API_KEY`
 - `APPLE_API_KEY_ID`
 - `APPLE_API_ISSUER`
+- `APPLE_TEAM_ID`
 
-The release workflow intentionally fails when signing or notarization is incomplete. It does not
-produce unsigned public releases.
+Before enabling Windows publication with Azure Trusted Signing, also store:
+
+- `AZURE_TRUSTED_SIGNING_ENDPOINT`
+- `AZURE_TRUSTED_SIGNING_ACCOUNT_NAME`
+- `AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME`
+- `AZURE_TRUSTED_SIGNING_PUBLISHER_NAME`
+- `AZURE_TRUSTED_SIGNING_SUBJECT_DN`
+- `AZURE_TENANT_ID`
+- `AZURE_CLIENT_ID`
+- `AZURE_CLIENT_SECRET`
+
+Windows release configuration is retained in the build tooling but intentionally absent from the
+publication matrix until those values and native signed-update evidence exist. Linux assets carry
+final checksums and provenance; an unsigned Linux AppImage must never be confused with a signed
+macOS installer.
+
+The release workflow intentionally fails when required macOS signing/notarization is incomplete.
+Linux AppImages are explicitly unsigned at the OS package layer and rely on exact
+checksums plus GitHub build-provenance attestations; release metadata must not describe them as
+code-signed.
 
 The workflow uses only the repository-scoped `GITHUB_TOKEN` for draft release creation. It does not
 require AWS credentials, an update token, a private repository token, or a GitHub personal access
@@ -110,12 +148,13 @@ token.
 
 ## Release artifacts
 
-Each stable macOS arm64 release contains:
+Each stable release contains the applicable artifacts for its advertised platforms:
 
 - `Penkra-<version>-arm64.dmg` for installation and recovery;
 - `Penkra-<version>-arm64.zip` for Electron auto-update;
 - the ZIP blockmap used for differential downloads;
 - `latest-mac.yml` generated from the same finalized ZIP;
+- Linux AppImage, blockmap, and `latest-linux.yml` for the finalized artifact;
 - `SHA256SUMS.txt`;
 - GitHub build-provenance attestations.
 
@@ -166,8 +205,8 @@ backup:
 bun run release:install:local -- release
 ```
 
-Run a genuine installed-version-to-new-version update whenever updater or packaging behavior
-changes.
+Run a genuine installed-version-to-new-version update on every advertised platform whenever updater
+or packaging behavior changes.
 
 ## Release invariants
 
@@ -175,6 +214,7 @@ changes.
 - Stable tags are exact `vMAJOR.MINOR.PATCH` values.
 - Public artifacts never contain the private Penkra backend or CLI.
 - macOS artifacts are Developer ID signed and Apple notarized.
-- The final verified ZIP is the source for updater hashes and blockmaps.
+- Final verified update payloads are the source for updater hashes, manifests, and blockmaps.
+- Release builds and installed-App QA run natively on each advertised operating system.
 - Draft releases are reviewed before publication.
 - Published release assets are never replaced. A correction receives a newer patch version.

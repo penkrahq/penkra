@@ -9,10 +9,29 @@ export interface AppPermissionStatus {
 }
 
 export interface AppIdentity {
-  /** Pairwise Account subject. Null while the user is signed out. */
+  /** Installation-stable pairwise subject. Null while the user is signed out. */
   subject: string | null;
   /** Stable opaque identity for the current Space, scoped to this App. */
   space: string;
+}
+
+export interface AppAccountDataResponse {
+  status: number;
+  headers: Readonly<Record<string, string>>;
+  body: Uint8Array;
+}
+
+export interface AppAccountRealtimeEvent {
+  channel: string;
+  event: string;
+  payload: unknown;
+  occurredAt: string;
+}
+
+export type AppAccountRealtimeConnectionState = "connected" | "reconnecting";
+
+export interface AppAccountRealtimeSubscriptionOptions {
+  onConnectionStateChange?(state: AppAccountRealtimeConnectionState): void;
 }
 
 export interface AppFileHandle {
@@ -134,6 +153,20 @@ export interface PenkraAppRuntimeApi {
   identity: {
     get(): Promise<AppIdentity>;
   };
+  /** Credential-hidden access to this App's Account-scoped backend namespace. */
+  account: {
+    request(input: {
+      path: string;
+      method?: "DELETE" | "GET" | "PATCH" | "POST" | "PUT";
+      body?: string | Uint8Array;
+      contentType?: "application/json" | "application/octet-stream";
+    }): Promise<AppAccountDataResponse>;
+    subscribe(
+      channel: string,
+      listener: (event: AppAccountRealtimeEvent) => void,
+      options?: AppAccountRealtimeSubscriptionOptions,
+    ): Promise<() => void>;
+  };
   settings: {
     get(key: string): Promise<boolean | number | string>;
     set(key: string, value: boolean | number | string): Promise<void>;
@@ -232,6 +265,8 @@ export interface PenkraAppRuntimeApi {
     ): () => void;
   };
   tab: {
+    /** Record the App's current route so the host can restore it after reloads and updates. */
+    setRoute(input: AppTabNavigationInput): Promise<void>;
     handle<Input = unknown, Result = unknown>(
       operation: string,
       handler: AppTabOperationHandler<Input, Result>,
@@ -285,9 +320,15 @@ export const permissions: PenkraAppRuntimeApi["permissions"] = {
   request: (name) => runtime().permissions.request(name),
 };
 
-/** Pairwise Account and opaque Space identity for the current App context. */
+/** Installation-local pairwise subject and opaque Space identity for the current App context. */
 export const identity: PenkraAppRuntimeApi["identity"] = {
   get: () => runtime().identity.get(),
+};
+
+export const account: PenkraAppRuntimeApi["account"] = {
+  request: (input) => runtime().account.request(input),
+  subscribe: (channel, listener, options) =>
+    runtime().account.subscribe(channel, listener, options),
 };
 
 /** Manifest-declared, Space-scoped App settings. Sensitive values stay in host secure storage. */
@@ -338,6 +379,7 @@ export const processes: PenkraAppRuntimeApi["processes"] = {
 
 /** Framework-neutral tab registration backed by the host preload bridge. */
 export const tab: PenkraAppRuntimeApi["tab"] = {
+  setRoute: (input) => runtime().tab.setRoute(input),
   handle: (operation, handler) => runtime().tab.handle(operation, handler),
   onNavigate: (handler) => runtime().tab.onNavigate(handler),
 };

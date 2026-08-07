@@ -36,7 +36,7 @@ import { AppIdentityService } from "./appIdentityService";
 import { AppDataVault } from "./appDataVault";
 import { DeferredAppTabHost } from "./deferredAppTabHost";
 import { ElectronAppControllerRendererFactory } from "./electronAppControllerRenderer";
-import { ElectronAppTabHost } from "./electronAppTabHost";
+import { ElectronAppTabHost, type AppUpdateTabSnapshot } from "./electronAppTabHost";
 import {
   AppUpdateJournal,
   resolveAppUpdateJournalPath,
@@ -216,13 +216,22 @@ export async function startDesktopAppRuntime(input: {
     store,
     lifecycle,
     data: {
-      eraseData: async (appId, spaceId) => {
+      eraseData: async (appId, spaceId, eraseAppHandles) => {
         await sessions.eraseData(appId, spaceId);
-        await vault.erase(appId, spaceId);
+        await vault.erase(appId, eraseAppHandles ? undefined : spaceId);
       },
     },
     settingSecrets: vault,
     updates,
+    tabs: {
+      capture: (appId, spaceId) => appTabs.captureForUpdate(appId, spaceId),
+      restore: (appId, spaceId, snapshots) =>
+        appTabs.restoreAfterUpdate(
+          appId,
+          spaceId,
+          snapshots as ReadonlyArray<AppUpdateTabSnapshot>,
+        ),
+    },
   });
   appTabs = new ElectronAppTabHost({
     window: input.window,

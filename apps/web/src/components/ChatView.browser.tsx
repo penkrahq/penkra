@@ -1150,6 +1150,34 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
   if (tag === WS_METHODS.serverGetConfig) {
     return fixture.serverConfig;
   }
+  if (tag === WS_METHODS.providerListModels && body.provider === "codex") {
+    return {
+      models: [
+        {
+          slug: "gpt-5.5",
+          name: "GPT-5.5",
+          supportedReasoningEfforts: [
+            { value: "low", label: "Low" },
+            { value: "medium", label: "Medium" },
+            { value: "high", label: "High" },
+          ],
+          defaultReasoningEffort: "medium",
+        },
+        {
+          slug: "gpt-5.2",
+          name: "GPT-5.2",
+          supportedReasoningEfforts: [
+            { value: "low", label: "Low" },
+            { value: "medium", label: "Medium" },
+            { value: "high", label: "High" },
+          ],
+          defaultReasoningEffort: "medium",
+        },
+      ],
+      source: "codex-app-server",
+      cached: false,
+    };
+  }
   if (tag === WS_METHODS.projectsListDevServers) {
     return { servers: [] };
   }
@@ -2624,8 +2652,33 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
     try {
       await expect.element(page.getByText("What should we do in")).toBeInTheDocument();
+      expect(page.getByTestId("empty-landing-heading").element().textContent).toContain("Project");
       await expect.element(page.getByRole("button", { name: "This Mac" })).not.toBeInTheDocument();
       expect(document.body.textContent).toContain("main");
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("names the parent Space on an empty direct Space thread", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: withActiveHomeChatThread(addThreadToSnapshot(createDraftOnlySnapshot(), THREAD_ID)),
+      configureFixture: (nextFixture) => {
+        nextFixture.welcome = {
+          ...nextFixture.welcome,
+          homeDir: "/Users/tester",
+          chatWorkspaceRoot: "/Users/tester/Documents/Penkra",
+        };
+      },
+    });
+
+    try {
+      await waitForServerConfigToApply();
+      const heading = page.getByTestId("empty-landing-heading").element();
+      expect(heading.textContent).toContain("Personal");
+      expect(heading.textContent).not.toContain("Home");
+      expect(heading.querySelector('[data-pencil-node="qNEBL"]')?.textContent).toBe("Personal");
     } finally {
       await mounted.cleanup();
     }

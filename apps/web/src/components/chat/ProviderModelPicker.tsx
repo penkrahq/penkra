@@ -174,6 +174,7 @@ type ProviderModelMenuItemsProps = {
   providers?: ReadonlyArray<ServerProviderStatus>;
   modelOptionsByProvider: Record<ProviderKind, ReadonlyArray<ProviderModelOption>>;
   loadingModelProviders?: Partial<Record<ProviderKind, boolean>>;
+  unavailableModelProviders?: Partial<Record<ProviderKind, boolean>>;
   hiddenProviders?: ReadonlyArray<ProviderKind>;
   providerOrder?: ReadonlyArray<ProviderKind>;
   disabled?: boolean;
@@ -278,6 +279,17 @@ export const ProviderModelMenuItems = function ProviderModelMenuItems(
               <Skeleton className={cn("h-3.5 rounded-full", index % 3 === 0 ? "w-24" : "w-32")} />
             </div>
           ))}
+        </div>
+      );
+    }
+
+    if (props.unavailableModelProviders?.[provider]) {
+      return (
+        <div
+          className="px-3 py-2 text-muted-foreground text-[length:calc(var(--app-font-size-base,12px)*1.1667)]"
+          role="status"
+        >
+          Models unavailable
         </div>
       );
     }
@@ -460,6 +472,7 @@ type ProviderModelPickerProps = {
   providers?: ReadonlyArray<ServerProviderStatus>;
   modelOptionsByProvider: Record<ProviderKind, ReadonlyArray<ProviderModelOption>>;
   loadingModelProviders?: Partial<Record<ProviderKind, boolean>>;
+  unavailableModelProviders?: Partial<Record<ProviderKind, boolean>>;
   hiddenProviders?: ReadonlyArray<ProviderKind>;
   providerOrder?: ReadonlyArray<ProviderKind>;
   activeProviderIconClassName?: string;
@@ -571,6 +584,9 @@ export const ProviderModelPicker = function ProviderModelPicker(props: ProviderM
           modelOptionsByProvider={props.modelOptionsByProvider}
           {...(props.loadingModelProviders
             ? { loadingModelProviders: props.loadingModelProviders }
+            : {})}
+          {...(props.unavailableModelProviders
+            ? { unavailableModelProviders: props.unavailableModelProviders }
             : {})}
           {...(props.hiddenProviders ? { hiddenProviders: props.hiddenProviders } : {})}
           {...(props.providerOrder ? { providerOrder: props.providerOrder } : {})}

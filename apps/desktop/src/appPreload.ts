@@ -5,6 +5,7 @@
 import { contextBridge, ipcRenderer } from "electron";
 
 import { AppPreloadRuntime } from "./appPreloadRuntime";
+import { subscribeAccountDataWithBufferedHandshake } from "./appAccountDataSubscriptionBridge";
 import { APP_RUNTIME_IPC_CHANNELS } from "./ipcChannels";
 import { DESKTOP_IPC_CHANNELS } from "./ipcChannels";
 import { PENKRA_APP_ID_ARGUMENT_PREFIX } from "./appRuntimePolicy";
@@ -17,9 +18,38 @@ const runtime = new AppPreloadRuntime({
     return () => ipcRenderer.removeListener(APP_RUNTIME_IPC_CHANNELS.hostMessage, wrapped);
   },
   ready: () => ipcRenderer.send(APP_RUNTIME_IPC_CHANNELS.ready),
+  tabSetRoute: (input) => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.tabSetRoute, input),
   queryPermission: (name) => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.permissionQuery, name),
   requestPermission: (name) => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.permissionRequest, name),
   getIdentity: () => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.identityGet),
+  accountDataRequest: (input) =>
+    ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.accountDataRequest, input),
+  accountDataSubscribe: (channel, listener, options) =>
+    subscribeAccountDataWithBufferedHandshake({
+      start: () =>
+        ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.accountDataSubscribeStart, { channel }),
+      listen: (onMessage) => {
+        const wrapped = (
+          _event: Electron.IpcRendererEvent,
+          message: {
+            subscriptionId?: string;
+            event?: import("@penkra/sdk").AppAccountRealtimeEvent;
+            connectionState?: import("@penkra/sdk").AppAccountRealtimeConnectionState;
+          },
+        ) => onMessage(message);
+        ipcRenderer.on(APP_RUNTIME_IPC_CHANNELS.accountDataEvent, wrapped);
+        return () => ipcRenderer.removeListener(APP_RUNTIME_IPC_CHANNELS.accountDataEvent, wrapped);
+      },
+      stop: (subscriptionId) => {
+        void ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.accountDataSubscribeStop, {
+          subscriptionId,
+        });
+      },
+      onEvent: listener,
+      ...(options?.onConnectionStateChange
+        ? { onConnectionStateChange: options.onConnectionStateChange }
+        : {}),
+    }),
   settingGet: (key) => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.settingGet, key),
   settingSet: (input) => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.settingSet, input),
   settingReset: (key) => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.settingReset, key),
@@ -107,6 +137,14 @@ const exposedApi =
             ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.appInstallations.uninstall, input),
           removeData: (input: unknown) =>
             ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.appInstallations.removeData, input),
+          onState: (listener: (state: unknown) => void) => {
+            const wrapped = (_event: Electron.IpcRendererEvent, state: unknown) => {
+              if (typeof state === "object" && state !== null) listener(state);
+            };
+            ipcRenderer.on(DESKTOP_IPC_CHANNELS.appInstallations.state, wrapped);
+            return () =>
+              ipcRenderer.removeListener(DESKTOP_IPC_CHANNELS.appInstallations.state, wrapped);
+          },
         },
         registry: {
           list: (input?: unknown) =>
@@ -130,8 +168,6 @@ const exposedApi =
 
 contextBridge.exposeInMainWorld("penkra", exposedApi);
 runtime.start();
-if (document.readyState === "loading") {
-  window.addEventListener("DOMContentLoaded", () => runtime.markReady(), { once: true });
-} else {
-  runtime.markReady();
-}
+// The host independently awaits loadURL, so readiness only needs to confirm
+// that the isolated bridge has been exposed and its message runtime started.
+runtime.markReady();

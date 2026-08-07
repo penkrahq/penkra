@@ -9,12 +9,12 @@ import { resolveAppPackagePath } from "./appRuntimePolicy";
 
 const APP_CONTENT_SECURITY_POLICY = [
   "default-src 'self'",
-  "script-src 'self'",
+  "script-src 'self' 'wasm-unsafe-eval'",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data:",
   "font-src 'self'",
   "media-src 'self' blob:",
-  "connect-src 'none'",
+  "connect-src 'self'",
   "object-src 'none'",
   "frame-src 'none'",
   "base-uri 'none'",
@@ -105,6 +105,8 @@ function contentType(path: string): string {
       return "text/javascript; charset=utf-8";
     case ".json":
       return "application/json; charset=utf-8";
+    case ".wasm":
+      return "application/wasm";
     case ".svg":
       return "image/svg+xml";
     case ".png":

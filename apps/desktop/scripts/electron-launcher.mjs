@@ -1,4 +1,4 @@
-// This file mostly exists because we want dev mode to say "Penkra (Dev)" instead of "electron"
+// This file gives every local desktop instance a stable macOS identity.
 
 import { spawnSync } from "node:child_process";
 import {
@@ -9,13 +9,16 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
-  renameSync,
   rmSync,
   statSync,
   writeFileSync,
 } from "node:fs";
 import { createRequire } from "node:module";
-import { resolvePenkraDesktopFlavor, penkraDesktopIdentity } from "@penkra/shared/desktopIdentity";
+import {
+  penkraDesktopIdentity,
+  resolvePenkraDesktopFlavor,
+  resolvePenkraDevInstance,
+} from "@penkra/shared/desktopIdentity";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildMacosIcon, resolvePenkraDevIconSource } from "../../../scripts/lib/macos-icon.ts";
@@ -29,10 +32,11 @@ const desktopFlavor = resolvePenkraDesktopFlavor({
   isPackaged: false,
   requestedFlavor: process.env.PENKRA_DESKTOP_FLAVOR,
 });
-const desktopIdentity = penkraDesktopIdentity(desktopFlavor);
+const developmentInstance = resolvePenkraDevInstance(process.env.PENKRA_DEV_INSTANCE_NUMBER);
+const desktopIdentity = penkraDesktopIdentity(desktopFlavor, developmentInstance);
 const APP_DISPLAY_NAME = desktopIdentity.displayName;
 const APP_BUNDLE_ID = desktopIdentity.bundleId;
-const LAUNCHER_VERSION = 10;
+const LAUNCHER_VERSION = 12;
 const MICROPHONE_USAGE_DESCRIPTION =
   "Penkra needs microphone access so you can record voice notes and transcribe them into the chat composer.";
 
@@ -81,7 +85,9 @@ function patchMainBundleInfoPlist(appBundlePath, iconPath) {
   setPlistString(infoPlistPath, "CFBundleDisplayName", APP_DISPLAY_NAME);
   setPlistString(infoPlistPath, "CFBundleName", APP_DISPLAY_NAME);
   setPlistString(infoPlistPath, "CFBundleIdentifier", APP_BUNDLE_ID);
-  setPlistString(infoPlistPath, "CFBundleExecutable", APP_DISPLAY_NAME);
+  // Keep Electron's executable name in development so it remains the default
+  // Electron host and honors the repository app path passed on the command line.
+  setPlistString(infoPlistPath, "CFBundleExecutable", "Electron");
   setPlistString(infoPlistPath, "CFBundleIconFile", "icon.icns");
   setPlistString(infoPlistPath, "NSMicrophoneUsageDescription", MICROPHONE_USAGE_DESCRIPTION);
   setPlistString(infoPlistPath, "NSAppDataUsageDescription", APP_DATA_USAGE_DESCRIPTION);
@@ -200,37 +206,53 @@ function signMacAppInsideOut(appBundlePath, signingIdentity) {
 function buildMacLauncher(electronBinaryPath) {
   const sourceAppBundlePath = resolve(electronBinaryPath, "../../..");
   const runtimeDir = join(desktopDir, ".electron-runtime");
-  const targetAppBundlePath = join(runtimeDir, `${APP_DISPLAY_NAME}.app`);
+  // Electron only honors a source app path in default-app mode. Keep the
+  // development bundle's on-disk identity canonical while branding its plist.
+  const instanceRuntimeDir =
+    desktopFlavor === "development"
+      ? join(runtimeDir, "instances", String(developmentInstance))
+      : runtimeDir;
+  const targetAppBundlePath = join(instanceRuntimeDir, "Electron.app");
+  const legacyRebrandedBundlePath = join(runtimeDir, `${APP_DISPLAY_NAME}.app`);
   const copiedBinaryPath = join(targetAppBundlePath, "Contents", "MacOS", "Electron");
-  const targetBinaryPath = join(targetAppBundlePath, "Contents", "MacOS", APP_DISPLAY_NAME);
+  const targetBinaryPath = copiedBinaryPath;
   const iconPath =
     desktopFlavor === "development"
-      ? join(runtimeDir, "PenkraDev.icns")
+      ? join(instanceRuntimeDir, "PenkraDev.icns")
       : join(desktopDir, "resources", "icon.icns");
-  const metadataPath = join(runtimeDir, `metadata-${desktopFlavor}.json`);
+  const metadataPath = join(instanceRuntimeDir, `metadata-${desktopFlavor}.json`);
   const iconSourcePath =
     desktopFlavor === "development"
       ? resolvePenkraDevIconSource(resolve(desktopDir, "..", ".."))
       : iconPath;
+  const iconBadgeText = developmentInstance > 1 ? String(developmentInstance) : null;
 
-  mkdirSync(runtimeDir, { recursive: true });
+  mkdirSync(instanceRuntimeDir, { recursive: true });
   const currentMetadata = readJson(metadataPath);
   if (desktopFlavor === "development") {
-    if (currentMetadata?.iconSourcePath !== iconSourcePath) {
+    if (
+      currentMetadata?.iconSourcePath !== iconSourcePath ||
+      currentMetadata?.iconBadgeText !== iconBadgeText
+    ) {
       rmSync(iconPath, { force: true });
     }
     buildMacosIcon({
       sourcePngPath: iconSourcePath,
       targetIcnsPath: iconPath,
+      ...(iconBadgeText ? { badgeText: iconBadgeText } : {}),
     });
   }
 
   const expectedMetadata = {
     accountAuthScheme: desktopIdentity.accountAuthScheme,
+    bundleId: desktopIdentity.bundleId,
+    displayName: desktopIdentity.displayName,
+    developmentInstance,
     launcherVersion: LAUNCHER_VERSION,
     sourceAppBundlePath,
     sourceAppMtimeMs: statSync(sourceAppBundlePath).mtimeMs,
     iconSourcePath,
+    iconBadgeText,
     iconMtimeMs: statSync(iconPath).mtimeMs,
     mainEntitlementsMtimeMs: statSync(MAIN_ENTITLEMENTS_PATH).mtimeMs,
     inheritEntitlementsMtimeMs: statSync(INHERIT_ENTITLEMENTS_PATH).mtimeMs,
@@ -246,8 +268,10 @@ function buildMacLauncher(electronBinaryPath) {
   }
 
   rmSync(targetAppBundlePath, { recursive: true, force: true });
+  if (legacyRebrandedBundlePath !== targetAppBundlePath) {
+    rmSync(legacyRebrandedBundlePath, { recursive: true, force: true });
+  }
   cpSync(sourceAppBundlePath, targetAppBundlePath, { recursive: true });
-  renameSync(copiedBinaryPath, targetBinaryPath);
   patchMainBundleInfoPlist(targetAppBundlePath, iconPath);
   patchHelperBundleInfoPlists(targetAppBundlePath);
   signMacAppInsideOut(targetAppBundlePath, expectedMetadata.signingIdentity);

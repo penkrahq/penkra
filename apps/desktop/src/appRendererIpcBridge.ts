@@ -28,6 +28,7 @@ export class AppRendererIpcBridge {
   readonly #readyTimeoutMs: number;
   readonly #onInvalidMessage: NonNullable<AppRendererIpcBridgeOptions["onInvalidMessage"]>;
   readonly #readyWaiters = new Map<number, ReadyWaiter>();
+  readonly #readyTargets = new Set<number>();
   #started = false;
 
   constructor(options: AppRendererIpcBridgeOptions) {
@@ -53,6 +54,7 @@ export class AppRendererIpcBridge {
       return Promise.reject(new Error(`App renderer ${targetId} already has a readiness waiter.`));
     }
     if (signal?.aborted) return Promise.reject(toError(signal.reason));
+    if (this.#readyTargets.delete(targetId)) return Promise.resolve();
 
     return new Promise<void>((resolve, reject) => {
       const waiter: ReadyWaiter = {
@@ -87,6 +89,7 @@ export class AppRendererIpcBridge {
       this.#settleReady(targetId);
       waiter.reject(new Error("App renderer IPC bridge stopped."));
     }
+    this.#readyTargets.clear();
   }
 
   readonly #handleRendererMessage = (event: IpcMainEvent, message: unknown): void => {
@@ -109,7 +112,10 @@ export class AppRendererIpcBridge {
   readonly #handleReady = (event: IpcMainEvent): void => {
     const targetId = event.sender.id;
     const waiter = this.#readyWaiters.get(targetId);
-    if (!waiter) return;
+    if (!waiter) {
+      this.#readyTargets.add(targetId);
+      return;
+    }
     this.#settleReady(targetId);
     waiter.resolve();
   };

@@ -19,6 +19,7 @@ import {
 } from "./accountAuthCallback";
 import { BETTER_AUTH_PROTOCOL_REGISTRATION_ENABLED } from "./desktopProtocolSchemes";
 import { DESKTOP_IPC_CHANNELS } from "./ipcChannels";
+import { resolvePenkraAccountSignInUrl } from "./accountAuthSignInUrl";
 
 export const PENKRA_DESKTOP_AUTH_CLIENT_ID = "penkra-desktop";
 const AUTH_CHANNEL_PREFIX = "penkra-account";
@@ -48,6 +49,7 @@ export function configurePenkraAccountAuth(input: {
   accountAuthScheme: string;
   authBaseUrl: string;
   desktopFlavor: PenkraDesktopFlavor;
+  developmentInstance?: number;
   getWindow: () => BrowserWindow | null;
   ipcMain: IpcMain;
   registerAsDefaultProtocolClient?: boolean;
@@ -88,10 +90,14 @@ export function configurePenkraAccountAuth(input: {
     },
   } as const;
   const createPenkraAuthClient = (path: "/sign-in" | "/sign-up") => {
-    const signInUrl = new URL(path, input.websiteOrigin);
-    if (input.desktopFlavor !== "production") {
-      signInUrl.searchParams.set("desktop_flavor", input.desktopFlavor);
-    }
+    const signInUrl = resolvePenkraAccountSignInUrl({
+      path,
+      websiteOrigin: input.websiteOrigin,
+      desktopFlavor: input.desktopFlavor,
+      ...(input.developmentInstance === undefined
+        ? {}
+        : { developmentInstance: input.developmentInstance }),
+    });
     const plugin = electronClient({
       ...electronOptions,
       signInURL: signInUrl.toString(),

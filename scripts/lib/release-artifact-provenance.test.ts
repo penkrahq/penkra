@@ -112,30 +112,7 @@ describe("release artifact provenance", () => {
     ).rejects.toThrow("requires an exact source tag");
   });
 
-  it("records an explicit version-scoped unsigned Windows publication", async () => {
-    const result = await writeReleaseArtifactProvenance({
-      assetsDirectory: createWindowsAssets(),
-      platform: "win",
-      arch: "x64",
-      target: "nsis",
-      version: "1.2.3",
-      sourceCommit: "a".repeat(40),
-      sourceTag: "v1.2.3",
-      lockfileSha256: "b".repeat(64),
-      publication: true,
-      signed: false,
-      allowUnsignedWindowsPublication: true,
-    });
-
-    expect(result.manifest.signing).toEqual({
-      status: "unsigned-explicit-release",
-      scheme: "none",
-      identity: null,
-      checks: ["explicit version-scoped Windows release exception"],
-    });
-  });
-
-  it("still rejects unsigned Windows publication without the explicit exception", async () => {
+  it("rejects unsigned Windows publication", async () => {
     await expect(
       writeReleaseArtifactProvenance({
         assetsDirectory: createWindowsAssets(),

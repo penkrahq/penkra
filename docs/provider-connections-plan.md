@@ -153,7 +153,7 @@ Automated validity suites:
 - Secret-leak sentinels and environment precedence.
 - Projection/restart/recovery and catalog-change tests.
 
-Fresh Penkra (Dev) manual QA:
+Fresh Penkra Dev manual QA:
 
 - Clean installation and existing-install migration.
 - Create user, restart, sign in to each available harness, create named key Connections, and verify persistence across logout/login and app restart.
@@ -163,7 +163,7 @@ Fresh Penkra (Dev) manual QA:
 
 Completion gate:
 
-- Start a fresh isolated Penkra (Dev) instance and record the exact manually exercised flows and results, as required by `AGENTS.md`.
+- Start a fresh isolated Penkra Dev instance and record the exact manually exercised flows and results, as required by `AGENTS.md`.
 - Do not commit or declare completion if an affected flow could not be manually exercised.
 
 ## Operator touchpoints

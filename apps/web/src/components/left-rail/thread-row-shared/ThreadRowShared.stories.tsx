@@ -57,6 +57,9 @@ export const Done: Story = { args: { children: "Completed work", workStatus: "do
 export const NeedsAttention: Story = {
   args: { children: "Review requested", workStatus: "attention" },
 };
+export const Recording: Story = {
+  args: { children: "Voice architecture audit", workStatus: "recording" },
+};
 export const HoverRunning: Story = {
   args: { children: "Work in progress", state: "hover", workStatus: "running" },
 };

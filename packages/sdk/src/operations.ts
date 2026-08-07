@@ -29,6 +29,7 @@ export const OPERATION_CANCELLATION_CODES = [
   "timeout",
   "app-disabled",
   "app-uninstalled",
+  "app-updated",
   "host-stopped",
 ] as const;
 

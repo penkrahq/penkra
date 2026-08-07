@@ -188,6 +188,71 @@ jobs:
           test -f apps/desktop/dist-electron/preload.js
           grep -nE "desktopBridge|getWsUrl|PICK_FOLDER_CHANNEL|wsUrl" apps/desktop/dist-electron/preload.js
 
+  desktop_platform:
+    name: Native Desktop Package (${{ matrix.name }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows x64
+            runner: windows-2025
+            platform: win
+            target: nsis
+            arch: x64
+          - name: Linux x64
+            runner: ubuntu-24.04
+            platform: linux
+            target: AppImage
+            arch: x64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
+        with:
+          cache-suffix: desktop-platform-${{ matrix.platform }}
+
+      - name: Install Linux display runtime
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --yes xvfb
+
+      - name: Verify native terminal PTY
+        run: node scripts/node-pty-smoke.mjs
+
+      - name: Build desktop pipeline
+        run: bun run build:desktop
+
+      - name: Resolve package version
+        id: package
+        shell: bash
+        run: node -e "process.stdout.write('version=' + require('./apps/desktop/package.json').version + '\n')" >> "$GITHUB_OUTPUT"
+
+      - name: Build unsigned native QA package
+        shell: bash
+        run: >-
+          bun run dist:desktop:artifact --
+          --platform "${{ matrix.platform }}"
+          --target "${{ matrix.target }}"
+          --arch "${{ matrix.arch }}"
+          --skip-build
+          --output-dir release-platform-qa
+
+      - name: Launch packaged desktop from isolated state
+        shell: bash
+        run: >-
+          node scripts/verify-packaged-desktop-startup.ts
+          --assets-dir release-platform-qa
+          --platform "${{ matrix.platform }}"
+          --arch "${{ matrix.arch }}"
+          --version "${{ steps.package.outputs.version }}"
+
   migration_lineage:
     name: Migration Lineage
     runs-on: ubuntu-24.04
@@ -243,6 +308,7 @@ jobs:
       - browser_stable
       - browser_geometry
       - build
+      - desktop_platform
       - migration_lineage
       - release_smoke
     runs-on: ubuntu-24.04
@@ -256,6 +322,7 @@ jobs:
           BROWSER_STABLE_RESULT: ${{ needs.browser_stable.result }}
           BROWSER_GEOMETRY_RESULT: ${{ needs.browser_geometry.result }}
           BUILD_RESULT: ${{ needs.build.result }}
+          DESKTOP_PLATFORM_RESULT: ${{ needs.desktop_platform.result }}
           MIGRATION_RESULT: ${{ needs.migration_lineage.result }}
           RELEASE_SMOKE_RESULT: ${{ needs.release_smoke.result }}
         run: |
@@ -267,5 +334,6 @@ jobs:
           test "$BROWSER_STABLE_RESULT" = success
           test "$BROWSER_GEOMETRY_RESULT" = success
           test "$BUILD_RESULT" = success
+          test "$DESKTOP_PLATFORM_RESULT" = success
           test "$MIGRATION_RESULT" = success
           test "$RELEASE_SMOKE_RESULT" = success

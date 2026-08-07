@@ -199,9 +199,13 @@ const THREAD_STATUS_PRIORITY: Record<ThreadStatusPill["label"], number> = {
   Completed: 1,
 };
 
-export type SidebarWorkStatus = "idle" | "running" | "done" | "attention";
+export type SidebarWorkStatus = "idle" | "running" | "done" | "attention" | "recording";
 
-export function resolveSidebarWorkStatus(status: ThreadStatusPill | null): SidebarWorkStatus {
+export function resolveSidebarWorkStatus(
+  status: ThreadStatusPill | null,
+  isRecording = false,
+): SidebarWorkStatus {
+  if (isRecording) return "recording";
   if (status === null) return "idle";
   if (status.label === "Working" || status.label === "Connecting") return "running";
   if (status.label === "Completed") return "done";
@@ -304,27 +308,31 @@ export function pruneProjectThreadListPagingForCollapsedProjects<
   threadListExtraPagesByProjectCwd: ReadonlyMap<string, number>;
   projects: readonly T[];
   normalizeProjectCwd: (cwd: string) => string;
+  getProjectPagingKey?: (project: T) => string;
 }): ReadonlyMap<string, number> {
-  const { normalizeProjectCwd, projects, threadListExtraPagesByProjectCwd } = input;
-  const collapsedProjectCwds = new Set(
+  const { getProjectPagingKey, normalizeProjectCwd, projects, threadListExtraPagesByProjectCwd } =
+    input;
+  const collapsedProjectPagingKeys = new Set(
     projects
       .filter((project) => !project.expanded)
-      .map((project) => normalizeProjectCwd(project.cwd))
-      .filter((cwd) => cwd.length > 0),
+      .map((project) =>
+        getProjectPagingKey ? getProjectPagingKey(project) : normalizeProjectCwd(project.cwd),
+      )
+      .filter((key) => key.length > 0),
   );
 
-  if (collapsedProjectCwds.size === 0) {
+  if (collapsedProjectPagingKeys.size === 0) {
     return threadListExtraPagesByProjectCwd;
   }
 
   let changed = false;
   const nextThreadListExtraPagesByProjectCwd = new Map<string, number>();
-  for (const [cwd, extraPages] of threadListExtraPagesByProjectCwd) {
-    if (collapsedProjectCwds.has(cwd)) {
+  for (const [pagingKey, extraPages] of threadListExtraPagesByProjectCwd) {
+    if (collapsedProjectPagingKeys.has(pagingKey)) {
       changed = true;
       continue;
     }
-    nextThreadListExtraPagesByProjectCwd.set(cwd, extraPages);
+    nextThreadListExtraPagesByProjectCwd.set(pagingKey, extraPages);
   }
 
   return changed ? nextThreadListExtraPagesByProjectCwd : threadListExtraPagesByProjectCwd;
@@ -1331,6 +1339,7 @@ export function deriveSidebarProjectData(input: {
   pinnedThreadIds: readonly ThreadId[];
   threadListExtraPagesByProjectCwd: ReadonlyMap<string, number>;
   normalizeProjectCwd: (cwd: string) => string;
+  getProjectPagingKey?: (project: Pick<Project, "id" | "cwd" | "expanded">) => string;
   activeSidebarThreadId: ThreadId | undefined;
   previewLimit: number;
   previewPageSize: number;
@@ -1354,8 +1363,10 @@ export function deriveSidebarProjectData(input: {
             }),
       ),
     );
-    const requestedExtraPages =
-      input.threadListExtraPagesByProjectCwd.get(input.normalizeProjectCwd(project.cwd)) ?? 0;
+    const projectPagingKey = input.getProjectPagingKey
+      ? input.getProjectPagingKey(project)
+      : input.normalizeProjectCwd(project.cwd);
+    const requestedExtraPages = input.threadListExtraPagesByProjectCwd.get(projectPagingKey) ?? 0;
     let orderedProjectThreadIds = orderPinnedItemsFirst(projectThreads, input.pinnedThreadIds).map(
       (thread) => thread.id,
     );

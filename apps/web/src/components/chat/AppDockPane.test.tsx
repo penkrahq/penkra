@@ -38,6 +38,7 @@ describe("AppDockPane", () => {
       <AppDockPane
         appName="Figma"
         iconDataUrl="data:image/svg+xml;base64,PHN2Zz48L3N2Zz4="
+        rendererId={101}
         status="loading"
         tabId="tab-1"
         visible={true}

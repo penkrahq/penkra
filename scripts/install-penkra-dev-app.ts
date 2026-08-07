@@ -17,13 +17,13 @@ import {
   resolvePenkraDevWorkspaceConfigPath,
   writePenkraDevWorkspace,
 } from "./lib/penkra-dev-workspace.ts";
+import {
+  DEFAULT_INSTALLED_PENKRA_DEV_INSTANCES,
+  resolvePenkraDevInstanceDefinition,
+} from "./lib/penkra-dev-instance.ts";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const launcherScriptPath = join(repoRoot, "scripts", "penkra-dev-launcher.ts");
-const targetAppPath = "/Applications/Penkra (Dev).app";
-const previousTargetAppPath = "/Applications/Penkra Dev.app";
-const bundleIdentifier = "com.penkra.app.dev.launcher";
-const executableName = "Penkra (Dev)";
 const microphoneUsageDescription =
   "Penkra needs microphone access so you can record voice notes and transcribe them into the chat composer.";
 const launcherEntitlementsPath = join(
@@ -49,6 +49,7 @@ export function resolvePenkraDevLauncherCompileArgs(input: {
   readonly launcherScriptPath: string;
   readonly executablePath: string;
   readonly repoRoot: string;
+  readonly instance: number;
 }): string[] {
   return [
     "build",
@@ -58,6 +59,8 @@ export function resolvePenkraDevLauncherCompileArgs(input: {
     `PENKRA_DEV_REPO_ROOT=${JSON.stringify(input.repoRoot)}`,
     "--define",
     `PENKRA_DEV_BUN_EXECUTABLE=${JSON.stringify(input.bunExecutable)}`,
+    "--define",
+    `PENKRA_DEV_INSTANCE_NUMBER=${JSON.stringify(String(input.instance))}`,
     input.launcherScriptPath,
     "--outfile",
     input.executablePath,
@@ -83,7 +86,7 @@ export function resolvePenkraDevLauncherSignArgs(input: {
   ];
 }
 
-export function makeInfoPlist(): string {
+export function makeInfoPlist(input = resolvePenkraDevInstanceDefinition(1)): string {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -91,17 +94,17 @@ export function makeInfoPlist(): string {
   <key>CFBundleDevelopmentRegion</key>
   <string>en</string>
   <key>CFBundleDisplayName</key>
-  <string>Penkra (Dev)</string>
+  <string>${input.displayName}</string>
   <key>CFBundleExecutable</key>
-  <string>${executableName}</string>
+  <string>${input.executableName}</string>
   <key>CFBundleIconFile</key>
   <string>PenkraDev.icns</string>
   <key>CFBundleIdentifier</key>
-  <string>${bundleIdentifier}</string>
+  <string>${input.launcherBundleId}</string>
   <key>CFBundleInfoDictionaryVersion</key>
   <string>6.0</string>
   <key>CFBundleName</key>
-  <string>Penkra (Dev)</string>
+  <string>${input.displayName}</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
@@ -127,6 +130,88 @@ export function makeInfoPlist(): string {
 `;
 }
 
+function installInstance(input: {
+  readonly instance: number;
+  readonly bunExecutable: string;
+  readonly signingIdentity: string;
+}): string {
+  const definition = resolvePenkraDevInstanceDefinition(input.instance);
+  const temporaryRoot = mkdtempSync(join(tmpdir(), `penkra-dev-${input.instance}-app-`));
+  const stagedAppPath = join(temporaryRoot, `${definition.displayName}.app`);
+  const contentsPath = join(stagedAppPath, "Contents");
+  const macosPath = join(contentsPath, "MacOS");
+  const resourcesPath = join(contentsPath, "Resources");
+  const executablePath = join(macosPath, definition.executableName);
+  const iconPath = join(resourcesPath, "PenkraDev.icns");
+  const backupPath = `/Applications/.${definition.displayName}.backup-${String(process.pid)}.app`;
+
+  try {
+    mkdirSync(macosPath, { recursive: true });
+    mkdirSync(resourcesPath, { recursive: true });
+    writeFileSync(join(contentsPath, "Info.plist"), makeInfoPlist(definition));
+    const compile = spawnSync(
+      input.bunExecutable,
+      resolvePenkraDevLauncherCompileArgs({
+        bunExecutable: input.bunExecutable,
+        launcherScriptPath,
+        executablePath,
+        repoRoot,
+        instance: input.instance,
+      }),
+      { cwd: repoRoot, encoding: "utf8" },
+    );
+    if (compile.status !== 0) {
+      throw new Error(
+        `Could not compile ${definition.displayName} launcher: ${(compile.stderr || compile.stdout).trim()}`,
+      );
+    }
+    buildMacosIcon({
+      sourcePngPath: resolvePenkraDevIconSource(repoRoot),
+      targetIcnsPath: iconPath,
+      ...(input.instance > 1 ? { badgeText: String(input.instance) } : {}),
+    });
+
+    const sign = spawnSync(
+      "/usr/bin/codesign",
+      resolvePenkraDevLauncherSignArgs({
+        entitlementsPath: launcherEntitlementsPath,
+        signingIdentity: input.signingIdentity,
+        stagedAppPath,
+      }),
+      { encoding: "utf8" },
+    );
+    if (sign.status !== 0) {
+      throw new Error(`Could not sign ${definition.displayName} launcher: ${sign.stderr.trim()}`);
+    }
+
+    rmSync(backupPath, { recursive: true, force: true });
+    if (existsSync(definition.applicationPath)) {
+      renameSync(definition.applicationPath, backupPath);
+    }
+    try {
+      renameSync(stagedAppPath, definition.applicationPath);
+      rmSync(backupPath, { recursive: true, force: true });
+    } catch (error) {
+      if (!existsSync(definition.applicationPath) && existsSync(backupPath)) {
+        renameSync(backupPath, definition.applicationPath);
+      }
+      throw error;
+    }
+
+    const register = spawnSync(
+      "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister",
+      ["-f", definition.applicationPath],
+      { encoding: "utf8" },
+    );
+    if (register.status !== 0) {
+      throw new Error(`Could not register ${definition.displayName}: ${register.stderr.trim()}`);
+    }
+    return definition.applicationPath;
+  } finally {
+    rmSync(temporaryRoot, { recursive: true, force: true });
+  }
+}
+
 function install(): void {
   if (process.platform !== "darwin") {
     throw new Error("Penkra Dev Applications launcher is available only on macOS.");
@@ -136,14 +221,6 @@ function install(): void {
   }
 
   const bunExecutable = resolveBunExecutable();
-  const temporaryRoot = mkdtempSync(join(tmpdir(), "penkra-dev-app-"));
-  const stagedAppPath = join(temporaryRoot, "Penkra (Dev).app");
-  const contentsPath = join(stagedAppPath, "Contents");
-  const macosPath = join(contentsPath, "MacOS");
-  const resourcesPath = join(contentsPath, "Resources");
-  const executablePath = join(macosPath, executableName);
-  const iconPath = join(resourcesPath, "PenkraDev.icns");
-  const backupPath = `/Applications/.Penkra Dev.backup-${String(process.pid)}.app`;
   const signingIdentity = resolveMacDevelopmentSigningIdentity();
   const configuredBackendRoot = process.env.PENKRA_BACKEND_ROOT?.trim();
   const backendRoot = discoverPenkraBackendRoot({
@@ -164,73 +241,30 @@ function install(): void {
     resolvePenkraDevWorkspaceConfigPath(),
   );
 
-  try {
-    mkdirSync(macosPath, { recursive: true });
-    mkdirSync(resourcesPath, { recursive: true });
-    writeFileSync(join(contentsPath, "Info.plist"), makeInfoPlist());
-    const compile = spawnSync(
-      bunExecutable,
-      resolvePenkraDevLauncherCompileArgs({
-        bunExecutable,
-        launcherScriptPath,
-        executablePath,
-        repoRoot,
-      }),
-      { cwd: repoRoot, encoding: "utf8" },
-    );
-    if (compile.status !== 0) {
-      throw new Error(
-        `Could not compile Penkra Dev launcher: ${(compile.stderr || compile.stdout).trim()}`,
-      );
-    }
-    buildMacosIcon({
-      sourcePngPath: resolvePenkraDevIconSource(repoRoot),
-      targetIcnsPath: iconPath,
-    });
+  const configuredInstances = process.argv
+    .slice(2)
+    .filter((argument) => /^\d+$/u.test(argument))
+    .map(Number);
+  const instances =
+    configuredInstances.length > 0
+      ? configuredInstances
+      : [...DEFAULT_INSTALLED_PENKRA_DEV_INSTANCES];
+  const installedPaths = instances.map((instance) =>
+    installInstance({ instance, bunExecutable, signingIdentity }),
+  );
+  rmSync("/Applications/Penkra (Dev).app", { recursive: true, force: true });
+  rmSync(join(repoRoot, "apps", "desktop", ".electron-runtime", "Electron.app"), {
+    recursive: true,
+    force: true,
+  });
+  rmSync(join(repoRoot, "apps", "desktop", ".electron-runtime", "Penkra (Dev).app"), {
+    recursive: true,
+    force: true,
+  });
 
-    const sign = spawnSync(
-      "/usr/bin/codesign",
-      resolvePenkraDevLauncherSignArgs({
-        entitlementsPath: launcherEntitlementsPath,
-        signingIdentity,
-        stagedAppPath,
-      }),
-      { encoding: "utf8" },
-    );
-    if (sign.status !== 0) {
-      throw new Error(`Could not sign Penkra Dev launcher: ${sign.stderr.trim()}`);
-    }
-
-    rmSync(backupPath, { recursive: true, force: true });
-    if (existsSync(targetAppPath)) {
-      renameSync(targetAppPath, backupPath);
-    }
-    try {
-      renameSync(stagedAppPath, targetAppPath);
-      rmSync(backupPath, { recursive: true, force: true });
-    } catch (error) {
-      if (!existsSync(targetAppPath) && existsSync(backupPath)) {
-        renameSync(backupPath, targetAppPath);
-      }
-      throw error;
-    }
-
-    const register = spawnSync(
-      "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister",
-      ["-f", targetAppPath],
-      { encoding: "utf8" },
-    );
-    if (register.status !== 0) {
-      throw new Error(`Could not register Penkra Dev launcher: ${register.stderr.trim()}`);
-    }
-    rmSync(previousTargetAppPath, { recursive: true, force: true });
-
-    process.stdout.write(
-      `Installed Penkra Dev launcher at ${targetAppPath}\nDesktop repository: ${workspace.desktopRoot}\nBackend repository: ${workspace.backendRoot}\nWebsite repository: ${workspace.websiteRoot}\nBun: ${bunExecutable}\nSigning identity: ${signingIdentity}\n`,
-    );
-  } finally {
-    rmSync(temporaryRoot, { recursive: true, force: true });
-  }
+  process.stdout.write(
+    `Installed Penkra Dev launchers:\n${installedPaths.map((path) => `  ${path}`).join("\n")}\nDesktop repository: ${workspace.desktopRoot}\nBackend repository: ${workspace.backendRoot}\nWebsite repository: ${workspace.websiteRoot}\nBun: ${bunExecutable}\nSigning identity: ${signingIdentity}\n`,
+  );
 }
 
 const isDirectExecution =

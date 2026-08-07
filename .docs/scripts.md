@@ -3,6 +3,9 @@
 - `bun run dev` — Starts contracts, server, and web in `turbo watch` mode.
 - `bun run dev:server` — Starts just the WebSocket server (uses Bun TypeScript execution).
 - `bun run dev:web` — Starts just the Vite dev server for the web app.
+- `bun run dev:desktop:install-app` — Installs `Penkra Dev`, `Penkra Dev 2`, and `Penkra Dev 3` in Applications. Launching any installed slot starts the shared local services and that slot's isolated desktop state.
+- `bun run dev:desktop:install-app -- <slot>` — Installs another stable numbered desktop slot, such as `Penkra Dev 4`.
+- `bun run dev:desktop` — Low-level foreground desktop/watch command used by the launcher and specialized debugging. It is not the numbered multi-instance workflow.
 - Dev commands default `PENKRA_HOME` to `~/.penkra`, which keeps dev state under `~/.penkra/dev`.
 - Override server CLI-equivalent flags from root dev commands with `--`, for example:
   `bun run dev -- --home-dir ~/.penkra-2`
@@ -31,12 +34,15 @@
 - Azure authentication env vars are also required (for example service principal with secret):
   `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`.
 
-## Running multiple dev instances
+## Running multiple desktop instances
 
-Set `PENKRA_DEV_INSTANCE` to any value to deterministically shift all dev ports together.
+Install the Applications launchers with `bun run dev:desktop:install-app`, then open `Penkra Dev`, `Penkra Dev 2`, or `Penkra Dev 3`. Additional slots use `bun run dev:desktop:install-app -- <slot>` once and then launch normally from Applications.
 
-- Default ports: server `3773`, web `5733`
-- Shifted ports: `base + offset` (offset is hashed from `PENKRA_DEV_INSTANCE`)
-- Example: `PENKRA_DEV_INSTANCE=branch-a bun run dev:desktop`
+Numbered desktop Apps share source watchers, the renderer, website, account API, and registry. Their login/session, Chromium profile, Penkra database, tabs, Threads, logs, bundle identity, locks, and embedded backend are isolated. Do not create numbered desktop Apps with environment variables, copied bundles, renamed executables, or manually selected ports.
 
-If you want full control instead of hashing, set `PENKRA_PORT_OFFSET` to a numeric offset.
+## Isolating browser/server ports
+
+`PENKRA_DEV_INSTANCE` and `PENKRA_PORT_OFFSET` belong to the low-level dev runner's browser/server port selection. They do not create a numbered Penkra Dev desktop identity.
+
+- `PENKRA_DEV_INSTANCE=branch-a bun run dev` deterministically shifts the browser/server port set.
+- `PENKRA_PORT_OFFSET=<number> bun run dev` selects an explicit offset.

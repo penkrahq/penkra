@@ -99,6 +99,11 @@ function fixture() {
   const data = {
     eraseData: vi.fn(async () => undefined),
   };
+  const tabSnapshots = [{ threadId: "thread-1", route: "/document/7", state: { page: 3 } }];
+  const tabs = {
+    capture: vi.fn(() => tabSnapshots),
+    restore: vi.fn(async () => undefined),
+  };
   const secrets = new Map<string, string>();
   const settingSecrets = {
     getSecret: vi.fn(
@@ -113,11 +118,12 @@ function fixture() {
     }),
   };
   return {
-    service: new AppInstallationService({ store, lifecycle, data, updates, settingSecrets }),
+    service: new AppInstallationService({ store, lifecycle, data, updates, settingSecrets, tabs }),
     data,
     lifecycle,
     updates,
     settingSecrets,
+    tabs,
     unexpectedDisable: (error = new Error("controller crashed")) =>
       unexpectedDisableListener?.({
         appId: "com.acme.figma",
@@ -429,8 +435,16 @@ describe("AppInstallationService", () => {
       permissions: { "network-fetch": "granted" },
     });
 
-    expect(test.lifecycle.disable).toHaveBeenCalledWith("com.acme.figma", "personal");
+    expect(test.lifecycle.disable).toHaveBeenCalledWith(
+      "com.acme.figma",
+      "personal",
+      "app-updated",
+    );
     expect(test.lifecycle.enable).toHaveBeenLastCalledWith("com.acme.figma", "personal");
+    expect(test.tabs.capture).toHaveBeenCalledWith("com.acme.figma", "personal");
+    expect(test.tabs.restore).toHaveBeenCalledWith("com.acme.figma", "personal", [
+      { threadId: "thread-1", route: "/document/7", state: { page: 3 } },
+    ]);
     expect(test.state().packagesByInstallationKey["personal\0com.acme.figma"]?.version).toBe(
       "2.0.0",
     );
@@ -493,11 +507,50 @@ describe("AppInstallationService", () => {
 
     await test.service.updateSideloadForSpace({ package: update, spaceId: "personal" });
 
-    expect(test.lifecycle.disable).toHaveBeenCalledWith("com.acme.figma", "personal");
+    expect(test.lifecycle.disable).toHaveBeenCalledWith(
+      "com.acme.figma",
+      "personal",
+      "app-updated",
+    );
     expect(test.lifecycle.enable).toHaveBeenLastCalledWith("com.acme.figma", "personal");
     expect(test.state().packagesByInstallationKey["personal\0com.acme.figma"]).toMatchObject({
       source: "sideload",
       version: "1.0.1-dev",
+      sha256: "b".repeat(64),
+    });
+  });
+
+  it("replaces the required registry Apps package only through the sideload update path", async () => {
+    const test = fixture();
+    const registryApps = verifiedPackage();
+    registryApps.manifest.id = "com.penkra.apps";
+    registryApps.manifest.slug = "apps";
+    registryApps.manifest.name = "Apps";
+    await test.service.install(registryApps, "personal");
+    await test.service.setEnabled({
+      appId: "com.penkra.apps",
+      spaceId: "personal",
+      enabled: true,
+    });
+    const sideloadApps = {
+      ...registryApps,
+      source: "sideload" as const,
+      sha256: "b".repeat(64),
+    };
+
+    await test.service.updateSideloadForSpace({
+      package: sideloadApps,
+      spaceId: "personal",
+    });
+
+    expect(test.lifecycle.disable).toHaveBeenCalledWith(
+      "com.penkra.apps",
+      "personal",
+      "app-updated",
+    );
+    expect(test.lifecycle.enable).toHaveBeenLastCalledWith("com.penkra.apps", "personal");
+    expect(test.state().packagesByInstallationKey["personal\0com.penkra.apps"]).toMatchObject({
+      source: "sideload",
       sha256: "b".repeat(64),
     });
   });
@@ -523,6 +576,32 @@ describe("AppInstallationService", () => {
     );
     expect(test.state().spaceStateByKey["personal\0com.acme.figma"]?.enabled).toBe(true);
     expect(test.lifecycle.enable).toHaveBeenLastCalledWith("com.acme.figma", "personal");
+    expect(test.tabs.restore).toHaveBeenCalledWith("com.acme.figma", "personal", expect.any(Array));
+    expect(test.updates.clear).toHaveBeenCalledOnce();
+  });
+
+  it("restores the working package and tabs when updated tabs cannot be restored", async () => {
+    const test = fixture();
+    await test.service.install(verifiedPackage(), "personal");
+    await test.service.setEnabled({ appId: "com.acme.figma", spaceId: "personal", enabled: true });
+    const update = verifiedPackage();
+    update.manifest.version = "2.0.0";
+    test.tabs.restore.mockRejectedValueOnce(new Error("tab route failed"));
+
+    await expect(
+      test.service.updateForSpace({
+        package: { ...update, source: "registry" },
+        spaceId: "personal",
+        permissions: {},
+      }),
+    ).rejects.toThrow("tab route failed");
+
+    expect(test.state().packagesByInstallationKey["personal\0com.acme.figma"]?.version).toBe(
+      "1.0.0",
+    );
+    expect(test.state().spaceStateByKey["personal\0com.acme.figma"]?.enabled).toBe(true);
+    expect(test.lifecycle.enable).toHaveBeenLastCalledWith("com.acme.figma", "personal");
+    expect(test.tabs.restore).toHaveBeenCalledTimes(2);
     expect(test.updates.clear).toHaveBeenCalledOnce();
   });
 
@@ -602,7 +681,7 @@ describe("AppInstallationService", () => {
 
     expect(test.state().packagesByInstallationKey["personal\0com.acme.figma"]).toBeUndefined();
     expect(test.state().spaceStateByKey["personal\0com.acme.figma"]).toBeUndefined();
-    expect(test.data.eraseData).toHaveBeenCalledWith("com.acme.figma", "personal");
+    expect(test.data.eraseData).toHaveBeenCalledWith("com.acme.figma", "personal", true);
   });
 
   it("keeps retained data when uninstall requests retention", async () => {
@@ -652,8 +731,12 @@ describe("AppInstallationService", () => {
 
     await test.service.removeData({ appId: "com.acme.figma", spaceId: "personal" });
 
-    expect(test.data.eraseData).toHaveBeenCalledWith("com.acme.figma", "personal");
-    expect(test.data.eraseData).not.toHaveBeenCalledWith("com.acme.figma", "work");
+    expect(test.data.eraseData).toHaveBeenCalledWith("com.acme.figma", "personal", false);
+    expect(test.data.eraseData).not.toHaveBeenCalledWith(
+      "com.acme.figma",
+      "work",
+      expect.any(Boolean),
+    );
     expect(test.state().spaceStateByKey["personal\0com.acme.figma"]).toBeUndefined();
     expect(test.state().spaceStateByKey["work\0com.acme.figma"]).toBeDefined();
   });

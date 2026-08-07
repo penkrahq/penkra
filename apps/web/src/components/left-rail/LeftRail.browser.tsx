@@ -3,6 +3,7 @@ import "../../index.css";
 import { page, userEvent } from "vitest/browser";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
+import type { CSSProperties } from "react";
 
 import { TopBarThread } from "../middle-panel/top-bar-thread/TopBarThread";
 import { DisclosureSection } from "../ui/DisclosureRegion";
@@ -338,7 +339,15 @@ describe("Pencil left rail", () => {
 
   it("uses the Pencil root and nested thread columns", async () => {
     await render(
-      <div className="w-56">
+      <div
+        className="w-56"
+        style={
+          {
+            "--color-text-foreground": "rgb(17, 24, 39)",
+            "--color-text-foreground-tertiary": "rgb(107, 114, 128)",
+          } as CSSProperties & Record<`--${string}`, string>
+        }
+      >
         <ThreadRowShared level="root">Root thread</ThreadRowShared>
         <ThreadRowShared level="nested">Nested thread</ThreadRowShared>
         <ShowMoreRow>Show more</ShowMoreRow>
@@ -371,6 +380,17 @@ describe("Pencil left rail", () => {
       Math.abs(showMore.getBoundingClientRect().left - nested.getBoundingClientRect().left),
     ).toBe(0);
     expect(getComputedStyle(showMore).paddingLeft).toBe("24px");
+    expect(getComputedStyle(showMore).backgroundColor).toBe("rgba(0, 0, 0, 0)");
+
+    const showMoreLabel = showMore.querySelector<HTMLElement>('[data-pencil-node="k16ybr"]')!;
+    const defaultLabelOpacity = getComputedStyle(showMoreLabel).opacity;
+    await page.getByRole("button", { name: "Show more" }).hover({ position: { x: 220, y: 13 } });
+    expect(getComputedStyle(showMore).backgroundColor).toBe("rgba(0, 0, 0, 0)");
+    expect(getComputedStyle(showMoreLabel).opacity).toBe(defaultLabelOpacity);
+    await page.elementLocator(showMoreLabel).hover();
+    await vi.waitFor(() => {
+      expect(getComputedStyle(showMoreLabel).opacity).not.toBe(defaultLabelOpacity);
+    });
   });
 
   it("overlays reusable pin badges without changing thread or folder row geometry", async () => {
@@ -536,6 +556,7 @@ describe("Pencil left rail", () => {
       ["running", "Working"],
       ["done", "Done"],
       ["attention", "Needs attention"],
+      ["recording", "Recording voice"],
     ] as const) {
       await rerender(
         <div className="w-56">
@@ -547,6 +568,10 @@ describe("Pencil left rail", () => {
       expect(current.getBoundingClientRect().width).toBe(initialRect.width);
       expect(current.getBoundingClientRect().height).toBe(initialRect.height);
     }
+
+    const recordingIcon = page.getByLabelText("Recording voice").element();
+    expect(recordingIcon.classList.contains("animate-pulse")).toBe(true);
+    expect(recordingIcon.classList.contains("animate-spin")).toBe(false);
   });
 
   it("keeps an empty shared disclosure at zero layout height", async () => {

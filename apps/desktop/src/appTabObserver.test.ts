@@ -6,6 +6,7 @@ import { AppTabObserver, resolveAppTabObservationTarget } from "./appTabObserver
 
 const descriptor: DesktopAppTabDescriptor = {
   id: "tab-1",
+  rendererId: 12,
   appId: "com.acme.canvas",
   slug: "canvas",
   name: "Canvas",

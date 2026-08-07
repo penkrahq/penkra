@@ -75,6 +75,18 @@ describe("AppRendererIpcBridge", () => {
     await expect(ready).resolves.toBeUndefined();
   });
 
+  it("remembers readiness reported before its waiter is registered", async () => {
+    const test = fixture();
+    test.bridge.start();
+    test.emit(APP_RUNTIME_IPC_CHANNELS.ready, 42);
+
+    await expect(test.bridge.waitForReady(42)).resolves.toBeUndefined();
+
+    const nextNavigation = test.bridge.waitForReady(42);
+    test.emit(APP_RUNTIME_IPC_CHANNELS.ready, 42);
+    await expect(nextNavigation).resolves.toBeUndefined();
+  });
+
   it("rejects readiness on abort, timeout, and bridge disposal", async () => {
     vi.useFakeTimers();
     try {

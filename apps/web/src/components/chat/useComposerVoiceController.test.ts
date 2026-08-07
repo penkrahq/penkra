@@ -64,10 +64,33 @@ const reactHarness = vi.hoisted(() => {
 
 const recorder = vi.hoisted(() => ({
   isRecording: true,
-  startRecording: vi.fn<() => Promise<void>>(),
+  startRecording: vi.fn(),
   stopRecording: vi.fn(),
   cancelRecording: vi.fn<() => Promise<void>>(),
 }));
+
+const voiceSession = vi.hoisted(() => {
+  const state = {
+    origin: {
+      threadId: "thread-a",
+      providerThreadId: "thread-a",
+      cwd: "/workspace/project",
+    } as {
+      threadId: string;
+      providerThreadId: string | null;
+      cwd: string;
+    } | null,
+    phase: "recording",
+    isRecording: true,
+    startedAtMs: 0 as number | null,
+    durationMs: 0,
+    waveformLevels: [] as readonly number[],
+  };
+  const useStore = Object.assign(<T>(selector: (snapshot: typeof state) => T) => selector(state), {
+    getState: () => state,
+  });
+  return { state, useStore };
+});
 
 const nativeApi = vi.hoisted(() => ({
   transcribeVoice: vi.fn(),
@@ -95,14 +118,15 @@ vi.mock("react", () => ({
 vi.mock("../../lib/voiceRecorder", () => ({
   formatVoiceRecordingDuration: () => "0:00",
   serializeCapturedVoiceRecording: (recording: unknown) => Promise.resolve(recording),
-  useVoiceRecorder: () => ({
-    isRecording: recorder.isRecording,
-    durationMs: 0,
-    waveformLevels: [],
+}));
+
+vi.mock("../../voiceRecordingSession", () => ({
+  useVoiceRecordingSessionActions: () => ({
     startRecording: recorder.startRecording,
     stopRecording: recorder.stopRecording,
     cancelRecording: recorder.cancelRecording,
   }),
+  useVoiceRecordingSessionStore: voiceSession.useStore,
 }));
 
 vi.mock("../../nativeApi", () => ({
@@ -186,7 +210,23 @@ describe("useComposerVoiceController", () => {
   beforeEach(async () => {
     reactHarness.reset();
     recorder.isRecording = true;
-    recorder.startRecording.mockReset().mockResolvedValue(undefined);
+    voiceSession.state.origin = {
+      threadId: "thread-a",
+      providerThreadId: "thread-a",
+      cwd: PROJECT.cwd,
+    };
+    voiceSession.state.phase = "recording";
+    voiceSession.state.isRecording = true;
+    voiceSession.state.startedAtMs = 0;
+    voiceSession.state.durationMs = 0;
+    voiceSession.state.waveformLevels = [];
+    recorder.startRecording.mockReset().mockImplementation(async (origin) => {
+      voiceSession.state.origin = origin;
+      voiceSession.state.phase = "recording";
+      voiceSession.state.isRecording = true;
+      voiceSession.state.startedAtMs = performance.now();
+      return { status: "started" as const };
+    });
     recorder.stopRecording.mockReset().mockResolvedValue(AUDIO_PAYLOAD);
     recorder.cancelRecording.mockReset().mockResolvedValue(undefined);
     nativeApi.transcribeVoice.mockReset().mockResolvedValue({ text: "transcribed once" });
@@ -281,7 +321,9 @@ describe("useComposerVoiceController", () => {
       await vi.waitFor(() => expect(nativeApi.transcribeVoice).toHaveBeenCalledTimes(1));
 
       if (navigationCause === "thread") {
+        expect(result.isVoiceRecording).toBe(true);
         render({ activeThreadId: THREAD_B, threadId: THREAD_B });
+        expect(result.isVoiceRecording).toBe(false);
       } else {
         render({ selectedProvider: "claudeAgent" as ProviderKind });
       }
@@ -311,10 +353,15 @@ describe("useComposerVoiceController", () => {
     let now = 1_000;
     vi.spyOn(performance, "now").mockImplementation(() => now);
     recorder.isRecording = false;
+    voiceSession.state.origin = null;
+    voiceSession.state.phase = "idle";
+    voiceSession.state.isRecording = false;
+    voiceSession.state.startedAtMs = null;
     render({ actionArmDelayMs: 250, onGuardWarning: vi.fn() });
 
     await result.startComposerVoiceRecording();
     recorder.isRecording = true;
+    voiceSession.state.isRecording = true;
     render();
     recorder.cancelRecording.mockClear();
     now = 1_100;
@@ -325,6 +372,19 @@ describe("useComposerVoiceController", () => {
     expect(recorder.stopRecording).not.toHaveBeenCalled();
     expect(recorder.cancelRecording).not.toHaveBeenCalled();
     expect(options.onGuardWarning).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps the recording UI on the origin thread and blocks another thread's microphone", async () => {
+    render({ activeThreadId: THREAD_B, threadId: THREAD_B });
+
+    expect(result.isVoiceRecording).toBe(false);
+    await result.startComposerVoiceRecording();
+
+    expect(recorder.startRecording).not.toHaveBeenCalled();
+    expect(toast.add).toHaveBeenCalledWith({
+      type: "info",
+      title: "Voice recording is active in another thread",
+    });
   });
 
   it("supports ChatView-specific transcription failure copy without changing defaults", async () => {

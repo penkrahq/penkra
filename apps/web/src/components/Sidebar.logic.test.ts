@@ -323,6 +323,19 @@ describe("pruneProjectThreadListPagingForCollapsedProjects", () => {
 
     expect(next).toBe(current);
   });
+
+  it("resets a pathless folder through its stable project paging key", () => {
+    const current = new Map([["project:pathless", 1]]);
+
+    const next = pruneProjectThreadListPagingForCollapsedProjects({
+      threadListExtraPagesByProjectCwd: current,
+      projects: [{ id: "pathless", cwd: "", expanded: false }],
+      normalizeProjectCwd: (cwd) => cwd,
+      getProjectPagingKey: (project) => `project:${project.id}`,
+    });
+
+    expect(next.size).toBe(0);
+  });
 });
 
 describe("resolveSidebarThreadListPaging", () => {
@@ -943,6 +956,21 @@ describe("resolveSidebarWorkStatus", () => {
         pulse: false,
       }),
     ).toBe("attention");
+  });
+
+  it("gives active voice recording precedence over every work status", () => {
+    expect(
+      resolveSidebarWorkStatus(
+        {
+          label: "Needs Attention",
+          colorClass: "",
+          dotClass: "",
+          pulse: false,
+        },
+        true,
+      ),
+    ).toBe("recording");
+    expect(resolveSidebarWorkStatus(null, true)).toBe("recording");
   });
 });
 
@@ -1679,6 +1707,33 @@ describe("deriveSidebarProjectData", () => {
       canShowLessThreads: true,
     });
     expect(derive(7)?.visibleEntries).toHaveLength(12);
+  });
+
+  it("pages a pathless folder using its project id fallback key", () => {
+    const project = makeProject({ cwd: "" });
+    const pagingKey = `project:${project.id}`;
+    const threads = Array.from({ length: 8 }, (_, index) =>
+      makeSidebarThreadSummary({
+        id: ThreadId.makeUnsafe(`pathless-thread-${index + 1}`),
+        title: `Pathless thread ${index + 1}`,
+      }),
+    );
+
+    const data = deriveSidebarProjectData({
+      projects: [project],
+      sortedSidebarThreadsByProjectId: groupSidebarThreadsByProjectId(threads),
+      pinnedThreadIds: [],
+      threadListExtraPagesByProjectCwd: new Map([[pagingKey, 1]]),
+      normalizeProjectCwd: (cwd) => cwd,
+      getProjectPagingKey: (candidate) => `project:${candidate.id}`,
+      activeSidebarThreadId: undefined,
+      previewLimit: 5,
+      previewPageSize: 5,
+    }).get(project.id);
+
+    expect(data?.threadListExtraPages).toBe(1);
+    expect(data?.visibleEntries).toHaveLength(8);
+    expect(data?.canShowMoreThreads).toBe(false);
   });
 });
 

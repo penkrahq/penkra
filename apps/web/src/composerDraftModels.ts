@@ -676,7 +676,21 @@ export function deriveEffectiveComposerModelState(input: {
       ? (normalizeModelSlug(input.projectModelSelection.model, input.selectedProvider) ??
         input.projectModelSelection.model)
       : null;
+  const hasAuthoritativeCodexCatalog =
+    input.selectedProvider === "codex" &&
+    (input.availableModelOptionsByProvider?.codex?.length ?? 0) > 0;
   const activeSelection = input.draft?.modelSelectionByProvider?.[input.selectedProvider];
+  const availableDraftModel = resolveAvailableModel(activeSelection?.model);
+  const availableThreadModel = resolveAvailableModel(
+    input.threadModelSelection?.provider === input.selectedProvider
+      ? input.threadModelSelection.model
+      : null,
+  );
+  const hasStaleCodexThreadSelection =
+    hasAuthoritativeCodexCatalog &&
+    (activeSelection !== undefined || input.threadModelSelection?.provider === "codex") &&
+    availableDraftModel === null &&
+    availableThreadModel === null;
   const selectedDraftModel = activeSelection?.model
     ? resolveAppModelSelection(
         input.selectedProvider,
@@ -686,20 +700,18 @@ export function deriveEffectiveComposerModelState(input: {
     : null;
   const unlistedDraftModel = input.selectedProvider === "pi" ? selectedDraftModel : null;
   const selectedModel =
-    resolveAvailableModel(activeSelection?.model) ??
-    resolveAvailableModel(
-      input.threadModelSelection?.provider === input.selectedProvider
-        ? input.threadModelSelection.model
-        : null,
-    ) ??
-    resolveAvailableModel(
-      input.projectModelSelection?.provider === input.selectedProvider
-        ? input.projectModelSelection.model
-        : null,
-    ) ??
+    availableDraftModel ??
+    availableThreadModel ??
+    (hasStaleCodexThreadSelection
+      ? null
+      : resolveAvailableModel(
+          input.projectModelSelection?.provider === input.selectedProvider
+            ? input.projectModelSelection.model
+            : null,
+        )) ??
     resolveAvailableModel(selectedDraftModel) ??
-    persistedThreadModel ??
-    persistedProjectModel ??
+    (hasAuthoritativeCodexCatalog ? null : persistedThreadModel) ??
+    (hasAuthoritativeCodexCatalog ? null : persistedProjectModel) ??
     unlistedDraftModel ??
     input.availableModelOptionsByProvider?.[input.selectedProvider]?.[0]?.slug ??
     selectedDraftModel ??

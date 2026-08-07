@@ -1,7 +1,7 @@
-import { CircleAlertIcon, CircleCheckIcon, LoaderCircleIcon } from "~/lib/icons";
+import { CircleAlertIcon, CircleCheckIcon, LoaderCircleIcon, MicIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
 
-export type WorkStatus = "idle" | "running" | "done" | "attention";
+export type WorkStatus = "idle" | "running" | "done" | "attention" | "recording";
 
 export interface WorkStatusSharedProps {
   className?: string;
@@ -18,6 +18,7 @@ export function WorkStatusShared({ className, status = "idle" }: WorkStatusShare
         status === "running" && "text-[var(--color-text-foreground-secondary)]",
         status === "done" && "text-[var(--color-text-accent)]",
         status === "attention" && "text-orange-500",
+        status === "recording" && "text-destructive",
         className,
       )}
       data-pencil-component="AML75"
@@ -28,6 +29,11 @@ export function WorkStatusShared({ className, status = "idle" }: WorkStatusShare
         <LoaderCircleIcon aria-label="Working" className="size-[13px] animate-spin" />
       ) : status === "done" ? (
         <CircleCheckIcon aria-label="Done" className="size-[13px]" />
+      ) : status === "recording" ? (
+        <MicIcon
+          aria-label="Recording voice"
+          className="size-[13px] animate-pulse motion-reduce:animate-none"
+        />
       ) : (
         <CircleAlertIcon aria-label="Needs attention" className="size-[13px]" />
       )}

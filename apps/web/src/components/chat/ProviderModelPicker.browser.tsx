@@ -140,6 +140,7 @@ async function mountPicker(props: {
   lockedProvider: ProviderKind | null;
   providers?: ReadonlyArray<ServerProviderStatus>;
   loadingModelProviders?: Partial<Record<ProviderKind, boolean>>;
+  unavailableModelProviders?: Partial<Record<ProviderKind, boolean>>;
   onSelectionCommitted?: () => void;
   modelOptionsByProvider?: Record<
     ProviderKind,
@@ -157,6 +158,9 @@ async function mountPicker(props: {
       modelOptionsByProvider={props.modelOptionsByProvider ?? MODEL_OPTIONS_BY_PROVIDER}
       {...(props.loadingModelProviders
         ? { loadingModelProviders: props.loadingModelProviders }
+        : {})}
+      {...(props.unavailableModelProviders
+        ? { unavailableModelProviders: props.unavailableModelProviders }
         : {})}
       {...(props.providers ? { providers: props.providers } : {})}
       {...(props.onSelectionCommitted ? { onSelectionCommitted: props.onSelectionCommitted } : {})}
@@ -548,6 +552,26 @@ describe("ProviderModelPicker", () => {
         .not.toBeInTheDocument();
       await expect
         .element(page.getByRole("menuitemradio", { name: "Composer 2" }))
+        .not.toBeInTheDocument();
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("shows discovery failure instead of fallback models for Codex", async () => {
+    const mounted = await mountPicker({
+      provider: "codex",
+      model: "gpt-5-codex",
+      lockedProvider: "codex",
+      unavailableModelProviders: { codex: true },
+    });
+
+    try {
+      await page.getByRole("button").click();
+
+      await expect.element(page.getByRole("status")).toHaveTextContent("Models unavailable");
+      await expect
+        .element(page.getByRole("menuitemradio", { name: "GPT-5 Codex" }))
         .not.toBeInTheDocument();
     } finally {
       await mounted.cleanup();

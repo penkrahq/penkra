@@ -30,6 +30,25 @@ describe("App installation IPC boundary", () => {
       spaces: [],
       currentSpaceId: "personal",
     });
+    await expect(
+      toDesktopAppInstallationSnapshot(createEmptyAppInstallationState(), "personal", [
+        {
+          appId: "com.example.canvas",
+          installedVersion: "1.0.0",
+          availableVersion: "2.0.0",
+          permissions: ["network-fetch"],
+        },
+      ]),
+    ).resolves.toMatchObject({
+      permissionReviewUpdates: [
+        {
+          appId: "com.example.canvas",
+          installedVersion: "1.0.0",
+          availableVersion: "2.0.0",
+          permissions: ["network-fetch"],
+        },
+      ],
+    });
   });
 
   it("parses supported mutation requests", () => {

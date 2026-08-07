@@ -10,7 +10,6 @@ import type { Project } from "../../types";
 import {
   formatVoiceRecordingDuration,
   serializeCapturedVoiceRecording,
-  useVoiceRecorder,
 } from "../../lib/voiceRecorder";
 import { transcribeVoiceRecording } from "../../lib/voiceTranscriptionSequence";
 import {
@@ -21,6 +20,11 @@ import {
 } from "../../lib/voiceTranscriptionJobStore";
 import { readNativeApi } from "../../nativeApi";
 import type { RefreshProviderStatusesNow } from "../../hooks/useProviderStatusRefresh";
+import {
+  useVoiceRecordingSessionActions,
+  useVoiceRecordingSessionStore,
+  type VoiceRecordingSessionOrigin,
+} from "../../voiceRecordingSession";
 import { toastManager } from "../ui/toast";
 import {
   deriveComposerVoiceState,
@@ -78,6 +82,7 @@ const DEFAULT_FAILURE_COPY: ComposerVoiceFailureCopy = {
     "Voice transcription uses your ChatGPT session in Codex. That session was rejected, so sign in again there and retry.",
   refreshActionLabel: "Refresh status",
 };
+const EMPTY_VOICE_WAVEFORM_LEVELS: readonly number[] = [];
 
 const activeVoiceTranscriptionJobIds = new Set<string>();
 const attemptedRecoveredVoiceTranscriptionJobIds = new Set<string>();
@@ -181,22 +186,22 @@ export function useComposerVoiceController(
     onGuardWarning,
   } = options;
   const actionArmDelayMs = actionArmDelayMsProp ?? 0;
-  const {
-    isRecording: isVoiceRecording,
-    durationMs: voiceRecordingDurationMs,
-    waveformLevels: voiceWaveformLevels,
-    startRecording: startVoiceRecording,
-    stopRecording: stopVoiceRecording,
-    cancelRecording: cancelVoiceRecording,
-  } = useVoiceRecorder();
-  const [isVoiceTranscribing, setIsVoiceTranscribing] = useState(false);
+  const { startRecording, stopRecording, cancelRecording } = useVoiceRecordingSessionActions();
+  const isVoiceRecording = useVoiceRecordingSessionStore(
+    (state) => state.origin?.threadId === threadId && state.isRecording,
+  );
+  const voiceRecordingDurationMs = useVoiceRecordingSessionStore((state) =>
+    state.origin?.threadId === threadId ? state.durationMs : 0,
+  );
+  const voiceWaveformLevels = useVoiceRecordingSessionStore((state) =>
+    state.origin?.threadId === threadId ? state.waveformLevels : EMPTY_VOICE_WAVEFORM_LEVELS,
+  );
+  const [voiceTranscriptionThreadId, setVoiceTranscriptionThreadId] = useState<ThreadId | null>(
+    null,
+  );
+  const isVoiceTranscribing = voiceTranscriptionThreadId === threadId;
   const voiceTranscriptionRequestIdRef = useRef(0);
-  const voiceOriginRef = useRef<{
-    readonly threadId: ThreadId;
-    readonly providerThreadId: ThreadId | null;
-    readonly cwd: string;
-  } | null>(null);
-  const voiceRecordingStartedAtRef = useRef<number | null>(null);
+  const voiceOriginRef = useRef<VoiceRecordingSessionOrigin | null>(null);
   const failureCopy = {
     ...DEFAULT_FAILURE_COPY,
     ...failureCopyOverrides,
@@ -218,10 +223,11 @@ export function useComposerVoiceController(
   }, [failureCopy.fallbackDescription, failureCopy.transcriptionFailedTitle, onTranscriptReady]);
 
   const isVoiceActionArmed = () => {
-    if (actionArmDelayMs <= 0 || voiceRecordingStartedAtRef.current === null) {
+    const recordingStartedAtMs = useVoiceRecordingSessionStore.getState().startedAtMs;
+    if (actionArmDelayMs <= 0 || recordingStartedAtMs === null) {
       return true;
     }
-    const recordedForMs = Math.round(performance.now() - voiceRecordingStartedAtRef.current);
+    const recordedForMs = Math.round(performance.now() - recordingStartedAtMs);
     if (recordedForMs < 0 || recordedForMs >= actionArmDelayMs) {
       return true;
     }
@@ -232,6 +238,14 @@ export function useComposerVoiceController(
   };
 
   const startComposerVoiceRecording = async () => {
+    const existingOrigin = useVoiceRecordingSessionStore.getState().origin;
+    if (existingOrigin && existingOrigin.threadId !== threadId) {
+      toastManager.add({
+        type: "info",
+        title: "Voice recording is active in another thread",
+      });
+      return;
+    }
     if (!activeProject) {
       return;
     }
@@ -263,9 +277,17 @@ export function useComposerVoiceController(
         providerThreadId: activeThreadId,
         cwd: activeProject.cwd,
       };
+      const result = await startRecording(origin);
+      if (result.status === "busy") {
+        if (result.origin.threadId !== threadId) {
+          toastManager.add({
+            type: "info",
+            title: "Voice recording is active in another thread",
+          });
+        }
+        return;
+      }
       voiceOriginRef.current = origin;
-      await startVoiceRecording(origin);
-      voiceRecordingStartedAtRef.current = performance.now();
     } catch (error) {
       console.error("[voice-recorder] Could not start microphone capture.", error);
       toastManager.add({
@@ -290,11 +312,10 @@ export function useComposerVoiceController(
         type: "error",
         title: "Voice transcription is unavailable right now.",
       });
-      void cancelVoiceRecording();
+      void cancelRecording();
       return Promise.resolve();
     }
 
-    setIsVoiceTranscribing(true);
     const requestId = voiceTranscriptionRequestIdRef.current + 1;
     voiceTranscriptionRequestIdRef.current = requestId;
     const origin = voiceOriginRef.current ?? {
@@ -302,12 +323,13 @@ export function useComposerVoiceController(
       providerThreadId: activeThreadId,
       cwd: activeProject.cwd,
     };
+    setVoiceTranscriptionThreadId(origin.threadId);
     let voiceJobSaved = false;
     const isCurrentVoiceRequest = () => voiceTranscriptionRequestIdRef.current === requestId;
 
     // Promise chain instead of async/try-catch-finally: React Compiler does
     // not yet support try/finally, and it would skip optimizing this hook.
-    return stopVoiceRecording()
+    return stopRecording()
       .then((payload) => {
         if (!isCurrentVoiceRequest()) {
           return;
@@ -373,9 +395,8 @@ export function useComposerVoiceController(
       })
       .finally(() => {
         if (isCurrentVoiceRequest()) {
-          voiceRecordingStartedAtRef.current = null;
           voiceOriginRef.current = null;
-          setIsVoiceTranscribing(false);
+          setVoiceTranscriptionThreadId(null);
         }
       })
       .then(() => undefined);
@@ -386,10 +407,9 @@ export function useComposerVoiceController(
       return;
     }
     voiceTranscriptionRequestIdRef.current += 1;
-    voiceRecordingStartedAtRef.current = null;
     voiceOriginRef.current = null;
-    setIsVoiceTranscribing(false);
-    void cancelVoiceRecording();
+    setVoiceTranscriptionThreadId(null);
+    void cancelRecording();
   };
 
   return {

@@ -1,11 +1,25 @@
+// FILE: appDeveloperCli.ts
+// Purpose: Exposes the small, end-to-end public workflow for building and publishing Penkra Apps.
+// Layer: Developer CLI
+
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
+import * as FS from "node:fs/promises";
+import * as OS from "node:os";
 import * as Path from "node:path";
 
 import { Console, Effect } from "effect";
 import { Argument, Command, Flag } from "effect/unstable/cli";
 
-import { packageAppDirectory, testAppDirectory } from "./appDeveloperTools";
+import {
+  packageAppDirectory,
+  testAppDirectory,
+  type AppPackageEvidence,
+} from "./appDeveloperTools";
 import { requestAppRuntimeBridge } from "./appRuntimeCli";
+
+const APP_GUIDE_URL = "https://github.com/Emanuele-web04/Penkra/blob/main/docs/app-development.md";
+const DEFAULT_SIGSTORE_ISSUER = "https://oauth2.sigstore.dev/auth";
 
 const packageCommand = Command.make(
   "package",
@@ -14,137 +28,52 @@ const packageCommand = Command.make(
     output: Flag.string("output").pipe(Flag.withDescription("Output .penkra archive path.")),
   },
   ({ directory, output }) =>
-    Effect.tryPromise({
-      try: () => packageAppDirectory({ directory, output }),
-      catch: toError,
-    }).pipe(Effect.flatMap((evidence) => Console.log(JSON.stringify(evidence, null, 2)))),
+    attempt(() => packageAppDirectory({ directory, output })).pipe(printJson),
 ).pipe(Command.withDescription("Validate and create a deterministic Penkra App package."));
-
-const signCommand = Command.make(
-  "sign",
-  {
-    package: Argument.path("package", { pathType: "file", mustExist: true }),
-    bundle: Flag.string("bundle").pipe(Flag.withDescription("Output Sigstore bundle JSON path.")),
-  },
-  ({ package: packagePath, bundle }) =>
-    Effect.tryPromise({
-      try: () => runCosign(packagePath, bundle),
-      catch: toError,
-    }).pipe(
-      Effect.flatMap(() =>
-        Console.log(
-          JSON.stringify(
-            {
-              package: Path.resolve(packagePath),
-              bundle: Path.resolve(bundle),
-            },
-            null,
-            2,
-          ),
-        ),
-      ),
-    ),
-).pipe(
-  Command.withDescription("Create a standard keyless Sigstore bundle for a Penkra App package."),
-);
 
 const testCommand = Command.make(
   "test",
   {
     directory: Argument.path("directory", { pathType: "directory", mustExist: true }),
-    desktop: Flag.string("desktop").pipe(
-      Flag.optional,
-      Flag.withDescription("Built @penkra/desktop directory."),
-    ),
   },
-  ({ directory, desktop }) =>
-    Effect.tryPromise({
-      try: () =>
-        testAppDirectory({
-          directory,
-          ...(desktop._tag === "Some" ? { desktopDirectory: desktop.value } : {}),
-        }),
-      catch: toError,
-    }).pipe(Effect.flatMap((evidence) => Console.log(JSON.stringify(evidence, null, 2)))),
+  ({ directory }) => attempt(() => testAppDirectory({ directory })).pipe(printJson),
 ).pipe(Command.withDescription("Run an unpacked App in an isolated temporary Penkra host."));
 
-const preflightCommand = Command.make(
-  "preflight",
+const sideloadCommand = Command.make(
+  "sideload",
   {
     directory: Argument.path("directory", { pathType: "directory", mustExist: true }),
-    output: Flag.string("output").pipe(Flag.withDescription("Output .penkra archive path.")),
-    desktop: Flag.string("desktop").pipe(
-      Flag.optional,
-      Flag.withDescription("Built @penkra/desktop directory."),
+  },
+  ({ directory }) => bridge("developer.sideload", { sourcePath: Path.resolve(directory) }),
+).pipe(
+  Command.withDescription(
+    "Load and watch an unpacked App in the running Penkra development instance.",
+  ),
+);
+
+const publishCommand = Command.make(
+  "publish",
+  {
+    directory: Argument.path("directory", { pathType: "directory", mustExist: true }),
+    visibility: Flag.choice("visibility", ["public", "private"]).pipe(
+      Flag.withDefault("private"),
+      Flag.withDescription("Registry visibility. Defaults to private."),
     ),
   },
-  ({ directory, output, desktop }) =>
-    Effect.tryPromise({
-      try: async () => ({
-        package: await packageAppDirectory({ directory, output }),
-        integration: await testAppDirectory({
-          directory,
-          ...(desktop._tag === "Some" ? { desktopDirectory: desktop.value } : {}),
-        }),
-      }),
-      catch: toError,
-    }).pipe(Effect.flatMap((result) => Console.log(JSON.stringify(result, null, 2)))),
-).pipe(Command.withDescription("Validate, package, and run an App in the isolated host."));
-
-const publisherListCommand = Command.make("list", {}, () => bridge("developer.publishers.list"));
-const publisherCreateCommand = Command.make(
-  "create",
-  {
-    slug: Flag.string("slug"),
-    displayName: Flag.string("name"),
-    domain: Flag.string("domain").pipe(Flag.optional),
-  },
-  ({ slug, displayName, domain }) =>
-    bridge("developer.publishers.create", {
-      slug,
-      displayName,
-      ...(domain._tag === "Some" ? { domain: domain.value } : {}),
-    }),
-);
-const publisherCommand = Command.make("publisher").pipe(
-  Command.withDescription("Manage the signed-in account's App publisher."),
-  Command.withSubcommands([publisherListCommand, publisherCreateCommand]),
+  ({ directory, visibility }) =>
+    attempt(() => publishApp({ directory, visibility })).pipe(printJson),
+).pipe(
+  Command.withDescription(
+    "Test, package, sign, register, upload, and submit an App using the signed-in account.",
+  ),
 );
 
-const registryAppListCommand = Command.make(
-  "list",
-  { publisherId: Flag.string("publisher-id") },
-  ({ publisherId }) => bridge("developer.apps.list", { publisherId }),
-);
-const registryAppCreateCommand = Command.make(
-  "create",
-  {
-    publisherId: Flag.string("publisher-id"),
-    identifier: Flag.string("identifier"),
-    slug: Flag.string("slug"),
-    displayName: Flag.string("name"),
-    summary: Flag.string("summary"),
-    visibility: Flag.choice("visibility", ["public", "private"]),
-  },
-  (input) => bridge("developer.apps.create", input),
-);
-const registryAppCommand = Command.make("registry-app").pipe(
-  Command.withDescription("Register and inspect Apps owned by a publisher."),
-  Command.withSubcommands([registryAppListCommand, registryAppCreateCommand]),
-);
-
-const visibilitySetCommand = Command.make(
-  "set",
-  {
-    appId: Flag.string("app-id"),
-    visibility: Flag.choice("visibility", ["public", "private"]),
-  },
-  (input) => bridge("developer.apps.visibility.set", input),
-);
-const visibilityCommand = Command.make("visibility").pipe(
-  Command.withDescription("Change whether an App is publicly discoverable or invitation-only."),
-  Command.withSubcommands([visibilitySetCommand]),
-);
+const statusCommand = Command.make(
+  "status",
+  { appId: Flag.string("app-id").pipe(Flag.optional) },
+  ({ appId }) =>
+    attempt(() => appStatus(appId._tag === "Some" ? appId.value : undefined)).pipe(printJson),
+).pipe(Command.withDescription("Show owned Apps and their publication status."));
 
 const accessInviteCommand = Command.make(
   "invite",
@@ -160,71 +89,179 @@ const accessRevokeCommand = Command.make(
   (input) => bridge("developer.app-access.revoke", input),
 );
 const accessCommand = Command.make("access").pipe(
-  Command.withDescription("Manage invitation-only access to a private App."),
+  Command.withDescription("Manage account access to a private App."),
   Command.withSubcommands([accessInviteCommand, accessListCommand, accessRevokeCommand]),
 );
 
-const submitCommand = Command.make(
-  "submit",
-  {
-    directory: Argument.path("directory", { pathType: "directory", mustExist: true }),
-    appId: Flag.string("app-id"),
-    output: Flag.string("output"),
-    bundle: Flag.string("bundle"),
-    issuer: Flag.string("issuer"),
-  },
-  ({ directory, appId, output, bundle, issuer }) =>
-    Effect.tryPromise({
-      try: async () => {
-        const evidence = await packageAppDirectory({ directory, output });
-        await runCosign(evidence.path, bundle);
-        return requestAppRuntimeBridge("developer.submissions.create", {
-          appId,
-          packagePath: evidence.path,
-          signaturePath: Path.resolve(bundle),
-          issuer,
-          evidence,
-        });
-      },
-      catch: toError,
-    }).pipe(Effect.flatMap((result) => Console.log(JSON.stringify(result, null, 2)))),
-).pipe(Command.withDescription("Package, keyless-sign, upload, and finalize an App submission."));
-
-const submissionListCommand = Command.make("list", { appId: Flag.string("app-id") }, ({ appId }) =>
-  bridge("developer.submissions.list", { appId }),
-);
-const submissionGetCommand = Command.make(
-  "get",
-  { submissionId: Argument.string("submission-id") },
-  ({ submissionId }) => bridge("developer.submissions.get", { submissionId }),
-);
-const submissionCommand = Command.make("submission").pipe(
-  Command.withDescription("Inspect durable submission validation and publication state."),
-  Command.withSubcommands([submissionListCommand, submissionGetCommand]),
-);
-
 export const appDeveloperCommand = Command.make("app").pipe(
-  Command.withDescription("Build, sign, test, and publish Penkra Apps."),
+  Command.withDescription(`Build and publish Penkra Apps. Complete guide: ${APP_GUIDE_URL}`),
   Command.withSubcommands([
-    packageCommand,
-    signCommand,
     testCommand,
-    preflightCommand,
-    publisherCommand,
-    registryAppCommand,
-    visibilityCommand,
+    sideloadCommand,
+    packageCommand,
+    publishCommand,
+    statusCommand,
     accessCommand,
-    submitCommand,
-    submissionCommand,
   ]),
 );
 
-function bridge(method: string, params?: unknown) {
-  return Effect.tryPromise({
-    try: () => requestAppRuntimeBridge(method, params),
-    catch: toError,
-  }).pipe(Effect.flatMap((result) => Console.log(JSON.stringify(result, null, 2))));
+async function publishApp(input: {
+  directory: string;
+  visibility: "public" | "private";
+}): Promise<unknown> {
+  const temporary = await FS.mkdtemp(Path.join(OS.tmpdir(), "penkra-app-publish-"));
+  try {
+    const integration = await testAppDirectory({ directory: input.directory });
+    const packagePath = Path.join(temporary, "app.penkra");
+    const signaturePath = Path.join(temporary, "publisher.sigstore.json");
+    const evidence = await packageAppDirectory({ directory: input.directory, output: packagePath });
+    await runCosign(evidence.path, signaturePath);
+    const identity = await ensureRegistryIdentity(evidence, input.visibility);
+    const submission = await requestAppRuntimeBridge("developer.submissions.create", {
+      appId: identity.appId,
+      packagePath: evidence.path,
+      signaturePath,
+      issuer: process.env.SIGSTORE_OIDC_ISSUER?.trim() || DEFAULT_SIGSTORE_ISSUER,
+      evidence,
+    });
+    return { app: identity, integration, package: evidence, submission };
+  } finally {
+    await FS.rm(temporary, { recursive: true, force: true });
+  }
 }
+
+async function ensureRegistryIdentity(
+  evidence: AppPackageEvidence,
+  visibility: "public" | "private",
+): Promise<{ appId: string; identifier: string; publisherId: string; slug: string }> {
+  const publishers = records(await requestAppRuntimeBridge("developer.publishers.list"));
+  const owned = await Promise.all(
+    publishers.map(async (publisher) => {
+      const publisherId = requiredText(publisher, "id", "publisher");
+      return {
+        publisherId,
+        apps: records(await requestAppRuntimeBridge("developer.apps.list", { publisherId })),
+      };
+    }),
+  );
+  const existing = owned
+    .flatMap((entry) => entry.apps.map((app) => ({ app, publisherId: entry.publisherId })))
+    .find(({ app }) => text(app.identifier) === evidence.appId);
+  if (existing) {
+    const appId = requiredText(existing.app, "id", "App");
+    await requestAppRuntimeBridge("developer.apps.visibility.set", { appId, visibility });
+    return {
+      appId,
+      identifier: evidence.appId,
+      publisherId: existing.publisherId,
+      slug: evidence.slug,
+    };
+  }
+
+  const defaults = publisherDefaults(evidence.appId);
+  let publisher =
+    publishers.find((candidate) => text(candidate.slug) === defaults.slug) ??
+    (publishers.length === 1 ? publishers[0] : undefined);
+  if (!publisher) {
+    publisher = record(
+      await requestAppRuntimeBridge("developer.publishers.create", {
+        slug: defaults.slug,
+        displayName: defaults.displayName,
+      }),
+      "created publisher",
+    );
+  }
+  const publisherId = requiredText(publisher, "id", "publisher");
+  const app = record(
+    await requestAppRuntimeBridge("developer.apps.create", {
+      publisherId,
+      identifier: evidence.appId,
+      slug: evidence.slug,
+      displayName: evidence.name,
+      summary: evidence.summary,
+      visibility,
+    }),
+    "created App",
+  );
+  return {
+    appId: requiredText(app, "id", "App"),
+    identifier: evidence.appId,
+    publisherId,
+    slug: evidence.slug,
+  };
+}
+
+async function appStatus(appId?: string): Promise<unknown> {
+  if (appId) {
+    return {
+      appId,
+      submissions: await requestAppRuntimeBridge("developer.submissions.list", { appId }),
+    };
+  }
+  const publishers = records(await requestAppRuntimeBridge("developer.publishers.list"));
+  const owned = [];
+  for (const publisher of publishers) {
+    const publisherId = requiredText(publisher, "id", "publisher");
+    const apps = records(await requestAppRuntimeBridge("developer.apps.list", { publisherId }));
+    owned.push({ publisher, apps });
+  }
+  return { publishers: owned };
+}
+
+function publisherDefaults(identifier: string): {
+  slug: string;
+  displayName: string;
+} {
+  const segments = identifier.split(".");
+  const namespace = segments.slice(0, -1).join(".");
+  const label = segments.at(-2)!;
+  const suffix = createHash("sha256").update(namespace).digest("hex").slice(0, 8);
+  const base =
+    label
+      .replace(/[^a-z0-9-]/g, "-")
+      .slice(0, 53)
+      .replace(/-+$/g, "") || "app";
+  return {
+    slug: `${base}-${suffix}`,
+    displayName: label.replace(
+      /(^|-)([a-z0-9])/g,
+      (_, prefix, value: string) => `${prefix ? " " : ""}${value.toUpperCase()}`,
+    ),
+  };
+}
+
+function records(value: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(value)) throw new Error("The App registry returned an invalid list.");
+  return value.map((entry) => record(entry, "registry list item"));
+}
+
+function record(value: unknown, label: string): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`The ${label} response is invalid.`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function text(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+function requiredText(value: Record<string, unknown>, key: string, label: string): string {
+  const result = text(value[key]);
+  if (!result) throw new Error(`The ${label} response is missing ${key}.`);
+  return result;
+}
+
+function bridge(method: string, params?: unknown) {
+  return attempt(() => requestAppRuntimeBridge(method, params)).pipe(printJson);
+}
+
+function attempt<A>(operation: () => Promise<A>) {
+  return Effect.tryPromise({ try: operation, catch: toError });
+}
+
+const printJson = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+  effect.pipe(Effect.flatMap((result) => Console.log(JSON.stringify(result, null, 2))));
 
 function runCosign(packagePath: string, bundle: string): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -236,7 +273,7 @@ function runCosign(packagePath: string, bundle: string): Promise<void> {
     child.once("error", (error: NodeJS.ErrnoException) => {
       reject(
         error.code === "ENOENT"
-          ? new Error("cosign is required for App signing. Install Cosign and retry.")
+          ? new Error("Publishing currently requires Cosign for keyless App signing.")
           : error,
       );
     });
@@ -245,7 +282,7 @@ function runCosign(packagePath: string, bundle: string): Promise<void> {
       else
         reject(
           new Error(
-            `cosign sign-blob failed${signal ? ` with signal ${signal}` : ` with exit code ${code ?? "unknown"}`}.`,
+            `App signing failed${signal ? ` with signal ${signal}` : ` with exit code ${code ?? "unknown"}`}.`,
           ),
         );
     });

@@ -36,6 +36,9 @@ export const ClosedDone: Story = {
 export const ClosedNeedsAttention: Story = {
   args: { defaultExpanded: false, workStatus: "attention" },
 };
+export const ClosedRecording: Story = {
+  args: { defaultExpanded: false, workStatus: "recording" },
+};
 export const Pinned: Story = {
   args: {
     label: "Pinned folder",
@@ -62,6 +65,13 @@ export const NeedsAttention: Story = {
   args: {
     threads: threads.map((thread, index) =>
       index === 1 ? { ...thread, workStatus: "attention" as const } : thread,
+    ),
+  },
+};
+export const Recording: Story = {
+  args: {
+    threads: threads.map((thread, index) =>
+      index === 1 ? { ...thread, workStatus: "recording" as const } : thread,
     ),
   },
 };

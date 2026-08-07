@@ -12,6 +12,7 @@ import {
   LEGACY_PENKRA_DESKTOP_SCHEME,
   penkraBundleId,
   penkraDesktopIdentity,
+  resolvePenkraDevInstance,
 } from "./desktopIdentity";
 
 describe("desktopIdentity", () => {
@@ -31,6 +32,23 @@ describe("desktopIdentity", () => {
     expect(penkraDesktopIdentity("development").accountAuthScheme).toBe(
       PENKRA_DEVELOPMENT_ACCOUNT_AUTH_SCHEME,
     );
+  });
+
+  it("derives stable identities for numbered Dev instances", () => {
+    expect(resolvePenkraDevInstance(undefined)).toBe(1);
+    expect(resolvePenkraDevInstance("3")).toBe(3);
+    expect(() => resolvePenkraDevInstance("0")).toThrow("positive integer");
+    expect(penkraDesktopIdentity("development", 1)).toMatchObject({
+      displayName: "Penkra Dev",
+      bundleId: "com.penkra.app.dev",
+      userDataDirectoryName: "penkra-dev",
+    });
+    expect(penkraDesktopIdentity("development", 3)).toMatchObject({
+      displayName: "Penkra Dev 3",
+      bundleId: "com.penkra.app.dev.3",
+      accountAuthScheme: "com.penkra.app.dev.3",
+      userDataDirectoryName: "penkra-dev-3",
+    });
   });
 
   it("uses the exact packaged renderer origin and entry URL", () => {

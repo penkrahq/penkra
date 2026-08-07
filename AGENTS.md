@@ -2,8 +2,8 @@
 
 ## Task Completion Requirements
 
-- Before committing changes or declaring a task complete, start a fresh Penkra (Dev) instance and perform manual QA in the desktop app for the affected user flows. Automated tests, builds, browser-only checks, or inspecting an already-running instance do not replace this requirement.
-- Record what was manually exercised and its result in the final handoff. If Penkra (Dev) cannot be started or a relevant flow cannot be exercised, report the task as not fully validated instead of silently treating it as complete.
+- Before committing changes or declaring a task complete, start a fresh Penkra Dev instance and perform manual QA in the desktop app for the affected user flows. Automated tests, builds, browser-only checks, or inspecting an already-running instance do not replace this requirement.
+- Record what was manually exercised and its result in the final handoff. If Penkra Dev cannot be started or a relevant flow cannot be exercised, report the task as not fully validated instead of silently treating it as complete.
 - Do not run `bun fmt`, `bun lint`, or `bun typecheck` unless the user explicitly asks for them in the current conversation.
 - All of `bun fmt`, `bun lint`, and `bun typecheck` must pass before considering tasks completed.
 - Treat `bun fmt`, `bun lint`, and `bun typecheck` as heavyweight workspace checks: bundle them into one final verification pass per task whenever possible, and avoid rerunning the full set repeatedly during iteration.
@@ -11,12 +11,22 @@
 - If the user asks to focus on code only, do not run `bun fmt`, `bun lint`, or `bun typecheck` automatically. In that mode, make the code changes first and only run verification if the user explicitly asks for it.
 - NEVER run `bun test`. Always use `bun run test` (runs Vitest).
 
+## Penkra Dev Thread Boundary
+
+- A message sent into a Penkra Dev Thread must be a realistic request that an ordinary user would make about the product, an App, or work they want the Thread's agent to perform. This applies to every App and product area, not only Canvas.
+- Do not send supervising-developer instructions into a Thread. Platform architecture, harness behavior, environment variables, sideload registration, process startup or restart, repository management, release mechanics, and test orchestration belong to the supervising developer working directly in the relevant repository.
+- When a Thread is used to verify agent-driven App development, describe the desired user-visible behavior in normal product language. Let the Thread's agent discover the implementation. Do not feed it hidden infrastructure steps or make it responsible for preparing its own test harness.
+- Keep the two evidence layers distinct: the Thread demonstrates that an agent can handle the normal user request, while the supervising developer establishes the clean runtime, loads the development App, observes the UI, and verifies that the result actually works.
+
 ## Version Authority
 
 - Never choose, infer, bump, reset, tag, or publish a Penkra version unless the user explicitly approves the exact version in the current conversation.
 - Instructions such as “release,” “clean cut,” “major change,” or “proceed” do not authorize a version change.
 - Keep existing package and lockfile versions unchanged until the exact version is approved.
 - Before creating or pushing a version tag or publishing a GitHub Release, restate the exact approved version and verify that package manifests, the lockfile, tag, artifact metadata, and release title all match it.
+- A Penkra version applies only to the desktop product packages and release artifacts in this repository. It does not select, imply, bump, tag, publish, or coordinate the version of any registry App or backend deployment.
+- Registry Apps have independent versions in their own `penkra-app.json` manifests and are published independently. Their `compatibility.penkra` range is the only version relationship to the desktop product.
+- The Penkra backend is deployed independently and does not inherit the desktop version. Coordinate deployment order only when a desktop change actually depends on a backend contract change; never treat that operational dependency as shared version authority.
 
 ## Project Snapshot
 
@@ -123,12 +133,13 @@ Reference usage: opening/closing a project and the sidebar sections in `apps/web
 
 ## Local Dev Instance Isolation
 
-- Never start the default `bun run dev` while another Penkra instance is running unless the user explicitly wants shared ports/state.
-- Use an isolated home dir and non-default ports when running alongside the user's own Penkra instance, for example: `env -u PENKRA_AUTH_TOKEN PENKRA_PORT_OFFSET=3158 PENKRA_NO_BROWSER=1 bun run dev -- --home-dir ./.penkra-pr84 --port 58090`.
-- Always dry-run first when avoiding conflicts: `env -u PENKRA_AUTH_TOKEN PENKRA_PORT_OFFSET=3158 bun run dev -- --home-dir ./.penkra-pr84 --port 58090 --dry-run`.
-- Unset `PENKRA_AUTH_TOKEN` for browser dev instances unless the web app is also configured to connect with that token. If auth is accidentally inherited, the browser WebSocket can be rejected and the UI will show no threads even though SQLite has projects/threads.
-- Check both server and web ports with `lsof -nP -iTCP:<port> -sTCP:LISTEN`. A desktop app can bind `127.0.0.1:<port>` while the dev server binds IPv6 `*:<port>`, and `localhost` may still hit the wrong process.
-- If the UI shows no threads, verify the server path before changing SQL: inspect the isolated `state.sqlite`, then probe `orchestration.getSnapshot` over WebSocket. A healthy snapshot with projects/threads means the issue is client connection/hydration, not empty history.
+- `bun run dev:desktop:install-app` installs the standard Applications launchers: `Penkra Dev`, `Penkra Dev 2`, and `Penkra Dev 3`. Slot 1 deliberately keeps the established `~/Penkra_Dev` state; later slots use isolated state below `~/Penkra_Dev/.instances/<slot>`.
+- Launch numbered desktop instances from Applications. They share the local account API, website, registry, renderer build, and source watchers, while keeping login/session data, Chromium profiles, Penkra databases, tabs, Threads, logs, process identity, and embedded desktop backends separate.
+- The first numbered app starts the shared services. Closing one app stops only that desktop; shared services stop after the last numbered app closes.
+- To install another stable slot, run `bun run dev:desktop:install-app -- <slot>`, then launch `Penkra Dev <slot>` normally from Applications. The slot is a positive integer and is derived by the same resolver; three is a provisioned default, not a maximum.
+- Do not recreate numbered Apps by manually setting environment variables, copying `.app` bundles, renaming Electron, or choosing ad hoc ports/paths. Those bypass the canonical bundle IDs, URL schemes, profiles, locks, and lifecycle coordination.
+- Browser-only development remains separate from numbered desktop QA. When an intentionally isolated browser server is required, use `scripts/dev-runner.ts` with an explicit home and dry-run its port selection first; never present that workflow as a Penkra Dev desktop instance.
+- If the UI shows no threads, verify which numbered root and embedded backend the window owns before changing SQL. A healthy snapshot with projects/threads means the issue is client connection/hydration, not empty history.
 
 ## Codex App Server (Important)
 

@@ -48,7 +48,8 @@ type Request = {
     | "developer.app-access.revoke"
     | "developer.submissions.list"
     | "developer.submissions.get"
-    | "developer.submissions.create";
+    | "developer.submissions.create"
+    | "developer.sideload";
   params?: unknown;
 };
 
@@ -87,6 +88,9 @@ export class AppCommandPipeServer {
   };
   readonly #observer: AppTabObserverBridge;
   readonly #registry: AppRegistryClient | null;
+  readonly #sideload:
+    | ((input: { sourcePath: string; spaceId?: string }) => Promise<unknown>)
+    | null;
   readonly #open:
     | ((input: {
         path?: string;
@@ -109,6 +113,7 @@ export class AppCommandPipeServer {
     };
     observer: AppTabObserverBridge;
     registry?: AppRegistryClient | null;
+    sideload?: (input: { sourcePath: string; spaceId?: string }) => Promise<unknown>;
     open?: (input: {
       path?: string;
       url?: string;
@@ -124,6 +129,7 @@ export class AppCommandPipeServer {
     this.#tabs = input.tabs;
     this.#observer = input.observer;
     this.#registry = input.registry ?? null;
+    this.#sideload = input.sideload ?? null;
     this.#open = input.open ?? null;
     this.#server = Net.createServer((socket) => this.#accept(socket));
   }
@@ -472,6 +478,20 @@ export class AppCommandPipeServer {
           }),
         };
       }
+      case "developer.sideload": {
+        if (!this.#sideload) {
+          throw new Error("App sideloading is unavailable in this Penkra process.");
+        }
+        const spaceId = optionalString(params.spaceId, "spaceId");
+        return {
+          ok: true,
+          id: request.id,
+          result: await this.#sideload({
+            sourcePath: requiredString(params.sourcePath, "sourcePath"),
+            ...(spaceId === null ? {} : { spaceId }),
+          }),
+        };
+      }
       default:
         throw new Error("Unknown App command method.");
     }
@@ -501,6 +521,7 @@ export class AppCommandPipeServer {
       return (
         tab ?? {
           id: "",
+          rendererId: -1,
           appId: "",
           slug: "",
           name: "",

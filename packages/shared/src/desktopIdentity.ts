@@ -26,6 +26,31 @@ export interface PenkraDesktopIdentity {
   readonly defaultHomeDirectoryName: string;
 }
 
+export const DEFAULT_PENKRA_DEV_INSTANCE = 1;
+
+export function resolvePenkraDevInstance(value?: string): number {
+  const configured = value?.trim();
+  if (!configured) return DEFAULT_PENKRA_DEV_INSTANCE;
+  if (!/^[1-9]\d*$/u.test(configured)) {
+    throw new Error(`Invalid Penkra Dev instance: ${value}. Expected a positive integer.`);
+  }
+  const instance = Number(configured);
+  if (!Number.isSafeInteger(instance)) {
+    throw new Error(`Invalid Penkra Dev instance: ${value}. Expected a safe positive integer.`);
+  }
+  return instance;
+}
+
+export function penkraDevDisplayName(instance: number): string {
+  return instance === DEFAULT_PENKRA_DEV_INSTANCE ? "Penkra Dev" : `Penkra Dev ${instance}`;
+}
+
+export function penkraDevBundleId(instance: number): string {
+  return instance === DEFAULT_PENKRA_DEV_INSTANCE
+    ? PENKRA_DEVELOPMENT_BUNDLE_ID
+    : `${PENKRA_DEVELOPMENT_BUNDLE_ID}.${instance}`;
+}
+
 export function resolvePenkraDesktopFlavor(input: {
   readonly isPackaged: boolean;
   readonly requestedFlavor?: string;
@@ -49,17 +74,28 @@ export function resolvePenkraDesktopFlavor(input: {
   );
 }
 
-export function penkraDesktopIdentity(flavor: PenkraDesktopFlavor): PenkraDesktopIdentity {
+export function penkraDesktopIdentity(
+  flavor: PenkraDesktopFlavor,
+  developmentInstance = DEFAULT_PENKRA_DEV_INSTANCE,
+): PenkraDesktopIdentity {
   if (flavor === "development") {
+    const displayName = penkraDevDisplayName(developmentInstance);
+    const bundleId = penkraDevBundleId(developmentInstance);
     return {
       flavor,
-      displayName: "Penkra (Dev)",
-      bundleId: PENKRA_DEVELOPMENT_BUNDLE_ID,
-      accountAuthScheme: PENKRA_DEVELOPMENT_ACCOUNT_AUTH_SCHEME,
+      displayName,
+      bundleId,
+      accountAuthScheme:
+        developmentInstance === DEFAULT_PENKRA_DEV_INSTANCE
+          ? PENKRA_DEVELOPMENT_ACCOUNT_AUTH_SCHEME
+          : `${PENKRA_DEVELOPMENT_ACCOUNT_AUTH_SCHEME}.${developmentInstance}`,
       scheme: PENKRA_DESKTOP_SCHEME,
       origin: PENKRA_DESKTOP_ORIGIN,
       entryUrl: PENKRA_DESKTOP_ENTRY_URL,
-      userDataDirectoryName: "penkra-dev",
+      userDataDirectoryName:
+        developmentInstance === DEFAULT_PENKRA_DEV_INSTANCE
+          ? "penkra-dev"
+          : `penkra-dev-${developmentInstance}`,
       defaultHomeDirectoryName: ".penkra",
     };
   }

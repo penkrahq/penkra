@@ -12,6 +12,7 @@ export interface RightDockPane {
   appName: string;
   // Runtime-only presentation data. Persistence deliberately strips it.
   appIconDataUrl?: string | null;
+  appRendererId?: number;
   appRoute: string;
   appStatus: "loading" | "ready" | "crashed";
 }
@@ -29,6 +30,7 @@ export interface OpenPaneInput {
   appSlug: string;
   appName: string;
   appIconDataUrl?: string | null;
+  appRendererId?: number;
   appRoute: string;
   appStatus: "loading" | "ready" | "crashed";
 }
@@ -88,6 +90,7 @@ function createPane(input: OpenPaneInput): RightDockPane {
     appSlug: input.appSlug,
     appName: input.appName,
     ...(input.appIconDataUrl === undefined ? {} : { appIconDataUrl: input.appIconDataUrl }),
+    ...(input.appRendererId === undefined ? {} : { appRendererId: input.appRendererId }),
     appRoute: input.appRoute,
     appStatus: input.appStatus,
   };
@@ -99,8 +102,11 @@ export function openPaneInState(
 ): RightDockThreadState {
   const existing = state.panes.find((pane) => pane.id === input.paneId);
   if (existing) {
-    if (state.open && state.activePaneId === existing.id) return state;
-    return { open: true, panes: state.panes, activePaneId: existing.id };
+    const pane = createPane(input);
+    const panes = state.panes.map((candidate) =>
+      candidate.id === input.paneId ? pane : candidate,
+    );
+    return { open: true, panes, activePaneId: existing.id };
   }
   const pane = createPane(input);
   return { open: true, panes: [...state.panes, pane], activePaneId: pane.id };
@@ -139,7 +145,9 @@ export function setDockOpenInState(
 export function updatePaneInState(
   state: RightDockThreadState,
   paneId: string,
-  patch: Partial<Pick<RightDockPane, "appIconDataUrl" | "appRoute" | "appStatus">>,
+  patch: Partial<
+    Pick<RightDockPane, "appIconDataUrl" | "appRendererId" | "appRoute" | "appStatus">
+  >,
 ): RightDockThreadState {
   let changed = false;
   const panes = state.panes.map((pane) => {
@@ -147,6 +155,7 @@ export function updatePaneInState(
     const next = { ...pane, ...patch };
     if (
       next.appIconDataUrl === pane.appIconDataUrl &&
+      next.appRendererId === pane.appRendererId &&
       next.appRoute === pane.appRoute &&
       next.appStatus === pane.appStatus
     ) {

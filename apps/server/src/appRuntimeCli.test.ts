@@ -102,6 +102,49 @@ describe("penkra_exec_command discovery", () => {
     });
   });
 
+  it("discovers and scopes the singular App sideload command in development", async () => {
+    const calls: Array<{ method: string; params: unknown }> = [];
+    const bridge = async (method: string, params: unknown) => {
+      calls.push({ method, params });
+      return method === "catalog.list" ? catalog : { status: "installed" };
+    };
+    const env = { PENKRA_DESKTOP_FLAVOR: "development" };
+
+    await expect(
+      executePenkraExecCommand("penkra --help", context, env, bridge),
+    ).resolves.toMatchObject({
+      commands: expect.arrayContaining(["penkra app sideload <directory>"]),
+    });
+    await expect(
+      executePenkraExecCommand(
+        "penkra app sideload ./dist",
+        { ...context, workingDirectory: "/workspace" },
+        env,
+        bridge,
+      ),
+    ).resolves.toEqual({ status: "installed" });
+    expect(calls.at(-1)).toEqual({
+      method: "developer.sideload",
+      params: { sourcePath: "/workspace/dist", spaceId: "personal" },
+    });
+  });
+
+  it("does not expose or execute App sideloading outside development", async () => {
+    const bridge = async (method: string) => {
+      expect(method).toBe("catalog.list");
+      return catalog;
+    };
+
+    await expect(
+      executePenkraExecCommand("penkra --help", context, {}, bridge),
+    ).resolves.toMatchObject({
+      commands: expect.not.arrayContaining(["penkra app sideload <directory>"]),
+    });
+    await expect(
+      executePenkraExecCommand("penkra app sideload ./dist", context, {}, bridge),
+    ).rejects.toThrow("available only in Penkra development");
+  });
+
   it("lists only the Apps and operation keys returned for the caller Space", async () => {
     const bridge = async (_method: string, params: unknown) => {
       expect(params).toEqual(context);
@@ -147,7 +190,20 @@ describe("penkra_exec_command discovery", () => {
 
   it("points unknown core commands back to the canonical help command", async () => {
     await expect(
-      executePenkraExecCommand("penkra app list", context, {}, async () => []),
+      executePenkraExecCommand("penkra app unknown", context, {}, async () => []),
     ).rejects.toThrow("Run penkra --help");
+  });
+
+  it("returns the canonical path reported by the desktop when opening a file", async () => {
+    const path = "/workspace/penkra-apps/canvas/DESIGN_SPEC.md";
+    const bridge = async (method: string, params: unknown) => {
+      expect(method).toBe("core.open");
+      expect(params).toEqual({ ...context, path });
+      return { destination: "app", slug: "explorer", path };
+    };
+
+    await expect(
+      executePenkraExecCommand(`penkra open --path ${path}`, context, {}, bridge),
+    ).resolves.toEqual({ destination: "app", slug: "explorer", path });
   });
 });

@@ -53,14 +53,11 @@ export function useSpacesController(input: {
   activeRouteProject: Project | null;
   activeRouteProjectId: ContainerId | null;
   activateThreadFromSidebarIntent: (threadId: ThreadId) => void;
-  /** Space moves are offered from the project context menu; the menu closes on action. */
-  onCloseProjectContextMenu: () => void;
 }) {
   const {
     activateThreadFromSidebarIntent,
     activeRouteProject,
     activeRouteProjectId,
-    onCloseProjectContextMenu,
     ordinarySpaceProjects,
     projectById,
     routeThreadId,
@@ -409,7 +406,6 @@ export function useSpacesController(input: {
       const api = readNativeApi();
       const project = projectById.get(projectId);
       if (!api || !project || (project.spaceId ?? null) === spaceId) return;
-      onCloseProjectContextMenu();
       try {
         await moveProjectToSpace({ api, projectId, spaceId });
         if (activeRouteProjectId === projectId) {
@@ -423,7 +419,7 @@ export function useSpacesController(input: {
         });
       }
     },
-    [activeRouteProjectId, onCloseProjectContextMenu, projectById, selectSpaceForNavigation],
+    [activeRouteProjectId, projectById, selectSpaceForNavigation],
   );
 
   const openSpaceCreator = useCallback((projectIdAfterCreate: ContainerId | null = null) => {

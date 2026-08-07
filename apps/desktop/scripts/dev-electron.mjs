@@ -16,8 +16,8 @@ const requiredFiles = [
   "../server/dist/index.mjs",
 ];
 const watchedDirectories = [
-  { directory: "dist-electron", files: new Set(["main.js", "preload.js"]) },
-  { directory: "../server/dist", files: new Set(["index.mjs"]) },
+  { directory: "dist-electron", matches: (filename) => filename.endsWith(".js") },
+  { directory: "../server/dist", matches: (filename) => filename === "index.mjs" },
 ];
 const forcedShutdownTimeoutMs = 1_500;
 const restartDebounceMs = 120;
@@ -75,13 +75,15 @@ function cleanupStaleDevApps() {
   }
 
   const executable = escapeExtendedRegex(resolveElectronPath());
+  const entrypoint = escapeExtendedRegex(resolveDevElectronArgs(desktopDir)[0]);
   const devRoot = escapeExtendedRegex(desktopDir);
-  const commandPattern = `^${executable}[[:space:]]+dist-electron/main\\.js[[:space:]]+--penkra-dev-root=${devRoot}([[:space:]]|$)`;
+  const instance = escapeExtendedRegex(process.env.PENKRA_DEV_INSTANCE_NUMBER?.trim() || "1");
+  const commandPattern = `^${executable}[[:space:]]+${entrypoint}[[:space:]]+--penkra-dev-root=${devRoot}[[:space:]]+--penkra-dev-instance=${instance}([[:space:]]|$)`;
   spawnSync("pkill", ["-f", "--", commandPattern], { stdio: "ignore" });
 }
 
 function listStaleComputerUsePids() {
-  // Only macOS exposes a verifiable Penkra (Dev) executable path for these
+  // Only macOS exposes a verifiable numbered Penkra Dev executable path for these
   // helpers. Linux process command lines do not currently carry a dev-owner
   // marker, so reaping by the generic script name could kill another install.
   if (process.platform !== "darwin") {
@@ -92,7 +94,9 @@ function listStaleComputerUsePids() {
 
   return candidatePids.filter((pid) => {
     const command = readProcessCommand(pid);
-    if (!/Penkra \(Dev\)\.app\/Contents\/MacOS\/Electron/.test(command)) {
+    if (
+      !/\.electron-runtime\/instances\/\d+\/Electron\.app\/Contents\/MacOS\/Electron/.test(command)
+    ) {
       return false;
     }
     if (!/computerUseMcp\.mjs\s+mcp(?:\s|$)/.test(command)) {
@@ -114,7 +118,7 @@ function cleanupStaleComputerUseApps() {
   }
 
   console.error(
-    `[desktop-dev] Cleaning up ${stalePids.length} stale Penkra (Dev) Computer Use helper process${stalePids.length === 1 ? "" : "es"} from other worktrees.`,
+    `[desktop-dev] Cleaning up ${stalePids.length} stale Penkra Dev Computer Use helper process${stalePids.length === 1 ? "" : "es"} from other worktrees.`,
   );
 
   for (const pid of stalePids) {
@@ -143,7 +147,7 @@ function warnIfAlphaAppRunning() {
   }
 
   console.error(
-    "[desktop-dev] Penkra is still running. Close it before testing voice in Penkra (Dev), or you may be looking at the wrong app/runtime.",
+    "[desktop-dev] Penkra is still running. Close it before testing voice in Penkra Dev, or you may be looking at the wrong app/runtime.",
   );
   console.error(`[desktop-dev] Running Penkra process IDs: ${pids.join(", ")}`);
 }
@@ -184,20 +188,10 @@ function startApp() {
       scheduleRestart();
       return;
     }
-    if (
-      !shuttingDown &&
-      !expectedExits.has(app) &&
-      code === 0 &&
-      process.env.PENKRA_DEV_SUPERVISOR_PID
-    ) {
-      const supervisorPid = Number(process.env.PENKRA_DEV_SUPERVISOR_PID);
-      if (Number.isSafeInteger(supervisorPid) && supervisorPid > 0) {
-        // A clean Electron exit is the user's Cmd+Q. Tell the detached
-        // Applications launcher to terminate Turbo, Vite, and every watcher.
-        spawnSync("/bin/kill", ["-TERM", String(supervisorPid)], {
-          stdio: "ignore",
-        });
-      }
+    if (!shuttingDown && !expectedExits.has(app) && code === 0) {
+      // A clean Electron exit is the user's Cmd+Q. End only this instance's
+      // watcher; its coordinator decides whether shared services are still used.
+      void shutdown(0);
     }
   });
 }
@@ -262,12 +256,12 @@ function scheduleRestart() {
 }
 
 function startWatchers() {
-  for (const { directory, files } of watchedDirectories) {
+  for (const { directory, matches } of watchedDirectories) {
     const watcher = watch(
       join(desktopDir, directory),
       { persistent: true },
       (_eventType, filename) => {
-        if (typeof filename !== "string" || !files.has(filename)) {
+        if (typeof filename !== "string" || !matches(filename)) {
           return;
         }
 

@@ -82,8 +82,9 @@ function normalizeDynamicModelSlug(provider: ProviderKind, slug: string): string
 /**
  * Folds runtime-discovered models into the static option list for a provider:
  * discovered models lead (with display names recovered from the static list when
- * possible), static built-ins fill gaps unless discovery fully owns the catalog
- * (antigravity/kilo/opencode/cursor), and user-defined custom models always survive.
+ * possible), static built-ins fill gaps unless discovery fully owns the catalog,
+ * and user-defined custom models always survive. Codex discovery is account-aware,
+ * so its live list must not be widened with models the signed-in account cannot use.
  */
 export function mergeDynamicModelOptions(input: {
   provider: ProviderKind;
@@ -165,6 +166,7 @@ export function mergeDynamicModelOptions(input: {
   );
   const missingStaticBuiltIns =
     (input.provider === "claudeAgent" ||
+      input.provider === "codex" ||
       input.provider === "antigravity" ||
       input.provider === "kilo" ||
       input.provider === "opencode" ||

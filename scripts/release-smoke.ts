@@ -132,6 +132,26 @@ function verifyReleaseWorkflowSafety(): void {
     "Expected quarantined Linux geometry checks to remain independently visible.",
   );
   assertContains(
+    ciWorkflow,
+    "name: Native Desktop Package (${{ matrix.name }})",
+    "Expected native Windows and Linux packages to be tested before release tagging.",
+  );
+  assertContains(
+    ciWorkflow,
+    "runner: windows-2025",
+    "Expected pre-release packaged startup evidence from native Windows.",
+  );
+  assertContains(
+    ciWorkflow,
+    '--platform "${{ matrix.platform }}"',
+    "Expected CI to build and launch each native desktop package.",
+  );
+  assertContains(
+    ciWorkflow,
+    "DESKTOP_PLATFORM_RESULT: ${{ needs.desktop_platform.result }}",
+    "Expected native packaged startup to block the aggregate quality gate.",
+  );
+  assertContains(
     workflow,
     'tags:\n      - "v*.*.*"',
     "Expected stable desktop releases to build from version tags.",
@@ -157,7 +177,9 @@ function verifyReleaseWorkflowSafety(): void {
     "bun run test",
     "Release builds must consume the exact commit CI result instead of repeating tests.",
   );
-  assertContains(workflow, "runs-on: macos-14", "Expected the release to run on macOS.");
+  assertContains(workflow, "runner: macos-15", "Expected a supported native macOS release runner.");
+  assertContains(workflow, "runner: ubuntu-24.04", "Expected a native Linux release runner.");
+  assertContains(workflow, "fail-fast: false", "Expected independent platform release failures.");
   assertContains(
     workflow,
     "environment: desktop-release",
@@ -165,6 +187,17 @@ function verifyReleaseWorkflowSafety(): void {
   );
   assertContains(workflow, "--target dmg", "Expected a signed DMG and matching update ZIP.");
   assertContains(workflow, "--arch arm64", "Expected the production release to be macOS arm64.");
+  assertContains(workflow, "--target AppImage", "Expected a Linux AppImage.");
+  assertNotContains(
+    workflow,
+    "--target nsis",
+    "Windows publication remains deferred until its signing identity is provisioned.",
+  );
+  assertContains(
+    workflow,
+    "write-release-artifact-provenance.ts",
+    "Expected every platform artifact to carry verified release provenance.",
+  );
   assertContains(
     workflow,
     "--source-commit",
@@ -186,6 +219,11 @@ function verifyReleaseWorkflowSafety(): void {
     workflow,
     "Public desktop artifact contains the private Penkra CLI.",
     "Expected release verification to reject the private CLI.",
+  );
+  assertNotContains(
+    workflow,
+    "allow-unsigned-windows-publication",
+    "Public Windows releases must not allow an unsigned exception.",
   );
   for (const forbidden of [
     "BACKEND_REPOSITORY_TOKEN",

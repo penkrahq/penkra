@@ -25,6 +25,7 @@ import {
 import { resolvePenkraDevIconSource } from "./lib/macos-icon";
 import { APP_DATA_USAGE_DESCRIPTION, APPLE_EVENTS_USAGE_DESCRIPTION } from "./lib/macos-privacy";
 import { resolvePenkraDevWorkspaceConfigPath } from "./lib/penkra-dev-workspace";
+import { resolvePenkraDevInstanceDefinition } from "./lib/penkra-dev-instance";
 
 describe("Penkra Dev launcher", () => {
   it("keeps launcher state and development data outside production Penkra", () => {
@@ -32,7 +33,7 @@ describe("Penkra Dev launcher", () => {
 
     expect(paths.stateDirectory).toBe("/Users/tester/Penkra_Dev/.launcher");
     expect(paths.developmentRoot).toBe("/Users/tester/Penkra_Dev");
-    expect(paths.lockDirectory).toBe(`${paths.stateDirectory}/supervisor.lock`);
+    expect(paths.lockDirectory).toBe(`${paths.stateDirectory}/coordinator.lock`);
     expect(paths.statusPath).toBe(`${paths.stateDirectory}/status.json`);
     expect(paths.failurePath).toBe(`${paths.stateDirectory}/failure.json`);
   });
@@ -164,6 +165,7 @@ describe("Penkra Dev launcher", () => {
       executable: "/usr/local/bin/node",
       args: [
         "/repositories/backend-checkout/ops/dev-workspace.mjs",
+        "--shared-only",
         "--desktop-root",
         "/workspace/penkra",
         "--website-root",
@@ -190,7 +192,7 @@ describe("Penkra Dev launcher", () => {
 
   it("reaps only an orphaned embedded backend from the active desktop checkout", () => {
     const desktopRoot = "/workspace/penkra";
-    const executable = `${desktopRoot}/apps/desktop/.electron-runtime/Penkra (Dev).app/Contents/MacOS/Penkra (Dev)`;
+    const executable = `${desktopRoot}/apps/desktop/.electron-runtime/instances/2/Electron.app/Contents/MacOS/Electron`;
     const backendEntry = `${desktopRoot}/apps/server/dist/index.mjs`;
 
     expect(
@@ -229,8 +231,9 @@ describe("Penkra Dev launcher", () => {
       resolvePenkraDevLauncherCompileArgs({
         bunExecutable: "/opt/homebrew/bin/bun",
         launcherScriptPath: "/workspace/scripts/penkra-dev-launcher.ts",
-        executablePath: "/tmp/Penkra (Dev)",
+        executablePath: "/tmp/Penkra Dev 2",
         repoRoot: "/workspace",
+        instance: 2,
       }),
     ).toEqual([
       "build",
@@ -240,9 +243,11 @@ describe("Penkra Dev launcher", () => {
       'PENKRA_DEV_REPO_ROOT="/workspace"',
       "--define",
       'PENKRA_DEV_BUN_EXECUTABLE="/opt/homebrew/bin/bun"',
+      "--define",
+      'PENKRA_DEV_INSTANCE_NUMBER="2"',
       "/workspace/scripts/penkra-dev-launcher.ts",
       "--outfile",
-      "/tmp/Penkra (Dev)",
+      "/tmp/Penkra Dev 2",
     ]);
   });
 
@@ -282,7 +287,7 @@ describe("Penkra Dev launcher", () => {
       resolvePenkraDevLauncherSignArgs({
         entitlementsPath: "/repo/scripts/resources/penkra-dev-launcher.entitlements.plist",
         signingIdentity: "Apple Development: Developer (TEAM123)",
-        stagedAppPath: "/tmp/Penkra (Dev).app",
+        stagedAppPath: "/tmp/Penkra Dev.app",
       }),
     ).toEqual(
       expect.arrayContaining([
@@ -307,12 +312,7 @@ describe("Penkra Dev launcher", () => {
     };
 
     expect(turboConfig.globalEnv).toEqual(
-      expect.arrayContaining([
-        "PENKRA_API_URL",
-        "PENKRA_DEV_SUPERVISOR_PID",
-        "PENKRA_ROOT",
-        "PENKRA_SKIP_LOGIN_SHELL_ENVIRONMENT",
-      ]),
+      expect.arrayContaining(["PENKRA_API_URL", "PENKRA_DEV_INSTANCE_NUMBER", "PENKRA_ROOT"]),
     );
   });
 
@@ -320,5 +320,18 @@ describe("Penkra Dev launcher", () => {
     expect(resolvePenkraDevIconSource("/workspace")).toBe(
       "/workspace/apps/desktop/resources/icon.png",
     );
+  });
+
+  it("derives numbered launcher paths without a fixed maximum", () => {
+    expect(resolvePenkraDevInstanceDefinition(1, "/Users/tester")).toMatchObject({
+      displayName: "Penkra Dev",
+      applicationPath: "/Applications/Penkra Dev.app",
+      developmentRoot: "/Users/tester/Penkra_Dev",
+    });
+    expect(resolvePenkraDevInstanceDefinition(5, "/Users/tester")).toMatchObject({
+      displayName: "Penkra Dev 5",
+      applicationPath: "/Applications/Penkra Dev 5.app",
+      developmentRoot: "/Users/tester/Penkra_Dev/.instances/5",
+    });
   });
 });

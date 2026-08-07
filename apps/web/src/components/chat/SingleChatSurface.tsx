@@ -1,6 +1,6 @@
 import type { DesktopAppTabDescriptor } from "@penkra/contracts";
 import type { ContainerId, ThreadId } from "@penkra/contracts";
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useComposerDraftStore } from "../../composerDraftStore";
 import { canComposerHandlePanelWidth } from "../../lib/panelResize";
@@ -23,6 +23,7 @@ import { toastManager } from "../ui/toast";
 import { AppsIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
 import { AppDockPane } from "./AppDockPane";
+import { shouldMountAppDockPane, shouldRetryAppTabHostReady } from "./appTabRestore.logic";
 import { resolveAppsLauncherAction, resolveAppsLauncherSpaceId } from "./appsLauncher.logic";
 import { DeferredChatView } from "./ChatThreadSurfacePrimitives";
 import {
@@ -60,6 +61,7 @@ function appPaneFromTab(tab: DesktopAppTabDescriptor) {
     appSlug: tab.slug,
     appName: tab.name,
     appIconDataUrl: tab.iconDataUrl,
+    appRendererId: tab.rendererId,
     appRoute: tab.route,
     appStatus: tab.status,
   };
@@ -85,6 +87,9 @@ export function SingleChatSurface(props: { threadId: ThreadId; projectId: Contai
   );
   const threadSummaries = useStore(useMemo(() => createSidebarThreadSummariesSelector(), []));
   const restoringAppPaneIdsRef = useRef(new Set<string>());
+  const [confirmedAppPaneIds, setConfirmedAppPaneIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
   const currentSpaceId = resolveAppsLauncherSpaceId({
     persistedSpaceId:
       threadSummaries.find((thread) => thread.id === props.threadId)?.spaceId ?? null,
@@ -112,18 +117,28 @@ export function SingleChatSurface(props: { threadId: ThreadId; projectId: Contai
     const bridge = window.desktopBridge?.appTabs;
     if (!bridge) return;
     const removeOpened = bridge.onOpened((tab) => {
-      if (tab.threadId === props.threadId) openPane(props.threadId, appPaneFromTab(tab));
+      if (tab.threadId !== props.threadId) return;
+      setConfirmedAppPaneIds((current) => new Set(current).add(tab.id));
+      openPane(props.threadId, appPaneFromTab(tab));
     });
     const removeState = bridge.onState((tab) => {
       if (tab.threadId !== props.threadId) return;
       updatePane(props.threadId, tab.id, {
         appIconDataUrl: tab.iconDataUrl,
+        appRendererId: tab.rendererId,
         appRoute: tab.route,
         appStatus: tab.status,
       });
     });
     const removeClosed = bridge.onClosed((tab) => {
-      if (tab.threadId === props.threadId) closePane(props.threadId, tab.id);
+      if (tab.threadId !== props.threadId) return;
+      setConfirmedAppPaneIds((current) => {
+        if (!current.has(tab.id)) return current;
+        const next = new Set(current);
+        next.delete(tab.id);
+        return next;
+      });
+      closePane(props.threadId, tab.id);
     });
     return () => {
       removeOpened();
@@ -136,39 +151,72 @@ export function SingleChatSurface(props: { threadId: ThreadId; projectId: Contai
     const bridge = window.desktopBridge?.appTabs;
     if (!bridge || !currentSpaceId) return;
     let cancelled = false;
-    void bridge.list().then((tabs) => {
-      if (cancelled) return;
-      const tabsForThread = tabs.filter((tab) => tab.threadId === props.threadId);
-      const liveIds = new Set(tabsForThread.map((tab) => tab.id));
-      const renderedIds = new Set(dockState.panes.map((pane) => pane.id));
-      for (const tab of tabsForThread) {
-        if (!renderedIds.has(tab.id)) openPane(props.threadId, appPaneFromTab(tab));
-      }
-      for (const pane of dockState.panes) {
-        if (liveIds.has(pane.id) || restoringAppPaneIdsRef.current.has(pane.id)) continue;
-        restoringAppPaneIdsRef.current.add(pane.id);
-        void bridge
-          .open({
-            appId: pane.appId,
-            spaceId: currentSpaceId,
-            threadId: props.threadId,
-            route: pane.appRoute,
-          })
-          .then(() => closePane(props.threadId, pane.id))
-          .catch((error: unknown) => {
+    let retryTimer: number | null = null;
+    let readinessAttempt = 0;
+    const reconcile = () => {
+      void bridge
+        .list()
+        .then((tabs) => {
+          if (cancelled) return;
+          const tabsForThread = tabs.filter((tab) => tab.threadId === props.threadId);
+          const liveIds = new Set(tabsForThread.map((tab) => tab.id));
+          setConfirmedAppPaneIds(liveIds);
+          const renderedIds = new Set(dockState.panes.map((pane) => pane.id));
+          for (const tab of tabsForThread) {
+            if (!renderedIds.has(tab.id)) {
+              openPane(props.threadId, appPaneFromTab(tab));
+            } else {
+              updatePane(props.threadId, tab.id, {
+                appIconDataUrl: tab.iconDataUrl,
+                appRendererId: tab.rendererId,
+                appRoute: tab.route,
+                appStatus: tab.status,
+              });
+            }
+          }
+          for (const pane of dockState.panes) {
+            if (liveIds.has(pane.id) || restoringAppPaneIdsRef.current.has(pane.id)) continue;
+            restoringAppPaneIdsRef.current.add(pane.id);
+            // A persisted pane ID belongs to the previous Electron process and cannot be attached.
+            // Remove it before opening the replacement so AppDockPane never races the main process
+            // with attach/visibility requests for a renderer that no longer exists.
             closePane(props.threadId, pane.id);
-            toastManager.add({
-              type: "error",
-              title: "Could not restore App",
-              description:
-                error instanceof Error ? error.message : "The App tab could not be restored.",
-            });
-          })
-          .finally(() => restoringAppPaneIdsRef.current.delete(pane.id));
-      }
-    });
+            void bridge
+              .open({
+                appId: pane.appId,
+                spaceId: currentSpaceId,
+                threadId: props.threadId,
+                route: pane.appRoute,
+              })
+              .catch((error: unknown) => {
+                toastManager.add({
+                  type: "error",
+                  title: "Could not restore App",
+                  description:
+                    error instanceof Error ? error.message : "The App tab could not be restored.",
+                });
+              })
+              .finally(() => restoringAppPaneIdsRef.current.delete(pane.id));
+          }
+        })
+        .catch((error: unknown) => {
+          if (cancelled) return;
+          if (shouldRetryAppTabHostReady(error, readinessAttempt++)) {
+            retryTimer = window.setTimeout(reconcile, 100);
+            return;
+          }
+          toastManager.add({
+            type: "error",
+            title: "Could not restore Apps",
+            description:
+              error instanceof Error ? error.message : "The App tabs could not be restored.",
+          });
+        });
+    };
+    reconcile();
     return () => {
       cancelled = true;
+      if (retryTimer !== null) window.clearTimeout(retryTimer);
     };
   }, [closePane, currentSpaceId, dockState.panes, openPane, props.threadId]);
 
@@ -267,15 +315,25 @@ export function SingleChatSurface(props: { threadId: ThreadId; projectId: Contai
       );
   };
 
-  const renderAppPane = (pane: RightDockPane, context: { isVisible: boolean }) => (
-    <AppDockPane
-      appName={pane.appName}
-      {...(pane.appIconDataUrl !== undefined ? { iconDataUrl: pane.appIconDataUrl } : {})}
-      status={pane.appStatus}
-      tabId={pane.id}
-      visible={context.isVisible}
-    />
-  );
+  const renderAppPane = (pane: RightDockPane, context: { isVisible: boolean }) =>
+    shouldMountAppDockPane(pane.id, confirmedAppPaneIds) && pane.appRendererId !== undefined ? (
+      <AppDockPane
+        appName={pane.appName}
+        {...(pane.appIconDataUrl !== undefined ? { iconDataUrl: pane.appIconDataUrl } : {})}
+        status={pane.appStatus}
+        tabId={pane.id}
+        rendererId={pane.appRendererId}
+        visible={context.isVisible}
+      />
+    ) : (
+      <div
+        aria-label={`Restoring ${pane.appName}`}
+        className="flex h-full min-h-0 w-full items-center justify-center text-sm text-muted-foreground"
+        role="status"
+      >
+        Restoring {pane.appName}…
+      </div>
+    );
 
   const closeAppPane = (paneId: string) => {
     void window.desktopBridge?.appTabs?.close({ tabId: paneId }).catch(() => undefined);

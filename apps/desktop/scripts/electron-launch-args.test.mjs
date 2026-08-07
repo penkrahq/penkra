@@ -5,8 +5,9 @@ import { resolveDevElectronArgs } from "./electron-launch-args.mjs";
 describe("resolveDevElectronArgs", () => {
   it("passes the application entrypoint before Penkra's ownership marker", () => {
     expect(resolveDevElectronArgs("/workspace/apps/desktop")).toEqual([
-      "dist-electron/main.js",
+      "/workspace/apps/desktop",
       "--penkra-dev-root=/workspace/apps/desktop",
+      "--penkra-dev-instance=1",
     ]);
   });
 });

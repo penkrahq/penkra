@@ -4,11 +4,12 @@
 # Development (with hot reload)
 bun run dev
 
-# Desktop development
-bun run dev:desktop
+# Install the standard desktop development Apps, then launch one from Applications
+bun run dev:desktop:install-app
+# Penkra Dev, Penkra Dev 2, or Penkra Dev 3
 
-# Desktop development on an isolated port set
-PENKRA_DEV_INSTANCE=feature-xyz bun run dev:desktop
+# Provision another stable desktop slot
+bun run dev:desktop:install-app -- 4
 
 # Production
 bun run build

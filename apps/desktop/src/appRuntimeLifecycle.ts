@@ -95,14 +95,18 @@ export class AppRuntimeLifecycle {
     });
   }
 
-  disable(appId: string, spaceId: string): Promise<AppInstallationState> {
+  disable(
+    appId: string,
+    spaceId: string,
+    reason: OperationCancellationCode = "app-disabled",
+  ): Promise<AppInstallationState> {
     return this.#enqueue(runtimeKey(appId, spaceId), async () => {
       // Persist disabled first. The broker reads this snapshot for every new
       // invocation, so no new work enters while teardown is in progress.
       const state = await this.#store.mutate((current) =>
         setSpaceAppEnabled(current, { appId, spaceId, enabled: false }),
       );
-      await this.#deactivate(appId, spaceId);
+      await this.#deactivate(appId, spaceId, reason);
       return state;
     });
   }

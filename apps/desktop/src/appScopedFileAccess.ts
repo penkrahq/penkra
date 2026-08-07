@@ -94,10 +94,17 @@ export async function writeScopedBinary(input: {
   ) {
     throw new Error("Binary writes must contain at most 8 MiB.");
   }
-  const path = await resolveExistingScopedPath(input.root, input.relativePath);
-  const stats = await FS.promises.stat(path);
-  if (!stats.isFile()) throw new Error("The requested App path is not a file.");
+  const path = await resolveWritableScopedFile(input.root, input.relativePath);
   await FS.promises.writeFile(path, input.bytes);
+}
+
+export async function writeScopedText(input: {
+  root: ScopedRootHandle;
+  relativePath?: string;
+  contents: string;
+}): Promise<void> {
+  const path = await resolveWritableScopedFile(input.root, input.relativePath);
+  await FS.promises.writeFile(path, input.contents, "utf8");
 }
 
 export async function createScopedDirectory(
@@ -156,6 +163,36 @@ async function resolveProspectiveScopedPath(
   const path = Path.join(parent, Path.basename(unresolved));
   assertInsideRoot(root, path);
   return path;
+}
+
+async function resolveWritableScopedFile(
+  root: ScopedRootHandle,
+  relativePath?: string,
+): Promise<string> {
+  if (root.kind === "file") {
+    const path = await resolveExistingScopedPath(root, relativePath);
+    const stats = await FS.promises.stat(path);
+    if (!stats.isFile()) throw new Error("The requested App path is not a file.");
+    return path;
+  }
+  if (!relativePath || relativePath === ".") {
+    throw new Error("A directory handle requires a child file path.");
+  }
+  const prospective = await resolveProspectiveScopedPath(root, relativePath);
+  try {
+    const unresolvedStats = await FS.promises.lstat(prospective);
+    if (unresolvedStats.isSymbolicLink()) {
+      throw new Error("Symbolic links are not supported for App file writes.");
+    }
+    const path = await FS.promises.realpath(prospective);
+    assertInsideRoot(root, path);
+    const stats = await FS.promises.stat(path);
+    if (!stats.isFile()) throw new Error("The requested App path is not a file.");
+    return path;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    return prospective;
+  }
 }
 
 function metadata(root: ScopedRootHandle, path: string, stats: FS.Stats): AppFileMetadata {

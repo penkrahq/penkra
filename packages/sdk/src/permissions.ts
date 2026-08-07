@@ -21,6 +21,11 @@ export const PENKRA_PERMISSIONS = {
     summary: "Create and control isolated web pages through Penkra's hosted browser service.",
     risk: "high",
   },
+  "account-data": {
+    name: "account-data",
+    summary: "Use the signed-in Penkra Account with this App's own backend data namespace.",
+    risk: "standard",
+  },
 } as const;
 
 export type PenkraPermissionName = keyof typeof PENKRA_PERMISSIONS;

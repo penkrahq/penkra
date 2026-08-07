@@ -33,8 +33,10 @@ describe("AppCommandPipeServer", () => {
     const path = Path.join(directory, "command.sock");
     const invoke = vi.fn(async () => ({ created: true }));
     const open = vi.fn(async () => ({ destination: "system" }));
+    const sideload = vi.fn(async () => ({ status: "installed" }));
     const current = {
       id: "tab-1",
+      rendererId: 101,
       appId: "com.acme.linear",
       slug: "linear",
       name: "Linear",
@@ -69,6 +71,7 @@ describe("AppCommandPipeServer", () => {
         wait: vi.fn(async () => ({})),
       },
       open,
+      sideload,
     });
     await server.start();
     disposers.push(async () => {
@@ -116,6 +119,23 @@ describe("AppCommandPipeServer", () => {
       requestedApp: "explorer",
       spaceId: "personal",
       threadId: "thread-1",
+    });
+
+    await expect(
+      send(path, {
+        id: "request-sideload",
+        token: "secret",
+        method: "developer.sideload",
+        params: { sourcePath: "/work/canvas/dist", spaceId: "personal" },
+      }),
+    ).resolves.toEqual({
+      ok: true,
+      id: "request-sideload",
+      result: { status: "installed" },
+    });
+    expect(sideload).toHaveBeenCalledWith({
+      sourcePath: "/work/canvas/dist",
+      spaceId: "personal",
     });
 
     await expect(

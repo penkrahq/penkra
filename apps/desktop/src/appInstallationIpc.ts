@@ -26,6 +26,7 @@ function requireString(record: Record<string, unknown>, key: string): string {
 export async function toDesktopAppInstallationSnapshot(
   state: AppInstallationState,
   currentSpaceId?: string,
+  permissionReviewUpdates?: DesktopAppInstallationSnapshot["permissionReviewUpdates"],
 ): Promise<DesktopAppInstallationSnapshot> {
   return {
     installed: await Promise.all(
@@ -46,6 +47,7 @@ export async function toDesktopAppInstallationSnapshot(
     ),
     spaces: Object.values(state.spaceStateByKey),
     ...(currentSpaceId === undefined ? {} : { currentSpaceId }),
+    ...(permissionReviewUpdates === undefined ? {} : { permissionReviewUpdates }),
   };
 }
 

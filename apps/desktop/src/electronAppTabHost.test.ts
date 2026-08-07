@@ -54,7 +54,7 @@ const electron = vi.hoisted(() => {
 vi.mock("electron", () => ({ WebContentsView: electron.WebContentsView }));
 
 import type { InstalledAppPackage } from "./appInstallationState";
-import { ElectronAppTabHost } from "./electronAppTabHost";
+import { ElectronAppTabHost, shouldNotifyAppTabClosed } from "./electronAppTabHost";
 
 function installedApp(): InstalledAppPackage {
   const manifest = {
@@ -83,6 +83,14 @@ function installedApp(): InstalledAppPackage {
 }
 
 describe("ElectronAppTabHost", () => {
+  it("preserves persisted shell panes while the host stops or replaces an App", () => {
+    expect(shouldNotifyAppTabClosed("host-stopped")).toBe(false);
+    expect(shouldNotifyAppTabClosed("app-updated")).toBe(false);
+    expect(shouldNotifyAppTabClosed("tab-closed")).toBe(true);
+    expect(shouldNotifyAppTabClosed("app-disabled")).toBe(true);
+    expect(shouldNotifyAppTabClosed("app-uninstalled")).toBe(true);
+  });
+
   it("owns one isolated view with stable identity through attach, bounds, and close", async () => {
     electron.views.length = 0;
     const app = installedApp();
@@ -155,6 +163,7 @@ describe("ElectronAppTabHost", () => {
       status: "ready",
     });
     expect(host.list()).toEqual([descriptor]);
+    expect(host.has(descriptor.id)).toBe(true);
     expect(host.current()).toBeNull();
     expect(onState).toHaveBeenCalledWith(descriptor);
     expect(onRendererCreated).toHaveBeenCalledWith({
@@ -176,20 +185,36 @@ describe("ElectronAppTabHost", () => {
     expect(host.rendererView(100)).toBe(electron.views[0]);
     expect(host.rendererView(999)).toBeNull();
 
-    host.attach(descriptor.id);
-    host.attach(descriptor.id);
+    host.attach(descriptor.id, descriptor.rendererId);
+    host.attach(descriptor.id, descriptor.rendererId);
     expect(addChildView).toHaveBeenCalledOnce();
-    host.setBounds(descriptor.id, { x: 1.4, y: 2.6, width: 300.2, height: 400.8 });
+    host.setBounds(descriptor.id, descriptor.rendererId, {
+      x: 1.4,
+      y: 2.6,
+      width: 300.2,
+      height: 400.8,
+    });
     expect(electron.views[0]?.bounds.at(-1)).toEqual({ x: 1, y: 3, width: 300, height: 401 });
-    host.setVisible(descriptor.id, true);
+    host.setVisible(descriptor.id, descriptor.rendererId, true);
     expect(host.current()).toEqual(descriptor);
     expect(electron.views[0]?.webContents.focus).toHaveBeenCalledOnce();
-    host.setVisible(descriptor.id, false);
+    host.setVisible(descriptor.id, descriptor.rendererId, false);
     expect(host.current()).toBeNull();
     expect(focusShell).toHaveBeenCalledOnce();
 
+    await host.navigate(descriptor.id, { route: "/document/7", state: { page: 3 } });
+    expect(host.captureForUpdate(app.appId, "personal")).toEqual([
+      { id: descriptor.id, threadId: "thread-1", route: "/document/7", state: { page: 3 } },
+    ]);
+
+    host.setRoute(descriptor.id, { route: "/document/8", state: { page: 4 } });
+    expect(host.captureForUpdate(app.appId, "personal")).toEqual([
+      { id: descriptor.id, threadId: "thread-1", route: "/document/8", state: { page: 4 } },
+    ]);
+
     host.closeForAppSpace(app.appId, "personal");
     host.close(descriptor.id);
+    expect(host.has(descriptor.id)).toBe(false);
     expect(unregisterBroker).toHaveBeenCalledOnce();
     expect(unregisterRpc).toHaveBeenCalledWith("app-disabled");
     expect(releaseIdentity).toHaveBeenCalledOnce();
@@ -197,6 +222,80 @@ describe("ElectronAppTabHost", () => {
     expect(electron.views[0]?.webContents.close).toHaveBeenCalledOnce();
     expect(onClosed).toHaveBeenCalledWith({ id: descriptor.id, threadId: "thread-1" });
     expect(host.list()).toEqual([]);
+  });
+
+  it("restores an updated App with the same tab identity", async () => {
+    electron.views.length = 0;
+    const app = installedApp();
+    const attachedViews = new Set<unknown>();
+    const host = new ElectronAppTabHost({
+      window: () =>
+        ({
+          isDestroyed: () => false,
+          contentView: {
+            addChildView: (view: unknown) => attachedViews.add(view),
+            removeChildView: (view: unknown) => attachedViews.delete(view),
+          },
+          webContents: { focus: vi.fn(), getZoomFactor: () => 1 },
+        }) as never,
+      installations: {
+        snapshot: () => ({
+          packagesByInstallationKey: { [`personal\0${app.appId}`]: app },
+        }),
+        isActive: () => true,
+        setEnabled: vi.fn(),
+      } as never,
+      sessions: { get: () => ({ appId: app.appId, spaceId: "personal" }) as never },
+      broker: { registerTab: vi.fn(() => vi.fn()) },
+      rpc: { registerTarget: vi.fn(() => vi.fn()), request: vi.fn() },
+      ipcBridge: { waitForReady: vi.fn(async () => undefined) },
+      preloadPath: "/trusted/appPreload.js",
+      onOpened: vi.fn(),
+      onState: vi.fn(),
+      measureRendererMemory: () => 128 * 1024,
+    });
+
+    const original = await host.openInstalled({
+      appId: app.appId,
+      spaceId: "personal",
+      threadId: "thread-1",
+      route: "/document/7",
+      state: { page: 3 },
+    });
+    const snapshot = host.captureForUpdate(app.appId, "personal");
+    host.attach(original.id, original.rendererId);
+    host.setVisible(original.id, original.rendererId, true);
+    expect(attachedViews).toEqual(new Set([electron.views[0]]));
+
+    host.closeForAppSpace(app.appId, "personal");
+    await host.restoreAfterUpdate(app.appId, "personal", snapshot);
+
+    const restored = host.list()[0];
+    expect(restored).toBeDefined();
+    if (!restored) throw new Error("Updated App tab was not restored.");
+    expect(restored.rendererId).not.toBe(original.rendererId);
+    expect(host.attach(restored.id, restored.rendererId)).toBe(true);
+    expect(host.setVisible(restored.id, restored.rendererId, true)).toBe(true);
+
+    // Cleanup from the retired React effect must not hide or resize the replacement renderer.
+    expect(host.setVisible(original.id, original.rendererId, false)).toBe(false);
+    expect(
+      host.setBounds(original.id, original.rendererId, { x: 0, y: 0, width: 0, height: 0 }),
+    ).toBe(false);
+    expect(attachedViews).toEqual(new Set([electron.views[1]]));
+    expect(electron.views[0]?.webContents.close).toHaveBeenCalledOnce();
+    expect(electron.views[1]?.visible.at(-1)).toBe(true);
+
+    expect(host.list()).toEqual([
+      expect.objectContaining({
+        id: original.id,
+        rendererId: restored.rendererId,
+        appId: app.appId,
+        threadId: "thread-1",
+        route: "/document/7",
+        status: "ready",
+      }),
+    ]);
   });
 
   it("lazily activates a persisted enabled App before opening its UI", async () => {

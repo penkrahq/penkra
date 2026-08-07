@@ -1,3 +1,4 @@
 export function resolveDevElectronArgs(desktopDir) {
-  return ["dist-electron/main.js", `--penkra-dev-root=${desktopDir}`];
+  const instance = process.env.PENKRA_DEV_INSTANCE_NUMBER?.trim() || "1";
+  return [desktopDir, `--penkra-dev-root=${desktopDir}`, `--penkra-dev-instance=${instance}`];
 }

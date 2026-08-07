@@ -28,6 +28,7 @@ describe("Penkra harness policy", () => {
     assert.include(policy, "check whether Penkra currently exposes a browser capability");
     assert.include(policy, "do not assume that capability is implemented by a specific Penkra App");
     assert.include(policy, "retain their normal provider behavior");
+    assert.include(policy, "copy the exact `path` returned by `penkra open`");
   });
 
   it("never advertises gateway mutation to providers without scoped MCP", () => {

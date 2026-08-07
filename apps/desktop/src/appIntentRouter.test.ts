@@ -46,6 +46,50 @@ function addBrowser(state: AppInstallationState, id: string, slug: string, space
   return next;
 }
 
+function addFileApp(
+  state: AppInstallationState,
+  id: string,
+  slug: string,
+  spaceId: string,
+  extensions: string[],
+) {
+  let next = registerVerifiedAppPackage(
+    state,
+    {
+      manifest: {
+        manifestVersion: 1,
+        id,
+        slug,
+        name: slug,
+        summary: "Open files.",
+        version: "1.0.0",
+        compatibility: { penkra: ">=0.8.0" },
+        icons: [{ src: "icon.svg", sizes: "any", type: "image/svg+xml" }],
+        entrypoints: { app: "app.html", operations: "operations.html" },
+        operations: [
+          {
+            key: "files.open",
+            summary: "Open a file.",
+            input: { type: "object" },
+            output: { type: "object" },
+            handler: "files.open",
+          },
+        ],
+        contributions: {
+          handlers: [{ intent: "open-file", operation: "files.open", extensions }],
+        },
+      },
+      source: "registry",
+      packagePath: `/apps/${id}`,
+      sha256: "c".repeat(64),
+      installedAt: "2026-08-02T00:00:00.000Z",
+    },
+    spaceId,
+  );
+  next = setSpaceAppEnabled(next, { appId: id, spaceId, enabled: true });
+  return next;
+}
+
 describe("App intent router", () => {
   it("resolves only enabled compatible handlers in the explicit Space", () => {
     const state = addBrowser(
@@ -94,5 +138,30 @@ describe("App intent router", () => {
         requestedApp: "missing",
       }),
     ).toThrow(expect.objectContaining({ code: "requested-handler-unavailable" }));
+  });
+
+  it("automatically uses one compatible file handler and requires a preference for ambiguity", () => {
+    let state = addFileApp(
+      createEmptyAppInstallationState(),
+      "com.penkra.explorer",
+      "explorer",
+      "personal",
+      [".md", ".pdf"],
+    );
+    const oneHandler = new AppIntentRouter(() => state);
+    expect(oneHandler.resolve("personal", { intent: "open-file", extension: ".md" })?.slug).toBe(
+      "explorer",
+    );
+
+    state = addFileApp(state, "com.example.pdf", "pdf", "personal", [".pdf"]);
+    const twoHandlers = new AppIntentRouter(() => state);
+    expect(twoHandlers.resolve("personal", { intent: "open-file", extension: ".pdf" })).toBeNull();
+    expect(
+      twoHandlers.resolve("personal", {
+        intent: "open-file",
+        extension: ".pdf",
+        preferredAppId: "com.example.pdf",
+      })?.slug,
+    ).toBe("pdf");
   });
 });

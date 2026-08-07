@@ -30,6 +30,8 @@ export interface ProviderModelCatalog {
   >;
   /** Providers whose runtime model discovery is still pending (no usable list yet). */
   loadingModelProviders: Partial<Record<ProviderKind, boolean>>;
+  /** Providers whose authoritative runtime catalog failed before returning usable models. */
+  unavailableModelProviders: Partial<Record<ProviderKind, boolean>>;
   /**
    * Runtime-discovered model descriptors per provider. Composer-style trait
    * controls (effort, fast mode, thinking, context window) are sourced from
@@ -221,6 +223,14 @@ export function useProviderModelCatalog(input: {
     [cursorDynamicModelsQuery.data?.models],
   );
 
+  const hasResolvedCodexModelDiscovery =
+    codexDynamicModelsQuery.data?.source === "codex-app-server" &&
+    (codexDynamicModelsQuery.data.models.length ?? 0) > 0;
+  const codexModelDiscoveryPending =
+    codexModelDiscoveryEnabled &&
+    !hasResolvedCodexModelDiscovery &&
+    isInitialModelDiscoveryPending(codexDynamicModelsQuery);
+
   const hasResolvedCursorModelDiscovery =
     (cursorDynamicModelsQuery.data?.source === "cursor.cli" ||
       cursorDynamicModelsQuery.data?.source === "cursor.acp") &&
@@ -351,6 +361,7 @@ export function useProviderModelCatalog(input: {
 
   const loadingModelProviders = useMemo<Partial<Record<ProviderKind, boolean>>>(
     () => ({
+      codex: codexModelDiscoveryPending,
       antigravity: antigravityModelDiscoveryPending,
       cursor: cursorModelDiscoveryPending,
       droid: droidModelDiscoveryPending,
@@ -360,12 +371,23 @@ export function useProviderModelCatalog(input: {
     }),
     [
       antigravityModelDiscoveryPending,
+      codexModelDiscoveryPending,
       cursorModelDiscoveryPending,
       droidModelDiscoveryPending,
       kiloModelDiscoveryPending,
       openCodeModelDiscoveryPending,
       piModelDiscoveryPending,
     ],
+  );
+
+  const unavailableModelProviders = useMemo<Partial<Record<ProviderKind, boolean>>>(
+    () => ({
+      codex:
+        codexModelDiscoveryEnabled &&
+        !hasResolvedCodexModelDiscovery &&
+        codexDynamicModelsQuery.isError,
+    }),
+    [codexDynamicModelsQuery.isError, codexModelDiscoveryEnabled, hasResolvedCodexModelDiscovery],
   );
 
   const runtimeModelsByProvider = useMemo<
@@ -455,6 +477,7 @@ export function useProviderModelCatalog(input: {
       customModelsByProvider,
       modelOptionsByProvider,
       loadingModelProviders,
+      unavailableModelProviders,
       runtimeModelsByProvider,
       selectedRuntimeModel,
       selectedRuntimeAgents,
@@ -464,6 +487,7 @@ export function useProviderModelCatalog(input: {
     [
       customModelsByProvider,
       loadingModelProviders,
+      unavailableModelProviders,
       modelOptionsByProvider,
       runtimeModelsByProvider,
       selectedProviderModelsLoading,

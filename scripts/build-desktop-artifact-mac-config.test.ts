@@ -97,6 +97,31 @@ describe("createDesktopPlatformBuildConfig", () => {
     ]);
   });
 
+  it("uses a signed NSIS updater configuration for Windows", () => {
+    const config = createDesktopPlatformBuildConfig({
+      platform: "win",
+      target: "nsis",
+      signed: true,
+    });
+
+    assert.deepStrictEqual((config.win as Record<string, unknown>).target, ["nsis"]);
+    assert.equal((config.win as Record<string, unknown>).icon, "icon.ico");
+    assert.equal((config.win as Record<string, unknown>).verifyUpdateCodeSignature, true);
+    assert.deepStrictEqual(config.nsis, { perMachine: false, oneClick: true });
+  });
+
+  it("uses an AppImage configuration for Linux", () => {
+    const config = createDesktopPlatformBuildConfig({
+      platform: "linux",
+      target: "AppImage",
+      signed: false,
+    });
+
+    assert.deepStrictEqual((config.linux as Record<string, unknown>).target, ["AppImage"]);
+    assert.equal((config.linux as Record<string, unknown>).icon, "icon.png");
+    assert.equal((config.linux as Record<string, unknown>).category, "Development");
+  });
+
   it("uses the canonical Pencil-derived Penkra artwork for every macOS icon path", () => {
     assert.equal(BRAND_ASSET_PATHS.productionMacIconPng, "assets/brand/penkra-app-icon-1024.png");
     assert.equal(

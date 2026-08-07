@@ -36,9 +36,9 @@ export class AppIntentRouterError extends Error {
 export class AppIntentRouter {
   constructor(readonly installationState: () => AppInstallationState) {}
 
-  resolve(spaceId: string, request: AppIntentRequest): ResolvedAppIntent | null {
+  candidates(spaceId: string, request: AppIntentRequest): ResolvedAppIntent[] {
     const state = this.installationState();
-    const candidates = listInstalledAppsForSpace(state, spaceId)
+    return listInstalledAppsForSpace(state, spaceId)
       .filter((app) => isEnabled(state, app.appId, spaceId))
       .flatMap((app) =>
         matchingHandlers(app, request).map((handler) => ({
@@ -49,6 +49,10 @@ export class AppIntentRouter {
         })),
       )
       .sort((left, right) => left.slug.localeCompare(right.slug));
+  }
+
+  resolve(spaceId: string, request: AppIntentRequest): ResolvedAppIntent | null {
+    const candidates = this.candidates(spaceId, request);
     if (request.requestedApp) {
       const requested = candidates.find(
         (candidate) =>
@@ -67,6 +71,7 @@ export class AppIntentRouter {
       const preferred = candidates.find((candidate) => candidate.appId === request.preferredAppId);
       if (preferred) return preferred;
     }
+    if (request.intent === "open-file" && candidates.length === 1) return candidates[0]!;
     return null;
   }
 }

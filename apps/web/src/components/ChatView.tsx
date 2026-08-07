@@ -1752,8 +1752,10 @@ export default function ChatView({
   const chatWorkspaceRoot = useWorkspacePathsStore((state) => state.chatWorkspaceRoot);
   const studioWorkspaceRoot = useWorkspacePathsStore((state) => state.studioWorkspaceRoot);
   const selectedSpaceId = useSpacesUiStore((state) => state.activeSpaceId);
-  const selectedSpaceName = useStore(
-    (state) => state.spaces.find((space) => space.id === selectedSpaceId)?.name ?? null,
+  const emptyLandingSpaceId =
+    activeThread?.spaceId ?? draftThread?.spaceId ?? activeProject?.spaceId ?? selectedSpaceId;
+  const emptyLandingSpaceName = useStore(
+    (state) => state.spaces.find((space) => space.id === emptyLandingSpaceId)?.name?.trim() || null,
   );
   const isHomeChatContainer = isHomeChatContainerProject(activeProject, {
     homeDir,
@@ -1768,7 +1770,8 @@ export default function ChatView({
   const activeProjectDisplayName = isHomeChatContainer
     ? activeProject?.folderName
     : activeProject?.name;
-  const emptyLandingParentName = activeProjectDisplayName ?? selectedSpaceName ?? "this space";
+  const activeFolderName = !isContainerLandingProject ? activeProject?.name.trim() : null;
+  const emptyLandingParentName = activeFolderName || emptyLandingSpaceName || "this space";
   const isChatProject = isContainerLandingProject;
   const threadLineageThreads = useStore(
     useMemo(() => createThreadLineageSelector(activeThread?.id ?? null), [activeThread?.id]),
@@ -1975,6 +1978,7 @@ export default function ChatView({
     customModelsByProvider,
     modelOptionsByProvider,
     loadingModelProviders,
+    unavailableModelProviders,
     runtimeModelsByProvider,
     selectedRuntimeAgents: dynamicAgents,
     selectedProviderModelsLoading,
@@ -2052,6 +2056,7 @@ export default function ChatView({
       : (activeThread?.modelSelection ?? activeProject?.defaultModelSelection ?? null);
   const providerModelsLoading = selectedProviderModelsLoading;
   const selectedProviderRequiresRuntimeModels =
+    selectedProvider === "codex" ||
     selectedProvider === "cursor" ||
     selectedProvider === "antigravity" ||
     selectedProvider === "droid" ||
@@ -7412,6 +7417,7 @@ export default function ChatView({
           providers={providerStatuses}
           modelOptionsByProvider={modelOptionsByProvider}
           loadingModelProviders={loadingModelProviders}
+          unavailableModelProviders={unavailableModelProviders}
           hiddenProviders={settings.hiddenProviders}
           providerOrder={settings.providerOrder}
           onProviderModelChange={onProviderModelSelect}
@@ -7455,6 +7461,7 @@ export default function ChatView({
       providers={providerStatuses}
       modelOptionsByProvider={modelOptionsByProvider}
       loadingModelProviders={loadingModelProviders}
+      unavailableModelProviders={unavailableModelProviders}
       hiddenProviders={settings.hiddenProviders}
       providerOrder={settings.providerOrder}
       threadId={threadId}

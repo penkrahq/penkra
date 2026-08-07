@@ -51,7 +51,42 @@ export async function executePenkraExecCommand(
       return coreHelp(
         (await bridgeRequest("catalog.list", scope, env)) as CatalogEntry[],
         context.additionalCoreCommands ?? [],
+        env.PENKRA_DESKTOP_FLAVOR === "development",
       );
+    }
+    if (args.length === 3 && args[1] === "app" && args[2] === "--help") {
+      if (env.PENKRA_DESKTOP_FLAVOR !== "development") {
+        throw new Error("penkra app commands are available here only in Penkra development.");
+      }
+      return {
+        command: "penkra app sideload <directory>",
+        description:
+          "Load and watch an unpacked App in the caller Thread's Space. Available only in Penkra development.",
+      };
+    }
+    if (args[1] === "app" && args[2] === "sideload") {
+      if (env.PENKRA_DESKTOP_FLAVOR !== "development") {
+        throw new Error("penkra app sideload is available only in Penkra development.");
+      }
+      if (args.length === 4 && args[3] === "--help") {
+        return {
+          usage: "penkra app sideload <directory>",
+          description: "Validate, load, and watch an unpacked App in the caller Thread's Space.",
+        };
+      }
+      if (args.length !== 4) {
+        throw new Error("Usage: penkra app sideload <directory>");
+      }
+      let sourcePath = args[3]!;
+      if (!Path.isAbsolute(sourcePath)) {
+        if (!context.workingDirectory) {
+          throw new Error(
+            "A relative App directory requires the caller Thread to have a directory.",
+          );
+        }
+        sourcePath = Path.resolve(context.workingDirectory, sourcePath);
+      }
+      return bridgeRequest("developer.sideload", { sourcePath, spaceId: scope.spaceId }, env);
     }
     if (args.length === 3 && args[1] === "apps" && args[2] === "list") {
       return {
@@ -254,12 +289,14 @@ function summarizeCatalog(catalog: ReadonlyArray<CatalogEntry>): ReadonlyArray<{
 function coreHelp(
   catalog: ReadonlyArray<CatalogEntry>,
   additionalCoreCommands: ReadonlyArray<string>,
+  development: boolean,
 ): unknown {
   return {
     description:
       "Penkra registered commands run through penkra_exec_command; they are not shell commands.",
     commands: [
       ...additionalCoreCommands,
+      ...(development ? ["penkra app sideload <directory>"] : []),
       "penkra apps list",
       "penkra tabs current",
       "penkra tabs list",

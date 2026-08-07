@@ -10,6 +10,7 @@ export const APP_RUNTIME_DIAGNOSTICS_MAX_BYTES = 2 * 1024 * 1024;
 export const APP_RUNTIME_DIAGNOSTICS_MAX_ENTRIES = 2_000;
 
 export type AppRuntimeDiagnosticKind =
+  | "app-update-failed"
   | "operation-completed"
   | "operation-failed"
   | "permission-used"
@@ -140,6 +141,7 @@ function validateEntry(value: unknown): AppRuntimeDiagnosticEntry {
     }
   }
   const kinds: ReadonlySet<string> = new Set([
+    "app-update-failed",
     "operation-completed",
     "operation-failed",
     "permission-used",

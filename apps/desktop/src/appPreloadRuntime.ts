@@ -24,6 +24,7 @@ export interface AppPreloadTransport {
   send(message: AppPreloadRendererMessage): void;
   onHostMessage(listener: (message: unknown) => void): () => void;
   ready(): void;
+  tabSetRoute(input: import("@penkra/sdk").AppTabNavigationInput): Promise<void>;
   queryPermission(
     name: import("@penkra/sdk").PenkraPermissionName,
   ): Promise<import("@penkra/sdk").AppPermissionStatus>;
@@ -31,6 +32,14 @@ export interface AppPreloadTransport {
     name: import("@penkra/sdk").PenkraPermissionName,
   ): Promise<import("@penkra/sdk").AppPermissionStatus>;
   getIdentity(): Promise<import("@penkra/sdk").AppIdentity>;
+  accountDataRequest(
+    input: Parameters<import("@penkra/sdk").PenkraAppRuntimeApi["account"]["request"]>[0],
+  ): ReturnType<import("@penkra/sdk").PenkraAppRuntimeApi["account"]["request"]>;
+  accountDataSubscribe(
+    channel: string,
+    listener: (event: import("@penkra/sdk").AppAccountRealtimeEvent) => void,
+    options?: import("@penkra/sdk").AppAccountRealtimeSubscriptionOptions,
+  ): Promise<() => void>;
   settingGet(key: string): Promise<boolean | number | string>;
   settingSet(input: { key: string; value: boolean | number | string }): Promise<void>;
   settingReset(key: string): Promise<void>;
@@ -116,6 +125,10 @@ export class AppPreloadRuntime {
   readonly #tabHandlers = new Map<string, AppTabOperationHandler>();
   readonly #active = new Map<string, ActiveRequest>();
   #navigationHandler: AppTabNavigationHandler<unknown> | null = null;
+  readonly #navigationHandlerWaiters = new Set<{
+    resolve(handler: AppTabNavigationHandler<unknown>): void;
+    reject(error: Error): void;
+  }>();
   #nextContextCallId = 0;
   #unsubscribe: (() => void) | null = null;
   #ready = false;
@@ -184,6 +197,11 @@ export class AppPreloadRuntime {
       identity: {
         get: () => this.#transport.getIdentity(),
       },
+      account: {
+        request: (input) => this.#transport.accountDataRequest(input),
+        subscribe: (channel, listener, options) =>
+          this.#transport.accountDataSubscribe(channel, listener, options),
+      },
       settings: {
         get: (key) => this.#transport.settingGet(key),
         set: (key, value) => this.#transport.settingSet({ key, value }),
@@ -251,6 +269,7 @@ export class AppPreloadRuntime {
           ),
       },
       tab: {
+        setRoute: (input) => this.#transport.tabSetRoute(input),
         handle: (operation, handler) =>
           registerUnique(
             this.#tabHandlers,
@@ -264,6 +283,10 @@ export class AppPreloadRuntime {
           if (this.#navigationHandler)
             throw new Error("A tab navigation handler is already registered.");
           this.#navigationHandler = handler as AppTabNavigationHandler<unknown>;
+          for (const waiter of this.#navigationHandlerWaiters) {
+            waiter.resolve(this.#navigationHandler);
+          }
+          this.#navigationHandlerWaiters.clear();
           return () => {
             if (this.#navigationHandler === handler) this.#navigationHandler = null;
           };
@@ -289,6 +312,10 @@ export class AppPreloadRuntime {
     this.#unsubscribe?.();
     this.#unsubscribe = null;
     this.#ready = false;
+    for (const waiter of this.#navigationHandlerWaiters) {
+      waiter.reject(new Error("Penkra App runtime stopped."));
+    }
+    this.#navigationHandlerWaiters.clear();
     for (const [id, request] of this.#active) {
       request.controller.abort(new Error("Penkra App runtime stopped."));
       this.#rejectContextCalls(request, new Error("Penkra App runtime stopped."));
@@ -391,20 +418,37 @@ export class AppPreloadRuntime {
   }
 
   async #navigateTab(request: ActiveRequest, value: unknown): Promise<unknown> {
-    if (!this.#navigationHandler) {
-      throw runtimeError(
-        "NAVIGATION_HANDLER_NOT_REGISTERED",
-        "A tab navigation handler is not registered.",
-      );
-    }
+    const handler =
+      this.#navigationHandler ?? (await this.#waitForNavigationHandler(request.controller.signal));
     const input = requireRecord(value);
-    return this.#navigationHandler(
+    return handler(
       {
         route: requireString(input.route, "route"),
         ...(input.state === undefined ? {} : { state: input.state }),
       },
       { signal: request.controller.signal },
     );
+  }
+
+  #waitForNavigationHandler(signal: AbortSignal): Promise<AppTabNavigationHandler<unknown>> {
+    if (signal.aborted) return Promise.reject(toError(signal.reason));
+    return new Promise((resolve, reject) => {
+      const waiter = { resolve, reject };
+      const abort = () => {
+        this.#navigationHandlerWaiters.delete(waiter);
+        reject(toError(signal.reason));
+      };
+      waiter.resolve = (handler) => {
+        signal.removeEventListener("abort", abort);
+        resolve(handler);
+      };
+      waiter.reject = (error) => {
+        signal.removeEventListener("abort", abort);
+        reject(error);
+      };
+      this.#navigationHandlerWaiters.add(waiter);
+      signal.addEventListener("abort", abort, { once: true });
+    });
   }
 
   #operationContext(
@@ -578,6 +622,10 @@ function requireString(value: unknown, label: string): string {
 
 function runtimeError(code: string, message: string): Error & { code: string } {
   return Object.assign(new Error(message), { code });
+}
+
+function toError(value: unknown): Error {
+  return value instanceof Error ? value : new Error(String(value));
 }
 
 function serializeError(error: unknown): { code: string; message: string } {

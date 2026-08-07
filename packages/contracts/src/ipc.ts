@@ -485,6 +485,13 @@ export interface DesktopAppInstallationSnapshot {
   spaces: ReadonlyArray<DesktopSpaceAppState>;
   /** Present only for an App-owned renderer bound to one Space. */
   currentSpaceId?: string;
+  /** Trusted compatible updates that require the user to review expanded permissions. */
+  permissionReviewUpdates?: ReadonlyArray<{
+    appId: string;
+    installedVersion: string;
+    availableVersion: string;
+    permissions: ReadonlyArray<string>;
+  }>;
 }
 
 export type DesktopAppSetting = {
@@ -666,6 +673,7 @@ export interface DesktopAppRegistryBridge {
 
 export interface DesktopAppTabDescriptor {
   id: string;
+  rendererId: number;
   appId: string;
   slug: string;
   name: string;
@@ -691,12 +699,13 @@ export interface DesktopAppTabsBridge {
     route: string;
     state?: unknown;
   }) => Promise<DesktopAppTabDescriptor>;
-  attach: (input: { tabId: string }) => Promise<void>;
+  attach: (input: { tabId: string; rendererId: number }) => Promise<void>;
   setBounds: (input: {
     tabId: string;
+    rendererId: number;
     bounds: { x: number; y: number; width: number; height: number };
   }) => Promise<void>;
-  setVisible: (input: { tabId: string; visible: boolean }) => Promise<void>;
+  setVisible: (input: { tabId: string; rendererId: number; visible: boolean }) => Promise<void>;
   navigate: (input: { tabId: string; route: string; state?: unknown }) => Promise<void>;
   close: (input: { tabId: string }) => Promise<void>;
   onListingRequested: (listener: (input: { appId: string }) => void) => () => void;
@@ -754,13 +763,20 @@ export interface DesktopAppDiagnosticsBridge {
 
 export type DesktopAppOpenIntent = "open-url" | "open-file" | "open-directory";
 
+export interface DesktopAppOpenWithPreferences {
+  "open-url"?: string;
+  "open-directory"?: string;
+  files: Readonly<Record<string, string>>;
+}
+
 export interface DesktopAppOpenWithBridge {
-  get: (input: { spaceId: string }) => Promise<Partial<Record<DesktopAppOpenIntent, string>>>;
+  get: (input: { spaceId: string }) => Promise<DesktopAppOpenWithPreferences>;
   set: (input: {
     spaceId: string;
     intent: DesktopAppOpenIntent;
+    extension?: string;
     appId: string | null;
-  }) => Promise<Partial<Record<DesktopAppOpenIntent, string>>>;
+  }) => Promise<DesktopAppOpenWithPreferences>;
 }
 
 export interface DesktopComposerAssetDescriptor {

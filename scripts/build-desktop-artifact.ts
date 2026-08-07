@@ -38,7 +38,7 @@ import { Config, Data, Effect, FileSystem, Layer, Logger, Option, Path, Schema }
 import { Command, Flag } from "effect/unstable/cli";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
-const BuildPlatform = Schema.Literals(["mac"]);
+const BuildPlatform = Schema.Literals(["linux", "mac", "win"]);
 const BuildArch = Schema.Literals(["arm64", "x64", "universal"]);
 const requireFromScriptsWorkspace = createRequire(new URL("./package.json", import.meta.url));
 
@@ -55,19 +55,39 @@ const ProductionMacLegacyIconSource = Effect.zipWith(
   Effect.service(Path.Path),
   (repoRoot, path) => path.join(repoRoot, BRAND_ASSET_PATHS.productionMacLegacyIconPng),
 );
+const ProductionLinuxIconSource = Effect.zipWith(
+  RepoRoot,
+  Effect.service(Path.Path),
+  (repoRoot, path) => path.join(repoRoot, BRAND_ASSET_PATHS.productionLinuxIconPng),
+);
+const ProductionWindowsIconSource = Effect.zipWith(
+  RepoRoot,
+  Effect.service(Path.Path),
+  (repoRoot, path) => path.join(repoRoot, BRAND_ASSET_PATHS.productionWindowsIconIco),
+);
 const encodeJsonString = Schema.encodeEffect(Schema.UnknownFromJsonString);
 
 interface PlatformConfig {
-  readonly cliFlag: "--mac";
+  readonly cliFlag: "--linux" | "--mac" | "--win";
   readonly defaultTarget: string;
   readonly archChoices: ReadonlyArray<typeof BuildArch.Type>;
 }
 
 const PLATFORM_CONFIG: Record<typeof BuildPlatform.Type, PlatformConfig> = {
+  linux: {
+    cliFlag: "--linux",
+    defaultTarget: "AppImage",
+    archChoices: ["arm64", "x64"],
+  },
   mac: {
     cliFlag: "--mac",
     defaultTarget: "dmg",
     archChoices: ["arm64", "x64", "universal"],
+  },
+  win: {
+    cliFlag: "--win",
+    defaultTarget: "nsis",
+    archChoices: ["arm64", "x64"],
   },
 };
 
@@ -91,6 +111,8 @@ interface BuildCliInput {
 
 function detectHostBuildPlatform(hostPlatform: string): typeof BuildPlatform.Type | undefined {
   if (hostPlatform === "darwin") return "mac";
+  if (hostPlatform === "linux") return "linux";
+  if (hostPlatform === "win32") return "win";
   return undefined;
 }
 
@@ -230,6 +252,11 @@ export const resolveBuildOptions = Effect.fn("resolveBuildOptions")(function* (
 
   const target = mergeOptions(input.target, env.target, PLATFORM_CONFIG[platform].defaultTarget);
   const arch = mergeOptions(input.arch, env.arch, getDefaultArch(platform));
+  if (!PLATFORM_CONFIG[platform].archChoices.includes(arch)) {
+    return yield* new BuildScriptError({
+      message: `Architecture '${arch}' is not supported for ${platform}.`,
+    });
+  }
   const version = mergeOptions(input.buildVersion, env.version, undefined);
   const sourceCommit = mergeOptions(input.sourceCommit, env.sourceCommit, undefined);
   const sourceTag = mergeOptions(input.sourceTag, env.sourceTag, undefined);
@@ -608,12 +635,28 @@ const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   return buildConfig;
 });
 
-const assertPlatformBuildResources = Effect.fn("assertPlatformBuildResources")(function* (
+const stagePlatformBuildResources = Effect.fn("stagePlatformBuildResources")(function* (
   platform: typeof BuildPlatform.Type,
   stageResourcesDir: string,
   verbose: boolean,
 ) {
-  yield* stageMacIcons(stageResourcesDir, verbose);
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+
+  if (platform === "mac") {
+    yield* stageMacIcons(stageResourcesDir, verbose);
+    return;
+  }
+
+  const source =
+    platform === "win" ? yield* ProductionWindowsIconSource : yield* ProductionLinuxIconSource;
+  const target = path.join(stageResourcesDir, platform === "win" ? "icon.ico" : "icon.png");
+  if (!(yield* fs.exists(source))) {
+    return yield* new BuildScriptError({
+      message: `Production ${platform} icon source is missing at ${source}`,
+    });
+  }
+  yield* fs.copyFile(source, target);
 });
 
 const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
@@ -784,7 +827,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   yield* fs.copy(distDirs.desktopDist, path.join(stageAppDir, "apps/desktop/dist-electron"));
   yield* fs.copy(distDirs.desktopResources, stageResourcesDir);
   yield* fs.copy(distDirs.serverDist, path.join(stageAppDir, "apps/server/dist"));
-  yield* assertPlatformBuildResources(options.platform, stageResourcesDir, options.verbose);
+  yield* stagePlatformBuildResources(options.platform, stageResourcesDir, options.verbose);
 
   // electron-builder is filtering out stageResourcesDir directory in the AppImage for production
   yield* fs.copy(stageResourcesDir, path.join(stageAppDir, "apps/desktop/prod-resources"));
@@ -886,7 +929,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     });
   }
 
-  if (options.target === "dmg" && options.signed) {
+  if (options.platform === "mac" && options.target === "dmg" && options.signed) {
     yield* Effect.log("[desktop-artifact] Notarizing and validating signed macOS DMG...");
     const finalizedDmg = yield* Effect.try({
       try: () =>
@@ -908,41 +951,57 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     );
   }
 
-  yield* Effect.log("[desktop-artifact] Repacking and validating macOS update zip...");
-  const finalizedZip = yield* Effect.tryPromise({
-    try: () =>
-      finalizeMacUpdateZip({
-        stageDistDir,
-        signed: codeSigned,
-        verbose: options.verbose,
-      }),
-    catch: (cause) =>
-      new BuildScriptError({
-        message: "macOS update zip finalization failed.",
-        cause,
-      }),
-  });
-  yield* Effect.log(
-    `[desktop-artifact] Regenerated macOS differential blockmap (${path.basename(finalizedZip.blockmapPath)}, ${finalizedZip.blockmapSize} bytes).`,
-  );
+  if (options.platform === "mac") {
+    yield* Effect.log("[desktop-artifact] Repacking and validating macOS update zip...");
+    const finalizedZip = yield* Effect.tryPromise({
+      try: () =>
+        finalizeMacUpdateZip({
+          stageDistDir,
+          signed: codeSigned,
+          verbose: options.verbose,
+        }),
+      catch: (cause) =>
+        new BuildScriptError({
+          message: "macOS update zip finalization failed.",
+          cause,
+        }),
+    });
+    yield* Effect.log(
+      `[desktop-artifact] Regenerated macOS differential blockmap (${path.basename(finalizedZip.blockmapPath)}, ${finalizedZip.blockmapSize} bytes).`,
+    );
+  }
 
   const stageEntries = yield* fs.readDirectory(stageDistDir);
   yield* fs.makeDirectory(options.outputDir, { recursive: true });
 
+  const isReleaseArtifact = (entry: string): boolean => {
+    if (options.platform === "mac") {
+      return (
+        entry === "latest-mac.yml" ||
+        entry.endsWith(".dmg") ||
+        entry.endsWith(".zip") ||
+        entry.endsWith(".zip.blockmap")
+      );
+    }
+    if (options.platform === "win") {
+      return entry === "latest.yml" || entry.endsWith(".exe") || entry.endsWith(".exe.blockmap");
+    }
+    return (
+      entry === "latest-linux.yml" ||
+      entry.endsWith(".AppImage") ||
+      entry.endsWith(".AppImage.blockmap")
+    );
+  };
+
   const copiedArtifacts: string[] = [];
   for (const entry of stageEntries) {
-    const isReleaseArtifact =
-      entry === "latest-mac.yml" ||
-      entry.endsWith(".dmg") ||
-      entry.endsWith(".zip") ||
-      entry.endsWith(".zip.blockmap");
-    if (!isReleaseArtifact) continue;
+    if (!isReleaseArtifact(entry)) continue;
     const from = path.join(stageDistDir, entry);
     const stat = yield* fs.stat(from).pipe(Effect.catch(() => Effect.succeed(null)));
     if (!stat || stat.type !== "File") continue;
 
     const outputEntry =
-      options.arch !== "arm64" && entry === "latest-mac.yml"
+      options.platform === "mac" && options.arch !== "arm64" && entry === "latest-mac.yml"
         ? `latest-mac-${options.arch}.yml`
         : entry;
     const to = path.join(options.outputDir, outputEntry);
@@ -1006,13 +1065,13 @@ const buildDesktopArtifactCli = Command.make("build-desktop-artifact", {
   ),
   signed: Flag.boolean("signed").pipe(
     Flag.withDescription(
-      "Enable macOS signing and notarization discovery (env: PENKRA_DESKTOP_SIGNED).",
+      "Enable required platform signing and macOS notarization (env: PENKRA_DESKTOP_SIGNED).",
     ),
     Flag.optional,
   ),
   localSign: Flag.boolean("local-sign").pipe(
     Flag.withDescription(
-      "Sign with the production Developer ID identity without notarizing (env: PENKRA_DESKTOP_LOCAL_SIGN).",
+      "Sign locally without publication notarization (env: PENKRA_DESKTOP_LOCAL_SIGN).",
     ),
     Flag.optional,
   ),
@@ -1029,7 +1088,7 @@ const buildDesktopArtifactCli = Command.make("build-desktop-artifact", {
     Flag.optional,
   ),
 }).pipe(
-  Command.withDescription("Build a macOS desktop artifact for Penkra."),
+  Command.withDescription("Build a platform-specific desktop artifact for Penkra."),
   Command.withHandler((input) => Effect.flatMap(resolveBuildOptions(input), buildDesktopArtifact)),
 );
 

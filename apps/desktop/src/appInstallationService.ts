@@ -49,7 +49,12 @@ export interface UninstallAppInput {
 }
 
 export interface AppInstallationDataEraser {
-  eraseData(appId: string, spaceId: string): Promise<void>;
+  eraseData(appId: string, spaceId: string, eraseAppHandles: boolean): Promise<void>;
+}
+
+export interface AppUpdateTabRestorer<TabSnapshot = unknown> {
+  capture(appId: string, spaceId: string): ReadonlyArray<TabSnapshot>;
+  restore(appId: string, spaceId: string, tabs: ReadonlyArray<TabSnapshot>): Promise<void>;
 }
 
 export interface AppSettingSecretStore {
@@ -75,6 +80,7 @@ export class AppInstallationService {
   readonly #data: AppInstallationDataEraser;
   readonly #updates: Pick<AppUpdateJournal, "prepare" | "clear"> | undefined;
   readonly #settingSecrets: AppSettingSecretStore;
+  readonly #tabs: AppUpdateTabRestorer;
   readonly #listeners = new Set<AppInstallationStateListener>();
   readonly #permissionRevisions = new Map<string, number>();
   readonly #pendingPermissionRequests = new Map<string, Promise<AppInstallationState>>();
@@ -89,6 +95,7 @@ export class AppInstallationService {
     data: AppInstallationDataEraser;
     updates?: Pick<AppUpdateJournal, "prepare" | "clear">;
     settingSecrets?: AppSettingSecretStore;
+    tabs?: AppUpdateTabRestorer;
   }) {
     this.#store = input.store;
     this.#lifecycle = input.lifecycle;
@@ -99,6 +106,7 @@ export class AppInstallationService {
       setSecret: async () => undefined,
       deleteSecret: async () => undefined,
     };
+    this.#tabs = input.tabs ?? { capture: () => [], restore: async () => undefined };
     this.#lifecycle.subscribeUnexpectedDisable(({ state, error, appId, spaceId }) => {
       console.error(
         `[penkra-app] Disabled ${appId} in Space ${spaceId} after its controller exited.`,
@@ -169,7 +177,7 @@ export class AppInstallationService {
   }): Promise<AppInstallationState> {
     const current = this.#store.snapshot();
     const existing = getInstalledAppPackage(current, input.package.manifest.id, input.spaceId);
-    if (!existing || existing.source !== "sideload") {
+    if (!existing || (existing.source !== "sideload" && !isRequiredApp(existing.appId))) {
       return Promise.reject(
         new Error(`${input.package.manifest.id} is not installed as a sideload.`),
       );
@@ -194,6 +202,7 @@ export class AppInstallationService {
       applyUpdate(previous, input);
       const wasEnabled =
         previous.spaceStateByKey[`${input.spaceId}\u0000${appId}`]?.enabled === true;
+      const tabs = wasEnabled ? this.#tabs.capture(appId, input.spaceId) : [];
       await this.#updates?.prepare({
         appId,
         spaceId: input.spaceId,
@@ -201,10 +210,11 @@ export class AppInstallationService {
         previousState: previous,
       });
       try {
-        if (wasEnabled) await this.#lifecycle.disable(appId, input.spaceId);
+        if (wasEnabled) await this.#lifecycle.disable(appId, input.spaceId, "app-updated");
         await this.#store.mutate((current) => applyUpdate(current, input));
         let state = this.#store.snapshot();
         if (wasEnabled) state = await this.#lifecycle.enable(appId, input.spaceId);
+        await this.#tabs.restore(appId, input.spaceId, tabs);
         await this.#updates?.clear();
         this.#publish(state);
         return state;
@@ -212,13 +222,16 @@ export class AppInstallationService {
         const rollbackFailures: unknown[] = [];
         if (wasEnabled && this.#lifecycle.isActive(appId, input.spaceId)) {
           await this.#lifecycle
-            .disable(appId, input.spaceId)
+            .disable(appId, input.spaceId, "app-updated")
             .catch((error) => rollbackFailures.push(error));
         }
         await this.#store.mutate(() => previous).catch((error) => rollbackFailures.push(error));
         if (wasEnabled) {
           await this.#lifecycle
             .enable(appId, input.spaceId)
+            .catch((error) => rollbackFailures.push(error));
+          await this.#tabs
+            .restore(appId, input.spaceId, tabs)
             .catch((error) => rollbackFailures.push(error));
         }
         if (this.#updates) {
@@ -500,7 +513,11 @@ export class AppInstallationService {
       const space = snapshot.spaceStateByKey[`${input.spaceId}\u0000${input.appId}`];
       if (space?.enabled) await this.#lifecycle.disable(input.appId, input.spaceId);
       if (!input.retainData) {
-        await this.#data.eraseData(input.appId, input.spaceId);
+        const installationKey = `${input.spaceId}\u0000${input.appId}`;
+        const hasOtherInstallation = Object.entries(snapshot.packagesByInstallationKey).some(
+          ([key, candidate]) => candidate.appId === input.appId && key !== installationKey,
+        );
+        await this.#data.eraseData(input.appId, input.spaceId, !hasOtherInstallation);
       }
       const state = await this.#store.mutate((current) => {
         const withoutPackage = unregisterAppPackage(current, input.appId, input.spaceId);
@@ -526,8 +543,11 @@ export class AppInstallationService {
       const retainedSpaces = Object.values(this.#store.snapshot().spaceStateByKey).filter(
         (candidate) => candidate.appId === input.appId && candidate.spaceId === input.spaceId,
       );
+      const hasInstallationElsewhere = Object.values(
+        this.#store.snapshot().packagesByInstallationKey,
+      ).some((candidate) => candidate.appId === input.appId);
       for (const space of retainedSpaces) {
-        await this.#data.eraseData(input.appId, space.spaceId);
+        await this.#data.eraseData(input.appId, space.spaceId, !hasInstallationElsewhere);
       }
       const state = await this.#store.mutate((current) => removeRetainedAppState(current, input));
       this.#publish(state);
@@ -614,7 +634,18 @@ function applyUpdate(
   const appId = input.package.manifest.id;
   const previousPackage = getInstalledAppPackage(state, appId, input.spaceId);
   if (!previousPackage) throw new Error(`${appId} is not installed in Space ${input.spaceId}.`);
-  let next = replaceVerifiedAppPackage(state, input.package, input.spaceId);
+  const replacesRequiredRegistryApp =
+    isRequiredApp(appId) &&
+    previousPackage.source === "registry" &&
+    input.package.source === "sideload" &&
+    previousPackage.slug === input.package.manifest.slug;
+  let next = replacesRequiredRegistryApp
+    ? registerVerifiedAppPackage(
+        unregisterAppPackage(state, appId, input.spaceId),
+        input.package,
+        input.spaceId,
+      )
+    : replaceVerifiedAppPackage(state, input.package, input.spaceId);
   next = reconcileAppSettingsAfterUpdate(next, appId, input.spaceId);
   next = reconcileSpaceAppSkills(next, appId, input.spaceId);
   const declarations = input.package.manifest.permissions ?? [];

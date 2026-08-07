@@ -2,8 +2,34 @@
 
 ## Unreleased
 
+## 0.9.2 - 2026-08-07
+
+### Added
+
+- Added automatic updates for installed registry Apps when a newer release is compatible and does
+  not request new authority; releases that add permissions keep the working version active and
+  surface an explicit permission-review action instead.
+- Added the runtime `penkra app sideload <directory>` development workflow, including validation,
+  multiple watched Apps, and live replacement in an already-running Penkra Dev instance.
+- Added permission-gated, credential-hidden Account data requests and realtime subscriptions inside
+  each App's own backend namespace.
+- Added scoped text and binary file creation while preserving path, symlink, and payload limits.
+
 ### Changed
 
+- Added blocking native Windows x64 and Linux x64 package-startup CI while publishing the current
+  desktop release only for macOS arm64 and Linux x64. Windows publication remains deferred until
+  its signing identity and signed installer/update QA are available.
+- Moved the macOS release build to GitHub's supported arm64 `macos-15` runner.
+- Made Open With choices device-wide for links, folders, and individual file extensions, with
+  deterministic migration from earlier per-Space preferences.
+- Routed extensionless and otherwise unclaimed UTF-8 text through the configured text-file handler,
+  while retaining exact specialized handlers and leaving unclaimed binary files to the system.
+- Preserved App tab identity, route, and App-owned navigation state while replacing an App package,
+  including safe restoration after live development rebuilds and registry updates.
+- Consolidated App development, manifest, runtime, permissions, testing, publishing, and sideloading
+  guidance into the canonical App development documentation and removed the retired scaffolding
+  package.
 - Replaced manual provider-delivery unblocking with automatic, state-driven recovery that fences
   the old provider runtime before abandoning an acceptance-ambiguous command and replaying only
   later locally skipped work.
