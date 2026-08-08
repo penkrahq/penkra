@@ -832,8 +832,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     }
   }
   const mkdir = options.keepStage ? fs.makeTempDirectory : fs.makeTempDirectoryScoped;
-  const stageParent = path.join(repoRoot, ".tmp");
-  yield* fs.makeDirectory(stageParent, { recursive: true });
+  const stageParent = path.dirname(repoRoot);
   const stageRoot = yield* mkdir({
     directory: stageParent,
     prefix: `penkra-desktop-${options.platform}-stage-`,

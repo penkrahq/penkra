@@ -37,8 +37,8 @@
 ### Fixed
 
 - Updated the pinned Bun runtime to 1.3.14, made staged dependency installation explicitly target
-  the artifact OS and CPU, and kept staging under the canonical repository path so Windows
-  packaging retains the frozen workspace lockfile.
+  the artifact OS and CPU, and kept staging beside the repository on a canonical path so Windows
+  packaging retains the frozen workspace lockfile without inheriting source-tree dependencies.
 - Fixed Linux native startup validation to exercise the packaged application with a real D-Bus
   Secret Service session, preserving Penkra's refusal to store App secrets through Electron's
   insecure `basic_text` fallback.
