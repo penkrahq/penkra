@@ -539,6 +539,8 @@ const verifyStagedPatchedDependencies = Effect.fn("verifyStagedPatchedDependenci
 const installFrozenStageDependencies = Effect.fn("installFrozenStageDependencies")(function* (
   repoRoot: string,
   stageAppDir: string,
+  platform: typeof BuildPlatform.Type,
+  arch: typeof BuildArch.Type,
   verbose: boolean,
 ) {
   const path = yield* Path.Path;
@@ -561,11 +563,13 @@ const installFrozenStageDependencies = Effect.fn("installFrozenStageDependencies
   yield* Effect.log(
     "[desktop-artifact] Installing staged production dependencies from the repository lockfile...",
   );
+  const targetOs = platform === "mac" ? "darwin" : platform === "win" ? "win32" : "linux";
+  const targetCpu = arch === "universal" ? "*" : arch;
   yield* runCommand(
     ChildProcess.make({
       cwd: stageAppDir,
       ...commandOutputOptions(verbose),
-    })`bun install --frozen-lockfile --ignore-scripts --linker hoisted`,
+    })`bun install --frozen-lockfile --ignore-scripts --linker hoisted --os ${targetOs} --cpu ${targetCpu}`,
   );
 
   yield* verifyStagedPatchedDependencies(repoRoot, stageAppDir);
@@ -867,7 +871,13 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     },
   };
 
-  yield* installFrozenStageDependencies(repoRoot, stageAppDir, options.verbose);
+  yield* installFrozenStageDependencies(
+    repoRoot,
+    stageAppDir,
+    options.platform,
+    options.arch,
+    options.verbose,
+  );
 
   // Penkra invokes the user's installed Claude CLI. The SDK's optional platform
   // package is a complete second Claude binary and must not ship in the app.
