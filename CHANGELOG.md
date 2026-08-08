@@ -36,6 +36,8 @@
 
 ### Fixed
 
+- Updated the pinned Bun runtime to 1.3.14 so Windows release staging uses the corrected package
+  installer instead of failing a byte-identical frozen workspace lockfile.
 - Fixed Linux native startup validation to exercise the packaged application with a real D-Bus
   Secret Service session, preserving Penkra's refusal to store App secrets through Electron's
   insecure `basic_text` fallback.
