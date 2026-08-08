@@ -74,6 +74,19 @@ describe("sidebar interactive cursors", () => {
     expect(html).toContain("overflow-hidden");
     expect(html).toContain("rounded-l-2xl");
     expect(html).toContain('data-slot="sidebar-inset-surface"');
+    expect(html).toContain("-ms-[var(--sidebar-width)]");
+    expect(html).toContain("w-[calc(100%+var(--sidebar-width))]");
+    expect(html).toContain("ps-[var(--sidebar-width)]");
+  });
+
+  it("lets nested chat panes skip duplicate left-sidebar compensation", () => {
+    const html = renderToStaticMarkup(
+      <SidebarInset compensateForLeftSidebar={false}>Content</SidebarInset>,
+    );
+
+    expect(html).not.toContain("-ms-[var(--sidebar-width)]");
+    expect(html).not.toContain("w-[calc(100%+var(--sidebar-width))]");
+    expect(html).not.toContain("ps-[var(--sidebar-width)]");
   });
 
   it("renders the header trigger when the desktop sidebar is collapsed", () => {

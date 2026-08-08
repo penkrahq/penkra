@@ -350,7 +350,10 @@ export function SingleChatSurface(props: { threadId: ThreadId; projectId: Contai
         )}
       >
         <div className="flex h-full min-h-0 min-w-0 flex-1">
-          <RouteInsetSurface surfaceClassName={CHAT_BACKGROUND_CLASS_NAME}>
+          <RouteInsetSurface
+            compensateForLeftSidebar={false}
+            surfaceClassName={CHAT_BACKGROUND_CLASS_NAME}
+          >
             <DeferredChatView
               threadId={props.threadId}
               paneScopeId={SINGLE_CHAT_PANE_SCOPE_ID}

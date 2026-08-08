@@ -346,6 +346,7 @@ function SplitPaneSurface(props: {
         className="flex min-h-0 min-w-0 flex-1"
       >
         <SidebarInset
+          compensateForLeftSidebar={false}
           className={cn(
             "min-h-0 min-w-0 overflow-hidden overscroll-y-none text-foreground transition-shadow",
             props.isFocused ? "ring-2 ring-inset ring-primary/70" : "",
