@@ -156,7 +156,21 @@ function verifyReleaseWorkflowSafety(): void {
     'tags:\n      - "v*.*.*"',
     "Expected stable desktop releases to build from version tags.",
   );
-  assertNotContains(workflow, "workflow_dispatch:", "Release creation must start from a tag.");
+  assertContains(
+    workflow,
+    "workflow_dispatch:\n    inputs:\n      release_tag:",
+    "Expected failed native builds to be recoverable only from an explicitly named stable tag.",
+  );
+  assertContains(
+    workflow,
+    "RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}",
+    "Expected push and manual release runs to resolve one explicit tag identity.",
+  );
+  assertContains(
+    workflow,
+    "ref: ${{ env.RELEASE_TAG }}",
+    "Expected manual release recovery to check out the tagged source, not main.",
+  );
   assertContains(
     workflow,
     '[[ ! "$version" =~ ^[0-9]+\\.[0-9]+\\.[0-9]+$ ]]',

@@ -4,10 +4,19 @@ on:
   push:
     tags:
       - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing stable tag to rebuild
+        required: true
+        type: string
 
 concurrency:
-  group: penkra-desktop-${{ github.ref }}
+  group: penkra-desktop-${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref }}
   cancel-in-progress: false
+
+env:
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
 
 permissions:
   actions: read
@@ -53,13 +62,14 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          ref: ${{ env.RELEASE_TAG }}
 
       - name: Resolve and validate release identity
         id: release
         shell: bash
         run: |
           set -euo pipefail
-          tag="${GITHUB_REF_NAME}"
+          tag="${RELEASE_TAG}"
           version="${tag#v}"
           if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "Stable releases require an exact vMAJOR.MINOR.PATCH tag, got: $tag" >&2
@@ -116,6 +126,20 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Reconcile Windows lockfile normalization
+        if: matrix.platform == 'win'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! git diff --quiet -- bun.lock; then
+            git restore --source=HEAD --worktree -- bun.lock
+          fi
+          if [[ -n "$(git status --porcelain --untracked-files=no)" ]]; then
+            git status --short --untracked-files=no
+            echo "Windows dependency installation changed tracked release source outside bun.lock." >&2
+            exit 1
+          fi
+
       - name: Require macOS signing configuration
         if: matrix.platform == 'mac'
         env:
@@ -149,7 +173,7 @@ jobs:
             --platform mac --target dmg --arch arm64 \
             --build-version "${{ steps.release.outputs.version }}" \
             --source-commit "${{ steps.release.outputs.source_commit }}" \
-            --source-tag "${GITHUB_REF_NAME}" \
+            --source-tag "${RELEASE_TAG}" \
             --lockfile-sha256 "${{ steps.release.outputs.lockfile_sha256 }}" \
             --signed --verbose
 
@@ -164,7 +188,7 @@ jobs:
             --platform linux --target AppImage --arch x64 \
             --build-version "${{ steps.release.outputs.version }}" \
             --source-commit "${{ steps.release.outputs.source_commit }}" \
-            --source-tag "${GITHUB_REF_NAME}" \
+            --source-tag "${RELEASE_TAG}" \
             --lockfile-sha256 "${{ steps.release.outputs.lockfile_sha256 }}" --verbose
 
       - name: Build unsigned Windows installer
@@ -178,7 +202,7 @@ jobs:
             --platform win --target nsis --arch x64 \
             --build-version "${{ steps.release.outputs.version }}" \
             --source-commit "${{ steps.release.outputs.source_commit }}" \
-            --source-tag "${GITHUB_REF_NAME}" \
+            --source-tag "${RELEASE_TAG}" \
             --lockfile-sha256 "${{ steps.release.outputs.lockfile_sha256 }}" --verbose
 
       - name: Verify macOS artifact
@@ -198,7 +222,7 @@ jobs:
             --assets-dir release --platform mac --arch arm64 --target dmg \
             --version "${{ steps.release.outputs.version }}" \
             --source-commit "${{ steps.release.outputs.source_commit }}" \
-            --source-tag "${GITHUB_REF_NAME}" \
+            --source-tag "${RELEASE_TAG}" \
             --lockfile-sha256 "${{ steps.release.outputs.lockfile_sha256 }}" \
             --publication true --signed true --expected-mac-team-id "$APPLE_TEAM_ID"
 
@@ -212,7 +236,7 @@ jobs:
             --assets-dir release --platform linux --arch x64 --target AppImage \
             --version "${{ steps.release.outputs.version }}" \
             --source-commit "${{ steps.release.outputs.source_commit }}" \
-            --source-tag "${GITHUB_REF_NAME}" \
+            --source-tag "${RELEASE_TAG}" \
             --lockfile-sha256 "${{ steps.release.outputs.lockfile_sha256 }}" \
             --publication true --signed false
 
@@ -227,7 +251,7 @@ jobs:
             --assets-dir release --platform win --arch x64 --target nsis \
             --version "${{ steps.release.outputs.version }}" \
             --source-commit "${{ steps.release.outputs.source_commit }}" \
-            --source-tag "${GITHUB_REF_NAME}" \
+            --source-tag "${RELEASE_TAG}" \
             --lockfile-sha256 "${{ steps.release.outputs.lockfile_sha256 }}" \
             --publication true --signed false --allow-unsigned-windows-publication true
 
@@ -275,7 +299,6 @@ jobs:
       - name: Create or refresh draft release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.ref_name }}
         shell: bash
         run: |
           set -euo pipefail
