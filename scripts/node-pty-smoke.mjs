@@ -69,4 +69,8 @@ terminal.onExit((event) => {
     fail(`PTY process exited with code ${event.exitCode}.`, output);
   }
   console.log("[node-pty-smoke] node-pty loaded and spawned successfully.");
+  // ConPTY can retain native handles after the child has exited. This script is a
+  // bounded release probe, so terminate once load, spawn, output, and exit have
+  // all been proven instead of waiting for native finalizers to drain.
+  process.exit(0);
 });
