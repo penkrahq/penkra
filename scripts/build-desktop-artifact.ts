@@ -570,6 +570,52 @@ const installFrozenStageDependencies = Effect.fn("installFrozenStageDependencies
       cwd: stageAppDir,
       ...commandOutputOptions(verbose),
     })`bun install --frozen-lockfile --ignore-scripts --linker hoisted --os ${targetOs} --cpu ${targetCpu}`,
+  ).pipe(
+    Effect.catch((cause) =>
+      Effect.gen(function* () {
+        const expectedLockfilePath = path.join(stageAppDir, "bun.lock.expected");
+        yield* fs.copyFile(path.join(stageAppDir, RELEASE_LOCKFILE_PATH), expectedLockfilePath);
+        const diagnostic = spawnSync(
+          "bun",
+          [
+            "install",
+            "--lockfile-only",
+            "--ignore-scripts",
+            "--linker",
+            "hoisted",
+            "--os",
+            targetOs,
+            "--cpu",
+            targetCpu,
+          ],
+          { cwd: stageAppDir, encoding: "utf8" },
+        );
+        const lockfileDiff = spawnSync(
+          "git",
+          [
+            "diff",
+            "--no-index",
+            "--no-ext-diff",
+            "--",
+            expectedLockfilePath,
+            path.join(stageAppDir, RELEASE_LOCKFILE_PATH),
+          ],
+          { cwd: stageAppDir, encoding: "utf8" },
+        );
+        yield* Effect.logError(
+          [
+            "[desktop-artifact] Frozen staged install changed the lockfile.",
+            diagnostic.stderr.trim(),
+            diagnostic.stdout.trim(),
+            lockfileDiff.stdout.trim(),
+            lockfileDiff.stderr.trim(),
+          ]
+            .filter(Boolean)
+            .join("\n"),
+        );
+        return yield* cause;
+      }),
+    ),
   );
 
   yield* verifyStagedPatchedDependencies(repoRoot, stageAppDir);
