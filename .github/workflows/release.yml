@@ -131,6 +131,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          git config --local core.autocrlf false
           for generated_path in bun.lock apps/web/public/mockServiceWorker.js; do
             if ! git diff --quiet -- "$generated_path"; then
               git show "HEAD:$generated_path" > "$generated_path"

@@ -215,6 +215,11 @@ function verifyReleaseWorkflowSafety(): void {
   );
   assertContains(
     workflow,
+    "git config --local core.autocrlf false",
+    "Expected the Windows release worktree to compare tagged LF bytes without global text conversion.",
+  );
+  assertContains(
+    workflow,
     'git show "HEAD:$generated_path" > "$generated_path"',
     "Expected generated artifacts to be copied byte-identically from the tagged blob on Windows.",
   );
