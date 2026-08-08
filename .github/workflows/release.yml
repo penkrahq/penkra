@@ -140,6 +140,14 @@ jobs:
             exit 1
           fi
 
+      - name: Install Linux desktop runtime
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --yes dbus-x11 gnome-keyring libsecret-tools xvfb
+
       - name: Require macOS signing configuration
         if: matrix.platform == 'mac'
         env:
@@ -228,10 +236,22 @@ jobs:
 
       - name: Verify Linux artifact
         if: matrix.platform == 'linux'
+        env:
+          PENKRA_CI_KEYRING_PASSWORD: penkra-ci-isolated-keyring
         shell: bash
         run: |
           set -euo pipefail
-          node scripts/verify-packaged-desktop-startup.ts --assets-dir release --platform linux --arch x64 --version "${{ steps.release.outputs.version }}"
+          export PENKRA_PACKAGE_VERSION="${{ steps.release.outputs.version }}"
+          dbus-run-session -- bash -euo pipefail -c '
+            export XDG_CURRENT_DESKTOP=GNOME
+            keyring_environment="$(printf "%s" "$PENKRA_CI_KEYRING_PASSWORD" | gnome-keyring-daemon --unlock --components=secrets)"
+            eval "$keyring_environment"
+            node scripts/verify-packaged-desktop-startup.ts \
+              --assets-dir release \
+              --platform linux \
+              --arch x64 \
+              --version "$PENKRA_PACKAGE_VERSION"
+          '
           node scripts/write-release-artifact-provenance.ts \
             --assets-dir release --platform linux --arch x64 --target AppImage \
             --version "${{ steps.release.outputs.version }}" \
