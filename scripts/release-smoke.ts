@@ -188,10 +188,16 @@ function verifyReleaseWorkflowSafety(): void {
   assertContains(workflow, "--target dmg", "Expected a signed DMG and matching update ZIP.");
   assertContains(workflow, "--arch arm64", "Expected the production release to be macOS arm64.");
   assertContains(workflow, "--target AppImage", "Expected a Linux AppImage.");
-  assertNotContains(
+  assertContains(workflow, "--target nsis", "Expected an initial Windows NSIS installer.");
+  assertContains(
     workflow,
-    "--target nsis",
-    "Windows publication remains deferred until its signing identity is provisioned.",
+    "runner: windows-2025",
+    "Expected Windows release construction on a native runner.",
+  );
+  assertContains(
+    workflow,
+    "rm -f release/latest.yml release/*.exe.blockmap",
+    "Unsigned Windows releases must not publish auto-update metadata.",
   );
   assertContains(
     workflow,
@@ -217,13 +223,18 @@ function verifyReleaseWorkflowSafety(): void {
   assertContains(workflow, "--generate-notes", "Expected GitHub-generated release notes.");
   assertContains(
     workflow,
+    "The Windows x64 installer is intentionally unsigned",
+    "Expected the release notes to disclose the unsigned Windows installer.",
+  );
+  assertContains(
+    workflow,
     "Public desktop artifact contains the private Penkra CLI.",
     "Expected release verification to reject the private CLI.",
   );
-  assertNotContains(
+  assertContains(
     workflow,
-    "allow-unsigned-windows-publication",
-    "Public Windows releases must not allow an unsigned exception.",
+    "--allow-unsigned-windows-publication true",
+    "Unsigned Windows publication must be an explicit release decision.",
   );
   for (const forbidden of [
     "BACKEND_REPOSITORY_TOKEN",

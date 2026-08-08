@@ -27,11 +27,13 @@ function createAssets(): string {
   return root;
 }
 
-function createWindowsAssets(): string {
+function createWindowsAssets(options: { updaterMetadata?: boolean } = {}): string {
   const root = mkdtempSync(join(tmpdir(), "penkra-windows-provenance-test-"));
   temporaryRoots.push(root);
   writeFileSync(join(root, "Penkra-1.2.3-x64.exe"), "unsigned-windows-bytes");
-  writeFileSync(join(root, "latest.yml"), "version: 1.2.3\n");
+  if (options.updaterMetadata !== false) {
+    writeFileSync(join(root, "latest.yml"), "version: 1.2.3\n");
+  }
   return root;
 }
 
@@ -112,7 +114,7 @@ describe("release artifact provenance", () => {
     ).rejects.toThrow("requires an exact source tag");
   });
 
-  it("rejects unsigned Windows publication", async () => {
+  it("rejects unsigned Windows publication without an explicit release decision", async () => {
     await expect(
       writeReleaseArtifactProvenance({
         assetsDirectory: createWindowsAssets(),
@@ -127,5 +129,50 @@ describe("release artifact provenance", () => {
         signed: false,
       }),
     ).rejects.toThrow("requires verified signing");
+  });
+
+  it("records explicitly unsigned Windows installer publication without auto-update metadata", async () => {
+    const result = await writeReleaseArtifactProvenance({
+      assetsDirectory: createWindowsAssets({ updaterMetadata: false }),
+      platform: "win",
+      arch: "x64",
+      target: "nsis",
+      version: "1.2.3",
+      sourceCommit: "a".repeat(40),
+      sourceTag: "v1.2.3",
+      lockfileSha256: "b".repeat(64),
+      publication: true,
+      signed: false,
+      allowUnsignedWindowsPublication: true,
+    });
+
+    expect(result.manifest.signing).toEqual({
+      status: "unsigned-explicit-release",
+      scheme: "none",
+      identity: null,
+      checks: [
+        "explicit unsigned Windows publication",
+        "manual installer only",
+        "auto-update metadata absent",
+      ],
+    });
+  });
+
+  it("rejects updater metadata in an explicitly unsigned Windows release", async () => {
+    await expect(
+      writeReleaseArtifactProvenance({
+        assetsDirectory: createWindowsAssets(),
+        platform: "win",
+        arch: "x64",
+        target: "nsis",
+        version: "1.2.3",
+        sourceCommit: "a".repeat(40),
+        sourceTag: "v1.2.3",
+        lockfileSha256: "b".repeat(64),
+        publication: true,
+        signed: false,
+        allowUnsignedWindowsPublication: true,
+      }),
+    ).rejects.toThrow("must not include auto-update metadata");
   });
 });

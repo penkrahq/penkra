@@ -19,6 +19,7 @@ interface CliOptions {
   readonly lockfileSha256: string;
   readonly publication: boolean;
   readonly signed: boolean;
+  readonly allowUnsignedWindowsPublication?: boolean;
   readonly expectedMacTeamId?: string;
   readonly expectedWindowsPublisher?: string;
   readonly expectedWindowsSubjectDn?: string;
@@ -65,6 +66,7 @@ function parseArgs(argv: ReadonlyArray<string>): CliOptions {
     "--lockfile-sha256",
     "--publication",
     "--signed",
+    "--allow-unsigned-windows-publication",
     "--expected-mac-team-id",
     "--expected-windows-publisher",
     "--expected-windows-subject-dn",
@@ -77,6 +79,12 @@ function parseArgs(argv: ReadonlyArray<string>): CliOptions {
   const expectedMacTeamId = values.get("--expected-mac-team-id") || undefined;
   const expectedWindowsPublisher = values.get("--expected-windows-publisher") || undefined;
   const expectedWindowsSubjectDn = values.get("--expected-windows-subject-dn") || undefined;
+  const allowUnsignedWindowsPublication = values.has("--allow-unsigned-windows-publication")
+    ? parseBoolean(
+        "--allow-unsigned-windows-publication",
+        values.get("--allow-unsigned-windows-publication"),
+      )
+    : undefined;
   return {
     assetsDirectory: required("--assets-dir"),
     platform,
@@ -88,6 +96,7 @@ function parseArgs(argv: ReadonlyArray<string>): CliOptions {
     lockfileSha256: required("--lockfile-sha256"),
     publication: parseBoolean("--publication", values.get("--publication")),
     signed: parseBoolean("--signed", values.get("--signed")),
+    ...(allowUnsignedWindowsPublication === undefined ? {} : { allowUnsignedWindowsPublication }),
     ...(expectedMacTeamId ? { expectedMacTeamId } : {}),
     ...(expectedWindowsPublisher ? { expectedWindowsPublisher } : {}),
     ...(expectedWindowsSubjectDn ? { expectedWindowsSubjectDn } : {}),

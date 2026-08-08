@@ -36,6 +36,12 @@ jobs:
             target: AppImage
             arch: x64
             artifact: linux-x64
+          - name: Windows x64
+            runner: windows-2025
+            platform: win
+            target: nsis
+            arch: x64
+            artifact: windows-x64
     permissions:
       actions: read
       checks: read
@@ -161,6 +167,20 @@ jobs:
             --source-tag "${GITHUB_REF_NAME}" \
             --lockfile-sha256 "${{ steps.release.outputs.lockfile_sha256 }}" --verbose
 
+      - name: Build unsigned Windows installer
+        if: matrix.platform == 'win'
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+        shell: bash
+        run: |
+          set -euo pipefail
+          bun run dist:desktop:artifact -- \
+            --platform win --target nsis --arch x64 \
+            --build-version "${{ steps.release.outputs.version }}" \
+            --source-commit "${{ steps.release.outputs.source_commit }}" \
+            --source-tag "${GITHUB_REF_NAME}" \
+            --lockfile-sha256 "${{ steps.release.outputs.lockfile_sha256 }}" --verbose
+
       - name: Verify macOS artifact
         if: matrix.platform == 'mac'
         env:
@@ -196,6 +216,21 @@ jobs:
             --lockfile-sha256 "${{ steps.release.outputs.lockfile_sha256 }}" \
             --publication true --signed false
 
+      - name: Verify unsigned Windows installer
+        if: matrix.platform == 'win'
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/verify-packaged-desktop-startup.ts --assets-dir release --platform win --arch x64 --version "${{ steps.release.outputs.version }}"
+          rm -f release/latest.yml release/*.exe.blockmap
+          node scripts/write-release-artifact-provenance.ts \
+            --assets-dir release --platform win --arch x64 --target nsis \
+            --version "${{ steps.release.outputs.version }}" \
+            --source-commit "${{ steps.release.outputs.source_commit }}" \
+            --source-tag "${GITHUB_REF_NAME}" \
+            --lockfile-sha256 "${{ steps.release.outputs.lockfile_sha256 }}" \
+            --publication true --signed false --allow-unsigned-windows-publication true
+
       - name: Attest release artifacts
         uses: actions/attest@v4
         with:
@@ -230,7 +265,7 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          artifacts=(*.dmg *.zip *.blockmap *.yml *.AppImage)
+          artifacts=(*.dmg *.zip *.blockmap *.yml *.AppImage *.exe)
           if (( ${#artifacts[@]} == 0 )); then
             echo "No release artifacts found for checksums." >&2
             exit 1
@@ -252,5 +287,6 @@ jobs:
             fi
             gh release upload "$RELEASE_TAG" release/* --repo "$GITHUB_REPOSITORY" --clobber
           else
-            gh release create "$RELEASE_TAG" release/* --repo "$GITHUB_REPOSITORY" --verify-tag --draft --generate-notes --title "Penkra $RELEASE_TAG"
+            gh release create "$RELEASE_TAG" release/* --repo "$GITHUB_REPOSITORY" --verify-tag --draft --generate-notes --title "Penkra $RELEASE_TAG" \
+              --notes "**Windows notice:** The Windows x64 installer is intentionally unsigned in this initial release. Windows will show an Unknown publisher/SmartScreen warning, and this installer is manual-download only; Windows auto-updates remain disabled until signed distribution is available. Verify the installer with SHA256SUMS.txt and GitHub's build-provenance attestation."
           fi

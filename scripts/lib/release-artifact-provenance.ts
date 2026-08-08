@@ -31,6 +31,7 @@ export interface ReleaseArtifactProvenanceInput {
   readonly lockfileSha256: string;
   readonly publication: boolean;
   readonly signed: boolean;
+  readonly allowUnsignedWindowsPublication?: boolean;
   readonly expectedMacTeamId?: string;
   readonly expectedWindowsPublisher?: string;
   readonly expectedWindowsSubjectDn?: string;
@@ -419,7 +420,28 @@ function resolveSigningEvidence(
 
   if (!input.signed) {
     if (input.publication) {
-      throw new Error(`Publishing ${input.platform} artifacts requires verified signing.`);
+      if (input.platform !== "win" || input.allowUnsignedWindowsPublication !== true) {
+        throw new Error(`Publishing ${input.platform} artifacts requires verified signing.`);
+      }
+      requireSingleArtifact(artifacts, ".exe");
+      if (
+        artifacts.some(
+          (artifact) =>
+            artifact.fileName === "latest.yml" || artifact.fileName.endsWith(".blockmap"),
+        )
+      ) {
+        throw new Error("Unsigned Windows publication must not include auto-update metadata.");
+      }
+      return {
+        status: "unsigned-explicit-release",
+        scheme: "none",
+        identity: null,
+        checks: [
+          "explicit unsigned Windows publication",
+          "manual installer only",
+          "auto-update metadata absent",
+        ],
+      };
     }
     requireSingleArtifact(artifacts, input.platform === "mac" ? ".dmg" : ".exe");
     return {

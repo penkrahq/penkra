@@ -17,9 +17,9 @@
 
 ### Changed
 
-- Added blocking native Windows x64 and Linux x64 package-startup CI while publishing the current
-  desktop release only for macOS arm64 and Linux x64. Windows publication remains deferred until
-  its signing identity and signed installer/update QA are available.
+- Added blocking native Windows x64 and Linux x64 package-startup CI. The current desktop release
+  publishes macOS arm64, Linux x64, and an explicitly unsigned Windows x64 manual installer; Windows
+  auto-update metadata remains withheld until a signing identity and signed update QA are available.
 - Moved the macOS release build to GitHub's supported arm64 `macos-15` runner.
 - Made Open With choices device-wide for links, folders, and individual file extensions, with
   deterministic migration from earlier per-Space preferences.

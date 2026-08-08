@@ -1,14 +1,16 @@
 # Penkra Desktop Releases
 
 Penkra publishes its public desktop application through GitHub Releases. Stable releases are built
-from an exact semantic-version tag and exposed to `electron-updater` only after a draft release has
-passed native installed-App QA on every advertised platform.
+from an exact semantic-version tag and published only after a draft release has passed native
+installed-App QA on every advertised platform. Update-capable artifacts are exposed to
+`electron-updater` only after that review; the initial unsigned Windows installer is manual-only.
 
-The current release matrix is macOS arm64 and Linux x64. macOS uses a signed/notarized DMG plus
-update ZIP, and Linux uses AppImage. Windows x64 packaging and startup remain mandatory CI signals,
-but Windows is not advertised or published until its signing identity is provisioned and its signed
-installer/update QA is complete. Penkra does not advertise or publish any platform or architecture
-until that native evidence exists.
+The current release matrix is macOS arm64, Linux x64, and Windows x64. macOS uses a
+signed/notarized DMG plus update ZIP, Linux uses AppImage, and Windows initially uses an explicitly
+unsigned NSIS installer. The Windows installer is a manual download: the release deliberately omits
+`latest.yml` and the NSIS blockmap so unsigned builds cannot enter Penkra's signature-verified
+auto-update path. Windows displays an Unknown publisher/SmartScreen warning until a signing identity
+is provisioned.
 
 The public desktop package does not contain the private Penkra backend or CLI. Account and hosted
 service requests use the authenticated Penkra API. The desktop's local application runtime is built
@@ -90,7 +92,8 @@ a release tag from an uncommitted or unreviewed worktree.
    - requires the aggregate Penkra CI quality gate to have passed for the exact tagged commit;
    - consumes that commit-bound result instead of repeating the same validation suite;
    - builds each advertised platform on a native GitHub-hosted runner;
-   - signs/notarizes macOS and emits Linux checksum/provenance evidence;
+   - signs/notarizes macOS and emits Linux and explicitly unsigned Windows checksum/provenance
+     evidence;
    - creates each installer, update payload, blockmap where applicable, and matching updater manifest
      together;
    - rejects any package containing the private `penkra-cli`;
@@ -121,7 +124,7 @@ environment:
 - `APPLE_API_ISSUER`
 - `APPLE_TEAM_ID`
 
-Before enabling Windows publication with Azure Trusted Signing, also store:
+Before enabling signed Windows publication and auto-updates with Azure Trusted Signing, also store:
 
 - `AZURE_TRUSTED_SIGNING_ENDPOINT`
 - `AZURE_TRUSTED_SIGNING_ACCOUNT_NAME`
@@ -132,10 +135,10 @@ Before enabling Windows publication with Azure Trusted Signing, also store:
 - `AZURE_CLIENT_ID`
 - `AZURE_CLIENT_SECRET`
 
-Windows release configuration is retained in the build tooling but intentionally absent from the
-publication matrix until those values and native signed-update evidence exist. Linux assets carry
-final checksums and provenance; an unsigned Linux AppImage must never be confused with a signed
-macOS installer.
+Until those values and native signed-update evidence exist, Windows publication is limited to the
+explicitly unsigned manual NSIS installer. It must not include `latest.yml` or an NSIS blockmap, and
+release metadata must disclose the SmartScreen/Unknown publisher warning. Linux and Windows assets
+carry final checksums and provenance; neither may be confused with a signed macOS installer.
 
 The release workflow intentionally fails when required macOS signing/notarization is incomplete.
 Linux AppImages are explicitly unsigned at the OS package layer and rely on exact
@@ -155,6 +158,7 @@ Each stable release contains the applicable artifacts for its advertised platfor
 - the ZIP blockmap used for differential downloads;
 - `latest-mac.yml` generated from the same finalized ZIP;
 - Linux AppImage, blockmap, and `latest-linux.yml` for the finalized artifact;
+- `Penkra-<version>-x64.exe` as the explicitly unsigned manual Windows installer;
 - `SHA256SUMS.txt`;
 - GitHub build-provenance attestations.
 
