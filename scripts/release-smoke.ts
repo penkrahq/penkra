@@ -215,6 +215,11 @@ function verifyReleaseWorkflowSafety(): void {
   );
   assertContains(
     workflow,
+    "git -c core.autocrlf=false restore",
+    "Expected generated artifacts to be restored byte-identically on Windows.",
+  );
+  assertContains(
+    workflow,
     "changed tracked release source outside the approved generated artifacts",
     "Expected Windows dependency installation to reject every unapproved tracked change.",
   );

@@ -133,7 +133,7 @@ jobs:
           set -euo pipefail
           for generated_path in bun.lock apps/web/public/mockServiceWorker.js; do
             if ! git diff --quiet -- "$generated_path"; then
-              git restore --source=HEAD --worktree -- "$generated_path"
+              git -c core.autocrlf=false restore --source=HEAD --worktree -- "$generated_path"
             fi
           done
           if [[ -n "$(git status --porcelain --untracked-files=no)" ]]; then
