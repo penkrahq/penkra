@@ -36,6 +36,9 @@
 
 ### Fixed
 
+- Fixed Linux native startup validation to exercise the packaged application with a real D-Bus
+  Secret Service session, preserving Penkra's refusal to store App secrets through Electron's
+  insecure `basic_text` fallback.
 - Fixed packaged macOS builds losing secure-context media APIs when account authentication replaced
   the `penkra` privileged-scheme registration; desktop schemes are now registered once before startup.
 - Fixed long-running provider turns being marked interrupted after 45 minutes despite authoritative

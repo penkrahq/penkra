@@ -215,13 +215,13 @@ jobs:
         with:
           cache-suffix: desktop-platform-${{ matrix.platform }}
 
-      - name: Install Linux display runtime
+      - name: Install Linux desktop runtime
         if: matrix.platform == 'linux'
         shell: bash
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install --yes xvfb
+          sudo apt-get install --yes dbus-x11 gnome-keyring libsecret-tools xvfb
 
       - name: Verify native terminal PTY
         run: node scripts/node-pty-smoke.mjs
@@ -244,13 +244,33 @@ jobs:
           --skip-build
           --output-dir release-platform-qa
 
-      - name: Launch packaged desktop from isolated state
+      - name: Launch Linux packaged desktop from isolated secured state
+        if: matrix.platform == 'linux'
+        shell: bash
+        env:
+          PENKRA_CI_KEYRING_PASSWORD: penkra-ci-isolated-keyring
+          PENKRA_PACKAGE_VERSION: ${{ steps.package.outputs.version }}
+        run: |
+          set -euo pipefail
+          dbus-run-session -- bash -euo pipefail -c '
+            export XDG_CURRENT_DESKTOP=GNOME
+            keyring_environment="$(printf "%s" "$PENKRA_CI_KEYRING_PASSWORD" | gnome-keyring-daemon --unlock --components=secrets)"
+            eval "$keyring_environment"
+            node scripts/verify-packaged-desktop-startup.ts \
+              --assets-dir release-platform-qa \
+              --platform linux \
+              --arch x64 \
+              --version "$PENKRA_PACKAGE_VERSION"
+          '
+
+      - name: Launch Windows packaged desktop from isolated state
+        if: matrix.platform == 'win'
         shell: bash
         run: >-
           node scripts/verify-packaged-desktop-startup.ts
           --assets-dir release-platform-qa
-          --platform "${{ matrix.platform }}"
-          --arch "${{ matrix.arch }}"
+          --platform win
+          --arch x64
           --version "${{ steps.package.outputs.version }}"
 
   migration_lineage:
