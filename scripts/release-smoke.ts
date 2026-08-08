@@ -215,13 +215,18 @@ function verifyReleaseWorkflowSafety(): void {
   );
   assertContains(
     workflow,
-    "git config --local core.autocrlf false",
-    "Expected the Windows release worktree to compare tagged LF bytes without global text conversion.",
+    'git show "HEAD:$generated_path" > "$generated_path"',
+    "Expected generated artifacts to be copied byte-identically from the tagged blob on Windows.",
   );
   assertContains(
     workflow,
-    'git show "HEAD:$generated_path" > "$generated_path"',
-    "Expected generated artifacts to be copied byte-identically from the tagged blob on Windows.",
+    'actual_blob="$(git hash-object "$generated_path")"',
+    "Expected restored Windows generated artifacts to be hash-verified against the tagged blob.",
+  );
+  assertContains(
+    workflow,
+    'git update-index --assume-unchanged "$generated_path"',
+    "Expected only hash-verified generated paths to bypass Windows text-conversion status noise.",
   );
   assertContains(
     workflow,

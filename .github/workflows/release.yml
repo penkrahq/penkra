@@ -131,11 +131,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git config --local core.autocrlf false
           for generated_path in bun.lock apps/web/public/mockServiceWorker.js; do
             if ! git diff --quiet -- "$generated_path"; then
               git show "HEAD:$generated_path" > "$generated_path"
             fi
+            expected_blob="$(git rev-parse "HEAD:$generated_path")"
+            actual_blob="$(git hash-object "$generated_path")"
+            if [[ "$actual_blob" != "$expected_blob" ]]; then
+              echo "Windows generated artifact does not match tagged source: $generated_path" >&2
+              exit 1
+            fi
+            git update-index --assume-unchanged "$generated_path"
           done
           if [[ -n "$(git status --porcelain --untracked-files=no)" ]]; then
             git status --short --untracked-files=no
