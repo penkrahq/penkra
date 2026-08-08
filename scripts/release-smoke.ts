@@ -215,8 +215,8 @@ function verifyReleaseWorkflowSafety(): void {
   );
   assertContains(
     workflow,
-    "git -c core.autocrlf=false restore",
-    "Expected generated artifacts to be restored byte-identically on Windows.",
+    'git show "HEAD:$generated_path" > "$generated_path"',
+    "Expected generated artifacts to be copied byte-identically from the tagged blob on Windows.",
   );
   assertContains(
     workflow,
