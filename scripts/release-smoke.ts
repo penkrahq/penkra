@@ -210,6 +210,16 @@ function verifyReleaseWorkflowSafety(): void {
   );
   assertContains(
     workflow,
+    "for generated_path in bun.lock apps/web/public/mockServiceWorker.js",
+    "Expected Windows dependency installation to reconcile only the two proven generated artifacts.",
+  );
+  assertContains(
+    workflow,
+    "changed tracked release source outside the approved generated artifacts",
+    "Expected Windows dependency installation to reject every unapproved tracked change.",
+  );
+  assertContains(
+    workflow,
     "rm -f release/latest.yml release/*.exe.blockmap",
     "Unsigned Windows releases must not publish auto-update metadata.",
   );

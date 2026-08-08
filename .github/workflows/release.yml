@@ -126,17 +126,19 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Reconcile Windows lockfile normalization
+      - name: Reconcile Windows generated install artifacts
         if: matrix.platform == 'win'
         shell: bash
         run: |
           set -euo pipefail
-          if ! git diff --quiet -- bun.lock; then
-            git restore --source=HEAD --worktree -- bun.lock
-          fi
+          for generated_path in bun.lock apps/web/public/mockServiceWorker.js; do
+            if ! git diff --quiet -- "$generated_path"; then
+              git restore --source=HEAD --worktree -- "$generated_path"
+            fi
+          done
           if [[ -n "$(git status --porcelain --untracked-files=no)" ]]; then
             git status --short --untracked-files=no
-            echo "Windows dependency installation changed tracked release source outside bun.lock." >&2
+            echo "Windows dependency installation changed tracked release source outside the approved generated artifacts." >&2
             exit 1
           fi
 
