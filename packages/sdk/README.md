@@ -1,7 +1,11 @@
 # @penkra/sdk
 
 Complete App-development guide:
-https://github.com/Emanuele-web04/Penkra/blob/main/docs/app-development.md
+https://github.com/penkrahq/penkra/blob/main/docs/app-development.md
+
+```sh
+npm install @penkra/sdk
+```
 
 Framework-neutral APIs for Apps running inside Penkra. The package contains manifest validation,
 typed operations, tab routing, scoped files, settings, secrets, identity, permissions, mediated
@@ -37,8 +41,8 @@ restart. `tab.onNavigate` receives navigation initiated outside the App.
 
 Apps may use any browser-compatible framework. React is optional and available from
 `@penkra/sdk/react`. Runtime calls throw when used outside a Penkra App renderer; ordinary unit
-tests should test App logic separately, while `penkra app test` validates the packaged App in the
-real isolated host.
+tests should test App logic separately. Penkra exposes the real isolated-host runner through the
+registered `penkra app test <directory>` command in `penkra_exec_command`.
 
 Use `contextMenu.show(...)` from a direct pointer interaction when an App needs a platform-native
 right-click menu. Penkra returns the selected item ID or `null`; Apps never receive Electron menu

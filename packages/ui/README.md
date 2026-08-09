@@ -1,5 +1,12 @@
 # @penkra/ui
 
+Complete App-development guide:
+https://github.com/penkrahq/penkra/blob/main/docs/app-development.md
+
+```sh
+npm install @penkra/ui
+```
+
 Penkra's framework-neutral visual contracts for compatible Apps. It provides semantic tokens,
 icons, and App Bar primitives without requiring React or allowing Apps to style trusted shell
 chrome.

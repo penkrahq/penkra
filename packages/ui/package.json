@@ -1,7 +1,22 @@
 {
   "name": "@penkra/ui",
   "version": "0.1.0",
+  "description": "Framework-neutral UI tokens and primitives for Penkra Apps.",
+  "keywords": [
+    "apps",
+    "design-system",
+    "penkra",
+    "ui"
+  ],
+  "homepage": "https://github.com/penkrahq/penkra/tree/main/packages/ui#readme",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/penkrahq/penkra.git",
+    "directory": "packages/ui"
+  },
   "files": [
+    "LICENSE",
     "README.md",
     "dist",
     "src/*.css",
@@ -10,18 +25,21 @@
     "!src/*.test.ts"
   ],
   "type": "module",
+  "sideEffects": [
+    "./src/*.css"
+  ],
   "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",
-  "types": "./src/index.ts",
+  "types": "./dist/index.d.mts",
   "exports": {
     ".": {
-      "types": "./src/index.ts",
-      "import": "./src/index.ts",
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs",
       "require": "./dist/index.cjs"
     },
     "./react": {
-      "types": "./src/react.tsx",
-      "import": "./src/react.tsx",
+      "types": "./dist/react.d.mts",
+      "import": "./dist/react.mjs",
       "require": "./dist/react.cjs"
     },
     "./tokens.css": "./src/tokens.css",
