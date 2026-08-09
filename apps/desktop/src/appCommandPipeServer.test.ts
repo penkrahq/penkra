@@ -34,6 +34,7 @@ describe("AppCommandPipeServer", () => {
     const invoke = vi.fn(async () => ({ created: true }));
     const open = vi.fn(async () => ({ destination: "system" }));
     const sideload = vi.fn(async () => ({ status: "installed" }));
+    const authorizeSigning = vi.fn(async () => ({ authorized: true }));
     const current = {
       id: "tab-1",
       rendererId: 101,
@@ -72,6 +73,7 @@ describe("AppCommandPipeServer", () => {
       },
       open,
       sideload,
+      authorizeSigning,
     });
     await server.start();
     disposers.push(async () => {
@@ -136,6 +138,30 @@ describe("AppCommandPipeServer", () => {
     expect(sideload).toHaveBeenCalledWith({
       sourcePath: "/work/canvas/dist",
       spaceId: "personal",
+    });
+
+    await expect(
+      send(path, {
+        id: "request-signing",
+        token: "secret",
+        method: "developer.signing.authorize",
+        params: {
+          authorizationUrl: "https://oauth2.sigstore.dev/auth/auth?state=one-time",
+          appId: "com.example.canvas",
+          version: "1.0.0",
+          packageDigest: "a".repeat(64),
+        },
+      }),
+    ).resolves.toEqual({
+      ok: true,
+      id: "request-signing",
+      result: { authorized: true },
+    });
+    expect(authorizeSigning).toHaveBeenCalledWith({
+      authorizationUrl: "https://oauth2.sigstore.dev/auth/auth?state=one-time",
+      appId: "com.example.canvas",
+      version: "1.0.0",
+      packageDigest: "a".repeat(64),
     });
 
     await expect(

@@ -2,7 +2,7 @@
   "name": "@penkra/desktop",
   "version": "0.9.3",
   "private": true,
-  "main": "dist-electron/main.js",
+  "main": "dist-electron/entry.js",
   "scripts": {
     "dev": "bun run scripts/dev.mjs",
     "dev:bundle": "tsdown --watch",

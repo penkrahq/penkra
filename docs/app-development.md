@@ -275,9 +275,11 @@ penkra app package ./dist --output ./artifacts/my-app.penkra
 Relative paths resolve from the caller Thread's working directory. `package` requires an explicit
 output path and rejects output inside the packaged directory.
 
-`test` creates a disposable profile and Space, ingests the App through the immutable package path,
-starts its controller and renderer, requires the tab to reach `ready`, records diagnostics, and
-removes the profile. It complements unit, accessibility, and visual tests.
+`test` asks the installed Penkra desktop to relaunch its own App runtime in a hidden, disposable
+profile and Space. It ingests the App through the immutable package path, starts its controller and
+renderer, requires the tab to reach `ready`, records diagnostics, and removes the profile. It never
+uses or changes the active profile, Space, database, or installed Apps. It complements unit,
+accessibility, and visual tests.
 
 `package` validates the manifest, schemas, required documents, referenced paths, compatibility,
 permissions, entry count, entry size, total expanded size, and executable-content restrictions. It
@@ -305,12 +307,16 @@ target by environment and API origin. Check that evidence before changing produc
 
 `publish` tests and packages the App, resolves or creates its stable publisher and App identities,
 rejects changed package bytes for an existing semantic version before signing, resumes an exact
-same-digest submission without signing or uploading again, performs keyless
-publisher signing, uploads immutable artifacts, finalizes the submission, and only then applies the
-requested visibility. Publisher IDs, bundle paths, signature commands, and submission IDs are
-implementation details rather than steps the developer must orchestrate. The default visibility is
-private. Publisher signing requires Cosign to be installed on the author's machine;
-`publish` reports that prerequisite directly when it is unavailable.
+same-digest submission without signing or uploading again, performs keyless publisher signing,
+uploads immutable artifacts, finalizes the submission, and only then applies the requested
+visibility. Publisher IDs, bundle paths, signing libraries, and submission IDs are implementation
+details rather than steps the developer must orchestrate. The default visibility is private.
+
+For a new package digest, Penkra shows a native confirmation with the exact App ID, version, and
+SHA-256 digest, then opens the system browser for a short-lived Sigstore identity check. Sigstore
+permanently records the signing identity and certificate in its public transparency log—even when
+the App listing is private. Penkra stores neither a signing key nor a refresh token. No separately
+installed signing program is required.
 
 Publication binds the signed-in owner, publisher namespace, immutable App ID and version,
 manifest/package/README/instructions digests, publisher signature, registry signature,

@@ -195,6 +195,7 @@ import { BROWSER_SESSION_PARTITION, DesktopBrowserManager } from "./browserManag
 import { createScopedBrowserSessionPartition } from "./browserSessionPolicy";
 import { normalizeHostedBrowserViewportBounds } from "./hostedBrowserViewport";
 import { AppCommandPipeServer, resolveAppCommandPipePath } from "./appCommandPipeServer";
+import { authorizeAppSigning } from "./appSigningAuthorization";
 import { AppTabObserver, resolveAppTabObservationTarget } from "./appTabObserver";
 import { BROWSER_APP_ID } from "./appDistributionPolicy";
 import { normalizeDesktopWsUrl, resolveDesktopWsUrlFromEnv } from "./desktopWsBridge";
@@ -3419,8 +3420,8 @@ function backendEnv(): NodeJS.ProcessEnv {
       PENKRA_AUTH_TOKEN: backendAuthToken,
       PENKRA_DESKTOP_SHUTDOWN_TOKEN: DESKTOP_BACKEND_SHUTDOWN_TOKEN,
       PENKRA_APP_TEST_ELECTRON: process.execPath,
-      PENKRA_APP_TEST_HOST: Path.join(__dirname, "appTestHost.js"),
-      PENKRA_APP_TEST_PRELOAD: Path.join(__dirname, "appPreload.js"),
+      PENKRA_APP_TEST_HOST: Path.join(__dirname, "entry.js"),
+      PENKRA_APP_TEST_PACKAGED: app.isPackaged ? "1" : "0",
     },
     process.pid,
   );
@@ -6122,6 +6123,14 @@ async function bootstrap(): Promise<void> {
     observer: appTabObserver,
     registry: appRegistryClient,
     open: openPenkraResource,
+    authorizeSigning: (input) =>
+      authorizeAppSigning({
+        ...input,
+        window: mainWindow,
+        ...(process.env.SIGSTORE_OIDC_ISSUER
+          ? { issuer: process.env.SIGSTORE_OIDC_ISSUER }
+          : {}),
+      }),
     sideload: async ({ sourcePath, spaceId }) => {
       if (!isDevelopment || !developmentSideloadRegistry) {
         throw new Error("App sideloading is available only in Penkra development.");

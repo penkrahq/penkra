@@ -2,7 +2,6 @@
 // Purpose: Owns App test, package, publication, status, and access workflows for registered commands.
 // Layer: Developer lifecycle service
 
-import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import * as FS from "node:fs/promises";
 import * as OS from "node:os";
@@ -13,6 +12,8 @@ import {
   testAppDirectory,
   type AppPackageEvidence,
 } from "./appDeveloperTools";
+import { getPublisherIdentityToken } from "./appPublisherIdentity";
+import { sign as sigstoreSign } from "sigstore";
 
 const DEFAULT_SIGSTORE_ISSUER = "https://oauth2.sigstore.dev/auth";
 
@@ -26,12 +27,12 @@ export async function publishAppDirectory(input: {
   dependencies?: {
     test?: typeof testAppDirectory;
     package?: typeof packageAppDirectory;
-    sign?: typeof runCosign;
+    sign?: typeof signAppPackage;
   };
 }): Promise<unknown> {
   const test = input.dependencies?.test ?? testAppDirectory;
   const packageApp = input.dependencies?.package ?? packageAppDirectory;
-  const sign = input.dependencies?.sign ?? runCosign;
+  const sign = input.dependencies?.sign ?? signAppPackage;
   const temporary = await FS.mkdtemp(Path.join(OS.tmpdir(), "penkra-app-publish-"));
   try {
     const integration = await test({ directory: input.directory });
@@ -63,15 +64,18 @@ export async function publishAppDirectory(input: {
         resumed: true,
       };
     }
-    await sign(evidence.path, signaturePath, input.env ?? process.env);
+    const signing = await sign({
+      packagePath: evidence.path,
+      bundlePath: signaturePath,
+      evidence,
+      bridge: input.bridge,
+      env: input.env ?? process.env,
+    });
     const submission = await input.bridge("developer.submissions.create", {
       appId: identity.appId,
       packagePath: evidence.path,
       signaturePath,
-      issuer:
-        input.env?.SIGSTORE_OIDC_ISSUER?.trim() ||
-        process.env.SIGSTORE_OIDC_ISSUER?.trim() ||
-        DEFAULT_SIGSTORE_ISSUER,
+      issuer: signing.issuer,
       evidence,
     });
     await input.bridge("developer.apps.visibility.set", {
@@ -267,28 +271,36 @@ function requiredText(value: Record<string, unknown>, key: string, label: string
   return result;
 }
 
-function runCosign(packagePath: string, bundle: string, env: NodeJS.ProcessEnv): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(
-      "cosign",
-      ["sign-blob", Path.resolve(packagePath), "--bundle", Path.resolve(bundle)],
-      { stdio: "inherit", shell: false, env },
-    );
-    child.once("error", (error: NodeJS.ErrnoException) => {
-      reject(
-        error.code === "ENOENT"
-          ? new Error("Publishing currently requires Cosign for keyless App signing.")
-          : error,
-      );
-    });
-    child.once("exit", (code, signal) => {
-      if (code === 0) resolve();
-      else
-        reject(
-          new Error(
-            `App signing failed${signal ? ` with signal ${signal}` : ` with exit code ${code ?? "unknown"}`}.`,
-          ),
-        );
-    });
+async function signAppPackage(input: {
+  packagePath: string;
+  bundlePath: string;
+  evidence: AppPackageEvidence;
+  bridge: AppDeveloperBridge;
+  env: NodeJS.ProcessEnv;
+}): Promise<{ issuer: string }> {
+  const issuer = input.env.SIGSTORE_OIDC_ISSUER?.trim() || DEFAULT_SIGSTORE_ISSUER;
+  let token: Promise<string> | undefined;
+  const bundle = await sigstoreSign(await FS.readFile(Path.resolve(input.packagePath)), {
+    identityProvider: {
+      getToken: () =>
+        (token ??= getPublisherIdentityToken({
+          issuer,
+          bridge: input.bridge,
+          appId: input.evidence.appId,
+          version: input.evidence.version,
+          packageDigest: input.evidence.packageDigest,
+        })),
+    },
+    ...(input.env.SIGSTORE_FULCIO_URL?.trim()
+      ? { fulcioURL: input.env.SIGSTORE_FULCIO_URL.trim() }
+      : {}),
+    ...(input.env.SIGSTORE_REKOR_URL?.trim()
+      ? { rekorURL: input.env.SIGSTORE_REKOR_URL.trim() }
+      : {}),
   });
+  await FS.writeFile(Path.resolve(input.bundlePath), `${JSON.stringify(bundle)}\n`, {
+    encoding: "utf8",
+    mode: 0o600,
+  });
+  return { issuer };
 }
