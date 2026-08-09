@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   executePenkraExecCommand,
@@ -33,7 +33,12 @@ describe("App runtime CLI operation flags", () => {
         priority: "2",
         labels: '["auth"]',
       }),
-    ).toEqual({ title: "Fix redirect", confirm: true, priority: 2, labels: ["auth"] });
+    ).toEqual({
+      title: "Fix redirect",
+      confirm: true,
+      priority: 2,
+      labels: ["auth"],
+    });
   });
 
   it("rejects unknown, duplicate, and invalid typed flags", () => {
@@ -102,7 +107,7 @@ describe("penkra_exec_command discovery", () => {
     });
   });
 
-  it("discovers and scopes the singular App sideload command in development", async () => {
+  it("discovers and scopes every App developer command in development", async () => {
     const calls: Array<{ method: string; params: unknown }> = [];
     const bridge = async (method: string, params: unknown) => {
       calls.push({ method, params });
@@ -113,7 +118,14 @@ describe("penkra_exec_command discovery", () => {
     await expect(
       executePenkraExecCommand("penkra --help", context, env, bridge),
     ).resolves.toMatchObject({
-      commands: expect.arrayContaining(["penkra app sideload <directory>"]),
+      commands: expect.arrayContaining([
+        "penkra app test <directory>",
+        "penkra app package <directory> --output <path>",
+        "penkra app sideload <directory>",
+        "penkra app status [--app-id <app-id>]",
+        "penkra app publish <directory> [--visibility public|private]",
+        "penkra app access invite --app-id <app-id> --email <email>",
+      ]),
     });
     await expect(
       executePenkraExecCommand(
@@ -129,7 +141,7 @@ describe("penkra_exec_command discovery", () => {
     });
   });
 
-  it("does not expose or execute App sideloading outside development", async () => {
+  it("exposes public App-author commands in ordinary Penkra but keeps sideload internal", async () => {
     const bridge = async (method: string) => {
       expect(method).toBe("catalog.list");
       return catalog;
@@ -138,11 +150,131 @@ describe("penkra_exec_command discovery", () => {
     await expect(
       executePenkraExecCommand("penkra --help", context, {}, bridge),
     ).resolves.toMatchObject({
+      commands: expect.arrayContaining([
+        "penkra app test <directory>",
+        "penkra app publish <directory> [--visibility public|private]",
+      ]),
+    });
+    await expect(
+      executePenkraExecCommand("penkra --help", context, {}, bridge),
+    ).resolves.toMatchObject({
       commands: expect.not.arrayContaining(["penkra app sideload <directory>"]),
     });
     await expect(
       executePenkraExecCommand("penkra app sideload ./dist", context, {}, bridge),
-    ).rejects.toThrow("available only in Penkra development");
+    ).rejects.toThrow("internal Penkra development command");
+  });
+
+  it("routes test, package, status, publish, and access without consulting PATH", async () => {
+    const calls: Array<{ method: string; params: unknown }> = [];
+    const bridge = vi.fn(async (method: string, params: unknown) => {
+      calls.push({ method, params });
+      return { ok: true };
+    });
+    const publish = vi.fn(async (input: unknown) => ({
+      operation: "publish",
+      input,
+    }));
+    const operations = {
+      test: vi.fn(async (input: unknown) => ({ operation: "test", input })),
+      package: vi.fn(async (input: unknown) => ({
+        operation: "package",
+        input,
+      })),
+      status: vi.fn(async (appId: string | undefined) => ({
+        operation: "status",
+        appId,
+      })),
+      publish,
+    } as unknown as NonNullable<Parameters<typeof executePenkraExecCommand>[4]>;
+    const developmentContext = { ...context, workingDirectory: "/workspace" };
+    const env = {
+      PENKRA_DESKTOP_FLAVOR: "development",
+      PENKRA_API_URL: "http://localhost:3012",
+    };
+
+    await expect(
+      executePenkraExecCommand(
+        "penkra app test ./dist",
+        developmentContext,
+        env,
+        bridge,
+        operations,
+      ),
+    ).resolves.toEqual({
+      operation: "test",
+      input: { directory: "/workspace/dist" },
+    });
+    await expect(
+      executePenkraExecCommand(
+        "penkra app package ./dist --output ./build/app.penkra",
+        developmentContext,
+        env,
+        bridge,
+        operations,
+      ),
+    ).resolves.toEqual({
+      operation: "package",
+      input: {
+        directory: "/workspace/dist",
+        output: "/workspace/build/app.penkra",
+      },
+    });
+    await expect(
+      executePenkraExecCommand(
+        "penkra app status --app-id app-1",
+        developmentContext,
+        env,
+        bridge,
+        operations,
+      ),
+    ).resolves.toEqual({
+      registryTarget: {
+        environment: "local",
+        apiOrigin: "http://localhost:3012",
+      },
+      operation: "status",
+      appId: "app-1",
+    });
+    await executePenkraExecCommand(
+      "penkra app publish ./dist --visibility public",
+      developmentContext,
+      env,
+      bridge,
+      operations,
+    );
+    expect(publish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        directory: "/workspace/dist",
+        visibility: "public",
+        env,
+      }),
+    );
+    await executePenkraExecCommand(
+      "penkra app access invite --app-id app-1 --email person@example.com",
+      developmentContext,
+      env,
+      bridge,
+      operations,
+    );
+    expect(calls.at(-1)).toEqual({
+      method: "developer.app-access.invite",
+      params: { appId: "app-1", email: "person@example.com" },
+    });
+  });
+
+  it("rejects developer-only meta flags, unknown options, and invalid visibility", async () => {
+    const env = { PENKRA_DESKTOP_FLAVOR: "development" };
+    const developerContext = { ...context, workingDirectory: "/workspace" };
+    for (const command of [
+      "penkra app test ./dist --schema",
+      "penkra app package ./dist --output ./app.penkra --extra value",
+      "penkra app publish ./dist --visibility shared",
+    ]) {
+      await expect(
+        executePenkraExecCommand(command, developerContext, env, async () => []),
+      ).rejects.toThrow();
+    }
   });
 
   it("lists only the Apps and operation keys returned for the caller Space", async () => {
@@ -191,7 +323,7 @@ describe("penkra_exec_command discovery", () => {
   it("points unknown core commands back to the canonical help command", async () => {
     await expect(
       executePenkraExecCommand("penkra app unknown", context, {}, async () => []),
-    ).rejects.toThrow("Run penkra --help");
+    ).rejects.toThrow("Run penkra app --help");
   });
 
   it("returns the canonical path reported by the desktop when opening a file", async () => {

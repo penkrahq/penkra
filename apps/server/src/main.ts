@@ -49,7 +49,6 @@ import { AnalyticsService } from "./telemetry/Services/AnalyticsService";
 import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine";
 import { ensureDefaultSpaces } from "./orchestration/defaultSpacesBootstrap";
 import { startThreadRetentionJob } from "./threadRetention";
-import { appDeveloperCommand } from "./appDeveloperCli";
 import {
   consumeDesktopParentPidFromEnvironment,
   waitForDesktopParentDisconnect,
@@ -578,4 +577,4 @@ const serverCommand = baseServerCommand.pipe(
   Command.withHandler((input) => makeServerProgram(input)),
 );
 
-export const penkraCli = serverCommand.pipe(Command.withSubcommands([appDeveloperCommand]));
+export const penkraCli = serverCommand;

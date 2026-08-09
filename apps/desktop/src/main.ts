@@ -351,12 +351,6 @@ const PENKRA_API_URL = penkraRuntime.apiUrl;
 process.env.PENKRA_ROOT = PENKRA_ROOT;
 process.env.PENKRA_API_URL = PENKRA_API_URL;
 process.env.PENKRA_HOME = Path.join(PENKRA_ROOT, ".penkra");
-const PENKRA_CLI_BIN_DIR = Path.join(PENKRA_ROOT, ".penkra", "bin");
-const inheritedPathEntries = (process.env.PATH ?? "").split(Path.delimiter).filter(Boolean);
-process.env.PATH = [
-  PENKRA_CLI_BIN_DIR,
-  ...inheritedPathEntries.filter((entry) => Path.resolve(entry) !== PENKRA_CLI_BIN_DIR),
-].join(Path.delimiter);
 const developmentInstance = resolvePenkraDevInstance(process.env.PENKRA_DEV_INSTANCE_NUMBER);
 const desktopIdentity = penkraDesktopIdentity(desktopFlavor, developmentInstance);
 const BASE_DIR =
