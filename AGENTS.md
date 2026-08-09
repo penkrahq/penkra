@@ -1,5 +1,16 @@
 # AGENTS.md
 
+## Documentation Audiences
+
+- `docs/app-development.md` is the public App-author contract. Do not put Penkra repository setup,
+  numbered Dev launchers, localhost services, internal seeds, product QA, deployment, or desktop
+  release procedures there.
+- `docs/app-development-internals.md` and the rest of the repository documentation are for Penkra
+  contributors and operators. Keep development/production routing, sideloading, testing, QA,
+  migrations, deployments, and releases explicit there.
+- See `docs/README.md` for the documentation map. Never use internal desktop flavor as shorthand for
+  registry environment; report the configured account-service target directly.
+
 ## Task Completion Requirements
 
 - Before committing changes or declaring a task complete, start a fresh Penkra Dev instance and perform manual QA in the desktop app for the affected user flows. Automated tests, builds, browser-only checks, or inspecting an already-running instance do not replace this requirement.

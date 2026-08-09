@@ -116,7 +116,10 @@ penkra/
 ├── examples/
 │   └── sample-app/    # Framework-neutral example App
 └── docs/
-    └── app-development.md  # App development guide
+    ├── README.md                    # Documentation audiences and index
+    ├── app-development.md           # Public guide for App authors
+    ├── app-development-internals.md # Penkra App-platform contributor guide
+    └── release.md                   # Desktop release runbook
 ```
 
 ### Design system
@@ -133,7 +136,11 @@ bun run --cwd apps/web storybook
 
 ### Environment variables
 
-Source builds use Penkra's production account services by default. For internal development, set both `PENKRA_API_URL` and `PENKRA_WEBSITE_ORIGIN` to your local backend and website. See `.env.example` for the full list.
+Direct source builds use Penkra's production account services when `PENKRA_API_URL` and
+`PENKRA_WEBSITE_ORIGIN` are omitted. The canonical numbered **Penkra Dev** launchers deliberately
+set both values to the shared local backend and website; they never inherit the direct-launch
+default. See [App-platform development internals](docs/app-development-internals.md) and
+`.env.example` for the complete distinction.
 
 ### Running tests
 

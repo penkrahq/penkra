@@ -1,9 +1,18 @@
 # Build a Penkra App
 
-This is the complete public guide for humans and agents building Penkra Apps. Start command
-discovery with `penkra app --help`; the CLI links back to this document. The public contract is
-`penkra-app.json` plus `@penkra/sdk`. Private Electron, desktop IPC, database, and host APIs are not
-App APIs.
+This is the public guide for humans and agents building Penkra Apps. All `penkra ...` examples are
+registered commands passed one at a time through Penkra's `penkra_exec_command` gateway; they are
+not shell commands or native executables. Start with `penkra app --help`. The public contract is
+`penkra-app.json` plus `@penkra/sdk`. Private Electron, desktop IPC, database, internal development
+launchers, and host APIs are not App APIs.
+
+This guide deliberately contains no Penkra product-development, local-service, test-environment,
+or release-operations instructions. Those belong to Penkra's contributor documentation and do not
+change the App-author contract. There is no public Penkra operation CLI or executable App shim.
+
+Supported Penkra installations expose the public `penkra app ...` author commands in `penkra
+--help`. If an older installation does not list them, update Penkra; do not substitute shell
+commands or internal product-development procedures.
 
 A Penkra App is an installed browser application with a visual entrypoint and an optional isolated
 operation controller. It can use React, Vue, Svelte, Solid, vanilla DOM, or any other
@@ -63,7 +72,13 @@ rejected. `README.md` and `INSTRUCTIONS.md` must be nonempty UTF-8 documents.
     }
   ],
   "contributions": {
-    "handlers": [{ "intent": "open-file", "operation": "notes.open", "extensions": [".txt"] }]
+    "handlers": [
+      {
+        "intent": "open-file",
+        "operation": "notes.open",
+        "extensions": [".txt"]
+      }
+    ]
   }
 }
 ```
@@ -155,7 +170,14 @@ import { createAppBar, createIcon } from "@penkra/ui";
 
 const bar = createAppBar({
   center: { kind: "display", text: "Notes" },
-  trailing: [{ key: "search", label: "Search", icon: () => createIcon("search"), onActivate() {} }],
+  trailing: [
+    {
+      key: "search",
+      label: "Search",
+      icon: () => createIcon("search"),
+      onActivate() {},
+    },
+  ],
 });
 document.body.prepend(bar.element);
 tab.onNavigate(({ route, state }) => openRoute(route, state, { recordRoute: false }));
@@ -243,12 +265,15 @@ through `@penkra/sdk` or inspect one another.
 
 ## Test and package
 
-Build your deployable directory first, then use:
+Pass either command as one registered `penkra_exec_command` invocation:
 
-```sh
+```text
 penkra app test ./dist
-penkra app package ./dist --output ./my-app.penkra
+penkra app package ./dist --output ./artifacts/my-app.penkra
 ```
+
+Relative paths resolve from the caller Thread's working directory. `package` requires an explicit
+output path and rejects output inside the packaged directory.
 
 `test` creates a disposable profile and Space, ingests the App through the immutable package path,
 starts its controller and renderer, requires the tab to reach `ready`, records diagnostics, and
@@ -260,20 +285,31 @@ then creates a deterministic `.penkra` archive and returns evidence including al
 
 ## Publish and inspect status
 
-Keep the signed-in Penkra desktop running. One command owns the complete release workflow:
+Use the registered App-author commands:
 
-```sh
-penkra app publish ./dist
-penkra app publish ./dist --visibility public
+```text
 penkra app status
 penkra app status --app-id <app-id>
+penkra app publish ./dist --visibility private
+penkra app publish ./dist --visibility public
+penkra app access invite --app-id <app-id> --email person@example.com
+penkra app access list --app-id <app-id>
+penkra app access revoke --app-id <app-id> --invitation-id <invitation-id>
 ```
 
-`publish` tests the App, packages it, performs keyless publisher signing, resolves or creates the
-stable publisher and App identities, uploads immutable artifacts, finalizes the submission, and
-returns the submission state. Publisher IDs, bundle paths, signature commands, and submission IDs
-are implementation details rather than steps the developer must orchestrate. The default visibility
-is private. The current local keyless-signing implementation requires Cosign to be installed;
+For `status`, `--app-id` accepts either the manifest identifier such as `com.example.my-app` or the
+owned registry App ID returned by the unfiltered status listing. An identifier with no owned registry
+record returns an empty submission list instead of an invalid-ID failure. Access commands use the
+owned registry App ID. Help, status, publication, and access results identify the active registry
+target by environment and API origin. Check that evidence before changing production state.
+
+`publish` tests and packages the App, resolves or creates its stable publisher and App identities,
+rejects changed package bytes for an existing semantic version before signing, resumes an exact
+same-digest submission without signing or uploading again, performs keyless
+publisher signing, uploads immutable artifacts, finalizes the submission, and only then applies the
+requested visibility. Publisher IDs, bundle paths, signature commands, and submission IDs are
+implementation details rather than steps the developer must orchestrate. The default visibility is
+private. Publisher signing requires Cosign to be installed on the author's machine;
 `publish` reports that prerequisite directly when it is unavailable.
 
 Publication binds the signed-in owner, publisher namespace, immutable App ID and version,
@@ -282,47 +318,18 @@ compatibility, validation findings, and permission declarations. Automated valid
 before a release is installable. Changing code, manifest data, documentation, permissions, or
 assets requires a new semantic version and submission.
 
-For a private App, grant account access by email identity; this does not require sending an email:
-
-```sh
-penkra app access invite --app-id <app-id> --email teammate@example.com
-penkra app access list --app-id <app-id>
-penkra app access revoke --app-id <app-id> --invitation-id <invitation-id>
-```
-
+For a private App, the service grants account access by email identity without sending an email.
 An invited, signed-in Penkra account can discover, install, and update the private App. Other
 accounts receive the same not-found boundary as an unknown App. Artifact URLs remain short-lived
 authenticated downloads.
 
-## Local development and distribution boundaries
+## Distribution boundaries
 
-`penkra app test ./dist` is the normal isolated developer loop. To exercise an unpacked App inside
-a normal development Space, keep Penkra Dev running and load the built directory at runtime:
+Use ordinary framework tests while developing, then use `penkra app test` for the real packaged-App
+runtime. A published version is immutable: changed bytes require a new semantic version. Installing,
+opening, observing, invoking, packaging, testing, publishing, and updating are separate operations;
+evidence for one is not evidence for another.
 
-```sh
-penkra app sideload ./dist
-```
-
-The native developer CLI targets the active development Space. A Penkra Thread agent uses the same
-registered command through `penkra_exec_command`; Penkra resolves a relative directory from that
-Thread's working directory and targets that Thread's Space. The operation is absent outside Penkra
-development.
-
-The command validates and installs the App, then watches that directory for subsequent builds.
-Several Apps may be loaded and watched independently. Penkra validates changed bytes, atomically
-replaces the affected sideload, and restores its open App tabs. A partial or invalid rebuild is
-rejected and the last working package stays active; fix the build and rebuild again. Penkra does
-not restart as part of this loop.
-
-A sideload uses the same manifest validation, permissions, isolation, and runtime as a registry
-App, but it is visibly labeled and has no registry listing, rating, install receipt, or automatic
-update. IDs and slugs never alias or override an installed registry App; uninstall the collision or
-use a separate development identity. The required Apps launcher cannot be uninstalled, so Penkra
-Dev atomically replaces its verified registry package when Apps itself is the configured sideload;
-this narrow development exception does not apply to any optional App.
-
-Launching Penkra Dev applies migrations and idempotently seeds the local registry Apps using the
-development root's persistent signing identity. A published version is immutable: changed bytes
-require an explicitly approved version bump. Installing, opening, observing, invoking, packaging,
-testing, publishing, and updating are separate operations; evidence for one is not evidence for
-another.
+The Penkra desktop and registry service are versioned and operated independently from your App.
+Your manifest's `compatibility.penkra` range is the explicit
+compatibility relationship. Do not infer an App version from a Penkra desktop version or vice versa.

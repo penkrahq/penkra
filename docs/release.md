@@ -12,6 +12,18 @@ unsigned NSIS installer. The Windows installer is a manual download: the release
 auto-update path. Windows displays an Unknown publisher/SmartScreen warning until a signing identity
 is provisioned.
 
+Runtime OS behavior is selected once through `apps/desktop/src/desktopPlatform.ts`. That adapter is
+the authority for application identity, profile paths, shutdown semantics, encrypted credential
+requirements, deep-link delivery and file-handler policy, browser permission prompts, notification and
+icon behavior, window chrome, installer trust, and updater availability. Release packaging has a
+separate build-time adapter in `scripts/lib/desktop-platform-build-config.ts`; both describe the
+same three supported targets. Windows remains `manual-only` at runtime until the deferred Azure
+signing work is deliberately activated with native signed-update evidence.
+
+The initial desktop registers no operating-system file association. File and directory routing is
+the explicit in-product App-intent/Open With flow, and an unresolved intent is handed to the
+operating system. In particular, Canvas does not claim `.pen` files at the OS boundary.
+
 The public desktop package does not contain the private Penkra backend or CLI. Account and hosted
 service requests use the authenticated Penkra API. The desktop's local application runtime is built
 from this repository at the same tagged commit as the Electron application.
@@ -43,6 +55,12 @@ line until the user explicitly approves a different exact version.
 Never infer a version from release cadence, repository history, change scope, or instructions such
 as “release,” “clean cut,” or “proceed.” The user must explicitly approve the exact version before
 changing a package manifest or lockfile, creating a tag, or publishing a GitHub Release.
+
+Before describing a version as published or unpublished, query the canonical GitHub Release rather
+than relying on local tags or package manifests. Local refs may be stale, and an installed version
+does not by itself prove that its release remains public. Use `gh release view v<version>
+--repo penkrahq/penkra` and record whether the release is a public stable release, draft, or
+prerelease.
 
 After the exact version is approved, prepare it with:
 
@@ -124,18 +142,12 @@ environment:
 - `APPLE_API_ISSUER`
 - `APPLE_TEAM_ID`
 
-Before enabling signed Windows publication and auto-updates with Azure Trusted Signing, also store:
+Azure Artifact Signing configuration is intentionally not part of the initial release
+implementation. When that deferred work is activated, its credentials, publisher-subject pinning,
+signed installer path, updater metadata, and native installed-update evidence must be implemented
+and reviewed together.
 
-- `AZURE_TRUSTED_SIGNING_ENDPOINT`
-- `AZURE_TRUSTED_SIGNING_ACCOUNT_NAME`
-- `AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME`
-- `AZURE_TRUSTED_SIGNING_PUBLISHER_NAME`
-- `AZURE_TRUSTED_SIGNING_SUBJECT_DN`
-- `AZURE_TENANT_ID`
-- `AZURE_CLIENT_ID`
-- `AZURE_CLIENT_SECRET`
-
-Until those values and native signed-update evidence exist, Windows publication is limited to the
+Until then, Windows publication is limited to the
 explicitly unsigned manual NSIS installer. It must not include `latest.yml` or an NSIS blockmap, and
 release metadata must disclose the SmartScreen/Unknown publisher warning. Linux and Windows assets
 carry final checksums and provenance; neither may be confused with a signed macOS installer.
