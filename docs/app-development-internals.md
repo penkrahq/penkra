@@ -35,6 +35,20 @@ These are registered host operations, never native executables or provider-shell
 Authentication and publisher ownership authorize registry mutations. The configured account-service
 origin selects the registry. The public guide intentionally omits internal desktop-flavor details.
 
+`penkra app test` relaunches the current Electron executable through the packaged `entry.js` into an
+internal App-test mode. That child uses a temporary profile and never takes the ordinary
+single-instance lock or starts the embedded backend. Source launches pass the built entry path;
+installed builds relaunch the packaged entry directly. Do not restore source-checkout discovery or
+an external Electron prerequisite.
+
+Publisher signing uses `sigstore-js` with an `openid-client` authorization-code flow. The local
+server binds only to `127.0.0.1`, generates fresh state, nonce, and PKCE values, and retains no token
+after signing. The desktop validates the authorization origin, obtains native consent for the exact
+package digest, and opens the system browser. The baseline is Node 24.15.0 because Electron 40.10.6
+embeds that runtime and current `sigstore` requires it. Internal Sigstore deployments may override
+`SIGSTORE_OIDC_ISSUER`, `SIGSTORE_FULCIO_URL`, and `SIGSTORE_REKOR_URL` together; ordinary App-author
+documentation intentionally omits this operations-only routing.
+
 `penkra app sideload <directory>` is an additional internal contributor command exposed only by the development
 desktop flavor. It installs an unpacked directory into the caller Thread's Space, watches successful
 rebuilds, atomically swaps valid packages, restores App tabs, and preserves the last working package

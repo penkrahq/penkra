@@ -905,7 +905,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     private: true,
     description: "Penkra desktop build",
     author: "Penkra",
-    main: "apps/desktop/dist-electron/main.js",
+    main: "apps/desktop/dist-electron/entry.js",
     build: resolvedBuildConfig,
     dependencies: {
       ...resolvedServerDependencies,

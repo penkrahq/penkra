@@ -11,7 +11,7 @@ const { desktopDir, resolveElectronPath } = await import("./electron-launcher.mj
 const port = Number(process.env.ELECTRON_RENDERER_PORT ?? 5733);
 const devServerUrl = `http://localhost:${port}`;
 const requiredFiles = [
-  "dist-electron/main.js",
+  "dist-electron/entry.js",
   "dist-electron/preload.js",
   "../server/dist/index.mjs",
 ];

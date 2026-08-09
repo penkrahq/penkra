@@ -49,6 +49,7 @@ type Request = {
     | "developer.submissions.list"
     | "developer.submissions.get"
     | "developer.submissions.create"
+    | "developer.signing.authorize"
     | "developer.sideload";
   params?: unknown;
 };
@@ -91,6 +92,14 @@ export class AppCommandPipeServer {
   readonly #sideload:
     | ((input: { sourcePath: string; spaceId?: string }) => Promise<unknown>)
     | null;
+  readonly #authorizeSigning:
+    | ((input: {
+        authorizationUrl: string;
+        appId: string;
+        version: string;
+        packageDigest: string;
+      }) => Promise<unknown>)
+    | null;
   readonly #open:
     | ((input: {
         path?: string;
@@ -114,6 +123,12 @@ export class AppCommandPipeServer {
     observer: AppTabObserverBridge;
     registry?: AppRegistryClient | null;
     sideload?: (input: { sourcePath: string; spaceId?: string }) => Promise<unknown>;
+    authorizeSigning?: (input: {
+      authorizationUrl: string;
+      appId: string;
+      version: string;
+      packageDigest: string;
+    }) => Promise<unknown>;
     open?: (input: {
       path?: string;
       url?: string;
@@ -130,6 +145,7 @@ export class AppCommandPipeServer {
     this.#observer = input.observer;
     this.#registry = input.registry ?? null;
     this.#sideload = input.sideload ?? null;
+    this.#authorizeSigning = input.authorizeSigning ?? null;
     this.#open = input.open ?? null;
     this.#server = Net.createServer((socket) => this.#accept(socket));
   }
@@ -478,6 +494,19 @@ export class AppCommandPipeServer {
           }),
         };
       }
+      case "developer.signing.authorize": {
+        if (!this.#authorizeSigning) throw new Error("App signing authorization is unavailable.");
+        return {
+          ok: true,
+          id: request.id,
+          result: await this.#authorizeSigning({
+            authorizationUrl: requiredString(params.authorizationUrl, "authorizationUrl"),
+            appId: requiredString(params.appId, "appId"),
+            version: requiredString(params.version, "version"),
+            packageDigest: requiredDigest(params.packageDigest, "packageDigest"),
+          }),
+        };
+      }
       case "developer.sideload": {
         if (!this.#sideload) {
           throw new Error("App sideloading is unavailable in this Penkra process.");
@@ -588,6 +617,12 @@ function requiredString(value: unknown, name: string): string {
 function requiredStringAllowEmpty(value: unknown, name: string): string {
   if (typeof value !== "string") throw new Error(`${name} must be a string.`);
   return value;
+}
+
+function requiredDigest(value: unknown, name: string): string {
+  const digest = requiredString(value, name);
+  if (!/^[a-f0-9]{64}$/.test(digest)) throw new Error(`${name} must be a SHA-256 digest.`);
+  return digest;
 }
 
 function optionalNumber(value: unknown, name: string): number | null {

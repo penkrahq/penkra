@@ -65,18 +65,10 @@ export interface AppIntegrationTestEvidence {
 
 export async function testAppDirectory(input: {
   directory: string;
-  desktopDirectory?: string;
   timeoutMs?: number;
 }): Promise<AppIntegrationTestEvidence> {
   const source = await FS.realpath(Path.resolve(input.directory));
-  const { electron, host, preload } = await resolveAppTestRuntime(input.desktopDirectory);
-  await Promise.all(
-    [host, preload].map(async (path) => {
-      const stat = await FS.stat(path).catch(() => null);
-      if (!stat?.isFile())
-        throw new Error("Build @penkra/desktop before running `penkra app test`.");
-    }),
-  );
+  const { electron, host } = await resolveAppTestRuntime();
   const profile = await FS.mkdtemp(Path.join(OS.tmpdir(), "penkra-app-test-"));
   const resultPath = Path.join(profile, "result.json");
   try {
@@ -301,58 +293,27 @@ function executableFormat(header: Buffer): boolean {
   );
 }
 
-async function resolveAppTestRuntime(
-  explicitDesktopDirectory?: string,
-): Promise<{ electron: string; host: string; preload: string }> {
+async function resolveAppTestRuntime(): Promise<{ electron: string; host: string }> {
   const provided = {
     electron: process.env.PENKRA_APP_TEST_ELECTRON?.trim(),
     host: process.env.PENKRA_APP_TEST_HOST?.trim(),
-    preload: process.env.PENKRA_APP_TEST_PRELOAD?.trim(),
+    packaged: process.env.PENKRA_APP_TEST_PACKAGED?.trim() === "1",
   };
-  if (provided.electron && provided.host && provided.preload) {
+  if (provided.electron && provided.host) {
     const runtime = {
       electron: provided.electron,
-      host: provided.host,
-      preload: provided.preload,
+      host: provided.packaged ? "" : provided.host,
     };
     for (const [label, path] of Object.entries(runtime)) {
+      if (!path && label === "host" && provided.packaged) continue;
       if (!Path.isAbsolute(path))
         throw new Error(`Penkra App test ${label} path must be absolute.`);
       const stat = await FS.stat(path).catch(() => null);
       if (!stat?.isFile()) throw new Error(`Penkra App test ${label} is unavailable.`);
     }
-    return runtime;
+    return { electron: runtime.electron, host: runtime.host };
   }
-
-  const desktopDirectory = await resolveDesktopDeveloperDirectory(explicitDesktopDirectory);
-  return {
-    electron: await resolveElectronExecutable(desktopDirectory),
-    host: Path.join(desktopDirectory, "dist-electron", "appTestHost.js"),
-    preload: Path.join(desktopDirectory, "dist-electron", "appPreload.js"),
-  };
-}
-
-async function resolveDesktopDeveloperDirectory(explicit?: string): Promise<string> {
-  const candidates = [
-    explicit,
-    process.env.PENKRA_DESKTOP_DEVELOPER_DIR,
-    Path.join(process.cwd(), "apps", "desktop"),
-  ].filter((value): value is string => Boolean(value));
-  for (const candidate of candidates) {
-    const resolved = Path.resolve(candidate);
-    const packageJson = await FS.stat(Path.join(resolved, "package.json")).catch(() => null);
-    if (packageJson?.isFile()) return resolved;
-  }
-  throw new Error("Run `penkra app test` inside Penkra or from a built Penkra source checkout.");
-}
-
-async function resolveElectronExecutable(desktopDirectory: string): Promise<string> {
-  const electronPackage = Path.join(desktopDirectory, "node_modules", "electron");
-  const relative = (await FS.readFile(Path.join(electronPackage, "path.txt"), "utf8")).trim();
-  const executable = Path.join(electronPackage, "dist", relative);
-  const stat = await FS.stat(executable);
-  if (!stat.isFile()) throw new Error("Electron executable is unavailable.");
-  return executable;
+  throw new Error("App testing is available only inside a running Penkra desktop.");
 }
 
 function spawnAppTestHost(input: {
@@ -366,13 +327,14 @@ function spawnAppTestHost(input: {
   return new Promise((resolve, reject) => {
     const environment: NodeJS.ProcessEnv = {
       ...process.env,
+      PENKRA_INTERNAL_DESKTOP_MODE: "app-test",
       PENKRA_APP_TEST_SOURCE: input.source,
       PENKRA_APP_TEST_PROFILE: input.profile,
       PENKRA_APP_TEST_RESULT: input.resultPath,
     };
     delete environment.ELECTRON_RUN_AS_NODE;
-    const child = spawn(input.electron, [input.host], {
-      cwd: Path.dirname(input.host),
+    const child = spawn(input.electron, input.host ? [input.host] : [], {
+      cwd: input.host ? Path.dirname(input.host) : process.cwd(),
       env: environment,
       shell: false,
       stdio: ["ignore", "pipe", "pipe"],

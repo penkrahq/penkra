@@ -36,7 +36,7 @@ function dependencies(packageDigest = digest("a")) {
     package: vi.fn(async (input: { directory: string; output: string }) =>
       evidence(input.output, packageDigest),
     ),
-    sign: vi.fn(async () => undefined),
+    sign: vi.fn(async () => ({ issuer: "https://oauth2.sigstore.dev/auth" })),
   };
 }
 
