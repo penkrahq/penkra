@@ -309,7 +309,7 @@ jobs:
           retention-days: 30
 
   draft_release:
-    name: Create draft GitHub Release
+    name: Assemble immutable GitHub Release
     needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -352,4 +352,30 @@ jobs:
           else
             gh release create "$RELEASE_TAG" release/* --repo "$GITHUB_REPOSITORY" --verify-tag --draft --generate-notes --title "Penkra $RELEASE_TAG" \
               --notes "**Windows notice:** The Windows x64 installer is intentionally unsigned in this initial release. Windows will show an Unknown publisher/SmartScreen warning, and this installer is manual-download only; Windows auto-updates remain disabled until signed distribution is available. Verify the installer with SHA256SUMS.txt and GitHub's build-provenance attestation."
+          fi
+
+  publish_release:
+    name: Publish stable GitHub Release
+    needs: draft_release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Publish the assembled release without rebuilding
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          is_draft="$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)"
+          if [[ "$is_draft" != "true" ]]; then
+            echo "Release $RELEASE_TAG is not the draft assembled by this workflow." >&2
+            exit 1
+          fi
+          gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest
+          published="$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft,isPrerelease --jq '(.isDraft == false) and (.isPrerelease == false)')"
+          if [[ "$published" != "true" ]]; then
+            echo "Release $RELEASE_TAG did not become public stable." >&2
+            exit 1
           fi

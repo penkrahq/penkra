@@ -1,9 +1,10 @@
 # Penkra Desktop Releases
 
 Penkra publishes its public desktop application through GitHub Releases. Stable releases are built
-from an exact semantic-version tag and published only after a draft release has passed native
-installed-App QA on every advertised platform. Update-capable artifacts are exposed to
-`electron-updater` only after that review; the initial unsigned Windows installer is manual-only.
+only by the protected GitHub workflow from an exact semantic-version tag. The workflow validates
+every native artifact, assembles one immutable release, and publishes those same bytes after every
+platform succeeds. Published update-capable artifacts are then visible to `electron-updater`; the
+initial unsigned Windows installer remains manual-only.
 
 The current release matrix is macOS arm64, Linux x64, and Windows x64. macOS uses a
 signed/notarized DMG plus update ZIP, Linux uses AppImage, and Windows initially uses an explicitly
@@ -51,8 +52,10 @@ Penkra has one published channel: `stable`.
 - Security or updater recovery releases may bypass the normal cadence.
 - Releases are never created automatically from a schedule.
 - `Penkra Dev` and its numbered local instances are development applications, not release channels.
-- Release candidates use the signed draft-release workflow; Penkra has no separate Canary app or
-  data profile.
+- The GitHub workflow uses a draft only as an atomic staging boundary while it combines the native
+  artifacts. It publishes that draft in the same successful run; drafts are not a manual release
+  queue or a separately installable channel.
+- Penkra has no separate Canary app or data profile.
 
 ## Version authority
 
@@ -91,31 +94,17 @@ a release tag from an uncommitted or unreviewed worktree.
 2. Confirm `penkra app status --app-id com.penkra.apps` reports the lockfile's version and package
    digest as public on the production registry target. Stop if the target, version, or digest differs.
 3. Update every product package to the intended version and commit the exact release source locally.
-4. Build and verify the production artifact from that clean commit:
-
-   ```sh
-   bun run release:qa:local -- "$approved_version"
-   ```
-
-5. Install the verified artifact with `bun run release:install:local -- release-local`, then manually
-   exercise the installed production application, including the changed behavior, normal
-   message dispatch, an active-task interruption/relaunch, and a post-restart message. Inspect the
-   desktop/backend logs and run SQLite integrity checking. Do not change the source or artifacts
-   after this test. Record the result only after every check passes:
-
-   ```sh
-   bun run release:qa:approve -- "$approved_version"
-   bun run release:qa:check -- "$approved_version"
-   ```
-
-6. Create and push the exact stable tag from the same approved commit, for example:
+4. Complete the repository's required fresh Penkra Dev manual QA for the affected user flows. This
+   validates the source candidate without replacing the operator's installed production app. Record
+   the exercised flows and result in the release handoff.
+5. Create and push the exact stable tag from the same approved commit, for example:
 
    ```sh
    git tag -a "v$approved_version" -m "Penkra v$approved_version"
    git push origin "v$approved_version"
    ```
 
-7. The `Release Penkra Desktop` workflow:
+6. The `Release Penkra Desktop` workflow:
    - verifies the tag and package versions;
    - requires the aggregate Penkra CI quality gate to have passed for the exact tagged commit;
    - consumes that commit-bound result instead of repeating the same validation suite;
@@ -126,19 +115,17 @@ a release tag from an uncommitted or unreviewed worktree.
      together;
    - rejects any package containing the private `penkra-cli`;
    - records SHA-256 checksums and GitHub artifact attestations;
-   - creates or refreshes a draft GitHub Release.
-8. Download each draft installer and test it on a clean native account or test machine. Verify:
-   - the platform's install/security flow accepts the application;
-   - onboarding and account authentication complete;
-   - the local desktop runtime starts;
-   - the packaged version and source commit are correct;
-   - update checks do not surface draft or prerelease builds.
-9. On every advertised platform, test an actual installed previous version updating to the draft
-   artifact, including restart and restored App tabs.
-10. Publish the draft from GitHub only after every applicable check passes.
+   - creates or refreshes a draft solely to assemble all native outputs atomically;
+   - publishes that exact draft as the latest stable release after every build and verification job
+     succeeds, without a second build or a local artifact upload.
+7. Query the canonical GitHub Release and verify that it is public stable, contains the complete
+   platform matrix, and points to the tagged commit. Then verify the normal production update UI
+   discovers the published version. Installation and restart happen only when an operator chooses
+   the released update; the release procedure never replaces the Penkra instance hosting itself.
 
-Draft releases are invisible to stable desktop update checks. Publishing the draft makes the
-installer, update payload, and matching manifest available as one reviewed release.
+If any platform fails, the workflow does not publish the draft. Fix the source with a new explicitly
+approved version; published assets are never replaced. A workflow retry is appropriate only when the
+tagged source is unchanged and the failure was in release infrastructure.
 
 ## Required GitHub configuration
 
@@ -167,9 +154,9 @@ Linux AppImages are explicitly unsigned at the OS package layer and rely on exac
 checksums plus GitHub build-provenance attestations; release metadata must not describe them as
 code-signed.
 
-The workflow uses only the repository-scoped `GITHUB_TOKEN` for draft release creation. It does not
-require AWS credentials, an update token, a private repository token, or a GitHub personal access
-token.
+The workflow uses only the repository-scoped `GITHUB_TOKEN` to stage and publish the GitHub Release.
+It does not require AWS credentials, an update token, a private repository token, or a GitHub
+personal access token.
 
 ## Release artifacts
 
@@ -203,20 +190,10 @@ mandatory before production-artifact QA:
 bun run release:verify
 ```
 
-Before creating a stable tag, the mandatory local production-artifact gate is:
-
-```sh
-bun run release:qa:local -- "$approved_version"
-# Complete manual QA in the installed production app.
-bun run release:qa:approve -- "$approved_version"
-bun run release:qa:check -- "$approved_version"
-```
-
-This gate fails closed unless the worktree is clean, `main` is not behind `origin/main`, all product
-manifests match the exact approved version, the local macOS artifacts pass production Developer ID
-signing without notarization, and the installed artifact's hashes still match the QA receipt. The
-receipt is stored in Git metadata and is bound to the exact commit and lockfile; any source or
-artifact change invalidates it.
+Do not build or install a local artifact as release authority. In particular, release validation must
+never replace `/Applications/Penkra.app` or quit the Penkra instance coordinating the release. The
+tagged GitHub workflow is the sole source of production artifacts and performs native packaged
+startup checks on every advertised platform.
 
 An already-built artifact can be validated with:
 
@@ -224,15 +201,9 @@ An already-built artifact can be validated with:
 bun run release:smoke:mac-update -- --artifact-dir release
 ```
 
-To install a verified local artifact while preserving the existing application as a timestamped
-backup:
-
-```sh
-bun run release:install:local -- release
-```
-
-Run a genuine installed-version-to-new-version update on every advertised platform whenever updater
-or packaging behavior changes.
+When updater or packaging behavior changes, test the update path with the workflow's mock-update or
+isolated native package harness before tagging. After publication, verify discovery from an existing
+production installation and let Penkra's normal update UI own the user-approved install/restart.
 
 ## Release invariants
 
@@ -242,5 +213,6 @@ or packaging behavior changes.
 - macOS artifacts are Developer ID signed and Apple notarized.
 - Final verified update payloads are the source for updater hashes, manifests, and blockmaps.
 - Release builds and installed-App QA run natively on each advertised operating system.
-- Draft releases are reviewed before publication.
+- A release is published only after every native build, verification, checksum, and provenance job
+  succeeds.
 - Published release assets are never replaced. A correction receives a newer patch version.

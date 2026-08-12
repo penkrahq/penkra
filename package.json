@@ -58,11 +58,6 @@
     "release:smoke": "node scripts/release-smoke.ts",
     "release:smoke:mac-update": "node scripts/smoke-mac-update-artifact.ts",
     "release:verify": "node scripts/penkra-release-verify.mjs",
-    "release:qa:local": "node scripts/penkra-local-production-qa.mjs prepare",
-    "release:qa:approve": "node scripts/penkra-local-production-qa.mjs approve",
-    "release:qa:check": "node scripts/penkra-local-production-qa.mjs check",
-    "release:install:local": "node scripts/penkra-install-local.mjs",
-    "release:publish:local": "node scripts/penkra-publish-local.mjs",
     "qa:voice:prepare": "node scripts/prepare-voice-qa-fixture.ts",
     "clean": "rm -rf node_modules apps/*/node_modules packages/*/node_modules scripts/node_modules apps/*/dist apps/*/dist-electron packages/*/dist .turbo apps/*/.turbo packages/*/.turbo"
   },

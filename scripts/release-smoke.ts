@@ -259,7 +259,31 @@ function verifyReleaseWorkflowSafety(): void {
     "uses: actions/attest@v4",
     "Expected public release artifacts to carry GitHub build provenance.",
   );
-  assertContains(workflow, "--draft", "Expected an explicit draft-release review gate.");
+  assertContains(
+    workflow,
+    "--draft",
+    "Expected native artifacts to be assembled behind one atomic draft boundary.",
+  );
+  assertContains(
+    workflow,
+    "publish_release:",
+    "Expected the successful native release workflow to publish the assembled release.",
+  );
+  assertContains(
+    workflow,
+    "needs: draft_release",
+    "Expected publication to wait for complete release assembly.",
+  );
+  assertContains(
+    workflow,
+    'gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest',
+    "Expected publication to promote the assembled bytes without rebuilding.",
+  );
+  assertContains(
+    workflow,
+    "Release $RELEASE_TAG did not become public stable.",
+    "Expected the workflow to verify stable publication explicitly.",
+  );
   assertContains(workflow, "--generate-notes", "Expected GitHub-generated release notes.");
   assertContains(
     workflow,
@@ -288,40 +312,41 @@ function verifyReleaseWorkflowSafety(): void {
   }
 }
 
-function verifyLocalProductionQaGate(): void {
+function verifyCiOwnedReleasePublication(): void {
   const packageJson = readFileSync(resolve(repoRoot, "package.json"), "utf8");
-  const qaScript = readFileSync(
-    resolve(repoRoot, "scripts/penkra-local-production-qa.mjs"),
-    "utf8",
-  );
   const releaseGuide = readFileSync(resolve(repoRoot, "docs/release.md"), "utf8");
-  for (const command of ["release:qa:local", "release:qa:approve", "release:qa:check"]) {
-    assertContains(packageJson, `"${command}"`, `Expected the ${command} release gate.`);
+  for (const command of [
+    "release:qa:local",
+    "release:qa:approve",
+    "release:qa:check",
+    "release:install:local",
+    "release:publish:local",
+  ]) {
+    assertNotContains(
+      packageJson,
+      `"${command}"`,
+      `The production release path must not expose the retired local command ${command}.`,
+    );
   }
   assertContains(
-    qaScript,
-    'status: "built-awaiting-installed-manual-qa"',
-    "Expected local production QA to require explicit approval after installation and testing.",
-  );
-  assertContains(
-    qaScript,
-    'status: "manual-qa-approved"',
-    "Expected local production QA to record explicit manual approval.",
-  );
-  assertContains(
-    qaScript,
-    'run("git", ["status", "--porcelain=v1"])',
-    "Expected local production QA to reject a dirty release source.",
-  );
-  assertContains(
-    qaScript,
-    "resetArtifactDirectory();",
-    "Expected local production QA to remove stale artifacts before building the candidate.",
+    releaseGuide,
+    "tagged GitHub workflow is the sole source of production artifacts",
+    "Expected release authority to belong to the tagged protected workflow.",
   );
   assertContains(
     releaseGuide,
-    'bun run release:qa:check -- "$approved_version"',
-    "Expected release instructions to verify local manual QA before tagging.",
+    "never replace `/Applications/Penkra.app`",
+    "Expected the release procedure to protect the running production app.",
+  );
+  assertContains(
+    releaseGuide,
+    "publishes that exact draft as the latest stable release",
+    "Expected the documented workflow to complete stable publication.",
+  );
+  assertContains(
+    releaseGuide,
+    "discovers the published version",
+    "Expected release verification to include the user-visible update surface.",
   );
 }
 
@@ -444,7 +469,7 @@ const tempRoot = mkdtempSync(join(tmpdir(), "penkra-release-smoke-"));
 try {
   verifyCanonicalIdentity();
   verifyReleaseWorkflowSafety();
-  verifyLocalProductionQaGate();
+  verifyCiOwnedReleasePublication();
   verifyDesktopStageLockAuthority();
   copyWorkspaceManifestFixture(tempRoot);
 
