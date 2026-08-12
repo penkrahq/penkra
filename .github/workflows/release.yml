@@ -168,6 +168,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes dbus-x11 gnome-keyring libsecret-tools xvfb
 
+      - name: Build desktop pipeline
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+        run: bun run build:desktop
+
       - name: Require macOS signing configuration
         if: matrix.platform == 'mac'
         env:
@@ -203,7 +208,7 @@ jobs:
             --source-commit "${{ steps.release.outputs.source_commit }}" \
             --source-tag "${RELEASE_TAG}" \
             --lockfile-sha256 "${{ steps.release.outputs.lockfile_sha256 }}" \
-            --signed --verbose
+            --skip-build --signed --verbose
 
       - name: Build Linux artifact
         if: matrix.platform == 'linux'
@@ -217,7 +222,8 @@ jobs:
             --build-version "${{ steps.release.outputs.version }}" \
             --source-commit "${{ steps.release.outputs.source_commit }}" \
             --source-tag "${RELEASE_TAG}" \
-            --lockfile-sha256 "${{ steps.release.outputs.lockfile_sha256 }}" --verbose
+            --lockfile-sha256 "${{ steps.release.outputs.lockfile_sha256 }}" \
+            --skip-build --verbose
 
       - name: Build unsigned Windows installer
         if: matrix.platform == 'win'
@@ -231,7 +237,8 @@ jobs:
             --build-version "${{ steps.release.outputs.version }}" \
             --source-commit "${{ steps.release.outputs.source_commit }}" \
             --source-tag "${RELEASE_TAG}" \
-            --lockfile-sha256 "${{ steps.release.outputs.lockfile_sha256 }}" --verbose
+            --lockfile-sha256 "${{ steps.release.outputs.lockfile_sha256 }}" \
+            --skip-build --verbose
 
       - name: Verify macOS artifact
         if: matrix.platform == 'mac'
