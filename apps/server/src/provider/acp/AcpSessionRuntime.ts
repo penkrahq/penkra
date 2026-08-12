@@ -44,6 +44,7 @@ import {
 } from "./AcpRuntimeModel.ts";
 
 const CONFIG_OPTION_UPDATE_TIMEOUT = "5 seconds";
+const SESSION_UPDATE_DRAIN_TIMEOUT_MS = 5_000;
 const ACP_INCOMING_CHUNK_QUEUE_CAPACITY = 64;
 export const ACP_MAX_INCOMING_FRAME_BYTES = 8 * 1024 * 1024;
 
@@ -414,6 +415,19 @@ const makeOfficialSdkClient = Effect.fnUntraced(function* (
     return logger?.({ direction, stage, payload }) ?? Effect.void;
   };
   let sessionUpdateTail = Promise.resolve();
+  let observedSessionUpdates = 0;
+  let handledSessionUpdates = 0;
+  const sessionUpdateDrainWaiters = new Set<{
+    readonly target: number;
+    readonly resolve: () => void;
+  }>();
+  const resolveSessionUpdateDrainWaiters = () => {
+    for (const waiter of sessionUpdateDrainWaiters) {
+      if (handledSessionUpdates < waiter.target) continue;
+      sessionUpdateDrainWaiters.delete(waiter);
+      waiter.resolve();
+    }
+  };
   const dispatchSessionUpdate = (params: Acp.SessionNotification) => {
     const delivery = sessionUpdateTail.then(() =>
       Effect.runPromise(logProtocol("incoming", "decoded", params)).then(() =>
@@ -422,16 +436,35 @@ const makeOfficialSdkClient = Effect.fnUntraced(function* (
         ),
       ),
     );
-    sessionUpdateTail = delivery.catch(() => undefined);
-    return delivery;
+    const trackedDelivery = delivery.finally(() => {
+      handledSessionUpdates += 1;
+      resolveSessionUpdateDrainWaiters();
+    });
+    sessionUpdateTail = trackedDelivery.catch(() => undefined);
+    return trackedDelivery;
   };
-  const awaitSessionUpdateDrain = async () => {
-    let observed: Promise<void>;
-    do {
-      observed = sessionUpdateTail;
-      await observed;
-      await new Promise<void>((resolve) => setTimeout(resolve, 0));
-    } while (observed !== sessionUpdateTail);
+  const awaitSessionUpdateDrain = () => {
+    const target = observedSessionUpdates;
+    if (handledSessionUpdates >= target) return Promise.resolve();
+    return new Promise<void>((resolve, reject) => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const waiter = {
+        target,
+        resolve: () => {
+          if (timer) clearTimeout(timer);
+          resolve();
+        },
+      };
+      sessionUpdateDrainWaiters.add(waiter);
+      timer = setTimeout(() => {
+        sessionUpdateDrainWaiters.delete(waiter);
+        reject(
+          new Error(
+            `ACP session/update drain stalled at ${String(handledSessionUpdates)} of ${String(target)} observed notifications.`,
+          ),
+        );
+      }, SESSION_UPDATE_DRAIN_TIMEOUT_MS);
+    });
   };
 
   const runHandler = <A>(effect: Effect.Effect<A, AcpErrors.AcpError>): Promise<A> =>
@@ -504,6 +537,24 @@ const makeOfficialSdkClient = Effect.fnUntraced(function* (
     },
   });
 
+  const transport = acpSdk.ndJsonStream(output, input);
+  const monitoredTransport = {
+    writable: transport.writable,
+    readable: transport.readable.pipeThrough(
+      new TransformStream<Acp.AnyMessage, Acp.AnyMessage>({
+        transform(message, controller) {
+          if (
+            "method" in message &&
+            !("id" in message) &&
+            message.method === acpSdk.methods.client.session.update
+          ) {
+            observedSessionUpdates += 1;
+          }
+          controller.enqueue(message);
+        },
+      }),
+    ),
+  };
   const clientApp = acpSdk
     .client({ name: "penkra" })
     .onRequest(acpSdk.methods.client.session.requestPermission, ({ params }) =>
@@ -542,8 +593,7 @@ const makeOfficialSdkClient = Effect.fnUntraced(function* (
       ),
     );
   let connection: Acp.ClientConnection | undefined;
-  const getConnection = () =>
-    (connection ??= clientApp.connect(acpSdk.ndJsonStream(output, input)));
+  const getConnection = () => (connection ??= clientApp.connect(monitoredTransport));
   const fromPromise = <A>(
     thunk: (signal: AbortSignal) => Promise<A>,
   ): Effect.Effect<A, AcpErrors.AcpError> =>
