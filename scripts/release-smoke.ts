@@ -215,8 +215,8 @@ function verifyReleaseWorkflowSafety(): void {
   );
   assertContains(
     workflow,
-    "for generated_path in bun.lock apps/web/public/mockServiceWorker.js",
-    "Expected Windows dependency installation to reconcile only the two proven generated artifacts.",
+    "for generated_path in bun.lock apps/web/public/mockServiceWorker.js apps/web/src/routeTree.gen.ts",
+    "Expected Windows dependency installation to reconcile only the three proven generated artifacts.",
   );
   assertContains(
     workflow,

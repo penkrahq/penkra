@@ -155,7 +155,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for generated_path in bun.lock apps/web/public/mockServiceWorker.js; do
+          for generated_path in bun.lock apps/web/public/mockServiceWorker.js apps/web/src/routeTree.gen.ts; do
             if ! git diff --quiet -- "$generated_path"; then
               git show "HEAD:$generated_path" > "$generated_path"
             fi
