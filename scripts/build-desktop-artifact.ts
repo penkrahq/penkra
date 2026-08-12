@@ -964,6 +964,12 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   // Copy staged build resources into an ordinary app directory so electron-builder can consume
   // required Apps and native helpers through explicit extraResources entries on every platform.
   yield* fs.copy(stageResourcesDir, path.join(stageAppDir, "apps/desktop/prod-resources"));
+  // Keep a second copy beside the main-process bundle. Some electron-builder targets omit an
+  // extraResources source from both resourcesPath and app.asar; dist-electron is always shipped.
+  yield* fs.copy(
+    requiredAppsBundleDirectory,
+    path.join(stageAppDir, "apps/desktop/dist-electron", REQUIRED_APPS_BUNDLE_DIRECTORY),
+  );
 
   const codeSigned = options.signed || options.localSign;
   const resolvedBuildConfig = yield* createBuildConfig(

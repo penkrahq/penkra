@@ -92,7 +92,7 @@ describe("required registry Apps bootstrap", () => {
     const root = FS.mkdtempSync(Path.join(OS.tmpdir(), "penkra-required-apps-"));
     try {
       const desktopBundleDirectory = Path.join(root, "apps/desktop/dist-electron");
-      const bundle = Path.join(root, "apps/desktop/prod-resources/required-apps");
+      const bundle = Path.join(desktopBundleDirectory, "required-apps");
       FS.mkdirSync(bundle, { recursive: true });
       FS.writeFileSync(Path.join(bundle, "apps.penkra"), "archive");
       FS.writeFileSync(Path.join(bundle, "apps.lock.json"), "{}");

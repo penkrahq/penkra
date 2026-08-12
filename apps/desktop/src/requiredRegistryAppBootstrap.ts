@@ -69,11 +69,7 @@ export function resolveRequiredAppsBundle(input: {
     return (
       resolveBundleCandidate(Path.join(input.resourcesPath, REQUIRED_APPS_BUNDLE_DIRECTORY)) ??
       resolveBundleCandidate(
-        Path.resolve(
-          input.desktopBundleDirectory,
-          "../prod-resources",
-          REQUIRED_APPS_BUNDLE_DIRECTORY,
-        ),
+        Path.join(input.desktopBundleDirectory, REQUIRED_APPS_BUNDLE_DIRECTORY),
       )
     );
   }
