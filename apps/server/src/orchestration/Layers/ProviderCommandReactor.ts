@@ -2096,6 +2096,122 @@ const make = Effect.gen(function* () {
       orchestrationEngine.readEventsThrough(Math.max(0, eventSequence - 1), eventSequence),
     ).pipe(Effect.map((events) => Array.from(events)[0]));
 
+  const cancelQueuedTurn = Effect.fnUntraced(function* (input: {
+    readonly threadId: ThreadId;
+    readonly messageId: MessageId;
+    readonly createdAt: string;
+  }) {
+    const pending = yield* queuedTurnPromotions.getPendingMessage({
+      threadId: input.threadId,
+      messageId: input.messageId,
+    });
+    if (Option.isNone(pending)) {
+      return Option.none();
+    }
+    const cancelled = yield* queuedTurnPromotions.cancelMessage({
+      threadId: input.threadId,
+      messageId: input.messageId,
+      updatedAt: input.createdAt,
+    });
+    if (!cancelled) {
+      return Option.none();
+    }
+    return pending;
+  });
+
+  const processQueuedTurnCancelRequested = (
+    event: Extract<ProviderIntentEvent, { type: "thread.turn-cancel-queued-requested" }>,
+  ) =>
+    withProviderSessionLease(
+      event.payload.threadId,
+      Effect.gen(function* () {
+        const pending = yield* cancelQueuedTurn(event.payload);
+        if (Option.isNone(pending)) {
+          return;
+        }
+        yield* orchestrationEngine.dispatch({
+          type: "thread.turn.start.cancel.complete",
+          commandId: serverCommandId("queued-turn-cancel-complete"),
+          threadId: event.payload.threadId,
+          messageId: event.payload.messageId,
+          createdAt: event.payload.createdAt,
+        });
+      }),
+    );
+
+  const processQueuedTurnSteerRequested = (
+    event: Extract<ProviderIntentEvent, { type: "thread.turn-steer-queued-requested" }>,
+  ) =>
+    withProviderSessionLease(
+      event.payload.threadId,
+      Effect.gen(function* () {
+        const pending = yield* cancelQueuedTurn(event.payload);
+        if (Option.isNone(pending)) {
+          return;
+        }
+        const sourceEvent = yield* readOrchestrationEventAtSequence(
+          pending.value.queuedEventSequence,
+        );
+        if (sourceEvent?.type !== "thread.turn-queued") {
+          return yield* Effect.fail(
+            new Error(`Queued message '${event.payload.messageId}' has no source turn.`),
+          );
+        }
+        const thread = yield* resolveThread(event.payload.threadId);
+        const message = thread?.messages.find(
+          (candidate) => candidate.id === event.payload.messageId && candidate.role === "user",
+        );
+        if (!thread || !message) {
+          return yield* Effect.fail(
+            new Error(`Queued message '${event.payload.messageId}' has no projected message.`),
+          );
+        }
+        const readModel = yield* orchestrationEngine.getReadModel();
+        const cwd = resolveThreadWorkspaceCwd({ thread, projects: readModel.projects });
+        yield* providerThreadSwitchCoordinator.dispatchTurnStart({
+          command: {
+            type: "thread.turn.start",
+            commandId: serverCommandId("steer-queued-turn"),
+            threadId: sourceEvent.payload.threadId,
+            message: {
+              messageId: sourceEvent.payload.messageId,
+              role: "user",
+              text: message.text,
+              attachments: message.attachments ?? [],
+              ...(message.skills !== undefined ? { skills: message.skills } : {}),
+              ...(message.mentions !== undefined ? { mentions: message.mentions } : {}),
+            },
+            ...(sourceEvent.payload.modelSelection !== undefined
+              ? { modelSelection: sourceEvent.payload.modelSelection }
+              : {}),
+            ...(sourceEvent.payload.connectionId !== undefined
+              ? { connectionId: sourceEvent.payload.connectionId }
+              : {}),
+            ...(sourceEvent.payload.bindingRevision !== undefined
+              ? { bindingRevision: sourceEvent.payload.bindingRevision }
+              : {}),
+            ...(sourceEvent.payload.providerOptions !== undefined
+              ? { providerOptions: sourceEvent.payload.providerOptions }
+              : {}),
+            ...(sourceEvent.payload.reviewTarget !== undefined
+              ? { reviewTarget: sourceEvent.payload.reviewTarget }
+              : {}),
+            ...(sourceEvent.payload.assistantDeliveryMode !== undefined
+              ? { assistantDeliveryMode: sourceEvent.payload.assistantDeliveryMode }
+              : {}),
+            dispatchMode: "steer",
+            ...(sourceEvent.payload.dispatchOrigin !== undefined
+              ? { dispatchOrigin: sourceEvent.payload.dispatchOrigin }
+              : {}),
+            runtimeMode: sourceEvent.payload.runtimeMode,
+            createdAt: event.payload.createdAt,
+          },
+          attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
+          ...(cwd === undefined ? {} : { cwd }),
+        });
+      }),
+    );
+
   // Promote the next queued message only after the active provider turn settles.
   const drainQueuedTurnsForThread = Effect.fnUntraced(function* (
     threadId: ThreadId,
@@ -3176,6 +3292,12 @@ const make = Effect.gen(function* () {
           return;
         case "thread.turn-interrupt-requested":
           yield* processTurnInterruptRequested(event);
+          return;
+        case "thread.turn-cancel-queued-requested":
+          yield* processQueuedTurnCancelRequested(event);
+          return;
+        case "thread.turn-steer-queued-requested":
+          yield* processQueuedTurnSteerRequested(event);
           return;
         case "thread.task-stop-requested":
           yield* processTaskStopRequested(event);

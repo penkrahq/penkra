@@ -17,7 +17,7 @@ import { ComposerPickerMenuPopup } from "./ComposerPickerMenuPopup";
 type QueuedComposerActionsProps = {
   queuedTurn: QueuedComposerTurn;
   onSteer: (queuedTurn: QueuedComposerTurn) => void;
-  onRemove: (queuedTurnId: string) => void;
+  onRemove: (queuedTurn: QueuedComposerTurn) => void;
   onEdit: (queuedTurn: QueuedComposerTurn) => void;
 };
 
@@ -37,7 +37,7 @@ function QueuedComposerActions({
         variant="ghost"
         size="icon-chip"
         label="Delete queued follow-up"
-        onClick={() => onRemove(queuedTurn.id)}
+        onClick={() => onRemove(queuedTurn)}
       >
         <Trash2 />
       </IconButton>
@@ -56,7 +56,7 @@ function QueuedComposerActions({
         </MenuTrigger>
         <ComposerPickerMenuPopup align="end" side="top" sideOffset={6}>
           <MenuItem onClick={() => onEdit(queuedTurn)}>Edit queued prompt</MenuItem>
-          <MenuItem onClick={() => onRemove(queuedTurn.id)}>Delete queued prompt</MenuItem>
+          <MenuItem onClick={() => onRemove(queuedTurn)}>Delete queued prompt</MenuItem>
         </ComposerPickerMenuPopup>
       </Menu>
     </div>

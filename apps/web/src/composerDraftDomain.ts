@@ -88,6 +88,8 @@ export interface QueuedComposerChatTurn {
   id: string;
   kind: "chat";
   createdAt: string;
+  serverAcceptedAt?: string;
+  serverMessageId?: import("@penkra/contracts").MessageId;
   previewText: string;
   prompt: string;
   images: ComposerImageAttachment[];
@@ -263,6 +265,11 @@ export interface ComposerDraftStoreState {
   setRuntimeMode: (threadId: ThreadId, runtimeMode: RuntimeMode | null | undefined) => void;
   enqueueQueuedTurn: (threadId: ThreadId, queuedTurn: QueuedComposerTurn) => void;
   insertQueuedTurn: (threadId: ThreadId, queuedTurn: QueuedComposerTurn, index: number) => void;
+  markQueuedTurnServerAccepted: (
+    threadId: ThreadId,
+    queuedTurnId: string,
+    acceptedAt: string,
+  ) => void;
   removeQueuedTurn: (threadId: ThreadId, queuedTurnId: string) => void;
   setQueuePaused: (threadId: ThreadId, paused: boolean) => void;
   addImage: (threadId: ThreadId, image: ComposerImageAttachment) => void;

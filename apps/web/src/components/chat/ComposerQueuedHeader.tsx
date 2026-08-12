@@ -58,7 +58,7 @@ export function compactQueuedComposerPreviewMarkdown(value: string): string {
 interface ComposerQueuedHeaderProps {
   queuedTurns: QueuedComposerTurn[];
   onSteer: (queuedTurn: QueuedComposerTurn) => void;
-  onRemove: (queuedTurnId: string) => void;
+  onRemove: (queuedTurn: QueuedComposerTurn) => void;
   onEdit: (queuedTurn: QueuedComposerTurn) => void;
   /** Workspace root used to resolve local file links/mentions inside the parsed preview. */
   cwd?: string | undefined;

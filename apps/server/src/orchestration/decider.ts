@@ -2102,6 +2102,32 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       ];
     }
 
+    case "thread.turn.cancel-queued":
+    case "thread.turn.steer-queued": {
+      yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type:
+          command.type === "thread.turn.cancel-queued"
+            ? "thread.turn-cancel-queued-requested"
+            : "thread.turn-steer-queued-requested",
+        payload: {
+          threadId: command.threadId,
+          messageId: command.messageId,
+          createdAt: command.createdAt,
+        },
+      };
+    }
+
     case "thread.task.stop": {
       yield* requireThread({
         readModel,

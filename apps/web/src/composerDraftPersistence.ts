@@ -15,6 +15,7 @@ import {
   RuntimeMode,
   SpaceId,
   ThreadId,
+  MessageId,
 } from "@penkra/contracts";
 import * as Schema from "effect/Schema";
 import type { DeepMutable } from "effect/Types";
@@ -127,6 +128,8 @@ const PersistedQueuedComposerChatTurn = Schema.Struct({
   id: Schema.String,
   kind: Schema.Literal("chat"),
   createdAt: Schema.String,
+  serverAcceptedAt: Schema.optionalKey(Schema.String),
+  serverMessageId: Schema.optionalKey(MessageId),
   previewText: Schema.String,
   prompt: Schema.String,
   images: Schema.Array(PersistedComposerImageAttachment),
@@ -520,6 +523,13 @@ function normalizePersistedQueuedTurns(
       continue;
     }
     if (kind === "chat") {
+      const serverAcceptedAt =
+        typeof candidate.serverAcceptedAt === "string" && candidate.serverAcceptedAt.length > 0
+          ? candidate.serverAcceptedAt
+          : undefined;
+      const serverMessageId = Schema.is(MessageId)(candidate.serverMessageId)
+        ? candidate.serverMessageId
+        : undefined;
       const prompt = typeof candidate.prompt === "string" ? candidate.prompt : "";
       const images = Array.isArray(candidate.images)
         ? candidate.images.flatMap((image) => {
@@ -568,6 +578,8 @@ function normalizePersistedQueuedTurns(
         id,
         kind: "chat",
         createdAt,
+        ...(serverAcceptedAt ? { serverAcceptedAt } : {}),
+        ...(serverMessageId ? { serverMessageId } : {}),
         previewText,
         prompt,
         images,
@@ -917,6 +929,8 @@ export function partializeComposerDraftStoreState(
           id: queuedTurn.id,
           kind: "chat",
           createdAt: queuedTurn.createdAt,
+          ...(queuedTurn.serverAcceptedAt ? { serverAcceptedAt: queuedTurn.serverAcceptedAt } : {}),
+          ...(queuedTurn.serverMessageId ? { serverMessageId: queuedTurn.serverMessageId } : {}),
           previewText: queuedTurn.previewText,
           prompt: queuedTurn.prompt,
           images,

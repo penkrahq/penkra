@@ -1,4 +1,4 @@
-import { ContainerId, ThreadId } from "@penkra/contracts";
+import { ContainerId, MessageId, ThreadId } from "@penkra/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { partializeComposerDraftStoreState, useComposerDraftStore } from "./composerDraftStore";
 import { normalizeCurrentPersistedComposerDraftStoreState } from "./composerDraftPersistence";
@@ -521,6 +521,36 @@ describe("composerDraftStore queued follow-ups", () => {
         terminalContexts: [{ text: "git status\nOn branch main" }],
       },
     ]);
+  });
+
+  it("persists server acceptance metadata for durable queued turns", () => {
+    const serverAcceptedAt = "2026-08-12T18:00:00.000Z";
+    const serverMessageId = MessageId.makeUnsafe("composer-queue:queued-accepted");
+    const store = useComposerDraftStore.getState();
+    store.enqueueQueuedTurn(threadId, {
+      ...makeQueuedChatTurn("queued-accepted"),
+      serverAcceptedAt,
+      serverMessageId,
+    });
+
+    const persistedState = partializeComposerDraftStoreState(useComposerDraftStore.getState());
+    const persistApi = useComposerDraftStore.persist as unknown as {
+      getOptions: () => {
+        merge: (
+          persistedState: unknown,
+          currentState: ReturnType<typeof useComposerDraftStore.getState>,
+        ) => ReturnType<typeof useComposerDraftStore.getState>;
+      };
+    };
+    const mergedState = persistApi
+      .getOptions()
+      .merge(persistedState, useComposerDraftStore.getInitialState());
+
+    expect(mergedState.draftsByThreadId[threadId]?.queuedTurns[0]).toMatchObject({
+      id: "queued-accepted",
+      serverAcceptedAt,
+      serverMessageId,
+    });
   });
 
   it("revokes queued chat image blob URLs when a queued turn is removed", () => {

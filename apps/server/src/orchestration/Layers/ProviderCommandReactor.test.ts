@@ -4052,6 +4052,84 @@ describe("ProviderCommandReactor", () => {
     } as ProviderRuntimeEvent);
   };
 
+  it("cancels one durable queued turn without interrupting the active turn", async () => {
+    const harness = await createHarness();
+    const messageId = asMessageId("msg-cancel-durable-queue");
+    await seedQueuedTurnBehindLiveTurn(harness, {
+      liveTurnId: asTurnId("turn-live-during-queue-cancel"),
+      messageId,
+      text: "remove this queued follow-up",
+    });
+    harness.interruptTurn.mockClear();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.cancel-queued",
+        commandId: CommandId.makeUnsafe("cmd-cancel-durable-queue"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        messageId,
+        createdAt: new Date().toISOString(),
+      }),
+    );
+    await harness.drain();
+
+    expect(
+      await Effect.runPromise(
+        harness.queuedTurnPromotionRepository.hasPendingMessage({
+          threadId: ThreadId.makeUnsafe("thread-1"),
+          messageId,
+        }),
+      ),
+    ).toBe(false);
+    expect(harness.interruptTurn).not.toHaveBeenCalled();
+    const events = await Effect.runPromise(
+      Stream.runCollect(harness.engine.readEvents(0)).pipe(
+        Effect.map((collected) => Array.from(collected)),
+      ),
+    );
+    expect(
+      events.some(
+        (event) =>
+          event.type === "thread.turn-start-cancelled" && event.payload.messageId === messageId,
+      ),
+    ).toBe(true);
+  });
+
+  it("steers the active Codex turn with the exact durable queued message", async () => {
+    const harness = await createHarness();
+    const messageId = asMessageId("msg-steer-durable-queue");
+    await seedQueuedTurnBehindLiveTurn(harness, {
+      liveTurnId: asTurnId("turn-live-during-queued-steer"),
+      messageId,
+      text: "use this queued follow-up as steering",
+    });
+    harness.steerTurn.mockClear();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.steer-queued",
+        commandId: CommandId.makeUnsafe("cmd-steer-durable-queue"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        messageId,
+        createdAt: new Date().toISOString(),
+      }),
+    );
+
+    await waitFor(() => harness.steerTurn.mock.calls.length === 1);
+    expect(harness.steerTurn.mock.calls[0]?.[0]).toMatchObject({
+      threadId: ThreadId.makeUnsafe("thread-1"),
+      input: "use this queued follow-up as steering",
+    });
+    expect(
+      await Effect.runPromise(
+        harness.queuedTurnPromotionRepository.hasPendingMessage({
+          threadId: ThreadId.makeUnsafe("thread-1"),
+          messageId,
+        }),
+      ),
+    ).toBe(false);
+  });
+
   it("promotes queued work when the provider session exits without a turn terminal event", async () => {
     const harness = await createHarness();
     await seedQueuedTurnBehindLiveTurn(harness, {

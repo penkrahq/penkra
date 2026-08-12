@@ -123,6 +123,7 @@ export function getThreadFromState(state: AppState, threadId: ThreadId): Thread 
     session,
     latestTurn: turnState?.latestTurn ?? null,
     pendingTurnStartMessageId: turnState?.pendingTurnStartMessageId ?? null,
+    queuedMessageIds: turnState?.queuedMessageIds ?? [],
     messages,
     activities,
     turnDiffSummaries,

@@ -17,6 +17,10 @@ export interface QueuedTurnPromotionRepositoryShape {
   readonly getBySequence: (
     queuedEventSequence: number,
   ) => Effect.Effect<Option.Option<QueuedTurnPromotion>, PersistenceSqlError>;
+  readonly getPendingMessage: (input: {
+    readonly threadId: string;
+    readonly messageId: string;
+  }) => Effect.Effect<Option.Option<QueuedTurnPromotion>, PersistenceSqlError>;
   readonly enqueue: (input: {
     readonly queuedEventSequence: number;
     readonly threadId: string;

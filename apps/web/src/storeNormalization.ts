@@ -182,7 +182,8 @@ export function threadTurnStatesEqual(
   return (
     left !== undefined &&
     latestTurnsEqual(left.latestTurn, right.latestTurn) &&
-    (left.pendingTurnStartMessageId ?? null) === (right.pendingTurnStartMessageId ?? null)
+    (left.pendingTurnStartMessageId ?? null) === (right.pendingTurnStartMessageId ?? null) &&
+    arraysShallowEqual(left.queuedMessageIds ?? [], right.queuedMessageIds ?? [])
   );
 }
 
@@ -1424,6 +1425,10 @@ export function normalizeThreadFromReadModel(
   const modelSelection = normalizeModelSelection(incoming.modelSelection, previous?.modelSelection);
   const session = normalizeThreadSession(incoming.session, previous?.session);
   const messages = normalizeChatMessages(incoming.messages, previous?.messages);
+  const incomingQueuedMessageIds = incoming.queuedMessageIds ?? [];
+  const queuedMessageIds = arraysShallowEqual(previous?.queuedMessageIds, incomingQueuedMessageIds)
+    ? (previous?.queuedMessageIds ?? [])
+    : [...incomingQueuedMessageIds];
   const latestTurn = normalizeLatestTurn(incoming.latestTurn, previous?.latestTurn);
   const lastKnownPr =
     previous?.lastKnownPr &&
@@ -1501,6 +1506,7 @@ export function normalizeThreadFromReadModel(
     previous.runtimeMode === incoming.runtimeMode &&
     previous.session === session &&
     previous.messages === messages &&
+    previous.queuedMessageIds === queuedMessageIds &&
     previous.error === error &&
     previous.createdAt === incoming.createdAt &&
     (previous.archivedAt ?? null) === (incoming.archivedAt ?? null) &&
@@ -1549,6 +1555,7 @@ export function normalizeThreadFromReadModel(
     runtimeMode: incoming.runtimeMode,
     session,
     messages,
+    queuedMessageIds,
     error,
     createdAt: incoming.createdAt,
     archivedAt: incoming.archivedAt ?? null,

@@ -3380,8 +3380,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
             );
           expect(queuedTurn).toBeTruthy();
           expect(
-            useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.queuedTurns ?? [],
-          ).toEqual([]);
+            useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.queuedTurns[0]
+              ?.serverAcceptedAt,
+          ).toBeTruthy();
+          expect(document.body.textContent).toContain("follow-up typed during startup");
+          expect(document.body.textContent).toContain("Steer");
         },
         { timeout: 8_000, interval: 16 },
       );
@@ -3408,7 +3411,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("submits a running-turn follow-up to the durable server queue immediately", async () => {
+  it("shows a durable queued row while submitting a running-turn follow-up", async () => {
     useComposerDraftStore.getState().setPrompt(THREAD_ID, "queue this follow-up");
 
     const mounted = await mountChatView({
@@ -3443,8 +3446,31 @@ describe("ChatView timeline estimator parity (full app)", () => {
             );
           expect(turnStart).toBeTruthy();
           expect(
-            useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.queuedTurns ?? [],
-          ).toEqual([]);
+            useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.queuedTurns[0]
+              ?.serverAcceptedAt,
+          ).toBeTruthy();
+          expect(document.querySelector('[data-testid="queued-follow-up-row"]')).not.toBeNull();
+          expect(document.body.textContent).toContain("Steer");
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      const steerButton = await waitForElement(
+        () =>
+          Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(
+            (button) => button.textContent?.trim() === "Steer",
+          ) ?? null,
+        "Unable to find queued Steer button.",
+      );
+      steerButton.click();
+      await vi.waitFor(
+        () => {
+          expect(
+            wsRequests
+              .map(readDispatchedCommand)
+              .some((command) => command?.type === "thread.turn.steer-queued"),
+          ).toBe(true);
+          expect(document.querySelector('[data-testid="queued-follow-up-row"]')).toBeNull();
         },
         { timeout: 8_000, interval: 16 },
       );
@@ -3454,6 +3480,57 @@ describe("ChatView timeline estimator parity (full app)", () => {
         "Unable to find stop generation button.",
       );
       expect(stopButton).not.toBeNull();
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("restores a server-authoritative queued row without duplicating it in the transcript", async () => {
+    const queuedMessageId = "msg-server-authoritative-queue" as MessageId;
+    const base = createSnapshotForTargetUser({
+      targetMessageId: "msg-user-running-server-queue" as MessageId,
+      targetText: "running server queue target",
+      sessionStatus: "running",
+    });
+    const snapshot: OrchestrationReadModel = {
+      ...base,
+      threads: base.threads.map((thread) =>
+        thread.id === THREAD_ID
+          ? {
+              ...thread,
+              queuedMessageIds: [queuedMessageId],
+              messages: [
+                ...thread.messages,
+                {
+                  id: queuedMessageId,
+                  role: "user" as const,
+                  text: "restored durable queue item",
+                  dispatchMode: "queue" as const,
+                  turnId: null,
+                  streaming: false,
+                  source: "native" as const,
+                  createdAt: NOW_ISO,
+                  updatedAt: NOW_ISO,
+                },
+              ],
+            }
+          : thread,
+      ),
+    };
+    const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+
+    try {
+      await vi.waitFor(
+        () => {
+          const queuedRow = document.querySelector<HTMLElement>(
+            '[data-testid="queued-follow-up-row"]',
+          );
+          expect(queuedRow?.textContent ?? "").toContain("restored durable queue item");
+          expect(queuedRow?.textContent ?? "").toContain("Steer");
+          expect(document.querySelector(`[data-message-id="${queuedMessageId}"]`)).toBeNull();
+        },
+        { timeout: 8_000, interval: 16 },
+      );
     } finally {
       await mounted.cleanup();
     }
@@ -3529,8 +3606,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("steers a running turn with the modifier-key submit shortcut", async () => {
-    useComposerDraftStore.getState().setPrompt(THREAD_ID, "steer this running turn");
+  it("queues a running-turn follow-up even with the former steering modifier", async () => {
+    useComposerDraftStore.getState().setPrompt(THREAD_ID, "queue this running turn");
 
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
@@ -3561,16 +3638,23 @@ describe("ChatView timeline estimator parity (full app)", () => {
             .find(
               (command) =>
                 command?.type === "thread.turn.start" &&
-                command.dispatchMode === "steer" &&
+                command.dispatchMode === "queue" &&
                 typeof command.message === "object" &&
                 command.message !== null &&
                 "text" in command.message &&
                 typeof command.message.text === "string" &&
-                command.message.text.includes("steer this running turn"),
+                command.message.text.includes("queue this running turn"),
             );
           expect(turnStart).toBeTruthy();
-          expect(document.querySelector('[data-testid="queued-follow-up-row"]')).toBeNull();
-          expect(document.body.textContent).toContain("Steering conversation");
+          expect(document.querySelector('[data-testid="queued-follow-up-row"]')).not.toBeNull();
+          expect(
+            wsRequests
+              .map(readDispatchedCommand)
+              .some(
+                (command) =>
+                  command?.type === "thread.turn.start" && command.dispatchMode === "steer",
+              ),
+          ).toBe(false);
         },
         { timeout: 8_000, interval: 16 },
       );
@@ -3615,8 +3699,9 @@ describe("ChatView timeline estimator parity (full app)", () => {
             );
           expect(queuedTurn).toBeTruthy();
           expect(
-            useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.queuedTurns ?? [],
-          ).toEqual([]);
+            useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.queuedTurns[0]
+              ?.serverAcceptedAt,
+          ).toBeTruthy();
         },
         { timeout: 8_000, interval: 16 },
       );
@@ -3931,6 +4016,13 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await vi.waitFor(
         () => {
           expect(document.querySelectorAll('[data-testid="queued-follow-up-row"]')).toHaveLength(2);
+          expect(
+            useComposerDraftStore
+              .getState()
+              .draftsByThreadId[THREAD_ID]?.queuedTurns.every(
+                (queuedTurn) => queuedTurn.serverAcceptedAt !== undefined,
+              ),
+          ).toBe(true);
         },
         { timeout: 8_000, interval: 16 },
       );
@@ -3967,6 +4059,24 @@ describe("ChatView timeline estimator parity (full app)", () => {
           // The restored image renders as a thumbnail chip whose filename lives in
           // its accessible label/title, not in text content.
           expect(document.querySelector('[aria-label="Preview queued-image.png"]')).not.toBeNull();
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      const deleteButton = await waitForElement(
+        () =>
+          document.querySelector<HTMLButtonElement>('button[aria-label="Delete queued follow-up"]'),
+        "Unable to find queued Delete button.",
+      );
+      deleteButton.click();
+      await vi.waitFor(
+        () => {
+          expect(
+            wsRequests
+              .map(readDispatchedCommand)
+              .some((command) => command?.type === "thread.turn.cancel-queued"),
+          ).toBe(true);
+          expect(document.querySelectorAll('[data-testid="queued-follow-up-row"]')).toHaveLength(0);
         },
         { timeout: 8_000, interval: 16 },
       );
@@ -4039,9 +4149,13 @@ describe("ChatView timeline estimator parity (full app)", () => {
               request.command.message.text.includes(queuedPrompt),
           );
           expect(turnStartRequest).toBeTruthy();
-          // Queue drained...
-          expect(document.querySelectorAll('[data-testid="queued-follow-up-row"]')).toHaveLength(0);
-          // ...but the in-progress composer draft is left untouched.
+          // The durable queue remains visible until the server promotes it.
+          expect(document.querySelectorAll('[data-testid="queued-follow-up-row"]')).toHaveLength(1);
+          expect(
+            useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.queuedTurns[0]
+              ?.serverAcceptedAt,
+          ).toBeTruthy();
+          // The in-progress composer draft is left untouched.
           expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.prompt).toBe(
             draftBeingTyped,
           );
@@ -4124,8 +4238,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
           expect(attachments).toHaveLength(1);
           expect(attachments[0]?.type).toBe("image");
           expect(attachments[0]?.name).toBe("queued-plan-image.png");
-          // Queue drained.
-          expect(document.querySelectorAll('[data-testid="queued-follow-up-row"]')).toHaveLength(0);
+          expect(document.querySelectorAll('[data-testid="queued-follow-up-row"]')).toHaveLength(1);
         },
         { timeout: 8_000, interval: 16 },
       );

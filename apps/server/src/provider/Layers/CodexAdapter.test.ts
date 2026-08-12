@@ -1232,6 +1232,54 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
     }),
   );
 
+  it.effect("does not map ordinary dynamic tool requests as approval requests", () =>
+    Effect.gen(function* () {
+      const adapter = yield* CodexAdapter;
+      const firstEventFiber = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
+
+      lifecycleManager.emit("event", {
+        id: asEventId("evt-dynamic-tool-request"),
+        kind: "request",
+        provider: "codex",
+        threadId: asThreadId("thread-1"),
+        createdAt: new Date().toISOString(),
+        method: "item/tool/call",
+        turnId: asTurnId("turn-1"),
+        itemId: asItemId("tool-call-1"),
+        payload: {
+          tool: "penkra_exec_command",
+          arguments: { command: "penkra --help" },
+        },
+      } satisfies ProviderEvent);
+
+      lifecycleManager.emit("event", {
+        id: asEventId("evt-dynamic-tool-started"),
+        kind: "notification",
+        provider: "codex",
+        threadId: asThreadId("thread-1"),
+        createdAt: new Date().toISOString(),
+        method: "item/started",
+        turnId: asTurnId("turn-1"),
+        itemId: asItemId("tool-call-1"),
+        payload: {
+          item: {
+            type: "dynamicToolCall",
+            id: "tool-call-1",
+            tool: "penkra_exec_command",
+            status: "inProgress",
+          },
+        },
+      } satisfies ProviderEvent);
+
+      const firstEvent = yield* Fiber.join(firstEventFiber);
+      assert.equal(firstEvent._tag, "Some");
+      if (firstEvent._tag === "Some") {
+        assert.equal(firstEvent.value.type, "item.started");
+        assert.equal(firstEvent.value.payload.itemType, "dynamic_tool_call");
+      }
+    }),
+  );
+
   it.effect("preserves explicit empty multi-select user-input answers", () =>
     Effect.gen(function* () {
       const adapter = yield* CodexAdapter;

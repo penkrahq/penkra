@@ -1066,6 +1066,32 @@ export const createComposerDraftStoreState =
         };
       });
     },
+    markQueuedTurnServerAccepted: (threadId, queuedTurnId, acceptedAt) => {
+      if (threadId.length === 0 || queuedTurnId.length === 0) {
+        return;
+      }
+      set((state) => {
+        const current = state.draftsByThreadId[threadId];
+        const queuedTurnIndex = current?.queuedTurns.findIndex(
+          (entry) => entry.id === queuedTurnId,
+        );
+        if (!current || queuedTurnIndex === undefined || queuedTurnIndex < 0) {
+          return state;
+        }
+        const queuedTurn = current.queuedTurns[queuedTurnIndex]!;
+        if (queuedTurn.serverAcceptedAt === acceptedAt) {
+          return state;
+        }
+        const queuedTurns = [...current.queuedTurns];
+        queuedTurns[queuedTurnIndex] = { ...queuedTurn, serverAcceptedAt: acceptedAt };
+        return {
+          draftsByThreadId: {
+            ...state.draftsByThreadId,
+            [threadId]: { ...current, queuedTurns },
+          },
+        };
+      });
+    },
     removeQueuedTurn: (threadId, queuedTurnId) => {
       if (threadId.length === 0 || queuedTurnId.length === 0) {
         return;

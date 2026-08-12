@@ -115,6 +115,7 @@ function toThreadTurnState(thread: Thread): ThreadTurnState {
   return {
     latestTurn: thread.latestTurn,
     pendingTurnStartMessageId: thread.pendingTurnStartMessageId ?? null,
+    queuedMessageIds: thread.queuedMessageIds ?? [],
   };
 }
 

@@ -515,6 +515,16 @@ function toRequestTypeFromMethod(method: string): CanonicalRequestType {
   }
 }
 
+function isApprovalRequestType(requestType: CanonicalRequestType): boolean {
+  return (
+    requestType === "command_execution_approval" ||
+    requestType === "file_read_approval" ||
+    requestType === "file_change_approval" ||
+    requestType === "apply_patch_approval" ||
+    requestType === "exec_command_approval"
+  );
+}
+
 function toRequestTypeFromKind(kind: unknown): CanonicalRequestType {
   switch (kind) {
     case "command":
@@ -960,6 +970,14 @@ function mapToRuntimeEvents(
       ];
     }
 
+    const requestType = toRequestTypeFromMethod(event.method);
+    // Codex uses JSON-RPC server requests for both human approval gates and
+    // ordinary host-handled work such as `item/tool/call`. Only the former is
+    // an interaction request; tool calls have their own item lifecycle events.
+    if (!isApprovalRequestType(requestType)) {
+      return [];
+    }
+
     const detail =
       asString(payload?.command) ?? asString(payload?.reason) ?? asString(payload?.prompt);
     return [
@@ -967,7 +985,7 @@ function mapToRuntimeEvents(
         ...runtimeEventBase(event, canonicalThreadId),
         type: "request.opened",
         payload: {
-          requestType: toRequestTypeFromMethod(event.method),
+          requestType,
           ...(detail ? { detail } : {}),
           ...(event.payload !== undefined ? { args: event.payload } : {}),
         },
@@ -1310,6 +1328,9 @@ function mapToRuntimeEvents(
         : event.requestId && event.requestKind !== undefined
           ? toRequestTypeFromKind(event.requestKind)
           : "unknown";
+    if (!isApprovalRequestType(requestType)) {
+      return [];
+    }
     return [
       {
         ...runtimeEventBase(event, canonicalThreadId),

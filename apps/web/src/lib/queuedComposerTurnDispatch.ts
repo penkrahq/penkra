@@ -21,6 +21,16 @@ import { formatOutgoingComposerPrompt, stageUploadComposerAttachments } from "./
 import { appendFileCommentsToPrompt } from "./fileComments";
 import { appendTerminalContextsToPrompt, IMAGE_ONLY_BOOTSTRAP_PROMPT } from "./terminalContext";
 
+export function queuedComposerTurnMessageId(queuedTurnId: string): MessageId {
+  return MessageId.makeUnsafe(`composer-queue:${queuedTurnId}`);
+}
+
+export function queuedComposerTurnServerMessageId(
+  queuedTurn: Pick<QueuedComposerChatTurn, "id" | "serverMessageId">,
+): MessageId {
+  return queuedTurn.serverMessageId ?? queuedComposerTurnMessageId(queuedTurn.id);
+}
+
 export async function dispatchQueuedComposerTurn(input: {
   api: NativeApi;
   threadId: ThreadId;
@@ -66,7 +76,7 @@ export async function dispatchQueuedComposerTurn(input: {
       commandId: CommandId.makeUnsafe(`composer-queue:${queuedTurn.id}`),
       threadId,
       message: {
-        messageId: MessageId.makeUnsafe(`composer-queue:${queuedTurn.id}`),
+        messageId: queuedComposerTurnServerMessageId(queuedTurn),
         role: "user",
         text: outgoingText,
         attachments,

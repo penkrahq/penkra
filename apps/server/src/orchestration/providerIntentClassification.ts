@@ -13,6 +13,8 @@ export type ProviderIntentEvent = Extract<
       | "thread.turn-queued"
       | "thread.turn-start-requested"
       | "thread.turn-interrupt-requested"
+      | "thread.turn-cancel-queued-requested"
+      | "thread.turn-steer-queued-requested"
       | "thread.task-stop-requested"
       | "thread.task-background-requested"
       | "thread.approval-response-requested"
@@ -33,6 +35,8 @@ const PROVIDER_INTENT_EVENT_TYPES = new Set<ProviderIntentEvent["type"]>([
   "thread.turn-queued",
   "thread.turn-start-requested",
   "thread.turn-interrupt-requested",
+  "thread.turn-cancel-queued-requested",
+  "thread.turn-steer-queued-requested",
   "thread.task-stop-requested",
   "thread.task-background-requested",
   "thread.approval-response-requested",

@@ -126,6 +126,7 @@ import {
   readFileAsDataUrl,
 } from "../lib/composerSend";
 import { persistComposerAsset } from "../lib/composerAssetStore";
+import { queuedComposerTurnServerMessageId } from "../lib/queuedComposerTurnDispatch";
 import { reconcileDeletedThreadFromClient } from "../lib/deletedThreadClientReconciliation";
 import { useHandleNewChat } from "../hooks/useHandleNewChat";
 import { useComposerDropzone } from "../hooks/useComposerDropzone";
@@ -2598,8 +2599,37 @@ export default function ChatView({
     }, ATTACHMENT_PREVIEW_HANDOFF_TTL_MS);
   }, []);
   const serverMessages = activeThread?.messages;
+  const serverQueuedMessageIds = useMemo(
+    () => new Set(activeThread?.queuedMessageIds ?? []),
+    [activeThread?.queuedMessageIds],
+  );
+  useEffect(() => {
+    if (!activeThread || queuedComposerTurns.length === 0) {
+      return;
+    }
+    for (const queuedTurn of queuedComposerTurns) {
+      if (queuedTurn.serverAcceptedAt === undefined) {
+        continue;
+      }
+      const messageId = queuedComposerTurnServerMessageId(queuedTurn);
+      if (serverQueuedMessageIds.has(messageId)) {
+        continue;
+      }
+      const serverMessage = activeThread.messages.find((message) => message.id === messageId);
+      if (activeThread.pendingTurnStartMessageId === messageId || serverMessage?.turnId != null) {
+        removeQueuedComposerTurnFromDraft(activeThread.id, queuedTurn.id);
+      }
+    }
+  }, [
+    activeThread,
+    queuedComposerTurns,
+    removeQueuedComposerTurnFromDraft,
+    serverQueuedMessageIds,
+  ]);
   const timelineMessages = useMemo(() => {
-    const messages = serverMessages ?? [];
+    const messages = (serverMessages ?? []).filter(
+      (message) => !serverQueuedMessageIds.has(message.id),
+    );
     const serverMessagesWithPreviewHandoff =
       Object.keys(attachmentPreviewHandoffByMessageId).length === 0
         ? messages
@@ -2653,9 +2683,16 @@ export default function ChatView({
         ? serverMessagesWithPreviewHandoff
         : [...serverMessagesWithPreviewHandoff, ...pendingMessages];
     return withPending;
-  }, [serverMessages, attachmentPreviewHandoffByMessageId, optimisticUserMessages]);
+  }, [
+    serverMessages,
+    serverQueuedMessageIds,
+    attachmentPreviewHandoffByMessageId,
+    optimisticUserMessages,
+  ]);
   const promptHistory = useMemo(() => {
-    const activeMessages = activeThread?.messages ?? EMPTY_MESSAGES;
+    const activeMessages = (activeThread?.messages ?? EMPTY_MESSAGES).filter(
+      (message) => !serverQueuedMessageIds.has(message.id),
+    );
     // Optimistic messages exist only briefly after a send; skip the full-transcript
     // id Set on the common (streaming-flush) path where there is nothing to reconcile.
     if (optimisticUserMessages.length === 0) {
@@ -2666,7 +2703,7 @@ export default function ChatView({
       (message) => !activeMessageIds.has(message.id),
     );
     return derivePromptHistoryFromMessages([...activeMessages, ...pendingOptimisticMessages]);
-  }, [activeThread?.messages, optimisticUserMessages]);
+  }, [activeThread?.messages, optimisticUserMessages, serverQueuedMessageIds]);
   const timelineEntries = useMemo(
     () => deriveTimelineEntries(timelineMessages, agentActivityTimelineState.timelineWorkEntries),
     [agentActivityTimelineState.timelineWorkEntries, timelineMessages],
@@ -4398,6 +4435,65 @@ export default function ChatView({
     ? (activeThread?.envMode ?? "local")
     : (draftThread?.envMode ?? "local");
 
+  const visibleQueuedComposerTurns = useMemo(() => {
+    const localMessageIds = new Set(
+      queuedComposerTurns.map((queuedTurn) => queuedComposerTurnServerMessageId(queuedTurn)),
+    );
+    const restoredServerTurns = (activeThread?.queuedMessageIds ?? []).flatMap((messageId) => {
+      if (localMessageIds.has(messageId)) {
+        return [];
+      }
+      const message = activeThread?.messages.find(
+        (candidate) => candidate.id === messageId && candidate.role === "user",
+      );
+      if (!message) {
+        return [];
+      }
+      return [
+        {
+          id: `server:${messageId}`,
+          kind: "chat" as const,
+          createdAt: message.createdAt,
+          serverAcceptedAt: message.createdAt,
+          serverMessageId: messageId,
+          previewText: message.text,
+          prompt: message.text,
+          images: [],
+          files: [],
+          assistantSelections: [],
+          terminalContexts: [],
+          fileComments: [],
+          pastedTexts: [],
+          skills: message.skills ?? [],
+          mentions: message.mentions ?? [],
+          selectedProvider,
+          selectedModel,
+          selectedPromptEffort,
+          modelSelection: selectedModelSelection,
+          connectionId: selectedConnectionId ?? null,
+          ...(providerOptionsForDispatch ? { providerOptionsForDispatch } : {}),
+          runtimeMode,
+          envMode,
+        },
+      ];
+    });
+    return restoredServerTurns.length === 0
+      ? queuedComposerTurns
+      : [...queuedComposerTurns, ...restoredServerTurns];
+  }, [
+    activeThread?.messages,
+    activeThread?.queuedMessageIds,
+    envMode,
+    providerOptionsForDispatch,
+    queuedComposerTurns,
+    runtimeMode,
+    selectedConnectionId,
+    selectedModel,
+    selectedModelSelection,
+    selectedPromptEffort,
+    selectedProvider,
+  ]);
+
   const beginLocalDispatch = useCallback(
     (options?: { readonly expectedUserMessageId?: MessageId }) => {
       setLocalDispatch((current) =>
@@ -5246,11 +5342,47 @@ export default function ChatView({
     };
   }, [restorePendingTurnStart]);
 
-  const removeQueuedComposerTurn = useCallback(
-    (queuedTurnId: string) => {
-      removeQueuedComposerTurnFromDraft(threadId, queuedTurnId);
+  const cancelQueuedComposerTurn = useCallback(
+    async (queuedTurn: QueuedComposerTurn): Promise<boolean> => {
+      const messageId = queuedComposerTurnServerMessageId(queuedTurn);
+      const isServerAccepted =
+        queuedTurn.serverAcceptedAt !== undefined ||
+        (activeThread?.queuedMessageIds ?? []).includes(messageId);
+      if (!isServerAccepted) {
+        removeQueuedComposerTurnFromDraft(threadId, queuedTurn.id);
+        return true;
+      }
+      const api = readNativeApi();
+      if (!api) {
+        return false;
+      }
+      try {
+        await api.orchestration.dispatchCommand({
+          type: "thread.turn.cancel-queued",
+          commandId: newCommandId(),
+          threadId,
+          messageId,
+          createdAt: new Date().toISOString(),
+        });
+        removeQueuedComposerTurnFromDraft(threadId, queuedTurn.id);
+        setThreadError(threadId, null);
+        return true;
+      } catch (error) {
+        setThreadError(
+          threadId,
+          error instanceof Error ? error.message : "Failed to cancel queued message.",
+        );
+        return false;
+      }
     },
-    [removeQueuedComposerTurnFromDraft, threadId],
+    [activeThread?.queuedMessageIds, removeQueuedComposerTurnFromDraft, setThreadError, threadId],
+  );
+
+  const removeQueuedComposerTurn = useCallback(
+    (queuedTurn: QueuedComposerTurn) => {
+      void cancelQueuedComposerTurn(queuedTurn);
+    },
+    [cancelQueuedComposerTurn],
   );
 
   // These handlers are declared later because they depend on composer controls
@@ -5455,6 +5587,64 @@ export default function ChatView({
       return false;
     }
     if (!activeProject) return false;
+    if (
+      (phase === "connecting" ||
+        phase === "running" ||
+        isSendBusy ||
+        activeThread.pendingTurnStartMessageId != null) &&
+      dispatchMode === "queue" &&
+      queuedChatTurn === null
+    ) {
+      clearComposerInput(activeThread.id);
+      scheduleComposerFocus();
+      const queuedImagesForPersistence = await Promise.all(
+        composerImagesForSend.map(async (image) => {
+          try {
+            return {
+              ...image,
+              previewUrl: await readFileAsDataUrl(image.file),
+            };
+          } catch {
+            return image;
+          }
+        }),
+      );
+      setComposerQueuePaused(activeThread.id, false);
+      enqueueQueuedComposerTurn(activeThread.id, {
+        id: randomUUID(),
+        kind: "chat",
+        createdAt: new Date().toISOString(),
+        previewText: buildQueuedComposerPreviewText({
+          trimmedPrompt: trimmed,
+          images: queuedImagesForPersistence,
+          files: composerFilesForSend,
+          assistantSelections: composerAssistantSelectionsForSend,
+          terminalContexts: sendableComposerTerminalContexts,
+          fileComments: composerFileCommentsForSend,
+          pastedTexts: sendableComposerPastedTexts,
+        }),
+        prompt: promptForSend,
+        images: queuedImagesForPersistence,
+        files: composerFilesForSend,
+        assistantSelections: composerAssistantSelectionsForSend,
+        fileComments: composerFileCommentsForSend,
+        terminalContexts: sendableComposerTerminalContexts,
+        pastedTexts: sendableComposerPastedTexts,
+        skills: selectedComposerSkillsForSend,
+        mentions: selectedComposerMentionsForSend,
+        selectedProvider: selectedProviderForSend,
+        selectedModel: selectedModelForSend,
+        selectedPromptEffort: selectedPromptEffortForSend,
+        modelSelection: selectedModelSelectionForSend,
+        connectionId: selectedConnectionIdForSend ?? null,
+        ...(providerOptionsForDispatchForSend
+          ? { providerOptionsForDispatch: providerOptionsForDispatchForSend }
+          : {}),
+        runtimeMode: runtimeModeForSend,
+        envMode: envModeForSend,
+      });
+      return true;
+    }
     const threadIdForSend = activeThread.id;
     const isFirstMessage = !isServerThread || !hasNativeUserMessages;
     const firstSendCreatedAt = new Date();
@@ -6339,8 +6529,35 @@ export default function ChatView({
       if (queuedIndex < 0) {
         return;
       }
-      removeQueuedComposerTurnFromDraft(threadId, queuedTurn.id);
       setComposerQueuePaused(threadId, false);
+      const messageId = queuedComposerTurnServerMessageId(queuedTurn);
+      const isServerAccepted =
+        queuedTurn.serverAcceptedAt !== undefined ||
+        (activeThread?.queuedMessageIds ?? []).includes(messageId);
+      if (isServerAccepted) {
+        const api = readNativeApi();
+        if (!api) {
+          return;
+        }
+        try {
+          await api.orchestration.dispatchCommand({
+            type: "thread.turn.steer-queued",
+            commandId: newCommandId(),
+            threadId,
+            messageId,
+            createdAt: new Date().toISOString(),
+          });
+          removeQueuedComposerTurnFromDraft(threadId, queuedTurn.id);
+          setThreadError(threadId, null);
+        } catch (error) {
+          setThreadError(
+            threadId,
+            error instanceof Error ? error.message : "Failed to steer queued message.",
+          );
+        }
+        return;
+      }
+      removeQueuedComposerTurnFromDraft(threadId, queuedTurn.id);
       const succeeded = await dispatchQueuedComposerTurn(queuedTurn, "steer");
       if (succeeded) {
         return;
@@ -6350,7 +6567,9 @@ export default function ChatView({
     [
       dispatchQueuedComposerTurn,
       insertQueuedComposerTurn,
+      activeThread?.queuedMessageIds,
       removeQueuedComposerTurnFromDraft,
+      setThreadError,
       setComposerQueuePaused,
       threadId,
     ],
@@ -6358,10 +6577,13 @@ export default function ChatView({
 
   const onEditQueuedComposerTurn = useCallback(
     (queuedTurn: QueuedComposerTurn) => {
-      removeQueuedComposerTurn(queuedTurn.id);
-      restoreQueuedTurnToComposer(queuedTurn);
+      void cancelQueuedComposerTurn(queuedTurn).then((cancelled) => {
+        if (cancelled) {
+          restoreQueuedTurnToComposer(queuedTurn);
+        }
+      });
     },
-    [removeQueuedComposerTurn, restoreQueuedTurnToComposer],
+    [cancelQueuedComposerTurn, restoreQueuedTurnToComposer],
   );
 
   const setPromptFromTraits = useCallback(
@@ -7257,7 +7479,7 @@ export default function ChatView({
         setComposerDraftPromptHistorySavedDraft(threadId, null);
       }
       expectedPromptHistoryPromptRef.current = null;
-      void onSend(undefined, event.metaKey || event.ctrlKey ? "steer" : "queue");
+      void onSend(undefined, "queue");
       return true;
     }
     return false;
@@ -7507,7 +7729,7 @@ export default function ChatView({
                 />
               ) : null}
               <ComposerQueuedHeader
-                queuedTurns={queuedComposerTurns}
+                queuedTurns={visibleQueuedComposerTurns}
                 onSteer={onSteerQueuedComposerTurn}
                 onRemove={removeQueuedComposerTurn}
                 onEdit={onEditQueuedComposerTurn}

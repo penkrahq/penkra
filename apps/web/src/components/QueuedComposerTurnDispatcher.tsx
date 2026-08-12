@@ -48,7 +48,9 @@ export function QueuedComposerTurnDispatcher() {
       const appState = useStore.getState();
       for (const [rawThreadId, draft] of Object.entries(drafts)) {
         const threadId = ThreadId.makeUnsafe(rawThreadId);
-        const queuedTurn = draft.queuedTurns[0];
+        const queuedTurn = draft.queuedTurns.find(
+          (candidate) => candidate.serverAcceptedAt === undefined,
+        );
         if (!queuedTurn || draft.queuePaused || inFlightThreadIds.has(rawThreadId)) continue;
         const thread = getThreadFromState(appState, threadId);
         if (!thread) continue;
@@ -64,7 +66,9 @@ export function QueuedComposerTurnDispatcher() {
           assistantDeliveryMode,
         })
           .then(() => {
-            useComposerDraftStore.getState().removeQueuedTurn(thread.id, queuedTurn.id);
+            useComposerDraftStore
+              .getState()
+              .markQueuedTurnServerAccepted(thread.id, queuedTurn.id, new Date().toISOString());
             useStore.getState().setError(thread.id, null);
           })
           .catch((error: unknown) => {

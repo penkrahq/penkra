@@ -1195,6 +1195,20 @@ function applyOrchestrationEvent(
       return state;
     }
 
+    case "thread.turn-queued":
+      return applyThreadUpdate(
+        state,
+        event.payload.threadId,
+        (thread) =>
+          (thread.queuedMessageIds ?? []).includes(event.payload.messageId)
+            ? thread
+            : {
+                ...thread,
+                queuedMessageIds: [...(thread.queuedMessageIds ?? []), event.payload.messageId],
+              },
+        { ...options, updateSidebarSummary: false },
+      );
+
     case "thread.session-stop-requested":
       return applyThreadUpdate(
         state,
@@ -1249,10 +1263,15 @@ function applyOrchestrationEvent(
               ? normalizeModelSelection(event.payload.modelSelection, thread.modelSelection)
               : thread.modelSelection;
           const runtimeMode = event.payload.runtimeMode;
+          const existingQueuedMessageIds = thread.queuedMessageIds ?? [];
+          const queuedMessageIds = existingQueuedMessageIds.filter(
+            (messageId) => messageId !== event.payload.messageId,
+          );
           if (
             modelSelection === thread.modelSelection &&
             thread.runtimeMode === runtimeMode &&
             thread.pendingTurnStartMessageId === event.payload.messageId &&
+            queuedMessageIds.length === existingQueuedMessageIds.length &&
             (thread.updatedAt ?? thread.createdAt) >= event.payload.createdAt
           ) {
             return thread;
@@ -1262,6 +1281,7 @@ function applyOrchestrationEvent(
             modelSelection,
             runtimeMode,
             pendingTurnStartMessageId: event.payload.messageId,
+            queuedMessageIds,
             updatedAt:
               (thread.updatedAt ?? thread.createdAt) > event.payload.createdAt
                 ? thread.updatedAt
@@ -1444,8 +1464,13 @@ function applyOrchestrationEvent(
           const messages = thread.messages.filter(
             (message) => message.id !== event.payload.messageId,
           );
+          const existingQueuedMessageIds = thread.queuedMessageIds ?? [];
+          const queuedMessageIds = existingQueuedMessageIds.filter(
+            (messageId) => messageId !== event.payload.messageId,
+          );
           if (
             messages.length === thread.messages.length &&
+            queuedMessageIds.length === existingQueuedMessageIds.length &&
             thread.pendingTurnStartMessageId === null
           ) {
             return thread;
@@ -1453,6 +1478,7 @@ function applyOrchestrationEvent(
           return {
             ...thread,
             messages,
+            queuedMessageIds,
             pendingTurnStartMessageId: null,
             updatedAt:
               (thread.updatedAt ?? thread.createdAt) > event.occurredAt

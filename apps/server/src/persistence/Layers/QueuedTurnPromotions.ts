@@ -33,6 +33,18 @@ const make = Effect.gen(function* () {
       Effect.mapError(toPersistenceSqlError("QueuedTurnPromotion.getBySequence")),
     );
 
+  const getPendingMessage: QueuedTurnPromotionRepositoryShape["getPendingMessage"] = (input) =>
+    sql<QueuedTurnPromotion>`
+      SELECT ${columns(sql)}
+      FROM queued_turn_promotions
+      WHERE thread_id = ${input.threadId} AND message_id = ${input.messageId}
+        AND state IN ('queued', 'promoting')
+      LIMIT 1
+    `.pipe(
+      Effect.map((rows) => Option.fromNullishOr(rows[0])),
+      Effect.mapError(toPersistenceSqlError("QueuedTurnPromotion.getPendingMessage")),
+    );
+
   const enqueue: QueuedTurnPromotionRepositoryShape["enqueue"] = (input) =>
     sql`
       INSERT INTO queued_turn_promotions (
@@ -132,7 +144,7 @@ const make = Effect.gen(function* () {
       SET state = 'cancelled', claim_owner = NULL, claimed_at = NULL,
           claim_expires_at = NULL, updated_at = ${input.updatedAt}
       WHERE thread_id = ${input.threadId} AND message_id = ${input.messageId}
-        AND state = 'queued'
+        AND state IN ('queued', 'promoting')
       RETURNING queued_event_sequence AS sequence
     `.pipe(
       Effect.map((rows) => rows.length === 1),
@@ -178,6 +190,7 @@ const make = Effect.gen(function* () {
 
   return {
     getBySequence,
+    getPendingMessage,
     enqueue,
     claimNext,
     markPromoted,

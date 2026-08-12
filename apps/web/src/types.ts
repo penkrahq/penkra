@@ -193,6 +193,7 @@ export interface Thread extends ThreadWorkspaceState {
   runtimeMode: RuntimeMode;
   session: ThreadSession | null;
   messages: ChatMessage[];
+  queuedMessageIds?: MessageId[];
   error: string | null;
   createdAt: string;
   archivedAt?: string | null;
@@ -259,6 +260,7 @@ export interface ThreadShell extends ThreadWorkspaceState {
 export interface ThreadTurnState {
   latestTurn: OrchestrationLatestTurn | null;
   pendingTurnStartMessageId?: MessageId | null;
+  queuedMessageIds?: MessageId[];
 }
 
 export interface SidebarThreadSummary {
