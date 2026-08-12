@@ -314,6 +314,11 @@ function verifyLocalProductionQaGate(): void {
     "Expected local production QA to reject a dirty release source.",
   );
   assertContains(
+    qaScript,
+    "resetArtifactDirectory();",
+    "Expected local production QA to remove stale artifacts before building the candidate.",
+  );
+  assertContains(
     releaseGuide,
     'bun run release:qa:check -- "$approved_version"',
     "Expected release instructions to verify local manual QA before tagging.",

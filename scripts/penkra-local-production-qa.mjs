@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const PRODUCT_MANIFESTS = [
@@ -97,6 +97,16 @@ function collectArtifacts() {
   return Object.fromEntries(names.map((name) => [name, sha256(resolve(directory, name))]));
 }
 
+function resetArtifactDirectory() {
+  const directory = resolve(ARTIFACT_DIRECTORY);
+  const expected = resolve("release-local");
+  if (directory !== expected) {
+    throw new Error(`Refusing to clean unexpected artifact directory: ${directory}`);
+  }
+  rmSync(directory, { recursive: true, force: true });
+  mkdirSync(directory, { recursive: true });
+}
+
 function readReceipt() {
   const path = receiptPath();
   if (!existsSync(path)) {
@@ -124,6 +134,7 @@ const path = receiptPath();
 
 if (mode === "prepare") {
   run("bun", ["run", "release:verify"], { stdio: "inherit" });
+  resetArtifactDirectory();
   run(
     "bun",
     [
