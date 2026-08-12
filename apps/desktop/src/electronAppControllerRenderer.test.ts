@@ -2,6 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { WebContentsView } from "electron";
 
+vi.mock("electron", () => ({
+  WebContentsView: class {},
+}));
+
 import type { InstalledAppPackage } from "./appInstallationState";
 import { ElectronAppControllerRendererFactory } from "./electronAppControllerRenderer";
 import { APP_RUNTIME_IPC_CHANNELS } from "./ipcChannels";
@@ -50,18 +54,22 @@ function fixture() {
       values.add(listener);
       listeners.set(event, values);
     }),
-    removeListener: vi.fn((event: string, listener: (...args: never[]) => void) => {
-      listeners.get(event)?.delete(listener);
-    }),
+    removeListener: vi.fn(
+      (event: string, listener: (...args: never[]) => void) => {
+        listeners.get(event)?.delete(listener);
+      },
+    ),
     send: vi.fn(),
     loadURL: vi.fn(async () => undefined),
     isDestroyed: vi.fn(() => false),
     close: vi.fn(),
   };
-  const waitForReady = vi.fn<(rendererId: number, signal?: AbortSignal) => Promise<void>>(
-    async () => undefined,
+  const waitForReady = vi.fn<
+    (rendererId: number, signal?: AbortSignal) => Promise<void>
+  >(async () => undefined);
+  const createView = vi.fn(
+    () => ({ webContents: contents }) as unknown as WebContentsView,
   );
-  const createView = vi.fn(() => ({ webContents: contents }) as unknown as WebContentsView);
   const factory = new ElectronAppControllerRendererFactory({
     preloadPath: "/trusted/appPreload.js",
     ipcBridge: { waitForReady },
@@ -182,7 +190,9 @@ describe("ElectronAppControllerRendererFactory", () => {
       session: test.session,
     });
 
-    const started = renderer.start("penkra-app://com.acme.linear/operations.html");
+    const started = renderer.start(
+      "penkra-app://com.acme.linear/operations.html",
+    );
     const preloadError = [...(test.listeners.get("preload-error") ?? [])][0];
     preloadError?.(
       {} as never,
