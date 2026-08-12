@@ -7,6 +7,7 @@ export interface ProviderDescriptor {
   readonly kind: ProviderKind;
   readonly displayName: string;
   readonly available: boolean;
+  readonly supportsNativeTurnSteering: boolean;
   readonly usage: {
     readonly signInCommand: string;
     readonly learnMoreHref: string;
@@ -18,6 +19,7 @@ export const PROVIDER_DESCRIPTORS = [
     kind: "codex",
     displayName: PROVIDER_DISPLAY_NAMES.codex,
     available: true,
+    supportsNativeTurnSteering: true,
     usage: {
       signInCommand: "codex login",
       learnMoreHref: "https://platform.openai.com/usage",
@@ -27,6 +29,7 @@ export const PROVIDER_DESCRIPTORS = [
     kind: "claudeAgent",
     displayName: PROVIDER_DISPLAY_NAMES.claudeAgent,
     available: true,
+    supportsNativeTurnSteering: true,
     usage: {
       signInCommand: "claude",
       learnMoreHref: "https://docs.anthropic.com/en/docs/about-claude/models#rate-limits",
@@ -36,6 +39,7 @@ export const PROVIDER_DESCRIPTORS = [
     kind: "cursor",
     displayName: PROVIDER_DISPLAY_NAMES.cursor,
     available: true,
+    supportsNativeTurnSteering: false,
     usage: {
       signInCommand: "cursor-agent login",
       learnMoreHref: "https://cursor.com/dashboard",
@@ -45,20 +49,51 @@ export const PROVIDER_DESCRIPTORS = [
     kind: "antigravity",
     displayName: PROVIDER_DISPLAY_NAMES.antigravity,
     available: true,
+    supportsNativeTurnSteering: false,
     usage: null,
   },
-  { kind: "grok", displayName: PROVIDER_DISPLAY_NAMES.grok, available: true, usage: null },
-  { kind: "droid", displayName: PROVIDER_DISPLAY_NAMES.droid, available: true, usage: null },
-  { kind: "kilo", displayName: PROVIDER_DISPLAY_NAMES.kilo, available: true, usage: null },
+  {
+    kind: "grok",
+    displayName: PROVIDER_DISPLAY_NAMES.grok,
+    available: true,
+    supportsNativeTurnSteering: false,
+    usage: null,
+  },
+  {
+    kind: "droid",
+    displayName: PROVIDER_DISPLAY_NAMES.droid,
+    available: true,
+    supportsNativeTurnSteering: false,
+    usage: null,
+  },
+  {
+    kind: "kilo",
+    displayName: PROVIDER_DISPLAY_NAMES.kilo,
+    available: true,
+    supportsNativeTurnSteering: false,
+    usage: null,
+  },
   {
     kind: "opencode",
     displayName: PROVIDER_DISPLAY_NAMES.opencode,
     available: true,
+    supportsNativeTurnSteering: false,
     usage: null,
   },
-  { kind: "pi", displayName: PROVIDER_DISPLAY_NAMES.pi, available: true, usage: null },
+  {
+    kind: "pi",
+    displayName: PROVIDER_DISPLAY_NAMES.pi,
+    available: true,
+    supportsNativeTurnSteering: true,
+    usage: null,
+  },
 ] as const satisfies readonly ProviderDescriptor[];
 
 export const PROVIDER_DESCRIPTOR_BY_KIND = Object.fromEntries(
   PROVIDER_DESCRIPTORS.map((descriptor) => [descriptor.kind, descriptor]),
 ) as Record<ProviderKind, (typeof PROVIDER_DESCRIPTORS)[number]>;
+
+export const providerSupportsNativeTurnSteering = (kind: string): boolean =>
+  PROVIDER_DESCRIPTORS.some(
+    (descriptor) => descriptor.kind === kind && descriptor.supportsNativeTurnSteering,
+  );

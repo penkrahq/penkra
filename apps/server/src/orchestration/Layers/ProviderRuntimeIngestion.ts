@@ -20,6 +20,7 @@ import { createHash } from "node:crypto";
 import { Cache, Cause, Deferred, Duration, Effect, Layer, Option, Ref, Stream } from "effect";
 import * as Semaphore from "effect/Semaphore";
 import { makeDrainableWorker, startDrainableWorkerProducers } from "@penkra/shared/DrainableWorker";
+import { providerSupportsNativeTurnSteering } from "@penkra/shared/providerMetadata";
 import {
   buildSubagentIdentityDirectory,
   collectSubagentProviderThreadIds,
@@ -2215,11 +2216,13 @@ const make = Effect.gen(function* () {
       const thread = Option.getOrUndefined(
         yield* projectionSnapshotQuery.getThreadShellById(event.payload.threadId),
       );
-      const isCodexSteer =
+      const isNativeSteer =
         event.payload.dispatchMode === "steer" &&
-        (thread?.session?.providerName ?? thread?.modelSelection.provider) === "codex";
+        providerSupportsNativeTurnSteering(
+          thread?.session?.providerName ?? thread?.modelSelection.provider ?? "",
+        );
       let deliveryTurnId: TurnId | undefined;
-      if (isCodexSteer) {
+      if (isNativeSteer) {
         let activeTurnId = thread?.session?.activeTurnId ?? undefined;
         if (!activeTurnId) {
           const runtimeSession = (yield* providerService.listSessions()).find(
@@ -2249,8 +2252,7 @@ const make = Effect.gen(function* () {
       const flushEvent: ProviderRuntimeEvent = {
         type: "turn.started",
         eventId: event.eventId,
-        provider:
-          isCodexSteer || thread?.session?.providerName !== "claudeAgent" ? "codex" : "claudeAgent",
+        provider: thread?.session?.providerName === "claudeAgent" ? "claudeAgent" : "codex",
         createdAt: event.payload.createdAt,
         threadId: event.payload.threadId,
         turnId: deliveryTurnId,

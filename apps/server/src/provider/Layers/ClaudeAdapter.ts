@@ -193,6 +193,7 @@ interface ClaudeResumeState {
 interface ClaudeTurnState {
   readonly turnId: TurnId;
   readonly startedAt: string;
+  readonly synthetic?: boolean;
   readonly items: Array<unknown>;
   readonly assistantTextBlocks: Map<number, AssistantTextBlockState>;
   readonly assistantTextBlockOrder: Array<AssistantTextBlockState>;
@@ -3008,6 +3009,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         context.turnState = {
           turnId,
           startedAt,
+          synthetic: true,
           items: [],
           assistantTextBlocks: new Map(),
           assistantTextBlockOrder: [],
@@ -5242,6 +5244,47 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         };
       });
 
+    const steerTurn: ClaudeAdapterShape["steerTurn"] = (input) =>
+      Effect.gen(function* () {
+        const context = yield* requireSession(input.threadId);
+        const liveTurnState = context.turnState;
+        if (liveTurnState === undefined || liveTurnState.synthetic === true) {
+          return yield* sendTurn(input);
+        }
+
+        const message = yield* buildUserMessageEffect(input, {
+          fileSystem,
+          attachmentsDir: serverConfig.attachmentsDir,
+        });
+        yield* Queue.offer(context.promptQueue, {
+          type: "message",
+          message,
+        }).pipe(Effect.mapError((cause) => toRequestError(input.threadId, "turn/steer", cause)));
+
+        const steerText = input.input?.trim();
+        if (steerText) {
+          const stamp = yield* makeEventStamp();
+          yield* offerRuntimeEvent(context, {
+            type: "turn.steered",
+            eventId: stamp.eventId,
+            provider: PROVIDER,
+            createdAt: stamp.createdAt,
+            threadId: context.session.threadId,
+            turnId: liveTurnState.turnId,
+            payload: { message: steerText },
+            providerRefs: nativeProviderRefs(context),
+          });
+        }
+
+        return {
+          threadId: context.session.threadId,
+          turnId: liveTurnState.turnId,
+          ...(context.session.resumeCursor !== undefined
+            ? { resumeCursor: context.session.resumeCursor }
+            : {}),
+        };
+      });
+
     const interruptTurn: ClaudeAdapterShape["interruptTurn"] = (
       threadId,
       _turnId,
@@ -5780,11 +5823,13 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         supportsPluginMentions: false,
         supportsPluginDiscovery: false,
         supportsRuntimeModelList: true,
+        supportsTurnSteering: true,
         supportsLiveTurnDiffPatch: false,
       },
       startSession,
       verifyNativeResume,
       sendTurn,
+      steerTurn,
       interruptTurn,
       stopTask,
       backgroundTask,

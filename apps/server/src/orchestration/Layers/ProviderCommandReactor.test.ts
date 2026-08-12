@@ -4131,7 +4131,7 @@ describe("ProviderCommandReactor", () => {
     ).toBe(false);
   });
 
-  it("waits for a non-Codex interrupt terminal before promoting a durable steer", async () => {
+  it("waits for the exact interrupted OpenCode turn before promoting a durable steer", async () => {
     const harness = await createHarness({
       threadModelSelection: {
         provider: "opencode",
@@ -4165,6 +4165,18 @@ describe("ProviderCommandReactor", () => {
     await harness.drain();
 
     expect(harness.interruptTurn.mock.calls.length).toBe(1);
+    expect(harness.sendTurn).not.toHaveBeenCalled();
+
+    await harness.emitRuntimeEvent({
+      type: "turn.completed",
+      eventId: asEventId("evt-unrelated-opencode-turn-completed"),
+      provider: "opencode",
+      threadId: ThreadId.makeUnsafe("thread-1"),
+      createdAt: new Date().toISOString(),
+      turnId: asTurnId("turn-unrelated-child"),
+      payload: { state: "completed" },
+      providerRefs: {},
+    } as ProviderRuntimeEvent);
     expect(harness.sendTurn).not.toHaveBeenCalled();
 
     await harness.emitRuntimeEvent({
@@ -5276,7 +5288,7 @@ describe("ProviderCommandReactor", () => {
     });
   });
 
-  it("falls back to interrupt plus priority queue for claude steering", async () => {
+  it("steers a running claude turn natively without interrupting it", async () => {
     const harness = await createHarness({
       threadModelSelection: {
         provider: "claudeAgent",
@@ -5331,27 +5343,10 @@ describe("ProviderCommandReactor", () => {
       }),
     );
 
-    await harness.drain();
-    expect(harness.steerTurn).not.toHaveBeenCalled();
+    await waitFor(() => harness.steerTurn.mock.calls.length === 1);
     expect(harness.sendTurn).not.toHaveBeenCalled();
-    expect(harness.interruptTurn.mock.calls.length).toBe(1);
-
-    harness.setRuntimeSessionTurnState({ threadId: "thread-1", status: "ready" });
-    await harness.emitRuntimeEvent({
-      type: "turn.completed",
-      eventId: asEventId("evt-turn-completed-steer-claude"),
-      provider: "claudeAgent",
-      threadId: ThreadId.makeUnsafe("thread-1"),
-      createdAt: new Date().toISOString(),
-      turnId: asTurnId("turn-running"),
-      payload: {
-        state: "interrupted",
-      },
-      providerRefs: {},
-    } as ProviderRuntimeEvent);
-
-    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
-    expect(harness.sendTurn.mock.calls[0]?.[0]).toMatchObject({
+    expect(harness.interruptTurn).not.toHaveBeenCalled();
+    expect(harness.steerTurn.mock.calls[0]?.[0]).toMatchObject({
       threadId: ThreadId.makeUnsafe("thread-1"),
       input: "switch directions",
     });

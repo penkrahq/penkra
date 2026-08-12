@@ -26,6 +26,7 @@ import {
 } from "@penkra/shared/conversationEdit";
 import { Effect } from "effect";
 import { normalizeEntityName } from "@penkra/shared/entityNames";
+import { providerSupportsNativeTurnSteering } from "@penkra/shared/providerMetadata";
 
 import { OrchestrationCommandInvariantError } from "./Errors.ts";
 import { resolveStableMessageTurnId } from "./messageTurnId.ts";
@@ -1971,7 +1972,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       const shouldQueue =
         targetThread.parentThreadId === null &&
         hasTurnInFlight &&
-        (dispatchMode === "queue" || activeProvider !== "codex");
+        (dispatchMode === "queue" || !providerSupportsNativeTurnSteering(activeProvider));
       const queuedEvent: Omit<OrchestrationEvent, "sequence"> = {
         ...withEventBase({
           aggregateKind: "thread",

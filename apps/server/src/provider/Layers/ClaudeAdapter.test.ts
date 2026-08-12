@@ -1024,6 +1024,48 @@ describe("ClaudeAdapterLive", () => {
     );
   });
 
+  it.effect("steers a live turn through the prompt queue without opening a new turn", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const session = yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: "claudeAgent",
+        runtimeMode: "full-access",
+      });
+
+      const turn = yield* adapter.sendTurn({
+        threadId: session.threadId,
+        input: "Start the work",
+        attachments: [],
+      });
+      const steered = yield* adapter.steerTurn({
+        threadId: session.threadId,
+        input: "Actually, focus on the tests",
+        attachments: [],
+      });
+
+      assert.equal(String(steered.turnId), String(turn.turnId));
+
+      const createInput = harness.getLastCreateQueryInput();
+      const iterator = createInput?.prompt[Symbol.asyncIterator]();
+      const firstPrompt = yield* Effect.promise(() => iterator!.next());
+      const secondPrompt = yield* Effect.promise(() => iterator!.next());
+      const promptText = (message: IteratorResult<SDKUserMessage>): string | undefined => {
+        if (message.done) {
+          return undefined;
+        }
+        const content = message.value.message.content[0];
+        return typeof content === "string" || content?.type !== "text" ? undefined : content.text;
+      };
+      assert.equal(promptText(firstPrompt), "Start the work");
+      assert.equal(promptText(secondPrompt), "Actually, focus on the tests");
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
   it.effect("re-sends setPermissionMode on a second turn with the same desired mode", () => {
     const harness = makeHarness();
     return Effect.gen(function* () {

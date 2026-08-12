@@ -51,6 +51,7 @@ import {
   resolveTailUserMessageEditTarget,
 } from "@penkra/shared/conversationEdit";
 import { claudeSelectionRequiresRestart } from "@penkra/shared/model";
+import { providerSupportsNativeTurnSteering } from "@penkra/shared/providerMetadata";
 import {
   formatProviderDeliveryBlockDetail,
   PROVIDER_DELIVERY_BLOCK_SUMMARY,
@@ -488,12 +489,11 @@ const make = Effect.gen(function* () {
     pendingTerminalTurnIds?: Set<TurnId>;
   };
   const pendingQueuedDispatchBySessionThread = new Map<string, PendingQueuedDispatch>();
-  // Non-Codex steering interrupts the active turn, then promotes the steered
-  // message after that turn's terminal event. Some adapters clear their live
-  // turn marker before the terminal event reaches this reactor; without this
-  // barrier the queued-turn recovery path can promote in that gap and the old
-  // abort then tears down the newly starting turn.
-  const steerInterruptBarriers = new Set<string>();
+  // OpenCode steering interrupts the active turn, then promotes the steered
+  // message after that exact turn's terminal event. Binding the barrier to a
+  // turn prevents late parent or child events on the shared session from
+  // releasing it early.
+  const openCodeSteerInterruptBarriers = new Map<string, TurnId>();
   const queuedTurnPromotionOwner = `provider-queued-turn:${crypto.randomUUID()}`;
   // A pending-start interrupt is also delivered as its own durable intent.
   // Record cancellations completed by the start handler so that later intent
@@ -1916,19 +1916,21 @@ const make = Effect.gen(function* () {
       // The decider routes turn starts from the projected session, which can lag
       // the runtime: a message dispatched right as another turn begins (e.g. the
       // gap between a steer interrupt and the steered turn's start) would race a
-      // live provider turn. Codex steers ride the live turn natively; everything
-      // else re-queues and is promoted when the live turn settles.
+      // live provider turn. Providers with live-input steering ride the current
+      // turn; OpenCode re-queues and promotes after the interrupted turn settles.
       const providerName = thread.session?.providerName ?? thread.modelSelection.provider;
       const liveTurnId = yield* resolveLiveProviderTurnId(event.payload.threadId);
       const hasLiveTurn = liveTurnId !== undefined;
       // Steering is only meaningful against a live turn. The projection can
       // lag the runtime in the other direction too (turn already settled but
       // still projected as running), so recheck live state and dispatch a
-      // settled codex "steer" as a normal queued turn — the native steer path
+      // settled "steer" as a normal queued turn — the native steer path
       // would skip the turn-start checkpoint.
-      const isCodexSteer =
-        event.payload.dispatchMode === "steer" && providerName === "codex" && hasLiveTurn;
-      if (!isCodexSteer && hasLiveTurn) {
+      const isNativeSteer =
+        event.payload.dispatchMode === "steer" &&
+        providerSupportsNativeTurnSteering(providerName) &&
+        hasLiveTurn;
+      if (!isNativeSteer && hasLiveTurn) {
         yield* enqueueQueuedTurnStart(event);
         // The promotion raced another live turn and was re-queued. Release
         // only when that exact blocking turn settles, not on any late
@@ -1990,11 +1992,11 @@ const make = Effect.gen(function* () {
           ? { providerOptions: event.payload.providerOptions }
           : {}),
       }).pipe(Effect.forkScoped);
-      // Only a codex steer against a genuinely live turn keeps steer
+      // Only a native steer against a genuinely live turn keeps steer
       // semantics; anything else that reaches direct dispatch runs as a
       // normal queued turn (with its turn-start checkpoint).
       const immediateDispatchMode =
-        event.payload.dispatchMode === "steer" && !isCodexSteer
+        event.payload.dispatchMode === "steer" && !isNativeSteer
           ? "queue"
           : event.payload.dispatchMode;
       const editResendKey = editResendTurnStartKey(event.payload.threadId, event.payload.messageId);
@@ -2179,11 +2181,11 @@ const make = Effect.gen(function* () {
         const sessionThreadId = providerThread?.id ?? event.payload.threadId;
         const liveTurnId = yield* resolveLiveProviderTurnId(event.payload.threadId);
         const addedSteerInterruptBarrier =
-          providerName !== "codex" &&
+          providerName === "opencode" &&
           liveTurnId !== undefined &&
-          !steerInterruptBarriers.has(sessionThreadId);
+          !openCodeSteerInterruptBarriers.has(sessionThreadId);
         if (addedSteerInterruptBarrier) {
-          steerInterruptBarriers.add(sessionThreadId);
+          openCodeSteerInterruptBarriers.set(sessionThreadId, liveTurnId);
         }
         yield* providerThreadSwitchCoordinator
           .dispatchTurnStart({
@@ -2231,7 +2233,7 @@ const make = Effect.gen(function* () {
             Effect.onError(() =>
               Effect.sync(() => {
                 if (addedSteerInterruptBarrier) {
-                  steerInterruptBarriers.delete(sessionThreadId);
+                  openCodeSteerInterruptBarriers.delete(sessionThreadId);
                 }
               }),
             ),
@@ -2254,7 +2256,7 @@ const make = Effect.gen(function* () {
     }
     if (
       drainingQueuedTurns.has(threadId) ||
-      steerInterruptBarriers.has(sessionThreadId) ||
+      openCodeSteerInterruptBarriers.has(sessionThreadId) ||
       pendingQueuedDispatchBySessionThread.has(sessionThreadId)
     ) {
       return;
@@ -2382,7 +2384,19 @@ const make = Effect.gen(function* () {
     }
     const sessionThreadId =
       (yield* resolveProviderSessionThread(event.threadId))?.id ?? event.threadId;
-    steerInterruptBarriers.delete(sessionThreadId);
+    const interruptedOpenCodeTurnId = openCodeSteerInterruptBarriers.get(sessionThreadId);
+    if (interruptedOpenCodeTurnId !== undefined) {
+      if (event.turnId === undefined) {
+        if (yield* hasLiveProviderTurn(event.threadId)) {
+          return;
+        }
+        openCodeSteerInterruptBarriers.delete(sessionThreadId);
+      } else if (event.turnId !== interruptedOpenCodeTurnId) {
+        return;
+      } else {
+        openCodeSteerInterruptBarriers.delete(sessionThreadId);
+      }
+    }
     const reservation = pendingQueuedDispatchBySessionThread.get(sessionThreadId);
     if (reservation) {
       if (event.turnId === undefined) {
@@ -3051,7 +3065,7 @@ const make = Effect.gen(function* () {
     const stoppedSessionThreadId = providerThread?.id ?? thread.id;
     const stopsProviderSession = providerThread === null || providerThread.id === thread.id;
     const clearedQueuedThreadIds = new Set<ThreadId>([thread.id]);
-    steerInterruptBarriers.delete(stoppedSessionThreadId);
+    openCodeSteerInterruptBarriers.delete(stoppedSessionThreadId);
     if (stopsProviderSession) {
       for (const queuedThreadId of yield* queuedTurnPromotions.listPendingThreadIds) {
         const queuedThread = ThreadId.makeUnsafe(queuedThreadId);
