@@ -66,7 +66,16 @@ export function resolveRequiredAppsBundle(input: {
   }
 
   if (input.packaged) {
-    return resolveBundleCandidate(Path.join(input.resourcesPath, REQUIRED_APPS_BUNDLE_DIRECTORY));
+    return (
+      resolveBundleCandidate(Path.join(input.resourcesPath, REQUIRED_APPS_BUNDLE_DIRECTORY)) ??
+      resolveBundleCandidate(
+        Path.resolve(
+          input.desktopBundleDirectory,
+          "../prod-resources",
+          REQUIRED_APPS_BUNDLE_DIRECTORY,
+        ),
+      )
+    );
   }
 
   return resolveBundleCandidate(

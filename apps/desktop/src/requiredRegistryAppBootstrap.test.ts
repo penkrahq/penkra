@@ -88,6 +88,31 @@ describe("required registry Apps bootstrap", () => {
     }
   });
 
+  it("resolves the packaged-app fallback when electron-builder omits the extra resource", () => {
+    const root = FS.mkdtempSync(Path.join(OS.tmpdir(), "penkra-required-apps-"));
+    try {
+      const desktopBundleDirectory = Path.join(root, "apps/desktop/dist-electron");
+      const bundle = Path.join(root, "apps/desktop/prod-resources/required-apps");
+      FS.mkdirSync(bundle, { recursive: true });
+      FS.writeFileSync(Path.join(bundle, "apps.penkra"), "archive");
+      FS.writeFileSync(Path.join(bundle, "apps.lock.json"), "{}");
+
+      expect(
+        resolveRequiredAppsBundle({
+          resourcesPath: Path.join(root, "resources"),
+          desktopBundleDirectory,
+          packaged: true,
+        }),
+      ).toEqual({
+        kind: "archive",
+        archivePath: Path.join(bundle, "apps.penkra"),
+        lockPath: Path.join(bundle, "apps.lock.json"),
+      });
+    } finally {
+      FS.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("strictly validates the pinned release identity", () => {
     expect(
       parseRequiredAppsReleaseLock({
