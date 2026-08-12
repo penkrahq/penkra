@@ -57,14 +57,6 @@ export function resolveRequiredAppsBundle(input: {
   desktopBundleDirectory: string;
   packaged: boolean;
 }): RequiredAppsBundleSource | null {
-  const configured = input.configuredSourcePath?.trim();
-  if (configured) {
-    const resolved = Path.resolve(configured);
-    const configuredBundle = resolveBundleCandidate(resolved);
-    if (configuredBundle) return configuredBundle;
-    return null;
-  }
-
   if (input.packaged) {
     return (
       resolveBundleCandidate(Path.join(input.resourcesPath, REQUIRED_APPS_BUNDLE_DIRECTORY)) ??
@@ -72,6 +64,14 @@ export function resolveRequiredAppsBundle(input: {
         Path.join(input.desktopBundleDirectory, REQUIRED_APPS_BUNDLE_DIRECTORY),
       )
     );
+  }
+
+  const configured = input.configuredSourcePath?.trim();
+  if (configured) {
+    const resolved = Path.resolve(configured);
+    const configuredBundle = resolveBundleCandidate(resolved);
+    if (configuredBundle) return configuredBundle;
+    return null;
   }
 
   return resolveBundleCandidate(

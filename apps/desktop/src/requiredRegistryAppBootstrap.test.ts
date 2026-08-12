@@ -99,6 +99,7 @@ describe("required registry Apps bootstrap", () => {
 
       expect(
         resolveRequiredAppsBundle({
+          configuredSourcePath: Path.join(root, "missing-development-source"),
           resourcesPath: Path.join(root, "resources"),
           desktopBundleDirectory,
           packaged: true,
