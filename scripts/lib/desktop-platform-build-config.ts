@@ -18,7 +18,7 @@ export const PARCEL_WATCHER_ASAR_UNPACK_GLOBS = [
   "node_modules/@parcel/watcher-*/**",
 ] as const;
 export const REQUIRED_APPS_EXTRA_RESOURCE = {
-  from: "apps/desktop/resources/required-apps",
+  from: "apps/desktop/prod-resources/required-apps",
   to: "required-apps",
   filter: ["**/*"],
 } as const;

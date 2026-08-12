@@ -17,6 +17,14 @@ import { BRAND_ASSET_PATHS } from "./lib/brand-assets.ts";
 import { APP_DATA_USAGE_DESCRIPTION, APPLE_EVENTS_USAGE_DESCRIPTION } from "./lib/macos-privacy.ts";
 
 describe("createDesktopPlatformBuildConfig", () => {
+  it("copies the staged required Apps bundle from an ordinary packaged-app directory", () => {
+    assert.deepStrictEqual(REQUIRED_APPS_EXTRA_RESOURCE, {
+      from: "apps/desktop/prod-resources/required-apps",
+      to: "required-apps",
+      filter: ["**/*"],
+    });
+  });
+
   it("adds explicit privacy descriptions and main-process entitlements to macOS builds", () => {
     const config = createDesktopPlatformBuildConfig({
       platform: "mac",

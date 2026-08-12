@@ -961,7 +961,8 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   );
   yield* stagePlatformBuildResources(options.platform, stageResourcesDir, options.verbose);
 
-  // electron-builder is filtering out stageResourcesDir directory in the AppImage for production
+  // Copy staged build resources into an ordinary app directory so electron-builder can consume
+  // required Apps and native helpers through explicit extraResources entries on every platform.
   yield* fs.copy(stageResourcesDir, path.join(stageAppDir, "apps/desktop/prod-resources"));
 
   const codeSigned = options.signed || options.localSign;
