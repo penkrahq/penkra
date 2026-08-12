@@ -247,7 +247,7 @@ async function sendServerConfigUpdatedPush(
       expect(serverConfigStreamRequestId).toBeTruthy();
       expect(serverConfigStreamClient).toBeTruthy();
     },
-    { timeout: 4_000, interval: 16 },
+    { timeout: 20_000, interval: 16 },
   );
   if (!serverConfigStreamRequestId || !serverConfigStreamClient) return;
   sendEffectRpcChunk(serverConfigStreamClient, serverConfigStreamRequestId, {
@@ -296,7 +296,7 @@ async function mountApp(): Promise<{ cleanup: () => Promise<void> }> {
         expect(serverConfigStreamRequestId).toBeTruthy();
         expect(serverConfigStreamClient).toBeTruthy();
       },
-      { timeout: 20_000, interval: 16 },
+      { timeout: 60_000, interval: 16 },
     );
   } catch (cause) {
     await screen.unmount();

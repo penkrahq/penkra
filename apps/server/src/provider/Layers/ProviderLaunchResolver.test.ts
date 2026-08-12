@@ -232,7 +232,11 @@ it.effect("keeps the real OS home for a Connection-scoped Codex keyring", () =>
     });
     const environment = launch.childEnvironment({ HOME: "/Users/operator", PATH: "/usr/bin" });
 
-    assert.strictEqual(environment.HOME, "/Users/operator");
+    if (process.platform === "darwin") {
+      assert.strictEqual(environment.HOME, "/Users/operator");
+    } else {
+      assert.match(environment.HOME ?? "", /provider-connections/);
+    }
     assert.match(environment.CODEX_HOME ?? "", /provider-connections/);
     assert.match(environment.CODEX_SQLITE_HOME ?? "", /provider-native-state/);
   }).pipe(

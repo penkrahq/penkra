@@ -150,7 +150,7 @@ const MANIFESTS = new Map<ProviderKind, ProviderConnectionManifest>([
       // Claude stores OAuth credentials in the user's login Keychain on macOS.
       // The explicit secure-storage namespace below keeps each Connection
       // separate while the real OS home keeps that Keychain reachable.
-      preserveOsHome: true,
+      preserveOsHome: process.platform === "darwin",
       buildStateEnvironment: ({ profileRoot }) => ({
         isolation: {
           homePath: `${profileRoot}/home`,

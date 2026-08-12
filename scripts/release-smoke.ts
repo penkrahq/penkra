@@ -324,6 +324,14 @@ function verifyDesktopStageLockAuthority(): void {
   const buildScript = readFileSync(resolve(repoRoot, "scripts/build-desktop-artifact.ts"), "utf8");
   const desktopMain = readFileSync(resolve(repoRoot, "apps/desktop/src/main.ts"), "utf8");
   const gitAttributes = readFileSync(resolve(repoRoot, ".gitattributes"), "utf8");
+  const rootPackage = JSON.parse(readFileSync(resolve(repoRoot, "package.json"), "utf8")) as {
+    scripts?: Record<string, string>;
+  };
+  assertContains(
+    rootPackage.scripts?.["dist:desktop:artifact"] ?? "",
+    "bun scripts/build-desktop-artifact.ts",
+    "Desktop App packaging must use Bun so the embedded archive matches the published digest on every platform.",
+  );
   assertContains(
     gitAttributes,
     "bun.lock text eol=lf",

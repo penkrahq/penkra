@@ -148,7 +148,7 @@ function runBuildArtifactCommand(options: {
     args.push("--verbose");
   }
 
-  const result = spawnSync("node", args, {
+  const result = spawnSync("bun", args, {
     cwd: repoRoot,
     stdio: "inherit",
   });
