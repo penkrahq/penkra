@@ -230,6 +230,8 @@
         "@effect/language-service": "catalog:",
         "@effect/vitest": "catalog:",
         "@types/node": "catalog:",
+        "@types/semver": "^7.7.1",
+        "@types/yazl": "3.3.0",
         "typescript": "catalog:",
         "vitest": "catalog:",
       },
