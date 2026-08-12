@@ -8,10 +8,7 @@ vi.mock("electron", () => ({
 }));
 
 import type { SimulatorOwner } from "./simulatorManager";
-import {
-  invokeSimulatorViewerInput,
-  simulatorViewerDataUrl,
-} from "./simulatorViewer";
+import { invokeSimulatorViewerInput, simulatorViewerDataUrl } from "./simulatorViewer";
 
 const owner: SimulatorOwner = {
   appId: "com.penkra.simulator",
