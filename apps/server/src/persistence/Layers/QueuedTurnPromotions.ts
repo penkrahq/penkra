@@ -15,7 +15,9 @@ const columns = (sql: SqlClient.SqlClient) => sql`
   dispatch_mode AS "dispatchMode",
   state,
   claim_owner AS "claimOwner",
-  attempt_count AS "attemptCount"
+  attempt_count AS "attemptCount",
+  action_kind AS "actionKind",
+  action_event_id AS "actionEventId"
 `;
 
 const make = Effect.gen(function* () {
@@ -66,7 +68,9 @@ const make = Effect.gen(function* () {
         attempt_count = 0,
         created_at = excluded.created_at,
         updated_at = excluded.updated_at,
-        promoted_at = NULL
+        promoted_at = NULL,
+        action_kind = NULL,
+        action_event_id = NULL
       WHERE queued_turn_promotions.state IN ('promoted', 'cancelled')
         AND excluded.queued_event_sequence > queued_turn_promotions.queued_event_sequence
     `.pipe(Effect.asVoid, Effect.mapError(toPersistenceSqlError("QueuedTurnPromotion.enqueue")));
@@ -138,11 +142,49 @@ const make = Effect.gen(function* () {
       Effect.mapError(toPersistenceSqlError("QueuedTurnPromotion.releaseClaim")),
     );
 
+  const claimMessageAction: QueuedTurnPromotionRepositoryShape["claimMessageAction"] = (input) =>
+    sql
+      .withTransaction(
+        Effect.gen(function* () {
+          // Check the durable action identity first. A later generation may
+          // legitimately reuse the same message id after this row was
+          // cancelled; replaying the old action must never claim that newer
+          // active row.
+          const replay = yield* sql<QueuedTurnPromotion>`
+            SELECT ${columns(sql)}
+            FROM queued_turn_promotions
+            WHERE thread_id = ${input.threadId} AND message_id = ${input.messageId}
+              AND state = 'cancelled'
+              AND action_kind = ${input.actionKind}
+              AND action_event_id = ${input.actionEventId}
+            LIMIT 1
+          `;
+          if (replay[0]) {
+            return Option.some(replay[0]);
+          }
+          const claimed = yield* sql<QueuedTurnPromotion>`
+            UPDATE queued_turn_promotions
+            SET state = 'cancelled', claim_owner = NULL, claimed_at = NULL,
+                claim_expires_at = NULL, updated_at = ${input.updatedAt},
+                action_kind = ${input.actionKind}, action_event_id = ${input.actionEventId}
+            WHERE thread_id = ${input.threadId} AND message_id = ${input.messageId}
+              AND state IN ('queued', 'promoting')
+            RETURNING ${columns(sql)}
+          `;
+          if (claimed[0]) {
+            return Option.some(claimed[0]);
+          }
+          return Option.none();
+        }),
+      )
+      .pipe(Effect.mapError(toPersistenceSqlError("QueuedTurnPromotion.claimMessageAction")));
+
   const cancelMessage: QueuedTurnPromotionRepositoryShape["cancelMessage"] = (input) =>
     sql<{ readonly sequence: number }>`
       UPDATE queued_turn_promotions
       SET state = 'cancelled', claim_owner = NULL, claimed_at = NULL,
-          claim_expires_at = NULL, updated_at = ${input.updatedAt}
+          claim_expires_at = NULL, updated_at = ${input.updatedAt},
+          action_kind = NULL, action_event_id = NULL
       WHERE thread_id = ${input.threadId} AND message_id = ${input.messageId}
         AND state IN ('queued', 'promoting')
       RETURNING queued_event_sequence AS sequence
@@ -161,7 +203,8 @@ const make = Effect.gen(function* () {
     sql`
       UPDATE queued_turn_promotions
       SET state = 'cancelled', claim_owner = NULL, claimed_at = NULL,
-          claim_expires_at = NULL, updated_at = ${input.updatedAt}
+          claim_expires_at = NULL, updated_at = ${input.updatedAt},
+          action_kind = NULL, action_event_id = NULL
       WHERE thread_id = ${input.threadId} AND state IN ('queued', 'promoting')
     `.pipe(
       Effect.asVoid,
@@ -195,6 +238,7 @@ const make = Effect.gen(function* () {
     claimNext,
     markPromoted,
     releaseClaim,
+    claimMessageAction,
     cancelMessage,
     cancelThread,
     hasPendingMessage,

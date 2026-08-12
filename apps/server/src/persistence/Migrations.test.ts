@@ -298,10 +298,11 @@ managedAttachmentsLegacyLayer("managed attachment migration after private migrat
         [109, "ProviderRuntimeBindingSwitchOperations"],
         [110, "SettleProviderSwitchSource"],
         [111, "DerivedProviderConnectionLabels"],
+        [112, "QueuedTurnActionIdentity"],
       ]);
 
       const tracker = yield* trackerRows(sql);
-      assert.deepStrictEqual(tracker.slice(-48), [
+      assert.deepStrictEqual(tracker.slice(-49), [
         { migration_id: 54, name: "DurableProviderCommandDelivery" },
         { migration_id: 55, name: "ManagedAttachments" },
         { migration_id: 56, name: "CommandReceiptFingerprints" },
@@ -350,6 +351,7 @@ managedAttachmentsLegacyLayer("managed attachment migration after private migrat
         { migration_id: 109, name: "ProviderRuntimeBindingSwitchOperations" },
         { migration_id: 110, name: "SettleProviderSwitchSource" },
         { migration_id: 111, name: "DerivedProviderConnectionLabels" },
+        { migration_id: 112, name: "QueuedTurnActionIdentity" },
       ]);
       const preserved = yield* sql<{ readonly count: number }>`
         SELECT COUNT(*) AS count FROM orchestration_consumer_state
@@ -443,6 +445,7 @@ agentGatewayRetentionLegacyLayer(
           [109, "ProviderRuntimeBindingSwitchOperations"],
           [110, "SettleProviderSwitchSource"],
           [111, "DerivedProviderConnectionLabels"],
+          [112, "QueuedTurnActionIdentity"],
         ]);
 
         const columns = yield* sql<{ readonly name: string }>`
@@ -539,11 +542,12 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
         [109, "ProviderRuntimeBindingSwitchOperations"],
         [110, "SettleProviderSwitchSource"],
         [111, "DerivedProviderConnectionLabels"],
+        [112, "QueuedTurnActionIdentity"],
       ]);
 
       const tracker = yield* trackerRows(sql);
       assert.deepStrictEqual(
-        tracker.slice(-32).map((row) => [row.migration_id, row.name]),
+        tracker.slice(-33).map((row) => [row.migration_id, row.name]),
         [
           [70, "AgentGatewayOperations"],
           [71, "ProjectionThreadsGatewayProvenance"],
@@ -577,6 +581,7 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
           [109, "ProviderRuntimeBindingSwitchOperations"],
           [110, "SettleProviderSwitchSource"],
           [111, "DerivedProviderConnectionLabels"],
+          [112, "QueuedTurnActionIdentity"],
         ],
       );
 
@@ -670,11 +675,12 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
         [109, "ProviderRuntimeBindingSwitchOperations"],
         [110, "SettleProviderSwitchSource"],
         [111, "DerivedProviderConnectionLabels"],
+        [112, "QueuedTurnActionIdentity"],
       ]);
 
       const tracker = yield* trackerRows(sql);
       assert.deepStrictEqual(
-        tracker.slice(-29).map((row) => [row.migration_id, row.name]),
+        tracker.slice(-30).map((row) => [row.migration_id, row.name]),
         [
           [74, "Spaces"],
           [79, "Spaces"],
@@ -705,6 +711,7 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
           [109, "ProviderRuntimeBindingSwitchOperations"],
           [110, "SettleProviderSwitchSource"],
           [111, "DerivedProviderConnectionLabels"],
+          [112, "QueuedTurnActionIdentity"],
         ],
       );
       const preservedSpaces = yield* sql<{ readonly spaceId: string }>`

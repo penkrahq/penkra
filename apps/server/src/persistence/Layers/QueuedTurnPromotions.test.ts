@@ -11,6 +11,102 @@ const layer = it.layer(
 );
 
 layer("QueuedTurnPromotionRepository", (it) => {
+  it.effect("replays only the same durable queued-message action", () =>
+    Effect.gen(function* () {
+      const repository = yield* QueuedTurnPromotionRepository;
+      const sql = yield* SqlClient.SqlClient;
+      const now = "2026-08-12T00:00:00.000Z";
+      const rows = yield* sql<{ readonly sequence: number }>`
+        INSERT INTO orchestration_events (
+          event_id, aggregate_kind, stream_id, stream_version, event_type,
+          occurred_at, command_id, causation_event_id, correlation_id,
+          actor_kind, payload_json, metadata_json
+        ) VALUES (
+          'evt-action-source', 'thread', 'thread-action', 0,
+          'thread.turn-queued', ${now}, 'cmd-action-source',
+          NULL, NULL, 'server', '{}', '{}'
+        )
+        RETURNING sequence
+      `;
+      yield* repository.enqueue({
+        queuedEventSequence: rows[0]!.sequence,
+        threadId: "thread-action",
+        messageId: "message-action",
+        dispatchMode: "queue",
+        createdAt: now,
+      });
+
+      const first = yield* repository.claimMessageAction({
+        threadId: "thread-action",
+        messageId: "message-action",
+        actionKind: "steer",
+        actionEventId: "evt-steer-action",
+        updatedAt: now,
+      });
+      assert.deepInclude(first.pipe(Option.getOrThrow), {
+        state: "cancelled",
+        actionKind: "steer",
+        actionEventId: "evt-steer-action",
+      });
+
+      const replay = yield* repository.claimMessageAction({
+        threadId: "thread-action",
+        messageId: "message-action",
+        actionKind: "steer",
+        actionEventId: "evt-steer-action",
+        updatedAt: now,
+      });
+      assert.isTrue(Option.isSome(replay));
+
+      const unrelated = yield* repository.claimMessageAction({
+        threadId: "thread-action",
+        messageId: "message-action",
+        actionKind: "cancel",
+        actionEventId: "evt-cancel-action",
+        updatedAt: now,
+      });
+      assert.isTrue(Option.isNone(unrelated));
+
+      const nextRows = yield* sql<{ readonly sequence: number }>`
+        INSERT INTO orchestration_events (
+          event_id, aggregate_kind, stream_id, stream_version, event_type,
+          occurred_at, command_id, causation_event_id, correlation_id,
+          actor_kind, payload_json, metadata_json
+        ) VALUES (
+          'evt-action-source-next', 'thread', 'thread-action', 1,
+          'thread.turn-queued', ${now}, 'cmd-action-source-next',
+          NULL, NULL, 'server', '{}', '{}'
+        )
+        RETURNING sequence
+      `;
+      yield* repository.enqueue({
+        queuedEventSequence: nextRows[0]!.sequence,
+        threadId: "thread-action",
+        messageId: "message-action",
+        dispatchMode: "queue",
+        createdAt: now,
+      });
+
+      const oldReplayAfterNewGeneration = yield* repository.claimMessageAction({
+        threadId: "thread-action",
+        messageId: "message-action",
+        actionKind: "steer",
+        actionEventId: "evt-steer-action",
+        updatedAt: now,
+      });
+      assert.strictEqual(
+        oldReplayAfterNewGeneration.pipe(Option.getOrThrow).queuedEventSequence,
+        rows[0]!.sequence,
+      );
+      assert.isTrue(
+        yield* repository.hasPendingMessage({
+          threadId: "thread-action",
+          messageId: "message-action",
+        }),
+      );
+    }),
+  );
+
   it.effect(
     "preserves priority, reclaims foreign owners, and permits a later message generation",
     () =>

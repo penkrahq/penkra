@@ -4096,6 +4096,83 @@ describe("ProviderCommandReactor", () => {
     ).toBe(true);
   });
 
+  it("completes a queued cancellation after replaying across the post-claim failure window", async () => {
+    const harness = await createHarness();
+    const messageId = asMessageId("msg-cancel-replay-safe");
+    await seedQueuedTurnBehindLiveTurn(harness, {
+      liveTurnId: asTurnId("turn-live-during-cancel-replay"),
+      messageId,
+      text: "cancel me replay-safely",
+    });
+
+    const completionCommandIds: Array<string> = [];
+    harness.interceptEngineDispatch((command) => {
+      if (command.type !== "thread.turn.start.cancel.complete") {
+        return undefined;
+      }
+      completionCommandIds.push(command.commandId);
+      if (completionCommandIds.length === 1) {
+        return Effect.fail(
+          new OrchestrationCommandInvariantError({
+            commandType: command.type,
+            detail: "simulated process loss after durable action claim",
+          }),
+        );
+      }
+      return undefined;
+    });
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.cancel-queued",
+        commandId: CommandId.makeUnsafe("cmd-cancel-replay-safe"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        messageId,
+        createdAt: new Date().toISOString(),
+      }),
+    );
+    await waitFor(() => completionCommandIds.length === 1);
+    await waitFor(async () =>
+      Effect.runPromise(
+        harness.deliveryRepository
+          .firstBlockingDeliveryForThread({
+            consumerName: PROVIDER_COMMAND_REACTOR_CONSUMER,
+            threadId: "thread-1",
+          })
+          .pipe(Effect.map(Option.isSome)),
+      ),
+    );
+    const blocker = (
+      await Effect.runPromise(
+        harness.deliveryRepository.firstBlockingDeliveryForThread({
+          consumerName: PROVIDER_COMMAND_REACTOR_CONSUMER,
+          threadId: "thread-1",
+        }),
+      )
+    ).pipe(Option.getOrThrow);
+    await Effect.runPromise(
+      harness.reactor.reconcileDelivery({
+        eventSequence: blocker.eventSequence,
+        threadId: ThreadId.makeUnsafe(blocker.threadId),
+        expectedState: blocker.state === "dead" ? "dead" : "uncertain",
+        outcome: "safe_retry",
+        reconciledBy: "test",
+      }),
+    );
+
+    await waitFor(() => completionCommandIds.length === 2);
+    expect(completionCommandIds[1]).toBe(completionCommandIds[0]);
+    const events = Array.from(
+      await Effect.runPromise(Stream.runCollect(harness.engine.readEvents(0))),
+    );
+    expect(
+      events.filter(
+        (event) =>
+          event.type === "thread.turn-start-cancelled" && event.payload.messageId === messageId,
+      ),
+    ).toHaveLength(1);
+  });
+
   it("steers the active Codex turn with the exact durable queued message", async () => {
     const harness = await createHarness();
     const messageId = asMessageId("msg-steer-durable-queue");
@@ -4129,6 +4206,80 @@ describe("ProviderCommandReactor", () => {
         }),
       ),
     ).toBe(false);
+  });
+
+  it("steers exactly once after replaying across the post-claim failure window", async () => {
+    const harness = await createHarness();
+    const messageId = asMessageId("msg-steer-replay-safe");
+    await seedQueuedTurnBehindLiveTurn(harness, {
+      liveTurnId: asTurnId("turn-live-during-steer-replay"),
+      messageId,
+      text: "steer me replay-safely",
+    });
+    harness.steerTurn.mockClear();
+
+    const startCommandIds: Array<string> = [];
+    harness.interceptEngineDispatch((command) => {
+      if (command.type !== "thread.turn.start" || command.message.messageId !== messageId) {
+        return undefined;
+      }
+      startCommandIds.push(command.commandId);
+      if (startCommandIds.length === 1) {
+        return Effect.fail(
+          new OrchestrationCommandInvariantError({
+            commandType: command.type,
+            detail: "simulated process loss after durable action claim",
+          }),
+        );
+      }
+      return undefined;
+    });
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.steer-queued",
+        commandId: CommandId.makeUnsafe("cmd-steer-replay-safe"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        messageId,
+        createdAt: new Date().toISOString(),
+      }),
+    );
+    await waitFor(() => startCommandIds.length === 1);
+    await waitFor(async () =>
+      Effect.runPromise(
+        harness.deliveryRepository
+          .firstBlockingDeliveryForThread({
+            consumerName: PROVIDER_COMMAND_REACTOR_CONSUMER,
+            threadId: "thread-1",
+          })
+          .pipe(Effect.map(Option.isSome)),
+      ),
+    );
+    const blocker = (
+      await Effect.runPromise(
+        harness.deliveryRepository.firstBlockingDeliveryForThread({
+          consumerName: PROVIDER_COMMAND_REACTOR_CONSUMER,
+          threadId: "thread-1",
+        }),
+      )
+    ).pipe(Option.getOrThrow);
+    await Effect.runPromise(
+      harness.reactor.reconcileDelivery({
+        eventSequence: blocker.eventSequence,
+        threadId: ThreadId.makeUnsafe(blocker.threadId),
+        expectedState: blocker.state === "dead" ? "dead" : "uncertain",
+        outcome: "safe_retry",
+        reconciledBy: "test",
+      }),
+    );
+
+    await waitFor(() => harness.steerTurn.mock.calls.length === 1);
+    expect(startCommandIds).toHaveLength(2);
+    expect(startCommandIds[1]).toBe(startCommandIds[0]);
+    expect(harness.steerTurn.mock.calls[0]?.[0]).toMatchObject({
+      threadId: ThreadId.makeUnsafe("thread-1"),
+      input: "steer me replay-safely",
+    });
   });
 
   it("waits for the exact interrupted OpenCode turn before promoting a durable steer", async () => {

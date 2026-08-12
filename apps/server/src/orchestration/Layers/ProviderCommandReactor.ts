@@ -271,6 +271,9 @@ function attachmentTitleSeed(attachment: ChatAttachment | undefined): string {
 const serverCommandId = (tag: string): CommandId =>
   CommandId.makeUnsafe(`server:${tag}:${crypto.randomUUID()}`);
 
+const replaySafeServerCommandId = (tag: string, eventId: EventId): CommandId =>
+  CommandId.makeUnsafe(`server:${tag}:${eventId}`);
+
 const turnStartKeyForEvent = (event: ProviderIntentEvent): string =>
   event.commandId !== null ? `command:${event.commandId}` : `event:${event.eventId}`;
 
@@ -2104,27 +2107,20 @@ const make = Effect.gen(function* () {
       orchestrationEngine.readEventsThrough(Math.max(0, eventSequence - 1), eventSequence),
     ).pipe(Effect.map((events) => Array.from(events)[0]));
 
-  const cancelQueuedTurn = Effect.fnUntraced(function* (input: {
+  const claimQueuedTurnAction = Effect.fnUntraced(function* (input: {
     readonly threadId: ThreadId;
     readonly messageId: MessageId;
+    readonly actionKind: "cancel" | "steer";
+    readonly actionEventId: EventId;
     readonly createdAt: string;
   }) {
-    const pending = yield* queuedTurnPromotions.getPendingMessage({
+    return yield* queuedTurnPromotions.claimMessageAction({
       threadId: input.threadId,
       messageId: input.messageId,
-    });
-    if (Option.isNone(pending)) {
-      return Option.none();
-    }
-    const cancelled = yield* queuedTurnPromotions.cancelMessage({
-      threadId: input.threadId,
-      messageId: input.messageId,
+      actionKind: input.actionKind,
+      actionEventId: input.actionEventId,
       updatedAt: input.createdAt,
     });
-    if (!cancelled) {
-      return Option.none();
-    }
-    return pending;
   });
 
   const processQueuedTurnCancelRequested = (
@@ -2133,13 +2129,17 @@ const make = Effect.gen(function* () {
     withProviderSessionLease(
       event.payload.threadId,
       Effect.gen(function* () {
-        const pending = yield* cancelQueuedTurn(event.payload);
+        const pending = yield* claimQueuedTurnAction({
+          ...event.payload,
+          actionKind: "cancel",
+          actionEventId: event.eventId,
+        });
         if (Option.isNone(pending)) {
           return;
         }
         yield* orchestrationEngine.dispatch({
           type: "thread.turn.start.cancel.complete",
-          commandId: serverCommandId("queued-turn-cancel-complete"),
+          commandId: replaySafeServerCommandId("queued-turn-cancel-complete", event.eventId),
           threadId: event.payload.threadId,
           messageId: event.payload.messageId,
           createdAt: event.payload.createdAt,
@@ -2153,7 +2153,11 @@ const make = Effect.gen(function* () {
     withProviderSessionLease(
       event.payload.threadId,
       Effect.gen(function* () {
-        const pending = yield* cancelQueuedTurn(event.payload);
+        const pending = yield* claimQueuedTurnAction({
+          ...event.payload,
+          actionKind: "steer",
+          actionEventId: event.eventId,
+        });
         if (Option.isNone(pending)) {
           return;
         }
@@ -2191,7 +2195,7 @@ const make = Effect.gen(function* () {
           .dispatchTurnStart({
             command: {
               type: "thread.turn.start",
-              commandId: serverCommandId("steer-queued-turn"),
+              commandId: replaySafeServerCommandId("steer-queued-turn", event.eventId),
               threadId: sourceEvent.payload.threadId,
               message: {
                 messageId: sourceEvent.payload.messageId,
