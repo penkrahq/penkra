@@ -34,12 +34,15 @@ import { ServerAuth } from "./auth/Services/ServerAuth";
 import * as SqlitePersistence from "./persistence/Layers/Sqlite";
 import { makeServerApplicationLayers } from "./serverLayers";
 import { startServerMemoryDiagnostics } from "./memoryDiagnostics";
-import { startClaudeCredentialKeepalive } from "./provider/claudeCredentialKeepalive";
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
 import { ProviderSessionReaperLive } from "./provider/Layers/ProviderSessionReaper";
 import { ProviderRuntimeReconcilerLive } from "./provider/Layers/ProviderRuntimeReconciler";
 import { ProviderHealth } from "./provider/Services/ProviderHealth";
 import { startAutomaticProviderUpdates } from "./provider/providerUpdateCoordinator";
+import { ProviderInstallationRepository } from "./persistence/Services/ProviderInstallations";
+import { ProviderConnectionLifecycle } from "./provider/Services/ProviderConnectionLifecycle";
+import { ProviderConnectionLoginCoordinator } from "./provider/Services/ProviderConnectionLoginCoordinator";
+import { ProviderNativeStateDeletionCoordinator } from "./provider/Services/ProviderNativeStateDeletionCoordinator";
 import { Server } from "./effectServer";
 import { ServerLoggerLive } from "./serverLogger";
 import { ServerSettingsService } from "./serverSettings";
@@ -383,6 +386,10 @@ const makeServerProgram = (input: CliInput) => {
     const serverAuth = yield* ServerAuth;
     const serverSettings = yield* ServerSettingsService;
     const providerHealth = yield* ProviderHealth;
+    const installationRepository = yield* ProviderInstallationRepository;
+    const providerConnectionLifecycle = yield* ProviderConnectionLifecycle;
+    const providerConnectionLoginCoordinator = yield* ProviderConnectionLoginCoordinator;
+    const providerNativeStateDeletionCoordinator = yield* ProviderNativeStateDeletionCoordinator;
     yield* cliConfig.fixPath;
 
     const config = yield* ServerConfig;
@@ -398,6 +405,9 @@ const makeServerProgram = (input: CliInput) => {
     }
 
     const orchestrationEngine = yield* OrchestrationEngineService;
+    yield* providerNativeStateDeletionCoordinator.recover;
+    yield* providerConnectionLifecycle.recover;
+    yield* providerConnectionLoginCoordinator.recover;
     yield* ensureDefaultSpaces(orchestrationEngine);
     const startedServer = yield* start;
 
@@ -429,27 +439,9 @@ const makeServerProgram = (input: CliInput) => {
       projectionSnapshotQuery,
       serverSettings,
       config,
+      installationRepository,
     });
     yield* Effect.forkChild(recordStartupHeartbeat);
-    // Optional Claude OAuth keepalive. Disabled by default because it touches
-    // Claude Code auth data in the background; users can opt in with
-    // PENKRA_CLAUDE_KEEPALIVE=1.
-    yield* Effect.forkChild(
-      Effect.gen(function* () {
-        const settings = yield* serverSettings.getSettings;
-        if (settings.providers.claudeAgent.enabled === false) {
-          return;
-        }
-        yield* Effect.sync(() =>
-          startClaudeCredentialKeepalive({
-            binaryPath: settings.providers.claudeAgent.binaryPath,
-            homeDir: config.homeDir,
-            log: (message) => Effect.runFork(Effect.logInfo(message)),
-          }),
-        );
-      }),
-    );
-
     yield* Effect.logInfo("Penkra running", makeServerStartupLogData(config));
     if (startupPairingUrl) {
       if (config.allowInsecureRemote && !config.publicUrl) {

@@ -1,8 +1,8 @@
 import {
   CommandId,
-  DEFAULT_PROVIDER_INTERACTION_MODE,
   EventId,
   MessageId,
+  ProviderConnectionId,
   ContainerId,
   ThreadId,
   TurnId,
@@ -19,6 +19,7 @@ import { projectEvent } from "./projector.ts";
 
 const NOW = "2026-07-19T00:00:00.000Z";
 const THREAD_ID = ThreadId.makeUnsafe("thread-checkpoint-revert");
+const CONNECTION_ID = ProviderConnectionId.makeUnsafe("connection-checkpoint-revert");
 
 const ACTIVE_TURN_ERROR =
   "Thread 'thread-checkpoint-revert' has an active turn. Interrupt the current turn before reverting checkpoints.";
@@ -43,18 +44,15 @@ function makeReadModel(input: {
           provider: "codex",
           model: "gpt-5-codex",
         },
-        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
         runtimeMode: "full-access",
         branch: null,
         worktreePath: null,
         createdAt: NOW,
         updatedAt: NOW,
         latestTurn: input.latestTurn ?? null,
-        handoff: null,
         messages: [],
         session: input.session === undefined ? null : input.session,
         activities: [],
-        proposedPlans: [],
         checkpoints: [],
         deletedAt: null,
       },
@@ -116,7 +114,6 @@ describe("checkpoint revert decider", () => {
             text: "start work",
             attachments: [],
           },
-          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
           runtimeMode: "full-access",
           createdAt: NOW,
         },
@@ -184,7 +181,6 @@ describe("checkpoint revert decider", () => {
               text: "race the revert",
               attachments: [],
             },
-            interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
             runtimeMode: "full-access",
             createdAt: NOW,
           },
@@ -247,7 +243,6 @@ describe("checkpoint revert decider", () => {
               text: "must remain blocked",
               attachments: [],
             },
-            interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
             runtimeMode: "full-access",
             createdAt: NOW,
           },
@@ -288,7 +283,8 @@ describe("checkpoint revert decider", () => {
             threadId: THREAD_ID,
             messageId: MessageId.makeUnsafe("message-during-revert"),
             text: "edited",
-            interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+            connectionId: CONNECTION_ID,
+            bindingRevision: 0,
             runtimeMode: "full-access",
             createdAt: NOW,
           },
@@ -360,7 +356,6 @@ describe("checkpoint revert decider", () => {
             text: "original",
             attachments: [],
           },
-          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
           runtimeMode: "full-access",
           createdAt: NOW,
         },
@@ -392,7 +387,8 @@ describe("checkpoint revert decider", () => {
           threadId: THREAD_ID,
           messageId: MessageId.makeUnsafe("message-to-edit"),
           text: "edited",
-          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          connectionId: CONNECTION_ID,
+          bindingRevision: 0,
           runtimeMode: "full-access",
           createdAt: NOW,
         },

@@ -310,6 +310,12 @@ export function supportsThreadCompaction(
   return capabilities?.supportsThreadCompaction === true;
 }
 
+export function supportsThreadFork(
+  capabilities: ProviderComposerCapabilities | undefined,
+): boolean {
+  return capabilities?.supportsThreadFork === true;
+}
+
 export function supportsThreadImport(
   capabilities: ProviderComposerCapabilities | undefined,
 ): boolean {

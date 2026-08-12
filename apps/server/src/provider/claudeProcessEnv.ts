@@ -141,7 +141,11 @@ export function buildClaudeProcessEnv(input?: {
     input?.hasClaudeCliCredentials ?? hasUsableClaudeCliCredentials(credentialInput);
 
   if (!hasLocalClaudeAuth || hasClaudeExternalAuthEnv(env)) {
-    return buildProviderChildEnvironment({ provider: "claude", baseEnv: env });
+    return buildProviderChildEnvironment({
+      provider: "claude",
+      baseEnv: env,
+      managedConnection: false,
+    });
   }
 
   // Claude gives direct request credentials precedence over local OAuth. Drop stale
@@ -149,5 +153,9 @@ export function buildClaudeProcessEnv(input?: {
   for (const key of CLAUDE_DIRECT_CREDENTIAL_ENV_KEYS) {
     delete env[key];
   }
-  return buildProviderChildEnvironment({ provider: "claude", baseEnv: env });
+  return buildProviderChildEnvironment({
+    provider: "claude",
+    baseEnv: env,
+    managedConnection: false,
+  });
 }

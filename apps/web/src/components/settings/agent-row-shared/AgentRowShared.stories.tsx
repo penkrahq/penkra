@@ -18,4 +18,4 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 export const Claude: Story = {};
-export const Codex: Story = { args: { label: "Codex", provider: "codex" } };
+export const ChatGPT: Story = { args: { label: "ChatGPT", provider: "codex" } };

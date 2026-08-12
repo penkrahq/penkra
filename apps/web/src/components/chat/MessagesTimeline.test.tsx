@@ -1,7 +1,7 @@
 // FILE: MessagesTimeline.test.tsx
 // Purpose: Covers transcript row rendering and SSR-safe presentation contracts.
 // Layer: Web chat component tests
-// Depends on: renderToStaticMarkup and a mocked LegendList.
+// Depends on: renderToStaticMarkup and a mocked transcript virtualizer.
 
 import { CheckpointRef, MessageId, ThreadId, TurnId } from "@penkra/contracts";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -12,27 +12,27 @@ import { COLLAPSED_USER_MESSAGE_MAX_CHARS } from "./userMessageCollapse";
 
 const TOOLTIP_TRIGGER_MARKER = 'data-base-ui-tooltip-trigger=""';
 
-vi.mock("@legendapp/list/react", async () => {
+vi.mock("./TranscriptVirtualList", async () => {
   const React = await import("react");
 
-  const LegendList = React.forwardRef(function MockLegendList(
+  const TranscriptVirtualList = React.forwardRef(function MockTranscriptVirtualList(
     props: {
       data: Array<{ id: string }>;
       keyExtractor: (item: { id: string }) => string;
-      renderItem: (args: { item: { id: string } }) => React.ReactNode;
+      renderItem: (item: { id: string }) => React.ReactNode;
     },
     _ref: React.ForwardedRef<unknown>,
   ) {
     return (
-      <div data-testid="legend-list">
+      <div data-testid="transcript-virtual-list">
         {props.data.map((item) => (
-          <div key={props.keyExtractor(item)}>{props.renderItem({ item })}</div>
+          <div key={props.keyExtractor(item)}>{props.renderItem(item)}</div>
         ))}
       </div>
     );
   });
 
-  return { LegendList };
+  return { TranscriptVirtualList };
 });
 
 // Baseline MessagesTimeline props shared across render tests; spread the
@@ -99,6 +99,44 @@ beforeAll(() => {
 });
 
 describe("MessagesTimeline", () => {
+  it("renders Connection and model changes as the designed transcript event", async () => {
+    const { TimelineWorkEntryRow } = await import("./TimelineWorkEntryRow");
+    const markup = renderToStaticMarkup(
+      <div>
+        {[
+          {
+            id: "connection-changed",
+            createdAt: "2026-03-17T19:12:28.000Z",
+            label: "Connection changed to Work",
+            tone: "info" as const,
+            activityKind: "connection-changed",
+          },
+          {
+            id: "model-changed",
+            createdAt: "2026-03-17T19:12:29.000Z",
+            label: "Model changed to Claude Sonnet 5",
+            tone: "info" as const,
+            activityKind: "model-changed",
+          },
+        ].map((workEntry) => (
+          <TimelineWorkEntryRow
+            key={workEntry.id}
+            workEntry={workEntry}
+            chatMetaFontSizePx={12}
+            markdownCwd={undefined}
+            onImageExpand={() => {}}
+          />
+        ))}
+      </div>,
+    );
+
+    expect(markup).toContain('data-transcript-selection-event="connection-changed"');
+    expect(markup).toContain('data-transcript-selection-event="model-changed"');
+    expect(markup).toContain("Connection changed to Work");
+    expect(markup).toContain("Model changed to Claude Sonnet 5");
+    expect(markup).toContain("New messages use this selection. Earlier messages are unchanged.");
+  }, 10_000);
+
   it("keeps small transcripts on the simple non-virtualized path", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(

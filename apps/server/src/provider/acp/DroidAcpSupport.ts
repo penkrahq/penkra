@@ -54,7 +54,6 @@ const DROID_MODEL_CONFIG_ID = "model";
 const DROID_REASONING_EFFORT_CONFIG_ID = "reasoning_effort";
 const DROID_AUTONOMY_CONFIG_ID = "autonomy_level";
 const DROID_DEFAULT_MODE_ID = "normal";
-const DROID_PLAN_MODE_ID = "spec";
 
 const DROID_API_KEY_AUTH_METHOD_ID = "factory-api-key";
 const DROID_DEVICE_PAIRING_AUTH_METHOD_ID = "device-pairing";
@@ -203,19 +202,13 @@ export function applyDroidAcpModelSelection<E>(input: {
   });
 }
 
-/** Applies Droid's native read-only spec mode before a Plan-mode prompt is dispatched. */
+/** Applies Droid's native execution mode for the selected runtime policy. */
 export function applyDroidAcpInteractionMode<E>(input: {
   readonly runtime: Pick<AcpSessionRuntimeShape, "setConfigOption" | "setMode">;
-  readonly interactionMode?: "default" | "plan";
   readonly runtimeMode?: "approval-required" | "full-access";
   readonly mapError: (context: DroidAcpModeSelectionErrorContext) => E;
 }): Effect.Effect<void, E> {
-  const modeId =
-    input.interactionMode === "plan"
-      ? DROID_PLAN_MODE_ID
-      : input.runtimeMode === "full-access"
-        ? "auto-high"
-        : DROID_DEFAULT_MODE_ID;
+  const modeId = input.runtimeMode === "full-access" ? "auto-high" : DROID_DEFAULT_MODE_ID;
   return input.runtime.setMode(modeId).pipe(
     // Older Droid ACP builds exposed the autonomy selector without a modes block.
     Effect.catch(() => input.runtime.setConfigOption(DROID_AUTONOMY_CONFIG_ID, modeId)),

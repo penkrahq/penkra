@@ -10,7 +10,6 @@ import { pluralize } from "@penkra/shared/text";
 import { createThreadSelector } from "../storeSelectors";
 import { useStore } from "../store";
 import { resolveSubagentPresentationForThread } from "../lib/subagentPresentation";
-import { resolveThreadHandoffBadgeLabel } from "../lib/threadHandoff";
 import { SIDEBAR_ROW_LABEL_TEXT_CLASS_NAME } from "../sidebarRowStyles";
 import type { SidebarThreadSummary } from "../types";
 import { TerminalIcon } from "../lib/icons";
@@ -35,8 +34,6 @@ function ProviderAvatarWithTerminal({
   terminalCount: number;
 }) {
   const provider = thread.session?.provider ?? thread.modelSelection.provider;
-  const handoffSourceProvider = thread.handoff?.sourceProvider ?? null;
-  const handoffTooltip = resolveThreadHandoffBadgeLabel(thread);
   const showBadge = terminalCount > 1 || terminalStatus !== null;
   const badgeTooltip =
     terminalCount > 1
@@ -44,39 +41,15 @@ function ProviderAvatarWithTerminal({
       : (terminalStatus?.label ?? "Terminal open");
   const badgeColorClass = terminalStatus?.colorClass ?? "text-muted-foreground/55";
 
-  const hasHandoff = Boolean(handoffSourceProvider);
-  const containerClass = hasHandoff
-    ? "relative inline-flex h-3 w-4.5 shrink-0 items-center"
-    : "relative inline-flex size-3 shrink-0 items-center justify-center";
-
-  const avatarNode = hasHandoff ? (
-    <span className={containerClass}>
-      <span className="sidebar-icon-chip absolute left-0 top-1/2 inline-flex size-3 -translate-y-1/2 items-center justify-center rounded-full">
-        <ProviderIcon provider={handoffSourceProvider!} className="size-2" />
-      </span>
-      <span className="sidebar-icon-chip absolute right-0 top-1/2 z-10 inline-flex size-3 -translate-y-1/2 items-center justify-center rounded-full">
-        <ProviderIcon provider={provider} className="size-2" />
-      </span>
-    </span>
-  ) : (
-    <span className={containerClass}>
+  const avatarNode = (
+    <span className="relative inline-flex size-3 shrink-0 items-center justify-center">
       <ProviderIcon provider={provider} className="size-3" />
     </span>
   );
 
-  const wrappedAvatar =
-    hasHandoff && handoffTooltip ? (
-      <Tooltip>
-        <TooltipTrigger render={avatarNode} />
-        <TooltipPopup side="top">{handoffTooltip}</TooltipPopup>
-      </Tooltip>
-    ) : (
-      avatarNode
-    );
-
   return (
     <span className="relative inline-flex shrink-0 items-center">
-      {wrappedAvatar}
+      {avatarNode}
       {showBadge ? (
         <Tooltip>
           <TooltipTrigger

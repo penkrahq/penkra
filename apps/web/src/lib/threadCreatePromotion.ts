@@ -37,11 +37,21 @@ export function isDuplicateThreadCreateError(error: unknown, threadId: ThreadId)
 async function recoverPromotedThreadFromShellSnapshot(
   api: NativeApi,
   threadId: ThreadId,
+  minimumSnapshotSequence?: number,
 ): Promise<boolean> {
   const snapshot = await api.orchestration.getShellSnapshot();
+  if (
+    minimumSnapshotSequence !== undefined &&
+    snapshot.snapshotSequence < minimumSnapshotSequence
+  ) {
+    return false;
+  }
   useStore.getState().syncServerShellSnapshot(snapshot);
-  markPromotedDraftThreads(new Set(snapshot.threads.map((thread) => thread.id)));
-  return getThreadFromState(useStore.getState(), threadId) !== null;
+  const recovered = getThreadFromState(useStore.getState(), threadId) !== null;
+  if (recovered) {
+    markPromotedDraftThreads(new Set([threadId]));
+  }
+  return recovered;
 }
 
 async function dispatchPromoteThreadCreate(
@@ -54,23 +64,33 @@ async function dispatchPromoteThreadCreate(
     return "exists";
   }
 
+  let receipt: Awaited<ReturnType<NativeApi["orchestration"]["dispatchCommand"]>>;
   try {
-    await api.orchestration.dispatchCommand(command);
-    markPromotedDraftThreads(new Set([command.threadId]));
-    return "created";
+    receipt = await api.orchestration.dispatchCommand(command);
   } catch (error) {
-    if (!isDuplicateThreadCreateError(error, command.threadId)) {
-      throw error;
-    }
+    // A transport failure can arrive after the server committed thread.create.
+    // Confirm authoritative state before deciding the create failed or retrying it.
     try {
       if (await recoverPromotedThreadFromShellSnapshot(api, command.threadId)) {
         return "exists";
       }
     } catch {
-      // Keep the original duplicate-create failure visible if recovery cannot confirm success.
+      // Preserve the original failure if authoritative recovery is unavailable.
     }
     throw error;
   }
+
+  const installed = await recoverPromotedThreadFromShellSnapshot(
+    api,
+    command.threadId,
+    receipt.sequence,
+  );
+  if (!installed) {
+    throw new Error(
+      `Accepted thread.create for '${command.threadId}' was not present in the authoritative shell snapshot.`,
+    );
+  }
+  return "created";
 }
 
 export async function promoteThreadCreate(

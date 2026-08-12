@@ -29,7 +29,6 @@ function threadShell(overrides: Partial<OrchestrationThreadShell> = {}): Orchest
     title: "Runtime reconciliation",
     modelSelection: { provider: "codex", model: "gpt-5.6" },
     runtimeMode: "full-access",
-    interactionMode: "default",
     branch: null,
     worktreePath: null,
     associatedWorktreePath: null,
@@ -47,7 +46,6 @@ function threadShell(overrides: Partial<OrchestrationThreadShell> = {}): Orchest
     subagentNickname: null,
     subagentRole: null,
     forkSourceThreadId: null,
-    sidechatSourceThreadId: null,
     lastKnownPr: null,
     latestTurn: {
       turnId: OLD_TURN_ID,
@@ -60,7 +58,6 @@ function threadShell(overrides: Partial<OrchestrationThreadShell> = {}): Orchest
     createdAt: "2026-07-23T19:00:00.000Z",
     updatedAt: "2026-07-23T20:00:00.000Z",
     archivedAt: null,
-    handoff: null,
     session: {
       threadId: THREAD_ID,
       status: "running",

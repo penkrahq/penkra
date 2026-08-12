@@ -51,13 +51,8 @@ export function providerStartOptionsFromServerSettings(
 ): ProviderStartOptions {
   const { providers } = settings;
   return {
-    codex: {
-      ...(providers.codex.binaryPath ? { binaryPath: providers.codex.binaryPath } : {}),
-      ...(providers.codex.homePath ? { homePath: providers.codex.homePath } : {}),
-    },
-    claudeAgent: {
-      ...(providers.claudeAgent.binaryPath ? { binaryPath: providers.claudeAgent.binaryPath } : {}),
-    },
+    codex: {},
+    claudeAgent: {},
     cursor: {
       ...(providers.cursor.binaryPath ? { binaryPath: providers.cursor.binaryPath } : {}),
       ...(providers.cursor.apiEndpoint ? { apiEndpoint: providers.cursor.apiEndpoint } : {}),
@@ -76,8 +71,6 @@ export function providerStartOptionsFromServerSettings(
       ...(providers.kilo.serverUrl ? { serverUrl: providers.kilo.serverUrl } : {}),
     },
     opencode: {
-      ...(providers.opencode.binaryPath ? { binaryPath: providers.opencode.binaryPath } : {}),
-      ...(providers.opencode.serverUrl ? { serverUrl: providers.opencode.serverUrl } : {}),
       experimentalWebSockets: providers.opencode.experimentalWebSockets,
     },
     pi: {

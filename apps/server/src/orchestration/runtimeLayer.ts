@@ -3,6 +3,8 @@ import { Layer } from "effect";
 import { OrchestrationCommandReceiptRepositoryLive } from "../persistence/Layers/OrchestrationCommandReceipts";
 import { OrchestrationEventStoreLive } from "../persistence/Layers/OrchestrationEventStore";
 import { ManagedAttachmentRepositoryLive } from "../persistence/Layers/ManagedAttachments";
+import { ThreadProviderBindingRepositoryLive } from "../persistence/Layers/ThreadProviderBindings";
+import { ProviderThreadSwitchOperationRepositoryLive } from "../persistence/Layers/ProviderThreadSwitchOperations";
 import { OrchestrationEngineLive } from "./Layers/OrchestrationEngine";
 import { OrchestrationProjectionPipelineLive } from "./Layers/ProjectionPipeline";
 import { OrchestrationProjectionSnapshotQueryLive } from "./Layers/ProjectionSnapshotQuery";
@@ -26,5 +28,11 @@ export const OrchestrationInfrastructureLayerLive = Layer.mergeAll(
 
 export const OrchestrationLayerLive = Layer.mergeAll(
   OrchestrationInfrastructureLayerLive,
-  OrchestrationEngineLive.pipe(Layer.provide(OrchestrationInfrastructureLayerLive)),
+  ThreadProviderBindingRepositoryLive,
+  ProviderThreadSwitchOperationRepositoryLive,
+  OrchestrationEngineLive.pipe(
+    Layer.provide(OrchestrationInfrastructureLayerLive),
+    Layer.provide(ThreadProviderBindingRepositoryLive),
+    Layer.provide(ProviderThreadSwitchOperationRepositoryLive),
+  ),
 );

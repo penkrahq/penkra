@@ -1,9 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 
 import {
   disableRawComputerUsePluginServer,
   linkOrCopyCodexOverlayEntry,
   prioritizeCodexOverlayEntries,
+  prepareManagedCodexProfileConfig,
   removeReservedPenkraMcpServer,
 } from "./codexProcessEnv";
 
@@ -65,6 +69,47 @@ describe("prioritizeCodexOverlayEntries", () => {
 });
 
 describe("Codex provider configuration", () => {
+  it("inherits user tools while replacing only the managed gateway", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "penkra-managed-codex-config-"));
+    try {
+      const codexHome = path.join(root, "connection", "codex-home");
+      const sourceHomePath = path.join(root, "global");
+      const sourceConfigPath = path.join(sourceHomePath, "config.toml");
+      const sourceConfig = [
+        '[plugins."browser@openai-bundled"]',
+        "enabled = true",
+        "",
+        "[mcp_servers.pencil]",
+        'command = "/Applications/Pen.app/Contents/MacOS/pencil-mcp"',
+        "",
+        "[mcp_servers.penkra]",
+        'url = "https://stale.example.test/mcp"',
+      ].join("\n");
+      await mkdir(sourceHomePath, { recursive: true });
+      await writeFile(sourceConfigPath, sourceConfig);
+      await prepareManagedCodexProfileConfig({
+        env: { CODEX_HOME: codexHome },
+        sourceHomePath,
+        appendConfigToml: [
+          "[mcp_servers.penkra]",
+          'url = "http://127.0.0.1:4321/mcp"',
+          'bearer_token_env_var = "PENKRA_AGENT_GATEWAY_TOKEN"',
+        ].join("\n"),
+      });
+      const config = await readFile(path.join(codexHome, "config.toml"), "utf8");
+      expect(config).toContain('[plugins."browser@openai-bundled"]');
+      expect(config).toContain("[mcp_servers.pencil]");
+      expect(config).toContain("[mcp_servers.penkra]");
+      expect(config).toContain('url = "http://127.0.0.1:4321/mcp"');
+      expect(config).not.toContain("https://stale.example.test/mcp");
+      expect(config).toContain('exclude = ["PENKRA_AGENT_GATEWAY_TOKEN"]');
+
+      expect(await readFile(sourceConfigPath, "utf8")).toBe(sourceConfig);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("removes only Penkra's reserved gateway entry", () => {
     const config = [
       'model = "gpt-5"',

@@ -23,6 +23,14 @@ import type { Connection } from "effect/unstable/sql/SqlConnection";
 import { SqlError } from "effect/unstable/sql/SqlError";
 import * as Statement from "effect/unstable/sql/Statement";
 
+import {
+  isFatalSqliteDatabaseError,
+  isSqliteCorruptionError,
+  isSqliteIoError,
+} from "./SqliteSafety.ts";
+
+export { isSqliteCorruptionError, isSqliteIoError } from "./SqliteSafety.ts";
+
 const ATTR_DB_SYSTEM_NAME = "db.system.name";
 
 export const TypeId: TypeId = "~local/sqlite-node/SqliteClient";
@@ -45,7 +53,7 @@ export interface SqliteClientConfig {
   readonly spanAttributes?: Record<string, unknown> | undefined;
   readonly transformResultNames?: ((str: string) => string) | undefined;
   readonly transformQueryNames?: ((str: string) => string) | undefined;
-  /** Called once when SQLite reports a connection-invalidating I/O failure. */
+  /** Called once when SQLite reports connection-invalidating corruption or I/O failure. */
   readonly onFatalError?: ((cause: unknown) => void) | undefined;
 }
 
@@ -76,28 +84,6 @@ const checkNodeSqliteCompat = () => {
   return Effect.void;
 };
 
-const SQLITE_PRIMARY_CODE_MASK = 0xff;
-const SQLITE_IOERR = 10;
-
-/** Uses SQLite's numeric result code; error messages never participate. */
-export function isSqliteIoError(cause: unknown): boolean {
-  const seen = new Set<unknown>();
-  let current: unknown = cause;
-  while (current && typeof current === "object" && !seen.has(current)) {
-    seen.add(current);
-    const errcode = (current as { readonly errcode?: unknown }).errcode;
-    if (
-      typeof errcode === "number" &&
-      Number.isInteger(errcode) &&
-      (errcode & SQLITE_PRIMARY_CODE_MASK) === SQLITE_IOERR
-    ) {
-      return true;
-    }
-    current = (current as { readonly cause?: unknown }).cause;
-  }
-  return false;
-}
-
 const makeWithDatabase = (
   options: SqliteClientConfig,
   openDatabase: () => DatabaseSync,
@@ -123,7 +109,7 @@ const makeWithDatabase = (
       const makeSqlError = (cause: unknown, message: string): SqlError => {
         if (fatalSqlError !== null) return fatalSqlError;
         const error = new SqlError({ cause, message });
-        if (isSqliteIoError(cause)) {
+        if (isFatalSqliteDatabaseError(cause)) {
           fatalSqlError = error;
           options.onFatalError?.(cause);
         }

@@ -270,7 +270,6 @@ describe("makeDispatchCommandNormalizer", () => {
               ],
             },
             runtimeMode: "full-access",
-            interactionMode: "default",
             createdAt: "2026-01-01T00:00:00.000Z",
           } satisfies Extract<ClientOrchestrationCommand, { type: "thread.turn.start" }>,
         }),

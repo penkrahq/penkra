@@ -9,7 +9,24 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const desktopDir = resolve(__dirname, "..");
 const require = createRequire(import.meta.url);
 const electronBin = require("electron");
-const mainJs = resolve(desktopDir, "dist-electron/main.js");
+const mainJs = resolve(desktopDir, "dist-electron/entry.js");
+const preloadFiles = ["preload.js", "appPreload.js", "simulatorViewerPreload.js"];
+
+for (const preloadFile of preloadFiles) {
+  const preloadPath = resolve(desktopDir, "dist-electron", preloadFile);
+  if (!existsSync(preloadPath)) {
+    throw new Error(`Desktop preload output is missing: ${preloadFile}`);
+  }
+  const source = readFileSync(preloadPath, "utf8");
+  const relativeModuleLoad =
+    /\brequire\(\s*["']\.\.?\//.test(source) || /\bimport\(\s*["']\.\.?\//.test(source);
+  if (relativeModuleLoad) {
+    throw new Error(
+      `Desktop preload output must be self-contained for Electron sandboxing: ${preloadFile}`,
+    );
+  }
+}
+
 const smokeRoot = mkdtempSync(resolve(tmpdir(), "penkra-desktop-smoke-"));
 mkdirSync(resolve(smokeRoot, "workspace"));
 const smokeEnvironment = {

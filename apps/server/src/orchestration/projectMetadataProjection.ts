@@ -15,7 +15,6 @@ export const PROJECT_METADATA_SNAPSHOT_PROJECTORS = [
   "projection.projects",
   "projection.threads",
   "projection.thread-messages",
-  "projection.thread-proposed-plans",
   "projection.thread-activities",
   "projection.thread-sessions",
   "projection.checkpoints",

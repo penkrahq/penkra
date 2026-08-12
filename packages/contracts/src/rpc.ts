@@ -7,33 +7,26 @@ import { FilesystemBrowseInput, FilesystemBrowseResult } from "./filesystem";
 import { StudioListThreadOutputsInput, StudioListThreadOutputsResult } from "./studio";
 import {
   GitCheckoutInput,
-  GitActionProgressEvent,
   GitCreateBranchInput,
   GitCreateDetachedWorktreeInput,
   GitCreateDetachedWorktreeResult,
   GitCreateWorktreeInput,
   GitCreateWorktreeResult,
-  GitHubRepositoryInput,
-  GitHubRepositoryResult,
-  GitHandoffThreadInput,
-  GitHandoffThreadResult,
-  GitInitInput,
+  GitSwitchThreadEnvironmentInput,
+  GitSwitchThreadEnvironmentResult,
   GitListBranchesInput,
   GitListBranchesResult,
   GitPreparePullRequestThreadInput,
   GitPreparePullRequestThreadResult,
-  GitPullInput,
   GitPullRequestRefInput,
   GitPullRequestSnapshotInput,
   GitPullRequestSnapshotResult,
-  GitPullResult,
   GitReadWorkingTreeDiffInput,
   GitReadWorkingTreeDiffResult,
   GitWorkingTreeDiffStatsResult,
   GitRemoveIndexLockInput,
   GitRemoveWorktreeInput,
   GitResolvePullRequestResult,
-  GitRunStackedActionInput,
   GitStageFilesInput,
   GitStageFilesResult,
   GitStashAndCheckoutInput,
@@ -42,8 +35,6 @@ import {
   GitStashInfoResult,
   GitStatusInput,
   GitStatusResult,
-  GitSummarizeDiffInput,
-  GitSummarizeDiffResult,
   GitUnstageFilesInput,
   GitUnstageFilesResult,
 } from "./git";
@@ -74,6 +65,19 @@ import {
   OrchestrationThreadStreamItem,
 } from "./orchestration";
 import { ProviderCompactThreadInput } from "./provider";
+import {
+  CreateStaticProviderConnectionInput,
+  BeginProviderConnectionLoginInput,
+  GetProviderConnectionLoginInput,
+  ProviderConnectionLoginSnapshot,
+  ProviderConnection,
+  ProviderConnectionsSnapshot,
+  ProviderConnectionsSnapshotInput,
+  SetSpaceConnectionDefaultInput,
+  TerminateProviderConnectionInput,
+  ThreadProviderBindingSnapshot,
+  ThreadProviderBindingSnapshotInput,
+} from "./providerConnections";
 import {
   ProviderGetComposerCapabilitiesInput,
   ProviderComposerCapabilities,
@@ -119,8 +123,6 @@ import {
   ServerConfig,
   ServerConfigStreamEvent,
   ServerDiagnosticsResult,
-  ServerGenerateThreadRecapInput,
-  ServerGenerateThreadRecapResult,
   ServerGetEnvironmentResult,
   ServerGetProviderUsageSnapshotInput,
   ServerGetProviderUsageSnapshotResult,
@@ -419,12 +421,6 @@ export const WsGitStatusRpc = Rpc.make(WS_METHODS.gitStatus, {
   error: WsRpcError,
 });
 
-export const WsGitGithubRepositoryRpc = Rpc.make(WS_METHODS.gitGithubRepository, {
-  payload: GitHubRepositoryInput,
-  success: GitHubRepositoryResult,
-  error: WsRpcError,
-});
-
 export const WsGitReadWorkingTreeDiffRpc = Rpc.make(WS_METHODS.gitReadWorkingTreeDiff, {
   payload: GitReadWorkingTreeDiffInput,
   success: GitReadWorkingTreeDiffResult,
@@ -435,25 +431,6 @@ export const WsGitWorkingTreeDiffStatsRpc = Rpc.make(WS_METHODS.gitWorkingTreeDi
   payload: GitReadWorkingTreeDiffInput,
   success: GitWorkingTreeDiffStatsResult,
   error: WsRpcError,
-});
-
-export const WsGitSummarizeDiffRpc = Rpc.make(WS_METHODS.gitSummarizeDiff, {
-  payload: GitSummarizeDiffInput,
-  success: GitSummarizeDiffResult,
-  error: WsRpcError,
-});
-
-export const WsGitPullRpc = Rpc.make(WS_METHODS.gitPull, {
-  payload: GitPullInput,
-  success: GitPullResult,
-  error: WsRpcError,
-});
-
-export const WsGitRunStackedActionRpc = Rpc.make(WS_METHODS.gitRunStackedAction, {
-  payload: GitRunStackedActionInput,
-  success: GitActionProgressEvent,
-  error: WsRpcError,
-  stream: true,
 });
 
 export const WsGitResolvePullRequestRpc = Rpc.make(WS_METHODS.gitResolvePullRequest, {
@@ -583,12 +560,6 @@ export const WsGitRemoveIndexLockRpc = Rpc.make(WS_METHODS.gitRemoveIndexLock, {
   error: WsRpcError,
 });
 
-export const WsGitInitRpc = Rpc.make(WS_METHODS.gitInit, {
-  payload: GitInitInput,
-  success: Schema.Void,
-  error: WsRpcError,
-});
-
 export const WsGitStageFilesRpc = Rpc.make(WS_METHODS.gitStageFiles, {
   payload: GitStageFilesInput,
   success: GitStageFilesResult,
@@ -601,9 +572,9 @@ export const WsGitUnstageFilesRpc = Rpc.make(WS_METHODS.gitUnstageFiles, {
   error: WsRpcError,
 });
 
-export const WsGitHandoffThreadRpc = Rpc.make(WS_METHODS.gitHandoffThread, {
-  payload: GitHandoffThreadInput,
-  success: GitHandoffThreadResult,
+export const WsGitSwitchThreadEnvironmentRpc = Rpc.make(WS_METHODS.gitSwitchThreadEnvironment, {
+  payload: GitSwitchThreadEnvironmentInput,
+  success: GitSwitchThreadEnvironmentResult,
   error: WsRpcError,
 });
 
@@ -767,12 +738,6 @@ export const WsServerTranscribeVoiceRpc = Rpc.make(WS_METHODS.serverTranscribeVo
   error: WsRpcError,
 });
 
-export const WsServerGenerateThreadRecapRpc = Rpc.make(WS_METHODS.serverGenerateThreadRecap, {
-  payload: ServerGenerateThreadRecapInput,
-  success: ServerGenerateThreadRecapResult,
-  error: WsRpcError,
-});
-
 export const WsServerUpsertKeybindingRpc = Rpc.make(WS_METHODS.serverUpsertKeybinding, {
   payload: KeybindingRule,
   success: ServerUpsertKeybindingResult,
@@ -867,6 +832,48 @@ export const WsProviderListAgentsRpc = Rpc.make(WS_METHODS.providerListAgents, {
   error: WsRpcError,
 });
 
+export const WsProviderGetConnectionsRpc = Rpc.make(WS_METHODS.providerGetConnections, {
+  payload: ProviderConnectionsSnapshotInput,
+  success: ProviderConnectionsSnapshot,
+  error: WsRpcError,
+});
+export const WsProviderGetThreadBindingRpc = Rpc.make(WS_METHODS.providerGetThreadBinding, {
+  payload: ThreadProviderBindingSnapshotInput,
+  success: ThreadProviderBindingSnapshot,
+  error: WsRpcError,
+});
+export const WsProviderCreateStaticConnectionRpc = Rpc.make(
+  WS_METHODS.providerCreateStaticConnection,
+  { payload: CreateStaticProviderConnectionInput, success: ProviderConnection, error: WsRpcError },
+);
+export const WsProviderBeginConnectionLoginRpc = Rpc.make(WS_METHODS.providerBeginConnectionLogin, {
+  payload: BeginProviderConnectionLoginInput,
+  success: ProviderConnectionLoginSnapshot,
+  error: WsRpcError,
+});
+export const WsProviderGetConnectionLoginRpc = Rpc.make(WS_METHODS.providerGetConnectionLogin, {
+  payload: GetProviderConnectionLoginInput,
+  success: ProviderConnectionLoginSnapshot,
+  error: WsRpcError,
+});
+export const WsProviderCancelConnectionLoginRpc = Rpc.make(
+  WS_METHODS.providerCancelConnectionLogin,
+  {
+    payload: GetProviderConnectionLoginInput,
+    success: ProviderConnectionLoginSnapshot,
+    error: WsRpcError,
+  },
+);
+export const WsProviderTerminateConnectionRpc = Rpc.make(WS_METHODS.providerTerminateConnection, {
+  payload: TerminateProviderConnectionInput,
+  success: ProviderConnection,
+  error: WsRpcError,
+});
+export const WsProviderSetSpaceDefaultConnectionRpc = Rpc.make(
+  WS_METHODS.providerSetSpaceDefaultConnection,
+  { payload: SetSpaceConnectionDefaultInput, success: Schema.Void, error: WsRpcError },
+);
+
 export const WsBootstrapRpcGroup = RpcGroup.make(WsBootstrapNegotiateRpc);
 
 export const WsFeatureRpcGroup = RpcGroup.make(
@@ -901,13 +908,9 @@ export const WsFeatureRpcGroup = RpcGroup.make(
   WsStudioListThreadOutputsRpc,
   WsFilesystemBrowseRpc,
   WsShellOpenInEditorRpc,
-  WsGitGithubRepositoryRpc,
   WsGitStatusRpc,
   WsGitReadWorkingTreeDiffRpc,
   WsGitWorkingTreeDiffStatsRpc,
-  WsGitSummarizeDiffRpc,
-  WsGitPullRpc,
-  WsGitRunStackedActionRpc,
   WsGitResolvePullRequestRpc,
   WsGitPullRequestSnapshotRpc,
   WsGitPreparePullRequestThreadRpc,
@@ -928,10 +931,9 @@ export const WsFeatureRpcGroup = RpcGroup.make(
   WsGitStashDropRpc,
   WsGitStashInfoRpc,
   WsGitRemoveIndexLockRpc,
-  WsGitInitRpc,
   WsGitStageFilesRpc,
   WsGitUnstageFilesRpc,
-  WsGitHandoffThreadRpc,
+  WsGitSwitchThreadEnvironmentRpc,
   WsTerminalOpenRpc,
   WsTerminalWriteRpc,
   WsTerminalAckOutputRpc,
@@ -957,7 +959,6 @@ export const WsFeatureRpcGroup = RpcGroup.make(
   WsStatsGetProfileTokenStatsRpc,
   WsServerGetDiagnosticsRpc,
   WsServerTranscribeVoiceRpc,
-  WsServerGenerateThreadRecapRpc,
   WsServerUpsertKeybindingRpc,
   WsSubscribeServerLifecycleRpc,
   WsSubscribeServerConfigRpc,
@@ -972,6 +973,14 @@ export const WsFeatureRpcGroup = RpcGroup.make(
   WsProviderReadPluginRpc,
   WsProviderListModelsRpc,
   WsProviderListAgentsRpc,
+  WsProviderGetConnectionsRpc,
+  WsProviderGetThreadBindingRpc,
+  WsProviderCreateStaticConnectionRpc,
+  WsProviderBeginConnectionLoginRpc,
+  WsProviderGetConnectionLoginRpc,
+  WsProviderCancelConnectionLoginRpc,
+  WsProviderTerminateConnectionRpc,
+  WsProviderSetSpaceDefaultConnectionRpc,
 );
 
 /** @deprecated Use WsFeatureRpcGroup. Bootstrap is intentionally a separate endpoint/group. */

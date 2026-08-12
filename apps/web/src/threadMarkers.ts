@@ -1,6 +1,6 @@
 // FILE: threadMarkers.ts
 // Purpose: Web helpers for per-thread text markers.
-// Layer: Chat transcript selection actions and Environment panel.
+// Layer: Chat transcript selection actions.
 
 import {
   THREAD_MARKER_LABEL_MAX_CHARS,

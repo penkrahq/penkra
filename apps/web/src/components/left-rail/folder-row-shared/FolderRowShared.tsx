@@ -18,6 +18,15 @@ export interface FolderRowSharedProps extends Omit<
   workStatus?: WorkStatus;
 }
 
+export function FolderRowLeading(props: { expanded?: boolean; pinned?: boolean }) {
+  return (
+    <span className="relative inline-flex size-3.5 items-center justify-center">
+      <FolderStateIcon open={props.expanded ?? false} />
+      {props.pinned ? <PinBadgeShared /> : null}
+    </span>
+  );
+}
+
 export function FolderRowShared({
   children = "penut",
   actionLabel,
@@ -45,12 +54,7 @@ export function FolderRowShared({
           (state === "focus" || state === "error") &&
             "bg-[var(--color-background-button-secondary-hover)] text-[var(--color-text-foreground)]",
         )}
-        leading={
-          <span className="relative inline-flex size-3.5 items-center justify-center">
-            <FolderStateIcon open={expanded} />
-            {pinned ? <PinBadgeShared /> : null}
-          </span>
-        }
+        leading={<FolderRowLeading expanded={expanded} pinned={pinned} />}
         leadingClassName="size-3.5"
         data-pinned={pinned ? "true" : undefined}
         data-work-status={workStatus}

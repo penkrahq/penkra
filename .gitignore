@@ -5,6 +5,7 @@ node_modules
 *.log
 *.tsbuildinfo
 apps/*/dist
+apps/desktop/resources/native/penkra-speech-transcriber
 .astro
 packages/*/dist
 .env
@@ -28,7 +29,9 @@ apps/web/src/components/__screenshots__
 __screenshots__/
 .tanstack
 /.pi/
+/.penkra/
 /.tmp/
+/.release-inputs/
 /.qa-artifacts/
 /~/
 /bootstrap.js
@@ -39,3 +42,4 @@ __screenshots__/
 /browser-sidebar-comment-preload.js.map
 /preload.js.map
 /bootstrap.js.map
+/apps/desktop/.penkra/

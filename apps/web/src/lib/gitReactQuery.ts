@@ -1,10 +1,7 @@
 import type {
-  GitHandoffThreadInput,
+  GitSwitchThreadEnvironmentInput,
   GitReadWorkingTreeDiffInput,
-  GitStackedAction,
-  ModelSelection,
   NativeApi,
-  ProviderStartOptions,
 } from "@penkra/contracts";
 import { mutationOptions, queryOptions, type QueryClient } from "@tanstack/react-query";
 import { ensureNativeApi } from "../nativeApi";
@@ -24,7 +21,6 @@ export const gitQueryKeys = {
   all: ["git"] as const,
   statuses: ["git", "status"] as const,
   pullRequests: ["git", "pull-request"] as const,
-  githubRepository: (cwd: string | null) => ["git", "github-repository", cwd] as const,
   status: (cwd: string | null) => ["git", "status", cwd] as const,
   branches: (cwd: string | null) => ["git", "branches", cwd] as const,
   pullRequest: (cwd: string | null) => ["git", "pull-request", cwd] as const,
@@ -38,41 +34,20 @@ export const gitQueryKeys = {
     cwd: string | null,
     scope: GitReadWorkingTreeDiffInput["scope"] = "workingTree",
   ) => ["git", "working-tree-diff", cwd, scope, "stats"] as const,
-  diffSummary: (
-    cacheScope: string | null,
-    model: string | null,
-    modelSelectionKey: string | null,
-    codexHomePath: string | null,
-    providerOptionsKey: string | null,
-    patchKey: string | null,
-  ) =>
-    [
-      "git",
-      "diff-summary",
-      cacheScope,
-      model,
-      modelSelectionKey,
-      codexHomePath,
-      providerOptionsKey,
-      patchKey,
-    ] as const,
 };
 
 export const gitMutationKeys = {
-  init: (cwd: string | null) => ["git", "mutation", "init", cwd] as const,
   checkout: (cwd: string | null) => ["git", "mutation", "checkout", cwd] as const,
-  runStackedAction: (cwd: string | null) => ["git", "mutation", "run-stacked-action", cwd] as const,
-  pull: (cwd: string | null) => ["git", "mutation", "pull", cwd] as const,
   preparePullRequestThread: (cwd: string | null) =>
     ["git", "mutation", "prepare-pull-request-thread", cwd] as const,
-  handoffThread: (cwd: string | null) => ["git", "mutation", "handoff-thread", cwd] as const,
+  switchThreadEnvironment: (cwd: string | null) =>
+    ["git", "mutation", "switch-thread-environment", cwd] as const,
   stageFiles: (cwd: string | null) => ["git", "mutation", "stage-files", cwd] as const,
   unstageFiles: (cwd: string | null) => ["git", "mutation", "unstage-files", cwd] as const,
 };
 
 export function invalidateGitQueries(queryClient: QueryClient) {
   return Promise.all([
-    queryClient.invalidateQueries({ queryKey: ["git", "github-repository"] as const }),
     queryClient.invalidateQueries({ queryKey: gitQueryKeys.statuses }),
     queryClient.invalidateQueries({ queryKey: ["git", "branches"] as const }),
     queryClient.invalidateQueries({ queryKey: ["git", "working-tree-diff"] as const }),
@@ -85,7 +60,6 @@ export function invalidateGitQueriesForCwds(queryClient: QueryClient, cwds: Iter
   const uniqueCwds = [...new Set([...cwds].filter((cwd) => cwd.length > 0))];
   return Promise.all(
     uniqueCwds.flatMap((cwd) => [
-      queryClient.invalidateQueries({ queryKey: gitQueryKeys.githubRepository(cwd) }),
       queryClient.invalidateQueries({ queryKey: gitQueryKeys.status(cwd) }),
       queryClient.invalidateQueries({ queryKey: gitQueryKeys.branches(cwd) }),
       queryClient.invalidateQueries({ queryKey: ["git", "working-tree-diff", cwd] as const }),
@@ -107,21 +81,6 @@ export function gitStatusQueryOptions(cwd: string | null, enabled = true) {
     refetchOnWindowFocus: true,
     refetchOnReconnect: "always",
     refetchInterval: GIT_STATUS_REFETCH_INTERVAL_MS,
-  });
-}
-
-export function gitGithubRepositoryQueryOptions(cwd: string | null, enabled = true) {
-  return queryOptions({
-    queryKey: gitQueryKeys.githubRepository(cwd),
-    queryFn: async () => {
-      const api = ensureNativeApi();
-      if (!cwd) throw new Error("GitHub repository is unavailable.");
-      return api.git.githubRepository({ cwd });
-    },
-    enabled: enabled && cwd !== null,
-    staleTime: 5 * 60_000,
-    refetchOnWindowFocus: false,
-    refetchOnReconnect: true,
   });
 }
 
@@ -161,8 +120,8 @@ export function gitResolvePullRequestQueryOptions(input: {
   });
 }
 
-// Refresh cadence for the Environment panel PR section: cheap enough to poll while the
-// panel is open, and event-based git invalidation covers pushes from this client.
+// Refresh cadence for pull-request detail surfaces; event-based git invalidation covers
+// pushes from this client.
 const GIT_PR_SNAPSHOT_STALE_TIME_MS = 30_000;
 const GIT_PR_SNAPSHOT_REFETCH_INTERVAL_MS = 60_000;
 
@@ -295,17 +254,6 @@ function makeGitMutationOptions<TArgs, TResult>(config: {
   });
 }
 
-export function gitInitMutationOptions(input: { cwd: string | null; queryClient: QueryClient }) {
-  return makeGitMutationOptions<void, void>({
-    cwd: input.cwd,
-    queryClient: input.queryClient,
-    mutationKey: gitMutationKeys.init(input.cwd),
-    unavailableMessage: "Git init is unavailable.",
-    invalidateOn: "success",
-    run: (api, cwd) => api.git.init({ cwd }),
-  });
-}
-
 export function gitStageFilesMutationOptions(input: {
   cwd: string | null;
   queryClient: QueryClient;
@@ -337,54 +285,6 @@ export function gitUnstageFilesMutationOptions(input: {
       if (paths.length === 0) throw new Error("No files selected to unstage.");
       return api.git.unstageFiles({ cwd, paths: [...paths] });
     },
-  });
-}
-
-export function gitRunStackedActionMutationOptions(input: {
-  cwd: string | null;
-  queryClient: QueryClient;
-  model?: string | null;
-  modelSelection?: ModelSelection | null;
-  codexHomePath?: string | null;
-  providerOptions?: ProviderStartOptions | null;
-}) {
-  return makeGitMutationOptions<
-    {
-      actionId: string;
-      action: GitStackedAction;
-      commitMessage?: string;
-      featureBranch?: boolean;
-      filePaths?: string[];
-    },
-    Awaited<ReturnType<NativeApi["git"]["runStackedAction"]>>
-  >({
-    cwd: input.cwd,
-    queryClient: input.queryClient,
-    mutationKey: gitMutationKeys.runStackedAction(input.cwd),
-    unavailableMessage: "Git action is unavailable.",
-    run: (api, cwd, { actionId, action, commitMessage, featureBranch, filePaths }) =>
-      api.git.runStackedAction({
-        actionId,
-        cwd,
-        action,
-        ...(commitMessage ? { commitMessage } : {}),
-        ...(featureBranch ? { featureBranch } : {}),
-        ...(filePaths ? { filePaths } : {}),
-        ...(input.codexHomePath ? { codexHomePath: input.codexHomePath } : {}),
-        ...(input.model ? { textGenerationModel: input.model } : {}),
-        ...(input.modelSelection ? { textGenerationModelSelection: input.modelSelection } : {}),
-        ...(input.providerOptions ? { providerOptions: input.providerOptions } : {}),
-      }),
-  });
-}
-
-export function gitPullMutationOptions(input: { cwd: string | null; queryClient: QueryClient }) {
-  return makeGitMutationOptions<void, Awaited<ReturnType<NativeApi["git"]["pull"]>>>({
-    cwd: input.cwd,
-    queryClient: input.queryClient,
-    mutationKey: gitMutationKeys.pull(input.cwd),
-    unavailableMessage: "Git pull is unavailable.",
-    run: (api, cwd) => api.git.pull({ cwd }),
   });
 }
 
@@ -472,18 +372,18 @@ export function gitPreparePullRequestThreadMutationOptions(input: {
   });
 }
 
-export function gitHandoffThreadMutationOptions(input: {
+export function gitSwitchThreadEnvironmentMutationOptions(input: {
   cwd: string | null;
   queryClient: QueryClient;
 }) {
   return makeGitMutationOptions<
-    Omit<GitHandoffThreadInput, "cwd">,
-    Awaited<ReturnType<NativeApi["git"]["handoffThread"]>>
+    Omit<GitSwitchThreadEnvironmentInput, "cwd">,
+    Awaited<ReturnType<NativeApi["git"]["switchThreadEnvironment"]>>
   >({
     cwd: input.cwd,
     queryClient: input.queryClient,
-    mutationKey: gitMutationKeys.handoffThread(input.cwd),
-    unavailableMessage: "Git handoff is unavailable.",
-    run: (api, cwd, request) => api.git.handoffThread({ cwd, ...request }),
+    mutationKey: gitMutationKeys.switchThreadEnvironment(input.cwd),
+    unavailableMessage: "Git environment switch is unavailable.",
+    run: (api, cwd, request) => api.git.switchThreadEnvironment({ cwd, ...request }),
   });
 }

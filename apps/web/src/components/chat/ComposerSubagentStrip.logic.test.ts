@@ -423,7 +423,6 @@ describe("deriveComposerSubagentStripItems", () => {
         title: "Subagent task",
         modelSelection: { provider: "claudeAgent", model: "sonnet" },
         runtimeMode: "full-access",
-        interactionMode: "default",
         session: {
           provider: "claudeAgent",
           status: "ready",
@@ -432,7 +431,6 @@ describe("deriveComposerSubagentStripItems", () => {
           orchestrationStatus: "idle",
         },
         messages: [],
-        proposedPlans: [],
         error: null,
         createdAt: "2026-07-14T00:00:01.000Z",
         latestTurn: null,
@@ -558,7 +556,6 @@ describe("deriveComposerSubagentStripItems", () => {
       title: "Subagent task",
       modelSelection: { provider: "claudeAgent", model: "sonnet" },
       runtimeMode: "full-access",
-      interactionMode: "default",
       session: {
         provider: "claudeAgent",
         status: "running",
@@ -567,7 +564,6 @@ describe("deriveComposerSubagentStripItems", () => {
         orchestrationStatus: "running",
       },
       messages: [],
-      proposedPlans: [],
       error: null,
       createdAt: "2026-07-14T00:00:01.000Z",
       latestTurn: null,

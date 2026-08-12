@@ -22,6 +22,20 @@ export interface ThreadRowSharedProps extends Omit<
   workStatus?: ThreadWorkStatus;
 }
 
+export function ThreadRowLeading(props: { harness?: ProviderKind | "github"; pinned?: boolean }) {
+  const harness = props.harness ?? "claudeAgent";
+  return (
+    <span className="relative inline-flex size-3.5 items-center justify-center">
+      {harness === "github" ? (
+        <FaGithub aria-hidden className="size-3.5" />
+      ) : (
+        <ProviderIcon className="size-3.5" provider={harness} />
+      )}
+      {props.pinned ? <PinBadgeShared /> : null}
+    </span>
+  );
+}
+
 export function ThreadRowShared({
   children = "Main",
   className,
@@ -43,16 +57,7 @@ export function ThreadRowShared({
           "bg-[var(--color-background-button-secondary-hover)] text-[var(--color-text-foreground)]",
         className,
       )}
-      leading={
-        <span className="relative inline-flex size-3.5 items-center justify-center">
-          {harness === "github" ? (
-            <FaGithub aria-hidden className="size-3.5" />
-          ) : (
-            <ProviderIcon className="size-3.5" provider={harness} />
-          )}
-          {pinned ? <PinBadgeShared /> : null}
-        </span>
-      }
+      leading={<ThreadRowLeading harness={harness} pinned={pinned} />}
       leadingClassName="size-3.5"
       data-pinned={pinned ? "true" : undefined}
       data-thread-level={level}

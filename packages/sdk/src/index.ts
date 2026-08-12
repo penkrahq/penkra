@@ -50,6 +50,7 @@ export {
 export {
   operations,
   browser,
+  simulator,
   contextMenu,
   permissions,
   identity,
@@ -57,8 +58,6 @@ export {
   settings,
   files,
   network,
-  sockets,
-  processes,
   secrets,
   tab,
   type AppIdentity,
@@ -81,3 +80,18 @@ export {
   type AppTabOperationHandler,
   type PenkraAppRuntimeApi,
 } from "./runtime";
+export {
+  type AppSimulatorButton,
+  type AppSimulatorCreateDeviceInput,
+  type AppSimulatorDeviceType,
+  type AppSimulatorEnvironment,
+  type AppSimulatorFormFactor,
+  type AppSimulatorPlatform,
+  type AppSimulatorPlatformAvailability,
+  type AppSimulatorRuntime,
+  type AppSimulatorSetupRequest,
+  type AppSimulatorSavedDevice,
+  type AppSimulatorSessionState,
+  type AppSimulatorSwipeInput,
+  type AppSimulatorTarget,
+} from "./simulator";

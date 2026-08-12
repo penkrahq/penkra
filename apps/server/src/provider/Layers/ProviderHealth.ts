@@ -15,18 +15,13 @@ import type {
   ServerProviderAuthStatus,
   ServerProviderStatus,
   ServerProviderStatusState,
-  ServerProviderUpdateState,
 } from "@penkra/contracts";
-import { ServerProviderUpdateError } from "@penkra/contracts";
+import { PROVIDER_DISPLAY_NAMES, ServerProviderUpdateError } from "@penkra/contracts";
 import { parseCodexConfigModelProvider } from "@penkra/shared/codexConfig";
 import { decodeJsonResult } from "@penkra/shared/schemaJson";
 import { prepareWindowsSafeProcess } from "@penkra/shared/windowsProcess";
-import type { SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import {
   Array,
-  Cache,
-  DateTime,
-  Duration,
   Effect,
   Exit,
   Fiber,
@@ -69,7 +64,6 @@ import {
   parseClaudeAuthStatusFromOutput,
 } from "../claudeAuthStatus";
 import { acquireClaudeAuthStatusLock } from "../claudeAuthStatusLock";
-import { loadClaudeAgentSdk } from "../claudeAgentSdk.ts";
 import { buildClaudeProcessEnv, readClaudeCliCredentialsSummary } from "../claudeProcessEnv";
 import {
   detailFromResult,
@@ -88,19 +82,9 @@ import {
   resolveProviderStatusCachePath,
   writeProviderStatusCache,
 } from "../providerStatusCache";
-import { makeProviderMaintenanceCommandCoordinator } from "../providerMaintenanceCommandCoordinator";
 import { resolveProviderBinary } from "../managedProviderRuntime";
-import {
-  enrichProviderStatusWithVersionAdvisory,
-  compareSemverVersions,
-  makeProviderMaintenanceCapabilities,
-  normalizeCommandPath,
-  parseGenericCliVersion,
-  resolveProviderMaintenanceCapabilitiesEffect,
-  type PackageManagedProviderMaintenanceDefinition,
-} from "../providerMaintenance";
-import { collectUint8StreamText } from "../../stream/collectUint8StreamText";
-import { sanitizeTerminalOutput } from "../../stream/sanitizeTerminalOutput";
+import { compareSemverVersions, parseGenericCliVersion } from "../providerVersion";
+import { resolveManagedProviderArtifact } from "../managedProviderArtifact";
 import { buildCodexProcessEnv } from "../../codexProcessEnv.ts";
 
 export { parseClaudeAuthStatusFromOutput } from "../claudeAuthStatus";
@@ -139,142 +123,6 @@ const providerChildKind = (provider: ProviderKind): ProviderChildKind =>
 
 const providerCommandEnv = (provider: ProviderKind): NodeJS.ProcessEnv =>
   buildProviderChildEnvironment({ provider: providerChildKind(provider) });
-
-const UPDATE_OUTPUT_MAX_BYTES = 10_000;
-export const PROVIDER_UPDATE_TIMEOUT_MS = 2 * 60_000;
-
-function formatProviderUpdateTimeout(timeoutMs: number): string {
-  if (timeoutMs < 1_000) {
-    return `${timeoutMs} ${timeoutMs === 1 ? "millisecond" : "milliseconds"}`;
-  }
-  if (timeoutMs % 60_000 === 0) {
-    const minutes = timeoutMs / 60_000;
-    return `${minutes} ${minutes === 1 ? "minute" : "minutes"}`;
-  }
-  const seconds = timeoutMs / 1_000;
-  return `${seconds} ${seconds === 1 ? "second" : "seconds"}`;
-}
-
-function isClaudeNativeCommandPath(commandPath: string): boolean {
-  const normalized = normalizeCommandPath(commandPath);
-  return (
-    normalized.endsWith("/.local/bin/claude") ||
-    normalized.endsWith("/.local/bin/claude.exe") ||
-    normalized.includes("/.local/share/claude/")
-  );
-}
-
-function isOpenCodeNativeCommandPath(commandPath: string): boolean {
-  const normalized = normalizeCommandPath(commandPath);
-  return (
-    normalized.endsWith("/.opencode/bin/opencode") ||
-    normalized.endsWith("/.opencode/bin/opencode.exe")
-  );
-}
-
-function isKiloNativeCommandPath(commandPath: string): boolean {
-  const normalized = normalizeCommandPath(commandPath);
-  return (
-    normalized.endsWith("/.kilo/bin/kilo") ||
-    normalized.endsWith("/.local/bin/kilo") ||
-    normalized.includes("/.local/share/kilo/bin/")
-  );
-}
-
-export const PACKAGE_MANAGED_PROVIDER_UPDATES: Partial<
-  Record<ProviderKind, PackageManagedProviderMaintenanceDefinition>
-> = {
-  codex: {
-    provider: CODEX_PROVIDER,
-    binaryName: "codex",
-    npmPackageName: "@openai/codex",
-    homebrew: { name: "codex", kind: "cask" },
-    nativeUpdate: null,
-  },
-  claudeAgent: {
-    provider: CLAUDE_AGENT_PROVIDER,
-    binaryName: "claude",
-    npmPackageName: "@anthropic-ai/claude-code",
-    homebrew: { name: "claude-code", kind: "cask" },
-    nativeUpdate: {
-      executable: "claude",
-      args: () => ["update"],
-      lockKey: "claude-native",
-      strategy: "matching-path",
-      isCommandPath: isClaudeNativeCommandPath,
-    },
-  },
-  antigravity: {
-    provider: ANTIGRAVITY_PROVIDER,
-    binaryName: "agy",
-    // Antigravity is distributed as a native binary and owns its update channel.
-    npmPackageName: null,
-    homebrew: null,
-    latestVersionSource: null,
-    nativeUpdate: {
-      executable: "agy",
-      args: () => ["update"],
-      lockKey: "antigravity-native",
-      strategy: "always",
-    },
-  },
-  droid: {
-    provider: DROID_PROVIDER,
-    binaryName: "droid",
-    npmPackageName: "@factory/cli",
-    homebrew: null,
-    nativeUpdate: {
-      executable: "droid",
-      args: () => ["update"],
-      lockKey: "droid-native",
-      strategy: "always",
-    },
-  },
-  kilo: {
-    provider: KILO_PROVIDER,
-    binaryName: "kilo",
-    npmPackageName: "@kilocode/cli",
-    homebrew: null,
-    nativeUpdate: {
-      executable: "kilo",
-      args: () => ["upgrade"],
-      lockKey: "kilo-native",
-      strategy: "matching-path",
-      isCommandPath: isKiloNativeCommandPath,
-    },
-  },
-  opencode: {
-    provider: OPENCODE_PROVIDER,
-    binaryName: "opencode",
-    // opencode-ai requires postinstall to replace its non-executable package stub.
-    // Penkra managed runtimes intentionally prohibit lifecycle scripts.
-    npmPackageName: null,
-    homebrew: {
-      name: "opencode",
-      kind: "formula",
-      alternatives: ["anomalyco/tap/opencode"],
-    },
-    nativeUpdate: {
-      executable: "opencode",
-      args: () => ["upgrade"],
-      lockKey: "opencode-native",
-      strategy: "matching-path",
-      isCommandPath: isOpenCodeNativeCommandPath,
-    },
-  },
-  pi: {
-    provider: PI_PROVIDER,
-    binaryName: "pi",
-    npmPackageName: "@earendil-works/pi-coding-agent",
-    homebrew: null,
-    nativeUpdate: {
-      executable: "pi",
-      args: () => ["update"],
-      lockKey: "pi-native",
-      strategy: "always",
-    },
-  },
-};
 
 // ── Pure helpers ────────────────────────────────────────────────────
 //
@@ -441,58 +289,6 @@ function extractCodexAccountTypeFromOutput(result: CommandResult): string | unde
   };
   return walk(parsed.success);
 }
-
-// ── Claude SDK capability probe ─────────────────────────────────────
-//
-// Spawns a lightweight Claude Agent SDK session and reads the
-// initialization result. The prompt is a never-yielding AsyncIterable so
-// no user message reaches the Anthropic API — we get account metadata
-// (including subscription type) from local IPC, then abort the
-// subprocess. Used as a fallback when `claude auth status` output
-// doesn't include subscription info.
-
-const CAPABILITIES_PROBE_TIMEOUT_MS = 8_000;
-
-function waitForAbortSignal(signal: AbortSignal): Promise<void> {
-  if (signal.aborted) return Promise.resolve();
-  return new Promise((resolve) => {
-    signal.addEventListener("abort", () => resolve(), { once: true });
-  });
-}
-
-const probeClaudeSubscription = () => {
-  const abort = new AbortController();
-  return Effect.tryPromise(async () => {
-    const { query: claudeQuery } = await loadClaudeAgentSdk();
-    const q = claudeQuery({
-      // oxlint-disable-next-line require-yield
-      prompt: (async function* (): AsyncGenerator<SDKUserMessage> {
-        await waitForAbortSignal(abort.signal);
-      })(),
-      options: {
-        persistSession: false,
-        abortController: abort,
-        settingSources: ["user", "project", "local"],
-        allowedTools: [],
-        stderr: () => {},
-      },
-    });
-    const init = await q.initializationResult();
-    return { subscriptionType: init.account?.subscriptionType };
-  }).pipe(
-    Effect.ensuring(
-      Effect.sync(() => {
-        if (!abort.signal.aborted) abort.abort();
-      }),
-    ),
-    Effect.timeoutOption(CAPABILITIES_PROBE_TIMEOUT_MS),
-    Effect.result,
-    Effect.map((result) => {
-      if (Result.isFailure(result)) return undefined;
-      return Option.isSome(result.success) ? result.success.value : undefined;
-    }),
-  );
-};
 
 export function parseAuthStatusFromOutput(result: CommandResult): {
   readonly status: ServerProviderStatusState;
@@ -1025,6 +821,67 @@ export const makeCheckCodexProviderStatus = (
   });
 
 export const checkCodexProviderStatus = makeCheckCodexProviderStatus();
+
+/**
+ * Production readiness for a managed harness is deliberately installation-only.
+ * Authentication belongs to an isolated Connection profile; probing the process
+ * user's global provider home here would collapse every Connection into one
+ * misleading account status.
+ */
+const makeCheckManagedProviderInstallationStatus = (
+  provider: typeof CODEX_PROVIDER | typeof CLAUDE_AGENT_PROVIDER | typeof OPENCODE_PROVIDER,
+  binaryPath: string,
+): Effect.Effect<ServerProviderStatus, never, ChildProcessSpawner.ChildProcessSpawner> =>
+  Effect.gen(function* () {
+    const checkedAt = new Date().toISOString();
+    const result = yield* probeProviderCliVersion(
+      runProviderCommand(binaryPath, ["--version"], providerCommandEnv(provider)),
+      provider === OPENCODE_PROVIDER ? OPENCODE_HEALTH_TIMEOUT_MS : DEFAULT_TIMEOUT_MS,
+    );
+    if (result.outcome !== "success") {
+      const detail =
+        result.outcome === "timeout"
+          ? PROVIDER_COMMAND_TIMEOUT_DETAIL
+          : result.outcome === "missing"
+            ? "The managed executable is missing."
+            : result.outcome === "nonzero"
+              ? detailFromResult(result.result)
+              : result.cause instanceof Error
+                ? result.cause.message
+                : String(result.cause);
+      return {
+        provider,
+        status: "error",
+        available: false,
+        authStatus: "unknown",
+        checkedAt,
+        message: `The managed ${PROVIDER_DISPLAY_NAMES[provider]} runtime could not start.${detail ? ` ${detail}` : ""}`,
+      };
+    }
+
+    const output = `${result.result.stdout}\n${result.result.stderr}`;
+    const version =
+      provider === CODEX_PROVIDER ? parseCodexCliVersion(output) : parseGenericCliVersion(output);
+    if (provider === CODEX_PROVIDER && version && !isCodexCliVersionSupported(version)) {
+      return {
+        provider,
+        status: "error",
+        available: false,
+        authStatus: "unknown",
+        version,
+        checkedAt,
+        message: formatCodexCliUpgradeMessage(version),
+      };
+    }
+    return {
+      provider,
+      status: "ready",
+      available: true,
+      authStatus: "unknown",
+      ...(version ? { version } : {}),
+      checkedAt,
+    };
+  });
 
 // ── Claude Agent health check ───────────────────────────────────────
 
@@ -1985,6 +1842,20 @@ export function makeDisabledProviderStatus(
   } satisfies ServerProviderStatus;
 }
 
+function makeMissingManagedRuntimeStatus(
+  provider: ProviderKind,
+  checkedAt = new Date().toISOString(),
+): ServerProviderStatus {
+  return {
+    provider,
+    status: "warning",
+    available: false,
+    authStatus: "unknown",
+    checkedAt,
+    message: "Provider runtime is not installed.",
+  } satisfies ServerProviderStatus;
+}
+
 function isDisabledProviderStatusOverlay(status: ServerProviderStatus): boolean {
   return status.message === DISABLED_PROVIDER_STATUS_MESSAGE && status.available === false;
 }
@@ -2054,8 +1925,7 @@ export function projectProviderStatusesForSettings(
 
 // ── Layer ───────────────────────────────────────────────────────────
 
-export function makeProviderHealthLive(options?: { readonly providerUpdateTimeoutMs?: number }) {
-  const providerUpdateTimeoutMs = options?.providerUpdateTimeoutMs ?? PROVIDER_UPDATE_TIMEOUT_MS;
+export function makeProviderHealthLive() {
   return Layer.effect(
     ProviderHealth,
     Effect.gen(function* () {
@@ -2103,124 +1973,22 @@ export function makeProviderHealthLive(options?: { readonly providerUpdateTimeou
       );
 
       const statusesRef = yield* Ref.make<ProviderStatuses>(cachedStatuses);
-      const updateStatesRef = yield* Ref.make<ReadonlyMap<ProviderKind, ServerProviderUpdateState>>(
-        new Map(),
-      );
       const refreshFiberRef = yield* Ref.make<Fiber.Fiber<ProviderStatuses, never> | null>(null);
-      const commandCoordinator = yield* makeProviderMaintenanceCommandCoordinator({
-        makeAlreadyRunningError: (provider) =>
-          new ServerProviderUpdateError({
-            provider: provider as ProviderKind,
-            reason: "An update is already running for this provider.",
-          }),
-      });
 
-      // 5-minute TTL cache for the Claude SDK subscription probe. The probe
-      // spawns a short-lived `claude` subprocess to read account metadata
-      // from the local init handshake; capacity=1 because the probe has no
-      // parameters.
-      const claudeSubscriptionCache = yield* Cache.make({
-        capacity: 1,
-        timeToLive: Duration.minutes(5),
-        lookup: (_: "claude") => probeClaudeSubscription(),
-      });
-      const resolveClaudeSubscription = Cache.get(claudeSubscriptionCache, "claude").pipe(
-        Effect.map((probe) => probe?.subscriptionType),
-      );
-
-      const getConfiguredProviderBinaryPath = (
-        provider: ProviderKind,
-        settings: ServerSettings,
-      ) => {
-        switch (provider) {
-          case "codex":
-            return settings.providers.codex.binaryPath;
-          case "claudeAgent":
-            return settings.providers.claudeAgent.binaryPath;
-          case "cursor":
-            return settings.providers.cursor.binaryPath;
-          case "antigravity":
-            return settings.providers.antigravity.binaryPath;
-          case "grok":
-            return settings.providers.grok.binaryPath;
-          case "droid":
-            return settings.providers.droid.binaryPath;
-          case "kilo":
-            return settings.providers.kilo.binaryPath;
-          case "opencode":
-            return settings.providers.opencode.binaryPath;
-          case "pi":
-            return settings.providers.pi.binaryPath;
-        }
-      };
-
-      const getProviderBinaryPath = (provider: ProviderKind, settings: ServerSettings) =>
+      const getProviderBinaryPath = (provider: ProviderKind) =>
         resolveProviderBinary({
           stateDir: serverConfig.stateDir,
           provider,
-          configuredBinaryPath: getConfiguredProviderBinaryPath(provider, settings),
         }).pipe(
           Effect.provideService(FileSystem.FileSystem, fileSystem),
           Effect.provideService(Path.Path, path),
           Effect.map((resolution) => resolution.binaryPath),
         );
 
-      const getProviderMaintenanceCapabilities = Effect.fn("getProviderMaintenanceCapabilities")(
-        function* (provider: ProviderKind) {
-          const settings = yield* serverSettings.getSettings;
-          if (!isProviderEnabledForSettings(provider, settings)) {
-            return makeProviderMaintenanceCapabilities({
-              provider,
-              packageName: null,
-              latestVersionSource: null,
-              updateExecutable: null,
-              updateArgs: [],
-              updateLockKey: null,
-            });
-          }
-          const binaryPath = yield* getProviderBinaryPath(provider, settings);
-          if (provider === "cursor") {
-            const command = buildCursorAgentCommand(binaryPath, ["update"]);
-            return makeProviderMaintenanceCapabilities({
-              provider,
-              packageName: null,
-              updateExecutable: command.command,
-              updateArgs: command.args,
-              updateLockKey: "cursor-agent",
-            });
-          }
-          const definition = PACKAGE_MANAGED_PROVIDER_UPDATES[provider];
-          if (!definition) {
-            return makeProviderMaintenanceCapabilities({
-              provider,
-              packageName: null,
-              updateExecutable: null,
-              updateArgs: [],
-              updateLockKey: null,
-            });
-          }
-          return yield* resolveProviderMaintenanceCapabilitiesEffect(definition, {
-            binaryPath,
-            env: providerCommandEnv(provider),
-            platform: process.platform,
-          }).pipe(Effect.provideService(FileSystem.FileSystem, fileSystem));
-        },
-      );
-
-      const applyVolatileProviderState = Effect.fn("applyVolatileProviderState")(function* (
-        status: ServerProviderStatus,
-      ) {
-        const updateStates = yield* Ref.get(updateStatesRef);
-        const updateState = updateStates.get(status.provider);
-        if (!updateState) {
-          const { updateState: _updateState, ...statusWithoutUpdateState } = status;
-          return statusWithoutUpdateState;
-        }
-        return {
-          ...status,
-          updateState,
-        };
-      });
+      const applyVolatileProviderState = (status: ServerProviderStatus) => {
+        const { updateState: _obsoleteUpdateState, ...statusWithoutUpdateState } = status;
+        return Effect.succeed(statusWithoutUpdateState);
+      };
 
       const projectStatusesForCurrentSettings = Effect.fn(
         "projectProviderStatusesForCurrentSettings",
@@ -2243,49 +2011,52 @@ export function makeProviderHealthLive(options?: { readonly providerUpdateTimeou
         return projectedStatuses;
       });
 
-      const setProviderUpdateState = Effect.fn("setProviderUpdateState")(function* (
-        provider: ProviderKind,
-        state: ServerProviderUpdateState | null,
-      ) {
-        yield* Ref.update(updateStatesRef, (previous) => {
-          const next = new Map(previous);
-          if (!state || state.status === "idle") {
-            next.delete(provider);
-          } else {
-            next.set(provider, state);
-          }
-          return next;
-        });
-
-        return yield* publishProjectedStatuses();
-      });
-
       const enrichStatuses = Effect.fn("enrichProviderStatuses")(function* (
         statuses: ReadonlyArray<ServerProviderStatus>,
       ) {
         yield* serverSettings.ready.pipe(Effect.catch(() => Effect.void));
         const enriched = yield* Effect.forEach(
           statuses,
-          (status) =>
-            getProviderMaintenanceCapabilities(status.provider).pipe(
-              Effect.flatMap((capabilities) =>
-                enrichProviderStatusWithVersionAdvisory(status, capabilities),
-              ),
+          (status) => {
+            const currentVersion = status.version ?? null;
+            if (
+              currentVersion === null ||
+              (status.provider !== CODEX_PROVIDER &&
+                status.provider !== CLAUDE_AGENT_PROVIDER &&
+                status.provider !== OPENCODE_PROVIDER)
+            ) {
+              return Effect.succeed({
+                ...status,
+                versionAdvisory: makeSuppressedProviderVersionAdvisory(status),
+              });
+            }
+            return resolveManagedProviderArtifact({
+              provider: status.provider,
+              version: "latest",
+            }).pipe(
+              Effect.map((artifact) => {
+                const behind = compareSemverVersions(currentVersion, artifact.version) < 0;
+                return {
+                  ...status,
+                  versionAdvisory: {
+                    status: behind ? ("behind_latest" as const) : ("current" as const),
+                    currentVersion,
+                    latestVersion: artifact.version,
+                    updateCommand: null,
+                    canUpdate: false,
+                    checkedAt: new Date().toISOString(),
+                    message: behind ? "A managed provider update is available." : null,
+                  },
+                };
+              }),
               Effect.catch(() =>
                 Effect.succeed({
                   ...status,
-                  versionAdvisory: {
-                    status: "unknown" as const,
-                    currentVersion: status.version ?? null,
-                    latestVersion: null,
-                    updateCommand: null,
-                    canUpdate: false,
-                    checkedAt: status.checkedAt,
-                    message: null,
-                  },
+                  versionAdvisory: makeSuppressedProviderVersionAdvisory(status),
                 }),
               ),
-            ),
+            );
+          },
           { concurrency: "unbounded" },
         );
         return yield* Effect.forEach(enriched, applyVolatileProviderState, {
@@ -2293,94 +2064,67 @@ export function makeProviderHealthLive(options?: { readonly providerUpdateTimeou
         });
       });
 
-      const checkProviderWhenEnabled = <R>(
+      const checkManagedProviderWhenEnabled = <R>(
         settings: ServerSettings,
         provider: ProviderKind,
-        check: Effect.Effect<ServerProviderStatus, never, R>,
+        check: (binaryPath: string) => Effect.Effect<ServerProviderStatus, never, R>,
       ): Effect.Effect<Option.Option<ServerProviderStatus>, never, R> =>
         isProviderEnabledForSettings(provider, settings)
-          ? check.pipe(Effect.map(Option.some))
+          ? getProviderBinaryPath(provider).pipe(
+              Effect.flatMap(check),
+              Effect.catch(() => Effect.succeed(makeMissingManagedRuntimeStatus(provider))),
+              Effect.map(Option.some),
+            )
           : Effect.succeed(Option.none());
 
       const loadProviderStatuses = serverSettings.ready
         .pipe(
           Effect.flatMap(() => serverSettings.getSettings),
           Effect.flatMap((settings) =>
-            Effect.gen(function* () {
-              const binaryPaths = yield* Effect.all(
-                {
-                  codex: getProviderBinaryPath(CODEX_PROVIDER, settings),
-                  claudeAgent: getProviderBinaryPath(CLAUDE_AGENT_PROVIDER, settings),
-                  cursor: getProviderBinaryPath(CURSOR_PROVIDER, settings),
-                  antigravity: getProviderBinaryPath(ANTIGRAVITY_PROVIDER, settings),
-                  grok: getProviderBinaryPath(GROK_PROVIDER, settings),
-                  droid: getProviderBinaryPath(DROID_PROVIDER, settings),
-                  kilo: getProviderBinaryPath(KILO_PROVIDER, settings),
-                  opencode: getProviderBinaryPath(OPENCODE_PROVIDER, settings),
-                  pi: getProviderBinaryPath(PI_PROVIDER, settings),
-                },
-                { concurrency: "unbounded" },
-              );
-              return yield* Effect.all(
-                [
-                  checkProviderWhenEnabled(
-                    settings,
-                    CODEX_PROVIDER,
-                    makeCheckCodexProviderStatus(
-                      binaryPaths.codex,
-                      settings.providers.codex.homePath,
-                    ),
-                  ),
-                  checkProviderWhenEnabled(
-                    settings,
-                    CLAUDE_AGENT_PROVIDER,
-                    makeCheckClaudeProviderStatus(
-                      resolveClaudeSubscription,
-                      binaryPaths.claudeAgent,
-                      serverConfig.homeDir,
-                    ),
-                  ),
-                  checkProviderWhenEnabled(
-                    settings,
-                    CURSOR_PROVIDER,
-                    makeCheckCursorProviderStatus(binaryPaths.cursor),
-                  ),
-                  checkProviderWhenEnabled(
-                    settings,
-                    ANTIGRAVITY_PROVIDER,
-                    checkAntigravityProviderStatus(binaryPaths.antigravity),
-                  ),
-                  checkProviderWhenEnabled(
-                    settings,
-                    GROK_PROVIDER,
-                    makeCheckGrokProviderStatus(binaryPaths.grok),
-                  ),
-                  checkProviderWhenEnabled(
-                    settings,
-                    DROID_PROVIDER,
-                    makeCheckDroidProviderStatus(binaryPaths.droid),
-                  ),
-                  checkProviderWhenEnabled(
-                    settings,
-                    KILO_PROVIDER,
-                    makeCheckKiloProviderStatus(binaryPaths.kilo),
-                  ),
-                  checkProviderWhenEnabled(
-                    settings,
-                    OPENCODE_PROVIDER,
-                    makeCheckOpenCodeProviderStatus(binaryPaths.opencode),
-                  ),
-                  checkProviderWhenEnabled(
-                    settings,
-                    PI_PROVIDER,
-                    checkPiProviderStatus(settings.providers.pi.agentDir, binaryPaths.pi),
-                  ),
-                ],
-                {
-                  concurrency: "unbounded",
-                },
-              );
-            }),
+            Effect.all(
+              [
+                checkManagedProviderWhenEnabled(settings, CODEX_PROVIDER, (binaryPath) =>
+                  makeCheckManagedProviderInstallationStatus(CODEX_PROVIDER, binaryPath),
+                ),
+                checkManagedProviderWhenEnabled(settings, CLAUDE_AGENT_PROVIDER, (binaryPath) =>
+                  makeCheckManagedProviderInstallationStatus(CLAUDE_AGENT_PROVIDER, binaryPath),
+                ),
+                checkManagedProviderWhenEnabled(
+                  settings,
+                  CURSOR_PROVIDER,
+                  makeCheckCursorProviderStatus,
+                ),
+                checkManagedProviderWhenEnabled(
+                  settings,
+                  ANTIGRAVITY_PROVIDER,
+                  checkAntigravityProviderStatus,
+                ),
+                checkManagedProviderWhenEnabled(
+                  settings,
+                  GROK_PROVIDER,
+                  makeCheckGrokProviderStatus,
+                ),
+                checkManagedProviderWhenEnabled(
+                  settings,
+                  DROID_PROVIDER,
+                  makeCheckDroidProviderStatus,
+                ),
+                checkManagedProviderWhenEnabled(
+                  settings,
+                  KILO_PROVIDER,
+                  makeCheckKiloProviderStatus,
+                ),
+                checkManagedProviderWhenEnabled(settings, OPENCODE_PROVIDER, (binaryPath) =>
+                  makeCheckManagedProviderInstallationStatus(OPENCODE_PROVIDER, binaryPath),
+                ),
+                checkManagedProviderWhenEnabled(settings, PI_PROVIDER, (binaryPath) =>
+                  checkPiProviderStatus(settings.providers.pi.agentDir, binaryPath),
+                ),
+              ],
+              {
+                concurrency: "unbounded",
+              },
+            ),
           ),
         )
         .pipe(
@@ -2415,10 +2159,6 @@ export function makeProviderHealthLive(options?: { readonly providerUpdateTimeou
 
       const refreshNow = Effect.gen(function* () {
         const refreshRevision = (yield* serverSettings.getSnapshot).revision;
-        // Drop the cached Claude subscription probe so switching accounts (login
-        // / logout / add account outside the app) is reflected on the next
-        // refresh instead of being pinned to the old account for up to 5 minutes.
-        yield* Cache.invalidate(claudeSubscriptionCache, "claude");
         const loadedStatuses = yield* loadProviderStatuses;
         if ((yield* serverSettings.getSnapshot).revision !== refreshRevision) {
           const currentStatuses = yield* Ref.get(statusesRef);
@@ -2476,84 +2216,6 @@ export function makeProviderHealthLive(options?: { readonly providerUpdateTimeou
         Effect.flatMap(Fiber.join),
       );
 
-      const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
-
-      const makeUpdateState = (input: {
-        readonly status: ServerProviderUpdateState["status"];
-        readonly startedAt: string | null;
-        readonly finishedAt: string | null;
-        readonly message: string | null;
-        readonly output?: string | null;
-      }): ServerProviderUpdateState => ({
-        status: input.status,
-        startedAt: input.startedAt,
-        finishedAt: input.finishedAt,
-        message: input.message,
-        output: input.output ?? null,
-      });
-
-      const describeUpdateCommandError = (error: unknown): string => {
-        if (error instanceof Error && error.message.trim().length > 0) {
-          if (error.message.includes("initial is not a function")) {
-            return "Update command failed before producing output. Try running the provider update command from a terminal.";
-          }
-          return error.message;
-        }
-        if (typeof error === "string" && error.trim().length > 0) {
-          return error;
-        }
-        return "Update command could not be started.";
-      };
-
-      const runUpdateCommand = Effect.fn("runProviderUpdateCommand")(function* (input: {
-        readonly provider: ProviderKind;
-        readonly command: string;
-        readonly args: ReadonlyArray<string>;
-        readonly pathPrepend?: string;
-      }) {
-        const baseEnv = providerCommandEnv(input.provider);
-        const updateEnv = input.pathPrepend
-          ? {
-              ...baseEnv,
-              PATH: [input.pathPrepend, baseEnv.PATH]
-                .filter((entry): entry is string => Boolean(entry))
-                .join(OS.platform() === "win32" ? ";" : ":"),
-            }
-          : baseEnv;
-        const prepared = prepareWindowsSafeProcess(input.command, input.args, { env: updateEnv });
-        const child = yield* spawner.spawn(
-          ChildProcess.make(prepared.command, prepared.args, {
-            shell: prepared.shell,
-            ...(prepared.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
-            env: updateEnv,
-          }),
-        );
-        yield* Effect.addFinalizer(() => child.kill().pipe(Effect.ignore));
-        const [stdout, stderr, exitCode] = yield* Effect.all(
-          [
-            collectUint8StreamText({
-              stream: child.stdout,
-              maxBytes: UPDATE_OUTPUT_MAX_BYTES,
-              retain: "tail",
-            }),
-            collectUint8StreamText({
-              stream: child.stderr,
-              maxBytes: UPDATE_OUTPUT_MAX_BYTES,
-              retain: "tail",
-            }),
-            child.exitCode.pipe(Effect.map(Number)),
-          ],
-          { concurrency: "unbounded" },
-        );
-        return {
-          stdout: stdout.text,
-          stderr: stderr.text,
-          exitCode,
-          stdoutTruncated: stdout.truncated,
-          stderrTruncated: stderr.truncated,
-        };
-      });
-
       const updateProvider: ProviderHealthShape["updateProvider"] = Effect.fn(
         "ProviderHealth.updateProvider",
       )(function* (input) {
@@ -2570,112 +2232,9 @@ export function makeProviderHealthLive(options?: { readonly providerUpdateTimeou
             reason: "Provider is disabled in Penkra settings.",
           });
         }
-        const capabilities = yield* getProviderMaintenanceCapabilities(provider).pipe(
-          Effect.mapError(toUpdateError),
-        );
-        const update = capabilities.update;
-        if (!update) {
-          return yield* new ServerProviderUpdateError({
-            provider,
-            reason: "This provider does not support one-click updates.",
-          });
-        }
-
-        const run = Effect.gen(function* () {
-          const startedAt = yield* nowIso;
-          yield* setProviderUpdateState(
-            provider,
-            makeUpdateState({
-              status: "running",
-              startedAt,
-              finishedAt: null,
-              message: "Updating provider.",
-            }),
-          );
-
-          const commandResult = yield* runUpdateCommand({
-            provider,
-            command: update.executable,
-            args: update.args,
-            ...(update.pathPrepend ? { pathPrepend: update.pathPrepend } : {}),
-          }).pipe(
-            Effect.scoped,
-            Effect.timeoutOption(Duration.millis(providerUpdateTimeoutMs)),
-            Effect.result,
-          );
-          const finishedAt = yield* nowIso;
-          if (Result.isFailure(commandResult)) {
-            const providers = yield* setProviderUpdateState(
-              provider,
-              makeUpdateState({
-                status: "failed",
-                startedAt,
-                finishedAt,
-                message: describeUpdateCommandError(commandResult.failure),
-              }),
-            );
-            return { providers };
-          }
-          const result = commandResult.success;
-          const output = Option.isSome(result)
-            ? sanitizeTerminalOutput(
-                [result.value.stderr, result.value.stdout].filter(Boolean).join("\n\n"),
-              ) || null
-            : null;
-          const failed = Option.isNone(result) || result.value.exitCode !== 0;
-          if (failed) {
-            const message = Option.isNone(result)
-              ? `Update timed out after ${formatProviderUpdateTimeout(providerUpdateTimeoutMs)}. The provider process was stopped.`
-              : `Update command exited with code ${result.value.exitCode}.`;
-            const providers = yield* setProviderUpdateState(
-              provider,
-              makeUpdateState({
-                status: "failed",
-                startedAt,
-                finishedAt,
-                message,
-                output: output ? output.slice(0, UPDATE_OUTPUT_MAX_BYTES) : null,
-              }),
-            );
-            return { providers };
-          }
-
-          const providers = yield* refreshNow.pipe(Effect.mapError(toUpdateError));
-          const refreshed = providers.find((status) => status.provider === provider);
-          const refreshedAdvisory = refreshed?.versionAdvisory;
-          const stillOutdated = refreshedAdvisory?.status === "behind_latest";
-          const stillOutdatedVersions =
-            refreshedAdvisory?.currentVersion && refreshedAdvisory.latestVersion
-              ? ` (installed ${refreshedAdvisory.currentVersion}, latest ${refreshedAdvisory.latestVersion})`
-              : "";
-          const finalProviders = yield* setProviderUpdateState(
-            provider,
-            makeUpdateState({
-              status: stillOutdated ? "unchanged" : "succeeded",
-              startedAt,
-              finishedAt,
-              message: stillOutdated
-                ? `Update command completed, but Penkra still detects an outdated provider version${stillOutdatedVersions}.`
-                : "Provider updated.",
-              output: output ? output.slice(0, UPDATE_OUTPUT_MAX_BYTES) : null,
-            }),
-          );
-          return { providers: finalProviders };
-        });
-
-        return yield* commandCoordinator.withCommandLock({
-          targetKey: provider,
-          lockKey: update.lockKey,
-          onQueued: setProviderUpdateState(
-            provider,
-            makeUpdateState({
-              status: "queued",
-              startedAt: null,
-              finishedAt: null,
-              message: "Waiting for another provider update to finish.",
-            }),
-          ).pipe(Effect.asVoid),
-          run,
+        return yield* new ServerProviderUpdateError({
+          provider,
+          reason: "Provider runtimes are updated by Penkra's managed update service.",
         });
       });
 

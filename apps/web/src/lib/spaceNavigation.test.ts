@@ -43,7 +43,6 @@ function thread(input: { id: string; projectId: string }): SidebarThreadSummary 
     projectId: ContainerId.makeUnsafe(input.projectId),
     title: input.id,
     modelSelection: { provider: "codex", model: "gpt-5" },
-    interactionMode: "default",
     branch: null,
     worktreePath: null,
     session: null,
@@ -52,8 +51,6 @@ function thread(input: { id: string; projectId: string }): SidebarThreadSummary 
     latestUserMessageAt: null,
     hasPendingApprovals: false,
     hasPendingUserInput: false,
-    hasActionableProposedPlan: false,
-    hasLiveTailWork: false,
   };
 }
 

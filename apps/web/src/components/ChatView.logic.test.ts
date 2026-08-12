@@ -6,16 +6,13 @@ import {
   buildComposerMenuSelectionKey,
   buildTranscriptAutoFollowSignal,
   createLocalDispatchSnapshot,
-  createWorktreeSetupSnapshot,
   derivePromptHistoryFromMessages,
-  failWorktreeSetupSnapshot,
   hasFileUndoSettled,
   isComposerCursorOnFirstLine,
   isComposerCursorOnLastLine,
   type LocalDispatchSnapshot,
   promptStillMatchesActiveHistoryBrowse,
   resolvePromptHistoryNavigation,
-  resolveNextLocalDispatchSnapshot,
   deriveComposerSendState,
   deriveComposerVoiceState,
   describeVoiceRecordingStartError,
@@ -25,17 +22,10 @@ import {
   resolveActiveTurnLiveDiffState,
   resolveCommittedProviderModel,
   resolveCycledModelSlug,
-  resolveDefaultEnvironmentPanelOpen,
-  resolveEnvironmentPanelOpen,
-  resolveEnvironmentPanelPreferenceAfterFirstSend,
-  resolveEnvironmentPanelPreferenceUpdate,
-  resolveEnvironmentPanelVisible,
   resolveGitRepoUiState,
   resolveProjectScriptTerminalTarget,
-  resolveQueuedSteerGateTransition,
   resolveRuntimeModeAfterApprovalDecision,
   resolveThreadDetailHydration,
-  QUEUED_STEER_GATE_TIMEOUT_MS,
   sanitizeVoiceErrorMessage,
   buildExpiredTerminalContextToastCopy,
   shouldAutoDeleteTerminalThreadOnLastClose,
@@ -46,18 +36,17 @@ import {
   shouldShowComposerModelBootstrapSkeleton,
   shouldStartActiveTurnLayoutGrace,
   shouldRenderTerminalWorkspace,
-  worktreeSetupHasError,
 } from "./ChatView.logic";
 
 describe("transcript auto-follow signal", () => {
   it("stays stable when only non-message turn activity changes", () => {
     const before = buildTranscriptAutoFollowSignal({
       messageCount: 3,
-      tailKey: "assistant-3:assistant:streaming:content",
+      tailKey: "assistant-3:assistant:streaming:120",
     });
     const afterWorkRow = buildTranscriptAutoFollowSignal({
       messageCount: 3,
-      tailKey: "assistant-3:assistant:streaming:content",
+      tailKey: "assistant-3:assistant:streaming:120",
     });
 
     expect(afterWorkRow).toBe(before);
@@ -66,19 +55,19 @@ describe("transcript auto-follow signal", () => {
   it("changes for a real transcript append or tail lifecycle change", () => {
     const streaming = buildTranscriptAutoFollowSignal({
       messageCount: 3,
-      tailKey: "assistant-3:assistant:streaming:content",
+      tailKey: "assistant-3:assistant:streaming:120",
     });
 
     expect(
       buildTranscriptAutoFollowSignal({
         messageCount: 4,
-        tailKey: "user-4:user:settled:content",
+        tailKey: "user-4:user:settled:48",
       }),
     ).not.toBe(streaming);
     expect(
       buildTranscriptAutoFollowSignal({
         messageCount: 3,
-        tailKey: "assistant-3:assistant:settled:content",
+        tailKey: "assistant-3:assistant:settled:120",
       }),
     ).not.toBe(streaming);
   });
@@ -669,9 +658,9 @@ describe("voice helpers", () => {
   it("sanitizes inline stack traces from voice errors", () => {
     expect(
       sanitizeVoiceErrorMessage(
-        "Your ChatGPT login has expired. Sign in again. at file:///Users/test/app.mjs:12:3",
+        "Your ChatGPT Connection is unavailable. at file:///Users/test/app.mjs:12:3",
       ),
-    ).toBe("Your ChatGPT login has expired. Sign in again.");
+    ).toBe("Your ChatGPT Connection is unavailable.");
   });
 
   it("strips desktop bridge wrappers from voice errors", () => {
@@ -682,8 +671,8 @@ describe("voice helpers", () => {
     ).toBe("The transcription response did not include any text.");
   });
 
-  it("detects auth-expired copy in sanitized voice errors", () => {
-    expect(isVoiceAuthExpiredMessage("Sign in again to ChatGPT")).toBe(true);
+  it("detects an unavailable ChatGPT Connection in sanitized voice errors", () => {
+    expect(isVoiceAuthExpiredMessage("Your ChatGPT Connection is unavailable.")).toBe(true);
     expect(isVoiceAuthExpiredMessage("The microphone could not be opened.")).toBe(false);
   });
 
@@ -723,169 +712,6 @@ describe("voice helpers", () => {
       canStartVoiceNotes: false,
       showVoiceNotesControl: true,
     });
-  });
-});
-
-describe("environment panel visibility", () => {
-  it("keeps normal chat threads closed by default unless the setting opts in", () => {
-    expect(
-      resolveDefaultEnvironmentPanelOpen({
-        environmentEnabled: true,
-        isCenteredEmptyLanding: false,
-        isTerminalPrimarySurface: false,
-        isConstrainedChatLayout: false,
-      }),
-    ).toBe(false);
-    expect(
-      resolveDefaultEnvironmentPanelOpen({
-        environmentEnabled: true,
-        isCenteredEmptyLanding: false,
-        isTerminalPrimarySurface: false,
-        isConstrainedChatLayout: false,
-        settingsDefaultOpen: false,
-      }),
-    ).toBe(false);
-    expect(
-      resolveDefaultEnvironmentPanelOpen({
-        environmentEnabled: true,
-        isCenteredEmptyLanding: false,
-        isTerminalPrimarySurface: false,
-        isConstrainedChatLayout: false,
-        settingsDefaultOpen: true,
-      }),
-    ).toBe(true);
-  });
-
-  it("keeps empty landing, terminal-primary, and constrained layouts closed even when setting is open", () => {
-    expect(
-      resolveDefaultEnvironmentPanelOpen({
-        environmentEnabled: true,
-        isCenteredEmptyLanding: true,
-        isTerminalPrimarySurface: false,
-        isConstrainedChatLayout: false,
-        settingsDefaultOpen: true,
-      }),
-    ).toBe(false);
-    expect(
-      resolveDefaultEnvironmentPanelOpen({
-        environmentEnabled: true,
-        isCenteredEmptyLanding: false,
-        isTerminalPrimarySurface: true,
-        isConstrainedChatLayout: false,
-        settingsDefaultOpen: true,
-      }),
-    ).toBe(false);
-    expect(
-      resolveDefaultEnvironmentPanelOpen({
-        environmentEnabled: true,
-        isCenteredEmptyLanding: false,
-        isTerminalPrimarySurface: false,
-        isConstrainedChatLayout: true,
-        settingsDefaultOpen: true,
-      }),
-    ).toBe(false);
-  });
-
-  it("lets a manual preference override the default while switching chats", () => {
-    expect(
-      resolveEnvironmentPanelOpen({
-        defaultOpen: true,
-        userPreferenceOpen: null,
-      }),
-    ).toBe(true);
-    expect(
-      resolveEnvironmentPanelOpen({
-        defaultOpen: true,
-        userPreferenceOpen: false,
-      }),
-    ).toBe(false);
-    expect(
-      resolveEnvironmentPanelOpen({
-        defaultOpen: false,
-        userPreferenceOpen: true,
-      }),
-    ).toBe(true);
-  });
-
-  it("persists explicit toggles but keeps action-driven closes session-only", () => {
-    expect(resolveEnvironmentPanelPreferenceUpdate({ open: true, persist: true })).toEqual({
-      userPreferenceOpen: true,
-      settingsDefaultOpen: true,
-    });
-    expect(resolveEnvironmentPanelPreferenceUpdate({ open: false, persist: true })).toEqual({
-      userPreferenceOpen: false,
-      settingsDefaultOpen: false,
-    });
-    expect(resolveEnvironmentPanelPreferenceUpdate({ open: false, persist: false })).toEqual({
-      userPreferenceOpen: false,
-      settingsDefaultOpen: null,
-    });
-  });
-
-  it("resolves landing preferences on first send without changing non-landing state", () => {
-    expect(
-      resolveEnvironmentPanelPreferenceAfterFirstSend({
-        isCenteredEmptyLanding: true,
-        settingsDefaultOpen: false,
-        currentPreferenceOpen: true,
-      }),
-    ).toBe(false);
-    expect(
-      resolveEnvironmentPanelPreferenceAfterFirstSend({
-        isCenteredEmptyLanding: true,
-        settingsDefaultOpen: true,
-        currentPreferenceOpen: false,
-      }),
-    ).toBeNull();
-    expect(
-      resolveEnvironmentPanelPreferenceAfterFirstSend({
-        isCenteredEmptyLanding: false,
-        settingsDefaultOpen: false,
-        currentPreferenceOpen: true,
-      }),
-    ).toBe(true);
-  });
-
-  it("clears an action-close override so default-open applies after first send", () => {
-    const actionClose = resolveEnvironmentPanelPreferenceUpdate({ open: false, persist: false });
-    const afterFirstSend = resolveEnvironmentPanelPreferenceAfterFirstSend({
-      isCenteredEmptyLanding: true,
-      settingsDefaultOpen: true,
-      currentPreferenceOpen: actionClose.userPreferenceOpen,
-    });
-
-    expect(actionClose.settingsDefaultOpen).toBeNull();
-    expect(afterFirstSend).toBeNull();
-    expect(
-      resolveEnvironmentPanelOpen({
-        defaultOpen: true,
-        userPreferenceOpen: afterFirstSend,
-      }),
-    ).toBe(true);
-  });
-
-  it("renders the panel when the user toggles it open on empty landing", () => {
-    expect(
-      resolveEnvironmentPanelVisible({
-        environmentEnabled: true,
-        environmentPanelOpen: true,
-      }),
-    ).toBe(true);
-  });
-
-  it("keeps the panel hidden when environment controls are disabled or closed", () => {
-    expect(
-      resolveEnvironmentPanelVisible({
-        environmentEnabled: false,
-        environmentPanelOpen: true,
-      }),
-    ).toBe(false);
-    expect(
-      resolveEnvironmentPanelVisible({
-        environmentEnabled: true,
-        environmentPanelOpen: false,
-      }),
-    ).toBe(false);
   });
 });
 
@@ -1224,7 +1050,7 @@ describe("shouldShowComposerModelBootstrapSkeleton", () => {
     ).toBe(false);
   });
 
-  it("shows a skeleton when the provisional provider does not match the persisted thread provider", () => {
+  it("shows a skeleton while a replacement provider is still loading", () => {
     expect(
       shouldShowComposerModelBootstrapSkeleton({
         selectedProvider: "codex",
@@ -1234,9 +1060,25 @@ describe("shouldShowComposerModelBootstrapSkeleton", () => {
           model: "openai/gpt-5.4",
         },
         draftModelSelection: null,
-        providerModelsLoading: false,
+        providerModelsLoading: true,
       }),
     ).toBe(true);
+  });
+
+  it("reveals a replacement provider after its catalog has loaded", () => {
+    expect(
+      shouldShowComposerModelBootstrapSkeleton({
+        selectedProvider: "opencode",
+        selectedModel: "opencode/deepseek-v4-flash-free",
+        persistedModelSelection: {
+          provider: "codex",
+          model: "gpt-5.4",
+        },
+        draftModelSelection: null,
+        providerModelsLoading: false,
+        requiresDiscoveredModels: true,
+      }),
+    ).toBe(false);
   });
 });
 
@@ -1556,138 +1398,9 @@ describe("shouldStartActiveTurnLayoutGrace", () => {
   });
 });
 
-describe("worktree setup snapshots", () => {
-  it("marks earlier steps done, the active step active, and later steps pending", () => {
-    expect(createWorktreeSetupSnapshot("prepare-thread").steps).toEqual([
-      { id: "create-worktree", label: "Creating branch and worktree", status: "done" },
-      { id: "prepare-thread", label: "Linking thread workspace", status: "active" },
-      { id: "start-session", label: "Starting session", status: "pending" },
-    ]);
-  });
-
-  it("starts with every step pending except the first when setup begins", () => {
-    expect(createWorktreeSetupSnapshot("create-worktree").steps.map((step) => step.status)).toEqual(
-      ["active", "pending", "pending"],
-    );
-  });
-
-  it("ends with every step done except the last when the session starts", () => {
-    expect(createWorktreeSetupSnapshot("start-session").steps.map((step) => step.status)).toEqual([
-      "done",
-      "done",
-      "active",
-    ]);
-  });
-
-  it("inserts the setup action step when a worktree setup script is present", () => {
-    expect(
-      createWorktreeSetupSnapshot("run-setup-action", { setupScriptName: "Setup" }).steps,
-    ).toEqual([
-      { id: "create-worktree", label: "Creating branch and worktree", status: "done" },
-      { id: "prepare-thread", label: "Linking thread workspace", status: "done" },
-      { id: "run-setup-action", label: "Running setup action: Setup", status: "active" },
-      { id: "start-session", label: "Starting session", status: "pending" },
-    ]);
-  });
-
-  it("keeps the setup action step done when the session starts afterward", () => {
-    expect(
-      createWorktreeSetupSnapshot("start-session", { setupScriptName: "Setup" }).steps.map(
-        (step) => step.status,
-      ),
-    ).toEqual(["done", "done", "done", "active"]);
-  });
-
-  it("preserves setup action metadata while advancing local worktree setup", () => {
-    const current = createLocalDispatchSnapshot(undefined, {
-      worktreeSetupStepId: "create-worktree",
-      setupScriptName: "Setup",
-    });
-
-    const next = resolveNextLocalDispatchSnapshot({
-      current,
-      activeThread: undefined,
-      options: { worktreeSetupStepId: "run-setup-action", setupScriptName: "Setup" },
-    });
-
-    expect(next.worktreeSetup?.steps).toEqual([
-      { id: "create-worktree", label: "Creating branch and worktree", status: "done" },
-      { id: "prepare-thread", label: "Linking thread workspace", status: "done" },
-      { id: "run-setup-action", label: "Running setup action: Setup", status: "active" },
-      { id: "start-session", label: "Starting session", status: "pending" },
-    ]);
-  });
-
-  it("fails only the active step and leaves the rest untouched", () => {
-    const failed = failWorktreeSetupSnapshot(createWorktreeSetupSnapshot("prepare-thread"));
-    expect(failed.steps.map((step) => step.status)).toEqual(["done", "error", "pending"]);
-    expect(worktreeSetupHasError(failed)).toBe(true);
-  });
-
-  it("returns the same snapshot when no step is active", () => {
-    const failed = failWorktreeSetupSnapshot(createWorktreeSetupSnapshot("prepare-thread"));
-    expect(failWorktreeSetupSnapshot(failed)).toBe(failed);
-  });
-
-  it("reports no error for null or healthy snapshots", () => {
-    expect(worktreeSetupHasError(null)).toBe(false);
-    expect(worktreeSetupHasError(createWorktreeSetupSnapshot("create-worktree"))).toBe(false);
-  });
-
-  it("replaces a held failed setup when a fresh local dispatch starts", () => {
-    const current: LocalDispatchSnapshot = {
-      startedAt: "2026-04-13T00:00:00.000Z",
-      worktreeSetup: failWorktreeSetupSnapshot(createWorktreeSetupSnapshot("create-worktree")),
-      expectedUserMessageId: null,
-      latestTurnTurnId: null,
-      latestTurnRequestedAt: null,
-      latestTurnStartedAt: null,
-      latestTurnCompletedAt: null,
-      sessionOrchestrationStatus: null,
-      sessionUpdatedAt: null,
-    };
-
-    const next = resolveNextLocalDispatchSnapshot({
-      current,
-      activeThread: undefined,
-    });
-
-    expect(next).not.toBe(current);
-    expect(next.worktreeSetup).toBeNull();
-  });
-
-  it("replaces a held failed setup when retrying worktree setup", () => {
-    const current: LocalDispatchSnapshot = {
-      startedAt: "2026-04-13T00:00:00.000Z",
-      worktreeSetup: failWorktreeSetupSnapshot(createWorktreeSetupSnapshot("create-worktree")),
-      expectedUserMessageId: null,
-      latestTurnTurnId: null,
-      latestTurnRequestedAt: null,
-      latestTurnStartedAt: null,
-      latestTurnCompletedAt: null,
-      sessionOrchestrationStatus: null,
-      sessionUpdatedAt: null,
-    };
-
-    const next = resolveNextLocalDispatchSnapshot({
-      current,
-      activeThread: undefined,
-      options: { worktreeSetupStepId: "create-worktree" },
-    });
-
-    expect(next).not.toBe(current);
-    expect(next.worktreeSetup?.steps.map((step) => step.status)).toEqual([
-      "active",
-      "pending",
-      "pending",
-    ]);
-  });
-});
-
 describe("hasServerAcknowledgedLocalDispatch", () => {
   const localDispatch: LocalDispatchSnapshot = {
     startedAt: "2026-04-13T00:00:00.000Z",
-    worktreeSetup: null,
     expectedUserMessageId: "message-for-dispatch" as never,
     latestTurnTurnId: null,
     latestTurnRequestedAt: null,
@@ -1698,7 +1411,6 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
   };
   const firstTurnLocalDispatch: LocalDispatchSnapshot = {
     startedAt: "2026-04-13T00:00:00.000Z",
-    worktreeSetup: null,
     expectedUserMessageId: "message-first-send" as never,
     latestTurnTurnId: null,
     latestTurnRequestedAt: null,
@@ -1741,7 +1453,6 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
           startedAt: null,
           completedAt: null,
           assistantMessageId: null,
-          sourceProposedPlan: undefined,
         },
         messages: [],
         session: {
@@ -1837,7 +1548,6 @@ describe("shouldAutoDeleteTerminalThreadOnLastClose", () => {
           latestTurn: null,
           session: null,
           activities: [],
-          proposedPlans: [],
         },
       }),
     ).toBe(true);
@@ -1855,7 +1565,6 @@ describe("shouldAutoDeleteTerminalThreadOnLastClose", () => {
           latestTurn: null,
           session: null,
           activities: [],
-          proposedPlans: [],
         },
       }),
     ).toBe(false);
@@ -1879,7 +1588,6 @@ describe("shouldAutoDeleteTerminalThreadOnLastClose", () => {
           latestTurn: null,
           session: null,
           activities: [],
-          proposedPlans: [],
         },
       }),
     ).toBe(false);
@@ -1900,129 +1608,6 @@ describe("resolveRuntimeModeAfterApprovalDecision", () => {
   it("leaves runtime mode untouched for one-off accept and decline decisions", () => {
     expect(resolveRuntimeModeAfterApprovalDecision("approval-required", "accept")).toBeNull();
     expect(resolveRuntimeModeAfterApprovalDecision("approval-required", "decline")).toBeNull();
-  });
-});
-
-describe("resolveQueuedSteerGateTransition", () => {
-  const armedGate = {
-    sawInterruptGap: false,
-    gapStartedAt: null,
-    armedActiveTurnId: "turn-original",
-  };
-  const now = 1_000_000;
-
-  it("holds without expiry while the original turn is still running", () => {
-    const transition = resolveQueuedSteerGateTransition({
-      gate: armedGate,
-      phase: "running",
-      sessionErrored: false,
-      activeTurnId: "turn-original",
-      now,
-    });
-    expect(transition).toEqual({
-      kind: "hold",
-      gate: armedGate,
-      expiresInMs: null,
-    });
-  });
-
-  it("adopts the live turn id when the gate was armed before the projection caught up", () => {
-    const transition = resolveQueuedSteerGateTransition({
-      gate: { sawInterruptGap: false, gapStartedAt: null, armedActiveTurnId: null },
-      phase: "running",
-      sessionErrored: false,
-      activeTurnId: "turn-original",
-      now,
-    });
-    expect(transition).toEqual({
-      kind: "hold",
-      gate: armedGate,
-      expiresInMs: null,
-    });
-  });
-
-  it("clears when the active turn id flips without an observed idle gap", () => {
-    const transition = resolveQueuedSteerGateTransition({
-      gate: armedGate,
-      phase: "running",
-      sessionErrored: false,
-      activeTurnId: "turn-steered",
-      now,
-    });
-    expect(transition).toEqual({ kind: "clear" });
-  });
-
-  it("starts the gap timer when the interrupt lands and the phase leaves running", () => {
-    const transition = resolveQueuedSteerGateTransition({
-      gate: armedGate,
-      phase: "ready",
-      sessionErrored: false,
-      activeTurnId: null,
-      now,
-    });
-    expect(transition).toEqual({
-      kind: "hold",
-      gate: { ...armedGate, sawInterruptGap: true, gapStartedAt: now },
-      expiresInMs: QUEUED_STEER_GATE_TIMEOUT_MS,
-    });
-  });
-
-  it("keeps counting down from the original gap start on re-evaluation", () => {
-    const transition = resolveQueuedSteerGateTransition({
-      gate: { ...armedGate, sawInterruptGap: true, gapStartedAt: now },
-      phase: "ready",
-      sessionErrored: false,
-      activeTurnId: null,
-      now: now + 5_000,
-    });
-    expect(transition).toEqual({
-      kind: "hold",
-      gate: { ...armedGate, sawInterruptGap: true, gapStartedAt: now },
-      expiresInMs: QUEUED_STEER_GATE_TIMEOUT_MS - 5_000,
-    });
-  });
-
-  it("clears once the steered turn starts running after the gap", () => {
-    const transition = resolveQueuedSteerGateTransition({
-      gate: { ...armedGate, sawInterruptGap: true, gapStartedAt: now },
-      phase: "running",
-      sessionErrored: false,
-      activeTurnId: "turn-steered",
-      now: now + 1_000,
-    });
-    expect(transition).toEqual({ kind: "clear" });
-  });
-
-  it("fails open when the steered turn never starts within the timeout", () => {
-    const transition = resolveQueuedSteerGateTransition({
-      gate: { ...armedGate, sawInterruptGap: true, gapStartedAt: now },
-      phase: "ready",
-      sessionErrored: false,
-      activeTurnId: null,
-      now: now + QUEUED_STEER_GATE_TIMEOUT_MS,
-    });
-    expect(transition).toEqual({ kind: "clear" });
-  });
-
-  it("clears on session error or disconnect so the queue cannot stall", () => {
-    expect(
-      resolveQueuedSteerGateTransition({
-        gate: armedGate,
-        phase: "ready",
-        sessionErrored: true,
-        activeTurnId: null,
-        now,
-      }),
-    ).toEqual({ kind: "clear" });
-    expect(
-      resolveQueuedSteerGateTransition({
-        gate: { ...armedGate, sawInterruptGap: true, gapStartedAt: now },
-        phase: "disconnected",
-        sessionErrored: false,
-        activeTurnId: null,
-        now,
-      }),
-    ).toEqual({ kind: "clear" });
   });
 });
 

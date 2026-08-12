@@ -1,15 +1,9 @@
-import type {
-  OrchestrationLatestTurn,
-  OrchestrationMessage,
-  OrchestrationProposedPlan,
-  OrchestrationThreadActivity,
-} from "@penkra/contracts";
+import type { OrchestrationMessage, OrchestrationThreadActivity } from "@penkra/contracts";
 
 export interface ThreadSummaryMetadata {
   latestUserMessageAt: string | null;
   hasPendingApprovals: boolean;
   hasPendingUserInput: boolean;
-  hasActionableProposedPlan: boolean;
 }
 
 export interface ThreadSummaryState extends ThreadSummaryMetadata {
@@ -152,35 +146,6 @@ function hasStructuredUserInputQuestions(payload: Record<string, unknown> | null
   });
 }
 
-function resolveLatestProposedPlan(input: {
-  readonly proposedPlans: ReadonlyArray<
-    Pick<OrchestrationProposedPlan, "id" | "turnId" | "updatedAt" | "implementedAt">
-  >;
-  readonly latestTurn: Pick<OrchestrationLatestTurn, "turnId"> | null;
-}): Pick<OrchestrationProposedPlan, "id" | "turnId" | "updatedAt" | "implementedAt"> | null {
-  if (input.latestTurn?.turnId) {
-    const matchingTurnPlan = [...input.proposedPlans]
-      .filter((plan) => plan.turnId === input.latestTurn?.turnId)
-      .toSorted(
-        (left, right) =>
-          left.updatedAt.localeCompare(right.updatedAt) || left.id.localeCompare(right.id),
-      )
-      .at(-1);
-    if (matchingTurnPlan) {
-      return matchingTurnPlan;
-    }
-  }
-
-  return (
-    [...input.proposedPlans]
-      .toSorted(
-        (left, right) =>
-          left.updatedAt.localeCompare(right.updatedAt) || left.id.localeCompare(right.id),
-      )
-      .at(-1) ?? null
-  );
-}
-
 // Tracks the open human-request lifecycles from timeline activities.
 export function derivePendingThreadRequestIds(input: {
   readonly activities: ReadonlyArray<
@@ -255,10 +220,6 @@ export function deriveThreadSummaryState(input: {
   readonly activities: ReadonlyArray<
     Pick<OrchestrationThreadActivity, "createdAt" | "id" | "kind" | "payload" | "sequence">
   >;
-  readonly proposedPlans: ReadonlyArray<
-    Pick<OrchestrationProposedPlan, "id" | "turnId" | "updatedAt" | "implementedAt">
-  >;
-  readonly latestTurn: Pick<OrchestrationLatestTurn, "turnId"> | null;
 }): ThreadSummaryState {
   let latestUserMessageAt: string | null = null;
   for (const message of input.messages) {
@@ -269,18 +230,12 @@ export function deriveThreadSummaryState(input: {
 
   const pendingRequestIds = derivePendingThreadRequestIds({ activities: input.activities });
 
-  const latestProposedPlan = resolveLatestProposedPlan({
-    proposedPlans: input.proposedPlans,
-    latestTurn: input.latestTurn,
-  });
-
   return {
     latestUserMessageAt,
     pendingApprovalCount: pendingRequestIds.approvalRequestIds.length,
     pendingUserInputCount: pendingRequestIds.userInputRequestIds.length,
     hasPendingApprovals: pendingRequestIds.approvalRequestIds.length > 0,
     hasPendingUserInput: pendingRequestIds.userInputRequestIds.length > 0,
-    hasActionableProposedPlan: latestProposedPlan?.implementedAt === null,
   };
 }
 
@@ -289,16 +244,11 @@ export function deriveThreadSummaryMetadata(input: {
   readonly activities: ReadonlyArray<
     Pick<OrchestrationThreadActivity, "createdAt" | "id" | "kind" | "payload" | "sequence">
   >;
-  readonly proposedPlans: ReadonlyArray<
-    Pick<OrchestrationProposedPlan, "id" | "turnId" | "updatedAt" | "implementedAt">
-  >;
-  readonly latestTurn: Pick<OrchestrationLatestTurn, "turnId"> | null;
 }): ThreadSummaryMetadata {
   const summary = deriveThreadSummaryState(input);
   return {
     latestUserMessageAt: summary.latestUserMessageAt,
     hasPendingApprovals: summary.hasPendingApprovals,
     hasPendingUserInput: summary.hasPendingUserInput,
-    hasActionableProposedPlan: summary.hasActionableProposedPlan,
   };
 }

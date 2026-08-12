@@ -11,6 +11,6 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 export const Claude: Story = {};
-export const CodexHigh: Story = {
-  args: { label: "Codex", provider: "codex", variantLabel: "High" },
+export const ChatGPTHigh: Story = {
+  args: { label: "ChatGPT", provider: "codex", variantLabel: "High" },
 };

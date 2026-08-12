@@ -4,7 +4,6 @@ import { setInstalledAppEnabled, useAppInstallationSnapshot } from "~/appInstall
 import { useSpacesUiStore } from "~/spacesUiStore";
 import { toastManager } from "~/components/ui/toast";
 import { SettingsInstalledRow } from "../shared/SettingsPageControls";
-import { AppDiagnosticsView } from "./AppDiagnosticsView";
 import { AppContributedSettings } from "./AppContributedSettings";
 import { AppContributedSkills } from "./AppContributedSkills";
 
@@ -83,7 +82,6 @@ export function SettingsAppsPage() {
           );
         })}
       </div>
-      <AppDiagnosticsView apps={apps} spaceId={activeSpaceId} />
     </div>
   );
 }

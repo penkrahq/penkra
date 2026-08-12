@@ -66,23 +66,37 @@ export function useSidebarProjectRunController(input: {
       ),
     [input.chatWorkspaceRoot, input.homeDir, input.projects],
   );
+  const discoveryInputs = useMemo(() => {
+    const byCwd = new Map<string, { cwd: string; enabled: boolean }>();
+    for (const project of runnableProjects) {
+      if (!project.cwd) continue;
+      const enabled = !project.scripts.some((script) => !script.runOnWorktreeCreate);
+      const existing = byCwd.get(project.cwd);
+      if (!existing) {
+        byCwd.set(project.cwd, { cwd: project.cwd, enabled });
+      } else if (enabled) {
+        existing.enabled = true;
+      }
+    }
+    return [...byCwd.values()];
+  }, [runnableProjects]);
   const discoveryQueries = useQueries({
-    queries: runnableProjects.map((project) =>
-      projectDiscoverScriptsQueryOptions({
-        cwd: project.cwd,
-        enabled: !project.scripts.some((script) => !script.runOnWorktreeCreate),
-      }),
+    queries: discoveryInputs.map((input) =>
+      projectDiscoverScriptsQueryOptions({ cwd: input.cwd, enabled: input.enabled }),
     ),
   });
   const discoveredTargetsByProjectId = useMemo(() => {
+    const targetsByCwd = new Map<string, readonly ProjectDiscoveredScriptTarget[]>();
+    for (let index = 0; index < discoveryInputs.length; index += 1) {
+      const input = discoveryInputs[index];
+      if (input) targetsByCwd.set(input.cwd, discoveryQueries[index]?.data?.targets ?? []);
+    }
     const targetsByProjectId = new Map<ContainerId, readonly ProjectDiscoveredScriptTarget[]>();
-    for (let index = 0; index < runnableProjects.length; index += 1) {
-      const project = runnableProjects[index];
-      if (!project) continue;
-      targetsByProjectId.set(project.id, discoveryQueries[index]?.data?.targets ?? []);
+    for (const project of runnableProjects) {
+      targetsByProjectId.set(project.id, project.cwd ? (targetsByCwd.get(project.cwd) ?? []) : []);
     }
     return targetsByProjectId;
-  }, [discoveryQueries, runnableProjects]);
+  }, [discoveryInputs, discoveryQueries, runnableProjects]);
   const commandByProjectId = useMemo(() => {
     const commands = new Map<ContainerId, ReturnType<typeof selectPrimaryProjectRunCommand>>();
     for (const project of runnableProjects) {

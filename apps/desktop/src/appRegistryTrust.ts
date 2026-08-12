@@ -31,13 +31,10 @@ export type VerifiedRegistryRelease = RegistryReleaseExpectation & {
   publisher: {
     id: string;
     slug: string;
-    signerIdentity: string;
-    signerIssuer: string;
   };
   manifestDigest: string;
   readmeDigest: string;
   instructionsDigest: string;
-  publisherSignatureDigest: string;
   validationReportDigest: string;
   keyId: string;
 };
@@ -137,13 +134,10 @@ export function verifyRegistryReleaseAttestation(input: {
     publisher: {
       id: stringField(publisher, "id"),
       slug: actual.publisherSlug,
-      signerIdentity: stringField(publisher, "signerIdentity"),
-      signerIssuer: stringField(publisher, "signerIssuer"),
     },
     manifestDigest: digestField(version, "manifestDigest"),
     readmeDigest: digestField(version, "readmeDigest"),
     instructionsDigest: digestField(version, "instructionsDigest"),
-    publisherSignatureDigest: digestField(evidence, "publisherSignatureDigest"),
     validationReportDigest: digestField(evidence, "validationReportDigest"),
     keyId: trustedKey.kid,
   };

@@ -11,7 +11,6 @@ const version = {
   publishedAt: "2026-08-01T00:00:00.000Z",
   readmeArtifactId: "00000000-0000-4000-8000-000000000404",
   instructionsArtifactId: "00000000-0000-4000-8000-000000000405",
-  publisherSignatureArtifactId: "00000000-0000-4000-8000-000000000406",
   registrySignatureArtifactId: "00000000-0000-4000-8000-000000000407",
   validationReportArtifactId: "00000000-0000-4000-8000-000000000408",
   permissions: [{ permission: "network-fetch", required: true, rationale: "Sync" }],

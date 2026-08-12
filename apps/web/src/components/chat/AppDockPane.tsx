@@ -51,6 +51,7 @@ export function AppDockPane(props: {
     if (!bridge || !viewport) return;
     let stopped = false;
     let frame = 0;
+    let settledFrame = 0;
     const dockShell = viewport.closest<HTMLElement>("[data-slot='sidebar-container']");
 
     const sync = () => {
@@ -75,6 +76,17 @@ export function AppDockPane(props: {
     };
     const schedule = () => {
       if (!frame) frame = window.requestAnimationFrame(sync);
+    };
+    // Opening the dock intentionally suppresses its first transition frame. The native View can
+    // therefore receive the pre-open, off-canvas rectangle without a ResizeObserver or
+    // transition event to correct it. Re-sample once after that layout frame has settled.
+    const scheduleSettled = () => {
+      schedule();
+      if (settledFrame) window.cancelAnimationFrame(settledFrame);
+      settledFrame = window.requestAnimationFrame(() => {
+        settledFrame = 0;
+        schedule();
+      });
     };
     const followDockMotion = () => {
       frame = 0;
@@ -106,7 +118,7 @@ export function AppDockPane(props: {
       lastBoundsSignatureRef.current = null;
       schedule();
     });
-    scheduleBoundsRef.current = schedule;
+    scheduleBoundsRef.current = scheduleSettled;
     void bridge.attach({ tabId: props.tabId, rendererId: props.rendererId }).then(() => {
       if (!stopped) {
         void bridge.setVisible({
@@ -114,7 +126,7 @@ export function AppDockPane(props: {
           rendererId: props.rendererId,
           visible: nativeViewVisibleRef.current,
         });
-        if (nativeViewVisibleRef.current) schedule();
+        if (nativeViewVisibleRef.current) scheduleSettled();
       }
     });
     return () => {
@@ -133,6 +145,7 @@ export function AppDockPane(props: {
       dockShell?.removeEventListener("animationcancel", schedule);
       unsubscribeZoomFactor?.();
       if (frame) window.cancelAnimationFrame(frame);
+      if (settledFrame) window.cancelAnimationFrame(settledFrame);
       void bridge
         .setVisible({ tabId: props.tabId, rendererId: props.rendererId, visible: false })
         .catch(() => undefined);

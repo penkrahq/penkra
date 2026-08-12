@@ -2,6 +2,7 @@
 // Purpose: Creates a pathless virtual folder inside a Space.
 
 import type { SpaceId } from "@penkra/contracts";
+import { normalizeEntityName } from "@penkra/shared/entityNames";
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 
 import { toSpaceIconName } from "../lib/spaceGrouping";
@@ -37,6 +38,7 @@ export interface CreateProjectSubmitValue {
 export function CreateProjectDialog(props: {
   open: boolean;
   spaces: ReadonlyArray<Space>;
+  existingFolderNamesBySpaceId: ReadonlyMap<SpaceId, ReadonlyArray<string>>;
   activeSpaceId: SpaceId | null;
   onOpenChange: (open: boolean) => void;
   onSubmit: (value: CreateProjectSubmitValue) => Promise<void>;
@@ -83,6 +85,15 @@ export function CreateProjectDialog(props: {
     }
     if (!selectedSpace) {
       setFormError("Choose a Space before creating the folder.");
+      return;
+    }
+    const normalizedName = normalizeEntityName(trimmedName);
+    if (
+      (props.existingFolderNamesBySpaceId.get(selectedSpace.id) ?? []).some(
+        (existingName) => normalizeEntityName(existingName) === normalizedName,
+      )
+    ) {
+      setFormError("That folder name is already taken in this Space.");
       return;
     }
     setSubmitting(true);

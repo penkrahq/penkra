@@ -63,11 +63,11 @@ const seedDurableState = Effect.gen(function* () {
   yield* sql`
     INSERT INTO projection_threads (
       thread_id, project_id, title, created_at, updated_at,
-      runtime_mode, interaction_mode, env_mode
+      runtime_mode, env_mode
     ) VALUES (
       'replay-thread', 'replay-project', 'Replay thread',
       '2026-07-24T10:00:00.000Z', '2026-07-24T10:00:00.000Z',
-      'full-access', 'default', 'local'
+      'full-access', 'local'
     )
   `;
   // A sequence with no surviving orchestration event: a replayed backfill must
@@ -153,7 +153,11 @@ dataLayer("migration replay data preservation", (it) => {
         WHERE thread_id = 'replay-thread'
       `;
       assert.deepStrictEqual(interactions, [
-        { interactionKind: "userInput", requestId: "replay-request", status: "pending" },
+        {
+          interactionKind: "userInput",
+          requestId: "replay-request",
+          status: "pending",
+        },
       ]);
 
       const receipts = yield* sql<{

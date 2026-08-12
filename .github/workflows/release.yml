@@ -17,6 +17,7 @@ concurrency:
 
 env:
   RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
+  PENKRA_REQUIRED_APPS_SOURCE_PATH: .release-inputs/penkra-apps/apps
 
 permissions:
   actions: read
@@ -96,11 +97,21 @@ jobs:
 
           source_commit="$(git rev-parse HEAD)"
           lockfile_sha256="$(node --input-type=module -e 'import { createHash } from "node:crypto"; import { readFileSync } from "node:fs"; process.stdout.write(createHash("sha256").update(readFileSync("bun.lock")).digest("hex"));')"
+          required_apps_commit="$(node -e "process.stdout.write(require('./required-apps.lock.json').sourceCommit)")"
           {
             echo "version=$version"
             echo "source_commit=$source_commit"
             echo "lockfile_sha256=$lockfile_sha256"
+            echo "required_apps_commit=$required_apps_commit"
           } >> "$GITHUB_OUTPUT"
+
+      - name: Checkout pinned required Apps source
+        uses: actions/checkout@v6
+        with:
+          repository: penkrahq/penkra-apps
+          ref: ${{ steps.release.outputs.required_apps_commit }}
+          path: .release-inputs/penkra-apps
+          persist-credentials: false
 
       - name: Require successful CI for the exact tagged commit
         env:

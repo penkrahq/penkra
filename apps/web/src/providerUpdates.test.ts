@@ -46,19 +46,17 @@ function providerStatus(
 function serverSettings(overrides: Partial<ServerSettings["providers"]> = {}): ServerSettings {
   const provider = {
     enabled: true,
-    binaryPath: "",
     customModels: [],
   };
 
   return {
     enableAssistantStreaming: false,
     providerUpdateMode: "automatic",
-    defaultThreadEnvMode: "local",
     addProjectBaseDirectory: "",
     textGenerationModelSelection: { provider: "codex", model: "gpt-5.4-mini" },
     providers: {
-      codex: { ...provider, binaryPath: "codex", homePath: "" },
-      claudeAgent: { ...provider, binaryPath: "claude", launchArgs: "" },
+      codex: { ...provider },
+      claudeAgent: { ...provider },
       cursor: { ...provider, binaryPath: "cursor-agent", apiEndpoint: "" },
       antigravity: { ...provider, binaryPath: "agy" },
       grok: { ...provider, binaryPath: "grok" },
@@ -66,9 +64,6 @@ function serverSettings(overrides: Partial<ServerSettings["providers"]> = {}): S
       kilo: { ...provider, binaryPath: "kilo", serverUrl: "", serverPasswordConfigured: false },
       opencode: {
         ...provider,
-        binaryPath: "opencode",
-        serverUrl: "",
-        serverPasswordConfigured: false,
         experimentalWebSockets: false,
       },
       pi: { ...provider, binaryPath: "pi", agentDir: "" },
@@ -177,7 +172,7 @@ describe("shouldShowProviderUpdateStatus", () => {
     const codex = providerStatus("codex");
     const hiddenPi = providerStatus("pi");
     const settings = serverSettings({
-      codex: { enabled: false, binaryPath: "codex", homePath: "", customModels: [] },
+      codex: { enabled: false, customModels: [] },
     });
 
     expect(

@@ -199,7 +199,6 @@ function makeThread(id: ThreadId, overrides: Partial<SidebarThreadSummary> = {})
     projectId: PROJECT_ID,
     title: String(id),
     modelSelection: { provider: "codex", model: "gpt-5.6" },
-    interactionMode: "default",
     branch: null,
     worktreePath: null,
     session: null,
@@ -208,7 +207,6 @@ function makeThread(id: ThreadId, overrides: Partial<SidebarThreadSummary> = {})
     latestUserMessageAt: null,
     hasPendingApprovals: false,
     hasPendingUserInput: false,
-    hasActionableProposedPlan: false,
     hasLiveTailWork: false,
     ...overrides,
   } as SidebarThreadSummary;

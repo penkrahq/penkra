@@ -3,7 +3,6 @@ import { ChildProcessSpawner } from "effect/unstable/process";
 
 import type { CursorModelSelection, ProviderStartOptions } from "@penkra/contracts";
 import { sanitizeGeneratedThreadTitle } from "@penkra/shared/chatThreads";
-import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@penkra/shared/git";
 
 import {
   applyCursorAcpModelSelection,
@@ -18,18 +17,9 @@ import {
   TextGeneration,
 } from "../Services/TextGeneration.ts";
 import {
-  buildBranchNamePrompt,
-  buildCommitMessagePrompt,
-  buildDiffSummaryPrompt,
-  buildPrContentPrompt,
-  buildThreadRecapPrompt,
   buildThreadTitlePrompt,
   decodeStructuredTextGenerationOutput,
   type RawTextFallback,
-  sanitizeCommitSubject,
-  sanitizeDiffSummary,
-  sanitizeThreadRecap,
-  sanitizePrTitle,
 } from "../textGenerationShared.ts";
 
 const CURSOR_TEXT_GENERATION_LABEL = "Cursor Agent";
@@ -192,133 +182,6 @@ const makeCursorTextGeneration = Effect.gen(function* () {
       Effect.scoped,
     );
 
-  const generateCommitMessage: TextGenerationShape["generateCommitMessage"] = Effect.fn(
-    "CursorTextGeneration.generateCommitMessage",
-  )(function* (input) {
-    const modelSelection = resolveCursorModelSelection(input);
-    if (!modelSelection) {
-      return yield* new TextGenerationError({
-        operation: "generateCommitMessage",
-        detail: "Invalid Cursor model selection.",
-      });
-    }
-
-    const { prompt, outputSchemaJson } = buildCommitMessagePrompt({
-      branch: input.branch,
-      stagedSummary: input.stagedSummary,
-      stagedPatch: input.stagedPatch,
-      includeBranch: input.includeBranch === true,
-    });
-    const generated = yield* runCursorJson({
-      operation: "generateCommitMessage",
-      cwd: input.cwd,
-      prompt,
-      outputSchemaJson,
-      modelSelection,
-      ...(input.providerOptions ? { providerOptions: input.providerOptions } : {}),
-    });
-
-    return {
-      subject: sanitizeCommitSubject(generated.subject),
-      body: generated.body.trim(),
-      ...("branch" in generated && typeof generated.branch === "string"
-        ? { branch: sanitizeFeatureBranchName(generated.branch) }
-        : {}),
-    };
-  });
-
-  const generatePrContent: TextGenerationShape["generatePrContent"] = Effect.fn(
-    "CursorTextGeneration.generatePrContent",
-  )(function* (input) {
-    const modelSelection = resolveCursorModelSelection(input);
-    if (!modelSelection) {
-      return yield* new TextGenerationError({
-        operation: "generatePrContent",
-        detail: "Invalid Cursor model selection.",
-      });
-    }
-
-    const { prompt, outputSchemaJson } = buildPrContentPrompt({
-      baseBranch: input.baseBranch,
-      headBranch: input.headBranch,
-      commitSummary: input.commitSummary,
-      diffSummary: input.diffSummary,
-      diffPatch: input.diffPatch,
-    });
-    const generated = yield* runCursorJson({
-      operation: "generatePrContent",
-      cwd: input.cwd,
-      prompt,
-      outputSchemaJson,
-      modelSelection,
-      ...(input.providerOptions ? { providerOptions: input.providerOptions } : {}),
-    });
-
-    return {
-      title: sanitizePrTitle(generated.title),
-      body: generated.body.trim(),
-    };
-  });
-
-  const generateDiffSummary: TextGenerationShape["generateDiffSummary"] = Effect.fn(
-    "CursorTextGeneration.generateDiffSummary",
-  )(function* (input) {
-    const modelSelection = resolveCursorModelSelection(input);
-    if (!modelSelection) {
-      return yield* new TextGenerationError({
-        operation: "generateDiffSummary",
-        detail: "Invalid Cursor model selection.",
-      });
-    }
-
-    const { prompt, outputSchemaJson, rawTextFallback } = buildDiffSummaryPrompt({
-      patch: input.patch,
-    });
-    const generated = yield* runCursorJson({
-      operation: "generateDiffSummary",
-      cwd: input.cwd,
-      prompt,
-      outputSchemaJson,
-      rawTextFallback,
-      modelSelection,
-      ...(input.providerOptions ? { providerOptions: input.providerOptions } : {}),
-    });
-
-    return {
-      summary: sanitizeDiffSummary(generated.summary),
-    };
-  });
-
-  const generateBranchName: TextGenerationShape["generateBranchName"] = Effect.fn(
-    "CursorTextGeneration.generateBranchName",
-  )(function* (input) {
-    const modelSelection = resolveCursorModelSelection(input);
-    if (!modelSelection) {
-      return yield* new TextGenerationError({
-        operation: "generateBranchName",
-        detail: "Invalid Cursor model selection.",
-      });
-    }
-
-    const { prompt, outputSchemaJson, rawTextFallback } = buildBranchNamePrompt({
-      message: input.message,
-      ...(input.attachments ? { attachments: input.attachments } : {}),
-    });
-    const generated = yield* runCursorJson({
-      operation: "generateBranchName",
-      cwd: input.cwd,
-      prompt,
-      outputSchemaJson,
-      rawTextFallback,
-      modelSelection,
-      ...(input.providerOptions ? { providerOptions: input.providerOptions } : {}),
-    });
-
-    return {
-      branch: sanitizeBranchFragment(generated.branch),
-    };
-  });
-
   const generateThreadTitle: TextGenerationShape["generateThreadTitle"] = Effect.fn(
     "CursorTextGeneration.generateThreadTitle",
   )(function* (input) {
@@ -349,44 +212,8 @@ const makeCursorTextGeneration = Effect.gen(function* () {
     };
   });
 
-  const generateThreadRecap: TextGenerationShape["generateThreadRecap"] = Effect.fn(
-    "CursorTextGeneration.generateThreadRecap",
-  )(function* (input) {
-    const modelSelection = resolveCursorModelSelection(input);
-    if (!modelSelection) {
-      return yield* new TextGenerationError({
-        operation: "generateThreadRecap",
-        detail: "Invalid Cursor model selection.",
-      });
-    }
-
-    const { prompt, outputSchemaJson, rawTextFallback } = buildThreadRecapPrompt({
-      ...(input.previousRecap ? { previousRecap: input.previousRecap } : {}),
-      newMaterial: input.newMaterial,
-      ...(input.currentState ? { currentState: input.currentState } : {}),
-    });
-    const generated = yield* runCursorJson({
-      operation: "generateThreadRecap",
-      cwd: input.cwd,
-      prompt,
-      outputSchemaJson,
-      rawTextFallback,
-      modelSelection,
-      ...(input.providerOptions ? { providerOptions: input.providerOptions } : {}),
-    });
-
-    return {
-      recap: sanitizeThreadRecap(generated.recap, input.previousRecap),
-    };
-  });
-
   return {
-    generateCommitMessage,
-    generatePrContent,
-    generateDiffSummary,
-    generateBranchName,
     generateThreadTitle,
-    generateThreadRecap,
   } satisfies TextGenerationShape;
 });
 

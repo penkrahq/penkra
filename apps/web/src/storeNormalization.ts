@@ -19,7 +19,6 @@ import { deriveThreadSummaryMetadata } from "@penkra/shared/threadSummary";
 
 import { isStalePendingRequestFailureDetail } from "./lib/pendingInteraction";
 import { toAttachmentPreviewUrl } from "./lib/wsHttpUrl";
-import { hasLiveTurnTailWork } from "./session-logic";
 import { getRememberedProjectUiState } from "./storePersistence";
 import type {
   ChatAttachment,
@@ -66,15 +65,6 @@ function basenameOfPath(value: string | null): string | null {
   return segments.at(-1) ?? null;
 }
 
-function sourceProposedPlansEqual(
-  left: Thread["pendingSourceProposedPlan"],
-  right: Thread["pendingSourceProposedPlan"],
-): boolean {
-  if (left === right) return true;
-  if (left === undefined || right === undefined) return false;
-  return left.threadId === right.threadId && left.planId === right.planId;
-}
-
 function latestTurnsEqual(left: Thread["latestTurn"], right: Thread["latestTurn"]): boolean {
   if (left === right) return true;
   if (left == null || right == null) return false;
@@ -84,8 +74,7 @@ function latestTurnsEqual(left: Thread["latestTurn"], right: Thread["latestTurn"
     left.requestedAt === right.requestedAt &&
     left.startedAt === right.startedAt &&
     left.completedAt === right.completedAt &&
-    left.assistantMessageId === right.assistantMessageId &&
-    sourceProposedPlansEqual(left.sourceProposedPlan, right.sourceProposedPlan)
+    left.assistantMessageId === right.assistantMessageId
   );
 }
 
@@ -154,7 +143,6 @@ export function threadShellsEqual(left: ThreadShell | undefined, right: ThreadSh
     left.title === right.title &&
     left.modelSelection === right.modelSelection &&
     left.runtimeMode === right.runtimeMode &&
-    left.interactionMode === right.interactionMode &&
     left.error === right.error &&
     left.createdAt === right.createdAt &&
     (left.archivedAt ?? null) === (right.archivedAt ?? null) &&
@@ -175,16 +163,13 @@ export function threadShellsEqual(left: ThreadShell | undefined, right: ThreadSh
     (left.subagentNickname ?? null) === (right.subagentNickname ?? null) &&
     (left.subagentRole ?? null) === (right.subagentRole ?? null) &&
     (left.forkSourceThreadId ?? null) === (right.forkSourceThreadId ?? null) &&
-    (left.sidechatSourceThreadId ?? null) === (right.sidechatSourceThreadId ?? null) &&
     deepEqualJson(left.lastKnownPr ?? null, right.lastKnownPr ?? null) &&
-    (left.handoff ?? null) === (right.handoff ?? null) &&
     deepEqualJson(left.pinnedMessages ?? null, right.pinnedMessages ?? null) &&
     deepEqualJson(left.threadMarkers ?? null, right.threadMarkers ?? null) &&
     (left.notes ?? "") === (right.notes ?? "") &&
     left.latestUserMessageAt === right.latestUserMessageAt &&
     left.hasPendingApprovals === right.hasPendingApprovals &&
     left.hasPendingUserInput === right.hasPendingUserInput &&
-    left.hasActionableProposedPlan === right.hasActionableProposedPlan &&
     left.pendingInteractions === right.pendingInteractions &&
     left.lastVisitedAt === right.lastVisitedAt
   );
@@ -197,7 +182,6 @@ export function threadTurnStatesEqual(
   return (
     left !== undefined &&
     latestTurnsEqual(left.latestTurn, right.latestTurn) &&
-    sourceProposedPlansEqual(left.pendingSourceProposedPlan, right.pendingSourceProposedPlan) &&
     (left.pendingTurnStartMessageId ?? null) === (right.pendingTurnStartMessageId ?? null)
   );
 }
@@ -322,7 +306,13 @@ export function normalizeProject(
   const rememberedUiState = getRememberedProjectUiState();
   const workspaceRoot = incoming.workspaceRoot ?? "";
   const folderName = basenameOfPath(incoming.workspaceRoot) ?? incoming.title;
-  const localName = previous?.localName ?? rememberedUiState.projectNameForId(incoming.id) ?? null;
+  // Local aliases predate authoritative virtual folder titles. Preserve one until the
+  // server title actually changes, then retire it so the persisted rename is visible
+  // consistently in every window without touching any thread working directory.
+  const authoritativeTitleChanged = previous && previous.remoteName !== incoming.title;
+  const localName = authoritativeTitleChanged
+    ? null
+    : (previous?.localName ?? rememberedUiState.projectNameForId(incoming.id) ?? null);
   const defaultModelSelection =
     incoming.defaultModelSelection === null
       ? null
@@ -774,6 +764,31 @@ function shouldPreserveRunningTurn(
   return true;
 }
 
+function mergeReadModelActivitiesWithLiveHotPath(
+  incomingActivities: ReadModelThread["activities"],
+  previousThread: Thread,
+  preserveRunningTurn: boolean,
+): ReadModelThread["activities"] {
+  const liveTurnId = previousThread.latestTurn?.turnId;
+  if (!preserveRunningTurn || !liveTurnId) {
+    return incomingActivities;
+  }
+
+  const incomingIds = new Set(incomingActivities.map((activity) => activity.id));
+  const missingLiveActivities = previousThread.activities.filter(
+    (activity) => activity.turnId === liveTurnId && !incomingIds.has(activity.id),
+  );
+  if (missingLiveActivities.length === 0) {
+    return incomingActivities;
+  }
+
+  // Stable timestamp ordering matches transcript interleaving. Snapshot rows win
+  // id collisions; only genuinely missing live rows are appended before sorting.
+  return [...incomingActivities, ...missingLiveActivities].toSorted((left, right) =>
+    left.createdAt.localeCompare(right.createdAt),
+  );
+}
+
 function readModelSessionFromThreadSession(
   previousSession: ThreadSession,
   previousThread: Thread | undefined,
@@ -876,12 +891,6 @@ function mergeReadModelLatestTurnWithLiveHotPath(
         completedAt: null,
         assistantMessageId:
           previousLatestTurn.assistantMessageId ?? incomingLatestTurn?.assistantMessageId ?? null,
-        ...((incomingLatestTurn?.sourceProposedPlan ?? previousLatestTurn.sourceProposedPlan)
-          ? {
-              sourceProposedPlan:
-                incomingLatestTurn?.sourceProposedPlan ?? previousLatestTurn.sourceProposedPlan,
-            }
-          : {}),
       };
     }
     return incomingLatestTurn;
@@ -955,10 +964,16 @@ export function mergeReadModelThreadDetailWithLiveHotPath(
   const latestTurn = mergeReadModelLatestTurnWithLiveHotPath(incoming.latestTurn, previousThread, {
     preserveRunningTurn,
   });
+  const activities = mergeReadModelActivitiesWithLiveHotPath(
+    incoming.activities,
+    previousThread,
+    preserveRunningTurn,
+  );
   if (
     messages === incoming.messages &&
     session === incoming.session &&
-    latestTurn === incoming.latestTurn
+    latestTurn === incoming.latestTurn &&
+    activities === incoming.activities
   ) {
     return incoming;
   }
@@ -967,38 +982,8 @@ export function mergeReadModelThreadDetailWithLiveHotPath(
     messages,
     session,
     latestTurn,
+    activities,
   };
-}
-
-export function normalizeProposedPlans(
-  incoming: ReadModelThread["proposedPlans"],
-  previous: Thread["proposedPlans"] | undefined,
-): Thread["proposedPlans"] {
-  const previousById = new Map(previous?.map((plan) => [plan.id, plan] as const));
-  const nextPlans = incoming.map((plan) => {
-    const existing = previousById.get(plan.id);
-    if (
-      existing &&
-      existing.turnId === plan.turnId &&
-      existing.planMarkdown === plan.planMarkdown &&
-      existing.implementedAt === plan.implementedAt &&
-      existing.implementationThreadId === plan.implementationThreadId &&
-      existing.createdAt === plan.createdAt &&
-      existing.updatedAt === plan.updatedAt
-    ) {
-      return existing;
-    }
-    return {
-      id: plan.id,
-      turnId: plan.turnId,
-      planMarkdown: plan.planMarkdown,
-      implementedAt: plan.implementedAt,
-      implementationThreadId: plan.implementationThreadId,
-      createdAt: plan.createdAt,
-      updatedAt: plan.updatedAt,
-    };
-  });
-  return arraysShallowEqual(previous, nextPlans) ? previous : nextPlans;
 }
 
 export function normalizeTurnDiffFiles(
@@ -1410,14 +1395,6 @@ function normalizeLatestTurn(
   if (!incoming) {
     return null;
   }
-  const nextSourceProposedPlan = incoming.sourceProposedPlan
-    ? previous?.sourceProposedPlan &&
-      previous.sourceProposedPlan.threadId === incoming.sourceProposedPlan.threadId &&
-      previous.sourceProposedPlan.planId === incoming.sourceProposedPlan.planId
-      ? previous.sourceProposedPlan
-      : incoming.sourceProposedPlan
-    : undefined;
-
   if (
     previous &&
     previous.turnId === incoming.turnId &&
@@ -1425,8 +1402,7 @@ function normalizeLatestTurn(
     previous.requestedAt === incoming.requestedAt &&
     previous.startedAt === incoming.startedAt &&
     previous.completedAt === incoming.completedAt &&
-    previous.assistantMessageId === incoming.assistantMessageId &&
-    previous.sourceProposedPlan === nextSourceProposedPlan
+    previous.assistantMessageId === incoming.assistantMessageId
   ) {
     return previous;
   }
@@ -1438,7 +1414,6 @@ function normalizeLatestTurn(
     startedAt: incoming.startedAt,
     completedAt: incoming.completedAt,
     assistantMessageId: incoming.assistantMessageId,
-    ...(nextSourceProposedPlan ? { sourceProposedPlan: nextSourceProposedPlan } : {}),
   };
 }
 
@@ -1449,12 +1424,7 @@ export function normalizeThreadFromReadModel(
   const modelSelection = normalizeModelSelection(incoming.modelSelection, previous?.modelSelection);
   const session = normalizeThreadSession(incoming.session, previous?.session);
   const messages = normalizeChatMessages(incoming.messages, previous?.messages);
-  const proposedPlans = normalizeProposedPlans(incoming.proposedPlans, previous?.proposedPlans);
   const latestTurn = normalizeLatestTurn(incoming.latestTurn, previous?.latestTurn);
-  const handoff =
-    previous?.handoff && incoming.handoff && deepEqualJson(previous.handoff, incoming.handoff)
-      ? previous.handoff
-      : (incoming.handoff ?? null);
   const lastKnownPr =
     previous?.lastKnownPr &&
     incoming.lastKnownPr &&
@@ -1496,10 +1466,6 @@ export function normalizeThreadFromReadModel(
     typeof incoming.hasPendingApprovals === "boolean" ? incoming.hasPendingApprovals : undefined;
   const resolvedHasPendingUserInput =
     typeof incoming.hasPendingUserInput === "boolean" ? incoming.hasPendingUserInput : undefined;
-  const resolvedHasActionableProposedPlan =
-    typeof incoming.hasActionableProposedPlan === "boolean"
-      ? incoming.hasActionableProposedPlan
-      : undefined;
   const nextWorktreePath = incoming.worktreePath;
   const nextWorkingDirectory = incoming.workingDirectory ?? null;
   const nextAssociatedWorktreePath = incoming.associatedWorktreePath ?? null;
@@ -1523,9 +1489,6 @@ export function normalizeThreadFromReadModel(
     currentCreateBranchFlowCompleted: previous?.createBranchFlowCompleted,
     nextCreateBranchFlowCompleted: incoming.createBranchFlowCompleted,
   });
-  const pendingSourceProposedPlan =
-    latestTurn?.sourceProposedPlan ??
-    (incoming.session?.status === "running" ? previous?.pendingSourceProposedPlan : undefined);
   const pendingTurnStartMessageId = incoming.pendingTurnStartMessageId ?? null;
 
   if (
@@ -1536,17 +1499,14 @@ export function normalizeThreadFromReadModel(
     previous.title === incoming.title &&
     previous.modelSelection === modelSelection &&
     previous.runtimeMode === incoming.runtimeMode &&
-    previous.interactionMode === incoming.interactionMode &&
     previous.session === session &&
     previous.messages === messages &&
-    previous.proposedPlans === proposedPlans &&
     previous.error === error &&
     previous.createdAt === incoming.createdAt &&
     (previous.archivedAt ?? null) === (incoming.archivedAt ?? null) &&
     previous.updatedAt === incoming.updatedAt &&
     (previous.isPinned ?? false) === (incoming.isPinned ?? false) &&
     previous.latestTurn === latestTurn &&
-    previous.pendingSourceProposedPlan === pendingSourceProposedPlan &&
     (previous.pendingTurnStartMessageId ?? null) === pendingTurnStartMessageId &&
     previous.lastVisitedAt === lastVisitedAt &&
     (previous.parentThreadId ?? null) === (incoming.parentThreadId ?? null) &&
@@ -1566,11 +1526,8 @@ export function normalizeThreadFromReadModel(
     previous.latestUserMessageAt === resolvedLatestUserMessageAt &&
     previous.hasPendingApprovals === resolvedHasPendingApprovals &&
     previous.hasPendingUserInput === resolvedHasPendingUserInput &&
-    previous.hasActionableProposedPlan === resolvedHasActionableProposedPlan &&
     (previous.forkSourceThreadId ?? null) === (incoming.forkSourceThreadId ?? null) &&
-    (previous.sidechatSourceThreadId ?? null) === (incoming.sidechatSourceThreadId ?? null) &&
     deepEqualJson(previous.lastKnownPr ?? null, lastKnownPr) &&
-    (previous.handoff ?? null) === handoff &&
     previous.pinnedMessages === pinnedMessages &&
     previous.threadMarkers === threadMarkers &&
     previous.notes === notes &&
@@ -1590,17 +1547,14 @@ export function normalizeThreadFromReadModel(
     title: incoming.title,
     modelSelection,
     runtimeMode: incoming.runtimeMode,
-    interactionMode: incoming.interactionMode,
     session,
     messages,
-    proposedPlans,
     error,
     createdAt: incoming.createdAt,
     archivedAt: incoming.archivedAt ?? null,
     updatedAt: incoming.updatedAt,
     isPinned: incoming.isPinned ?? false,
     latestTurn,
-    ...(pendingSourceProposedPlan ? { pendingSourceProposedPlan } : {}),
     pendingTurnStartMessageId,
     lastVisitedAt,
     parentThreadId: incoming.parentThreadId ?? null,
@@ -1618,9 +1572,7 @@ export function normalizeThreadFromReadModel(
     associatedWorktreeRef: nextAssociatedWorktreeRef,
     createBranchFlowCompleted: resolvedCreateBranchFlowCompleted,
     forkSourceThreadId: incoming.forkSourceThreadId ?? null,
-    sidechatSourceThreadId: incoming.sidechatSourceThreadId ?? null,
     lastKnownPr,
-    handoff,
     ...(pinnedMessages !== undefined ? { pinnedMessages } : {}),
     ...(threadMarkers !== undefined ? { threadMarkers } : {}),
     ...(notes !== undefined ? { notes } : {}),
@@ -1632,9 +1584,6 @@ export function normalizeThreadFromReadModel(
       : {}),
     ...(resolvedHasPendingUserInput !== undefined
       ? { hasPendingUserInput: resolvedHasPendingUserInput }
-      : {}),
-    ...(resolvedHasActionableProposedPlan !== undefined
-      ? { hasActionableProposedPlan: resolvedHasActionableProposedPlan }
       : {}),
     turnDiffSummaries,
     activities,
@@ -1653,10 +1602,6 @@ export function normalizeThreadShellSnapshot(
   const modelSelection = normalizeModelSelection(incoming.modelSelection, previous?.modelSelection);
   const session = normalizeThreadSession(incoming.session, previous?.session);
   const latestTurn = normalizeLatestTurn(incoming.latestTurn, previous?.latestTurn);
-  const handoff =
-    previous?.handoff && incoming.handoff && deepEqualJson(previous.handoff, incoming.handoff)
-      ? previous.handoff
-      : (incoming.handoff ?? null);
   const lastKnownPr =
     previous?.lastKnownPr &&
     incoming.lastKnownPr &&
@@ -1697,7 +1642,6 @@ export function normalizeThreadShellSnapshot(
     title: incoming.title,
     modelSelection,
     runtimeMode: incoming.runtimeMode,
-    interactionMode: incoming.interactionMode,
     error,
     createdAt: incoming.createdAt,
     archivedAt: incoming.archivedAt ?? null,
@@ -1718,9 +1662,7 @@ export function normalizeThreadShellSnapshot(
     subagentNickname: incoming.subagentNickname ?? null,
     subagentRole: incoming.subagentRole ?? null,
     forkSourceThreadId: incoming.forkSourceThreadId ?? null,
-    sidechatSourceThreadId: incoming.sidechatSourceThreadId ?? null,
     lastKnownPr,
-    handoff,
     // The sidebar shell snapshot/event does not carry thread annotations, so keep the values
     // resolved from the thread-detail path instead of clobbering them with `undefined`.
     ...(previous?.pinnedMessages !== undefined ? { pinnedMessages: previous.pinnedMessages } : {}),
@@ -1735,9 +1677,6 @@ export function normalizeThreadShellSnapshot(
     ...(incoming.hasPendingUserInput !== undefined
       ? { hasPendingUserInput: incoming.hasPendingUserInput }
       : {}),
-    ...(incoming.hasActionableProposedPlan !== undefined
-      ? { hasActionableProposedPlan: incoming.hasActionableProposedPlan }
-      : {}),
     ...(previous?.pendingInteractions !== undefined
       ? { pendingInteractions: previous.pendingInteractions }
       : {}),
@@ -1746,12 +1685,7 @@ export function normalizeThreadShellSnapshot(
   return {
     shell,
     session,
-    turnState: {
-      latestTurn,
-      ...(latestTurn?.sourceProposedPlan
-        ? { pendingSourceProposedPlan: latestTurn.sourceProposedPlan }
-        : {}),
-    },
+    turnState: { latestTurn },
   };
 }
 
@@ -1834,23 +1768,16 @@ export function resolveThreadSidebarMetadata(
   thread: Thread,
 ): Pick<
   SidebarThreadSummary,
-  | "latestUserMessageAt"
-  | "hasPendingApprovals"
-  | "hasPendingUserInput"
-  | "hasActionableProposedPlan"
-  | "hasLiveTailWork"
+  "latestUserMessageAt" | "hasPendingApprovals" | "hasPendingUserInput"
 > {
   const needsDerivedMetadata =
     thread.latestUserMessageAt === undefined ||
     thread.hasPendingApprovals === undefined ||
-    thread.hasPendingUserInput === undefined ||
-    thread.hasActionableProposedPlan === undefined;
+    thread.hasPendingUserInput === undefined;
   const derivedMetadata = needsDerivedMetadata
     ? deriveThreadSummaryMetadata({
         messages: thread.messages,
         activities: thread.activities,
-        proposedPlans: thread.proposedPlans,
-        latestTurn: thread.latestTurn,
       })
     : null;
 
@@ -1860,15 +1787,5 @@ export function resolveThreadSidebarMetadata(
       thread.hasPendingApprovals ?? derivedMetadata?.hasPendingApprovals ?? false,
     hasPendingUserInput:
       thread.hasPendingUserInput ?? derivedMetadata?.hasPendingUserInput ?? false,
-    hasActionableProposedPlan:
-      thread.hasActionableProposedPlan ?? derivedMetadata?.hasActionableProposedPlan ?? false,
-    hasLiveTailWork: Boolean(
-      hasLiveTurnTailWork({
-        latestTurn: thread.latestTurn,
-        messages: thread.messages,
-        activities: thread.activities,
-        session: thread.session,
-      }),
-    ),
   };
 }

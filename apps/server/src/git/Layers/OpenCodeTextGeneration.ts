@@ -1,5 +1,5 @@
 // FILE: OpenCodeTextGeneration.ts
-// Purpose: Runs OpenCode-compatible one-shot text generation for titles, branches, recaps, and release text.
+// Purpose: Runs OpenCode-compatible one-shot generation for first-message Thread titles.
 // Layer: Server git/text-generation adapter
 // Depends on: OpenCode SDK runtime, prompt builders, attachment projection, and server config.
 
@@ -14,7 +14,6 @@ import type {
   ProviderStartOptions,
 } from "@penkra/contracts";
 import { sanitizeGeneratedThreadTitle } from "@penkra/shared/chatThreads";
-import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@penkra/shared/git";
 import { getModelSelectionStringOptionValue } from "@penkra/shared/model";
 
 import { resolveProviderAttachmentPath } from "../../provider/providerAttachmentPaths.ts";
@@ -39,18 +38,9 @@ import {
   OpenCodeTextGeneration,
 } from "../Services/TextGeneration.ts";
 import {
-  buildBranchNamePrompt,
-  buildCommitMessagePrompt,
-  buildDiffSummaryPrompt,
-  buildPrContentPrompt,
-  buildThreadRecapPrompt,
   buildThreadTitlePrompt,
   decodeStructuredTextGenerationOutput,
   type RawTextFallback,
-  sanitizeCommitSubject,
-  sanitizeDiffSummary,
-  sanitizeThreadRecap,
-  sanitizePrTitle,
 } from "../textGenerationShared.ts";
 
 const OPENCODE_TEXT_GENERATION_IDLE_TTL = "30 seconds";
@@ -471,134 +461,6 @@ const makeOpenCodeCompatibleTextGeneration = (config: OpenCodeCompatibleTextGene
       });
     });
 
-    const generateCommitMessage: TextGenerationShape["generateCommitMessage"] = Effect.fn(
-      `${config.serviceName}.generateCommitMessage`,
-    )(function* (input) {
-      const modelSelection = resolveOpenCodeCompatibleModelSelection(config, input);
-      if (!modelSelection) {
-        return yield* new TextGenerationError({
-          operation: "generateCommitMessage",
-          detail: `Invalid ${config.displayName} model selection.`,
-        });
-      }
-
-      const { prompt, outputSchemaJson } = buildCommitMessagePrompt({
-        branch: input.branch,
-        stagedSummary: input.stagedSummary,
-        stagedPatch: input.stagedPatch,
-        includeBranch: input.includeBranch === true,
-      });
-      const generated = yield* runOpenCodeJson({
-        operation: "generateCommitMessage",
-        cwd: input.cwd,
-        prompt,
-        outputSchemaJson,
-        modelSelection,
-        ...(input.providerOptions ? { providerOptions: input.providerOptions } : {}),
-      });
-
-      return {
-        subject: sanitizeCommitSubject(generated.subject),
-        body: generated.body.trim(),
-        ...("branch" in generated && typeof generated.branch === "string"
-          ? { branch: sanitizeFeatureBranchName(generated.branch) }
-          : {}),
-      };
-    });
-
-    const generatePrContent: TextGenerationShape["generatePrContent"] = Effect.fn(
-      `${config.serviceName}.generatePrContent`,
-    )(function* (input) {
-      const modelSelection = resolveOpenCodeCompatibleModelSelection(config, input);
-      if (!modelSelection) {
-        return yield* new TextGenerationError({
-          operation: "generatePrContent",
-          detail: `Invalid ${config.displayName} model selection.`,
-        });
-      }
-
-      const { prompt, outputSchemaJson } = buildPrContentPrompt({
-        baseBranch: input.baseBranch,
-        headBranch: input.headBranch,
-        commitSummary: input.commitSummary,
-        diffSummary: input.diffSummary,
-        diffPatch: input.diffPatch,
-      });
-      const generated = yield* runOpenCodeJson({
-        operation: "generatePrContent",
-        cwd: input.cwd,
-        prompt,
-        outputSchemaJson,
-        modelSelection,
-        ...(input.providerOptions ? { providerOptions: input.providerOptions } : {}),
-      });
-
-      return {
-        title: sanitizePrTitle(generated.title),
-        body: generated.body.trim(),
-      };
-    });
-
-    const generateDiffSummary: TextGenerationShape["generateDiffSummary"] = Effect.fn(
-      `${config.serviceName}.generateDiffSummary`,
-    )(function* (input) {
-      const modelSelection = resolveOpenCodeCompatibleModelSelection(config, input);
-      if (!modelSelection) {
-        return yield* new TextGenerationError({
-          operation: "generateDiffSummary",
-          detail: `Invalid ${config.displayName} model selection.`,
-        });
-      }
-
-      const { prompt, outputSchemaJson, rawTextFallback } = buildDiffSummaryPrompt({
-        patch: input.patch,
-      });
-      const generated = yield* runOpenCodeJson({
-        operation: "generateDiffSummary",
-        cwd: input.cwd,
-        prompt,
-        outputSchemaJson,
-        rawTextFallback,
-        modelSelection,
-        ...(input.providerOptions ? { providerOptions: input.providerOptions } : {}),
-      });
-
-      return {
-        summary: sanitizeDiffSummary(generated.summary),
-      };
-    });
-
-    const generateBranchName: TextGenerationShape["generateBranchName"] = Effect.fn(
-      `${config.serviceName}.generateBranchName`,
-    )(function* (input) {
-      const modelSelection = resolveOpenCodeCompatibleModelSelection(config, input);
-      if (!modelSelection) {
-        return yield* new TextGenerationError({
-          operation: "generateBranchName",
-          detail: `Invalid ${config.displayName} model selection.`,
-        });
-      }
-
-      const { prompt, outputSchemaJson, rawTextFallback } = buildBranchNamePrompt({
-        message: input.message,
-        ...(input.attachments ? { attachments: input.attachments } : {}),
-      });
-      const generated = yield* runOpenCodeJson({
-        operation: "generateBranchName",
-        cwd: input.cwd,
-        prompt,
-        outputSchemaJson,
-        rawTextFallback,
-        modelSelection,
-        ...(input.attachments ? { attachments: input.attachments } : {}),
-        ...(input.providerOptions ? { providerOptions: input.providerOptions } : {}),
-      });
-
-      return {
-        branch: sanitizeBranchFragment(generated.branch),
-      };
-    });
-
     const generateThreadTitle: TextGenerationShape["generateThreadTitle"] = Effect.fn(
       `${config.serviceName}.generateThreadTitle`,
     )(function* (input) {
@@ -630,44 +492,8 @@ const makeOpenCodeCompatibleTextGeneration = (config: OpenCodeCompatibleTextGene
       };
     });
 
-    const generateThreadRecap: TextGenerationShape["generateThreadRecap"] = Effect.fn(
-      `${config.serviceName}.generateThreadRecap`,
-    )(function* (input) {
-      const modelSelection = resolveOpenCodeCompatibleModelSelection(config, input);
-      if (!modelSelection) {
-        return yield* new TextGenerationError({
-          operation: "generateThreadRecap",
-          detail: `Invalid ${config.displayName} model selection.`,
-        });
-      }
-
-      const { prompt, outputSchemaJson, rawTextFallback } = buildThreadRecapPrompt({
-        ...(input.previousRecap ? { previousRecap: input.previousRecap } : {}),
-        newMaterial: input.newMaterial,
-        ...(input.currentState ? { currentState: input.currentState } : {}),
-      });
-      const generated = yield* runOpenCodeJson({
-        operation: "generateThreadRecap",
-        cwd: input.cwd,
-        prompt,
-        outputSchemaJson,
-        rawTextFallback,
-        modelSelection,
-        ...(input.providerOptions ? { providerOptions: input.providerOptions } : {}),
-      });
-
-      return {
-        recap: sanitizeThreadRecap(generated.recap, input.previousRecap),
-      };
-    });
-
     return {
-      generateCommitMessage,
-      generatePrContent,
-      generateDiffSummary,
-      generateBranchName,
       generateThreadTitle,
-      generateThreadRecap,
     } satisfies TextGenerationShape;
   });
 

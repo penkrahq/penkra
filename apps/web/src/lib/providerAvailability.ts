@@ -96,7 +96,7 @@ export function findProviderStatus(
   return statuses.find((status) => status.provider === provider) ?? null;
 }
 
-// Shared send gate used by chat, Kanban, shortcuts, and handoff flows.
+// Shared send gate used by chat, Kanban, shortcuts, and thread-start flows.
 export function resolveProviderSendAvailability(input: {
   readonly provider: ProviderKind;
   readonly statuses: readonly ServerProviderStatus[];

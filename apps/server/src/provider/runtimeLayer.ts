@@ -19,10 +19,15 @@ import { makeKiloAdapterLive, makeOpenCodeAdapterLive } from "./Layers/OpenCodeA
 import { makePiAdapterLive } from "./Layers/PiAdapter";
 import { ProviderAdapterRegistryLive } from "./Layers/ProviderAdapterRegistry";
 import { ProviderDiscoveryServiceLive } from "./Layers/ProviderDiscoveryService";
-import { makeDurableProviderServiceLive } from "./Layers/ProviderService";
+import { makeManagedDurableProviderServiceLive } from "./Layers/ProviderService";
 import { ProviderSessionDirectoryLive } from "./Layers/ProviderSessionDirectory";
 import { ProviderSessionRuntimeRepositoryLive } from "../persistence/Layers/ProviderSessionRuntime";
 import { ProviderRuntimeEventRepositoryLive } from "../persistence/Layers/ProviderRuntimeEvents";
+import { ThreadProviderBindingRepositoryLive } from "../persistence/Layers/ThreadProviderBindings";
+import { ProviderConnectionRepositoryLive } from "../persistence/Layers/ProviderConnections";
+import { ProviderInstallationRepositoryLive } from "../persistence/Layers/ProviderInstallations";
+import { ProviderCredentialBrokerLive } from "./providerCredentialBroker";
+import { ProviderLaunchResolverLive } from "./Layers/ProviderLaunchResolver";
 
 export function makeServerProviderLayer(
   options: {
@@ -93,15 +98,34 @@ export function makeServerProviderLayer(
       Layer.provide(piAdapterLayer),
       Layer.provideMerge(providerSessionDirectoryLayer),
     );
-    const providerServiceLayer = makeDurableProviderServiceLive(
+    const providerServiceLayer = makeManagedDurableProviderServiceLive(
       canonicalEventLogger ? { canonicalEventLogger } : undefined,
     ).pipe(
       Layer.provide(adapterRegistryLayer),
       Layer.provide(providerSessionDirectoryLayer),
       Layer.provide(ProviderRuntimeEventRepositoryLive),
+      Layer.provide(ThreadProviderBindingRepositoryLive),
+      Layer.provide(
+        ProviderLaunchResolverLive.pipe(
+          Layer.provideMerge(ProviderConnectionRepositoryLive),
+          Layer.provideMerge(ProviderInstallationRepositoryLive),
+          Layer.provideMerge(ThreadProviderBindingRepositoryLive),
+          Layer.provideMerge(ProviderCredentialBrokerLive),
+        ),
+      ),
     );
     const providerDiscoveryLayer = ProviderDiscoveryServiceLive.pipe(
       Layer.provide(adapterRegistryLayer),
+      Layer.provide(ProviderConnectionRepositoryLive),
+      Layer.provide(ProviderInstallationRepositoryLive),
+      Layer.provide(
+        ProviderLaunchResolverLive.pipe(
+          Layer.provideMerge(ProviderConnectionRepositoryLive),
+          Layer.provideMerge(ProviderInstallationRepositoryLive),
+          Layer.provideMerge(ThreadProviderBindingRepositoryLive),
+          Layer.provideMerge(ProviderCredentialBrokerLive),
+        ),
+      ),
       // Skill toggles live in server settings; the shared ServerSettingsLive
       // layer is memoized so this reuses the instance built at the top level.
       Layer.provide(ServerSettingsLive),

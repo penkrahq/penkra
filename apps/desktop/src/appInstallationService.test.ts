@@ -321,7 +321,7 @@ describe("AppInstallationService", () => {
       test.service.requestOptionalPermission({
         appId: "com.acme.figma",
         spaceId: "personal",
-        permission: "raw-socket",
+        permission: "browser-session",
         confirm: async () => true,
       }),
     ).rejects.toThrow("not declared");
@@ -666,6 +666,29 @@ describe("AppInstallationService", () => {
       }),
     ).rejects.toThrow("Apps is required and cannot be uninstalled");
     expect(test.state().packagesByInstallationKey["personal\0com.penkra.apps"]).toBeDefined();
+  });
+
+  it("refuses to disable the required Apps registry App", async () => {
+    const test = fixture();
+    const appsPackage = verifiedPackage();
+    appsPackage.manifest.id = "com.penkra.apps";
+    appsPackage.manifest.slug = "apps";
+    appsPackage.manifest.name = "Apps";
+    await test.service.install(appsPackage, "personal");
+    await test.service.setEnabled({
+      appId: "com.penkra.apps",
+      spaceId: "personal",
+      enabled: true,
+    });
+
+    await expect(
+      test.service.setEnabled({
+        appId: "com.penkra.apps",
+        spaceId: "personal",
+        enabled: false,
+      }),
+    ).rejects.toThrow("Apps is required and cannot be disabled");
+    expect(test.state().spaceStateByKey["personal\0com.penkra.apps"]?.enabled).toBe(true);
   });
 
   it("erases retained Space state only when explicitly requested", async () => {

@@ -5,7 +5,6 @@
  */
 import {
   type ProviderApprovalDecision,
-  type ProviderInteractionMode,
   type ProviderKind,
   type RuntimeMode,
   type ThreadId,
@@ -123,8 +122,7 @@ export function selectAcpFullAccessPermissionOptionId(
 ): string | undefined {
   // Prefer a request-scoped grant, but Full Access must remain operational for
   // ACP agents that expose only the protocol's persistent allow option. Every
-  // supported adapter re-applies its native interaction mode before a turn, and
-  // Plan-mode reverse requests are still rejected by resolveAcpPermissionPolicy.
+  // supported adapter re-applies its native runtime policy before a turn.
   return selectAcpPermissionOptionId("accept", options);
 }
 
@@ -138,23 +136,15 @@ export function resolveAcpFullAccessPermissionOutcome(
 
 /**
  * Applies Penkra's turn-scoped permission precedence to ACP reverse requests.
- *
- * `interactionMode: undefined` means that no turn owns the request. Those
- * requests are cancelled so replay or late provider activity cannot inherit a
- * previous Plan turn or a future Full Access turn. Active adapters normalize
- * an omitted turn mode to `default` before dispatching the prompt.
+ * Requests without a live turn owner are cancelled so replay or late provider
+ * activity cannot inherit a future Full Access turn.
  */
 export function resolveAcpPermissionPolicy(input: {
   readonly runtimeMode: RuntimeMode;
-  readonly interactionMode: ProviderInteractionMode | undefined;
+  readonly turnIsActive?: boolean;
   readonly options: ReadonlyArray<AcpPermissionOptionLike>;
 }): AcpPermissionPolicyOutcome | undefined {
-  if (input.interactionMode === "plan") {
-    const optionId = selectAcpPermissionOptionId("decline", input.options);
-    return optionId === undefined ? { outcome: "cancelled" } : { outcome: "selected", optionId };
-  }
-
-  if (input.interactionMode === undefined) {
+  if (input.turnIsActive !== true) {
     return { outcome: "cancelled" };
   }
 

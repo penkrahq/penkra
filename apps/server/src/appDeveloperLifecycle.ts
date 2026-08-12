@@ -2,7 +2,6 @@
 // Purpose: Owns App test, package, publication, status, and access workflows for registered commands.
 // Layer: Developer lifecycle service
 
-import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import * as FS from "node:fs/promises";
 import * as OS from "node:os";
@@ -14,8 +13,6 @@ import {
   type AppPackageEvidence,
 } from "./appDeveloperTools";
 
-const DEFAULT_SIGSTORE_ISSUER = "https://oauth2.sigstore.dev/auth";
-
 export type AppDeveloperBridge = (method: string, params?: unknown) => Promise<unknown>;
 
 export async function publishAppDirectory(input: {
@@ -26,17 +23,14 @@ export async function publishAppDirectory(input: {
   dependencies?: {
     test?: typeof testAppDirectory;
     package?: typeof packageAppDirectory;
-    sign?: typeof runCosign;
   };
 }): Promise<unknown> {
   const test = input.dependencies?.test ?? testAppDirectory;
   const packageApp = input.dependencies?.package ?? packageAppDirectory;
-  const sign = input.dependencies?.sign ?? runCosign;
   const temporary = await FS.mkdtemp(Path.join(OS.tmpdir(), "penkra-app-publish-"));
   try {
     const integration = await test({ directory: input.directory });
     const packagePath = Path.join(temporary, "app.penkra");
-    const signaturePath = Path.join(temporary, "publisher.sigstore.json");
     const evidence = await packageApp({
       directory: input.directory,
       output: packagePath,
@@ -51,6 +45,12 @@ export async function publishAppDirectory(input: {
       if (text(existingSubmission.packageDigest) !== evidence.packageDigest) {
         throw versionCollision(evidence.version);
       }
+      const submissionId = requiredText(existingSubmission, "submissionId", "submission");
+      const submission = validationInfrastructureFailure(existingSubmission)
+        ? await input.bridge("developer.submissions.retry-validation", { submissionId })
+        : publicationInfrastructureFailure(existingSubmission)
+          ? await input.bridge("developer.submissions.retry-publication", { submissionId })
+          : existingSubmission;
       await input.bridge("developer.apps.visibility.set", {
         appId: identity.appId,
         visibility: input.visibility,
@@ -59,19 +59,13 @@ export async function publishAppDirectory(input: {
         app: identity,
         integration,
         package: durablePackageEvidence(evidence),
-        submission: existingSubmission,
+        submission,
         resumed: true,
       };
     }
-    await sign(evidence.path, signaturePath, input.env ?? process.env);
     const submission = await input.bridge("developer.submissions.create", {
       appId: identity.appId,
       packagePath: evidence.path,
-      signaturePath,
-      issuer:
-        input.env?.SIGSTORE_OIDC_ISSUER?.trim() ||
-        process.env.SIGSTORE_OIDC_ISSUER?.trim() ||
-        DEFAULT_SIGSTORE_ISSUER,
       evidence,
     });
     await input.bridge("developer.apps.visibility.set", {
@@ -88,6 +82,25 @@ export async function publishAppDirectory(input: {
   } finally {
     await FS.rm(temporary, { recursive: true, force: true });
   }
+}
+
+function hasFailure(submission: Record<string, unknown>, status: string, code: string): boolean {
+  if (submission.status !== status) return false;
+  const failure = submission.failure;
+  return (
+    typeof failure === "object" &&
+    failure !== null &&
+    !Array.isArray(failure) &&
+    (failure as Record<string, unknown>).code === code
+  );
+}
+
+function validationInfrastructureFailure(submission: Record<string, unknown>): boolean {
+  return hasFailure(submission, "validation-failed", "VALIDATION_INFRASTRUCTURE_FAILED");
+}
+
+function publicationInfrastructureFailure(submission: Record<string, unknown>): boolean {
+  return hasFailure(submission, "publication-failed", "RELEASE_PUBLICATION_FAILED");
 }
 
 export async function appPublicationStatus(
@@ -265,30 +278,4 @@ function requiredText(value: Record<string, unknown>, key: string, label: string
   const result = text(value[key]);
   if (!result) throw new Error(`The ${label} response is missing ${key}.`);
   return result;
-}
-
-function runCosign(packagePath: string, bundle: string, env: NodeJS.ProcessEnv): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(
-      "cosign",
-      ["sign-blob", Path.resolve(packagePath), "--bundle", Path.resolve(bundle)],
-      { stdio: "inherit", shell: false, env },
-    );
-    child.once("error", (error: NodeJS.ErrnoException) => {
-      reject(
-        error.code === "ENOENT"
-          ? new Error("Publishing currently requires Cosign for keyless App signing.")
-          : error,
-      );
-    });
-    child.once("exit", (code, signal) => {
-      if (code === 0) resolve();
-      else
-        reject(
-          new Error(
-            `App signing failed${signal ? ` with signal ${signal}` : ` with exit code ${code ?? "unknown"}`}.`,
-          ),
-        );
-    });
-  });
 }

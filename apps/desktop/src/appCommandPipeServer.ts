@@ -1,5 +1,5 @@
 // FILE: appCommandPipeServer.ts
-// Purpose: Exposes the trusted App operation broker to Penkra-owned CLI processes.
+// Purpose: Exposes the trusted App operation broker to the registered command gateway.
 // Layer: Desktop local capability bridge
 
 import * as Crypto from "node:crypto";
@@ -12,6 +12,8 @@ import type { DesktopAppTabDescriptor } from "@penkra/contracts";
 import type { AppOperationBroker } from "./appOperationBroker";
 import type { AppOperationCatalog } from "./appOperationCatalog";
 import type { AppRegistryClient } from "./appRegistryClient";
+import { resolveDesktopPlatformAdapter } from "./desktopPlatform";
+import type { ProviderCredentialVault } from "./providerCredentialVault";
 
 export const PENKRA_APP_COMMAND_PIPE_ENV = "PENKRA_APP_COMMAND_PIPE";
 export const PENKRA_APP_COMMAND_TOKEN_ENV = "PENKRA_APP_COMMAND_TOKEN";
@@ -48,8 +50,16 @@ type Request = {
     | "developer.app-access.revoke"
     | "developer.submissions.list"
     | "developer.submissions.get"
+    | "developer.submissions.retry-validation"
+    | "developer.submissions.retry-publication"
     | "developer.submissions.create"
-    | "developer.sideload";
+    | "developer.sideload"
+    | "providers.credentials.store"
+    | "providers.credentials.claim"
+    | "providers.credentials.issue-lease"
+    | "providers.credentials.consume-lease"
+    | "providers.credentials.has"
+    | "providers.credentials.remove";
   params?: unknown;
 };
 
@@ -67,7 +77,7 @@ interface AppTabObserverBridge {
 }
 
 export function resolveAppCommandPipePath(_userDataPath: string): string {
-  if (process.platform === "win32") {
+  if (resolveDesktopPlatformAdapter().paths.pathSyntax === "windows") {
     return `\\\\.\\pipe\\penkra-app-command-${process.pid}-${Crypto.randomUUID()}`;
   }
   if (!process.getuid) throw new Error("Unix App command sockets require a numeric user ID.");
@@ -100,7 +110,9 @@ export class AppCommandPipeServer {
         threadId: string;
       }) => Promise<unknown>)
     | null;
+  readonly #providerCredentialVault: ProviderCredentialVault;
   #started = false;
+  readonly #usesWindowsPipe = resolveDesktopPlatformAdapter().paths.pathSyntax === "windows";
 
   constructor(input: {
     path: string;
@@ -121,6 +133,7 @@ export class AppCommandPipeServer {
       spaceId: string;
       threadId: string;
     }) => Promise<unknown>;
+    providerCredentialVault: ProviderCredentialVault;
   }) {
     this.#path = input.path;
     this.#token = input.token;
@@ -131,6 +144,7 @@ export class AppCommandPipeServer {
     this.#registry = input.registry ?? null;
     this.#sideload = input.sideload ?? null;
     this.#open = input.open ?? null;
+    this.#providerCredentialVault = input.providerCredentialVault;
     this.#server = Net.createServer((socket) => this.#accept(socket));
   }
 
@@ -143,7 +157,7 @@ export class AppCommandPipeServer {
 
   async start(): Promise<void> {
     if (this.#started) return;
-    if (process.platform !== "win32") {
+    if (!this.#usesWindowsPipe) {
       await FS.promises.mkdir(Path.dirname(this.#path), { recursive: true, mode: 0o700 });
       await FS.promises.chmod(Path.dirname(this.#path), 0o700);
       await FS.promises.rm(this.#path, { force: true });
@@ -155,7 +169,7 @@ export class AppCommandPipeServer {
         resolve();
       });
     });
-    if (process.platform !== "win32") await FS.promises.chmod(this.#path, 0o600);
+    if (!this.#usesWindowsPipe) await FS.promises.chmod(this.#path, 0o600);
     this.#started = true;
   }
 
@@ -166,7 +180,7 @@ export class AppCommandPipeServer {
       await new Promise<void>((resolve) => this.#server.close(() => resolve()));
       this.#started = false;
     }
-    if (process.platform !== "win32") await FS.promises.rm(this.#path, { force: true });
+    if (!this.#usesWindowsPipe) await FS.promises.rm(this.#path, { force: true });
   }
 
   #accept(socket: Net.Socket): void {
@@ -212,6 +226,62 @@ export class AppCommandPipeServer {
     }
     const params = asRecord(request.params);
     switch (request.method) {
+      case "providers.credentials.store":
+        return {
+          ok: true,
+          id: request.id,
+          result: {
+            reference: await this.#providerCredentialVault.store(
+              requiredString(params.secret, "secret"),
+              undefined,
+              optionalString(params.reference, "reference") ?? undefined,
+            ),
+          },
+        };
+      case "providers.credentials.claim":
+        return {
+          ok: true,
+          id: request.id,
+          result: {
+            reference: await this.#providerCredentialVault.claim(
+              requiredString(params.secret, "secret"),
+              requiredString(params.reference, "reference"),
+            ),
+          },
+        };
+      case "providers.credentials.issue-lease":
+        return {
+          ok: true,
+          id: request.id,
+          result: {
+            capability: this.#providerCredentialVault.issueLease(
+              requiredString(params.reference, "reference"),
+            ),
+          },
+        };
+      case "providers.credentials.consume-lease":
+        return {
+          ok: true,
+          id: request.id,
+          result: {
+            secret: this.#providerCredentialVault.consumeLease(
+              requiredString(params.capability, "capability"),
+            ),
+          },
+        };
+      case "providers.credentials.has":
+        return {
+          ok: true,
+          id: request.id,
+          result: {
+            exists: this.#providerCredentialVault.has(
+              requiredString(params.reference, "reference"),
+            ),
+          },
+        };
+      case "providers.credentials.remove":
+        await this.#providerCredentialVault.remove(requiredString(params.reference, "reference"));
+        return { ok: true, id: request.id, result: {} };
       case "tabs.list":
         return { ok: true, id: request.id, result: this.#scopedTabs(params) };
       case "tabs.current":
@@ -457,6 +527,22 @@ export class AppCommandPipeServer {
             requiredString(params.submissionId, "submissionId"),
           ),
         };
+      case "developer.submissions.retry-validation":
+        return {
+          ok: true,
+          id: request.id,
+          result: await this.#requireRegistry().developerRetrySubmissionValidation(
+            requiredString(params.submissionId, "submissionId"),
+          ),
+        };
+      case "developer.submissions.retry-publication":
+        return {
+          ok: true,
+          id: request.id,
+          result: await this.#requireRegistry().developerRetrySubmissionPublication(
+            requiredString(params.submissionId, "submissionId"),
+          ),
+        };
       case "developer.submissions.create": {
         if (
           !params.evidence ||
@@ -470,8 +556,6 @@ export class AppCommandPipeServer {
           result: await this.#requireRegistry().developerSubmit({
             appId: requiredString(params.appId, "appId"),
             packagePath: requiredString(params.packagePath, "packagePath"),
-            signaturePath: requiredString(params.signaturePath, "signaturePath"),
-            issuer: requiredString(params.issuer, "issuer"),
             evidence: params.evidence as Parameters<
               AppRegistryClient["developerSubmit"]
             >[0]["evidence"],
@@ -588,6 +672,12 @@ function requiredString(value: unknown, name: string): string {
 function requiredStringAllowEmpty(value: unknown, name: string): string {
   if (typeof value !== "string") throw new Error(`${name} must be a string.`);
   return value;
+}
+
+function requiredDigest(value: unknown, name: string): string {
+  const digest = requiredString(value, name);
+  if (!/^[a-f0-9]{64}$/.test(digest)) throw new Error(`${name} must be a SHA-256 digest.`);
+  return digest;
 }
 
 function optionalNumber(value: unknown, name: string): number | null {

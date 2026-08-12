@@ -1,6 +1,6 @@
 // FILE: pinnedMessages.ts
 // Purpose: Pure transforms + dispatch helpers for per-thread pinned messages and notes.
-// Layer: Chat environment panel + message timeline helpers.
+// Layer: Chat transcript pin helpers.
 
 import {
   PINNED_MESSAGE_LABEL_MAX_CHARS,

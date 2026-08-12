@@ -1,6 +1,7 @@
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
+import { spawnSync } from "node:child_process";
 import { DatabaseSync } from "node:sqlite";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -11,6 +12,26 @@ import { afterEach, describe, expect, it } from "vitest";
 import { makeSqlitePersistenceLive } from "./Sqlite.ts";
 
 const tempDirectories: Array<string> = [];
+
+function queryFromSeparateProcess(dbPath: string, statement: string) {
+  return spawnSync(
+    process.execPath,
+    [
+      "-e",
+      `const { DatabaseSync } = require("node:sqlite");
+const database = new DatabaseSync(process.argv[1], { readOnly: true });
+try {
+  database.prepare(process.argv[2]).get();
+  process.stdout.write("query-succeeded");
+} finally {
+  database.close();
+}`,
+      dbPath,
+      statement,
+    ],
+    { encoding: "utf8", timeout: 5_000 },
+  );
+}
 
 async function makeDbPath(): Promise<string> {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "penkra-sqlite-live-"));
@@ -68,12 +89,9 @@ describe("SQLite persistence", () => {
           await expect(fs.stat(`${dbPath}-shm`)).rejects.toMatchObject({ code: "ENOENT" });
         });
 
-        let external: DatabaseSync | undefined;
-        expect(() => {
-          external = new DatabaseSync(dbPath, { readOnly: true });
-          external.prepare("SELECT value FROM ownership_probe").get();
-        }).toThrow(/database is locked/i);
-        external?.close();
+        const external = queryFromSeparateProcess(dbPath, "SELECT value FROM ownership_probe");
+        expect(external.status).not.toBe(0);
+        expect(external.stderr).toMatch(/database is locked/i);
 
         const rows = yield* sql<{ readonly value: string }>`
           SELECT value FROM ownership_probe
@@ -113,5 +131,42 @@ describe("SQLite persistence", () => {
     );
 
     expect(await fs.readFile(`${dbPath}-shm`)).toEqual(staleShm);
+  });
+
+  it("retains cross-process ownership through repeated restart cycles", async () => {
+    const dbPath = await makeDbPath();
+
+    for (let cycle = 1; cycle <= 3; cycle += 1) {
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          const sql = yield* SqlClient.SqlClient;
+          yield* sql`
+            CREATE TABLE IF NOT EXISTS restart_probe(
+              cycle INTEGER PRIMARY KEY NOT NULL
+            )
+          `;
+          yield* sql`INSERT INTO restart_probe(cycle) VALUES (${cycle})`;
+
+          const external = queryFromSeparateProcess(dbPath, "SELECT COUNT(*) FROM restart_probe");
+          expect(external.status).not.toBe(0);
+          expect(external.stderr).toMatch(/database is locked/i);
+        }).pipe(
+          Effect.provide(makeSqlitePersistenceLive(dbPath).pipe(Layer.provide(NodeServices.layer))),
+        ),
+      );
+
+      const offline = queryFromSeparateProcess(dbPath, "SELECT COUNT(*) FROM restart_probe");
+      expect(offline.status).toBe(0);
+      expect(offline.stdout).toBe("query-succeeded");
+    }
+
+    const database = new DatabaseSync(dbPath, { readOnly: true });
+    try {
+      expect(database.prepare("SELECT COUNT(*) AS count FROM restart_probe").get()).toMatchObject({
+        count: 3,
+      });
+    } finally {
+      database.close();
+    }
   });
 });

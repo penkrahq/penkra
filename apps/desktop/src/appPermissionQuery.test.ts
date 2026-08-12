@@ -55,8 +55,12 @@ describe("App permission query", () => {
 
   it("does not reveal or grant undeclared and unsupported authority", () => {
     expect(
-      queryAppPermission(state(), { appId: "com.acme.linear", spaceId: "personal" }, "raw-socket"),
-    ).toEqual({ name: "raw-socket", declared: false, required: false, state: "denied" });
+      queryAppPermission(
+        state(),
+        { appId: "com.acme.linear", spaceId: "personal" },
+        "browser-session",
+      ),
+    ).toEqual({ name: "browser-session", declared: false, required: false, state: "denied" });
     expect(() =>
       queryAppPermission(
         state(),

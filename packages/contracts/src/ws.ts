@@ -22,29 +22,23 @@ import {
   OrchestrationReplayEventsInput,
 } from "./orchestration";
 import {
-  GitActionProgressEvent,
   GitCheckoutInput,
   GitCreateBranchInput,
   GitCreateDetachedWorktreeInput,
-  GitHubRepositoryInput,
-  GitHandoffThreadInput,
+  GitSwitchThreadEnvironmentInput,
   GitPreparePullRequestThreadInput,
   GitCreateWorktreeInput,
-  GitInitInput,
   GitListBranchesInput,
-  GitPullInput,
   GitPullRequestRefInput,
   GitPullRequestSnapshotInput,
   GitReadWorkingTreeDiffInput,
   GitRemoveWorktreeInput,
   GitRemoveIndexLockInput,
-  GitRunStackedActionInput,
   GitStageFilesInput,
   GitStashAndCheckoutInput,
   GitStashDropInput,
   GitStashInfoInput,
   GitStatusInput,
-  GitSummarizeDiffInput,
   GitUnstageFilesInput,
 } from "./git";
 import {
@@ -76,7 +70,6 @@ import { FilesystemBrowseInput } from "./filesystem";
 import { OpenInEditorInput } from "./editor";
 import {
   ServerConfigUpdatedPayload,
-  ServerGenerateThreadRecapInput,
   ServerLifecycleStreamEvent,
   ServerProviderUpdateInput,
   ServerUpdateSettingsInput,
@@ -100,6 +93,15 @@ import {
   ProviderSkillsCatalogInput,
 } from "./providerDiscovery";
 import { ProviderCompactThreadInput } from "./provider";
+import {
+  CreateStaticProviderConnectionInput,
+  BeginProviderConnectionLoginInput,
+  GetProviderConnectionLoginInput,
+  ProviderConnectionsSnapshotInput,
+  SetSpaceConnectionDefaultInput,
+  TerminateProviderConnectionInput,
+  ThreadProviderBindingSnapshotInput,
+} from "./providerConnections";
 import {
   PullRequestActionInput,
   PullRequestCommentInput,
@@ -136,13 +138,9 @@ export const WS_METHODS = {
   shellOpenInEditor: "shell.openInEditor",
 
   // Git methods
-  gitPull: "git.pull",
-  gitGithubRepository: "git.githubRepository",
   gitStatus: "git.status",
   gitReadWorkingTreeDiff: "git.readWorkingTreeDiff",
   gitWorkingTreeDiffStats: "git.workingTreeDiffStats",
-  gitSummarizeDiff: "git.summarizeDiff",
-  gitRunStackedAction: "git.runStackedAction",
   gitListBranches: "git.listBranches",
   gitCreateWorktree: "git.createWorktree",
   gitCreateDetachedWorktree: "git.createDetachedWorktree",
@@ -153,10 +151,9 @@ export const WS_METHODS = {
   gitStashDrop: "git.stashDrop",
   gitStashInfo: "git.stashInfo",
   gitRemoveIndexLock: "git.removeIndexLock",
-  gitInit: "git.init",
   gitStageFiles: "git.stageFiles",
   gitUnstageFiles: "git.unstageFiles",
-  gitHandoffThread: "git.handoffThread",
+  gitSwitchThreadEnvironment: "git.switchThreadEnvironment",
   gitResolvePullRequest: "git.resolvePullRequest",
   gitPullRequestSnapshot: "git.pullRequestSnapshot",
   gitPreparePullRequestThread: "git.preparePullRequestThread",
@@ -197,7 +194,6 @@ export const WS_METHODS = {
   statsGetProfileTokenStats: "stats.getProfileTokenStats",
   serverGetDiagnostics: "server.getDiagnostics",
   serverTranscribeVoice: "server.transcribeVoice",
-  serverGenerateThreadRecap: "server.generateThreadRecap",
   serverUpsertKeybinding: "server.upsertKeybinding",
   subscribeServerLifecycle: "server.subscribeLifecycle",
   subscribeServerConfig: "server.subscribeConfig",
@@ -218,12 +214,19 @@ export const WS_METHODS = {
   providerReadPlugin: "provider.readPlugin",
   providerListModels: "provider.listModels",
   providerListAgents: "provider.listAgents",
+  providerGetConnections: "provider.getConnections",
+  providerGetThreadBinding: "provider.getThreadBinding",
+  providerCreateStaticConnection: "provider.createStaticConnection",
+  providerBeginConnectionLogin: "provider.beginConnectionLogin",
+  providerGetConnectionLogin: "provider.getConnectionLogin",
+  providerCancelConnectionLogin: "provider.cancelConnectionLogin",
+  providerTerminateConnection: "provider.terminateConnection",
+  providerSetSpaceDefaultConnection: "provider.setSpaceDefaultConnection",
 } as const;
 
 // ── Push Event Channels ──────────────────────────────────────────────
 
 export const WS_CHANNELS = {
-  gitActionProgress: "git.actionProgress",
   terminalEvent: "terminal.event",
   projectDevServerEvent: "project.devServerEvent",
   projectWorkspaceChange: "project.workspaceChange",
@@ -295,13 +298,9 @@ const WebSocketRequestBody = Schema.Union([
   tagRequestBody(WS_METHODS.shellOpenInEditor, OpenInEditorInput),
 
   // Git methods
-  tagRequestBody(WS_METHODS.gitPull, GitPullInput),
-  tagRequestBody(WS_METHODS.gitGithubRepository, GitHubRepositoryInput),
   tagRequestBody(WS_METHODS.gitStatus, GitStatusInput),
   tagRequestBody(WS_METHODS.gitReadWorkingTreeDiff, GitReadWorkingTreeDiffInput),
   tagRequestBody(WS_METHODS.gitWorkingTreeDiffStats, GitReadWorkingTreeDiffInput),
-  tagRequestBody(WS_METHODS.gitSummarizeDiff, GitSummarizeDiffInput),
-  tagRequestBody(WS_METHODS.gitRunStackedAction, GitRunStackedActionInput),
   tagRequestBody(WS_METHODS.gitListBranches, GitListBranchesInput),
   tagRequestBody(WS_METHODS.gitCreateWorktree, GitCreateWorktreeInput),
   tagRequestBody(WS_METHODS.gitCreateDetachedWorktree, GitCreateDetachedWorktreeInput),
@@ -312,10 +311,9 @@ const WebSocketRequestBody = Schema.Union([
   tagRequestBody(WS_METHODS.gitStashDrop, GitStashDropInput),
   tagRequestBody(WS_METHODS.gitStashInfo, GitStashInfoInput),
   tagRequestBody(WS_METHODS.gitRemoveIndexLock, GitRemoveIndexLockInput),
-  tagRequestBody(WS_METHODS.gitInit, GitInitInput),
   tagRequestBody(WS_METHODS.gitStageFiles, GitStageFilesInput),
   tagRequestBody(WS_METHODS.gitUnstageFiles, GitUnstageFilesInput),
-  tagRequestBody(WS_METHODS.gitHandoffThread, GitHandoffThreadInput),
+  tagRequestBody(WS_METHODS.gitSwitchThreadEnvironment, GitSwitchThreadEnvironmentInput),
   tagRequestBody(WS_METHODS.gitResolvePullRequest, GitPullRequestRefInput),
   tagRequestBody(WS_METHODS.gitPullRequestSnapshot, GitPullRequestSnapshotInput),
   tagRequestBody(WS_METHODS.gitPreparePullRequestThread, GitPreparePullRequestThreadInput),
@@ -359,7 +357,6 @@ const WebSocketRequestBody = Schema.Union([
   tagRequestBody(WS_METHODS.statsGetProfileTokenStats, StatsGetProfileTokenStatsInput),
   tagRequestBody(WS_METHODS.serverGetDiagnostics, Schema.Struct({})),
   tagRequestBody(WS_METHODS.serverTranscribeVoice, ServerVoiceTranscriptionInput),
-  tagRequestBody(WS_METHODS.serverGenerateThreadRecap, ServerGenerateThreadRecapInput),
   tagRequestBody(WS_METHODS.serverUpsertKeybinding, KeybindingRule),
 
   // Provider discovery
@@ -372,6 +369,14 @@ const WebSocketRequestBody = Schema.Union([
   tagRequestBody(WS_METHODS.providerReadPlugin, ProviderReadPluginInput),
   tagRequestBody(WS_METHODS.providerListModels, ProviderListModelsInput),
   tagRequestBody(WS_METHODS.providerListAgents, ProviderListAgentsInput),
+  tagRequestBody(WS_METHODS.providerGetConnections, ProviderConnectionsSnapshotInput),
+  tagRequestBody(WS_METHODS.providerGetThreadBinding, ThreadProviderBindingSnapshotInput),
+  tagRequestBody(WS_METHODS.providerCreateStaticConnection, CreateStaticProviderConnectionInput),
+  tagRequestBody(WS_METHODS.providerBeginConnectionLogin, BeginProviderConnectionLoginInput),
+  tagRequestBody(WS_METHODS.providerGetConnectionLogin, GetProviderConnectionLoginInput),
+  tagRequestBody(WS_METHODS.providerCancelConnectionLogin, GetProviderConnectionLoginInput),
+  tagRequestBody(WS_METHODS.providerTerminateConnection, TerminateProviderConnectionInput),
+  tagRequestBody(WS_METHODS.providerSetSpaceDefaultConnection, SetSpaceConnectionDefaultInput),
 ]);
 
 export const WebSocketRequest = Schema.Struct({
@@ -411,7 +416,6 @@ export interface WsPushPayloadByChannel {
   readonly [WS_CHANNELS.serverConfigUpdated]: typeof ServerConfigUpdatedPayload.Type;
   readonly [WS_CHANNELS.serverProviderStatusesUpdated]: typeof ServerProviderStatusesUpdatedPayload.Type;
   readonly [WS_CHANNELS.serverSettingsUpdated]: typeof ServerSettingsUpdatedPayload.Type;
-  readonly [WS_CHANNELS.gitActionProgress]: typeof GitActionProgressEvent.Type;
   readonly [WS_CHANNELS.terminalEvent]: typeof TerminalEvent.Type;
   readonly [WS_CHANNELS.projectDevServerEvent]: typeof ProjectDevServerEvent.Type;
   readonly [WS_CHANNELS.projectWorkspaceChange]: typeof ProjectWorkspaceChangeEvent.Type;
@@ -451,10 +455,6 @@ export const WsPushServerSettingsUpdated = makeWsPushSchema(
   WS_CHANNELS.serverSettingsUpdated,
   ServerSettingsUpdatedPayload,
 );
-export const WsPushGitActionProgress = makeWsPushSchema(
-  WS_CHANNELS.gitActionProgress,
-  GitActionProgressEvent,
-);
 export const WsPushTerminalEvent = makeWsPushSchema(WS_CHANNELS.terminalEvent, TerminalEvent);
 export const WsPushProjectDevServerEvent = makeWsPushSchema(
   WS_CHANNELS.projectDevServerEvent,
@@ -478,7 +478,6 @@ export const WsPushOrchestrationThreadEvent = makeWsPushSchema(
 );
 
 export const WsPushChannelSchema = Schema.Literals([
-  WS_CHANNELS.gitActionProgress,
   WS_CHANNELS.serverWelcome,
   WS_CHANNELS.serverMaintenanceUpdated,
   WS_CHANNELS.serverConfigUpdated,
@@ -499,7 +498,6 @@ export const WsPush = Schema.Union([
   WsPushServerConfigUpdated,
   WsPushServerProviderStatusesUpdated,
   WsPushServerSettingsUpdated,
-  WsPushGitActionProgress,
   WsPushTerminalEvent,
   WsPushProjectDevServerEvent,
   WsPushProjectWorkspaceChange,

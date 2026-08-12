@@ -1,9 +1,7 @@
 import {
   EventId,
   MessageId,
-  OrchestrationLatestTurn,
   OrchestrationMessage,
-  OrchestrationProposedPlan,
   OrchestrationThreadActivity,
   TurnId,
 } from "@penkra/contracts";
@@ -84,38 +82,15 @@ describe("deriveThreadSummaryMetadata", () => {
         createdAt: "2026-02-27T00:05:00.000Z",
       },
     ];
-    const proposedPlans: OrchestrationProposedPlan[] = [
-      {
-        id: "plan-1",
-        turnId: TurnId.makeUnsafe("turn-2"),
-        planMarkdown: "- Ship it",
-        implementedAt: null,
-        implementationThreadId: null,
-        createdAt: "2026-02-27T00:06:00.000Z",
-        updatedAt: "2026-02-27T00:06:00.000Z",
-      },
-    ];
-    const latestTurn: OrchestrationLatestTurn = {
-      turnId: TurnId.makeUnsafe("turn-2"),
-      state: "completed",
-      requestedAt: "2026-02-27T00:02:00.000Z",
-      startedAt: "2026-02-27T00:02:05.000Z",
-      completedAt: "2026-02-27T00:06:30.000Z",
-      assistantMessageId: null,
-    };
-
     expect(
       deriveThreadSummaryMetadata({
         messages,
         activities,
-        proposedPlans,
-        latestTurn,
       }),
     ).toEqual({
       latestUserMessageAt: "2026-02-27T00:03:00.000Z",
       hasPendingApprovals: true,
       hasPendingUserInput: true,
-      hasActionableProposedPlan: true,
     });
   });
 
@@ -186,14 +161,11 @@ describe("deriveThreadSummaryMetadata", () => {
       deriveThreadSummaryMetadata({
         messages: [],
         activities,
-        proposedPlans: [],
-        latestTurn: null,
       }),
     ).toEqual({
       latestUserMessageAt: null,
       hasPendingApprovals: false,
       hasPendingUserInput: false,
-      hasActionableProposedPlan: false,
     });
   });
 
@@ -293,8 +265,6 @@ describe("deriveThreadSummaryMetadata", () => {
       deriveThreadSummaryMetadata({
         messages: [],
         activities,
-        proposedPlans: [],
-        latestTurn: null,
       }),
     ).toMatchObject({
       hasPendingApprovals: true,
@@ -330,14 +300,11 @@ describe("deriveThreadSummaryMetadata", () => {
       deriveThreadSummaryMetadata({
         messages: [],
         activities,
-        proposedPlans: [],
-        latestTurn: null,
       }),
     ).toEqual({
       latestUserMessageAt: null,
       hasPendingApprovals: false,
       hasPendingUserInput: false,
-      hasActionableProposedPlan: false,
     });
   });
 });

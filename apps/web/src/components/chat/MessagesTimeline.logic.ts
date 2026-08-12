@@ -4,7 +4,12 @@
 // Exports: row derivation, structural sharing, copy/timer helpers
 
 import { type MessageId, type TurnId } from "@penkra/contracts";
-import { type TimelineEntry, type WorkLogEntry, formatElapsed } from "../../session-logic";
+import {
+  type TimelineEntry,
+  type WorkLogEntry,
+  formatElapsed,
+  isThreadSelectionWorkEntry,
+} from "../../session-logic";
 import { normalizeCompactToolLabel as normalizeCompactToolLabelValue } from "../../lib/toolCallLabel";
 import {
   isSummarizableToolCallEntry,
@@ -12,13 +17,7 @@ import {
   summarizeToolCallGroup,
   type ToolCallGroupSummary,
 } from "./toolCallGroup.logic";
-import {
-  type ChatMessage,
-  type ProposedPlan,
-  type TurnDiffSummary,
-  type WorktreeSetupSnapshot,
-  type WorktreeSetupStep,
-} from "../../types";
+import { type ChatMessage, type TurnDiffSummary } from "../../types";
 
 export const MAX_VISIBLE_WORK_LOG_ENTRIES = 6;
 
@@ -233,12 +232,6 @@ export type MessagesTimelineRow =
       assistantTurnInProgress?: boolean | undefined;
       revertTurnCount?: number | undefined;
     }
-  | {
-      kind: "proposed-plan";
-      id: string;
-      createdAt: string;
-      proposedPlan: ProposedPlan;
-    }
   | { kind: "working"; id: string; createdAt: string | null }
   | {
       // Live-turn header that mirrors the settled "Worked for Xs" disclosure
@@ -247,15 +240,6 @@ export type MessagesTimelineRow =
       kind: "working-header";
       id: string;
       createdAt: string;
-    }
-  | {
-      // Transient "Preparing worktree..." step card shown during the New
-      // worktree first-send setup. `open` drives the shared disclosure close
-      // animation while the presentation hook keeps the row mounted.
-      kind: "worktree-setup";
-      id: string;
-      steps: ReadonlyArray<WorktreeSetupStep>;
-      open: boolean;
     };
 
 export interface StableMessagesTimelineRowsState {
@@ -473,8 +457,6 @@ export function deriveTerminalAssistantMessageIds(
 export function deriveMessagesTimelineRows(input: {
   timelineEntries: ReadonlyArray<TimelineEntry>;
   isWorking: boolean;
-  worktreeSetup: WorktreeSetupSnapshot | null;
-  worktreeSetupOpen: boolean;
   activeTurnInProgress?: boolean;
   activeTurnId?: TurnId | null | undefined;
   activeTurnStartedAt: string | null;
@@ -498,6 +480,13 @@ export function deriveMessagesTimelineRows(input: {
     groupedEntries: WorkLogEntry[],
     groupId: string,
   ): boolean => {
+    // Selection changes are transcript boundaries for the next user message,
+    // not work performed by the previous assistant turn. Keep the designed
+    // event row standalone instead of folding it into "Worked for".
+    if (groupedEntries.some(isThreadSelectionWorkEntry)) {
+      return false;
+    }
+
     const previousRow = nextRows.at(-1);
     if (
       !previousRow ||
@@ -558,19 +547,6 @@ export function deriveMessagesTimelineRows(input: {
       continue;
     }
 
-    if (timelineEntry.kind === "proposed-plan") {
-      // A plan card is a visible mid-turn artifact. Keep adjacent work as its
-      // own row so final turn collapse can preserve the true chronology.
-      flushPendingWorkGroup({ attachToPreviousAssistant: false });
-      nextRows.push({
-        kind: "proposed-plan",
-        id: timelineEntry.id,
-        createdAt: timelineEntry.createdAt,
-        proposedPlan: timelineEntry.proposedPlan,
-      });
-      continue;
-    }
-
     const message = timelineEntry.message;
     const leadingWorkEntries =
       message.role === "assistant" ? pendingWorkGroup?.groupedEntries : undefined;
@@ -612,18 +588,9 @@ export function deriveMessagesTimelineRows(input: {
   // completed chat does not end with a detached tool-log footer.
   flushPendingWorkGroup();
 
-  if (input.worktreeSetup) {
-    nextRows.push({
-      kind: "worktree-setup",
-      id: "worktree-setup-row",
-      steps: input.worktreeSetup.steps,
-      open: input.worktreeSetupOpen,
-    });
-  }
-
   // The generic Thinking shimmer remains the single live status. Provider work
   // rows are transcript history and must never replace it.
-  if (input.isWorking && !(input.worktreeSetup && input.worktreeSetupOpen)) {
+  if (input.isWorking) {
     nextRows.push({
       kind: "working",
       id: "working-indicator-row",
@@ -642,11 +609,7 @@ export function deriveMessagesTimelineRows(input: {
   // of the active turn (right after the user message that opened it) and needs a
   // real start time to count from; the trailing "Thinking" shimmer covers the
   // gap before one exists. Inserted after collapse so folding is untouched.
-  if (
-    input.isWorking &&
-    input.activeTurnStartedAt &&
-    !(input.worktreeSetup && input.worktreeSetupOpen)
-  ) {
+  if (input.isWorking && input.activeTurnStartedAt) {
     nextRows.splice(findLiveTurnHeaderInsertIndex(nextRows), 0, {
       kind: "working-header",
       id: "working-header-row",
@@ -751,11 +714,6 @@ function collapseSettledTurns(
       }
       if (prev.kind === "message" && prev.message.role === "assistant") {
         foldIndices.push(scan);
-        continue;
-      }
-      if (prev.kind === "proposed-plan") {
-        // The plan card stays visible, but it should not strand earlier
-        // narration/work outside the final "Worked for..." disclosure.
         continue;
       }
       break;
@@ -1043,21 +1001,6 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
 
     case "working-header":
       return a.createdAt === (b as typeof a).createdAt;
-
-    case "worktree-setup": {
-      const bw = b as typeof a;
-      return (
-        a.open === bw.open &&
-        a.steps.length === bw.steps.length &&
-        a.steps.every((step, index) => {
-          const other = bw.steps[index]!;
-          return step.id === other.id && step.status === other.status && step.label === other.label;
-        })
-      );
-    }
-
-    case "proposed-plan":
-      return a.proposedPlan === (b as typeof a).proposedPlan;
 
     case "work":
       return (

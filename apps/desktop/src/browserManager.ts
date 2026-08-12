@@ -42,6 +42,7 @@ import {
   resolveCopyableBrowserTabUrl,
 } from "@penkra/shared/browserSession";
 import { BROWSER_SESSION_PARTITION, BrowserSessionPolicy } from "./browserSessionPolicy";
+import { resolveDesktopPlatformAdapter } from "./desktopPlatform";
 
 export { BROWSER_SESSION_PARTITION } from "./browserSessionPolicy";
 const BROWSER_INACTIVE_TAB_SUSPEND_DELAY_MS = 1_500;
@@ -1589,7 +1590,7 @@ export class DesktopBrowserManager {
           alt: input.alt,
           key: input.key,
         },
-        process.platform === "darwin",
+        resolveDesktopPlatformAdapter().platform === "darwin",
       );
       if (!matches) {
         return;

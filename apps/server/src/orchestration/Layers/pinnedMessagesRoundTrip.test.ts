@@ -1,11 +1,4 @@
-import {
-  CommandId,
-  DEFAULT_PROVIDER_INTERACTION_MODE,
-  MessageId,
-  ContainerId,
-  ThreadId,
-  ThreadMarkerId,
-} from "@penkra/contracts";
+import { CommandId, MessageId, ContainerId, ThreadId, ThreadMarkerId } from "@penkra/contracts";
 import { Effect, Layer, ManagedRuntime, Option } from "effect";
 import { describe, expect, it } from "vitest";
 
@@ -74,7 +67,6 @@ describe("pinned messages round-trip", () => {
           projectId,
           title: "Pins thread",
           modelSelection: { provider: "codex", model: "gpt-5-codex" },
-          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
           runtimeMode: "approval-required",
           branch: null,
           worktreePath: "/tmp/project-pins",
@@ -179,7 +171,6 @@ describe("pinned messages round-trip", () => {
           projectId,
           title: "Markers thread",
           modelSelection: { provider: "codex", model: "gpt-5-codex" },
-          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
           runtimeMode: "approval-required",
           branch: null,
           worktreePath: "/tmp/project-markers",

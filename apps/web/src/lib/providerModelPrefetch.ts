@@ -26,7 +26,6 @@ export type ProviderModelPrefetchSettings = Pick<
   | "grokBinaryPath"
   | "droidBinaryPath"
   | "kiloBinaryPath"
-  | "openCodeBinaryPath"
   | "piBinaryPath"
   | "piAgentDir"
 >;
@@ -109,7 +108,6 @@ export function providerModelsPrefetchQueryOptions(input: {
     case "opencode":
       return providerModelsQueryOptions({
         provider: "opencode",
-        binaryPath: settings.openCodeBinaryPath || null,
         cwd,
       });
     case "pi":
@@ -144,7 +142,6 @@ function providerAgentsPrefetchQueryOptions(input: {
     case "opencode":
       return providerAgentsQueryOptions({
         provider: "opencode",
-        binaryPath: settings.openCodeBinaryPath || null,
         cwd,
       });
     default:

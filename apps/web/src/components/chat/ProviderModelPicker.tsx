@@ -3,7 +3,13 @@
 // Layer: Chat composer presentation
 // Depends on: provider availability metadata, shared menu primitives, and picker trigger styling.
 
-import { type ModelSlug, type ProviderKind, type ServerProviderStatus } from "@penkra/contracts";
+import {
+  type ModelSlug,
+  type ProviderConnection,
+  ProviderConnectionId,
+  type ProviderKind,
+  type ServerProviderStatus,
+} from "@penkra/contracts";
 import { resolveSelectableModel } from "@penkra/shared/model";
 import * as Schema from "effect/Schema";
 import { useDeferredValue, useEffect, useRef, useState } from "react";
@@ -14,6 +20,7 @@ import {
   Menu,
   MenuItem,
   MenuRadioGroup,
+  MenuRadioItem,
   MenuSeparator,
   MenuSub,
   MenuSubTrigger,
@@ -31,6 +38,7 @@ import {
   COMPOSER_PICKER_MODEL_SUBMENU_HEIGHT_CLASS_NAME,
 } from "./composerPickerStyles";
 import { Tooltip, TooltipPopup, TooltipShortcut, TooltipTrigger } from "../ui/tooltip";
+import { SettingsIcon } from "~/lib/icons";
 import {
   groupProviderModelOptions,
   groupProviderModelOptionsWithFavorites,
@@ -117,6 +125,57 @@ function providerIconClassName(
 const SEARCHABLE_MODEL_PICKER_THRESHOLD = 15;
 const FavoriteModelSlugs = Schema.Array(Schema.String);
 const EMPTY_FAVORITE_MODEL_SLUGS: ReadonlyArray<string> = [];
+export function ProviderConnectionMenu(props: {
+  provider: ProviderKind;
+  connections: ReadonlyArray<ProviderConnection>;
+  selectedConnectionId: ProviderConnectionId | null | undefined;
+  onConnectionChange: (connectionId: ProviderConnectionId) => void;
+  onManageConnections?: () => void;
+  onAfterSelection?: () => void;
+}) {
+  const available = props.connections.filter(
+    (connection) => connection.harness === props.provider && connection.lifecycle === "active",
+  );
+  if (available.length === 0) return null;
+  const selectedLabel =
+    available.find((connection) => connection.id === props.selectedConnectionId)?.label ??
+    "Choose Connection";
+  return (
+    <MenuSub>
+      <MenuSubTrigger>
+        <span>Connection</span>
+        <span className="ms-auto max-w-28 truncate text-muted-foreground">{selectedLabel}</span>
+      </MenuSubTrigger>
+      <ComposerPickerMenuSubPopup fixedWidth>
+        <MenuRadioGroup
+          value={props.selectedConnectionId ?? ""}
+          onValueChange={(value) => {
+            props.onConnectionChange(ProviderConnectionId.makeUnsafe(value));
+            props.onAfterSelection?.();
+          }}
+        >
+          {available.map((connection) => (
+            <MenuRadioItem key={connection.id} value={connection.id}>
+              {connection.label}
+            </MenuRadioItem>
+          ))}
+        </MenuRadioGroup>
+        {props.onManageConnections ? <MenuSeparator /> : null}
+        {props.onManageConnections ? (
+          <MenuItem
+            onClick={() => {
+              props.onManageConnections?.();
+              props.onAfterSelection?.();
+            }}
+          >
+            <SettingsIcon className="size-3.5" />
+            Manage connections…
+          </MenuItem>
+        ) : null}
+      </ComposerPickerMenuSubPopup>
+    </MenuSub>
+  );
+}
 
 // Keeps persisted favorite slugs compact and stable while preserving the user's order.
 function toggleFavoriteModelSlug(current: ReadonlyArray<string>, slug: string): string[] {
@@ -172,6 +231,7 @@ type ProviderModelMenuItemsProps = {
   model: ModelSlug;
   lockedProvider: ProviderKind | null;
   providers?: ReadonlyArray<ServerProviderStatus>;
+  managedProviders?: ReadonlyArray<ProviderKind>;
   modelOptionsByProvider: Record<ProviderKind, ReadonlyArray<ProviderModelOption>>;
   loadingModelProviders?: Partial<Record<ProviderKind, boolean>>;
   unavailableModelProviders?: Partial<Record<ProviderKind, boolean>>;
@@ -384,7 +444,9 @@ export const ProviderModelMenuItems = function ProviderModelMenuItems(
       {visibleAvailableProviderOptions.map((option) => {
         const OptionIcon = PROVIDER_ICON_COMPONENT_BY_PROVIDER[option.value];
         const liveProvider = props.providers?.find((entry) => entry.provider === option.value);
-        const availability = resolveLiveProviderAvailability(liveProvider);
+        const availability = props.managedProviders?.includes(option.value)
+          ? { disabled: false, label: null }
+          : resolveLiveProviderAvailability(liveProvider);
         if (availability.disabled) {
           return (
             <MenuItem key={option.value} disabled>
@@ -470,6 +532,7 @@ type ProviderModelPickerProps = {
   model: ModelSlug;
   lockedProvider: ProviderKind | null;
   providers?: ReadonlyArray<ServerProviderStatus>;
+  managedProviders?: ReadonlyArray<ProviderKind>;
   modelOptionsByProvider: Record<ProviderKind, ReadonlyArray<ProviderModelOption>>;
   loadingModelProviders?: Partial<Record<ProviderKind, boolean>>;
   unavailableModelProviders?: Partial<Record<ProviderKind, boolean>>;
@@ -486,6 +549,10 @@ type ProviderModelPickerProps = {
   shortcutLabel?: string | null;
   triggerClassName?: string;
   onProviderModelChange: (provider: ProviderKind, model: ModelSlug) => void;
+  connections?: ReadonlyArray<ProviderConnection>;
+  selectedConnectionId?: ProviderConnectionId | null;
+  onConnectionChange?: (connectionId: ProviderConnectionId | null) => void;
+  onManageConnections?: () => void;
 };
 
 export const ProviderModelPicker = function ProviderModelPicker(props: ProviderModelPickerProps) {
@@ -501,6 +568,10 @@ export const ProviderModelPicker = function ProviderModelPicker(props: ProviderM
     modelOptionsByProvider: props.modelOptionsByProvider,
   });
   const ProviderIcon = PROVIDER_ICON_COMPONENT_BY_PROVIDER[activeProvider];
+  const hasAvailableConnections =
+    props.connections?.some(
+      (connection) => connection.harness === activeProvider && connection.lifecycle === "active",
+    ) === true;
 
   const setMenuOpen = (nextOpen: boolean) => {
     if (open === undefined) {
@@ -581,6 +652,7 @@ export const ProviderModelPicker = function ProviderModelPicker(props: ProviderM
           model={props.model}
           lockedProvider={props.lockedProvider}
           {...(props.providers ? { providers: props.providers } : {})}
+          {...(props.managedProviders ? { managedProviders: props.managedProviders } : {})}
           modelOptionsByProvider={props.modelOptionsByProvider}
           {...(props.loadingModelProviders
             ? { loadingModelProviders: props.loadingModelProviders }
@@ -594,6 +666,19 @@ export const ProviderModelPicker = function ProviderModelPicker(props: ProviderM
           onProviderModelChange={props.onProviderModelChange}
           onAfterSelection={handleAfterSelection}
         />
+        {props.onConnectionChange && hasAvailableConnections ? <MenuSeparator /> : null}
+        {props.onConnectionChange && hasAvailableConnections ? (
+          <ProviderConnectionMenu
+            provider={activeProvider}
+            connections={props.connections ?? []}
+            selectedConnectionId={props.selectedConnectionId}
+            onConnectionChange={props.onConnectionChange}
+            {...(props.onManageConnections
+              ? { onManageConnections: props.onManageConnections }
+              : {})}
+            onAfterSelection={handleAfterSelection}
+          />
+        ) : null}
       </ComposerPickerMenuPopup>
     </Menu>
   );

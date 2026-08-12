@@ -1,4 +1,9 @@
-import { ThreadId, type ModelSelection, type ProviderModelOptions } from "@penkra/contracts";
+import {
+  ProviderConnectionId,
+  ThreadId,
+  type ModelSelection,
+  type ProviderModelOptions,
+} from "@penkra/contracts";
 import {
   useComposerDraftStore,
   type ComposerFileAttachment,
@@ -80,22 +85,7 @@ export function makeTerminalContext(input: {
 }
 
 export function makeQueuedTurn(id: string): QueuedComposerTurn {
-  return {
-    id,
-    kind: "plan-follow-up",
-    createdAt: "2026-03-13T12:00:00.000Z",
-    previewText: `queued ${id}`,
-    text: `queued ${id}`,
-    interactionMode: "plan",
-    selectedProvider: "codex",
-    selectedModel: "gpt-5",
-    selectedPromptEffort: null,
-    modelSelection: {
-      provider: "codex",
-      model: "gpt-5",
-    },
-    runtimeMode: "full-access",
-  };
+  return makeQueuedChatTurn(id);
 }
 
 export function makeQueuedChatTurn(
@@ -123,12 +113,8 @@ export function makeQueuedChatTurn(
       provider: "codex",
       model: "gpt-5",
     },
-    sourceProposedPlan: {
-      threadId: ThreadId.makeUnsafe("thread-source-plan"),
-      planId: "plan-1",
-    },
+    connectionId: ProviderConnectionId.makeUnsafe("connection-test"),
     runtimeMode: "full-access",
-    interactionMode: "default",
     envMode: "local",
   };
 }

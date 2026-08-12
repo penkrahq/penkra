@@ -5,10 +5,13 @@
 import * as FS from "node:fs";
 import * as Path from "node:path";
 
+import { ProviderConnectionId } from "@penkra/contracts";
 import type {
   DesktopComposerAssetDescriptor,
   DesktopVoiceDraftDescriptor,
+  VoiceTranscriptionBackend,
 } from "@penkra/contracts";
+import { resolveDesktopPlatformAdapter } from "./desktopPlatform";
 
 const ROOT_DIRECTORY_NAME = "composer-drafts-v1";
 const SNAPSHOT_FILE_NAME = "snapshot.json";
@@ -27,7 +30,7 @@ function assertSafeId(value: string, label: string): void {
 }
 
 async function syncDirectory(path: string): Promise<void> {
-  if (process.platform === "win32") return;
+  if (!resolveDesktopPlatformAdapter().processLifecycle.syncDirectories) return;
   const handle = await FS.promises.open(path, "r").catch(() => null);
   if (!handle) return;
   try {
@@ -62,12 +65,15 @@ function parseVoiceIndex(value: unknown): VoiceIndexFile {
   if (candidate.version !== 1 || !Array.isArray(candidate.jobs)) return { version: 1, jobs: [] };
   return {
     version: 1,
-    jobs: candidate.jobs.filter((job): job is DesktopVoiceDraftDescriptor => {
-      if (!job || typeof job !== "object") return false;
-      return (
+    jobs: candidate.jobs.flatMap((job): DesktopVoiceDraftDescriptor[] => {
+      if (!job || typeof job !== "object") return [];
+      const record = job as unknown as Record<string, unknown>;
+      const transcriptionBackend = parseTranscriptionBackend(record);
+      const valid =
         typeof job.id === "string" &&
         SAFE_ID.test(job.id) &&
         typeof job.threadId === "string" &&
+        transcriptionBackend !== null &&
         typeof job.cwd === "string" &&
         typeof job.sampleRateHz === "number" &&
         Number.isFinite(job.sampleRateHz) &&
@@ -77,10 +83,36 @@ function parseVoiceIndex(value: unknown): VoiceIndexFile {
         job.committedBytes >= 0 &&
         typeof job.lastSequence === "number" &&
         Number.isSafeInteger(job.lastSequence) &&
-        (job.state === "recording" || job.state === "ready")
-      );
+        (job.state === "recording" || job.state === "ready");
+      return valid ? [{ ...(job as DesktopVoiceDraftDescriptor), transcriptionBackend }] : [];
     }),
   };
+}
+
+function parseTranscriptionBackend(
+  record: Record<string, unknown>,
+): VoiceTranscriptionBackend | null {
+  const backend = record.transcriptionBackend;
+  if (backend && typeof backend === "object") {
+    const candidate = backend as Record<string, unknown>;
+    const locale = typeof candidate.locale === "string" ? candidate.locale.trim() : "";
+    if (candidate.kind === "apple-speech" && locale) {
+      return { kind: "apple-speech", locale };
+    }
+    const connectionId =
+      typeof candidate.connectionId === "string" ? candidate.connectionId.trim() : "";
+    if (candidate.kind === "codex-chatgpt" && connectionId) {
+      return { kind: "codex-chatgpt", connectionId: ProviderConnectionId.makeUnsafe(connectionId) };
+    }
+  }
+  const legacyConnectionId =
+    typeof record.connectionId === "string" ? record.connectionId.trim() : "";
+  return legacyConnectionId
+    ? {
+        kind: "codex-chatgpt",
+        connectionId: ProviderConnectionId.makeUnsafe(legacyConnectionId),
+      }
+    : null;
 }
 
 export class ComposerDraftJournal {
@@ -162,6 +194,9 @@ export class ComposerDraftJournal {
 
   async createVoice(job: DesktopVoiceDraftDescriptor): Promise<void> {
     assertSafeId(job.id, "voice draft id");
+    if (parseTranscriptionBackend(job as unknown as Record<string, unknown>) === null) {
+      throw new Error("Invalid voice transcription backend.");
+    }
     await this.#mutateVoices(async (index) => {
       if (index.jobs.some((candidate) => candidate.id === job.id)) {
         throw new Error("Voice draft already exists.");

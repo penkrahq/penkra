@@ -30,6 +30,23 @@ describe("BackendStartupBlockDetector", () => {
     expect(detector.read()).toEqual({ kind: "migration-recovery-required" });
   });
 
+  it("recognizes fatal database corruption without waiting through the retry budget", () => {
+    const detector = new BackendStartupBlockDetector();
+
+    detector.push("FatalSqliteDatabase");
+    detector.push("Error: SQLite reported corruption; exiting without further database access.\n");
+
+    expect(detector.read()).toEqual({ kind: "database-corrupt" });
+  });
+
+  it("recognizes an unsafe SQLite runtime as a non-retryable startup block", () => {
+    const detector = new BackendStartupBlockDetector();
+
+    detector.push("UnsafeSqliteRuntimeError: SQLite 3.51.2 is not allowed\n");
+
+    expect(detector.read()).toEqual({ kind: "unsafe-sqlite-runtime" });
+  });
+
   it("ignores unrelated startup failures", () => {
     const detector = new BackendStartupBlockDetector();
 

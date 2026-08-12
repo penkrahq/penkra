@@ -4,18 +4,18 @@
 
 import {
   MAX_PINNED_PROJECTS,
-  PROVIDER_DISPLAY_NAMES,
   ContainerId,
   SpaceId,
   ThreadId,
   type DesktopUpdateState,
   type OrchestrationShellSnapshot,
-  type ProviderKind,
   type ResolvedKeybindingsConfig,
+  type SidebarItemMovePosition,
   type SidebarItemParent,
   type SidebarItemReference,
 } from "@penkra/contracts";
 import type { DragEndEvent, DragOverEvent } from "@dnd-kit/react";
+import { isSortable } from "@dnd-kit/react/sortable";
 import { getDefaultModel } from "@penkra/shared/model";
 import { pluralize } from "@penkra/shared/text";
 import { resolveThreadWorkspaceCwd } from "@penkra/shared/threadEnvironment";
@@ -40,7 +40,6 @@ import { createCentralIconComponent } from "~/lib/central-icons";
 import { PlayIcon, TriangleAlertIcon } from "~/lib/icons";
 import { pinActionLabel } from "~/lib/pin";
 import { cn } from "~/lib/utils";
-import { ensureNativeApi } from "~/nativeApi";
 import { useAppSettings } from "../appSettings";
 import type { LastThreadRoute } from "../chatRouteRestore";
 import { useComposerDraftStore } from "../composerDraftStore";
@@ -56,7 +55,6 @@ import {
 } from "../hooks/useSidebarProjectRunController";
 import { useSidebarThreadActions } from "../hooks/useSidebarThreadActions";
 import { useThreadActivationController } from "../hooks/useThreadActivationController";
-import { useThreadHandoff } from "../hooks/useThreadHandoff";
 import {
   resolveShortcutCommand,
   shortcutLabelForCommand,
@@ -86,22 +84,17 @@ import {
 } from "../lib/providerModelPrefetch";
 import { serverConfigQueryOptions } from "../lib/serverReactQuery";
 import { activeSpaceDisplayNameForReference, resolveActiveSpaceId } from "../lib/spaceGrouping";
-import { moveSidebarItem } from "../lib/sidebarOrdering";
+import { moveSidebarItem, resolveSidebarMovePosition } from "../lib/sidebarOrdering";
 import { archiveSpace, isOrdinarySpaceProject } from "../lib/spaces";
-import { collectStudioProjectIds } from "../lib/studioProjects";
 import { isTerminalFocused } from "../lib/terminalFocus";
-import {
-  canCreateThreadHandoff,
-  resolveAvailableHandoffTargetProviders,
-} from "../lib/threadHandoff";
 import { dispatchThreadRename } from "../lib/threadRename";
 import { isMacPlatform, newCommandId, newProjectId, newThreadId } from "../lib/utils";
 import { readNativeApi } from "../nativeApi";
 import { usePinnedProjectsStore } from "../pinnedProjectsStore";
 import { reconcileOptimisticPinState } from "../pinning.logic";
-import { derivePendingApprovals, derivePendingUserInputs } from "../session-logic";
 import { useSpacesUiStore } from "../spacesUiStore";
 import { selectSplitView, useSplitViewStore } from "../splitViewStore";
+import { useSidebarInlineRenameStore } from "../sidebarInlineRenameStore";
 import { persistAppStateNow, useStore } from "../store";
 import {
   createAllThreadsSelector,
@@ -114,14 +107,12 @@ import { getThreadFromState } from "../threadDerivation";
 import { useThreadDetailPrewarm } from "../threadDetailPrewarm";
 import { retainThreadDetailSubscription } from "../threadDetailSubscriptionRetention";
 import { useThreadSelectionStore } from "../threadSelectionStore";
-import type { SidebarThreadSummary, Space, Thread } from "../types";
+import type { SidebarThreadSummary, Space } from "../types";
 import { useWorkspacePathsStore } from "../workspacePathsStore";
-import { useVoiceRecordingSessionStore } from "../voiceRecordingSession";
+import { useVoiceSessionCoordinatorStore } from "../voiceSessionCoordinator";
 import { subscribeToSpaceUiActions } from "../spaceUiEvents";
 import { shouldRenderTerminalWorkspace } from "./ChatView.logic";
 import { CreateProjectDialog, type CreateProjectSubmitValue } from "./CreateProjectDialog";
-import { RenameDialog } from "./RenameDialog";
-import { RenameThreadDialog } from "./RenameThreadDialog";
 import {
   DEBUG_FEATURE_FLAGS_MENU_STORAGE_KEY,
   buildProjectThreadTree,
@@ -136,7 +127,6 @@ import {
   orderPinnedProjectsForSidebar,
   orderSidebarSpaceItems,
   pruneProjectThreadListPagingForCollapsedProjects,
-  resolveSidebarNewThreadEnvMode,
   resolveSidebarWorkStatus,
   resolveSidebarThreadListPaging,
   resolveThreadStatusPill,
@@ -182,6 +172,7 @@ import {
   readSidebarDndData,
   type SidebarDropPlacement,
   sidebarItemDndId,
+  sidebarParentFromDndGroup,
   sidebarParentDndGroup,
   sidebarSpaceDndId,
   SidebarContainerDropTarget,
@@ -189,6 +180,7 @@ import {
   SortableSidebarNode,
 } from "./sidebar/SidebarDnd";
 import { subscribeToDesktopUpdateState } from "./desktopUpdate.subscription";
+import { FolderRowInlineEdit } from "./left-rail/folder-row-inline-edit/FolderRowInlineEdit";
 import { FolderGroupShared } from "./left-rail/folder-group-shared/FolderGroupShared";
 import { AccountControlShared } from "./left-rail/account-control-shared/AccountControlShared";
 import { ShowMoreRow } from "./left-rail/show-more-row/ShowMoreRow";
@@ -202,6 +194,7 @@ import {
   ThreadRowShared,
   type ThreadWorkStatus,
 } from "./left-rail/thread-row-shared/ThreadRowShared";
+import { ThreadRowInlineEdit } from "./left-rail/thread-row-inline-edit/ThreadRowInlineEdit";
 import { toDisplayName } from "./profile/profileFormatting";
 import { useProfileName } from "./profile/useProfileName";
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "./ui/alert";
@@ -241,10 +234,9 @@ type SidebarDropIntent =
     }
   | {
       kind: "item";
-      placement: SidebarDropPlacement;
       target: SidebarItemParent;
-      targetItem?: SidebarItemReference;
     };
+
 const DebugFeatureFlagsMenu = import.meta.env.DEV
   ? lazy(() =>
       import("./DebugFeatureFlagsMenu").then((module) => ({
@@ -366,7 +358,6 @@ export default function Sidebar() {
   const markThreadUnread = useStore((store) => store.markThreadUnread);
   const toggleProject = useStore((store) => store.toggleProject);
   const setProjectExpanded = useStore((store) => store.setProjectExpanded);
-  const renameProjectLocally = useStore((store) => store.renameProjectLocally);
   const removeDeletedProjectFromClientState = useStore(
     (store) => store.removeDeletedProjectFromClientState,
   );
@@ -396,7 +387,6 @@ export default function Sidebar() {
   const { settings: appSettings } = useAppSettings();
   const { handleNewThread } = useHandleNewThread();
   const { handleNewChat } = useHandleNewChat();
-  const { createThreadHandoff } = useThreadHandoff();
   const routeThreadId = useParams({
     strict: false,
     select: (params) => (params.threadId ? ThreadId.makeUnsafe(params.threadId) : null),
@@ -493,8 +483,12 @@ export default function Sidebar() {
   const [searchPaletteOpen, setSearchPaletteOpen] = useState(false);
   const openFeedbackDialog = useFeedbackDialogStore((state) => state.openDialog);
   const [searchPaletteMode, setSearchPaletteMode] = useState<SidebarSearchPaletteMode>("search");
-  const [renameDialogThreadId, setRenameDialogThreadId] = useState<ThreadId | null>(null);
-  const [renameProjectDialogId, setRenameProjectDialogId] = useState<ContainerId | null>(null);
+  const inlineRenameEditor = useSidebarInlineRenameStore((state) => state.editor);
+  const cancelInlineRename = useSidebarInlineRenameStore((state) => state.cancel);
+  const finishInlineRename = useSidebarInlineRenameStore((state) => state.finish);
+  const startFolderInlineRename = useSidebarInlineRenameStore((state) => state.startFolder);
+  const startThreadInlineRename = useSidebarInlineRenameStore((state) => state.startThread);
+  const updateInlineRenameValue = useSidebarInlineRenameStore((state) => state.updateValue);
   // "Show more" paging state: extra pages of THREAD_PREVIEW_PAGE_SIZE rows per project cwd.
   const [threadListExtraPagesByProjectCwd, setThreadListExtraPagesByProjectCwd] = useState<
     ReadonlyMap<string, number>
@@ -527,8 +521,8 @@ export default function Sidebar() {
   // both the click handler and the install-watchdog push only notifies once.
   const lastDesktopUpdateErrorToastSignatureRef = useRef<string | null>(null);
   const selectedThreadIds = useThreadSelectionStore((s) => s.selectedThreadIds);
-  const voiceRecordingThreadId = useVoiceRecordingSessionStore(
-    (state) => state.origin?.threadId ?? null,
+  const voiceRecordingThreadId = useVoiceSessionCoordinatorStore(
+    (state) => state.capture?.origin.threadId ?? null,
   );
   const toggleThreadSelection = useThreadSelectionStore((s) => s.toggleThread);
   const rangeSelectTo = useThreadSelectionStore((s) => s.rangeSelectTo);
@@ -543,19 +537,6 @@ export default function Sidebar() {
   const selectSidebarTreeThreads = useMemo(() => createSidebarTreeThreadsSelector(), []);
   const sidebarThreads = useStore(selectSidebarThreads);
   const sidebarTreeThreads = useStore(selectSidebarTreeThreads);
-  const studioProjectIdSet = useMemo(
-    () =>
-      collectStudioProjectIds(projects, {
-        homeDir,
-        chatWorkspaceRoot,
-        studioWorkspaceRoot,
-      }),
-    [chatWorkspaceRoot, homeDir, projects, studioWorkspaceRoot],
-  );
-  const nonStudioSidebarTreeThreads = useMemo(
-    () => sidebarTreeThreads.filter((thread) => !studioProjectIdSet.has(thread.projectId)),
-    [sidebarTreeThreads, studioProjectIdSet],
-  );
   const dismissThreadStatus = useCallback(
     (threadId: ThreadId, statusKey: string | null | undefined) => {
       if (!statusKey) {
@@ -717,6 +698,17 @@ export default function Sidebar() {
       ),
     [chatWorkspaceRoot, homeDir, projects, studioWorkspaceRoot],
   );
+  const folderNamesBySpaceId = useMemo(() => {
+    const namesBySpaceId = new Map<SpaceId, string[]>();
+    for (const project of ordinarySpaceProjects) {
+      if (!project.spaceId) continue;
+      const names = namesBySpaceId.get(project.spaceId) ?? [];
+      names.push(project.name);
+      if (project.remoteName !== project.name) names.push(project.remoteName);
+      namesBySpaceId.set(project.spaceId, names);
+    }
+    return namesBySpaceId;
+  }, [ordinarySpaceProjects]);
 
   const projectCwdById = useMemo(
     () => new Map(projects.map((project) => [project.id, project.cwd] as const)),
@@ -908,18 +900,9 @@ export default function Sidebar() {
         return;
       }
 
-      void handleNewThread(typedProjectId, {
-        envMode: resolveSidebarNewThreadEnvMode({
-          defaultEnvMode: appSettings.defaultThreadEnvMode,
-        }),
-      });
+      void handleNewThread(typedProjectId);
     },
-    [
-      appSettings.defaultThreadEnvMode,
-      focusMostRecentThreadForProject,
-      handleNewThread,
-      sidebarThreads,
-    ],
+    [focusMostRecentThreadForProject, handleNewThread, sidebarThreads],
   );
 
   useEffect(() => {
@@ -1016,11 +999,7 @@ export default function Sidebar() {
       prefetchModelsForProjectNewThread(primaryNewThreadTarget.projectId, {
         includeDroid: true,
       });
-      void handleNewThread(primaryNewThreadTarget.projectId, {
-        envMode: resolveSidebarNewThreadEnvMode({
-          defaultEnvMode: appSettings.defaultThreadEnvMode,
-        }),
-      });
+      void handleNewThread(primaryNewThreadTarget.projectId);
       return;
     }
 
@@ -1031,7 +1010,6 @@ export default function Sidebar() {
     }
     handleStartAddProject();
   }, [
-    appSettings.defaultThreadEnvMode,
     handleNewThread,
     handleStartAddProject,
     prefetchModelsForProjectNewThread,
@@ -1095,10 +1073,7 @@ export default function Sidebar() {
           title,
           modelSelection,
           runtimeMode: "full-access",
-          interactionMode: "default",
-          envMode: resolveSidebarNewThreadEnvMode({
-            defaultEnvMode: appSettings.defaultThreadEnvMode,
-          }),
+          envMode: "local",
           branch: null,
           worktreePath: null,
           createdAt,
@@ -1127,7 +1102,7 @@ export default function Sidebar() {
         throw error;
       }
     },
-    [appSettings.defaultThreadEnvMode, currentProjectShortcutTargetId, navigate, projects],
+    [currentProjectShortcutTargetId, navigate, projects],
   );
 
   const commitRename = useCallback(
@@ -1136,27 +1111,36 @@ export default function Sidebar() {
         threadId,
         newTitle,
         unchangedTitles: [originalTitle],
-      }).catch((error) => {
-        toastManager.add({
-          type: "error",
-          title: "Failed to rename thread",
-          description: error instanceof Error ? error.message : "An error occurred.",
-        });
-        return null;
       });
-
       if (outcome === "empty") {
-        toastManager.add({
-          type: "warning",
-          title: "Thread title cannot be empty",
-        });
+        throw new Error("Thread title cannot be empty.");
+      }
+      if (outcome === "unavailable") {
+        throw new Error("Thread rename is unavailable while disconnected.");
       }
     },
     [],
   );
 
-  const openRenameThreadDialog = useCallback((threadId: ThreadId) => {
-    setRenameDialogThreadId(threadId);
+  const openThreadInlineRename = useCallback(
+    (threadId: ThreadId) => {
+      const thread = sidebarThreadSummaryById[threadId];
+      if (thread) startThreadInlineRename(threadId, thread.title);
+    },
+    [sidebarThreadSummaryById, startThreadInlineRename],
+  );
+
+  const commitFolderRename = useCallback(async (projectId: ContainerId, title: string) => {
+    const api = readNativeApi();
+    if (!api) {
+      throw new Error("Folder rename is unavailable while disconnected.");
+    }
+    await api.orchestration.dispatchCommand({
+      type: "project.meta.update",
+      commandId: newCommandId(),
+      projectId,
+      title,
+    });
   }, []);
 
   const handleThreadRenamePointerUp = useCallback(
@@ -1175,7 +1159,7 @@ export default function Sidebar() {
         event.preventDefault();
         event.stopPropagation();
         lastThreadRenameTapRef.current = null;
-        openRenameThreadDialog(threadId);
+        openThreadInlineRename(threadId);
         return;
       }
 
@@ -1184,7 +1168,7 @@ export default function Sidebar() {
         timestamp: currentTapTimestamp,
       };
     },
-    [openRenameThreadDialog],
+    [openThreadInlineRename],
   );
 
   const { prewarmThreadDetail: prewarmThreadDetailForIntent } = useThreadDetailPrewarm();
@@ -1202,24 +1186,6 @@ export default function Sidebar() {
 
   const copyThreadIdToClipboard = useCopyThreadIdToClipboard();
   const copyPathToClipboard = useCopyPathToClipboard();
-  const handoffThread = useCallback(
-    async (thread: Thread, targetProvider: ProviderKind) => {
-      try {
-        await createThreadHandoff(thread, targetProvider);
-      } catch (error) {
-        toastManager.add({
-          type: "error",
-          title: "Could not create handoff thread",
-          description:
-            error instanceof Error
-              ? error.message
-              : "An error occurred while creating the handoff thread.",
-        });
-      }
-    },
-    [createThreadHandoff],
-  );
-
   const handleThreadContextMenu = useCallback(
     async (
       threadId: ThreadId,
@@ -1238,26 +1204,7 @@ export default function Sidebar() {
       if (!thread) return;
       const threadSummary = sidebarThreadSummaryById[threadId];
       const isPinned = pinnedThreadIdSet.has(threadId);
-      const hasPendingApprovals =
-        threadSummary?.hasPendingApprovals ??
-        derivePendingApprovals(thread.activities, thread.pendingInteractions).length > 0;
-      const hasPendingUserInput =
-        threadSummary?.hasPendingUserInput ??
-        derivePendingUserInputs(thread.activities, thread.pendingInteractions).length > 0;
-      const canHandoff = canCreateThreadHandoff({
-        thread,
-        hasPendingApprovals,
-        hasPendingUserInput,
-      });
       const threadStatus = threadSummary ? resolveThreadStatusForSidebar(threadSummary) : null;
-      const handoffTargets = canHandoff
-        ? resolveAvailableHandoffTargetProviders(thread.modelSelection.provider)
-        : [];
-      const handoffItems = handoffTargets.map((provider, index) => ({
-        id: `handoff:${provider}`,
-        label: `Handoff to ${PROVIDER_DISPLAY_NAMES[provider]}`,
-        separatorBefore: index === 0,
-      }));
       const threadWorkspacePath = resolveThreadWorkspaceCwd({
         projectCwd: projectCwdById.get(thread.projectId) ?? null,
         envMode: thread.envMode,
@@ -1271,7 +1218,6 @@ export default function Sidebar() {
             ? [{ id: "clear-notification", label: "Clear notification" }]
             : []),
           { id: "mark-unread", label: "Mark unread" },
-          ...handoffItems,
           { id: "copy-path", label: "Copy Path", separatorBefore: true },
           { id: "copy-thread-id", label: "Copy Thread ID" },
           ...(options?.extraItems ?? []),
@@ -1282,7 +1228,7 @@ export default function Sidebar() {
       );
 
       if (clicked === "rename") {
-        openRenameThreadDialog(threadId);
+        openThreadInlineRename(threadId);
         return;
       }
       if (clicked === "toggle-pin") {
@@ -1297,13 +1243,6 @@ export default function Sidebar() {
       }
       if (clicked === "clear-notification") {
         clearThreadNotification(threadId);
-        return;
-      }
-      if (typeof clicked === "string" && clicked.startsWith("handoff:")) {
-        const targetProvider = clicked.slice("handoff:".length);
-        if (handoffTargets.includes(targetProvider as ProviderKind)) {
-          await handoffThread(thread, targetProvider as ProviderKind);
-        }
         return;
       }
       if (clicked === "copy-path") {
@@ -1340,9 +1279,8 @@ export default function Sidebar() {
       copyThreadIdToClipboard,
       clearDismissedThreadStatus,
       clearThreadNotification,
-      handoffThread,
       markThreadUnread,
-      openRenameThreadDialog,
+      openThreadInlineRename,
       pinnedThreadIdSet,
       projectCwdById,
       resolveThreadStatusForSidebar,
@@ -1680,7 +1618,7 @@ export default function Sidebar() {
         return;
       }
       if (clicked === "rename") {
-        setRenameProjectDialogId(projectId);
+        startFolderInlineRename(projectId, project.name);
         return;
       }
       if (clicked === "toggle-pin") {
@@ -1763,6 +1701,7 @@ export default function Sidebar() {
       projectById,
       removeDeletedProjectFromClientState,
       sidebarThreads,
+      startFolderInlineRename,
       toggleProjectPinned,
     ],
   );
@@ -1875,18 +1814,6 @@ export default function Sidebar() {
     }
     return byProjectId;
   }, [appSettings.sidebarThreadSortOrder, sidebarThreadsByProjectId]);
-  const handleRenameProjectSave = useCallback(
-    (projectId: ContainerId, nextName: string, previousLocalName: string | null) => {
-      const trimmed = nextName.trim();
-      const normalizedPrevious = previousLocalName?.trim() ?? "";
-      if (trimmed === normalizedPrevious) {
-        return;
-      }
-      renameProjectLocally(projectId, trimmed.length > 0 ? trimmed : null);
-    },
-    [renameProjectLocally],
-  );
-
   const sortedProjects = useMemo(
     () => sortProjectsForSidebar(projects, sidebarThreads, appSettings.sidebarProjectSortOrder),
     [appSettings.sidebarProjectSortOrder, projects, sidebarThreads],
@@ -2105,40 +2032,16 @@ export default function Sidebar() {
     async (input: {
       item: SidebarItemReference;
       target: SidebarItemParent;
-      targetItem?: SidebarItemReference | undefined;
-      placement?: "before" | "after" | undefined;
-      insertionIndex?: number | undefined;
+      position: SidebarItemMovePosition;
     }) => {
-      const { item } = input;
-
-      const orderedItems = getOrderedSidebarItems(input.target).filter(
-        (candidate) => candidate.kind !== item.kind || candidate.id !== item.id,
-      );
-      const pinnedCount = orderedItems.filter(isSidebarItemPinned).length;
-      let insertionIndex = input.insertionIndex ?? pinnedCount;
-      if (input.insertionIndex === undefined && input.targetItem) {
-        const targetIndex = orderedItems.findIndex(
-          (candidate) =>
-            candidate.kind === input.targetItem?.kind && candidate.id === input.targetItem.id,
-        );
-        if (targetIndex >= 0) {
-          insertionIndex = targetIndex + (input.placement === "after" ? 1 : 0);
-        }
-      }
-      insertionIndex = isSidebarItemPinned(item)
-        ? Math.min(insertionIndex, pinnedCount)
-        : Math.max(insertionIndex, pinnedCount);
-      insertionIndex = Math.max(0, Math.min(insertionIndex, orderedItems.length));
-      orderedItems.splice(insertionIndex, 0, item);
-
       const api = readNativeApi();
       if (!api) return false;
       try {
         await moveSidebarItem({
           api,
-          item,
+          item: input.item,
           target: input.target,
-          orderedItems,
+          position: input.position,
         });
         return true;
       } catch (error) {
@@ -2150,7 +2053,7 @@ export default function Sidebar() {
         return false;
       }
     },
-    [getOrderedSidebarItems, isSidebarItemPinned],
+    [],
   );
   const sidebarDropIntentRef = useRef<SidebarDropIntent | null>(null);
   const handleSidebarDragOver = useCallback(
@@ -2181,7 +2084,6 @@ export default function Sidebar() {
       if (targetData.type === "container") {
         sidebarDropIntentRef.current = {
           kind: "item",
-          placement: "before",
           target: targetData.parent,
         };
         return;
@@ -2199,9 +2101,7 @@ export default function Sidebar() {
       }
       sidebarDropIntentRef.current = {
         kind: "item",
-        placement,
         target: targetData.parent,
-        targetItem: targetData.item,
       };
     },
     [],
@@ -2210,38 +2110,70 @@ export default function Sidebar() {
     (event: DragEndEvent) => {
       const intent = sidebarDropIntentRef.current;
       sidebarDropIntentRef.current = null;
-      if (event.canceled || !intent) return;
+      if (event.canceled) return;
       const source = event.operation.source;
       const sourceData = readSidebarDndData(source?.data);
       if (!source || !sourceData) return;
 
-      if (sourceData.type === "space" && intent.kind === "space") {
+      if (sourceData.type === "space") {
         const sourceSpace = spaces.find((space) => space.id === sourceData.spaceId);
         if (!sourceSpace) return;
         const reordered = spaces.filter((space) => space.id !== sourceData.spaceId);
-        const targetIndex = reordered.findIndex((space) => space.id === intent.targetSpaceId);
-        if (targetIndex < 0) return;
-        reordered.splice(targetIndex + (intent.placement === "after" ? 1 : 0), 0, sourceSpace);
+        if (isSortable(source)) {
+          reordered.splice(Math.max(0, Math.min(source.index, reordered.length)), 0, sourceSpace);
+        } else if (intent?.kind === "space") {
+          const targetIndex = reordered.findIndex((space) => space.id === intent.targetSpaceId);
+          if (targetIndex < 0) return;
+          reordered.splice(targetIndex + (intent.placement === "after" ? 1 : 0), 0, sourceSpace);
+        } else {
+          return;
+        }
         handleReorderSpaces(
           reordered.map((space) => space.id),
           sourceData.spaceId,
         );
         return;
       }
-      if (sourceData.type !== "item" || intent.kind !== "item") return;
+      if (sourceData.type !== "item") return;
 
-      const suspended = event.suspend();
+      const target = isSortable(source)
+        ? sidebarParentFromDndGroup(source.group)
+        : intent?.kind === "item"
+          ? intent.target
+          : null;
+      if (!target) return;
+      const destinationItems = getOrderedSidebarItems(target).filter(
+        (candidate) =>
+          candidate.kind !== sourceData.item.kind || candidate.id !== sourceData.item.id,
+      );
+      const position = resolveSidebarMovePosition({
+        item: sourceData.item,
+        destinationItems,
+        requestedIndex: isSortable(source)
+          ? source.index
+          : destinationItems.filter(isSidebarItemPinned).length,
+        isPinned: isSidebarItemPinned,
+      });
+
+      // A pointer gesture must finish independently of persistence. Suspending the
+      // dnd-kit operation here kept the source row and drag overlay mounted until
+      // the RPC settled. If the authoritative shell reparented the item first—or
+      // the response was delayed/lost—the real row and its stale preview appeared
+      // together indefinitely. End the gesture now; the command and shell stream
+      // continue to reconcile the durable order in the background.
       void commitSidebarItemMove({
         item: sourceData.item,
-        target: intent.target,
-        targetItem: intent.targetItem,
-        placement: intent.placement,
-      }).then((committed) => {
-        if (committed) suspended.resume();
-        else suspended.abort();
+        target,
+        position,
       });
     },
-    [commitSidebarItemMove, handleReorderSpaces, spaces],
+    [
+      commitSidebarItemMove,
+      getOrderedSidebarItems,
+      handleReorderSpaces,
+      isSidebarItemPinned,
+      spaces,
+    ],
   );
   const standardProjectSidebarDataById = useMemo<
     ReadonlyMap<ContainerId, SidebarDerivedProjectData>
@@ -2268,9 +2200,6 @@ export default function Sidebar() {
       resolveThreadStatusForSidebar,
     ],
   );
-  const surfaceProjects = standardProjects;
-  const surfaceProjectSidebarDataById = standardProjectSidebarDataById;
-
   // Reset per-project preview paging when a folder closes so reopening starts at five rows again.
   useEffect(() => {
     const settle = window.setTimeout(() => {
@@ -2384,7 +2313,7 @@ export default function Sidebar() {
           continue;
         }
         const { project } = item;
-        const projectSidebarData = surfaceProjectSidebarDataById.get(project.id);
+        const projectSidebarData = standardProjectSidebarDataById.get(project.id);
         if (!projectSidebarData) {
           continue;
         }
@@ -2403,7 +2332,7 @@ export default function Sidebar() {
     }
 
     return [...visibleThreadIdSet];
-  }, [sidebarSpaceSections, surfaceProjectSidebarDataById]);
+  }, [sidebarSpaceSections, standardProjectSidebarDataById]);
   const threadJumpCommandByThreadId = useMemo(() => {
     const mapping = new Map<ThreadId, NonNullable<ReturnType<typeof threadJumpCommandForIndex>>>();
     for (const [visibleThreadIndex, threadId] of visibleSidebarThreadIds.entries()) {
@@ -2460,7 +2389,7 @@ export default function Sidebar() {
     project: (typeof sortedProjects)[number],
     sortableIndex: number,
   ) {
-    const projectSidebarData = surfaceProjectSidebarDataById.get(project.id);
+    const projectSidebarData = standardProjectSidebarDataById.get(project.id);
     if (!projectSidebarData || !project.spaceId) {
       return null;
     }
@@ -2483,13 +2412,23 @@ export default function Sidebar() {
       projectStatus,
       projectThreads.some((thread) => thread.id === voiceRecordingThreadId),
     );
+    const renamingThisFolder =
+      inlineRenameEditor?.kind === "folder" && inlineRenameEditor.projectId === project.id;
+    const existingFolderNames = projects
+      .filter(
+        (candidate) =>
+          candidate.id !== project.id &&
+          candidate.kind === "project" &&
+          candidate.spaceId === project.spaceId,
+      )
+      .flatMap((candidate) =>
+        candidate.name === candidate.remoteName
+          ? [candidate.name]
+          : [candidate.name, candidate.remoteName],
+      );
     const createProjectThread = () => {
       prefetchModelsForProjectNewThread(project.id, { includeDroid: true });
-      void handleNewThread(project.id, {
-        envMode: resolveSidebarNewThreadEnvMode({
-          defaultEnvMode: appSettings.defaultThreadEnvMode,
-        }),
-      });
+      void handleNewThread(project.id);
     };
     const openProjectContextMenu = (event: React.MouseEvent<HTMLButtonElement>) => {
       event.preventDefault();
@@ -2534,6 +2473,25 @@ export default function Sidebar() {
         <FolderGroupShared
           expanded={project.expanded}
           hasContent={hasProjectContent}
+          header={
+            renamingThisFolder ? (
+              <FolderRowInlineEdit
+                defaultValue={project.name}
+                existingNames={existingFolderNames}
+                expanded={project.expanded}
+                onCancel={cancelInlineRename}
+                onSubmit={async (title) => {
+                  if (title !== project.remoteName) {
+                    await commitFolderRename(project.id, title);
+                  }
+                  finishInlineRename({ kind: "folder", projectId: project.id });
+                }}
+                onValueChange={updateInlineRenameValue}
+                pinned={pinnedProjectIdSet.has(project.id)}
+                value={inlineRenameEditor.value}
+              />
+            ) : undefined
+          }
           label={project.name}
           onExpandedChange={(nextExpanded) => {
             if (!nextExpanded) setThreadListExtraPagesForProject(pagingKey, 0);
@@ -2541,6 +2499,11 @@ export default function Sidebar() {
           }}
           onHeaderAction={createProjectThread}
           onHeaderContextMenu={openProjectContextMenu}
+          onHeaderDoubleClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            startFolderInlineRename(project.id, project.name);
+          }}
           pinned={pinnedProjectIdSet.has(project.id)}
           workStatus={projectWorkStatus}
         >
@@ -2593,7 +2556,23 @@ export default function Sidebar() {
         ? ("github" as const)
         : thread.modelSelection.provider;
     const level = levelOverride ?? (depth > 0 ? "nested" : "root");
-    const row = (
+    const renamingThisThread =
+      inlineRenameEditor?.kind === "thread" && inlineRenameEditor.threadId === thread.id;
+    const row = renamingThisThread ? (
+      <ThreadRowInlineEdit
+        defaultValue={thread.title}
+        harness={harness}
+        level={level}
+        onCancel={cancelInlineRename}
+        onSubmit={async (title) => {
+          await commitRename(thread.id, title, thread.title);
+          finishInlineRename({ kind: "thread", threadId: thread.id });
+        }}
+        onValueChange={updateInlineRenameValue}
+        pinned={pinnedThreadIdSet.has(thread.id)}
+        value={inlineRenameEditor.value}
+      />
+    ) : (
       <ThreadRowShared
         aria-label={thread.title}
         className={cn(isSelected && "ring-1 ring-[var(--color-border-focus)]")}
@@ -2619,7 +2598,7 @@ export default function Sidebar() {
         onDoubleClick={(event) => {
           event.preventDefault();
           event.stopPropagation();
-          openRenameThreadDialog(thread.id);
+          openThreadInlineRename(thread.id);
         }}
         onKeyDown={(event) => {
           if (event.key !== "Enter" && event.key !== " ") return;
@@ -2753,13 +2732,6 @@ export default function Sidebar() {
         event.preventDefault();
         event.stopPropagation();
         setCreateProjectDialogOpen(true);
-        return;
-      }
-      if (command === "sidebar.importThread") {
-        event.preventDefault();
-        event.stopPropagation();
-        setSearchPaletteMode("import");
-        setSearchPaletteOpen((prev) => !prev || searchPaletteMode !== "import");
         return;
       }
       if (command === "settings.usage") {
@@ -3347,10 +3319,6 @@ export default function Sidebar() {
       {wordmark}
     </SidebarHeader>
   );
-  const renameProjectDialogProject = renameProjectDialogId
-    ? (projectById.get(renameProjectDialogId) ?? null)
-    : null;
-
   return (
     <>
       {sidebarHeaderSurface}
@@ -3544,6 +3512,7 @@ export default function Sidebar() {
         open={createProjectDialogOpen}
         spaces={spaces}
         activeSpaceId={activeSpaceId}
+        existingFolderNamesBySpaceId={folderNamesBySpaceId}
         onOpenChange={setCreateProjectDialogOpen}
         onSubmit={handleCreateProjectSubmit}
       />
@@ -3611,44 +3580,6 @@ export default function Sidebar() {
           </DialogFooter>
         </DialogPopup>
       </Dialog>
-
-      <RenameThreadDialog
-        open={renameDialogThreadId !== null}
-        currentTitle={
-          renameDialogThreadId ? (sidebarThreadSummaryById[renameDialogThreadId]?.title ?? "") : ""
-        }
-        onOpenChange={(nextOpen) => {
-          if (!nextOpen) setRenameDialogThreadId(null);
-        }}
-        onSave={(newTitle) => {
-          if (renameDialogThreadId === null) return;
-          const target = sidebarThreadSummaryById[renameDialogThreadId];
-          if (!target) return;
-          void commitRename(target.id, newTitle, target.title);
-        }}
-      />
-
-      <RenameDialog
-        open={renameProjectDialogId !== null && renameProjectDialogProject !== null}
-        title="Rename folder"
-        description="Keep it short and recognizable."
-        initialValue={
-          renameProjectDialogProject?.localName ?? renameProjectDialogProject?.name ?? ""
-        }
-        allowEmpty
-        placeholder={renameProjectDialogProject?.folderName}
-        onOpenChange={(nextOpen) => {
-          if (!nextOpen) setRenameProjectDialogId(null);
-        }}
-        onSave={(nextName) => {
-          if (!renameProjectDialogProject) return;
-          handleRenameProjectSave(
-            renameProjectDialogProject.id,
-            nextName,
-            renameProjectDialogProject.localName,
-          );
-        }}
-      />
 
       {searchPaletteOpen ? (
         <SidebarSearchPaletteController

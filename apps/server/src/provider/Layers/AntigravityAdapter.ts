@@ -1123,7 +1123,7 @@ const makeAntigravityAdapter = Effect.gen(function* () {
     provider: PROVIDER,
     capabilities: {
       sessionModelSwitch: "restart-session",
-      conversationRollback: "restart-session",
+      conversationRollback: "unsupported",
       supportsRuntimeModelList: true,
       supportsLiveTurnDiffPatch: false,
     },
@@ -1156,6 +1156,7 @@ const makeAntigravityAdapter = Effect.gen(function* () {
         supportsPluginDiscovery: false,
         supportsRuntimeModelList: true,
         supportsThreadCompaction: false,
+        supportsThreadFork: false,
         supportsThreadImport: false,
       } satisfies ProviderComposerCapabilities),
     get streamEvents() {

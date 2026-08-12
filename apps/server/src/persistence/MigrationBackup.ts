@@ -2,6 +2,7 @@ import { constants as fsConstants, type Stats } from "node:fs";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { randomUUID } from "node:crypto";
+import { DatabaseSync } from "node:sqlite";
 
 import { Effect } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -18,6 +19,7 @@ export {
 
 import { ensurePrivateDirectorySync, repairPrivateFile } from "../privatePathPermissions.ts";
 import { withDatabaseLifecycleLock } from "./DatabaseLifecycleLock.ts";
+import { inspectPenkraDatabaseHealth } from "./DatabaseHealth.ts";
 import {
   findFirstMigrationLineageDivergence,
   LAST_SHARED_LINEAGE_MIGRATION_ID,
@@ -837,30 +839,13 @@ async function validateSqliteMigrationBackup(backupPath: string): Promise<void> 
     throw new Error(`Migration backup is not a regular file: ${backupPath}`);
   }
 
-  let integrity: unknown;
-  if (process.versions.bun !== undefined) {
-    const { Database } = await import("bun:sqlite");
-    const database = new Database(backupPath, { readonly: true });
-    try {
-      integrity = database.query("PRAGMA integrity_check").get();
-    } finally {
-      database.close();
-    }
-  } else {
-    const { DatabaseSync } = await import("node:sqlite");
-    const database = new DatabaseSync(backupPath, { readOnly: true });
-    try {
-      integrity = database.prepare("PRAGMA integrity_check").get();
-    } finally {
-      database.close();
-    }
-  }
-  if (
-    !integrity ||
-    typeof integrity !== "object" ||
-    !Object.values(integrity as Record<string, unknown>).includes("ok")
-  ) {
-    throw new Error(`Migration backup failed SQLite integrity_check: ${backupPath}`);
+  const database = new DatabaseSync(backupPath, { readOnly: true });
+  try {
+    inspectPenkraDatabaseHealth(
+      (sql) => database.prepare(sql).all() as Array<Record<string, unknown>>,
+    );
+  } finally {
+    database.close();
   }
 }
 

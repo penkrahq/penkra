@@ -32,6 +32,12 @@ import {
   type OrchestrationCommandReceipt,
 } from "../../persistence/Services/OrchestrationCommandReceipts.ts";
 import { ManagedAttachmentRepository } from "../../persistence/Services/ManagedAttachments.ts";
+import {
+  ThreadProviderBindingRepository,
+  type ThreadProviderBindingRepositoryShape,
+} from "../../persistence/Services/ThreadProviderBindings.ts";
+import { ProviderThreadSwitchOperationRepository } from "../../persistence/Services/ProviderThreadSwitchOperations.ts";
+import { ProviderNativeForkOperationRepository } from "../../persistence/Services/ProviderNativeForkOperations.ts";
 import { ManagedAttachmentRepositoryLive } from "../../persistence/Layers/ManagedAttachments.ts";
 import {
   LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
@@ -71,6 +77,7 @@ import { ORCHESTRATION_PROJECTOR_NAMES } from "./ProjectionPipeline.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import {
   OrchestrationEngineService,
+  type OrchestrationDispatchContext,
   type OrchestrationEngineShape,
 } from "../Services/OrchestrationEngine.ts";
 
@@ -85,6 +92,11 @@ type OrchestrationEnginePhase = "running" | "quiescing" | "draining" | "stopped"
 interface CommandEnvelope {
   command: OrchestrationCommand;
   attachmentPrincipal: ManagedAttachmentPrincipal;
+  acceptedProviderSwitch?: NonNullable<OrchestrationDispatchContext["acceptedProviderSwitch"]>;
+  acceptedInitialProviderBinding?: Parameters<
+    ThreadProviderBindingRepositoryShape["initializeThread"]
+  >[0];
+  acceptedInitialProviderForkOperationId?: string;
   result: Deferred.Deferred<{ sequence: number }, OrchestrationDispatchError>;
   executionState: Ref.Ref<CommandExecutionState>;
   deadlineAtMs: number;
@@ -165,6 +177,15 @@ const makeOrchestrationEngine = Effect.gen(function* () {
   const eventStore = yield* OrchestrationEventStore;
   const commandReceiptRepository = yield* OrchestrationCommandReceiptRepository;
   const managedAttachments = yield* ManagedAttachmentRepository;
+  const threadProviderBindings = Option.getOrUndefined(
+    yield* Effect.serviceOption(ThreadProviderBindingRepository),
+  );
+  const providerThreadSwitchOperations = Option.getOrUndefined(
+    yield* Effect.serviceOption(ProviderThreadSwitchOperationRepository),
+  );
+  const providerNativeForkOperations = Option.getOrUndefined(
+    yield* Effect.serviceOption(ProviderNativeForkOperationRepository),
+  );
   const projectionPipeline = yield* OrchestrationProjectionPipeline;
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
   const serverConfig = yield* ServerConfig;
@@ -461,17 +482,8 @@ const makeOrchestrationEngine = Effect.gen(function* () {
     command: OrchestrationCommand,
   ): Effect.Effect<OrchestrationReadModel, OrchestrationDispatchError> => {
     switch (command.type) {
-      case "thread.handoff.create":
       case "thread.fork.create":
         return loadThreadDetailForDecider(command, commandReadModel, command.sourceThreadId);
-      case "thread.turn.start":
-        return command.sourceProposedPlan
-          ? loadThreadDetailForDecider(
-              command,
-              commandReadModel,
-              command.sourceProposedPlan.threadId,
-            )
-          : Effect.succeed(commandReadModel);
       case "thread.conversation.rollback":
       case "thread.message.edit-and-resend":
       case "thread.message.assistant.complete":
@@ -697,6 +709,9 @@ const makeOrchestrationEngine = Effect.gen(function* () {
         command,
         readModel: deciderReadModel,
         workspacePaths: deciderWorkspacePaths,
+        ...(envelope.acceptedProviderSwitch !== undefined
+          ? { acceptedConnectionChange: envelope.acceptedProviderSwitch.change }
+          : {}),
       });
       const eventBases = Array.isArray(eventBase) ? eventBase : [eventBase];
       const transactionalCommitEffect: Effect.Effect<
@@ -706,6 +721,133 @@ const makeOrchestrationEngine = Effect.gen(function* () {
       > = Effect.gen(function* () {
         const committedEvents: OrchestrationEvent[] = [];
         let nextCommandReadModel = commandReadModel;
+
+        if (
+          envelope.acceptedInitialProviderForkOperationId !== undefined &&
+          envelope.acceptedInitialProviderBinding === undefined
+        ) {
+          return yield* new OrchestrationCommandInvariantError({
+            commandType: command.type,
+            detail: "A native-fork journal may only accompany its initial provider binding.",
+          });
+        }
+        if (envelope.acceptedInitialProviderBinding !== undefined) {
+          if (command.type !== "thread.turn.start" || threadProviderBindings === undefined) {
+            return yield* new OrchestrationCommandInvariantError({
+              commandType: command.type,
+              detail: "An initial provider binding may only accompany a thread turn start.",
+            });
+          }
+          yield* threadProviderBindings
+            .initializeThreadInCurrentTransaction(envelope.acceptedInitialProviderBinding)
+            .pipe(
+              Effect.mapError(
+                (cause) =>
+                  new OrchestrationCommandInvariantError({
+                    commandType: command.type,
+                    detail: `The initial provider binding could not be committed: ${cause.message}`,
+                  }),
+              ),
+            );
+          if (envelope.acceptedInitialProviderForkOperationId !== undefined) {
+            if (providerNativeForkOperations === undefined) {
+              return yield* new OrchestrationCommandInvariantError({
+                commandType: command.type,
+                detail: "Verified native-fork persistence is unavailable.",
+              });
+            }
+            const committedFork = yield* providerNativeForkOperations
+              .markCommittedInCurrentTransaction({
+                id: envelope.acceptedInitialProviderForkOperationId,
+                updatedAt: command.createdAt,
+              })
+              .pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new OrchestrationCommandInvariantError({
+                      commandType: command.type,
+                      detail: `The native fork journal could not be committed: ${cause.message}`,
+                    }),
+                ),
+              );
+            if (Option.isNone(committedFork)) {
+              return yield* new OrchestrationCommandInvariantError({
+                commandType: command.type,
+                detail: "The verified native-fork journal entry no longer exists.",
+              });
+            }
+          }
+        }
+        if (envelope.acceptedProviderSwitch !== undefined) {
+          if (command.type !== "thread.turn.start") {
+            return yield* new OrchestrationCommandInvariantError({
+              commandType: command.type,
+              detail: "A verified provider switch may only accompany a thread turn start.",
+            });
+          }
+          if (
+            threadProviderBindings === undefined ||
+            providerThreadSwitchOperations === undefined
+          ) {
+            return yield* new OrchestrationCommandInvariantError({
+              commandType: command.type,
+              detail: "Verified provider-switch persistence is unavailable.",
+            });
+          }
+          if (envelope.acceptedProviderSwitch.commit.kind === "native-state") {
+            yield* threadProviderBindings
+              .commitSwitchInCurrentTransaction(envelope.acceptedProviderSwitch.commit.input)
+              .pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new OrchestrationCommandInvariantError({
+                      commandType: command.type,
+                      detail: `The verified provider switch could not be committed: ${cause.message}`,
+                    }),
+                ),
+              );
+          } else {
+            const updatedBinding = yield* threadProviderBindings
+              .updateRuntimeBindingInCurrentTransaction(
+                envelope.acceptedProviderSwitch.commit.input,
+              )
+              .pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new OrchestrationCommandInvariantError({
+                      commandType: command.type,
+                      detail: `The verified provider selection could not be committed: ${cause.message}`,
+                    }),
+                ),
+              );
+            if (Option.isNone(updatedBinding)) {
+              return yield* new OrchestrationCommandInvariantError({
+                commandType: command.type,
+                detail: "The provider selection binding changed before commit.",
+              });
+            }
+          }
+          const committedOperation = yield* providerThreadSwitchOperations
+            .markCommittedInCurrentTransaction({
+              id: envelope.acceptedProviderSwitch.operationId,
+              updatedAt: command.createdAt,
+            })
+            .pipe(
+              Effect.mapError(
+                (cause) =>
+                  new OrchestrationCommandInvariantError({
+                    commandType: command.type,
+                    detail: `The provider switch journal could not be committed: ${cause.message}`,
+                  }),
+              ),
+            );
+          if (Option.isNone(committedOperation)) {
+            return yield* new OrchestrationCommandInvariantError({
+              commandType: command.type,
+              detail: "The verified provider switch journal entry no longer exists.",
+            });
+          }
+        }
 
         if (command.type === "thread.turn.start") {
           const attachmentIds = command.message.attachments
@@ -1131,6 +1273,18 @@ const makeOrchestrationEngine = Effect.gen(function* () {
       const envelope: CommandEnvelope = {
         command,
         attachmentPrincipal: context?.attachmentPrincipal ?? LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
+        ...(context?.acceptedProviderSwitch !== undefined
+          ? { acceptedProviderSwitch: context.acceptedProviderSwitch }
+          : {}),
+        ...(context?.acceptedInitialProviderBinding !== undefined
+          ? { acceptedInitialProviderBinding: context.acceptedInitialProviderBinding }
+          : {}),
+        ...(context?.acceptedInitialProviderForkOperationId !== undefined
+          ? {
+              acceptedInitialProviderForkOperationId:
+                context.acceptedInitialProviderForkOperationId,
+            }
+          : {}),
         result,
         executionState,
         deadlineAtMs: Date.now() + ORCHESTRATION_DISPATCH_TIMEOUT_MS,

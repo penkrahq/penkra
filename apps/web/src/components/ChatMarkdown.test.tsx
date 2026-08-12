@@ -234,7 +234,7 @@ describe("ChatMarkdown", () => {
     expect(markup).not.toContain('class="katex"');
   });
 
-  it("keeps proposed-plan, diff, and transcript content routed through the shared renderer", () => {
+  it("keeps transcript content routed through the shared renderer", () => {
     const messagesTimelineSource = readFileSync(
       new URL("./chat/MessagesTimeline.tsx", import.meta.url),
       "utf8",
@@ -242,7 +242,6 @@ describe("ChatMarkdown", () => {
 
     expect(messagesTimelineSource).toContain('import ChatMarkdown from "../ChatMarkdown"');
     expect(messagesTimelineSource).toContain("<ChatMarkdown");
-    expect(messagesTimelineSource).toContain('row.kind === "proposed-plan"');
   });
 });
 

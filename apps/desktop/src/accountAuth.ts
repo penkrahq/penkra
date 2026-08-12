@@ -52,6 +52,7 @@ export function configurePenkraAccountAuth(input: {
   developmentInstance?: number;
   getWindow: () => BrowserWindow | null;
   ipcMain: IpcMain;
+  inspectInitialProtocolUrlFromArgv: boolean;
   registerAsDefaultProtocolClient?: boolean;
   websiteOrigin: string;
 }): PenkraAccountAuthRuntime {
@@ -171,7 +172,7 @@ export function configurePenkraAccountAuth(input: {
     void completeAuthCallback(callbackUrl);
   });
   void app.whenReady().then(() => {
-    if (process.platform === "darwin") return;
+    if (!input.inspectInitialProtocolUrlFromArgv) return;
     void completeAuthCallback(
       process.argv
         .toReversed()

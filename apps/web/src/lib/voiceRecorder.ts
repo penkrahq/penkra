@@ -38,6 +38,7 @@ interface RecorderRuntime {
 export interface VoiceRecordingOrigin {
   readonly threadId: string;
   readonly providerThreadId: string | null;
+  readonly transcriptionBackend: import("@penkra/contracts").VoiceTranscriptionBackend;
   readonly cwd: string;
 }
 
@@ -46,8 +47,9 @@ interface EncodedVoiceChunk extends CapturedVoiceRecordingChunk {
   readonly durationMs: number;
 }
 
-const BUFFER_SIZE = 4_096;
+const BUFFER_SIZE = 2_048;
 const MAX_WAVEFORM_SAMPLES = 160;
+const WAVEFORM_EMIT_INTERVAL_MS = 32;
 const DURABLE_CHECKPOINT_MS = 250;
 
 export function formatVoiceRecordingDuration(durationMs: number): string {
@@ -58,7 +60,6 @@ export function formatVoiceRecordingDuration(durationMs: number): string {
 }
 
 export function useVoiceRecorder() {
-  const [recordingActivityId] = useState(() => globalThis.crypto.randomUUID());
   const runtimeRef = useRef<RecorderRuntime | null>(null);
   const timerRef = useRef<number | null>(null);
   const waveformLevelsRef = useRef<number[]>([]);
@@ -80,7 +81,6 @@ export function useVoiceRecorder() {
       runtimeRef.current = null;
       clearTimer();
       setIsRecording(false);
-      setDesktopVoiceRecordingActive(recordingActivityId, false);
 
       if (!runtime) {
         setDurationMs(0);
@@ -119,7 +119,7 @@ export function useVoiceRecorder() {
         ...(runtime.durableJobId ? { durableVoiceDraftId: runtime.durableJobId } : {}),
       };
     },
-    [clearTimer, recordingActivityId],
+    [clearTimer],
   );
 
   const startRecording = useCallback(
@@ -165,6 +165,7 @@ export function useVoiceRecorder() {
             id: durableJobId,
             threadId: origin.threadId,
             ...(origin.providerThreadId ? { providerThreadId: origin.providerThreadId } : {}),
+            transcriptionBackend: origin.transcriptionBackend,
             cwd: origin.cwd,
             sampleRateHz: audioContext.sampleRate,
             state: "recording",
@@ -226,7 +227,7 @@ export function useVoiceRecorder() {
             ) * 3.2,
           );
           const now = performance.now();
-          if (now - waveformLastEmitAtRef.current >= 45) {
+          if (now - waveformLastEmitAtRef.current >= WAVEFORM_EMIT_INTERVAL_MS) {
             waveformLastEmitAtRef.current = now;
             const nextLevels = [...waveformLevelsRef.current, rmsLevel].slice(
               -MAX_WAVEFORM_SAMPLES,
@@ -241,7 +242,6 @@ export function useVoiceRecorder() {
         silentGainNode.connect(audioContext.destination);
 
         runtimeRef.current = runtime;
-        setDesktopVoiceRecordingActive(recordingActivityId, true);
         for (const track of stream.getTracks()) {
           track.addEventListener(
             "ended",
@@ -274,7 +274,7 @@ export function useVoiceRecorder() {
         throw error;
       }
     },
-    [recordingActivityId, teardownRuntime],
+    [teardownRuntime],
   );
 
   const stopRecording = useCallback(async (): Promise<CapturedVoiceRecordingPayload | null> => {
@@ -388,18 +388,6 @@ export async function serializeCapturedVoiceRecording(
     ),
     durationMs: recording.durationMs,
   };
-}
-
-function setDesktopVoiceRecordingActive(recordingId: string, active: boolean): void {
-  const setRecordingActive = window.desktopBridge?.media?.setVoiceRecordingActive;
-  if (!setRecordingActive) return;
-
-  void setRecordingActive(recordingId, active).catch((error: unknown) => {
-    console.warn(
-      `[voice-recorder] Failed to ${active ? "start" : "stop"} the display-sleep blocker.`,
-      error,
-    );
-  });
 }
 
 function encodeChunk(chunk: RawVoiceChunk): EncodedVoiceChunk {

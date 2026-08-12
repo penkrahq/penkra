@@ -24,6 +24,34 @@ describe("composerDraftStore stable empty draft identity", () => {
     const after = selectComposerThreadDraft(useComposerDraftStore.getState(), missingThreadId);
     expect(after).toBe(before);
   });
+
+  it("does not publish a store update when the prompt is unchanged", () => {
+    resetComposerDraftStore();
+    const threadId = ThreadId.makeUnsafe("thread-unchanged-prompt");
+    const listener = vi.fn();
+    const unsubscribe = useComposerDraftStore.subscribe(listener);
+
+    useComposerDraftStore.getState().setPrompt(threadId, "Do something");
+    listener.mockClear();
+    const before = useComposerDraftStore.getState();
+
+    useComposerDraftStore.getState().setPrompt(threadId, "Do something");
+
+    expect(useComposerDraftStore.getState()).toBe(before);
+    expect(listener).not.toHaveBeenCalled();
+    unsubscribe();
+  });
+
+  it("does not create a draft for an unchanged empty prompt", () => {
+    resetComposerDraftStore();
+    const threadId = ThreadId.makeUnsafe("thread-empty-prompt");
+    const before = useComposerDraftStore.getState();
+
+    useComposerDraftStore.getState().setPrompt(threadId, "");
+
+    expect(useComposerDraftStore.getState()).toBe(before);
+    expect(useComposerDraftStore.getState().draftsByThreadId[threadId]).toBeUndefined();
+  });
 });
 
 describe("composerDraftStore clearComposerContent", () => {
@@ -121,7 +149,6 @@ describe("composerDraftStore project draft thread mapping", () => {
       workingDirectory: null,
       envMode: "worktree",
       runtimeMode: "full-access",
-      interactionMode: "default",
       createdAt: "2026-01-01T00:00:00.000Z",
       lastKnownPr: null,
     });
@@ -134,7 +161,6 @@ describe("composerDraftStore project draft thread mapping", () => {
       workingDirectory: null,
       envMode: "worktree",
       runtimeMode: "full-access",
-      interactionMode: "default",
       createdAt: "2026-01-01T00:00:00.000Z",
       lastKnownPr: null,
     });
@@ -501,7 +527,7 @@ describe("composerDraftStore project draft thread mapping", () => {
   });
 });
 
-describe("composerDraftStore runtime and interaction settings", () => {
+describe("composerDraftStore runtime settings", () => {
   const threadId = ThreadId.makeUnsafe("thread-settings");
 
   beforeEach(() => {
@@ -518,23 +544,11 @@ describe("composerDraftStore runtime and interaction settings", () => {
     );
   });
 
-  it("stores interaction mode overrides in the composer draft", () => {
-    const store = useComposerDraftStore.getState();
-
-    store.setInteractionMode(threadId, "plan");
-
-    expect(useComposerDraftStore.getState().draftsByThreadId[threadId]?.interactionMode).toBe(
-      "plan",
-    );
-  });
-
   it("removes empty settings-only drafts when overrides are cleared", () => {
     const store = useComposerDraftStore.getState();
 
     store.setRuntimeMode(threadId, "approval-required");
-    store.setInteractionMode(threadId, "plan");
     store.setRuntimeMode(threadId, null);
-    store.setInteractionMode(threadId, null);
 
     expect(useComposerDraftStore.getState().draftsByThreadId[threadId]).toBeUndefined();
   });

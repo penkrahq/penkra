@@ -4,6 +4,7 @@ import { Cause, Effect, Layer, Option, Stream } from "effect";
 
 import { ProfileStatsArchive } from "../../profileStatsArchive";
 import { ProviderService } from "../../provider/Services/ProviderService";
+import { ProviderNativeStateDeletionCoordinator } from "../../provider/Services/ProviderNativeStateDeletionCoordinator";
 import { TerminalManager } from "../../terminal/Services/Manager";
 import { THREAD_RETENTION_COMMAND_ID_PREFIX } from "../../threadRetention";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine";
@@ -87,6 +88,7 @@ const make = Effect.gen(function* () {
   const orchestrationEngine = yield* OrchestrationEngineService;
   const profileStatsArchive = yield* ProfileStatsArchive;
   const providerService = yield* ProviderService;
+  const providerNativeStateDeletionCoordinator = yield* ProviderNativeStateDeletionCoordinator;
   const terminalManager = yield* TerminalManager;
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
 
@@ -244,6 +246,7 @@ const make = Effect.gen(function* () {
       return;
     }
     yield* purgeThreadData(event);
+    yield* providerNativeStateDeletionCoordinator.recover;
   });
 
   const processThreadLifecycleEvent = (event: ThreadLifecycleCleanupEvent) =>

@@ -5,9 +5,20 @@ import { defineConfig, mergeConfig } from "vitest/config";
 import viteConfig from "./vite.config";
 
 const srcPath = fileURLToPath(new URL("./src", import.meta.url));
+const browserViteConfig = {
+  ...viteConfig,
+  server: {
+    ...viteConfig.server,
+    // Desktop development deliberately warms the complete chat route before
+    // Electron opens. A component-test server must stay focused on the files
+    // selected by Vitest; inheriting that warmup makes even a one-file browser
+    // test compile ChatView and its full route graph before Chromium can start.
+    warmup: undefined,
+  },
+};
 
 export default mergeConfig(
-  viteConfig,
+  browserViteConfig,
   defineConfig({
     resolve: {
       alias: {

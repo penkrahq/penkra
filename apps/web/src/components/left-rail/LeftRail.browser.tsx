@@ -10,12 +10,14 @@ import { DisclosureSection } from "../ui/DisclosureRegion";
 import { AccountRowShared } from "./account-row-shared/AccountRowShared";
 import { AccountControlShared } from "./account-control-shared/AccountControlShared";
 import { FolderGroupShared } from "./folder-group-shared/FolderGroupShared";
+import { FolderRowInlineEdit } from "./folder-row-inline-edit/FolderRowInlineEdit";
 import { ShowMoreRow } from "./show-more-row/ShowMoreRow";
 import { SidebarHeaderShared } from "./sidebar-header-shared/SidebarHeaderShared";
 import { SidebarProjects } from "./sidebar-projects/SidebarProjects";
 import { SidebarTopNavigation } from "./sidebar-top-navigation/SidebarTopNavigation";
 import { SpaceHeaderShared } from "./space-header-shared/SpaceHeaderShared";
 import { ThreadRowShared } from "./thread-row-shared/ThreadRowShared";
+import { ThreadRowInlineEdit } from "./thread-row-inline-edit/ThreadRowInlineEdit";
 
 const threads = Array.from({ length: 12 }, (_, index) => ({
   id: `thread-${index}`,
@@ -214,6 +216,62 @@ describe("Pencil left rail", () => {
 
     await userEvent.keyboard(" ");
     await expect.element(disclosure).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("preserves an inline folder draft on blur and commits it only on Enter", async () => {
+    const onSubmit = vi.fn();
+    await render(
+      <>
+        <FolderRowInlineEdit
+          defaultValue="Product"
+          existingNames={["Engineering"]}
+          onCancel={() => undefined}
+          onSubmit={onSubmit}
+        />
+        <button type="button">Outside editor</button>
+      </>,
+    );
+
+    const input = page.getByRole("textbox", { name: "Rename folder" });
+    await input.fill("Research");
+    await page.getByRole("button", { name: "Outside editor" }).click();
+    await expect.element(input).toHaveValue("Research");
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    input.element().focus();
+    await userEvent.keyboard("{Enter}");
+    expect(onSubmit).toHaveBeenCalledWith("Research");
+  });
+
+  it("cancels inline thread editing on Escape", async () => {
+    const onCancel = vi.fn();
+    await render(
+      <ThreadRowInlineEdit
+        defaultValue="Investigate voice"
+        onCancel={onCancel}
+        onSubmit={() => undefined}
+      />,
+    );
+    await page.getByRole("textbox", { name: "Rename thread" }).fill("Unsaved draft");
+    await userEvent.keyboard("{Escape}");
+    expect(onCancel).toHaveBeenCalledOnce();
+  });
+
+  it("blocks duplicate inline folder names", async () => {
+    const onSubmit = vi.fn();
+    await render(
+      <FolderRowInlineEdit
+        defaultValue="Product"
+        existingNames={["Engineering"]}
+        onCancel={() => undefined}
+        onSubmit={onSubmit}
+      />,
+    );
+    const folderInput = page.getByRole("textbox", { name: "Rename folder" });
+    await folderInput.fill(" engineering ");
+    await userEvent.keyboard("{Enter}");
+    await expect.element(folderInput).toHaveAttribute("aria-invalid", "true");
+    expect(onSubmit).not.toHaveBeenCalled();
   });
 
   it("keeps an expanded folder surface distinct from its hover state", async () => {

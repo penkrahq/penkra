@@ -16,6 +16,72 @@ vi.mock("~/nativeApi", async () => {
         ...patch,
       }),
     },
+    provider: {
+      getConnections: async () => ({
+        connections: [],
+        installations: ["opencode", "claudeAgent", "codex"].map((harness, index) => ({
+          id: `installation-${index}`,
+          harness,
+          version: "1.0.0",
+          platform: "darwin",
+          architecture: "arm64",
+          adapterVersion: "1",
+          protocolVersion: "1",
+          lifecycle: "active" as const,
+          healthReason: null,
+          installedAt: "2026-08-01T00:00:00.000Z",
+          activatedAt: "2026-08-01T00:00:00.000Z",
+          retiredAt: null,
+        })),
+        spaceDefaults: [],
+        anonymousRoutes: [{ harness: "opencode" as const, internalProviderId: "opencode" }],
+        authenticationMethods: [
+          {
+            harness: "opencode" as const,
+            authenticationTargetId: "opencode-go",
+            authenticationMethodId: "api-key",
+            kind: "static-secret" as const,
+            label: "OpenCode Go",
+            secretPlaceholder: "OpenCode Go key",
+            internalProviderIds: ["opencode-go"],
+          },
+          {
+            harness: "claudeAgent" as const,
+            authenticationTargetId: "anthropic-first-party",
+            authenticationMethodId: "claude-account",
+            kind: "managed-login" as const,
+            label: "Sign in",
+            internalProviderIds: [null],
+          },
+          {
+            harness: "claudeAgent" as const,
+            authenticationTargetId: "anthropic-first-party",
+            authenticationMethodId: "api-key",
+            kind: "static-secret" as const,
+            label: "API key",
+            secretPlaceholder: "Anthropic API key",
+            internalProviderIds: [null],
+          },
+          {
+            harness: "codex" as const,
+            authenticationTargetId: "openai-first-party",
+            authenticationMethodId: "chatgpt",
+            kind: "managed-login" as const,
+            label: "Sign in",
+            internalProviderIds: [null],
+          },
+          {
+            harness: "codex" as const,
+            authenticationTargetId: "openai-first-party",
+            authenticationMethodId: "api-key",
+            kind: "managed-secret" as const,
+            label: "API key",
+            secretPlaceholder: "OpenAI API key",
+            internalProviderIds: [null],
+          },
+        ],
+      }),
+    },
   };
   return {
     ensureNativeApi: () => api,
@@ -256,10 +322,12 @@ describe("Pencil settings structure", () => {
 
     await page.getByRole("button", { name: "Agents", exact: true }).click();
     await expect
-      .element(page.getByText("Choose which coding agent runs your threads."))
+      .element(page.getByText("Manage the Connections Penkra uses to run Threads."))
       .toBeVisible();
-    await expect.element(page.getByText("Claude Agent")).toBeVisible();
-    await expect.element(page.getByText("Model & Access")).toBeVisible();
+    await expect.element(page.getByText("OpenCode", { exact: true })).toBeInTheDocument();
+    await expect.element(page.getByText("Claude", { exact: true })).toBeInTheDocument();
+    await expect.element(page.getByText("ChatGPT", { exact: true })).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("Model & Access");
 
     await page.getByRole("button", { name: "Apps", exact: true }).click();
     await expect.element(page.getByText("Installed apps from the Penkra registry.")).toBeVisible();

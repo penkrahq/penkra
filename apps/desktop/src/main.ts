@@ -35,6 +35,7 @@ import type {
   FileFilter,
   IpcMainEvent,
   MenuItemConstructorOptions,
+  WebContents,
 } from "electron";
 import * as Effect from "effect/Effect";
 import type {
@@ -70,7 +71,7 @@ import { isBackendReadinessAborted, waitForHttpReady } from "./backendReadiness"
 import { queryAppPermission } from "./appPermissionQuery";
 import { resolvePathIntent } from "./appFileIntentResolver";
 import { resolveBackendNodeArgs } from "./backendNodeOptions";
-import { VoiceRecordingPowerBlocker } from "./voiceRecordingPowerBlocker";
+import { ActiveWorkPowerBlocker } from "./activeWorkPowerBlocker";
 import {
   retainLiveBackendAfterShutdownFailure,
   requireWindowsBackendExit,
@@ -133,6 +134,7 @@ import {
 import { captureBackendProcessOutput } from "./backendProcessOutput";
 import { syncShellEnvironment } from "./syncShellEnvironment";
 import { resolvePenkraAccountServiceEndpoints } from "./accountServiceEndpoints";
+import { resolveDesktopPlatformAdapter } from "./desktopPlatform";
 import {
   RENDERER_MAX_AUTOMATIC_RELOADS,
   RendererCrashPolicy,
@@ -196,7 +198,7 @@ import { createScopedBrowserSessionPartition } from "./browserSessionPolicy";
 import { normalizeHostedBrowserViewportBounds } from "./hostedBrowserViewport";
 import { AppCommandPipeServer, resolveAppCommandPipePath } from "./appCommandPipeServer";
 import { AppTabObserver, resolveAppTabObservationTarget } from "./appTabObserver";
-import { BROWSER_APP_ID } from "./appDistributionPolicy";
+import { BROWSER_APP_ID, isRequiredApp } from "./appDistributionPolicy";
 import { normalizeDesktopWsUrl, resolveDesktopWsUrlFromEnv } from "./desktopWsBridge";
 import {
   repairBrowserProfileFromBridgeManifest,
@@ -233,6 +235,15 @@ import { ComposerDraftJournal } from "./composerDraftJournal";
 import { resolveVoiceQaAudioInput } from "./voiceQaAudioInput";
 import { startDesktopAppRuntime, type DesktopAppRuntime } from "./desktopAppRuntime";
 import {
+  openDesktopSimulatorHostRuntime,
+  type DesktopSimulatorHostRuntime,
+} from "./simulatorHostRuntime";
+import { createDesktopSimulatorAdapterBundle } from "./simulatorAdapterBundle";
+import { invokeSimulatorCall } from "./simulatorIpc";
+import { HostedSurfaceRegistry, type HostedSurfaceParent } from "./hostedSurfaceRegistry";
+import { ElectronSimulatorViewerFactory } from "./simulatorViewer";
+import { queueAndroidSdkLicenseReview } from "./simulatorLicenseReview";
+import {
   parseDesktopAppTheme,
   parseDesktopAppTypography,
   renderDesktopAppThemeCss,
@@ -240,8 +251,6 @@ import {
 } from "./appTheme";
 import { mediatedAppFetch } from "./appNetworkFetch";
 import { requestAppAccountData, subscribeAppAccountData } from "./appAccountData";
-import { exchangeRawSocket } from "./appRawSocket";
-import { runAppProcess } from "./appProcessRunner";
 import { APP_STANDARD_PERMISSIONS, isAppStandardPermissionName } from "./appStandardPermissions";
 import {
   parseAppSettingKey,
@@ -272,6 +281,12 @@ import {
   type AutomaticRegistryAppUpdateReport,
 } from "./automaticRegistryAppUpdates";
 import { bootstrapDefaultRegistryApps } from "./defaultRegistryAppsBootstrap";
+import {
+  loadRequiredAppsPackage,
+  reconcileRequiredAppsForSpaces,
+  resolveRequiredAppsBundle,
+  REQUIRED_APPS_SOURCE_PATH_ENV,
+} from "./requiredRegistryAppBootstrap";
 import { DevelopmentAppSideloadRegistry } from "./developmentAppSideloadRegistry";
 import { createInitialWindowPresenter } from "./initialWindowVisibility";
 import {
@@ -286,7 +301,7 @@ import {
   parseSetAppTabVisibleRequest,
 } from "./appTabIpc";
 import { parseAppListingDeepLink } from "./appListingDeepLink";
-import { getInstalledAppPackage } from "./appInstallationState";
+import { getInstalledAppPackage, type VerifiedAppPackageInput } from "./appInstallationState";
 import {
   createScopedDirectory,
   listScopedDirectory,
@@ -332,7 +347,10 @@ const desktopFlavor = resolvePenkraDesktopFlavor({
 });
 const isDevelopment = desktopFlavor === "development";
 const isPackagedRuntime = app.isPackaged && !isDevelopment;
-const penkraAppDataBase = resolveDesktopAppDataBase();
+const desktopPlatform = resolveDesktopPlatformAdapter();
+const penkraAppDataBase = resolveDesktopAppDataBase({
+  platform: desktopPlatform.platform,
+});
 const penkraRootPointerPath = resolvePenkraRootPointerPath(penkraAppDataBase);
 const penkraAccountServices = resolvePenkraAccountServiceEndpoints({
   configuredApiUrl: process.env.PENKRA_API_URL,
@@ -438,21 +456,33 @@ type DesktopUpdateErrorContext = DesktopUpdateState["errorContext"];
 let mainWindow: BrowserWindow | null = null;
 let pendingAppListingRequest: { appId: string } | null = null;
 let desktopAppRuntime: DesktopAppRuntime | null = null;
+let desktopSimulatorRuntime: DesktopSimulatorHostRuntime | null = null;
+let simulatorHostedSurfaces: HostedSurfaceRegistry | null = null;
+let simulatorViewerFactory: ElectronSimulatorViewerFactory | null = null;
+let unsubscribeSimulatorState: (() => void) | null = null;
+const appSimulatorTrackedRendererIds = new Set<number>();
 const resourceHandleByTab = new Map<string, string>();
 let appRegistryClient: AppRegistryClient | null = null;
 let developmentSideloadRegistry: DevelopmentAppSideloadRegistry | null = null;
+let requiredAppsPackage: (VerifiedAppPackageInput & { source: "registry" }) | null = null;
+let requiredAppsPackageLoad: Promise<VerifiedAppPackageInput & { source: "registry" }> | null =
+  null;
+let requiredAppsPackageIsDevelopmentSource = false;
 let configuredAppBootstrapQueue: Promise<void> = Promise.resolve();
 let automaticAppUpdateTimer: ReturnType<typeof setTimeout> | null = null;
 let automaticAppUpdateReport: AutomaticRegistryAppUpdateReport | null = null;
 let getPenkraAccountId: () => Promise<string | null> = async () => null;
 let getPenkraAccountCookie: () => string = () => "";
 const appAccountSubscriptions = new Map<string, { senderId: number; stop(): void }>();
-const voiceRecordingPowerBlocker = new VoiceRecordingPowerBlocker({
+const activeWorkPowerBlocker = new ActiveWorkPowerBlocker({
   blocker: powerSaveBlocker,
   onError: (message, error) =>
-    safeConsoleError(`[desktop-media] ${message} ${formatErrorMessage(error)}`),
+    safeConsoleError(`[desktop-power] ${message} ${formatErrorMessage(error)}`),
 });
-let spacesMenuState: DesktopSpacesMenuInput = { activeSpaceId: null, spaces: [] };
+let spacesMenuState: DesktopSpacesMenuInput = {
+  activeSpaceId: null,
+  spaces: [],
+};
 let backendProcess: ChildProcess.ChildProcess | null = null;
 let backendPort = 0;
 
@@ -503,6 +533,7 @@ function bootstrapConfiguredAppsForSpaces(): Promise<void> {
     if (!runtime) return;
     const spaceIds = spacesMenuState.spaces.map((space) => space.id);
     if (spaceIds.length === 0) return;
+    await reconcileConfiguredRequiredApps(spaceIds);
     const registry = appRegistryClient;
     if (registry && (await getPenkraAccountId())) {
       try {
@@ -558,6 +589,31 @@ function bootstrapConfiguredAppsForSpaces(): Promise<void> {
   return result;
 }
 
+async function reconcileConfiguredRequiredApps(spaceIds: ReadonlyArray<string>): Promise<void> {
+  const runtime = desktopAppRuntime;
+  const embedded =
+    requiredAppsPackage ??
+    (requiredAppsPackageLoad === null ? null : await requiredAppsPackageLoad);
+  if (!runtime || !embedded) {
+    const error = new Error("The embedded required Apps package is unavailable.");
+    handleFatalStartupError("required Apps", error);
+    throw error;
+  }
+  try {
+    await reconcileRequiredAppsForSpaces({
+      runtime,
+      requiredPackage: embedded,
+      hostVersion: app.getVersion(),
+      spaceIds,
+      allowDevelopmentSideload: isDevelopment,
+      developmentSourcePackage: requiredAppsPackageIsDevelopmentSource,
+    });
+  } catch (error) {
+    handleFatalStartupError("required Apps", error);
+    throw error;
+  }
+}
+
 async function openPenkraResource(input: {
   path?: string;
   url?: string;
@@ -593,7 +649,13 @@ async function openPenkraResource(input: {
       threadId: input.threadId,
       callerKind: input.callerKind ?? "agent",
     });
-    return { destination: "app", appId: resolved.appId, slug: resolved.slug, intent, result };
+    return {
+      destination: "app",
+      appId: resolved.appId,
+      slug: resolved.slug,
+      intent,
+      result,
+    };
   }
 
   if (!input.path || !Path.isAbsolute(input.path)) {
@@ -750,8 +812,8 @@ const browserManager = new DesktopBrowserManager({
           repeat: input.isAutoRepeat,
         },
         {
-          isMac: process.platform === "darwin",
-          isWindows: process.platform === "win32",
+          isMac: desktopPlatform.platform === "darwin",
+          isWindows: desktopPlatform.platform === "win32",
         },
       )
     ) {
@@ -857,7 +919,7 @@ function startBrowserPerformanceLogging(): void {
 
 let destructiveMenuIconCache: Electron.NativeImage | null | undefined;
 const desktopRuntimeInfo = resolveDesktopRuntimeInfo({
-  platform: process.platform,
+  platform: desktopPlatform.platform,
   processArch: process.arch,
   runningUnderArm64Translation: app.runningUnderARM64Translation === true,
 });
@@ -1143,7 +1205,7 @@ function initializePackagedLogging(): void {
 initializePackagedLogging();
 
 function getDestructiveMenuIcon(): Electron.NativeImage | undefined {
-  if (process.platform !== "darwin") return undefined;
+  if (desktopPlatform.platform !== "darwin") return undefined;
   if (destructiveMenuIconCache !== undefined) {
     return destructiveMenuIconCache ?? undefined;
   }
@@ -1389,17 +1451,7 @@ function resolveEmbeddedCommitHash(): string | null {
   }
 }
 
-declare const __PENKRA_WINDOWS_UPDATER_PUBLISHER__: string;
 declare const __PENKRA_REGISTRY_TRUSTED_KEYS__: string;
-
-function resolveEmbeddedWindowsPublisherSubjects(): string[] {
-  if (!app.isPackaged || process.platform !== "win32") {
-    return [];
-  }
-
-  const subject = __PENKRA_WINDOWS_UPDATER_PUBLISHER__.trim();
-  return subject ? [subject] : [];
-}
 
 function resolveAboutCommitHash(): string | null {
   if (aboutCommitHashCache !== undefined) {
@@ -1708,7 +1760,7 @@ function handleFatalStartupError(stage: string, error: unknown): void {
     isQuitting = true;
     dialog.showErrorBox("Penkra failed to start", `Stage: ${stage}\n${message}${detail}`);
   }
-  if (process.platform === "win32") {
+  if (desktopPlatform.processLifecycle.backendShutdown === "windows-control") {
     requestGracefulAppQuit(`fatal startup (${stage})`);
     return;
   }
@@ -1815,7 +1867,7 @@ function applyDesktopWindowZoomAction(
 }
 
 function handleDesktopWindowZoomShortcut(event: Electron.Event, input: Electron.Input): boolean {
-  const action = resolveDesktopWindowZoomAction(process.platform, input);
+  const action = resolveDesktopWindowZoomAction(desktopPlatform.platform, input);
   if (!action) return false;
 
   event.preventDefault();
@@ -1848,10 +1900,11 @@ function hasConfiguredUpdateFeed(): boolean {
 }
 
 function resolveAutoUpdateDisabledReason(): string | null {
+  if (desktopPlatform.updater.disabledReason) return desktopPlatform.updater.disabledReason;
   return getAutoUpdateDisabledReason({
     isDevelopment,
     isPackaged: app.isPackaged,
-    platform: process.platform,
+    platform: desktopPlatform.platform,
     appImage: process.env.APPIMAGE,
     disabledByEnv: process.env.PENKRA_DISABLE_AUTO_UPDATE === "1",
     hasUpdateFeedConfig: hasConfiguredUpdateFeed(),
@@ -1915,11 +1968,13 @@ async function checkForUpdatesFromMenu(): Promise<void> {
 
 function configureApplicationMenu(): void {
   const template: MenuItemConstructorOptions[] = [];
-  const keyboardShortcutsAccelerator = resolveKeyboardShortcutsMenuAccelerator(process.platform);
+  const keyboardShortcutsAccelerator = resolveKeyboardShortcutsMenuAccelerator(
+    desktopPlatform.platform,
+  );
   const acceleratorProps = (
     accelerator: MenuItemConstructorOptions["accelerator"],
   ): Pick<MenuItemConstructorOptions, "accelerator"> => {
-    const resolved = resolveDesktopMenuAccelerator(process.platform, accelerator);
+    const resolved = resolveDesktopMenuAccelerator(desktopPlatform.platform, accelerator);
     return resolved ? { accelerator: resolved } : {};
   };
   // Native zoom roles target whichever WebContents has focus. Penkra presents its
@@ -1949,7 +2004,7 @@ function configureApplicationMenu(): void {
     },
   ];
 
-  if (process.platform === "darwin") {
+  if (desktopPlatform.platform === "darwin") {
     template.push({
       label: app.name,
       submenu: [
@@ -1980,7 +2035,7 @@ function configureApplicationMenu(): void {
     {
       label: "File",
       submenu: [
-        ...(process.platform === "darwin"
+        ...(desktopPlatform.platform === "darwin"
           ? []
           : [
               {
@@ -1990,19 +2045,13 @@ function configureApplicationMenu(): void {
               },
               { type: "separator" as const },
             ]),
-        { role: process.platform === "darwin" ? "close" : "quit" },
+        { role: desktopPlatform.platform === "darwin" ? "close" : "quit" },
       ],
     },
     { role: "editMenu" },
     {
       label: "View",
       submenu: [
-        {
-          label: "New Terminal Tab",
-          ...acceleratorProps("CmdOrCtrl+T"),
-          click: () => dispatchMenuAction("new-terminal-tab"),
-        },
-        { type: "separator" },
         {
           label: "Toggle Sidebar",
           ...acceleratorProps("CmdOrCtrl+B"),
@@ -2091,10 +2140,10 @@ function resolveIconPath(ext: "ico" | "icns" | "png"): string | null {
 }
 
 function resolveNotificationIconPath(): string | null {
-  if (process.platform === "darwin") {
+  if (desktopPlatform.notifications.icon === "bundle") {
     return null;
   }
-  if (process.platform === "win32") {
+  if (desktopPlatform.notifications.icon === "ico") {
     return resolveResourcePath("penkra.png") ?? resolveIconPath("ico");
   }
   return resolveResourcePath("penkra.png") ?? resolveIconPath("png");
@@ -2139,7 +2188,7 @@ function focusMainWindow(options: { stealAppFocus?: boolean } = {}): void {
   if (!mainWindow.isVisible()) {
     mainWindow.show();
   }
-  if (process.platform === "darwin" && options.stealAppFocus === true) {
+  if (desktopPlatform.application.activateBeforeFocus && options.stealAppFocus === true) {
     // BrowserWindow.focus() alone does not activate a macOS app while another
     // application owns focus.
     app.show();
@@ -2229,7 +2278,7 @@ function configureAppIdentity(): void {
     copyright: `© ${new Date().getFullYear()} Emmanuel Gyekye Atta-Penkra`,
   });
 
-  if (process.platform === "win32") {
+  if (desktopPlatform.application.setWindowsAppUserModelId) {
     app.setAppUserModelId(APP_USER_MODEL_ID);
   }
 }
@@ -2238,7 +2287,7 @@ function configureAppIdentity(): void {
 // the mark as Icon Composer glass. Older macOS gets the same literal rounded artwork as
 // a runtime dock override because it does not apply the modern system mask itself.
 function applyLegacyMacDockIcon(): void {
-  if (process.platform !== "darwin" || !app.dock) {
+  if (!desktopPlatform.icons.legacyDockOverride || !app.dock) {
     return;
   }
   const darwinMajor = Number.parseInt(OS.release().split(".")[0] ?? "", 10);
@@ -2286,7 +2335,7 @@ function persistLastLaunchVersion(version: string): void {
 // changes across launches, force Launch Services to re-read the bundle so the
 // new icon shows on every surface. Best-effort: never blocks startup.
 function refreshMacIconCacheOnVersionChange(): void {
-  if (process.platform !== "darwin" || !app.isPackaged) {
+  if (!desktopPlatform.icons.refreshBundleCacheAfterUpdate || !app.isPackaged) {
     return;
   }
 
@@ -2301,7 +2350,7 @@ function refreshMacIconCacheOnVersionChange(): void {
   // instead of spawning lsregister each time.
   persistLastLaunchVersion(currentVersion);
 
-  const bundlePath = resolveMacAppBundlePath(process.execPath, process.platform);
+  const bundlePath = resolveMacAppBundlePath(process.execPath, desktopPlatform.platform);
   if (!bundlePath || !FS.existsSync(LSREGISTER_PATH)) {
     return;
   }
@@ -2506,7 +2555,7 @@ function getUpdaterCachePathArgs(): {
 } {
   return {
     cacheDirName: configuredUpdaterCacheDirName,
-    platform: process.platform,
+    platform: desktopPlatform.platform,
     homeDir: OS.homedir(),
     localAppData: process.env.LOCALAPPDATA ?? null,
     xdgCacheHome: process.env.XDG_CACHE_HOME ?? null,
@@ -3235,8 +3284,8 @@ function configureAutoUpdater(): void {
   hardenElectronUpdater(
     { BaseUpdater },
     autoUpdater,
-    process.platform,
-    app.isPackaged ? resolveEmbeddedWindowsPublisherSubjects() : null,
+    desktopPlatform.platform,
+    app.isPackaged ? [] : null,
   );
 
   autoUpdater.autoDownload = false;
@@ -3251,7 +3300,8 @@ function configureAutoUpdater(): void {
   // macOS release builds repack and validate the Squirrel update zip, then omit
   // the stale zip blockmap so ShipIt always installs the exact signed payload.
   autoUpdater.disableDifferentialDownload =
-    process.platform === "darwin" || isArm64HostRunningIntelBuild(desktopRuntimeInfo);
+    desktopPlatform.updater.disableDifferentialDownload ||
+    isArm64HostRunningIntelBuild(desktopRuntimeInfo);
   // electron-updater has no working idle timeout on macOS (its socket timeout is
   // wired to a `socket` event Electron's net.request never emits) and never
   // resumes from a byte offset, so a stalled CDN transfer hangs for minutes
@@ -3419,8 +3469,8 @@ function backendEnv(): NodeJS.ProcessEnv {
       PENKRA_AUTH_TOKEN: backendAuthToken,
       PENKRA_DESKTOP_SHUTDOWN_TOKEN: DESKTOP_BACKEND_SHUTDOWN_TOKEN,
       PENKRA_APP_TEST_ELECTRON: process.execPath,
-      PENKRA_APP_TEST_HOST: Path.join(__dirname, "appTestHost.js"),
-      PENKRA_APP_TEST_PRELOAD: Path.join(__dirname, "appPreload.js"),
+      PENKRA_APP_TEST_HOST: Path.join(__dirname, "entry.js"),
+      PENKRA_APP_TEST_PACKAGED: app.isPackaged ? "1" : "0",
     },
     process.pid,
   );
@@ -3507,6 +3557,36 @@ async function openDesktopLogDirectory(): Promise<void> {
   }
 }
 
+async function presentFatalDatabaseBlock(
+  kind: "database-corrupt" | "unsafe-sqlite-runtime",
+): Promise<void> {
+  const unsafeRuntime = kind === "unsafe-sqlite-runtime";
+  for (;;) {
+    const result = await dialog.showMessageBox({
+      type: "error",
+      title: unsafeRuntime
+        ? "Penkra needs a safer database runtime"
+        : "Penkra stopped to protect your data",
+      message: unsafeRuntime
+        ? "This Penkra runtime includes an unsupported SQLite version."
+        : "SQLite reported that the local database is damaged.",
+      detail: unsafeRuntime
+        ? "Penkra did not open your data. Update or reinstall Penkra before trying again."
+        : "Penkra stopped automatic restarts and will not keep reopening the database. Review the logs and restore a verified backup while every Penkra process is stopped.",
+      buttons: ["Open logs", "Quit"],
+      defaultId: 0,
+      cancelId: 1,
+      noLink: true,
+    });
+    if (result.response === 0) {
+      await openDesktopLogDirectory();
+      continue;
+    }
+    requestGracefulAppQuit(unsafeRuntime ? "unsafe SQLite runtime" : "database corruption");
+    return;
+  }
+}
+
 /**
  * Replaces the eternal loading skeleton with a blocking, actionable window once
  * supervision stops respawning the backend.
@@ -3555,6 +3635,11 @@ function handleBackendStartupBlock(block: BackendStartupBlock): void {
   if (isQuitting || backendLifecycleDialogInFlight) return;
 
   const task = (async () => {
+    if (block.kind === "database-corrupt" || block.kind === "unsafe-sqlite-runtime") {
+      await presentFatalDatabaseBlock(block.kind);
+      return;
+    }
+
     if (block.kind === "migration-recovery-required") {
       const result = await dialog.showMessageBox({
         type: "warning",
@@ -3795,7 +3880,7 @@ async function stopBackendAndWaitForExit(options?: {
   const backendChild = child;
   if (backendChild.exitCode !== null || backendChild.signalCode !== null) return;
 
-  if (process.platform === "win32") {
+  if (desktopPlatform.processLifecycle.backendShutdown === "windows-control") {
     const forceKillDelayMs = Math.min(requestedForceKillDelayMs, Math.max(0, timeoutMs - 500));
     try {
       const result = await stopWindowsBackendAndWait({
@@ -3852,11 +3937,32 @@ async function stopAppRuntimeAndBackend(): Promise<void> {
       failures.push(error);
     }
   }
+  const hostedSurfaces = simulatorHostedSurfaces;
+  simulatorHostedSurfaces = null;
+  simulatorViewerFactory = null;
+  if (hostedSurfaces) {
+    try {
+      hostedSurfaces.dispose();
+    } catch (error) {
+      failures.push(error);
+    }
+  }
   const runtime = desktopAppRuntime;
   desktopAppRuntime = null;
   if (runtime) {
     try {
       await runtime.stop();
+    } catch (error) {
+      failures.push(error);
+    }
+  }
+  unsubscribeSimulatorState?.();
+  unsubscribeSimulatorState = null;
+  const simulatorRuntime = desktopSimulatorRuntime;
+  desktopSimulatorRuntime = null;
+  if (simulatorRuntime) {
+    try {
+      await simulatorRuntime.dispose();
     } catch (error) {
       failures.push(error);
     }
@@ -4154,15 +4260,24 @@ function registerIpcHandlers(): void {
       onEvent: (accountEvent) => {
         const target = webContents.fromId(senderId);
         if (!target || target.isDestroyed()) return;
-        target.send(IPC.appRuntime.accountDataEvent, { subscriptionId, event: accountEvent });
+        target.send(IPC.appRuntime.accountDataEvent, {
+          subscriptionId,
+          event: accountEvent,
+        });
       },
       onConnectionStateChange: (connectionState) => {
         const target = webContents.fromId(senderId);
         if (!target || target.isDestroyed()) return;
-        target.send(IPC.appRuntime.accountDataEvent, { subscriptionId, connectionState });
+        target.send(IPC.appRuntime.accountDataEvent, {
+          subscriptionId,
+          connectionState,
+        });
       },
     });
-    appAccountSubscriptions.set(subscriptionId, { senderId, stop: subscription.stop });
+    appAccountSubscriptions.set(subscriptionId, {
+      senderId,
+      stop: subscription.stop,
+    });
     event.sender.once("destroyed", () => {
       const active = appAccountSubscriptions.get(subscriptionId);
       if (!active) return;
@@ -4184,6 +4299,108 @@ function registerIpcHandlers(): void {
     if (!active || active.senderId !== event.sender.id) return;
     active.stop();
     appAccountSubscriptions.delete(subscriptionId);
+  });
+  ipcMain.removeHandler(IPC.appRuntime.simulatorCall);
+  ipcMain.handle(IPC.appRuntime.simulatorCall, async (event, input: unknown) => {
+    const { runtime, identity } = requireAppRenderer(event.sender.id);
+    if (!identity.tabId) throw new Error("Only an interactive App tab can host a simulator.");
+    const simulatorRuntime = desktopSimulatorRuntime;
+    if (!simulatorRuntime) throw new Error("The Simulator host service is not ready.");
+    const permission = queryAppPermission(
+      runtime.installations.snapshot(),
+      identity,
+      "simulator-session",
+    );
+    if (!permission.declared || permission.state !== "granted") {
+      throw Object.assign(
+        new Error("simulator-session is not granted for this App in the current Space."),
+        { code: "PERMISSION_DENIED" },
+      );
+    }
+    if (!input || typeof input !== "object" || Array.isArray(input)) {
+      throw new Error("Simulator call must be an object.");
+    }
+    const { method, input: value } = input as Record<string, unknown>;
+    if (typeof method !== "string") throw new Error("Simulator call method is required.");
+    const owner = {
+      appId: identity.appId,
+      spaceId: identity.spaceId,
+      tabId: identity.tabId,
+    };
+    if (!appSimulatorTrackedRendererIds.has(event.sender.id)) {
+      appSimulatorTrackedRendererIds.add(event.sender.id);
+      event.sender.once("destroyed", () => {
+        appSimulatorTrackedRendererIds.delete(event.sender.id);
+        simulatorHostedSurfaces?.closeTab(owner.tabId);
+        void desktopSimulatorRuntime?.manager.closeTab(owner.tabId).catch((error) => {
+          console.warn(
+            `[penkra-app] Simulator cleanup failed after renderer exit: ${formatErrorMessage(error)}`,
+          );
+        });
+      });
+    }
+    const startedAt = performance.now();
+    try {
+      return await invokeSimulatorCall({
+        manager: simulatorRuntime.manager,
+        owner,
+        method,
+        value,
+        viewport:
+          simulatorHostedSurfaces ??
+          (() => {
+            throw Object.assign(new Error("The hosted Simulator viewport is not ready."), {
+              code: "HOSTED_VIEW_UNAVAILABLE",
+            });
+          })(),
+        authorizeSetup: async (request) => {
+          const runtimeInfo = request.runtimeId
+            ? (await simulatorRuntime.manager.listRuntimes()).find(
+                (candidate) =>
+                  candidate.id === request.runtimeId && candidate.platform === request.platform,
+              )
+            : null;
+          const platformName = request.platform === "ios" ? "iOS Simulator" : "Android";
+          const setupName = runtimeInfo?.name ?? `${platformName} support`;
+          const options: Electron.MessageBoxOptions = {
+            type: "question",
+            buttons: ["Install", "Cancel"],
+            defaultId: 0,
+            cancelId: 1,
+            noLink: true,
+            title: "Install simulator support",
+            message: `Install ${setupName}?`,
+            detail:
+              `Penkra will run ${
+                request.platform === "ios"
+                  ? "Xcode for Apple platform files, or npm for the pinned Appium/XCUITest automation pair when it is missing"
+                  : "the official Android SDK Manager"
+              }. ` +
+              "This downloads platform files and uses additional disk space. Penkra does not accept license terms automatically, and you can cancel while the installer is running.",
+          };
+          const result = mainWindow
+            ? await dialog.showMessageBox(mainWindow, options)
+            : await dialog.showMessageBox(options);
+          return result.response === 0;
+        },
+      });
+    } finally {
+      void runtime.diagnostics
+        .record({
+          kind: "permission-used",
+          appId: identity.appId,
+          spaceId: identity.spaceId,
+          operation: `simulator-${method}`,
+          durationMs: Math.round(performance.now() - startedAt),
+        })
+        .catch(() => undefined);
+    }
+  });
+  ipcMain.removeHandler(IPC.simulatorViewer.input);
+  ipcMain.handle(IPC.simulatorViewer.input, async (event, input: unknown) => {
+    const factory = simulatorViewerFactory;
+    if (!factory) throw new Error("The Simulator viewer is not ready.");
+    await factory.invokeInput(event.sender.id, input);
   });
   ipcMain.removeHandler(IPC.appRuntime.settingGet);
   ipcMain.handle(IPC.appRuntime.settingGet, async (event, key: unknown) => {
@@ -4615,7 +4832,10 @@ function registerIpcHandlers(): void {
         browserManager.stopFindInPage({ threadId, tabId: pageId() });
         return;
       case "capture": {
-        const result = await browserManager.captureScreenshot({ threadId, tabId: pageId() });
+        const result = await browserManager.captureScreenshot({
+          threadId,
+          tabId: pageId(),
+        });
         return {
           dataUrl: `data:${result.mimeType};base64,${Buffer.from(result.bytes).toString("base64")}`,
         };
@@ -4685,103 +4905,6 @@ function registerIpcHandlers(): void {
         .catch(() => undefined);
     }
   });
-  ipcMain.removeHandler(IPC.appRuntime.rawSocketExchange);
-  ipcMain.handle(IPC.appRuntime.rawSocketExchange, async (event, input: unknown) => {
-    const { runtime, identity } = requireAppRenderer(event.sender.id);
-    const permission = queryAppPermission(runtime.installations.snapshot(), identity, "raw-socket");
-    if (!permission.declared || permission.state !== "granted") {
-      throw Object.assign(
-        new Error("raw-socket is not granted for this App in the current Space."),
-        { code: "PERMISSION_DENIED" },
-      );
-    }
-    if (!input || typeof input !== "object" || Array.isArray(input))
-      throw new Error("Raw socket request must be an object.");
-    const startedAt = performance.now();
-    try {
-      return await exchangeRawSocket(input as import("./appRawSocket").AppRawSocketRequest);
-    } finally {
-      void runtime.diagnostics
-        .record({
-          kind: "permission-used",
-          appId: identity.appId,
-          spaceId: identity.spaceId,
-          operation: "raw-socket",
-          durationMs: Math.round(performance.now() - startedAt),
-        })
-        .catch(() => undefined);
-    }
-  });
-  ipcMain.removeHandler(IPC.appRuntime.processRun);
-  ipcMain.handle(IPC.appRuntime.processRun, async (event, input: unknown) => {
-    const { runtime, identity } = requireAppRenderer(event.sender.id);
-    const permission = queryAppPermission(
-      runtime.installations.snapshot(),
-      identity,
-      "process-spawn",
-    );
-    if (!permission.declared || permission.state !== "granted") {
-      throw Object.assign(
-        new Error("process-spawn is not granted for this App in the current Space."),
-        { code: "PERMISSION_DENIED" },
-      );
-    }
-    if (!input || typeof input !== "object" || Array.isArray(input))
-      throw new Error("Process request must be an object.");
-    const request = input as Record<string, unknown>;
-    if (typeof request.executableHandleId !== "string")
-      throw new Error("Process executable handle is required.");
-    if (request.args !== undefined && !Array.isArray(request.args))
-      throw new Error("Process args must be an array.");
-    if (request.cwdHandleId !== undefined && typeof request.cwdHandleId !== "string")
-      throw new Error("Process cwd handle must be a string.");
-    if (
-      request.stdin !== undefined &&
-      typeof request.stdin !== "string" &&
-      !(request.stdin instanceof Uint8Array)
-    )
-      throw new Error("Process stdin must be text or bytes.");
-    if (request.timeoutMs !== undefined && typeof request.timeoutMs !== "number")
-      throw new Error("Process timeout must be a number.");
-    const executable = runtime.vault.resolveHandle(
-      identity.appId,
-      request.executableHandleId,
-      "file",
-    );
-    const cwd =
-      request.cwdHandleId === undefined
-        ? undefined
-        : runtime.vault.resolveHandle(identity.appId, request.cwdHandleId as string, "directory")
-            .path;
-    const controller = new AbortController();
-    const cancel = () => controller.abort();
-    event.sender.once("destroyed", cancel);
-    const startedAt = performance.now();
-    try {
-      return await runAppProcess({
-        executablePath: executable.path,
-        ...(Array.isArray(request.args) ? { args: request.args as string[] } : {}),
-        ...(cwd === undefined ? {} : { cwd }),
-        ...(typeof request.stdin === "string" || request.stdin instanceof Uint8Array
-          ? { stdin: request.stdin }
-          : {}),
-        ...(typeof request.timeoutMs === "number" ? { timeoutMs: request.timeoutMs } : {}),
-        signal: controller.signal,
-      });
-    } finally {
-      event.sender.removeListener("destroyed", cancel);
-      void runtime.diagnostics
-        .record({
-          kind: "permission-used",
-          appId: identity.appId,
-          spaceId: identity.spaceId,
-          operation: "process-spawn",
-          durationMs: Math.round(performance.now() - startedAt),
-        })
-        .catch(() => undefined);
-    }
-  });
-
   const requireAppInstallations = (senderId: number) => {
     const service = desktopAppRuntime?.installations;
     if (!service) throw new Error("The App installation service is not ready.");
@@ -4820,7 +4943,10 @@ function registerIpcHandlers(): void {
     const request = parseSetAppPermissionRequest(input);
     return toDesktopAppInstallationSnapshot(
       await (isAppStandardPermissionName(request.permission)
-        ? service.setRuntimePermission({ ...request, permission: request.permission })
+        ? service.setRuntimePermission({
+            ...request,
+            permission: request.permission,
+          })
         : service.setPermission(request)),
       currentSpaceId,
       permissionReviewUpdatesForSpace(currentSpaceId),
@@ -4984,9 +5110,13 @@ function registerIpcHandlers(): void {
     pendingAppListingRequest = null;
     return request;
   });
-  ipcMain.handle(IPC.appTabs.open, async (event, input: unknown) =>
-    requireShellAppTabs(event.sender.id).openInstalled(parseOpenAppTabRequest(input)),
-  );
+  ipcMain.handle(IPC.appTabs.open, async (event, input: unknown) => {
+    const request = parseOpenAppTabRequest(input);
+    if (isRequiredApp(request.appId)) {
+      await reconcileConfiguredRequiredApps([request.spaceId]);
+    }
+    return requireShellAppTabs(event.sender.id).openInstalled(request);
+  });
   ipcMain.handle(IPC.appTabs.openFromApps, async (event, input: unknown) => {
     if (!desktopAppRuntime?.canManageInstallations(event.sender.id)) {
       throw new Error("Only Apps can open an installed App.");
@@ -5482,7 +5612,7 @@ function registerIpcHandlers(): void {
     if (!mainWindow || event.sender !== mainWindow.webContents || event.sender.isDestroyed()) {
       return false;
     }
-    if (process.platform !== "darwin") {
+    if (desktopPlatform.browserPermissions.microphone !== "macos-system-prompt") {
       return true;
     }
     const status = systemPreferences.getMediaAccessStatus("microphone");
@@ -5495,31 +5625,36 @@ function registerIpcHandlers(): void {
     );
     return allowed;
   });
-  ipcMain.removeHandler(IPC.mediaSetVoiceRecordingActive);
-  ipcMain.handle(
-    IPC.mediaSetVoiceRecordingActive,
-    (event, recordingId: unknown, active: unknown) => {
-      if (!mainWindow || event.sender !== mainWindow.webContents || event.sender.isDestroyed()) {
-        return;
-      }
-      if (
-        typeof recordingId !== "string" ||
-        recordingId.length === 0 ||
-        recordingId.length > 128 ||
-        typeof active !== "boolean"
-      ) {
-        throw new Error("Invalid voice recording activity state.");
-      }
-      voiceRecordingPowerBlocker.setRecordingActive(event.sender.id, recordingId, active);
-    },
-  );
+  ipcMain.removeHandler(IPC.powerSetActiveWork);
+  ipcMain.handle(IPC.powerSetActiveWork, (event, input: unknown) => {
+    if (!mainWindow || event.sender !== mainWindow.webContents || event.sender.isDestroyed()) {
+      return;
+    }
+    if (
+      !input ||
+      typeof input !== "object" ||
+      Array.isArray(input) ||
+      typeof (input as Record<string, unknown>).threadExecution !== "boolean" ||
+      typeof (input as Record<string, unknown>).voice !== "boolean"
+    ) {
+      throw new Error("Invalid active-work power state.");
+    }
+    const activeWorkState = input as {
+      threadExecution: boolean;
+      voice: boolean;
+    };
+    activeWorkPowerBlocker.setOwnerState(event.sender.id, {
+      threadExecution: activeWorkState.threadExecution,
+      voice: activeWorkState.voice,
+    });
+  });
   registerDesktopVoiceTranscriptionHandler();
   startBrowserPerformanceLogging();
 }
 
 function getIconOption(): { icon: string } | Record<string, never> {
-  if (process.platform === "darwin") return {}; // macOS uses .icns from app bundle
-  const ext = process.platform === "win32" ? "ico" : "png";
+  const ext = desktopPlatform.icons.window;
+  if (!ext) return {}; // macOS uses .icns from app bundle
   const iconPath = resolveIconPath(ext);
   return iconPath ? { icon: iconPath } : {};
 }
@@ -5532,7 +5667,7 @@ function getIconOption(): { icon: string } | Record<string, never> {
 // a bright flash before the renderer paints — the window is shown only after first paint
 // (`show: false`), so this color is not expected to match a custom in-app theme exactly.
 function getWindowMaterialOptions(): BrowserWindowConstructorOptions {
-  if (process.platform !== "darwin") {
+  if (desktopPlatform.window.material === "opaque") {
     return {
       backgroundColor: nativeTheme.shouldUseDarkColors ? "#181818" : "#ffffff",
     };
@@ -5551,10 +5686,10 @@ function getWindowMaterialOptions(): BrowserWindowConstructorOptions {
 // uses a fully frameless shell and renderer-owned minimize/maximize/close controls,
 // so the toolbar can occupy the top edge instead of sitting below a native title bar.
 function getTitleBarOptions(): BrowserWindowConstructorOptions {
-  if (process.platform === "win32") {
+  if (desktopPlatform.window.titleBar === "windows-frameless") {
     return { frame: false };
   }
-  if (process.platform !== "darwin") {
+  if (desktopPlatform.window.titleBar !== "macos-hidden-inset") {
     return {};
   }
   return {
@@ -5700,7 +5835,7 @@ function createWindow(): BrowserWindow {
 
     if (
       shouldDeferDesktopWindowClose({
-        platform: process.platform,
+        platform: desktopPlatform.platform,
         shutdownComplete: desktopShutdownComplete,
         updaterHandoffActive: isUpdaterQuitAndInstallInFlight,
       })
@@ -5719,12 +5854,12 @@ function createWindow(): BrowserWindow {
 
   window.webContents.on("did-start-navigation", (_event, _url, isInPlace, isMainFrame) => {
     if (!isInPlace && isMainFrame) {
-      voiceRecordingPowerBlocker.releaseOwner(rendererOwnerId);
+      activeWorkPowerBlocker.releaseOwner(rendererOwnerId);
     }
   });
 
   window.on("closed", () => {
-    voiceRecordingPowerBlocker.releaseOwner(rendererOwnerId);
+    activeWorkPowerBlocker.releaseOwner(rendererOwnerId);
     if (mainWindow === window) {
       mainWindow = null;
     }
@@ -5751,7 +5886,7 @@ function attachRendererCrashRecovery(window: BrowserWindow): void {
   };
 
   window.webContents.on("render-process-gone", (_event, details) => {
-    voiceRecordingPowerBlocker.releaseOwner(rendererOwnerId);
+    activeWorkPowerBlocker.releaseOwner(rendererOwnerId);
     const description = `reason=${details.reason} exitCode=${details.exitCode}`;
     writeDesktopLogHeader(`renderer process gone ${description}`);
     safeConsoleError(`[desktop] renderer process gone (${description})`);
@@ -5887,7 +6022,7 @@ function configureMediaPermissions(): void {
         return;
       }
 
-      if (process.platform === "darwin") {
+      if (desktopPlatform.browserPermissions.microphone === "macos-system-prompt") {
         const status = systemPreferences.getMediaAccessStatus("microphone");
         void resolveMicrophonePermissionRequest({
           status,
@@ -5919,6 +6054,7 @@ if (hasSingleInstanceLock) {
     getWindow: () => mainWindow,
     ipcMain,
     registerAsDefaultProtocolClient: !desktopSmokeUserDataPath,
+    inspectInitialProtocolUrlFromArgv: desktopPlatform.deepLinks.inspectInitialArgv,
     websiteOrigin: penkraAccountServices.websiteOrigin,
   });
   getPenkraAccountId = accountAuthRuntime.getAccountId;
@@ -5949,7 +6085,7 @@ if (!hasSingleInstanceLock) {
   app.on("second-instance", (_event, commandLine) => {
     const request = commandLine.toReversed().map(parseAppListingDeepLink).find(Boolean);
     if (request) requestAppListing(request);
-    focusMainWindow();
+    focusMainWindow({ stealAppFocus: true });
   });
 }
 
@@ -5960,8 +6096,10 @@ function requestAppListing(request: { appId: string }): void {
   focusMainWindow();
 }
 
-pendingAppListingRequest ??=
-  process.argv.toReversed().map(parseAppListingDeepLink).find(Boolean) ?? null;
+if (desktopPlatform.deepLinks.inspectInitialArgv) {
+  pendingAppListingRequest ??=
+    process.argv.toReversed().map(parseAppListingDeepLink).find(Boolean) ?? null;
+}
 
 async function bootstrap(): Promise<void> {
   writeDesktopLogHeader("bootstrap start");
@@ -6013,6 +6151,12 @@ async function bootstrap(): Promise<void> {
       mainWindow.webContents.send(IPC.appTabs.state, descriptor);
     },
     onTabClosed: (descriptor) => {
+      simulatorHostedSurfaces?.closeTab(descriptor.id);
+      void desktopSimulatorRuntime?.manager.closeTab(descriptor.id).catch((error) => {
+        console.warn(
+          `[penkra-app] Simulator cleanup failed after tab close: ${formatErrorMessage(error)}`,
+        );
+      });
       const browserSessionId = descriptor.id as ThreadId;
       if (browserManager.hasSession(browserSessionId)) {
         browserManager.close({ threadId: browserSessionId });
@@ -6037,6 +6181,79 @@ async function bootstrap(): Promise<void> {
         publisherId: release.publisherId ?? "",
       });
     },
+  });
+  const requiredAppsSource = resolveRequiredAppsBundle({
+    ...(process.env[REQUIRED_APPS_SOURCE_PATH_ENV] === undefined
+      ? {}
+      : { configuredSourcePath: process.env[REQUIRED_APPS_SOURCE_PATH_ENV] }),
+    resourcesPath: process.resourcesPath,
+    desktopBundleDirectory: __dirname,
+    packaged: app.isPackaged,
+  });
+  if (!requiredAppsSource) {
+    throw new Error(
+      app.isPackaged
+        ? "This Penkra installation does not contain its required Apps package. Update or reinstall Penkra."
+        : `Required Apps source is unavailable. Set ${REQUIRED_APPS_SOURCE_PATH_ENV} to the Apps package directory.`,
+    );
+  }
+  requiredAppsPackageIsDevelopmentSource = isDevelopment && requiredAppsSource.kind === "directory";
+  requiredAppsPackageLoad = loadRequiredAppsPackage({
+    runtime: desktopAppRuntime,
+    source: requiredAppsSource,
+    hostVersion: app.getVersion(),
+  });
+  requiredAppsPackage = await requiredAppsPackageLoad;
+  writeDesktopLogHeader(
+    `bootstrap required Apps package ready version=${requiredAppsPackage.manifest.version} digest=${requiredAppsPackage.sha256}`,
+  );
+  const simulatorAdapters = await createDesktopSimulatorAdapterBundle({
+    platform: desktopPlatform.platform,
+    userDataPath: app.getPath("userData"),
+    reviewAndroidLicense: (prompt, signal) =>
+      queueAndroidSdkLicenseReview({
+        parent: mainWindow && !mainWindow.isDestroyed() ? mainWindow : null,
+        preloadPath: Path.join(__dirname, "simulatorLicenseReviewPreload.js"),
+        prompt,
+        signal,
+      }),
+  });
+  desktopSimulatorRuntime = await openDesktopSimulatorHostRuntime({
+    userDataPath: app.getPath("userData"),
+    adapters: simulatorAdapters.adapters,
+    disposeResources: () => simulatorAdapters.dispose(),
+  });
+  simulatorViewerFactory = new ElectronSimulatorViewerFactory({
+    manager: desktopSimulatorRuntime.manager,
+    preloadPath: Path.join(__dirname, "simulatorViewerPreload.js"),
+  });
+  simulatorHostedSurfaces = new HostedSurfaceRegistry({
+    factory: simulatorViewerFactory,
+    resolveParent: (owner) => {
+      const runtime = desktopAppRuntime;
+      if (!runtime) return null;
+      try {
+        const rendererId = runtime.appTabs.rendererId(owner.tabId);
+        return runtime.appTabs.rendererView(rendererId) as unknown as HostedSurfaceParent;
+      } catch {
+        return null;
+      }
+    },
+  });
+  if (desktopSimulatorRuntime.recovery) {
+    console.error(
+      `[penkra-app] Quarantined corrupt Simulator state at ${desktopSimulatorRuntime.recovery.quarantinedPath}: ${desktopSimulatorRuntime.recovery.error.message}`,
+    );
+  }
+  unsubscribeSimulatorState = desktopSimulatorRuntime.manager.subscribe((owner, state) => {
+    const runtime = desktopAppRuntime;
+    if (!runtime) return;
+    try {
+      const target = runtime.appTabs.observationWebContents(owner.tabId);
+      if (!target.isDestroyed()) target.send(IPC.appRuntime.simulatorState, state);
+    } catch {
+      // The tab may have closed between the native state transition and delivery.
+    }
   });
   if (desktopAppRuntime.safeStartRecovery) {
     console.error(
@@ -6110,6 +6327,8 @@ async function bootstrap(): Promise<void> {
         // DesktopBrowserManager retains the older `threadId` parameter name.
         browserWebContents: (appTabId) =>
           browserManager.observationWebContents(appTabId as ThreadId),
+        hostedWebContents: (appTabId) =>
+          (simulatorHostedSurfaces?.observationTarget(appTabId) as WebContents | null) ?? null,
       });
     },
   });
@@ -6120,6 +6339,7 @@ async function bootstrap(): Promise<void> {
     broker: desktopAppRuntime.broker,
     tabs: desktopAppRuntime.appTabs,
     observer: appTabObserver,
+    providerCredentialVault: desktopAppRuntime.providerCredentialVault,
     registry: appRegistryClient,
     open: openPenkraResource,
     sideload: async ({ sourcePath, spaceId }) => {
@@ -6224,7 +6444,7 @@ app.on("before-quit", (event) => {
 });
 
 app.on("will-quit", () => {
-  voiceRecordingPowerBlocker.shutdown();
+  activeWorkPowerBlocker.shutdown();
 });
 
 if (hasSingleInstanceLock) {
@@ -6312,12 +6532,12 @@ app.on("child-process-gone", (_event, details) => {
 });
 
 app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") {
+  if (desktopPlatform.application.quitWhenAllWindowsClose) {
     app.quit();
   }
 });
 
-if (process.platform !== "win32") {
+if (desktopPlatform.processLifecycle.registerPosixShutdownSignals) {
   process.on("uncaughtException", (error: unknown) => {
     if (!isBrokenPipeError(error)) {
       throw error;

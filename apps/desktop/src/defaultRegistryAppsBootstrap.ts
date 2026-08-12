@@ -6,14 +6,15 @@ import type { DesktopAppRuntime } from "./desktopAppRuntime";
 import { getInstalledAppPackage } from "./appInstallationState";
 import type { AppRegistryClient } from "./appRegistryClient";
 import { installRegistryApp } from "./registryAppInstaller";
-import { DEFAULT_REGISTRY_APPS, REQUIRED_APPS_APP_ID } from "./appDistributionPolicy";
+import { DEFAULT_REGISTRY_APPS } from "./appDistributionPolicy";
 
 /**
  * Installs each default through the same signed-release downloader, policy checks,
  * immutable package ingestor, and installation service used by the Apps App.
  *
  * A retained Space record is an explicit uninstall marker for optional defaults.
- * Apps is required and is repaired if its package is absent.
+ * Required Apps is reconciled from the desktop's pinned embedded registry package
+ * before this best-effort remote bootstrap runs.
  */
 export async function bootstrapDefaultRegistryApps(input: {
   runtime: Pick<DesktopAppRuntime, "packages" | "installations">;
@@ -30,7 +31,7 @@ export async function bootstrapDefaultRegistryApps(input: {
       if (getInstalledAppPackage(snapshot, defaultApp.appId, spaceId)) continue;
 
       const retained = snapshot.spaceStateByKey[`${spaceId}\u0000${defaultApp.appId}`];
-      if (retained && defaultApp.appId !== REQUIRED_APPS_APP_ID) continue;
+      if (retained) continue;
 
       const listing = await input.registry.get({ slug: defaultApp.slug });
       if (listing.identifier !== defaultApp.appId) {

@@ -35,7 +35,6 @@ import {
   ThreadActivityAppendedPayload,
   ThreadCreatedPayload,
   ThreadDeletedPayload,
-  ThreadInteractionModeSetPayload,
   ThreadMetaUpdatedPayload,
   ThreadPinnedMessageAddedPayload,
   ThreadPinnedMessageDoneSetPayload,
@@ -45,7 +44,6 @@ import {
   ThreadMarkerDoneSetPayload,
   ThreadMarkerLabelSetPayload,
   ThreadMarkerRemovedPayload,
-  ThreadProposedPlanUpsertedPayload,
   ThreadConversationRolledBackPayload,
   ThreadRuntimeModeSetPayload,
   ThreadUnarchivedPayload,
@@ -214,15 +212,6 @@ function retainThreadActivitiesAfterRevert(
 ): ReadonlyArray<OrchestrationThread["activities"][number]> {
   return activities.filter(
     (activity) => activity.turnId === null || retainedTurnIds.has(activity.turnId),
-  );
-}
-
-function retainThreadProposedPlansAfterRevert(
-  proposedPlans: ReadonlyArray<OrchestrationThread["proposedPlans"][number]>,
-  retainedTurnIds: ReadonlySet<string>,
-): ReadonlyArray<OrchestrationThread["proposedPlans"][number]> {
-  return proposedPlans.filter(
-    (proposedPlan) => proposedPlan.turnId === null || retainedTurnIds.has(proposedPlan.turnId),
   );
 }
 
@@ -555,7 +544,6 @@ export function projectEvent(
             title: payload.title,
             modelSelection: payload.modelSelection,
             runtimeMode: payload.runtimeMode,
-            interactionMode: payload.interactionMode,
             envMode: isStudio ? "local" : payload.envMode,
             branch: isStudio ? null : payload.branch,
             worktreePath: isStudio ? null : payload.worktreePath,
@@ -577,14 +565,12 @@ export function projectEvent(
             subagentNickname: payload.subagentNickname,
             subagentRole: payload.subagentRole,
             forkSourceThreadId: payload.forkSourceThreadId,
-            sidechatSourceThreadId: payload.sidechatSourceThreadId,
             lastKnownPr: payload.lastKnownPr ?? null,
             latestTurn: null,
             createdAt: payload.createdAt,
             updatedAt: payload.updatedAt,
             archivedAt: null,
             deletedAt: null,
-            handoff: payload.handoff,
             messages: [],
             activities: [],
             checkpoints: [],
@@ -726,7 +712,6 @@ export function projectEvent(
                 : {}),
               ...(payload.subagentRole !== undefined ? { subagentRole: payload.subagentRole } : {}),
               ...(payload.lastKnownPr !== undefined ? { lastKnownPr: payload.lastKnownPr } : {}),
-              ...(payload.handoff !== undefined ? { handoff: payload.handoff } : {}),
               ...(payload.pinnedMessages !== undefined
                 ? { pinnedMessages: payload.pinnedMessages }
                 : {}),
@@ -912,22 +897,6 @@ export function projectEvent(
         })),
       );
 
-    case "thread.interaction-mode-set":
-      return decodeForEvent(
-        ThreadInteractionModeSetPayload,
-        event.payload,
-        event.type,
-        "payload",
-      ).pipe(
-        Effect.map((payload) => ({
-          ...nextBase,
-          threads: updateThread(nextBase.threads, payload.threadId, {
-            interactionMode: payload.interactionMode,
-            updatedAt: payload.updatedAt,
-          }),
-        })),
-      );
-
     case "thread.turn-start-requested":
       return decodeForEvent(
         ThreadTurnStartRequestedPayload,
@@ -965,7 +934,6 @@ export function projectEvent(
               ...(turnStartSession !== null ? { session: turnStartSession } : {}),
               pendingTurnStartMessageId: payload.messageId,
               runtimeMode: payload.runtimeMode,
-              interactionMode: payload.interactionMode,
               updatedAt: payload.createdAt,
             }),
           };
@@ -1104,38 +1072,6 @@ export function projectEvent(
         };
       });
 
-    case "thread.proposed-plan-upserted":
-      return Effect.gen(function* () {
-        const payload = yield* decodeForEvent(
-          ThreadProposedPlanUpsertedPayload,
-          event.payload,
-          event.type,
-          "payload",
-        );
-        const thread = nextBase.threads.find((entry) => entry.id === payload.threadId);
-        if (!thread) {
-          return nextBase;
-        }
-
-        const proposedPlans = [
-          ...thread.proposedPlans.filter((entry) => entry.id !== payload.proposedPlan.id),
-          payload.proposedPlan,
-        ]
-          .toSorted(
-            (left, right) =>
-              left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
-          )
-          .slice(-200);
-
-        return {
-          ...nextBase,
-          threads: updateThread(nextBase.threads, payload.threadId, {
-            proposedPlans,
-            updatedAt: event.occurredAt,
-          }),
-        };
-      });
-
     case "thread.turn-diff-completed":
       return Effect.gen(function* () {
         const payload = yield* decodeForEvent(
@@ -1250,10 +1186,6 @@ export function projectEvent(
             retainedTurnIds,
             payload.turnCount,
           ).slice(-MAX_THREAD_MESSAGES);
-          const proposedPlans = retainThreadProposedPlansAfterRevert(
-            thread.proposedPlans,
-            retainedTurnIds,
-          ).slice(-200);
           const activities = retainThreadActivitiesAfterRevert(thread.activities, retainedTurnIds);
 
           const latestCheckpoint = checkpoints.at(-1) ?? null;
@@ -1274,7 +1206,6 @@ export function projectEvent(
             threads: updateThread(nextBase.threads, payload.threadId, {
               checkpoints,
               messages,
-              proposedPlans,
               activities,
               latestTurn,
               updatedAt: event.occurredAt,
@@ -1335,9 +1266,6 @@ export function projectEvent(
             .filter((checkpoint) => !rollback.removedTurnIds.has(checkpoint.turnId))
             .toSorted((left, right) => left.checkpointTurnCount - right.checkpointTurnCount)
             .slice(-MAX_THREAD_CHECKPOINTS);
-          const proposedPlans = thread.proposedPlans
-            .filter((plan) => plan.turnId === null || !rollback.removedTurnIds.has(plan.turnId))
-            .slice(-200);
           const activities = thread.activities.filter(
             (activity) => activity.turnId === null || !rollback.removedTurnIds.has(activity.turnId),
           );
@@ -1348,7 +1276,6 @@ export function projectEvent(
             threads: updateThread(nextBase.threads, payload.threadId, {
               checkpoints,
               messages: rollback.messages.slice(-MAX_THREAD_MESSAGES),
-              proposedPlans,
               activities,
               latestTurn:
                 latestCheckpoint === null

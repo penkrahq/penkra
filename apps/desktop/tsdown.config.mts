@@ -7,7 +7,6 @@ import { defineConfig } from "tsdown";
 
 const sourcemapEnv = process.env.PENKRA_DESKTOP_SOURCEMAP?.trim().toLowerCase();
 const buildSourcemap = sourcemapEnv === "1" || sourcemapEnv === "true";
-const windowsUpdaterPublisher = process.env.AZURE_TRUSTED_SIGNING_SUBJECT_DN?.trim() ?? "";
 const registryTrustedKeys = process.env.PENKRA_REGISTRY_TRUSTED_KEYS?.trim() ?? "";
 
 const shared = {
@@ -20,13 +19,12 @@ const shared = {
 export default defineConfig([
   {
     ...shared,
-    entry: ["src/main.ts", "src/appTestHost.ts"],
+    entry: ["src/entry.ts", "src/main.ts", "src/appTestHost.ts"],
     clean: true,
     // Electron exposes this builtin only at runtime; keeping it external avoids
     // asking Rolldown to resolve a package that intentionally does not exist.
     external: ["original-fs"],
     define: {
-      __PENKRA_WINDOWS_UPDATER_PUBLISHER__: JSON.stringify(windowsUpdaterPublisher),
       __PENKRA_REGISTRY_TRUSTED_KEYS__: JSON.stringify(registryTrustedKeys),
     },
     noExternal: (id) => id.startsWith("@penkra/"),
@@ -34,10 +32,24 @@ export default defineConfig([
   {
     ...shared,
     entry: ["src/preload.ts"],
+    // Electron sandboxed preloads cannot require build-time sibling chunks.
+    // Keep every preload self-contained even when more shared imports are added.
+    outputOptions: { codeSplitting: false },
   },
   {
     ...shared,
     entry: ["src/appPreload.ts"],
+    outputOptions: { codeSplitting: false },
     noExternal: (id) => id.startsWith("@penkra/"),
+  },
+  {
+    ...shared,
+    entry: ["src/simulatorViewerPreload.ts"],
+    outputOptions: { codeSplitting: false },
+  },
+  {
+    ...shared,
+    entry: ["src/simulatorLicenseReviewPreload.ts"],
+    outputOptions: { codeSplitting: false },
   },
 ]);

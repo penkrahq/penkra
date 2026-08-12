@@ -39,6 +39,8 @@ import { useWorkspacePathsStore } from "../workspacePathsStore";
 import { useProviderStatusesForLocalConfig } from "~/hooks/useProviderStatusesForLocalConfig";
 import { useRefreshProviderStatusesNow } from "~/hooks/useProviderStatusRefresh";
 import { resolveProviderSendAvailabilityWithRefresh } from "~/lib/providerAvailability";
+import { isManagedHarnessConfigured } from "~/lib/providerConnectionCapabilities";
+import { providerConnectionsQueryOptions } from "~/lib/providerConnectionsReactQuery";
 import { toastManager } from "~/components/ui/toast";
 import {
   Sidebar,
@@ -224,6 +226,7 @@ function ChatRouteGlobalShortcuts() {
   const threadsHydrated = useStore((state) => state.threadsHydrated);
   const activeSpaceId = useSpacesUiStore((state) => state.activeSpaceId);
   const serverConfigQuery = useQuery(serverConfigQueryOptions());
+  const providerConnectionsQuery = useQuery(providerConnectionsQueryOptions(activeSpaceId));
   const keybindings = serverConfigQuery.data?.keybindings ?? EMPTY_KEYBINDINGS;
   const platform = typeof navigator === "undefined" ? "" : navigator.platform;
   const providerStatuses = useProviderStatusesForLocalConfig();
@@ -417,6 +420,20 @@ function ChatRouteGlobalShortcuts() {
         event.preventDefault();
         event.stopPropagation();
         void (async () => {
+          const connectionSnapshot = providerConnectionsQuery.data;
+          if (
+            connectionSnapshot === undefined ||
+            !isManagedHarnessConfigured({ snapshot: connectionSnapshot, provider })
+          ) {
+            toastManager.add({
+              type: "error",
+              title:
+                connectionSnapshot === undefined
+                  ? "Connections are still loading."
+                  : "This agent has no active Connection.",
+            });
+            return;
+          }
           const providerAvailability = await resolveProviderSendAvailabilityWithRefresh({
             provider,
             statuses: providerStatuses,
@@ -487,6 +504,7 @@ function ChatRouteGlobalShortcuts() {
     latestUsableProjectId,
     openOrAdvanceRecentSwitcher,
     platform,
+    providerConnectionsQuery.data,
     providerStatuses,
     refreshProviderStatuses,
     recentSwitcherState,

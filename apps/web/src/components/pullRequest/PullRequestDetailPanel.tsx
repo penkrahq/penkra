@@ -14,7 +14,6 @@ import type {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useRef, useState } from "react";
 
-import { useAppSettings } from "~/appSettings";
 import {
   CHAT_HEADER_CONTROL_CLASS_NAME,
   CHAT_HEADER_ICON_CONTROL_CLASS_NAME,
@@ -26,7 +25,7 @@ import { ComposerPickerMenuPopup } from "~/components/chat/ComposerPickerMenuPop
 import {
   buildFixFindingsPrompt,
   buildResolveConflictsPrompt,
-} from "~/components/chat/environment/environmentPullRequest.logic";
+} from "~/components/pullRequest/pullRequestSummary.logic";
 import {
   AlertDialog,
   AlertDialogClose,
@@ -141,7 +140,6 @@ export function PullRequestDetailPanel({
   const initialTab = initialTabProp ?? "summary";
   const pollingEnabled = pollingEnabledProp ?? true;
   const queryClient = useQueryClient();
-  const { settings } = useAppSettings();
   const { handleNewThread } = useHandleNewThread();
   // Panel state keyed to the PR it belongs to: switching PRs (or landing tab)
   // derives straight back to the defaults with no state-resetting effect.
@@ -212,8 +210,7 @@ export function PullRequestDetailPanel({
       });
   };
 
-  // "Fix findings" and "Resolve conflicts" hand the PR to a fresh thread the same way:
-  // prepare a worktree on the PR branch, create the thread, and pre-fill the composer with
+  // "Fix findings" and "Resolve conflicts" open a fresh local Thread and pre-fill
   // the task-specific prompt for the user to review and send.
   const startPullRequestThread = (
     kind: "findings" | "conflicts",
@@ -222,15 +219,14 @@ export function PullRequestDetailPanel({
   ) => {
     if (!detail || preparingThread !== null) return;
     setPreparingThread(kind);
-    const mode = settings.defaultThreadEnvMode;
     void prepareThreadMutation
-      .mutateAsync({ reference: detail.url, mode })
+      .mutateAsync({ reference: detail.url, mode: "local" })
       .then((prepared) =>
         Promise.resolve(
           handleNewThread(detail.projectId, {
             branch: prepared.branch,
-            worktreePath: prepared.worktreePath,
-            envMode: mode,
+            worktreePath: null,
+            envMode: "local",
             // This action is an explicit handoff from the PR browser. Reusing the project's
             // existing draft can leave the user on the PR route and insert the prompt into a
             // hidden composer, making the button appear inert.
@@ -366,7 +362,7 @@ export function PullRequestDetailPanel({
                     </IconButton>
                   }
                 />
-                {/* Same popup chrome as the composer pickers (model/handoff), with emoji
+                {/* Same popup chrome as the composer pickers, with emoji
                     leads for scannability. */}
                 <ComposerPickerMenuPopup align="end" side="bottom" className="w-56 min-w-56">
                   {detail.state === "open" ? (

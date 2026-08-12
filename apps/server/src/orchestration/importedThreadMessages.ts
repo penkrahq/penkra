@@ -4,7 +4,7 @@
 // Exports: Codex, Claude, OpenCode, and Factory Droid transcript mappers.
 
 import type { SessionMessage as ClaudeSessionMessage } from "@anthropic-ai/claude-agent-sdk";
-import { MessageId, type ThreadHandoffImportedMessage, type ThreadId } from "@penkra/contracts";
+import { MessageId, type ThreadImportedMessage, type ThreadId } from "@penkra/contracts";
 
 function readTranscriptTextParts(value: unknown): ReadonlyArray<string> {
   if (!Array.isArray(value)) return [];
@@ -37,7 +37,7 @@ export function mapCodexSnapshotMessages(input: {
   readonly turns: ReadonlyArray<{
     readonly items: ReadonlyArray<unknown>;
   }>;
-}): ReadonlyArray<ThreadHandoffImportedMessage> {
+}): ReadonlyArray<ThreadImportedMessage> {
   return input.turns.flatMap((turn, turnIndex) =>
     turn.items.flatMap((item, itemIndex) => {
       if (!item || typeof item !== "object") return [];
@@ -89,7 +89,7 @@ export function mapClaudeSessionMessages(input: {
   readonly importedAt: string;
   readonly threadId: ThreadId;
   readonly messages: ReadonlyArray<ClaudeSessionMessage>;
-}): ReadonlyArray<ThreadHandoffImportedMessage> {
+}): ReadonlyArray<ThreadImportedMessage> {
   return input.messages.flatMap((message, messageIndex) => {
     if (message.type !== "user" && message.type !== "assistant") return [];
 
@@ -132,7 +132,7 @@ export function mapOpenCodeSnapshotMessages(input: {
   readonly turns: ReadonlyArray<{
     readonly items: ReadonlyArray<unknown>;
   }>;
-}): ReadonlyArray<ThreadHandoffImportedMessage> {
+}): ReadonlyArray<ThreadImportedMessage> {
   return input.turns.flatMap((turn, turnIndex) =>
     turn.items.flatMap((item, itemIndex) => {
       if (!item || typeof item !== "object") return [];
@@ -179,7 +179,7 @@ export function mapFactorySnapshotMessages(input: {
   readonly importedAt: string;
   readonly threadId: ThreadId;
   readonly turns: ReadonlyArray<{ readonly items: ReadonlyArray<unknown> }>;
-}): ReadonlyArray<ThreadHandoffImportedMessage> {
+}): ReadonlyArray<ThreadImportedMessage> {
   let messageIndex = 0;
   return input.turns.flatMap((turn, turnIndex) =>
     turn.items.flatMap((item, itemIndex) => {

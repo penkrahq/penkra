@@ -16,7 +16,7 @@ import { cn } from "~/lib/utils";
  * Visual context the identity column renders into. Both surfaces share an
  * identical structure — a truncating primary label above a horizontal
  * "address · folder" meta line — and differ only in typography/color tokens:
- * - "menu": the Environment panel's Local Servers popup (app font tokens, muted foreground).
+ * - "menu": compact popup presentation (app font tokens, muted foreground).
  * - "browser": the Browser App's local-servers home (larger white-on-dark cards).
  */
 export type LocalServerIdentityTone = "menu" | "browser";

@@ -105,8 +105,9 @@ contextBridge.exposeInMainWorld("desktopBridge", {
   },
   media: {
     requestMicrophoneAccess: () => ipcRenderer.invoke(IPC.mediaRequestMicrophoneAccess),
-    setVoiceRecordingActive: (recordingId, active) =>
-      ipcRenderer.invoke(IPC.mediaSetVoiceRecordingActive, recordingId, active),
+  },
+  power: {
+    setActiveWork: (input) => ipcRenderer.invoke(IPC.powerSetActiveWork, input),
   },
   composerDrafts: {
     readSnapshot: () => ipcRenderer.invoke(IPC.composerDrafts.readSnapshot),
@@ -230,8 +231,9 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     readSnapshot: () => ipcRenderer.sendSync(IPC.storageMigration.read),
     acknowledgeSnapshot: () => ipcRenderer.invoke(IPC.storageMigration.acknowledge),
   },
-  server: {
-    transcribeVoice: (input) => ipcRenderer.invoke(IPC.transcribeVoice, input),
+  voice: {
+    getCapabilities: () => ipcRenderer.invoke(IPC.voice.capabilities),
+    transcribeWithApple: (input) => ipcRenderer.invoke(IPC.voice.transcribeWithApple, input),
   },
   browserUse: {
     onOpenRequest: (listener) => {

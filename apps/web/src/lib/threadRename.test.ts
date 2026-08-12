@@ -1,11 +1,56 @@
 import { describe, expect, it, vi } from "vitest";
 
-const dispatchCommand = vi.fn<(command: unknown) => Promise<void>>();
+const dispatchCommand = vi.fn<(command: unknown) => Promise<{ sequence: number }>>();
+const getShellSnapshot = vi.fn(async () => ({
+  snapshotSequence: 1,
+  spaces: [],
+  projects: [
+    {
+      id: "project-chat",
+      kind: "project" as const,
+      title: "Project",
+      workspaceRoot: null,
+      defaultModelSelection: null,
+      scripts: [],
+      createdAt: "2026-04-18T00:00:00.000Z",
+      updatedAt: "2026-04-18T00:00:00.000Z",
+    },
+  ],
+  threads: [
+    {
+      id: "thread-draft",
+      projectId: "project-chat",
+      title: "Inbox cleanup",
+      modelSelection: { provider: "codex" as const, model: "gpt-5" },
+      runtimeMode: "full-access" as const,
+      envMode: "local" as const,
+      branch: null,
+      worktreePath: null,
+      associatedWorktreePath: null,
+      associatedWorktreeBranch: null,
+      associatedWorktreeRef: null,
+      createBranchFlowCompleted: false,
+      parentThreadId: null,
+      subagentAgentId: null,
+      subagentNickname: null,
+      subagentRole: null,
+      forkSourceThreadId: null,
+      lastKnownPr: null,
+      latestTurn: null,
+      createdAt: "2026-04-18T00:00:00.000Z",
+      updatedAt: "2026-04-18T00:00:00.000Z",
+      archivedAt: null,
+      session: null,
+    },
+  ],
+  updatedAt: "2026-04-18T00:00:00.000Z",
+}));
 
 vi.mock("../nativeApi", () => ({
   readNativeApi: () => ({
     orchestration: {
       dispatchCommand,
+      getShellSnapshot,
     },
   }),
 }));
@@ -14,7 +59,7 @@ import { dispatchThreadRename } from "./threadRename";
 
 describe("dispatchThreadRename", () => {
   it("updates existing server threads", async () => {
-    dispatchCommand.mockReset().mockResolvedValue(undefined);
+    dispatchCommand.mockReset().mockResolvedValue({ sequence: 1 });
 
     const outcome = await dispatchThreadRename({
       threadId: "thread-server" as never,
@@ -32,7 +77,8 @@ describe("dispatchThreadRename", () => {
   });
 
   it("promotes local drafts by creating the thread with the chosen title", async () => {
-    dispatchCommand.mockReset().mockResolvedValue(undefined);
+    dispatchCommand.mockReset().mockResolvedValue({ sequence: 1 });
+    getShellSnapshot.mockClear();
 
     const outcome = await dispatchThreadRename({
       threadId: "thread-draft" as never,
@@ -45,7 +91,6 @@ describe("dispatchThreadRename", () => {
           model: "gpt-5",
         },
         runtimeMode: "full-access",
-        interactionMode: "default",
         envMode: "local",
         branch: null,
         worktreePath: null,
@@ -56,6 +101,7 @@ describe("dispatchThreadRename", () => {
 
     expect(outcome).toBe("renamed");
     expect(dispatchCommand).toHaveBeenCalledTimes(1);
+    expect(getShellSnapshot).toHaveBeenCalledTimes(1);
     expect(dispatchCommand.mock.calls[0]?.[0]).toMatchObject({
       type: "thread.create",
       threadId: "thread-draft",

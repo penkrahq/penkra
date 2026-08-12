@@ -2,14 +2,76 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { packageAppDirectory } from "./appDeveloperTools";
+import { packageAppDirectory, testAppDirectory } from "./appDeveloperTools";
 
 const roots: string[] = [];
 
 afterEach(async () => {
+  vi.unstubAllEnvs();
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
+});
+
+describe("App developer integration host", () => {
+  it("uses the running desktop's installed test entry and removes its temporary profile", async () => {
+    const source = await mkdtemp(join(tmpdir(), "penkra-app-test-source-"));
+    roots.push(source);
+    const host = join(source, "host.mjs");
+    await writeFile(
+      host,
+      `import { writeFileSync } from "node:fs";
+writeFileSync(process.env.PENKRA_APP_TEST_RESULT, JSON.stringify({
+  ok: true,
+  appId: "com.example.canvas",
+  version: "1.0.0",
+  tab: { id: "tab-installed", status: "ready" },
+  diagnostics: [{ kind: "tab-ready" }]
+}));
+`,
+    );
+    vi.stubEnv("PENKRA_APP_TEST_ELECTRON", process.execPath);
+    vi.stubEnv("PENKRA_APP_TEST_HOST", host);
+    vi.stubEnv("PENKRA_APP_TEST_PACKAGED", "0");
+
+    await expect(testAppDirectory({ directory: source })).resolves.toEqual({
+      ok: true,
+      appId: "com.example.canvas",
+      version: "1.0.0",
+      tab: { id: "tab-installed", status: "ready" },
+      diagnostics: [{ kind: "tab-ready" }],
+      profileRemoved: true,
+    });
+  });
+
+  it("does not fall back to a source checkout outside a running desktop", async () => {
+    const source = await mkdtemp(join(tmpdir(), "penkra-app-test-source-"));
+    roots.push(source);
+    vi.stubEnv("PENKRA_APP_TEST_ELECTRON", "");
+    vi.stubEnv("PENKRA_APP_TEST_HOST", "");
+    vi.stubEnv("PENKRA_APP_TEST_PACKAGED", "");
+
+    await expect(testAppDirectory({ directory: source })).rejects.toThrow(
+      "available only inside a running Penkra desktop",
+    );
+  });
+
+  it("returns a schema-safe timeout message when the host produces no output", async () => {
+    const source = await mkdtemp(join(tmpdir(), "penkra-app-test-source-"));
+    roots.push(source);
+    const host = join(source, "host.mjs");
+    await writeFile(host, "setInterval(() => undefined, 1_000);\n");
+    vi.stubEnv("PENKRA_APP_TEST_ELECTRON", process.execPath);
+    vi.stubEnv("PENKRA_APP_TEST_HOST", host);
+    vi.stubEnv("PENKRA_APP_TEST_PACKAGED", "0");
+
+    const error = await testAppDirectory({ directory: source, timeoutMs: 20 }).catch(
+      (cause: unknown) => cause,
+    );
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toBe("App integration test exceeded 20 ms.");
+  });
 });
 
 describe("App developer packaging", () => {

@@ -4,7 +4,6 @@ import path from "node:path";
 import {
   ApprovalRequestId,
   CommandId,
-  DEFAULT_PROVIDER_INTERACTION_MODE,
   DEFAULT_MODEL_BY_PROVIDER,
   EventId,
   MessageId,
@@ -21,6 +20,7 @@ import type { TestTurnResponse } from "./TestProviderAdapter.integration.ts";
 import {
   gitRefExists,
   gitShowFileAtRef,
+  INTEGRATION_CONNECTION_ID,
   makeOrchestrationIntegrationHarness,
   type OrchestrationIntegrationHarness,
 } from "./OrchestrationEngineHarness.integration.ts";
@@ -162,7 +162,6 @@ const seedProjectAndThread = (harness: OrchestrationIntegrationHarness) =>
         provider,
         model: defaultModel,
       },
-      interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
       runtimeMode: "approval-required",
       branch: null,
       worktreePath: harness.workspaceDir,
@@ -192,7 +191,8 @@ const startTurn = (input: {
           modelSelection: input.modelSelection,
         }
       : {}),
-    interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+    connectionId: INTEGRATION_CONNECTION_ID,
+    bindingRevision: 0,
     runtimeMode: "approval-required",
     createdAt: nowIso(),
   });
@@ -311,7 +311,6 @@ it.live.skipIf(!process.env.CODEX_BINARY_PATH)(
             provider: "codex",
             model: "gpt-5.3-codex",
           },
-          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
           runtimeMode: "full-access",
           branch: null,
           worktreePath: harness.workspaceDir,
@@ -328,7 +327,6 @@ it.live.skipIf(!process.env.CODEX_BINARY_PATH)(
             text: "Reply with exactly ALPHA.",
             attachments: [],
           },
-          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
           runtimeMode: "full-access",
           createdAt: nowIso(),
         });
@@ -355,7 +353,8 @@ it.live.skipIf(!process.env.CODEX_BINARY_PATH)(
             text: "Reply with exactly BETA.",
             attachments: [],
           },
-          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          connectionId: INTEGRATION_CONNECTION_ID,
+          bindingRevision: 0,
           runtimeMode: "approval-required",
           createdAt: nowIso(),
         });
@@ -864,7 +863,10 @@ it.live("reverts to an earlier checkpoint and trims checkpoint projections + git
       );
       assert.equal(revertedThread.checkpoints[0]?.checkpointTurnCount, 1);
       assert.deepEqual(
-        revertedThread.messages.map((message) => ({ role: message.role, text: message.text })),
+        revertedThread.messages.map((message) => ({
+          role: message.role,
+          text: message.text,
+        })),
         [
           { role: "user", text: "First edit" },
           { role: "assistant", text: "Updated README to v2.\n" },

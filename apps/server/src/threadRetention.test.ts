@@ -25,7 +25,6 @@ function makeReadModelThread(
     latestTurn: null,
     session: null,
     messages: [],
-    proposedPlans: [],
     activities: [],
     checkpoints: [],
     ...overrides,

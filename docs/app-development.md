@@ -116,10 +116,21 @@ unavailable. Tabs for the same App and Space may share only the App's explicit d
 App renderers use a restrictive Content Security Policy. An App may fetch only files from its own
 verified immutable package origin (`connect-src 'self'`); remote renderer connections remain
 blocked. Packaged WebAssembly is supported with `wasm-unsafe-eval`, which permits compiling local
-Wasm without permitting JavaScript `eval` or remote code loading. Network, socket, process, and
-hosted-browser work crosses explicit host capabilities so permissions, destination checks,
+Wasm without permitting JavaScript `eval` or remote code loading. Network and hosted-service work
+crosses explicit host capabilities so permissions, destination checks,
 attribution, credentials, and revocation stay enforceable. The current special permissions are
-`network-fetch`, `raw-socket`, `process-spawn`, `browser-session`, and `account-data`.
+`network-fetch`, `browser-session`, `simulator-session`, and `account-data`.
+
+The public `simulator-session` service lets an interactive App tab manage saved simulated devices,
+host their complete display/input surface, and return a standard Apple UDID or Android ADB serial.
+The host owns native tooling, loopback credentials, ports, process lifecycle, tab-close cleanup, and
+trusted prerequisite/license prompts. Apps never receive a raw process handle or ambient project
+directory; build frameworks continue to target the returned platform identifier normally.
+
+`simulator.requestSetup({ platform, runtimeId? })` requests platform prerequisites or one discovered
+runtime. Penkra presents a trusted confirmation before invoking the official platform installer,
+never accepts license terms automatically, and cancels owned installer processes when the App calls
+`simulator.cancelSetup()`, its tab closes, or the host shuts down.
 
 Required permissions must be granted before enablement. Optional permissions are requested only
 following a user action. Grants and revocation apply to one App in one Space. Standard browser
@@ -130,7 +141,8 @@ directory and validated descendants. The grant belongs to that App on the curren
 so every tab and Space where the App is installed can reuse it without asking again. App secrets,
 settings, permissions, sessions, and installation remain scoped to a Space. Apps never receive
 ambient filesystem access. A hosted browser session can control only pages created for the calling
-App and Space.
+App and Space. A hosted simulator session can control only saved devices and live sessions owned by
+the calling App and Space.
 
 Open With defaults are also device-wide. Penkra applies the selected handler when it is installed
 in the current Space; otherwise normal eligible-handler or operating-system fallback still applies.
@@ -275,9 +287,11 @@ penkra app package ./dist --output ./artifacts/my-app.penkra
 Relative paths resolve from the caller Thread's working directory. `package` requires an explicit
 output path and rejects output inside the packaged directory.
 
-`test` creates a disposable profile and Space, ingests the App through the immutable package path,
-starts its controller and renderer, requires the tab to reach `ready`, records diagnostics, and
-removes the profile. It complements unit, accessibility, and visual tests.
+`test` asks the installed Penkra desktop to relaunch its own App runtime in a hidden, disposable
+profile and Space. It ingests the App through the immutable package path, starts its controller and
+renderer, requires the tab to reach `ready`, records diagnostics, and removes the profile. It never
+uses or changes the active profile, Space, database, or installed Apps. It complements unit,
+accessibility, and visual tests.
 
 `package` validates the manifest, schemas, required documents, referenced paths, compatibility,
 permissions, entry count, entry size, total expanded size, and executable-content restrictions. It
@@ -304,19 +318,18 @@ owned registry App ID. Help, status, publication, and access results identify th
 target by environment and API origin. Check that evidence before changing production state.
 
 `publish` tests and packages the App, resolves or creates its stable publisher and App identities,
-rejects changed package bytes for an existing semantic version before signing, resumes an exact
-same-digest submission without signing or uploading again, performs keyless
-publisher signing, uploads immutable artifacts, finalizes the submission, and only then applies the
-requested visibility. Publisher IDs, bundle paths, signature commands, and submission IDs are
+rejects changed package bytes for an existing semantic version, resumes an exact same-digest
+submission without uploading again, uploads the immutable package, finalizes the submission, and
+only then applies the requested visibility. Publisher IDs, bundle paths, and submission IDs are
 implementation details rather than steps the developer must orchestrate. The default visibility is
-private. Publisher signing requires Cosign to be installed on the author's machine;
-`publish` reports that prerequisite directly when it is unavailable.
+private.
 
-Publication binds the signed-in owner, publisher namespace, immutable App ID and version,
-manifest/package/README/instructions digests, publisher signature, registry signature,
-compatibility, validation findings, and permission declarations. Automated validation must finish
-before a release is installable. Changing code, manifest data, documentation, permissions, or
-assets requires a new semantic version and submission.
+Publication requires a signed-in Penkra account that owns the publisher and App. It binds that
+authenticated submission to the publisher namespace, immutable App ID and version,
+manifest/package/README/instructions digests, registry signature, compatibility, validation
+findings, and permission declarations. Automated validation must finish before a release is
+installable. Changing code, manifest data, documentation, permissions, or assets requires a new
+semantic version and submission.
 
 For a private App, the service grants account access by email identity without sending an email.
 An invited, signed-in Penkra account can discover, install, and update the private App. Other

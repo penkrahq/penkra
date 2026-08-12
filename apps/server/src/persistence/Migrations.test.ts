@@ -22,36 +22,6 @@ const projectionThreadsColumnNames = (sql: SqlClient.SqlClient) =>
     SELECT name FROM pragma_table_info('projection_threads')
   `.pipe(Effect.map((rows) => rows.map((row) => row.name)));
 
-const retiredMigration80Name = String.fromCharCode(
-  80,
-  114,
-  117,
-  110,
-  101,
-  82,
-  101,
-  106,
-  101,
-  99,
-  116,
-  101,
-  100,
-  83,
-  121,
-  110,
-  97,
-  114,
-  97,
-  83,
-  117,
-  114,
-  102,
-  97,
-  99,
-  101,
-  115,
-);
-
 layer("reconcileMigrationLineage", (it) => {
   // An imported database whose tracker high-water
   // mark is at or beyond Penkra's latest migration ID. The migrator's max-ID
@@ -312,10 +282,26 @@ managedAttachmentsLegacyLayer("managed attachment migration after private migrat
         [93, "VirtualFolders"],
         [94, "RequireSpaces"],
         [95, "SidebarManualOrdering"],
+        [96, "RemoveSidechatAndProviderHandoff"],
+        [97, "RenameGitThreadEnvironmentOperations"],
+        [98, "ProviderConnectionsAndBindings"],
+        [99, "ProviderThreadSwitchOperations"],
+        [100, "ReconcileProviderConnectionSchema"],
+        [101, "ExactProviderNativeStateMigration"],
+        [102, "ProviderConnectionLogins"],
+        [103, "DefaultNewSpacesAndConnections"],
+        [104, "ProviderNativeStateOwnership"],
+        [105, "ProviderNativeForkOperations"],
+        [106, "RemovePlanMode"],
+        [107, "ReconcileUnavailableSpaceConnectionDefaults"],
+        [108, "RemoveLegacyClaudeSetupTokenConnections"],
+        [109, "ProviderRuntimeBindingSwitchOperations"],
+        [110, "SettleProviderSwitchSource"],
+        [111, "DerivedProviderConnectionLabels"],
       ]);
 
       const tracker = yield* trackerRows(sql);
-      assert.deepStrictEqual(tracker.slice(-32), [
+      assert.deepStrictEqual(tracker.slice(-48), [
         { migration_id: 54, name: "DurableProviderCommandDelivery" },
         { migration_id: 55, name: "ManagedAttachments" },
         { migration_id: 56, name: "CommandReceiptFingerprints" },
@@ -348,6 +334,22 @@ managedAttachmentsLegacyLayer("managed attachment migration after private migrat
         { migration_id: 93, name: "VirtualFolders" },
         { migration_id: 94, name: "RequireSpaces" },
         { migration_id: 95, name: "SidebarManualOrdering" },
+        { migration_id: 96, name: "RemoveSidechatAndProviderHandoff" },
+        { migration_id: 97, name: "RenameGitThreadEnvironmentOperations" },
+        { migration_id: 98, name: "ProviderConnectionsAndBindings" },
+        { migration_id: 99, name: "ProviderThreadSwitchOperations" },
+        { migration_id: 100, name: "ReconcileProviderConnectionSchema" },
+        { migration_id: 101, name: "ExactProviderNativeStateMigration" },
+        { migration_id: 102, name: "ProviderConnectionLogins" },
+        { migration_id: 103, name: "DefaultNewSpacesAndConnections" },
+        { migration_id: 104, name: "ProviderNativeStateOwnership" },
+        { migration_id: 105, name: "ProviderNativeForkOperations" },
+        { migration_id: 106, name: "RemovePlanMode" },
+        { migration_id: 107, name: "ReconcileUnavailableSpaceConnectionDefaults" },
+        { migration_id: 108, name: "RemoveLegacyClaudeSetupTokenConnections" },
+        { migration_id: 109, name: "ProviderRuntimeBindingSwitchOperations" },
+        { migration_id: 110, name: "SettleProviderSwitchSource" },
+        { migration_id: 111, name: "DerivedProviderConnectionLabels" },
       ]);
       const preserved = yield* sql<{ readonly count: number }>`
         SELECT COUNT(*) AS count FROM orchestration_consumer_state
@@ -425,6 +427,22 @@ agentGatewayRetentionLegacyLayer(
           [93, "VirtualFolders"],
           [94, "RequireSpaces"],
           [95, "SidebarManualOrdering"],
+          [96, "RemoveSidechatAndProviderHandoff"],
+          [97, "RenameGitThreadEnvironmentOperations"],
+          [98, "ProviderConnectionsAndBindings"],
+          [99, "ProviderThreadSwitchOperations"],
+          [100, "ReconcileProviderConnectionSchema"],
+          [101, "ExactProviderNativeStateMigration"],
+          [102, "ProviderConnectionLogins"],
+          [103, "DefaultNewSpacesAndConnections"],
+          [104, "ProviderNativeStateOwnership"],
+          [105, "ProviderNativeForkOperations"],
+          [106, "RemovePlanMode"],
+          [107, "ReconcileUnavailableSpaceConnectionDefaults"],
+          [108, "RemoveLegacyClaudeSetupTokenConnections"],
+          [109, "ProviderRuntimeBindingSwitchOperations"],
+          [110, "SettleProviderSwitchSource"],
+          [111, "DerivedProviderConnectionLabels"],
         ]);
 
         const columns = yield* sql<{ readonly name: string }>`
@@ -505,11 +523,27 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
         [93, "VirtualFolders"],
         [94, "RequireSpaces"],
         [95, "SidebarManualOrdering"],
+        [96, "RemoveSidechatAndProviderHandoff"],
+        [97, "RenameGitThreadEnvironmentOperations"],
+        [98, "ProviderConnectionsAndBindings"],
+        [99, "ProviderThreadSwitchOperations"],
+        [100, "ReconcileProviderConnectionSchema"],
+        [101, "ExactProviderNativeStateMigration"],
+        [102, "ProviderConnectionLogins"],
+        [103, "DefaultNewSpacesAndConnections"],
+        [104, "ProviderNativeStateOwnership"],
+        [105, "ProviderNativeForkOperations"],
+        [106, "RemovePlanMode"],
+        [107, "ReconcileUnavailableSpaceConnectionDefaults"],
+        [108, "RemoveLegacyClaudeSetupTokenConnections"],
+        [109, "ProviderRuntimeBindingSwitchOperations"],
+        [110, "SettleProviderSwitchSource"],
+        [111, "DerivedProviderConnectionLabels"],
       ]);
 
       const tracker = yield* trackerRows(sql);
       assert.deepStrictEqual(
-        tracker.slice(-16).map((row) => [row.migration_id, row.name]),
+        tracker.slice(-32).map((row) => [row.migration_id, row.name]),
         [
           [70, "AgentGatewayOperations"],
           [71, "ProjectionThreadsGatewayProvenance"],
@@ -527,10 +561,29 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
           [93, "VirtualFolders"],
           [94, "RequireSpaces"],
           [95, "SidebarManualOrdering"],
+          [96, "RemoveSidechatAndProviderHandoff"],
+          [97, "RenameGitThreadEnvironmentOperations"],
+          [98, "ProviderConnectionsAndBindings"],
+          [99, "ProviderThreadSwitchOperations"],
+          [100, "ReconcileProviderConnectionSchema"],
+          [101, "ExactProviderNativeStateMigration"],
+          [102, "ProviderConnectionLogins"],
+          [103, "DefaultNewSpacesAndConnections"],
+          [104, "ProviderNativeStateOwnership"],
+          [105, "ProviderNativeForkOperations"],
+          [106, "RemovePlanMode"],
+          [107, "ReconcileUnavailableSpaceConnectionDefaults"],
+          [108, "RemoveLegacyClaudeSetupTokenConnections"],
+          [109, "ProviderRuntimeBindingSwitchOperations"],
+          [110, "SettleProviderSwitchSource"],
+          [111, "DerivedProviderConnectionLabels"],
         ],
       );
 
-      const preservedSpaces = yield* sql<{ readonly spaceId: string; readonly name: string }>`
+      const preservedSpaces = yield* sql<{
+        readonly spaceId: string;
+        readonly name: string;
+      }>`
         SELECT space_id AS "spaceId", name
         FROM projection_spaces
         WHERE space_id = 'space-private-70'
@@ -601,11 +654,27 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
         [93, "VirtualFolders"],
         [94, "RequireSpaces"],
         [95, "SidebarManualOrdering"],
+        [96, "RemoveSidechatAndProviderHandoff"],
+        [97, "RenameGitThreadEnvironmentOperations"],
+        [98, "ProviderConnectionsAndBindings"],
+        [99, "ProviderThreadSwitchOperations"],
+        [100, "ReconcileProviderConnectionSchema"],
+        [101, "ExactProviderNativeStateMigration"],
+        [102, "ProviderConnectionLogins"],
+        [103, "DefaultNewSpacesAndConnections"],
+        [104, "ProviderNativeStateOwnership"],
+        [105, "ProviderNativeForkOperations"],
+        [106, "RemovePlanMode"],
+        [107, "ReconcileUnavailableSpaceConnectionDefaults"],
+        [108, "RemoveLegacyClaudeSetupTokenConnections"],
+        [109, "ProviderRuntimeBindingSwitchOperations"],
+        [110, "SettleProviderSwitchSource"],
+        [111, "DerivedProviderConnectionLabels"],
       ]);
 
       const tracker = yield* trackerRows(sql);
       assert.deepStrictEqual(
-        tracker.slice(-13).map((row) => [row.migration_id, row.name]),
+        tracker.slice(-29).map((row) => [row.migration_id, row.name]),
         [
           [74, "Spaces"],
           [79, "Spaces"],
@@ -620,6 +689,22 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
           [93, "VirtualFolders"],
           [94, "RequireSpaces"],
           [95, "SidebarManualOrdering"],
+          [96, "RemoveSidechatAndProviderHandoff"],
+          [97, "RenameGitThreadEnvironmentOperations"],
+          [98, "ProviderConnectionsAndBindings"],
+          [99, "ProviderThreadSwitchOperations"],
+          [100, "ReconcileProviderConnectionSchema"],
+          [101, "ExactProviderNativeStateMigration"],
+          [102, "ProviderConnectionLogins"],
+          [103, "DefaultNewSpacesAndConnections"],
+          [104, "ProviderNativeStateOwnership"],
+          [105, "ProviderNativeForkOperations"],
+          [106, "RemovePlanMode"],
+          [107, "ReconcileUnavailableSpaceConnectionDefaults"],
+          [108, "RemoveLegacyClaudeSetupTokenConnections"],
+          [109, "ProviderRuntimeBindingSwitchOperations"],
+          [110, "SettleProviderSwitchSource"],
+          [111, "DerivedProviderConnectionLabels"],
         ],
       );
       const preservedSpaces = yield* sql<{ readonly spaceId: string }>`
@@ -628,59 +713,6 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
         WHERE space_id = 'space-previous-74'
       `;
       assert.deepStrictEqual(preservedSpaces, [{ spaceId: "space-previous-74" }]);
-    }),
-  );
-});
-
-const retiredMigration80CompatibilityLayer = it.layer(
-  Layer.mergeAll(NodeSqliteClient.layerMemory()),
-);
-
-retiredMigration80CompatibilityLayer("v0.8.4 migration compatibility", (it) => {
-  it.effect("replays the renamed v0.8.4 cleanup without losing Spaces", () =>
-    Effect.gen(function* () {
-      const sql = yield* SqlClient.SqlClient;
-      yield* runMigrations();
-      yield* sql`
-        INSERT INTO projection_spaces (
-          space_id, name, icon, sort_order, created_at, updated_at, deleted_at
-        ) VALUES (
-          'space-migration-80', 'Preserved Space', 'bag', 0,
-          '2026-08-01T00:00:00.000Z', '2026-08-01T00:00:00.000Z', NULL
-        )
-      `;
-      yield* sql`
-        UPDATE effect_sql_migrations
-        SET name = ${retiredMigration80Name}
-        WHERE migration_id = 80
-      `;
-
-      const executed = yield* runMigrations();
-      assert.deepStrictEqual(executed, [
-        [80, "PruneRejectedProductSurfaces"],
-        [86, "NormalizeStudioThreadWorkspaces"],
-        [87, "DropUnusedOrchestrationEventIndexes"],
-        [88, "ProjectionThreadsSpaces"],
-        [89, "ProjectionSpacesArchive"],
-        [90, "ThreadScopedProviderRuntimeProjection"],
-        [91, "SpaceNavigationState"],
-        [92, "RemoveProjectionThreadWorktreePath"],
-        [93, "VirtualFolders"],
-        [94, "RequireSpaces"],
-        [95, "SidebarManualOrdering"],
-      ]);
-
-      const tracker = yield* trackerRows(sql);
-      assert.strictEqual(
-        tracker.find((row) => row.migration_id === 80)?.name,
-        "PruneRejectedProductSurfaces",
-      );
-      const spaces = yield* sql<{ readonly spaceId: string }>`
-        SELECT space_id AS "spaceId"
-        FROM projection_spaces
-        WHERE space_id = 'space-migration-80'
-      `;
-      assert.deepStrictEqual(spaces, [{ spaceId: "space-migration-80" }]);
     }),
   );
 });
@@ -862,7 +894,10 @@ managedAttachmentsConstraintsLayer("managed attachment schema constraints", (it)
         FROM managed_attachment_blobs
         WHERE state <> 'deleted'
       `;
-        assert.deepStrictEqual(quota[0], { reservedBytes: 1024, reservedCount: 1 });
+        assert.deepStrictEqual(quota[0], {
+          reservedBytes: 1024,
+          reservedCount: 1,
+        });
 
         const blobIndexes = yield* sql<{ readonly name: string }>`
         SELECT name FROM pragma_index_list('managed_attachment_blobs')

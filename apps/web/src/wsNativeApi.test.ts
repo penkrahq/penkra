@@ -305,7 +305,6 @@ describe("wsNativeApi", () => {
       settings: {
         enableAssistantStreaming: true,
         providerUpdateMode: "automatic",
-        defaultThreadEnvMode: "local",
         addProjectBaseDirectory: "",
         textGenerationModelSelection: { provider: "codex", model: "gpt-5.4-mini" },
         providers: {
@@ -352,13 +351,11 @@ describe("wsNativeApi", () => {
     const api = createWsNativeApi();
     const onTerminalEvent = vi.fn();
     const onDomainEvent = vi.fn();
-    const onActionProgress = vi.fn();
 
     api.terminal.onEvent(onTerminalEvent);
     expect(channelListeners.has(ORCHESTRATION_WS_CHANNELS.domainEvent)).toBe(false);
     const unsubscribeDomainEvent = api.orchestration.onDomainEvent(onDomainEvent);
     expect(channelListeners.get(ORCHESTRATION_WS_CHANNELS.domainEvent)?.size).toBe(1);
-    api.git.onActionProgress(onActionProgress);
 
     const terminalEvent = {
       threadId: "thread-1",
@@ -392,30 +389,12 @@ describe("wsNativeApi", () => {
       },
     } satisfies Extract<OrchestrationEvent, { type: "project.created" }>;
     emitPush(ORCHESTRATION_WS_CHANNELS.domainEvent, orchestrationEvent);
-    emitPush(WS_CHANNELS.gitActionProgress, {
-      actionId: "action-1",
-      cwd: "/repo",
-      action: "commit",
-      kind: "phase_started",
-      phase: "commit",
-      label: "Committing...",
-    });
-
     expect(onTerminalEvent).toHaveBeenCalledTimes(1);
     expect(onTerminalEvent).toHaveBeenCalledWith(terminalEvent);
     expect(onDomainEvent).toHaveBeenCalledTimes(1);
     expect(onDomainEvent).toHaveBeenCalledWith(orchestrationEvent);
     unsubscribeDomainEvent();
     expect(channelListeners.has(ORCHESTRATION_WS_CHANNELS.domainEvent)).toBe(false);
-    expect(onActionProgress).toHaveBeenCalledTimes(1);
-    expect(onActionProgress).toHaveBeenCalledWith({
-      actionId: "action-1",
-      cwd: "/repo",
-      action: "commit",
-      kind: "phase_started",
-      phase: "commit",
-      label: "Committing...",
-    });
   });
 
   it("wraps orchestration dispatch commands in the command envelope", async () => {
@@ -656,26 +635,6 @@ describe("wsNativeApi", () => {
     expect(disposeMock).toHaveBeenCalledTimes(1);
   });
 
-  it("uses no client timeout for git.runStackedAction", async () => {
-    requestMock.mockResolvedValue({
-      action: "commit",
-      branch: { status: "skipped_not_requested" },
-      commit: { status: "created", commitSha: "abc1234", subject: "Test" },
-      push: { status: "skipped_not_requested" },
-      pr: { status: "skipped_not_requested" },
-    });
-    const { createWsNativeApi } = await import("./wsNativeApi");
-
-    const api = createWsNativeApi();
-    await api.git.runStackedAction({ actionId: "action-1", cwd: "/repo", action: "commit" });
-
-    expect(requestMock).toHaveBeenCalledWith(
-      WS_METHODS.gitRunStackedAction,
-      { actionId: "action-1", cwd: "/repo", action: "commit" },
-      { timeoutMs: null },
-    );
-  });
-
   it("forwards full-thread diff requests to the orchestration websocket method", async () => {
     requestMock.mockResolvedValue({ diff: "patch" });
     const { createWsNativeApi } = await import("./wsNativeApi");
@@ -783,43 +742,6 @@ describe("wsNativeApi", () => {
     expect(confirm).toHaveBeenCalledWith("Log out of Penkra?");
   });
 
-  it("uses the desktop voice bridge when available", async () => {
-    const transcribeVoice = vi.fn().mockResolvedValue({ text: "hello" });
-    Object.defineProperty(getWindowForTest(), "desktopBridge", {
-      configurable: true,
-      writable: true,
-      value: {
-        server: {
-          transcribeVoice,
-        },
-      },
-    });
-
-    const { createWsNativeApi } = await import("./wsNativeApi");
-    const api = createWsNativeApi();
-    await api.server.transcribeVoice({
-      provider: "codex",
-      cwd: "/repo",
-      audioBase64: "UklGRgAAAAAAAAAAAAAAAAAAAAA=",
-      mimeType: "audio/wav",
-      sampleRateHz: 24_000,
-      durationMs: 1000,
-    });
-
-    expect(transcribeVoice).toHaveBeenCalledWith({
-      provider: "codex",
-      cwd: "/repo",
-      audioBase64: "UklGRgAAAAAAAAAAAAAAAAAAAAA=",
-      mimeType: "audio/wav",
-      sampleRateHz: 24_000,
-      durationMs: 1000,
-    });
-    expect(requestMock).not.toHaveBeenCalledWith(
-      WS_METHODS.serverTranscribeVoice,
-      expect.anything(),
-    );
-  });
-
   it("uses the bounded HTTP upload instead of WebSocket RPC for browser voice", async () => {
     Object.defineProperty(getWindowForTest(), "desktopBridge", {
       configurable: true,
@@ -838,6 +760,7 @@ describe("wsNativeApi", () => {
     const api = createWsNativeApi();
     const result = await api.server.transcribeVoice({
       provider: "codex",
+      connectionId: "connection-codex" as never,
       cwd: "/repo",
       audioBase64: "AQID",
       mimeType: "audio/wav",

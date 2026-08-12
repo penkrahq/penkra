@@ -16,6 +16,10 @@ const resultPath = requiredEnvironment("PENKRA_APP_TEST_RESULT");
 const TEST_SPACE_ID = "app-test-space";
 const TEST_THREAD_ID = "app-test-thread";
 
+// The disposable test profile must not prompt for or block on the operator's
+// real OS keychain. This still exercises Electron safeStorage through
+// Chromium's purpose-built test keychain, matching the desktop smoke host.
+app.commandLine.appendSwitch("use-mock-keychain");
 app.setPath("userData", profilePath);
 
 void app

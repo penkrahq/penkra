@@ -6,10 +6,7 @@
  * and process-authoritative on the server.
  */
 import {
-  DEFAULT_MODEL_BY_PROVIDER,
   DEFAULT_SERVER_SETTINGS,
-  type ModelSelection,
-  type ProviderWithDefaultModel,
   ServerSettings,
   ServerSettingsError,
   type ServerSettingsPatch,
@@ -83,9 +80,7 @@ export class ServerSettingsService extends ServiceMap.Service<
         const revisionRef = yield* Ref.make(0);
         const emitChange = (settings: ServerSettings) =>
           PubSub.publish(changesPubSub, settings).pipe(Effect.asVoid);
-        const getSettings = Ref.get(currentSettingsRef).pipe(
-          Effect.map(resolveTextGenerationProvider),
-        );
+        const getSettings = Ref.get(currentSettingsRef);
         const updateSettings = (patch: ServerSettingsPatch) =>
           Ref.get(currentSettingsRef).pipe(
             Effect.flatMap((currentSettings) =>
@@ -94,7 +89,6 @@ export class ServerSettingsService extends ServiceMap.Service<
             Effect.tap((nextSettings) => Ref.set(currentSettingsRef, nextSettings)),
             Effect.tap(() => Ref.update(revisionRef, (revision) => revision + 1)),
             Effect.tap(emitChange),
-            Effect.map(resolveTextGenerationProvider),
           );
 
         return {
@@ -116,44 +110,14 @@ export class ServerSettingsService extends ServiceMap.Service<
           updateSettingsView: (patch) =>
             updateSettings(patch).pipe(Effect.map(toServerSettingsView)),
           get streamChanges() {
-            return Stream.fromPubSub(changesPubSub).pipe(Stream.map(resolveTextGenerationProvider));
+            return Stream.fromPubSub(changesPubSub);
           },
           get streamViews() {
-            return Stream.fromPubSub(changesPubSub).pipe(
-              Stream.map(resolveTextGenerationProvider),
-              Stream.map(toServerSettingsView),
-            );
+            return Stream.fromPubSub(changesPubSub).pipe(Stream.map(toServerSettingsView));
           },
         } satisfies ServerSettingsShape;
       }),
     );
-}
-
-const PROVIDER_ORDER: readonly ProviderWithDefaultModel[] = [
-  "codex",
-  "claudeAgent",
-  "kilo",
-  "opencode",
-];
-
-function resolveTextGenerationProvider(settings: ServerSettings): ServerSettings {
-  const selection = settings.textGenerationModelSelection;
-  if (settings.providers[selection.provider].enabled) {
-    return settings;
-  }
-
-  const fallback = PROVIDER_ORDER.find((provider) => settings.providers[provider].enabled);
-  if (!fallback) {
-    return settings;
-  }
-
-  return {
-    ...settings,
-    textGenerationModelSelection: {
-      provider: fallback,
-      model: DEFAULT_MODEL_BY_PROVIDER[fallback],
-    } as ModelSelection,
-  };
 }
 
 function normalizeSettings(
@@ -173,7 +137,8 @@ function normalizeSettings(
   );
 }
 
-const EXTERNAL_SERVER_PROVIDERS = ["kilo", "opencode"] as const;
+const LEGACY_SERVER_PASSWORD_PROVIDERS = ["kilo", "opencode"] as const;
+const SETTINGS_SERVER_PASSWORD_PROVIDERS = ["kilo"] as const;
 
 function readLegacyProviderPasswords(raw: string): ReadonlyMap<ExternalProviderServer, string> {
   try {
@@ -181,7 +146,7 @@ function readLegacyProviderPasswords(raw: string): ReadonlyMap<ExternalProviderS
       providers?: Partial<Record<ExternalProviderServer, { readonly serverPassword?: unknown }>>;
     };
     const passwords = new Map<ExternalProviderServer, string>();
-    for (const provider of EXTERNAL_SERVER_PROVIDERS) {
+    for (const provider of LEGACY_SERVER_PASSWORD_PROVIDERS) {
       const value = parsed.providers?.[provider]?.serverPassword;
       if (typeof value === "string" && value.trim().length > 0) {
         passwords.set(provider, value.trim());
@@ -196,13 +161,11 @@ function readLegacyProviderPasswords(raw: string): ReadonlyMap<ExternalProviderS
 function omitProviderPasswords(patch: ServerSettingsPatch): ServerSettingsPatch {
   if (!patch.providers) return patch;
   const { serverPassword: _kiloPassword, ...kilo } = patch.providers.kilo ?? {};
-  const { serverPassword: _openCodePassword, ...opencode } = patch.providers.opencode ?? {};
   return {
     ...patch,
     providers: {
       ...patch.providers,
       ...(patch.providers.kilo ? { kilo } : {}),
-      ...(patch.providers.opencode ? { opencode } : {}),
     },
   };
 }
@@ -225,7 +188,11 @@ function decodeSettingsFromJson(settingsPath: string, raw: string) {
     const parsed = JSON.parse(raw) as unknown;
     const envelope =
       parsed !== null && typeof parsed === "object" && "settings" in parsed
-        ? (parsed as { revision?: unknown; migrationVersion?: unknown; settings: unknown })
+        ? (parsed as {
+            revision?: unknown;
+            migrationVersion?: unknown;
+            settings: unknown;
+          })
         : null;
     const persistedSettings = envelope?.settings ?? parsed;
     const migratedSettings = migratePersistedServerSettings(persistedSettings);
@@ -274,7 +241,6 @@ const makeServerSettings = Effect.gen(function* () {
   const withCredentialState = (settings: ServerSettings) =>
     Effect.all({
       kilo: providerCredentials.isServerPasswordConfigured("kilo"),
-      opencode: providerCredentials.isServerPasswordConfigured("opencode"),
     }).pipe(
       Effect.map(
         (configured): ServerSettings => ({
@@ -284,10 +250,6 @@ const makeServerSettings = Effect.gen(function* () {
             kilo: {
               ...settings.providers.kilo,
               serverPasswordConfigured: configured.kilo,
-            },
-            opencode: {
-              ...settings.providers.opencode,
-              serverPasswordConfigured: configured.opencode,
             },
           },
         }),
@@ -426,13 +388,13 @@ const makeServerSettings = Effect.gen(function* () {
     yield* Deferred.succeed(startedDeferred, undefined).pipe(Effect.orDie);
   });
 
-  const getSettings = Ref.get(settingsRef).pipe(Effect.map(resolveTextGenerationProvider));
+  const getSettings = Ref.get(settingsRef);
   const updateSettings = (patch: ServerSettingsPatch) =>
     writeSemaphore.withPermits(1)(
       Effect.gen(function* () {
         const disk = yield* loadSettingsFromDisk;
         const current = disk.settings;
-        for (const provider of EXTERNAL_SERVER_PROVIDERS) {
+        for (const provider of SETTINGS_SERVER_PASSWORD_PROVIDERS) {
           const password = patch.providers?.[provider]?.serverPassword;
           if (password !== undefined) {
             yield* providerCredentials.replaceServerPassword(provider, password).pipe(
@@ -462,7 +424,7 @@ const makeServerSettings = Effect.gen(function* () {
         yield* Ref.set(settingsRef, next);
         yield* Ref.set(revisionRef, nextRevision);
         yield* emitChange(next);
-        return resolveTextGenerationProvider(next);
+        return next;
       }),
     );
 
@@ -471,7 +433,10 @@ const makeServerSettings = Effect.gen(function* () {
     ready: Deferred.await(startedDeferred),
     getSettings,
     getSettingsView: getSettings.pipe(Effect.map(toServerSettingsView)),
-    getSnapshot: Effect.all({ revision: Ref.get(revisionRef), settings: getSettings }).pipe(
+    getSnapshot: Effect.all({
+      revision: Ref.get(revisionRef),
+      settings: getSettings,
+    }).pipe(
       Effect.map(({ revision, settings }) => ({
         revision,
         migrationVersion: SERVER_SETTINGS_MIGRATION_VERSION,
@@ -481,13 +446,10 @@ const makeServerSettings = Effect.gen(function* () {
     updateSettings,
     updateSettingsView: (patch) => updateSettings(patch).pipe(Effect.map(toServerSettingsView)),
     get streamChanges() {
-      return Stream.fromPubSub(changesPubSub).pipe(Stream.map(resolveTextGenerationProvider));
+      return Stream.fromPubSub(changesPubSub);
     },
     get streamViews() {
-      return Stream.fromPubSub(changesPubSub).pipe(
-        Stream.map(resolveTextGenerationProvider),
-        Stream.map(toServerSettingsView),
-      );
+      return Stream.fromPubSub(changesPubSub).pipe(Stream.map(toServerSettingsView));
     },
   } satisfies ServerSettingsShape;
 });

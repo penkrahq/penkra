@@ -25,7 +25,6 @@ function makeThread(overrides: Partial<Thread>): Thread {
     title: "Polish notifications",
     modelSelection: { provider: "codex", model: "gpt-5.4-mini" },
     runtimeMode: "full-access",
-    interactionMode: "default",
     session: {
       provider: "codex",
       status: "running",
@@ -34,7 +33,6 @@ function makeThread(overrides: Partial<Thread>): Thread {
       updatedAt: "2026-04-05T10:00:00.000Z",
     },
     messages: [],
-    proposedPlans: [],
     error: null,
     createdAt: "2026-04-05T10:00:00.000Z",
     updatedAt: "2026-04-05T10:00:00.000Z",
@@ -75,7 +73,6 @@ function buildCollectedTaskCompletionCopy(assistantText: string) {
           startedAt: "2026-04-05T10:00:00.000Z",
           completedAt,
           assistantMessageId: MessageId.makeUnsafe("msg-1"),
-          sourceProposedPlan: undefined,
         },
         messages: [
           {
@@ -127,7 +124,6 @@ describe("collectCompletedThreadCandidates", () => {
           startedAt: "2026-04-05T10:00:00.000Z",
           completedAt: "2026-04-05T10:00:05.000Z",
           assistantMessageId: MessageId.makeUnsafe("msg-1"),
-          sourceProposedPlan: undefined,
         },
         messages: [
           {
@@ -171,7 +167,6 @@ describe("collectCompletedThreadCandidates", () => {
           startedAt: "2026-04-05T10:00:00.000Z",
           completedAt: "2026-04-05T10:00:06.000Z",
           assistantMessageId: MessageId.makeUnsafe("msg-final"),
-          sourceProposedPlan: undefined,
         },
         messages: [
           {
@@ -219,7 +214,6 @@ describe("collectCompletedThreadCandidates", () => {
           startedAt: "2026-04-05T10:00:00.000Z",
           completedAt: "2026-04-05T10:00:06.000Z",
           assistantMessageId: MessageId.makeUnsafe("msg-final"),
-          sourceProposedPlan: undefined,
         },
         messages: [
           {
@@ -267,7 +261,6 @@ describe("collectCompletedThreadCandidates", () => {
           startedAt: "2026-04-05T10:00:04.000Z",
           completedAt: "2026-04-05T10:00:06.000Z",
           assistantMessageId: MessageId.makeUnsafe("msg-final"),
-          sourceProposedPlan: undefined,
         },
         messages: [
           {
@@ -317,7 +310,6 @@ describe("collectCompletedThreadCandidates", () => {
           startedAt: "2026-04-05T10:00:00.000Z",
           completedAt: null,
           assistantMessageId: null,
-          sourceProposedPlan: undefined,
         },
       }),
     ];
@@ -337,7 +329,6 @@ describe("collectCompletedThreadCandidates", () => {
           startedAt: "2026-04-05T10:00:00.000Z",
           completedAt: "2026-04-05T10:00:05.000Z",
           assistantMessageId: MessageId.makeUnsafe("msg-1"),
-          sourceProposedPlan: undefined,
         },
         messages: [
           {
@@ -393,7 +384,6 @@ describe("collectCompletedThreadCandidates", () => {
           startedAt: "2026-04-05T10:00:00.000Z",
           completedAt: "2026-04-05T10:00:05.000Z",
           assistantMessageId: MessageId.makeUnsafe("msg-1"),
-          sourceProposedPlan: undefined,
         },
         messages: [
           {
@@ -429,7 +419,6 @@ describe("collectCompletedThreadCandidates", () => {
           startedAt: "2026-04-05T10:00:00.000Z",
           completedAt: "2026-04-05T10:00:05.000Z",
           assistantMessageId: MessageId.makeUnsafe("msg-1"),
-          sourceProposedPlan: undefined,
         },
         messages: [
           {
@@ -459,7 +448,6 @@ describe("collectCompletedThreadCandidates", () => {
           startedAt: "2026-04-05T10:00:00.000Z",
           completedAt: "2026-04-05T10:00:05.000Z",
           assistantMessageId: MessageId.makeUnsafe("msg-1"),
-          sourceProposedPlan: undefined,
         },
         messages: [
           {
@@ -503,7 +491,6 @@ describe("collectCompletedThreadCandidates", () => {
           startedAt: "2026-04-05T10:00:00.000Z",
           completedAt: "2026-04-05T10:00:05.000Z",
           assistantMessageId: null,
-          sourceProposedPlan: undefined,
         },
       }),
     ];

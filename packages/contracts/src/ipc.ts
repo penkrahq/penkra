@@ -12,16 +12,14 @@ import type {
   AuthSessionState,
   AuthWebSocketTokenResult,
 } from "./auth";
+import type { ProviderConnectionId } from "./baseSchemas";
 import type {
   GitCheckoutInput,
-  GitActionProgressEvent,
   GitCreateBranchInput,
   GitCreateDetachedWorktreeInput,
   GitCreateDetachedWorktreeResult,
-  GitHubRepositoryInput,
-  GitHubRepositoryResult,
-  GitHandoffThreadInput,
-  GitHandoffThreadResult,
+  GitSwitchThreadEnvironmentInput,
+  GitSwitchThreadEnvironmentResult,
   GitPreparePullRequestThreadInput,
   GitPreparePullRequestThreadResult,
   GitPullRequestRefInput,
@@ -29,19 +27,14 @@ import type {
   GitPullRequestSnapshotResult,
   GitCreateWorktreeInput,
   GitCreateWorktreeResult,
-  GitInitInput,
   GitListBranchesInput,
   GitListBranchesResult,
-  GitPullInput,
-  GitPullResult,
   GitReadWorkingTreeDiffInput,
   GitReadWorkingTreeDiffResult,
   GitWorkingTreeDiffStatsResult,
   GitRemoveIndexLockInput,
   GitRemoveWorktreeInput,
   GitResolvePullRequestResult,
-  GitRunStackedActionInput,
-  GitRunStackedActionResult,
   GitStageFilesInput,
   GitStageFilesResult,
   GitStashAndCheckoutInput,
@@ -50,8 +43,6 @@ import type {
   GitStashInfoResult,
   GitStatusInput,
   GitStatusResult,
-  GitSummarizeDiffInput,
-  GitSummarizeDiffResult,
   GitUnstageFilesInput,
   GitUnstageFilesResult,
 } from "./git";
@@ -97,8 +88,6 @@ import type { StudioListThreadOutputsInput, StudioListThreadOutputsResult } from
 import type {
   ServerConfig,
   ServerDiagnosticsResult,
-  ServerGenerateThreadRecapInput,
-  ServerGenerateThreadRecapResult,
   ServerGetEnvironmentResult,
   ServerGetProviderUsageSnapshotInput,
   ServerGetProviderUsageSnapshotResult,
@@ -174,6 +163,19 @@ import type {
   ProviderReadPluginResult,
 } from "./providerDiscovery";
 import type { ProviderCompactThreadInput } from "./provider";
+import type {
+  CreateStaticProviderConnectionInput,
+  BeginProviderConnectionLoginInput,
+  GetProviderConnectionLoginInput,
+  ProviderConnectionLoginSnapshot,
+  ProviderConnection,
+  ProviderConnectionsSnapshot,
+  ProviderConnectionsSnapshotInput,
+  SetSpaceConnectionDefaultInput,
+  TerminateProviderConnectionInput,
+  ThreadProviderBindingSnapshot,
+  ThreadProviderBindingSnapshotInput,
+} from "./providerConnections";
 import type {
   StatsGetProfileStatsInput,
   StatsGetProfileStatsResult,
@@ -621,7 +623,6 @@ export interface DesktopRegistryAppDetail extends DesktopRegistryAppSummary {
     publishedAt: string;
     readmeArtifactId: string;
     instructionsArtifactId: string;
-    publisherSignatureArtifactId: string;
     registrySignatureArtifactId: string;
     validationReportArtifactId: string;
     permissions: ReadonlyArray<{
@@ -792,6 +793,7 @@ export interface DesktopVoiceDraftDescriptor {
   id: string;
   threadId: string;
   providerThreadId?: string;
+  transcriptionBackend: VoiceTranscriptionBackend;
   cwd: string;
   sampleRateHz: number;
   state: "recording" | "ready";
@@ -799,6 +801,28 @@ export interface DesktopVoiceDraftDescriptor {
   lastSequence: number;
   createdAt: string;
   updatedAt: string;
+}
+
+export type VoiceTranscriptionBackend =
+  | {
+      kind: "apple-speech";
+      locale: string;
+    }
+  | {
+      kind: "codex-chatgpt";
+      connectionId: ProviderConnectionId;
+    };
+
+export interface DesktopVoiceTranscriptionCapabilities {
+  appleSpeech: { locale: string } | null;
+}
+
+export interface DesktopAppleVoiceTranscriptionInput {
+  locale: string;
+  mimeType: string;
+  sampleRateHz: number;
+  durationMs: number;
+  audioBase64: string;
 }
 
 export interface DesktopComposerDraftsBridge {
@@ -882,8 +906,10 @@ export interface DesktopBridge {
   media?: {
     /** Resolve the native OS grant before Chromium opens the audio device. */
     requestMicrophoneAccess: () => Promise<boolean>;
-    /** Keep the display awake only while this renderer is actively recording voice. */
-    setVoiceRecordingActive: (recordingId: string, active: boolean) => Promise<void>;
+  };
+  power?: {
+    /** Keep the display awake while this renderer observes active Penkra work. */
+    setActiveWork: (input: { threadExecution: boolean; voice: boolean }) => Promise<void>;
   };
   composerDrafts?: DesktopComposerDraftsBridge;
   accountAuth?: {
@@ -906,9 +932,10 @@ export interface DesktopBridge {
     readSnapshot: () => PenkraStorageSnapshot | null;
     acknowledgeSnapshot: () => Promise<void>;
   };
-  server?: {
-    transcribeVoice: (
-      input: ServerVoiceTranscriptionInput,
+  voice?: {
+    getCapabilities: () => Promise<DesktopVoiceTranscriptionCapabilities>;
+    transcribeWithApple: (
+      input: DesktopAppleVoiceTranscriptionInput,
     ) => Promise<ServerVoiceTranscriptionResult>;
   };
   browserUse: {
@@ -972,7 +999,6 @@ export interface NativeApi {
   };
   git: {
     // Existing branch/worktree API
-    githubRepository: (input: GitHubRepositoryInput) => Promise<GitHubRepositoryResult>;
     listBranches: (input: GitListBranchesInput) => Promise<GitListBranchesResult>;
     createWorktree: (input: GitCreateWorktreeInput) => Promise<GitCreateWorktreeResult>;
     createDetachedWorktree: (
@@ -985,10 +1011,11 @@ export interface NativeApi {
     stashDrop: (input: GitStashDropInput) => Promise<void>;
     stashInfo: (input: GitStashInfoInput) => Promise<GitStashInfoResult>;
     removeIndexLock: (input: GitRemoveIndexLockInput) => Promise<void>;
-    init: (input: GitInitInput) => Promise<void>;
     stageFiles: (input: GitStageFilesInput) => Promise<GitStageFilesResult>;
     unstageFiles: (input: GitUnstageFilesInput) => Promise<GitUnstageFilesResult>;
-    handoffThread: (input: GitHandoffThreadInput) => Promise<GitHandoffThreadResult>;
+    switchThreadEnvironment: (
+      input: GitSwitchThreadEnvironmentInput,
+    ) => Promise<GitSwitchThreadEnvironmentResult>;
     resolvePullRequest: (input: GitPullRequestRefInput) => Promise<GitResolvePullRequestResult>;
     pullRequestSnapshot: (
       input: GitPullRequestSnapshotInput,
@@ -996,8 +1023,6 @@ export interface NativeApi {
     preparePullRequestThread: (
       input: GitPreparePullRequestThreadInput,
     ) => Promise<GitPreparePullRequestThreadResult>;
-    // Stacked action API
-    pull: (input: GitPullInput) => Promise<GitPullResult>;
     status: (input: GitStatusInput) => Promise<GitStatusResult>;
     readWorkingTreeDiff: (
       input: GitReadWorkingTreeDiffInput,
@@ -1005,9 +1030,6 @@ export interface NativeApi {
     workingTreeDiffStats: (
       input: GitReadWorkingTreeDiffInput,
     ) => Promise<GitWorkingTreeDiffStatsResult>;
-    summarizeDiff: (input: GitSummarizeDiffInput) => Promise<GitSummarizeDiffResult>;
-    runStackedAction: (input: GitRunStackedActionInput) => Promise<GitRunStackedActionResult>;
-    onActionProgress: (callback: (event: GitActionProgressEvent) => void) => () => void;
   };
   pullRequests: {
     list: (input: PullRequestsListInput) => Promise<PullRequestsListResult>;
@@ -1060,9 +1082,6 @@ export interface NativeApi {
       input: ServerListProviderUsageInput,
     ) => Promise<ServerListProviderUsageResult>;
     getDiagnostics: () => Promise<ServerDiagnosticsResult>;
-    generateThreadRecap: (
-      input: ServerGenerateThreadRecapInput,
-    ) => Promise<ServerGenerateThreadRecapResult>;
     transcribeVoice: (
       input: ServerVoiceTranscriptionInput,
     ) => Promise<ServerVoiceTranscriptionResult>;
@@ -1086,6 +1105,26 @@ export interface NativeApi {
     readPlugin: (input: ProviderReadPluginInput) => Promise<ProviderReadPluginResult>;
     listModels: (input: ProviderListModelsInput) => Promise<ProviderListModelsResult>;
     listAgents: (input: ProviderListAgentsInput) => Promise<ProviderListAgentsResult>;
+    getConnections: (
+      input?: ProviderConnectionsSnapshotInput,
+    ) => Promise<ProviderConnectionsSnapshot>;
+    getThreadBinding: (
+      input: ThreadProviderBindingSnapshotInput,
+    ) => Promise<ThreadProviderBindingSnapshot>;
+    createStaticConnection: (
+      input: CreateStaticProviderConnectionInput,
+    ) => Promise<ProviderConnection>;
+    beginConnectionLogin: (
+      input: BeginProviderConnectionLoginInput,
+    ) => Promise<ProviderConnectionLoginSnapshot>;
+    getConnectionLogin: (
+      input: GetProviderConnectionLoginInput,
+    ) => Promise<ProviderConnectionLoginSnapshot>;
+    cancelConnectionLogin: (
+      input: GetProviderConnectionLoginInput,
+    ) => Promise<ProviderConnectionLoginSnapshot>;
+    terminateConnection: (input: TerminateProviderConnectionInput) => Promise<ProviderConnection>;
+    setSpaceDefaultConnection: (input: SetSpaceConnectionDefaultInput) => Promise<void>;
   };
   orchestration: {
     getSnapshot: () => Promise<OrchestrationReadModel>;

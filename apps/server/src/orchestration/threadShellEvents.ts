@@ -22,7 +22,6 @@ const THREAD_PROJECTION_EVENT_TYPES = new Set<OrchestrationEvent["type"]>([
   "thread.marker-done-set",
   "thread.marker-label-set",
   "thread.runtime-mode-set",
-  "thread.interaction-mode-set",
   "thread.turn-start-requested",
   "thread.deleted",
   "thread.archived",
@@ -30,7 +29,6 @@ const THREAD_PROJECTION_EVENT_TYPES = new Set<OrchestrationEvent["type"]>([
 ]);
 
 const OTHER_THREAD_SHELL_EVENT_TYPES = new Set<OrchestrationEvent["type"]>([
-  "thread.proposed-plan-upserted",
   "thread.approval-response-requested",
   "thread.user-input-response-requested",
   "thread.reverted",
@@ -48,7 +46,6 @@ export function shouldRefreshThreadShellSummary(event: OrchestrationEvent): bool
   switch (event.type) {
     case "thread.message-sent":
       return event.payload.role === "user";
-    case "thread.proposed-plan-upserted":
     case "thread.approval-response-requested":
     case "thread.user-input-response-requested":
     case "thread.reverted":

@@ -75,13 +75,28 @@ export class ElectronAppControllerRendererFactory implements AppControllerRender
         }
         const controller = new AbortController();
         const ready = this.#ipcBridge.waitForReady(contents.id, controller.signal);
+        let rejectPreloadFailure: ((error: Error) => void) | undefined;
+        const preloadFailure = new Promise<never>((_resolve, reject) => {
+          rejectPreloadFailure = reject;
+        });
+        const onPreloadError = (_event: unknown, preloadPath: string, error: Error) => {
+          rejectPreloadFailure?.(
+            new Error(`App controller preload failed (${preloadPath}): ${error.message}`, {
+              cause: error,
+            }),
+          );
+        };
+        contents.on("preload-error", onPreloadError);
         const load = contents.loadURL(url);
         try {
-          await Promise.all([load, ready]);
+          await Promise.race([Promise.all([load, ready]), preloadFailure]);
         } catch (error) {
           controller.abort(error);
           await Promise.allSettled([load, ready]);
           throw error;
+        } finally {
+          rejectPreloadFailure = undefined;
+          contents.removeListener("preload-error", onPreloadError);
         }
       },
       destroy: () => {

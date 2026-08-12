@@ -21,6 +21,15 @@ deployment, release, recovery, and implementation details.
 
 [`release.md`](release.md) is the desktop release runbook. The root `TODO.md` is the active product
 and implementation plan; the root `ROADMAP.md` contains explicit deferrals.
+[`npm-package-release.md`](npm-package-release.md) is the independent runbook for publishing the
+public SDK and UI packages.
+
+[`provider-connections.md`](provider-connections.md) records the managed provider, account
+isolation, exact Thread binding, and switching invariants. Its operator QA matrix lives in
+[`../qa/provider-connections/README.md`](../qa/provider-connections/README.md).
+
+[`database-reliability.md`](database-reliability.md) defines local SQLite ownership, supported
+offline maintenance, fail-closed recovery, and the required concurrency/restart QA matrix.
 
 When information is useful to both audiences, keep the stable public contract in the public guide
 and link to it from the contributor document. Do not copy internal environment mechanics into the

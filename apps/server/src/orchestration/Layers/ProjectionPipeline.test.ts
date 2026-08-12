@@ -277,7 +277,6 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
             model: "openai/gpt-5.5",
           },
           runtimeMode: "approval-required",
-          interactionMode: "default",
           createdAt: turnRequestedAt,
         },
       });
@@ -287,13 +286,11 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
       const rows = yield* sql<{
         readonly modelSelectionJson: string;
         readonly runtimeMode: string;
-        readonly interactionMode: string;
         readonly updatedAt: string;
       }>`
         SELECT
           model_selection_json AS "modelSelectionJson",
           runtime_mode AS "runtimeMode",
-          interaction_mode AS "interactionMode",
           updated_at AS "updatedAt"
         FROM projection_threads
         WHERE thread_id = 'thread-turn-settings'
@@ -305,7 +302,6 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
         model: "openai/gpt-5.5",
       });
       assert.equal(rows[0]!.runtimeMode, "approval-required");
-      assert.equal(rows[0]!.interactionMode, "default");
       assert.equal(rows[0]!.updatedAt, turnRequestedAt);
 
       const sessionRows = yield* sql<{
@@ -403,7 +399,6 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
           messageId: MessageId.makeUnsafe("message-turn-settings-cross-provider"),
           modelSelection: { provider: "codex", model: "gpt-5-codex" },
           runtimeMode: "full-access",
-          interactionMode: "default",
           createdAt: crossProviderRequestedAt,
         },
       });
@@ -499,7 +494,6 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
           messageId: MessageId.makeUnsafe("message-retained-error"),
           modelSelection: { provider: "codex", model: "gpt-5.6-sol" },
           runtimeMode: "full-access",
-          interactionMode: "default",
           dispatchMode: "queue",
           createdAt: requestedAt,
         },
@@ -3769,8 +3763,6 @@ it.effect("restores pending turn-start metadata across projection pipeline resta
     const threadId = ThreadId.makeUnsafe("thread-restart");
     const turnId = TurnId.makeUnsafe("turn-restart");
     const messageId = MessageId.makeUnsafe("message-restart");
-    const sourcePlanThreadId = ThreadId.makeUnsafe("thread-plan-source");
-    const sourcePlanId = "plan-source";
     const turnStartedAt = "2026-02-26T14:00:00.000Z";
     const sessionSetAt = "2026-02-26T14:00:05.000Z";
 
@@ -3791,10 +3783,6 @@ it.effect("restores pending turn-start metadata across projection pipeline resta
         payload: {
           threadId,
           messageId,
-          sourceProposedPlan: {
-            threadId: sourcePlanThreadId,
-            planId: sourcePlanId,
-          },
           runtimeMode: "approval-required",
           createdAt: turnStartedAt,
         },
@@ -3846,16 +3834,12 @@ it.effect("restores pending turn-start metadata across projection pipeline resta
       return yield* sql<{
         readonly turnId: string;
         readonly userMessageId: string | null;
-        readonly sourceProposedPlanThreadId: string | null;
-        readonly sourceProposedPlanId: string | null;
         readonly requestedAt: string;
         readonly startedAt: string;
       }>`
         SELECT
           turn_id AS "turnId",
           pending_message_id AS "userMessageId",
-          source_proposed_plan_thread_id AS "sourceProposedPlanThreadId",
-          source_proposed_plan_id AS "sourceProposedPlanId",
           requested_at AS "requestedAt",
           started_at AS "startedAt"
         FROM projection_turns
@@ -3867,8 +3851,6 @@ it.effect("restores pending turn-start metadata across projection pipeline resta
       {
         turnId: "turn-restart",
         userMessageId: "message-restart",
-        sourceProposedPlanThreadId: "thread-plan-source",
-        sourceProposedPlanId: "plan-source",
         requestedAt: turnStartedAt,
         startedAt: sessionSetAt,
       },
@@ -3951,7 +3933,6 @@ engineLayer("OrchestrationProjectionPipeline via engine dispatch", (it) => {
           'projection.projects',
           'projection.threads',
           'projection.thread-messages',
-          'projection.thread-proposed-plans',
           'projection.thread-activities',
           'projection.thread-sessions',
           'projection.checkpoints'
@@ -3963,7 +3944,6 @@ engineLayer("OrchestrationProjectionPipeline via engine dispatch", (it) => {
         { projector: "projection.projects", lastAppliedSequence: 1 },
         { projector: "projection.thread-activities", lastAppliedSequence: 1 },
         { projector: "projection.thread-messages", lastAppliedSequence: 1 },
-        { projector: "projection.thread-proposed-plans", lastAppliedSequence: 1 },
         { projector: "projection.thread-sessions", lastAppliedSequence: 1 },
         { projector: "projection.threads", lastAppliedSequence: 1 },
       ]);
@@ -4068,7 +4048,6 @@ engineLayer("OrchestrationProjectionPipeline via engine dispatch", (it) => {
         projectId,
         title: "Routed telemetry",
         modelSelection: { provider: "codex", model: "gpt-5-codex" },
-        interactionMode: "default",
         runtimeMode: "full-access",
         branch: null,
         worktreePath: "/tmp/project-routed-telemetry",

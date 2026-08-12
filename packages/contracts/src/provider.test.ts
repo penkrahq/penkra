@@ -66,7 +66,7 @@ describe("ProviderSessionStartInput", () => {
       providerOptions: {
         claudeAgent: {
           binaryPath: "/usr/local/bin/claude",
-          permissionMode: "plan",
+          permissionMode: "acceptEdits",
           maxThinkingTokens: 12_000,
         },
       },
@@ -82,9 +82,20 @@ describe("ProviderSessionStartInput", () => {
     expect(parsed.modelSelection.options?.effort).toBe("max");
     expect(parsed.modelSelection.options?.fastMode).toBe(true);
     expect(parsed.providerOptions?.claudeAgent?.binaryPath).toBe("/usr/local/bin/claude");
-    expect(parsed.providerOptions?.claudeAgent?.permissionMode).toBe("plan");
+    expect(parsed.providerOptions?.claudeAgent?.permissionMode).toBe("acceptEdits");
     expect(parsed.providerOptions?.claudeAgent?.maxThinkingTokens).toBe(12_000);
     expect(parsed.runtimeMode).toBe("full-access");
+  });
+
+  it("rejects the removed Claude plan permission mode", () => {
+    expect(() =>
+      decodeProviderSessionStartInput({
+        threadId: "thread-1",
+        provider: "claudeAgent",
+        providerOptions: { claudeAgent: { permissionMode: "plan" } },
+        runtimeMode: "full-access",
+      }),
+    ).toThrow();
   });
 });
 

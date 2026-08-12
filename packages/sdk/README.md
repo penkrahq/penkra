@@ -9,7 +9,7 @@ npm install @penkra/sdk
 
 Framework-neutral APIs for Apps running inside Penkra. The package contains manifest validation,
 typed operations, tab routing, scoped files, settings, secrets, identity, permissions, mediated
-network/process access, hosted browser sessions, and native context menus. It never exposes
+network access, hosted browser and simulator sessions, and native context menus. It never exposes
 Electron or Node globals.
 
 ```ts
@@ -49,5 +49,6 @@ right-click menu. Penkra returns the selected item ID or `null`; Apps never rece
 objects.
 
 Privileged APIs require matching manifest declarations and per-Space grants. File APIs accept only
-opaque handles chosen or handed off by the user. Hosted browser APIs require `browser-session` and
-cannot address another App or Space's pages.
+opaque handles chosen or handed off by the user. Hosted browser APIs require `browser-session`,
+and hosted simulated-device APIs require `simulator-session`. Both are scoped to the calling App
+and Space and cannot address another App or Space's session.

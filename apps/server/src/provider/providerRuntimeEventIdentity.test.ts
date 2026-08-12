@@ -29,15 +29,15 @@ describe("assignDerivedProviderRuntimeEventIds", () => {
       },
       {
         ...base,
-        type: "turn.proposed.completed",
-        payload: { planMarkdown: "# Plan" },
+        type: "runtime.warning",
+        payload: { message: "warning" },
       },
     ] satisfies ReadonlyArray<ProviderRuntimeEvent>;
 
     const assigned = assignDerivedProviderRuntimeEventIds(events);
     expect(assigned.map((event) => event.eventId)).toEqual([
       "native-event:task.completed:0",
-      "native-event:turn.proposed.completed:1",
+      "native-event:runtime.warning:1",
     ]);
   });
 });

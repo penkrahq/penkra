@@ -6,6 +6,7 @@ import {
   type ProviderKind,
   type ProviderComposerCapabilities,
   type ProviderListCommandsResult,
+  type ProviderModelDescriptor,
   type ProviderRuntimeEvent,
   type ProviderSession,
   RuntimeItemId,
@@ -39,6 +40,7 @@ import {
 import { takePenkraHarnessPolicyForProviderSession } from "../../agentGateway/harnessPolicy.ts";
 import { buildOpenCodeMcpServer, PENKRA_MCP_SERVER_NAME } from "../../agentGateway/mcpInjection.ts";
 import { AgentGatewayCredentials } from "../../agentGateway/Services/AgentGatewayCredentials.ts";
+import { loadOpenCodeSharedMcpConfig } from "../openCodeSharedMcpConfig.ts";
 import {
   acquireAgentGatewaySessionLease,
   type AgentGatewaySessionLease,
@@ -48,6 +50,7 @@ import { OpenCodeAdapter, type OpenCodeAdapterShape } from "../Services/OpenCode
 import {
   awaitProviderRuntimeEventsDrained,
   PROVIDER_ADAPTER_RUNTIME_EVENT_BUFFER_CAPACITY,
+  type ProviderManagedLaunchContext,
 } from "../Services/ProviderAdapter.ts";
 import {
   buildOpenCodePermissionRules,
@@ -70,7 +73,6 @@ import {
   type OpenCodeServerConnection,
 } from "../opencodeRuntime.ts";
 import { appendFileAttachmentsPromptBlock } from "../attachmentProjection.ts";
-import { extractProposedPlanMarkdown, withProviderPlanModePrompt } from "../planMode.ts";
 import { makeRuntimeTaskListItem, nonEmptyRuntimeTaskListPayload } from "../runtimeTaskList.ts";
 import {
   buildOpenCodeModelContextLimitMap,
@@ -97,7 +99,7 @@ interface OpenCodeCompatibleAdapterConfig {
   readonly runtimeEventSource: "opencode.sdk.event" | "kilo.sdk.event";
   readonly turnIdPrefix: string;
   readonly cliModelSource: string;
-  readonly fallbackModelSource: string;
+  readonly nativeApiSource: string;
   readonly defaultAgent: string;
   readonly planAgent: string;
   readonly cliSpec: OpenCodeCompatibleCliSpec;
@@ -111,7 +113,7 @@ const OPENCODE_ADAPTER_CONFIG: OpenCodeCompatibleAdapterConfig = {
   runtimeEventSource: "opencode.sdk.event",
   turnIdPrefix: "opencode-turn",
   cliModelSource: "opencode-cli",
-  fallbackModelSource: "opencode",
+  nativeApiSource: "opencode",
   defaultAgent: "build",
   planAgent: "plan",
   cliSpec: OPENCODE_CLI_SPEC,
@@ -125,7 +127,7 @@ const KILO_ADAPTER_CONFIG: OpenCodeCompatibleAdapterConfig = {
   runtimeEventSource: "kilo.sdk.event",
   turnIdPrefix: "kilo-turn",
   cliModelSource: "kilo-cli",
-  fallbackModelSource: "kilo",
+  nativeApiSource: "kilo",
   defaultAgent: "code",
   planAgent: "plan",
   cliSpec: KILO_CLI_SPEC,
@@ -184,8 +186,6 @@ interface OpenCodeSessionContext {
   activeTurnSawFinalAssistant: boolean;
   activeTurnFinalAssistantMessageId: string | undefined;
   activeTurnToolCallIdleWatchdogStarted: boolean;
-  activeInteractionMode: "default" | "plan" | undefined;
-  appliedPermissionInteractionMode: "default" | "plan";
   activeAgent: string | undefined;
   activeVariant: string | undefined;
   readonly stopped: Ref.Ref<boolean>;
@@ -201,6 +201,7 @@ interface OpenCodeMessageSnapshot {
   readonly info: {
     readonly id: string;
     readonly role: "user" | "assistant";
+    readonly parentID?: string;
     readonly time?: {
       readonly completed?: number;
     };
@@ -219,6 +220,7 @@ export interface OpenCodeAdapterLiveOptions {
   readonly promptSubmissionInlineWaitMs?: number;
   readonly prematureIdleCompletionGraceMs?: number;
   readonly beforeSessionInstall?: Effect.Effect<void>;
+  readonly loadSharedMcpConfig?: (homeDir: string) => Promise<string | undefined>;
   readonly resolveServerPassword?: (
     provider: OpenCodeCompatibleProvider,
   ) => Effect.Effect<string | undefined, ProviderAdapterValidationError>;
@@ -402,6 +404,7 @@ function openCodeMessageSnapshotFromEntry(entry: {
   readonly info: {
     readonly id: string;
     readonly role: string;
+    readonly parentID?: string;
     readonly time?: {
       readonly created?: number;
       readonly completed?: number;
@@ -442,9 +445,13 @@ function openCodeMessageSnapshotsFromResponse(
   });
 }
 
-function isFinalAssistantMessageSnapshot(snapshot: OpenCodeMessageSnapshot): boolean {
+function isFinalAssistantMessageSnapshot(
+  snapshot: OpenCodeMessageSnapshot,
+  expectedParentMessageId: string,
+): boolean {
   return (
     snapshot.info.role === "assistant" &&
+    snapshot.info.parentID === expectedParentMessageId &&
     typeof snapshot.info.time?.completed === "number" &&
     snapshot.info.finish !== "tool-calls"
   );
@@ -704,7 +711,6 @@ function clearActiveTurnState(context: OpenCodeSessionContext): void {
   context.activeTurnSawFinalAssistant = false;
   context.activeTurnFinalAssistantMessageId = undefined;
   context.activeTurnToolCallIdleWatchdogStarted = false;
-  context.activeInteractionMode = undefined;
   context.activeAgent = undefined;
   context.activeVariant = undefined;
   context.latestTurnCostUsd = undefined;
@@ -1361,25 +1367,6 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
           if (itemId !== part.id) {
             context.completedAssistantPartIds.add(part.id);
           }
-          const proposedPlanMarkdown =
-            context.activeInteractionMode === "plan"
-              ? extractProposedPlanMarkdown(latestText)
-              : undefined;
-          if (proposedPlanMarkdown && turnId) {
-            yield* emit(context, {
-              ...buildEventBase({
-                threadId: context.session.threadId,
-                turnId,
-                itemId,
-                createdAt: isoFromEpochMs(part.time.end),
-                raw,
-              }),
-              type: "turn.proposed.completed",
-              payload: {
-                planMarkdown: proposedPlanMarkdown,
-              },
-            });
-          }
           yield* emit(context, {
             ...buildEventBase({
               threadId: context.session.threadId,
@@ -1442,25 +1429,6 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
             }
             context.completedAssistantPartIds.add(nextTextItemId);
             context.completedAssistantPartIds.add(part.id);
-            const proposedPlanMarkdown =
-              context.activeInteractionMode === "plan"
-                ? extractProposedPlanMarkdown(latestText)
-                : undefined;
-            if (proposedPlanMarkdown) {
-              yield* emit(context, {
-                ...buildEventBase({
-                  threadId: context.session.threadId,
-                  turnId,
-                  itemId: nextTextItemId,
-                  createdAt: isoFromEpochMs(part.time.end),
-                  raw,
-                }),
-                type: "turn.proposed.completed",
-                payload: {
-                  planMarkdown: proposedPlanMarkdown,
-                },
-              });
-            }
             yield* emit(context, {
               ...buildEventBase({
                 threadId: context.session.threadId,
@@ -2000,7 +1968,10 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                 { clearActiveTurnId: true },
               );
               yield* emit(context, {
-                ...buildEventBase({ threadId: context.session.threadId, turnId: input.turnId }),
+                ...buildEventBase({
+                  threadId: context.session.threadId,
+                  turnId: input.turnId,
+                }),
                 type: "turn.aborted",
                 payload: {
                   reason: requestError.detail,
@@ -2053,7 +2024,10 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                 { clearActiveTurnId: true },
               );
               yield* emit(context, {
-                ...buildEventBase({ threadId: context.session.threadId, turnId: input.turnId }),
+                ...buildEventBase({
+                  threadId: context.session.threadId,
+                  turnId: input.turnId,
+                }),
                 type: "turn.aborted",
                 payload: {
                   reason: requestError.detail,
@@ -2151,11 +2125,14 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
 
         switch (event.type) {
           case "message.updated": {
+            const messageSnapshotKey = openCodeSnapshotKey(event.properties.info);
+            if (
+              context.messageSnapshotKeyById.get(event.properties.info.id) === messageSnapshotKey
+            ) {
+              break;
+            }
             context.messageRoleById.set(event.properties.info.id, event.properties.info.role);
-            context.messageSnapshotKeyById.set(
-              event.properties.info.id,
-              openCodeSnapshotKey(event.properties.info),
-            );
+            context.messageSnapshotKeyById.set(event.properties.info.id, messageSnapshotKey);
             if (event.properties.info.role === "assistant") {
               const assistantMessage = event.properties.info;
               trackActiveTurnAssistantFinish(context, turnId, {
@@ -2288,8 +2265,12 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
 
           case "message.part.updated": {
             const part = applyPendingTextDeltaToPart(context, event.properties.part);
+            const partSnapshotKey = openCodeSnapshotKey(part);
+            if (context.partSnapshotKeyById.get(part.id) === partSnapshotKey) {
+              break;
+            }
             context.partById.set(part.id, part);
-            context.partSnapshotKeyById.set(part.id, openCodeSnapshotKey(part));
+            context.partSnapshotKeyById.set(part.id, partSnapshotKey);
             const messageRole = messageRoleForPart(context, part);
 
             if (messageRole === "assistant") {
@@ -2374,12 +2355,10 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
             ) {
               break;
             }
-            // A permission recovered without an active turn has no trustworthy interaction
-            // mode. Fail closed so a request left by an interrupted Plan turn can never be
-            // reinterpreted as Full Access after a process restart or reconnect.
+            // A permission recovered without an active turn has no trustworthy owner.
+            // Fail closed so stale provider activity cannot inherit Full Access.
             const policyReply =
-              context.activeInteractionMode === undefined ||
-              context.activeInteractionMode === "plan"
+              context.activeTurnId === undefined
                 ? "reject"
                 : context.session.runtimeMode === "full-access"
                   ? "once"
@@ -2403,10 +2382,12 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                 `${adapterConfig.displayName} permission policy reply failed`,
                 Cause.squash(replyExit.cause),
               );
-              // A Full-access or Plan turn must never degrade into a human approval. Abort the
+              // Full Access must never degrade into a human approval. Abort the
               // provider turn and surface an actionable failure instead.
               yield* runOpenCodeSdk("session.abort", () =>
-                context.client.session.abort({ sessionID: context.openCodeSessionId }),
+                context.client.session.abort({
+                  sessionID: context.openCodeSessionId,
+                }),
               ).pipe(Effect.ignore({ log: true }));
               if (turnId !== undefined && context.activeTurnId === turnId) {
                 yield* completeOpenCodeTurn(context, {
@@ -2416,7 +2397,10 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                 });
               } else {
                 yield* emit(context, {
-                  ...buildEventBase({ threadId: context.session.threadId, raw: event }),
+                  ...buildEventBase({
+                    threadId: context.session.threadId,
+                    raw: event,
+                  }),
                   type: "runtime.warning",
                   payload: {
                     message: `${adapterConfig.displayName} could not apply its permission policy.`,
@@ -3097,60 +3081,6 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
         return openCodeMessageSnapshotsFromResponse(messages.data ?? []);
       });
 
-      const rememberCurrentMessageSnapshots = Effect.fn("rememberCurrentMessageSnapshots")(
-        function* (context: OpenCodeSessionContext) {
-          const snapshots = yield* loadCurrentMessageSnapshots(context);
-          for (const snapshot of snapshots) {
-            rememberOpenCodeMessageSnapshot(context, snapshot);
-          }
-          return new Set(snapshots.map((snapshot) => snapshot.info.id));
-        },
-      );
-
-      const collectKnownMessageIds = (context: OpenCodeSessionContext): Set<string> =>
-        new Set(context.messageRoleById.keys());
-
-      const captureTurnSnapshotWatchdogBaseline = Effect.fn("captureTurnSnapshotWatchdogBaseline")(
-        function* (context: OpenCodeSessionContext) {
-          const knownMessageIds = collectKnownMessageIds(context);
-          const snapshotsExit = yield* Effect.exit(rememberCurrentMessageSnapshots(context));
-          if (Exit.isSuccess(snapshotsExit)) {
-            // Preserve already observed ids even if OpenCode returns a partial message list.
-            for (const messageId of snapshotsExit.value) {
-              knownMessageIds.add(messageId);
-            }
-            return {
-              canStartWatchdog: true,
-              messageIds: knownMessageIds,
-            } as const;
-          }
-
-          if (knownMessageIds.size > 0) {
-            return {
-              canStartWatchdog: true,
-              messageIds: knownMessageIds,
-            } as const;
-          }
-
-          // Without a pre-turn or remembered baseline, old completed assistant messages
-          // are indistinguishable from this turn's final response.
-          yield* writeNativeEventBestEffort(context.session.threadId, {
-            observedAt: nowIso(),
-            event: {
-              provider,
-              threadId: context.session.threadId,
-              providerThreadId: context.openCodeSessionId,
-              type: "turn.snapshot-watchdog.disabled",
-              detail: openCodeRuntimeErrorDetail(Cause.squash(snapshotsExit.cause)),
-            },
-          });
-          return {
-            canStartWatchdog: false,
-            messageIds: knownMessageIds,
-          } as const;
-        },
-      );
-
       const replayOpenCodeMessageSnapshots = Effect.fn("replayOpenCodeMessageSnapshots")(function* (
         context: OpenCodeSessionContext,
         snapshots: ReadonlyArray<OpenCodeMessageSnapshot>,
@@ -3202,7 +3132,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
       const startTurnSnapshotWatchdog = Effect.fn("startTurnSnapshotWatchdog")(function* (
         context: OpenCodeSessionContext,
         turnId: TurnId,
-        baselineMessageIds: ReadonlySet<string>,
+        expectedParentMessageId: string,
         options: { readonly pollMessagesWhileBusy: boolean },
       ) {
         yield* Effect.gen(function* () {
@@ -3229,10 +3159,8 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
               const snapshotsExit = yield* Effect.exit(loadCurrentMessageSnapshots(context));
               if (Exit.isSuccess(snapshotsExit)) {
                 yield* replayOpenCodeMessageSnapshots(context, snapshotsExit.value, turnId);
-                hasFinalAssistantMessage = snapshotsExit.value.some(
-                  (snapshot) =>
-                    !baselineMessageIds.has(snapshot.info.id) &&
-                    isFinalAssistantMessageSnapshot(snapshot),
+                hasFinalAssistantMessage = snapshotsExit.value.some((snapshot) =>
+                  isFinalAssistantMessageSnapshot(snapshot, expectedParentMessageId),
                 );
               }
             }
@@ -3262,17 +3190,24 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
           }
         }).pipe(
           Effect.catchCause((cause) =>
-            writeNativeEventBestEffort(context.session.threadId, {
-              observedAt: nowIso(),
-              event: {
-                provider,
-                threadId: context.session.threadId,
-                providerThreadId: context.openCodeSessionId,
-                type: "turn.snapshot-watchdog.error",
-                turnId,
-                detail: openCodeRuntimeErrorDetail(Cause.squash(cause)),
-              },
-            }),
+            Effect.logWarning(
+              `${adapterConfig.displayName} exact reply watchdog failed`,
+              Cause.squash(cause),
+            ).pipe(
+              Effect.andThen(
+                writeNativeEventBestEffort(context.session.threadId, {
+                  observedAt: nowIso(),
+                  event: {
+                    provider,
+                    threadId: context.session.threadId,
+                    providerThreadId: context.openCodeSessionId,
+                    type: "turn.snapshot-watchdog.error",
+                    turnId,
+                    detail: openCodeRuntimeErrorDetail(Cause.squash(cause)),
+                  },
+                }),
+              ),
+            ),
           ),
           Effect.forkIn(context.sessionScope),
         );
@@ -3361,30 +3296,20 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
         }
       });
 
-      const applyPermissionInteractionMode = Effect.fn("applyPermissionInteractionMode")(function* (
-        context: OpenCodeSessionContext,
-        interactionMode: "default" | "plan",
-      ) {
-        if (context.appliedPermissionInteractionMode === interactionMode) {
-          return;
-        }
-        yield* runOpenCodeSdk("session.update", () =>
-          context.client.session.update({
-            sessionID: context.openCodeSessionId,
-            permission: buildOpenCodePermissionRules(context.session.runtimeMode, interactionMode),
-          }),
-        ).pipe(Effect.mapError(toAdapterRequestError));
-        context.appliedPermissionInteractionMode = interactionMode;
-      });
-
       const startSession: OpenCodeAdapterShape["startSession"] = Effect.fn("startSession")(
         function* (input) {
           const providerOptions = input.providerOptions?.[adapterConfig.providerOptionsKey];
-          const binaryPath = providerOptions?.binaryPath?.trim() || adapterConfig.defaultBinaryPath;
-          const serverUrl = providerOptions?.serverUrl?.trim();
-          const serverPassword = options?.resolveServerPassword
-            ? yield* options.resolveServerPassword(provider)
-            : undefined;
+          const binaryPath =
+            input.managedLaunch?.binaryPath ??
+            providerOptions?.binaryPath?.trim() ??
+            adapterConfig.defaultBinaryPath;
+          // A managed Connection always owns its process and isolated state.
+          // A remembered external server URL must never bypass that launch.
+          const serverUrl = input.managedLaunch ? undefined : providerOptions?.serverUrl?.trim();
+          const serverPassword =
+            !input.managedLaunch && options?.resolveServerPassword
+              ? yield* options.resolveServerPassword(provider)
+              : undefined;
           const experimentalWebSockets =
             adapterConfig.providerOptionsKey === "opencode"
               ? input.providerOptions?.opencode?.experimentalWebSockets
@@ -3417,7 +3342,19 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
             ? undefined
             : acquireAgentGatewaySessionLease(agentGatewayCredentials, input.threadId, provider);
           const agentGatewayConnection = agentGatewaySessionLease?.connection;
-          const poolIsolationKey = agentGatewayConnection ? randomUUID() : undefined;
+          const poolIsolationKey =
+            input.managedLaunch?.isolationKey ??
+            (agentGatewayConnection ? randomUUID() : undefined);
+          const managedProcessEnv = input.managedLaunch?.childEnvironment(process.env);
+          if (managedProcessEnv) {
+            const sharedMcpConfig = yield* Effect.tryPromise({
+              try: () =>
+                (options?.loadSharedMcpConfig ?? loadOpenCodeSharedMcpConfig)(serverConfig.homeDir),
+              catch: (cause) => toAdapterProcessError(input.threadId, cause),
+            });
+            if (sharedMcpConfig) managedProcessEnv.OPENCODE_CONFIG_CONTENT = sharedMcpConfig;
+            else delete managedProcessEnv.OPENCODE_CONFIG_CONTENT;
+          }
 
           let sessionScopeTransferred = false;
           const installed = yield* Effect.acquireUseRelease(
@@ -3435,6 +3372,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                         ? { experimentalWebSockets: true }
                         : {}),
                       ...(poolIsolationKey ? { poolIsolationKey } : {}),
+                      ...(managedProcessEnv ? { processEnv: managedProcessEnv } : {}),
                     });
                     const client = openCodeRuntime.createOpenCodeSdkClient({
                       baseUrl: server.url,
@@ -3496,20 +3434,17 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                         )
                       : false;
                     const createSessionId = resumedSessionId
-                      ? // A resumed provider may still be executing an interrupted Plan turn.
-                        // Install the read-only ruleset until Penkra dispatches a new turn with a
-                        // known interaction mode. This must succeed before the event pump starts:
-                        // otherwise an already-running Full Access session could mutate state
-                        // without ever emitting a permission request for Penkra to reject.
-                        runOpenCodeSdk("session.update", () =>
+                      ? runOpenCodeSdk("session.update", () =>
                           client.session.update({
                             sessionID: resumedSessionId,
-                            permission: buildOpenCodePermissionRules(input.runtimeMode, "plan"),
+                            permission: buildOpenCodePermissionRules(input.runtimeMode),
                           }),
                         ).pipe(
                           Effect.tapError(() =>
                             runOpenCodeSdk("session.abort", () =>
-                              client.session.abort({ sessionID: resumedSessionId }),
+                              client.session.abort({
+                                sessionID: resumedSessionId,
+                              }),
                             ).pipe(Effect.ignore({ log: true })),
                           ),
                           Effect.as(resumedSessionId),
@@ -3601,7 +3536,10 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                   cwd: directory,
                   ...(input.modelSelection ? { model: input.modelSelection.model } : {}),
                   threadId: input.threadId,
-                  resumeCursor: { openCodeSessionId: started.openCodeSessionId, cwd: directory },
+                  resumeCursor: {
+                    openCodeSessionId: started.openCodeSessionId,
+                    cwd: directory,
+                  },
                   createdAt,
                   updatedAt: createdAt,
                 };
@@ -3645,13 +3583,23 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                   activeTurnSawFinalAssistant: false,
                   activeTurnFinalAssistantMessageId: undefined,
                   activeTurnToolCallIdleWatchdogStarted: false,
-                  activeInteractionMode: undefined,
-                  appliedPermissionInteractionMode: resumedSessionId ? "plan" : "default",
                   activeAgent: undefined,
                   activeVariant: undefined,
                   stopped: yield* Ref.make(false),
                   sessionScope: started.sessionScope,
                 };
+                if (resumedSessionId) {
+                  const existingMessages = yield* runOpenCodeSdk("session.messages", () =>
+                    started.client.session.messages({
+                      sessionID: started.openCodeSessionId,
+                    }),
+                  ).pipe(Effect.mapError(toAdapterRequestError));
+                  for (const snapshot of openCodeMessageSnapshotsFromResponse(
+                    existingMessages.data ?? [],
+                  )) {
+                    rememberOpenCodeMessageSnapshot(context, snapshot);
+                  }
+                }
                 sessions.set(input.threadId, context);
                 sessionScopeTransferred = true;
                 return {
@@ -3698,6 +3646,48 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
         },
       );
 
+      const verifyNativeResume: NonNullable<OpenCodeAdapterShape["verifyNativeResume"]> = (input) =>
+        Effect.scoped(
+          Effect.gen(function* () {
+            const openCodeSessionId = extractResumeSessionId(input.sourceResumeCursor);
+            if (!openCodeSessionId) {
+              return yield* new OpenCodeRuntimeError({
+                operation: "session.get",
+                detail: `${adapterConfig.displayName} resume cursor does not contain an exact session id.`,
+              });
+            }
+
+            const directory =
+              input.cwd ?? extractResumeCwd(input.sourceResumeCursor) ?? serverConfig.cwd;
+            const server = yield* openCodeRuntime.connectToOpenCodeServer({
+              binaryPath: input.managedLaunch.binaryPath,
+              cliSpec: adapterConfig.cliSpec,
+              cwd: directory,
+              poolIsolationKey: input.managedLaunch.isolationKey,
+              processEnv: input.managedLaunch.childEnvironment(process.env),
+            });
+            const client = openCodeRuntime.createOpenCodeSdkClient({
+              baseUrl: server.url,
+              directory,
+              cliSpec: adapterConfig.cliSpec,
+            });
+            const session = yield* runOpenCodeSdk("session.get", () =>
+              client.session.get({ sessionID: openCodeSessionId }),
+            );
+            if (session.data?.id !== openCodeSessionId) {
+              return yield* new OpenCodeRuntimeError({
+                operation: "session.get",
+                detail: `${adapterConfig.displayName} returned a different session identity while verifying the continuation.`,
+              });
+            }
+
+            return {
+              providerSessionId: openCodeSessionId,
+              resumeCursor: input.sourceResumeCursor,
+            };
+          }).pipe(Effect.mapError(toAdapterRequestError)),
+        );
+
       const sendTurn: OpenCodeAdapterShape["sendTurn"] = Effect.fn("sendTurn")(function* (input) {
         const context = ensureAdapterSessionContext(input.threadId);
         const turnId = TurnId.makeUnsafe(`${adapterConfig.turnIdPrefix}-${randomUUID()}`);
@@ -3713,10 +3703,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
           });
         }
 
-        const baseText = withProviderPlanModePrompt({
-          text: input.input?.trim() ?? "",
-          interactionMode: input.interactionMode,
-        }).trim();
+        const baseText = input.input?.trim() ?? "";
         const text =
           appendFileAttachmentsPromptBlock({
             text: baseText,
@@ -3754,9 +3741,6 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
             ? input.modelSelection.options?.variant
             : undefined;
 
-        const interactionMode = input.interactionMode === "plan" ? "plan" : "default";
-        yield* applyPermissionInteractionMode(context, interactionMode);
-
         context.activeTurnId = turnId;
         context.activeTurnEventSerial = 0;
         context.activeTurnProviderActivitySerial = 0;
@@ -3765,16 +3749,12 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
         context.activeTurnSawFinalAssistant = false;
         context.activeTurnFinalAssistantMessageId = undefined;
         context.activeTurnToolCallIdleWatchdogStarted = false;
-        context.activeInteractionMode = interactionMode;
-        // Always pin Penkra's interaction mode to OpenCode's primary agent.
-        // Otherwise a user config with default agent=plan (or a stale options.agent=plan
-        // after leaving Penkra plan mode) can trap default turns in plan mode.
-        const modePinnedAgent =
-          interactionMode === "plan" ? adapterConfig.planAgent : adapterConfig.defaultAgent;
+        // Penkra has one execution mode. A stale provider option that requests
+        // OpenCode's read-only agent is normalized to the primary agent.
         context.activeAgent =
-          interactionMode !== "plan" && requestedAgent === adapterConfig.planAgent
+          requestedAgent === adapterConfig.planAgent
             ? adapterConfig.defaultAgent
-            : (requestedAgent ?? modePinnedAgent);
+            : (requestedAgent ?? adapterConfig.defaultAgent);
         context.activeVariant = variant;
         updateProviderSession(
           context,
@@ -3795,8 +3775,8 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
           },
         });
 
+        const providerMessageId = `msg_${randomUUID()}`;
         if (provider === "kilo") {
-          const snapshotWatchdogBaseline = yield* captureTurnSnapshotWatchdogBaseline(context);
           const recoveryBaselineMessageIds = yield* captureOpenCodeRecoveryBaseline(context);
           const providerActivitySerial = context.activeTurnProviderActivitySerial;
           yield* schedulePromptAcceptedWatchdog(context, {
@@ -3808,7 +3788,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
             turnId,
             promptInput: {
               sessionID: context.openCodeSessionId,
-              messageID: `msg_${randomUUID()}`,
+              messageID: providerMessageId,
               model: parsedModel,
               ...(context.activeAgent ? { agent: context.activeAgent } : {}),
               ...(context.activeVariant ? { variant: context.activeVariant } : {}),
@@ -3819,19 +3799,15 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
               ],
             },
           });
-          if (snapshotWatchdogBaseline.canStartWatchdog) {
-            yield* startTurnSnapshotWatchdog(context, turnId, snapshotWatchdogBaseline.messageIds, {
-              pollMessagesWhileBusy: true,
-            });
-          }
+          yield* startTurnSnapshotWatchdog(context, turnId, providerMessageId, {
+            pollMessagesWhileBusy: true,
+          });
         } else {
-          // Capture the pre-turn message ids before submitting so the watchdog can
-          // distinguish this turn's final assistant message from prior ones.
-          const snapshotWatchdogBaseline = yield* captureTurnSnapshotWatchdogBaseline(context);
           yield* submitOpenCodePromptAsync(context, {
             turnId,
             promptInput: {
               sessionID: context.openCodeSessionId,
+              messageID: providerMessageId,
               model: parsedModel,
               ...(context.activeAgent ? { agent: context.activeAgent } : {}),
               ...(context.activeVariant ? { variant: context.activeVariant } : {}),
@@ -3844,17 +3820,18 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
           // OpenCode lacks Kilo's prompt-accepted hard-fail watchdog, but it still
           // needs a completion backstop for dropped/delayed idle events. Keep the
           // poll cheap (status-first) so large turns are not penalized.
-          if (snapshotWatchdogBaseline.canStartWatchdog) {
-            yield* startTurnSnapshotWatchdog(context, turnId, snapshotWatchdogBaseline.messageIds, {
-              pollMessagesWhileBusy: false,
-            });
-          }
+          yield* startTurnSnapshotWatchdog(context, turnId, providerMessageId, {
+            pollMessagesWhileBusy: false,
+          });
         }
 
         return {
           threadId: input.threadId,
           turnId,
-          resumeCursor: { openCodeSessionId: context.openCodeSessionId, cwd: context.directory },
+          resumeCursor: {
+            openCodeSessionId: context.openCodeSessionId,
+            cwd: context.directory,
+          },
         };
       });
 
@@ -3978,53 +3955,6 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
         },
       );
 
-      const readExternalThread: NonNullable<OpenCodeAdapterShape["readExternalThread"]> = (input) =>
-        Effect.scoped(
-          Effect.gen(function* () {
-            const directory = input.cwd ?? serverConfig.cwd;
-            const server = yield* openCodeRuntime
-              .connectToOpenCodeServer({
-                binaryPath: adapterConfig.defaultBinaryPath,
-                cliSpec: adapterConfig.cliSpec,
-                cwd: directory,
-              })
-              .pipe(Effect.mapError(toAdapterRequestError));
-            const client = openCodeRuntime.createOpenCodeSdkClient({
-              baseUrl: server.url,
-              directory,
-              cliSpec: adapterConfig.cliSpec,
-            });
-            const session = yield* runOpenCodeSdk("session.get", () =>
-              client.session.get({
-                sessionID: input.externalThreadId,
-              }),
-            ).pipe(Effect.mapError(toAdapterRequestError));
-            const messages = yield* runOpenCodeSdk("session.messages", () =>
-              client.session.messages({
-                sessionID: input.externalThreadId,
-              }),
-            ).pipe(Effect.mapError(toAdapterRequestError));
-
-            return buildOpenCodeThreadSnapshot({
-              threadId: ThreadId.makeUnsafe(input.externalThreadId),
-              messages: (messages.data ?? []).flatMap((entry) =>
-                entry.info.role === "user" || entry.info.role === "assistant"
-                  ? [
-                      {
-                        info: {
-                          id: entry.info.id,
-                          role: entry.info.role,
-                        },
-                        parts: entry.parts,
-                      } satisfies OpenCodeMessageSnapshot,
-                    ]
-                  : [],
-              ),
-              cwd: session.data?.directory ?? directory,
-            });
-          }),
-        );
-
       const rollbackThread: OpenCodeAdapterShape["rollbackThread"] = Effect.fn("rollbackThread")(
         function* (threadId, numTurns) {
           const context = ensureAdapterSessionContext(threadId);
@@ -4085,10 +4015,15 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
           }
 
           const providerOptions = input.providerOptions?.[adapterConfig.providerOptionsKey];
-          const binaryPath = providerOptions?.binaryPath?.trim() || adapterConfig.defaultBinaryPath;
-          const serverUrl = providerOptions?.serverUrl?.trim();
+          const binaryPath =
+            input.managedLaunch?.binaryPath ??
+            providerOptions?.binaryPath?.trim() ??
+            adapterConfig.defaultBinaryPath;
+          const serverUrl = input.managedLaunch ? undefined : providerOptions?.serverUrl?.trim();
           const serverPassword = options?.resolveServerPassword
-            ? yield* options.resolveServerPassword(provider)
+            ? input.managedLaunch
+              ? undefined
+              : yield* options.resolveServerPassword(provider)
             : undefined;
           const persistedSourceDirectory =
             sourceContext?.directory ??
@@ -4104,35 +4039,41 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
             });
           }
 
-          let client: OpencodeClient;
-          if (sourceContext) {
-            client = sourceContext.client;
-          } else {
-            client = yield* Effect.scoped(
-              Effect.gen(function* () {
-                const server = yield* openCodeRuntime
-                  .connectToOpenCodeServer({
-                    binaryPath,
-                    cliSpec: adapterConfig.cliSpec,
-                    cwd: sourceDirectory,
-                    ...(serverUrl ? { serverUrl } : {}),
-                  })
-                  .pipe(Effect.mapError(toAdapterRequestError));
-                return openCodeRuntime.createOpenCodeSdkClient({
-                  baseUrl: server.url,
-                  directory: sourceDirectory,
-                  cliSpec: adapterConfig.cliSpec,
-                  ...(server.external && serverPassword ? { serverPassword } : {}),
-                });
+          const forkWithClient = (client: OpencodeClient) =>
+            runOpenCodeSdk("session.fork", () =>
+              client.session.fork({
+                sessionID: sourceSessionId,
               }),
-            );
-          }
+            ).pipe(Effect.mapError(toAdapterRequestError));
 
-          const forked = yield* runOpenCodeSdk("session.fork", () =>
-            client.session.fork({
-              sessionID: sourceSessionId,
-            }),
-          ).pipe(Effect.mapError(toAdapterRequestError));
+          const forked =
+            sourceContext && !input.managedLaunch
+              ? yield* forkWithClient(sourceContext.client)
+              : yield* Effect.scoped(
+                  Effect.gen(function* () {
+                    const server = yield* openCodeRuntime
+                      .connectToOpenCodeServer({
+                        binaryPath,
+                        cliSpec: adapterConfig.cliSpec,
+                        cwd: sourceDirectory,
+                        ...(serverUrl ? { serverUrl } : {}),
+                        ...(input.managedLaunch
+                          ? {
+                              poolIsolationKey: input.managedLaunch.isolationKey,
+                              processEnv: input.managedLaunch.childEnvironment(process.env),
+                            }
+                          : {}),
+                      })
+                      .pipe(Effect.mapError(toAdapterRequestError));
+                    const client = openCodeRuntime.createOpenCodeSdkClient({
+                      baseUrl: server.url,
+                      directory: sourceDirectory,
+                      cliSpec: adapterConfig.cliSpec,
+                      ...(server.external && serverPassword ? { serverPassword } : {}),
+                    });
+                    return yield* forkWithClient(client);
+                  }),
+                );
 
           const forkedSessionId = forked.data?.id?.trim();
           if (!forkedSessionId) {
@@ -4149,7 +4090,11 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
             cwd: targetDirectory,
             ...(input.modelSelection ? { modelSelection: input.modelSelection } : {}),
             ...(input.providerOptions ? { providerOptions: input.providerOptions } : {}),
-            resumeCursor: { openCodeSessionId: forkedSessionId, cwd: targetDirectory },
+            ...(input.managedLaunch ? { managedLaunch: input.managedLaunch } : {}),
+            resumeCursor: {
+              openCodeSessionId: forkedSessionId,
+              cwd: targetDirectory,
+            },
             runtimeMode: input.runtimeMode,
           });
 
@@ -4167,6 +4112,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
           readonly serverUrl?: string | null;
           readonly experimentalWebSockets?: boolean;
           readonly reuseAnyActiveContext?: boolean;
+          readonly managedLaunch?: ProviderManagedLaunchContext;
         },
         fn: (input: {
           readonly client: OpencodeClient;
@@ -4176,11 +4122,13 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
         Effect.gen(function* () {
           const requestedCwd = input.cwd?.trim();
           const requestedServerUrl = input.serverUrl?.trim();
-          const activeContext = input.threadId
-            ? sessions.get(ThreadId.makeUnsafe(input.threadId))
-            : input.reuseAnyActiveContext
-              ? [...sessions.values()][0]
-              : undefined;
+          const activeContext = input.managedLaunch
+            ? undefined
+            : input.threadId
+              ? sessions.get(ThreadId.makeUnsafe(input.threadId))
+              : input.reuseAnyActiveContext
+                ? [...sessions.values()][0]
+                : undefined;
           if (
             activeContext &&
             (!requestedCwd || requestedCwd === activeContext.directory) &&
@@ -4195,27 +4143,37 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
           return yield* Effect.scoped(
             Effect.gen(function* () {
               const serverUrl = input.serverUrl?.trim();
-              const serverPassword = options?.resolveServerPassword
-                ? yield* options.resolveServerPassword(provider).pipe(
-                    Effect.mapError(
-                      (cause) =>
-                        new ProviderAdapterRequestError({
-                          provider,
-                          method: cause.operation,
-                          detail: cause.issue,
-                          cause,
-                        }),
-                    ),
-                  )
-                : undefined;
+              const serverPassword =
+                !input.managedLaunch && options?.resolveServerPassword
+                  ? yield* options.resolveServerPassword(provider).pipe(
+                      Effect.mapError(
+                        (cause) =>
+                          new ProviderAdapterRequestError({
+                            provider,
+                            method: cause.operation,
+                            detail: cause.issue,
+                            cause,
+                          }),
+                      ),
+                    )
+                  : undefined;
               const server = yield* openCodeRuntime
                 .connectToOpenCodeServer({
-                  binaryPath: input.binaryPath?.trim() || adapterConfig.defaultBinaryPath,
+                  binaryPath:
+                    input.managedLaunch?.binaryPath ??
+                    input.binaryPath?.trim() ??
+                    adapterConfig.defaultBinaryPath,
                   cliSpec: adapterConfig.cliSpec,
                   cwd: input.cwd?.trim() || serverConfig.cwd,
                   ...(serverUrl ? { serverUrl } : {}),
                   ...(provider === "opencode" && input.experimentalWebSockets
                     ? { experimentalWebSockets: true }
+                    : {}),
+                  ...(input.managedLaunch
+                    ? {
+                        poolIsolationKey: input.managedLaunch.isolationKey,
+                        processEnv: input.managedLaunch.childEnvironment(process.env),
+                      }
                     : {}),
                 })
                 .pipe(Effect.mapError(toAdapterRequestError));
@@ -4234,6 +4192,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
         input: {
           readonly binaryPath?: string | null;
           readonly cwd?: string | null;
+          readonly managedLaunch?: ProviderManagedLaunchContext;
         },
         fn: (input: {
           readonly client: OpencodeClient;
@@ -4244,7 +4203,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
         withDiscoveryClient(
           {
             ...input,
-            reuseAnyActiveContext: true,
+            reuseAnyActiveContext: input.managedLaunch === undefined,
           },
           ({ activeContext, client }) =>
             Effect.gen(function* () {
@@ -4271,14 +4230,35 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
         );
 
       const listModels: NonNullable<OpenCodeAdapterShape["listModels"]> = (input) => {
-        const binaryPath = input.binaryPath?.trim() || adapterConfig.defaultBinaryPath;
-        const freeOnlyProviderID = adapterConfig.provider === "kilo" ? "kilo" : undefined;
+        const binaryPath =
+          input.managedLaunch?.binaryPath ??
+          input.binaryPath?.trim() ??
+          adapterConfig.defaultBinaryPath;
+        const routeProviderID = input.internalProviderId ?? undefined;
+        const freeOnlyProviderID =
+          routeProviderID === "opencode" && input.managedLaunch?.connectionId === null
+            ? "opencode"
+            : routeProviderID === "kilo"
+              ? "kilo"
+              : routeProviderID === undefined && adapterConfig.provider === "kilo"
+                ? "kilo"
+                : routeProviderID === undefined && adapterConfig.provider === "opencode"
+                  ? "opencode"
+                  : undefined;
+        const restrictToRoute = (
+          models: readonly ProviderModelDescriptor[],
+        ): readonly ProviderModelDescriptor[] =>
+          routeProviderID
+            ? models.filter((model) => model.upstreamProviderId === routeProviderID)
+            : models;
         return Effect.gen(function* () {
+          const processEnv = input.managedLaunch?.childEnvironment(process.env);
           const cliModelsEffect = openCodeRuntime
             .listOpenCodeCliModels({
               binaryPath,
               cliSpec: adapterConfig.cliSpec,
               ...(input.cwd ? { cwd: input.cwd } : {}),
+              ...(processEnv ? { processEnv } : {}),
             })
             .pipe(
               Effect.catch((error) =>
@@ -4289,7 +4269,11 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
               ),
             );
           const inventoryEffect = withDiscoveryInventory(
-            { binaryPath, ...(input.cwd ? { cwd: input.cwd } : {}) },
+            {
+              binaryPath,
+              ...(input.cwd ? { cwd: input.cwd } : {}),
+              ...(input.managedLaunch ? { managedLaunch: input.managedLaunch } : {}),
+            },
             ({ inventory, credentialProviderIDs }) =>
               Effect.succeed({
                 inventory,
@@ -4316,12 +4300,14 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
             const preferredCliModels = cliModels.filter((model) =>
               preferredProviderIDs.has(model.providerID),
             );
-            const models = mergeOpenCodeCliModelDescriptors({
-              inventory,
-              models: inventoryModels,
-              cliModels: preferredCliModels.length > 0 ? preferredCliModels : cliModels,
-              ...(freeOnlyProviderID ? { freeOnlyProviderID } : {}),
-            });
+            const models = restrictToRoute(
+              mergeOpenCodeCliModelDescriptors({
+                inventory,
+                models: inventoryModels,
+                cliModels: preferredCliModels.length > 0 ? preferredCliModels : cliModels,
+                ...(freeOnlyProviderID ? { freeOnlyProviderID } : {}),
+              }),
+            );
             yield* Effect.logDebug(`${adapterConfig.displayName} model discovery resolved`, {
               binaryPath,
               connectedProviders: inventory.providerList.connected,
@@ -4333,22 +4319,22 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
             return {
               models,
               source:
-                cliModels.length > 0
-                  ? adapterConfig.cliModelSource
-                  : adapterConfig.fallbackModelSource,
+                cliModels.length > 0 ? adapterConfig.cliModelSource : adapterConfig.nativeApiSource,
               cached: false,
             };
           }
 
-          // Keep OpenCode's authoritative CLI list usable even if the local server
-          // cannot start; otherwise the web picker falls back to one static model.
+          // The authoritative CLI inventory is an independent discovery surface,
+          // so it remains valid when the local SDK server is unavailable.
           if (cliModels.length > 0) {
-            const models = mergeOpenCodeCliModelDescriptors({
-              inventory: emptyOpenCodeModelInventory(),
-              models: [],
-              cliModels,
-              ...(freeOnlyProviderID ? { freeOnlyProviderID } : {}),
-            });
+            const models = restrictToRoute(
+              mergeOpenCodeCliModelDescriptors({
+                inventory: emptyOpenCodeModelInventory(),
+                models: [],
+                cliModels,
+                ...(freeOnlyProviderID ? { freeOnlyProviderID } : {}),
+              }),
+            );
             yield* Effect.logDebug(
               `${adapterConfig.displayName} model discovery resolved from CLI only`,
               {
@@ -4376,13 +4362,20 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
       };
 
       const listAgents: NonNullable<OpenCodeAdapterShape["listAgents"]> = (input) => {
-        const binaryPath = input.binaryPath?.trim() || adapterConfig.defaultBinaryPath;
+        const binaryPath =
+          input.managedLaunch?.binaryPath ??
+          input.binaryPath?.trim() ??
+          adapterConfig.defaultBinaryPath;
         return withDiscoveryInventory(
-          { binaryPath, ...(input.cwd ? { cwd: input.cwd } : {}) },
+          {
+            binaryPath,
+            ...(input.cwd ? { cwd: input.cwd } : {}),
+            ...(input.managedLaunch ? { managedLaunch: input.managedLaunch } : {}),
+          },
           ({ inventory }) =>
             Effect.succeed({
               agents: flattenOpenCodeAgents(inventory.agents),
-              source: adapterConfig.fallbackModelSource,
+              source: adapterConfig.nativeApiSource,
               cached: false,
             }),
         );
@@ -4405,7 +4398,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
               (commands) =>
                 ({
                   commands: flattenOpenCodeCommands(commands.data ?? []),
-                  source: adapterConfig.fallbackModelSource,
+                  source: adapterConfig.nativeApiSource,
                   cached: false,
                 }) satisfies ProviderListCommandsResult,
             ),
@@ -4435,7 +4428,8 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
           supportsPluginDiscovery: false,
           supportsRuntimeModelList: true,
           supportsThreadCompaction: true,
-          supportsThreadImport: true,
+          supportsThreadFork: provider === "opencode",
+          supportsThreadImport: false,
         } satisfies ProviderComposerCapabilities);
 
       const stopAll: OpenCodeAdapterShape["stopAll"] = () =>
@@ -4457,6 +4451,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
           supportsNativeSlashCommandDiscovery: provider === "opencode",
         },
         startSession,
+        verifyNativeResume,
         sendTurn,
         interruptTurn,
         respondToRequest,
@@ -4465,7 +4460,6 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
         listSessions,
         hasSession,
         readThread,
-        readExternalThread,
         rollbackThread,
         compactThread,
         forkThread,

@@ -31,6 +31,7 @@ import {
   type LucideIcon,
   McpIcon,
   PencilIcon,
+  Repeat2Icon,
   SearchIcon,
   SkillCubeIcon,
   TerminalIcon,
@@ -40,7 +41,11 @@ import {
 import { describeLinkChip } from "~/lib/linkChips";
 import { cn } from "~/lib/utils";
 
-import { isFileChangeWorkLogEntry, type WorkLogEntry } from "../../session-logic";
+import {
+  isFileChangeWorkLogEntry,
+  isThreadSelectionWorkEntry,
+  type WorkLogEntry,
+} from "../../session-logic";
 import {
   formatAgentActivityEntryPreview,
   isAgentActivityWorkEntry,
@@ -611,6 +616,35 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
 
   // Use the text font size (matching the UI settings) for tool call rows
   const rowFontSizePx = textFontSizePx;
+
+  if (isThreadSelectionWorkEntry(workEntry)) {
+    return (
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <div
+              aria-label={`${workEntry.label}. New messages use this selection. Earlier messages are unchanged.`}
+              className="flex h-7 w-full items-center justify-center gap-2 text-muted-foreground/55"
+              data-transcript-selection-event={workEntry.activityKind}
+            />
+          }
+        >
+          <span className="h-px w-20 shrink-0 bg-border/65" aria-hidden="true" />
+          <Repeat2Icon className="size-[13px] shrink-0" aria-hidden="true" />
+          <span
+            className="font-system-ui whitespace-nowrap"
+            style={{ fontSize: `${Math.max(11, chatMetaFontSizePx - 1)}px` }}
+          >
+            {workEntry.label}
+          </span>
+          <span className="h-px w-20 shrink-0 bg-border/65" aria-hidden="true" />
+        </TooltipTrigger>
+        <TooltipPopup side="top">
+          New messages use this selection. Earlier messages are unchanged.
+        </TooltipPopup>
+      </Tooltip>
+    );
+  }
 
   return (
     <div className={cn(compact ? "py-0.5" : "rounded-lg py-1")}>

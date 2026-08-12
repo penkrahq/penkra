@@ -3,7 +3,10 @@ import { execFileSync } from "node:child_process";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   ApprovalRequestId,
+  ProviderConnectionId,
+  ProviderInstallationId,
   ProviderKind,
+  ProviderNativeStateGenerationId,
   ThreadId,
   type OrchestrationEvent,
   type OrchestrationThread,
@@ -36,6 +39,7 @@ import { ProviderSessionRuntimeRepositoryLive } from "../src/persistence/Layers/
 import { makeSqlitePersistenceLive } from "../src/persistence/Layers/Sqlite.ts";
 import { ProjectionCheckpointRepository } from "../src/persistence/Services/ProjectionCheckpoints.ts";
 import { ProjectionPendingInteractionRepository } from "../src/persistence/Services/ProjectionPendingInteractions.ts";
+import { ThreadProviderBindingRepository } from "../src/persistence/Services/ThreadProviderBindings.ts";
 import { ProviderUnsupportedError } from "../src/provider/Errors.ts";
 import { ProviderAdapterRegistry } from "../src/provider/Services/ProviderAdapterRegistry.ts";
 import { ProviderSessionDirectoryLive } from "../src/provider/Layers/ProviderSessionDirectory.ts";
@@ -43,6 +47,8 @@ import { makeProviderServiceLive } from "../src/provider/Layers/ProviderService.
 import { makeCodexAdapterLive } from "../src/provider/Layers/CodexAdapter.ts";
 import { CodexAdapter } from "../src/provider/Services/CodexAdapter.ts";
 import { ProviderService } from "../src/provider/Services/ProviderService.ts";
+import { ProviderLaunchResolver } from "../src/provider/Services/ProviderLaunchResolver.ts";
+import { ProviderTurnSelectionResolver } from "../src/provider/Services/ProviderTurnSelectionResolver.ts";
 import { AnalyticsService } from "../src/telemetry/Services/AnalyticsService.ts";
 import { ServerSettingsService } from "../src/serverSettings.ts";
 import { CheckpointReactorLive } from "../src/orchestration/Layers/CheckpointReactor.ts";
@@ -52,7 +58,7 @@ import { OrchestrationProjectionPipelineLive } from "../src/orchestration/Layers
 import { OrchestrationProjectionSnapshotQueryLive } from "../src/orchestration/Layers/ProjectionSnapshotQuery.ts";
 import { RuntimeReceiptBusLive } from "../src/orchestration/Layers/RuntimeReceiptBus.ts";
 import { OrchestrationReactorLive } from "../src/orchestration/Layers/OrchestrationReactor.ts";
-import { ProviderCommandReactorLive } from "../src/orchestration/Layers/ProviderCommandReactor.ts";
+import { makeProviderCommandReactorLive } from "../src/orchestration/Layers/ProviderCommandReactor.ts";
 import { ProviderRuntimeIngestionLive } from "../src/orchestration/Layers/ProviderRuntimeIngestion.ts";
 import { TurnCheckpointCoordinatorLive } from "../src/orchestration/Layers/TurnCheckpointCoordinator.ts";
 import {
@@ -60,6 +66,10 @@ import {
   type OrchestrationEngineShape,
 } from "../src/orchestration/Services/OrchestrationEngine.ts";
 import { OrchestrationReactor } from "../src/orchestration/Services/OrchestrationReactor.ts";
+import {
+  ProviderThreadSwitchCoordinator,
+  ProviderThreadSwitchCoordinatorError,
+} from "../src/orchestration/Services/ProviderThreadSwitchCoordinator.ts";
 import { ProjectionSnapshotQuery } from "../src/orchestration/Services/ProjectionSnapshotQuery.ts";
 import {
   RuntimeReceiptBus,
@@ -71,6 +81,13 @@ import {
   type TestProviderAdapterHarness,
 } from "./TestProviderAdapter.integration.ts";
 import { deriveServerPaths, ServerConfig } from "../src/config.ts";
+
+export const INTEGRATION_CONNECTION_ID = ProviderConnectionId.makeUnsafe(
+  "integration-managed-connection",
+);
+export const INTEGRATION_INSTALLATION_ID = ProviderInstallationId.makeUnsafe(
+  "integration-managed-installation",
+);
 
 function runGit(cwd: string, args: ReadonlyArray<string>) {
   return execFileSync("git", args, {
@@ -312,17 +329,99 @@ export const makeOrchestrationIntegrationHarness = (
       publishBranch: () => Effect.void,
     } as unknown as GitCoreShape);
     const textGenerationLayer = Layer.succeed(TextGeneration, {
-      generateBranchName: () => Effect.succeed({ branch: null }),
-    } as unknown as TextGenerationShape);
+      generateThreadTitle: () => Effect.succeed({ title: "Integration Thread" }),
+    } satisfies TextGenerationShape);
     const studioOutputReactorLayer = StudioOutputReactorLive.pipe(
       Layer.provideMerge(runtimeServicesLayer),
     );
-    const providerCommandReactorLayer = ProviderCommandReactorLive.pipe(
+    const providerLaunchResolverLayer = Layer.succeed(ProviderLaunchResolver, {
+      resolve: () =>
+        Effect.succeed({
+          binaryPath: "/integration/managed-provider",
+          isolationKey: "integration-managed-isolation",
+          profileRoot: path.join(rootDir, "managed-profile"),
+          nativeStateRoot: path.join(rootDir, "managed-native-state"),
+          connectionId: INTEGRATION_CONNECTION_ID,
+          installationId: INTEGRATION_INSTALLATION_ID,
+          childEnvironment: (environment: NodeJS.ProcessEnv) => ({
+            ...environment,
+          }),
+        }),
+      resolveProfile: () => Effect.die("Provider profile resolution is not used by this harness."),
+    } as typeof ProviderLaunchResolver.Service);
+    const providerTurnSelectionResolverLayer = Layer.succeed(ProviderTurnSelectionResolver, {
+      resolveNewThreadConnection: () => Effect.succeed(INTEGRATION_CONNECTION_ID),
+      resolveInitial: () => Effect.die("Initial binding admission is not used by this harness."),
+      resolveExisting: (selection) =>
+        Effect.succeed({
+          threadId: selection.threadId,
+          harness: selection.modelSelection?.provider ?? provider,
+          connectionId: selection.connectionId ?? INTEGRATION_CONNECTION_ID,
+          connectionLabel: "Integration",
+          previousConnectionId: INTEGRATION_CONNECTION_ID,
+          previousModelId: selection.modelSelection?.model ?? null,
+          installationId: INTEGRATION_INSTALLATION_ID,
+          internalProviderId: null,
+          modelId: selection.modelSelection?.model ?? "integration-model",
+          modelLabel: selection.modelSelection?.model ?? "Integration model",
+          stateRevision: 0,
+          bindingRevision: selection.bindingRevision ?? 0,
+          changed: false,
+          requiresNativeStateMaterialization: false,
+        }),
+    } as typeof ProviderTurnSelectionResolver.Service);
+    const threadProviderBindingLayer = Layer.succeed(ThreadProviderBindingRepository, {
+      getHarnessState: (threadId: ThreadId) =>
+        Effect.succeed(
+          Option.some({
+            threadId,
+            harness: provider,
+            nativeStateGenerationId: ProviderNativeStateGenerationId.makeUnsafe(
+              "integration-native-state",
+            ),
+            providerSessionId: null,
+            nativeStateLocatorJson: "null",
+            lastVerifiedResumeAt: null,
+            revision: 0,
+            createdAt: "2026-08-09T00:00:00.000Z",
+            updatedAt: "2026-08-09T00:00:00.000Z",
+          }),
+        ),
+    } as unknown as typeof ThreadProviderBindingRepository.Service);
+    const providerThreadSwitchCoordinatorLayer = Layer.effect(
+      ProviderThreadSwitchCoordinator,
+      Effect.gen(function* () {
+        const engine = yield* OrchestrationEngineService;
+        return {
+          dispatchTurnStart: ({ command, attachmentPrincipal, cwd }) =>
+            engine
+              .dispatch(command, {
+                attachmentPrincipal,
+                ...(cwd ? { cwd } : {}),
+              })
+              .pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new ProviderThreadSwitchCoordinatorError({
+                      detail: "The orchestration harness could not dispatch the turn.",
+                      cause,
+                    }),
+                ),
+              ),
+          recoverOpen: Effect.void,
+        };
+      }),
+    ).pipe(Layer.provideMerge(runtimeServicesLayer));
+    const providerCommandReactorLayer = makeProviderCommandReactorLive().pipe(
       Layer.provideMerge(runtimeServicesLayer),
       Layer.provideMerge(studioOutputReactorLayer),
       Layer.provideMerge(gitCoreLayer),
       Layer.provideMerge(textGenerationLayer),
       Layer.provideMerge(ServerSettingsService.layerTest()),
+      Layer.provideMerge(threadProviderBindingLayer),
+      Layer.provideMerge(providerLaunchResolverLayer),
+      Layer.provideMerge(providerTurnSelectionResolverLayer),
+      Layer.provideMerge(providerThreadSwitchCoordinatorLayer),
     );
     const checkpointReactorLayer = CheckpointReactorLive.pipe(
       Layer.provideMerge(runtimeServicesLayer),

@@ -49,8 +49,8 @@ describe("normalizeCustomModelSlugs", () => {
     ).toEqual(["custom/internal-model"]);
   });
 
-  it("normalizes provider-specific aliases for claude", () => {
-    expect(normalizeCustomModelSlugs(["sonnet"], "claudeAgent")).toEqual([]);
+  it("preserves exact unknown Claude model ids without selector-alias rewriting", () => {
+    expect(normalizeCustomModelSlugs(["sonnet"], "claudeAgent")).toEqual(["sonnet"]);
     expect(normalizeCustomModelSlugs(["claude/custom-sonnet"], "claudeAgent")).toEqual([
       "claude/custom-sonnet",
     ]);
@@ -265,7 +265,7 @@ describe("resolveAppModelSelection", () => {
     ).toBe("gpt-5.3-codex");
   });
 
-  it("resolves aliases through the shared resolver", () => {
+  it("preserves an exact selected Claude model id", () => {
     expect(
       resolveAppModelSelection(
         "claudeAgent",
@@ -282,7 +282,7 @@ describe("resolveAppModelSelection", () => {
         },
         "sonnet",
       ),
-    ).toBe("claude-sonnet-5");
+    ).toBe("sonnet");
   });
 
   it("resolves transient selected custom models included in app model options", () => {
@@ -420,14 +420,11 @@ describe("normalizeStoredAppSettings", () => {
     const normalized = normalizeStoredAppSettings(decodedSettings);
 
     expect(normalized).toMatchObject({
-      claudeBinaryPath: "",
-      codexBinaryPath: "",
       cursorBinaryPath: "",
       antigravityBinaryPath: "",
       grokBinaryPath: "",
       droidBinaryPath: "",
       kiloBinaryPath: "",
-      openCodeBinaryPath: "",
       piBinaryPath: "",
     });
     expect(getCustomBinaryPathForProvider(normalized, "opencode")).toBe("");
@@ -446,9 +443,6 @@ describe("getProviderStartOptions", () => {
   it("returns only populated provider overrides", () => {
     expect(
       getProviderStartOptions({
-        claudeBinaryPath: "/usr/local/bin/claude",
-        codexBinaryPath: "",
-        codexHomePath: "/Users/you/.codex",
         cursorApiEndpoint: "http://localhost:3000",
         cursorBinaryPath: "/usr/local/bin/agent",
         antigravityBinaryPath: "/usr/local/bin/agy",
@@ -456,19 +450,11 @@ describe("getProviderStartOptions", () => {
         droidBinaryPath: "",
         kiloBinaryPath: "",
         kiloServerUrl: "",
-        openCodeBinaryPath: "",
         openCodeExperimentalWebSockets: false,
-        openCodeServerUrl: "",
         piAgentDir: "",
         piBinaryPath: "",
       }),
     ).toEqual({
-      claudeAgent: {
-        binaryPath: "/usr/local/bin/claude",
-      },
-      codex: {
-        homePath: "/Users/you/.codex",
-      },
       cursor: {
         apiEndpoint: "http://localhost:3000",
         binaryPath: "/usr/local/bin/agent",
@@ -485,9 +471,6 @@ describe("getProviderStartOptions", () => {
   it("returns undefined when no provider overrides are configured", () => {
     expect(
       getProviderStartOptions({
-        claudeBinaryPath: "",
-        codexBinaryPath: "",
-        codexHomePath: "",
         cursorApiEndpoint: "",
         cursorBinaryPath: "",
         antigravityBinaryPath: "",
@@ -495,9 +478,7 @@ describe("getProviderStartOptions", () => {
         droidBinaryPath: "",
         kiloBinaryPath: "",
         kiloServerUrl: "",
-        openCodeBinaryPath: "",
         openCodeExperimentalWebSockets: false,
-        openCodeServerUrl: "",
         piAgentDir: "",
         piBinaryPath: "",
       }),
@@ -507,9 +488,6 @@ describe("getProviderStartOptions", () => {
   it("ignores default provider command names as custom binary overrides", () => {
     expect(
       getProviderStartOptions({
-        claudeBinaryPath: "claude",
-        codexBinaryPath: "codex",
-        codexHomePath: "",
         cursorApiEndpoint: "",
         cursorBinaryPath: "cursor-agent",
         antigravityBinaryPath: "agy",
@@ -517,9 +495,7 @@ describe("getProviderStartOptions", () => {
         droidBinaryPath: "droid",
         kiloBinaryPath: "kilo",
         kiloServerUrl: "",
-        openCodeBinaryPath: "opencode",
         openCodeExperimentalWebSockets: false,
-        openCodeServerUrl: "",
         piAgentDir: "",
         piBinaryPath: "pi",
       }),
@@ -793,15 +769,6 @@ describe("AppSettingsSchema", () => {
     expect(normalizeStoredAppSettings(decoded)).not.toHaveProperty("customGeminiModels");
   });
 
-  it("defaults the Environment panel closed and preserves an explicit open preference", () => {
-    const decode = Schema.decodeSync(Schema.fromJsonString(AppSettingsSchema));
-
-    expect(decode("{}").environmentPanelDefaultOpen).toBe(false);
-    expect(
-      decode(JSON.stringify({ environmentPanelDefaultOpen: true })).environmentPanelDefaultOpen,
-    ).toBe(true);
-  });
-
   it("fills decoding defaults for persisted settings that predate newer keys", () => {
     const decode = Schema.decodeSync(Schema.fromJsonString(AppSettingsSchema));
 
@@ -813,13 +780,9 @@ describe("AppSettingsSchema", () => {
         }),
       ),
     ).toMatchObject({
-      claudeBinaryPath: "",
       uiDensity: "comfortable",
       chatFontSizePx: DEFAULT_CHAT_FONT_SIZE_PX,
-      codexBinaryPath: "/usr/local/bin/codex",
-      codexHomePath: "",
       grokBinaryPath: "",
-      defaultThreadEnvMode: "local",
       confirmThreadDelete: false,
       confirmTerminalTabClose: true,
       enableAssistantStreaming: true,

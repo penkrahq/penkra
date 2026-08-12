@@ -1,8 +1,8 @@
 import {
   type ModelSelection,
   type OrchestrationShellSnapshot,
-  type ProviderInteractionMode,
   type ProviderKind,
+  type ProviderConnectionId,
   type ProviderNativeCommandDescriptor,
   type ProviderModelOptions,
   type RuntimeMode,
@@ -25,7 +25,7 @@ import {
   parseForkSlashCommandArgs,
   type ForkSlashCommandTarget,
 } from "../composerSlashCommands";
-import { buildThreadHandoffImportedMessages } from "../lib/threadHandoff";
+import { buildThreadImportedMessages } from "../lib/threadImport";
 import { toastManager } from "../components/ui/toast";
 import type { ComposerCommandItem } from "../components/chat/ComposerCommandMenu";
 import { buildNextProviderOptions } from "../providerModelOptions";
@@ -62,9 +62,9 @@ export function useComposerSlashCommands(input: {
   selectedProvider: ProviderKind;
   currentProviderModelOptions: ProviderModelOptions[ProviderKind] | undefined;
   selectedModelSelection: ModelSelection;
+  selectedConnectionId: ProviderConnectionId | null | undefined;
   environmentMode: string | null;
   runtimeMode: RuntimeMode;
-  interactionMode: ProviderInteractionMode;
   threadId: ThreadId;
   syncServerShellSnapshot: (snapshot: OrchestrationShellSnapshot) => void;
   navigateToThread: (threadId: ThreadId, options?: { splitViewId?: SplitViewId }) => Promise<void>;
@@ -111,9 +111,9 @@ export function useComposerSlashCommands(input: {
     selectedProvider,
     currentProviderModelOptions,
     selectedModelSelection,
+    selectedConnectionId,
     environmentMode,
     runtimeMode,
-    interactionMode,
     threadId,
     syncServerShellSnapshot,
     navigateToThread,
@@ -246,7 +246,7 @@ export function useComposerSlashCommands(input: {
         return true;
       }
 
-      const importedMessages = buildThreadHandoffImportedMessages(activeThread);
+      const importedMessages = buildThreadImportedMessages(activeThread);
 
       const nextThreadId = newThreadId();
       const createdAt = new Date().toISOString();
@@ -266,7 +266,6 @@ export function useComposerSlashCommands(input: {
         title: activeThread.title,
         modelSelection: selectedModelSelection,
         runtimeMode,
-        interactionMode,
         envMode: resolvedTarget.envMode,
         branch: resolvedTarget.branch,
         worktreePath: resolvedTarget.worktreePath,
@@ -286,10 +285,10 @@ export function useComposerSlashCommands(input: {
       activeProject,
       activeRootBranch,
       activeThread,
-      interactionMode,
       isServerThread,
       navigateToThread,
       runtimeMode,
+      selectedConnectionId,
       selectedModelSelection,
       syncServerShellSnapshot,
     ],
@@ -345,6 +344,9 @@ export function useComposerSlashCommands(input: {
           : ({ type: "uncommittedChanges" } as const);
 
       try {
+        if (selectedConnectionId === undefined) {
+          throw new Error("Choose a Connection before starting a review.");
+        }
         await api.orchestration.dispatchCommand({
           type: "thread.create",
           commandId: newCommandId(),
@@ -353,7 +355,6 @@ export function useComposerSlashCommands(input: {
           title: nextThreadTitle,
           modelSelection: selectedModelSelection,
           runtimeMode,
-          interactionMode: "default",
           envMode: nextEnvMode,
           branch: activeThread.branch,
           worktreePath: activeThread.worktreePath,
@@ -373,10 +374,11 @@ export function useComposerSlashCommands(input: {
             attachments: [],
           },
           modelSelection: selectedModelSelection,
+          connectionId: selectedConnectionId,
+          bindingRevision: 0,
           reviewTarget,
           dispatchMode: "queue",
           runtimeMode,
-          interactionMode: "default",
           createdAt,
         });
         const snapshot = await api.orchestration.getShellSnapshot();
@@ -515,7 +517,6 @@ export function useComposerSlashCommands(input: {
       projectKind: activeProject?.kind ?? null,
       environmentMode,
       runtimeMode,
-      interactionMode,
       sessionStatus: activeThread?.session?.status ?? null,
       latestTurnState: activeThread?.latestTurn?.state ?? null,
       messageCount: activeThread?.messages.length ?? 0,
@@ -528,7 +529,6 @@ export function useComposerSlashCommands(input: {
     activeProject?.kind,
     activeThread,
     environmentMode,
-    interactionMode,
     openGlobalFeedbackDialog,
     runtimeMode,
     selectedModelSelection.model,

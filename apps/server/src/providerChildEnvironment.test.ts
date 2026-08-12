@@ -58,11 +58,86 @@ describe("buildProviderChildEnvironment", () => {
     expect(env).toEqual({
       PATH: "/usr/bin",
       OPENCODE_EXPERIMENTAL_WEBSOCKETS: "true",
+      OPENCODE_DISABLE_AUTOUPDATE: "1",
     });
   });
 
+  it("gives managed harnesses only their selected credential and isolated home", () => {
+    const env = buildProviderChildEnvironment({
+      provider: "codex",
+      baseEnv: {
+        PATH: "/usr/bin",
+        HOME: "/Users/operator",
+        OPENAI_API_KEY: "global-openai-secret",
+        ANTHROPIC_API_KEY: "global-anthropic-secret",
+        RANDOM_PROFILE_SETTING: "global-profile-state",
+      },
+      credentialOverrides: { OPENAI_API_KEY: "selected-connection-secret" },
+      isolation: {
+        homePath: "/managed/connections/personal/home",
+        xdgConfigHome: "/managed/connections/personal/xdg-config",
+        xdgDataHome: "/managed/connections/personal/xdg-data",
+        xdgCacheHome: "/managed/connections/personal/xdg-cache",
+        xdgStateHome: "/managed/connections/personal/xdg-state",
+      },
+    });
+
+    expect(env).toEqual({
+      PATH: "/usr/bin",
+      HOME: "/managed/connections/personal/home",
+      XDG_CONFIG_HOME: "/managed/connections/personal/xdg-config",
+      XDG_DATA_HOME: "/managed/connections/personal/xdg-data",
+      XDG_CACHE_HOME: "/managed/connections/personal/xdg-cache",
+      XDG_STATE_HOME: "/managed/connections/personal/xdg-state",
+      OPENAI_API_KEY: "selected-connection-secret",
+    });
+  });
+
+  it("keeps the OS home available to an explicitly namespaced native Keychain", () => {
+    const env = buildProviderChildEnvironment({
+      provider: "claude",
+      baseEnv: {
+        PATH: "/usr/bin",
+        HOME: "/Users/operator",
+        ANTHROPIC_API_KEY: "global-anthropic-secret",
+      },
+      isolation: {
+        homePath: "/managed/connections/personal/home",
+        xdgConfigHome: "/managed/connections/personal/xdg-config",
+        xdgDataHome: "/managed/connections/personal/xdg-data",
+        xdgCacheHome: "/managed/connections/personal/xdg-cache",
+        xdgStateHome: "/managed/connections/personal/xdg-state",
+      },
+      preserveOsHome: true,
+      overrides: {
+        CLAUDE_CONFIG_DIR: "/managed/connections/personal/claude-config",
+        CLAUDE_SECURESTORAGE_CONFIG_DIR: "/managed/connections/personal/claude-config",
+      },
+    });
+
+    expect(env.HOME).toBe("/Users/operator");
+    expect(env.ANTHROPIC_API_KEY).toBeUndefined();
+    expect(env.CLAUDE_CONFIG_DIR).toBe("/managed/connections/personal/claude-config");
+    expect(env.CLAUDE_SECURESTORAGE_CONFIG_DIR).toBe("/managed/connections/personal/claude-config");
+    expect(env.XDG_CONFIG_HOME).toBe("/managed/connections/personal/xdg-config");
+  });
+
+  it("keeps managed providers from mutating their own installations", () => {
+    expect(
+      buildProviderChildEnvironment({
+        provider: "claude",
+        baseEnv: { DISABLE_UPDATES: "0" },
+      }).DISABLE_UPDATES,
+    ).toBe("1");
+    expect(
+      buildProviderChildEnvironment({
+        provider: "opencode",
+        baseEnv: { OPENCODE_DISABLE_AUTOUPDATE: "0" },
+      }).OPENCODE_DISABLE_AUTOUPDATE,
+    ).toBe("1");
+  });
+
   it.each([
-    ["claude", "ANTHROPIC_API_KEY", "GEMINI_API_KEY"],
     ["cursor", "CURSOR_API_KEY", "FACTORY_API_KEY"],
     ["droid", "FACTORY_API_KEY", "XAI_API_KEY"],
     ["antigravity", "GEMINI_API_KEY", "ANTHROPIC_API_KEY"],
@@ -84,7 +159,7 @@ describe("buildProviderChildEnvironment", () => {
     },
   );
 
-  it.each(["codex", "kilo", "opencode", "pi"] as const)(
+  it.each(["kilo", "pi"] as const)(
     "preserves upstream credential discovery for multi-provider %s",
     (provider) => {
       const env = buildProviderChildEnvironment({

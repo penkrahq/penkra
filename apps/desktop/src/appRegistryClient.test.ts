@@ -71,15 +71,8 @@ describe("desktop App registry client", () => {
     const directory = await mkdtemp(join(tmpdir(), "penkra-registry-submit-"));
     try {
       const packageBytes = Buffer.from("package");
-      const signatureBytes = Buffer.from(
-        JSON.stringify({ mediaType: "application/vnd.dev.sigstore.bundle.v0.3+json" }),
-      );
       const packagePath = join(directory, "app.penkra");
-      const signaturePath = join(directory, "bundle.json");
-      await Promise.all([
-        writeFile(packagePath, packageBytes),
-        writeFile(signaturePath, signatureBytes),
-      ]);
+      await writeFile(packagePath, packageBytes);
       const fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
         const value = String(url);
         if (value.endsWith("/submissions") && init?.method === "POST") {
@@ -90,10 +83,6 @@ describe("desktop App registry client", () => {
                 package: {
                   url: "https://uploads.test/package",
                   headers: { "content-type": "application/vnd.penkra.app+zip" },
-                },
-                publisherSignature: {
-                  url: "https://uploads.test/signature",
-                  headers: { "content-type": "application/vnd.dev.sigstore.bundle+json" },
                 },
               },
             },
@@ -118,8 +107,6 @@ describe("desktop App registry client", () => {
         client.developerSubmit({
           appId: "00000000-0000-4000-8000-000000000301",
           packagePath,
-          signaturePath,
-          issuer: "https://accounts.google.com",
           evidence: {
             version: "1.0.0",
             compatibilityRange: ">=0.8.0",
@@ -135,7 +122,7 @@ describe("desktop App registry client", () => {
         submissionId: "00000000-0000-4000-8000-000000000311",
         status: "uploaded",
       });
-      expect(fetch).toHaveBeenCalledTimes(4);
+      expect(fetch).toHaveBeenCalledTimes(3);
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
@@ -577,7 +564,6 @@ function registryDetail(packageDigest: string) {
         publishedAt: "2026-08-01T00:00:00.000Z",
         readmeArtifactId: "00000000-0000-4000-8000-000000000304",
         instructionsArtifactId: "00000000-0000-4000-8000-000000000305",
-        publisherSignatureArtifactId: "00000000-0000-4000-8000-000000000306",
         registrySignatureArtifactId: "00000000-0000-4000-8000-000000000307",
         validationReportArtifactId: "00000000-0000-4000-8000-000000000308",
         permissions: [],
@@ -602,12 +588,7 @@ function signedAttestation(
       kind: "penkra-app-release",
       registry: "penkra.com",
       app: { id: app.id, identifier: app.identifier, slug: app.slug },
-      publisher: {
-        id: "publisher",
-        slug: app.publisher.slug,
-        signerIdentity: "developer@penkra.com",
-        signerIssuer: "https://accounts.google.com",
-      },
+      publisher: { id: "publisher", slug: app.publisher.slug },
       version: {
         id: version.id,
         version: version.version,
@@ -618,7 +599,6 @@ function signedAttestation(
         instructionsDigest: "d".repeat(64),
       },
       evidence: {
-        publisherSignatureDigest: "e".repeat(64),
         validationReportDigest: "f".repeat(64),
       },
       permissions: version.permissions,

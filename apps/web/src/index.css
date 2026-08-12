@@ -111,8 +111,8 @@
   }
 
   /* Small circular icon badges that sit directly on the sidebar surface inside
-     thread rows — the meta-chip stack, the handoff provider avatar, the terminal
-     count badge. They take the SAME material as the sidebar (translucent or
+     thread rows — the meta-chip stack and terminal count badge. They take the
+     SAME material as the sidebar (translucent or
      opaque, whatever the shell currently is) so they read as part of it instead
      of an opaque blob, plus a 1px ring so stacked/overlapping icons stay
      visually separated. Ring + shadow are one box-shadow so they don't affect

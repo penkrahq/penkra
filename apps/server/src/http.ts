@@ -10,6 +10,7 @@ import {
   PROVIDER_SEND_TURN_MAX_FILE_BYTES,
   PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
   SERVER_VOICE_TRANSCRIPTION_MAX_AUDIO_BYTES,
+  ProviderConnectionId,
   ThreadId,
 } from "@penkra/contracts";
 import {
@@ -38,6 +39,8 @@ import { LOCAL_IMAGE_ROUTE_PATH, resolveAllowedLocalPreviewFile } from "./localI
 import { ProjectFaviconResolver } from "./project/Services/ProjectFaviconResolver";
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
 import { ProviderAdapterRegistry } from "./provider/Services/ProviderAdapterRegistry";
+import { ProviderLaunchResolver } from "./provider/Services/ProviderLaunchResolver";
+import { ProviderInstallationRepository } from "./persistence/Services/ProviderInstallations";
 import { threadArchiveChunks, threadArchiveFileName } from "./orchestration/exportThreadArchive";
 import type { ServerReadiness } from "./server/readiness";
 import { isLoopbackHost } from "./startupAccess";
@@ -965,6 +968,7 @@ const binaryUploadEffectHandler = Effect.gen(function* () {
 
   if (url.pathname === VOICE_TRANSCRIPTION_UPLOAD_ROUTE_PATH) {
     const provider = url.searchParams.get("provider")?.trim() ?? "";
+    const connectionId = url.searchParams.get("connectionId")?.trim() ?? "";
     const cwd = url.searchParams.get("cwd")?.trim() ?? "";
     const threadId = url.searchParams.get("threadId")?.trim() || undefined;
     const mimeType = url.searchParams.get("mimeType")?.trim() ?? "";
@@ -972,6 +976,7 @@ const binaryUploadEffectHandler = Effect.gen(function* () {
     const durationMs = Number(url.searchParams.get("durationMs"));
     if (
       !provider ||
+      !connectionId ||
       !cwd ||
       !mimeType ||
       !Number.isSafeInteger(sampleRateHz) ||
@@ -991,14 +996,34 @@ const binaryUploadEffectHandler = Effect.gen(function* () {
         { status: 400, headers: corsHeaders },
       );
     }
+    const installations = yield* ProviderInstallationRepository;
+    const installation = (yield* installations.list()).find(
+      (candidate) => candidate.harness === provider && candidate.lifecycle === "active",
+    );
+    if (!installation) {
+      return HttpServerResponse.jsonUnsafe(
+        { error: "Voice transcription requires an active managed provider runtime." },
+        { status: 409, headers: corsHeaders },
+      );
+    }
+    const launchResolver = yield* ProviderLaunchResolver;
+    const managedLaunch = yield* launchResolver.resolveProfile({
+      harness: provider as never,
+      connectionId: ProviderConnectionId.makeUnsafe(connectionId),
+      installationId: installation.id,
+      internalProviderId: null,
+      nativeStateIdentity: `voice-transcription:${connectionId}`,
+    });
     const result = yield* adapter.transcribeVoice({
       provider: provider as never,
+      connectionId: ProviderConnectionId.makeUnsafe(connectionId),
       cwd,
       ...(threadId ? { threadId: ThreadId.makeUnsafe(threadId) } : {}),
       mimeType,
       sampleRateHz,
       durationMs,
       audioBase64: Buffer.from(bytes).toString("base64"),
+      managedLaunch,
     });
     return HttpServerResponse.jsonUnsafe(result, { status: 200, headers: corsHeaders });
   }

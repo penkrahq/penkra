@@ -1,5 +1,5 @@
 // FILE: GrokAdapter.test.ts
-// Purpose: Covers Grok-specific adapter guards, prompt metadata, plans, and event attribution.
+// Purpose: Covers Grok-specific adapter guards, user questions, and event attribution.
 // Layer: Provider adapter tests
 // Depends on: GrokAdapter helper exports and shared contract ids.
 
@@ -9,25 +9,16 @@ import { describe, expect, it } from "vitest";
 import { PENKRA_HARNESS_POLICY_MARKER } from "../../agentGateway/harnessPolicy.ts";
 import {
   extractGrokUserInputQuestions,
-  extractGrokExitPlanMarkdown,
   GROK_ASK_USER_QUESTION_METHODS,
-  GROK_EXIT_PLAN_MODE_METHODS,
   GrokAskUserQuestionRequest,
-  GrokExitPlanModeRequest,
-  makeGrokExitPlanModeApprovedResponse,
-  makeGrokExitPlanModeCapturedResponse,
   makeGrokQuestionResponse,
 } from "../acp/GrokAcpExtension.ts";
 
 import {
-  buildGrokPromptMeta,
-  buildGrokTurnPromptText,
-  extractGrokTerminalPlanMarkdown,
   isGrokContextCompactionToolCall,
   isRenderableGrokAssistantDelta,
   mergeGrokModelDescriptors,
   parseXaiLanguageModelDescriptors,
-  resolveGrokPlanHookResponse,
   scopeGrokRuntimeItemIdForTurn,
   scopeGrokToolCallStateForTurn,
   takeGrokPenkraHarnessPolicyTextPart,
@@ -40,122 +31,6 @@ describe("Grok Penkra harness policy", () => {
       PENKRA_HARNESS_POLICY_MARKER,
     );
     expect(takeGrokPenkraHarnessPolicyTextPart(state, true)).toBeNull();
-  });
-});
-
-describe("Grok native plan approval", () => {
-  it("adds Plan instructions without sending a pager-only slash command as model text", () => {
-    expect(
-      buildGrokTurnPromptText({
-        text: "Design the change",
-        interactionMode: "plan",
-      }),
-    ).toMatch(/^Penkra requested Grok's native plan mode\./u);
-  });
-
-  it("sets Grok's native prompt mode idempotently on every turn", () => {
-    expect(buildGrokPromptMeta("plan")).toEqual({ mode: "plan" });
-    expect(buildGrokPromptMeta("default")).toEqual({ mode: "agent" });
-  });
-
-  it("backs native Plan mode with a fail-closed pre-tool hook", () => {
-    expect(
-      resolveGrokPlanHookResponse("plan", {
-        hookCallbackId: "penkra-plan-guard",
-        hookEventName: "pre_tool_use",
-        toolName: "read_file",
-      }),
-    ).toEqual({});
-    expect(
-      resolveGrokPlanHookResponse("plan", {
-        hookCallbackId: "penkra-plan-guard",
-        hookEventName: "pre_tool_use",
-        toolName: "run_terminal_cmd",
-      }),
-    ).toMatchObject({ decision: "deny" });
-    expect(
-      resolveGrokPlanHookResponse("plan", {
-        hookCallbackId: "penkra-plan-guard",
-        hookEventName: "pre_tool_use",
-        toolName: "future_mutating_tool",
-      }),
-    ).toMatchObject({ decision: "deny" });
-    expect(
-      resolveGrokPlanHookResponse("default", {
-        hookCallbackId: "penkra-plan-guard",
-        hookEventName: "pre_tool_use",
-        toolName: "run_terminal_cmd",
-      }),
-    ).toEqual({});
-    expect(
-      resolveGrokPlanHookResponse("plan", {
-        hookCallbackId: "another-client-hook",
-        hookEventName: "pre_tool_use",
-        toolName: "run_terminal_cmd",
-      }),
-    ).toEqual({});
-  });
-
-  it("leaves Default prompts untouched after the native gate is switched explicitly", () => {
-    expect(
-      buildGrokTurnPromptText({
-        text: "Implement the approved plan",
-        interactionMode: "default",
-      }),
-    ).toBe("Implement the approved plan");
-  });
-
-  it("accepts current and legacy ACP method names", () => {
-    expect(GROK_EXIT_PLAN_MODE_METHODS).toEqual(["_x.ai/exit_plan_mode", "x.ai/exit_plan_mode"]);
-  });
-
-  it("extracts the proposed plan from Grok's reverse request", () => {
-    const request = Schema.decodeUnknownSync(GrokExitPlanModeRequest)({
-      sessionId: "session-1",
-      toolCallId: "tool-1",
-      planContent: "\n# Ship it\n\n- Verify the fix\n",
-    });
-
-    expect(extractGrokExitPlanMarkdown(request)).toBe("# Ship it\n\n- Verify the fix");
-  });
-
-  it("does not invent a plan when Grok submits an empty plan file", () => {
-    const request = Schema.decodeUnknownSync(GrokExitPlanModeRequest)({
-      sessionId: "session-1",
-      toolCallId: "tool-1",
-      planContent: null,
-    });
-
-    expect(extractGrokExitPlanMarkdown(request)).toBeUndefined();
-  });
-
-  it("keeps native plan mode gated after Penkra captures the plan", () => {
-    expect(makeGrokExitPlanModeCapturedResponse()).toEqual({
-      outcome: "cancelled",
-      feedback:
-        "Penkra captured this plan for user review. Do not revise or implement it now. End this turn and wait for the user's next message.",
-    });
-  });
-
-  it("approves leaving native plan mode only for a later implementation turn", () => {
-    expect(makeGrokExitPlanModeApprovedResponse()).toEqual({ outcome: "approved" });
-  });
-
-  it("uses a terminal Plan response as a proposal when Grok omits the extension", () => {
-    expect(
-      extractGrokTerminalPlanMarkdown({
-        interactionMode: "plan",
-        capturedPlanFingerprint: undefined,
-        assistantText: "\n# Plan\n\n- Implement safely\n",
-      }),
-    ).toBe("# Plan\n\n- Implement safely");
-    expect(
-      extractGrokTerminalPlanMarkdown({
-        interactionMode: "plan",
-        capturedPlanFingerprint: "# Native plan",
-        assistantText: "# Duplicate",
-      }),
-    ).toBeUndefined();
   });
 });
 

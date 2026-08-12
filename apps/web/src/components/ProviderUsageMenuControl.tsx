@@ -1,5 +1,5 @@
 // FILE: ProviderUsageMenuControl.tsx
-// Purpose: Shared provider-usage chip/menu used in the chat header and Environment panel.
+// Purpose: Shared provider-usage chip/menu used in chat and settings surfaces.
 
 import { PROVIDER_DISPLAY_NAMES, type ProviderKind } from "@penkra/contracts";
 import { type ReactNode } from "react";
@@ -39,7 +39,7 @@ export function useProviderUsageMenuModel(provider: ProviderKind): ProviderUsage
   const usageSummary = useProviderUsageSummary({
     provider,
     threads,
-    codexHomePath: settings.codexHomePath || null,
+    codexHomePath: null,
     fetchProviderData: false,
   });
   const usageRows = deriveProviderUsageDisplayRows(usageSummary.rateLimits);

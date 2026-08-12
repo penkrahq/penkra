@@ -10,6 +10,7 @@
 import type {
   ApprovalRequestId,
   ProviderComposerCapabilities,
+  ProviderConnectionId,
   ProviderApprovalDecision,
   ProviderForkThreadInput,
   ProviderForkThreadResult,
@@ -76,7 +77,7 @@ export interface ProviderSteerSubagentPayload {
   readonly skills?: ProviderSendTurnInput["skills"];
   readonly mentions?: ProviderSendTurnInput["mentions"];
 }
-export type ProviderConversationRollbackMode = "native" | "restart-session";
+export type ProviderConversationRollbackMode = "native" | "unsupported";
 
 export interface ProviderAdapterCapabilities {
   /**
@@ -107,6 +108,48 @@ export interface ProviderThreadSnapshot {
   readonly cwd?: string | null;
 }
 
+/**
+ * Server-only launch material resolved from one managed installation and one
+ * Connection. It is intentionally absent from @penkra/contracts and therefore
+ * cannot cross the client command boundary.
+ */
+export interface ProviderManagedLaunchContext {
+  readonly binaryPath: string;
+  readonly isolationKey: string;
+  /** Null selects the provider's explicit anonymous/free route. */
+  readonly connectionId?: ProviderConnectionId | null;
+  /** Connection-owned provider profile. Never contains thread-native state. */
+  readonly profileRoot: string;
+  /** Exact immutable-generation root for this thread's provider-native state. */
+  readonly nativeStateRoot: string;
+  readonly childEnvironment: (baseEnv: NodeJS.ProcessEnv) => NodeJS.ProcessEnv;
+}
+
+export type ProviderAdapterSessionStartInput = ProviderSessionStartInput & {
+  readonly managedLaunch?: ProviderManagedLaunchContext;
+};
+
+export type ProviderAdapterForkThreadInput = ProviderForkThreadInput & {
+  readonly managedLaunch?: ProviderManagedLaunchContext;
+};
+
+export type ProviderAdapterVoiceTranscriptionInput = ServerVoiceTranscriptionInput & {
+  readonly managedLaunch?: ProviderManagedLaunchContext;
+};
+
+export interface ProviderNativeResumeVerificationInput {
+  readonly sourceResumeCursor: unknown;
+  readonly managedLaunch: ProviderManagedLaunchContext;
+  readonly cwd?: string;
+  readonly modelSelection?: ProviderSessionStartInput["modelSelection"];
+  readonly runtimeMode: ProviderSessionStartInput["runtimeMode"];
+}
+
+export interface ProviderNativeResumeVerificationResult {
+  readonly providerSessionId: string;
+  readonly resumeCursor: unknown;
+}
+
 export interface ProviderAdapterShape<TError> {
   /**
    * Provider kind implemented by this adapter.
@@ -118,8 +161,17 @@ export interface ProviderAdapterShape<TError> {
    * Start a provider-backed session.
    */
   readonly startSession: (
-    input: ProviderSessionStartInput,
+    input: ProviderAdapterSessionStartInput,
   ) => Effect.Effect<ProviderSession, TError>;
+
+  /**
+   * Open and prove one exact native continuation without admitting a Penkra
+   * session, emitting canonical runtime events, sending a user turn, or
+   * retaining a provider process after the effect settles.
+   */
+  readonly verifyNativeResume?: (
+    input: ProviderNativeResumeVerificationInput,
+  ) => Effect.Effect<ProviderNativeResumeVerificationResult, TError>;
 
   /**
    * Send a turn to an active provider session.
@@ -216,14 +268,6 @@ export interface ProviderAdapterShape<TError> {
   readonly readThread: (threadId: ThreadId) => Effect.Effect<ProviderThreadSnapshot, TError>;
 
   /**
-   * Read a persisted provider thread snapshot without requiring a local app thread binding.
-   */
-  readonly readExternalThread?: (input: {
-    readonly externalThreadId: string;
-    readonly cwd?: string;
-  }) => Effect.Effect<ProviderThreadSnapshot, TError>;
-
-  /**
    * Roll back a provider thread by N turns.
    */
   readonly rollbackThread: (
@@ -239,11 +283,11 @@ export interface ProviderAdapterShape<TError> {
   /**
    * Fork one provider thread into another persisted thread cursor when supported.
    *
-   * Adapters may omit this to signal that the caller should fall back to
-   * conversation-history-only forking.
+   * Adapters may omit this to signal that exact native forking is unavailable.
+   * Callers must not replace it with conversation-history reconstruction.
    */
   readonly forkThread?: (
-    input: ProviderForkThreadInput,
+    input: ProviderAdapterForkThreadInput,
   ) => Effect.Effect<ProviderForkThreadResult, TError>;
 
   /**
@@ -299,20 +343,26 @@ export interface ProviderAdapterShape<TError> {
    * List models directly from the provider runtime when supported.
    */
   readonly listModels?: (
-    input: ProviderListModelsInput,
+    input: ProviderListModelsInput & {
+      readonly managedLaunch?: ProviderManagedLaunchContext;
+      readonly internalProviderId?: string | null;
+    },
   ) => Effect.Effect<ProviderListModelsResult, TError>;
 
   /**
    * List agents/subagents directly from the provider runtime when supported.
    */
   readonly listAgents?: (
-    input: ProviderListAgentsInput,
+    input: ProviderListAgentsInput & {
+      readonly managedLaunch?: ProviderManagedLaunchContext;
+      readonly internalProviderId?: string | null;
+    },
   ) => Effect.Effect<ProviderListAgentsResult, TError>;
 
   /**
    * Transcribe one captured voice clip into plain text when supported.
    */
   readonly transcribeVoice?: (
-    input: ServerVoiceTranscriptionInput,
+    input: ProviderAdapterVoiceTranscriptionInput,
   ) => Effect.Effect<ServerVoiceTranscriptionResult, TError>;
 }

@@ -55,12 +55,39 @@ function createBrowserMock(): PenkraAppRuntimeApi["browser"] {
   };
 }
 
+function createSimulatorMock(): PenkraAppRuntimeApi["simulator"] {
+  return {
+    getEnvironment: vi.fn(),
+    listRuntimes: vi.fn(),
+    listDeviceTypes: vi.fn(),
+    listDevices: vi.fn(),
+    createDevice: vi.fn(),
+    eraseDevice: vi.fn(),
+    deleteDevice: vi.fn(),
+    requestSetup: vi.fn(),
+    cancelSetup: vi.fn(),
+    open: vi.fn(),
+    close: vi.fn(),
+    getState: vi.fn(),
+    onState: vi.fn(),
+    setViewport: vi.fn(),
+    getTarget: vi.fn(),
+    capture: vi.fn(),
+    tap: vi.fn(),
+    swipe: vi.fn(),
+    type: vi.fn(),
+    press: vi.fn(),
+    rotate: vi.fn(),
+  };
+}
+
 describe("framework-neutral App runtime exports", () => {
   it("forwards operation and tab registration to the preload-owned global API", async () => {
     const runtime: PenkraAppRuntimeApi = {
       open: vi.fn(),
       contextMenu: { show: vi.fn(async () => null) },
       browser: createBrowserMock(),
+      simulator: createSimulatorMock(),
       identity: { get: vi.fn(async () => ({ subject: "sub_test", space: "space_test" })) },
       account: { request: vi.fn(), subscribe: vi.fn() },
       settings: {
@@ -75,8 +102,6 @@ describe("framework-neutral App runtime exports", () => {
       },
       files: createFilesMock(),
       network: { fetch: vi.fn() },
-      sockets: { exchange: vi.fn() },
-      processes: { run: vi.fn() },
       permissions: {
         query: vi.fn(async (name) => ({
           name,
@@ -122,6 +147,7 @@ describe("framework-neutral App runtime exports", () => {
       open: vi.fn(),
       contextMenu: { show: vi.fn(async () => null) },
       browser: createBrowserMock(),
+      simulator: createSimulatorMock(),
       identity: { get: vi.fn(async () => ({ subject: "sub_test", space: "space_test" })) },
       account: {
         request: vi.fn(async () => ({ status: 200, headers: {}, body: new Uint8Array() })),
@@ -139,8 +165,6 @@ describe("framework-neutral App runtime exports", () => {
       },
       files: createFilesMock(),
       network: { fetch: vi.fn() },
-      sockets: { exchange: vi.fn() },
-      processes: { run: vi.fn() },
       permissions: {
         query: vi.fn(async (name) => ({
           name,

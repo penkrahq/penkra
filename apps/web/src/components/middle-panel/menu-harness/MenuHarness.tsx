@@ -10,7 +10,7 @@ const harnesses: Array<{
   label: string;
   provider: ProviderKind;
 }> = [
-  { label: "Codex", provider: "codex" },
+  { label: "ChatGPT", provider: "codex" },
   { label: "Claude", provider: "claudeAgent" },
   { disabled: true, label: "Cursor", provider: "cursor" },
   { label: "Antigravity", provider: "antigravity" },

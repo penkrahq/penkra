@@ -1,8 +1,16 @@
 import * as Effect from "effect/Effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
+import { tableExists } from "./schemaHelpers.ts";
+
 export default Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
+
+  // Migration 97 gives this operation its final product name. A reconciled
+  // migration replay must not recreate the retired table beside it.
+  if (yield* tableExists(sql, "git_thread_environment_operations")) {
+    return;
+  }
 
   yield* sql`
     CREATE TABLE IF NOT EXISTS git_handoff_operations (

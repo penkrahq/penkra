@@ -179,6 +179,7 @@ const publishCmd = Command.make(
       // Assert build assets exist
       for (const relPath of [
         "dist/index.mjs",
+        "dist/databaseMaintenance.mjs",
         "dist/restoreMigrationBackup.mjs",
         "dist/client/index.html",
       ]) {

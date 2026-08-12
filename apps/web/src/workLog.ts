@@ -34,9 +34,7 @@ import {
   mergeWorkLogToolDetails,
   type WorkLogToolDetails,
 } from "./lib/toolCallDetails";
-import { stripProposedPlanBlocksFromText } from "./proposedPlan";
-
-import type { ChatMessage, ProposedPlan } from "./types";
+import type { ChatMessage } from "./types";
 
 export type WorkLogRequestKind = ApprovalRequestKind;
 
@@ -44,6 +42,11 @@ export type WorkLogRequestKind = ApprovalRequestKind;
 // apps/server/src/orchestration/commandInvariants.ts, which the web app cannot
 // import.
 const CHECKPOINT_REVERT_FAILED_ACTIVITY_KIND = "checkpoint.revert.failed";
+const THREAD_SELECTION_ACTIVITY_KINDS = new Set(["connection-changed", "model-changed"]);
+
+export function isThreadSelectionWorkEntry(entry: Pick<WorkLogEntry, "activityKind">): boolean {
+  return THREAD_SELECTION_ACTIVITY_KINDS.has(entry.activityKind ?? "");
+}
 
 export interface WorkLogEntry {
   id: string;
@@ -183,12 +186,6 @@ export type TimelineEntry =
     }
   | {
       id: string;
-      kind: "proposed-plan";
-      createdAt: string;
-      proposedPlan: ProposedPlan;
-    }
-  | {
-      id: string;
       kind: "work";
       createdAt: string;
       entry: WorkLogEntry;
@@ -321,6 +318,14 @@ function shouldKeepActivityForWorkLog(
   latestTurnId: TurnId | undefined,
   visibleTurnIds: ReadonlySet<TurnId | string> | undefined,
 ): boolean {
+  // Connection and model changes are committed immediately before the user
+  // message that uses them. They are intentionally thread-scoped (turnId is
+  // null), so the ordinary visible-turn filter must not hide their transcript
+  // boundary once assistant messages have supplied concrete turn ids.
+  if (THREAD_SELECTION_ACTIVITY_KINDS.has(activity.kind)) {
+    return true;
+  }
+
   // Thread-level compaction progress has no provider turn id but should stay visible.
   if (activity.kind === "context-compaction" && activity.turnId === null) {
     return true;
@@ -2109,7 +2114,22 @@ function compareActivityLifecycleRank(kind: string): number {
 }
 
 function compareTimelineEntries(left: TimelineEntry, right: TimelineEntry): number {
-  return left.createdAt.localeCompare(right.createdAt);
+  const createdAtComparison = left.createdAt.localeCompare(right.createdAt);
+  if (createdAtComparison !== 0) {
+    return createdAtComparison;
+  }
+
+  // A selection event and the user message that consumes it are committed with
+  // the same timestamp. Keep that boundary immediately before the message;
+  // otherwise the generic message-first tie order folds it into the following
+  // assistant's "Worked for" disclosure.
+  const leftIsSelectionBoundary = left.kind === "work" && isThreadSelectionWorkEntry(left.entry);
+  const rightIsSelectionBoundary = right.kind === "work" && isThreadSelectionWorkEntry(right.entry);
+  if (leftIsSelectionBoundary !== rightIsSelectionBoundary) {
+    return leftIsSelectionBoundary ? -1 : 1;
+  }
+
+  return 0;
 }
 
 function areTimelineEntriesOrdered(entries: ReadonlyArray<TimelineEntry>): boolean {
@@ -2163,39 +2183,13 @@ function mergeTimelineEntries(
 
 export function deriveTimelineEntries(
   messages: ChatMessage[],
-  proposedPlans: ProposedPlan[],
   workEntries: WorkLogEntry[],
 ): TimelineEntry[] {
-  const proposedPlanTurnIds = new Set(
-    proposedPlans.flatMap((proposedPlan) => (proposedPlan.turnId ? [proposedPlan.turnId] : [])),
-  );
-  const messageRows: TimelineEntry[] = messages.flatMap((message) => {
-    const displayMessage =
-      message.role === "assistant" && message.turnId && proposedPlanTurnIds.has(message.turnId)
-        ? { ...message, text: stripProposedPlanBlocksFromText(message.text) }
-        : message;
-    if (
-      displayMessage.role === "assistant" &&
-      displayMessage.text.length === 0 &&
-      displayMessage.turnId &&
-      proposedPlanTurnIds.has(displayMessage.turnId)
-    ) {
-      return [];
-    }
-    return [
-      {
-        id: displayMessage.id,
-        kind: "message",
-        createdAt: displayMessage.createdAt,
-        message: displayMessage,
-      },
-    ];
-  });
-  const proposedPlanRows: TimelineEntry[] = proposedPlans.map((proposedPlan) => ({
-    id: proposedPlan.id,
-    kind: "proposed-plan",
-    createdAt: proposedPlan.createdAt,
-    proposedPlan,
+  const messageRows: TimelineEntry[] = messages.map((message) => ({
+    id: message.id,
+    kind: "message",
+    createdAt: message.createdAt,
+    message,
   }));
   const workRows: TimelineEntry[] = workEntries.map((entry) => ({
     id: entry.id,
@@ -2204,11 +2198,5 @@ export function deriveTimelineEntries(
     entry,
   }));
 
-  return mergeTimelineEntries(
-    mergeTimelineEntries(
-      sortedTimelineEntries(messageRows),
-      sortedTimelineEntries(proposedPlanRows),
-    ),
-    sortedTimelineEntries(workRows),
-  );
+  return mergeTimelineEntries(sortedTimelineEntries(messageRows), sortedTimelineEntries(workRows));
 }

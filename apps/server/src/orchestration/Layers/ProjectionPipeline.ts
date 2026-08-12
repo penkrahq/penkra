@@ -31,10 +31,6 @@ import {
   type ProjectionThreadMessageRepositoryShape,
   ProjectionThreadMessageRepository,
 } from "../../persistence/Services/ProjectionThreadMessages.ts";
-import {
-  type ProjectionThreadProposedPlanRepositoryShape,
-  ProjectionThreadProposedPlanRepository,
-} from "../../persistence/Services/ProjectionThreadProposedPlans.ts";
 import { ProjectionThreadSessionRepository } from "../../persistence/Services/ProjectionThreadSessions.ts";
 import {
   type ProjectionTurn,
@@ -50,7 +46,6 @@ import { ProjectionSpaceRepositoryLive } from "../../persistence/Layers/Projecti
 import { ProjectionStateRepositoryLive } from "../../persistence/Layers/ProjectionState.ts";
 import { ProjectionThreadActivityRepositoryLive } from "../../persistence/Layers/ProjectionThreadActivities.ts";
 import { ProjectionThreadMessageRepositoryLive } from "../../persistence/Layers/ProjectionThreadMessages.ts";
-import { ProjectionThreadProposedPlanRepositoryLive } from "../../persistence/Layers/ProjectionThreadProposedPlans.ts";
 import { ProjectionThreadSessionRepositoryLive } from "../../persistence/Layers/ProjectionThreadSessions.ts";
 import { ProjectionTurnRepositoryLive } from "../../persistence/Layers/ProjectionTurns.ts";
 import { ProjectionThreadRepositoryLive } from "../../persistence/Layers/ProjectionThreads.ts";
@@ -87,7 +82,6 @@ export const ORCHESTRATION_PROJECTOR_NAMES = {
   threads: "projection.threads",
   threadShellSummaries: "projection.thread-shell-summaries",
   threadMessages: "projection.thread-messages",
-  threadProposedPlans: "projection.thread-proposed-plans",
   threadActivities: "projection.thread-activities",
   threadSessions: "projection.thread-sessions",
   threadTurns: "projection.thread-turns",
@@ -158,12 +152,6 @@ const THREAD_MESSAGE_PROJECTION_EVENT_TYPES = new Set<OrchestrationEvent["type"]
   "thread.conversation-rolled-back",
 ]);
 
-const THREAD_PROPOSED_PLAN_PROJECTION_EVENT_TYPES = new Set<OrchestrationEvent["type"]>([
-  "thread.proposed-plan-upserted",
-  "thread.reverted",
-  "thread.conversation-rolled-back",
-]);
-
 const THREAD_ACTIVITY_PROJECTION_EVENT_TYPES = new Set<OrchestrationEvent["type"]>([
   "thread.activity-appended",
   "thread.reverted",
@@ -210,16 +198,11 @@ function maxIso(left: string | null, right: string): string {
 const withRebuiltThreadShellSummary = Effect.fn(function* (input: {
   readonly thread: ProjectionThread;
   readonly projectionThreadMessageRepository: ProjectionThreadMessageRepositoryShape;
-  readonly projectionThreadProposedPlanRepository: ProjectionThreadProposedPlanRepositoryShape;
   readonly projectionPendingInteractionRepository: ProjectionPendingInteractionRepositoryShape;
 }) {
-  const [latestUserMessageAt, latestPlan, pendingCounts] = yield* Effect.all([
+  const [latestUserMessageAt, pendingCounts] = yield* Effect.all([
     input.projectionThreadMessageRepository.getLatestUserMessageAt({
       threadId: input.thread.threadId,
-    }),
-    input.projectionThreadProposedPlanRepository.getLatestSummaryByThreadId({
-      threadId: input.thread.threadId,
-      preferredTurnId: input.thread.latestTurnId,
     }),
     input.projectionPendingInteractionRepository.getPendingCountsByThreadId({
       threadId: input.thread.threadId,
@@ -231,25 +214,6 @@ const withRebuiltThreadShellSummary = Effect.fn(function* (input: {
     latestUserMessageAt,
     pendingApprovalCount: pendingCounts.pendingApprovalCount,
     pendingUserInputCount: pendingCounts.pendingUserInputCount,
-    hasActionableProposedPlan:
-      Option.isSome(latestPlan) && latestPlan.value.implementedAt === null ? 1 : 0,
-  } satisfies ProjectionThread;
-});
-
-const withRefreshedActionablePlanSummary = Effect.fn(function* (input: {
-  readonly thread: ProjectionThread;
-  readonly projectionThreadProposedPlanRepository: ProjectionThreadProposedPlanRepositoryShape;
-}) {
-  const latestPlan = yield* input.projectionThreadProposedPlanRepository.getLatestSummaryByThreadId(
-    {
-      threadId: input.thread.threadId,
-      preferredTurnId: input.thread.latestTurnId,
-    },
-  );
-  return {
-    ...input.thread,
-    hasActionableProposedPlan:
-      Option.isSome(latestPlan) && latestPlan.value.implementedAt === null ? 1 : 0,
   } satisfies ProjectionThread;
 });
 
@@ -469,7 +433,6 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
   const projectionSpaceRepository = yield* ProjectionSpaceRepository;
   const projectionThreadRepository = yield* ProjectionThreadRepository;
   const projectionThreadMessageRepository = yield* ProjectionThreadMessageRepository;
-  const projectionThreadProposedPlanRepository = yield* ProjectionThreadProposedPlanRepository;
   const projectionThreadActivityRepository = yield* ProjectionThreadActivityRepository;
   const projectionThreadSessionRepository = yield* ProjectionThreadSessionRepository;
   const projectionTurnRepository = yield* ProjectionTurnRepository;
@@ -571,7 +534,6 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
             title: event.payload.title,
             modelSelection: event.payload.modelSelection,
             runtimeMode: event.payload.runtimeMode,
-            interactionMode: event.payload.interactionMode,
             envMode: isStudio ? "local" : (event.payload.envMode ?? "local"),
             branch: isStudio ? null : event.payload.branch,
             worktreePath: isStudio ? null : event.payload.worktreePath,
@@ -600,17 +562,14 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
             subagentNickname: event.payload.subagentNickname ?? null,
             subagentRole: event.payload.subagentRole ?? null,
             forkSourceThreadId: event.payload.forkSourceThreadId,
-            sidechatSourceThreadId: event.payload.sidechatSourceThreadId,
             lastKnownPr: event.payload.lastKnownPr ?? null,
             latestTurnId: null,
-            handoff: event.payload.handoff,
             pinnedMessages: null,
             threadMarkers: null,
             notes: null,
             latestUserMessageAt: null,
             pendingApprovalCount: 0,
             pendingUserInputCount: 0,
-            hasActionableProposedPlan: 0,
             createdAt: event.payload.createdAt,
             updatedAt: event.payload.updatedAt,
             archivedAt: null,
@@ -708,7 +667,6 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
               ...(event.payload.lastKnownPr !== undefined
                 ? { lastKnownPr: event.payload.lastKnownPr }
                 : {}),
-              ...(event.payload.handoff !== undefined ? { handoff: event.payload.handoff } : {}),
               ...(event.payload.pinnedMessages !== undefined
                 ? { pinnedMessages: event.payload.pinnedMessages }
                 : {}),
@@ -802,13 +760,6 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
             updatedAt: event.payload.updatedAt,
           }));
 
-        case "thread.interaction-mode-set":
-          return yield* updateThreadProjection(event.payload.threadId, (thread) => ({
-            ...thread,
-            interactionMode: event.payload.interactionMode,
-            updatedAt: event.payload.updatedAt,
-          }));
-
         case "thread.turn-start-requested": {
           const existingRow = yield* projectionThreadRepository.getById({
             threadId: event.payload.threadId,
@@ -833,18 +784,12 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
             requestedModelSelection: event.payload.modelSelection,
             canAdoptRequestedProvider: canAdoptFirstTurnProvider,
           });
-          const adoptTurnModes = true;
           yield* projectionThreadRepository.upsert({
             ...existingRow.value,
             ...(projectedModelSelection !== existingRow.value.modelSelection
               ? { modelSelection: projectedModelSelection }
               : {}),
-            ...(adoptTurnModes
-              ? {
-                  runtimeMode: event.payload.runtimeMode,
-                  interactionMode: event.payload.interactionMode,
-                }
-              : {}),
+            runtimeMode: event.payload.runtimeMode,
             updatedAt: event.payload.createdAt,
           });
           return;
@@ -896,24 +841,6 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
           }));
         }
 
-        case "thread.proposed-plan-upserted": {
-          const existingRow = yield* projectionThreadRepository.getById({
-            threadId: event.payload.threadId,
-          });
-          if (Option.isNone(existingRow)) {
-            return;
-          }
-          const nextRow = yield* withRefreshedActionablePlanSummary({
-            thread: {
-              ...existingRow.value,
-              updatedAt: event.occurredAt,
-            },
-            projectionThreadProposedPlanRepository,
-          });
-          yield* projectionThreadRepository.upsert(nextRow);
-          return;
-        }
-
         case "thread.turn-start-cancelled":
         case "thread.reverted":
         case "thread.conversation-rolled-back": {
@@ -930,7 +857,6 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
               updatedAt: event.occurredAt,
             },
             projectionThreadMessageRepository,
-            projectionThreadProposedPlanRepository,
             projectionPendingInteractionRepository,
           });
           yield* projectionThreadRepository.upsert(nextRow);
@@ -945,19 +871,16 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
           if (Option.isNone(existingRow)) {
             return;
           }
-          const nextRow = yield* withRefreshedActionablePlanSummary({
-            thread: {
-              ...existingRow.value,
-              latestTurnId:
-                event.type === "thread.session-set"
-                  ? event.payload.session.activeTurnId
-                  : event.payload.preserveLatestTurn
-                    ? existingRow.value.latestTurnId
-                    : event.payload.turnId,
-              updatedAt: event.occurredAt,
-            },
-            projectionThreadProposedPlanRepository,
-          });
+          const nextRow = {
+            ...existingRow.value,
+            latestTurnId:
+              event.type === "thread.session-set"
+                ? event.payload.session.activeTurnId
+                : event.payload.preserveLatestTurn
+                  ? existingRow.value.latestTurnId
+                  : event.payload.turnId,
+            updatedAt: event.occurredAt,
+          } satisfies ProjectionThread;
           yield* projectionThreadRepository.upsert(nextRow);
           return;
         }
@@ -1165,61 +1088,6 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
       }
     });
 
-  const applyThreadProposedPlansProjection: ProjectorDefinition["apply"] = (
-    event,
-    _attachmentSideEffects,
-  ) =>
-    Effect.gen(function* () {
-      switch (event.type) {
-        case "thread.proposed-plan-upserted":
-          yield* projectionThreadProposedPlanRepository.upsert({
-            planId: event.payload.proposedPlan.id,
-            threadId: event.payload.threadId,
-            turnId: event.payload.proposedPlan.turnId,
-            planMarkdown: event.payload.proposedPlan.planMarkdown,
-            implementedAt: event.payload.proposedPlan.implementedAt,
-            implementationThreadId: event.payload.proposedPlan.implementationThreadId,
-            createdAt: event.payload.proposedPlan.createdAt,
-            updatedAt: event.payload.proposedPlan.updatedAt,
-          });
-          return;
-
-        case "thread.reverted":
-        case "thread.conversation-rolled-back": {
-          const existingRows = yield* projectionThreadProposedPlanRepository.listByThreadId({
-            threadId: event.payload.threadId,
-          });
-          if (existingRows.length === 0) {
-            return;
-          }
-          const keptRows =
-            event.type === "thread.reverted"
-              ? retainTurnScopedProjectionRowsAfterRevert(
-                  existingRows,
-                  yield* projectionTurnRepository.listByThreadId({
-                    threadId: event.payload.threadId,
-                  }),
-                  event.payload.turnCount,
-                )
-              : retainTurnScopedProjectionRowsAfterConversationRollback(
-                  existingRows,
-                  new Set(event.payload.removedTurnIds ?? []),
-                );
-          if (keptRows.length === existingRows.length) {
-            return;
-          }
-          yield* projectionThreadProposedPlanRepository.deleteByThreadId({
-            threadId: event.payload.threadId,
-          });
-          yield* Effect.forEach(keptRows, projectionThreadProposedPlanRepository.upsert);
-          return;
-        }
-
-        default:
-          return;
-      }
-    });
-
   const applyThreadActivitiesProjection: ProjectorDefinition["apply"] = (
     event,
     _attachmentSideEffects,
@@ -1335,8 +1203,6 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
           yield* projectionTurnRepository.replacePendingTurnStart({
             threadId: event.payload.threadId,
             messageId: event.payload.messageId,
-            sourceProposedPlanThreadId: event.payload.sourceProposedPlan?.threadId ?? null,
-            sourceProposedPlanId: event.payload.sourceProposedPlan?.planId ?? null,
             requestedAt: event.payload.createdAt,
           });
           return;
@@ -1411,16 +1277,6 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
               pendingMessageId:
                 existingTurn.value.pendingMessageId ??
                 (Option.isSome(pendingTurnStart) ? pendingTurnStart.value.messageId : null),
-              sourceProposedPlanThreadId:
-                existingTurn.value.sourceProposedPlanThreadId ??
-                (Option.isSome(pendingTurnStart)
-                  ? pendingTurnStart.value.sourceProposedPlanThreadId
-                  : null),
-              sourceProposedPlanId:
-                existingTurn.value.sourceProposedPlanId ??
-                (Option.isSome(pendingTurnStart)
-                  ? pendingTurnStart.value.sourceProposedPlanId
-                  : null),
               startedAt:
                 existingTurn.value.startedAt ?? event.payload.session.updatedAt ?? event.occurredAt,
               requestedAt:
@@ -1435,12 +1291,6 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
               threadId: event.payload.threadId,
               pendingMessageId: Option.isSome(pendingTurnStart)
                 ? pendingTurnStart.value.messageId
-                : null,
-              sourceProposedPlanThreadId: Option.isSome(pendingTurnStart)
-                ? pendingTurnStart.value.sourceProposedPlanThreadId
-                : null,
-              sourceProposedPlanId: Option.isSome(pendingTurnStart)
-                ? pendingTurnStart.value.sourceProposedPlanId
                 : null,
               assistantMessageId: null,
               state: "running",
@@ -1496,8 +1346,6 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
             turnId: event.payload.turnId,
             threadId: event.payload.threadId,
             pendingMessageId: null,
-            sourceProposedPlanThreadId: null,
-            sourceProposedPlanId: null,
             assistantMessageId: event.payload.messageId,
             state: "running",
             requestedAt: event.payload.createdAt,
@@ -1577,8 +1425,6 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
             turnId: event.payload.turnId,
             threadId: event.payload.threadId,
             pendingMessageId: null,
-            sourceProposedPlanThreadId: null,
-            sourceProposedPlanId: null,
             assistantMessageId: event.payload.assistantMessageId,
             state: nextState,
             requestedAt: event.payload.completedAt,
@@ -1623,8 +1469,6 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
                 : projectionTurnRepository.replacePendingTurnStart({
                     threadId: turn.threadId,
                     messageId: turn.pendingMessageId,
-                    sourceProposedPlanThreadId: turn.sourceProposedPlanThreadId,
-                    sourceProposedPlanId: turn.sourceProposedPlanId,
                     requestedAt: turn.requestedAt,
                   })
               : projectionTurnRepository.upsertByTurnId({
@@ -1869,12 +1713,6 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
       phase: "hot",
       shouldApply: (event) => THREAD_MESSAGE_PROJECTION_EVENT_TYPES.has(event.type),
       apply: applyThreadMessagesProjection,
-    },
-    {
-      name: ORCHESTRATION_PROJECTOR_NAMES.threadProposedPlans,
-      phase: "hot",
-      shouldApply: (event) => THREAD_PROPOSED_PLAN_PROJECTION_EVENT_TYPES.has(event.type),
-      apply: applyThreadProposedPlansProjection,
     },
     {
       name: ORCHESTRATION_PROJECTOR_NAMES.threadActivities,
@@ -2332,7 +2170,6 @@ export const OrchestrationProjectionPipelineLive = Layer.effect(
   Layer.provideMerge(ProjectionSpaceRepositoryLive),
   Layer.provideMerge(ProjectionThreadRepositoryLive),
   Layer.provideMerge(ProjectionThreadMessageRepositoryLive),
-  Layer.provideMerge(ProjectionThreadProposedPlanRepositoryLive),
   Layer.provideMerge(ProjectionThreadActivityRepositoryLive),
   Layer.provideMerge(ProjectionThreadSessionRepositoryLive),
   Layer.provideMerge(ProjectionTurnRepositoryLive),

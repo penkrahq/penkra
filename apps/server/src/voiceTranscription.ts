@@ -98,7 +98,7 @@ function readTranscriptionErrorMessage(response: OutboundHttpResponse): string {
   }
 
   if (response.status === 401 || response.status === 403) {
-    return "Your ChatGPT login has expired. Sign in again.";
+    return "Your ChatGPT Connection is unavailable.";
   }
 
   return errorMessage;

@@ -1,5 +1,5 @@
 // FILE: ComposerPickerMenuPopup.tsx
-// Purpose: Shared open-panel shell for picker menus (composer model/effort, handoff, git, etc.).
+// Purpose: Shared open-panel shell for picker menus (composer model/effort, Git, etc.).
 // Layer: App picker presentation
 // Depends on: shared menu primitives and composer picker surface tokens in composerPickerStyles.
 

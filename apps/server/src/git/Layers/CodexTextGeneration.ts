@@ -6,7 +6,6 @@ import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import { DEFAULT_GIT_TEXT_GENERATION_MODEL } from "@penkra/contracts";
 import { sanitizeGeneratedThreadTitle } from "@penkra/shared/chatThreads";
 import { resolveCodexHome } from "@penkra/shared/codexConfig";
-import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@penkra/shared/git";
 import { prepareWindowsSafeProcess } from "@penkra/shared/windowsProcess";
 
 import { resolveProviderAttachmentPath } from "../../provider/providerAttachmentPaths.ts";
@@ -16,30 +15,13 @@ import { ServerConfig } from "../../config.ts";
 import { TextGenerationError } from "../Errors.ts";
 import {
   CodexTextGeneration,
-  type BranchNameGenerationInput,
-  type BranchNameGenerationResult,
-  type CommitMessageGenerationResult,
-  type DiffSummaryGenerationResult,
-  type PrContentGenerationResult,
+  type ThreadTitleGenerationInput,
   type ThreadTitleGenerationResult,
-  type ThreadRecapGenerationResult,
   type TextGenerationOperation,
   type TextGenerationShape,
   TextGeneration,
 } from "../Services/TextGeneration.ts";
-import {
-  buildBranchNamePrompt,
-  buildCommitMessagePrompt,
-  buildDiffSummaryPrompt,
-  buildPrContentPrompt,
-  buildThreadRecapPrompt,
-  buildThreadTitlePrompt,
-  sanitizeCommitSubject,
-  sanitizeDiffSummary,
-  sanitizeThreadRecap,
-  sanitizePrTitle,
-  toJsonSchemaObject,
-} from "../textGenerationShared.ts";
+import { buildThreadTitlePrompt, toJsonSchemaObject } from "../textGenerationShared.ts";
 
 const CODEX_REASONING_EFFORT = "low";
 const CODEX_TIMEOUT_MS = 180_000;
@@ -236,7 +218,7 @@ const makeCodexTextGeneration = Effect.gen(function* () {
 
   const materializeImageAttachments = (
     _operation: TextGenerationOperation,
-    attachments: BranchNameGenerationInput["attachments"],
+    attachments: ThreadTitleGenerationInput["attachments"],
   ): Effect.Effect<MaterializedImageAttachments, TextGenerationError> =>
     Effect.gen(function* () {
       if (!attachments || attachments.length === 0) {
@@ -287,8 +269,8 @@ const makeCodexTextGeneration = Effect.gen(function* () {
     cleanupPaths?: ReadonlyArray<string>;
     codexHomePath?: string;
     model?: string;
-    modelSelection?: BranchNameGenerationInput["modelSelection"];
-    providerOptions?: BranchNameGenerationInput["providerOptions"];
+    modelSelection?: ThreadTitleGenerationInput["modelSelection"];
+    providerOptions?: ThreadTitleGenerationInput["providerOptions"];
   }): Effect.Effect<S["Type"], TextGenerationError, S["DecodingServices"]> =>
     Effect.gen(function* () {
       const codexBinaryPath = resolveCodexBinaryPath(providerOptions);
@@ -453,119 +435,6 @@ const makeCodexTextGeneration = Effect.gen(function* () {
       }).pipe(Effect.ensuring(cleanup));
     });
 
-  const generateCommitMessage: TextGenerationShape["generateCommitMessage"] = (input) => {
-    const wantsBranch = input.includeBranch === true;
-    const { prompt, outputSchemaJson } = buildCommitMessagePrompt({
-      branch: input.branch,
-      stagedSummary: input.stagedSummary,
-      stagedPatch: input.stagedPatch,
-      includeBranch: wantsBranch,
-    });
-
-    return runCodexJson({
-      operation: "generateCommitMessage",
-      cwd: input.cwd,
-      prompt,
-      outputSchemaJson,
-      ...(input.codexHomePath ? { codexHomePath: input.codexHomePath } : {}),
-      ...(input.model ? { model: input.model } : {}),
-      ...(input.modelSelection ? { modelSelection: input.modelSelection } : {}),
-      ...(input.providerOptions ? { providerOptions: input.providerOptions } : {}),
-    }).pipe(
-      Effect.map(
-        (generated) =>
-          ({
-            subject: sanitizeCommitSubject(generated.subject),
-            body: generated.body.trim(),
-            ...("branch" in generated && typeof generated.branch === "string"
-              ? { branch: sanitizeFeatureBranchName(generated.branch) }
-              : {}),
-          }) satisfies CommitMessageGenerationResult,
-      ),
-    );
-  };
-
-  const generatePrContent: TextGenerationShape["generatePrContent"] = (input) => {
-    const { prompt, outputSchemaJson } = buildPrContentPrompt({
-      baseBranch: input.baseBranch,
-      headBranch: input.headBranch,
-      commitSummary: input.commitSummary,
-      diffSummary: input.diffSummary,
-      diffPatch: input.diffPatch,
-    });
-
-    return runCodexJson({
-      operation: "generatePrContent",
-      cwd: input.cwd,
-      prompt,
-      outputSchemaJson,
-      ...(input.codexHomePath ? { codexHomePath: input.codexHomePath } : {}),
-      ...(input.model ? { model: input.model } : {}),
-      ...(input.modelSelection ? { modelSelection: input.modelSelection } : {}),
-      ...(input.providerOptions ? { providerOptions: input.providerOptions } : {}),
-    }).pipe(
-      Effect.map(
-        (generated) =>
-          ({
-            title: sanitizePrTitle(generated.title),
-            body: generated.body.trim(),
-          }) satisfies PrContentGenerationResult,
-      ),
-    );
-  };
-
-  const generateDiffSummary: TextGenerationShape["generateDiffSummary"] = (input) => {
-    const { prompt, outputSchemaJson } = buildDiffSummaryPrompt({
-      patch: input.patch,
-    });
-
-    return runCodexJson({
-      operation: "generateDiffSummary",
-      cwd: input.cwd,
-      prompt,
-      outputSchemaJson,
-      ...(input.codexHomePath ? { codexHomePath: input.codexHomePath } : {}),
-      ...(input.model ? { model: input.model } : {}),
-      ...(input.modelSelection ? { modelSelection: input.modelSelection } : {}),
-      ...(input.providerOptions ? { providerOptions: input.providerOptions } : {}),
-    }).pipe(
-      Effect.map(
-        (generated) =>
-          ({
-            summary: sanitizeDiffSummary(generated.summary),
-          }) satisfies DiffSummaryGenerationResult,
-      ),
-    );
-  };
-
-  const generateBranchName: TextGenerationShape["generateBranchName"] = (input) => {
-    return Effect.gen(function* () {
-      const { imagePaths } = yield* materializeImageAttachments(
-        "generateBranchName",
-        input.attachments,
-      );
-      const { prompt, outputSchemaJson } = buildBranchNamePrompt({
-        message: input.message,
-        ...(input.attachments ? { attachments: input.attachments } : {}),
-      });
-
-      const generated = yield* runCodexJson({
-        operation: "generateBranchName",
-        cwd: input.cwd,
-        prompt,
-        outputSchemaJson,
-        imagePaths,
-        ...(input.model ? { model: input.model } : {}),
-        ...(input.modelSelection ? { modelSelection: input.modelSelection } : {}),
-        ...(input.providerOptions ? { providerOptions: input.providerOptions } : {}),
-      });
-
-      return {
-        branch: sanitizeBranchFragment(generated.branch),
-      } satisfies BranchNameGenerationResult;
-    });
-  };
-
   const generateThreadTitle: TextGenerationShape["generateThreadTitle"] = (input) => {
     return Effect.gen(function* () {
       const { imagePaths } = yield* materializeImageAttachments(
@@ -594,51 +463,20 @@ const makeCodexTextGeneration = Effect.gen(function* () {
     });
   };
 
-  const generateThreadRecap: TextGenerationShape["generateThreadRecap"] = (input) => {
-    const { prompt, outputSchemaJson } = buildThreadRecapPrompt({
-      ...(input.previousRecap ? { previousRecap: input.previousRecap } : {}),
-      newMaterial: input.newMaterial,
-      ...(input.currentState ? { currentState: input.currentState } : {}),
-    });
-
-    return runCodexJson({
-      operation: "generateThreadRecap",
-      cwd: input.cwd,
-      prompt,
-      outputSchemaJson,
-      ...(input.codexHomePath ? { codexHomePath: input.codexHomePath } : {}),
-      ...(input.model ? { model: input.model } : {}),
-      ...(input.modelSelection ? { modelSelection: input.modelSelection } : {}),
-      ...(input.providerOptions ? { providerOptions: input.providerOptions } : {}),
-    }).pipe(
-      Effect.map(
-        (generated) =>
-          ({
-            recap: sanitizeThreadRecap(generated.recap, input.previousRecap),
-          }) satisfies ThreadRecapGenerationResult,
-      ),
-    );
-  };
-
   return {
-    generateCommitMessage,
-    generatePrContent,
-    generateDiffSummary,
-    generateBranchName,
     generateThreadTitle,
-    generateThreadRecap,
   } satisfies TextGenerationShape;
 });
 
 function resolveCodexBinaryPath(
-  providerOptions: BranchNameGenerationInput["providerOptions"] | undefined,
+  providerOptions: ThreadTitleGenerationInput["providerOptions"] | undefined,
 ): string {
   return providerOptions?.codex?.binaryPath?.trim() || "codex";
 }
 
 function resolveCodexHomePath(
   codexHomePath: string | undefined,
-  providerOptions: BranchNameGenerationInput["providerOptions"] | undefined,
+  providerOptions: ThreadTitleGenerationInput["providerOptions"] | undefined,
 ): string | undefined {
   const resolved = codexHomePath?.trim() || providerOptions?.codex?.homePath?.trim();
   return resolved && resolved.length > 0 ? resolved : undefined;
@@ -646,7 +484,7 @@ function resolveCodexHomePath(
 
 function resolveCodexModel(
   model: string | undefined,
-  modelSelection: BranchNameGenerationInput["modelSelection"] | undefined,
+  modelSelection: ThreadTitleGenerationInput["modelSelection"] | undefined,
 ): string | undefined {
   if (modelSelection?.provider === "codex") {
     return modelSelection.model;

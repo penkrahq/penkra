@@ -79,7 +79,6 @@ function createMinimalSnapshot(): OrchestrationReadModel {
           provider: "codex",
           model: "gpt-5",
         },
-        interactionMode: "default",
         runtimeMode: "full-access",
         envMode: "local",
         branch: "main",
@@ -88,7 +87,6 @@ function createMinimalSnapshot(): OrchestrationReadModel {
         createdAt: NOW_ISO,
         updatedAt: NOW_ISO,
         deletedAt: null,
-        handoff: null,
         messages: [
           {
             id: "msg-1" as MessageId,
@@ -102,7 +100,6 @@ function createMinimalSnapshot(): OrchestrationReadModel {
           },
         ],
         activities: [],
-        proposedPlans: [],
         checkpoints: [],
         session: {
           threadId: THREAD_ID,
@@ -354,8 +351,6 @@ describe("Keybindings update toast", () => {
       messageByThreadId: {},
       activityIdsByThreadId: {},
       activityByThreadId: {},
-      proposedPlanIdsByThreadId: {},
-      proposedPlanByThreadId: {},
       turnDiffIdsByThreadId: {},
       turnDiffSummaryByThreadId: {},
       sidebarThreadSummaryById: {},

@@ -488,6 +488,38 @@ describe("flattenOpenCodeModels", () => {
     ]);
   });
 
+  it("filters anonymous Zen inventory from authoritative zero pricing", () => {
+    const models = flattenOpenCodeModels({
+      freeOnlyProviderID: "opencode",
+      inventory: {
+        providerList: {
+          connected: ["opencode"],
+          all: [
+            makeProvider({
+              id: "opencode",
+              name: "OpenCode",
+              models: {
+                "deepseek-v4-flash-free": {
+                  id: "deepseek-v4-flash-free",
+                  name: "DeepSeek V4 Flash Free",
+                  cost: { input: 0, output: 0, cache: { read: 0, write: 0 } },
+                },
+                "paid-model": {
+                  id: "paid-model",
+                  name: "Paid Model",
+                  cost: { input: 1, output: 2, cache: { read: 0, write: 0 } },
+                },
+              },
+            }),
+          ],
+        },
+        consoleState: null,
+      },
+    });
+
+    expect(models.map((model) => model.slug)).toEqual(["opencode/deepseek-v4-flash-free"]);
+  });
+
   it("surfaces reasoning variants as supported thinking levels for OpenCode models", () => {
     const models = flattenOpenCodeModels({
       inventory: {

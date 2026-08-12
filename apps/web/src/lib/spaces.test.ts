@@ -9,7 +9,7 @@ import {
 } from "@penkra/contracts";
 import { describe, expect, it, vi } from "vitest";
 
-import { moveProjectsToSpace } from "./spaces";
+import { moveProjectsToSpace, reorderSpaces } from "./spaces";
 
 function makeApi(
   dispatchCommand: ReturnType<typeof vi.fn>,
@@ -95,5 +95,29 @@ describe("moveProjectsToSpace", () => {
         spaceId: targetSpaceId,
       }),
     ).resolves.toEqual({ failedProjectIds: [projectIds[1]] });
+  });
+});
+
+describe("reorderSpaces", () => {
+  it("sends a neighboring anchor instead of the client's full Space list", async () => {
+    const dispatchCommand = vi.fn().mockResolvedValue({ sequence: 1 });
+    const first = SpaceId.makeUnsafe("first");
+    const second = SpaceId.makeUnsafe("second");
+    const third = SpaceId.makeUnsafe("third");
+
+    await reorderSpaces({
+      api: makeApi(dispatchCommand),
+      movedSpaceId: third,
+      orderedSpaceIds: [third, first, second],
+    });
+
+    expect(dispatchCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "space.reorder",
+        spaceId: third,
+        position: { type: "before", spaceId: first },
+      }),
+    );
+    expect(dispatchCommand.mock.calls[0]?.[0]).not.toHaveProperty("orderedSpaceIds");
   });
 });

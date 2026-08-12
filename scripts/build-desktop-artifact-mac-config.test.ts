@@ -11,6 +11,7 @@ import {
   MICROPHONE_USAGE_DESCRIPTION,
   NODE_PTY_ASAR_UNPACK_GLOBS,
   PARCEL_WATCHER_ASAR_UNPACK_GLOBS,
+  REQUIRED_APPS_EXTRA_RESOURCE,
 } from "./lib/desktop-platform-build-config.ts";
 import { BRAND_ASSET_PATHS } from "./lib/brand-assets.ts";
 import { APP_DATA_USAGE_DESCRIPTION, APPLE_EVENTS_USAGE_DESCRIPTION } from "./lib/macos-privacy.ts";
@@ -32,6 +33,14 @@ describe("createDesktopPlatformBuildConfig", () => {
     assert.deepStrictEqual(config.asarUnpack, [
       ...NODE_PTY_ASAR_UNPACK_GLOBS,
       ...PARCEL_WATCHER_ASAR_UNPACK_GLOBS,
+    ]);
+    assert.deepStrictEqual(config.extraResources, [
+      REQUIRED_APPS_EXTRA_RESOURCE,
+      {
+        from: "apps/desktop/prod-resources/native",
+        to: "native",
+        filter: ["**/*"],
+      },
     ]);
     assert.equal(mac.hardenedRuntime, true);
     assert.equal(mac.identity, MAC_RELEASE_SIGNING_IDENTITY);
@@ -97,17 +106,30 @@ describe("createDesktopPlatformBuildConfig", () => {
     ]);
   });
 
-  it("uses a signed NSIS updater configuration for Windows", () => {
+  it("uses an explicitly unsigned manual NSIS configuration for Windows", () => {
     const config = createDesktopPlatformBuildConfig({
       platform: "win",
       target: "nsis",
-      signed: true,
+      signed: false,
     });
 
     assert.deepStrictEqual((config.win as Record<string, unknown>).target, ["nsis"]);
     assert.equal((config.win as Record<string, unknown>).icon, "icon.ico");
     assert.equal((config.win as Record<string, unknown>).verifyUpdateCodeSignature, true);
     assert.deepStrictEqual(config.nsis, { perMachine: false, oneClick: true });
+    assert.deepStrictEqual(config.extraResources, [REQUIRED_APPS_EXTRA_RESOURCE]);
+  });
+
+  it("rejects signed Windows artifacts until deferred Azure signing is implemented", () => {
+    assert.throws(
+      () =>
+        createDesktopPlatformBuildConfig({
+          platform: "win",
+          target: "nsis",
+          signed: true,
+        }),
+      /deferred/u,
+    );
   });
 
   it("uses an AppImage configuration for Linux", () => {
@@ -120,6 +142,7 @@ describe("createDesktopPlatformBuildConfig", () => {
     assert.deepStrictEqual((config.linux as Record<string, unknown>).target, ["AppImage"]);
     assert.equal((config.linux as Record<string, unknown>).icon, "icon.png");
     assert.equal((config.linux as Record<string, unknown>).category, "Development");
+    assert.deepStrictEqual(config.extraResources, [REQUIRED_APPS_EXTRA_RESOURCE]);
   });
 
   it("uses the canonical Pencil-derived Penkra artwork for every macOS icon path", () => {

@@ -1,4 +1,4 @@
-import { OrchestrationProposedPlanId, ContainerId, ThreadId } from "@penkra/contracts";
+import { ContainerId, ThreadId } from "@penkra/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { partializeComposerDraftStoreState, useComposerDraftStore } from "./composerDraftStore";
 import { normalizeCurrentPersistedComposerDraftStoreState } from "./composerDraftPersistence";
@@ -66,7 +66,6 @@ describe("composerDraftStore persisted-state hydration", () => {
     expect(hydrated.draftThreadsByThreadId[threadId]).toMatchObject({
       projectId,
       runtimeMode: "full-access",
-      interactionMode: "default",
       entryPoint: "terminal",
     });
     expect(hydrated.draftsByThreadId[threadId]?.assistantSelections).toEqual([
@@ -85,61 +84,6 @@ describe("composerDraftStore persisted-state hydration", () => {
         text: "selected file text",
       },
     ]);
-  });
-});
-
-describe("composerDraftStore restored source proposed plan", () => {
-  const threadId = ThreadId.makeUnsafe("thread-restored-source");
-
-  beforeEach(() => {
-    resetComposerDraftStore();
-  });
-
-  it("persists restored plan source metadata with composer drafts", () => {
-    const restoredSource = {
-      threadId,
-      restoredPrompt: "Implement the accepted plan",
-      sourceProposedPlan: {
-        threadId,
-        planId: OrchestrationProposedPlanId.makeUnsafe("plan-restored-source"),
-      },
-    };
-    const store = useComposerDraftStore.getState();
-
-    store.setPrompt(threadId, restoredSource.restoredPrompt);
-    store.setRestoredSourceProposedPlan(threadId, restoredSource);
-
-    const persistApi = useComposerDraftStore.persist as unknown as {
-      getOptions: () => {
-        partialize: (state: ReturnType<typeof useComposerDraftStore.getState>) => unknown;
-        merge: (
-          persistedState: unknown,
-          currentState: ReturnType<typeof useComposerDraftStore.getState>,
-        ) => ReturnType<typeof useComposerDraftStore.getState>;
-      };
-    };
-    const persistedState = partializeComposerDraftStoreState(
-      useComposerDraftStore.getState(),
-    ) as unknown as {
-      draftsByThreadId?: Record<
-        string,
-        {
-          restoredSourceProposedPlan?: unknown;
-        }
-      >;
-    };
-
-    expect(persistedState.draftsByThreadId?.[threadId]?.restoredSourceProposedPlan).toEqual(
-      restoredSource,
-    );
-
-    const mergedState = persistApi
-      .getOptions()
-      .merge(persistedState, useComposerDraftStore.getInitialState());
-
-    expect(mergedState.draftsByThreadId[threadId]?.restoredSourceProposedPlan).toEqual(
-      restoredSource,
-    );
   });
 });
 
@@ -574,63 +518,9 @@ describe("composerDraftStore queued follow-ups", () => {
         kind: "chat",
         prompt: "queued chat prompt",
         images: [{ name: "queued.png" }],
-        sourceProposedPlan: {
-          threadId: "thread-source-plan",
-          planId: "plan-1",
-        },
         terminalContexts: [{ text: "git status\nOn branch main" }],
       },
     ]);
-  });
-
-  it("persists restored proposed-plan source for edited queued sends", () => {
-    const store = useComposerDraftStore.getState();
-    store.setPrompt(threadId, "implement the queued plan");
-    store.setRestoredSourceProposedPlan(threadId, {
-      threadId,
-      restoredPrompt: "implement the queued plan",
-      sourceProposedPlan: {
-        threadId: ThreadId.makeUnsafe("thread-source-plan"),
-        planId: "plan-1",
-      },
-    });
-
-    const persistApi = useComposerDraftStore.persist as unknown as {
-      getOptions: () => {
-        partialize: (state: ReturnType<typeof useComposerDraftStore.getState>) => unknown;
-        merge: (
-          persistedState: unknown,
-          currentState: ReturnType<typeof useComposerDraftStore.getState>,
-        ) => ReturnType<typeof useComposerDraftStore.getState>;
-      };
-    };
-    const persistedState = partializeComposerDraftStoreState(
-      useComposerDraftStore.getState(),
-    ) as unknown as {
-      draftsByThreadId?: Record<string, { restoredSourceProposedPlan?: unknown }>;
-    };
-
-    expect(persistedState.draftsByThreadId?.[threadId]?.restoredSourceProposedPlan).toEqual({
-      threadId,
-      restoredPrompt: "implement the queued plan",
-      sourceProposedPlan: {
-        threadId: "thread-source-plan",
-        planId: "plan-1",
-      },
-    });
-
-    const mergedState = persistApi
-      .getOptions()
-      .merge(persistedState, useComposerDraftStore.getInitialState());
-
-    expect(mergedState.draftsByThreadId[threadId]?.restoredSourceProposedPlan).toEqual({
-      threadId,
-      restoredPrompt: "implement the queued plan",
-      sourceProposedPlan: {
-        threadId: "thread-source-plan",
-        planId: "plan-1",
-      },
-    });
   });
 
   it("revokes queued chat image blob URLs when a queued turn is removed", () => {

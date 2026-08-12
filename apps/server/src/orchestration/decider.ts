@@ -25,9 +25,9 @@ import {
   resolveTailUserMessageEditTarget,
 } from "@penkra/shared/conversationEdit";
 import { Effect } from "effect";
+import { normalizeEntityName } from "@penkra/shared/entityNames";
 
 import { OrchestrationCommandInvariantError } from "./Errors.ts";
-import { hasNativeHandoffMessages } from "./handoff.ts";
 import { resolveStableMessageTurnId } from "./messageTurnId.ts";
 import {
   findSpaceById,
@@ -44,6 +44,7 @@ import {
   requireProjectAbsent,
   requireProjectHasNoThreads,
   requireProjectWorkspaceRootAvailable,
+  requireFolderNameAvailable,
   requireSpace,
   requireSpaceAbsent,
   requireSpaceAssignableProject,
@@ -59,6 +60,22 @@ import {
 
 const nowIso = () => new Date().toISOString();
 const DEFAULT_ASSISTANT_DELIVERY_MODE = "buffered" as const;
+export const CONNECTION_CHANGED_ACTIVITY_KIND = "connection-changed";
+export const MODEL_CHANGED_ACTIVITY_KIND = "model-changed";
+
+/**
+ * Server-trusted result of Connection preflight. This is deliberately not a
+ * field on the public command schema: clients may request a Connection, but
+ * only the server may state that the switch was verified and committed.
+ */
+export interface AcceptedConnectionChange {
+  readonly previousConnectionId: string | null;
+  readonly connectionId: string | null;
+  readonly label: string;
+  readonly previousModelId: string | null;
+  readonly modelId: string;
+  readonly modelLabel: string;
+}
 // Kinds that claim exclusive ownership of a workspace root. Chat containers are excluded: they
 // use placeholder roots (e.g. the home dir) that legitimately coexist with real projects.
 const WORKSPACE_OWNING_PROJECT_KIND_SET = new Set<ContainerKind>(["project", "studio"]);
@@ -270,10 +287,7 @@ function deriveCommandAssociatedWorktreeMetadataPatch(input: {
 }
 
 type CreatedThreadWorkspaceCommand = Pick<
-  Extract<
-    OrchestrationCommand,
-    { type: "thread.create" | "thread.handoff.create" | "thread.fork.create" }
-  >,
+  Extract<OrchestrationCommand, { type: "thread.create" | "thread.fork.create" }>,
   | "envMode"
   | "branch"
   | "worktreePath"
@@ -396,11 +410,13 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
   command,
   readModel,
   workspacePaths,
+  acceptedConnectionChange,
 }: {
   readonly command: OrchestrationCommand;
   readonly readModel: OrchestrationReadModel;
   /** Reserved container roots; when provided, space assignment rejects legacy chat containers. */
   readonly workspacePaths?: SpaceAssignmentWorkspacePaths | undefined;
+  readonly acceptedConnectionChange?: AcceptedConnectionChange | undefined;
 }): Effect.fn.Return<
   Omit<OrchestrationEvent, "sequence"> | ReadonlyArray<Omit<OrchestrationEvent, "sequence">>,
   OrchestrationCommandInvariantError
@@ -485,19 +501,26 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
 
     case "space.reorder": {
       yield* requireSpace({ readModel, command, spaceId: command.spaceId });
-      const activeSpaceIds = listActiveSpaces(readModel).map((space) => space.id);
-      const orderedSpaceIds = command.orderedSpaceIds;
-      const orderedSpaceIdSet = new Set(orderedSpaceIds);
-      const hasExactActiveSet =
-        orderedSpaceIds.length === activeSpaceIds.length &&
-        orderedSpaceIdSet.size === activeSpaceIds.length &&
-        activeSpaceIds.every((spaceId) => orderedSpaceIdSet.has(spaceId));
-      if (!hasExactActiveSet) {
+      const anchorSpace = yield* requireSpace({
+        readModel,
+        command,
+        spaceId: command.position.spaceId,
+      });
+      if (anchorSpace.id === command.spaceId) {
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,
-          detail: "Space order must contain every active custom space exactly once.",
+          detail: "A Space cannot be positioned relative to itself.",
         });
       }
+      const orderedSpaceIds = listActiveSpaces(readModel)
+        .map((space) => space.id)
+        .filter((spaceId) => spaceId !== command.spaceId);
+      const anchorIndex = orderedSpaceIds.indexOf(anchorSpace.id);
+      orderedSpaceIds.splice(
+        anchorIndex + (command.position.type === "after" ? 1 : 0),
+        0,
+        command.spaceId,
+      );
       const occurredAt = nowIso();
       return {
         ...withEventBase({
@@ -637,6 +660,16 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       yield* requireSpace({ readModel, command, spaceId: command.spaceId });
       const occurredAt = nowIso();
       const seenProjectIds = new Set<string>();
+      const destinationFolderNames = new Set(
+        readModel.projects
+          .filter(
+            (project) =>
+              project.deletedAt === null &&
+              (project.kind ?? "project") === "project" &&
+              project.spaceId === command.spaceId,
+          )
+          .map((project) => normalizeEntityName(project.title)),
+      );
       const events: Array<Omit<OrchestrationEvent, "sequence">> = [];
       for (const projectId of command.projectIds) {
         if (seenProjectIds.has(projectId)) continue;
@@ -657,6 +690,14 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           projectWorkspaceRoot: project.workspaceRoot,
           workspacePaths,
         });
+        const normalizedFolderName = normalizeEntityName(project.title);
+        if (destinationFolderNames.has(normalizedFolderName)) {
+          return yield* new OrchestrationCommandInvariantError({
+            commandType: command.type,
+            detail: `A folder named '${project.title}' already exists in this Space.`,
+          });
+        }
+        destinationFolderNames.add(normalizedFolderName);
         events.push({
           ...withEventBase({
             aggregateKind: "project",
@@ -731,6 +772,15 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           detail: "Folders cannot be nested inside other folders.",
         });
       }
+      if (movedProject) {
+        yield* requireFolderNameAvailable({
+          readModel,
+          command,
+          name: movedProject.title,
+          spaceId: targetSpace.id,
+          excludeProjectId: movedProject.id,
+        });
+      }
       if (movedThread && movedThread.parentThreadId !== null) {
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,
@@ -744,7 +794,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         });
       }
 
-      const destinationItems =
+      const destinationItems = (
         command.target.kind === "space"
           ? [
               ...readModel.projects
@@ -755,7 +805,12 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
                     project.spaceId === targetSpace.id &&
                     project.id !== movedProject?.id,
                 )
-                .map((project) => ({ kind: "project" as const, id: project.id })),
+                .map((project) => ({
+                  item: { kind: "project" as const, id: project.id },
+                  pinned: project.isPinned === true,
+                  sidebarSortOrder: project.sidebarSortOrder ?? 0,
+                  createdAt: project.createdAt,
+                })),
               ...readModel.threads
                 .filter((thread) => {
                   if (!isLiveSidebarThread(thread) || thread.parentThreadId !== null) return false;
@@ -765,7 +820,12 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
                   );
                   return project?.kind === "chat" && thread.spaceId === targetSpace.id;
                 })
-                .map((thread) => ({ kind: "thread" as const, id: thread.id })),
+                .map((thread) => ({
+                  item: { kind: "thread" as const, id: thread.id },
+                  pinned: thread.isPinned === true,
+                  sidebarSortOrder: thread.sidebarSortOrder ?? 0,
+                  createdAt: thread.createdAt,
+                })),
             ]
           : readModel.threads
               .filter(
@@ -775,37 +835,44 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
                   thread.projectId === targetProject!.id &&
                   thread.id !== movedThread?.id,
               )
-              .map((thread) => ({ kind: "thread" as const, id: thread.id }));
-      const expectedItemKeySet = new Set([
-        ...destinationItems.map((item) => `${item.kind}:${item.id}`),
-        `${command.item.kind}:${command.item.id}`,
-      ]);
-      const orderedItemKeys = command.orderedItems.map((item) => `${item.kind}:${item.id}`);
-      if (
-        orderedItemKeys.length !== expectedItemKeySet.size ||
-        new Set(orderedItemKeys).size !== orderedItemKeys.length ||
-        orderedItemKeys.some((key) => !expectedItemKeySet.has(key))
-      ) {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: "The destination changed while the sidebar item was being moved. Try again.",
-        });
-      }
-
-      let encounteredUnpinned = false;
-      for (const item of command.orderedItems) {
-        const pinned =
-          item.kind === "project"
-            ? readModel.projects.find((project) => project.id === item.id)?.isPinned === true
-            : readModel.threads.find((thread) => thread.id === item.id)?.isPinned === true;
-        if (!pinned) encounteredUnpinned = true;
-        if (pinned && encounteredUnpinned) {
+              .map((thread) => ({
+                item: { kind: "thread" as const, id: thread.id },
+                pinned: thread.isPinned === true,
+                sidebarSortOrder: thread.sidebarSortOrder ?? 0,
+                createdAt: thread.createdAt,
+              }))
+      ).toSorted((left, right) => {
+        const byPinned = Number(right.pinned) - Number(left.pinned);
+        if (byPinned !== 0) return byPinned;
+        const byManualOrder = left.sidebarSortOrder - right.sidebarSortOrder;
+        if (byManualOrder !== 0) return byManualOrder;
+        const byCreatedAt = right.createdAt.localeCompare(left.createdAt);
+        if (byCreatedAt !== 0) return byCreatedAt;
+        return left.item.id.localeCompare(right.item.id);
+      });
+      const movedItemPinned = (movedProject ?? movedThread)?.isPinned === true;
+      const orderedItems = destinationItems.map(({ item }) => item);
+      let insertionIndex = destinationItems.filter(({ pinned }) => pinned).length;
+      if (command.position.type !== "pinned-boundary") {
+        const anchorItem = command.position.item;
+        const anchorIndex = destinationItems.findIndex(
+          ({ item }) => item.kind === anchorItem.kind && item.id === anchorItem.id,
+        );
+        if (anchorIndex < 0) {
           return yield* new OrchestrationCommandInvariantError({
             commandType: command.type,
-            detail: "Pinned items must remain above unpinned items.",
+            detail: "The drop anchor is no longer in the destination.",
           });
         }
+        if (destinationItems[anchorIndex]!.pinned !== movedItemPinned) {
+          return yield* new OrchestrationCommandInvariantError({
+            commandType: command.type,
+            detail: "Pinned and unpinned items cannot be interleaved.",
+          });
+        }
+        insertionIndex = anchorIndex + (command.position.type === "after" ? 1 : 0);
       }
+      orderedItems.splice(insertionIndex, 0, command.item);
 
       const projectUpdates = new Map<
         string,
@@ -824,7 +891,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           sidebarSortOrder?: number;
         }
       >();
-      command.orderedItems.forEach((item, sidebarSortOrder) => {
+      orderedItems.forEach((item, sidebarSortOrder) => {
         if (item.kind === "project") {
           projectUpdates.set(item.id, { projectId: item.id, sidebarSortOrder });
         } else {
@@ -934,6 +1001,12 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         }
         yield* requireSpace({ readModel, command, spaceId: command.spaceId });
         creationSpaceId = command.spaceId;
+        yield* requireFolderNameAvailable({
+          readModel,
+          command,
+          name: command.title,
+          spaceId: command.spaceId,
+        });
       } else if (command.spaceId != null) {
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,
@@ -993,7 +1066,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             : undefined;
       const effectiveSpaceId =
         requestedSpaceId !== undefined ? requestedSpaceId : existingProject.spaceId;
-      if (nextProjectKind === "project" && effectiveSpaceId === null) {
+      if (nextProjectKind === "project" && effectiveSpaceId == null) {
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,
           detail: "Every folder must remain assigned to a persisted Space.",
@@ -1070,6 +1143,15 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           });
         }
         yield* requireSpace({ readModel, command, spaceId: command.spaceId });
+      }
+      if (nextProjectKind === "project" && effectiveSpaceId != null) {
+        yield* requireFolderNameAvailable({
+          readModel,
+          command,
+          name: command.title ?? existingProject.title,
+          spaceId: effectiveSpaceId,
+          excludeProjectId: command.projectId,
+        });
       }
       if (
         requestedSpaceId !== undefined &&
@@ -1196,7 +1278,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           title: command.title,
           modelSelection: command.modelSelection,
           runtimeMode: command.runtimeMode,
-          interactionMode: command.interactionMode,
           ...resolveCreatedThreadWorkspaceMetadata(project.kind, command),
           createBranchFlowCompleted:
             project.kind === "studio" ? false : command.createBranchFlowCompleted,
@@ -1216,113 +1297,10 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           subagentRole: command.subagentRole,
           forkSourceThreadId: null,
           lastKnownPr: command.lastKnownPr,
-          handoff: null,
           createdAt: command.createdAt,
           updatedAt: command.createdAt,
         },
       };
-    }
-
-    case "thread.handoff.create": {
-      const project = yield* requireProject({
-        readModel,
-        command,
-        projectId: command.projectId,
-      });
-      yield* requireThread({
-        readModel,
-        command,
-        threadId: command.sourceThreadId,
-      });
-      yield* requireThreadAbsent({
-        readModel,
-        command,
-        threadId: command.threadId,
-      });
-
-      const sourceThread = yield* requireThread({
-        readModel,
-        command,
-        threadId: command.sourceThreadId,
-      });
-      if (sourceThread.projectId !== command.projectId) {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: `Source thread '${command.sourceThreadId}' belongs to a different project.`,
-        });
-      }
-      if (sourceThread.handoff !== null && !hasNativeHandoffMessages(sourceThread)) {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: `Source thread '${command.sourceThreadId}' must contain at least one native chat message after handoff before it can be handed off again.`,
-        });
-      }
-
-      const createdEvent: Omit<OrchestrationEvent, "sequence"> = {
-        ...withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.threadId,
-          occurredAt: command.createdAt,
-          commandId: command.commandId,
-        }),
-        type: "thread.created",
-        payload: {
-          threadId: command.threadId,
-          projectId: command.projectId,
-          spaceId: project.kind === "chat" ? sourceThread.spaceId : null,
-          title: command.title,
-          modelSelection: command.modelSelection,
-          runtimeMode: command.runtimeMode,
-          interactionMode: command.interactionMode,
-          ...resolveCreatedThreadWorkspaceMetadata(project.kind, command),
-          createBranchFlowCompleted:
-            project.kind === "studio" ? false : command.createBranchFlowCompleted,
-          isPinned: false,
-          parentThreadId: null,
-          subagentAgentId: null,
-          subagentNickname: null,
-          subagentRole: null,
-          forkSourceThreadId: null,
-          handoff: {
-            sourceThreadId: command.sourceThreadId,
-            sourceProvider: sourceThread.modelSelection.provider,
-            importedAt: command.createdAt,
-            bootstrapStatus: "pending",
-          },
-          createdAt: command.createdAt,
-          updatedAt: command.createdAt,
-        },
-      };
-
-      // Imported messages keep their source-thread timestamps so the transcript still
-      // reads chronologically. They are not activity in this thread: the retention
-      // clock floors on the new thread's own createdAt/updatedAt (see
-      // `threadRetention.getThreadLastActivityMs`) so a handoff of an old
-      // conversation is never born past the retention cutoff.
-      const importedMessageEvents: ReadonlyArray<Omit<OrchestrationEvent, "sequence">> =
-        command.importedMessages.map((message) => ({
-          ...withEventBase({
-            aggregateKind: "thread",
-            aggregateId: command.threadId,
-            occurredAt: command.createdAt,
-            commandId: command.commandId,
-          }),
-          type: "thread.message-sent",
-          payload: {
-            threadId: command.threadId,
-            messageId: message.messageId,
-            role: message.role,
-            text: message.text,
-            ...(message.attachments !== undefined ? { attachments: message.attachments } : {}),
-            turnId: null,
-            streaming: false,
-            source: "handoff-import",
-            createdAt: message.createdAt,
-            updatedAt: message.updatedAt,
-          },
-        }));
-
-      return [createdEvent, ...importedMessageEvents];
     }
 
     case "thread.fork.create": {
@@ -1369,7 +1347,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           title: command.title,
           modelSelection: command.modelSelection,
           runtimeMode: command.runtimeMode,
-          interactionMode: command.interactionMode,
           ...resolveCreatedThreadWorkspaceMetadata(project.kind, command),
           createBranchFlowCompleted:
             project.kind === "studio" ? false : command.createBranchFlowCompleted,
@@ -1379,8 +1356,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           subagentNickname: null,
           subagentRole: null,
           forkSourceThreadId: command.sourceThreadId,
-          sidechatSourceThreadId: command.sidechatSourceThreadId,
-          handoff: null,
           createdAt: command.createdAt,
           updatedAt: command.createdAt,
         },
@@ -1547,7 +1522,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             ? { subagentNickname: command.subagentNickname }
             : {}),
           ...(command.subagentRole !== undefined ? { subagentRole: command.subagentRole } : {}),
-          ...(command.handoff !== undefined ? { handoff: command.handoff } : {}),
           ...(command.lastKnownPr !== undefined ? { lastKnownPr: command.lastKnownPr } : {}),
           ...(command.pinnedMessages !== undefined
             ? { pinnedMessages: command.pinnedMessages }
@@ -1830,29 +1804,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
-    case "thread.interaction-mode.set": {
-      yield* requireThread({
-        readModel,
-        command,
-        threadId: command.threadId,
-      });
-      const occurredAt = nowIso();
-      return {
-        ...withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.threadId,
-          occurredAt,
-          commandId: command.commandId,
-        }),
-        type: "thread.interaction-mode-set",
-        payload: {
-          threadId: command.threadId,
-          interactionMode: command.interactionMode,
-          updatedAt: occurredAt,
-        },
-      };
-    }
-
     case "thread.turn.start": {
       const targetThread = yield* requireThread({
         readModel,
@@ -1865,31 +1816,99 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           detail: checkpointRevertInProgressDetail(command.threadId),
         });
       }
-      const sourceProposedPlan = command.sourceProposedPlan;
-      const sourceThread = sourceProposedPlan
-        ? yield* requireThread({
-            readModel,
-            command,
-            threadId: sourceProposedPlan.threadId,
-          })
-        : null;
-      const sourcePlan =
-        sourceProposedPlan && sourceThread
-          ? sourceThread.proposedPlans.find((entry) => entry.id === sourceProposedPlan.planId)
-          : null;
       const dispatchMode = command.dispatchMode ?? "queue";
-      if (sourceProposedPlan && !sourcePlan) {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: `Proposed plan '${sourceProposedPlan.planId}' does not exist on thread '${sourceProposedPlan.threadId}'.`,
-        });
-      }
-      if (sourceThread && sourceThread.projectId !== targetThread.projectId) {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: `Proposed plan '${sourceProposedPlan?.planId}' belongs to thread '${sourceThread.id}' in a different project.`,
-        });
-      }
+      const modelSelectionChangedEvent: Omit<OrchestrationEvent, "sequence"> | null =
+        acceptedConnectionChange === undefined ||
+        acceptedConnectionChange.previousModelId === null ||
+        acceptedConnectionChange.modelId === acceptedConnectionChange.previousModelId ||
+        command.modelSelection === undefined
+          ? null
+          : {
+              ...withEventBase({
+                aggregateKind: "thread",
+                aggregateId: command.threadId,
+                occurredAt: command.createdAt,
+                commandId: command.commandId,
+              }),
+              type: "thread.meta-updated",
+              payload: {
+                threadId: command.threadId,
+                modelSelection: command.modelSelection,
+                updatedAt: command.createdAt,
+              },
+            };
+      const connectionChangedEvent: Omit<OrchestrationEvent, "sequence"> | null =
+        acceptedConnectionChange === undefined ||
+        acceptedConnectionChange.connectionId === null ||
+        acceptedConnectionChange.connectionId === acceptedConnectionChange.previousConnectionId
+          ? null
+          : {
+              ...withEventBase({
+                aggregateKind: "thread",
+                aggregateId: command.threadId,
+                occurredAt: command.createdAt,
+                commandId: command.commandId,
+              }),
+              ...(modelSelectionChangedEvent === null
+                ? {}
+                : { causationEventId: modelSelectionChangedEvent.eventId }),
+              type: "thread.activity-appended",
+              payload: {
+                threadId: command.threadId,
+                activity: {
+                  id: EventId.makeUnsafe(crypto.randomUUID()),
+                  tone: "info",
+                  kind: CONNECTION_CHANGED_ACTIVITY_KIND,
+                  summary: `Connection changed to ${acceptedConnectionChange.label}`,
+                  payload: {
+                    previousConnectionId: acceptedConnectionChange.previousConnectionId,
+                    connectionId: acceptedConnectionChange.connectionId,
+                  },
+                  turnId: null,
+                  createdAt: command.createdAt,
+                },
+              },
+            };
+      const modelChangedEvent: Omit<OrchestrationEvent, "sequence"> | null =
+        acceptedConnectionChange === undefined ||
+        acceptedConnectionChange.previousModelId === null ||
+        acceptedConnectionChange.modelId === acceptedConnectionChange.previousModelId
+          ? null
+          : {
+              ...withEventBase({
+                aggregateKind: "thread",
+                aggregateId: command.threadId,
+                occurredAt: command.createdAt,
+                commandId: command.commandId,
+              }),
+              ...(connectionChangedEvent === null
+                ? modelSelectionChangedEvent === null
+                  ? {}
+                  : { causationEventId: modelSelectionChangedEvent.eventId }
+                : { causationEventId: connectionChangedEvent.eventId }),
+              type: "thread.activity-appended",
+              payload: {
+                threadId: command.threadId,
+                activity: {
+                  id: EventId.makeUnsafe(crypto.randomUUID()),
+                  tone: "info",
+                  kind: MODEL_CHANGED_ACTIVITY_KIND,
+                  summary: `Model changed to ${acceptedConnectionChange.modelLabel}`,
+                  payload: {
+                    previousModelId: acceptedConnectionChange.previousModelId,
+                    modelId: acceptedConnectionChange.modelId,
+                    modelLabel: acceptedConnectionChange.modelLabel,
+                  },
+                  turnId: null,
+                  createdAt: command.createdAt,
+                },
+              },
+            };
+      const selectionChangedEvents = [
+        modelSelectionChangedEvent,
+        connectionChangedEvent,
+        modelChangedEvent,
+      ].filter((event): event is Omit<OrchestrationEvent, "sequence"> => event !== null);
       const userMessageEvent: Omit<OrchestrationEvent, "sequence"> = {
         ...withEventBase({
           aggregateKind: "thread",
@@ -1897,6 +1916,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           occurredAt: command.createdAt,
           commandId: command.commandId,
         }),
+        ...(selectionChangedEvents.length === 0
+          ? {}
+          : { causationEventId: selectionChangedEvents.at(-1)!.eventId }),
         type: "thread.message-sent",
         payload: {
           threadId: command.threadId,
@@ -1924,6 +1946,10 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         threadId: command.threadId,
         messageId: command.message.messageId,
         ...(command.modelSelection !== undefined ? { modelSelection: command.modelSelection } : {}),
+        ...(command.connectionId !== undefined ? { connectionId: command.connectionId } : {}),
+        ...(command.bindingRevision !== undefined
+          ? { bindingRevision: command.bindingRevision }
+          : {}),
         ...(command.providerOptions !== undefined
           ? { providerOptions: command.providerOptions }
           : {}),
@@ -1932,20 +1958,19 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         dispatchMode,
         dispatchOrigin: command.dispatchOrigin ?? "user",
         runtimeMode: command.runtimeMode,
-        interactionMode: command.interactionMode,
-        ...(sourceProposedPlan !== undefined ? { sourceProposedPlan } : {}),
         createdAt: command.createdAt,
       } as const;
       const activeProvider =
         targetThread.session?.providerName ?? targetThread.modelSelection.provider;
-      const isThreadRunning =
-        targetThread.session?.status === "running" && targetThread.session.activeTurnId !== null;
+      const hasTurnInFlight =
+        targetThread.session?.status === "starting" ||
+        (targetThread.session?.status === "running" && targetThread.session.activeTurnId !== null);
       // Subagent threads never queue: their messages steer the running child task
       // through the parent session, so deferring until the turn settles would
       // deliver the message only after the subagent already finished.
       const shouldQueue =
         targetThread.parentThreadId === null &&
-        isThreadRunning &&
+        hasTurnInFlight &&
         (dispatchMode === "queue" || activeProvider !== "codex");
       const queuedEvent: Omit<OrchestrationEvent, "sequence"> = {
         ...withEventBase({
@@ -1960,6 +1985,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
       if (shouldQueue && dispatchMode === "steer") {
         return [
+          ...selectionChangedEvents,
           userMessageEvent,
           queuedEvent,
           {
@@ -1979,7 +2005,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           },
         ];
       }
-      return [userMessageEvent, queuedEvent];
+      return [...selectionChangedEvents, userMessageEvent, queuedEvent];
     }
 
     case "thread.turn.dispatch-queued": {
@@ -2008,6 +2034,10 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           ...(command.modelSelection !== undefined
             ? { modelSelection: command.modelSelection }
             : {}),
+          ...(command.connectionId !== undefined ? { connectionId: command.connectionId } : {}),
+          ...(command.bindingRevision !== undefined
+            ? { bindingRevision: command.bindingRevision }
+            : {}),
           ...(command.providerOptions !== undefined
             ? { providerOptions: command.providerOptions }
             : {}),
@@ -2016,10 +2046,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           dispatchMode: command.dispatchMode ?? "queue",
           dispatchOrigin: command.dispatchOrigin ?? "user",
           runtimeMode: command.runtimeMode,
-          interactionMode: command.interactionMode,
-          ...(command.sourceProposedPlan !== undefined
-            ? { sourceProposedPlan: command.sourceProposedPlan }
-            : {}),
           createdAt: command.createdAt,
         },
       };
@@ -2322,6 +2348,8 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           ...(command.modelSelection !== undefined
             ? { modelSelection: command.modelSelection }
             : {}),
+          connectionId: command.connectionId,
+          bindingRevision: command.bindingRevision,
           ...(command.providerOptions !== undefined
             ? { providerOptions: command.providerOptions }
             : {}),
@@ -2329,7 +2357,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             ? { assistantDeliveryMode: command.assistantDeliveryMode }
             : {}),
           runtimeMode: command.runtimeMode,
-          interactionMode: command.interactionMode,
           createdAt: command.createdAt,
         },
       };
@@ -2504,27 +2531,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           streaming: false,
           createdAt: command.createdAt,
           updatedAt: command.createdAt,
-        },
-      };
-    }
-
-    case "thread.proposed-plan.upsert": {
-      yield* requireThread({
-        readModel,
-        command,
-        threadId: command.threadId,
-      });
-      return {
-        ...withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.threadId,
-          occurredAt: command.createdAt,
-          commandId: command.commandId,
-        }),
-        type: "thread.proposed-plan-upserted",
-        payload: {
-          threadId: command.threadId,
-          proposedPlan: command.proposedPlan,
         },
       };
     }

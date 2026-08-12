@@ -28,6 +28,14 @@ import {
   AgentGatewayCredentials,
   type AgentGatewayCredentialsShape,
 } from "../../agentGateway/Services/AgentGatewayCredentials.ts";
+import { AgentGatewayToolBridge } from "../../agentGateway/Services/AgentGatewayToolBridge.ts";
+import { makeAgentGatewayToolBridge } from "../../agentGateway/Layers/AgentGatewayToolBridge.ts";
+import {
+  PENKRA_EXEC_COMMAND_ANNOTATIONS,
+  PENKRA_EXEC_COMMAND_DESCRIPTION,
+  PENKRA_EXEC_COMMAND_INPUT_SCHEMA,
+  PENKRA_EXEC_COMMAND_NAME,
+} from "../../agentGateway/hostToolContract.ts";
 import { ServerConfig } from "../../config.ts";
 import { ProviderAdapterRequestError, ProviderAdapterValidationError } from "../Errors.ts";
 import { ClaudeAdapter } from "../Services/ClaudeAdapter.ts";
@@ -270,8 +278,21 @@ function makeMultiQueryHarness(config?: {
     Layer.provideMerge(NodeServices.layer),
   );
   if (config?.gatewayCredentials) {
+    const bridge = makeAgentGatewayToolBridge();
+    bridge.install({
+      definitions: [
+        {
+          name: PENKRA_EXEC_COMMAND_NAME,
+          description: PENKRA_EXEC_COMMAND_DESCRIPTION,
+          inputSchema: PENKRA_EXEC_COMMAND_INPUT_SCHEMA,
+          annotations: PENKRA_EXEC_COMMAND_ANNOTATIONS,
+        },
+      ],
+      invoke: async () => ({ content: [{ type: "text", text: "ok" }] }),
+    });
     layer = layer.pipe(
       Layer.provideMerge(Layer.succeed(AgentGatewayCredentials, config.gatewayCredentials)),
+      Layer.provideMerge(Layer.succeed(AgentGatewayToolBridge, bridge)),
     );
   }
 
@@ -386,12 +407,90 @@ describe("Claude Penkra harness policy", () => {
 });
 
 describe("ClaudeAdapterLive", () => {
+  it.effect("silently verifies an exact Claude continuation with startup and no prompt", () => {
+    const resume = "44c0b890-8775-4f30-b47f-0709d29cc9e1";
+    let warmInput:
+      | {
+          readonly options: ClaudeQueryOptions;
+          readonly initializeTimeoutMs: number;
+        }
+      | undefined;
+    let disposed = false;
+    const layer = makeClaudeAdapterLive({
+      createWarmQuery: (input) => {
+        warmInput = input;
+        return {
+          close: () => undefined,
+          [Symbol.asyncDispose]: async () => {
+            disposed = true;
+          },
+        };
+      },
+      createQuery: () => {
+        throw new Error("Native continuation verification must not create a query.");
+      },
+    }).pipe(
+      Layer.provideMerge(ServerConfig.layerTest("/tmp/claude-adapter-test", "/tmp")),
+      Layer.provideMerge(NodeServices.layer),
+    );
+
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const sourceResumeCursor = { resume, turnCount: 4 };
+      assert.ok(adapter.verifyNativeResume);
+      const result = yield* adapter.verifyNativeResume({
+        sourceResumeCursor,
+        managedLaunch: {
+          binaryPath: "/managed/claude",
+          isolationKey: "connection:work:generation:2",
+          profileRoot: "/isolated/profile",
+          nativeStateRoot: "/isolated/native",
+          childEnvironment: () => ({
+            PATH: "/managed/bin",
+            CLAUDE_CONFIG_DIR: "/isolated/claude-config",
+            CLAUDE_CODE_OAUTH_TOKEN: "target-token",
+          }),
+        },
+        cwd: "/repo/exact",
+        runtimeMode: "full-access",
+      });
+
+      assert.deepEqual(result, {
+        providerSessionId: resume,
+        resumeCursor: sourceResumeCursor,
+      });
+      assert.ok(warmInput);
+      assert.equal(warmInput.initializeTimeoutMs, 60_000);
+      assert.deepEqual(warmInput.options, {
+        cwd: "/repo/exact",
+        resume,
+        env: {
+          PATH: "/managed/bin",
+          CLAUDE_CONFIG_DIR: "/isolated/claude-config",
+          CLAUDE_CODE_OAUTH_TOKEN: "target-token",
+        },
+        pathToClaudeCodeExecutable: "/managed/claude",
+        settingSources: [],
+        ...(warmInput.options.spawnClaudeCodeProcess === undefined
+          ? {}
+          : {
+              spawnClaudeCodeProcess: warmInput.options.spawnClaudeCodeProcess,
+            }),
+      });
+      assert.equal(disposed, true);
+    }).pipe(Effect.provide(layer));
+  });
+
   it.effect("returns validation error for non-claude provider on startSession", () => {
     const harness = makeHarness();
     return Effect.gen(function* () {
       const adapter = yield* ClaudeAdapter;
       const result = yield* adapter
-        .startSession({ threadId: THREAD_ID, provider: "codex", runtimeMode: "full-access" })
+        .startSession({
+          threadId: THREAD_ID,
+          provider: "codex",
+          runtimeMode: "full-access",
+        })
         .pipe(Effect.result);
 
       assert.equal(result._tag, "Failure");
@@ -424,7 +523,7 @@ describe("ClaudeAdapterLive", () => {
 
       const createInput = harness.getLastCreateQueryInput();
       assert.deepEqual(createInput?.options.settingSources, ["user", "project", "local"]);
-      assert.equal(createInput?.options.strictMcpConfig, true);
+      assert.equal(createInput?.options.strictMcpConfig, undefined);
       assert.equal(createInput?.options.permissionMode, "bypassPermissions");
       assert.equal(createInput?.options.allowDangerouslySkipPermissions, true);
     }).pipe(
@@ -433,7 +532,7 @@ describe("ClaudeAdapterLive", () => {
     );
   });
 
-  it.effect("loads Claude filesystem settings sources for SDK sessions", () => {
+  it.effect("preserves Claude filesystem settings and native MCP discovery", () => {
     const harness = makeHarness();
     return Effect.gen(function* () {
       const adapter = yield* ClaudeAdapter;
@@ -445,7 +544,7 @@ describe("ClaudeAdapterLive", () => {
 
       const createInput = harness.getLastCreateQueryInput();
       assert.deepEqual(createInput?.options.settingSources, ["user", "project", "local"]);
-      assert.equal(createInput?.options.strictMcpConfig, true);
+      assert.equal(createInput?.options.strictMcpConfig, undefined);
       assert.equal(createInput?.options.permissionMode, undefined);
       assert.equal(createInput?.options.allowDangerouslySkipPermissions, undefined);
       const systemPrompt = createInput?.options.systemPrompt;
@@ -471,7 +570,36 @@ describe("ClaudeAdapterLive", () => {
     );
   });
 
-  it.effect("keeps explicit claude permission mode over runtime-derived defaults", () => {
+  it.effect("adds the Penkra gateway without disabling Claude native MCP discovery", () => {
+    const gateway = makeGatewayCredentialsHarness();
+    const harness = makeMultiQueryHarness({
+      gatewayCredentials: gateway.credentials,
+    });
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: "claudeAgent",
+        runtimeMode: "full-access",
+      });
+
+      const createInput = harness.createInputs[0];
+      assert.deepEqual(createInput?.options.settingSources, ["user", "project", "local"]);
+      assert.equal(createInput?.options.strictMcpConfig, undefined);
+      const penkraServer = createInput?.options.mcpServers?.penkra;
+      assert.equal(penkraServer?.type, "sdk");
+      if (penkraServer?.type !== "sdk") {
+        return yield* Effect.die("Expected the Penkra MCP server to use the SDK transport.");
+      }
+      assert.equal(penkraServer.name, "penkra");
+      assert.property(penkraServer, "instance");
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("keeps an explicit non-plan Claude permission mode over runtime defaults", () => {
     const harness = makeHarness();
     return Effect.gen(function* () {
       const adapter = yield* ClaudeAdapter;
@@ -481,13 +609,13 @@ describe("ClaudeAdapterLive", () => {
         runtimeMode: "full-access",
         providerOptions: {
           claudeAgent: {
-            permissionMode: "plan",
+            permissionMode: "acceptEdits",
           },
         },
       });
 
       const createInput = harness.getLastCreateQueryInput();
-      assert.equal(createInput?.options.permissionMode, "plan");
+      assert.equal(createInput?.options.permissionMode, "acceptEdits");
       assert.equal(createInput?.options.allowDangerouslySkipPermissions, undefined);
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
@@ -701,7 +829,7 @@ describe("ClaudeAdapterLive", () => {
         provider: "claudeAgent",
         modelSelection: {
           provider: "claudeAgent",
-          model: "claude-haiku-4-5",
+          model: "claude-haiku-4-5-20251001",
           options: {
             effort: "high",
           },
@@ -726,7 +854,7 @@ describe("ClaudeAdapterLive", () => {
         provider: "claudeAgent",
         modelSelection: {
           provider: "claudeAgent",
-          model: "claude-haiku-4-5",
+          model: "claude-haiku-4-5-20251001",
           options: {
             thinking: false,
           },
@@ -925,55 +1053,6 @@ describe("ClaudeAdapterLive", () => {
         attachments: [],
       });
       assert.deepEqual(harness.query.setPermissionModeCalls, ["bypassPermissions"]);
-    }).pipe(
-      Effect.provideService(Random.Random, makeDeterministicRandomService()),
-      Effect.provide(harness.layer),
-    );
-  });
-
-  it.effect("sends setPermissionMode on each turn of a plan then default sequence", () => {
-    const harness = makeHarness();
-    return Effect.gen(function* () {
-      const adapter = yield* ClaudeAdapter;
-      const session = yield* adapter.startSession({
-        threadId: THREAD_ID,
-        provider: "claudeAgent",
-        runtimeMode: "full-access",
-      });
-
-      // Plan differs from the spawn mode (bypassPermissions) -> request is sent
-      // even though this is the first turn.
-      yield* adapter.sendTurn({
-        threadId: session.threadId,
-        input: "Plan this",
-        attachments: [],
-        interactionMode: "plan",
-      });
-      assert.deepEqual(harness.query.setPermissionModeCalls, ["plan"]);
-
-      // A following default turn auto-closes the stale plan turn and restores the
-      // base bypassPermissions mode -> request is sent again.
-      yield* adapter.sendTurn({
-        threadId: session.threadId,
-        input: "Now build it",
-        attachments: [],
-        interactionMode: "default",
-      });
-      assert.deepEqual(harness.query.setPermissionModeCalls, ["plan", "bypassPermissions"]);
-
-      // The first-turn skip window has closed, so a third identical default turn
-      // re-sends unconditionally rather than skipping.
-      yield* adapter.sendTurn({
-        threadId: session.threadId,
-        input: "Keep going",
-        attachments: [],
-        interactionMode: "default",
-      });
-      assert.deepEqual(harness.query.setPermissionModeCalls, [
-        "plan",
-        "bypassPermissions",
-        "bypassPermissions",
-      ]);
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
       Effect.provide(harness.layer),
@@ -2200,7 +2279,13 @@ describe("ClaudeAdapterLive", () => {
       harness.query.emit({
         type: "system",
         subtype: "background_tasks_changed",
-        tasks: [{ task_id: "bg-1", task_type: "local_bash", description: "sleep 120" }],
+        tasks: [
+          {
+            task_id: "bg-1",
+            task_type: "local_bash",
+            description: "sleep 120",
+          },
+        ],
         session_id: "sdk-session-bg",
         uuid: "bg-change-1",
       } as unknown as SDKMessage);
@@ -2209,7 +2294,11 @@ describe("ClaudeAdapterLive", () => {
         type: "system",
         subtype: "background_tasks_changed",
         tasks: [
-          { task_id: "bg-1", task_type: "local_bash", description: "sleep 120" },
+          {
+            task_id: "bg-1",
+            task_type: "local_bash",
+            description: "sleep 120",
+          },
           { task_id: "bg-2", task_type: "subagent", description: "beta" },
         ],
         session_id: "sdk-session-bg",
@@ -2713,7 +2802,9 @@ describe("ClaudeAdapterLive", () => {
       });
 
       const result = yield* adapter
-        .steerSubagent(session.threadId, "tool-task-finished", { input: "too late" })
+        .steerSubagent(session.threadId, "tool-task-finished", {
+          input: "too late",
+        })
         .pipe(Effect.result);
       assert.equal(result._tag, "Failure");
       if (result._tag === "Failure") {
@@ -3171,7 +3262,12 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
               model: "haiku",
               state: "completed",
             },
-            { type: "workflow_agent", label: "delta-agent", phaseIndex: 1, state: "completed" },
+            {
+              type: "workflow_agent",
+              label: "delta-agent",
+              phaseIndex: 1,
+              state: "completed",
+            },
           ],
         }),
       );
@@ -3361,7 +3457,10 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
         [
           JSON.stringify({
             type: "user",
-            message: { role: "user", content: "Research prior art in depth." },
+            message: {
+              role: "user",
+              content: "Research prior art in depth.",
+            },
             timestamp: "2026-07-14T22:48:58.400Z",
           }),
           JSON.stringify({
@@ -3370,7 +3469,14 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
               id: "msg_1",
               role: "assistant",
               model: "claude-sonnet-4-6",
-              content: [{ type: "tool_use", id: "toolu_1", name: "WebSearch", input: {} }],
+              content: [
+                {
+                  type: "tool_use",
+                  id: "toolu_1",
+                  name: "WebSearch",
+                  input: {},
+                },
+              ],
               usage: {
                 input_tokens: 3,
                 cache_creation_input_tokens: 17_276,
@@ -3528,7 +3634,14 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
             id: "msg_1",
             role: "assistant",
             model: "claude-sonnet-4-6",
-            content: [{ type: "tool_use", id: "toolu_1", name: "WebSearch", input: {} }],
+            content: [
+              {
+                type: "tool_use",
+                id: "toolu_1",
+                name: "WebSearch",
+                input: {},
+              },
+            ],
           },
           timestamp: "2026-07-14T22:49:14.490Z",
         })}\n`,
@@ -3768,7 +3881,9 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
 
       yield* Effect.promise(() => new Promise<void>((resolve) => setTimeout(resolve, 10)));
       const result = yield* adapter
-        .steerSubagent(session.threadId, "tool-task-terminal-update", { input: "too late" })
+        .steerSubagent(session.threadId, "tool-task-terminal-update", {
+          input: "too late",
+        })
         .pipe(Effect.result);
       assert.equal(result._tag, "Failure");
       if (result._tag === "Failure") {
@@ -5647,7 +5762,12 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
           message: {
             id: "assistant-message-early",
             content: [
-              { type: "tool_use", id: "tool-early", name: "Read", input: { path: "a.ts" } },
+              {
+                type: "tool_use",
+                id: "tool-early",
+                name: "Read",
+                input: { path: "a.ts" },
+              },
             ],
           },
         } as unknown as SDKMessage);
@@ -6865,7 +6985,7 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
         runtimeMode: "full-access",
         modelSelection: {
           provider: "claudeAgent",
-          model: "claude-haiku-4-5",
+          model: "claude-haiku-4-5-20251001",
           options: { thinking: false },
         },
       });
@@ -6878,7 +6998,7 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
         input: "hello",
         modelSelection: {
           provider: "claudeAgent",
-          model: "claude-haiku-4-5",
+          model: "claude-haiku-4-5-20251001",
           options: { thinking: true },
         },
         attachments: [],
@@ -6891,7 +7011,7 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
         input: "continue",
         modelSelection: {
           provider: "claudeAgent",
-          model: "claude-haiku-4-5",
+          model: "claude-haiku-4-5-20251001",
           options: { thinking: true },
         },
         attachments: [],
@@ -7361,7 +7481,9 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
 
   it.effect("releases the gateway lease when the Claude stream aborts spontaneously", () => {
     const gateway = makeGatewayCredentialsHarness();
-    const harness = makeMultiQueryHarness({ gatewayCredentials: gateway.credentials });
+    const harness = makeMultiQueryHarness({
+      gatewayCredentials: gateway.credentials,
+    });
     return Effect.gen(function* () {
       const adapter = yield* ClaudeAdapter;
       yield* adapter.startSession({
@@ -7420,6 +7542,9 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
 
   it.effect("discovers canonical future Claude models before a session starts", () => {
     const query = new FakeClaudeQuery();
+    let discoveryInput:
+      | Parameters<NonNullable<ClaudeAdapterLiveOptions["createQuery"]>>[0]
+      | undefined;
     (query as { supportedModels: () => Promise<ModelInfo[]> }).supportedModels = async () => [
       {
         value: "default",
@@ -7438,7 +7563,12 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
         supportsFastMode: true,
       },
     ];
-    const layer = makeClaudeAdapterLive({ createQuery: () => query }).pipe(
+    const layer = makeClaudeAdapterLive({
+      createQuery: (input) => {
+        discoveryInput = input;
+        return query;
+      },
+    }).pipe(
       Layer.provideMerge(ServerConfig.layerTest("/tmp/claude-adapter-test", "/tmp")),
       Layer.provideMerge(NodeServices.layer),
     );
@@ -7451,8 +7581,17 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
       }
       const result = yield* listModels({
         provider: "claudeAgent",
-        binaryPath: "/custom/claude",
         cwd: "/tmp/claude-model-discovery",
+        managedLaunch: {
+          binaryPath: "/managed/claude",
+          isolationKey: "connection:work:discovery",
+          profileRoot: "/isolated/profile",
+          nativeStateRoot: "/isolated/native",
+          childEnvironment: () => ({
+            CLAUDE_CONFIG_DIR: "/isolated/claude-config",
+            CLAUDE_CODE_OAUTH_TOKEN: "selected-only",
+          }),
+        },
       });
 
       assert.deepEqual(result, {
@@ -7470,7 +7609,86 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
         cached: false,
       });
       assert.equal(query.closeCalls, 1);
+      assert.equal(discoveryInput?.options.pathToClaudeCodeExecutable, "/managed/claude");
+      assert.deepEqual(discoveryInput?.options.env, {
+        CLAUDE_CONFIG_DIR: "/isolated/claude-config",
+        CLAUDE_CODE_OAUTH_TOKEN: "selected-only",
+      });
       assert.equal(yield* adapter.hasSession(THREAD_ID), false);
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(layer),
+    );
+  });
+
+  it.effect("discovers Claude agents inside each exact managed Connection profile", () => {
+    const queries = [new FakeClaudeQuery(), new FakeClaudeQuery()];
+    const discoveryInputs: Array<
+      Parameters<NonNullable<ClaudeAdapterLiveOptions["createQuery"]>>[0]
+    > = [];
+    for (const [index, query] of queries.entries()) {
+      (query as { supportedAgents: () => Promise<unknown[]> }).supportedAgents = async () => [
+        {
+          name: index === 0 ? "personal-review" : "work-review",
+          description: index === 0 ? "Personal reviewer" : "Work reviewer",
+        },
+      ];
+    }
+    const layer = makeClaudeAdapterLive({
+      createQuery: (input) => {
+        discoveryInputs.push(input);
+        const query = queries[discoveryInputs.length - 1];
+        if (!query) throw new Error("Unexpected discovery query.");
+        return query;
+      },
+    }).pipe(
+      Layer.provideMerge(ServerConfig.layerTest("/tmp/claude-adapter-test", "/tmp")),
+      Layer.provideMerge(NodeServices.layer),
+    );
+
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const listAgents = adapter.listAgents;
+      if (!listAgents) throw new Error("Expected Claude adapter agent discovery.");
+      const personal = yield* listAgents({
+        provider: "claudeAgent",
+        managedLaunch: {
+          binaryPath: "/managed/claude",
+          isolationKey: "connection:personal:agents",
+          profileRoot: "/profiles/personal",
+          nativeStateRoot: "/native/personal",
+          childEnvironment: () => ({
+            CLAUDE_CONFIG_DIR: "/profiles/personal",
+          }),
+        },
+      });
+      const work = yield* listAgents({
+        provider: "claudeAgent",
+        managedLaunch: {
+          binaryPath: "/managed/claude",
+          isolationKey: "connection:work:agents",
+          profileRoot: "/profiles/work",
+          nativeStateRoot: "/native/work",
+          childEnvironment: () => ({ CLAUDE_CONFIG_DIR: "/profiles/work" }),
+        },
+      });
+
+      assert.deepEqual(
+        personal.agents.map((agent) => agent.name),
+        ["personal-review"],
+      );
+      assert.deepEqual(
+        work.agents.map((agent) => agent.name),
+        ["work-review"],
+      );
+      assert.deepEqual(
+        discoveryInputs.map((input) => input.options.env?.CLAUDE_CONFIG_DIR),
+        ["/profiles/personal", "/profiles/work"],
+      );
+      assert.deepEqual(
+        queries.map((query) => query.closeCalls),
+        [1, 1],
+      );
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
       Effect.provide(layer),
@@ -7842,88 +8060,6 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
     );
   });
 
-  it.effect("sets plan permission mode on sendTurn when interactionMode is plan", () => {
-    const harness = makeHarness();
-    return Effect.gen(function* () {
-      const adapter = yield* ClaudeAdapter;
-
-      const session = yield* adapter.startSession({
-        threadId: THREAD_ID,
-        provider: "claudeAgent",
-        runtimeMode: "full-access",
-      });
-      yield* adapter.sendTurn({
-        threadId: session.threadId,
-        input: "plan this for me",
-        interactionMode: "plan",
-        attachments: [],
-      });
-
-      assert.deepEqual(harness.query.setPermissionModeCalls, ["plan"]);
-      const promptText = yield* Effect.promise(() =>
-        readFirstPromptText(harness.getLastCreateQueryInput()),
-      );
-      assert.include(promptText ?? "", "Penkra plan mode is active.");
-      assert.include(promptText ?? "", "<proposed_plan>");
-      assert.include(promptText ?? "", "User request:\nplan this for me");
-    }).pipe(
-      Effect.provideService(Random.Random, makeDeterministicRandomService()),
-      Effect.provide(harness.layer),
-    );
-  });
-
-  it.effect("restores base permission mode on sendTurn when interactionMode is default", () => {
-    const harness = makeHarness();
-    return Effect.gen(function* () {
-      const adapter = yield* ClaudeAdapter;
-
-      const session = yield* adapter.startSession({
-        threadId: THREAD_ID,
-        provider: "claudeAgent",
-        runtimeMode: "full-access",
-      });
-
-      // First turn in plan mode
-      yield* adapter.sendTurn({
-        threadId: session.threadId,
-        input: "plan this",
-        interactionMode: "plan",
-        attachments: [],
-      });
-
-      // Complete the turn so we can send another
-      const turnCompletedFiber = yield* Stream.filter(
-        adapter.streamEvents,
-        (event) => event.type === "turn.completed",
-      ).pipe(Stream.runHead, Effect.forkChild);
-
-      harness.query.emit({
-        type: "result",
-        subtype: "success",
-        is_error: false,
-        errors: [],
-        session_id: "sdk-session-plan-restore",
-        uuid: "result-plan",
-      } as unknown as SDKMessage);
-
-      yield* Fiber.join(turnCompletedFiber);
-
-      // Second turn back to default
-      yield* adapter.sendTurn({
-        threadId: session.threadId,
-        input: "now do it",
-        interactionMode: "default",
-        attachments: [],
-      });
-
-      // First call sets "plan", second call restores "bypassPermissions" (the base for full-access)
-      assert.deepEqual(harness.query.setPermissionModeCalls, ["plan", "bypassPermissions"]);
-    }).pipe(
-      Effect.provideService(Random.Random, makeDeterministicRandomService()),
-      Effect.provide(harness.layer),
-    );
-  });
-
   it.effect("skips restoring the base permission mode when it matches the spawn mode", () => {
     const harness = makeHarness();
     return Effect.gen(function* () {
@@ -7966,300 +8102,6 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
       });
 
       assert.deepEqual(harness.query.setPermissionModeCalls, []);
-    }).pipe(
-      Effect.provideService(Random.Random, makeDeterministicRandomService()),
-      Effect.provide(harness.layer),
-    );
-  });
-
-  it.effect("resets Claude plan mode to default when settings provided the base mode", () => {
-    const harness = makeHarness();
-    return Effect.gen(function* () {
-      const adapter = yield* ClaudeAdapter;
-
-      const session = yield* adapter.startSession({
-        threadId: THREAD_ID,
-        provider: "claudeAgent",
-        runtimeMode: "approval-required",
-      });
-      yield* adapter.sendTurn({
-        threadId: session.threadId,
-        input: "plan this",
-        interactionMode: "plan",
-        attachments: [],
-      });
-
-      const turnCompletedFiber = yield* Stream.filter(
-        adapter.streamEvents,
-        (event) => event.type === "turn.completed",
-      ).pipe(Stream.runHead, Effect.forkChild);
-
-      harness.query.emit({
-        type: "result",
-        subtype: "success",
-        is_error: false,
-        errors: [],
-        session_id: "sdk-session-plan-settings-base",
-        uuid: "result-plan-settings-base",
-      } as unknown as SDKMessage);
-
-      yield* Fiber.join(turnCompletedFiber);
-
-      yield* adapter.sendTurn({
-        threadId: session.threadId,
-        input: "now build it",
-        attachments: [],
-      });
-
-      assert.deepEqual(harness.query.setPermissionModeCalls, ["plan", "default"]);
-    }).pipe(
-      Effect.provideService(Random.Random, makeDeterministicRandomService()),
-      Effect.provide(harness.layer),
-    );
-  });
-
-  it.effect("does not leave Claude in plan mode when a follow-up omits interactionMode", () => {
-    const harness = makeHarness();
-    return Effect.gen(function* () {
-      const adapter = yield* ClaudeAdapter;
-
-      const session = yield* adapter.startSession({
-        threadId: THREAD_ID,
-        provider: "claudeAgent",
-        runtimeMode: "full-access",
-      });
-      yield* adapter.sendTurn({
-        threadId: session.threadId,
-        input: "plan this",
-        interactionMode: "plan",
-        attachments: [],
-      });
-
-      const turnCompletedFiber = yield* Stream.filter(
-        adapter.streamEvents,
-        (event) => event.type === "turn.completed",
-      ).pipe(Stream.runHead, Effect.forkChild);
-
-      harness.query.emit({
-        type: "result",
-        subtype: "success",
-        is_error: false,
-        errors: [],
-        session_id: "sdk-session-plan-omitted-reset",
-        uuid: "result-plan-omitted-reset",
-      } as unknown as SDKMessage);
-
-      yield* Fiber.join(turnCompletedFiber);
-
-      yield* adapter.sendTurn({
-        threadId: session.threadId,
-        input: "now build it",
-        attachments: [],
-      });
-
-      assert.deepEqual(harness.query.setPermissionModeCalls, ["plan", "bypassPermissions"]);
-    }).pipe(
-      Effect.provideService(Random.Random, makeDeterministicRandomService()),
-      Effect.provide(harness.layer),
-    );
-  });
-
-  it.effect("captures ExitPlanMode as a proposed plan and denies auto-exit", () => {
-    const harness = makeHarness();
-    return Effect.gen(function* () {
-      const adapter = yield* ClaudeAdapter;
-
-      const session = yield* adapter.startSession({
-        threadId: THREAD_ID,
-        provider: "claudeAgent",
-        runtimeMode: "full-access",
-      });
-
-      yield* Stream.take(adapter.streamEvents, 3).pipe(Stream.runDrain);
-
-      yield* adapter.sendTurn({
-        threadId: session.threadId,
-        input: "plan this",
-        interactionMode: "plan",
-        attachments: [],
-      });
-      yield* Stream.take(adapter.streamEvents, 1).pipe(Stream.runDrain);
-
-      const createInput = harness.getLastCreateQueryInput();
-      const canUseTool = createInput?.options.canUseTool;
-      assert.equal(typeof canUseTool, "function");
-      if (!canUseTool) {
-        return;
-      }
-
-      const permissionPromise = canUseTool(
-        "ExitPlanMode",
-        {
-          plan: "# Ship it\n\n- one\n- two",
-          allowedPrompts: [{ tool: "Bash", prompt: "run tests" }],
-        },
-        {
-          signal: new AbortController().signal,
-          toolUseID: "tool-exit-1",
-          requestId: "request-tool-exit-1",
-        },
-      );
-
-      const proposedEvent = yield* Stream.runHead(adapter.streamEvents);
-      assert.equal(proposedEvent._tag, "Some");
-      if (proposedEvent._tag !== "Some") {
-        return;
-      }
-      assert.equal(proposedEvent.value.type, "turn.proposed.completed");
-      if (proposedEvent.value.type !== "turn.proposed.completed") {
-        return;
-      }
-      assert.equal(proposedEvent.value.payload.planMarkdown, "# Ship it\n\n- one\n- two");
-      assert.deepEqual(proposedEvent.value.providerRefs, {
-        providerItemId: ProviderItemId.makeUnsafe("tool-exit-1"),
-      });
-
-      const permissionResult = yield* Effect.promise(() => permissionPromise);
-      assert.equal((permissionResult as PermissionResult).behavior, "deny");
-      const deniedResult = permissionResult as PermissionResult & {
-        message?: string;
-      };
-      assert.equal(deniedResult.message?.includes("captured your proposed plan"), true);
-    }).pipe(
-      Effect.provideService(Random.Random, makeDeterministicRandomService()),
-      Effect.provide(harness.layer),
-    );
-  });
-
-  it.effect("extracts proposed plans from assistant ExitPlanMode snapshots", () => {
-    const harness = makeHarness();
-    return Effect.gen(function* () {
-      const adapter = yield* ClaudeAdapter;
-
-      const session = yield* adapter.startSession({
-        threadId: THREAD_ID,
-        provider: "claudeAgent",
-        runtimeMode: "full-access",
-      });
-
-      yield* Stream.take(adapter.streamEvents, 3).pipe(Stream.runDrain);
-
-      yield* adapter.sendTurn({
-        threadId: session.threadId,
-        input: "plan this",
-        interactionMode: "plan",
-        attachments: [],
-      });
-      yield* Stream.take(adapter.streamEvents, 1).pipe(Stream.runDrain);
-
-      const proposedEventFiber = yield* Stream.filter(
-        adapter.streamEvents,
-        (event) => event.type === "turn.proposed.completed",
-      ).pipe(Stream.runHead, Effect.forkChild);
-
-      harness.query.emit({
-        type: "assistant",
-        session_id: "sdk-session-exit-plan",
-        uuid: "assistant-exit-plan",
-        parent_tool_use_id: null,
-        message: {
-          model: "claude-opus-4-6",
-          id: "msg-exit-plan",
-          type: "message",
-          role: "assistant",
-          content: [
-            {
-              type: "tool_use",
-              id: "tool-exit-2",
-              name: "ExitPlanMode",
-              input: {
-                plan: "# Final plan\n\n- capture it",
-              },
-            },
-          ],
-          stop_reason: null,
-          stop_sequence: null,
-          usage: {},
-        },
-      } as unknown as SDKMessage);
-
-      const proposedEvent = yield* Fiber.join(proposedEventFiber);
-      assert.equal(proposedEvent._tag, "Some");
-      if (proposedEvent._tag !== "Some") {
-        return;
-      }
-      assert.equal(proposedEvent.value.type, "turn.proposed.completed");
-      if (proposedEvent.value.type !== "turn.proposed.completed") {
-        return;
-      }
-      assert.equal(proposedEvent.value.payload.planMarkdown, "# Final plan\n\n- capture it");
-      assert.deepEqual(proposedEvent.value.providerRefs, {
-        providerItemId: ProviderItemId.makeUnsafe("tool-exit-2"),
-      });
-    }).pipe(
-      Effect.provideService(Random.Random, makeDeterministicRandomService()),
-      Effect.provide(harness.layer),
-    );
-  });
-
-  it.effect("extracts proposed plans from assistant tagged markdown snapshots", () => {
-    const harness = makeHarness();
-    return Effect.gen(function* () {
-      const adapter = yield* ClaudeAdapter;
-
-      const session = yield* adapter.startSession({
-        threadId: THREAD_ID,
-        provider: "claudeAgent",
-        runtimeMode: "full-access",
-      });
-
-      yield* Stream.take(adapter.streamEvents, 3).pipe(Stream.runDrain);
-
-      yield* adapter.sendTurn({
-        threadId: session.threadId,
-        input: "plan this",
-        interactionMode: "plan",
-        attachments: [],
-      });
-      yield* Stream.take(adapter.streamEvents, 1).pipe(Stream.runDrain);
-
-      const proposedEventFiber = yield* Stream.filter(
-        adapter.streamEvents,
-        (event) => event.type === "turn.proposed.completed",
-      ).pipe(Stream.runHead, Effect.forkChild);
-
-      harness.query.emit({
-        type: "assistant",
-        session_id: "sdk-session-tagged-plan",
-        uuid: "assistant-tagged-plan",
-        parent_tool_use_id: null,
-        message: {
-          model: "claude-opus-4-6",
-          id: "msg-tagged-plan",
-          type: "message",
-          role: "assistant",
-          content: [
-            {
-              type: "text",
-              text: "Here is the plan.\n<proposed_plan>\n# Tagged plan\n\n- capture it\n</proposed_plan>",
-            },
-          ],
-          stop_reason: null,
-          stop_sequence: null,
-          usage: {},
-        },
-      } as unknown as SDKMessage);
-
-      const proposedEvent = yield* Fiber.join(proposedEventFiber);
-      assert.equal(proposedEvent._tag, "Some");
-      if (proposedEvent._tag !== "Some") {
-        return;
-      }
-      assert.equal(proposedEvent.value.type, "turn.proposed.completed");
-      if (proposedEvent.value.type !== "turn.proposed.completed") {
-        return;
-      }
-      assert.equal(proposedEvent.value.payload.planMarkdown, "# Tagged plan\n\n- capture it");
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
       Effect.provide(harness.layer),
@@ -8443,7 +8285,10 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
             question: "Which features do you use most?",
             header: "Features",
             options: [
-              { label: "CLI scaffolding", description: "Generate boilerplate" },
+              {
+                label: "CLI scaffolding",
+                description: "Generate boilerplate",
+              },
               { label: "Type checking", description: "Static analysis" },
               { label: "Hot reload", description: "Live updates" },
             ],
@@ -8550,7 +8395,9 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
       assert.equal((permissionResult as PermissionResult).behavior, "allow");
       const updatedInput = (permissionResult as { updatedInput: Record<string, unknown> })
         .updatedInput;
-      assert.deepEqual(updatedInput.answers, { "Deploy to which env?": "Staging" });
+      assert.deepEqual(updatedInput.answers, {
+        "Deploy to which env?": "Staging",
+      });
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
       Effect.provide(harness.layer),

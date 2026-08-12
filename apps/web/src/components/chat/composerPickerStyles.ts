@@ -119,7 +119,7 @@ export const COMPOSER_STACKED_SURFACE_BORDER_CLASS_NAME = [
 export const RAISED_SURFACE_CHROME_CLASS_NAME = `border ${COMPOSER_SURFACE_BORDER_CLASS_NAME} ${COMPOSER_SURFACE_SHADOW_CLASS_NAME} dark:border-0`;
 
 /** Composer input shell. Like RAISED_SURFACE_CHROME but keeps a visible border in
- *  dark mode using the same `border-border` token as the Environment panel, instead
+ *  dark mode using the shared `border-border` token, instead
  *  of dropping to shadow-only separation. */
 export const COMPOSER_INPUT_SURFACE_CLASS_NAME = `chat-composer-surface border ${COMPOSER_SURFACE_BORDER_CLASS_NAME} dark:border-border ${COMPOSER_SURFACE_SHADOW_CLASS_NAME} transition-colors duration-200`;
 
@@ -164,15 +164,8 @@ export const COMPOSER_PICKER_SELECT_OPTION_CLASS_NAME = `${COMPOSER_PICKER_MENU_
 export const COMPOSER_COMMAND_MENU_SURFACE_CLASS_NAME =
   "relative overflow-hidden rounded-xl border border-border bg-popover text-popover-foreground";
 
-/** Opaque Environment panel card — same rationale as the command menu (overlays transcript). */
-export const ENVIRONMENT_PANEL_SURFACE_CLASS_NAME = `relative overflow-hidden rounded-2xl border border-border bg-popover text-popover-foreground ${COMPOSER_SURFACE_SHADOW_CLASS_NAME}`;
-
-/** Slide + inset timing matched to `SIDEBAR_OFFCANVAS_MOTION_CLASS` (right dock / thread sidebar). */
-export const ENVIRONMENT_PANEL_MOTION_CLASS =
-  "transition-[transform,opacity] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none";
-
-/** Transcript/composer right inset when the docked Environment card opens. */
-export const ENVIRONMENT_CONTENT_INSET_MOTION_CLASS =
+/** Smooth padding changes when a chat-adjacent detail surface opens. */
+export const CHAT_CONTENT_INSET_MOTION_CLASS_NAME =
   "transition-[padding-right] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none";
 
 /** Anchors the command menu above the composer editor without shifting layout. */

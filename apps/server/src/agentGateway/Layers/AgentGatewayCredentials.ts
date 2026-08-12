@@ -18,6 +18,7 @@ import {
 import { ensureAgentGatewayStdioProxyScript } from "../stdioProxyScript";
 import { AgentGatewaySessionRegistry } from "../Services/AgentGatewaySessionRegistry.ts";
 import { AgentGatewaySessionRegistryLive } from "./AgentGatewaySessionRegistry.ts";
+import { AgentGatewayToolBridgeLive } from "./AgentGatewayToolBridge.ts";
 
 export const AGENT_GATEWAY_MCP_PATH = "/mcp";
 
@@ -88,4 +89,7 @@ export const AgentGatewayCredentialsLive = Layer.effect(
 
 // Single shared composition so every consumer (HTTP gateway, provider
 // adapters) reuses the same memoized in-memory session registry.
-export const AgentGatewayCredentialsWithSecretsLive = AgentGatewayCredentialsLive.pipe(Layer.orDie);
+export const AgentGatewayCredentialsWithSecretsLive = Layer.mergeAll(
+  AgentGatewayCredentialsLive.pipe(Layer.orDie),
+  AgentGatewayToolBridgeLive,
+);

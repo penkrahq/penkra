@@ -24,23 +24,9 @@ import {
 const encoder = new TextEncoder();
 
 describe("OpenCode permission policy", () => {
-  it("keeps full access non-interactive while enforcing read-only Plan turns", () => {
+  it("keeps full access non-interactive", () => {
     expect(buildOpenCodePermissionRules("full-access")).toEqual([
       { permission: "*", pattern: "*", action: "allow" },
-    ]);
-    expect(buildOpenCodePermissionRules("full-access", "plan")).toEqual([
-      { permission: "*", pattern: "*", action: "deny" },
-      { permission: "read", pattern: "*", action: "allow" },
-      { permission: "glob", pattern: "*", action: "allow" },
-      { permission: "grep", pattern: "*", action: "allow" },
-      { permission: "list", pattern: "*", action: "allow" },
-      { permission: "lsp", pattern: "*", action: "allow" },
-      { permission: "webfetch", pattern: "*", action: "allow" },
-      { permission: "websearch", pattern: "*", action: "allow" },
-      { permission: "codesearch", pattern: "*", action: "allow" },
-      { permission: "todoread", pattern: "*", action: "allow" },
-      { permission: "todowrite", pattern: "*", action: "allow" },
-      { permission: "question", pattern: "*", action: "allow" },
     ]);
   });
 });
@@ -195,17 +181,17 @@ describe("buildOpenCodeServerProcessEnv", () => {
     expect(env.PATH).toBe("/usr/bin");
   });
 
-  it("preserves an explicitly configured config-content environment value", () => {
+  it("does not inherit process-global OpenCode configuration", () => {
     const env = buildOpenCodeServerProcessEnv({
       baseEnv: {
         OPENCODE_CONFIG_CONTENT: '{"provider":{"openai":{}}}',
       },
     });
 
-    expect(env.OPENCODE_CONFIG_CONTENT).toBe('{"provider":{"openai":{}}}');
+    expect(env.OPENCODE_CONFIG_CONTENT).toBeUndefined();
   });
 
-  it("strips inherited Penkra authority from managed server processes", () => {
+  it("strips inherited credentials and Penkra authority from managed server processes", () => {
     const env = buildOpenCodeServerProcessEnv({
       baseEnv: {
         OPENAI_API_KEY: "provider-key",
@@ -214,7 +200,7 @@ describe("buildOpenCodeServerProcessEnv", () => {
       },
     });
 
-    expect(env.OPENAI_API_KEY).toBe("provider-key");
+    expect(env.OPENAI_API_KEY).toBeUndefined();
     expect(env.PENKRA_AUTH_TOKEN).toBeUndefined();
     expect(env.PENKRA_TEST_CONTROL_SOCKET).toBeUndefined();
   });
@@ -613,6 +599,34 @@ opencode/gpt-5-nano
         ],
       },
     ]);
+  });
+
+  it("uses authoritative zero pricing when current OpenCode omits isFree", () => {
+    const models = parseOpenCodeCliModelsOutput(`
+opencode/deepseek-v4-flash-free
+{
+  "id": "deepseek-v4-flash-free",
+  "providerID": "opencode",
+  "name": "DeepSeek V4 Flash Free",
+  "cost": {
+    "input": 0,
+    "output": 0,
+    "cache": { "read": 0, "write": 0 }
+  }
+}
+opencode/paid-model
+{
+  "id": "paid-model",
+  "providerID": "opencode",
+  "name": "Paid Model",
+  "cost": { "input": 1, "output": 2 }
+}
+`);
+
+    expect(models.find((model) => model.slug === "opencode/deepseek-v4-flash-free")?.isFree).toBe(
+      true,
+    );
+    expect(models.find((model) => model.slug === "opencode/paid-model")?.isFree).toBeUndefined();
   });
 
   it("falls back to slug-derived metadata when only plain model lines are present", () => {

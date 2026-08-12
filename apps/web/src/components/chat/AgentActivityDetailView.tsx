@@ -15,7 +15,7 @@ import { getChatMessageFooterTextStyle, getChatTranscriptTextStyle } from "./cha
 import {
   CHAT_COLUMN_FRAME_CLASS_NAME,
   CHAT_COLUMN_GUTTER_CLASS_NAME,
-  ENVIRONMENT_CONTENT_INSET_MOTION_CLASS,
+  CHAT_CONTENT_INSET_MOTION_CLASS_NAME,
 } from "./composerPickerStyles";
 import type { ExpandedImagePreview } from "./ExpandedImagePreview";
 import {
@@ -61,7 +61,7 @@ export function AgentActivityDetailView({
       data-chat-scroll-container="true"
       className={cn(
         "h-full overflow-x-hidden overflow-y-auto overscroll-y-contain py-3 [scrollbar-gutter:stable] sm:py-4",
-        ENVIRONMENT_CONTENT_INSET_MOTION_CLASS,
+        CHAT_CONTENT_INSET_MOTION_CLASS_NAME,
         CHAT_COLUMN_GUTTER_CLASS_NAME,
       )}
       style={scrollStyle}

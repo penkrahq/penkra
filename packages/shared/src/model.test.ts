@@ -79,15 +79,17 @@ describe("normalizeModelSlug", () => {
     expect(normalizeModelSlug("constructor")).toBe("constructor");
   });
 
-  it("uses provider-specific aliases", () => {
-    expect(normalizeModelSlug("sonnet", "claudeAgent")).toBe("claude-sonnet-5");
-    expect(normalizeModelSlug("opus", "claudeAgent")).toBe("claude-opus-5");
-    expect(normalizeModelSlug("opus-5", "claudeAgent")).toBe("claude-opus-5");
+  it("preserves Claude's exact native identity while normalizing other providers", () => {
+    expect(normalizeModelSlug("sonnet", "claudeAgent")).toBe("sonnet");
+    expect(normalizeModelSlug("opus", "claudeAgent")).toBe("opus");
+    expect(normalizeModelSlug("opus-5", "claudeAgent")).toBe("opus-5");
     expect(normalizeModelSlug("claude-opus-5", "claudeAgent")).toBe("claude-opus-5");
-    expect(normalizeModelSlug("opus-4.8", "claudeAgent")).toBe("claude-opus-4-8");
-    expect(normalizeModelSlug("sonnet-4.6", "claudeAgent")).toBe("claude-sonnet-4-6");
-    expect(normalizeModelSlug("opus-4.6", "claudeAgent")).toBe("claude-opus-4-6");
-    expect(normalizeModelSlug("claude-haiku-4-5-20251001", "claudeAgent")).toBe("claude-haiku-4-5");
+    expect(normalizeModelSlug("opus-4.8", "claudeAgent")).toBe("opus-4.8");
+    expect(normalizeModelSlug("sonnet-4.6", "claudeAgent")).toBe("sonnet-4.6");
+    expect(normalizeModelSlug("opus-4.6", "claudeAgent")).toBe("opus-4.6");
+    expect(normalizeModelSlug("claude-haiku-4-5-20251001", "claudeAgent")).toBe(
+      "claude-haiku-4-5-20251001",
+    );
     expect(normalizeModelSlug("4.3", "grok")).toBe("grok-build");
     expect(normalizeModelSlug("grok-latest", "grok")).toBe("grok-build");
     expect(normalizeModelSlug("grok-code-fast-1", "grok")).toBe("grok-build-0.1");
@@ -148,16 +150,16 @@ describe("resolveSelectableModel", () => {
     ).toBe("gpt-5.3-codex");
   });
 
-  it("resolves provider-specific aliases after normalization", () => {
+  it("requires exact Claude ids or display names", () => {
     expect(
-      resolveSelectableModel("claudeAgent", "sonnet", [
+      resolveSelectableModel("claudeAgent", "Claude Sonnet 5", [
         { slug: "claude-opus-4-6", name: "Claude Opus 4.6" },
         { slug: "claude-sonnet-5", name: "Claude Sonnet 5" },
         { slug: "claude-sonnet-4-6", name: "Claude Sonnet 4.6" },
       ]),
     ).toBe("claude-sonnet-5");
     expect(
-      resolveSelectableModel("claudeAgent", "sonnet-4.6", [
+      resolveSelectableModel("claudeAgent", "claude-sonnet-4-6", [
         { slug: "claude-sonnet-5", name: "Claude Sonnet 5" },
         { slug: "claude-sonnet-4-6", name: "Claude Sonnet 4.6" },
       ]),
@@ -589,7 +591,7 @@ describe("normalizeClaudeModelOptions", () => {
 
   it("omits unsupported Claude auto-compact budgets", () => {
     expect(
-      normalizeClaudeModelOptions("claude-haiku-4-5", {
+      normalizeClaudeModelOptions("claude-haiku-4-5-20251001", {
         thinking: false,
         contextWindow: "1m",
       }),
@@ -629,7 +631,7 @@ describe("normalizeClaudeModelOptions", () => {
 
   it("keeps the Haiku thinking toggle and removes unsupported effort", () => {
     expect(
-      normalizeClaudeModelOptions("claude-haiku-4-5", {
+      normalizeClaudeModelOptions("claude-haiku-4-5-20251001", {
         thinking: false,
         effort: "high",
       }),
@@ -939,7 +941,7 @@ describe("getModelCapabilities Claude capability flags", () => {
     expect(has("claude-opus-4-8")).toBe(true);
     expect(has("claude-opus-4-7")).toBe(true);
     expect(has("claude-opus-4-6")).toBe(true);
-    expect(has("opus")).toBe(true);
+    expect(has("opus")).toBe(false);
     expect(has("claude-sonnet-5")).toBe(false);
     expect(has("claude-sonnet-4-6")).toBe(false);
     expect(has("claude-haiku-4-5")).toBe(false);
@@ -966,8 +968,9 @@ describe("getModelCapabilities Claude capability flags", () => {
     expect(has("claude-opus-4-6")).toBe(false);
     expect(has("claude-sonnet-5")).toBe(false);
     expect(has("claude-sonnet-4-6")).toBe(false);
-    expect(has("claude-haiku-4-5")).toBe(true);
-    expect(has("haiku")).toBe(true);
+    expect(has("claude-haiku-4-5-20251001")).toBe(true);
+    expect(has("claude-haiku-4-5")).toBe(false);
+    expect(has("haiku")).toBe(false);
     expect(has(undefined)).toBe(false);
   });
 });

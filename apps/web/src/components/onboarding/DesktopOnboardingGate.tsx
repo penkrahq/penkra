@@ -2,11 +2,16 @@ import type { DesktopBridge } from "@penkra/contracts";
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { SplashScreen } from "~/components/SplashScreen";
+
 import { OnboardingConnectAgent } from "./connect-agent/OnboardingConnectAgent";
 import { OnboardingWelcome } from "./welcome/OnboardingWelcome";
 
-type GateState = "checking" | "welcome" | "connect-agent" | "complete";
+type GateState = "checking" | "auth-error" | "welcome" | "connect-agent" | "complete";
 type AuthIntent = "sign-in" | "sign-up";
+
+const ACCOUNT_CHECK_ERROR_MESSAGE =
+  "Penkra couldn't verify your account. Check your connection and try again.";
 
 export interface DesktopOnboardingGateProps {
   bridge?: DesktopBridge;
@@ -19,6 +24,7 @@ export function DesktopOnboardingGate({
 }: DesktopOnboardingGateProps) {
   const accountAuth = bridge?.accountAuth;
   const [state, setState] = useState<GateState>(accountAuth ? "checking" : "complete");
+  const [authCheckAttempt, setAuthCheckAttempt] = useState(0);
   const [authProcessingIntent, setAuthProcessingIntent] = useState<AuthIntent | null>(null);
   const isCreatingAccount = useRef(false);
 
@@ -76,11 +82,13 @@ export function DesktopOnboardingGate({
       .then((result) => {
         if (!active) return;
         isCreatingAccount.current = false;
-        setState(result.status === "authenticated" ? "complete" : "welcome");
+        if (result.status === "authenticated") setState("complete");
+        else if (result.status === "unauthenticated") setState("welcome");
+        else setState("auth-error");
       })
       .catch(() => {
         isCreatingAccount.current = false;
-        if (active) setState("welcome");
+        if (active) setState("auth-error");
       });
     return () => {
       active = false;
@@ -89,7 +97,7 @@ export function DesktopOnboardingGate({
       unsubscribeUserUpdated();
       unsubscribeError();
     };
-  }, [accountAuth]);
+  }, [accountAuth, authCheckAttempt]);
 
   if (state === "checking") {
     return (
@@ -98,6 +106,18 @@ export function DesktopOnboardingGate({
         aria-label="Preparing Penkra"
         className="min-h-screen bg-background"
         role="status"
+      />
+    );
+  }
+
+  if (state === "auth-error") {
+    return (
+      <SplashScreen
+        errorMessage={ACCOUNT_CHECK_ERROR_MESSAGE}
+        onRetry={() => {
+          setState("checking");
+          setAuthCheckAttempt((attempt) => attempt + 1);
+        }}
       />
     );
   }
@@ -117,7 +137,10 @@ export function DesktopOnboardingGate({
   if (state === "connect-agent") {
     return (
       <div className="flex min-h-screen items-center justify-center overflow-auto bg-background p-4">
-        <OnboardingConnectAgent onBack={() => setState("welcome")} />
+        <OnboardingConnectAgent
+          onBack={() => setState("welcome")}
+          onContinue={() => setState("complete")}
+        />
       </div>
     );
   }

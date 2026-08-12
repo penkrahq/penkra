@@ -14,7 +14,7 @@ import {
   summarizePullRequestChecks,
   summarizePullRequestComments,
   withStableCheckKeys,
-} from "~/components/chat/environment/environmentPullRequest.logic";
+} from "~/components/pullRequest/pullRequestSummary.logic";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "~/components/ui/collapsible";
 import { DisclosureChevron } from "~/components/ui/DisclosureChevron";
 import { ChatBubbleIcon, GitBranchIcon, UsersIcon } from "~/lib/icons";

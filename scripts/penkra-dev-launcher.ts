@@ -3,9 +3,7 @@
 
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import {
-  chmodSync,
   closeSync,
-  copyFileSync,
   existsSync,
   mkdirSync,
   openSync,
@@ -388,12 +386,13 @@ function listDescendantPids(rootPid: number): number[] {
 
 async function terminateProcessTree(rootPid: number, signal: NodeJS.Signals): Promise<void> {
   const pids = [...listDescendantPids(rootPid), rootPid];
-  for (const pid of pids) {
-    try {
-      process.kill(pid, signal);
-    } catch {}
-  }
-  const deadline = Date.now() + 2_000;
+  // Let the coordinator own its shutdown sequence. Signalling descendants first
+  // races Electron's authenticated backend shutdown and can leave two SQLite
+  // writers overlapping while the desktop watcher attempts a restart.
+  try {
+    process.kill(rootPid, signal);
+  } catch {}
+  const deadline = Date.now() + 15_000;
   while (Date.now() < deadline) {
     if (
       pids.every((pid) => {
@@ -408,6 +407,8 @@ async function terminateProcessTree(rootPid: number, signal: NodeJS.Signals): Pr
       return;
     await sleep(100);
   }
+  // The coordinator did not finish in its shutdown budget. Only now terminate
+  // the captured descendants as a last-resort cleanup.
   for (const pid of pids) {
     try {
       process.kill(pid, "SIGKILL");
@@ -458,30 +459,16 @@ async function waitForSharedReadiness(paths: PenkraDevLauncherPaths, children: C
   throw new Error("Penkra Dev shared services did not become ready within 3 minutes.");
 }
 
-function prepareInstanceHome(instance: number): void {
-  if (instance === 1) return;
-  const source = join(homedir(), "Penkra_Dev", ".penkra", "bin", "penkra");
-  const target = join(
-    resolvePenkraDevInstanceDefinition(instance).developmentRoot,
-    ".penkra",
-    "bin",
-    "penkra",
-  );
-  mkdirSync(dirname(target), { recursive: true, mode: 0o700 });
-  copyFileSync(source, target);
-  chmodSync(target, 0o700);
-}
-
 function startInstance(
   instance: number,
   bunExecutable: string,
   instances: Map<number, ChildProcess>,
+  isSupervisorStopping: () => boolean,
 ): void {
   if (instances.has(instance)) {
     focusDevelopmentElectron(instance);
     return;
   }
-  prepareInstanceHome(instance);
   const definition = resolvePenkraDevInstanceDefinition(instance);
   const paths = resolvePenkraDevLauncherPaths(homedir(), instance);
   mkdirSync(paths.instanceDirectory, { recursive: true, mode: 0o700 });
@@ -491,6 +478,16 @@ function startInstance(
     detached: true,
     env: {
       ...process.env,
+      PATH: [
+        dirname(bunExecutable),
+        join(repoRoot, "node_modules", ".bin"),
+        "/opt/homebrew/bin",
+        "/usr/local/bin",
+        "/usr/bin",
+        "/bin",
+        "/usr/sbin",
+        "/sbin",
+      ].join(":"),
       ELECTRON_RENDERER_PORT: "5733",
       PENKRA_API_URL: "http://localhost:3012",
       PENKRA_DEV_INSTANCE_NUMBER: String(instance),
@@ -505,10 +502,13 @@ function startInstance(
   writeInstanceStatus(instance, "starting", `Starting ${definition.displayName}.`);
   child.once("exit", (code, signal) => {
     instances.delete(instance);
+    const stoppedBySupervisor = isSupervisorStopping();
     writeInstanceStatus(
       instance,
-      code === 0 && signal === null ? "stopped" : "failed",
-      `${definition.displayName} exited with ${signal ?? code ?? 0}.`,
+      stoppedBySupervisor || (code === 0 && signal === null) ? "stopped" : "failed",
+      stoppedBySupervisor
+        ? `${definition.displayName} stopped with the shared services.`
+        : `${definition.displayName} exited with ${signal ?? code ?? 0}.`,
     );
   });
   void waitForDevelopmentElectron({
@@ -603,7 +603,7 @@ async function supervise(bunExecutable: string): Promise<void> {
       for (const instance of takeLaunchRequests(paths)) {
         launchedAnyInstance = true;
         idleSince = null;
-        startInstance(instance, bunExecutable, instances);
+        startInstance(instance, bunExecutable, instances, () => stopping);
       }
       if (launchedAnyInstance && instances.size === 0) {
         idleSince ??= Date.now();

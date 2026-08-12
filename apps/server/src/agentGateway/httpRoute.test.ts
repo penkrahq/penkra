@@ -60,6 +60,8 @@ async function withGatewayServer(
       stdioProxy: { command: process.execPath, args: [] },
     };
     const gateway: AgentGatewayShape = {
+      toolDefinitions: [],
+      invokeTool: () => Effect.die("Direct tool invocation is not used by this test."),
       handleMcpPost: (input) => {
         handledBodies.push(input.body);
         return Effect.succeed({ status: 200, body: { ok: true } });

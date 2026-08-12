@@ -1,9 +1,9 @@
 import { MessageId, ThreadId } from "@penkra/contracts";
-import type { LegendListRef } from "@legendapp/list/react";
 import { createRef, type ComponentProps } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { ChatTranscriptPane } from "./ChatTranscriptPane";
+import type { TranscriptVirtualListRef } from "./TranscriptVirtualList";
 
 function renderTranscriptPaneMarkup(
   props: Partial<ComponentProps<typeof ChatTranscriptPane>> = {},
@@ -19,9 +19,8 @@ function renderTranscriptPaneMarkup(
       hasMessages
       isRevertingCheckpoint={false}
       isWorking={false}
-      worktreeSetup={null}
       followLiveOutput={false}
-      listRef={createRef<LegendListRef | null>()}
+      listRef={createRef<TranscriptVirtualListRef | null>()}
       markdownCwd={undefined}
       onExpandTimelineImage={() => {}}
       onIsAtEndChange={() => {}}

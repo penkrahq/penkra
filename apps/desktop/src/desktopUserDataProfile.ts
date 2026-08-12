@@ -5,6 +5,8 @@ import * as FS from "node:fs";
 import * as OS from "node:os";
 import * as Path from "node:path";
 
+import { resolveDesktopPlatformAdapter } from "./desktopPlatform";
+
 const BRIDGE_PROFILE_MANIFEST_FILE_NAME = "penkra-profile-seed.json";
 const CANONICAL_BROWSER_PARTITION_NAME = "penkra-browser";
 const BROWSER_PARTITION_SEED_ENTRY_GROUPS = [
@@ -36,14 +38,14 @@ export function resolveDesktopAppDataBase(input?: {
   readonly env?: NodeJS.ProcessEnv;
   readonly homeDir?: string;
 }): string {
-  const platform = input?.platform ?? process.platform;
+  const platform = resolveDesktopPlatformAdapter(input?.platform);
   const env = input?.env ?? process.env;
   const homeDir = input?.homeDir ?? OS.homedir();
 
-  if (platform === "win32") {
+  if (platform.paths.appData === "roaming-app-data") {
     return env.APPDATA || Path.join(homeDir, "AppData", "Roaming");
   }
-  if (platform === "darwin") {
+  if (platform.paths.appData === "application-support") {
     return Path.join(homeDir, "Library", "Application Support");
   }
   return env.XDG_CONFIG_HOME || Path.join(homeDir, ".config");

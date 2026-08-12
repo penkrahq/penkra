@@ -1,5 +1,5 @@
 import type { ProviderKind } from "@penkra/contracts";
-import type { HTMLAttributes, ReactNode } from "react";
+import type { HTMLAttributes } from "react";
 
 import { CHAT_SURFACE_HEADER_HEIGHT_CLASS } from "~/components/chat/chatHeaderControls";
 import { CentralIcon } from "~/lib/central-icons";

@@ -1,5 +1,5 @@
 // FILE: MessagesTimeline.tsx
-// Purpose: Renders the chat transcript rows and lets LegendList own scrolling/follow behavior.
+// Purpose: Renders chat transcript rows with end-anchored TanStack virtualization.
 // Layer: Web chat presentation component
 // Exports: MessagesTimeline
 
@@ -12,7 +12,6 @@ import {
 } from "@penkra/contracts";
 import { resolveLatestTailUserMessageEditTarget } from "@penkra/shared/conversationEdit";
 import { pluralize } from "@penkra/shared/text";
-import { LegendList, type LegendListRef } from "@legendapp/list/react";
 import {
   memo,
   useCallback,
@@ -36,26 +35,18 @@ import {
   isFileChangeWorkLogEntry,
   type WorkLogEntry,
 } from "../../session-logic";
-import {
-  type TurnDiffSummary,
-  type WorktreeSetupSnapshot,
-  type WorktreeSetupStep,
-} from "../../types";
+import { type TurnDiffSummary } from "../../types";
 import ChatMarkdown from "../ChatMarkdown";
 import { InlineLinkChip } from "../InlineLinkChip";
 import {
   BotIcon,
   ChangesIcon,
-  CircleAlertIcon,
-  CircleCheckIcon,
-  LoaderIcon,
   type LucideIcon,
   PencilIcon,
   PinIcon,
   RotateCcwIcon,
   SteerIcon,
   Undo2Icon,
-  WorktreeIcon,
 } from "~/lib/icons";
 import { pinActionLabel } from "~/lib/pin";
 import { Button } from "../ui/button";
@@ -116,7 +107,7 @@ import {
 import {
   CHAT_COLUMN_FRAME_CLASS_NAME,
   CHAT_COLUMN_GUTTER_CLASS_NAME,
-  ENVIRONMENT_CONTENT_INSET_MOTION_CLASS,
+  CHAT_CONTENT_INSET_MOTION_CLASS_NAME,
 } from "./composerPickerStyles";
 import { formatShortTimestamp } from "../../timestampFormat";
 import {
@@ -151,6 +142,7 @@ import {
 } from "../../lib/find/virtualTextFindSurface";
 import { markdownVisibleText } from "../../lib/find/markdownVisibleText";
 import { isFindSurfaceVisible } from "../../lib/find/findVisibility";
+import { TranscriptVirtualList, type TranscriptVirtualListRef } from "./TranscriptVirtualList";
 
 const MAX_VISIBLE_INLINE_TOOL_ENTRIES = 4;
 interface TimelineVirtualFindEntry extends VirtualFindEntry {
@@ -180,26 +172,26 @@ const EMPTY_MESSAGE_ID_SET: ReadonlySet<MessageId> = new Set();
 // Keep imperative list access opaque to React Compiler. The selected ref is
 // `listRef ?? fallbackListRef`; direct `.current` reads otherwise become
 // dependencies that manual callback dependency arrays cannot express.
-function scrollLegendListToEnd(listRef: RefObject<LegendListRef | null>): void {
+function scrollTranscriptToEnd(listRef: RefObject<TranscriptVirtualListRef | null>): void {
   void listRef.current?.scrollToEnd?.({ animated: false });
 }
 
-function scrollLegendListToIndex(
-  listRef: RefObject<LegendListRef | null>,
-  params: Parameters<LegendListRef["scrollToIndex"]>[0],
+function scrollTranscriptToIndex(
+  listRef: RefObject<TranscriptVirtualListRef | null>,
+  params: Parameters<TranscriptVirtualListRef["scrollToIndex"]>[0],
 ): void {
   void listRef.current?.scrollToIndex(params);
 }
 
-function readLegendListState(
-  listRef: RefObject<LegendListRef | null>,
-): ReturnType<NonNullable<LegendListRef["getState"]>> | undefined {
+function readTranscriptListState(
+  listRef: RefObject<TranscriptVirtualListRef | null>,
+): ReturnType<TranscriptVirtualListRef["getState"]> | undefined {
   return listRef.current?.getState?.();
 }
 
 /**
- * Imperative handle the transcript exposes so the Environment panel's pinned-message
- * checklist can scroll the virtualized list to (and briefly flash) a specific message.
+ * Imperative handle used by transcript-navigation stories to scroll to and briefly
+ * highlight a message or marker.
  */
 export interface MessagesTimelineController {
   scrollToMessage: (messageId: MessageId) => void;
@@ -279,87 +271,15 @@ function findVisibleThreadMarkerElement(elements: readonly HTMLElement[]): HTMLE
 
 // Per-step status glyph for the worktree setup stepper. Mirrors the active
 // task-list card: spinner while active, check when done, hollow node pending.
-function WorktreeSetupStepGlyph({ status }: { status: WorktreeSetupStep["status"] }) {
-  if (status === "done") {
-    // Foreground (black) check, same box as the spinner so done/active nodes match.
-    return <CircleCheckIcon className="size-2.5 text-[var(--color-text-foreground)]" />;
-  }
-  if (status === "active") {
-    // Spinner sized to match the pending nodes, in foreground (black) so the
-    // active step reads as the current work rather than an accent flourish.
-    return <LoaderIcon className="size-2.5 animate-spin text-[var(--color-text-foreground)]" />;
-  }
-  if (status === "error") {
-    return <CircleAlertIcon className="size-2.5 text-destructive" />;
-  }
-  // Lucide circles render at ~83% of their box, so an 8px ring matches the
-  // visible diameter of the size-2.5 spinner/check glyphs.
-  return <span className="block size-2 rounded-full border border-[color:var(--color-border)]" />;
-}
-
-// Transient "Preparing worktree..." panel: a compact bordered card with a
-// git-branch header and a connected stepper. Hugs its content so it reads as a
-// status chip rather than a full-width block.
-function WorktreeSetupCard({ steps }: { steps: ReadonlyArray<WorktreeSetupStep> }) {
-  return (
-    <div className="w-fit max-w-full rounded-xl border border-[color:var(--color-border-light)] bg-[var(--color-background-elevated-primary)] px-3.5 py-3 font-system-ui shadow-xs">
-      <div className="flex items-center gap-2">
-        <WorktreeIcon className="size-3.5 shrink-0 text-[var(--color-text-foreground-tertiary)]" />
-        <span className="shimmer text-[length:var(--app-font-size-ui-lg,13px)] font-medium text-[var(--color-text-foreground-secondary)]">
-          Preparing worktree...
-        </span>
-      </div>
-      <ol className="mt-2 flex flex-col">
-        {steps.map((step, index) => {
-          const isLast = index === steps.length - 1;
-          return (
-            <li key={step.id} className="relative flex items-center gap-2.5 py-[3px]">
-              {isLast ? null : (
-                <span
-                  aria-hidden="true"
-                  className={cn(
-                    "absolute left-[6.5px] top-1/2 h-full w-px",
-                    step.status === "done"
-                      ? "bg-[var(--color-text-foreground)]"
-                      : "bg-[color:var(--color-border)]",
-                  )}
-                />
-              )}
-              <span className="relative z-10 flex size-3.5 shrink-0 items-center justify-center rounded-full bg-[var(--color-background-elevated-primary)]">
-                <WorktreeSetupStepGlyph status={step.status} />
-              </span>
-              <span
-                className={cn(
-                  "text-[length:var(--app-font-size-ui-lg,13px)] leading-5",
-                  step.status === "active" || step.status === "done"
-                    ? "text-[var(--color-text-foreground)]"
-                    : step.status === "error"
-                      ? "text-destructive"
-                      : "text-[var(--color-text-foreground-tertiary)] opacity-70",
-                )}
-              >
-                {step.label}
-                {step.status === "error" ? " — failed" : ""}
-              </span>
-            </li>
-          );
-        })}
-      </ol>
-    </div>
-  );
-}
-
 interface MessagesTimelineProps {
   hasMessages: boolean;
   isWorking: boolean;
   activeTurnInProgress: boolean;
   activeTurnStartedAt: string | null;
-  /** Transient "New worktree" setup progress; rendered as an ephemeral step card at the tail. */
-  worktreeSetup?: WorktreeSetupSnapshot | null;
   followLiveOutput?: boolean;
   emptyStateContent?: ReactNode;
-  listRef?: RefObject<LegendListRef | null>;
-  /** Receives the scroll-to-message controller so the Environment panel can jump to a pin. */
+  listRef?: RefObject<TranscriptVirtualListRef | null>;
+  /** Optional controller for transcript navigation surfaces and interaction stories. */
   controllerRef?: RefObject<MessagesTimelineController | null>;
   /** Message ids currently pinned for the active thread (drives the footer pin toggle state). */
   pinnedMessageIds?: ReadonlySet<MessageId>;
@@ -390,16 +310,16 @@ interface MessagesTimelineProps {
   isRevertingCheckpoint: boolean;
   onImageExpand: (preview: ExpandedImagePreview) => void;
   onIsAtEndChange?: (isAtEnd: boolean) => void;
-  onMessagesClickCapture?: ComponentProps<typeof LegendList>["onClickCapture"];
-  onMessagesMouseUp?: ComponentProps<typeof LegendList>["onMouseUp"];
-  onMessagesPointerCancel?: ComponentProps<typeof LegendList>["onPointerCancel"];
-  onMessagesPointerDown?: ComponentProps<typeof LegendList>["onPointerDown"];
-  onMessagesPointerUp?: ComponentProps<typeof LegendList>["onPointerUp"];
-  onMessagesScroll?: ComponentProps<typeof LegendList>["onScroll"];
-  onMessagesTouchEnd?: ComponentProps<typeof LegendList>["onTouchEnd"];
-  onMessagesTouchMove?: ComponentProps<typeof LegendList>["onTouchMove"];
-  onMessagesTouchStart?: ComponentProps<typeof LegendList>["onTouchStart"];
-  onMessagesWheel?: ComponentProps<typeof LegendList>["onWheel"];
+  onMessagesClickCapture?: ComponentProps<"div">["onClickCapture"];
+  onMessagesMouseUp?: ComponentProps<"div">["onMouseUp"];
+  onMessagesPointerCancel?: ComponentProps<"div">["onPointerCancel"];
+  onMessagesPointerDown?: ComponentProps<"div">["onPointerDown"];
+  onMessagesPointerUp?: ComponentProps<"div">["onPointerUp"];
+  onMessagesScroll?: ComponentProps<"div">["onScroll"];
+  onMessagesTouchEnd?: ComponentProps<"div">["onTouchEnd"];
+  onMessagesTouchMove?: ComponentProps<"div">["onTouchMove"];
+  onMessagesTouchStart?: ComponentProps<"div">["onTouchStart"];
+  onMessagesWheel?: ComponentProps<"div">["onWheel"];
   markdownCwd: string | undefined;
   resolvedTheme: "light" | "dark";
   chatFontSizePx?: number;
@@ -418,7 +338,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   isWorking,
   activeTurnInProgress,
   activeTurnStartedAt,
-  worktreeSetup: worktreeSetupProp,
   followLiveOutput: followLiveOutputProp,
   listRef,
   controllerRef,
@@ -464,7 +383,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
 }: MessagesTimelineProps) {
   // Assignment-pattern parameters make React Compiler silently skip the whole
   // timeline, so resolve optional defaults in the body.
-  const worktreeSetup = worktreeSetupProp ?? null;
   const followLiveOutput = followLiveOutputProp ?? false;
   const threadMarkers = threadMarkersProp ?? EMPTY_MESSAGE_MARKERS;
   const enteringUserMessageIds = enteringUserMessageIdsProp ?? EMPTY_MESSAGE_ID_SET;
@@ -476,7 +394,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   );
   // Inset rows from the right (overriding the gutter's right padding) without moving the
   // scroll viewport, so the scrollbar stays pinned to the far right while content clears
-  // any right-edge overlay. Kept stable so LegendList isn't re-rendered on unrelated updates.
+  // any right-edge overlay. Kept stable so virtualization does not remeasure on unrelated updates.
   const listScrollStyle = useMemo(
     () => (contentInsetRightPx ? { paddingRight: contentInsetRightPx } : undefined),
     [contentInsetRightPx],
@@ -564,22 +482,15 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     }
     return byMessageId;
   }, [threadMarkers]);
-  const fallbackListRef = useRef<LegendListRef | null>(null);
+  const fallbackListRef = useRef<TranscriptVirtualListRef | null>(null);
   const resolvedListRef = listRef ?? fallbackListRef;
   const timelineRootRef = useRef<HTMLDivElement | null>(null);
-  const listFooter = useMemo(
-    () => <div aria-hidden="true" style={{ height: BOTTOM_CONTENT_INSET_PX }} />,
-    [],
-  );
 
-  const presentedWorktreeSetup = useWorktreeSetupPresentation(worktreeSetup);
   const rawRows = useMemo(
     () =>
       deriveMessagesTimelineRows({
         timelineEntries,
         isWorking,
-        worktreeSetup: presentedWorktreeSetup?.snapshot ?? null,
-        worktreeSetupOpen: presentedWorktreeSetup?.open ?? false,
         activeTurnInProgress,
         activeTurnId,
         activeTurnStartedAt,
@@ -589,7 +500,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     [
       timelineEntries,
       isWorking,
-      presentedWorktreeSetup,
       activeTurnInProgress,
       activeTurnId,
       activeTurnStartedAt,
@@ -611,44 +521,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   }, [rows]);
   const settledTurnCollapseTransitions = useSettledTurnCollapseTransitions(rows);
   const enteringMessageRowIds = useMessageSendEnterAnimations(rows, enteringUserMessageIds);
-  const timelineExtraData = useMemo(
-    () => ({
-      crossTaskOrigin,
-      editingUserMessageId,
-      enteringMessageRowIds,
-      expandedCollapsedWork,
-      expandedFileChangesByTurnId,
-      expandedFileListByTurnId,
-      expandedUserMessagesById,
-      expandedWorkGroupsState,
-      firstUserMessageId,
-      highlightedMessageId,
-      lastLiveWorkGroupId,
-      pinnedMessageIds,
-      settledTurnCollapseTransitions,
-      submittingEditedUserMessageId,
-      threadMarkersByMessageId,
-      toolGroupSummaryOverrides,
-    }),
-    [
-      crossTaskOrigin,
-      editingUserMessageId,
-      enteringMessageRowIds,
-      expandedCollapsedWork,
-      expandedFileChangesByTurnId,
-      expandedFileListByTurnId,
-      expandedUserMessagesById,
-      expandedWorkGroupsState,
-      firstUserMessageId,
-      highlightedMessageId,
-      lastLiveWorkGroupId,
-      pinnedMessageIds,
-      settledTurnCollapseTransitions,
-      submittingEditedUserMessageId,
-      threadMarkersByMessageId,
-      toolGroupSummaryOverrides,
-    ],
-  );
   // Latest rows kept in a ref so the imperative scroll controller can look up a message's
   // index lazily without re-installing the controller on every transcript change.
   const rowsRef = useRef(rows);
@@ -797,7 +669,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
           isFindSurfaceVisible(root.querySelector<HTMLElement>("[data-find-row-id]")),
         getEntries: () => transcriptFindEntries,
         reveal: async (entry) => {
-          scrollLegendListToIndex(resolvedListRef, {
+          scrollTranscriptToIndex(resolvedListRef, {
             index: entry.index,
             animated: false,
             viewPosition: 0.5,
@@ -912,7 +784,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       if (index < 0) {
         return false;
       }
-      scrollLegendListToIndex(resolvedListRef, {
+      scrollTranscriptToIndex(resolvedListRef, {
         index,
         animated: true,
         viewPosition: 0.2,
@@ -985,7 +857,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const tailContentRowId = useMemo(() => {
     for (let index = rows.length - 1; index >= 0; index -= 1) {
       const row = rows[index]!;
-      if (row.kind !== "working" && row.kind !== "worktree-setup") return row.id;
+      if (row.kind !== "working") return row.id;
     }
     return null;
   }, [rows]);
@@ -1007,7 +879,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const scrollTailExpansionToEnd = useCallback(() => {
     clearTailExpansionScrollTimers();
     const scrollToEnd = () => {
-      scrollLegendListToEnd(resolvedListRef);
+      scrollTranscriptToEnd(resolvedListRef);
     };
     tailScrollFrameRef.current = window.requestAnimationFrame(() => {
       tailScrollFrameRef.current = null;
@@ -1046,7 +918,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     }
     onIsAtEndChange?.(true);
     const frameId = window.requestAnimationFrame(() => {
-      scrollLegendListToEnd(resolvedListRef);
+      scrollTranscriptToEnd(resolvedListRef);
     });
     return () => {
       window.cancelAnimationFrame(frameId);
@@ -1055,7 +927,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const handleListScroll = useCallback<NonNullable<MessagesTimelineProps["onMessagesScroll"]>>(
     (event) => {
       onMessagesScroll?.(event);
-      const state = readLegendListState(resolvedListRef);
+      const state = readTranscriptListState(resolvedListRef);
       if (state) {
         onIsAtEndChange?.(state.isAtEnd);
       }
@@ -2154,17 +2026,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             );
           })()}
 
-        {row.kind === "proposed-plan" && (
-          <div className="min-w-0 py-1">
-            <ChatMarkdown
-              text={row.proposedPlan.planMarkdown}
-              cwd={markdownCwd}
-              isStreaming={false}
-              style={chatTypographyStyle}
-            />
-          </div>
-        )}
-
         {row.kind === "working-header" && (
           <div>
             {/* Non-collapsible twin of the settled "Worked for" header: same label
@@ -2193,22 +2054,12 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             Thinking
           </div>
         )}
-
-        {row.kind === "worktree-setup" && (
-          <DisclosureRegion open={row.open}>
-            <div className="pt-0.5 pb-1">
-              <WorktreeSetupCard steps={row.steps} />
-            </div>
-          </DisclosureRegion>
-        )}
       </div>
     );
 
     return content;
   };
 
-  // Transient rows (for example failed first-send worktree setup) must be able
-  // to render even when there are no persisted chat messages yet.
   if (!hasRenderableTranscriptContent && !isWorking) {
     if (emptyStateContent) {
       return <div className="flex h-full items-center justify-center">{emptyStateContent}</div>;
@@ -2224,19 +2075,14 @@ export const MessagesTimeline = memo(function MessagesTimeline({
 
   return (
     <div ref={timelineRootRef} className="contents" data-messages-timeline-root="true">
-      <LegendList<MessagesTimelineRow>
+      <TranscriptVirtualList<MessagesTimelineRow>
         ref={resolvedListRef}
         data={rows}
         keyExtractor={(row) => row.id}
-        renderItem={({ item }) => renderRowContent(item)}
+        renderItem={renderRowContent}
         estimatedItemSize={90}
-        // LegendList caches rendered rows, so every local expansion map that changes row content
-        // has to be surfaced through extraData.
-        extraData={timelineExtraData}
-        initialScrollAtEnd
-        maintainScrollAtEnd={followLiveOutput}
-        maintainScrollAtEndThreshold={0.1}
-        {...(!followLiveOutput ? { maintainVisibleContentPosition: true } : {})}
+        followLiveOutput={followLiveOutput}
+        paddingEnd={BOTTOM_CONTENT_INSET_PX}
         onClickCapture={onMessagesClickCapture}
         onMouseUp={onMessagesMouseUp}
         onPointerCancel={onMessagesPointerCancel}
@@ -2248,14 +2094,13 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         onTouchStart={onMessagesTouchStart}
         onWheel={onMessagesWheel}
         data-chat-scroll-container="true"
-        ListFooterComponent={listFooter}
         // `scroll-fade-b` (vendored shadcn 4.12.0 util in index.css) masks the bottom
         // edge so streamed content dissolves toward the composer. It is scroll-aware
         // via `animation-timeline: scroll()`, so the fade clears at the live edge and a
         // pinned or non-scrollable transcript stays crisp (no permanent shadow).
         className={cn(
           "scroll-fade-b h-full overflow-x-hidden overscroll-y-contain py-3 [scrollbar-gutter:stable] sm:py-4",
-          ENVIRONMENT_CONTENT_INSET_MOTION_CLASS,
+          CHAT_CONTENT_INSET_MOTION_CLASS_NAME,
           CHAT_COLUMN_GUTTER_CLASS_NAME,
         )}
         {...(listScrollStyle ? { style: listScrollStyle } : {})}
@@ -2382,90 +2227,6 @@ function applyMessageSendEnterAnimation(params: {
     });
   }, MESSAGE_SEND_ENTER_ANIMATION_MS + MESSAGE_SEND_ENTER_CLEANUP_BUFFER_MS);
   cleanupTimeoutsRef.current.push(cleanupTimeout);
-}
-
-interface WorktreeSetupPresentation {
-  snapshot: WorktreeSetupSnapshot;
-  open: boolean;
-}
-
-// Keeps the transient worktree-setup card mounted through one shared-disclosure
-// close animation after ChatView clears the snapshot, mirroring
-// useSettledTurnCollapseTransitions' rAF-flip + delayed-cleanup shape.
-function useWorktreeSetupPresentation(
-  worktreeSetup: WorktreeSetupSnapshot | null,
-): WorktreeSetupPresentation | null {
-  const [presented, setPresented] = useState<WorktreeSetupPresentation | null>(null);
-  const closeFrameRef = useRef<number | null>(null);
-  const cleanupTimeoutRef = useRef<number | null>(null);
-
-  const clearCloseTimers = useCallback(() => {
-    if (closeFrameRef.current !== null) {
-      window.cancelAnimationFrame(closeFrameRef.current);
-      closeFrameRef.current = null;
-    }
-    if (cleanupTimeoutRef.current !== null) {
-      window.clearTimeout(cleanupTimeoutRef.current);
-      cleanupTimeoutRef.current = null;
-    }
-  }, []);
-
-  useLayoutEffect(() => {
-    reconcileWorktreeSetupPresentation({
-      worktreeSetup,
-      presented,
-      clearCloseTimers,
-      closeFrameRef,
-      cleanupTimeoutRef,
-      setPresented,
-    });
-  }, [worktreeSetup, presented, clearCloseTimers]);
-
-  useLayoutEffect(() => clearCloseTimers, [clearCloseTimers]);
-
-  return presented;
-}
-
-// Opens synchronously so the card is mounted before paint, then hands the close off
-// to a rAF-flip + delayed unmount. Isolated in a module helper (not compiled) so the
-// synchronous open setState stays out of the compiled hook while its exact ordering
-// against the close timers is preserved.
-function reconcileWorktreeSetupPresentation(params: {
-  worktreeSetup: WorktreeSetupSnapshot | null;
-  presented: WorktreeSetupPresentation | null;
-  clearCloseTimers: () => void;
-  closeFrameRef: RefObject<number | null>;
-  cleanupTimeoutRef: RefObject<number | null>;
-  setPresented: Dispatch<SetStateAction<WorktreeSetupPresentation | null>>;
-}): void {
-  const {
-    worktreeSetup,
-    presented,
-    clearCloseTimers,
-    closeFrameRef,
-    cleanupTimeoutRef,
-    setPresented,
-  } = params;
-  if (worktreeSetup) {
-    clearCloseTimers();
-    setPresented((current) =>
-      current?.open && current.snapshot === worktreeSetup
-        ? current
-        : { snapshot: worktreeSetup, open: true },
-    );
-    return;
-  }
-  if (!presented?.open || closeFrameRef.current !== null) {
-    return;
-  }
-  closeFrameRef.current = window.requestAnimationFrame(() => {
-    closeFrameRef.current = null;
-    setPresented((current) => (current?.open ? { ...current, open: false } : current));
-    cleanupTimeoutRef.current = window.setTimeout(() => {
-      cleanupTimeoutRef.current = null;
-      setPresented(null);
-    }, DISCLOSURE_TRANSITION_MS);
-  });
 }
 
 // Keeps newly folded turn details mounted for one shared-disclosure close

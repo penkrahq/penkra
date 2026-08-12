@@ -76,8 +76,9 @@ First-party App packages receive the same sandbox and permission checks as third
   an equivalent user action mediated by the host.
 - Remote access is performed through the declared `network-fetch` permission and mediated API.
   Renderer navigation is not a substitute for network permission.
-- Downloads, external-protocol links, clipboard, microphone, camera, notifications, raw sockets,
-  and process spawning each require their dedicated host policy. No generic escape hatch exists.
+- Downloads, external-protocol links, clipboard, microphone, camera, notifications, hosted browser
+  pages, and simulated devices each require their dedicated host policy. No generic escape hatch
+  exists, and Apps have no raw-socket or process-spawn API.
 
 ## Required failure behavior
 

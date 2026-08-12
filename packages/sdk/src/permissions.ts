@@ -6,19 +6,15 @@ export const PENKRA_PERMISSIONS = {
     summary: "Make attributed requests through Penkra's mediated HTTP API.",
     risk: "standard",
   },
-  "raw-socket": {
-    name: "raw-socket",
-    summary: "Open reviewed non-HTTP network connections outside ordinary web fetch policy.",
-    risk: "high",
-  },
-  "process-spawn": {
-    name: "process-spawn",
-    summary: "Launch a reviewed executable without implicit shell interpolation.",
-    risk: "high",
-  },
   "browser-session": {
     name: "browser-session",
     summary: "Create and control isolated web pages through Penkra's hosted browser service.",
+    risk: "high",
+  },
+  "simulator-session": {
+    name: "simulator-session",
+    summary:
+      "Create and control isolated simulated devices through Penkra's hosted simulator service.",
     risk: "high",
   },
   "account-data": {

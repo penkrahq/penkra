@@ -5,6 +5,8 @@
 import * as FS from "node:fs";
 import * as Path from "node:path";
 
+import { resolveDesktopPlatformAdapter } from "./desktopPlatform";
+
 import { parseAppInstallationState, type AppInstallationState } from "./appInstallationState";
 import type { AppInstallationStore } from "./appInstallationStore";
 
@@ -158,7 +160,7 @@ async function syncDirectory(directoryPath: string): Promise<void> {
     handle = await FS.promises.open(directoryPath, "r");
     await handle.sync();
   } catch (error) {
-    if (process.platform !== "win32") throw error;
+    if (resolveDesktopPlatformAdapter().processLifecycle.syncDirectories) throw error;
   } finally {
     await handle?.close().catch(() => undefined);
   }

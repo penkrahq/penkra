@@ -10,7 +10,6 @@ import {
   EventId,
   type ProviderComposerCapabilities,
   type ProviderApprovalDecision,
-  type ProviderInteractionMode,
   type ProviderListModelsResult,
   type ProviderModelDescriptor,
   type ProviderRuntimeEvent,
@@ -80,12 +79,10 @@ import {
   makeAcpThreadLock,
   recordAcpSessionCost,
   resolveAcpSessionCwd,
-  resolveAcpTurnInteractionMode,
   scopeAcpRuntimeItemIdForTurn,
   scopeAcpToolCallStateForTurn,
   settleAcpPendingApprovalsAsCancelled,
   settleAcpPendingUserInputsAsEmptyAnswers,
-  withAcpPlanModePrompt,
 } from "../acp/AcpAdapterSessionSupport.ts";
 import { type AcpSessionRuntimeShape } from "../acp/AcpSessionRuntime.ts";
 import {
@@ -106,13 +103,11 @@ import {
 } from "../acp/AcpTurnIdleWatchdog.ts";
 import {
   extractGrokUserInputQuestions,
-  extractGrokExitPlanMarkdown,
   GROK_ASK_USER_QUESTION_METHODS,
   GROK_EXIT_PLAN_MODE_METHODS,
   GrokAskUserQuestionRequest,
   GrokExitPlanModeRequest,
   makeGrokExitPlanModeApprovedResponse,
-  makeGrokExitPlanModeCapturedResponse,
   makeGrokQuestionResponse,
 } from "../acp/GrokAcpExtension.ts";
 import {
@@ -178,115 +173,9 @@ const GROK_COMPACT_OUTCOME_MAX_WAIT_MS = 2_000;
 // consumer is keeping up (the queue is already empty).
 const GROK_TURN_SETTLE_DRAIN_MAX_WAIT_MS = 1_000;
 const GROK_TURN_SETTLE_DRAIN_POLL_MS = 25;
-const GROK_EXIT_PLAN_RESPONSE_GRACE_MS = 25;
 const XAI_API_BASE_URL = "https://api.x.ai/v1";
 const GROK_DEFAULT_REASONING_EFFORT = "low";
 const GROK_RUNTIME_REASONING_EFFORTS = GROK_REASONING_EFFORT_OPTIONS.map((value) => ({ value }));
-const GROK_PLAN_MODE_PROMPT_PREFIX = [
-  "Penkra requested Grok's native plan mode.",
-  "Do not implement or mutate files in this turn.",
-  "Do not ask follow-up questions or wait for confirmation; if scope is ambiguous, choose a reasonable default and state the assumption in the plan.",
-  "When ready, create the final implementation plan.",
-].join("\n");
-const GROK_PLAN_READ_ONLY_TOOL_NAMES = new Set([
-  "ask_user_question",
-  "enter_plan_mode",
-  "exit_plan_mode",
-  "fetch_mcp_resource",
-  "get_command_or_subagent_output",
-  "get_task_output",
-  "get_terminal_command_output",
-  "grep",
-  "hashline_grep",
-  "hashline_read",
-  "list_dir",
-  "list_mcp_resources",
-  "lsp",
-  "memory_get",
-  "memory_search",
-  "read_file",
-  "scheduler_list",
-  "search_tool",
-  "skill",
-  "todo_write",
-  "update_goal",
-  "wait_tasks",
-  "web_fetch",
-  "web_search",
-]);
-const GROK_PLAN_GUARD_HOOK_CALLBACK_ID = "penkra-plan-guard";
-const GROK_SESSION_META = {
-  "x.ai/hooks": {
-    PreToolUse: [
-      {
-        matcher: "*",
-        hookCallbackIds: [GROK_PLAN_GUARD_HOOK_CALLBACK_ID],
-      },
-    ],
-  },
-} satisfies Record<string, unknown>;
-
-export function buildGrokTurnPromptText(input: {
-  readonly text: string | undefined;
-  readonly interactionMode: ProviderInteractionMode;
-}): string | undefined {
-  if (input.interactionMode === "plan") {
-    return withAcpPlanModePrompt({
-      text: input.text ?? "",
-      interactionMode: "plan",
-      promptPrefix: GROK_PLAN_MODE_PROMPT_PREFIX,
-    });
-  }
-  return input.text;
-}
-
-export function buildGrokPromptMeta(interactionMode: ProviderInteractionMode): {
-  readonly mode: "plan" | "agent";
-} {
-  // Grok ACP reconciles its native Plan tracker from session/prompt `_meta.mode`.
-  // Unlike x.ai/toggle_plan_mode this is idempotent, so reconnects cannot invert
-  // the provider state when Penkra sends the desired mode again.
-  return { mode: interactionMode === "plan" ? "plan" : "agent" };
-}
-
-export function extractGrokTerminalPlanMarkdown(input: {
-  readonly interactionMode: ProviderInteractionMode | undefined;
-  readonly capturedPlanFingerprint: string | undefined;
-  readonly assistantText: string;
-}): string | undefined {
-  if (input.interactionMode !== "plan" || input.capturedPlanFingerprint !== undefined) {
-    return undefined;
-  }
-  const planMarkdown = input.assistantText.trim();
-  return planMarkdown.length > 0 ? planMarkdown : undefined;
-}
-
-export function resolveGrokPlanHookResponse(
-  interactionMode: ProviderInteractionMode | undefined,
-  payload: unknown,
-): Record<string, never> | { readonly decision: "deny"; readonly systemMessage: string } {
-  if (interactionMode !== "plan" || !isRecord(payload)) {
-    return {};
-  }
-  if (payload.hookCallbackId !== GROK_PLAN_GUARD_HOOK_CALLBACK_ID) {
-    return {};
-  }
-  const hookEventName =
-    typeof payload.hookEventName === "string" ? payload.hookEventName.trim().toLowerCase() : "";
-  if (hookEventName !== "pre_tool_use") {
-    return {};
-  }
-  const toolName =
-    typeof payload.toolName === "string" ? payload.toolName.trim().toLowerCase() : "";
-  if (GROK_PLAN_READ_ONLY_TOOL_NAMES.has(toolName)) {
-    return {};
-  }
-  return {
-    decision: "deny",
-    systemMessage: `Penkra Plan mode blocks the mutating or unknown Grok tool "${toolName || "unknown"}".`,
-  };
-}
-
 const collectStreamAsString = <E>(stream: Stream.Stream<Uint8Array, E>): Effect.Effect<string, E> =>
   Stream.runFold(
     stream,
@@ -341,11 +230,9 @@ interface GrokSessionContext {
   readonly pendingUserInputs: Map<ApprovalRequestId, PendingUserInput>;
   readonly turns: Array<{ id: TurnId; items: Array<unknown> }>;
   lastPlanFingerprint: string | undefined;
-  activeInteractionMode: ProviderInteractionMode | undefined;
   activeTurnId: TurnId | undefined;
   activeTurnHadAssistantContent: boolean;
   readonly activeAssistantItemsWithContent: Set<string>;
-  activePlanResponseText: string;
   activeTurnFailedToolDetail: string | undefined;
   activePromptFiber: Fiber.Fiber<void, never> | undefined;
   // Epoch-ms of the last inbound ACP activity for the active turn; drives the
@@ -779,36 +666,6 @@ export function makeGrokAdapter(
         });
       });
 
-    const completeGrokPlanTurn = (
-      ctx: GrokSessionContext,
-      turnId: TurnId,
-      activePromptFiber: Fiber.Fiber<void, never> | undefined,
-    ) =>
-      Effect.gen(function* () {
-        if (!clearAcpActiveTurn(ctx, turnId)) {
-          return;
-        }
-        const completedCost = finalizeAcpActiveTurnCost(ctx);
-        const { lastError: _lastError, ...sessionWithoutLastError } = ctx.session;
-        ctx.session = {
-          ...sessionWithoutLastError,
-          status: "ready",
-          updatedAt: yield* nowIso,
-        };
-        yield* offerRuntimeEvent(ctx.lifecycleGeneration, {
-          type: "turn.completed",
-          ...(yield* makeEventStamp()),
-          provider: PROVIDER,
-          threadId: ctx.threadId,
-          turnId,
-          payload: { state: "completed", stopReason: null, ...completedCost },
-        });
-        yield* Effect.ignore(ctx.acp.cancel);
-        if (activePromptFiber) {
-          yield* Fiber.interrupt(activePromptFiber);
-        }
-      });
-
     const noteSuppressedGrokRuntimeEvent = (
       ctx: GrokSessionContext,
       eventTag: string,
@@ -1038,10 +895,6 @@ export function makeGrokAdapter(
             cwd,
             ...(resumeSessionId ? { resumeSessionId } : {}),
             clientInfo: { name: "Penkra", version: "0.0.0" },
-            // Grok registers client hooks from session setup metadata, not
-            // initialize.clientCapabilities. Re-send this on load/resume so a
-            // reconnected session keeps the Plan-mode write gate.
-            sessionMeta: GROK_SESSION_META,
             ...(agentGatewayCredentials
               ? {
                   buildMcpServers: (initializeResult) =>
@@ -1061,9 +914,6 @@ export function makeGrokAdapter(
           );
 
           const started = yield* Effect.gen(function* () {
-            yield* acp.handleExtRequest("x.ai/hooks/run", Schema.Unknown, (params) =>
-              Effect.succeed(resolveGrokPlanHookResponse(ctx?.activeInteractionMode, params)),
-            );
             for (const method of GROK_ASK_USER_QUESTION_METHODS) {
               yield* acp.handleExtRequest(method, GrokAskUserQuestionRequest, (params) =>
                 Effect.gen(function* () {
@@ -1105,51 +955,7 @@ export function makeGrokAdapter(
               yield* acp.handleExtRequest(method, GrokExitPlanModeRequest, (params) =>
                 Effect.gen(function* () {
                   yield* logNative(input.threadId, method, params);
-                  if (ctx?.activeInteractionMode === "default") {
-                    // A new Default turn is the user's approval to leave the
-                    // provider-native Plan gate and continue with implementation.
-                    return makeGrokExitPlanModeApprovedResponse();
-                  }
-                  const planMarkdown = extractGrokExitPlanMarkdown(params);
-                  const turnId = ctx?.activeTurnId;
-                  const activePromptFiber = ctx?.activePromptFiber;
-                  if (planMarkdown !== undefined) {
-                    yield* offerRuntimeEvent(input.lifecycleGeneration, {
-                      type: "turn.proposed.completed",
-                      ...(yield* makeEventStamp()),
-                      provider: PROVIDER,
-                      threadId: input.threadId,
-                      ...(turnId !== undefined
-                        ? { turnId }
-                        : {
-                            itemId: RuntimeItemId.makeUnsafe(
-                              `grok-plan-approval:${params.toolCallId}`,
-                            ),
-                          }),
-                      payload: { planMarkdown },
-                      raw: {
-                        source: "acp.jsonrpc",
-                        method,
-                        payload: params,
-                      },
-                    });
-                    if (
-                      ctx !== undefined &&
-                      turnId !== undefined &&
-                      ctx.activeInteractionMode === "plan" &&
-                      ctx.lastPlanFingerprint !== planMarkdown
-                    ) {
-                      ctx.lastPlanFingerprint = planMarkdown;
-                      // The extension response must reach Grok before Penkra cancels the
-                      // prompt fiber. Cancelling inline can tear down Grok's pending reverse
-                      // request and recreate its misleading "client disconnected" failure.
-                      yield* Effect.gen(function* () {
-                        yield* Effect.sleep(GROK_EXIT_PLAN_RESPONSE_GRACE_MS);
-                        yield* completeGrokPlanTurn(ctx, turnId, activePromptFiber);
-                      }).pipe(Effect.forkIn(ctx.scope));
-                    }
-                  }
-                  return makeGrokExitPlanModeCapturedResponse();
+                  return makeGrokExitPlanModeApprovedResponse();
                 }),
               );
             }
@@ -1158,7 +964,7 @@ export function makeGrokAdapter(
                 yield* logNative(input.threadId, "session/request_permission", params);
                 const policyOutcome = resolveAcpPermissionPolicy({
                   runtimeMode: input.runtimeMode,
-                  interactionMode: ctx?.activeInteractionMode,
+                  turnIsActive: ctx?.activeTurnId !== undefined,
                   options: params.options,
                 });
                 if (policyOutcome !== undefined) {
@@ -1167,7 +973,6 @@ export function makeGrokAdapter(
                       yield* Effect.logInfo("grok.acp.permission_policy_applied", {
                         threadId: input.threadId,
                         turnId: ctx?.activeTurnId,
-                        interactionMode: ctx?.activeInteractionMode,
                         optionId: policyOutcome.optionId,
                         options: params.options.map((option) => ({
                           kind: option.kind,
@@ -1274,11 +1079,9 @@ export function makeGrokAdapter(
             pendingUserInputs,
             turns: [],
             lastPlanFingerprint: undefined,
-            activeInteractionMode: undefined,
             activeTurnId: undefined,
             activeTurnHadAssistantContent: false,
             activeAssistantItemsWithContent: new Set(),
-            activePlanResponseText: "",
             activeTurnFailedToolDetail: undefined,
             activePromptFiber: undefined,
             lastTurnActivityAt: undefined,
@@ -1473,9 +1276,6 @@ export function makeGrokAdapter(
                         : undefined;
                       if (isRenderableGrokAssistantDelta(event)) {
                         ctx.activeTurnHadAssistantContent = true;
-                        if (ctx.activeInteractionMode === "plan") {
-                          ctx.activePlanResponseText += event.text;
-                        }
                         if (scopedItemId !== undefined) {
                           ctx.activeAssistantItemsWithContent.add(scopedItemId);
                         }
@@ -1694,7 +1494,6 @@ export function makeGrokAdapter(
         const turnModelSelection =
           input.modelSelection?.provider === PROVIDER ? input.modelSelection : undefined;
         const model = turnModelSelection?.model ?? ctx.session.model;
-        const interactionMode = resolveAcpTurnInteractionMode(input.interactionMode);
         yield* applyRequestedModelSelection({
           runtime: ctx.acp,
           modelSelection:
@@ -1709,10 +1508,7 @@ export function makeGrokAdapter(
         });
         const promptParts: Array<Acp.ContentBlock> = [];
         const promptText = appendFileAttachmentsPromptBlock({
-          text: buildGrokTurnPromptText({
-            text: input.input?.trim(),
-            interactionMode,
-          }),
+          text: input.input?.trim(),
           attachments: input.attachments,
           attachmentsDir: serverConfig.attachmentsDir,
           include: "all-files",
@@ -1764,13 +1560,10 @@ export function makeGrokAdapter(
         ctx.activeTurnId = turnId;
         ctx.activeTurnHadAssistantContent = false;
         ctx.activeAssistantItemsWithContent.clear();
-        ctx.activePlanResponseText = "";
         ctx.activeTurnFailedToolDetail = undefined;
         // Late-event attribution only matters between turns; once a new turn
         // dispatches, stragglers from older turns are stale enough to drop.
         ctx.turnToolCallIds.clear();
-        ctx.activeInteractionMode = interactionMode;
-        ctx.lastPlanFingerprint = undefined;
         ctx.lastTurnActivityAt = Date.now();
         const { lastError: _lastError, ...sessionWithoutLastError } = ctx.session;
         ctx.session = {
@@ -1800,7 +1593,7 @@ export function makeGrokAdapter(
             ? Effect.interrupt
             : ctx.acp.prompt({
                 prompt: promptParts,
-                _meta: buildGrokPromptMeta(interactionMode),
+                _meta: { mode: "agent" },
               }),
         ).pipe(
           Effect.mapError((error) =>
@@ -1844,27 +1637,6 @@ export function makeGrokAdapter(
                 yield* waitForGrokQueuedTurnEventsDrained(ctx);
                 const hadAssistantContent = ctx.activeTurnHadAssistantContent;
                 const failedToolDetail = ctx.activeTurnFailedToolDetail;
-                const terminalPlanMarkdown = extractGrokTerminalPlanMarkdown({
-                  interactionMode: ctx.activeInteractionMode,
-                  capturedPlanFingerprint: ctx.lastPlanFingerprint,
-                  assistantText: ctx.activePlanResponseText,
-                });
-                if (terminalPlanMarkdown !== undefined) {
-                  ctx.lastPlanFingerprint = terminalPlanMarkdown;
-                  yield* offerRuntimeEvent(ctx.lifecycleGeneration, {
-                    type: "turn.proposed.completed",
-                    ...(yield* makeEventStamp()),
-                    provider: PROVIDER,
-                    threadId: input.threadId,
-                    turnId,
-                    payload: { planMarkdown: terminalPlanMarkdown },
-                    raw: {
-                      source: "acp.jsonrpc",
-                      method: "penkra.grok.terminal-plan-response",
-                      payload: result,
-                    },
-                  });
-                }
                 if (!clearAcpActiveTurn(ctx, turnId)) {
                   return;
                 }
@@ -2073,6 +1845,7 @@ export function makeGrokAdapter(
         supportsPluginDiscovery: false,
         supportsRuntimeModelList: true,
         supportsThreadCompaction: true,
+        supportsThreadFork: false,
         supportsThreadImport: false,
       } satisfies ProviderComposerCapabilities);
 

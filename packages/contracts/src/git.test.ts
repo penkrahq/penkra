@@ -3,20 +3,18 @@ import { Schema } from "effect";
 
 import {
   GitCreateWorktreeInput,
-  GitHandoffThreadInput,
+  GitSwitchThreadEnvironmentInput,
   GitPreparePullRequestThreadInput,
-  GitRunStackedActionInput,
   GitResolvePullRequestResult,
-  GitSummarizeDiffInput,
 } from "./git";
 
 const decodeCreateWorktreeInput = Schema.decodeUnknownSync(GitCreateWorktreeInput);
-const decodeHandoffThreadInput = Schema.decodeUnknownSync(GitHandoffThreadInput);
+const decodeThreadEnvironmentSwitchInput = Schema.decodeUnknownSync(
+  GitSwitchThreadEnvironmentInput,
+);
 const decodePreparePullRequestThreadInput = Schema.decodeUnknownSync(
   GitPreparePullRequestThreadInput,
 );
-const decodeRunStackedActionInput = Schema.decodeUnknownSync(GitRunStackedActionInput);
-const decodeSummarizeDiffInput = Schema.decodeUnknownSync(GitSummarizeDiffInput);
 const decodeResolvePullRequestResult = Schema.decodeUnknownSync(GitResolvePullRequestResult);
 
 describe("GitCreateWorktreeInput", () => {
@@ -32,11 +30,11 @@ describe("GitCreateWorktreeInput", () => {
   });
 });
 
-describe("GitHandoffThreadInput", () => {
-  it("carries durable orchestration identity with the Git handoff", () => {
-    const parsed = decodeHandoffThreadInput({
-      commandId: "command-handoff-1",
-      threadId: "thread-handoff-1",
+describe("GitSwitchThreadEnvironmentInput", () => {
+  it("carries durable orchestration identity with the Git environment switch", () => {
+    const parsed = decodeThreadEnvironmentSwitchInput({
+      commandId: "command-environment-switch-1",
+      threadId: "thread-environment-switch-1",
       cwd: "/repo",
       targetMode: "worktree",
       currentBranch: "main",
@@ -46,11 +44,11 @@ describe("GitHandoffThreadInput", () => {
       associatedWorktreeRef: null,
       preferredLocalBranch: "main",
       preferredWorktreeBaseBranch: "main",
-      preferredNewWorktreeName: "worktree/handoff",
+      preferredNewWorktreeName: "worktree/environment-switch",
     });
 
-    expect(parsed.commandId).toBe("command-handoff-1");
-    expect(parsed.threadId).toBe("thread-handoff-1");
+    expect(parsed.commandId).toBe("command-environment-switch-1");
+    expect(parsed.threadId).toBe("thread-environment-switch-1");
   });
 });
 
@@ -90,57 +88,5 @@ describe("GitResolvePullRequestResult", () => {
     expect(parsed.pullRequest.isDraft).toBe(true);
     expect(parsed.pullRequest.mergeability).toBe("conflicting");
     expect(parsed.pullRequest.additions).toBe(38);
-  });
-});
-
-describe("GitRunStackedActionInput", () => {
-  it("requires a client-provided actionId for progress correlation", () => {
-    const parsed = decodeRunStackedActionInput({
-      actionId: "action-1",
-      cwd: "/repo",
-      action: "commit",
-    });
-
-    expect(parsed.actionId).toBe("action-1");
-    expect(parsed.action).toBe("commit");
-  });
-
-  it("accepts an optional codexHomePath for git text generation", () => {
-    const parsed = decodeRunStackedActionInput({
-      actionId: "action-2",
-      cwd: "/repo",
-      action: "commit_push",
-      codexHomePath: "/tmp/custom-codex-home",
-    });
-
-    expect(parsed.codexHomePath).toBe("/tmp/custom-codex-home");
-  });
-
-  it("accepts an optional textGenerationModelSelection for provider routing", () => {
-    const parsed = decodeRunStackedActionInput({
-      actionId: "action-3",
-      cwd: "/repo",
-      action: "commit",
-      textGenerationModelSelection: {
-        provider: "opencode",
-        model: "openrouter/gpt-oss-120b",
-      },
-    });
-
-    expect(parsed.textGenerationModelSelection?.provider).toBe("opencode");
-    expect(parsed.textGenerationModelSelection?.model).toBe("openrouter/gpt-oss-120b");
-  });
-});
-
-describe("GitSummarizeDiffInput", () => {
-  it("accepts an optional codexHomePath for diff summaries", () => {
-    const parsed = decodeSummarizeDiffInput({
-      cwd: "/repo",
-      scope: "staged",
-      codexHomePath: "/tmp/custom-codex-home",
-    });
-
-    expect(parsed.codexHomePath).toBe("/tmp/custom-codex-home");
-    expect(parsed.scope).toBe("staged");
   });
 });

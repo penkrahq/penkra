@@ -1,5 +1,17 @@
 import type { OperationContext } from "./operations";
 import type { PenkraPermissionName } from "./permissions";
+import type {
+  AppSimulatorButton,
+  AppSimulatorCreateDeviceInput,
+  AppSimulatorDeviceType,
+  AppSimulatorEnvironment,
+  AppSimulatorRuntime,
+  AppSimulatorSetupRequest,
+  AppSimulatorSavedDevice,
+  AppSimulatorSessionState,
+  AppSimulatorSwipeInput,
+  AppSimulatorTarget,
+} from "./simulator";
 
 export interface AppPermissionStatus {
   name: PenkraPermissionName;
@@ -150,6 +162,32 @@ export interface PenkraAppRuntimeApi {
     capture(pageId: string): Promise<{ dataUrl: string }>;
     evaluate(input: { pageId: string; expression: string }): Promise<unknown>;
   };
+  /** Permission-bound simulated devices. The App owns chrome; Penkra owns native lifecycle. */
+  simulator: {
+    getEnvironment(): Promise<AppSimulatorEnvironment>;
+    listRuntimes(): Promise<ReadonlyArray<AppSimulatorRuntime>>;
+    listDeviceTypes(runtimeId?: string): Promise<ReadonlyArray<AppSimulatorDeviceType>>;
+    listDevices(): Promise<ReadonlyArray<AppSimulatorSavedDevice>>;
+    createDevice(input: AppSimulatorCreateDeviceInput): Promise<AppSimulatorSavedDevice>;
+    eraseDevice(deviceId: string): Promise<AppSimulatorSavedDevice>;
+    deleteDevice(deviceId: string): Promise<void>;
+    requestSetup(input: AppSimulatorSetupRequest): Promise<AppSimulatorEnvironment>;
+    cancelSetup(): Promise<void>;
+    open(deviceId: string): Promise<AppSimulatorSessionState>;
+    close(): Promise<void>;
+    getState(): Promise<AppSimulatorSessionState>;
+    onState(listener: (state: AppSimulatorSessionState) => void): () => void;
+    setViewport(
+      bounds: { x: number; y: number; width: number; height: number } | null,
+    ): Promise<void>;
+    getTarget(): Promise<AppSimulatorTarget>;
+    capture(): Promise<{ dataUrl: string }>;
+    tap(point: { x: number; y: number }): Promise<void>;
+    swipe(input: AppSimulatorSwipeInput): Promise<void>;
+    type(text: string): Promise<void>;
+    press(button: AppSimulatorButton): Promise<void>;
+    rotate(orientation: "portrait" | "landscape"): Promise<AppSimulatorSessionState>;
+  };
   identity: {
     get(): Promise<AppIdentity>;
   };
@@ -229,29 +267,6 @@ export interface PenkraAppRuntimeApi {
       body: Uint8Array;
     }>;
   };
-  sockets: {
-    exchange(input: {
-      host: string;
-      port: number;
-      payload: Uint8Array;
-      responseBytes?: number;
-      timeoutMs?: number;
-    }): Promise<Uint8Array>;
-  };
-  processes: {
-    run(input: {
-      executableHandleId: string;
-      args?: ReadonlyArray<string>;
-      cwdHandleId?: string;
-      stdin?: string | Uint8Array;
-      timeoutMs?: number;
-    }): Promise<{
-      exitCode: number | null;
-      signal: string | null;
-      stdout: Uint8Array;
-      stderr: Uint8Array;
-    }>;
-  };
   permissions: {
     /** Inspect this App's grant in its current Space without prompting. */
     query(name: PenkraPermissionName): Promise<AppPermissionStatus>;
@@ -307,6 +322,30 @@ export const browser: PenkraAppRuntimeApi["browser"] = {
   stopFind: (pageId) => runtime().browser.stopFind(pageId),
   capture: (pageId) => runtime().browser.capture(pageId),
   evaluate: (input) => runtime().browser.evaluate(input),
+};
+
+export const simulator: PenkraAppRuntimeApi["simulator"] = {
+  getEnvironment: () => runtime().simulator.getEnvironment(),
+  listRuntimes: () => runtime().simulator.listRuntimes(),
+  listDeviceTypes: (runtimeId) => runtime().simulator.listDeviceTypes(runtimeId),
+  listDevices: () => runtime().simulator.listDevices(),
+  createDevice: (input) => runtime().simulator.createDevice(input),
+  eraseDevice: (deviceId) => runtime().simulator.eraseDevice(deviceId),
+  deleteDevice: (deviceId) => runtime().simulator.deleteDevice(deviceId),
+  requestSetup: (input) => runtime().simulator.requestSetup(input),
+  cancelSetup: () => runtime().simulator.cancelSetup(),
+  open: (deviceId) => runtime().simulator.open(deviceId),
+  close: () => runtime().simulator.close(),
+  getState: () => runtime().simulator.getState(),
+  onState: (listener) => runtime().simulator.onState(listener),
+  setViewport: (bounds) => runtime().simulator.setViewport(bounds),
+  getTarget: () => runtime().simulator.getTarget(),
+  capture: () => runtime().simulator.capture(),
+  tap: (point) => runtime().simulator.tap(point),
+  swipe: (input) => runtime().simulator.swipe(input),
+  type: (value) => runtime().simulator.type(value),
+  press: (button) => runtime().simulator.press(button),
+  rotate: (orientation) => runtime().simulator.rotate(orientation),
 };
 
 /** Framework-neutral operation registration backed by the host preload bridge. */
@@ -367,14 +406,6 @@ export const files: PenkraAppRuntimeApi["files"] = {
 
 export const network: PenkraAppRuntimeApi["network"] = {
   fetch: (input) => runtime().network.fetch(input),
-};
-
-export const sockets: PenkraAppRuntimeApi["sockets"] = {
-  exchange: (input) => runtime().sockets.exchange(input),
-};
-
-export const processes: PenkraAppRuntimeApi["processes"] = {
-  run: (input) => runtime().processes.run(input),
 };
 
 /** Framework-neutral tab registration backed by the host preload bridge. */

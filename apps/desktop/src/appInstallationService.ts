@@ -254,6 +254,9 @@ export class AppInstallationService {
     spaceId: string;
     enabled: boolean;
   }): Promise<AppInstallationState> {
+    if (!input.enabled && isRequiredApp(input.appId)) {
+      throw new Error("Apps is required and cannot be disabled.");
+    }
     if (input.enabled)
       assertRequiredPermissionsGranted(this.#store.snapshot(), input.appId, input.spaceId);
     const state = input.enabled

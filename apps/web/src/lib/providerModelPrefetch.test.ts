@@ -31,7 +31,6 @@ function makeSettings(
     grokBinaryPath: "",
     droidBinaryPath: "",
     kiloBinaryPath: "",
-    openCodeBinaryPath: "",
     piBinaryPath: "",
     piAgentDir: "",
     ...overrides,
@@ -108,7 +107,6 @@ describe("providerModelsPrefetchQueryOptions", () => {
       cursorBinaryPath: "/bin/agent",
       cursorApiEndpoint: "https://api.example",
       antigravityBinaryPath: "/bin/antigravity",
-      openCodeBinaryPath: "/bin/opencode",
       piBinaryPath: "/bin/pi",
       piAgentDir: "/tmp/pi-agent",
     });
@@ -127,7 +125,7 @@ describe("providerModelsPrefetchQueryOptions", () => {
       cwd: "/tmp/project",
     });
     expect(openCodeOptions.queryKey).toEqual(
-      providerDiscoveryQueryKeys.models("opencode", "/bin/opencode", null, null, "/tmp/project"),
+      providerDiscoveryQueryKeys.models("opencode", null, null, null, "/tmp/project"),
     );
 
     const piOptions = providerModelsPrefetchQueryOptions({

@@ -17,38 +17,17 @@ export const PARCEL_WATCHER_ASAR_UNPACK_GLOBS = [
   "node_modules/@parcel/watcher/**",
   "node_modules/@parcel/watcher-*/**",
 ] as const;
-
-const AZURE_TRUSTED_SIGNING_ENV = {
-  endpoint: "AZURE_TRUSTED_SIGNING_ENDPOINT",
-  codeSigningAccountName: "AZURE_TRUSTED_SIGNING_ACCOUNT_NAME",
-  certificateProfileName: "AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME",
-  publisherName: "AZURE_TRUSTED_SIGNING_PUBLISHER_NAME",
+export const REQUIRED_APPS_EXTRA_RESOURCE = {
+  from: "apps/desktop/resources/required-apps",
+  to: "required-apps",
+  filter: ["**/*"],
 } as const;
-
-function resolveAzureTrustedSigningOptions(): Record<string, string> | null {
-  const values = Object.fromEntries(
-    Object.entries(AZURE_TRUSTED_SIGNING_ENV).map(([key, environmentName]) => [
-      key,
-      process.env[environmentName]?.trim() ?? "",
-    ]),
-  ) as Record<keyof typeof AZURE_TRUSTED_SIGNING_ENV, string>;
-  const populated = Object.values(values).filter(Boolean);
-  if (populated.length === 0) return null;
-  if (populated.length !== Object.keys(AZURE_TRUSTED_SIGNING_ENV).length) {
-    const missing = Object.entries(AZURE_TRUSTED_SIGNING_ENV)
-      .filter(([key]) => !values[key as keyof typeof values])
-      .map(([, environmentName]) => environmentName);
-    throw new Error(
-      `Azure Trusted Signing configuration is incomplete: missing ${missing.join(", ")}.`,
-    );
-  }
-  return values;
-}
 
 export interface DesktopPlatformBuildConfig {
   readonly asarUnpack?: ReadonlyArray<string>;
   readonly dmg?: Record<string, unknown>;
   readonly extraFiles?: ReadonlyArray<Record<string, string>>;
+  readonly extraResources?: ReadonlyArray<Record<string, unknown>>;
   readonly files?: ReadonlyArray<string>;
   readonly linux?: Record<string, unknown>;
   readonly mac?: Record<string, unknown>;
@@ -68,17 +47,21 @@ export function createDesktopPlatformBuildConfig(
 ): DesktopPlatformBuildConfig {
   const nativePackaging = {
     asarUnpack: [...NODE_PTY_ASAR_UNPACK_GLOBS, ...PARCEL_WATCHER_ASAR_UNPACK_GLOBS],
+    extraResources: [REQUIRED_APPS_EXTRA_RESOURCE],
   };
 
   if (input.platform === "win") {
-    const azureSignOptions = input.signed ? resolveAzureTrustedSigningOptions() : null;
+    if (input.signed) {
+      throw new Error(
+        "Signed Windows artifacts are deferred until the Azure Artifact Signing release plan is implemented and approved.",
+      );
+    }
     return {
       ...nativePackaging,
       win: {
         target: [input.target],
         icon: "icon.ico",
         verifyUpdateCodeSignature: true,
-        ...(azureSignOptions === null ? {} : { azureSignOptions }),
       },
       nsis: {
         // A user-level installer works without elevation and is compatible with
@@ -122,6 +105,14 @@ export function createDesktopPlatformBuildConfig(
 
   return {
     ...nativePackaging,
+    extraResources: [
+      REQUIRED_APPS_EXTRA_RESOURCE,
+      {
+        from: "apps/desktop/prod-resources/native",
+        to: "native",
+        filter: ["**/*"],
+      },
+    ],
     dmg: {
       sign: input.signed === true,
       // The signed release flow notarizes and staples the DMG after electron-builder exits.

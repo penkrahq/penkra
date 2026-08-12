@@ -136,37 +136,7 @@ describe("applyDroidAcpModelSelection", () => {
 });
 
 describe("applyDroidAcpInteractionMode", () => {
-  it("uses native spec mode for Plan and restores Full Access on the next turn", async () => {
-    const calls: string[] = [];
-    const runtime = {
-      setMode: (modeId: string) => {
-        calls.push(modeId);
-        return Effect.succeed({});
-      },
-      setConfigOption: () => Effect.succeed({ configOptions: [] }),
-    };
-
-    await Effect.runPromise(
-      applyDroidAcpInteractionMode({
-        runtime,
-        interactionMode: "plan",
-        runtimeMode: "full-access",
-        mapError: ({ cause }) => cause,
-      }),
-    );
-    await Effect.runPromise(
-      applyDroidAcpInteractionMode({
-        runtime,
-        interactionMode: "default",
-        runtimeMode: "full-access",
-        mapError: ({ cause }) => cause,
-      }),
-    );
-
-    expect(calls).toEqual(["spec", "auto-high"]);
-  });
-
-  it("uses Droid's highest native autonomy outside plan mode for full-access sessions", async () => {
+  it("uses Droid's highest native autonomy for full-access sessions", async () => {
     const calls: string[] = [];
     await Effect.runPromise(
       applyDroidAcpInteractionMode({
@@ -177,7 +147,6 @@ describe("applyDroidAcpInteractionMode", () => {
           },
           setConfigOption: () => Effect.succeed({ configOptions: [] }),
         },
-        interactionMode: "default",
         runtimeMode: "full-access",
         mapError: ({ cause }) => cause,
       }),
@@ -201,11 +170,11 @@ describe("applyDroidAcpInteractionMode", () => {
     await Effect.runPromise(
       applyDroidAcpInteractionMode({
         runtime,
-        interactionMode: "plan",
+        runtimeMode: "full-access",
         mapError: ({ cause }) => cause,
       }),
     );
-    expect(calls).toEqual([{ configId: "autonomy_level", value: "spec" }]);
+    expect(calls).toEqual([{ configId: "autonomy_level", value: "auto-high" }]);
   });
 });
 

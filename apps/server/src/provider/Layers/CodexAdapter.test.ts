@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import {
   ApprovalRequestId,
@@ -6,6 +8,7 @@ import {
   ProviderItemId,
   type ProviderApprovalDecision,
   type ProviderEvent,
+  type ProviderListModelsResult,
   type ProviderSession,
   type ProviderTurnStartResult,
   type ProviderUserInputAnswers,
@@ -78,6 +81,13 @@ class FakeCodexManager extends CodexAppServerManager {
     turns: [],
   }));
 
+  public forkThreadImpl = vi.fn(
+    async (input: Parameters<CodexAppServerManager["forkThread"]>[0]) => ({
+      threadId: input.threadId,
+      resumeCursor: { threadId: "forked-native-codex-thread" },
+    }),
+  );
+
   public respondToRequestImpl = vi.fn(
     async (
       _threadId: ThreadId,
@@ -95,6 +105,16 @@ class FakeCodexManager extends CodexAppServerManager {
   );
 
   public stopAllImpl = vi.fn(() => undefined);
+  public listModelsImpl = vi.fn(
+    async (
+      _threadId?: string,
+      _managedDiscovery?: Parameters<CodexAppServerManager["listModels"]>[1],
+    ): Promise<ProviderListModelsResult> => ({
+      models: [{ slug: "gpt-managed", name: "Managed GPT" }],
+      source: "test",
+      cached: false,
+    }),
+  );
 
   override startSession(input: CodexAppServerStartSessionInput): Promise<ProviderSession> {
     return this.startSessionImpl(input);
@@ -122,6 +142,10 @@ class FakeCodexManager extends CodexAppServerManager {
 
   override rollbackThread(threadId: ThreadId, numTurns: number) {
     return this.rollbackThreadImpl(threadId, numTurns);
+  }
+
+  override forkThread(input: Parameters<CodexAppServerManager["forkThread"]>[0]) {
+    return this.forkThreadImpl(input);
   }
 
   override respondToRequest(
@@ -153,6 +177,13 @@ class FakeCodexManager extends CodexAppServerManager {
   override async stopAll(): Promise<void> {
     this.stopAllImpl();
   }
+
+  override listModels(
+    threadId?: string,
+    managedDiscovery?: Parameters<CodexAppServerManager["listModels"]>[1],
+  ): Promise<ProviderListModelsResult> {
+    return this.listModelsImpl(threadId, managedDiscovery);
+  }
 }
 
 const providerSessionDirectoryTestLayer = Layer.succeed(ProviderSessionDirectory, {
@@ -166,8 +197,12 @@ const providerSessionDirectoryTestLayer = Layer.succeed(ProviderSessionDirectory
 });
 
 const validationManager = new FakeCodexManager();
+const verificationManager = new FakeCodexManager();
 const validationLayer = it.layer(
-  makeCodexAdapterLive({ manager: validationManager }).pipe(
+  makeCodexAdapterLive({
+    manager: validationManager,
+    makeVerificationManager: () => verificationManager,
+  }).pipe(
     Layer.provideMerge(ServerConfig.layerTest(process.cwd(), process.cwd())),
     Layer.provideMerge(providerSessionDirectoryTestLayer),
     Layer.provideMerge(NodeServices.layer),
@@ -175,6 +210,212 @@ const validationLayer = it.layer(
 );
 
 validationLayer("CodexAdapterLive validation", (it) => {
+  it.effect("adopts a new managed Codex rollout after the first turn starts", () =>
+    Effect.gen(function* () {
+      const adapter = yield* CodexAdapter;
+      const fixtureRoot = yield* Effect.promise(() =>
+        mkdtemp(path.join(tmpdir(), "penkra-codex-adapter-adoption-")),
+      );
+      const profileRoot = path.join(fixtureRoot, "profile");
+      const nativeStateRoot = path.join(fixtureRoot, "native");
+      const nativeThreadId = "codex-thread-created-on-turn";
+      const relativeRollout = path.join(
+        "sessions",
+        "2026",
+        "08",
+        "09",
+        `rollout-2026-08-09T12-00-00-${nativeThreadId}.jsonl`,
+      );
+      const profileRollout = path.join(profileRoot, "codex-home", relativeRollout);
+      const generationRollout = path.join(nativeStateRoot, "codex-rollouts", relativeRollout);
+      const threadId = asThreadId("managed-first-turn-adoption");
+
+      validationManager.startSessionImpl.mockImplementationOnce(async (input) => {
+        const now = new Date().toISOString();
+        return {
+          provider: "codex",
+          status: "ready",
+          runtimeMode: input.runtimeMode,
+          threadId: input.threadId,
+          resumeCursor: { threadId: nativeThreadId },
+          createdAt: now,
+          updatedAt: now,
+        };
+      });
+      validationManager.sendTurnImpl.mockImplementationOnce(async () => {
+        await mkdir(path.dirname(profileRollout), { recursive: true });
+        await writeFile(profileRollout, "{}\n");
+        return { threadId, turnId: asTurnId("managed-first-turn") };
+      });
+
+      const managedLaunch = {
+        binaryPath: "/managed/codex",
+        isolationKey: "managed:first-turn:generation-1",
+        profileRoot,
+        nativeStateRoot,
+        childEnvironment: (environment: NodeJS.ProcessEnv) => environment,
+      };
+      yield* adapter.startSession({
+        threadId,
+        provider: "codex",
+        runtimeMode: "full-access",
+        managedLaunch,
+      });
+      yield* adapter.sendTurn({ threadId, input: "Design the simulator." });
+
+      const [profileStat, generationStat] = yield* Effect.promise(() =>
+        Promise.all([stat(profileRollout), stat(generationRollout)]),
+      );
+      assert.equal(generationStat.ino, profileStat.ino);
+      assert.equal(generationStat.dev, profileStat.dev);
+      yield* Effect.promise(() => rm(fixtureRoot, { recursive: true, force: true }));
+      validationManager.startSessionImpl.mockClear();
+      validationManager.sendTurnImpl.mockClear();
+    }),
+  );
+
+  it.effect("passes the exact managed generation through native Codex forks", () =>
+    Effect.gen(function* () {
+      validationManager.forkThreadImpl.mockClear();
+      const adapter = yield* CodexAdapter;
+      const managedLaunch = {
+        binaryPath: "/managed/codex",
+        isolationKey: "managed:fork:generation-1",
+        profileRoot: "/managed/profile",
+        nativeStateRoot: "/managed/native",
+        childEnvironment: (environment: NodeJS.ProcessEnv) => environment,
+      };
+      const result = yield* adapter.forkThread!({
+        sourceThreadId: asThreadId("source-thread"),
+        threadId: asThreadId("target-thread"),
+        sourceResumeCursor: { threadId: "source-native-codex-thread" },
+        modelSelection: { provider: "codex", model: "gpt-5.3-codex" },
+        runtimeMode: "full-access",
+        managedLaunch,
+      });
+      assert.deepStrictEqual(result.resumeCursor, { threadId: "forked-native-codex-thread" });
+      assert.strictEqual(
+        validationManager.forkThreadImpl.mock.calls[0]?.[0].managedLaunch,
+        managedLaunch,
+      );
+    }),
+  );
+
+  it.effect("discovers models through the exact managed Codex profile", () =>
+    Effect.gen(function* () {
+      validationManager.listModelsImpl.mockClear();
+      const adapter = yield* CodexAdapter;
+      assert.ok(adapter.listModels);
+      const childEnvironment = () => ({ CODEX_HOME: "/isolated/codex" });
+      const result = yield* adapter.listModels({
+        provider: "codex",
+        cwd: "/repo/models",
+        managedLaunch: {
+          binaryPath: "/managed/codex",
+          isolationKey: "connection:personal:discovery",
+          profileRoot: "/isolated/profile",
+          nativeStateRoot: "/isolated/native",
+          childEnvironment,
+        },
+      });
+      assert.deepStrictEqual(result.models, [{ slug: "gpt-managed", name: "Managed GPT" }]);
+      assert.deepStrictEqual(validationManager.listModelsImpl.mock.calls[0], [
+        undefined,
+        {
+          cwd: "/repo/models",
+          managedLaunch: {
+            binaryPath: "/managed/codex",
+            isolationKey: "connection:personal:discovery",
+            profileRoot: "/isolated/profile",
+            nativeStateRoot: "/isolated/native",
+            childEnvironment,
+          },
+        },
+      ]);
+    }),
+  );
+
+  it.effect("silently verifies an exact native Codex thread with an isolated manager", () =>
+    Effect.gen(function* () {
+      verificationManager.startSessionImpl.mockClear();
+      verificationManager.stopAllImpl.mockClear();
+      verificationManager.startSessionImpl.mockImplementationOnce(async (input) => {
+        const now = new Date().toISOString();
+        return {
+          provider: "codex",
+          status: "ready",
+          runtimeMode: input.runtimeMode,
+          threadId: input.threadId,
+          cwd: input.cwd,
+          resumeCursor: input.resumeCursor,
+          createdAt: now,
+          updatedAt: now,
+        };
+      });
+      const adapter = yield* CodexAdapter;
+      const sourceResumeCursor = { threadId: "codex-thread-exact" };
+      assert.ok(adapter.verifyNativeResume);
+      const fixtureRoot = yield* Effect.promise(() =>
+        mkdtemp(path.join(tmpdir(), "penkra-codex-adapter-resume-")),
+      );
+      const profileRoot = path.join(fixtureRoot, "profile");
+      const nativeStateRoot = path.join(fixtureRoot, "native");
+      const rollout = path.join(
+        nativeStateRoot,
+        "codex-rollouts",
+        "sessions",
+        "2026",
+        "08",
+        "08",
+        "rollout-2026-08-08T12-00-00-codex-thread-exact.jsonl",
+      );
+      yield* Effect.promise(async () => {
+        await mkdir(path.dirname(rollout), { recursive: true });
+        await writeFile(rollout, "{}\n");
+      });
+      const childEnvironment = () => ({
+        PATH: "/managed/bin",
+        CODEX_HOME: path.join(profileRoot, "codex-home"),
+      });
+      const result = yield* adapter.verifyNativeResume({
+        sourceResumeCursor,
+        managedLaunch: {
+          binaryPath: "/managed/codex",
+          isolationKey: "connection:work:generation:2",
+          profileRoot,
+          nativeStateRoot,
+          childEnvironment,
+        },
+        cwd: "/repo/exact",
+        modelSelection: { provider: "codex", model: "gpt-5.3-codex" },
+        runtimeMode: "full-access",
+      });
+
+      assert.deepStrictEqual(result, {
+        providerSessionId: "codex-thread-exact",
+        resumeCursor: sourceResumeCursor,
+      });
+      assert.deepStrictEqual(verificationManager.startSessionImpl.mock.calls[0]?.[0], {
+        threadId: asThreadId("codex-native-resume-verification"),
+        provider: "codex",
+        cwd: "/repo/exact",
+        model: "gpt-5.3-codex",
+        resumeCursor: sourceResumeCursor,
+        managedLaunch: {
+          binaryPath: "/managed/codex",
+          isolationKey: "connection:work:generation:2",
+          profileRoot,
+          nativeStateRoot,
+          childEnvironment,
+        },
+        runtimeMode: "full-access",
+      });
+      assert.equal(verificationManager.stopAllImpl.mock.calls.length, 1);
+      assert.equal(validationManager.startSessionImpl.mock.calls.length, 0);
+      yield* Effect.promise(() => rm(fixtureRoot, { recursive: true, force: true }));
+    }),
+  );
+
   it.effect("returns validation error for non-codex provider on startSession", () =>
     Effect.gen(function* () {
       const adapter = yield* CodexAdapter;
@@ -356,7 +597,6 @@ turnPreparationLayer("CodexAdapterLive turn input preparation", (it) => {
             fastMode: true,
           },
         },
-        interactionMode: "plan" as const,
       };
 
       yield* adapter.sendTurn(input);
@@ -382,7 +622,6 @@ turnPreparationLayer("CodexAdapterLive turn input preparation", (it) => {
         model: "gpt-5.3-codex",
         effort: "high",
         serviceTier: "fast",
-        interactionMode: "plan",
         attachments: [
           {
             type: "image",
@@ -780,79 +1019,6 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
     }),
   );
 
-  it.effect("maps completed plan items to canonical proposed-plan completion events", () =>
-    Effect.gen(function* () {
-      const adapter = yield* CodexAdapter;
-      const firstEventFiber = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
-
-      const event: ProviderEvent = {
-        id: asEventId("evt-plan-complete"),
-        kind: "notification",
-        provider: "codex",
-        createdAt: new Date().toISOString(),
-        method: "item/completed",
-        threadId: asThreadId("thread-1"),
-        turnId: asTurnId("turn-1"),
-        itemId: asItemId("plan_1"),
-        payload: {
-          item: {
-            type: "Plan",
-            id: "plan_1",
-            text: "## Final plan\n\n- one\n- two",
-          },
-        },
-      };
-
-      lifecycleManager.emit("event", event);
-      const firstEvent = yield* Fiber.join(firstEventFiber);
-
-      assert.equal(firstEvent._tag, "Some");
-      if (firstEvent._tag !== "Some") {
-        return;
-      }
-      assert.equal(firstEvent.value.type, "turn.proposed.completed");
-      if (firstEvent.value.type !== "turn.proposed.completed") {
-        return;
-      }
-      assert.equal(firstEvent.value.turnId, "turn-1");
-      assert.equal(firstEvent.value.payload.planMarkdown, "## Final plan\n\n- one\n- two");
-    }),
-  );
-
-  it.effect("maps plan deltas to canonical proposed-plan delta events", () =>
-    Effect.gen(function* () {
-      const adapter = yield* CodexAdapter;
-      const firstEventFiber = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
-
-      lifecycleManager.emit("event", {
-        id: asEventId("evt-plan-delta"),
-        kind: "notification",
-        provider: "codex",
-        createdAt: new Date().toISOString(),
-        method: "item/plan/delta",
-        threadId: asThreadId("thread-1"),
-        turnId: asTurnId("turn-1"),
-        itemId: asItemId("plan_1"),
-        payload: {
-          delta: "## Final plan",
-        },
-      } satisfies ProviderEvent);
-
-      const firstEvent = yield* Fiber.join(firstEventFiber);
-
-      assert.equal(firstEvent._tag, "Some");
-      if (firstEvent._tag !== "Some") {
-        return;
-      }
-      assert.equal(firstEvent.value.type, "turn.proposed.delta");
-      if (firstEvent.value.type !== "turn.proposed.delta") {
-        return;
-      }
-      assert.equal(firstEvent.value.turnId, "turn-1");
-      assert.equal(firstEvent.value.payload.delta, "## Final plan");
-    }),
-  );
-
   it.effect("maps session/closed lifecycle events to canonical session.exited runtime events", () =>
     Effect.gen(function* () {
       const adapter = yield* CodexAdapter;
@@ -1219,7 +1385,7 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
   it.effect("maps Codex task and reasoning event chunks into canonical runtime events", () =>
     Effect.gen(function* () {
       const adapter = yield* CodexAdapter;
-      const eventsFiber = yield* Stream.runCollect(Stream.take(adapter.streamEvents, 5)).pipe(
+      const eventsFiber = yield* Stream.runCollect(Stream.take(adapter.streamEvents, 4)).pipe(
         Effect.forkChild,
       );
 
@@ -1324,13 +1490,6 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
         assert.equal(events[3].payload.taskId, "turn-structured-1");
         assert.equal(events[3].payload.summary, "<proposed_plan>\n# Ship it\n</proposed_plan>");
       }
-
-      assert.equal(events[4]?.type, "turn.proposed.completed");
-      if (events[4]?.type === "turn.proposed.completed") {
-        assert.equal(events[4].turnId, "turn-structured-1");
-        assert.equal(events[4].payload.planMarkdown, "# Ship it");
-      }
-      assert.notEqual(events[3]?.eventId, events[4]?.eventId);
     }),
   );
 

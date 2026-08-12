@@ -10,6 +10,12 @@ export type BackendStartupBlock =
     }
   | {
       readonly kind: "migration-recovery-required";
+    }
+  | {
+      readonly kind: "database-corrupt";
+    }
+  | {
+      readonly kind: "unsafe-sqlite-runtime";
     };
 
 export class BackendStartupBlockDetector {
@@ -27,6 +33,16 @@ export class BackendStartupBlockDetector {
 
     if (this.output.includes("MigrationRecoveryRequiredError:")) {
       this.block = { kind: "migration-recovery-required" };
+      return;
+    }
+
+    if (this.output.includes("FatalSqliteDatabaseError:")) {
+      this.block = { kind: "database-corrupt" };
+      return;
+    }
+
+    if (this.output.includes("UnsafeSqliteRuntimeError:")) {
+      this.block = { kind: "unsafe-sqlite-runtime" };
       return;
     }
 

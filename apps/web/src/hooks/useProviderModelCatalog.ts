@@ -165,7 +165,6 @@ export function useProviderModelCatalog(input: {
   const openCodeDynamicModelsQuery = useQuery(
     providerModelsQueryOptions({
       provider: "opencode",
-      binaryPath: settings.openCodeBinaryPath || null,
       cwd: discoveryCwd,
       enabled: openCodeModelDiscoveryEnabled,
     }),
@@ -204,7 +203,6 @@ export function useProviderModelCatalog(input: {
   const openCodeDynamicAgentsQuery = useQuery(
     providerAgentsQueryOptions({
       provider: "opencode",
-      binaryPath: settings.openCodeBinaryPath || null,
       cwd: discoveryCwd,
       enabled: openCodeModelDiscoveryEnabled,
     }),
@@ -224,7 +222,8 @@ export function useProviderModelCatalog(input: {
   );
 
   const hasResolvedCodexModelDiscovery =
-    codexDynamicModelsQuery.data?.source === "codex-app-server" &&
+    (codexDynamicModelsQuery.data?.source === "codex-app-server" ||
+      codexDynamicModelsQuery.data?.source === "managed-connections") &&
     (codexDynamicModelsQuery.data.models.length ?? 0) > 0;
   const codexModelDiscoveryPending =
     codexModelDiscoveryEnabled &&
@@ -256,7 +255,8 @@ export function useProviderModelCatalog(input: {
     isInitialModelDiscoveryPending(kiloDynamicModelsQuery);
   const hasResolvedOpenCodeModelDiscovery =
     (openCodeDynamicModelsQuery.data?.source === "opencode-cli" ||
-      openCodeDynamicModelsQuery.data?.source === "opencode") &&
+      openCodeDynamicModelsQuery.data?.source === "opencode" ||
+      openCodeDynamicModelsQuery.data?.source === "managed-connections") &&
     (openCodeDynamicModelsQuery.data.models.length ?? 0) > 0;
   const openCodeModelDiscoveryPending =
     openCodeModelDiscoveryEnabled &&

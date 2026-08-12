@@ -11,7 +11,6 @@ import {
   EventId,
   type ProviderComposerCapabilities,
   type ProviderApprovalDecision,
-  type ProviderInteractionMode,
   type ProviderListModelsResult,
   type ProviderListSkillsResult,
   type ProviderRuntimeEvent,
@@ -76,7 +75,6 @@ import {
   makeAcpThreadLock,
   readAcpUsdCost,
   resolveRequestedAcpSessionModeId,
-  resolveAcpTurnInteractionMode,
   settleAcpPendingApprovalsAsCancelled,
   settleAcpPendingUserInputsAsEmptyAnswers,
 } from "../acp/AcpAdapterSessionSupport.ts";
@@ -120,7 +118,6 @@ import {
   CursorCreatePlanRequest,
   CursorUpdateTodosRequest,
   extractAskQuestions,
-  extractPlanMarkdown,
   extractTodosAsPlan,
 } from "../acp/CursorAcpExtension.ts";
 import { CursorAdapter, type CursorAdapterShape } from "../Services/CursorAdapter.ts";
@@ -164,13 +161,6 @@ const CURSOR_ACP_SESSION_MODE_ALIASES = {
   implement: ACP_IMPLEMENT_MODE_ALIASES,
   approval: ACP_APPROVAL_MODE_ALIASES,
 } as const;
-const CURSOR_PLAN_MODE_PROMPT_PREFIX = [
-  "Penkra Cursor plan mode is active.",
-  "Do not implement or mutate files in this turn.",
-  "Do not ask follow-up questions or wait for confirmation; if scope is ambiguous, choose a reasonable default and state the assumption in the plan.",
-  "When ready, create the final implementation plan.",
-].join("\n");
-
 const collectStreamAsString = <E>(stream: Stream.Stream<Uint8Array, E>): Effect.Effect<string, E> =>
   Stream.runFold(
     stream,
@@ -206,8 +196,6 @@ interface CursorSessionContext {
   readonly turns: Array<{ id: TurnId; items: Array<unknown> }>;
   readonly assistantItemTurnIds: Map<string, TurnId>;
   lastPlanFingerprint: string | undefined;
-  completedPlanFingerprint: string | undefined;
-  activeInteractionMode: ProviderInteractionMode | undefined;
   activeTurnId: TurnId | undefined;
   activeTurnFailedToolDetail: string | undefined;
   activePromptFiber: Fiber.Fiber<void, never> | undefined;
@@ -226,7 +214,6 @@ function clearCursorActiveTurn(ctx: CursorSessionContext, turnId: TurnId): boole
   ctx.activeTurnId = undefined;
   ctx.activeTurnFailedToolDetail = undefined;
   ctx.activePromptFiber = undefined;
-  ctx.activeInteractionMode = undefined;
   const { activeTurnId: _activeTurnId, ...session } = ctx.session;
   ctx.session = session;
   return true;
@@ -277,20 +264,6 @@ function finalizeCursorActiveTurnCost(ctx: CursorSessionContext): {
   return ctx.latestSessionCostUsd !== undefined
     ? { cumulativeCostUsd: ctx.latestSessionCostUsd }
     : {};
-}
-
-function withCursorPlanModePrompt(input: {
-  readonly text: string;
-  readonly interactionMode?: ProviderInteractionMode;
-}): string {
-  if (input.interactionMode !== "plan") {
-    return input.text;
-  }
-
-  const text = input.text.trim();
-  return text.length > 0
-    ? `${CURSOR_PLAN_MODE_PROMPT_PREFIX}\n\nUser request:\n${text}`
-    : CURSOR_PLAN_MODE_PROMPT_PREFIX;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -351,7 +324,6 @@ function cursorAcpFailureDetail(error: AcpErrors.AcpError): string {
 function applyRequestedSessionConfiguration<E>(input: {
   readonly runtime: AcpSessionRuntimeShape;
   readonly runtimeMode: RuntimeMode;
-  readonly interactionMode: ProviderInteractionMode | undefined;
   readonly modelSelection:
     | {
         readonly model: string;
@@ -380,7 +352,6 @@ function applyRequestedSessionConfiguration<E>(input: {
     }
 
     const requestedModeId = resolveRequestedAcpSessionModeId({
-      interactionMode: input.interactionMode,
       runtimeMode: input.runtimeMode,
       modeState: yield* input.runtime.getModeState,
       aliases: CURSOR_ACP_SESSION_MODE_ALIASES,
@@ -513,36 +484,6 @@ export function makeCursorAdapter(
             },
           },
         });
-      });
-
-    const completeCursorPlanTurn = (
-      ctx: CursorSessionContext,
-      turnId: TurnId,
-      activePromptFiber: Fiber.Fiber<void, never> | undefined,
-    ) =>
-      Effect.gen(function* () {
-        if (!clearCursorActiveTurn(ctx, turnId)) {
-          return;
-        }
-        const completedCost = finalizeCursorActiveTurnCost(ctx);
-        const { lastError: _lastError, ...sessionWithoutLastError } = ctx.session;
-        ctx.session = {
-          ...sessionWithoutLastError,
-          status: "ready",
-          updatedAt: yield* nowIso,
-        };
-        yield* offerRuntimeEvent(ctx.lifecycleGeneration, {
-          type: "turn.completed",
-          ...(yield* makeEventStamp()),
-          provider: PROVIDER,
-          threadId: ctx.threadId,
-          turnId,
-          payload: { state: "completed", stopReason: null, ...completedCost },
-        });
-        yield* Effect.ignore(ctx.acp.cancel);
-        if (activePromptFiber) {
-          yield* Fiber.interrupt(activePromptFiber);
-        }
       });
 
     // Idle-progress watchdog escape hatch: force-fail a turn whose cursor-agent
@@ -801,31 +742,6 @@ export function makeCursorAdapter(
                   params,
                   "acp.cursor.extension",
                 );
-                const turnId = ctx?.activeTurnId;
-                const activePromptFiber = ctx?.activePromptFiber;
-                const planMarkdown = extractPlanMarkdown(params);
-                yield* offerRuntimeEvent(input.lifecycleGeneration, {
-                  type: "turn.proposed.completed",
-                  ...(yield* makeEventStamp()),
-                  provider: PROVIDER,
-                  threadId: input.threadId,
-                  turnId,
-                  payload: { planMarkdown },
-                  raw: {
-                    source: "acp.cursor.extension",
-                    method: "cursor/create_plan",
-                    payload: params,
-                  },
-                });
-                if (
-                  ctx &&
-                  turnId !== undefined &&
-                  ctx.activeInteractionMode === "plan" &&
-                  ctx.completedPlanFingerprint !== planMarkdown
-                ) {
-                  ctx.completedPlanFingerprint = planMarkdown;
-                  yield* completeCursorPlanTurn(ctx, turnId, activePromptFiber);
-                }
                 return { accepted: true } as const;
               }),
             );
@@ -867,7 +783,7 @@ export function makeCursorAdapter(
                 );
                 const policyOutcome = resolveAcpPermissionPolicy({
                   runtimeMode: input.runtimeMode,
-                  interactionMode: ctx?.activeInteractionMode,
+                  turnIsActive: ctx?.activeTurnId !== undefined,
                   options: params.options,
                 });
                 if (policyOutcome !== undefined) {
@@ -949,7 +865,6 @@ export function makeCursorAdapter(
           yield* applyRequestedSessionConfiguration({
             runtime: acp,
             runtimeMode: input.runtimeMode,
-            interactionMode: undefined,
             modelSelection: cursorModelSelection,
             mapError: ({ cause, method }) =>
               mapAcpToAdapterError(PROVIDER, input.threadId, method, cause),
@@ -993,8 +908,6 @@ export function makeCursorAdapter(
             turns: [],
             assistantItemTurnIds: new Map(),
             lastPlanFingerprint: undefined,
-            completedPlanFingerprint: undefined,
-            activeInteractionMode: undefined,
             activeTurnId: undefined,
             activeTurnFailedToolDetail: undefined,
             activePromptFiber: undefined,
@@ -1166,11 +1079,9 @@ export function makeCursorAdapter(
           input.modelSelection?.provider === PROVIDER ? input.modelSelection : undefined;
         const model = turnModelSelection?.model ?? ctx.session.model;
         const resolvedModel = resolveCursorAcpBaseModelId(model);
-        const interactionMode = resolveAcpTurnInteractionMode(input.interactionMode);
         yield* applyRequestedSessionConfiguration({
           runtime: ctx.acp,
           runtimeMode: ctx.session.runtimeMode,
-          interactionMode,
           modelSelection:
             model === undefined
               ? undefined
@@ -1192,12 +1103,7 @@ export function makeCursorAdapter(
         });
         const promptParts: Array<Acp.ContentBlock> = [];
         const promptText = appendFileAttachmentsPromptBlock({
-          text: input.input?.trim()
-            ? withCursorPlanModePrompt({
-                text: input.input.trim(),
-                interactionMode,
-              })
-            : undefined,
+          text: input.input?.trim() || undefined,
           attachments: input.attachments,
           attachmentsDir: serverConfig.attachmentsDir,
           include: "all-files",
@@ -1235,9 +1141,7 @@ export function makeCursorAdapter(
 
         ctx.activeTurnId = turnId;
         ctx.activeTurnFailedToolDetail = undefined;
-        ctx.activeInteractionMode = interactionMode;
         ctx.lastPlanFingerprint = undefined;
-        ctx.completedPlanFingerprint = undefined;
         ctx.lastTurnActivityAt = Date.now();
         const { lastError: _lastError, ...sessionWithoutLastError } = ctx.session;
         ctx.session = {
@@ -1489,7 +1393,8 @@ export function makeCursorAdapter(
         supportsPluginDiscovery: false,
         supportsRuntimeModelList: true,
         supportsThreadCompaction: false,
-        supportsThreadImport: true,
+        supportsThreadFork: false,
+        supportsThreadImport: false,
       } satisfies ProviderComposerCapabilities);
 
     const listSkills: NonNullable<CursorAdapterShape["listSkills"]> = (input) =>

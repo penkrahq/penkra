@@ -108,7 +108,7 @@ function asRuntimePayloadRecord(value: unknown): Record<string, unknown> {
 
 function makeFakeCodexAdapter(
   provider: ProviderKind = "codex",
-  options?: { readonly conversationRollback?: "native" | "restart-session" },
+  options?: { readonly conversationRollback?: "native" | "unsupported" },
 ) {
   const sessions = new Map<ThreadId, ProviderSession>();
   const runtimeEventPubSub = Effect.runSync(PubSub.unbounded<ProviderRuntimeEvent>());
@@ -238,6 +238,24 @@ function makeFakeCodexAdapter(
     (_threadId: ThreadId): Effect.Effect<void, ProviderAdapterError> => Effect.void,
   );
 
+  const forkThread = vi.fn(
+    (input: { threadId: ThreadId; runtimeMode: ProviderSession["runtimeMode"] }) =>
+      Effect.sync(() => {
+        const now = new Date().toISOString();
+        const resumeCursor = { threadId: `native-fork-${input.threadId}` };
+        sessions.set(input.threadId, {
+          provider,
+          status: "ready",
+          runtimeMode: input.runtimeMode,
+          threadId: input.threadId,
+          resumeCursor,
+          createdAt: now,
+          updatedAt: now,
+        });
+        return { threadId: input.threadId, resumeCursor };
+      }),
+  );
+
   const stopAll = vi.fn(
     (): Effect.Effect<void, ProviderAdapterError> =>
       Effect.sync(() => {
@@ -268,6 +286,7 @@ function makeFakeCodexAdapter(
     readThread,
     rollbackThread,
     compactThread,
+    forkThread,
     stopAll,
     drainRuntimeEvents: Effect.suspend(() => drainRuntimeEvents()),
     streamEvents: Stream.fromPubSub(runtimeEventPubSub),
@@ -314,6 +333,7 @@ function makeFakeCodexAdapter(
     readThread,
     rollbackThread,
     compactThread,
+    forkThread,
     stopAll,
     drainRuntimeEvents,
   };
@@ -366,7 +386,7 @@ function makeProviderServiceLayer(
   const codex = makeFakeCodexAdapter();
   const claude = makeFakeCodexAdapter("claudeAgent");
   const antigravity = makeFakeCodexAdapter("antigravity");
-  const droid = makeFakeCodexAdapter("droid", { conversationRollback: "restart-session" });
+  const droid = makeFakeCodexAdapter("droid", { conversationRollback: "unsupported" });
   const pi = makeFakeCodexAdapter("pi");
   const registry: typeof ProviderAdapterRegistry.Service = {
     getByProvider: (provider) =>
@@ -421,6 +441,15 @@ function makeProviderServiceLayer(
 }
 
 const routing = makeProviderServiceLayer();
+const managedLaunch = {
+  binaryPath: "/managed/codex",
+  isolationKey: "managed:test",
+  profileRoot: "/managed/profile",
+  nativeStateRoot: "/managed/native",
+  childEnvironment: (baseEnv: NodeJS.ProcessEnv) => ({ ...baseEnv, CODEX_HOME: "/managed/home" }),
+};
+const resolveManagedLaunch = vi.fn(() => Effect.succeed(managedLaunch));
+const managedRouting = makeProviderServiceLayer({ resolveManagedLaunch });
 const restartRollbackRouting = makeProviderServiceLayer(undefined, {
   includeRestartRollbackDroid: true,
 });
@@ -2426,7 +2455,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
       const providerOptions = {
         claudeAgent: {
           binaryPath: "/usr/local/bin/claude",
-          permissionMode: "acceptEdits",
+          permissionMode: "acceptEdits" as const,
         },
       };
 
@@ -2509,6 +2538,82 @@ routing.layer("ProviderServiceLive routing", (it) => {
   );
 });
 
+managedRouting.layer("ProviderService managed launch enforcement", (it) => {
+  it.effect("resolves an exact launch for direct starts and rejects harness replacement", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService;
+      const threadId = asThreadId("thread-managed-launch");
+      resolveManagedLaunch.mockClear();
+      managedRouting.codex.startSession.mockClear();
+      managedRouting.claude.startSession.mockClear();
+
+      yield* provider.startSession(threadId, {
+        provider: "codex",
+        threadId,
+        runtimeMode: "full-access",
+      });
+      assert.deepEqual(resolveManagedLaunch.mock.calls, [[{ threadId, provider: "codex" }]]);
+      assert.strictEqual(
+        (
+          managedRouting.codex.startSession.mock.calls[0]?.[0] as
+            | { managedLaunch?: unknown }
+            | undefined
+        )?.managedLaunch,
+        managedLaunch,
+      );
+
+      const replacement = yield* Effect.result(
+        provider.startSession(threadId, {
+          provider: "claudeAgent",
+          threadId,
+          runtimeMode: "full-access",
+        }),
+      );
+      assert.equal(replacement._tag, "Failure");
+      assert.equal(managedRouting.claude.startSession.mock.calls.length, 0);
+    }),
+  );
+
+  it.effect("does not route a native fork through an unmanaged adapter profile", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService;
+      const result = yield* Effect.result(
+        provider.forkThread!({
+          sourceThreadId: asThreadId("managed-fork-source"),
+          threadId: asThreadId("managed-fork-target"),
+          runtimeMode: "full-access",
+        }),
+      );
+      assert.strictEqual(result._tag, "Failure");
+    }),
+  );
+
+  it.effect("routes a managed native fork only through its exact target generation launch", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService;
+      managedRouting.codex.forkThread.mockClear();
+      const targetThreadId = asThreadId("managed-fork-target-exact");
+      const result = yield* provider.forkThread!({
+        sourceThreadId: asThreadId("managed-fork-source-exact"),
+        threadId: targetThreadId,
+        sourceResumeCursor: { threadId: "source-native-session" },
+        modelSelection: { provider: "codex", model: "gpt-5.3-codex" },
+        runtimeMode: "full-access",
+        managedLaunch,
+      });
+      assert.deepStrictEqual(result, {
+        threadId: targetThreadId,
+        resumeCursor: { threadId: `native-fork-${targetThreadId}` },
+      });
+      assert.strictEqual(
+        (managedRouting.codex.forkThread.mock.calls[0]?.[0] as { managedLaunch?: unknown })
+          .managedLaunch,
+        managedLaunch,
+      );
+    }),
+  );
+});
+
 restartRollbackRouting.layer("ProviderServiceLive restart-based rollback", (it) => {
   it.effect("requires the source lifecycle generation for modern ACP interactions", () =>
     Effect.gen(function* () {
@@ -2565,27 +2670,36 @@ restartRollbackRouting.layer("ProviderServiceLive restart-based rollback", (it) 
     }),
   );
 
-  it.effect("clears Droid's native cursor instead of reporting a fake rewind", () =>
+  it.effect("rejects rollback when Droid cannot rewind exact native state", () =>
     Effect.gen(function* () {
       const provider = yield* ProviderService;
       const directory = yield* ProviderSessionDirectory;
       const threadId = asThreadId("thread-droid-restart-rollback");
-      const session = yield* provider.startSession(threadId, {
+      yield* provider.startSession(threadId, {
         provider: "droid",
         threadId,
         cwd: "/tmp/project",
         runtimeMode: "full-access",
       });
 
-      yield* provider.rollbackConversation({ threadId, numTurns: 1 });
+      const rollback = yield* Effect.result(
+        provider.rollbackConversation({ threadId, numTurns: 1 }),
+      );
+      assertFailure(
+        rollback,
+        new ProviderValidationError({
+          operation: "ProviderService.rollbackConversation",
+          issue: "Provider 'droid' cannot rewind exact native session state.",
+        }),
+      );
 
       assert.equal(restartRollbackRouting.droid.rollbackThread.mock.calls.length, 0);
-      assert.deepEqual(restartRollbackRouting.droid.stopSession.mock.calls, [[session.threadId]]);
+      assert.equal(restartRollbackRouting.droid.stopSession.mock.calls.length, 0);
       const binding = yield* directory.getBinding(threadId);
       assert.equal(Option.isSome(binding), true);
       if (Option.isSome(binding)) {
-        assert.equal(binding.value.status, "stopped");
-        assert.equal(binding.value.resumeCursor, null);
+        assert.equal(binding.value.status, "running");
+        assert.notEqual(binding.value.resumeCursor, null);
       }
     }),
   );

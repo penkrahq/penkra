@@ -34,6 +34,14 @@ their own manifest versions and release process; backend deployments use their o
 deployment process. An App compatibility range or a required backend deployment order may constrain
 compatibility, but neither creates a shared release version.
 
+One artifact dependency is deliberately pinned across those independent release lifecycles:
+`com.penkra.apps` is required infrastructure and its approved registry archive is embedded in
+Penkra. `required-apps.lock.json` records the exact App version, deterministic package digest,
+and `penkrahq/penkra-apps` source commit. Desktop CI checks out that commit, rebuilds the archive,
+and refuses packaging unless every locked identity and digest matches. This does not publish or
+version Apps as part of the desktop release; the approved Apps version must already be public in
+the production registry with the same digest before the desktop release is cut.
+
 ## Release channel and cadence
 
 Penkra has one published channel: `stable`.
@@ -80,14 +88,16 @@ a release tag from an uncommitted or unreviewed worktree.
    This catches platform-native PTY, packaging, installer extraction, desktop bootstrap, and embedded
    server failures before a release tag exists. Release signing remains isolated to the protected
    `desktop-release` environment.
-2. Update every product package to the intended version and commit the exact release source locally.
-3. Build and verify the production artifact from that clean commit:
+2. Confirm `penkra app status --app-id com.penkra.apps` reports the lockfile's version and package
+   digest as public on the production registry target. Stop if the target, version, or digest differs.
+3. Update every product package to the intended version and commit the exact release source locally.
+4. Build and verify the production artifact from that clean commit:
 
    ```sh
    bun run release:qa:local -- "$approved_version"
    ```
 
-4. Install the verified artifact with `bun run release:install:local -- release-local`, then manually
+5. Install the verified artifact with `bun run release:install:local -- release-local`, then manually
    exercise the installed production application, including the changed behavior, normal
    message dispatch, an active-task interruption/relaunch, and a post-restart message. Inspect the
    desktop/backend logs and run SQLite integrity checking. Do not change the source or artifacts
@@ -98,14 +108,14 @@ a release tag from an uncommitted or unreviewed worktree.
    bun run release:qa:check -- "$approved_version"
    ```
 
-5. Create and push the exact stable tag from the same approved commit, for example:
+6. Create and push the exact stable tag from the same approved commit, for example:
 
    ```sh
    git tag -a "v$approved_version" -m "Penkra v$approved_version"
    git push origin "v$approved_version"
    ```
 
-6. The `Release Penkra Desktop` workflow:
+7. The `Release Penkra Desktop` workflow:
    - verifies the tag and package versions;
    - requires the aggregate Penkra CI quality gate to have passed for the exact tagged commit;
    - consumes that commit-bound result instead of repeating the same validation suite;
@@ -117,15 +127,15 @@ a release tag from an uncommitted or unreviewed worktree.
    - rejects any package containing the private `penkra-cli`;
    - records SHA-256 checksums and GitHub artifact attestations;
    - creates or refreshes a draft GitHub Release.
-7. Download each draft installer and test it on a clean native account or test machine. Verify:
+8. Download each draft installer and test it on a clean native account or test machine. Verify:
    - the platform's install/security flow accepts the application;
    - onboarding and account authentication complete;
    - the local desktop runtime starts;
    - the packaged version and source commit are correct;
    - update checks do not surface draft or prerelease builds.
-8. On every advertised platform, test an actual installed previous version updating to the draft
+9. On every advertised platform, test an actual installed previous version updating to the draft
    artifact, including restart and restored App tabs.
-9. Publish the draft from GitHub only after every applicable check passes.
+10. Publish the draft from GitHub only after every applicable check passes.
 
 Draft releases are invisible to stable desktop update checks. Publishing the draft makes the
 installer, update payload, and matching manifest available as one reviewed release.

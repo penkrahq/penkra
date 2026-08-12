@@ -38,11 +38,7 @@ describe("registry release trust", () => {
         trustedKeys: [fixture.trustKey],
         expected,
       }),
-    ).toMatchObject({
-      ...expected,
-      keyId: fixture.trustKey.kid,
-      publisherSignatureDigest: "e".repeat(64),
-    });
+    ).toMatchObject({ ...expected, keyId: fixture.trustKey.kid });
   });
 
   it("rejects tampering, unknown keys, and release-selection mismatches", () => {
@@ -162,12 +158,7 @@ function signedFixture(): { jws: string; trustKey: RegistryTrustKey } {
     kind: "penkra-app-release",
     registry: "penkra.com",
     app: { id: expected.appId, identifier: expected.identifier, slug: expected.slug },
-    publisher: {
-      id: "publisher-id",
-      slug: "example",
-      signerIdentity: "developer@example.com",
-      signerIssuer: "https://accounts.google.com",
-    },
+    publisher: { id: "publisher-id", slug: "example" },
     version: {
       id: expected.versionId,
       version: expected.version,
@@ -178,7 +169,6 @@ function signedFixture(): { jws: string; trustKey: RegistryTrustKey } {
       instructionsDigest: "d".repeat(64),
     },
     evidence: {
-      publisherSignatureDigest: "e".repeat(64),
       validationReportDigest: "f".repeat(64),
     },
     permissions: expected.permissions,

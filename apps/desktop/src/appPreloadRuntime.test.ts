@@ -9,11 +9,23 @@ function fixture() {
   const tabSetRoute = vi.fn(async () => undefined);
   let browserStateListener: ((state: import("@penkra/sdk").AppBrowserSessionState) => void) | null =
     null;
+  let simulatorStateListener:
+    | ((state: import("@penkra/sdk").AppSimulatorSessionState) => void)
+    | null = null;
   const browserCall = vi.fn(async () => ({
     version: 1,
     open: true,
     activePageId: "page-1",
     pages: [],
+    lastError: null,
+  }));
+  const simulatorCall = vi.fn(async () => ({
+    version: 1,
+    open: true,
+    phase: "ready",
+    device: null,
+    target: { platform: "android", serial: "emulator-5554" },
+    orientation: "portrait",
     lastError: null,
   }));
   const runtime = new AppPreloadRuntime({
@@ -96,18 +108,18 @@ function fixture() {
         browserStateListener = null;
       };
     },
+    simulatorCall,
+    onSimulatorState: (listener) => {
+      simulatorStateListener = listener;
+      return () => {
+        simulatorStateListener = null;
+      };
+    },
     networkFetch: vi.fn(async () => ({
       url: "https://example.com/",
       status: 200,
       headers: {},
       body: new Uint8Array(),
-    })),
-    rawSocketExchange: vi.fn(async () => new Uint8Array()),
-    processRun: vi.fn(async () => ({
-      exitCode: 0,
-      signal: null,
-      stdout: new Uint8Array(),
-      stderr: new Uint8Array(),
     })),
     showContextMenu: vi.fn(async () => null),
   });
@@ -118,8 +130,11 @@ function fixture() {
     ready,
     tabSetRoute,
     browserCall,
+    simulatorCall,
     browserState: (state: import("@penkra/sdk").AppBrowserSessionState) =>
       browserStateListener?.(state),
+    simulatorState: (state: import("@penkra/sdk").AppSimulatorSessionState) =>
+      simulatorStateListener?.(state),
     host: (message: unknown) => hostListener?.(message),
   };
 }
@@ -192,6 +207,22 @@ describe("AppPreloadRuntime", () => {
     expect(listener).toHaveBeenCalledWith(state);
     unsubscribe();
     test.browserState(state);
+    expect(listener).toHaveBeenCalledOnce();
+  });
+
+  it("exposes hosted simulator calls and state without native process details", async () => {
+    const test = fixture();
+    const listener = vi.fn();
+    const unsubscribe = test.runtime.api.simulator.onState(listener);
+    const state = await test.runtime.api.simulator.open("pixel-8");
+    expect(test.simulatorCall).toHaveBeenCalledWith("open", "pixel-8");
+    expect(state.target).toEqual({ platform: "android", serial: "emulator-5554" });
+    expect(state).not.toHaveProperty("port");
+    expect(state).not.toHaveProperty("processId");
+    test.simulatorState(state);
+    expect(listener).toHaveBeenCalledWith(state);
+    unsubscribe();
+    test.simulatorState(state);
     expect(listener).toHaveBeenCalledOnce();
   });
 

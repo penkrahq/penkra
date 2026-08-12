@@ -5,9 +5,9 @@
  * bearer token) into every provider's native MCP configuration format so the
  * injection rules cannot drift between adapters:
  *
- * - Codex: `[mcp_servers.penkra]` TOML block (streamable HTTP +
- *   `bearer_token_env_var` resolved from the per-session process env).
- * - Claude Agent SDK: `mcpServers` record with an HTTP entry.
+ * Codex and Claude use their native in-process tool APIs and therefore do not
+ * have configuration builders here. This module remains only for providers
+ * whose public protocol surface is MCP.
  * - ACP agents (cursor/grok/droid): `mcpServers` session entries; HTTP when
  *   the agent advertises `mcpCapabilities.http`, otherwise a stdio proxy that
  *   forwards to the HTTP endpoint.
@@ -21,34 +21,6 @@ import type { AgentGatewayMcpConnection } from "./Services/AgentGatewayCredentia
 export const PENKRA_MCP_SERVER_NAME = "penkra";
 export const PENKRA_AGENT_GATEWAY_TOKEN_ENV = "PENKRA_AGENT_GATEWAY_TOKEN";
 export const PENKRA_AGENT_GATEWAY_URL_ENV = "PENKRA_AGENT_GATEWAY_URL";
-
-/**
- * Codex reads MCP servers from `config.toml`; the config file is shared by all
- * sessions of one Codex home, so the token is never written into it. Instead
- * the block references an env var that Penkra sets per app-server process.
- *
- * The shell_environment_policy table keeps that env var out of exec tool
- * subprocesses: codex defaults to `ignore_default_excludes = true`, so the
- * built-in *TOKEN* filter is inactive and workspace commands would otherwise
- * inherit the gateway bearer token. Appended per-table, so a user-defined
- * policy table is never duplicated (their policy then governs).
- */
-export function buildCodexMcpConfigToml(endpointUrl: string): string {
-  return [
-    `[mcp_servers.${PENKRA_MCP_SERVER_NAME}]`,
-    `url = ${JSON.stringify(endpointUrl)}`,
-    `bearer_token_env_var = ${JSON.stringify(PENKRA_AGENT_GATEWAY_TOKEN_ENV)}`,
-    "",
-    "[shell_environment_policy]",
-    `exclude = [${JSON.stringify(PENKRA_AGENT_GATEWAY_TOKEN_ENV)}]`,
-  ].join("\n");
-}
-
-export interface ClaudeMcpHttpServerConfig {
-  readonly type: "http";
-  readonly url: string;
-  readonly headers: Record<string, string>;
-}
 
 export interface OpenCodeMcpRemoteServerConfig {
   readonly type: "remote";
@@ -193,18 +165,6 @@ export function callAgentGatewayMcpTool(input: {
     ...(input.fetch === undefined ? {} : { fetch: input.fetch }),
     ...(input.signal === undefined ? {} : { signal: input.signal }),
   });
-}
-
-export function buildClaudeMcpServers(
-  connection: AgentGatewayMcpConnection,
-): Record<string, ClaudeMcpHttpServerConfig> {
-  return {
-    [PENKRA_MCP_SERVER_NAME]: {
-      type: "http",
-      url: connection.url,
-      headers: { Authorization: `Bearer ${connection.bearerToken}` },
-    },
-  };
 }
 
 export interface AcpStdioProxySpawn {

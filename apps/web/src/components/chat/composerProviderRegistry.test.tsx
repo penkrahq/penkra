@@ -505,7 +505,7 @@ describe("getComposerProviderState", () => {
   it("drops unsupported Claude effort options for models without effort controls", () => {
     const state = getComposerProviderState({
       provider: "claudeAgent",
-      model: "claude-haiku-4-5",
+      model: "claude-haiku-4-5-20251001",
       prompt: "",
       modelOptions: {
         claudeAgent: {

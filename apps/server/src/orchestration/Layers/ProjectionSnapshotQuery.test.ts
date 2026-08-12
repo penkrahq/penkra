@@ -92,7 +92,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
 
       yield* sql`DELETE FROM projection_projects`;
       yield* sql`DELETE FROM projection_state`;
-      yield* sql`DELETE FROM projection_thread_proposed_plans`;
       yield* sql`DELETE FROM projection_turns`;
 
       yield* sql`
@@ -179,29 +178,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           )
       `;
       yield* sql`
-        INSERT INTO projection_thread_proposed_plans (
-          plan_id,
-          thread_id,
-          turn_id,
-          plan_markdown,
-          implemented_at,
-          implementation_thread_id,
-          created_at,
-          updated_at
-        )
-        VALUES (
-          'plan-1',
-          'thread-1',
-          'turn-1',
-          '# Ship it',
-          NULL,
-          NULL,
-          '2026-02-24T00:00:05.000Z',
-          '2026-02-24T00:00:05.500Z'
-        )
-      `;
-
-      yield* sql`
         INSERT INTO projection_thread_activities (
           activity_id,
           thread_id,
@@ -275,8 +251,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           thread_id,
           turn_id,
           pending_message_id,
-          source_proposed_plan_thread_id,
-          source_proposed_plan_id,
           assistant_message_id,
           state,
           requested_at,
@@ -292,8 +266,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             'thread-1',
             'turn-1',
             NULL,
-            'thread-1',
-            'plan-1',
             'message-1',
             'completed',
             '2026-02-24T00:00:08.000Z',
@@ -307,8 +279,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           (
             'thread-1',
             'turn-placeholder',
-            NULL,
-            NULL,
             NULL,
             NULL,
             'running',
@@ -380,7 +350,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             provider: "codex",
             model: "gpt-5-codex",
           },
-          interactionMode: "default",
           runtimeMode: "full-access",
           envMode: "local",
           branch: null,
@@ -402,12 +371,10 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           subagentNickname: null,
           subagentRole: null,
           forkSourceThreadId: null,
-          sidechatSourceThreadId: null,
           lastKnownPr: null,
           latestUserMessageAt: "2026-02-24T00:00:03.500Z",
           hasPendingApprovals: true,
           hasPendingUserInput: true,
-          hasActionableProposedPlan: true,
           latestTurn: {
             turnId: asTurnId("turn-1"),
             state: "completed",
@@ -415,17 +382,12 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             startedAt: "2026-02-24T00:00:08.000Z",
             completedAt: "2026-02-24T00:00:08.000Z",
             assistantMessageId: asMessageId("message-1"),
-            sourceProposedPlan: {
-              threadId: ThreadId.makeUnsafe("thread-1"),
-              planId: "plan-1",
-            },
           },
           pendingTurnStartMessageId: null,
           createdAt: "2026-02-24T00:00:02.000Z",
           updatedAt: "2026-02-24T00:00:03.000Z",
           archivedAt: null,
           deletedAt: null,
-          handoff: null,
           messages: [
             {
               id: asMessageId("message-0"),
@@ -446,17 +408,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
               source: "native",
               createdAt: "2026-02-24T00:00:04.000Z",
               updatedAt: "2026-02-24T00:00:05.000Z",
-            },
-          ],
-          proposedPlans: [
-            {
-              id: "plan-1",
-              turnId: asTurnId("turn-1"),
-              planMarkdown: "# Ship it",
-              implementedAt: null,
-              implementationThreadId: null,
-              createdAt: "2026-02-24T00:00:05.000Z",
-              updatedAt: "2026-02-24T00:00:05.500Z",
             },
           ],
           activities: [
@@ -1099,7 +1050,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       yield* sql`DELETE FROM projection_state`;
       yield* sql`DELETE FROM projection_thread_messages`;
       yield* sql`DELETE FROM projection_thread_activities`;
-      yield* sql`DELETE FROM projection_thread_proposed_plans`;
       yield* sql`DELETE FROM projection_turns`;
       yield* sql`DELETE FROM projection_thread_sessions`;
 
@@ -1135,7 +1085,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           branch,
           working_directory,
           runtime_mode,
-          interaction_mode,
           latest_turn_id,
           created_at,
           updated_at,
@@ -1149,7 +1098,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           NULL,
           NULL,
           'full-access',
-          'default',
           NULL,
           '2026-05-05T14:39:20.000Z',
           '2026-05-05T14:39:21.000Z',
@@ -1424,12 +1372,10 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           title,
           model_selection_json,
           runtime_mode,
-          interaction_mode,
           env_mode,
           branch,
           working_directory,
           latest_turn_id,
-          handoff_json,
           created_at,
           updated_at,
           archived_at,
@@ -1442,9 +1388,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             'First Thread',
             '{"provider":"codex","model":"gpt-5-codex"}',
             'full-access',
-            'default',
             'local',
-            NULL,
             NULL,
             NULL,
             NULL,
@@ -1459,9 +1403,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             'Second Thread',
             '{"provider":"codex","model":"gpt-5-codex"}',
             'full-access',
-            'default',
             'local',
-            NULL,
             NULL,
             NULL,
             NULL,
@@ -1476,9 +1418,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             'Deleted Thread',
             '{"provider":"codex","model":"gpt-5-codex"}',
             'full-access',
-            'default',
             'local',
-            NULL,
             NULL,
             NULL,
             NULL,
@@ -1522,7 +1462,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       yield* sql`DELETE FROM projection_projects`;
       yield* sql`DELETE FROM projection_threads`;
       yield* sql`DELETE FROM projection_thread_messages`;
-      yield* sql`DELETE FROM projection_thread_proposed_plans`;
       yield* sql`DELETE FROM projection_thread_activities`;
       yield* sql`DELETE FROM projection_thread_sessions`;
       yield* sql`DELETE FROM projection_turns`;
@@ -1558,16 +1497,13 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           title,
           model_selection_json,
           runtime_mode,
-          interaction_mode,
           env_mode,
           branch,
           working_directory,
           latest_turn_id,
-          handoff_json,
           latest_user_message_at,
           pending_approval_count,
           pending_user_input_count,
-          has_actionable_proposed_plan,
           created_at,
           updated_at,
           archived_at,
@@ -1579,15 +1515,12 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           'Shell Thread',
           '{"provider":"codex","model":"gpt-5-codex"}',
           'full-access',
-          'default',
           'local',
           NULL,
           NULL,
           'turn-shell',
-          NULL,
           '2026-03-03T00:00:02.500Z',
           2,
-          1,
           1,
           '2026-03-03T00:00:02.000Z',
           '2026-03-03T00:00:03.000Z',
@@ -1626,8 +1559,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           thread_id,
           turn_id,
           pending_message_id,
-          source_proposed_plan_thread_id,
-          source_proposed_plan_id,
           assistant_message_id,
           state,
           requested_at,
@@ -1641,8 +1572,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         VALUES (
           'thread-shell',
           'turn-shell',
-          NULL,
-          NULL,
           NULL,
           NULL,
           'completed',
@@ -1684,7 +1613,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             provider: "codex",
             model: "gpt-5-codex",
           },
-          interactionMode: "default",
           runtimeMode: "full-access",
           envMode: "local",
           branch: null,
@@ -1706,7 +1634,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           subagentNickname: null,
           subagentRole: null,
           forkSourceThreadId: null,
-          sidechatSourceThreadId: null,
           lastKnownPr: null,
           latestTurn: {
             turnId: asTurnId("turn-shell"),
@@ -1719,11 +1646,9 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           latestUserMessageAt: "2026-03-03T00:00:02.500Z",
           hasPendingApprovals: true,
           hasPendingUserInput: true,
-          hasActionableProposedPlan: true,
           createdAt: "2026-03-03T00:00:02.000Z",
           updatedAt: "2026-03-03T00:00:03.000Z",
           archivedAt: null,
-          handoff: null,
           session: {
             threadId: ThreadId.makeUnsafe("thread-shell"),
             status: "ready",
@@ -1786,12 +1711,10 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           title,
           model_selection_json,
           runtime_mode,
-          interaction_mode,
           env_mode,
           branch,
           working_directory,
           latest_turn_id,
-          handoff_json,
           created_at,
           updated_at,
           archived_at,
@@ -1803,11 +1726,9 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           'Context Thread',
           '{"provider":"codex","model":"gpt-5-codex"}',
           'full-access',
-          'default',
           'worktree',
           'feature/perf',
           '/tmp/context-worktree',
-          NULL,
           NULL,
           '2026-03-02T00:00:02.000Z',
           '2026-03-02T00:00:03.000Z',
@@ -1821,8 +1742,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           thread_id,
           turn_id,
           pending_message_id,
-          source_proposed_plan_thread_id,
-          source_proposed_plan_id,
           assistant_message_id,
           state,
           requested_at,
@@ -1839,8 +1758,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             'turn-1',
             NULL,
             NULL,
-            NULL,
-            NULL,
             'completed',
             '2026-03-02T00:00:04.000Z',
             '2026-03-02T00:00:04.000Z',
@@ -1855,8 +1772,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             'turn-placeholder',
             NULL,
             NULL,
-            NULL,
-            NULL,
             'running',
             '2026-03-02T00:00:04.500Z',
             '2026-03-02T00:00:04.500Z',
@@ -1869,8 +1784,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           (
             'thread-context',
             'turn-2',
-            NULL,
-            NULL,
             NULL,
             NULL,
             'completed',
@@ -2069,6 +1982,82 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
     }),
   );
 
+  it.effect("reads checkpoint context for a folderless project", () =>
+    Effect.gen(function* () {
+      const snapshotQuery = yield* ProjectionSnapshotQuery;
+      const sql = yield* SqlClient.SqlClient;
+
+      yield* sql`DELETE FROM projection_projects`;
+      yield* sql`DELETE FROM projection_threads`;
+
+      yield* sql`
+        INSERT INTO projection_projects (
+          project_id,
+          title,
+          workspace_root,
+          default_model_selection_json,
+          scripts_json,
+          created_at,
+          updated_at,
+          deleted_at
+        )
+        VALUES (
+          'project-folderless',
+          'Folderless Project',
+          NULL,
+          NULL,
+          '[]',
+          '2026-03-04T00:00:00.000Z',
+          '2026-03-04T00:00:01.000Z',
+          NULL
+        )
+      `;
+
+      yield* sql`
+        INSERT INTO projection_threads (
+          thread_id,
+          project_id,
+          title,
+          model_selection_json,
+          runtime_mode,
+          env_mode,
+          branch,
+          working_directory,
+          latest_turn_id,
+          created_at,
+          updated_at,
+          archived_at,
+          deleted_at
+        )
+        VALUES (
+          'thread-folderless',
+          'project-folderless',
+          'Folderless Thread',
+          '{"provider":"codex","model":"gpt-5-codex"}',
+          'full-access',
+          'local',
+          NULL,
+          '/tmp/selected-folder',
+          NULL,
+          '2026-03-04T00:00:02.000Z',
+          '2026-03-04T00:00:03.000Z',
+          NULL,
+          NULL
+        )
+      `;
+
+      const context = yield* snapshotQuery.getThreadCheckpointContext(
+        ThreadId.makeUnsafe("thread-folderless"),
+      );
+
+      assert.equal(context._tag, "Some");
+      if (context._tag === "Some") {
+        assert.equal(context.value.workspaceRoot, null);
+        assert.equal(context.value.workingDirectory, "/tmp/selected-folder");
+      }
+    }),
+  );
+
   it.effect("keeps the latest checkpoint-revert lifecycle row in the command model", () =>
     Effect.gen(function* () {
       const snapshotQuery = yield* ProjectionSnapshotQuery;
@@ -2191,13 +2180,11 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       `;
       yield* sql`
         INSERT INTO projection_turns (
-          thread_id, turn_id, pending_message_id, source_proposed_plan_thread_id,
-          source_proposed_plan_id, assistant_message_id, state, requested_at,
+          thread_id, turn_id, pending_message_id, assistant_message_id, state, requested_at,
           started_at, completed_at, checkpoint_turn_count, checkpoint_ref,
           checkpoint_status, checkpoint_files_json
         ) VALUES (
-          'thread-queued-oldest', 'turn-queued', NULL, NULL,
-          NULL, NULL, 'pending', '2026-07-21T00:00:00.000Z',
+          'thread-queued-oldest', 'turn-queued', NULL, NULL, 'pending', '2026-07-21T00:00:00.000Z',
           NULL, NULL, 0, NULL, 'missing', '[]'
         )
       `;

@@ -24,11 +24,13 @@ export interface FolderGroupSharedProps {
   defaultExpanded?: boolean;
   expanded?: boolean;
   hasContent?: boolean;
+  header?: ReactNode;
   headerState?: LeftRailRowState;
   label?: string;
   onExpandedChange?: (expanded: boolean) => void;
   onHeaderAction?: (event: MouseEvent<HTMLButtonElement>) => void;
   onHeaderContextMenu?: (event: MouseEvent<HTMLButtonElement>) => void;
+  onHeaderDoubleClick?: (event: MouseEvent<HTMLButtonElement>) => void;
   onShowMore?: () => void;
   onThreadSelect?: (id: string) => void;
   pinned?: boolean;
@@ -42,11 +44,13 @@ export function FolderGroupShared({
   defaultExpanded = false,
   expanded: expandedProp,
   hasContent: hasContentProp,
+  header,
   headerState = "default",
   label = "penut",
   onExpandedChange,
   onHeaderAction,
   onHeaderContextMenu,
+  onHeaderDoubleClick,
   onShowMore,
   onThreadSelect,
   pinned = false,
@@ -72,18 +76,21 @@ export function FolderGroupShared({
       data-pencil-component="Shahm"
       hasContent={hasContent}
       header={
-        <FolderRowShared
-          actionLabel={`Create thread in ${label}`}
-          expanded={expanded}
-          pinned={pinned}
-          state={headerState}
-          workStatus={workStatus}
-          {...(hasContent ? { onClick: () => setExpanded(!expanded) } : {})}
-          {...(onHeaderAction === undefined ? {} : { onAction: onHeaderAction })}
-          {...(onHeaderContextMenu === undefined ? {} : { onContextMenu: onHeaderContextMenu })}
-        >
-          {label}
-        </FolderRowShared>
+        header ?? (
+          <FolderRowShared
+            actionLabel={`Create thread in ${label}`}
+            expanded={expanded}
+            pinned={pinned}
+            state={headerState}
+            workStatus={workStatus}
+            {...(hasContent ? { onClick: () => setExpanded(!expanded) } : {})}
+            {...(onHeaderAction === undefined ? {} : { onAction: onHeaderAction })}
+            {...(onHeaderContextMenu === undefined ? {} : { onContextMenu: onHeaderContextMenu })}
+            {...(onHeaderDoubleClick === undefined ? {} : { onDoubleClick: onHeaderDoubleClick })}
+          >
+            {label}
+          </FolderRowShared>
+        )
       }
       open={expanded}
     >

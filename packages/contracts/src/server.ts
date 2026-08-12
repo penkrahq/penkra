@@ -2,6 +2,7 @@ import { Schema } from "effect";
 import {
   IsoDateTime,
   NonNegativeInt,
+  ProviderConnectionId,
   PositiveInt,
   ContainerId,
   SpaceId,
@@ -252,6 +253,7 @@ export type ServerDiagnosticsResult = typeof ServerDiagnosticsResult.Type;
 
 export const ServerVoiceTranscriptionInput = Schema.Struct({
   provider: ProviderKind,
+  connectionId: ProviderConnectionId,
   cwd: TrimmedNonEmptyString,
   threadId: Schema.optional(ThreadId),
   mimeType: TrimmedNonEmptyString.check(Schema.isMaxLength(100)),
@@ -267,25 +269,6 @@ export const ServerVoiceTranscriptionResult = Schema.Struct({
   text: TrimmedNonEmptyString,
 });
 export type ServerVoiceTranscriptionResult = typeof ServerVoiceTranscriptionResult.Type;
-
-// Compact, stateless recap generation. The caller owns debounce/cache policy so
-// this endpoint never participates in the hot transcript projection path.
-export const ServerGenerateThreadRecapInput = Schema.Struct({
-  cwd: TrimmedNonEmptyString,
-  previousRecap: Schema.optional(Schema.String.check(Schema.isMaxLength(1_000))),
-  newMaterial: Schema.String.check(Schema.isMaxLength(16_000)),
-  currentState: Schema.optional(Schema.String.check(Schema.isMaxLength(4_000))),
-  codexHomePath: Schema.optional(TrimmedNonEmptyString),
-  providerOptions: Schema.optional(ProviderStartOptions),
-  textGenerationModel: Schema.optional(TrimmedNonEmptyString),
-  textGenerationModelSelection: Schema.optional(ModelSelection),
-});
-export type ServerGenerateThreadRecapInput = typeof ServerGenerateThreadRecapInput.Type;
-
-export const ServerGenerateThreadRecapResult = Schema.Struct({
-  recap: TrimmedNonEmptyString,
-});
-export type ServerGenerateThreadRecapResult = typeof ServerGenerateThreadRecapResult.Type;
 
 export const ServerUpsertKeybindingInput = KeybindingRule;
 export type ServerUpsertKeybindingInput = typeof ServerUpsertKeybindingInput.Type;

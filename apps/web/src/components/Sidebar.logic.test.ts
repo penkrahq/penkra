@@ -30,7 +30,6 @@ import {
   resolveProjectEmptyState,
   resolveSettingsBackTarget,
   resolveProjectStatusIndicator,
-  resolveSidebarNewThreadEnvMode,
   resolveSidebarWorkStatus,
   resolveThreadHoverCardMetadata,
   resolveThreadRowClassName,
@@ -43,7 +42,6 @@ import {
 } from "./Sidebar.logic";
 import { ContainerId, ThreadId } from "@penkra/contracts";
 import {
-  DEFAULT_INTERACTION_MODE,
   DEFAULT_RUNTIME_MODE,
   type Project,
   type SidebarThreadSummary,
@@ -207,25 +205,6 @@ describe("resolveThreadHoverCardMetadata", () => {
       branch: "main",
       worktreeName: null,
     });
-  });
-});
-
-describe("resolveSidebarNewThreadEnvMode", () => {
-  it("uses the app default when the caller does not request a specific mode", () => {
-    expect(
-      resolveSidebarNewThreadEnvMode({
-        defaultEnvMode: "worktree",
-      }),
-    ).toBe("worktree");
-  });
-
-  it("preserves an explicit requested mode over the app default", () => {
-    expect(
-      resolveSidebarNewThreadEnvMode({
-        requestedEnvMode: "local",
-        defaultEnvMode: "worktree",
-      }),
-    ).toBe("local");
   });
 });
 
@@ -482,10 +461,8 @@ describe("pin helpers", () => {
         model: "gpt-5-codex",
       },
       runtimeMode: DEFAULT_RUNTIME_MODE,
-      interactionMode: DEFAULT_INTERACTION_MODE,
       session: null,
       messages: [],
-      proposedPlans: [],
       error: null,
       createdAt: "2026-03-09T10:00:00.000Z",
       latestTurn: null,
@@ -620,16 +597,14 @@ describe("pin helpers", () => {
 
 describe("resolveThreadStatusPill", () => {
   const baseThread = {
-    interactionMode: "plan" as const,
     latestTurn: null,
     lastVisitedAt: undefined,
     dismissedStatusKey: undefined,
-    proposedPlans: [],
-    hasLiveTailWork: false,
     updatedAt: "2026-03-09T10:05:00.000Z",
     session: {
       provider: "codex" as const,
       status: "running" as const,
+      activeTurnId: "turn-running" as never,
       createdAt: "2026-03-09T10:00:00.000Z",
       updatedAt: "2026-03-09T10:00:00.000Z",
       orchestrationStatus: "running" as const,
@@ -646,7 +621,7 @@ describe("resolveThreadStatusPill", () => {
     ).toMatchObject({ label: "Pending Approval", pulse: false });
   });
 
-  it("shows awaiting input when plan mode is blocked on user answers", () => {
+  it("shows awaiting input when the thread is blocked on user answers", () => {
     expect(
       resolveThreadStatusPill({
         thread: baseThread,
@@ -703,12 +678,11 @@ describe("resolveThreadStatusPill", () => {
     ).toMatchObject({ label: "Needs Attention", pulse: false, dismissible: false });
   });
 
-  it("keeps showing working when late turn activity arrives after the session looks ready", () => {
+  it("does not keep showing working after the canonical session is ready", () => {
     expect(
       resolveThreadStatusPill({
         thread: {
           ...baseThread,
-          hasLiveTailWork: true,
           session: {
             ...baseThread.session,
             status: "ready",
@@ -718,28 +692,10 @@ describe("resolveThreadStatusPill", () => {
         hasPendingApprovals: false,
         hasPendingUserInput: false,
       }),
-    ).toMatchObject({ label: "Working", pulse: true });
+    ).toBeNull();
   });
 
   it("treats a settled legacy plan turn as an ordinary completion", () => {
-    expect(
-      resolveThreadStatusPill({
-        thread: {
-          ...baseThread,
-          latestTurn: makeLatestTurn(),
-          session: {
-            ...baseThread.session,
-            status: "ready",
-            orchestrationStatus: "ready",
-          },
-        },
-        hasPendingApprovals: false,
-        hasPendingUserInput: false,
-      }),
-    ).toMatchObject({ label: "Completed", pulse: false });
-  });
-
-  it("does not show plan ready after the proposed plan was implemented elsewhere", () => {
     expect(
       resolveThreadStatusPill({
         thread: {
@@ -1453,10 +1409,8 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
       ...overrides?.modelSelection,
     },
     runtimeMode: DEFAULT_RUNTIME_MODE,
-    interactionMode: DEFAULT_INTERACTION_MODE,
     session: null,
     messages: [],
-    proposedPlans: [],
     error: null,
     createdAt: "2026-03-09T10:00:00.000Z",
     updatedAt: "2026-03-09T10:00:00.000Z",
@@ -1480,7 +1434,6 @@ function makeSidebarThreadSummary(
       provider: "codex",
       model: "gpt-5.4",
     },
-    interactionMode: DEFAULT_INTERACTION_MODE,
     branch: null,
     worktreePath: null,
     session: null,
@@ -1490,8 +1443,6 @@ function makeSidebarThreadSummary(
     latestUserMessageAt: null,
     hasPendingApprovals: false,
     hasPendingUserInput: false,
-    hasActionableProposedPlan: false,
-    hasLiveTailWork: false,
     ...overrides,
   };
 }

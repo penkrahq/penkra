@@ -6,6 +6,7 @@ import {
   EventId,
   MessageId,
   ORCHESTRATION_WS_METHODS,
+  ProviderConnectionId,
   type OrchestrationReadModel,
   type ContainerId,
   type ServerConfig,
@@ -72,6 +73,7 @@ const UUID_ROUTE_RE = /^\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-
 const PROJECT_ID = "project-1" as ContainerId;
 const OTHER_PROJECT_ID = "project-2" as ContainerId;
 const TEST_SPACE_ID = SpaceId.makeUnsafe("space-browser-test");
+const TEST_CONNECTION_ID = ProviderConnectionId.makeUnsafe("connection-codex-browser");
 const HOME_PROJECT_ID = "project-home" as ContainerId;
 const STUDIO_PROJECT_ID = "project-studio" as ContainerId;
 const STUDIO_DRAFT_THREAD_ID = "thread-studio-draft" as ThreadId;
@@ -80,6 +82,7 @@ const BASE_TIME_MS = Date.parse(NOW_ISO);
 const ATTACHMENT_SVG = "<svg xmlns='http://www.w3.org/2000/svg' width='120' height='300'></svg>";
 let attachmentResponseDelayMs = 0;
 let attachmentUploadSequence = 0;
+let omitProviderSpaceDefaults = false;
 
 interface WsRequestEnvelope {
   id: string;
@@ -351,7 +354,6 @@ function createSnapshotForTargetUser(options: {
           provider: "codex",
           model: "gpt-5",
         },
-        interactionMode: "default",
         runtimeMode: "full-access",
         envMode: "local",
         branch: "main",
@@ -360,10 +362,8 @@ function createSnapshotForTargetUser(options: {
         createdAt: NOW_ISO,
         updatedAt: NOW_ISO,
         deletedAt: null,
-        handoff: null,
         messages,
         activities: [],
-        proposedPlans: [],
         checkpoints: [],
         session: {
           threadId: THREAD_ID,
@@ -508,7 +508,6 @@ function addThreadToSnapshot(
           provider: "codex",
           model: "gpt-5",
         },
-        interactionMode: "default",
         runtimeMode: "full-access",
         envMode: "local",
         branch: "main",
@@ -517,10 +516,8 @@ function addThreadToSnapshot(
         createdAt: NOW_ISO,
         updatedAt: NOW_ISO,
         deletedAt: null,
-        handoff: null,
         messages: [],
         activities: [],
-        proposedPlans: [],
         checkpoints: [],
         session: {
           threadId,
@@ -579,7 +576,6 @@ function withOpenProjectPickerFixtures(snapshot: OrchestrationReadModel): Orches
             workingDirectory: "/repo/other",
             messages: [],
             activities: [],
-            proposedPlans: [],
             checkpoints: [],
             session: sourceThread.session
               ? { ...sourceThread.session, threadId: OTHER_THREAD_ID }
@@ -658,7 +654,7 @@ function withProjectScripts(
   };
 }
 
-function createSnapshotWithLongProposedPlan(): OrchestrationReadModel {
+function createSnapshotWithHistoricalPlanMessage(): OrchestrationReadModel {
   const snapshot = createSnapshotForTargetUser({
     targetMessageId: "msg-user-plan-target" as MessageId,
     targetText: "plan thread",
@@ -697,15 +693,18 @@ function createSnapshotWithLongProposedPlan(): OrchestrationReadModel {
     threads: snapshot.threads.map((thread) =>
       thread.id === THREAD_ID
         ? Object.assign({}, thread, {
-            proposedPlans: [
+            messages: [
+              ...thread.messages,
               {
-                id: "plan-browser-test",
+                id: MessageId.makeUnsafe("legacy-proposed-plan:plan-browser-test"),
+                role: "assistant" as const,
+                text: planMarkdown,
                 turnId: null,
-                planMarkdown,
-                implementedAt: null,
-                implementationThreadId: null,
                 createdAt: isoAt(1_000),
                 updatedAt: isoAt(1_001),
+                completedAt: isoAt(1_001),
+                streaming: false,
+                source: "native" as const,
               },
             ],
             updatedAt: isoAt(1_001),
@@ -866,46 +865,6 @@ function createSnapshotWithSettledCompletedInlinePlan(): OrchestrationReadModel 
                   }
                 : activity,
             ),
-          }
-        : thread,
-    ),
-  };
-}
-
-// A plan-mode thread whose latest turn has settled and that still has an
-// actionable (unimplemented) proposed plan. This is exactly the state where the
-// live composer shows the plan-follow-up prompt, so it's the setup that used to
-// misroute an auto-dispatched queued *chat* turn into the plan-follow-up path.
-function createSnapshotWithSettledPlanAwaitingFollowUp(): OrchestrationReadModel {
-  const snapshot = createSnapshotWithSettledInlinePlan();
-  const planMarkdown = [
-    "# Proposed plan",
-    "",
-    "- Step 1: capture the failing state",
-    "- Step 2: apply the fix",
-    "- Step 3: add regression coverage",
-  ].join("\n");
-
-  return {
-    ...snapshot,
-    threads: snapshot.threads.map((thread) =>
-      thread.id === THREAD_ID
-        ? {
-            ...thread,
-            interactionMode: "plan",
-            hasActionableProposedPlan: true,
-            proposedPlans: [
-              {
-                id: "plan-awaiting-follow-up",
-                turnId: null,
-                planMarkdown,
-                implementedAt: null,
-                implementationThreadId: null,
-                createdAt: isoAt(1_005),
-                updatedAt: isoAt(1_005),
-              },
-            ],
-            updatedAt: isoAt(1_005),
           }
         : thread,
     ),
@@ -1150,12 +1109,132 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
   if (tag === WS_METHODS.serverGetConfig) {
     return fixture.serverConfig;
   }
+  if (tag === WS_METHODS.providerGetConnections) {
+    return {
+      connections: [
+        {
+          id: "connection-codex-browser",
+          harness: "codex",
+          authenticationTargetId: "openai-first-party",
+          authenticationMethodId: "chatgpt",
+          label: "personal@example.com",
+          providerIdentityId: "personal@example.com",
+          health: "ready",
+          healthReason: null,
+          lastCheckedAt: NOW_ISO,
+          lifecycle: "active",
+          terminationReason: null,
+          terminatedAt: null,
+          createdAt: NOW_ISO,
+          updatedAt: NOW_ISO,
+        },
+      ],
+      installations: [
+        {
+          id: "installation-codex-browser",
+          harness: "codex",
+          version: "1.0.0",
+          platform: "darwin",
+          architecture: "arm64",
+          adapterVersion: "1",
+          protocolVersion: "codex-app-server-v2",
+          lifecycle: "active",
+          healthReason: null,
+          installedAt: NOW_ISO,
+          activatedAt: NOW_ISO,
+          retiredAt: null,
+        },
+        {
+          id: "installation-opencode-browser",
+          harness: "opencode",
+          version: "1.0.0",
+          platform: "darwin",
+          architecture: "arm64",
+          adapterVersion: "1",
+          protocolVersion: "opencode-http-v1",
+          lifecycle: "active",
+          healthReason: null,
+          installedAt: NOW_ISO,
+          activatedAt: NOW_ISO,
+          retiredAt: null,
+        },
+      ],
+      spaceDefaults: omitProviderSpaceDefaults
+        ? []
+        : [
+            {
+              spaceId: TEST_SPACE_ID,
+              harness: "codex",
+              connectionId: "connection-codex-browser",
+              createdAt: NOW_ISO,
+              updatedAt: NOW_ISO,
+            },
+          ],
+      anonymousRoutes: [{ harness: "opencode", internalProviderId: "opencode" }],
+      authenticationMethods: [
+        {
+          harness: "codex",
+          authenticationTargetId: "openai-first-party",
+          authenticationMethodId: "chatgpt",
+          kind: "managed-login",
+          label: "ChatGPT account",
+          internalProviderIds: [null],
+        },
+        {
+          harness: "opencode",
+          authenticationTargetId: "opencode-go",
+          authenticationMethodId: "api-key",
+          kind: "static-secret",
+          label: "OpenCode Go",
+          secretPlaceholder: "OpenCode Go key",
+          internalProviderIds: ["opencode-go"],
+        },
+      ],
+    };
+  }
+  if (tag === WS_METHODS.providerGetThreadBinding) {
+    const thread = fixture.snapshot.threads.find((candidate) => candidate.id === body.threadId);
+    const hasStarted =
+      thread !== undefined &&
+      (thread.messages.length > 0 || thread.latestTurn !== null || thread.session !== null);
+    return {
+      state: null,
+      binding: hasStarted
+        ? {
+            threadId: thread.id,
+            connectionId: "connection-codex-browser",
+            installationId: "installation-codex-browser",
+            internalProviderId: null,
+            modelId: thread.modelSelection.model,
+            revision: 0,
+            createdAt: NOW_ISO,
+            updatedAt: NOW_ISO,
+          }
+        : null,
+    };
+  }
+  if (tag === WS_METHODS.providerGetComposerCapabilities) {
+    return {
+      provider: body.provider,
+      supportsSkillMentions: true,
+      supportsSkillDiscovery: true,
+      supportsNativeSlashCommandDiscovery: false,
+      supportsPluginMentions: false,
+      supportsPluginDiscovery: false,
+      supportsRuntimeModelList: true,
+      supportsThreadCompaction: body.provider === "codex",
+      supportsThreadFork: body.provider === "codex" || body.provider === "opencode",
+      supportsThreadImport: false,
+    };
+  }
+  if (tag === WS_METHODS.providerListAgents) return { agents: [], source: "test", cached: false };
   if (tag === WS_METHODS.providerListModels && body.provider === "codex") {
     return {
       models: [
         {
           slug: "gpt-5.5",
           name: "GPT-5.5",
+          availableConnectionIds: ["connection-codex-browser"],
           supportedReasoningEfforts: [
             { value: "low", label: "Low" },
             { value: "medium", label: "Medium" },
@@ -1166,6 +1245,7 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
         {
           slug: "gpt-5.2",
           name: "GPT-5.2",
+          availableConnectionIds: ["connection-codex-browser"],
           supportedReasoningEfforts: [
             { value: "low", label: "Low" },
             { value: "medium", label: "Medium" },
@@ -1175,6 +1255,20 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
         },
       ],
       source: "codex-app-server",
+      cached: false,
+    };
+  }
+  if (tag === WS_METHODS.providerListModels && body.provider === "opencode") {
+    return {
+      models: [
+        {
+          slug: "opencode/deepseek-v4-flash-free",
+          name: "Deepseek V4 Flash Free",
+          availableConnectionIds: [null],
+          supportedReasoningEfforts: [],
+        },
+      ],
+      source: "managed-connections",
       cached: false,
     };
   }
@@ -1535,16 +1629,6 @@ function readDispatchedCommand(request: WsRequestEnvelope["body"]): Record<strin
 
 function hasDispatchedCommandType(type: string): boolean {
   return wsRequests.some((request) => readDispatchedCommand(request)?.type === type);
-}
-
-async function waitForEnvironmentModeButton(label: string): Promise<HTMLButtonElement> {
-  return waitForElement(
-    () =>
-      Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(
-        (button) => button.textContent?.trim() === label,
-      ) ?? null,
-    `Unable to find ${label} environment button.`,
-  );
 }
 
 async function waitForServerConfigToApply(): Promise<void> {
@@ -1974,6 +2058,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     await setViewport(DEFAULT_VIEWPORT);
     attachmentResponseDelayMs = 0;
     attachmentUploadSequence = 0;
+    omitProviderSpaceDefaults = false;
     localStorage.clear();
     useLatestProjectStore.setState({ latestProjectId: null });
     document.body.innerHTML = "";
@@ -2279,7 +2364,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("smoothly re-sticks to the bottom after sending an optimistic user message", async () => {
+  it("shows Thinking and smoothly re-sticks while an optimistic send awaits provider start", async () => {
     const restoreNativeApi = installDeterministicSendNativeApi();
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
@@ -2334,6 +2419,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await vi.waitFor(
         async () => {
           expect(document.body.textContent).toContain(prompt);
+          expect(document.body.textContent).toContain("Thinking");
           expect(document.activeElement).toBe(await waitForComposerEditor());
           expect(scrollToCalls.some((call) => call.behavior === "smooth")).toBe(true);
           const layout = await mounted.measureLayout();
@@ -2519,6 +2605,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
           message.id === liveAssistantMessage.id
             ? {
                 ...message,
+                text: `${message.text} ${"with additional streamed completion details ".repeat(24)}`,
                 streaming: false,
                 completedAt: isoAt(1_207),
                 updatedAt: isoAt(1_207),
@@ -2577,89 +2664,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
     },
   );
 
-  it("opens the project cwd for draft threads without a worktree path", async () => {
-    useComposerDraftStore.setState({
-      draftThreadsByThreadId: {
-        [THREAD_ID]: {
-          projectId: PROJECT_ID,
-          createdAt: NOW_ISO,
-          runtimeMode: "full-access",
-          interactionMode: "default",
-          entryPoint: "chat",
-          branch: null,
-          worktreePath: null,
-          envMode: "local",
-        },
-      },
-      projectDraftThreadIdByProjectId: {
-        [PROJECT_ID]: THREAD_ID,
-      },
-    });
-
-    const mounted = await mountChatView({
-      viewport: DEFAULT_VIEWPORT,
-      snapshot: createDraftOnlySnapshot(),
-      configureFixture: (nextFixture) => {
-        nextFixture.serverConfig = {
-          ...nextFixture.serverConfig,
-          availableEditors: ["vscode"],
-        };
-      },
-    });
-
-    try {
-      const openInVsCodeTrigger = await waitForElement(
-        () =>
-          Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(
-            (button) => button.textContent?.trim() === "Open in VS Code",
-          ) ?? null,
-        "Unable to find Open in VS Code environment row.",
-      );
-      openInVsCodeTrigger.click();
-
-      const vscodeOption = await waitForElement(
-        () =>
-          Array.from(document.querySelectorAll<HTMLElement>('[data-slot="menu-radio-item"]')).find(
-            (item) => item.textContent?.trim() === "VS Code",
-          ) ?? null,
-        "Unable to find VS Code editor option.",
-      );
-      vscodeOption.click();
-
-      await vi.waitFor(
-        () => {
-          const openRequest = wsRequests.find(
-            (request) => request._tag === WS_METHODS.shellOpenInEditor,
-          );
-          expect(openRequest).toMatchObject({
-            _tag: WS_METHODS.shellOpenInEditor,
-            cwd: "/repo/project",
-            editor: "vscode",
-          });
-        },
-        { timeout: 8_000, interval: 16 },
-      );
-    } finally {
-      await mounted.cleanup();
-    }
-  });
-
-  it("shows branch tools on a fresh top-level thread before any messages", async () => {
-    const mounted = await mountChatView({
-      viewport: DEFAULT_VIEWPORT,
-      snapshot: addThreadToSnapshot(createDraftOnlySnapshot(), THREAD_ID),
-    });
-
-    try {
-      await expect.element(page.getByText("What should we do in")).toBeInTheDocument();
-      expect(page.getByTestId("empty-landing-heading").element().textContent).toContain("Project");
-      await expect.element(page.getByRole("button", { name: "This Mac" })).not.toBeInTheDocument();
-      expect(document.body.textContent).toContain("main");
-    } finally {
-      await mounted.cleanup();
-    }
-  });
-
   it("names the parent Space on an empty direct Space thread", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
@@ -2691,7 +2695,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
           projectId: PROJECT_ID,
           createdAt: NOW_ISO,
           runtimeMode: "full-access",
-          interactionMode: "default",
           entryPoint: "chat",
           branch: null,
           worktreePath: null,
@@ -2732,7 +2735,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
           projectId: PROJECT_ID,
           createdAt: NOW_ISO,
           runtimeMode: "full-access",
-          interactionMode: "default",
           entryPoint: "chat",
           branch: null,
           worktreePath: null,
@@ -2819,122 +2821,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("runs project scripts from worktree draft threads at the worktree cwd", async () => {
-    useComposerDraftStore.setState({
-      draftThreadsByThreadId: {
-        [THREAD_ID]: {
-          projectId: PROJECT_ID,
-          createdAt: NOW_ISO,
-          runtimeMode: "full-access",
-          interactionMode: "default",
-          entryPoint: "chat",
-          branch: "feature/draft",
-          worktreePath: "/repo/worktrees/feature-draft",
-          envMode: "worktree",
-        },
-      },
-      projectDraftThreadIdByProjectId: {
-        [PROJECT_ID]: THREAD_ID,
-      },
-    });
-
-    const mounted = await mountChatView({
-      viewport: { ...DEFAULT_VIEWPORT, width: 1_400 },
-      snapshot: withProjectScripts(createDraftOnlySnapshot(), [
-        {
-          id: "test",
-          name: "Test",
-          command: "bun run test",
-          icon: "test",
-          runOnWorktreeCreate: false,
-        },
-      ]),
-      configureFixture: (nextFixture) => {
-        nextFixture.serverConfig = {
-          ...nextFixture.serverConfig,
-          keybindings: [
-            {
-              command: "script.test.run",
-              shortcut: {
-                key: "t",
-                metaKey: false,
-                ctrlKey: false,
-                shiftKey: false,
-                altKey: true,
-                modKey: false,
-              },
-            },
-          ],
-        };
-      },
-    });
-
-    try {
-      await waitForServerConfigToApply();
-      dispatchConfiguredShortcut(window, {
-        key: "t",
-        altKey: true,
-        modKey: false,
-      });
-
-      await vi.waitFor(
-        () => {
-          const openRequest = wsRequests.find(
-            (request) =>
-              request._tag === WS_METHODS.terminalOpen &&
-              request.cwd === "/repo/worktrees/feature-draft",
-          );
-          expect(openRequest).toMatchObject({
-            _tag: WS_METHODS.terminalOpen,
-            threadId: THREAD_ID,
-            cwd: "/repo/worktrees/feature-draft",
-            env: {
-              PENKRA_PROJECT_ROOT: "/repo/worktrees/feature-draft",
-              PENKRA_WORKTREE_PATH: "/repo/worktrees/feature-draft",
-            },
-          });
-        },
-        { timeout: 8_000, interval: 16 },
-      );
-    } finally {
-      await mounted.cleanup();
-    }
-  });
-
-  it("leaves interaction mode unchanged when Shift+Tab is pressed in the composer", async () => {
-    const mounted = await mountChatView({
-      viewport: DEFAULT_VIEWPORT,
-      snapshot: createSnapshotForTargetUser({
-        targetMessageId: "msg-user-target-hotkey" as MessageId,
-        targetText: "hotkey target",
-      }),
-    });
-
-    try {
-      const readInteractionMode = () =>
-        useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.interactionMode ?? "default";
-      expect(readInteractionMode()).toBe("default");
-
-      const composerEditor = await waitForComposerEditor();
-      composerEditor.focus();
-      composerEditor.dispatchEvent(
-        new KeyboardEvent("keydown", {
-          key: "Tab",
-          shiftKey: true,
-          bubbles: true,
-          cancelable: true,
-        }),
-      );
-
-      await waitForLayout();
-
-      expect(readInteractionMode()).toBe("default");
-      expect(document.body.textContent).not.toContain("Plan details");
-    } finally {
-      await mounted.cleanup();
-    }
-  });
-
   it("toggles composer focus with Cmd+L", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
@@ -2989,6 +2875,167 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await waitForComposerPickerSurfaceOpen();
     } finally {
       await mounted.cleanup();
+    }
+  });
+
+  it("hides Connection selection until the Thread has started", async () => {
+    const base = createSnapshotForTargetUser({
+      targetMessageId: "msg-user-new-thread-connection-menu" as MessageId,
+      targetText: "unused bootstrap",
+    });
+    const snapshot: OrchestrationReadModel = {
+      ...base,
+      threads: base.threads.map((thread) => ({
+        ...thread,
+        messages: [],
+        activities: [],
+        latestTurn: null,
+        session: null,
+      })),
+    };
+    const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+
+    try {
+      const composerEditor = await waitForComposerEditor();
+      await waitForServerConfigToApply();
+      composerEditor.focus();
+      dispatchComposerPickerShortcut(composerEditor, "m");
+
+      await waitForComposerPickerSurfaceOpen();
+      await expect.element(page.getByText("Connection", { exact: true })).not.toBeInTheDocument();
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("shows Connection selection after the Thread has started", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-started-thread-connection-menu" as MessageId,
+        targetText: "started thread connection menu",
+      }),
+    });
+
+    try {
+      const composerEditor = await waitForComposerEditor();
+      await waitForServerConfigToApply();
+      composerEditor.focus();
+      dispatchComposerPickerShortcut(composerEditor, "m");
+
+      await waitForComposerPickerSurfaceOpen();
+      await expect.element(page.getByText("Connection", { exact: true })).toBeVisible();
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("sends a new Thread through its default Connection before model discovery", async () => {
+    const base = createSnapshotForTargetUser({
+      targetMessageId: "msg-user-default-connection-bootstrap" as MessageId,
+      targetText: "unused bootstrap",
+    });
+    const snapshot: OrchestrationReadModel = {
+      ...base,
+      threads: base.threads.map((thread) => ({
+        ...thread,
+        messages: [],
+        activities: [],
+        latestTurn: null,
+        session: null,
+      })),
+    };
+    const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+    const restoreNativeApi = installDeterministicSendNativeApi();
+
+    try {
+      await vi.waitFor(() => {
+        expect(
+          wsRequests.some((request) => request._tag === WS_METHODS.providerGetConnections),
+        ).toBe(true);
+      });
+      useComposerDraftStore.getState().setPrompt(THREAD_ID, "use the default connection");
+      const composerForm = await waitForElement(
+        () => document.querySelector<HTMLFormElement>('form[data-chat-composer-form="true"]'),
+        "Unable to find composer form.",
+      );
+      composerForm.requestSubmit();
+
+      await vi.waitFor(
+        () => {
+          const command = wsRequests
+            .map(readDispatchedCommand)
+            .find(
+              (candidate) =>
+                candidate?.type === "thread.turn.start" &&
+                candidate.threadId === THREAD_ID &&
+                typeof candidate.message === "object" &&
+                candidate.message !== null &&
+                "text" in candidate.message &&
+                candidate.message.text === "use the default connection",
+            );
+          expect(command).toMatchObject({
+            type: "thread.turn.start",
+            connectionId: TEST_CONNECTION_ID,
+          });
+          expect(document.body.textContent).not.toContain(
+            "Choose a Connection before sending this message.",
+          );
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+    } finally {
+      await mounted.cleanup();
+      restoreNativeApi();
+    }
+  });
+
+  it("lets the server resolve a new Thread's default Connection", async () => {
+    omitProviderSpaceDefaults = true;
+    const base = createSnapshotForTargetUser({
+      targetMessageId: "msg-user-server-default-connection" as MessageId,
+      targetText: "unused bootstrap",
+    });
+    const snapshot: OrchestrationReadModel = {
+      ...base,
+      threads: base.threads.map((thread) => ({
+        ...thread,
+        messages: [],
+        activities: [],
+        latestTurn: null,
+        session: null,
+      })),
+    };
+    const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+    const restoreNativeApi = installDeterministicSendNativeApi();
+
+    try {
+      useComposerDraftStore.getState().setPrompt(THREAD_ID, "use the server default");
+      const composerForm = await waitForElement(
+        () => document.querySelector<HTMLFormElement>('form[data-chat-composer-form="true"]'),
+        "Unable to find composer form.",
+      );
+      composerForm.requestSubmit();
+
+      await vi.waitFor(
+        () => {
+          const command = wsRequests
+            .map(readDispatchedCommand)
+            .find(
+              (candidate) =>
+                candidate?.type === "thread.turn.start" && candidate.threadId === THREAD_ID,
+            );
+          expect(command).toMatchObject({ type: "thread.turn.start" });
+          expect(command).not.toHaveProperty("connectionId");
+          expect(document.body.textContent).not.toContain(
+            "Choose a Connection before sending this message.",
+          );
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+    } finally {
+      await mounted.cleanup();
+      restoreNativeApi();
     }
   });
 
@@ -3243,7 +3290,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("shows a pointer cursor for the running stop button", async () => {
+  it("keeps voice input beside the running stop button", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
       snapshot: createSnapshotForTargetUser({
@@ -3258,14 +3305,19 @@ describe("ChatView timeline estimator parity (full app)", () => {
         () => document.querySelector<HTMLButtonElement>('button[aria-label="Stop generation"]'),
         "Unable to find stop generation button.",
       );
+      const voiceButton = await waitForElement(
+        () => document.querySelector<HTMLButtonElement>('button[aria-label="Voice input"]'),
+        "Unable to find voice input beside the running stop button.",
+      );
 
       expect(getComputedStyle(stopButton).cursor).toBe("pointer");
+      expect(voiceButton.disabled).toBe(false);
     } finally {
       await mounted.cleanup();
     }
   });
 
-  it("keeps the composer usable and durably pauses follow-ups while a turn is starting", async () => {
+  it("queues follow-ups durably while a turn is starting and still cancels the starting turn", async () => {
     const pendingMessageId = "msg-user-starting-cancellable" as MessageId;
     const spaceId = SpaceId.makeUnsafe("space-starting-cancellable");
     const startingSnapshot = createSnapshotForTargetUser({
@@ -3305,6 +3357,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     try {
       const composerEditor = await waitForComposerEditor();
       expect(composerEditor.getAttribute("contenteditable")).toBe("true");
+      expect(document.body.textContent).toContain("Thinking");
 
       useComposerDraftStore.getState().setPrompt(THREAD_ID, "follow-up typed during startup");
       const composerForm = await waitForElement(
@@ -3314,7 +3367,21 @@ describe("ChatView timeline estimator parity (full app)", () => {
       composerForm.requestSubmit();
       await vi.waitFor(
         () => {
-          expect(document.querySelectorAll('[data-testid="queued-follow-up-row"]')).toHaveLength(1);
+          const queuedTurn = wsRequests
+            .map(readDispatchedCommand)
+            .find(
+              (command) =>
+                command?.type === "thread.turn.start" &&
+                command.dispatchMode === "queue" &&
+                typeof command.message === "object" &&
+                command.message !== null &&
+                "text" in command.message &&
+                command.message.text === "follow-up typed during startup",
+            );
+          expect(queuedTurn).toBeTruthy();
+          expect(
+            useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.queuedTurns ?? [],
+          ).toEqual([]);
         },
         { timeout: 8_000, interval: 16 },
       );
@@ -3328,9 +3395,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await vi.waitFor(
         () => {
           const draft = useComposerDraftStore.getState().draftsByThreadId[THREAD_ID];
-          expect(draft?.queuePaused).toBe(true);
           expect(draft?.prompt).toBe("pending provider start prompt");
-          expect(draft?.queuedTurns).toHaveLength(1);
           const interrupt = wsRequests
             .map(readDispatchedCommand)
             .find((command) => command?.type === "thread.turn.interrupt");
@@ -3343,7 +3408,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("shows a queued follow-up row while a turn is running", async () => {
+  it("submits a running-turn follow-up to the durable server queue immediately", async () => {
     useComposerDraftStore.getState().setPrompt(THREAD_ID, "queue this follow-up");
 
     const mounted = await mountChatView({
@@ -3364,17 +3429,25 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
       await vi.waitFor(
         () => {
-          expect(document.body.textContent).toContain("queue this follow-up");
-          expect(document.body.textContent).toContain("Steer");
+          const turnStart = wsRequests
+            .map(readDispatchedCommand)
+            .find(
+              (command) =>
+                command?.type === "thread.turn.start" &&
+                command.dispatchMode === "queue" &&
+                typeof command.message === "object" &&
+                command.message !== null &&
+                "text" in command.message &&
+                typeof command.message.text === "string" &&
+                command.message.text.includes("queue this follow-up"),
+            );
+          expect(turnStart).toBeTruthy();
+          expect(
+            useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.queuedTurns ?? [],
+          ).toEqual([]);
         },
         { timeout: 8_000, interval: 16 },
       );
-
-      const queuedRow = await waitForElement(
-        () => document.querySelector<HTMLElement>('[data-testid="queued-follow-up-row"]'),
-        "Unable to find queued follow-up row.",
-      );
-      expect(queuedRow).not.toBeNull();
 
       const stopButton = await waitForElement(
         () => document.querySelector<HTMLButtonElement>('button[aria-label="Stop generation"]'),
@@ -3383,6 +3456,76 @@ describe("ChatView timeline estimator parity (full app)", () => {
       expect(stopButton).not.toBeNull();
     } finally {
       await mounted.cleanup();
+    }
+  });
+
+  it("sends an OpenCode free-model turn with the exact anonymous route", async () => {
+    const base = createSnapshotForTargetUser({
+      targetMessageId: "msg-user-opencode-free-bootstrap" as MessageId,
+      targetText: "unused bootstrap",
+    });
+    const snapshot: OrchestrationReadModel = {
+      ...base,
+      projects: base.projects.map((project) => ({
+        ...project,
+        defaultModelSelection: {
+          provider: "opencode",
+          model: "opencode/deepseek-v4-flash-free",
+        },
+      })),
+      threads: base.threads.map((thread) => ({
+        ...thread,
+        modelSelection: {
+          provider: "opencode",
+          model: "opencode/deepseek-v4-flash-free",
+        },
+        messages: [],
+        activities: [],
+        latestTurn: null,
+        session: null,
+      })),
+    };
+    const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+    const restoreNativeApi = installDeterministicSendNativeApi();
+
+    try {
+      useComposerDraftStore.getState().setPrompt(THREAD_ID, "use the free model");
+      const composerForm = await waitForElement(
+        () => document.querySelector<HTMLFormElement>('form[data-chat-composer-form="true"]'),
+        "Unable to find composer form.",
+      );
+      composerForm.requestSubmit();
+
+      await vi.waitFor(
+        () => {
+          const command = wsRequests
+            .map(readDispatchedCommand)
+            .find(
+              (candidate) =>
+                candidate?.type === "thread.turn.start" &&
+                candidate.threadId === THREAD_ID &&
+                typeof candidate.message === "object" &&
+                candidate.message !== null &&
+                "text" in candidate.message &&
+                candidate.message.text === "use the free model",
+            );
+          expect(command).toMatchObject({
+            type: "thread.turn.start",
+            connectionId: null,
+            modelSelection: {
+              provider: "opencode",
+              model: "opencode/deepseek-v4-flash-free",
+            },
+          });
+          expect(document.body.textContent).not.toContain(
+            "Choose a Connection before sending this message.",
+          );
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+    } finally {
+      await mounted.cleanup();
+      restoreNativeApi();
     }
   });
 
@@ -3436,7 +3579,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("keeps queued follow-ups when you switch threads and come back", async () => {
+  it("submits queued follow-ups before switching threads so returning is unnecessary", async () => {
     useComposerDraftStore.getState().setPrompt(THREAD_ID, "queue survives thread switch");
 
     const mounted = await mountChatView({
@@ -3459,8 +3602,21 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
       await vi.waitFor(
         () => {
-          expect(document.querySelectorAll('[data-testid="queued-follow-up-row"]')).toHaveLength(1);
-          expect(document.body.textContent).toContain("queue survives thread switch");
+          const queuedTurn = wsRequests
+            .map(readDispatchedCommand)
+            .find(
+              (command) =>
+                command?.type === "thread.turn.start" &&
+                command.dispatchMode === "queue" &&
+                typeof command.message === "object" &&
+                command.message !== null &&
+                "text" in command.message &&
+                command.message.text === "queue survives thread switch",
+            );
+          expect(queuedTurn).toBeTruthy();
+          expect(
+            useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.queuedTurns ?? [],
+          ).toEqual([]);
         },
         { timeout: 8_000, interval: 16 },
       );
@@ -3479,20 +3635,18 @@ describe("ChatView timeline estimator parity (full app)", () => {
         { timeout: 8_000, interval: 16 },
       );
 
-      await mounted.router.navigate({
-        to: "/$threadId",
-        params: { threadId: THREAD_ID },
-      });
-      await waitForLayout();
-
-      await vi.waitFor(
-        () => {
-          expect(mounted.router.state.location.pathname).toBe(`/${THREAD_ID}`);
-          expect(document.querySelectorAll('[data-testid="queued-follow-up-row"]')).toHaveLength(1);
-          expect(document.body.textContent).toContain("queue survives thread switch");
-        },
-        { timeout: 8_000, interval: 16 },
-      );
+      const matchingQueueCommands = wsRequests
+        .map(readDispatchedCommand)
+        .filter(
+          (command) =>
+            command?.type === "thread.turn.start" &&
+            command.dispatchMode === "queue" &&
+            typeof command.message === "object" &&
+            command.message !== null &&
+            "text" in command.message &&
+            command.message.text === "queue survives thread switch",
+        );
+      expect(matchingQueueCommands).toHaveLength(1);
     } finally {
       await mounted.cleanup();
     }
@@ -3559,10 +3713,147 @@ describe("ChatView timeline estimator parity (full app)", () => {
           expect(mounted.router.state.location.pathname).toBe(`/${THREAD_ID}`);
           expect(document.querySelector('[data-sidebar-drag-overlay="true"]')).toBeNull();
           expect(document.body.textContent).not.toContain("Something went wrong");
+          expect(
+            wsRequests
+              .map(readDispatchedCommand)
+              .filter((command) => command?.type === "sidebar.item.move"),
+          ).toHaveLength(1);
         },
         { timeout: 8_000, interval: 16 },
       );
     } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("ends the pointer drag before sidebar persistence settles", async () => {
+    const otherThreadTitle = "Delayed sidebar move target";
+    const nativeApi = readNativeApi();
+    if (!nativeApi) throw new Error("Expected browser native API fixture.");
+
+    let releaseMove!: () => void;
+    let overlayPresentWhenMoveDispatched: boolean | null = null;
+    const moveGate = new Promise<void>((resolve) => {
+      releaseMove = resolve;
+    });
+    const previousNativeApi = window.nativeApi;
+    Object.defineProperty(window, "nativeApi", {
+      configurable: true,
+      value: {
+        ...nativeApi,
+        orchestration: {
+          ...nativeApi.orchestration,
+          dispatchCommand: async (
+            command: Parameters<typeof nativeApi.orchestration.dispatchCommand>[0],
+          ) => {
+            if (command.type !== "sidebar.item.move") {
+              return nativeApi.orchestration.dispatchCommand(command);
+            }
+            overlayPresentWhenMoveDispatched = Boolean(
+              document.querySelector('[data-sidebar-drag-overlay="true"]'),
+            );
+            wsRequests.push({
+              _tag: ORCHESTRATION_WS_METHODS.dispatchCommand,
+              command,
+            });
+            await moveGate;
+            return { sequence: fixture.snapshot.snapshotSequence + 1 };
+          },
+        },
+      },
+    });
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: addThreadToSnapshot(
+        createSnapshotForTargetUser({
+          targetMessageId: "msg-user-delayed-sidebar-move" as MessageId,
+          targetText: "delayed sidebar move target",
+        }),
+        OTHER_THREAD_ID,
+        { title: otherThreadTitle },
+      ),
+    });
+    try {
+      const source = page.getByRole("button", { name: otherThreadTitle, exact: true });
+      const target = page.getByRole("button", { name: THREAD_TITLE, exact: true });
+
+      await userEvent.dragAndDrop(source, target);
+
+      await vi.waitFor(
+        () => {
+          expect(hasDispatchedCommandType("sidebar.item.move")).toBe(true);
+          expect(overlayPresentWhenMoveDispatched).toBe(false);
+          expect(document.querySelector('[data-sidebar-drag-overlay="true"]')).toBeNull();
+          expect(document.body.textContent).not.toContain("Something went wrong");
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+    } finally {
+      releaseMove();
+      await mounted.cleanup();
+      if (previousNativeApi) {
+        Object.defineProperty(window, "nativeApi", {
+          configurable: true,
+          value: previousNativeApi,
+        });
+      } else {
+        Reflect.deleteProperty(window, "nativeApi");
+      }
+    }
+  });
+
+  it("removes the drag preview when pointer capture ends without a pointerup", async () => {
+    const otherThreadTitle = "Interrupted pointer drag target";
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: addThreadToSnapshot(
+        createSnapshotForTargetUser({
+          targetMessageId: "msg-user-interrupted-sidebar-drag" as MessageId,
+          targetText: "interrupted sidebar drag target",
+        }),
+        OTHER_THREAD_ID,
+        { title: otherThreadTitle },
+      ),
+    });
+    let sawDragOverlay = false;
+    let lostPointerCaptureCount = 0;
+    const overlayObserver = new MutationObserver(() => {
+      if (document.querySelector('[data-sidebar-drag-overlay="true"]')) sawDragOverlay = true;
+    });
+    const recordLostPointerCapture = () => {
+      lostPointerCaptureCount += 1;
+    };
+    const swallowPointerUp = (event: PointerEvent) => event.stopImmediatePropagation();
+    overlayObserver.observe(document.body, { childList: true, subtree: true });
+    document.addEventListener("lostpointercapture", recordLostPointerCapture, { capture: true });
+    window.addEventListener("pointerup", swallowPointerUp, { capture: true });
+    try {
+      const source = page.getByRole("button", { name: otherThreadTitle, exact: true });
+      const target = page.getByRole("button", { name: THREAD_TITLE, exact: true });
+
+      await userEvent.dragAndDrop(source, target);
+
+      await vi.waitFor(
+        () => {
+          expect(sawDragOverlay).toBe(true);
+          expect(lostPointerCaptureCount).toBeGreaterThan(0);
+          expect(document.querySelector('[data-sidebar-drag-overlay="true"]')).toBeNull();
+          expect(document.body.textContent).not.toContain("Something went wrong");
+          expect(
+            wsRequests
+              .map(readDispatchedCommand)
+              .filter((command) => command?.type === "sidebar.item.move"),
+          ).toHaveLength(1);
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+    } finally {
+      overlayObserver.disconnect();
+      document.removeEventListener("lostpointercapture", recordLostPointerCapture, {
+        capture: true,
+      });
+      window.removeEventListener("pointerup", swallowPointerUp, { capture: true });
       await mounted.cleanup();
     }
   });
@@ -3607,8 +3898,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
           provider: "codex",
           model: "gpt-5",
         },
+        connectionId: TEST_CONNECTION_ID,
         runtimeMode: "full-access",
-        interactionMode: "default",
         envMode: "local",
       });
       useComposerDraftStore.getState().enqueueQueuedTurn(THREAD_ID, {
@@ -3632,8 +3923,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
           provider: "codex",
           model: "gpt-5",
         },
+        connectionId: TEST_CONNECTION_ID,
         runtimeMode: "full-access",
-        interactionMode: "default",
         envMode: "local",
       });
 
@@ -3724,8 +4015,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
           provider: "codex",
           model: "gpt-5",
         },
+        connectionId: TEST_CONNECTION_ID,
         runtimeMode: "full-access",
-        interactionMode: "default",
         envMode: "local",
       });
 
@@ -3763,7 +4054,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("auto-dispatches a queued chat turn as a chat message even while a plan follow-up is pending", async () => {
+  it("auto-dispatches a queued chat turn with its attachments", async () => {
     const restoreNativeApi = installDeterministicSendNativeApi();
     const queuedPrompt = "queued chat turn that must stay a chat message";
     const queuedImage = createComposerImage({
@@ -3774,15 +4065,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
-      // A legacy persisted plan state must not affect a queued ordinary chat turn.
-      snapshot: createSnapshotWithSettledPlanAwaitingFollowUp(),
+      snapshot: createSnapshotWithSettledInlinePlan(),
     });
 
     try {
       await waitForComposerEditor();
-      // Seed the removed mode to cover migration behavior. The queued chat turn
-      // must still dispatch in Default mode and preserve its image attachment.
-      useComposerDraftStore.getState().setInteractionMode(THREAD_ID, "plan");
       useComposerDraftStore.getState().enqueueQueuedTurn(THREAD_ID, {
         id: "queued-turn-plan-chat",
         kind: "chat",
@@ -3804,8 +4091,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
           provider: "codex",
           model: "gpt-5",
         },
+        connectionId: TEST_CONNECTION_ID,
         runtimeMode: "full-access",
-        interactionMode: "default",
         envMode: "local",
       });
 
@@ -3829,16 +4116,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
           );
           expect(turnStartRequest).toBeTruthy();
           const command = turnStartRequest!.command as {
-            interactionMode?: unknown;
             message?: {
               attachments?: Array<{ type?: unknown; name?: unknown }>;
             };
           };
-          // Dispatched as a normal chat turn: it keeps the queued turn's own
-          // "default" interaction mode rather than being coerced to "plan" by the
-          // plan-follow-up path.
-          expect(command.interactionMode).toBe("default");
-          // ...and the queued image survives instead of being dropped to [].
           const attachments = command.message?.attachments ?? [];
           expect(attachments).toHaveLength(1);
           expect(attachments[0]?.type).toBe("image");
@@ -4064,7 +4345,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
           projectId: STUDIO_PROJECT_ID,
           createdAt: NOW_ISO,
           runtimeMode: "full-access",
-          interactionMode: "default",
           entryPoint: "chat",
           branch: null,
           worktreePath: null,
@@ -4214,7 +4494,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
           projectId: HOME_PROJECT_ID,
           createdAt: NOW_ISO,
           runtimeMode: "full-access",
-          interactionMode: "default",
           entryPoint: "chat",
           branch: null,
           worktreePath: null,
@@ -4683,311 +4962,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("offers New worktree from an empty draft thread", async () => {
-    const mounted = await mountChatView({
-      viewport: DEFAULT_VIEWPORT,
-      snapshot: createSnapshotForTargetUser({
-        targetMessageId: "msg-user-empty-worktree-test" as MessageId,
-        targetText: "empty worktree test",
-      }),
-    });
-
-    try {
-      const { path: newThreadPath, threadId: newThreadId } =
-        await createProjectThreadWithShortcut(mounted);
-
-      await vi.waitFor(
-        () => {
-          expect(
-            useComposerDraftStore.getState().getDraftThreadByProjectId(PROJECT_ID)?.threadId,
-          ).toBe(newThreadId);
-          expect(mounted.router.state.location.pathname).toBe(newThreadPath);
-          expect(mounted.router.state.status).toBe("idle");
-        },
-        { timeout: 8_000, interval: 16 },
-      );
-      const envPickerTrigger = await waitForEnvironmentModeButton("Local");
-      envPickerTrigger.click();
-
-      const newWorktreeOption = page.getByText("New worktree");
-      await expect.element(newWorktreeOption).toBeInTheDocument();
-      await newWorktreeOption.click();
-
-      await vi.waitFor(
-        () => {
-          expect(useComposerDraftStore.getState().getDraftThread(newThreadId)?.envMode).toBe(
-            "worktree",
-          );
-        },
-        { timeout: 8_000, interval: 16 },
-      );
-    } finally {
-      await mounted.cleanup();
-    }
-  });
-
-  it("creates a detached worktree on first send in New worktree mode", async () => {
-    const restoreNativeApi = installDeterministicSendNativeApi();
-    const mounted = await mountChatView({
-      viewport: DEFAULT_VIEWPORT,
-      snapshot: createSnapshotForTargetUser({
-        targetMessageId: "msg-user-new-worktree-send-test" as MessageId,
-        targetText: "new worktree send test",
-      }),
-    });
-
-    try {
-      const { path: newThreadPath, threadId: newThreadId } =
-        await createProjectThreadWithShortcut(mounted);
-
-      await vi.waitFor(
-        () => {
-          expect(
-            useComposerDraftStore.getState().getDraftThreadByProjectId(PROJECT_ID)?.threadId,
-          ).toBe(newThreadId);
-          expect(mounted.router.state.location.pathname).toBe(newThreadPath);
-          expect(mounted.router.state.status).toBe("idle");
-        },
-        { timeout: 8_000, interval: 16 },
-      );
-      const envPickerTrigger = await waitForEnvironmentModeButton("Local");
-      envPickerTrigger.click();
-
-      const newWorktreeOption = page.getByText("New worktree");
-      await expect.element(newWorktreeOption).toBeInTheDocument();
-      await newWorktreeOption.click();
-
-      useComposerDraftStore.getState().setPrompt(newThreadId, "Ship it");
-      await vi.waitFor(
-        () => {
-          expect(useComposerDraftStore.getState().getDraftThread(newThreadId)).toMatchObject({
-            envMode: "worktree",
-            branch: "main",
-          });
-        },
-        { timeout: 8_000, interval: 16 },
-      );
-      const composerEditor = await waitForComposerEditor();
-      await vi.waitFor(
-        () => {
-          expect(composerEditor.textContent ?? "").toContain("Ship it");
-        },
-        { timeout: 8_000, interval: 16 },
-      );
-
-      const sendButton = await waitForSendButton();
-      expect(sendButton.disabled).toBe(false);
-      await sendButton.click();
-
-      await vi.waitFor(
-        () => {
-          const createWorktreeRequest = wsRequests.find(
-            (request) =>
-              request._tag === WS_METHODS.gitCreateDetachedWorktree &&
-              request.cwd === "/repo/project" &&
-              request.ref === "main" &&
-              request.copyChangesFrom === "/repo/project",
-          );
-          expect(createWorktreeRequest).toBeTruthy();
-
-          const createThreadRequest = wsRequests.find(
-            (request) =>
-              request._tag === ORCHESTRATION_WS_METHODS.dispatchCommand &&
-              typeof request.command === "object" &&
-              request.command !== null &&
-              "type" in request.command &&
-              "threadId" in request.command &&
-              request.command.type === "thread.create" &&
-              request.command.threadId === newThreadId,
-          );
-          expect(createThreadRequest).toBeTruthy();
-          expect(createThreadRequest?.command).toMatchObject({
-            envMode: "worktree",
-            branch: null,
-            worktreePath: "/repo/.codex/worktrees/generated/penkra",
-            associatedWorktreePath: "/repo/.codex/worktrees/generated/penkra",
-            associatedWorktreeBranch: null,
-            associatedWorktreeRef: "0123456789abcdef0123456789abcdef01234567",
-          });
-        },
-        { timeout: 8_000, interval: 16 },
-      );
-    } finally {
-      await mounted.cleanup();
-      restoreNativeApi();
-    }
-  });
-
-  it("runs the setup action from the newly-created worktree before starting the turn", async () => {
-    const restoreNativeApi = installDeterministicSendNativeApi();
-    const mounted = await mountChatView({
-      viewport: DEFAULT_VIEWPORT,
-      snapshot: withProjectScripts(
-        withStudioProject(
-          withHomeChatProject(
-            createSnapshotForTargetUser({
-              targetMessageId: "msg-user-new-worktree-setup-action-test" as MessageId,
-              targetText: "new worktree setup action test",
-            }),
-          ),
-        ),
-        [
-          {
-            id: "setup",
-            name: "Setup",
-            command: "printf setup",
-            icon: "configure",
-            runOnWorktreeCreate: true,
-          },
-        ],
-      ),
-    });
-
-    try {
-      const { path: newThreadPath, threadId: newThreadId } =
-        await createProjectThreadWithShortcut(mounted);
-
-      await vi.waitFor(
-        () => {
-          expect(
-            useComposerDraftStore.getState().getDraftThreadByProjectId(PROJECT_ID)?.threadId,
-          ).toBe(newThreadId);
-          expect(mounted.router.state.location.pathname).toBe(newThreadPath);
-          expect(mounted.router.state.status).toBe("idle");
-        },
-        { timeout: 8_000, interval: 16 },
-      );
-      const envPickerTrigger = await waitForEnvironmentModeButton("Local");
-      envPickerTrigger.click();
-
-      const newWorktreeOption = page.getByText("New worktree");
-      await expect.element(newWorktreeOption).toBeInTheDocument();
-      await newWorktreeOption.click();
-
-      useComposerDraftStore.getState().setPrompt(newThreadId, "Ship it with setup");
-      await vi.waitFor(
-        () => {
-          expect(useComposerDraftStore.getState().getDraftThread(newThreadId)).toMatchObject({
-            envMode: "worktree",
-            branch: "main",
-          });
-        },
-        { timeout: 8_000, interval: 16 },
-      );
-      const composerEditor = await waitForComposerEditor();
-      await vi.waitFor(
-        () => {
-          expect(composerEditor.textContent ?? "").toContain("Ship it with setup");
-        },
-        { timeout: 8_000, interval: 16 },
-      );
-
-      const sendButton = await waitForSendButton();
-      expect(sendButton.disabled).toBe(false);
-      const composerForm = document.querySelector<HTMLFormElement>(
-        'form[data-chat-composer-form="true"]',
-      );
-      expect(composerForm).not.toBeNull();
-      composerForm!.requestSubmit();
-
-      const createWorktreeRequest = await vi.waitFor(
-        () => {
-          const request = wsRequests.find(
-            (candidate) =>
-              candidate._tag === WS_METHODS.gitCreateDetachedWorktree &&
-              candidate.cwd === "/repo/project" &&
-              candidate.ref === "main",
-          );
-          expect(
-            request,
-            `Expected create worktree request; draft=${JSON.stringify(
-              useComposerDraftStore.getState().getDraftThread(newThreadId),
-            )}; path=${mounted.router.state.location.pathname}; forms=${
-              document.querySelectorAll('form[data-chat-composer-form="true"]').length
-            }; ui=${(document.body.textContent ?? "").slice(-300)}; saw ${wsRequests
-              .map((candidate) => {
-                const command = readDispatchedCommand(candidate);
-                return command ? `${candidate._tag}:${command.type}` : candidate._tag;
-              })
-              .slice(-40)
-              .join(", ")}`,
-          ).toBeTruthy();
-          if (!request || request._tag !== WS_METHODS.gitCreateDetachedWorktree) {
-            throw new Error("Expected create worktree request.");
-          }
-          return request;
-        },
-        { timeout: 10_000, interval: 16 },
-      );
-      const createWorktreeIndex = wsRequests.indexOf(createWorktreeRequest);
-      const worktreePath = "/repo/.codex/worktrees/generated/penkra";
-
-      const terminalOpenRequest = await vi.waitFor(
-        () => {
-          const request = wsRequests.find(
-            (candidate) =>
-              candidate._tag === WS_METHODS.terminalOpen &&
-              candidate.threadId === newThreadId &&
-              candidate.cwd === worktreePath,
-          );
-          expect(
-            request,
-            `Expected setup terminal open; saw ${wsRequests
-              .map((candidate) => {
-                const command = readDispatchedCommand(candidate);
-                return command ? `${candidate._tag}:${command.type}` : candidate._tag;
-              })
-              .join(", ")}`,
-          ).toBeTruthy();
-          return request;
-        },
-        { timeout: 10_000, interval: 16 },
-      );
-      const terminalOpenIndex = wsRequests.indexOf(terminalOpenRequest!);
-      expect(terminalOpenIndex).toBeGreaterThan(createWorktreeIndex);
-      expect(terminalOpenRequest).toMatchObject({
-        _tag: WS_METHODS.terminalOpen,
-        cwd: worktreePath,
-        env: {
-          PENKRA_PROJECT_ROOT: worktreePath,
-          PENKRA_WORKTREE_PATH: worktreePath,
-        },
-      });
-
-      const terminalWriteRequest = await vi.waitFor(
-        () => {
-          const request = wsRequests.find(
-            (candidate) =>
-              candidate._tag === WS_METHODS.terminalWrite &&
-              candidate.threadId === newThreadId &&
-              candidate.data === "printf setup\r",
-          );
-          expect(request).toBeTruthy();
-          return request;
-        },
-        { timeout: 10_000, interval: 16 },
-      );
-      const terminalWriteIndex = wsRequests.indexOf(terminalWriteRequest!);
-      expect(terminalWriteIndex).toBeGreaterThan(terminalOpenIndex);
-
-      const turnStartRequest = await vi.waitFor(
-        () => {
-          const request = wsRequests.find((candidate) => {
-            const command = readDispatchedCommand(candidate);
-            return command?.type === "thread.turn.start" && command.threadId === newThreadId;
-          });
-          expect(request).toBeTruthy();
-          return request;
-        },
-        { timeout: 10_000, interval: 16 },
-      );
-      expect(wsRequests.indexOf(turnStartRequest!)).toBeGreaterThan(terminalWriteIndex);
-    } finally {
-      await mounted.cleanup();
-      restoreNativeApi();
-    }
-  });
-
   it("hydrates the provider alongside a sticky claude model", async () => {
     useComposerDraftStore.setState({
       stickyModelSelectionByProvider: {
@@ -5268,137 +5242,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("promotes a stored terminal draft using its saved context and model selection", async () => {
-    const restoreNativeApi = installDeterministicSendNativeApi();
-    const draftThreadId = ThreadId.makeUnsafe("thread-terminal-draft-reuse");
-    useComposerDraftStore.setState({
-      draftsByThreadId: {
-        [draftThreadId]: {
-          prompt: "",
-          promptHistorySavedDraft: null,
-          images: [],
-          files: [],
-          nonPersistedImageIds: [],
-          persistedAttachments: [],
-          assistantSelections: [],
-          terminalContexts: [],
-          fileComments: [],
-          pastedTexts: [],
-          skills: [],
-          mentions: [],
-          queuedTurns: [],
-          queuePaused: false,
-          modelSelectionByProvider: {
-            claudeAgent: {
-              provider: "claudeAgent",
-              model: "claude-opus-4-6",
-              options: {
-                effort: "max",
-              },
-            },
-          },
-          activeProvider: "claudeAgent",
-          runtimeMode: null,
-          interactionMode: null,
-        },
-      },
-      draftThreadsByThreadId: {
-        [draftThreadId]: {
-          projectId: PROJECT_ID,
-          createdAt: NOW_ISO,
-          runtimeMode: "approval-required",
-          interactionMode: "default",
-          entryPoint: "terminal",
-          branch: "feature/terminal-title",
-          worktreePath: "/repo/project/.worktrees/terminal-title",
-          envMode: "worktree",
-        },
-      },
-      projectDraftThreadIdByProjectId: {
-        [`${PROJECT_ID}::terminal`]: draftThreadId,
-      },
-      stickyModelSelectionByProvider: {},
-      stickyActiveProvider: null,
-    });
-
-    const mounted = await mountChatView({
-      viewport: DEFAULT_VIEWPORT,
-      snapshot: createSnapshotForTargetUser({
-        targetMessageId: "msg-user-terminal-draft-reuse-test" as MessageId,
-        targetText: "terminal draft reuse test",
-      }),
-      configureFixture: (nextFixture) => {
-        nextFixture.serverConfig = {
-          ...nextFixture.serverConfig,
-          keybindings: [
-            {
-              command: "chat.newTerminal",
-              shortcut: {
-                key: "t",
-                metaKey: false,
-                ctrlKey: false,
-                shiftKey: true,
-                altKey: false,
-                modKey: true,
-              },
-              whenAst: {
-                type: "not",
-                node: { type: "identifier", name: "terminalFocus" },
-              },
-            },
-          ],
-        };
-      },
-    });
-
-    try {
-      await waitForServerConfigToApply();
-      const composerEditor = await waitForComposerEditor();
-      composerEditor.focus();
-      await waitForLayout();
-      dispatchTerminalThreadShortcut();
-
-      await waitForURL(
-        mounted.router,
-        (path) => path === `/${draftThreadId}`,
-        "Shortcut should reuse the stored terminal draft thread route.",
-      );
-
-      await vi.waitFor(
-        () => {
-          const createRequest = wsRequests.find(
-            (request) =>
-              request._tag === ORCHESTRATION_WS_METHODS.dispatchCommand &&
-              typeof request.command === "object" &&
-              request.command !== null &&
-              "type" in request.command &&
-              "threadId" in request.command &&
-              request.command.type === "thread.create" &&
-              request.command.threadId === draftThreadId,
-          );
-
-          expect(createRequest).toBeTruthy();
-          expect(createRequest?.command).toMatchObject({
-            branch: "feature/terminal-title",
-            worktreePath: "/repo/project/.worktrees/terminal-title",
-            runtimeMode: "approval-required",
-            modelSelection: {
-              provider: "claudeAgent",
-              model: "claude-opus-4-6",
-              options: {
-                effort: "max",
-              },
-            },
-          });
-        },
-        { timeout: 8_000, interval: 16 },
-      );
-    } finally {
-      await mounted.cleanup();
-      restoreNativeApi();
-    }
-  });
-
   it("does not expose plan mode or plan details in the composer", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
@@ -5476,7 +5319,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
   it("renders historical proposed plans as ordinary transcript content", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
-      snapshot: createSnapshotWithLongProposedPlan(),
+      snapshot: createSnapshotWithHistoricalPlanMessage(),
     });
 
     try {

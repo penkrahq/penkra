@@ -18,8 +18,8 @@ import { ApprovalRequestId, ThreadId } from "@penkra/contracts";
 import { buildCodexProcessEnv } from "./codexProcessEnv";
 import {
   buildCodexInitializeParams,
+  buildCodexDynamicTools,
   CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS,
-  CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS,
   __codexCliVersionGateTesting,
   CodexAppServerManager,
   classifyCodexStderrLine,
@@ -49,34 +49,31 @@ const approvalRequiredTurnOverrides = {
 } as const;
 
 describe("Codex Penkra harness policy", () => {
-  it("keeps the same host policy exactly once in default and plan instructions", () => {
-    for (const instructions of [
-      CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS,
-      CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS,
-    ]) {
-      expect(instructions).toContain(PENKRA_HARNESS_POLICY_MARKER);
-      expect(instructions.split(PENKRA_HARNESS_POLICY_MARKER)).toHaveLength(2);
-      expect(instructions).toContain("Penkra is the host and harness");
-      expect(instructions).toContain("one exact `penkra threads create-many` command");
-    }
+  it("keeps the host policy exactly once in the collaboration instructions", () => {
+    expect(CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS).toContain(PENKRA_HARNESS_POLICY_MARKER);
+    expect(
+      CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS.split(PENKRA_HARNESS_POLICY_MARKER),
+    ).toHaveLength(2);
+    expect(CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS).toContain("Penkra is the host and harness");
+    expect(CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS).toContain(
+      "one exact `penkra threads create-many` command",
+    );
   });
 
-  it("resolves the gateway endpoint when each session environment is built", async () => {
+  it("keeps the Penkra host tool out of Codex MCP configuration", async () => {
     const homePath = mkdtempSync(path.join(os.tmpdir(), "penkra-codex-gateway-endpoint-"));
     const previousPenkraHome = process.env.PENKRA_HOME;
     process.env.PENKRA_HOME = path.join(homePath, "penkra-home");
-    let endpointUrl = "http://127.0.0.1:0/mcp";
     try {
       const manager = new CodexAppServerManager(undefined, {
-        agentGatewayMcp: {
-          endpointUrl: () => endpointUrl,
+        agentGatewayHostTool: {
           acquireSessionLease: () => ({
-            connection: { url: endpointUrl, bearerToken: "token" },
+            connection: { url: "http://unused.invalid/mcp", bearerToken: "token" },
             release: () => undefined,
           }),
+          requireNativeSurface: () => ({ definitions: [], invoke: async () => ({ content: [] }) }),
         },
       });
-      endpointUrl = "http://127.0.0.1:48123/mcp";
       const env = await (
         manager as unknown as {
           buildSessionProcessEnv: (
@@ -86,7 +83,7 @@ describe("Codex Penkra harness policy", () => {
         }
       ).buildSessionProcessEnv(homePath, "token");
       const configPath = path.join(env.CODEX_HOME ?? homePath, "config.toml");
-      expect(readFileSync(configPath, "utf8")).toContain('url = "http://127.0.0.1:48123/mcp"');
+      expect(readFileSync(configPath, "utf8")).not.toContain("mcp_servers.penkra");
     } finally {
       if (previousPenkraHome === undefined) {
         delete process.env.PENKRA_HOME;
@@ -95,6 +92,114 @@ describe("Codex Penkra harness policy", () => {
       }
       rmSync(homePath, { recursive: true, force: true });
     }
+  });
+
+  it("maps the canonical host tool to Codex's exact dynamic-tool shape", () => {
+    expect(
+      buildCodexDynamicTools([
+        {
+          name: "penkra_exec_command",
+          description: "Execute one registered Penkra command.",
+          inputSchema: {
+            type: "object",
+            properties: { command: { type: "string" } },
+            required: ["command"],
+          },
+        },
+      ]),
+    ).toEqual([
+      {
+        type: "function",
+        name: "penkra_exec_command",
+        description: "Execute one registered Penkra command.",
+        inputSchema: {
+          type: "object",
+          properties: { command: { type: "string" } },
+          required: ["command"],
+        },
+        deferLoading: false,
+      },
+    ]);
+  });
+
+  it("dispatches Codex dynamic-tool calls through the authenticated native surface", async () => {
+    const invoke = vi.fn().mockResolvedValue({
+      content: [
+        { type: "text", text: '{"ok":true}' },
+        { type: "image", mimeType: "image/png", data: "aW1hZ2U=" },
+      ],
+    });
+    const manager = new CodexAppServerManager(undefined, {
+      agentGatewayHostTool: {
+        acquireSessionLease: () => ({
+          connection: { url: "http://unused.invalid/mcp", bearerToken: "thread-token" },
+          release: () => undefined,
+        }),
+        requireNativeSurface: () => ({ definitions: [], invoke }),
+      },
+    });
+    const context = {
+      gatewaySessionLease: {
+        connection: { url: "http://unused.invalid/mcp", bearerToken: "thread-token" },
+        release: () => undefined,
+      },
+      session: {
+        provider: "codex",
+        status: "running",
+        threadId: asThreadId("thread-native-tool"),
+        runtimeMode: "full-access",
+        resumeCursor: { threadId: "provider-thread-native" },
+        createdAt: "2026-08-10T00:00:00.000Z",
+        updatedAt: "2026-08-10T00:00:00.000Z",
+      },
+      pendingApprovals: new Map(),
+      pendingUserInputs: new Map(),
+      collabReceiverTurns: new Map(),
+      collabReceiverParents: new Map(),
+      reviewTurnIds: new Set(),
+      terminalTurnIds: new Set(),
+      stopping: false,
+    };
+    vi.spyOn(
+      manager as unknown as { emitEvent: (...args: unknown[]) => void },
+      "emitEvent",
+    ).mockImplementation(() => {});
+    const writeMessage = vi
+      .spyOn(
+        manager as unknown as { writeMessage: (...args: unknown[]) => Promise<void> },
+        "writeMessage",
+      )
+      .mockResolvedValue(undefined);
+
+    await handleServerRequestForTest(manager, context, {
+      jsonrpc: "2.0",
+      id: 71,
+      method: "item/tool/call",
+      params: {
+        threadId: "provider-thread-native",
+        turnId: "turn-native",
+        callId: "call-native",
+        namespace: null,
+        tool: "penkra_exec_command",
+        arguments: { command: "penkra apps list" },
+      },
+    });
+
+    expect(invoke).toHaveBeenCalledWith({
+      bearerToken: "thread-token",
+      name: "penkra_exec_command",
+      arguments: { command: "penkra apps list" },
+    });
+    expect(writeMessage).toHaveBeenCalledWith(context, {
+      id: 71,
+      result: {
+        contentItems: [
+          { type: "inputText", text: '{"ok":true}' },
+          { type: "inputImage", imageUrl: "data:image/png;base64,aW1hZ2U=" },
+        ],
+        success: true,
+      },
+    });
   });
 });
 
@@ -1494,6 +1599,14 @@ describe("sendTurn", () => {
       model: "gpt-5.3-codex",
       serviceTier: "fast",
       effort: "high",
+      collaborationMode: {
+        mode: "default",
+        settings: {
+          model: "gpt-5.3-codex",
+          reasoning_effort: "high",
+          developer_instructions: CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS,
+        },
+      },
     });
     expect(updateSession).toHaveBeenCalledWith(context, {
       status: "running",
@@ -1522,48 +1635,23 @@ describe("sendTurn", () => {
         },
       ],
       model: "gpt-5.3-codex",
-    });
-  });
-
-  it("passes Codex plan mode as a collaboration preset on turn/start", async () => {
-    const { manager, context, sendRequest } = createSendTurnHarness();
-
-    await manager.sendTurn({
-      threadId: asThreadId("thread_1"),
-      input: "Plan the work",
-      interactionMode: "plan",
-    });
-
-    expect(sendRequest).toHaveBeenCalledWith(context, "turn/start", {
-      threadId: "thread_1",
-      ...fullAccessTurnOverrides,
-      summary: "auto",
-      input: [
-        {
-          type: "text",
-          text: "Plan the work",
-          text_elements: [],
-        },
-      ],
-      model: "gpt-5.3-codex",
       collaborationMode: {
-        mode: "plan",
+        mode: "default",
         settings: {
           model: "gpt-5.3-codex",
           reasoning_effort: "medium",
-          developer_instructions: CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS,
+          developer_instructions: CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS,
         },
       },
     });
   });
 
-  it("passes Codex default mode as a collaboration preset on turn/start", async () => {
+  it("passes the Codex collaboration preset on turn/start", async () => {
     const { manager, context, sendRequest } = createSendTurnHarness();
 
     await manager.sendTurn({
       threadId: asThreadId("thread_1"),
       input: "PLEASE IMPLEMENT THIS PLAN:\n- step 1",
-      interactionMode: "default",
     });
 
     expect(sendRequest).toHaveBeenCalledWith(context, "turn/start", {
@@ -1589,14 +1677,13 @@ describe("sendTurn", () => {
     });
   });
 
-  it("keeps the session model when interaction mode is set without an explicit model", async () => {
+  it("keeps the session model when no explicit model is supplied", async () => {
     const { manager, context, sendRequest } = createSendTurnHarness();
     context.session.model = "gpt-5.2-codex";
 
     await manager.sendTurn({
       threadId: asThreadId("thread_1"),
       input: "Plan this with my current session model",
-      interactionMode: "plan",
     });
 
     expect(sendRequest).toHaveBeenCalledWith(context, "turn/start", {
@@ -1612,11 +1699,11 @@ describe("sendTurn", () => {
       ],
       model: "gpt-5.2-codex",
       collaborationMode: {
-        mode: "plan",
+        mode: "default",
         settings: {
           model: "gpt-5.2-codex",
           reasoning_effort: "medium",
-          developer_instructions: CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS,
+          developer_instructions: CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS,
         },
       },
     });
@@ -1642,7 +1729,6 @@ describe("sendTurn", () => {
       model: "gpt-5.4",
       serviceTier: "fast",
       effort: "high",
-      interactionMode: "plan",
     });
 
     expect(result).toEqual({
@@ -1669,11 +1755,11 @@ describe("sendTurn", () => {
       serviceTier: "fast",
       effort: "high",
       collaborationMode: {
-        mode: "plan",
+        mode: "default",
         settings: {
           model: "gpt-5.4",
           reasoning_effort: "high",
-          developer_instructions: CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS,
+          developer_instructions: CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS,
         },
       },
     });
@@ -1861,7 +1947,7 @@ describe("CodexAppServerManager discovery", () => {
     });
   });
 
-  it("uses a cwd-scoped discovery session instead of an unrelated active session", async () => {
+  it("rejects discovery instead of reusing an unrelated active Connection session", async () => {
     const manager = new CodexAppServerManager();
     const activeContext = {
       session: {
@@ -1894,38 +1980,6 @@ describe("CodexAppServerManager discovery", () => {
       nextRequestId: 1,
       stopping: false,
     };
-    const discoveryContext = {
-      session: {
-        provider: "codex",
-        status: "ready",
-        threadId: "__codex_discovery__:/repo-b",
-        runtimeMode: "full-access",
-        model: "gpt-5.3-codex",
-        cwd: "/repo-b",
-        createdAt: "2026-02-10T00:00:00.000Z",
-        updatedAt: "2026-02-10T00:00:00.000Z",
-      },
-      account: {
-        type: "unknown",
-        planType: null,
-        sparkEnabled: true,
-      },
-      child: {
-        killed: false,
-      },
-      output: {
-        close: vi.fn(),
-      },
-      pending: new Map(),
-      pendingApprovals: new Map(),
-      pendingUserInputs: new Map(),
-      collabReceiverTurns: new Map(),
-      collabReceiverParents: new Map(),
-      nextRequestId: 1,
-      stopping: false,
-      discovery: true,
-    };
-
     (
       manager as unknown as {
         sessions: Map<string, unknown>;
@@ -1939,7 +1993,7 @@ describe("CodexAppServerManager discovery", () => {
         },
         "getOrCreateDiscoverySession",
       )
-      .mockResolvedValue(discoveryContext);
+      .mockRejectedValue(new Error("must not be called"));
     const sendRequest = vi
       .spyOn(
         manager as unknown as {
@@ -1953,18 +2007,14 @@ describe("CodexAppServerManager discovery", () => {
         },
       });
 
-    await manager.listSkills({
-      cwd: "/repo-b",
-      threadId: "thread_missing",
-    });
-
-    expect(getOrCreateDiscoverySession).toHaveBeenCalledWith("/repo-b");
-    expect(sendRequest).toHaveBeenCalledWith(discoveryContext, "skills/list", {
-      cwds: ["/repo-b"],
-    });
+    await expect(
+      manager.listSkills({ cwd: "/repo-b", threadId: "thread_missing" }),
+    ).rejects.toThrow("Unknown session for thread: thread_missing");
+    expect(getOrCreateDiscoverySession).not.toHaveBeenCalled();
+    expect(sendRequest).not.toHaveBeenCalled();
   });
 
-  it("skips a dead replacement barrier in the cwd-less discovery fallback", async () => {
+  it("rejects cwd-less discovery without an exact thread", async () => {
     const manager = new CodexAppServerManager();
     const deadContext = {
       session: {
@@ -1981,7 +2031,6 @@ describe("CodexAppServerManager discovery", () => {
       },
       stopping: true,
     };
-    const discoveryContext = { discovery: true };
     (
       manager as unknown as {
         sessions: Map<string, unknown>;
@@ -1994,7 +2043,7 @@ describe("CodexAppServerManager discovery", () => {
         },
         "getOrCreateDiscoverySession",
       )
-      .mockResolvedValue(discoveryContext);
+      .mockRejectedValue(new Error("must not be called"));
 
     await expect(
       (
@@ -2002,8 +2051,8 @@ describe("CodexAppServerManager discovery", () => {
           resolveContextForDiscovery: () => Promise<unknown>;
         }
       ).resolveContextForDiscovery(),
-    ).resolves.toBe(discoveryContext);
-    expect(getOrCreateDiscoverySession).toHaveBeenCalledWith(process.cwd());
+    ).rejects.toThrow("requires an exact active thread session");
+    expect(getOrCreateDiscoverySession).not.toHaveBeenCalled();
   });
 
   it("retries skills/list with cwd when a runtime rejects cwds", async () => {
@@ -2181,6 +2230,7 @@ describe("CodexAppServerManager discovery", () => {
       manager.readPlugin({
         marketplacePath: "/marketplace.json",
         pluginName: "github",
+        threadId: "thread_1",
       }),
     ).resolves.toMatchObject({
       plugin: {
@@ -2505,6 +2555,14 @@ describe("respondToRequest", () => {
         },
       ],
       model: "gpt-5.3-codex",
+      collaborationMode: {
+        mode: "default",
+        settings: {
+          model: "gpt-5.3-codex",
+          reasoning_effort: "medium",
+          developer_instructions: CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS,
+        },
+      },
     });
   });
 

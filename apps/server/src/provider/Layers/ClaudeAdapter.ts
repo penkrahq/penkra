@@ -88,9 +88,15 @@ import {
   Stream,
 } from "effect";
 
-import { buildClaudeMcpServers } from "../../agentGateway/mcpInjection.ts";
 import { renderPenkraHarnessPolicy } from "../../agentGateway/harnessPolicy.ts";
 import { AgentGatewayCredentials } from "../../agentGateway/Services/AgentGatewayCredentials.ts";
+import { AgentGatewayToolBridge } from "../../agentGateway/Services/AgentGatewayToolBridge.ts";
+import {
+  PENKRA_EXEC_COMMAND_ANNOTATIONS,
+  PENKRA_EXEC_COMMAND_DESCRIPTION,
+  PENKRA_EXEC_COMMAND_NAME,
+  PENKRA_EXEC_COMMAND_ZOD_SHAPE,
+} from "../../agentGateway/hostToolContract.ts";
 import {
   awaitProviderRuntimeEventsDrained,
   PROVIDER_ADAPTER_RUNTIME_EVENT_BUFFER_CAPACITY,
@@ -104,6 +110,7 @@ import { ServerConfig } from "../../config.ts";
 import { buildFileAttachmentsPromptBlock } from "../attachmentProjection.ts";
 import { loadClaudeAgentSdk } from "../claudeAgentSdk.ts";
 import { buildClaudeProcessEnv } from "../claudeProcessEnv.ts";
+import { synchronizeClaudeSharedMcpConfig } from "../claudeSharedMcpConfig.ts";
 import {
   CLAUDE_CONTEXT_WINDOW_MAX_TOKENS,
   decideClaudeContextUsageWarnings,
@@ -150,7 +157,6 @@ import {
   ProviderAdapterValidationError,
   type ProviderAdapterError,
 } from "../Errors.ts";
-import { extractProposedPlanMarkdown, withProviderPlanModePrompt } from "../planMode.ts";
 import { ClaudeAdapter, type ClaudeAdapterShape } from "../Services/ClaudeAdapter.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 import {
@@ -187,11 +193,9 @@ interface ClaudeResumeState {
 interface ClaudeTurnState {
   readonly turnId: TurnId;
   readonly startedAt: string;
-  readonly interactionMode: "default" | "plan";
   readonly items: Array<unknown>;
   readonly assistantTextBlocks: Map<number, AssistantTextBlockState>;
   readonly assistantTextBlockOrder: Array<AssistantTextBlockState>;
-  readonly capturedProposedPlanKeys: Set<string>;
   readonly sawFileChange: boolean;
   nextSyntheticAssistantBlockIndex: number;
   // Offset into assistantTextBlockOrder where the current assistant API
@@ -288,9 +292,7 @@ interface ClaudeSessionContext {
   // The mode the CLI provably spawned in (from queryOptions, or the SDK's
   // "default" when omitted). This is the ONLY permission mode we can prove the
   // running CLI is in: `canUseTool` is shadowed under bypassPermissions, so once
-  // any prompt has run the CLI's mode is opaque (a future SDK adding a
-  // mode-changing tool like EnterPlanMode would silently diverge from anything
-  // we tracked). We therefore only skip the redundant first-turn
+  // any prompt has run the CLI's mode is opaque. We therefore only skip the redundant first-turn
   // `setPermissionMode` while this spawn state is still authoritative.
   readonly spawnPermissionMode: PermissionMode;
   // True until the first prompt of the session has been dispatched. While true,
@@ -298,7 +300,6 @@ interface ClaudeSessionContext {
   // longer prove the CLI's mode, so every turn re-sends `setPermissionMode`
   // unconditionally.
   firstTurnSpawnModeAuthoritative: boolean;
-  lastInteractionMode: "default" | "plan" | undefined;
   currentApiModelId: string | undefined;
   resumeSessionId: string | undefined;
   readonly pendingApprovals: Map<ApprovalRequestId, PendingApproval>;
@@ -398,6 +399,11 @@ interface ClaudeQueryRuntime extends AsyncIterable<SDKMessage> {
   readonly close: () => void;
 }
 
+interface ClaudeWarmQueryRuntime {
+  readonly close: () => void;
+  readonly [Symbol.asyncDispose]: () => Promise<void>;
+}
+
 export type ClaudeOwnedProcess = ClaudeSpawnedProcess & ProcessExitHandle;
 
 interface ClaudeProcessOwner {
@@ -427,6 +433,10 @@ export interface ClaudeAdapterLiveOptions {
     readonly prompt: AsyncIterable<SDKUserMessage>;
     readonly options: ClaudeQueryOptions;
   }) => ClaudeQueryRuntime | Promise<ClaudeQueryRuntime>;
+  readonly createWarmQuery?: (input: {
+    readonly options: ClaudeQueryOptions;
+    readonly initializeTimeoutMs: number;
+  }) => ClaudeWarmQueryRuntime | Promise<ClaudeWarmQueryRuntime>;
   readonly nativeEventLogPath?: string;
   readonly nativeEventLogger?: EventNdjsonLogger;
   // Interval for polling a live workflow's transcript directory. Tests shrink it.
@@ -709,7 +719,6 @@ function toPermissionMode(value: unknown): PermissionMode | undefined {
     case "default":
     case "acceptEdits":
     case "bypassPermissions":
-    case "plan":
     case "dontAsk":
       return value;
     default:
@@ -850,12 +859,10 @@ function summarizeToolRequest(toolName: string, input: Record<string, unknown>):
   return `${toolName}: ${serialized.slice(0, 397)}...`;
 }
 
-// Tools whose result is surfaced through a dedicated runtime channel — AskUserQuestion
-// via the user-input request flow, ExitPlanMode via the proposed-plan flow — must NOT
-// also emit a generic tool-call lifecycle item, or the timeline shows a redundant
-// "ToolName: {json}" row alongside the real interaction surface.
+// AskUserQuestion is surfaced through the dedicated user-input request flow and
+// must not also emit a redundant generic tool-call lifecycle item.
 function isClientSurfacedClaudeTool(toolName: string): boolean {
-  return toolName === "AskUserQuestion" || toolName === "ExitPlanMode";
+  return toolName === "AskUserQuestion";
 }
 
 // Stable per-call identity stamped on every tool lifecycle event's data so the client
@@ -936,6 +943,10 @@ const CLAUDE_SETTING_SOURCES = [
   "local",
 ] as const satisfies ReadonlyArray<SettingSource>;
 const CLAUDE_CONTEXT_USAGE_TIMEOUT_MS = 1_000;
+const CLAUDE_NATIVE_RESUME_VERIFICATION_TIMEOUT_MS = 60_000;
+const CLAUDE_NATIVE_RESUME_VERIFICATION_THREAD_ID = ThreadId.makeUnsafe(
+  "claude-native-resume-verification",
+);
 // The SDK's interrupt resolves only once the CLI acknowledges it; a wedged CLI
 // would otherwise stall the caller (and the provider command reactor) forever.
 const CLAUDE_INTERRUPT_TIMEOUT = Duration.seconds(10);
@@ -1013,10 +1024,7 @@ function buildPromptText(input: ProviderSendTurnInput): string {
       : requestedEffort && hasEffortLevel(caps, requestedEffort)
         ? requestedEffort
         : null;
-  return withProviderPlanModePrompt({
-    text: applyClaudePromptEffortPrefix(basePrompt, promptEffort),
-    interactionMode: input.interactionMode,
-  });
+  return applyClaudePromptEffortPrefix(basePrompt, promptEffort);
 }
 
 function buildUserMessage(input: {
@@ -1262,28 +1270,6 @@ function extractTextContent(value: unknown): string {
   }
 
   return extractTextContent(record.content);
-}
-
-function extractExitPlanModePlan(value: unknown): string | undefined {
-  if (!value || typeof value !== "object") {
-    return undefined;
-  }
-
-  const record = value as {
-    plan?: unknown;
-  };
-  return typeof record.plan === "string" && record.plan.trim().length > 0
-    ? record.plan.trim()
-    : undefined;
-}
-
-function exitPlanCaptureKey(input: {
-  readonly toolUseId?: string | undefined;
-  readonly planMarkdown: string;
-}): string {
-  return input.toolUseId && input.toolUseId.length > 0
-    ? `tool:${input.toolUseId}`
-    : `plan:${input.planMarkdown}`;
 }
 
 function tryParseJsonRecord(value: string): Record<string, unknown> | undefined {
@@ -1562,6 +1548,16 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
     const agentGatewayCredentials = Option.getOrUndefined(
       yield* Effect.serviceOption(AgentGatewayCredentials),
     );
+    const agentGatewayToolBridge = Option.getOrUndefined(
+      yield* Effect.serviceOption(AgentGatewayToolBridge),
+    );
+    if ((agentGatewayCredentials === undefined) !== (agentGatewayToolBridge === undefined)) {
+      return yield* Effect.die(
+        new Error(
+          "Claude's Penkra host-tool credentials and in-process dispatcher must be installed together.",
+        ),
+      );
+    }
     const nativeEventLogger =
       options?.nativeEventLogger ??
       (options?.nativeEventLogPath !== undefined
@@ -1583,6 +1579,17 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
       const { query } = await loadClaudeAgentSdk();
       return query({ prompt: input.prompt, options: input.options }) as ClaudeQueryRuntime;
     };
+    const createWarmQuery = async (input: {
+      readonly options: ClaudeQueryOptions;
+      readonly initializeTimeoutMs: number;
+    }): Promise<ClaudeWarmQueryRuntime> => {
+      const override = options?.createWarmQuery;
+      if (override) {
+        return override(input);
+      }
+      const { startup } = await loadClaudeAgentSdk();
+      return startup(input) as unknown as Promise<ClaudeWarmQueryRuntime>;
+    };
     const spawnClaudeProcess = options?.spawnClaudeCodeProcess ?? spawnOwnedClaudeCodeProcess;
     const teardownProcessTree = options?.teardownProcessTree ?? teardownProviderProcessTree;
 
@@ -1590,12 +1597,20 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
     const failedStartupProcessOwners = new Map<ThreadId, ClaudeProcessOwner>();
     const failedCommandDiscoveryProcessOwners = new Set<ClaudeProcessOwner>();
     const sessionLifecycleLocks = new Map<ThreadId, Semaphore.Semaphore>();
-    let cachedModels: {
-      readonly result: ProviderListModelsResult;
-      readonly binaryPath: string;
-      readonly cachedAtMs: number;
-    } | null = null;
-    let cachedAgents: ProviderListAgentsResult | null = null;
+    const cachedModels = new Map<
+      string,
+      {
+        readonly result: ProviderListModelsResult;
+        readonly cachedAtMs: number;
+      }
+    >();
+    const cachedAgents = new Map<
+      string,
+      {
+        readonly result: ProviderListAgentsResult;
+        readonly cachedAtMs: number;
+      }
+    >();
     const runtimeEventQueue = yield* Queue.bounded<ProviderRuntimeEvent>(
       PROVIDER_ADAPTER_RUNTIME_EVENT_BUFFER_CAPACITY,
     );
@@ -2150,54 +2165,6 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         yield* emitRuntimeWarning(context, message, detail);
       });
 
-    const emitProposedPlanCompleted = (
-      context: ClaudeSessionContext,
-      input: {
-        readonly planMarkdown: string;
-        readonly toolUseId?: string | undefined;
-        readonly rawSource: "claude.sdk.message" | "claude.sdk.permission";
-        readonly rawMethod: string;
-        readonly rawPayload: unknown;
-      },
-    ): Effect.Effect<void> =>
-      Effect.gen(function* () {
-        const turnState = context.turnState;
-        const planMarkdown = input.planMarkdown.trim();
-        if (!turnState || planMarkdown.length === 0) {
-          return;
-        }
-
-        const captureKey = exitPlanCaptureKey({
-          toolUseId: input.toolUseId,
-          planMarkdown,
-        });
-        if (turnState.capturedProposedPlanKeys.has(captureKey)) {
-          return;
-        }
-        turnState.capturedProposedPlanKeys.add(captureKey);
-
-        const stamp = yield* makeEventStamp();
-        yield* offerRuntimeEvent(context, {
-          type: "turn.proposed.completed",
-          eventId: stamp.eventId,
-          provider: PROVIDER,
-          createdAt: stamp.createdAt,
-          threadId: context.session.threadId,
-          turnId: turnState.turnId,
-          payload: {
-            planMarkdown,
-          },
-          providerRefs: nativeProviderRefs(context, {
-            providerItemId: input.toolUseId,
-          }),
-          raw: {
-            source: input.rawSource,
-            method: input.rawMethod,
-            payload: input.rawPayload,
-          },
-        });
-      });
-
     // Normalizes Claude TodoWrite tool calls into the shared runtime task-list event.
     const emitTodoTasksUpdated = (
       context: ClaudeSessionContext,
@@ -2497,7 +2464,6 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         if (context.interruptRequestedTurnId === turnState.turnId) {
           context.interruptRequestedTurnId = undefined;
         }
-        context.lastInteractionMode = turnState.interactionMode;
         context.turnState = undefined;
         context.session = {
           ...context.session,
@@ -2541,7 +2507,6 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           // they never dispatch the first prompt, so spawn state is not theirs
           // to prove.
           firstTurnSpawnModeAuthoritative: false,
-          lastInteractionMode: undefined,
           currentApiModelId: undefined,
           resumeSessionId: undefined,
           pendingApprovals: new Map(),
@@ -2812,8 +2777,8 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
             return;
           }
           const toolName = block.name;
-          // AskUserQuestion / ExitPlanMode are rendered by their own runtime channels;
-          // emitting a generic tool item here would duplicate them as a raw row.
+          // AskUserQuestion is rendered by its own runtime channel; emitting a
+          // generic tool item here would duplicate it as a raw row.
           if (isClientSurfacedClaudeTool(toolName)) {
             return;
           }
@@ -3043,11 +3008,9 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         context.turnState = {
           turnId,
           startedAt,
-          interactionMode: "default",
           items: [],
           assistantTextBlocks: new Map(),
           assistantTextBlockOrder: [],
-          capturedProposedPlanKeys: new Set(),
           sawFileChange: false,
           nextSyntheticAssistantBlockIndex: -1,
           assistantMessageBlockBase: 0,
@@ -3176,33 +3139,6 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
                 });
               }
             }
-            if (toolUse.type !== "tool_use" || toolUse.name !== "ExitPlanMode") {
-              continue;
-            }
-            const planMarkdown = extractExitPlanModePlan(toolUse.input);
-            if (!planMarkdown) {
-              continue;
-            }
-            yield* emitProposedPlanCompleted(context, {
-              planMarkdown,
-              toolUseId: typeof toolUse.id === "string" ? toolUse.id : undefined,
-              rawSource: "claude.sdk.message",
-              rawMethod: "claude/assistant",
-              rawPayload: message,
-            });
-          }
-
-          const taggedPlanMarkdown =
-            context.turnState?.interactionMode === "plan"
-              ? extractProposedPlanMarkdown(extractTextContent(content))
-              : undefined;
-          if (taggedPlanMarkdown) {
-            yield* emitProposedPlanCompleted(context, {
-              planMarkdown: taggedPlanMarkdown,
-              rawSource: "claude.sdk.message",
-              rawMethod: "claude/assistant/proposed-plan-block",
-              rawPayload: message,
-            });
           }
         }
 
@@ -4442,33 +4378,9 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
                 } satisfies PermissionResult;
               }
 
-              // Handle AskUserQuestion: surface clarifying questions to the
-              // user via the user-input runtime event channel, regardless of
-              // runtime mode (plan mode relies on this heavily).
+              // Handle AskUserQuestion through the user-input runtime channel.
               if (toolName === "AskUserQuestion") {
                 return yield* handleAskUserQuestion(context, toolInput, callbackOptions);
-              }
-
-              if (toolName === "ExitPlanMode") {
-                const planMarkdown = extractExitPlanModePlan(toolInput);
-                if (planMarkdown) {
-                  yield* emitProposedPlanCompleted(context, {
-                    planMarkdown,
-                    toolUseId: callbackOptions.toolUseID,
-                    rawSource: "claude.sdk.permission",
-                    rawMethod: "canUseTool/ExitPlanMode",
-                    rawPayload: {
-                      toolName,
-                      input: toolInput,
-                    },
-                  });
-                }
-
-                return {
-                  behavior: "deny",
-                  message:
-                    "The client captured your proposed plan. Stop here and wait for the user's feedback or implementation request in a later turn.",
-                } satisfies PermissionResult;
               }
 
               const runtimeMode = input.runtimeMode ?? "full-access";
@@ -4640,7 +4552,35 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           ...(ultracode ? { ultracode: true } : {}),
         };
         const claudeSubagents = buildClaudeSdkSubagents();
-        const claudeSdkEnv = yield* resolveClaudeSdkEnv;
+        const claudeSdkEnv = input.managedLaunch
+          ? input.managedLaunch.childEnvironment(process.env)
+          : yield* resolveClaudeSdkEnv;
+        if (input.managedLaunch) {
+          const targetConfigDir = claudeSdkEnv.CLAUDE_CONFIG_DIR?.trim();
+          if (!targetConfigDir) {
+            return yield* Effect.fail(
+              new ProviderAdapterProcessError({
+                provider: PROVIDER,
+                threadId,
+                detail: "Managed Claude launch is missing CLAUDE_CONFIG_DIR.",
+              }),
+            );
+          }
+          yield* Effect.tryPromise({
+            try: () =>
+              synchronizeClaudeSharedMcpConfig({
+                sourceConfigPath: `${serverConfig.homeDir}/.claude.json`,
+                targetConfigDir,
+              }),
+            catch: (cause) =>
+              new ProviderAdapterProcessError({
+                provider: PROVIDER,
+                threadId,
+                detail: toMessage(cause, "Could not synchronize shared Claude MCP definitions."),
+                cause,
+              }),
+          });
+        }
         const failedStartupProcessOwner = failedStartupProcessOwners.get(threadId);
         if (failedStartupProcessOwner) {
           // A prior createQuery failure may have happened after spawning. Do
@@ -4660,18 +4600,66 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           threadId,
           PROVIDER,
         );
+        const penkraMcpServers =
+          gatewaySessionLease && agentGatewayToolBridge
+            ? yield* Effect.tryPromise({
+                try: async () => {
+                  const surface = agentGatewayToolBridge.requireSurface();
+                  const definition = surface.definitions.find(
+                    (candidate) => candidate.name === PENKRA_EXEC_COMMAND_NAME,
+                  );
+                  if (!definition || surface.definitions.length !== 1) {
+                    throw new Error("Penkra's canonical host-tool catalog is invalid.");
+                  }
+                  const { createSdkMcpServer, tool } = await loadClaudeAgentSdk();
+                  return {
+                    penkra: createSdkMcpServer({
+                      name: "penkra",
+                      version: "1.0.0",
+                      instructions: renderPenkraHarnessPolicy({ gatewayControlAvailable: true }),
+                      alwaysLoad: true,
+                      tools: [
+                        tool(
+                          PENKRA_EXEC_COMMAND_NAME,
+                          PENKRA_EXEC_COMMAND_DESCRIPTION,
+                          PENKRA_EXEC_COMMAND_ZOD_SHAPE,
+                          async (args) => {
+                            const result = await surface.invoke({
+                              bearerToken: gatewaySessionLease.connection.bearerToken,
+                              name: PENKRA_EXEC_COMMAND_NAME,
+                              arguments: args,
+                            });
+                            return {
+                              content: result.content.map((item) => ({ ...item })),
+                              ...(result.isError === undefined ? {} : { isError: result.isError }),
+                            };
+                          },
+                          { annotations: PENKRA_EXEC_COMMAND_ANNOTATIONS, alwaysLoad: true },
+                        ),
+                      ],
+                    }),
+                  } satisfies NonNullable<ClaudeQueryOptions["mcpServers"]>;
+                },
+                catch: (cause) =>
+                  new ProviderAdapterProcessError({
+                    provider: PROVIDER,
+                    threadId,
+                    detail: toMessage(cause, "Failed to bind Penkra's in-process host tool."),
+                    cause,
+                  }),
+              })
+            : undefined;
         const queryOptions: ClaudeQueryOptions = {
           ...(input.cwd ? { cwd: input.cwd } : {}),
           // Keep Claude context-window selection model-driven so session start
           // and in-session switches both use the same API model contract.
           ...(apiModelId ? { model: apiModelId } : {}),
-          pathToClaudeCodeExecutable: providerOptions?.binaryPath ?? "claude",
+          pathToClaudeCodeExecutable:
+            input.managedLaunch?.binaryPath ?? providerOptions?.binaryPath ?? "claude",
+          // Preserve Claude's normally configured settings, plugins, agents,
+          // and MCP servers. The thread-scoped Penkra gateway below is added
+          // to that provider-native surface rather than replacing it.
           settingSources: [...CLAUDE_SETTING_SOURCES],
-          // Penkra owns the provider-neutral integration surface. Ignore MCP
-          // servers discovered through Claude settings, plugins, and agent
-          // frontmatter; the thread-scoped Penkra gateway below is the only
-          // integration authority supplied to this embedded runtime.
-          strictMcpConfig: true,
           systemPrompt: {
             type: "preset",
             preset: "claude_code",
@@ -4707,11 +4695,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           env: claudeSdkEnv,
           spawnClaudeCodeProcess: bindClaudeProcessOwner(processOwner),
           ...(input.cwd ? { additionalDirectories: [input.cwd] } : {}),
-          ...(agentGatewayCredentials
-            ? {
-                mcpServers: buildClaudeMcpServers(gatewaySessionLease!.connection),
-              }
-            : {}),
+          ...(penkraMcpServers ? { mcpServers: penkraMcpServers } : {}),
         };
 
         const queryRuntime = yield* Effect.tryPromise({
@@ -4756,15 +4740,16 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
 
         return yield* Effect.gen(function* () {
           // Populate model cache in background from first session
-          if (!cachedModels) {
+          const sessionDiscoveryIdentity =
+            input.managedLaunch?.isolationKey ?? providerOptions?.binaryPath ?? "claude";
+          if (!cachedModels.has(sessionDiscoveryIdentity)) {
             queryRuntime
               .supportedModels()
               .then((models) => {
-                cachedModels = {
+                cachedModels.set(sessionDiscoveryIdentity, {
                   result: mapSupportedModels(models),
-                  binaryPath: providerOptions?.binaryPath ?? "claude",
                   cachedAtMs: Date.now(),
-                };
+                });
               })
               .catch(() => {
                 /* ignore discovery failures */
@@ -4772,20 +4757,23 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           }
 
           // Populate agent cache in background from first session
-          if (!cachedAgents) {
+          if (!cachedAgents.has(sessionDiscoveryIdentity)) {
             queryRuntime
               .supportedAgents()
               .then((agents) => {
-                cachedAgents = {
-                  agents: agents.map((a) => ({
-                    name: a.name,
-                    displayName: a.name,
-                    ...(a.description ? { description: a.description } : {}),
-                    ...(a.model ? { model: a.model } : {}),
-                  })),
-                  source: "sdk",
-                  cached: false,
-                };
+                cachedAgents.set(sessionDiscoveryIdentity, {
+                  result: {
+                    agents: agents.map((a) => ({
+                      name: a.name,
+                      displayName: a.name,
+                      ...(a.description ? { description: a.description } : {}),
+                      ...(a.model ? { model: a.model } : {}),
+                    })),
+                    source: "sdk",
+                    cached: false,
+                  },
+                  cachedAtMs: Date.now(),
+                });
               })
               .catch(() => {
                 /* ignore discovery failures */
@@ -4829,7 +4817,6 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
             // one, otherwise the SDK's "default" mode (queryOptions omits it).
             spawnPermissionMode: permissionMode ?? "default",
             firstTurnSpawnModeAuthoritative: true,
-            lastInteractionMode: undefined,
             currentApiModelId: apiModelId,
             resumeSessionId: sessionId,
             pendingApprovals,
@@ -4979,6 +4966,72 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
     const startSession: ClaudeAdapterShape["startSession"] = (input) =>
       withSessionLifecycleLock(input.threadId, startSessionUnlocked(input));
 
+    const verifyNativeResume: NonNullable<ClaudeAdapterShape["verifyNativeResume"]> = (input) =>
+      Effect.gen(function* () {
+        const resume = readClaudeResumeState(input.sourceResumeCursor)?.resume;
+        if (!resume) {
+          return yield* new ProviderAdapterValidationError({
+            provider: PROVIDER,
+            operation: "verifyNativeResume",
+            issue: "The Claude resume cursor does not contain an exact native session id.",
+          });
+        }
+
+        const processOwner: ClaudeProcessOwner = {};
+        const claudeSdkEnv = input.managedLaunch.childEnvironment(process.env);
+        return yield* Effect.acquireUseRelease(
+          Effect.tryPromise({
+            try: () =>
+              createWarmQuery({
+                initializeTimeoutMs: CLAUDE_NATIVE_RESUME_VERIFICATION_TIMEOUT_MS,
+                options: {
+                  ...(input.cwd === undefined ? {} : { cwd: input.cwd }),
+                  resume,
+                  env: claudeSdkEnv,
+                  pathToClaudeCodeExecutable: input.managedLaunch.binaryPath,
+                  settingSources: [],
+                  spawnClaudeCodeProcess: bindClaudeProcessOwner(processOwner),
+                },
+              }),
+            catch: (cause) =>
+              new ProviderAdapterRequestError({
+                provider: PROVIDER,
+                method: "startup.resume",
+                detail: toMessage(
+                  cause,
+                  "Claude could not initialize the exact native continuation.",
+                ),
+                cause,
+              }),
+          }),
+          () =>
+            Effect.succeed({
+              providerSessionId: resume,
+              resumeCursor: input.sourceResumeCursor,
+            }),
+          (warmQuery) =>
+            Effect.tryPromise({
+              try: () => warmQuery[Symbol.asyncDispose](),
+              catch: (cause) =>
+                new ProviderAdapterRequestError({
+                  provider: PROVIDER,
+                  method: "startup.close",
+                  detail: toMessage(
+                    cause,
+                    "Claude continuation verification did not close cleanly.",
+                  ),
+                  cause,
+                }),
+            }).pipe(Effect.ignore),
+        ).pipe(
+          Effect.ensuring(
+            teardownClaudeProcess(CLAUDE_NATIVE_RESUME_VERIFICATION_THREAD_ID, processOwner).pipe(
+              Effect.ignore,
+            ),
+          ),
+        );
+      });
+
     const sendTurn: ClaudeAdapterShape["sendTurn"] = (input) =>
       Effect.gen(function* () {
         const context = yield* requireSession(input.threadId);
@@ -5105,24 +5158,10 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           }
         }
 
-        // Apply interaction mode on every turn so sticky SDK permission state
-        // cannot leak plan mode across service/recovery paths that omit it.
-        // The desired mode is computed exactly as before. We skip the control
-        // request in exactly one provable case: the first turn of a session
-        // whose desired mode equals the mode the CLI spawned in — sending it
-        // there would be redundant AND would block that first turn on the CLI's
-        // init handshake. In every other case we send unconditionally, because
-        // once any prompt has run the CLI's mode is opaque (`canUseTool` is
-        // shadowed under bypassPermissions, so a future mode-changing tool could
-        // diverge from anything we tracked); only the pre-first-prompt state is
-        // provable.
-        const effectiveInteractionMode = input.interactionMode ?? "default";
-        const desiredPermissionMode: PermissionMode | undefined =
-          effectiveInteractionMode === "plan"
-            ? "plan"
-            : context.basePermissionMode !== undefined || context.lastInteractionMode === "plan"
-              ? (context.basePermissionMode ?? "default")
-              : undefined;
+        // Reassert the single execution permission mode on every turn. The
+        // first prompt can skip the redundant request when the spawn state is
+        // still authoritative; resumed/sticky SDK state is never trusted.
+        const desiredPermissionMode: PermissionMode = context.basePermissionMode ?? "default";
         const canSkipRedundantSpawnModeRequest =
           context.firstTurnSpawnModeAuthoritative &&
           desiredPermissionMode === context.spawnPermissionMode;
@@ -5137,11 +5176,9 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         const turnState: ClaudeTurnState = {
           turnId,
           startedAt: yield* nowIso,
-          interactionMode: effectiveInteractionMode,
           items: [],
           assistantTextBlocks: new Map(),
           assistantTextBlockOrder: [],
-          capturedProposedPlanKeys: new Set(),
           sawFileChange: false,
           nextSyntheticAssistantBlockIndex: -1,
           assistantMessageBlockBase: 0,
@@ -5320,9 +5357,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         new ProviderAdapterValidationError({
           provider: PROVIDER,
           operation: "rollbackThread",
-          issue:
-            `Claude rollback requires a session restart for thread '${threadId}'. ` +
-            "ProviderService owns that restart and retained-transcript bootstrap.",
+          issue: `Claude cannot roll back thread '${threadId}' through exact native session state.`,
         }),
       );
 
@@ -5556,17 +5591,15 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
       supportsPluginDiscovery: false,
       supportsRuntimeModelList: true,
       supportsThreadCompaction: false,
-      supportsThreadImport: true,
+      supportsThreadFork: false,
+      supportsThreadImport: false,
     };
 
     const getComposerCapabilities: NonNullable<
       ClaudeAdapterShape["getComposerCapabilities"]
     > = () => Effect.succeed(composerCapabilities);
 
-    let pendingModelDiscovery: {
-      readonly binaryPath: string;
-      readonly promise: Promise<ProviderListModelsResult>;
-    } | null = null;
+    const pendingModelDiscoveries = new Map<string, Promise<ProviderListModelsResult>>();
     const MODEL_DISCOVERY_CACHE_TTL_MS = 60_000;
 
     async function discoverModelsViaTemporaryProcess(
@@ -5608,27 +5641,75 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
       }
     }
 
+    async function discoverAgentsViaTemporaryProcess(
+      cwd: string,
+      binaryPath: string,
+      env: NodeJS.ProcessEnv,
+    ): Promise<ProviderListAgentsResult> {
+      await Effect.runPromise(teardownFailedCommandDiscoveryProcesses());
+
+      const processOwner: ClaudeProcessOwner = {};
+      let tempQuery: ClaudeQueryRuntime | undefined;
+      try {
+        tempQuery = await createQuery({
+          prompt: neverResolvingUserMessageStream(),
+          options: {
+            cwd,
+            pathToClaudeCodeExecutable: binaryPath,
+            settingSources: [...CLAUDE_SETTING_SOURCES],
+            permissionMode: "plan" as PermissionMode,
+            persistSession: false,
+            env,
+            spawnClaudeCodeProcess: bindClaudeProcessOwner(processOwner),
+          },
+        });
+        const queryRuntime = tempQuery;
+        void (async () => {
+          for await (const message of queryRuntime) void message;
+        })().catch(() => undefined);
+        const agents = await queryRuntime.supportedAgents();
+        return {
+          agents: agents.map((agent) => ({
+            name: agent.name,
+            displayName: agent.name,
+            ...(agent.description ? { description: agent.description } : {}),
+            ...(agent.model ? { model: agent.model } : {}),
+          })),
+          source: "sdk",
+          cached: false,
+        };
+      } finally {
+        try {
+          tempQuery?.close();
+        } finally {
+          await Effect.runPromise(teardownCommandDiscoveryProcess(processOwner));
+        }
+      }
+    }
+
     const listModels: NonNullable<ClaudeAdapterShape["listModels"]> = (input) =>
       Effect.gen(function* () {
-        const binaryPath = input.binaryPath ?? "claude";
+        const binaryPath = input.managedLaunch?.binaryPath ?? input.binaryPath ?? "claude";
+        const discoveryIdentity = input.managedLaunch?.isolationKey ?? binaryPath;
+        const cachedModelResult = cachedModels.get(discoveryIdentity);
         if (
-          cachedModels &&
-          cachedModels.binaryPath === binaryPath &&
-          Date.now() - cachedModels.cachedAtMs < MODEL_DISCOVERY_CACHE_TTL_MS
+          cachedModelResult &&
+          Date.now() - cachedModelResult.cachedAtMs < MODEL_DISCOVERY_CACHE_TTL_MS
         ) {
-          return { ...cachedModels.result, cached: true };
+          return { ...cachedModelResult.result, cached: true };
         }
 
-        const claudeSdkEnv = yield* resolveClaudeSdkEnv;
+        const claudeSdkEnv = input.managedLaunch
+          ? input.managedLaunch.childEnvironment(process.env)
+          : yield* resolveClaudeSdkEnv;
         const pending =
-          pendingModelDiscovery?.binaryPath === binaryPath
-            ? pendingModelDiscovery.promise
-            : discoverModelsViaTemporaryProcess(
-                input.cwd ?? serverConfig.cwd,
-                binaryPath,
-                claudeSdkEnv,
-              );
-        pendingModelDiscovery = { binaryPath, promise: pending };
+          pendingModelDiscoveries.get(discoveryIdentity) ??
+          discoverModelsViaTemporaryProcess(
+            input.cwd ?? serverConfig.cwd,
+            binaryPath,
+            claudeSdkEnv,
+          );
+        pendingModelDiscoveries.set(discoveryIdentity, pending);
 
         const result = yield* Effect.tryPromise({
           try: () => pending,
@@ -5642,57 +5723,57 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         }).pipe(
           Effect.tap(() =>
             Effect.sync(() => {
-              pendingModelDiscovery = null;
+              pendingModelDiscoveries.delete(discoveryIdentity);
             }),
           ),
           Effect.tapError(() =>
             Effect.sync(() => {
-              pendingModelDiscovery = null;
+              pendingModelDiscoveries.delete(discoveryIdentity);
             }),
           ),
         );
 
-        cachedModels = {
+        cachedModels.set(discoveryIdentity, {
           result,
-          binaryPath,
           cachedAtMs: Date.now(),
-        };
+        });
         return result;
       });
 
-    const listAgents: NonNullable<ClaudeAdapterShape["listAgents"]> = (_input) =>
-      Effect.sync(() => {
-        if (cachedAgents) {
-          return { ...cachedAgents, cached: true };
+    const listAgents: NonNullable<ClaudeAdapterShape["listAgents"]> = (input) =>
+      Effect.gen(function* () {
+        const binaryPath = input.managedLaunch?.binaryPath ?? input.binaryPath ?? "claude";
+        const discoveryIdentity = input.managedLaunch?.isolationKey ?? binaryPath;
+        const cachedAgentResult = cachedAgents.get(discoveryIdentity);
+        if (
+          cachedAgentResult &&
+          Date.now() - cachedAgentResult.cachedAtMs < MODEL_DISCOVERY_CACHE_TTL_MS
+        ) {
+          return { ...cachedAgentResult.result, cached: true };
         }
-        for (const [, context] of sessions) {
-          if (!context.stopped && context.query) {
-            context.query
-              .supportedAgents()
-              .then((agents) => {
-                cachedAgents = {
-                  agents: agents.map((a) => ({
-                    name: a.name,
-                    displayName: a.name,
-                    ...(a.description ? { description: a.description } : {}),
-                    ...(a.model ? { model: a.model } : {}),
-                  })),
-                  source: "sdk",
-                  cached: false,
-                };
-              })
-              .catch(() => {});
-            break;
-          }
-        }
-        return { agents: [], source: "pending", cached: false };
+        const env = input.managedLaunch
+          ? input.managedLaunch.childEnvironment(process.env)
+          : yield* resolveClaudeSdkEnv;
+        const result = yield* Effect.tryPromise({
+          try: () =>
+            discoverAgentsViaTemporaryProcess(input.cwd ?? serverConfig.cwd, binaryPath, env),
+          catch: (cause) =>
+            new ProviderAdapterProcessError({
+              provider: PROVIDER,
+              threadId: ThreadId.makeUnsafe("agent-discovery"),
+              detail: toMessage(cause, "Failed to discover Claude agents."),
+              cause,
+            }),
+        });
+        cachedAgents.set(discoveryIdentity, { result, cachedAtMs: Date.now() });
+        return result;
       });
 
     return {
       provider: PROVIDER,
       capabilities: {
         sessionModelSwitch: "in-session",
-        conversationRollback: "restart-session",
+        conversationRollback: "unsupported",
         supportsSkillMentions: false,
         supportsSkillDiscovery: false,
         supportsNativeSlashCommandDiscovery: true,
@@ -5702,6 +5783,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         supportsLiveTurnDiffPatch: false,
       },
       startSession,
+      verifyNativeResume,
       sendTurn,
       interruptTurn,
       stopTask,

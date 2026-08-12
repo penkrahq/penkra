@@ -161,7 +161,7 @@ function mergeProviderUsageRefresh(
 export function ProviderUsageSettingsPanel() {
   const queryClient = useQueryClient();
   const { settings } = useAppSettings();
-  const codexHomePath = settings.codexHomePath || null;
+  const codexHomePath = null;
   const threads = useStore(useMemo(() => createAllThreadsSelector(), []));
   // Account/thread fallback rows are shared by every provider card; derive them once per panel.
   const threadRateLimits = deriveAccountRateLimits(threads);

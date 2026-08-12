@@ -1,13 +1,13 @@
 import "../../index.css";
 
 import { MessageId } from "@penkra/contracts";
-import { type LegendListRef } from "@legendapp/list/react";
 import { page } from "vitest/browser";
 import { Profiler, useRef, useState, type ProfilerOnRenderCallback } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
 import { ChatTranscriptPane } from "./ChatTranscriptPane";
+import type { TranscriptVirtualListRef } from "./TranscriptVirtualList";
 import { useTranscriptAssistantSelectionAction } from "./useTranscriptAssistantSelectionAction";
 
 const EMPTY_WORK_GROUPS: Record<string, boolean> = {};
@@ -39,7 +39,7 @@ function TranscriptPerfHarness(props: { onTranscriptRender: () => void }) {
   const composerImagesRef = useRef<readonly []>([]);
   const composerFilesRef = useRef<readonly []>([]);
   const composerAssistantSelectionsRef = useRef<readonly []>([]);
-  const listRef = useRef<LegendListRef | null>(null);
+  const listRef = useRef<TranscriptVirtualListRef | null>(null);
   const {
     onMessagesClickCapture,
     onMessagesMouseUp,
@@ -96,7 +96,6 @@ function TranscriptPerfHarness(props: { onTranscriptRender: () => void }) {
           hasMessages
           isRevertingCheckpoint={false}
           isWorking={false}
-          worktreeSetup={null}
           followLiveOutput={false}
           listRef={listRef}
           markdownCwd={undefined}
@@ -181,7 +180,6 @@ describe("ChatTranscriptPane", () => {
         hasMessages
         isRevertingCheckpoint={false}
         isWorking={false}
-        worktreeSetup={null}
         followLiveOutput={false}
         listRef={{ current: null }}
         markdownCwd={undefined}

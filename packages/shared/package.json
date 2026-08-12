@@ -144,9 +144,9 @@
       "types": "./src/agentMentions.ts",
       "import": "./src/agentMentions.ts"
     },
-    "./worktreeHandoff": {
-      "types": "./src/worktreeHandoff.ts",
-      "import": "./src/worktreeHandoff.ts"
+    "./worktreeEnvironment": {
+      "types": "./src/worktreeEnvironment.ts",
+      "import": "./src/worktreeEnvironment.ts"
     },
     "./path": {
       "types": "./src/path.ts",
@@ -155,6 +155,10 @@
     "./text": {
       "types": "./src/text.ts",
       "import": "./src/text.ts"
+    },
+    "./entityNames": {
+      "types": "./src/entityNames.ts",
+      "import": "./src/entityNames.ts"
     },
     "./toolOutputSummary": {
       "types": "./src/toolOutputSummary.ts",
@@ -227,6 +231,14 @@
     "./providerDeliveryBlock": {
       "types": "./src/providerDeliveryBlock.ts",
       "import": "./src/providerDeliveryBlock.ts"
+    },
+    "./appPackaging": {
+      "types": "./src/appPackaging.ts",
+      "import": "./src/appPackaging.ts"
+    },
+    "./requiredAppsRelease": {
+      "types": "./src/requiredAppsRelease.ts",
+      "import": "./src/requiredAppsRelease.ts"
     }
   },
   "scripts": {
@@ -236,7 +248,10 @@
   },
   "dependencies": {
     "@penkra/contracts": "workspace:*",
-    "effect": "catalog:"
+    "@penkra/sdk": "workspace:*",
+    "effect": "catalog:",
+    "semver": "^7.7.4",
+    "yazl": "3.3.1"
   },
   "devDependencies": {
     "@effect/language-service": "catalog:",

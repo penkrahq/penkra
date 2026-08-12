@@ -36,7 +36,6 @@ function dependencies(packageDigest = digest("a")) {
     package: vi.fn(async (input: { directory: string; output: string }) =>
       evidence(input.output, packageDigest),
     ),
-    sign: vi.fn(async () => undefined),
   };
 }
 
@@ -75,7 +74,7 @@ describe("registered App publication lifecycle", () => {
     expect(bridge).not.toHaveBeenCalledWith("developer.submissions.list", expect.anything());
   });
 
-  it("checks collisions before signing and applies public visibility after submission", async () => {
+  it("checks collisions before upload and applies public visibility after submission", async () => {
     const order: string[] = [];
     const bridge = vi.fn(async (method: string) => {
       order.push(method);
@@ -102,14 +101,13 @@ describe("registered App publication lifecycle", () => {
       package: { appId: "com.penkra.canvas", packageDigest: digest("a") },
       submission: { submissionId: "submission-1" },
     });
-    expect(mocks.sign).toHaveBeenCalledOnce();
     expect(order.indexOf("developer.submissions.list")).toBeLessThan(
       order.indexOf("developer.submissions.create"),
     );
     expect(order.at(-1)).toBe("developer.apps.visibility.set");
   });
 
-  it("resumes an exact immutable submission without signing or uploading again", async () => {
+  it("resumes an exact immutable submission without uploading again", async () => {
     const mocks = dependencies();
     const bridge = vi.fn(async (method: string) => {
       if (method === "developer.publishers.list") return [{ id: "publisher-1" }];
@@ -140,7 +138,90 @@ describe("registered App publication lifecycle", () => {
       resumed: true,
       submission: { submissionId: "submission-1" },
     });
-    expect(mocks.sign).not.toHaveBeenCalled();
+    expect(bridge).not.toHaveBeenCalledWith("developer.submissions.create", expect.anything());
+  });
+
+  it("retries infrastructure validation for the exact immutable submission", async () => {
+    const mocks = dependencies();
+    const bridge = vi.fn(async (method: string) => {
+      if (method === "developer.publishers.list") return [{ id: "publisher-1" }];
+      if (method === "developer.apps.list") {
+        return [{ id: "app-1", identifier: "com.penkra.canvas" }];
+      }
+      if (method === "developer.submissions.list") {
+        return [
+          {
+            submissionId: "submission-1",
+            version: "0.1.1",
+            packageDigest: digest("a"),
+            status: "validation-failed",
+            failure: { code: "VALIDATION_INFRASTRUCTURE_FAILED", detail: "worker failed" },
+          },
+        ];
+      }
+      if (method === "developer.submissions.retry-validation") {
+        return { submissionId: "submission-1", status: "uploaded" };
+      }
+      if (method === "developer.apps.visibility.set") return { visibility: "public" };
+      throw new Error(`Unexpected bridge method ${method}`);
+    });
+
+    await expect(
+      publishAppDirectory({
+        directory: "/workspace/canvas/dist",
+        visibility: "public",
+        bridge,
+        dependencies: mocks,
+      }),
+    ).resolves.toMatchObject({
+      resumed: true,
+      submission: { submissionId: "submission-1", status: "uploaded" },
+    });
+    expect(bridge).toHaveBeenCalledWith("developer.submissions.retry-validation", {
+      submissionId: "submission-1",
+    });
+    expect(bridge).not.toHaveBeenCalledWith("developer.submissions.create", expect.anything());
+  });
+
+  it("retries infrastructure publication for the exact prepared release", async () => {
+    const mocks = dependencies();
+    const bridge = vi.fn(async (method: string) => {
+      if (method === "developer.publishers.list") return [{ id: "publisher-1" }];
+      if (method === "developer.apps.list") {
+        return [{ id: "app-1", identifier: "com.penkra.canvas" }];
+      }
+      if (method === "developer.submissions.list") {
+        return [
+          {
+            submissionId: "submission-1",
+            version: "0.1.1",
+            packageDigest: digest("a"),
+            status: "publication-failed",
+            failure: { code: "RELEASE_PUBLICATION_FAILED", detail: "release storage failed" },
+          },
+        ];
+      }
+      if (method === "developer.submissions.retry-publication") {
+        return { submissionId: "submission-1", status: "ready" };
+      }
+      if (method === "developer.apps.visibility.set") return { visibility: "public" };
+      throw new Error(`Unexpected bridge method ${method}`);
+    });
+
+    await expect(
+      publishAppDirectory({
+        directory: "/workspace/canvas/dist",
+        visibility: "public",
+        bridge,
+        dependencies: mocks,
+      }),
+    ).resolves.toMatchObject({
+      resumed: true,
+      submission: { submissionId: "submission-1", status: "ready" },
+    });
+    expect(bridge).toHaveBeenCalledWith("developer.submissions.retry-publication", {
+      submissionId: "submission-1",
+    });
     expect(bridge).not.toHaveBeenCalledWith("developer.submissions.create", expect.anything());
   });
 
@@ -165,7 +246,6 @@ describe("registered App publication lifecycle", () => {
         dependencies: mocks,
       }),
     ).rejects.toMatchObject({ code: "APP_VERSION_EXISTS" });
-    expect(mocks.sign).not.toHaveBeenCalled();
     expect(bridge).not.toHaveBeenCalledWith("developer.apps.visibility.set", expect.anything());
   });
 });

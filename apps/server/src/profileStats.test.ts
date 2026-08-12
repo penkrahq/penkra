@@ -59,10 +59,26 @@ describe("ProfileStatsQuery", () => {
         },
       ]),
     ).toEqual([
-      { name: "check-code", displayName: "$check-code", kind: "skill", runCount: 2 },
+      {
+        name: "check-code",
+        displayName: "$check-code",
+        kind: "skill",
+        runCount: 2,
+      },
+      { name: "plan", displayName: "$plan", kind: "skill", runCount: 1 },
       { name: "planner", displayName: "$planner", kind: "skill", runCount: 1 },
-      { name: "refactor-code", displayName: "$refactor-code", kind: "skill", runCount: 1 },
-      { name: "reviewer", displayName: "@reviewer", kind: "agent", runCount: 1 },
+      {
+        name: "refactor-code",
+        displayName: "$refactor-code",
+        kind: "skill",
+        runCount: 1,
+      },
+      {
+        name: "reviewer",
+        displayName: "@reviewer",
+        kind: "agent",
+        runCount: 1,
+      },
     ]);
   });
 
@@ -74,13 +90,21 @@ describe("ProfileStatsQuery", () => {
           text: "Use $check-code, /check-code, and /logic-consolidator /logic-consolidator",
           skillsJson: JSON.stringify([
             { name: "check-code", path: "/skills/check-code/SKILL.md" },
-            { name: "logic-consolidator", path: "/skills/logic-consolidator/SKILL.md" },
+            {
+              name: "logic-consolidator",
+              path: "/skills/logic-consolidator/SKILL.md",
+            },
           ]),
           mentionsJson: null,
         },
       ]),
     ).toEqual([
-      { name: "check-code", displayName: "$check-code", kind: "skill", runCount: 2 },
+      {
+        name: "check-code",
+        displayName: "$check-code",
+        kind: "skill",
+        runCount: 2,
+      },
       {
         name: "logic-consolidator",
         displayName: "$logic-consolidator",
@@ -111,7 +135,14 @@ describe("ProfileStatsQuery", () => {
           mentionsJson: null,
         },
       ]),
-    ).toEqual([{ name: "check-code", displayName: "$check-code", kind: "skill", runCount: 1 }]);
+    ).toEqual([
+      {
+        name: "check-code",
+        displayName: "$check-code",
+        kind: "skill",
+        runCount: 1,
+      },
+    ]);
   });
 
   it("aggregates prompts, model usage, provider usage, and reasoning from local projections", async () => {
@@ -127,7 +158,6 @@ describe("ProfileStatsQuery", () => {
             title,
             model_selection_json,
             runtime_mode,
-            interaction_mode,
             env_mode,
             created_at,
             updated_at,
@@ -140,7 +170,6 @@ describe("ProfileStatsQuery", () => {
               'Codex Thread',
               '{"provider":"codex","model":"gpt-5-codex","options":{"reasoningEffort":"high"}}',
               'full-access',
-              'default',
               'local',
               '2026-06-13T09:00:00.000Z',
               '2026-06-13T09:00:00.000Z',
@@ -152,7 +181,6 @@ describe("ProfileStatsQuery", () => {
               'Claude Thread',
               '{"provider":"claudeAgent","model":"claude-sonnet-4-6","options":{"effort":"max"}}',
               'full-access',
-              'default',
               'local',
               '2026-06-13T10:00:00.000Z',
               '2026-06-13T10:00:00.000Z',
@@ -256,7 +284,9 @@ describe("ProfileStatsQuery", () => {
             )
         `;
 
-        const stats = yield* statsQuery.getProfileStats({ utcOffsetMinutes: 0 });
+        const stats = yield* statsQuery.getProfileStats({
+          utcOffsetMinutes: 0,
+        });
 
         expect(stats.activity.totalPromptsSent).toBe(3);
         expect(stats.activity.totalThreads).toBe(2);
@@ -284,18 +314,18 @@ describe("ProfileStatsQuery", () => {
         yield* sql`
           INSERT INTO projection_threads (
             thread_id, project_id, title, model_selection_json, runtime_mode,
-            interaction_mode, env_mode, created_at, updated_at, deleted_at
+            env_mode, created_at, updated_at, deleted_at
           ) VALUES
             (
               'thread-reused-user', 'project-profile', 'User Thread',
               '{"provider":"codex","model":"gpt-5-codex"}', 'full-access',
-              'default', 'local', '2026-06-13T09:00:00.000Z',
+              'local', '2026-06-13T09:00:00.000Z',
               '2026-06-13T09:00:00.000Z', NULL
             ),
             (
               'thread-reused-agent', 'project-profile', 'Agent Thread',
               '{"provider":"claudeAgent","model":"claude-sonnet-4-6"}', 'full-access',
-              'default', 'local', '2026-06-13T10:00:00.000Z',
+              'local', '2026-06-13T10:00:00.000Z',
               '2026-06-13T10:00:00.000Z', NULL
             )
         `;
@@ -330,11 +360,17 @@ describe("ProfileStatsQuery", () => {
             )
         `;
 
-        const stats = yield* statsQuery.getProfileStats({ utcOffsetMinutes: 0 });
+        const stats = yield* statsQuery.getProfileStats({
+          utcOffsetMinutes: 0,
+        });
         expect(stats.insights.topProvider).toBe("codex");
         expect(stats.insights.topProviderPercent).toBe(100);
         expect(stats.providerModels).toEqual([
-          expect.objectContaining({ provider: "codex", model: "gpt-5-codex", turnCount: 1 }),
+          expect.objectContaining({
+            provider: "codex",
+            model: "gpt-5-codex",
+            turnCount: 1,
+          }),
         ]);
       }),
     );
@@ -353,7 +389,6 @@ describe("ProfileStatsQuery", () => {
             title,
             model_selection_json,
             runtime_mode,
-            interaction_mode,
             env_mode,
             created_at,
             updated_at,
@@ -366,7 +401,6 @@ describe("ProfileStatsQuery", () => {
               'Codex Thread',
               '{"provider":"codex","model":"gpt-5-codex"}',
               'full-access',
-              'default',
               'local',
               '2026-06-13T09:00:00.000Z',
               '2026-06-13T09:00:00.000Z',
@@ -378,7 +412,6 @@ describe("ProfileStatsQuery", () => {
               'Claude Thread',
               '{"provider":"claudeAgent","model":"claude-sonnet-4-6"}',
               'full-access',
-              'default',
               'local',
               '2026-06-13T10:00:00.000Z',
               '2026-06-13T10:00:00.000Z',
@@ -473,8 +506,12 @@ describe("ProfileStatsQuery", () => {
             )
         `;
 
-        const stats = yield* statsQuery.getProfileStats({ utcOffsetMinutes: 0 });
-        const tokenStats = yield* statsQuery.getProfileTokenStats({ utcOffsetMinutes: 0 });
+        const stats = yield* statsQuery.getProfileStats({
+          utcOffsetMinutes: 0,
+        });
+        const tokenStats = yield* statsQuery.getProfileTokenStats({
+          utcOffsetMinutes: 0,
+        });
 
         expect(stats.insights.topProvider).toBe("codex");
         expect(stats.insights.topProviderPercent).toBeCloseTo(66.7);
@@ -483,11 +520,24 @@ describe("ProfileStatsQuery", () => {
         expect(tokenStats.providers).toEqual(["claudeAgent", "codex"]);
         // Token-based model mix mirrors the token ranking, not the turn counts.
         expect(tokenStats.models).toEqual([
-          { provider: "claudeAgent", model: "claude-sonnet-4-6", tokens: 5000, percent: 83.3 },
-          { provider: "codex", model: "gpt-5-codex", tokens: 1000, percent: 16.7 },
+          {
+            provider: "claudeAgent",
+            model: "claude-sonnet-4-6",
+            tokens: 5000,
+            percent: 83.3,
+          },
+          {
+            provider: "codex",
+            model: "gpt-5-codex",
+            tokens: 1000,
+            percent: 16.7,
+          },
         ]);
         // Turn-based provider/model mix is unchanged by the token ranking.
-        expect(stats.providerModels[0]).toMatchObject({ provider: "codex", turnCount: 2 });
+        expect(stats.providerModels[0]).toMatchObject({
+          provider: "codex",
+          turnCount: 2,
+        });
       }),
     );
   });
@@ -509,7 +559,6 @@ describe("ProfileStatsQuery", () => {
             title,
             model_selection_json,
             runtime_mode,
-            interaction_mode,
             env_mode,
             created_at,
             updated_at,
@@ -522,7 +571,6 @@ describe("ProfileStatsQuery", () => {
               'Switch Thread',
               '{"provider":"claudeAgent","model":"claude-opus-4-8"}',
               'full-access',
-              'default',
               'local',
               '2026-06-13T09:00:00.000Z',
               '2026-06-13T09:00:00.000Z',
@@ -534,7 +582,6 @@ describe("ProfileStatsQuery", () => {
               'Mixed Counters Thread',
               '{"provider":"codex","model":"gpt-5-codex"}',
               'full-access',
-              'default',
               'local',
               '2026-06-13T11:00:00.000Z',
               '2026-06-13T11:00:00.000Z',
@@ -692,15 +739,32 @@ describe("ProfileStatsQuery", () => {
             )
         `;
 
-        const tokenStats = yield* statsQuery.getProfileTokenStats({ utcOffsetMinutes: 0 });
+        const tokenStats = yield* statsQuery.getProfileTokenStats({
+          utcOffsetMinutes: 0,
+        });
 
         expect(tokenStats.available).toBe(true);
         expect(tokenStats.lifetimeTotalTokens).toBe(11000);
         expect(tokenStats.topProvider).toBe("codex");
         expect(tokenStats.models).toEqual([
-          { provider: "codex", model: "gpt-5-codex", tokens: 6000, percent: 54.5 },
-          { provider: "claudeAgent", model: "claude-fable-5", tokens: 3000, percent: 27.3 },
-          { provider: "claudeAgent", model: "claude-opus-4-8", tokens: 2000, percent: 18.2 },
+          {
+            provider: "codex",
+            model: "gpt-5-codex",
+            tokens: 6000,
+            percent: 54.5,
+          },
+          {
+            provider: "claudeAgent",
+            model: "claude-fable-5",
+            tokens: 3000,
+            percent: 27.3,
+          },
+          {
+            provider: "claudeAgent",
+            model: "claude-opus-4-8",
+            tokens: 2000,
+            percent: 18.2,
+          },
         ]);
       }),
     );
@@ -719,7 +783,6 @@ describe("ProfileStatsQuery", () => {
             title,
             model_selection_json,
             runtime_mode,
-            interaction_mode,
             env_mode,
             created_at,
             updated_at,
@@ -731,7 +794,6 @@ describe("ProfileStatsQuery", () => {
             'Hybrid Telemetry Thread',
             '{"provider":"codex","model":"gpt-5-codex"}',
             'full-access',
-            'default',
             'local',
             '2026-06-13T12:00:00.000Z',
             '2026-06-13T12:00:00.000Z',
@@ -877,12 +939,24 @@ describe("ProfileStatsQuery", () => {
             )
         `;
 
-        const tokenStats = yield* statsQuery.getProfileTokenStats({ utcOffsetMinutes: 0 });
+        const tokenStats = yield* statsQuery.getProfileTokenStats({
+          utcOffsetMinutes: 0,
+        });
 
         expect(tokenStats.lifetimeTotalTokens).toBe(4200);
         expect(tokenStats.models).toEqual([
-          { provider: "codex", model: "gpt-5-codex", tokens: 2500, percent: 59.5 },
-          { provider: "claudeAgent", model: "claude-haiku-4-5", tokens: 1700, percent: 40.5 },
+          {
+            provider: "codex",
+            model: "gpt-5-codex",
+            tokens: 2500,
+            percent: 59.5,
+          },
+          {
+            provider: "claudeAgent",
+            model: "claude-haiku-4-5",
+            tokens: 1700,
+            percent: 40.5,
+          },
         ]);
       }),
     );
@@ -901,7 +975,6 @@ describe("ProfileStatsQuery", () => {
             title,
             model_selection_json,
             runtime_mode,
-            interaction_mode,
             env_mode,
             created_at,
             updated_at,
@@ -914,7 +987,6 @@ describe("ProfileStatsQuery", () => {
               'Skill Thread',
               '{"provider":"codex","model":"gpt-5-codex"}',
               'full-access',
-              'default',
               'local',
               '2026-06-14T09:00:00.000Z',
               '2026-06-14T09:00:00.000Z',
@@ -926,7 +998,6 @@ describe("ProfileStatsQuery", () => {
               'Retention Hidden Skill Thread',
               '{"provider":"codex","model":"gpt-5-codex"}',
               'full-access',
-              'default',
               'local',
               '2026-06-08T09:00:00.000Z',
               '2026-06-08T09:00:00.000Z',
@@ -938,7 +1009,6 @@ describe("ProfileStatsQuery", () => {
               'Manual Deleted Skill Thread',
               '{"provider":"codex","model":"gpt-5-codex"}',
               'full-access',
-              'default',
               'local',
               '2026-06-08T10:00:00.000Z',
               '2026-06-08T10:00:00.000Z',
@@ -1054,34 +1124,67 @@ describe("ProfileStatsQuery", () => {
               '2026-06-08T10:05:00.000Z'
             ),
             (
-              'message-skill-import',
+              'message-skill-fork-import',
               'thread-skills',
               'turn-skill-import',
               'user',
-              'Imported /imported-skill should not count',
+              'Forked /imported-skill should not count',
               '[{"name":"imported-skill","path":"/skills/imported-skill/SKILL.md"}]',
               NULL,
               0,
-              'handoff-import',
+              'fork-import',
               '2026-06-14T09:45:00.000Z',
               '2026-06-14T09:45:00.000Z'
             )
         `;
 
-        const stats = yield* statsQuery.getProfileStats({ utcOffsetMinutes: 0 });
+        const stats = yield* statsQuery.getProfileStats({
+          utcOffsetMinutes: 0,
+        });
 
         // Retention-hidden and manually deleted threads both keep contributing:
         // profile stats are lifetime totals and deletion is only a soft hide.
-        expect(stats.insights.skillsExplored).toBe(5);
-        expect(stats.insights.totalSkillsUsed).toBe(8);
+        expect(stats.insights.skillsExplored).toBe(6);
+        expect(stats.insights.totalSkillsUsed).toBe(9);
         expect(stats.activity.totalPromptsSent).toBe(4);
         expect(stats.activity.totalThreads).toBe(3);
-        expect(stats.skills.slice(0, 5)).toEqual([
-          { name: "check-code", displayName: "$check-code", kind: "skill", runCount: 4 },
-          { name: "openai-docs", displayName: "$openai-docs", kind: "skill", runCount: 1 },
-          { name: "planner", displayName: "$planner", kind: "skill", runCount: 1 },
-          { name: "refactor-code", displayName: "$refactor-code", kind: "skill", runCount: 1 },
-          { name: "reviewer", displayName: "@reviewer", kind: "agent", runCount: 1 },
+        expect(stats.skills.slice(0, 6)).toEqual([
+          {
+            name: "check-code",
+            displayName: "$check-code",
+            kind: "skill",
+            runCount: 4,
+          },
+          {
+            name: "openai-docs",
+            displayName: "$openai-docs",
+            kind: "skill",
+            runCount: 1,
+          },
+          {
+            name: "plan",
+            displayName: "$plan",
+            kind: "skill",
+            runCount: 1,
+          },
+          {
+            name: "planner",
+            displayName: "$planner",
+            kind: "skill",
+            runCount: 1,
+          },
+          {
+            name: "refactor-code",
+            displayName: "$refactor-code",
+            kind: "skill",
+            runCount: 1,
+          },
+          {
+            name: "reviewer",
+            displayName: "@reviewer",
+            kind: "agent",
+            runCount: 1,
+          },
         ]);
       }),
     );
@@ -1140,7 +1243,6 @@ describe("ProfileStatsQuery", () => {
             title,
             model_selection_json,
             runtime_mode,
-            interaction_mode,
             env_mode,
             created_at,
             updated_at,
@@ -1153,7 +1255,6 @@ describe("ProfileStatsQuery", () => {
               'Alpha Thread',
               '{"provider":"codex","model":"gpt-5-codex"}',
               'full-access',
-              'default',
               'local',
               '2026-06-13T09:00:00.000Z',
               '2026-06-13T09:00:00.000Z',
@@ -1165,7 +1266,6 @@ describe("ProfileStatsQuery", () => {
               'Beta Thread',
               '{"provider":"codex","model":"gpt-5-codex"}',
               'full-access',
-              'default',
               'local',
               '2026-06-13T09:00:00.000Z',
               '2026-06-13T09:00:00.000Z',
@@ -1177,7 +1277,6 @@ describe("ProfileStatsQuery", () => {
               'Deleted Alpha Thread',
               '{"provider":"codex","model":"gpt-5-codex"}',
               'full-access',
-              'default',
               'local',
               '2026-06-13T09:00:00.000Z',
               '2026-06-13T09:00:00.000Z',
@@ -1189,7 +1288,6 @@ describe("ProfileStatsQuery", () => {
               'Deleted Project Thread',
               '{"provider":"codex","model":"gpt-5-codex"}',
               'full-access',
-              'default',
               'local',
               '2026-06-13T09:00:00.000Z',
               '2026-06-13T09:00:00.000Z',
@@ -1289,7 +1387,9 @@ describe("ProfileStatsQuery", () => {
             )
         `;
 
-        const stats = yield* statsQuery.getProfileStats({ utcOffsetMinutes: 0 });
+        const stats = yield* statsQuery.getProfileStats({
+          utcOffsetMinutes: 0,
+        });
 
         // Lifetime totals: deleted threads/projects keep their contribution.
         expect(stats.activity.totalPromptsSent).toBe(7);
@@ -1343,7 +1443,6 @@ describe("ProfileStatsQuery", () => {
             title,
             model_selection_json,
             runtime_mode,
-            interaction_mode,
             env_mode,
             created_at,
             updated_at,
@@ -1355,7 +1454,6 @@ describe("ProfileStatsQuery", () => {
             'Streak Thread',
             '{"provider":"codex","model":"gpt-5-codex"}',
             'full-access',
-            'default',
             'local',
             '2025-01-01T09:00:00.000Z',
             '2025-01-03T09:00:00.000Z',
@@ -1411,7 +1509,9 @@ describe("ProfileStatsQuery", () => {
             )
         `;
 
-        const stats = yield* statsQuery.getProfileStats({ utcOffsetMinutes: 0 });
+        const stats = yield* statsQuery.getProfileStats({
+          utcOffsetMinutes: 0,
+        });
 
         expect(stats.activity.totalPromptsSent).toBe(3);
         expect(stats.activity.longestStreakDays).toBe(3);
@@ -1432,7 +1532,6 @@ describe("ProfileStatsQuery", () => {
             title,
             model_selection_json,
             runtime_mode,
-            interaction_mode,
             env_mode,
             created_at,
             updated_at,
@@ -1444,7 +1543,6 @@ describe("ProfileStatsQuery", () => {
             'Legacy Bad JSON',
             '{bad-json',
             'full-access',
-            'default',
             'local',
             '2026-06-14T09:00:00.000Z',
             '2026-06-14T09:00:00.000Z',
@@ -1489,13 +1587,20 @@ describe("ProfileStatsQuery", () => {
             )
         `;
 
-        const tokenStats = yield* statsQuery.getProfileTokenStats({ utcOffsetMinutes: 0 });
+        const tokenStats = yield* statsQuery.getProfileTokenStats({
+          utcOffsetMinutes: 0,
+        });
 
         expect(tokenStats.available).toBe(true);
         expect(tokenStats.lifetimeTotalTokens).toBe(1500);
         expect(tokenStats.providers).toEqual(["claudeAgent"]);
         expect(tokenStats.models).toEqual([
-          { provider: "claudeAgent", model: "unknown", tokens: 1500, percent: 100 },
+          {
+            provider: "claudeAgent",
+            model: "unknown",
+            tokens: 1500,
+            percent: 100,
+          },
         ]);
       }),
     );

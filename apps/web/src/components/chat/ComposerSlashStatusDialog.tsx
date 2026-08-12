@@ -1,5 +1,3 @@
-import type { ResolvedThreadWorkspaceState } from "@penkra/shared/threadEnvironment";
-import type { DraftThreadEnvMode } from "../../composerDraftStore";
 import {
   type ContextWindowSnapshot,
   formatContextWindowTokens,
@@ -32,25 +30,12 @@ function formatRateLimitMessage(rateLimitStatus: RateLimitStatus): string {
   return `Approaching rate limit${utilizationSuffix}.${resetSuffix}`;
 }
 
-function formatEnvironmentLabel(
-  envMode: DraftThreadEnvMode,
-  envState: ResolvedThreadWorkspaceState,
-): string {
-  if (envMode === "local") {
-    return "Local";
-  }
-  return envState === "worktree-pending" ? "New worktree (pending)" : "Worktree";
-}
-
 export function ComposerSlashStatusDialog(props: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   selectedModel: string | null | undefined;
   fastModeEnabled: boolean;
   selectedPromptEffort: string | null;
-  envMode: DraftThreadEnvMode;
-  envState: ResolvedThreadWorkspaceState;
-  branch: string | null;
   contextWindow: ContextWindowSnapshot | null;
   cumulativeCostUsd: number | null;
   rateLimitStatus: RateLimitStatus | null;
@@ -63,9 +48,6 @@ export function ComposerSlashStatusDialog(props: {
     selectedModel,
     fastModeEnabled,
     selectedPromptEffort,
-    envMode,
-    envState,
-    branch,
     contextWindow,
     cumulativeCostUsd,
     rateLimitStatus,
@@ -101,20 +83,6 @@ export function ComposerSlashStatusDialog(props: {
                 Reasoning
               </p>
               <p className="font-medium text-foreground">{selectedPromptEffort ?? "Default"}</p>
-            </div>
-            <div className="space-y-1">
-              <p className="text-[length:var(--app-font-size-ui,12px)] text-muted-foreground">
-                Environment
-              </p>
-              <p className="font-medium text-foreground">
-                {formatEnvironmentLabel(envMode, envState)}
-              </p>
-            </div>
-            <div className="space-y-1">
-              <p className="text-[length:var(--app-font-size-ui,12px)] text-muted-foreground">
-                Branch
-              </p>
-              <p className="font-medium text-foreground">{branch ?? "Unknown"}</p>
             </div>
           </div>
 

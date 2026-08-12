@@ -36,19 +36,19 @@ layer("038_ReconcileLegacySidechatSource", (it) => {
       `;
       assert.strictEqual(row33?.name, "ProjectionThreadsSidechatSource");
 
-      yield* runMigrations();
+      yield* runMigrations({ toMigrationInclusive: 95 });
 
-      const finalColumns = yield* projectionThreadsColumnNames(sql);
-      assert.include(finalColumns, "sidechat_source_thread_id");
+      const finalColumnsBeforeRemoval = yield* projectionThreadsColumnNames(sql);
+      assert.include(finalColumnsBeforeRemoval, "sidechat_source_thread_id");
     }),
   );
 
-  it.effect("is a no-op when sidechat source already exists", () =>
+  it.effect("is a no-op before the legacy sidechat column is retired", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
 
-      yield* runMigrations();
-      yield* runMigrations();
+      yield* runMigrations({ toMigrationInclusive: 95 });
+      yield* runMigrations({ toMigrationInclusive: 95 });
 
       const columns = yield* projectionThreadsColumnNames(sql);
       assert.include(columns, "sidechat_source_thread_id");

@@ -11,6 +11,7 @@
  */
 import { ServiceMap } from "effect";
 import type { Effect } from "effect";
+import type { McpToolCallResult, McpToolDefinition } from "../protocol.ts";
 
 export interface AgentGatewayHttpResult {
   readonly status: number;
@@ -19,6 +20,12 @@ export interface AgentGatewayHttpResult {
 }
 
 export interface AgentGatewayShape {
+  readonly toolDefinitions: ReadonlyArray<McpToolDefinition>;
+  readonly invokeTool: (input: {
+    readonly bearerToken: string;
+    readonly name: string;
+    readonly arguments: Record<string, unknown>;
+  }) => Effect.Effect<McpToolCallResult>;
   /**
    * Handle one MCP streamable-HTTP POST. All failures are folded into
    * JSON-RPC error responses or HTTP status codes; the effect never fails.

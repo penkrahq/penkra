@@ -16,6 +16,7 @@ import {
   resolveTerminalThreadCreationState,
   resolveThreadBootstrapPlan,
   resolveRecentParentWorkingDirectory,
+  scopeNewThreadOptionsToContainer,
   type NewThreadOptions,
 } from "../lib/threadBootstrap";
 import { promoteThreadCreate } from "../lib/threadCreatePromotion";
@@ -57,21 +58,33 @@ export function useHandleNewThread() {
   ): Promise<ThreadId | null> => {
     const currentState = useStore.getState();
     const targetProject = currentState.projects.find((project) => project.id === projectId);
+    // A virtual Folder is always owned by exactly one Space. Make that durable
+    // parent authoritative for every draft created inside it; otherwise the
+    // draft queries Connections with a null Space and cannot resolve the
+    // Space's exact default Connection.
+    const parentScopedOptions =
+      targetProject === undefined
+        ? requestedOptions
+        : scopeNewThreadOptionsToContainer({
+            options: requestedOptions,
+            containerKind: targetProject.kind,
+            containerSpaceId: targetProject.spaceId ?? null,
+          });
     const shouldInferWorkingDirectory =
-      requestedOptions?.workingDirectory === undefined &&
-      requestedOptions?.worktreePath === undefined &&
+      parentScopedOptions?.workingDirectory === undefined &&
+      parentScopedOptions?.worktreePath === undefined &&
       targetProject !== undefined;
     const inferredWorkingDirectory = shouldInferWorkingDirectory
       ? resolveRecentParentWorkingDirectory({
           projectId,
           projectKind: targetProject.kind,
-          spaceId: requestedOptions?.spaceId ?? null,
+          spaceId: parentScopedOptions?.spaceId ?? null,
           threads: Object.values(currentState.sidebarThreadSummaryById),
         })
       : null;
     const options = inferredWorkingDirectory
-      ? { ...requestedOptions, workingDirectory: inferredWorkingDirectory }
-      : requestedOptions;
+      ? { ...parentScopedOptions, workingDirectory: inferredWorkingDirectory }
+      : parentScopedOptions;
     const entryPoint = options?.entryPoint ?? "chat";
     const applyProviderOverride = (threadId: ThreadId) => {
       if (!options?.provider) {
@@ -122,7 +135,9 @@ export function useHandleNewThread() {
       setProjectDraftThreadId,
       setModelSelection,
     } = useComposerDraftStore.getState();
-    const shouldForceFreshThread = options?.fresh === true;
+    // Terminal entry always creates a durable Thread. It never reopens or
+    // promotes an old terminal draft slot.
+    const shouldForceFreshThread = options?.fresh === true || entryPoint === "terminal";
 
     const storedDraftThreadCandidate = getDraftThreadByProjectId(projectId, entryPoint);
     const latestActiveDraftThreadCandidate: DraftThreadState | null = focusedThreadId
@@ -181,7 +196,6 @@ export function useHandleNewThread() {
           title: "New terminal",
           modelSelection: creationState.modelSelection,
           runtimeMode: creationState.runtimeMode,
-          interactionMode: creationState.interactionMode,
           envMode: creationState.envMode,
           branch: creationState.branch,
           worktreePath: creationState.worktreePath,

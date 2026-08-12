@@ -7,7 +7,6 @@ import {
   CommandId,
   EventId,
   MessageId,
-  OrchestrationProposedPlanId,
   ContainerId,
   SpaceId,
   ThreadId,
@@ -34,7 +33,7 @@ import {
   makeShellSnapshot,
   threadsOf,
 } from "./storeTestFixtures";
-import { DEFAULT_INTERACTION_MODE, DEFAULT_RUNTIME_MODE } from "./types";
+import { DEFAULT_RUNTIME_MODE } from "./types";
 
 describe("store event reducer", () => {
   it("hydrates and removes empty Spaces without manufacturing null folder assignments", () => {
@@ -126,7 +125,6 @@ describe("store event reducer", () => {
         threadId,
         messageId: pendingMessageId,
         runtimeMode: DEFAULT_RUNTIME_MODE,
-        interactionMode: DEFAULT_INTERACTION_MODE,
         dispatchMode: "queue",
         createdAt: "2026-02-27T00:00:01.000Z",
       }),
@@ -339,7 +337,7 @@ describe("store event reducer", () => {
     });
   });
 
-  it("updates existing projects immediately from live project.meta-updated events", () => {
+  it("adopts authoritative folder titles from live project.meta-updated events", () => {
     const initialState: AppState = {
       spaces: [],
       archivedSpaces: [],
@@ -384,10 +382,10 @@ describe("store event reducer", () => {
 
     expect(next.projects[0]).toMatchObject({
       id: ContainerId.makeUnsafe("project-live"),
-      name: "Local Name",
+      name: "Renamed Remotely",
       remoteName: "Renamed Remotely",
       folderName: "renamed-project",
-      localName: "Local Name",
+      localName: null,
       cwd: "/tmp/renamed-project",
       defaultModelSelection: null,
       updatedAt: "2026-02-27T00:05:00.000Z",
@@ -507,39 +505,6 @@ describe("store event reducer", () => {
     });
   });
 
-  it("keeps pending proposed-plan linkage across live turn updates", () => {
-    const sourceProposedPlan = {
-      threadId: ThreadId.makeUnsafe("thread-source"),
-      planId: OrchestrationProposedPlanId.makeUnsafe("plan-source"),
-    };
-    const next = applyOrchestrationEvents(makeState(makeThread()), [
-      makeDomainEvent("thread.turn-start-requested", {
-        threadId: ThreadId.makeUnsafe("thread-1"),
-        messageId: MessageId.makeUnsafe("user-message"),
-        runtimeMode: "full-access",
-        interactionMode: DEFAULT_INTERACTION_MODE,
-        dispatchMode: "queue",
-        createdAt: "2026-02-27T00:01:00.000Z",
-        sourceProposedPlan,
-      }),
-      makeDomainEvent("thread.message-sent", {
-        threadId: ThreadId.makeUnsafe("thread-1"),
-        messageId: MessageId.makeUnsafe("assistant-message"),
-        role: "assistant",
-        text: "Done",
-        turnId: TurnId.makeUnsafe("turn-1"),
-        streaming: false,
-        createdAt: "2026-02-27T00:01:05.000Z",
-        updatedAt: "2026-02-27T00:01:06.000Z",
-        attachments: [],
-        source: "native",
-      }),
-    ]);
-
-    expect(threadsOf(next)[0]?.pendingSourceProposedPlan).toEqual(sourceProposedPlan);
-    expect(threadsOf(next)[0]?.latestTurn?.sourceProposedPlan).toEqual(sourceProposedPlan);
-  });
-
   it("adopts runtime mode from user-dispatched turns", () => {
     const initialState = makeState(makeThread({ runtimeMode: "approval-required" }));
 
@@ -548,7 +513,6 @@ describe("store event reducer", () => {
         threadId: ThreadId.makeUnsafe("thread-1"),
         messageId: MessageId.makeUnsafe("user-message"),
         runtimeMode: "full-access",
-        interactionMode: DEFAULT_INTERACTION_MODE,
         dispatchMode: "queue",
         dispatchOrigin: "user",
         createdAt: "2026-02-27T00:01:00.000Z",
@@ -891,10 +855,6 @@ describe("store event reducer", () => {
           completedAt: null,
           assistantMessageId: null,
         },
-        pendingSourceProposedPlan: {
-          threadId: ThreadId.makeUnsafe("thread-source"),
-          planId: OrchestrationProposedPlanId.makeUnsafe("plan-source"),
-        },
       }),
     );
 
@@ -1084,7 +1044,7 @@ describe("store event reducer", () => {
     ]);
   });
 
-  it("cleans thread state on revert and clears pending proposed plans", () => {
+  it("cleans thread state on revert", () => {
     const initialState = makeState(
       makeThread({
         latestTurn: {
@@ -1094,10 +1054,6 @@ describe("store event reducer", () => {
           startedAt: "2026-02-27T00:01:05.000Z",
           completedAt: "2026-02-27T00:03:00.000Z",
           assistantMessageId: MessageId.makeUnsafe("assistant-2"),
-        },
-        pendingSourceProposedPlan: {
-          threadId: ThreadId.makeUnsafe("thread-source"),
-          planId: OrchestrationProposedPlanId.makeUnsafe("plan-source"),
         },
         messages: [
           {
@@ -1124,26 +1080,6 @@ describe("store event reducer", () => {
             turnId: TurnId.makeUnsafe("turn-2"),
             createdAt: "2026-02-27T00:01:00.000Z",
             streaming: false,
-          },
-        ],
-        proposedPlans: [
-          {
-            id: OrchestrationProposedPlanId.makeUnsafe("plan-1"),
-            turnId: TurnId.makeUnsafe("turn-1"),
-            planMarkdown: "keep",
-            implementedAt: null,
-            implementationThreadId: null,
-            createdAt: "2026-02-27T00:00:05.000Z",
-            updatedAt: "2026-02-27T00:00:05.000Z",
-          },
-          {
-            id: OrchestrationProposedPlanId.makeUnsafe("plan-2"),
-            turnId: TurnId.makeUnsafe("turn-2"),
-            planMarkdown: "drop",
-            implementedAt: null,
-            implementationThreadId: null,
-            createdAt: "2026-02-27T00:01:05.000Z",
-            updatedAt: "2026-02-27T00:01:05.000Z",
           },
         ],
         activities: [
@@ -1176,13 +1112,9 @@ describe("store event reducer", () => {
       }),
     ]);
 
-    expect(threadsOf(next)[0]?.pendingSourceProposedPlan).toBeUndefined();
     expect(threadsOf(next)[0]?.messages.map((message) => message.id)).toEqual([
       MessageId.makeUnsafe("user-1"),
       MessageId.makeUnsafe("assistant-1"),
-    ]);
-    expect(threadsOf(next)[0]?.proposedPlans.map((plan) => plan.id)).toEqual([
-      OrchestrationProposedPlanId.makeUnsafe("plan-1"),
     ]);
     expect(threadsOf(next)[0]?.activities.map((activity) => activity.id)).toEqual([
       EventId.makeUnsafe("activity-1"),
@@ -1200,10 +1132,6 @@ describe("store event reducer", () => {
           startedAt: "2026-02-27T00:01:05.000Z",
           completedAt: "2026-02-27T00:03:00.000Z",
           assistantMessageId: MessageId.makeUnsafe("assistant-2"),
-        },
-        pendingSourceProposedPlan: {
-          threadId: ThreadId.makeUnsafe("thread-source"),
-          planId: OrchestrationProposedPlanId.makeUnsafe("plan-source"),
         },
         messages: [
           {
@@ -1237,17 +1165,6 @@ describe("store event reducer", () => {
             turnId: TurnId.makeUnsafe("turn-2"),
             createdAt: "2026-02-27T00:01:10.000Z",
             streaming: false,
-          },
-        ],
-        proposedPlans: [
-          {
-            id: OrchestrationProposedPlanId.makeUnsafe("plan-2"),
-            turnId: TurnId.makeUnsafe("turn-2"),
-            planMarkdown: "drop",
-            implementedAt: null,
-            implementationThreadId: null,
-            createdAt: "2026-02-27T00:01:05.000Z",
-            updatedAt: "2026-02-27T00:01:05.000Z",
           },
         ],
         activities: [makeActivity({ id: "activity-2", turnId: "turn-2" })],
@@ -1286,26 +1203,18 @@ describe("store event reducer", () => {
     expect(threadsOf(next)[0]?.turnDiffSummaries.map((summary) => summary.turnId)).toEqual([
       TurnId.makeUnsafe("turn-1"),
     ]);
-    expect(threadsOf(next)[0]?.proposedPlans).toEqual([]);
     expect(threadsOf(next)[0]?.activities).toEqual([]);
-    expect(threadsOf(next)[0]?.pendingSourceProposedPlan).toBeUndefined();
     expect(threadsOf(next)[0]?.latestTurn?.turnId).toBe(TurnId.makeUnsafe("turn-1"));
   });
 
   it("reconciles snapshot state even when thread updatedAt matches a prior live event", () => {
-    const sourceProposedPlan = {
-      threadId: ThreadId.makeUnsafe("thread-source"),
-      planId: OrchestrationProposedPlanId.makeUnsafe("plan-source"),
-    };
     const liveState = applyOrchestrationEvents(makeState(makeThread()), [
       makeDomainEvent("thread.turn-start-requested", {
         threadId: ThreadId.makeUnsafe("thread-1"),
         messageId: MessageId.makeUnsafe("user-message"),
         runtimeMode: "full-access",
-        interactionMode: DEFAULT_INTERACTION_MODE,
         dispatchMode: "queue",
         createdAt: "2026-02-27T00:05:00.000Z",
-        sourceProposedPlan,
       }),
     ]);
 
@@ -1322,7 +1231,6 @@ describe("store event reducer", () => {
 
     expect(threadsOf(next)[0]?.updatedAt).toBe("2026-02-27T00:05:00.000Z");
     expect(threadsOf(next)[0]?.latestTurn).toBeNull();
-    expect(threadsOf(next)[0]?.pendingSourceProposedPlan).toBeUndefined();
   });
 
   it("does not rebuild sidebar summaries for streaming assistant deltas", () => {
@@ -1913,16 +1821,13 @@ describe("store event reducer", () => {
           model: "gpt-5.3-codex",
         },
         runtimeMode: DEFAULT_RUNTIME_MODE,
-        interactionMode: DEFAULT_INTERACTION_MODE,
         envMode: "local",
         branch: null,
         worktreePath: null,
         forkSourceThreadId: null,
-        sidechatSourceThreadId: null,
         latestTurn: null,
         createdAt: "2026-02-27T00:00:00.000Z",
         updatedAt: "2026-02-27T00:00:30.000Z",
-        handoff: null,
         session: null,
       }),
     );

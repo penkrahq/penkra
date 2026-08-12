@@ -15,6 +15,7 @@ import type {
   ProviderListModelsResult,
   ProviderListSkillsResult,
 } from "@penkra/contracts";
+import { ProviderConnectionId, ProviderInstallationId } from "@penkra/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { Effect, Layer } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -32,6 +33,12 @@ import { ProviderAdapterRequestError } from "../Errors.ts";
 import type { ProviderAdapterShape } from "../Services/ProviderAdapter.ts";
 import { ProviderAdapterRegistry } from "../Services/ProviderAdapterRegistry.ts";
 import { ProviderDiscoveryService } from "../Services/ProviderDiscoveryService.ts";
+import {
+  ProviderLaunchResolutionError,
+  ProviderLaunchResolver,
+} from "../Services/ProviderLaunchResolver.ts";
+import { ProviderConnectionRepository } from "../../persistence/Services/ProviderConnections.ts";
+import { ProviderInstallationRepository } from "../../persistence/Services/ProviderInstallations.ts";
 import { clearSkillsCatalogCacheForTests } from "../skillsCatalog.ts";
 import { ProviderDiscoveryServiceLive } from "./ProviderDiscoveryService.ts";
 
@@ -39,6 +46,7 @@ let root: string;
 let homeDir: string;
 let baseDir: string;
 let cwd: string;
+const timestamp = "2026-08-08T00:00:00.000Z";
 
 async function writeSkill(skillDir: string, name: string): Promise<void> {
   await mkdir(skillDir, { recursive: true });
@@ -78,24 +86,49 @@ const makeConfigLayer = () =>
 
 const makeRegistryLayer = (adapter: Partial<ProviderAdapterShape<ProviderAdapterError>>) =>
   Layer.succeed(ProviderAdapterRegistry, {
-    getByProvider: () => Effect.succeed(adapter as ProviderAdapterShape<ProviderAdapterError>),
+    getByProvider: () =>
+      Effect.succeed({
+        hasSession: () => Effect.succeed(false),
+        ...adapter,
+      } as ProviderAdapterShape<ProviderAdapterError>),
     listProviders: () => Effect.succeed([]),
   });
+
+const managedDiscoveryDependencies = Layer.mergeAll(
+  Layer.succeed(ProviderConnectionRepository, {
+    list: () => Effect.succeed([]),
+  } as never),
+  Layer.succeed(ProviderInstallationRepository, {
+    list: () => Effect.succeed([]),
+  } as never),
+  Layer.succeed(ProviderLaunchResolver, {
+    resolve: () => Effect.die("not used"),
+    resolveProfile: () => Effect.die("not used"),
+  }),
+);
 
 const runListSkills = (input: {
   adapter: Partial<ProviderAdapterShape<ProviderAdapterError>>;
   disabled?: string[];
   provider: ProviderKind;
+  threadId?: string;
 }) => {
   const baseLayer = Layer.mergeAll(
     makeConfigLayer(),
-    ServerSettingsService.layerTest({ skills: { disabled: input.disabled ?? [] } }),
+    ServerSettingsService.layerTest({
+      skills: { disabled: input.disabled ?? [] },
+    }),
     makeRegistryLayer(input.adapter),
+    managedDiscoveryDependencies,
   ).pipe(Layer.provideMerge(NodeServices.layer));
   const testLayer = ProviderDiscoveryServiceLive.pipe(Layer.provideMerge(baseLayer));
   const program = Effect.gen(function* () {
     const discovery = yield* ProviderDiscoveryService;
-    return yield* discovery.listSkills({ provider: input.provider, cwd });
+    return yield* discovery.listSkills({
+      provider: input.provider,
+      cwd,
+      ...(input.threadId ? { threadId: input.threadId } : {}),
+    });
   }).pipe(Effect.provide(testLayer));
   return Effect.runPromise(
     program as unknown as Effect.Effect<ProviderListSkillsResult, never, never>,
@@ -116,6 +149,7 @@ const runListModels = (input: {
       },
     }),
     makeRegistryLayer(input.adapter),
+    managedDiscoveryDependencies,
   ).pipe(Layer.provideMerge(NodeServices.layer));
   const testLayer = ProviderDiscoveryServiceLive.pipe(Layer.provideMerge(baseLayer));
   const program = Effect.gen(function* () {
@@ -144,7 +178,10 @@ describe("ProviderDiscoveryService.listSkills", () => {
   it("serves the unified catalog for providers without native skill discovery", async () => {
     await writeSkill(path.join(baseDir, "skills", "portable"), "portable");
 
-    const result = await runListSkills({ adapter: {}, provider: "antigravity" });
+    const result = await runListSkills({
+      adapter: {},
+      provider: "antigravity",
+    });
 
     expect(result.skills.map((skill) => skill.name)).toEqual(["portable"]);
   });
@@ -161,10 +198,16 @@ describe("ProviderDiscoveryService.listSkills", () => {
     };
     const result = await runListSkills({
       adapter: {
+        hasSession: () => Effect.succeed(true),
         listSkills: () =>
-          Effect.succeed({ skills: [nativeShared], source: "codex-app-server", cached: false }),
+          Effect.succeed({
+            skills: [nativeShared],
+            source: "codex-app-server",
+            cached: false,
+          }),
       },
       provider: "codex",
+      threadId: "active-codex-thread",
     });
 
     const shared = result.skills.find((skill) => skill.name === "shared");
@@ -190,6 +233,7 @@ describe("ProviderDiscoveryService.listSkills", () => {
 
     const result = await runListSkills({
       adapter: {
+        hasSession: () => Effect.succeed(true),
         listSkills: () =>
           Effect.fail(
             new ProviderAdapterRequestError({
@@ -200,6 +244,7 @@ describe("ProviderDiscoveryService.listSkills", () => {
           ),
       },
       provider: "codex",
+      threadId: "active-codex-thread",
     });
 
     expect(result.skills.map((skill) => skill.name)).toEqual(["portable"]);
@@ -212,6 +257,7 @@ describe("ProviderDiscoveryService.getComposerCapabilities", () => {
       makeConfigLayer(),
       ServerSettingsService.layerTest(),
       makeRegistryLayer({}),
+      managedDiscoveryDependencies,
     ).pipe(Layer.provideMerge(NodeServices.layer));
     const testLayer = ProviderDiscoveryServiceLive.pipe(Layer.provideMerge(baseLayer));
 
@@ -271,5 +317,267 @@ describe("ProviderDiscoveryService.listModels", () => {
 
     expect(result.models).toEqual([{ slug: "cursor-model", name: "Cursor Model" }]);
     expect(adapterCalls).toBe(1);
+  });
+
+  it("discovers managed models through every exact Connection and anonymous route", async () => {
+    const connectionId = ProviderConnectionId.makeUnsafe("opencode-go-connection");
+    const failedConnectionId = ProviderConnectionId.makeUnsafe("opencode-go-failed-connection");
+    const zenConnectionId = ProviderConnectionId.makeUnsafe("opencode-zen-connection");
+    const installationId = ProviderInstallationId.makeUnsafe("managed-opencode-installation");
+    const resolvedRoutes: Array<{
+      connectionId: string | null;
+      internalProviderId: string | null;
+    }> = [];
+    const adapterRoutes: Array<string | null | undefined> = [];
+    const adapter = {
+      listModels: (input: {
+        readonly internalProviderId?: string | null;
+        readonly managedLaunch?: unknown;
+      }) => {
+        adapterRoutes.push(input.internalProviderId);
+        return Effect.succeed({
+          models: [
+            {
+              slug: `${input.internalProviderId}/model`,
+              name: `${input.internalProviderId} model`,
+              upstreamProviderId: input.internalProviderId ?? undefined,
+            },
+          ],
+          source: "test",
+          cached: false,
+        });
+      },
+    } as Partial<ProviderAdapterShape<ProviderAdapterError>>;
+    const baseLayer = Layer.mergeAll(
+      makeConfigLayer(),
+      ServerSettingsService.layerTest(),
+      makeRegistryLayer(adapter),
+      Layer.succeed(ProviderConnectionRepository, {
+        list: () =>
+          Effect.succeed([
+            {
+              id: connectionId,
+              harness: "opencode",
+              authenticationTargetId: "opencode-go",
+              authenticationMethodId: "api-key",
+              label: "Go",
+              providerIdentityId: null,
+              health: "ready",
+              healthReason: null,
+              lastCheckedAt: timestamp,
+              lifecycle: "active",
+              terminatedAt: null,
+              terminationReason: null,
+              createdAt: timestamp,
+              updatedAt: timestamp,
+            },
+            {
+              id: zenConnectionId,
+              harness: "opencode",
+              authenticationTargetId: "opencode-zen",
+              authenticationMethodId: "api-key",
+              label: "Zen",
+              providerIdentityId: null,
+              health: "ready",
+              healthReason: null,
+              lastCheckedAt: timestamp,
+              lifecycle: "active",
+              terminatedAt: null,
+              terminationReason: null,
+              createdAt: timestamp,
+              updatedAt: timestamp,
+            },
+            {
+              id: failedConnectionId,
+              harness: "opencode",
+              authenticationTargetId: "opencode-go",
+              authenticationMethodId: "api-key",
+              label: "Unavailable Go",
+              providerIdentityId: null,
+              health: "ready",
+              healthReason: null,
+              lastCheckedAt: timestamp,
+              lifecycle: "active",
+              terminatedAt: null,
+              terminationReason: null,
+              createdAt: timestamp,
+              updatedAt: timestamp,
+            },
+          ]),
+      } as never),
+      Layer.succeed(ProviderInstallationRepository, {
+        list: () =>
+          Effect.succeed([
+            {
+              id: installationId,
+              harness: "opencode",
+              version: "1.0.0",
+              platform: "darwin",
+              architecture: "arm64",
+              adapterVersion: "1",
+              protocolVersion: "v1",
+              lifecycle: "active",
+              healthReason: null,
+              installedAt: timestamp,
+              activatedAt: timestamp,
+              retiredAt: null,
+            },
+          ]),
+      } as never),
+      Layer.succeed(ProviderLaunchResolver, {
+        resolve: () => Effect.die("not used"),
+        resolveProfile: (input) => {
+          resolvedRoutes.push({
+            connectionId: input.connectionId,
+            internalProviderId: input.internalProviderId,
+          });
+          if (input.connectionId === failedConnectionId) {
+            return Effect.fail(
+              new ProviderLaunchResolutionError({
+                detail: "isolated route unavailable",
+              }),
+            );
+          }
+          return Effect.succeed({
+            binaryPath: "/managed/opencode",
+            isolationKey: `route:${input.internalProviderId}`,
+            profileRoot: "/managed/profile",
+            nativeStateRoot: "/managed/native",
+            connectionId: input.connectionId,
+            installationId,
+            childEnvironment: (environment: NodeJS.ProcessEnv) => environment,
+          });
+        },
+      }),
+    ).pipe(Layer.provideMerge(NodeServices.layer));
+    const result = await Effect.runPromise(
+      Effect.gen(function* () {
+        const discovery = yield* ProviderDiscoveryService;
+        return yield* discovery.listModels({ provider: "opencode" });
+      }).pipe(Effect.provide(ProviderDiscoveryServiceLive.pipe(Layer.provideMerge(baseLayer)))),
+    );
+
+    expect(resolvedRoutes).toEqual([
+      { connectionId, internalProviderId: "opencode-go" },
+      { connectionId: zenConnectionId, internalProviderId: "opencode" },
+      { connectionId: failedConnectionId, internalProviderId: "opencode-go" },
+      { connectionId: null, internalProviderId: "opencode" },
+    ]);
+    expect(adapterRoutes).toEqual(["opencode-go", "opencode", "opencode"]);
+    expect(result.models.map((model) => model.slug)).toEqual([
+      "opencode-go/model",
+      "opencode/model",
+    ]);
+    expect(result.models.map((model) => model.availableConnectionIds)).toEqual([
+      [connectionId],
+      [zenConnectionId, null],
+    ]);
+  });
+});
+
+describe("ProviderDiscoveryService.listAgents", () => {
+  it("discovers agents through exact managed Connection routes and reports availability", async () => {
+    const connectionId = ProviderConnectionId.makeUnsafe("opencode-go-agent-connection");
+    const installationId = ProviderInstallationId.makeUnsafe("managed-opencode-agents");
+    const resolvedRoutes: Array<string | null> = [];
+    const adapter = {
+      listAgents: (input: {
+        readonly internalProviderId?: string | null;
+        readonly managedLaunch?: unknown;
+      }) => {
+        expect(input.managedLaunch).toBeDefined();
+        return Effect.succeed({
+          agents: [
+            { name: "review", displayName: "Review" },
+            ...(input.internalProviderId === "opencode-go"
+              ? [{ name: "work-only", displayName: "Work only" }]
+              : []),
+          ],
+          source: "test",
+          cached: false,
+        });
+      },
+    } as Partial<ProviderAdapterShape<ProviderAdapterError>>;
+    const baseLayer = Layer.mergeAll(
+      makeConfigLayer(),
+      ServerSettingsService.layerTest(),
+      makeRegistryLayer(adapter),
+      Layer.succeed(ProviderConnectionRepository, {
+        list: () =>
+          Effect.succeed([
+            {
+              id: connectionId,
+              harness: "opencode",
+              authenticationTargetId: "opencode-go",
+              authenticationMethodId: "api-key",
+              label: "Go",
+              providerIdentityId: null,
+              health: "ready",
+              healthReason: null,
+              lastCheckedAt: timestamp,
+              lifecycle: "active",
+              terminatedAt: null,
+              terminationReason: null,
+              createdAt: timestamp,
+              updatedAt: timestamp,
+            },
+          ]),
+      } as never),
+      Layer.succeed(ProviderInstallationRepository, {
+        list: () =>
+          Effect.succeed([
+            {
+              id: installationId,
+              harness: "opencode",
+              version: "1.0.0",
+              platform: "darwin",
+              architecture: "arm64",
+              adapterVersion: "1",
+              protocolVersion: "v1",
+              lifecycle: "active",
+              healthReason: null,
+              installedAt: timestamp,
+              activatedAt: timestamp,
+              retiredAt: null,
+            },
+          ]),
+      } as never),
+      Layer.succeed(ProviderLaunchResolver, {
+        resolve: () => Effect.die("not used"),
+        resolveProfile: (input) => {
+          resolvedRoutes.push(input.connectionId);
+          return Effect.succeed({
+            binaryPath: "/managed/opencode",
+            isolationKey: `agent-route:${input.connectionId ?? "anonymous"}`,
+            profileRoot: "/managed/profile",
+            nativeStateRoot: "/managed/native",
+            connectionId: input.connectionId,
+            installationId,
+            childEnvironment: (environment: NodeJS.ProcessEnv) => environment,
+          });
+        },
+      }),
+    ).pipe(Layer.provideMerge(NodeServices.layer));
+
+    const result = await Effect.runPromise(
+      Effect.gen(function* () {
+        const discovery = yield* ProviderDiscoveryService;
+        return yield* discovery.listAgents({ provider: "opencode" });
+      }).pipe(Effect.provide(ProviderDiscoveryServiceLive.pipe(Layer.provideMerge(baseLayer)))),
+    );
+
+    expect(resolvedRoutes).toEqual([connectionId, null]);
+    expect(result.agents).toEqual([
+      {
+        name: "review",
+        displayName: "Review",
+        availableConnectionIds: [connectionId, null],
+      },
+      {
+        name: "work-only",
+        displayName: "Work only",
+        availableConnectionIds: [connectionId],
+      },
+    ]);
   });
 });

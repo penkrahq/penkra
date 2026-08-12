@@ -4,7 +4,7 @@
 // Exports: Vitest cases
 // Depends on: voiceTranscription utility and mocked fetch responses.
 
-import type { ServerVoiceTranscriptionInput } from "@penkra/contracts";
+import { ProviderConnectionId, type ServerVoiceTranscriptionInput } from "@penkra/contracts";
 import { outboundHttp, type OutboundHttpResponse } from "@penkra/shared/outboundHttp";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -14,6 +14,7 @@ const WAV_BASE64 = Buffer.from("RIFF0000WAVE", "ascii").toString("base64");
 
 const baseRequest: ServerVoiceTranscriptionInput = {
   provider: "codex",
+  connectionId: ProviderConnectionId.makeUnsafe("connection-voice-test"),
   cwd: "/tmp/project",
   mimeType: "audio/wav",
   sampleRateHz: 24_000,

@@ -12,6 +12,7 @@ import {
   type OrchestrationEvent,
   PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
   type ProviderMentionReference,
+  type ProviderConnectionId,
   type ProviderRuntimeEvent,
   ProviderKind,
   type ProviderReviewTarget,
@@ -49,7 +50,6 @@ import {
   collectTailTurnIds,
   resolveTailUserMessageEditTarget,
 } from "@penkra/shared/conversationEdit";
-import { isTemporaryWorktreeBranch, WORKTREE_BRANCH_PREFIX } from "@penkra/shared/git";
 import { claudeSelectionRequiresRestart } from "@penkra/shared/model";
 import {
   formatProviderDeliveryBlockDetail,
@@ -78,12 +78,16 @@ import {
 } from "../../provider/threadMentionContext.ts";
 import {
   TextGeneration,
-  type BranchNameGenerationInput,
   type ThreadTitleGenerationInput,
 } from "../../git/Services/TextGeneration.ts";
 import { resolveTextGenerationInputForSelection } from "../../git/textGenerationSelection.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
+import { ProviderTurnSelectionResolver } from "../../provider/Services/ProviderTurnSelectionResolver.ts";
+import { ProviderLaunchResolver } from "../../provider/Services/ProviderLaunchResolver.ts";
+import type { ProviderManagedLaunchContext } from "../../provider/Services/ProviderAdapter.ts";
+import { ThreadProviderBindingRepository } from "../../persistence/Services/ThreadProviderBindings.ts";
 import { resolveProviderDispatchAttachments } from "../../provider/providerAttachmentPaths.ts";
+import { providerNativeResumeIdentity } from "../../provider/nativeResumeIdentity.ts";
 import { OrchestrationEventDeliveryRepositoryLive } from "../../persistence/Layers/OrchestrationEventDeliveries.ts";
 import { ProjectionPendingInteractionRepositoryLive } from "../../persistence/Layers/ProjectionPendingInteractions.ts";
 import { QueuedTurnPromotionRepositoryLive } from "../../persistence/Layers/QueuedTurnPromotions.ts";
@@ -95,18 +99,11 @@ import {
 import { QueuedTurnPromotionRepository } from "../../persistence/Services/QueuedTurnPromotions.ts";
 import { ManagedAttachmentRepository } from "../../persistence/Services/ManagedAttachments.ts";
 import { ServerConfig } from "../../config.ts";
+import { LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL } from "../../managedAttachmentPrincipal.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
-import { providerStartOptionsFromServerSettings } from "@penkra/shared/serverSettings";
 import { clearWorkspaceIndexCache } from "../../workspaceEntries.ts";
-import {
-  buildPriorTranscriptBootstrapText,
-  buildForkBootstrapText,
-  buildHandoffBootstrapText,
-  hasNativeAssistantMessagesBefore,
-  listImportedForkMessages,
-  listPriorTranscriptMessages,
-} from "../handoff.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
+import { ProviderThreadSwitchCoordinator } from "../Services/ProviderThreadSwitchCoordinator.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import {
   ProviderCommandReactor,
@@ -295,33 +292,6 @@ const QUEUED_TURN_RECOVERY_INTERVAL = Duration.seconds(5);
 const PROVIDER_INPUT_SAFETY_MARGIN_CHARS = 1_000;
 const THREAD_MENTION_CONTEXT_SUFFIX_PREFIX_CHARS = 2;
 const DEFAULT_RUNTIME_MODE: RuntimeMode = "full-access";
-const SIDECHAT_BOUNDARY_INSTRUCTION =
-  "You are in a sidechat. Treat all prior conversation as reference-only context. Do not continue any prior task automatically. Do not mutate files, git, or the workspace and do not run workspace-changing commands unless the latest user message explicitly asks you to do so after this boundary. Use this sidechat for focused explanation, safety checks, summaries, and alternatives.";
-
-type ProviderContextTag = "handoff_context" | "sidechat_context" | "thread_context";
-
-function wrapProviderContext(input: {
-  readonly tag: ProviderContextTag;
-  readonly contextText: string;
-  readonly messageText: string;
-  readonly wrapLatestUserMessage: boolean;
-}): string {
-  const messageSection = input.wrapLatestUserMessage
-    ? `<latest_user_message>\n${input.messageText}\n</latest_user_message>`
-    : input.messageText;
-  return `<${input.tag}>\n${input.contextText}\n</${input.tag}>\n\n${messageSection}`;
-}
-
-function availableProviderContextChars(input: {
-  readonly tag: ProviderContextTag;
-  readonly messageText: string;
-  readonly wrapLatestUserMessage: boolean;
-}): number {
-  return Math.max(
-    0,
-    PROVIDER_SEND_TURN_MAX_INPUT_CHARS - wrapProviderContext({ ...input, contextText: "" }).length,
-  );
-}
 
 function availableThreadMentionContextChars(messageText: string): number {
   return Math.max(
@@ -405,27 +375,6 @@ function isRollbackStillInProgressError(error: unknown): boolean {
   );
 }
 
-function buildGeneratedWorktreeBranchName(raw: string): string {
-  const normalized = raw
-    .trim()
-    .toLowerCase()
-    .replace(/^refs\/heads\//, "")
-    .replace(/['"`]/g, "");
-
-  const withoutPrefix = normalized.replace(/^penkra\//, "");
-
-  const branchFragment = withoutPrefix
-    .replace(/[^a-z0-9/_-]+/g, "-")
-    .replace(/\/+/g, "/")
-    .replace(/-+/g, "-")
-    .replace(/^[./_-]+|[./_-]+$/g, "")
-    .slice(0, 64)
-    .replace(/[./_-]+$/g, "");
-
-  const safeFragment = branchFragment.length > 0 ? branchFragment : "update";
-  return `${WORKTREE_BRANCH_PREFIX}/${safeFragment}`;
-}
-
 export interface ProviderCommandReactorLiveOptions {
   readonly commandEventTimeout?: Duration.Duration;
   readonly queuedTurnRecoveryInterval?: Duration.Duration;
@@ -444,11 +393,15 @@ class ProviderCommandReactorConfig extends ServiceMap.Service<
 const make = Effect.gen(function* () {
   const { commandEventTimeout, queuedTurnRecoveryInterval } = yield* ProviderCommandReactorConfig;
   const orchestrationEngine = yield* OrchestrationEngineService;
+  const providerThreadSwitchCoordinator = yield* ProviderThreadSwitchCoordinator;
   const deliveryRepository = yield* OrchestrationEventDeliveryRepository;
   const turnCheckpointCoordinator = yield* TurnCheckpointCoordinator;
   const queuedTurnPromotions = yield* QueuedTurnPromotionRepository;
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
   const providerService = yield* ProviderService;
+  const providerTurnSelectionResolver = yield* ProviderTurnSelectionResolver;
+  const providerLaunchResolver = yield* ProviderLaunchResolver;
+  const threadProviderBindings = yield* ThreadProviderBindingRepository;
   const pendingInteractions = yield* ProjectionPendingInteractionRepository;
   const checkpointStore = yield* CheckpointStore;
   const studioOutputReactor = yield* StudioOutputReactor;
@@ -473,6 +426,7 @@ const make = Effect.gen(function* () {
     );
 
   const threadProviderOptions = new Map<string, ProviderStartOptions>();
+  const threadManagedBindingRevisions = new Map<string, number>();
   // The selection last applied to each live session. Keep this separate from
   // projected thread metadata so an option changed mid-turn is still compared
   // against the old subprocess configuration before the next turn starts.
@@ -535,77 +489,16 @@ const make = Effect.gen(function* () {
   };
   const pendingQueuedDispatchBySessionThread = new Map<string, PendingQueuedDispatch>();
   const queuedTurnPromotionOwner = `provider-queued-turn:${crypto.randomUUID()}`;
-  const sidechatContextBootstrapThreadIds = new Set<string>();
-  // Fresh sessions that cannot inherit native conversation state need one
-  // transcript bootstrap (fork fallbacks and non-resumable Droid model changes).
-  const freshSessionContextBootstrapThreadIds = new Set<string>();
-  // Providers without native rewind restart after rollback and receive the
-  // retained projection transcript once on their next prompt.
-  const rollbackContextBootstrapThreadIds = new Set<string>();
-  type PendingContextBootstrapAttempt = {
-    turnId?: TurnId;
-    terminalEvent?: ProviderQueueDrainEvent;
-    readonly clearSidechat: boolean;
-    readonly clearPriorTranscript: boolean;
-  };
-  const pendingContextBootstrapAttempts = new Map<string, PendingContextBootstrapAttempt>();
   // A pending-start interrupt is also delivered as its own durable intent.
   // Record cancellations completed by the start handler so that later intent
   // does not issue a second, unscoped provider interrupt. Replay is safe: the
   // start event is ordered before its interrupt and reconstructs this marker.
   const completedPendingTurnStartInterrupts = new Set<string>();
-  // Explicit stop resets context once: the next successful session start must
-  // begin clean even if fork metadata would normally register a bootstrap.
-  const suppressContextBootstrapOnNextStartThreadIds = new Set<string>();
-  const clearPendingContextBootstraps = (threadId: string) => {
-    sidechatContextBootstrapThreadIds.delete(threadId);
-    freshSessionContextBootstrapThreadIds.delete(threadId);
-    rollbackContextBootstrapThreadIds.delete(threadId);
-    pendingContextBootstrapAttempts.delete(threadId);
-  };
-
-  const completePendingContextBootstrapAttempt = (
-    threadId: string,
-    attempt: PendingContextBootstrapAttempt,
-    event: ProviderQueueDrainEvent,
-  ) => {
-    // Keep bootstrap flags after cancellation or failure even though Droid may
-    // already have received the prompt. A bounded duplicate on retry is safer
-    // than dropping the only model-visible copy of the retained transcript.
-    if (event.type !== "turn.completed" || event.payload.state !== "completed") {
-      return;
-    }
-    if (attempt.clearSidechat) {
-      sidechatContextBootstrapThreadIds.delete(threadId);
-    }
-    if (attempt.clearPriorTranscript) {
-      freshSessionContextBootstrapThreadIds.delete(threadId);
-      rollbackContextBootstrapThreadIds.delete(threadId);
-      sidechatContextBootstrapThreadIds.delete(threadId);
-    }
-  };
-
-  const observePendingContextBootstrapTerminalEvent = (event: ProviderQueueDrainEvent) => {
-    const attempt = pendingContextBootstrapAttempts.get(event.threadId);
-    if (!attempt) {
-      return;
-    }
-    if (attempt.turnId === undefined) {
-      attempt.terminalEvent = event;
-      return;
-    }
-    if (attempt.turnId !== event.turnId) {
-      return;
-    }
-    pendingContextBootstrapAttempts.delete(event.threadId);
-    completePendingContextBootstrapAttempt(event.threadId, attempt, event);
-  };
 
   const resolveThreadTextGenerationInput = Effect.fnUntraced(function* (input: {
     readonly threadId: ThreadId;
     readonly modelSelection?: ModelSelection;
     readonly providerOptions?: ProviderStartOptions;
-    readonly useConfiguredFallback?: boolean;
   }) {
     const thread = yield* resolveThread(input.threadId);
     const modelSelection =
@@ -613,21 +506,7 @@ const make = Effect.gen(function* () {
       thread?.modelSelection ??
       threadSessionModelSelections.get(input.threadId);
     const providerOptions = input.providerOptions ?? threadProviderOptions.get(input.threadId);
-    const threadTextGenerationInput = resolveTextGenerationInputForSelection(
-      modelSelection,
-      providerOptions,
-    );
-
-    if (threadTextGenerationInput || !input.useConfiguredFallback) {
-      return threadTextGenerationInput;
-    }
-
-    // Non-generating chat providers still get AI titles via the configured git-writing model.
-    const settings = yield* serverSettings.getSettings;
-    return resolveTextGenerationInputForSelection(
-      settings.textGenerationModelSelection,
-      providerOptions,
-    );
+    return resolveTextGenerationInputForSelection(modelSelection, providerOptions);
   });
 
   const appendProviderFailureActivity = (input: {
@@ -830,6 +709,7 @@ const make = Effect.gen(function* () {
     Effect.sync(() => {
       threadProviderOptions.delete(threadId);
       threadSessionModelSelections.delete(threadId);
+      threadManagedBindingRevisions.delete(threadId);
       const editResendPrefix = `${threadId}:`;
       for (const key of editResendTurnStartKeys) {
         if (key.startsWith(editResendPrefix)) {
@@ -841,8 +721,6 @@ const make = Effect.gen(function* () {
       // turn-scoped in-flight guard that each drain self-clears when it settles;
       // deleting it here would let a concurrent second drain start for the same
       // thread while the first is still running.
-      suppressContextBootstrapOnNextStartThreadIds.delete(threadId);
-      clearPendingContextBootstraps(threadId);
     });
 
   const clearStaleProviderResumeState = Effect.fnUntraced(function* (input: {
@@ -880,7 +758,7 @@ const make = Effect.gen(function* () {
       : undefined;
     const rebuildsContext =
       provider !== undefined &&
-      (yield* providerService.getCapabilities(provider)).conversationRollback === "restart-session";
+      (yield* providerService.getCapabilities(provider)).conversationRollback === "unsupported";
     let attempt = 0;
     while (true) {
       let rollbackError: ProviderServiceError | null = null;
@@ -897,9 +775,6 @@ const make = Effect.gen(function* () {
           ),
         );
       if (rollbackError === null) {
-        if (rebuildsContext) {
-          rollbackContextBootstrapThreadIds.add(input.threadId);
-        }
         return;
       }
       if (isStaleCodexResumeError(rollbackError)) {
@@ -1017,6 +892,126 @@ const make = Effect.gen(function* () {
     clearWorkspaceIndexCache(plan.cwd);
   });
 
+  const resolveManagedTurnRuntime = Effect.fnUntraced(function* (input: {
+    readonly threadId: ThreadId;
+    readonly modelSelection?: ModelSelection;
+    readonly connectionId?: ProviderConnectionId | null;
+    readonly bindingRevision?: number;
+  }) {
+    if (input.connectionId === undefined || input.bindingRevision === undefined) {
+      return yield* new ProviderAdapterValidationError({
+        provider: input.modelSelection?.provider ?? "codex",
+        operation: "thread.turn.start",
+        issue: "The turn is missing its exact managed Connection binding.",
+      });
+    }
+    const selection = yield* providerTurnSelectionResolver
+      .resolveExisting({
+        threadId: input.threadId,
+        ...(input.modelSelection !== undefined ? { modelSelection: input.modelSelection } : {}),
+        ...(input.connectionId !== undefined ? { connectionId: input.connectionId } : {}),
+        ...(input.bindingRevision !== undefined ? { bindingRevision: input.bindingRevision } : {}),
+      })
+      .pipe(
+        Effect.mapError(
+          (cause) =>
+            new ProviderAdapterValidationError({
+              provider: input.modelSelection?.provider ?? "codex",
+              operation: "thread.turn.start",
+              issue: cause.message,
+              cause,
+            }),
+        ),
+      );
+    if (selection.changed) {
+      return yield* new ProviderAdapterValidationError({
+        provider: selection.harness,
+        operation: "thread.turn.start",
+        issue: "A Connection change requires verified transactional switch admission.",
+      });
+    }
+    const state = Option.getOrUndefined(
+      yield* threadProviderBindings.getHarnessState(input.threadId),
+    );
+    if (!state || state.revision !== selection.stateRevision) {
+      return yield* new ProviderAdapterValidationError({
+        provider: selection.harness,
+        operation: "thread.turn.start",
+        issue: "The thread native state changed before managed runtime launch.",
+      });
+    }
+    const resumeCursor = yield* Effect.try({
+      try: () => JSON.parse(state.nativeStateLocatorJson) as unknown,
+      catch: (cause) =>
+        new ProviderAdapterValidationError({
+          provider: selection.harness,
+          operation: "thread.turn.start",
+          issue: "The thread native-state locator is invalid.",
+          cause,
+        }),
+    });
+    const launch = yield* providerLaunchResolver
+      .resolve({
+        threadId: input.threadId,
+        connectionId: selection.connectionId,
+        installationId: selection.installationId,
+        internalProviderId: selection.internalProviderId,
+      })
+      .pipe(
+        Effect.mapError(
+          (cause) =>
+            new ProviderAdapterValidationError({
+              provider: selection.harness,
+              operation: "thread.turn.start",
+              issue: cause.message,
+              cause,
+            }),
+        ),
+      );
+    return {
+      bindingRevision: selection.bindingRevision,
+      // A first binding owns an empty managed generation but has no native
+      // session identity yet. Start fresh; JSON null is a persisted sentinel,
+      // not a provider resume cursor.
+      resumeCursor: state.providerSessionId === null ? undefined : resumeCursor,
+      managedLaunch: {
+        binaryPath: launch.binaryPath,
+        isolationKey: launch.isolationKey,
+        profileRoot: launch.profileRoot,
+        nativeStateRoot: launch.nativeStateRoot,
+        childEnvironment: (baseEnv: NodeJS.ProcessEnv) => launch.childEnvironment(baseEnv),
+      } satisfies ProviderManagedLaunchContext,
+    };
+  });
+
+  const resolveCurrentManagedRuntime = Effect.fnUntraced(function* (input: {
+    readonly threadId: ThreadId;
+    readonly modelSelection: ModelSelection;
+  }) {
+    const current = yield* providerTurnSelectionResolver
+      .resolveExisting({
+        threadId: input.threadId,
+        modelSelection: input.modelSelection,
+      })
+      .pipe(
+        Effect.mapError(
+          (cause) =>
+            new ProviderAdapterValidationError({
+              provider: input.modelSelection.provider,
+              operation: "thread.turn.start",
+              issue: cause.message,
+              cause,
+            }),
+        ),
+      );
+    return yield* resolveManagedTurnRuntime({
+      threadId: input.threadId,
+      modelSelection: input.modelSelection,
+      connectionId: current.connectionId,
+      bindingRevision: current.bindingRevision,
+    });
+  });
+
   const ensureSessionForThread = Effect.fnUntraced(function* (
     threadId: ThreadId,
     createdAt: string,
@@ -1024,6 +1019,9 @@ const make = Effect.gen(function* () {
       readonly modelSelection?: ModelSelection;
       readonly providerOptions?: ProviderStartOptions;
       readonly runtimeMode?: RuntimeMode;
+      readonly managedLaunch?: ProviderManagedLaunchContext;
+      readonly nativeResumeCursor?: unknown;
+      readonly bindingRevision?: number;
     },
   ) {
     const thread = yield* resolveThread(threadId);
@@ -1032,10 +1030,6 @@ const make = Effect.gen(function* () {
         new Error(`Thread '${threadId}' was not found in projection state.`),
       );
     }
-    const shouldRegisterContextBootstrap =
-      thread.session?.status !== "stopped" &&
-      !suppressContextBootstrapOnNextStartThreadIds.has(threadId);
-
     const desiredRuntimeMode = options?.runtimeMode ?? thread.runtimeMode;
     const currentProvider: ProviderKind | undefined = Schema.is(ProviderKind)(
       thread.session?.providerName,
@@ -1064,9 +1058,13 @@ const make = Effect.gen(function* () {
         issue: `Provider '${preferredProvider}' is disabled in server settings revision ${settingsSnapshot.revision}.`,
       });
     }
-    const resolvedProviderOptions = providerStartOptionsFromServerSettings(
-      settingsSnapshot.settings,
-    );
+    if (options?.managedLaunch === undefined) {
+      return yield* new ProviderAdapterValidationError({
+        provider: preferredProvider,
+        operation: "thread.turn.start",
+        issue: `Thread '${threadId}' has no exact managed launch binding.`,
+      });
+    }
     const effectiveCwd = yield* resolveProjectedThreadWorkspaceCwd(thread);
     const workspaceState = resolveThreadWorkspaceState({
       envMode: thread.envMode,
@@ -1083,7 +1081,7 @@ const make = Effect.gen(function* () {
       threadId,
       ...(effectiveCwd ? { cwd: effectiveCwd } : {}),
       modelSelection: desiredModelSelection,
-      providerOptions: resolvedProviderOptions,
+      managedLaunch: options.managedLaunch,
       runtimeMode: desiredRuntimeMode,
     };
 
@@ -1119,10 +1117,68 @@ const make = Effect.gen(function* () {
         },
         ...(thread.session !== null ? { expectedSession: thread.session } : {}),
         createdAt,
-      });
+      }).pipe(
+        // startSession/resume can publish lifecycle state before returning.
+        // If that newer provider event wins the CAS, its projection is already
+        // authoritative and rebinding the older returned snapshot must not fail
+        // the pending turn or overwrite the newer lifecycle state.
+        Effect.catchTag("OrchestrationCommandInvariantError", () => Effect.void),
+      );
 
     // Only reuse projected session state when the runtime still has a live session to attach to.
     const activeSession = yield* resolveActiveSession(threadId);
+    if (activeSession && thread.forkSourceThreadId && thread.session === null) {
+      const persistedIdentity = providerNativeResumeIdentity(
+        desiredModelSelection.provider,
+        options?.nativeResumeCursor,
+      );
+      const activeIdentity = providerNativeResumeIdentity(
+        desiredModelSelection.provider,
+        activeSession.resumeCursor,
+      );
+      if (
+        activeSession.provider !== desiredModelSelection.provider ||
+        persistedIdentity === null ||
+        activeIdentity !== persistedIdentity
+      ) {
+        return yield* new ProviderAdapterValidationError({
+          provider: desiredModelSelection.provider,
+          operation: "thread.fork.create",
+          issue: "The admitted native fork session does not match its exact persisted identity.",
+        });
+      }
+      threadSessionModelSelections.set(threadId, desiredModelSelection);
+      if (options?.bindingRevision !== undefined) {
+        threadManagedBindingRevisions.set(threadId, options.bindingRevision);
+      }
+      yield* bindSessionToThread(activeSession);
+      return threadId;
+    }
+    if (!activeSession && thread.forkSourceThreadId && options?.nativeResumeCursor !== undefined) {
+      const resumed = yield* startProviderSession(options.nativeResumeCursor);
+      const persistedIdentity = providerNativeResumeIdentity(
+        desiredModelSelection.provider,
+        options.nativeResumeCursor,
+      );
+      const resumedIdentity = providerNativeResumeIdentity(
+        desiredModelSelection.provider,
+        resumed.resumeCursor,
+      );
+      if (persistedIdentity === null || resumedIdentity !== persistedIdentity) {
+        yield* providerService.stopSession({ threadId }).pipe(Effect.ignore);
+        return yield* new ProviderAdapterValidationError({
+          provider: desiredModelSelection.provider,
+          operation: "thread.fork.create",
+          issue: "The provider did not resume the exact admitted native fork identity.",
+        });
+      }
+      threadSessionModelSelections.set(threadId, desiredModelSelection);
+      if (options.bindingRevision !== undefined) {
+        threadManagedBindingRevisions.set(threadId, options.bindingRevision);
+      }
+      yield* bindSessionToThread(resumed);
+      return threadId;
+    }
     const existingSessionThreadId =
       thread.session && thread.session.status !== "stopped" && activeSession ? thread.id : null;
     if (existingSessionThreadId) {
@@ -1155,20 +1211,25 @@ const make = Effect.gen(function* () {
             )
           : (currentProvider === "droid" || currentProvider === "grok") &&
             !Equal.equals(previousModelSelection, requestedModelSelection));
+      const managedBindingChanged =
+        options?.bindingRevision !== undefined &&
+        threadManagedBindingRevisions.get(threadId) !== options.bindingRevision;
 
       if (
         !runtimeModeChanged &&
         !providerChanged &&
         !shouldRestartForModelChange &&
-        !shouldRestartForModelSelectionChange
+        !shouldRestartForModelSelectionChange &&
+        !managedBindingChanged
       ) {
         return existingSessionThreadId;
       }
 
       const resumeCursor =
-        providerChanged || shouldRestartForModelChange || runtimeModeChanged
+        options?.nativeResumeCursor ??
+        (providerChanged || shouldRestartForModelChange || runtimeModeChanged
           ? undefined
-          : (activeSession?.resumeCursor ?? undefined);
+          : (activeSession?.resumeCursor ?? undefined));
       yield* Effect.logInfo("provider command reactor restarting provider session", {
         threadId,
         existingSessionThreadId,
@@ -1184,15 +1245,10 @@ const make = Effect.gen(function* () {
         hasResumeCursor: resumeCursor !== undefined,
       });
       const restartedSession = yield* startProviderSession(resumeCursor);
-      if (
-        shouldRegisterContextBootstrap &&
-        currentProvider === "droid" &&
-        !providerChanged &&
-        resumeCursor === undefined
-      ) {
-        freshSessionContextBootstrapThreadIds.add(threadId);
-      }
       threadSessionModelSelections.set(threadId, desiredModelSelection);
+      if (options?.bindingRevision !== undefined) {
+        threadManagedBindingRevisions.set(threadId, options.bindingRevision);
+      }
       yield* Effect.logInfo("provider command reactor restarted provider session", {
         threadId,
         previousSessionId: existingSessionThreadId,
@@ -1201,68 +1257,55 @@ const make = Effect.gen(function* () {
         runtimeMode: restartedSession.runtimeMode,
       });
       yield* bindSessionToThread(restartedSession);
-      suppressContextBootstrapOnNextStartThreadIds.delete(threadId);
       return restartedSession.threadId;
     }
 
-    if (providerService.forkThread && thread.forkSourceThreadId) {
+    if (thread.forkSourceThreadId) {
+      if (!providerService.forkThread) {
+        return yield* new ProviderAdapterValidationError({
+          provider: preferredProvider,
+          operation: "thread.fork.create",
+          issue: "This provider does not support exact native thread forks.",
+        });
+      }
       const forked = yield* providerService.forkThread({
         ...providerSessionOptions,
         sourceThreadId: thread.forkSourceThreadId,
       });
-      if (forked) {
-        if (
-          shouldRegisterContextBootstrap &&
-          preferredProvider === "droid" &&
-          thread.sidechatSourceThreadId
-        ) {
-          // Droid's ACP fork preserves the native session but does not guarantee
-          // that the imported sidechat transcript is model-visible on its first prompt.
-          sidechatContextBootstrapThreadIds.add(threadId);
-        }
-        threadSessionModelSelections.set(threadId, desiredModelSelection);
-        const forkedSession =
-          (yield* resolveActiveSession(threadId)) ??
-          ({
-            provider: preferredProvider,
-            status: "ready",
-            runtimeMode: desiredRuntimeMode,
-            ...(effectiveCwd ? { cwd: effectiveCwd } : {}),
-            model: desiredModelSelection.model,
-            threadId,
-            ...(forked.resumeCursor !== undefined ? { resumeCursor: forked.resumeCursor } : {}),
-            createdAt,
-            updatedAt: createdAt,
-          } satisfies ProviderSession);
-        yield* bindSessionToThread(forkedSession);
-        suppressContextBootstrapOnNextStartThreadIds.delete(threadId);
-        return threadId;
+      if (!forked) {
+        return yield* new ProviderAdapterValidationError({
+          provider: preferredProvider,
+          operation: "thread.fork.create",
+          issue: "The provider could not create an exact native thread fork.",
+        });
       }
-      if (shouldRegisterContextBootstrap && !thread.sidechatSourceThreadId) {
-        freshSessionContextBootstrapThreadIds.add(threadId);
-      }
+      threadSessionModelSelections.set(threadId, desiredModelSelection);
+      const forkedSession =
+        (yield* resolveActiveSession(threadId)) ??
+        ({
+          provider: preferredProvider,
+          status: "ready",
+          runtimeMode: desiredRuntimeMode,
+          ...(effectiveCwd ? { cwd: effectiveCwd } : {}),
+          model: desiredModelSelection.model,
+          threadId,
+          ...(forked.resumeCursor !== undefined ? { resumeCursor: forked.resumeCursor } : {}),
+          createdAt,
+          updatedAt: createdAt,
+        } satisfies ProviderSession);
+      yield* bindSessionToThread(forkedSession);
+      return threadId;
     }
 
-    if (
-      shouldRegisterContextBootstrap &&
-      thread.sidechatSourceThreadId &&
-      thread.forkSourceThreadId
-    ) {
-      sidechatContextBootstrapThreadIds.add(threadId);
-    }
-
-    const startedSession = yield* startProviderSession();
+    const startedSession = yield* startProviderSession(options?.nativeResumeCursor);
     // Record the exact selection the session was spawned with so later
     // restart-necessity checks compare against the live spawn state even when
     // the spawning dispatch carried no explicit model selection.
     threadSessionModelSelections.set(threadId, desiredModelSelection);
-    yield* bindSessionToThread(startedSession).pipe(
-      // Runtime lifecycle projection or a user interrupt may win this CAS.
-      // Preserve that newer state; the caller immediately performs the exact
-      // pending-message cancellation check before any provider send.
-      Effect.catchTag("OrchestrationCommandInvariantError", () => Effect.void),
-    );
-    suppressContextBootstrapOnNextStartThreadIds.delete(threadId);
+    if (options?.bindingRevision !== undefined) {
+      threadManagedBindingRevisions.set(threadId, options.bindingRevision);
+    }
+    yield* bindSessionToThread(startedSession);
     return startedSession.threadId;
   });
 
@@ -1319,9 +1362,10 @@ const make = Effect.gen(function* () {
     readonly mentions?: ReadonlyArray<ProviderMentionReference>;
     readonly reviewTarget?: ProviderReviewTarget;
     readonly modelSelection?: ModelSelection;
+    readonly connectionId?: ProviderConnectionId | null;
+    readonly bindingRevision?: number;
     readonly providerOptions?: ProviderStartOptions;
     readonly runtimeMode?: RuntimeMode;
-    readonly interactionMode?: "default" | "plan";
     readonly dispatchMode?: "queue" | "steer";
     readonly createdAt: string;
     readonly startRequestSequence: number;
@@ -1410,15 +1454,23 @@ const make = Effect.gen(function* () {
       });
       return;
     }
-    const activeSessionBeforeEnsure = yield* providerService
-      .listSessions()
-      .pipe(
-        Effect.map((sessions) => sessions.find((session) => session.threadId === input.threadId)),
-      );
+    const managedRuntime = yield* resolveManagedTurnRuntime({
+      threadId: input.threadId,
+      ...(input.modelSelection !== undefined ? { modelSelection: input.modelSelection } : {}),
+      ...(input.connectionId !== undefined ? { connectionId: input.connectionId } : {}),
+      ...(input.bindingRevision !== undefined ? { bindingRevision: input.bindingRevision } : {}),
+    });
     yield* ensureSessionForThread(input.threadId, input.createdAt, {
       ...(input.modelSelection !== undefined ? { modelSelection: input.modelSelection } : {}),
       ...(input.providerOptions !== undefined ? { providerOptions: input.providerOptions } : {}),
       ...(input.runtimeMode !== undefined ? { runtimeMode: input.runtimeMode } : {}),
+      ...(managedRuntime === null
+        ? {}
+        : {
+            managedLaunch: managedRuntime.managedLaunch,
+            nativeResumeCursor: managedRuntime.resumeCursor,
+            bindingRevision: managedRuntime.bindingRevision,
+          }),
     }).pipe(
       Effect.catch((error) =>
         hasTurnStartCancellationRequest({
@@ -1444,123 +1496,12 @@ const make = Effect.gen(function* () {
     if (input.modelSelection !== undefined) {
       threadSessionModelSelections.set(input.threadId, input.modelSelection);
     }
-    // Bootstrap prompts wrap the user message in `<latest_user_message>` tags;
-    // mentioned-thread context is appended after the assembled provider input
-    // instead so it never reads as part of the user's own words. The budget
-    // text below still counts the suffix, keeping the total under the provider
-    // input limit regardless of where the suffix sits.
-    const boundaryMessageText = thread.sidechatSourceThreadId
-      ? `<sidechat_boundary>\n${SIDECHAT_BOUNDARY_INSTRUCTION}\n</sidechat_boundary>\n\n<latest_user_message>\n${input.messageText}\n</latest_user_message>`
-      : input.messageText;
-    const bootstrapBudgetMessageText = `${boundaryMessageText}${mentionContextSuffix}`;
-    const shouldBootstrapHandoff =
-      thread.handoff?.bootstrapStatus === "pending" &&
-      !hasNativeAssistantMessagesBefore(thread, input.messageId);
-    const handoffBootstrapAvailableChars = availableProviderContextChars({
-      tag: "handoff_context",
-      messageText: bootstrapBudgetMessageText,
-      wrapLatestUserMessage: true,
-    });
-    const handoffBootstrapText =
-      shouldBootstrapHandoff && handoffBootstrapAvailableChars > 0
-        ? buildHandoffBootstrapText(thread, handoffBootstrapAvailableChars)
-        : null;
     const selectedProvider =
       input.modelSelection?.provider ??
       threadSessionModelSelections.get(input.threadId)?.provider ??
       thread.session?.providerName ??
       thread.modelSelection.provider;
-    const hasPendingPriorTranscriptBootstrap =
-      freshSessionContextBootstrapThreadIds.has(input.threadId) ||
-      rollbackContextBootstrapThreadIds.has(input.threadId);
-    const shouldBootstrapSidechatContext =
-      thread.sidechatSourceThreadId !== null &&
-      sidechatContextBootstrapThreadIds.has(input.threadId) &&
-      !hasNativeAssistantMessagesBefore(thread, input.messageId) &&
-      !shouldBootstrapHandoff &&
-      !hasPendingPriorTranscriptBootstrap;
-    const sidechatBootstrapAvailableChars = availableProviderContextChars({
-      tag: "sidechat_context",
-      messageText: bootstrapBudgetMessageText,
-      wrapLatestUserMessage: false,
-    });
-    const sidechatBootstrapText =
-      shouldBootstrapSidechatContext && sidechatBootstrapAvailableChars > 0
-        ? buildForkBootstrapText(thread, sidechatBootstrapAvailableChars)
-        : null;
-    const hasSidechatBootstrapContent =
-      shouldBootstrapSidechatContext && listImportedForkMessages(thread).length > 0;
-    if (
-      input.reviewTarget === undefined &&
-      hasSidechatBootstrapContent &&
-      sidechatBootstrapAvailableChars === 0
-    ) {
-      return yield* new ProviderAdapterValidationError({
-        provider: selectedProvider as ProviderKind,
-        operation: "thread.turn.start",
-        issue:
-          "The latest message is too long to include the sidechat context required by this provider session. Shorten the message and retry.",
-      });
-    }
-    const shouldBootstrapPriorTranscriptContext =
-      (((selectedProvider === "kilo" || selectedProvider === "opencode") &&
-        activeSessionBeforeEnsure === undefined) ||
-        hasPendingPriorTranscriptBootstrap) &&
-      !shouldBootstrapHandoff &&
-      !shouldBootstrapSidechatContext;
-    const hasPriorTranscriptBootstrapContent =
-      shouldBootstrapPriorTranscriptContext &&
-      listPriorTranscriptMessages(thread, input.messageId).length > 0;
-    const priorTranscriptBootstrapAvailableChars = availableProviderContextChars({
-      tag: "thread_context",
-      messageText: bootstrapBudgetMessageText,
-      wrapLatestUserMessage: true,
-    });
-    if (
-      input.reviewTarget === undefined &&
-      hasPendingPriorTranscriptBootstrap &&
-      shouldBootstrapPriorTranscriptContext &&
-      priorTranscriptBootstrapAvailableChars === 0 &&
-      hasPriorTranscriptBootstrapContent
-    ) {
-      return yield* new ProviderAdapterValidationError({
-        provider: selectedProvider as ProviderKind,
-        operation: "thread.turn.start",
-        issue:
-          "The latest message is too long to include the transcript context required by the restarted provider session. Shorten the message and retry.",
-      });
-    }
-    const priorTranscriptBootstrapText =
-      shouldBootstrapPriorTranscriptContext && priorTranscriptBootstrapAvailableChars > 0
-        ? buildPriorTranscriptBootstrapText(
-            thread,
-            input.messageId,
-            priorTranscriptBootstrapAvailableChars,
-          )
-        : null;
-    const providerInput = handoffBootstrapText
-      ? wrapProviderContext({
-          tag: "handoff_context",
-          contextText: handoffBootstrapText,
-          messageText: boundaryMessageText,
-          wrapLatestUserMessage: true,
-        })
-      : sidechatBootstrapText
-        ? wrapProviderContext({
-            tag: "sidechat_context",
-            contextText: sidechatBootstrapText,
-            messageText: boundaryMessageText,
-            wrapLatestUserMessage: false,
-          })
-        : priorTranscriptBootstrapText
-          ? wrapProviderContext({
-              tag: "thread_context",
-              contextText: priorTranscriptBootstrapText,
-              messageText: boundaryMessageText,
-              wrapLatestUserMessage: true,
-            })
-          : boundaryMessageText;
-    const providerInputWithMentionContext = `${providerInput}${mentionContextSuffix}`;
+    const providerInputWithMentionContext = `${input.messageText}${mentionContextSuffix}`;
     // Portable skills fallback: providers that cannot load the referenced skill
     // file natively get the skill instructions inlined into the prompt.
     const skillInlineText =
@@ -1629,7 +1570,6 @@ const make = Effect.gen(function* () {
       ...(input.skills !== undefined ? { skills: input.skills } : {}),
       ...(providerMentions !== undefined ? { mentions: providerMentions } : {}),
       ...(modelForTurn !== undefined ? { modelSelection: modelForTurn } : {}),
-      ...(input.interactionMode !== undefined ? { interactionMode: input.interactionMode } : {}),
     };
     const sendQueuedProviderTurn = (messageText: string | undefined) =>
       providerService.sendTurn({
@@ -1686,7 +1626,6 @@ const make = Effect.gen(function* () {
     const cancelPendingStudioBaseline = studioOutputReactor.cancelPendingTurnBaseline(
       input.threadId,
     );
-    let pendingContextBootstrapAttempt: PendingContextBootstrapAttempt | undefined;
     let startedTurn: ProviderTurnStartResult | undefined;
 
     if (input.reviewTarget !== undefined) {
@@ -1704,74 +1643,18 @@ const make = Effect.gen(function* () {
       });
     } else {
       yield* capturePreTurnBaselines;
-      pendingContextBootstrapAttempt =
-        activeSession?.provider === "droid" &&
-        (sidechatBootstrapText !== null || priorTranscriptBootstrapText !== null)
-          ? {
-              clearSidechat: sidechatBootstrapText !== null,
-              clearPriorTranscript: priorTranscriptBootstrapText !== null,
-            }
-          : undefined;
-      if (pendingContextBootstrapAttempt) {
-        pendingContextBootstrapAttempts.set(input.threadId, pendingContextBootstrapAttempt);
-      }
       const ensureSessionForStaleRetry = ensureSessionForThread(input.threadId, input.createdAt, {
         ...(input.modelSelection !== undefined ? { modelSelection: input.modelSelection } : {}),
         ...(input.providerOptions !== undefined ? { providerOptions: input.providerOptions } : {}),
         ...(input.runtimeMode !== undefined ? { runtimeMode: input.runtimeMode } : {}),
-      });
-      const replayWithTranscriptBootstrap = (
-        cause: ProviderServiceError,
-        preserveActiveRuntime = false,
-      ) =>
-        Effect.gen(function* () {
-          // Claude cannot continue from a missing native session; clear the
-          // dead cursor and replay once with Penkra transcript context.
-          yield* clearStaleProviderResumeState({
-            threadId: input.threadId,
-            cause,
-            ...(preserveActiveRuntime ? { preserveActiveRuntime: true } : {}),
-          });
-          yield* ensureSessionForStaleRetry;
-
-          const retryBootstrapText =
-            priorTranscriptBootstrapAvailableChars > 0
-              ? buildPriorTranscriptBootstrapText(
-                  thread,
-                  input.messageId,
-                  priorTranscriptBootstrapAvailableChars,
-                )
-              : null;
-          const retryProviderInput = retryBootstrapText
-            ? wrapProviderContext({
-                tag: "thread_context",
-                contextText: retryBootstrapText,
-                messageText: boundaryMessageText,
-                wrapLatestUserMessage: true,
-              })
-            : boundaryMessageText;
-          const retryProviderInputWithMentionContext = `${retryProviderInput}${mentionContextSuffix}`;
-          const retryProviderInputWithSkills = skillInlineText
-            ? `${retryProviderInputWithMentionContext}\n\n${skillInlineText}`
-            : retryProviderInputWithMentionContext;
-          const retryNormalizedInput = toNonEmptyProviderInput(
-            normalizeSkillMentionTextForProvider({
-              provider: selectedProvider as ProviderKind,
-              messageText: retryProviderInputWithSkills,
-              ...(input.skills !== undefined ? { skills: input.skills } : {}),
+        ...(managedRuntime === null
+          ? {}
+          : {
+              managedLaunch: managedRuntime.managedLaunch,
+              nativeResumeCursor: managedRuntime.resumeCursor,
+              bindingRevision: managedRuntime.bindingRevision,
             }),
-          );
-
-          yield* Effect.logWarning(
-            "provider command reactor retrying claude turn after stale resume",
-            {
-              threadId: input.threadId,
-              messageId: input.messageId,
-              bootstrappedPriorTranscript: retryBootstrapText !== null,
-            },
-          );
-          return yield* sendQueuedProviderTurn(retryNormalizedInput);
-        });
+      });
       if (
         yield* hasTurnStartCancellationRequest({
           threadId: input.threadId,
@@ -1789,16 +1672,14 @@ const make = Effect.gen(function* () {
               return yield* Effect.fail(error);
             }
 
-            // Stale-resume errors can be transient CLI/session-file races, so
-            // retry the native resume id once before paying the transcript
-            // bootstrap. This must preserve the provider binding: startSession
-            // recovers the cursor from it when the fresh runtime is spawned.
+            // Stale-resume errors can be transient CLI/session-file races. Retry
+            // the exact native resume once; never reconstruct provider context
+            // from Penkra's projected transcript.
             if (!providerService.stopRuntimeSession) {
-              return yield* replayWithTranscriptBootstrap(error);
+              return yield* Effect.fail(error);
             }
-            // Background tasks share the runtime subprocess with the parent
-            // turn; stopping it for a native-resume retry would silently kill
-            // them. Recover on the live runtime via transcript bootstrap.
+            // Background tasks share the runtime subprocess with the parent turn,
+            // so an exact native retry cannot safely stop this runtime yet.
             const liveBackgroundTasks = providerService.hasLiveRuntimeTasks
               ? yield* providerService.hasLiveRuntimeTasks({ threadId: input.threadId })
               : false;
@@ -1810,7 +1691,7 @@ const make = Effect.gen(function* () {
                   messageId: input.messageId,
                 },
               );
-              return yield* replayWithTranscriptBootstrap(error, true);
+              return yield* Effect.fail(error);
             }
             yield* providerService
               .stopRuntimeSession({ threadId: input.threadId })
@@ -1823,29 +1704,10 @@ const make = Effect.gen(function* () {
                 messageId: input.messageId,
               },
             );
-            return yield* sendQueuedProviderTurn(normalizedInput).pipe(
-              Effect.catch((retryError) =>
-                isStaleClaudeResumeError(retryError)
-                  ? replayWithTranscriptBootstrap(retryError)
-                  : Effect.fail(retryError),
-              ),
-            );
+            return yield* sendQueuedProviderTurn(normalizedInput);
           }),
         ),
-        Effect.onError(() =>
-          Effect.gen(function* () {
-            yield* Effect.sync(() => {
-              if (
-                pendingContextBootstrapAttempt &&
-                pendingContextBootstrapAttempts.get(input.threadId) ===
-                  pendingContextBootstrapAttempt
-              ) {
-                pendingContextBootstrapAttempts.delete(input.threadId);
-              }
-            });
-            yield* cancelPendingStudioBaseline;
-          }),
-        ),
+        Effect.onError(() => cancelPendingStudioBaseline),
       );
       startedTurn = sentTurn;
       if (
@@ -1865,92 +1727,8 @@ const make = Effect.gen(function* () {
           createdAt: new Date().toISOString(),
         });
       }
-      if (pendingContextBootstrapAttempt) {
-        pendingContextBootstrapAttempt.turnId = sentTurn.turnId;
-        const terminalEvent = pendingContextBootstrapAttempt.terminalEvent;
-        if (terminalEvent?.turnId === sentTurn.turnId) {
-          pendingContextBootstrapAttempts.delete(input.threadId);
-          completePendingContextBootstrapAttempt(
-            input.threadId,
-            pendingContextBootstrapAttempt,
-            terminalEvent,
-          );
-        }
-      }
-    }
-    if (handoffBootstrapText && thread.handoff !== null && input.reviewTarget === undefined) {
-      yield* orchestrationEngine.dispatch({
-        type: "thread.meta.update",
-        commandId: serverCommandId("handoff-bootstrap-complete"),
-        threadId: input.threadId,
-        handoff: {
-          ...thread.handoff,
-          bootstrapStatus: "completed",
-        },
-      });
-    }
-    if (
-      shouldBootstrapSidechatContext &&
-      input.reviewTarget === undefined &&
-      pendingContextBootstrapAttempt === undefined &&
-      (sidechatBootstrapText !== null || !hasSidechatBootstrapContent)
-    ) {
-      sidechatContextBootstrapThreadIds.delete(input.threadId);
-    }
-    if (
-      shouldBootstrapPriorTranscriptContext &&
-      input.reviewTarget === undefined &&
-      pendingContextBootstrapAttempt === undefined &&
-      (priorTranscriptBootstrapText !== null || !hasPriorTranscriptBootstrapContent)
-    ) {
-      freshSessionContextBootstrapThreadIds.delete(input.threadId);
-      rollbackContextBootstrapThreadIds.delete(input.threadId);
-      sidechatContextBootstrapThreadIds.delete(input.threadId);
     }
     return startedTurn;
-  });
-
-  const renameTemporaryWorktreeBranch = Effect.fnUntraced(function* (input: {
-    readonly threadId: ThreadId;
-    readonly cwd: string;
-    readonly oldBranch: string;
-    readonly targetBranch: string;
-  }) {
-    if (input.targetBranch === input.oldBranch) {
-      return;
-    }
-
-    const renamed = yield* git.withMutation(
-      input.cwd,
-      Effect.gen(function* () {
-        const result = yield* git.renameBranch({
-          cwd: input.cwd,
-          oldBranch: input.oldBranch,
-          newBranch: input.targetBranch,
-        });
-        yield* git.publishBranch({ cwd: input.cwd, branch: result.branch }).pipe(
-          Effect.catchCause((cause) =>
-            Effect.logWarning("provider command reactor failed to publish renamed branch", {
-              threadId: input.threadId,
-              cwd: input.cwd,
-              branch: result.branch,
-              cause: Cause.pretty(cause),
-            }),
-          ),
-        );
-        return result;
-      }),
-    );
-    yield* orchestrationEngine.dispatch({
-      type: "thread.meta.update",
-      commandId: serverCommandId("worktree-branch-rename"),
-      threadId: input.threadId,
-      branch: renamed.branch,
-      worktreePath: input.cwd,
-      associatedWorktreePath: input.cwd,
-      associatedWorktreeBranch: renamed.branch,
-      associatedWorktreeRef: renamed.branch,
-    });
   });
 
   const resolveFirstTurnThread = Effect.fnUntraced(function* (
@@ -1963,97 +1741,6 @@ const make = Effect.gen(function* () {
       (message) => message.role === "user" && message.source === "native",
     );
     return userMessages.length === 1 && userMessages[0]?.id === messageId ? thread : null;
-  });
-
-  const maybeGenerateAndRenameWorktreeBranchForFirstTurn = Effect.fnUntraced(function* (input: {
-    readonly threadId: ThreadId;
-    readonly branch: string | null;
-    readonly worktreePath: string | null;
-    readonly messageId: string;
-    readonly messageText: string;
-    readonly attachments?: ReadonlyArray<ChatAttachment>;
-    readonly modelSelection?: ModelSelection;
-    readonly providerOptions?: ProviderStartOptions;
-  }) {
-    if (!input.branch || !input.worktreePath) {
-      return;
-    }
-    if (!isTemporaryWorktreeBranch(input.branch)) {
-      return;
-    }
-
-    const thread = yield* resolveFirstTurnThread(input.threadId, input.messageId);
-    if (!thread) return;
-
-    const oldBranch = input.branch;
-    const cwd = input.worktreePath;
-    const attachments = input.attachments ?? [];
-    const textGenerationInput = yield* resolveThreadTextGenerationInput({
-      threadId: input.threadId,
-      ...(input.modelSelection ? { modelSelection: input.modelSelection } : {}),
-      ...(input.providerOptions ? { providerOptions: input.providerOptions } : {}),
-    });
-    if (!textGenerationInput) {
-      const targetBranch = buildGeneratedWorktreeBranchName(
-        input.messageText.trim() || attachmentTitleSeed(attachments[0]) || "",
-      );
-      yield* renameTemporaryWorktreeBranch({
-        threadId: input.threadId,
-        cwd,
-        oldBranch,
-        targetBranch,
-      }).pipe(
-        Effect.catchCause((cause) =>
-          Effect.logWarning(
-            "provider command reactor failed to apply fallback worktree branch name",
-            {
-              threadId: input.threadId,
-              cwd,
-              oldBranch,
-              targetBranch,
-              cause: Cause.pretty(cause),
-            },
-          ),
-        ),
-      );
-      return;
-    }
-    const branchNameGenerationInput: BranchNameGenerationInput = {
-      cwd,
-      message: input.messageText,
-      ...(attachments.length > 0 ? { attachments } : {}),
-      modelSelection: textGenerationInput.modelSelection,
-      ...(textGenerationInput.providerOptions
-        ? { providerOptions: textGenerationInput.providerOptions }
-        : {}),
-    };
-    yield* textGeneration.generateBranchName(branchNameGenerationInput).pipe(
-      Effect.catch((error) =>
-        Effect.logWarning(
-          "provider command reactor failed to generate worktree branch name; skipping rename",
-          { threadId: input.threadId, cwd, oldBranch, reason: error.message },
-        ),
-      ),
-      Effect.flatMap((generated) => {
-        if (!generated) return Effect.void;
-
-        const targetBranch = buildGeneratedWorktreeBranchName(generated.branch);
-        return renameTemporaryWorktreeBranch({
-          threadId: input.threadId,
-          cwd,
-          oldBranch,
-          targetBranch,
-        });
-      }),
-      Effect.catchCause((cause) =>
-        Effect.logWarning("provider command reactor failed to generate or rename worktree branch", {
-          threadId: input.threadId,
-          cwd,
-          oldBranch,
-          cause: Cause.pretty(cause),
-        }),
-      ),
-    );
   });
 
   // Only auto-rename placeholder titles that still reflect the first-turn draft state.
@@ -2080,17 +1767,8 @@ const make = Effect.gen(function* () {
       threadId: input.threadId,
       ...(input.modelSelection ? { modelSelection: input.modelSelection } : {}),
       ...(input.providerOptions ? { providerOptions: input.providerOptions } : {}),
-      useConfiguredFallback: true,
     });
     if (!textGenerationInput) {
-      if (fallbackTitle !== currentTitle) {
-        yield* orchestrationEngine.dispatch({
-          type: "thread.meta.update",
-          commandId: serverCommandId("thread-title-fallback-rename"),
-          threadId: input.threadId,
-          title: fallbackTitle,
-        });
-      }
       return;
     }
     const textGenerationSelection = textGenerationInput.modelSelection;
@@ -2124,7 +1802,7 @@ const make = Effect.gen(function* () {
         Effect.logWarning("provider command reactor failed to generate thread title", {
           ...textGenerationLogContext,
           reason: error.message,
-        }).pipe(Effect.as(fallbackTitle)),
+        }).pipe(Effect.as(currentTitle)),
       ),
     );
 
@@ -2294,20 +1972,6 @@ const make = Effect.gen(function* () {
         operation: "thread.turn.start",
       });
 
-      yield* maybeGenerateAndRenameWorktreeBranchForFirstTurn({
-        threadId: event.payload.threadId,
-        branch: thread.branch,
-        worktreePath: thread.worktreePath,
-        messageId: message.id,
-        messageText: message.text,
-        ...(message.attachments !== undefined ? { attachments: resolvedAttachments } : {}),
-        ...(event.payload.modelSelection !== undefined
-          ? { modelSelection: event.payload.modelSelection }
-          : {}),
-        ...(event.payload.providerOptions !== undefined
-          ? { providerOptions: event.payload.providerOptions }
-          : {}),
-      }).pipe(Effect.forkScoped);
       yield* maybeGenerateAndRenameThreadTitleForFirstTurn({
         threadId: event.payload.threadId,
         messageId: message.id,
@@ -2339,6 +2003,12 @@ const make = Effect.gen(function* () {
         ...(event.payload.modelSelection !== undefined
           ? { modelSelection: event.payload.modelSelection }
           : {}),
+        ...(event.payload.connectionId !== undefined
+          ? { connectionId: event.payload.connectionId }
+          : {}),
+        ...(event.payload.bindingRevision !== undefined
+          ? { bindingRevision: event.payload.bindingRevision }
+          : {}),
         ...(event.payload.providerOptions !== undefined
           ? { providerOptions: event.payload.providerOptions }
           : {}),
@@ -2348,7 +2018,6 @@ const make = Effect.gen(function* () {
         ...(event.payload.reviewTarget !== undefined
           ? { reviewTarget: event.payload.reviewTarget }
           : {}),
-        interactionMode: event.payload.interactionMode,
         dispatchMode: immediateDispatchMode,
         createdAt: event.payload.createdAt,
         startRequestSequence: event.sequence,
@@ -2406,6 +2075,9 @@ const make = Effect.gen(function* () {
   const processTurnQueued = Effect.fnUntraced(function* (
     event: Extract<ProviderIntentEvent, { type: "thread.turn-queued" }>,
   ) {
+    const isEditResend = editResendTurnStartKeys.has(
+      editResendTurnStartKey(event.payload.threadId, event.payload.messageId),
+    );
     yield* enqueueQueuedTurnStart(event);
     // Recovery drain: if the provider turn settled between the decider's
     // (stale) running check and this enqueue, the terminal
@@ -2413,7 +2085,9 @@ const make = Effect.gen(function* () {
     // never drain this queue — the message would be stuck forever. Re-check
     // live provider state and promote immediately.
     if (!(yield* hasLiveProviderTurn(event.payload.threadId))) {
-      yield* drainQueuedTurnsForThread(event.payload.threadId);
+      yield* drainQueuedTurnsForThread(event.payload.threadId, {
+        allowStartingSession: isEditResend,
+      });
     }
   });
 
@@ -2423,8 +2097,18 @@ const make = Effect.gen(function* () {
     ).pipe(Effect.map((events) => Array.from(events)[0]));
 
   // Promote the next queued message only after the active provider turn settles.
-  const drainQueuedTurnsForThread = Effect.fnUntraced(function* (threadId: ThreadId) {
-    const sessionThreadId = (yield* resolveProviderSessionThread(threadId))?.id ?? threadId;
+  const drainQueuedTurnsForThread = Effect.fnUntraced(function* (
+    threadId: ThreadId,
+    options?: { readonly allowStartingSession?: boolean },
+  ) {
+    const providerThread = yield* resolveProviderSessionThread(threadId);
+    const sessionThreadId = providerThread?.id ?? threadId;
+    // A queued follow-up can arrive while the predecessor is admitted but has
+    // not acquired a provider turn id yet. Hold it durably through that startup
+    // boundary; terminal/startup-failure handling will invoke the drain again.
+    if (providerThread?.session?.status === "starting" && options?.allowStartingSession !== true) {
+      return;
+    }
     if (
       drainingQueuedTurns.has(threadId) ||
       pendingQueuedDispatchBySessionThread.has(sessionThreadId)
@@ -2475,6 +2159,12 @@ const make = Effect.gen(function* () {
           ...(nextQueuedTurn.modelSelection !== undefined
             ? { modelSelection: nextQueuedTurn.modelSelection }
             : {}),
+          ...(nextQueuedTurn.connectionId !== undefined
+            ? { connectionId: nextQueuedTurn.connectionId }
+            : {}),
+          ...(nextQueuedTurn.bindingRevision !== undefined
+            ? { bindingRevision: nextQueuedTurn.bindingRevision }
+            : {}),
           ...(nextQueuedTurn.providerOptions !== undefined
             ? { providerOptions: nextQueuedTurn.providerOptions }
             : {}),
@@ -2489,10 +2179,6 @@ const make = Effect.gen(function* () {
             ? { dispatchOrigin: nextQueuedTurn.dispatchOrigin }
             : {}),
           runtimeMode: nextQueuedTurn.runtimeMode,
-          interactionMode: nextQueuedTurn.interactionMode,
-          ...(nextQueuedTurn.sourceProposedPlan !== undefined
-            ? { sourceProposedPlan: nextQueuedTurn.sourceProposedPlan }
-            : {}),
           createdAt: nextQueuedTurn.createdAt,
         });
         const promoted = yield* queuedTurnPromotions.markPromoted({
@@ -2524,7 +2210,10 @@ const make = Effect.gen(function* () {
     }).pipe(Effect.ensuring(Effect.sync(() => drainingQueuedTurns.delete(threadId))));
   });
 
-  const drainQueuedTurnsForSession = Effect.fnUntraced(function* (threadId: ThreadId) {
+  const drainQueuedTurnsForSession = Effect.fnUntraced(function* (
+    threadId: ThreadId,
+    options?: { readonly allowStartingSession?: boolean },
+  ) {
     const sessionThreadId = (yield* resolveProviderSessionThread(threadId))?.id ?? threadId;
     const queuedThreadIds = new Set<ThreadId>([threadId]);
     for (const queuedThreadId of yield* queuedTurnPromotions.listPendingThreadIds) {
@@ -2536,12 +2225,11 @@ const make = Effect.gen(function* () {
       }
     }
     for (const queuedThreadId of queuedThreadIds) {
-      yield* drainQueuedTurnsForThread(queuedThreadId);
+      yield* drainQueuedTurnsForThread(queuedThreadId, options);
     }
   });
 
   const processQueueDrainEvent = Effect.fnUntraced(function* (event: ProviderQueueDrainEvent) {
-    observePendingContextBootstrapTerminalEvent(event);
     // A runtime error may be emitted before an adapter has finished tearing
     // down its active turn. Let that teardown complete; the recovery sweep will
     // promote pending work as soon as no live provider turn remains.
@@ -2576,7 +2264,7 @@ const make = Effect.gen(function* () {
     // Child subagent threads queue under their own id but share the parent's
     // provider session, and terminal runtime events carry the session-owning
     // thread id — drain every queue bound to this session.
-    yield* drainQueuedTurnsForSession(event.threadId);
+    yield* drainQueuedTurnsForSession(event.threadId, { allowStartingSession: true });
   });
 
   const recoverQueuedTurnPromotions = Effect.gen(function* () {
@@ -2886,7 +2574,7 @@ const make = Effect.gen(function* () {
               ? buildStalePendingRequestFailureDetail("approval", event.payload.requestId)
               : Cause.pretty(cause),
             settlementStatus: interactionFailureSettlementStatus(cause, unknownPendingRequest),
-          });
+          }).pipe(Effect.asVoid);
         }),
       );
   });
@@ -2920,7 +2608,7 @@ const make = Effect.gen(function* () {
               ? buildStalePendingRequestFailureDetail("user-input", event.payload.requestId)
               : Cause.pretty(cause),
             settlementStatus: interactionFailureSettlementStatus(cause, unknownPendingRequest),
-          });
+          }).pipe(Effect.asVoid);
         }),
       );
   });
@@ -3085,30 +2773,37 @@ const make = Effect.gen(function* () {
       });
     }
 
+    const readModel = yield* orchestrationEngine.getReadModel();
+    const cwd = resolveThreadWorkspaceCwd({ thread: originalThread, projects: readModel.projects });
     editResendTurnStartKeys.add(editResendTurnStartKey(payload.threadId, payload.messageId));
-    yield* orchestrationEngine.dispatch({
-      type: "thread.turn.start",
-      commandId: serverCommandId("message-edit-resend-turn-start"),
-      threadId: payload.threadId,
-      message: {
-        messageId: payload.messageId,
-        role: "user",
-        text: payload.text,
-        attachments: originalMessage.attachments ?? [],
-        ...(originalMessage.skills !== undefined ? { skills: originalMessage.skills } : {}),
-        ...(originalMessage.mentions !== undefined ? { mentions: originalMessage.mentions } : {}),
+    yield* providerThreadSwitchCoordinator.dispatchTurnStart({
+      command: {
+        type: "thread.turn.start",
+        commandId: serverCommandId("message-edit-resend-turn-start"),
+        threadId: payload.threadId,
+        message: {
+          messageId: payload.messageId,
+          role: "user",
+          text: payload.text,
+          attachments: originalMessage.attachments ?? [],
+          ...(originalMessage.skills !== undefined ? { skills: originalMessage.skills } : {}),
+          ...(originalMessage.mentions !== undefined ? { mentions: originalMessage.mentions } : {}),
+        },
+        ...(payload.modelSelection !== undefined ? { modelSelection: payload.modelSelection } : {}),
+        connectionId: payload.connectionId,
+        bindingRevision: payload.bindingRevision,
+        ...(payload.providerOptions !== undefined
+          ? { providerOptions: payload.providerOptions }
+          : {}),
+        ...(payload.assistantDeliveryMode !== undefined
+          ? { assistantDeliveryMode: payload.assistantDeliveryMode }
+          : {}),
+        dispatchMode: "queue",
+        runtimeMode: payload.runtimeMode,
+        createdAt: payload.createdAt,
       },
-      ...(payload.modelSelection !== undefined ? { modelSelection: payload.modelSelection } : {}),
-      ...(payload.providerOptions !== undefined
-        ? { providerOptions: payload.providerOptions }
-        : {}),
-      ...(payload.assistantDeliveryMode !== undefined
-        ? { assistantDeliveryMode: payload.assistantDeliveryMode }
-        : {}),
-      dispatchMode: "queue",
-      runtimeMode: payload.runtimeMode,
-      interactionMode: payload.interactionMode,
-      createdAt: payload.createdAt,
+      attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
+      ...(cwd === undefined ? {} : { cwd }),
     });
   });
 
@@ -3123,11 +2818,13 @@ const make = Effect.gen(function* () {
       : undefined;
     const rebuildsContext =
       provider !== undefined &&
-      (yield* providerService.getCapabilities(provider)).conversationRollback === "restart-session";
-    if (rebuildsContext && providerService.clearSessionResumeCursor) {
-      yield* providerService.clearSessionResumeCursor({ threadId: input.threadId });
-      rollbackContextBootstrapThreadIds.add(input.threadId);
-      return;
+      (yield* providerService.getCapabilities(provider)).conversationRollback === "unsupported";
+    if (rebuildsContext) {
+      return yield* new ProviderAdapterValidationError({
+        provider: provider as ProviderKind,
+        operation: "thread.message.edit-and-resend",
+        issue: "This provider cannot edit completed messages through exact native session state.",
+      });
     }
     if (providerService.stopRuntimeSession) {
       yield* providerService.stopRuntimeSession({ threadId: input.threadId });
@@ -3237,9 +2934,6 @@ const make = Effect.gen(function* () {
         pendingQueuedDispatchBySessionThread.delete(sessionThreadId);
       }
     }
-    clearPendingContextBootstraps(thread.id);
-    suppressContextBootstrapOnNextStartThreadIds.add(thread.id);
-
     const providerThreadId =
       providerThread !== null
         ? resolveSubagentProviderThreadId(thread.id, providerThread.id)
@@ -3385,12 +3079,32 @@ const make = Effect.gen(function* () {
       switch (event.type) {
         case "thread.session-set": {
           const thread = yield* resolveThread(event.payload.threadId);
-          if (
-            thread &&
-            event.payload.session.status !== "stopped" &&
-            !threadSessionModelSelections.has(event.payload.threadId)
-          ) {
-            threadSessionModelSelections.set(event.payload.threadId, thread.modelSelection);
+          if (thread && event.payload.session.status !== "stopped") {
+            if (!threadSessionModelSelections.has(event.payload.threadId)) {
+              threadSessionModelSelections.set(event.payload.threadId, thread.modelSelection);
+            }
+            if (!threadManagedBindingRevisions.has(event.payload.threadId)) {
+              const currentBinding = yield* providerTurnSelectionResolver
+                .resolveExisting({
+                  threadId: event.payload.threadId,
+                  modelSelection: thread.modelSelection,
+                })
+                .pipe(
+                  Effect.mapError(
+                    (cause) =>
+                      new ProviderAdapterValidationError({
+                        provider: thread.modelSelection.provider,
+                        operation: "thread.session.set",
+                        issue: cause.message,
+                        cause,
+                      }),
+                  ),
+                );
+              threadManagedBindingRevisions.set(
+                event.payload.threadId,
+                currentBinding.bindingRevision,
+              );
+            }
           }
           return;
         }
@@ -3418,31 +3132,13 @@ const make = Effect.gen(function* () {
           });
           return;
         case "thread.meta-updated": {
-          const thread = yield* resolveThread(event.payload.threadId);
           if (event.payload.modelSelection === undefined) {
             return;
           }
-
-          if (!thread?.session || thread.session.status === "stopped") {
-            threadSessionModelSelections.set(event.payload.threadId, event.payload.modelSelection);
-            return;
-          }
-
-          if (thread.session.activeTurnId !== null) {
-            // The current runtime still owns the previous spawn profile. The
-            // projected thread now carries the desired selection; compare them
-            // when the next turn ensures the session.
-            return;
-          }
-
-          const cachedProviderOptions = threadProviderOptions.get(event.payload.threadId);
-          yield* ensureSessionForThread(event.payload.threadId, event.occurredAt, {
-            modelSelection: event.payload.modelSelection,
-            ...(cachedProviderOptions !== undefined
-              ? { providerOptions: cachedProviderOptions }
-              : {}),
-          });
-          threadSessionModelSelections.set(event.payload.threadId, event.payload.modelSelection);
+          // Model selection is committed atomically with the admitting turn.
+          // The following turn-start event owns the in-session switch or
+          // restart. Keep the runtime cache on the profile actually running so
+          // that turn can compare the admitted selection against live state.
           return;
         }
         case "thread.runtime-mode-set": {
@@ -3456,12 +3152,19 @@ const make = Effect.gen(function* () {
             return;
           }
           const cachedProviderOptions = threadProviderOptions.get(event.payload.threadId);
+          const managedRuntime = yield* resolveCurrentManagedRuntime({
+            threadId: event.payload.threadId,
+            modelSelection: thread.modelSelection,
+          });
           yield* ensureSessionForThread(event.payload.threadId, event.occurredAt, {
             ...(cachedProviderOptions !== undefined
               ? { providerOptions: cachedProviderOptions }
               : {}),
             modelSelection: thread.modelSelection,
             runtimeMode: event.payload.runtimeMode,
+            managedLaunch: managedRuntime.managedLaunch,
+            nativeResumeCursor: managedRuntime.resumeCursor,
+            bindingRevision: managedRuntime.bindingRevision,
           });
           return;
         }

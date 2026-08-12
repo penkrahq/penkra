@@ -4,10 +4,9 @@
 
 import {
   type ModelSelection,
-  type OrchestrationLatestTurn,
   type OrchestrationThreadPullRequest,
   type ContainerId,
-  type ProviderInteractionMode,
+  type ProviderConnectionId,
   type ProviderKind,
   type ProviderMentionReference,
   type ProviderModelOptions,
@@ -37,7 +36,6 @@ import {
   type ChatAssistantSelectionAttachment,
   type ChatFileAttachment,
   type ChatImageAttachment,
-  DEFAULT_INTERACTION_MODE,
   DEFAULT_RUNTIME_MODE,
   type ThreadPrimarySurface,
 } from "./types";
@@ -104,35 +102,12 @@ export interface QueuedComposerChatTurn {
   selectedModel: string | null;
   selectedPromptEffort: string | null;
   modelSelection: ModelSelection;
+  connectionId: ProviderConnectionId | null;
   providerOptionsForDispatch?: ProviderStartOptions | undefined;
-  sourceProposedPlan?: NonNullable<OrchestrationLatestTurn["sourceProposedPlan"]> | undefined;
   runtimeMode: RuntimeMode;
-  interactionMode: ProviderInteractionMode;
   envMode: DraftThreadEnvMode;
 }
-
-export interface RestoredComposerSourceProposedPlan {
-  threadId: ThreadId;
-  restoredPrompt: string;
-  sourceProposedPlan: NonNullable<OrchestrationLatestTurn["sourceProposedPlan"]>;
-}
-
-export interface QueuedComposerPlanFollowUp {
-  id: string;
-  kind: "plan-follow-up";
-  createdAt: string;
-  previewText: string;
-  text: string;
-  interactionMode: "default" | "plan";
-  selectedProvider: ProviderKind;
-  selectedModel: string | null;
-  selectedPromptEffort: string | null;
-  modelSelection: ModelSelection;
-  providerOptionsForDispatch?: ProviderStartOptions | undefined;
-  runtimeMode: RuntimeMode;
-}
-
-export type QueuedComposerTurn = QueuedComposerChatTurn | QueuedComposerPlanFollowUp;
+export type QueuedComposerTurn = QueuedComposerChatTurn;
 
 export interface ComposerThreadDraftState {
   prompt: string;
@@ -154,11 +129,9 @@ export interface ComposerThreadDraftState {
   mentions: ProviderMentionReference[];
   queuedTurns: QueuedComposerTurn[];
   queuePaused: boolean;
-  restoredSourceProposedPlan?: RestoredComposerSourceProposedPlan | null;
   modelSelectionByProvider: Partial<Record<ProviderKind, ModelSelection>>;
   activeProvider: ProviderKind | null;
   runtimeMode: RuntimeMode | null;
-  interactionMode: ProviderInteractionMode | null;
 }
 
 export interface DraftThreadState {
@@ -166,7 +139,6 @@ export interface DraftThreadState {
   spaceId?: SpaceId | null;
   createdAt: string;
   runtimeMode: RuntimeMode;
-  interactionMode: ProviderInteractionMode;
   entryPoint: ThreadPrimarySurface;
   branch: string | null;
   worktreePath: string | null;
@@ -188,7 +160,6 @@ interface DraftThreadMutationOptions {
   // that spread even though the value sets are identical ("local" | "worktree").
   envMode?: DraftThreadEnvMode | undefined;
   runtimeMode?: RuntimeMode;
-  interactionMode?: ProviderInteractionMode;
   entryPoint?: ThreadPrimarySurface;
 }
 
@@ -232,7 +203,6 @@ export interface ComposerDraftStoreState {
       workingDirectory?: string | null;
       envMode?: DraftThreadEnvMode;
       runtimeMode?: RuntimeMode;
-      interactionMode?: ProviderInteractionMode;
       entryPoint?: ThreadPrimarySurface;
     },
   ) => void;
@@ -291,10 +261,6 @@ export interface ComposerDraftStoreState {
     },
   ) => void;
   setRuntimeMode: (threadId: ThreadId, runtimeMode: RuntimeMode | null | undefined) => void;
-  setInteractionMode: (
-    threadId: ThreadId,
-    interactionMode: ProviderInteractionMode | null | undefined,
-  ) => void;
   enqueueQueuedTurn: (threadId: ThreadId, queuedTurn: QueuedComposerTurn) => void;
   insertQueuedTurn: (threadId: ThreadId, queuedTurn: QueuedComposerTurn, index: number) => void;
   removeQueuedTurn: (threadId: ThreadId, queuedTurnId: string) => void;
@@ -332,10 +298,6 @@ export interface ComposerDraftStoreState {
     attachments: PersistedComposerImageAttachment[],
   ) => Promise<ComposerAttachmentPersistenceResult>;
   copyTransferableComposerState: (sourceThreadId: ThreadId, targetThreadId: ThreadId) => void;
-  setRestoredSourceProposedPlan: (
-    threadId: ThreadId,
-    source: RestoredComposerSourceProposedPlan | null,
-  ) => void;
   clearComposerContent: (
     threadId: ThreadId,
     options?: { readonly preservePreviewUrls?: boolean },
@@ -406,8 +368,6 @@ export function buildDraftThreadState(input: {
       mode: input.createdAtMode,
     }),
     runtimeMode: options?.runtimeMode ?? existingThread?.runtimeMode ?? DEFAULT_RUNTIME_MODE,
-    interactionMode:
-      options?.interactionMode ?? existingThread?.interactionMode ?? DEFAULT_INTERACTION_MODE,
     entryPoint: nextEntryPoint,
     branch:
       options?.branch === undefined ? (existingThread?.branch ?? null) : (options.branch ?? null),
@@ -439,7 +399,6 @@ export function draftThreadStatesEqual(
     left.spaceId === right.spaceId &&
     left.createdAt === right.createdAt &&
     left.runtimeMode === right.runtimeMode &&
-    left.interactionMode === right.interactionMode &&
     left.entryPoint === right.entryPoint &&
     left.branch === right.branch &&
     left.worktreePath === right.worktreePath &&
@@ -484,11 +443,9 @@ export function createEmptyThreadDraft(): ComposerThreadDraftState {
     mentions: [],
     queuedTurns: [],
     queuePaused: false,
-    restoredSourceProposedPlan: null,
     modelSelectionByProvider: {},
     activeProvider: null,
     runtimeMode: null,
-    interactionMode: null,
   };
 }
 
@@ -719,7 +676,6 @@ export function buildTransferredComposerDraft(input: {
     pastedTexts: normalizePastedTexts(sourceDraft.pastedTexts),
     skills: [...sourceDraft.skills],
     mentions: [...sourceDraft.mentions],
-    restoredSourceProposedPlan: null,
   };
 }
 
@@ -780,11 +736,9 @@ export function shouldRemoveDraft(draft: ComposerThreadDraftState): boolean {
     draft.mentions.length === 0 &&
     draft.queuedTurns.length === 0 &&
     !draft.queuePaused &&
-    draft.restoredSourceProposedPlan == null &&
     Object.keys(draft.modelSelectionByProvider).length === 0 &&
     draft.activeProvider === null &&
-    draft.runtimeMode === null &&
-    draft.interactionMode === null
+    draft.runtimeMode === null
   );
 }
 
@@ -831,11 +785,9 @@ const EMPTY_THREAD_DRAFT = Object.freeze<ComposerThreadDraftState>({
   mentions: EMPTY_MENTIONS,
   queuedTurns: EMPTY_QUEUED_TURNS,
   queuePaused: false,
-  restoredSourceProposedPlan: null,
   modelSelectionByProvider: EMPTY_MODEL_SELECTION_BY_PROVIDER,
   activeProvider: null,
   runtimeMode: null,
-  interactionMode: null,
 });
 
 export function selectComposerThreadDraft(

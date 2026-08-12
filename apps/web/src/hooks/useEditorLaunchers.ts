@@ -1,6 +1,6 @@
 // FILE: useEditorLaunchers.ts
 // Purpose: Editor-launch logic shared by the chat-header "Open in" split button and the
-//          Environment panel "Editor" section — resolves installed editors, tracks the
+//          editor-launch surfaces — resolves installed editors, tracks the
 //          preferred one, and opens the requested target path in an editor. The global open-favorite
 //          shortcut lives in useOpenFavoriteEditorShortcut so it survives whether or not
 //          these surfaces are mounted. Rendering is left entirely to the call sites.

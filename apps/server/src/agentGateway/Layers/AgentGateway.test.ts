@@ -14,6 +14,8 @@ import {
   MessageId,
   ModelSelection,
   ContainerId,
+  ProviderConnectionId,
+  SpaceId,
   ThreadId,
   TurnId,
 } from "@penkra/contracts";
@@ -52,10 +54,15 @@ import {
   type AgentGatewayOperationRecord,
 } from "../Services/AgentGatewayOperationRepository.ts";
 import { AgentGatewayLive } from "./AgentGateway.ts";
+import { AgentGatewayToolBridgeLive } from "./AgentGatewayToolBridge.ts";
 import { recordCreatedWorktreeInPlan } from "../operationPlan.ts";
+import { ProviderTurnSelectionResolver } from "../../provider/Services/ProviderTurnSelectionResolver.ts";
+import { ProviderThreadSwitchCoordinator } from "../../orchestration/Services/ProviderThreadSwitchCoordinator.ts";
 
 const NOW = "2026-03-01T10:00:00.000Z";
 const PROJECT_ID = ContainerId.makeUnsafe("project-1");
+const SPACE_ID = SpaceId.makeUnsafe("space-personal");
+const CONNECTION_ID = ProviderConnectionId.makeUnsafe("connection-default");
 
 function makeProjectShell(
   scripts: OrchestrationProjectShell["scripts"] = [],
@@ -63,6 +70,7 @@ function makeProjectShell(
   return {
     id: PROJECT_ID,
     kind: "project",
+    spaceId: SPACE_ID,
     title: "Demo project",
     workspaceRoot: "/tmp/demo",
     defaultModelSelection: null,
@@ -80,10 +88,10 @@ function makeThreadShell(
   return {
     id: ThreadId.makeUnsafe(id),
     projectId: PROJECT_ID,
+    spaceId: null,
     title: `Thread ${id}`,
     modelSelection: { provider: "codex", model: "gpt-5.5" },
     runtimeMode: "approval-required",
-    interactionMode: "default",
     envMode: "local",
     branch: null,
     worktreePath: null,
@@ -97,7 +105,6 @@ function makeThreadShell(
     subagentNickname: null,
     subagentRole: null,
     forkSourceThreadId: null,
-    sidechatSourceThreadId: null,
     lastKnownPr: null,
     latestTurn:
       id === "thread-parent"
@@ -114,7 +121,6 @@ function makeThreadShell(
     createdAt: NOW,
     updatedAt: NOW,
     archivedAt: null,
-    handoff: null,
     session: null,
     ...overrides,
   };
@@ -127,7 +133,6 @@ function makeThreadDetail(shell: OrchestrationThreadShell): OrchestrationThread 
     pinnedMessages: [],
     threadMarkers: [],
     messages: [],
-    proposedPlans: [],
     activities: [],
     checkpoints: [],
   };
@@ -540,6 +545,20 @@ function makeHarnessLayer(
         ),
       ),
   } as unknown as (typeof OrchestrationEngineService)["Service"]);
+  const providerTurnSelectionResolverLayer = Layer.succeed(ProviderTurnSelectionResolver, {
+    resolveNewThreadConnection: () => Effect.succeed(CONNECTION_ID),
+  } as unknown as (typeof ProviderTurnSelectionResolver)["Service"]);
+  const providerThreadSwitchCoordinatorLayer = Layer.effect(
+    ProviderThreadSwitchCoordinator,
+    Effect.gen(function* () {
+      const engine = yield* OrchestrationEngineService;
+      return {
+        dispatchTurnStart: ({ command }: { readonly command: OrchestrationCommand }) =>
+          engine.dispatch(command),
+        recoverOpen: Effect.void,
+      } as unknown as (typeof ProviderThreadSwitchCoordinator)["Service"];
+    }),
+  ).pipe(Layer.provide(engineLayer));
 
   const gitLayer = Layer.succeed(GitCore, {
     withMutation: (_cwd: string, effect: Effect.Effect<unknown, unknown, unknown>) => effect,
@@ -925,8 +944,6 @@ function makeHarnessLayer(
         threadId: ThreadId.makeUnsafe(pinned.threadId),
         turnId: TurnId.makeUnsafe(pinned.turnId),
         pendingMessageId: null,
-        sourceProposedPlanThreadId: null,
-        sourceProposedPlanId: null,
         assistantMessageId:
           pinned.assistantMessageId === null
             ? null
@@ -951,8 +968,6 @@ function makeHarnessLayer(
           threadId: ThreadId.makeUnsafe(threadId),
           turnId: TurnId.makeUnsafe(turnId),
           pendingMessageId: null,
-          sourceProposedPlanThreadId: null,
-          sourceProposedPlanId: null,
           assistantMessageId: turn.assistantMessageId,
           state: turn.state,
           requestedAt: turn.requestedAt,
@@ -993,9 +1008,12 @@ function makeHarnessLayer(
   } as unknown as (typeof ProjectionTurnRepository)["Service"]);
 
   const gatewayLayer = AgentGatewayLive.pipe(
+    Layer.provide(AgentGatewayToolBridgeLive),
     Layer.provide(credentialsLayer),
     Layer.provide(snapshotLayer),
     Layer.provide(engineLayer),
+    Layer.provide(providerTurnSelectionResolverLayer),
+    Layer.provide(providerThreadSwitchCoordinatorLayer),
     Layer.provide(gitLayer),
     Layer.provide(providerDiscoveryLayer),
     Layer.provide(providerHealthLayer),

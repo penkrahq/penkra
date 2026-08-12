@@ -2,15 +2,40 @@ import "../../index.css";
 
 import type { DesktopBridge } from "@penkra/contracts";
 import { page } from "vitest/browser";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
+
+const connectionApi = vi.hoisted(() => ({
+  getConnections: vi.fn(),
+  beginConnectionLogin: vi.fn(),
+  cancelConnectionLogin: vi.fn(),
+  createStaticConnection: vi.fn(),
+  getConnectionLogin: vi.fn(),
+  terminateConnection: vi.fn(),
+  openExternal: vi.fn(),
+  confirm: vi.fn(),
+}));
+
+vi.mock("~/nativeApi", () => ({
+  ensureNativeApi: () => ({
+    dialogs: { confirm: connectionApi.confirm },
+    provider: {
+      beginConnectionLogin: connectionApi.beginConnectionLogin,
+      cancelConnectionLogin: connectionApi.cancelConnectionLogin,
+      createStaticConnection: connectionApi.createStaticConnection,
+      getConnectionLogin: connectionApi.getConnectionLogin,
+      getConnections: connectionApi.getConnections,
+      terminateConnection: connectionApi.terminateConnection,
+    },
+    shell: { openExternal: connectionApi.openExternal },
+  }),
+}));
 
 import {
   buildThemeCssVariables,
   DEFAULT_THEME_STATE,
   resolveThemePack,
 } from "../../theme/theme.logic";
-import { OnboardingApiKey } from "./api-key/OnboardingApiKey";
 import { OnboardingConnectAgent } from "./connect-agent/OnboardingConnectAgent";
 import { DesktopOnboardingGate } from "./DesktopOnboardingGate";
 import { OnboardingWelcome } from "./welcome/OnboardingWelcome";
@@ -26,39 +51,93 @@ function resolveCssColor(value: string): string {
 
 describe("Pencil onboarding", () => {
   beforeEach(() => {
+    connectionApi.getConnections.mockResolvedValue({
+      connections: [],
+      installations: ["opencode", "claudeAgent", "codex"].map((harness, index) => ({
+        id: `installation-${index}`,
+        harness,
+        version: "1.0.0",
+        platform: "darwin",
+        architecture: "arm64",
+        adapterVersion: "1",
+        protocolVersion: "1",
+        lifecycle: "active",
+        healthReason: null,
+        installedAt: "2026-08-09T00:00:00.000Z",
+        activatedAt: "2026-08-09T00:00:00.000Z",
+        retiredAt: null,
+      })),
+      spaceDefaults: [],
+      anonymousRoutes: [{ harness: "opencode", internalProviderId: "opencode" }],
+      authenticationMethods: [
+        {
+          harness: "claudeAgent",
+          authenticationTargetId: "anthropic-first-party",
+          authenticationMethodId: "claude-account",
+          kind: "managed-login",
+          label: "Sign in",
+          internalProviderIds: [null],
+        },
+        {
+          harness: "claudeAgent",
+          authenticationTargetId: "anthropic-first-party",
+          authenticationMethodId: "api-key",
+          kind: "static-secret",
+          label: "API key",
+          secretPlaceholder: "Anthropic API key",
+          internalProviderIds: [null],
+        },
+        {
+          harness: "codex",
+          authenticationTargetId: "openai-first-party",
+          authenticationMethodId: "chatgpt",
+          kind: "managed-login",
+          label: "Sign in",
+          internalProviderIds: [null],
+        },
+        {
+          harness: "codex",
+          authenticationTargetId: "openai-first-party",
+          authenticationMethodId: "api-key",
+          kind: "managed-secret",
+          label: "API key",
+          secretPlaceholder: "OpenAI API key",
+          internalProviderIds: [null],
+        },
+        {
+          harness: "opencode",
+          authenticationTargetId: "opencode-go",
+          authenticationMethodId: "api-key",
+          kind: "static-secret",
+          label: "OpenCode Go",
+          secretPlaceholder: "OpenCode Go key",
+          internalProviderIds: ["opencode-go"],
+        },
+      ],
+    });
     const theme = buildThemeCssVariables(resolveThemePack(DEFAULT_THEME_STATE, "dark"), "dark");
     for (const [name, value] of Object.entries(theme.variables)) {
       document.documentElement.style.setProperty(name, value);
     }
   });
 
-  afterEach(() => {
-    document.body.innerHTML = "";
-  });
-
-  it("matches the Pencil default selection and returns selected agents", async () => {
+  it("shows the genuine unconfigured state and never gates Continue", async () => {
     const onContinue = vi.fn();
     await render(<OnboardingConnectAgent onContinue={onContinue} />);
 
     const continueButton = page.getByRole("button", { name: "Continue" });
-    await expect
-      .element(page.getByRole("button", { name: "Claude" }))
-      .toHaveAttribute("aria-pressed", "true");
-    await expect.element(page.getByText("3 connections")).toBeVisible();
+    await expect.element(page.getByText("Connect your agents")).toBeVisible();
+    await expect.element(page.getByText("No connections yet").first()).toBeVisible();
     await expect.element(continueButton).toBeEnabled();
-    await page.getByRole("button", { name: "Codex" }).click();
     await continueButton.click();
-    expect(onContinue).toHaveBeenCalledWith(["claude", "codex"]);
+    expect(onContinue).toHaveBeenCalledOnce();
   });
 
-  it("keeps API key fields native and editable", async () => {
-    const onContinue = vi.fn();
-    await render(<OnboardingApiKey onContinue={onContinue} />);
+  it("starts the real inline Connection sign-in during onboarding", async () => {
+    await render(<OnboardingConnectAgent />);
 
-    await page.getByLabelText("API key").fill("sk-local");
-    await page.getByRole("textbox", { name: "Key name" }).fill("Production");
-    await page.getByRole("button", { name: "Save" }).click();
-    expect(onContinue).toHaveBeenCalledWith("sk-local", "Production");
+    await page.getByRole("button", { name: "Sign in" }).click();
+    await vi.waitFor(() => expect(connectionApi.beginConnectionLogin).toHaveBeenCalledOnce());
   });
 
   it("keeps the onboarding frame distinct from the launch canvas across themes", async () => {
@@ -197,8 +276,11 @@ describe("Pencil onboarding", () => {
       name: "Person",
       image: null,
     });
-    await expect.element(page.getByText("Connect an agent to get started")).toBeVisible();
+    await expect.element(page.getByText("Connect your agents")).toBeVisible();
     await expect.element(page.getByText("Application shell")).not.toBeInTheDocument();
+
+    await page.getByRole("button", { name: "Continue" }).click();
+    await expect.element(page.getByText("Application shell")).toBeVisible();
   });
 
   it("enters the application after an existing account signs in", async () => {
@@ -303,5 +385,45 @@ describe("Pencil onboarding", () => {
     );
 
     await expect.element(page.getByText("Application shell")).toBeVisible();
+  });
+
+  it("keeps account verification errors distinct from signed-out state and retries", async () => {
+    const getState = vi
+      .fn()
+      .mockResolvedValueOnce({ status: "error", message: "Account service unavailable." })
+      .mockResolvedValueOnce({
+        status: "authenticated",
+        user: {
+          id: "user-1",
+          email: "person@example.com",
+          name: "Person",
+          image: null,
+        },
+      });
+    const bridge = {
+      accountAuth: {
+        getState,
+        requestSignIn: vi.fn(),
+        requestSignUp: vi.fn(),
+        signOut: vi.fn(),
+        onCallbackStarted: vi.fn(() => () => undefined),
+        onAuthenticated: vi.fn(() => () => undefined),
+        onUserUpdated: vi.fn(() => () => undefined),
+        onError: vi.fn(() => () => undefined),
+      },
+    } as unknown as DesktopBridge;
+
+    await render(
+      <DesktopOnboardingGate bridge={bridge}>
+        <p>Application shell</p>
+      </DesktopOnboardingGate>,
+    );
+
+    await expect.element(page.getByText("Penkra couldn't verify your account.")).toBeVisible();
+    await expect.element(page.getByText("Welcome to Penkra")).not.toBeInTheDocument();
+
+    await page.getByRole("button", { name: "Retry" }).click();
+    await expect.element(page.getByText("Application shell")).toBeVisible();
+    expect(getState).toHaveBeenCalledTimes(2);
   });
 });

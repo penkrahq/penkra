@@ -89,11 +89,6 @@ export const DEFAULT_SHORTCUT_FALLBACKS: ResolvedKeybindingsConfig = [
     whenAst: whenNotTerminalFocus,
   },
   {
-    command: "sidebar.importThread",
-    shortcut: commandShortcut("i"),
-    whenAst: whenNotTerminalFocus,
-  },
-  {
     command: "chat.new",
     shortcut: commandShortcut("n"),
     whenAst: whenCreationAllowed,
@@ -177,19 +172,6 @@ export const DEFAULT_SHORTCUT_FALLBACKS: ResolvedKeybindingsConfig = [
     command: "settings.usage",
     shortcut: commandShortcut("u", { shiftKey: true }),
     whenAst: whenNotTerminalFocus,
-  },
-  // Cmd+Ctrl+P on macOS. On Windows/Linux the literal chord would require the
-  // Super/Windows key, which window managers routinely swallow before it reaches
-  // the app, so those platforms get Ctrl+Alt+P instead (see the sibling entry below).
-  {
-    command: "git.commitAndPush",
-    shortcut: commandShortcut("p", { metaKey: true, ctrlKey: true, modKey: false }),
-    whenAst: whenAnd(whenNotTerminalFocus, whenIdentifier("isMac")),
-  },
-  {
-    command: "git.commitAndPush",
-    shortcut: commandShortcut("p", { ctrlKey: true, altKey: true, modKey: false }),
-    whenAst: whenAnd(whenNotTerminalFocus, whenNot(whenIdentifier("isMac"))),
   },
   // Numbered Space jumps target persisted Spaces in visual order.
   // Same guard as the creation chords: Cmd+Alt never reaches the PTY on macOS, while

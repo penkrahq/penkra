@@ -192,6 +192,8 @@ jobs:
     name: Native Desktop Package (${{ matrix.name }})
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 35
+    env:
+      PENKRA_REQUIRED_APPS_SOURCE_PATH: .release-inputs/penkra-apps/apps
     strategy:
       fail-fast: false
       matrix:
@@ -209,6 +211,19 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+
+      - name: Resolve required Apps source
+        id: required_apps
+        shell: bash
+        run: node -e "process.stdout.write('commit=' + require('./required-apps.lock.json').sourceCommit + '\n')" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout pinned required Apps source
+        uses: actions/checkout@v6
+        with:
+          repository: penkrahq/penkra-apps
+          ref: ${{ steps.required_apps.outputs.commit }}
+          path: .release-inputs/penkra-apps
+          persist-credentials: false
 
       - name: Setup workspace
         uses: ./.github/actions/setup-workspace

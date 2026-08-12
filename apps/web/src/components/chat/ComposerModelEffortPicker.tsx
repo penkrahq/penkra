@@ -7,6 +7,8 @@
 import {
   type ModelSlug,
   type ProviderAgentDescriptor,
+  type ProviderConnection,
+  type ProviderConnectionId,
   type ProviderKind,
   type ProviderModelDescriptor,
   type ProviderModelOptions,
@@ -32,6 +34,7 @@ import { getComposerTraitSelection, hasVisibleComposerTraitControls } from "./co
 import {
   getProviderIconClassName,
   ProviderModelMenuItems,
+  ProviderConnectionMenu,
   resolveProviderModelLabel,
 } from "./ProviderModelPicker";
 import { TraitsMenuContent } from "./TraitsPicker";
@@ -42,6 +45,7 @@ type ComposerModelEffortPickerProps = {
   model: ModelSlug;
   lockedProvider: ProviderKind | null;
   providers?: ReadonlyArray<ServerProviderStatus>;
+  managedProviders?: ReadonlyArray<ProviderKind>;
   modelOptionsByProvider: Record<ProviderKind, ReadonlyArray<ProviderModelOption>>;
   loadingModelProviders?: Partial<Record<ProviderKind, boolean>>;
   unavailableModelProviders?: Partial<Record<ProviderKind, boolean>>;
@@ -54,6 +58,10 @@ type ComposerModelEffortPickerProps = {
   hideStatusLabel?: boolean;
   disabled?: boolean;
   onProviderModelChange: (provider: ProviderKind, model: ModelSlug) => void;
+  connections?: ReadonlyArray<ProviderConnection>;
+  selectedConnectionId?: ProviderConnectionId | null;
+  onConnectionChange?: (connectionId: ProviderConnectionId | null) => void;
+  onManageConnections?: () => void;
   onSelectionCommitted?: () => void;
 
   // Traits/effort/speed data.
@@ -89,6 +97,10 @@ export function ComposerModelEffortPicker(props: ComposerModelEffortPickerProps)
 
   const activeProvider = props.lockedProvider ?? props.provider;
   const ProviderIcon = PROVIDER_ICON_COMPONENT_BY_PROVIDER[activeProvider];
+  const hasAvailableConnections =
+    props.connections?.some(
+      (connection) => connection.harness === activeProvider && connection.lifecycle === "active",
+    ) === true;
   const modelLabel = resolveProviderModelLabel({
     provider: props.provider,
     lockedProvider: props.lockedProvider,
@@ -258,6 +270,7 @@ export function ComposerModelEffortPicker(props: ComposerModelEffortPickerProps)
               model={props.model}
               lockedProvider={props.lockedProvider}
               {...(props.providers ? { providers: props.providers } : {})}
+              {...(props.managedProviders ? { managedProviders: props.managedProviders } : {})}
               modelOptionsByProvider={props.modelOptionsByProvider}
               {...(props.loadingModelProviders
                 ? { loadingModelProviders: props.loadingModelProviders }
@@ -273,6 +286,19 @@ export function ComposerModelEffortPicker(props: ComposerModelEffortPickerProps)
             />
           </ComposerPickerMenuSubPopup>
         </MenuSub>
+        {props.onConnectionChange && hasAvailableConnections ? <MenuSeparator /> : null}
+        {props.onConnectionChange && hasAvailableConnections ? (
+          <ProviderConnectionMenu
+            provider={activeProvider}
+            connections={props.connections ?? []}
+            selectedConnectionId={props.selectedConnectionId}
+            onConnectionChange={props.onConnectionChange}
+            {...(props.onManageConnections
+              ? { onManageConnections: props.onManageConnections }
+              : {})}
+            onAfterSelection={handleAfterModelSelection}
+          />
+        ) : null}
       </ComposerPickerMenuPopup>
     </Menu>
   );

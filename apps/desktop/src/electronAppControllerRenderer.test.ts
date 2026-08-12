@@ -58,7 +58,9 @@ function fixture() {
     isDestroyed: vi.fn(() => false),
     close: vi.fn(),
   };
-  const waitForReady = vi.fn(async () => undefined);
+  const waitForReady = vi.fn<(rendererId: number, signal?: AbortSignal) => Promise<void>>(
+    async () => undefined,
+  );
   const createView = vi.fn(() => ({ webContents: contents }) as unknown as WebContentsView);
   const factory = new ElectronAppControllerRendererFactory({
     preloadPath: "/trusted/appPreload.js",
@@ -72,7 +74,15 @@ function fixture() {
     partition: createAppSessionPartition(app.appId, "personal"),
     session: {} as ActiveAppSession["session"],
   };
-  return { factory, contents, listeners, waitForReady, createView, app, session };
+  return {
+    factory,
+    contents,
+    listeners,
+    waitForReady,
+    createView,
+    app,
+    session,
+  };
 }
 
 describe("ElectronAppControllerRendererFactory", () => {
@@ -105,9 +115,15 @@ describe("ElectronAppControllerRendererFactory", () => {
 
   it("denies popup creation and renderer-initiated navigation outside the App origin", () => {
     const test = fixture();
-    test.factory.create({ installedApp: test.app, spaceId: "personal", session: test.session });
+    test.factory.create({
+      installedApp: test.app,
+      spaceId: "personal",
+      session: test.session,
+    });
     const openHandler = test.contents.setWindowOpenHandler.mock.calls[0]?.[0];
-    expect(openHandler({ url: "https://example.com" })).toEqual({ action: "deny" });
+    expect(openHandler({ url: "https://example.com" })).toEqual({
+      action: "deny",
+    });
 
     const navigate = [...(test.listeners.get("will-navigate") ?? [])][0];
     const external = { url: "https://example.com", preventDefault: vi.fn() };
@@ -147,5 +163,36 @@ describe("ElectronAppControllerRendererFactory", () => {
       }),
     ).toThrow("session partition does not match");
     expect(test.createView).not.toHaveBeenCalled();
+  });
+
+  it("reports a preload failure immediately instead of timing out waiting for readiness", async () => {
+    const test = fixture();
+    test.waitForReady.mockImplementation(
+      (_rendererId, signal) =>
+        new Promise<void>((_resolve, reject) => {
+          if (!signal) throw new Error("Expected a readiness abort signal.");
+          signal.addEventListener("abort", () => reject(signal.reason), {
+            once: true,
+          });
+        }),
+    );
+    const renderer = test.factory.create({
+      installedApp: test.app,
+      spaceId: "personal",
+      session: test.session,
+    });
+
+    const started = renderer.start("penkra-app://com.acme.linear/operations.html");
+    const preloadError = [...(test.listeners.get("preload-error") ?? [])][0];
+    preloadError?.(
+      {} as never,
+      "/trusted/appPreload.js" as never,
+      new Error("Cannot find module './ipcChannels.js'") as never,
+    );
+
+    await expect(started).rejects.toThrow(
+      "App controller preload failed (/trusted/appPreload.js): Cannot find module './ipcChannels.js'",
+    );
+    expect(test.listeners.get("preload-error")?.size).toBe(0);
   });
 });

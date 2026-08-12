@@ -1,7 +1,7 @@
 // FILE: voiceTranscriptionAudio.test.ts
 // Purpose: Verifies shared server/desktop WAV chunk validation without an audio-duration ceiling.
 
-import type { ServerVoiceTranscriptionInput } from "@penkra/contracts";
+import { ProviderConnectionId, type ServerVoiceTranscriptionInput } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 
 import { decodeVoiceTranscriptionAudio } from "./voiceTranscriptionAudio";
@@ -13,6 +13,7 @@ function request(
 ): ServerVoiceTranscriptionInput {
   return {
     provider: "codex",
+    connectionId: ProviderConnectionId.makeUnsafe("connection-voice-test"),
     cwd: "/tmp/project",
     mimeType: "audio/wav",
     sampleRateHz: 24_000,

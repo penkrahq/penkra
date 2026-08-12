@@ -5,6 +5,8 @@
 import * as FS from "node:fs";
 import * as Path from "node:path";
 
+import { resolveDesktopPlatformAdapter } from "./desktopPlatform";
+
 import {
   createEmptyAppInstallationState,
   parseAppInstallationState,
@@ -153,7 +155,7 @@ async function syncDirectory(directoryPath: string): Promise<void> {
   } catch (error) {
     // Windows and some filesystems do not permit fsync on directories. The file
     // itself was synced before rename, so directory sync is a durability bonus.
-    if (process.platform !== "win32") throw error;
+    if (resolveDesktopPlatformAdapter().processLifecycle.syncDirectories) throw error;
   } finally {
     await handle?.close().catch(() => undefined);
   }

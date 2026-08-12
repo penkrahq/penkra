@@ -101,6 +101,22 @@ import Migration0092 from "./Migrations/092_RemoveProjectionThreadWorktreePath.t
 import Migration0093 from "./Migrations/093_VirtualFolders.ts";
 import Migration0094 from "./Migrations/094_RequireSpaces.ts";
 import Migration0095 from "./Migrations/095_SidebarManualOrdering.ts";
+import Migration0096 from "./Migrations/096_RemoveSidechatAndProviderHandoff.ts";
+import Migration0097 from "./Migrations/097_RenameGitThreadEnvironmentOperations.ts";
+import Migration0098 from "./Migrations/098_ProviderConnectionsAndBindings.ts";
+import Migration0099 from "./Migrations/099_ProviderThreadSwitchOperations.ts";
+import Migration0100 from "./Migrations/100_ReconcileProviderConnectionSchema.ts";
+import Migration0101 from "./Migrations/101_ExactProviderNativeStateMigration.ts";
+import Migration0102 from "./Migrations/102_ProviderConnectionLogins.ts";
+import Migration0103 from "./Migrations/103_DefaultNewSpacesAndConnections.ts";
+import Migration0104 from "./Migrations/104_ProviderNativeStateOwnership.ts";
+import Migration0105 from "./Migrations/105_ProviderNativeForkOperations.ts";
+import Migration0106 from "./Migrations/106_RemovePlanMode.ts";
+import Migration0107 from "./Migrations/107_ReconcileUnavailableSpaceConnectionDefaults.ts";
+import Migration0108 from "./Migrations/108_RemoveLegacyClaudeSetupTokenConnections.ts";
+import Migration0109 from "./Migrations/109_ProviderRuntimeBindingSwitchOperations.ts";
+import Migration0110 from "./Migrations/110_SettleProviderSwitchSource.ts";
+import Migration0111 from "./Migrations/111_DerivedProviderConnectionLabels.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -201,6 +217,22 @@ export const migrationEntries = [
   [93, "VirtualFolders", Migration0093],
   [94, "RequireSpaces", Migration0094],
   [95, "SidebarManualOrdering", Migration0095],
+  [96, "RemoveSidechatAndProviderHandoff", Migration0096],
+  [97, "RenameGitThreadEnvironmentOperations", Migration0097],
+  [98, "ProviderConnectionsAndBindings", Migration0098],
+  [99, "ProviderThreadSwitchOperations", Migration0099],
+  [100, "ReconcileProviderConnectionSchema", Migration0100],
+  [101, "ExactProviderNativeStateMigration", Migration0101],
+  [102, "ProviderConnectionLogins", Migration0102],
+  [103, "DefaultNewSpacesAndConnections", Migration0103],
+  [104, "ProviderNativeStateOwnership", Migration0104],
+  [105, "ProviderNativeForkOperations", Migration0105],
+  [106, "RemovePlanMode", Migration0106],
+  [107, "ReconcileUnavailableSpaceConnectionDefaults", Migration0107],
+  [108, "RemoveLegacyClaudeSetupTokenConnections", Migration0108],
+  [109, "ProviderRuntimeBindingSwitchOperations", Migration0109],
+  [110, "SettleProviderSwitchSource", Migration0110],
+  [111, "DerivedProviderConnectionLabels", Migration0111],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

@@ -29,7 +29,7 @@ export const DESKTOP_IPC_CHANNELS = {
   notificationsIsSupported: "desktop:notifications-is-supported",
   notificationsShow: "desktop:notifications-show",
   mediaRequestMicrophoneAccess: "desktop:media-request-microphone-access",
-  mediaSetVoiceRecordingActive: "desktop:media-set-voice-recording-active",
+  powerSetActiveWork: "desktop:power-set-active-work",
   composerDrafts: {
     readSnapshot: "desktop:composer-drafts-read-snapshot",
     writeSnapshot: "desktop:composer-drafts-write-snapshot",
@@ -57,7 +57,10 @@ export const DESKTOP_IPC_CHANNELS = {
   zoomFactor: "desktop:zoom-factor",
   zoomFactorChanged: "desktop:zoom-factor-changed",
   wsUrl: "desktop:get-ws-url",
-  transcribeVoice: "desktop:server-transcribe-voice",
+  voice: {
+    capabilities: "desktop:voice-capabilities",
+    transcribeWithApple: "desktop:voice-transcribe-with-apple",
+  },
   storageMigration: {
     read: "desktop:storage-migration-read",
     acknowledge: "desktop:storage-migration-acknowledge",
@@ -99,9 +102,16 @@ export const DESKTOP_IPC_CHANNELS = {
     resourceOpen: "penkra-app:resource-open",
     browserCall: "penkra-app:browser-call",
     browserState: "penkra-app:browser-state",
+    simulatorCall: "penkra-app:simulator-call",
+    simulatorState: "penkra-app:simulator-state",
     networkFetch: "penkra-app:network-fetch",
-    rawSocketExchange: "penkra-app:raw-socket-exchange",
-    processRun: "penkra-app:process-run",
+  },
+  simulatorViewer: {
+    frame: "penkra-simulator-viewer:frame",
+    input: "penkra-simulator-viewer:input",
+  },
+  simulatorLicenseReview: {
+    response: "penkra-simulator-license-review:response",
   },
   appInstallations: {
     state: "desktop:app-installations-state",
@@ -154,5 +164,4 @@ export const DESKTOP_IPC_CHANNELS = {
 } as const;
 
 export const DESKTOP_WS_URL_CHANNEL = DESKTOP_IPC_CHANNELS.wsUrl;
-export const SERVER_TRANSCRIBE_VOICE_CHANNEL = DESKTOP_IPC_CHANNELS.transcribeVoice;
 export const APP_RUNTIME_IPC_CHANNELS = DESKTOP_IPC_CHANNELS.appRuntime;

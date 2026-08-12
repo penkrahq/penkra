@@ -855,7 +855,7 @@ function ComposerLinkPastePlugin() {
 
 // Thread mention chips resolve their provider icon from the sidebar summaries,
 // which may not be loaded yet when a draft is restored (and can change after a
-// provider handoff). Refresh the stored provider on existing chips whenever the
+// provider binding change). Refresh the stored provider on existing chips whenever the
 // summaries change so the icon never stays stale.
 function ComposerThreadMentionProviderPlugin() {
   const [editor] = useLexicalComposerContext();

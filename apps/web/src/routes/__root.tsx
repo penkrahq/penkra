@@ -24,7 +24,9 @@ import { Throttler } from "@tanstack/react-pacer";
 
 import { APP_DISPLAY_NAME, APP_VERSION } from "../branding";
 import { DesktopWindowControls } from "../components/DesktopWindowControls";
+import { DesktopActiveWorkPowerSync } from "../components/DesktopActiveWorkPowerSync";
 import { DesktopOnboardingGate } from "../components/onboarding/DesktopOnboardingGate";
+import { QueuedComposerTurnDispatcher } from "../components/QueuedComposerTurnDispatcher";
 import { FeedbackDialog } from "../components/FeedbackDialog";
 import { SETTINGS_TARGETS } from "../settingsNavigation";
 import ShortcutsDialog from "../components/ShortcutsDialog";
@@ -73,7 +75,7 @@ import {
 import { invalidateProjectFileQueriesForCwds, projectQueryKeys } from "../lib/projectReactQuery";
 import { collectActiveTerminalThreadIds } from "../lib/terminalStateCleanup";
 import { useProjectRunStore } from "../projectRunStore";
-import { VoiceRecordingSessionProvider } from "../voiceRecordingSession";
+import { VoiceSessionCoordinatorProvider } from "../voiceSessionCoordinator";
 import { TaskCompletionNotifications } from "../notifications/taskCompletion";
 import { useWorkspacePathsStore } from "../workspacePathsStore";
 import {
@@ -230,8 +232,9 @@ function RootRouteView() {
     <>
       <DesktopOnboardingGate>
         <ToastProvider position="top-center">
-          <VoiceRecordingSessionProvider>
+          <VoiceSessionCoordinatorProvider>
             <AnchoredToastProvider>
+              <DesktopActiveWorkPowerSync />
               <GitProgressToastPreviewDev />
               <EventRouter />
               <GlobalShortcutsDialog />
@@ -240,9 +243,10 @@ function RootRouteView() {
               <TaskCompletionNotifications />
               <ProviderUpdateNotifications />
               <DesktopProjectBootstrap />
+              <QueuedComposerTurnDispatcher />
               <Outlet />
             </AnchoredToastProvider>
-          </VoiceRecordingSessionProvider>
+          </VoiceSessionCoordinatorProvider>
         </ToastProvider>
       </DesktopOnboardingGate>
       {desktopWindowControls}
@@ -653,7 +657,6 @@ function GlobalFeedbackDialog() {
     projectKind: activeProject?.kind ?? null,
     environmentMode: activeThread?.envMode ?? null,
     runtimeMode: activeThread?.runtimeMode ?? null,
-    interactionMode: activeThread?.interactionMode ?? null,
     sessionStatus: activeThread?.session?.status ?? null,
     latestTurnState: activeThread?.latestTurn?.state ?? null,
     messageCount: activeThread?.messages.length ?? 0,
@@ -874,7 +877,6 @@ function isThreadDetailEventForThread(event: OrchestrationEvent, threadId: Threa
   }
   return (
     event.type === "thread.message-sent" ||
-    event.type === "thread.proposed-plan-upserted" ||
     event.type === "thread.activity-appended" ||
     event.type === "thread.turn-diff-completed" ||
     event.type === "thread.reverted" ||

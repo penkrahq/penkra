@@ -4,7 +4,6 @@
 // Depends on: MessagesTimeline and ChatView's list-owned scroll contract.
 
 import { type MessageId, type ThreadId, type ThreadMarker, type TurnId } from "@penkra/contracts";
-import { type LegendListRef } from "@legendapp/list/react";
 import {
   type ComponentProps,
   type CSSProperties,
@@ -16,15 +15,16 @@ import {
   type WheelEventHandler,
 } from "react";
 import { type TimestampFormat } from "../../appSettings";
-import { type TurnDiffSummary, type WorktreeSetupSnapshot } from "../../types";
+import { type TurnDiffSummary } from "../../types";
 import { ArrowDownIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
 import { DISCLOSURE_CONTENT_MOTION_CLASS } from "~/lib/disclosureMotion";
 import { type ExpandedImagePreview } from "./ExpandedImagePreview";
 import { ChatEmptyStateHero } from "./ChatEmptyStateHero";
-import { MessagesTimeline, type MessagesTimelineController } from "./MessagesTimeline";
+import { MessagesTimeline } from "./MessagesTimeline";
 import { AgentActivityDetailView } from "./AgentActivityDetailView";
 import type { AgentActivityDetail } from "./agentActivity.logic";
+import type { TranscriptVirtualListRef } from "./TranscriptVirtualList";
 
 interface ChatTranscriptPaneProps {
   activeThreadId: string;
@@ -41,8 +41,7 @@ interface ChatTranscriptPaneProps {
   isRevertingCheckpoint: boolean;
   isWorking: boolean;
   followLiveOutput: boolean;
-  listRef: RefObject<LegendListRef | null>;
-  timelineControllerRef?: RefObject<MessagesTimelineController | null>;
+  listRef: RefObject<TranscriptVirtualListRef | null>;
   pinnedMessageIds?: ReadonlySet<MessageId>;
   canPinMessage?: (messageId: MessageId) => boolean;
   onTogglePinMessage?: (messageId: MessageId) => void;
@@ -80,7 +79,6 @@ interface ChatTranscriptPaneProps {
   timestampFormat: TimestampFormat;
   turnDiffSummaryByAssistantMessageId: Map<MessageId, TurnDiffSummary>;
   workspaceRoot: string | undefined;
-  worktreeSetup: WorktreeSetupSnapshot | null;
 }
 
 export function ChatTranscriptPane({
@@ -99,7 +97,6 @@ export function ChatTranscriptPane({
   isWorking,
   followLiveOutput,
   listRef,
-  timelineControllerRef,
   pinnedMessageIds,
   canPinMessage,
   onTogglePinMessage,
@@ -135,7 +132,6 @@ export function ChatTranscriptPane({
   timestampFormat,
   turnDiffSummaryByAssistantMessageId,
   workspaceRoot,
-  worktreeSetup,
 }: ChatTranscriptPaneProps) {
   const scrollButtonFrameStyle: CSSProperties | undefined = contentInsetRightPx
     ? { paddingRight: contentInsetRightPx }
@@ -163,12 +159,10 @@ export function ChatTranscriptPane({
             key={activeThreadId}
             hasMessages={hasMessages}
             isWorking={isWorking}
-            worktreeSetup={worktreeSetup}
             activeTurnId={activeTurnId ?? null}
             activeTurnInProgress={activeTurnInProgress}
             activeTurnStartedAt={activeTurnStartedAt}
             listRef={listRef}
-            {...(timelineControllerRef ? { controllerRef: timelineControllerRef } : {})}
             {...(pinnedMessageIds ? { pinnedMessageIds } : {})}
             {...(canPinMessage ? { canPinMessage } : {})}
             {...(onTogglePinMessage ? { onTogglePinMessage } : {})}

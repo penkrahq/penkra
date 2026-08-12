@@ -1,4 +1,4 @@
-import { CheckpointRef, MessageId, OrchestrationProposedPlanId, TurnId } from "@penkra/contracts";
+import { CheckpointRef, MessageId, TurnId } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 import {
   buildTurnDiffSummaryByAssistantMessageId,
@@ -19,7 +19,7 @@ import {
   type StableMessagesTimelineRowsState,
 } from "./MessagesTimeline.logic";
 import type { TimelineEntry, WorkLogEntry } from "../../session-logic";
-import type { TurnDiffSummary, WorktreeSetupSnapshot } from "../../types";
+import type { TurnDiffSummary } from "../../types";
 
 function makeSummary(
   overrides: Omit<Partial<TurnDiffSummary>, "turnId"> & { turnId: string },
@@ -282,30 +282,6 @@ describe("computeStableMessagesTimelineRows", () => {
 
     expect(second).not.toBe(first);
     expect(second.result[0]).toBe(settledRow);
-  });
-
-  it("reuses worktree-setup rows until a step status or open state changes", () => {
-    const makeRow = (
-      status: "active" | "done",
-      open: boolean,
-    ): Extract<MessagesTimelineRow, { kind: "worktree-setup" }> => ({
-      kind: "worktree-setup",
-      id: "worktree-setup-row",
-      open,
-      steps: [{ id: "create-worktree", label: "Creating branch and worktree", status }],
-    });
-
-    const first = computeStableMessagesTimelineRows([makeRow("active", true)], emptyStableRows());
-    const unchanged = computeStableMessagesTimelineRows([makeRow("active", true)], first);
-    expect(unchanged).toBe(first);
-
-    const statusChanged = computeStableMessagesTimelineRows([makeRow("done", true)], unchanged);
-    expect(statusChanged).not.toBe(unchanged);
-    expect(statusChanged.result[0]).not.toBe(unchanged.result[0]);
-
-    const openChanged = computeStableMessagesTimelineRows([makeRow("done", false)], statusChanged);
-    expect(openChanged).not.toBe(statusChanged);
-    expect(openChanged.result[0]).not.toBe(statusChanged.result[0]);
   });
 
   it("replaces work rows when the activity kind changes", () => {
@@ -797,8 +773,6 @@ describe("deriveMessagesTimelineRows", () => {
 
   const baseInput = {
     isWorking: false,
-    worktreeSetup: null as WorktreeSetupSnapshot | null,
-    worktreeSetupOpen: false,
     activeTurnStartedAt: null as string | null,
     turnDiffSummaryByAssistantMessageId: new Map(),
     revertTurnCountByUserMessageId: new Map(),
@@ -848,21 +822,6 @@ describe("deriveMessagesTimelineRows", () => {
     entry: { id, createdAt, label, tone },
   });
 
-  const proposedPlanEntry = (id: string, createdAt: string, turnId: string): TimelineEntry => ({
-    id: `entry-${id}`,
-    kind: "proposed-plan",
-    createdAt,
-    proposedPlan: {
-      id: OrchestrationProposedPlanId.makeUnsafe(id),
-      turnId: TurnId.makeUnsafe(turnId),
-      planMarkdown: "# Plan",
-      implementedAt: null,
-      implementationThreadId: null,
-      createdAt,
-      updatedAt: createdAt,
-    },
-  });
-
   const messageRow = (rows: MessagesTimelineRow[], id: string): MessageTimelineRow | undefined =>
     rows.find(
       (row): row is MessageTimelineRow =>
@@ -871,6 +830,50 @@ describe("deriveMessagesTimelineRows", () => {
 
   const collapsedSignature = (row: MessageTimelineRow): string[] =>
     (row.collapsedTurnItems ?? []).map((item) => `${item.kind}:${String(item.id)}`);
+
+  it("keeps a Connection change standalone before the message that uses it", () => {
+    const boundaryAt = "2026-01-01T00:01:00Z";
+    const rows = deriveMessagesTimelineRows({
+      ...baseInput,
+      timelineEntries: [
+        userEntry("u1", "2026-01-01T00:00:00Z"),
+        assistantEntry("a1", "2026-01-01T00:00:05Z", {
+          turnId: "t1",
+          completedAt: "2026-01-01T00:00:05Z",
+        }),
+        {
+          id: "entry-connection-changed",
+          kind: "work",
+          createdAt: boundaryAt,
+          entry: {
+            id: "connection-changed",
+            createdAt: boundaryAt,
+            label: "Connection changed to Work",
+            tone: "info",
+            activityKind: "connection-changed",
+          },
+        },
+        userEntry("u2", boundaryAt),
+        assistantEntry("a2", "2026-01-01T00:01:05Z", {
+          turnId: "t2",
+          completedAt: "2026-01-01T00:01:05Z",
+        }),
+      ],
+    });
+
+    expect(rows.map((row) => row.kind)).toEqual([
+      "message",
+      "message",
+      "work",
+      "message",
+      "message",
+    ]);
+    expect(rows[2]).toMatchObject({
+      kind: "work",
+      groupedEntries: [{ activityKind: "connection-changed" }],
+    });
+    expect(messageRow(rows, "a1")?.collapsedTurnItems).toBeUndefined();
+  });
 
   it("folds a settled turn's narration and work into one collapsed group on the terminal message", () => {
     const rows = deriveMessagesTimelineRows({
@@ -1126,30 +1129,6 @@ describe("deriveMessagesTimelineRows", () => {
     ]);
   });
 
-  it("collapses turn work across an intervening proposed plan card", () => {
-    const rows = deriveMessagesTimelineRows({
-      ...baseInput,
-      timelineEntries: [
-        userEntry("u1", "2026-01-01T00:00:00Z"),
-        assistantEntry("a1", "2026-01-01T00:00:01Z", {
-          turnId: "t1",
-          text: "I have a plan",
-          completedAt: "2026-01-01T00:00:01Z",
-        }),
-        workEntry("w1", "2026-01-01T00:00:02Z", "tool 1"),
-        proposedPlanEntry("plan-1", "2026-01-01T00:00:03Z", "t1"),
-        assistantEntry("a2", "2026-01-01T00:00:04Z", {
-          turnId: "t1",
-          text: "final",
-          completedAt: "2026-01-01T00:00:05Z",
-        }),
-      ],
-    });
-
-    expect(rows.some((row) => row.kind === "proposed-plan")).toBe(true);
-    expect(collapsedSignature(messageRow(rows, "a2")!)).toEqual(["narration:a1", "work:w1"]);
-  });
-
   it("preserves Penkra tool calls when a separate creation recap is present", () => {
     const createTool = workEntry(
       "penkra-create-tool",
@@ -1208,57 +1187,6 @@ describe("deriveMessagesTimelineRows", () => {
       "work:penkra-create-tool",
       "work:penkra-create-recap",
     ]);
-  });
-
-  const worktreeSetupSnapshot = (): WorktreeSetupSnapshot => ({
-    steps: [
-      { id: "create-worktree", label: "Creating branch and worktree", status: "done" },
-      { id: "prepare-thread", label: "Linking thread workspace", status: "active" },
-      { id: "start-session", label: "Starting session", status: "pending" },
-    ],
-  });
-
-  it("appends an open worktree-setup row and suppresses the generic working shimmer", () => {
-    const setup = worktreeSetupSnapshot();
-    const rows = deriveMessagesTimelineRows({
-      ...baseInput,
-      isWorking: true,
-      worktreeSetup: setup,
-      worktreeSetupOpen: true,
-      timelineEntries: [userEntry("u1", "2026-01-01T00:00:00Z")],
-    });
-
-    const setupRow = rows.at(-1);
-    expect(setupRow).toMatchObject({
-      kind: "worktree-setup",
-      id: "worktree-setup-row",
-      open: true,
-      steps: setup.steps,
-    });
-    expect(rows.some((row) => row.kind === "working")).toBe(false);
-  });
-
-  it("restores the working shimmer while the worktree-setup row animates closed", () => {
-    const rows = deriveMessagesTimelineRows({
-      ...baseInput,
-      isWorking: true,
-      worktreeSetup: worktreeSetupSnapshot(),
-      worktreeSetupOpen: false,
-      timelineEntries: [userEntry("u1", "2026-01-01T00:00:00Z")],
-    });
-
-    expect(rows.map((row) => row.kind)).toEqual(["message", "worktree-setup", "working"]);
-    expect(rows.find((row) => row.kind === "worktree-setup")).toMatchObject({ open: false });
-  });
-
-  it("omits the worktree-setup row entirely once the snapshot is gone", () => {
-    const rows = deriveMessagesTimelineRows({
-      ...baseInput,
-      isWorking: true,
-      timelineEntries: [userEntry("u1", "2026-01-01T00:00:00Z")],
-    });
-
-    expect(rows.map((row) => row.kind)).toEqual(["message", "working"]);
   });
 });
 

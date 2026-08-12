@@ -6,13 +6,22 @@
 
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 
 import rootPackageJson from "../package.json" with { type: "json" };
 import desktopPackageJson from "../apps/desktop/package.json" with { type: "json" };
 import serverPackageJson from "../apps/server/package.json" with { type: "json" };
+import requiredAppsReleaseLockJson from "../required-apps.lock.json" with { type: "json" };
+import { packageAppDirectory } from "@penkra/shared/appPackaging";
+import {
+  parseRequiredAppsReleaseLock,
+  REQUIRED_APPS_ARCHIVE_FILE_NAME,
+  REQUIRED_APPS_BUNDLE_DIRECTORY,
+  REQUIRED_APPS_LOCK_FILE_NAME,
+  REQUIRED_APPS_SOURCE_PATH_ENV,
+} from "@penkra/shared/requiredAppsRelease";
 
 import { BRAND_ASSET_PATHS } from "./lib/brand-assets.ts";
 import { createDesktopPlatformBuildConfig } from "./lib/desktop-platform-build-config.ts";
@@ -41,6 +50,7 @@ import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 const BuildPlatform = Schema.Literals(["linux", "mac", "win"]);
 const BuildArch = Schema.Literals(["arm64", "x64", "universal"]);
 const requireFromScriptsWorkspace = createRequire(new URL("./package.json", import.meta.url));
+const requiredAppsReleaseLock = parseRequiredAppsReleaseLock(requiredAppsReleaseLockJson);
 
 const RepoRoot = Effect.service(Path.Path).pipe(
   Effect.flatMap((path) => path.fromFileUrl(new URL("..", import.meta.url))),
@@ -846,12 +856,49 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     serverDist: path.join(repoRoot, "apps/server/dist"),
   };
   const bundledClientEntry = path.join(distDirs.serverDist, "client/index.html");
+  const configuredRequiredAppsSource = process.env[REQUIRED_APPS_SOURCE_PATH_ENV]?.trim();
+  const requiredAppsSourcePath = configuredRequiredAppsSource
+    ? path.resolve(configuredRequiredAppsSource)
+    : [
+        path.join(repoRoot, ".release-inputs", "penkra-apps", "apps"),
+        path.resolve(repoRoot, "..", "penkra-apps", "apps"),
+      ].find((candidate) => existsSync(path.join(candidate, "penkra-app.json")));
+
+  if (!requiredAppsSourcePath) {
+    return yield* new BuildScriptError({
+      message: `Required Apps source is unavailable. Set ${REQUIRED_APPS_SOURCE_PATH_ENV} to the pinned penkra-apps/apps directory.`,
+    });
+  }
+  const requiredAppsRepositoryRoot = spawnSync(
+    "git",
+    ["-C", requiredAppsSourcePath, "rev-parse", "--show-toplevel"],
+    { encoding: "utf8" },
+  );
+  if (requiredAppsRepositoryRoot.status !== 0) {
+    return yield* new BuildScriptError({
+      message: "Required Apps source is not inside its Git repository.",
+    });
+  }
+  const requiredAppsSourceCommit = spawnSync(
+    "git",
+    ["-C", requiredAppsSourcePath, "rev-parse", "HEAD"],
+    { encoding: "utf8" },
+  );
+  if (
+    requiredAppsSourceCommit.status !== 0 ||
+    requiredAppsSourceCommit.stdout.trim() !== requiredAppsReleaseLock.sourceCommit
+  ) {
+    return yield* new BuildScriptError({
+      message: `Required Apps source must be checked out at ${requiredAppsReleaseLock.sourceCommit}.`,
+    });
+  }
 
   if (!options.skipBuild) {
     yield* Effect.log("[desktop-artifact] Building desktop/server/web artifacts...");
     yield* runCommand(
       ChildProcess.make({
         cwd: repoRoot,
+        env: { ...process.env, PENKRA_DESKTOP_TARGET_ARCH: options.arch },
         ...commandOutputOptions(options.verbose),
       })`bun run build:desktop`,
     );
@@ -879,6 +926,39 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   yield* fs.copy(distDirs.desktopDist, path.join(stageAppDir, "apps/desktop/dist-electron"));
   yield* fs.copy(distDirs.desktopResources, stageResourcesDir);
   yield* fs.copy(distDirs.serverDist, path.join(stageAppDir, "apps/server/dist"));
+  const requiredAppsBundleDirectory = path.join(stageResourcesDir, REQUIRED_APPS_BUNDLE_DIRECTORY);
+  const requiredAppsArchivePath = path.join(
+    requiredAppsBundleDirectory,
+    REQUIRED_APPS_ARCHIVE_FILE_NAME,
+  );
+  yield* fs.makeDirectory(requiredAppsBundleDirectory, { recursive: true });
+  const requiredAppsEvidence = yield* Effect.tryPromise({
+    try: () =>
+      packageAppDirectory({
+        directory: requiredAppsSourcePath,
+        output: requiredAppsArchivePath,
+      }),
+    catch: (cause) =>
+      new BuildScriptError({ message: "Could not package the required Apps release.", cause }),
+  });
+  if (
+    requiredAppsEvidence.appId !== requiredAppsReleaseLock.appId ||
+    requiredAppsEvidence.slug !== requiredAppsReleaseLock.slug ||
+    requiredAppsEvidence.version !== requiredAppsReleaseLock.version ||
+    requiredAppsEvidence.packageDigest !== requiredAppsReleaseLock.packageDigest
+  ) {
+    return yield* new BuildScriptError({
+      message:
+        "Required Apps package does not match required-apps.lock.json; publish and pin the exact immutable artifact before building Penkra.",
+    });
+  }
+  yield* fs.copyFile(
+    path.join(repoRoot, "required-apps.lock.json"),
+    path.join(requiredAppsBundleDirectory, REQUIRED_APPS_LOCK_FILE_NAME),
+  );
+  yield* Effect.log(
+    `[desktop-artifact] Embedded required Apps ${requiredAppsEvidence.version} (${requiredAppsEvidence.packageDigest}).`,
+  );
   yield* stagePlatformBuildResources(options.platform, stageResourcesDir, options.verbose);
 
   // electron-builder is filtering out stageResourcesDir directory in the AppImage for production
@@ -905,7 +985,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     private: true,
     description: "Penkra desktop build",
     author: "Penkra",
-    main: "apps/desktop/dist-electron/main.js",
+    main: "apps/desktop/dist-electron/entry.js",
     build: resolvedBuildConfig,
     dependencies: {
       ...resolvedServerDependencies,

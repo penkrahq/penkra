@@ -10,7 +10,11 @@ import type {
 } from "@penkra/contracts";
 import type { Agent, OpencodeClient } from "@opencode-ai/sdk/v2";
 
-import { type OpenCodeCliModelDescriptor, type OpenCodeRuntimeError } from "./opencodeRuntime.ts";
+import {
+  isAuthoritativelyFreeOpenCodeModel,
+  type OpenCodeCliModelDescriptor,
+  type OpenCodeRuntimeError,
+} from "./opencodeRuntime.ts";
 import { positiveInteger } from "./tokenUsage.ts";
 
 export interface OpenCodeModelInventory {
@@ -37,6 +41,14 @@ export interface OpenCodeModelInventory {
           };
           readonly variants?: Record<string, Record<string, unknown>>;
           readonly isFree?: boolean;
+          readonly cost?: {
+            readonly input?: number;
+            readonly output?: number;
+            readonly cache?: {
+              readonly read?: number;
+              readonly write?: number;
+            };
+          };
         }
       >;
     }>;
@@ -501,7 +513,7 @@ export function flattenOpenCodeModels(input: {
         if (
           input.freeOnlyProviderID &&
           provider.id === input.freeOnlyProviderID &&
-          model.isFree !== true
+          !isAuthoritativelyFreeOpenCodeModel(model)
         ) {
           return [];
         }

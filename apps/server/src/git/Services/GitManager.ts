@@ -7,9 +7,8 @@
  * @module GitManager
  */
 import {
-  GitActionProgressEvent,
-  GitHandoffThreadInput,
-  GitHandoffThreadResult,
+  GitSwitchThreadEnvironmentInput,
+  GitSwitchThreadEnvironmentResult,
   GitPreparePullRequestThreadInput,
   GitPreparePullRequestThreadResult,
   GitPullRequestRefInput,
@@ -19,25 +18,12 @@ import {
   GitReadWorkingTreeDiffResult,
   GitWorkingTreeDiffStatsResult,
   GitResolvePullRequestResult,
-  GitRunStackedActionInput,
-  GitRunStackedActionResult,
   GitStatusInput,
   GitStatusResult,
-  GitSummarizeDiffInput,
-  GitSummarizeDiffResult,
 } from "@penkra/contracts";
 import { ServiceMap } from "effect";
 import type { Effect } from "effect";
 import type { GitManagerServiceError } from "../Errors.ts";
-
-export interface GitActionProgressReporter {
-  readonly publish: (event: GitActionProgressEvent) => Effect.Effect<void, never>;
-}
-
-export interface GitRunStackedActionOptions {
-  readonly actionId?: string;
-  readonly progressReporter?: GitActionProgressReporter;
-}
 
 /**
  * GitManagerShape - Service API for high-level Git workflow actions.
@@ -65,13 +51,6 @@ export interface GitManagerShape {
   ) => Effect.Effect<GitWorkingTreeDiffStatsResult, GitManagerServiceError>;
 
   /**
-   * Generate a read-only markdown summary for an existing diff patch.
-   */
-  readonly summarizeDiff: (
-    input: GitSummarizeDiffInput,
-  ) => Effect.Effect<GitSummarizeDiffResult, GitManagerServiceError>;
-
-  /**
    * Resolve a pull request by URL/number against the current repository.
    */
   readonly resolvePullRequest: (
@@ -95,18 +74,9 @@ export interface GitManagerShape {
   /**
    * Move a thread between Local and Worktree while preserving recoverable Git state.
    */
-  readonly handoffThread: (
-    input: Omit<GitHandoffThreadInput, "commandId" | "threadId">,
-  ) => Effect.Effect<GitHandoffThreadResult, GitManagerServiceError>;
-
-  /**
-   * Run a Git action (`commit`, `push`, `create_pr`, `commit_push`, `commit_push_pr`).
-   * When `featureBranch` is set, creates and checks out a feature branch first.
-   */
-  readonly runStackedAction: (
-    input: GitRunStackedActionInput,
-    options?: GitRunStackedActionOptions,
-  ) => Effect.Effect<GitRunStackedActionResult, GitManagerServiceError>;
+  readonly switchThreadEnvironment: (
+    input: Omit<GitSwitchThreadEnvironmentInput, "commandId" | "threadId">,
+  ) => Effect.Effect<GitSwitchThreadEnvironmentResult, GitManagerServiceError>;
 }
 
 /**

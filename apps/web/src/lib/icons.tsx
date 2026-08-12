@@ -49,6 +49,7 @@ import {
   IconPaperclip,
   IconPlus,
   IconRefresh,
+  IconRepeat,
   IconRotate2,
   IconSelector,
   IconStar,
@@ -117,7 +118,7 @@ export const PanelCollapseIcon: LucideIcon = centralIconWrapper("minimize-45");
 export const BackToParentIcon: LucideIcon = centralIconWrapper("arrow-share-left");
 export const WorkflowIcon: LucideIcon = centralIconWrapper("agents");
 export const SteerIcon: LucideIcon = centralIconWrapper("arrow-corner-down-right");
-export const HandoffIcon: LucideIcon = centralIconWrapper("arrow-left-right");
+export const EnvironmentSwitchIcon: LucideIcon = centralIconWrapper("arrow-left-right");
 export const SkillCubeIcon: LucideIcon = centralIconWrapper("building-blocks");
 export const NewThreadIcon: LucideIcon = centralIconWrapper("compose-pencil");
 export const EraserIcon: LucideIcon = centralIconWrapper("eraser");
@@ -238,6 +239,7 @@ export const PlayIcon: LucideIcon = centralIconWrapper("play", "fill");
 export const Plus = adaptIcon(IconPlus);
 export const PlusIcon = adaptIcon(IconPlus);
 export const RefreshCwIcon = adaptIcon(IconRefresh);
+export const Repeat2Icon = adaptIcon(IconRepeat);
 export const RotateCcwIcon = adaptIcon(IconRotate2);
 export const Rows3Icon = adaptIcon(IconLayoutDistributeHorizontal);
 export const SearchIcon: LucideIcon = centralIconWrapper("magnifying-glass");

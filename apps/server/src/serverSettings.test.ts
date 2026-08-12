@@ -41,9 +41,8 @@ describe("ServerSettingsService", () => {
       }),
     );
 
-    expect(settings.providers.codex.binaryPath).toBe("codex");
+    expect(settings.providers.codex).not.toHaveProperty("binaryPath");
     expect(settings.providers.grok.binaryPath).toBe("grok");
-    expect(settings.defaultThreadEnvMode).toBe("local");
     expect(settings.providerUpdateMode).toBe("automatic");
   });
 
@@ -60,7 +59,6 @@ describe("ServerSettingsService", () => {
           providerUpdateMode: "notify",
           providers: {
             codex: {
-              binaryPath: "/usr/local/bin/codex",
               customModels: ["gpt-custom"],
             },
           },
@@ -72,7 +70,7 @@ describe("ServerSettingsService", () => {
 
     expect(result.updated.enableAssistantStreaming).toBe(true);
     expect(result.updated.providerUpdateMode).toBe("notify");
-    expect(result.updated.providers.codex.binaryPath).toBe("/usr/local/bin/codex");
+    expect(result.updated.providers.codex.customModels).toEqual(["gpt-custom"]);
     expect(result.parsed).toMatchObject({
       revision: 1,
       migrationVersion: 2,
@@ -81,7 +79,6 @@ describe("ServerSettingsService", () => {
         providerUpdateMode: "notify",
         providers: {
           codex: {
-            binaryPath: "/usr/local/bin/codex",
             customModels: ["gpt-custom"],
           },
         },
@@ -99,7 +96,6 @@ describe("ServerSettingsService", () => {
         const view = yield* service.updateSettingsView({
           providers: {
             kilo: { serverPassword: "kilo-secret" },
-            opencode: { serverPassword: "opencode-secret" },
           },
         });
         const internal = yield* service.getSettings;
@@ -109,19 +105,16 @@ describe("ServerSettingsService", () => {
     );
 
     expect(result.internal.providers.kilo.serverPasswordConfigured).toBe(true);
-    expect(result.internal.providers.opencode.serverPasswordConfigured).toBe(true);
-    expect(result.view.providers.kilo).toMatchObject({ serverPasswordConfigured: true });
-    expect(result.view.providers.opencode).toMatchObject({ serverPasswordConfigured: true });
+    expect(result.view.providers.kilo).toMatchObject({
+      serverPasswordConfigured: true,
+    });
     expect(JSON.stringify(result.internal)).not.toContain("kilo-secret");
-    expect(JSON.stringify(result.internal)).not.toContain("opencode-secret");
     expect(JSON.stringify(result.view)).not.toContain("kilo-secret");
-    expect(JSON.stringify(result.view)).not.toContain("opencode-secret");
     expect(JSON.stringify(result.view)).not.toContain('"serverPassword"');
     expect(result.persisted).not.toContain("kilo-secret");
-    expect(result.persisted).not.toContain("opencode-secret");
   });
 
-  it("resolves text generation selection away from disabled providers", async () => {
+  it("does not silently replace a disabled text generation selection", async () => {
     const settings = await Effect.runPromise(
       Effect.gen(function* () {
         const service = yield* ServerSettingsService;
@@ -141,7 +134,7 @@ describe("ServerSettingsService", () => {
       ),
     );
 
-    expect(settings.textGenerationModelSelection.provider).toBe("codex");
-    expect(settings.textGenerationModelSelection.model).toBe(DEFAULT_MODEL_BY_PROVIDER.codex);
+    expect(settings.textGenerationModelSelection.provider).toBe("antigravity");
+    expect(settings.textGenerationModelSelection.model).toBe(DEFAULT_MODEL_BY_PROVIDER.antigravity);
   });
 });

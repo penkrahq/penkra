@@ -440,7 +440,10 @@ function mergeTomlStringArrayValues(
   }
   const headerMatch = findTomlTableHeader(config, tableHeader);
   if (!headerMatch) {
-    return config;
+    return appendCodexConfigSection(
+      config,
+      `${tableHeader}\n${key} = [${additions.map((value) => JSON.stringify(value)).join(", ")}]`,
+    );
   }
   const tableStart = headerMatch.end;
   const tableEnd = findNextTomlTableHeaderIndex(config, tableStart);
@@ -601,6 +604,45 @@ async function preparePenkraCodexHomeOverlay(input: {
   );
 }
 
+/**
+ * Builds the effective config for an isolated managed Codex profile. Provider
+ * credentials and native state remain Connection-owned, while ordinary user
+ * configuration (plugins, MCP servers, preferences) follows the user's Codex
+ * config. Penkra replaces only its reserved gateway entry.
+ */
+export async function prepareManagedCodexProfileConfig(input: {
+  readonly env: NodeJS.ProcessEnv;
+  readonly sourceHomePath?: string;
+  readonly appendConfigToml?: string;
+}): Promise<void> {
+  const codexHome = input.env.CODEX_HOME?.trim();
+  if (!codexHome) throw new Error("The managed Codex profile has no CODEX_HOME.");
+  await serializeCodexOverlayPreparation(codexHome, async () => {
+    await fs.mkdir(codexHome, { recursive: true, mode: 0o700 });
+    const configPath = path.join(codexHome, "config.toml");
+    const existing = await fs.readFile(configPath, "utf8").catch((cause: unknown) => {
+      if ((cause as NodeJS.ErrnoException).code === "ENOENT") return "";
+      throw cause;
+    });
+    const sourceHomePath = input.sourceHomePath ?? resolveBaseCodexHomePath(process.env);
+    const sourceConfigPath = path.join(sourceHomePath, "config.toml");
+    const sourceConfig =
+      path.resolve(sourceConfigPath) === path.resolve(configPath)
+        ? existing
+        : await fs.readFile(sourceConfigPath, "utf8").catch((cause: unknown) => {
+            if ((cause as NodeJS.ErrnoException).code === "ENOENT") return existing;
+            throw cause;
+          });
+    let config = disableRawComputerUsePluginServer(removeReservedPenkraMcpServer(sourceConfig));
+    if (input.appendConfigToml) {
+      config = appendManagedCodexConfigSection(config, input.appendConfigToml);
+      const tokenEnvVar = /bearer_token_env_var\s*=\s*"([^"]+)"/.exec(input.appendConfigToml)?.[1];
+      if (tokenEnvVar) config = mergeShellEnvPolicyExclude(config, tokenEnvVar);
+    }
+    await fs.writeFile(configPath, config, { encoding: "utf8", mode: 0o600 });
+  });
+}
+
 export async function buildCodexProcessEnv(
   input: {
     readonly env?: NodeJS.ProcessEnv;
@@ -624,6 +666,7 @@ export async function buildCodexProcessEnv(
   const effectiveEnv = buildProviderChildEnvironment({
     provider: "codex",
     baseEnv: configuredEnv,
+    managedConnection: false,
   });
 
   if (platform === "darwin" || platform === "linux") {

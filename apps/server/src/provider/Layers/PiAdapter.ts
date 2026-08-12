@@ -2820,6 +2820,7 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
         supportsPluginDiscovery: false,
         supportsRuntimeModelList: true,
         supportsThreadCompaction: true,
+        supportsThreadFork: false,
         supportsThreadImport: false,
       } satisfies ProviderComposerCapabilities);
 

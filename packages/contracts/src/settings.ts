@@ -1,7 +1,7 @@
 import { Schema } from "effect";
 import { TrimmedString } from "./baseSchemas";
 import { DEFAULT_GIT_TEXT_GENERATION_MODEL } from "./model";
-import { ModelSelection, ProviderKind, ThreadEnvironmentMode } from "./orchestration";
+import { ModelSelection, ProviderKind } from "./orchestration";
 
 const StringSetting = TrimmedString.check(Schema.isMaxLength(4096));
 const CustomModels = Schema.Array(Schema.String.check(Schema.isMaxLength(256))).pipe(
@@ -14,19 +14,18 @@ const ProviderSettingsBase = {
   customModels: CustomModels,
 };
 
+const ManagedProviderSettingsBase = {
+  enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
+  customModels: CustomModels,
+};
+
 export const CodexServerProviderSettings = Schema.Struct({
-  ...ProviderSettingsBase,
-  binaryPath: StringSetting.pipe(Schema.withDecodingDefault(() => "codex")),
-  homePath: StringSetting.pipe(Schema.withDecodingDefault(() => "")),
+  ...ManagedProviderSettingsBase,
 });
 export type CodexServerProviderSettings = typeof CodexServerProviderSettings.Type;
 
 export const ClaudeServerProviderSettings = Schema.Struct({
-  ...ProviderSettingsBase,
-  binaryPath: StringSetting.pipe(Schema.withDecodingDefault(() => "claude")),
-  launchArgs: Schema.String.check(Schema.isMaxLength(4096)).pipe(
-    Schema.withDecodingDefault(() => ""),
-  ),
+  ...ManagedProviderSettingsBase,
 });
 export type ClaudeServerProviderSettings = typeof ClaudeServerProviderSettings.Type;
 
@@ -56,10 +55,7 @@ export const CursorServerProviderSettings = Schema.Struct({
 export type CursorServerProviderSettings = typeof CursorServerProviderSettings.Type;
 
 export const OpenCodeServerProviderSettings = Schema.Struct({
-  ...ProviderSettingsBase,
-  binaryPath: StringSetting.pipe(Schema.withDecodingDefault(() => "opencode")),
-  serverUrl: StringSetting.pipe(Schema.withDecodingDefault(() => "")),
-  serverPasswordConfigured: Schema.Boolean.pipe(Schema.withDecodingDefault(() => false)),
+  ...ManagedProviderSettingsBase,
   experimentalWebSockets: Schema.Boolean.pipe(Schema.withDecodingDefault(() => false)),
 });
 export type OpenCodeServerProviderSettings = typeof OpenCodeServerProviderSettings.Type;
@@ -96,7 +92,6 @@ export type SkillsServerSettings = typeof SkillsServerSettings.Type;
 export const ServerSettings = Schema.Struct({
   enableAssistantStreaming: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
   providerUpdateMode: ProviderUpdateMode.pipe(Schema.withDecodingDefault(() => "automatic")),
-  defaultThreadEnvMode: ThreadEnvironmentMode.pipe(Schema.withDecodingDefault(() => "local")),
   addProjectBaseDirectory: StringSetting.pipe(Schema.withDecodingDefault(() => "")),
   textGenerationModelSelection: ModelSelection.pipe(
     Schema.withDecodingDefault(() => ({
@@ -142,26 +137,20 @@ const ProviderSettingsBasePatch = {
   customModels: Schema.optionalKey(CustomModels),
 };
 
+const ManagedProviderSettingsBasePatch = {
+  enabled: Schema.optionalKey(Schema.Boolean),
+  customModels: Schema.optionalKey(CustomModels),
+};
+
 export const ServerSettingsPatch = Schema.Struct({
   enableAssistantStreaming: Schema.optionalKey(Schema.Boolean),
   providerUpdateMode: Schema.optionalKey(ProviderUpdateMode),
-  defaultThreadEnvMode: Schema.optionalKey(ThreadEnvironmentMode),
   addProjectBaseDirectory: Schema.optionalKey(StringSetting),
   textGenerationModelSelection: Schema.optionalKey(ModelSelectionPatch),
   providers: Schema.optionalKey(
     Schema.Struct({
-      codex: Schema.optionalKey(
-        Schema.Struct({
-          ...ProviderSettingsBasePatch,
-          homePath: Schema.optionalKey(StringSetting),
-        }),
-      ),
-      claudeAgent: Schema.optionalKey(
-        Schema.Struct({
-          ...ProviderSettingsBasePatch,
-          launchArgs: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(4096))),
-        }),
-      ),
+      codex: Schema.optionalKey(Schema.Struct(ManagedProviderSettingsBasePatch)),
+      claudeAgent: Schema.optionalKey(Schema.Struct(ManagedProviderSettingsBasePatch)),
       cursor: Schema.optionalKey(
         Schema.Struct({
           ...ProviderSettingsBasePatch,
@@ -180,9 +169,7 @@ export const ServerSettingsPatch = Schema.Struct({
       ),
       opencode: Schema.optionalKey(
         Schema.Struct({
-          ...ProviderSettingsBasePatch,
-          serverUrl: Schema.optionalKey(StringSetting),
-          serverPassword: Schema.optionalKey(StringSetting),
+          ...ManagedProviderSettingsBasePatch,
           experimentalWebSockets: Schema.optionalKey(Schema.Boolean),
         }),
       ),

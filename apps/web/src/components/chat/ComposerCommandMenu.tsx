@@ -21,7 +21,6 @@ import {
   GitBranchIcon,
   GitForkIcon,
   InfoIcon,
-  ListTodoIcon,
   type LucideIcon,
   MessageCircleIcon,
   Minimize2,
@@ -68,10 +67,6 @@ function commandMenuTitle(
       return "Model";
     case "fast":
       return "Fast Mode";
-    case "plan":
-      return "Plan Mode";
-    case "default":
-      return "Default Mode";
     case "review":
       return "Code Review";
     case "fork":
@@ -448,8 +443,6 @@ const SLASH_COMMAND_ICONS: Record<string, LucideIcon> = {
   compact: Minimize2,
   model: BrainIcon,
   fast: FastModeIcon,
-  plan: ListTodoIcon,
-  default: MessageCircleIcon,
   review: BugIcon,
   fork: GitForkIcon,
   side: MessageCircleIcon,

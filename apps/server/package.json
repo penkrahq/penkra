@@ -1,6 +1,6 @@
 {
   "name": "@penkra/cli",
-  "version": "0.9.3",
+  "version": "0.10.0",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -9,6 +9,7 @@
   },
   "bin": {
     "penkra": "dist/index.mjs",
+    "penkra-database": "dist/databaseMaintenance.mjs",
     "penkra-restore-migration-backup": "dist/restoreMigrationBackup.mjs"
   },
   "files": [
@@ -16,7 +17,7 @@
   ],
   "type": "module",
   "scripts": {
-    "dev": "bun run src/index.ts",
+    "dev": "tsx src/index.ts",
     "build": "node scripts/cli.ts build",
     "start": "node dist/index.mjs",
     "prepare": "effect-language-service patch",
@@ -33,12 +34,12 @@
     "@earendil-works/pi-ai": "^0.81.1",
     "@earendil-works/pi-coding-agent": "^0.81.1",
     "@effect/platform-node": "catalog:",
-    "@effect/sql-sqlite-bun": "catalog:",
     "@opencode-ai/sdk": "^1.15.13",
     "@penkra/sdk": "workspace:*",
     "@pierre/diffs": "^1.2.12",
     "@xterm/headless": "^6.0.0",
     "effect": "catalog:",
+    "jsonc-parser": "3.3.1",
     "node-pty": "^1.1.0",
     "open": "^10.1.0",
     "semver": "^7.7.4",
@@ -64,6 +65,6 @@
     "zod": "4.3.6"
   },
   "engines": {
-    "node": "^22.19 || ^23.11 || >=24.10"
+    "node": "^24.15.0"
   }
 }

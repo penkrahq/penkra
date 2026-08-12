@@ -66,11 +66,6 @@ const AVAILABLE_NOW_DEFINITIONS: readonly ShortcutDefinition[] = [
     description: "Open the sidebar search palette from anywhere in the app.",
   },
   {
-    command: "sidebar.importThread",
-    label: "Import thread",
-    description: "Bring an existing conversation into the current workspace.",
-  },
-  {
     command: "space.previous",
     label: "Previous space",
     description: "Switch to the previous space and restore its last working context.",
@@ -167,11 +162,6 @@ const AVAILABLE_NOW_DEFINITIONS: readonly ShortcutDefinition[] = [
     command: "editor.openFavorite",
     label: "Open in favorite editor",
     description: "Send the current thread or workspace target to your preferred editor.",
-  },
-  {
-    command: "git.commitAndPush",
-    label: "Commit and push",
-    description: "Commit pending changes and push the active thread's repo.",
   },
 ] as const;
 

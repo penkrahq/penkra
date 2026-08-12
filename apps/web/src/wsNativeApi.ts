@@ -17,7 +17,6 @@ import {
   type AuthSessionState,
   type AuthWebSocketTokenResult,
   type ThreadId,
-  type GitActionProgressEvent,
   type OrchestrationEvent,
   type OrchestrationShellStreamItem,
   type OrchestrationThreadStreamItem,
@@ -99,7 +98,6 @@ const serverProviderStatusesUpdatedListeners =
   createListenerRegistry<ServerProviderStatusesUpdatedPayload>();
 const serverMaintenanceUpdatedListeners = createListenerRegistry<ServerLifecycleStreamEvent>();
 const serverSettingsUpdatedListeners = createListenerRegistry<ServerSettingsUpdatedPayload>();
-const gitActionProgressListeners = createListenerRegistry<GitActionProgressEvent>();
 
 function omitNullUserInputAnswers(
   command: Parameters<NativeApi["orchestration"]["dispatchCommand"]>[0],
@@ -131,7 +129,6 @@ function clearWsNativeApiListeners(): void {
   serverProviderStatusesUpdatedListeners.clear();
   serverMaintenanceUpdatedListeners.clear();
   serverSettingsUpdatedListeners.clear();
-  gitActionProgressListeners.clear();
   terminalEventListeners.clear();
   projectDevServerEventListeners.clear();
   projectWorkspaceChangeListeners.clear();
@@ -178,6 +175,7 @@ async function requestVoiceTranscriptionUpload(
 ) {
   const params = new URLSearchParams({
     provider: input.provider,
+    connectionId: input.connectionId,
     cwd: input.cwd,
     mimeType: input.mimeType,
     sampleRateHz: String(input.sampleRateHz),
@@ -314,9 +312,6 @@ export function createWsNativeApi(): NativeApi {
   transport.subscribe(WS_CHANNELS.serverSettingsUpdated, (message) => {
     serverSettingsUpdatedListeners.emit(message.data);
   });
-  transport.subscribe(WS_CHANNELS.gitActionProgress, (message) => {
-    gitActionProgressListeners.emit(message.data);
-  });
   transport.subscribe(WS_CHANNELS.terminalEvent, (message) => {
     terminalEventListeners.emit(message.data);
   });
@@ -421,19 +416,9 @@ export function createWsNativeApi(): NativeApi {
       },
     },
     git: {
-      githubRepository: (input) => transport.request(WS_METHODS.gitGithubRepository, input),
-      pull: (input) => transport.request(WS_METHODS.gitPull, input),
       status: (input) => transport.request(WS_METHODS.gitStatus, input),
       readWorkingTreeDiff: (input) => transport.request(WS_METHODS.gitReadWorkingTreeDiff, input),
       workingTreeDiffStats: (input) => transport.request(WS_METHODS.gitWorkingTreeDiffStats, input),
-      summarizeDiff: (input) =>
-        transport.request(WS_METHODS.gitSummarizeDiff, input, {
-          timeoutMs: null,
-        }),
-      runStackedAction: (input) =>
-        transport.request(WS_METHODS.gitRunStackedAction, input, {
-          timeoutMs: null,
-        }),
       listBranches: (input) => transport.request(WS_METHODS.gitListBranches, input),
       createWorktree: (input) => transport.request(WS_METHODS.gitCreateWorktree, input),
       createDetachedWorktree: (input) =>
@@ -445,15 +430,14 @@ export function createWsNativeApi(): NativeApi {
       stashDrop: (input) => transport.request(WS_METHODS.gitStashDrop, input),
       stashInfo: (input) => transport.request(WS_METHODS.gitStashInfo, input),
       removeIndexLock: (input) => transport.request(WS_METHODS.gitRemoveIndexLock, input),
-      init: (input) => transport.request(WS_METHODS.gitInit, input),
       stageFiles: (input) => transport.request(WS_METHODS.gitStageFiles, input),
       unstageFiles: (input) => transport.request(WS_METHODS.gitUnstageFiles, input),
-      handoffThread: (input) => transport.request(WS_METHODS.gitHandoffThread, input),
+      switchThreadEnvironment: (input) =>
+        transport.request(WS_METHODS.gitSwitchThreadEnvironment, input),
       resolvePullRequest: (input) => transport.request(WS_METHODS.gitResolvePullRequest, input),
       pullRequestSnapshot: (input) => transport.request(WS_METHODS.gitPullRequestSnapshot, input),
       preparePullRequestThread: (input) =>
         transport.request(WS_METHODS.gitPreparePullRequestThread, input),
-      onActionProgress: gitActionProgressListeners.subscribe,
     },
     pullRequests: {
       list: (input) => transport.request(WS_METHODS.pullRequestsList, input),
@@ -539,16 +523,7 @@ export function createWsNativeApi(): NativeApi {
         transport.request(WS_METHODS.serverGetProviderUsageSnapshot, input),
       listProviderUsage: (input) => transport.request(WS_METHODS.serverListProviderUsage, input),
       getDiagnostics: () => transport.request(WS_METHODS.serverGetDiagnostics),
-      generateThreadRecap: (input) =>
-        transport.request(WS_METHODS.serverGenerateThreadRecap, input, {
-          timeoutMs: null,
-        }),
-      transcribeVoice: (input) => {
-        if (window.desktopBridge?.server?.transcribeVoice) {
-          return window.desktopBridge.server.transcribeVoice(input);
-        }
-        return requestVoiceTranscriptionUpload(input);
-      },
+      transcribeVoice: requestVoiceTranscriptionUpload,
       upsertKeybinding: (input) => transport.request(WS_METHODS.serverUpsertKeybinding, input),
     },
     stats: {
@@ -570,6 +545,20 @@ export function createWsNativeApi(): NativeApi {
       readPlugin: (input) => transport.request(WS_METHODS.providerReadPlugin, input),
       listModels: (input) => transport.request(WS_METHODS.providerListModels, input),
       listAgents: (input) => transport.request(WS_METHODS.providerListAgents, input),
+      getConnections: (input = {}) => transport.request(WS_METHODS.providerGetConnections, input),
+      getThreadBinding: (input) => transport.request(WS_METHODS.providerGetThreadBinding, input),
+      createStaticConnection: (input) =>
+        transport.request(WS_METHODS.providerCreateStaticConnection, input),
+      beginConnectionLogin: (input) =>
+        transport.request(WS_METHODS.providerBeginConnectionLogin, input),
+      getConnectionLogin: (input) =>
+        transport.request(WS_METHODS.providerGetConnectionLogin, input),
+      cancelConnectionLogin: (input) =>
+        transport.request(WS_METHODS.providerCancelConnectionLogin, input),
+      terminateConnection: (input) =>
+        transport.request(WS_METHODS.providerTerminateConnection, input),
+      setSpaceDefaultConnection: (input) =>
+        transport.request(WS_METHODS.providerSetSpaceDefaultConnection, input),
     },
     orchestration: {
       getSnapshot: () => transport.request(ORCHESTRATION_WS_METHODS.getSnapshot),

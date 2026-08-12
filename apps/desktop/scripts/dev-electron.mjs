@@ -11,7 +11,7 @@ const { desktopDir, resolveElectronPath } = await import("./electron-launcher.mj
 const port = Number(process.env.ELECTRON_RENDERER_PORT ?? 5733);
 const devServerUrl = `http://localhost:${port}`;
 const requiredFiles = [
-  "dist-electron/main.js",
+  "dist-electron/entry.js",
   "dist-electron/preload.js",
   "../server/dist/index.mjs",
 ];
@@ -19,7 +19,7 @@ const watchedDirectories = [
   { directory: "dist-electron", matches: (filename) => filename.endsWith(".js") },
   { directory: "../server/dist", matches: (filename) => filename === "index.mjs" },
 ];
-const forcedShutdownTimeoutMs = 1_500;
+const forcedShutdownTimeoutMs = 15_000;
 const restartDebounceMs = 120;
 const childTreeGracePeriodMs = 1_200;
 const staleComputerUseGracePeriodMs = 300;
@@ -219,7 +219,6 @@ async function stopApp() {
 
     app.once("exit", finish);
     app.kill("SIGTERM");
-    killChildTreeByPid(app.pid, "TERM");
 
     setTimeout(() => {
       if (settled) {

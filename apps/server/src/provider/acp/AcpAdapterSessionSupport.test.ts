@@ -7,14 +7,12 @@ import {
   recordAcpSessionCost,
   resolveAcpSessionCwd,
   resolveRequestedAcpSessionModeId,
-  resolveAcpTurnInteractionMode,
   scopeAcpRuntimeItemIdForTurn,
   scopeAcpToolCallStateForTurn,
-  withAcpPlanModePrompt,
 } from "./AcpAdapterSessionSupport.ts";
 
 describe("ACP adapter session support", () => {
-  it("resolves plan, approval, full-access, and fallback ACP modes in policy order", () => {
+  it("resolves approval, full-access, and non-plan fallback ACP modes in policy order", () => {
     const aliases = {
       plan: ["plan", "architect"],
       implement: ["code", "agent", "default", "chat", "implement"],
@@ -31,15 +29,6 @@ describe("ACP adapter session support", () => {
 
     expect(
       resolveRequestedAcpSessionModeId({
-        interactionMode: "plan",
-        runtimeMode: "full-access",
-        modeState,
-        aliases,
-      }),
-    ).toBe("architecture");
-    expect(
-      resolveRequestedAcpSessionModeId({
-        interactionMode: "default",
         runtimeMode: "approval-required",
         modeState,
         aliases,
@@ -47,7 +36,6 @@ describe("ACP adapter session support", () => {
     ).toBe("ask");
     expect(
       resolveRequestedAcpSessionModeId({
-        interactionMode: "default",
         runtimeMode: "full-access",
         modeState,
         aliases,
@@ -55,7 +43,6 @@ describe("ACP adapter session support", () => {
     ).toBe("code");
     expect(
       resolveRequestedAcpSessionModeId({
-        interactionMode: "default",
         runtimeMode: "full-access",
         modeState: {
           currentModeId: "current",
@@ -69,7 +56,6 @@ describe("ACP adapter session support", () => {
     ).toBe("custom");
     expect(
       resolveRequestedAcpSessionModeId({
-        interactionMode: "default",
         runtimeMode: "full-access",
         modeState: {
           currentModeId: "current",
@@ -80,7 +66,6 @@ describe("ACP adapter session support", () => {
     ).toBe("current");
     expect(
       resolveRequestedAcpSessionModeId({
-        interactionMode: "plan",
         runtimeMode: "full-access",
         modeState: undefined,
         aliases,
@@ -88,7 +73,7 @@ describe("ACP adapter session support", () => {
     ).toBeUndefined();
   });
 
-  it("does not inherit Plan when the next turn omits its interaction mode", () => {
+  it("moves a provider session out of a stale native plan mode", () => {
     const aliases = {
       plan: ["plan"],
       implement: ["code"],
@@ -102,11 +87,8 @@ describe("ACP adapter session support", () => {
       ],
     };
 
-    const interactionMode = resolveAcpTurnInteractionMode(undefined);
-    expect(interactionMode).toBe("default");
     expect(
       resolveRequestedAcpSessionModeId({
-        interactionMode,
         runtimeMode: "full-access",
         modeState,
         aliases,
@@ -137,7 +119,6 @@ describe("ACP adapter session support", () => {
       activeAssistantItemsWithContent: new Set(["item-1"]),
       activeTurnFailedToolDetail: "failed" as string | undefined,
       activePromptFiber: { id: "fiber" } as { id: string } | undefined,
-      activeInteractionMode: "plan" as "plan" | "default" | undefined,
       session: {
         provider: "grok",
         status: "running",
@@ -156,7 +137,6 @@ describe("ACP adapter session support", () => {
       activeTurnHadAssistantContent: false,
       activeTurnFailedToolDetail: undefined,
       activePromptFiber: undefined,
-      activeInteractionMode: undefined,
     });
     expect(context.activeAssistantItemsWithContent.size).toBe(0);
     expect(Object.hasOwn(context.session, "activeTurnId")).toBe(false);
@@ -168,23 +148,6 @@ describe("ACP adapter session support", () => {
     expect(finalizeAcpActiveTurnCost(context)).toEqual({ cumulativeCostUsd: 1.25 });
     recordAcpSessionCost(context, { amount: 99, currency: "EUR" });
     expect(finalizeAcpActiveTurnCost(context)).toEqual({ cumulativeCostUsd: 1.25 });
-  });
-
-  it("wraps only Plan-mode prompts", () => {
-    expect(
-      withAcpPlanModePrompt({
-        text: "  inspect this  ",
-        interactionMode: "plan",
-        promptPrefix: "PLAN",
-      }),
-    ).toBe("PLAN\n\nUser request:\ninspect this");
-    expect(
-      withAcpPlanModePrompt({
-        text: "  preserve spacing  ",
-        interactionMode: "default",
-        promptPrefix: "PLAN",
-      }),
-    ).toBe("  preserve spacing  ");
   });
 
   it("resolves explicit, session, and server fallback working directories in order", () => {

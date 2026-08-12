@@ -9,6 +9,9 @@ import {
   hasDraftContextOverrides,
   resolveInheritedThreadContext,
   resolveRecentParentWorkingDirectory,
+  requireNewThreadSpaceId,
+  scopeNewThreadOptionsToContainer,
+  scopeNewThreadOptionsToParentSpace,
   resolveTerminalThreadCreationState,
   resolveThreadBootstrapPlan,
   shouldReuseActiveDraftThread,
@@ -35,7 +38,6 @@ function makeDraftThread(partial?: Partial<DraftThreadState>): DraftThreadState 
     spaceId: null,
     createdAt: "2026-04-05T10:00:00.000Z",
     runtimeMode: "approval-required",
-    interactionMode: "default",
     entryPoint: "terminal",
     branch: "feature/terminal-bootstrap",
     worktreePath: "/repo/.worktrees/terminal-bootstrap",
@@ -67,12 +69,53 @@ function makeComposerDraftState(
     },
     activeProvider: "claudeAgent",
     runtimeMode: null,
-    interactionMode: null,
     ...partial,
   };
 }
 
 describe("threadBootstrap", () => {
+  it("requires the selected top-parent Space when persisting a new Thread", () => {
+    const personalId = SpaceId.makeUnsafe("personal");
+    expect(requireNewThreadSpaceId(personalId)).toBe(personalId);
+    expect(() => requireNewThreadSpaceId(null)).toThrow(
+      "Choose a persisted Space before starting this chat.",
+    );
+  });
+
+  it("uses the virtual Folder's owning Space for a new Thread", () => {
+    const personalId = SpaceId.makeUnsafe("personal");
+    expect(
+      scopeNewThreadOptionsToParentSpace(
+        { envMode: "local", spaceId: SpaceId.makeUnsafe("stale-space") },
+        personalId,
+      ),
+    ).toEqual({ envMode: "local", spaceId: personalId });
+  });
+
+  it("preserves the selected Space for the shared chat container", () => {
+    const personalId = SpaceId.makeUnsafe("personal");
+    const workId = SpaceId.makeUnsafe("work");
+    expect(
+      scopeNewThreadOptionsToContainer({
+        options: { envMode: "local", spaceId: workId },
+        containerKind: "chat",
+        containerSpaceId: personalId,
+      }),
+    ).toEqual({ envMode: "local", spaceId: workId });
+  });
+
+  it("uses the virtual Folder's owning Space through container scoping", () => {
+    const personalId = SpaceId.makeUnsafe("personal");
+    const workId = SpaceId.makeUnsafe("work");
+    expect(
+      scopeNewThreadOptionsToContainer({
+        options: { envMode: "local", spaceId: workId },
+        containerKind: "project",
+        containerSpaceId: personalId,
+      }),
+    ).toEqual({ envMode: "local", spaceId: personalId });
+  });
+
   it("inherits the newest physical folder used directly in the same Space", () => {
     const personalId = SpaceId.makeUnsafe("personal");
     const workId = SpaceId.makeUnsafe("work");
@@ -206,7 +249,6 @@ describe("threadBootstrap", () => {
           projectId: PROJECT_ID,
           modelSelection: modelSelection("codex", "gpt-5"),
           runtimeMode: "full-access",
-          interactionMode: "default",
         },
         PROJECT_ID,
       ),
@@ -214,7 +256,6 @@ describe("threadBootstrap", () => {
       projectId: PROJECT_ID,
       modelSelection: modelSelection("codex", "gpt-5"),
       runtimeMode: "full-access",
-      interactionMode: "default",
       envMode: undefined,
       lastKnownPr: null,
     });
@@ -318,7 +359,6 @@ describe("threadBootstrap", () => {
           projectId: PROJECT_ID,
           modelSelection: modelSelection("codex", "gpt-5"),
           runtimeMode: "full-access",
-          interactionMode: "default",
         },
         draftComposerState: makeComposerDraftState(),
         draftThread: makeDraftThread(),
@@ -332,51 +372,12 @@ describe("threadBootstrap", () => {
         effort: "max",
       }),
       runtimeMode: "approval-required",
-      interactionMode: "default",
       envMode: "worktree",
       branch: "feature/terminal-bootstrap",
       worktreePath: "/repo/.worktrees/terminal-bootstrap",
       workingDirectory: null,
       lastKnownPr: null,
     });
-  });
-
-  it("does not inherit plan mode from the previously active thread for a fresh creation", () => {
-    expect(
-      resolveTerminalThreadCreationState({
-        activeDraftThread: null,
-        activeThread: {
-          projectId: PROJECT_ID,
-          modelSelection: modelSelection("codex", "gpt-5"),
-          runtimeMode: "full-access",
-          interactionMode: "plan",
-        },
-        draftComposerState: makeComposerDraftState(),
-        draftThread: null,
-        options: undefined,
-        projectDefaultModelSelection: modelSelection("codex", "gpt-5.4"),
-        projectId: PROJECT_ID,
-      }).interactionMode,
-    ).toBe("default");
-  });
-
-  it("normalizes an explicit legacy draft plan mode when resolving terminal creation payloads", () => {
-    expect(
-      resolveTerminalThreadCreationState({
-        activeDraftThread: null,
-        activeThread: {
-          projectId: PROJECT_ID,
-          modelSelection: modelSelection("codex", "gpt-5"),
-          runtimeMode: "full-access",
-          interactionMode: "default",
-        },
-        draftComposerState: makeComposerDraftState(),
-        draftThread: makeDraftThread({ interactionMode: "plan" }),
-        options: undefined,
-        projectDefaultModelSelection: modelSelection("codex", "gpt-5.4"),
-        projectId: PROJECT_ID,
-      }).interactionMode,
-    ).toBe("default");
   });
 
   it("clears inherited worktree state when an explicit local env override is requested", () => {
@@ -387,7 +388,6 @@ describe("threadBootstrap", () => {
           projectId: PROJECT_ID,
           modelSelection: modelSelection("codex", "gpt-5"),
           runtimeMode: "full-access",
-          interactionMode: "default",
           envMode: "worktree",
         },
         draftComposerState: makeComposerDraftState(),

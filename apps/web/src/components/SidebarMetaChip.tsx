@@ -1,5 +1,5 @@
 // FILE: SidebarMetaChip.tsx
-// Purpose: Tooltip-backed meta badges shown on thread rows (handoff, fork, temporary, etc.).
+// Purpose: Tooltip-backed meta badges shown on thread rows (fork, worktree, temporary, etc.).
 // Layer: Sidebar UI primitive
 // Exports: SidebarMetaChip, SidebarMetaChipStack, SidebarMetaChipPlaceholder
 
@@ -7,7 +7,7 @@ import type { ReactNode } from "react";
 import { SIDEBAR_TRAILING_ICON_FORCE_CLASS } from "./sidebarGlyphs";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
-// Right-aligned thread-row meta chips (worktree, fork, handoff). Their
+// Right-aligned thread-row meta chips (worktree, fork, temporary). Their
 // icons are forced to the shared trailing size at the slot so they match the pin/archive
 // buttons and the whole right-side cluster reads as one uniform set — including the worktree
 // Central icon, which the shared force class covers via its [data-slot=central-icon] selector.

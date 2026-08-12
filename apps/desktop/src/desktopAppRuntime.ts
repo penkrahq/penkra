@@ -34,6 +34,7 @@ import { AppSessionManager } from "./appSessionManager";
 import { AppRuntimeDiagnostics, resolveAppRuntimeDiagnosticsPath } from "./appRuntimeDiagnostics";
 import { AppIdentityService } from "./appIdentityService";
 import { AppDataVault } from "./appDataVault";
+import { ProviderCredentialVault } from "./providerCredentialVault";
 import { DeferredAppTabHost } from "./deferredAppTabHost";
 import { ElectronAppControllerRendererFactory } from "./electronAppControllerRenderer";
 import { ElectronAppTabHost, type AppUpdateTabSnapshot } from "./electronAppTabHost";
@@ -56,6 +57,7 @@ export interface DesktopAppRuntime {
   readonly diagnostics: AppRuntimeDiagnostics;
   readonly identities: AppIdentityService;
   readonly vault: AppDataVault;
+  readonly providerCredentialVault: ProviderCredentialVault;
   readonly safeStartRecovery: null | { quarantinedPath: string; error: Error };
   readonly updateRecovery: AppUpdateRecovery | null;
   readonly packageGarbageCollection: AppPackageGarbageCollectionResult;
@@ -103,6 +105,11 @@ export async function startDesktopAppRuntime(input: {
   if (!safeStorage.isEncryptionAvailable())
     throw new Error("Secure App secret storage is unavailable on this device.");
   const vault = await AppDataVault.open({
+    userDataPath: input.userDataPath,
+    encrypt: (value) => safeStorage.encryptString(value),
+    decrypt: (value) => safeStorage.decryptString(value),
+  });
+  const providerCredentialVault = await ProviderCredentialVault.open({
     userDataPath: input.userDataPath,
     encrypt: (value) => safeStorage.encryptString(value),
     decrypt: (value) => safeStorage.decryptString(value),
@@ -279,6 +286,7 @@ export async function startDesktopAppRuntime(input: {
     diagnostics,
     identities,
     vault,
+    providerCredentialVault,
     safeStartRecovery: storeResult.recovery,
     updateRecovery,
     packageGarbageCollection,

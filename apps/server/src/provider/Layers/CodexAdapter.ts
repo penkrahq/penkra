@@ -54,6 +54,7 @@ import { CodexAdapter, type CodexAdapterShape } from "../Services/CodexAdapter.t
 import {
   awaitProviderRuntimeEventsDrained,
   PROVIDER_ADAPTER_RUNTIME_EVENT_BUFFER_CAPACITY,
+  type ProviderManagedLaunchContext,
 } from "../Services/ProviderAdapter.ts";
 import {
   CodexAppServerManager,
@@ -66,6 +67,7 @@ import {
   resolveAcpTurnIdleTimeoutMs,
 } from "../acp/AcpTurnIdleWatchdog.ts";
 import { AgentGatewayCredentials } from "../../agentGateway/Services/AgentGatewayCredentials.ts";
+import { AgentGatewayToolBridge } from "../../agentGateway/Services/AgentGatewayToolBridge.ts";
 import { acquireAgentGatewaySessionLease } from "../../agentGateway/sessionLease.ts";
 import { loadProviderPromptImageBlocks } from "../promptAttachments.ts";
 import {
@@ -78,7 +80,6 @@ import {
 import { isNonFatalCodexErrorMessage } from "../../codexErrorClassification.ts";
 import { ServerConfig } from "../../config.ts";
 import { makeRuntimeTaskListItem } from "../runtimeTaskList.ts";
-import { extractProposedPlanMarkdown } from "../planMode.ts";
 import { appendFileAttachmentsPromptBlock } from "../attachmentProjection.ts";
 import { penkraSkillsDir } from "../skillsCatalog.ts";
 import { makeBoundedCallbackIngress } from "../boundedCallbackIngress.ts";
@@ -92,8 +93,35 @@ import {
   providerRuntimeEventBytes,
 } from "../providerRuntimeEventIngress.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
+import { adoptManagedCodexRollout, prepareManagedCodexResume } from "../codexManagedNativeState.ts";
 
 const PROVIDER = "codex" as const;
+const CODEX_ROLLOUT_ADOPTION_ATTEMPTS = 50;
+const CODEX_ROLLOUT_ADOPTION_RETRY_MS = 20;
+
+async function adoptManagedCodexRolloutAfterTurn(
+  launch: ProviderManagedLaunchContext,
+  nativeThreadId: string,
+): Promise<void> {
+  for (let attempt = 1; attempt <= CODEX_ROLLOUT_ADOPTION_ATTEMPTS; attempt += 1) {
+    try {
+      await adoptManagedCodexRollout(launch, nativeThreadId);
+      return;
+    } catch (cause) {
+      const retryable =
+        cause instanceof Error && cause.message === "The exact Codex rollout is unavailable.";
+      if (!retryable || attempt === CODEX_ROLLOUT_ADOPTION_ATTEMPTS) throw cause;
+      await new Promise((resolve) => setTimeout(resolve, CODEX_ROLLOUT_ADOPTION_RETRY_MS));
+    }
+  }
+}
+
+function codexResumeThreadId(cursor: unknown): string | null {
+  if (cursor === null || typeof cursor !== "object" || Array.isArray(cursor)) return null;
+  const threadId = (cursor as Record<string, unknown>).threadId;
+  if (typeof threadId !== "string" || threadId.trim().length === 0) return null;
+  return threadId.trim();
+}
 
 // Backstop for an alive-but-silent codex app-server: if a turn produces no
 // activity at all for this long, abort it instead of showing "Working" forever.
@@ -152,6 +180,9 @@ function codexRuntimeIngressItemBytes(item: CodexRuntimeIngressItem): number {
 export interface CodexAdapterLiveOptions {
   readonly manager?: CodexAppServerManager;
   readonly makeManager?: (services?: ServiceMap.ServiceMap<never>) => CodexAppServerManager;
+  readonly makeVerificationManager?: (
+    services?: ServiceMap.ServiceMap<never>,
+  ) => CodexAppServerManager;
   readonly nativeEventLogPath?: string;
   readonly nativeEventLogger?: EventNdjsonLogger;
 }
@@ -580,6 +611,8 @@ function contentStreamKindFromMethod(
       return "reasoning_text";
     case "item/reasoning/summaryTextDelta":
       return "reasoning_summary_text";
+    case "item/plan/delta":
+      return "plan_text";
     case "item/commandExecution/outputDelta":
       return "command_output";
     case "item/fileChange/outputDelta":
@@ -1206,22 +1239,7 @@ function mapToRuntimeEvents(
     if (!source) {
       return [];
     }
-    const itemType = source ? toCanonicalItemType(source.type ?? source.kind) : "unknown";
-    if (itemType === "plan") {
-      const detail = itemDetail(source, payload ?? {});
-      if (!detail) {
-        return [];
-      }
-      return [
-        {
-          ...runtimeEventBase(event, canonicalThreadId),
-          type: "turn.proposed.completed",
-          payload: {
-            planMarkdown: detail,
-          },
-        },
-      ];
-    }
+    const itemType = toCanonicalItemType(source.type ?? source.kind);
     const completed = mapItemLifecycle(event, canonicalThreadId, "item.completed");
     return completed ? [completed] : [];
   }
@@ -1234,30 +1252,11 @@ function mapToRuntimeEvents(
     return updated ? [updated] : [];
   }
 
-  if (event.method === "item/plan/delta") {
-    const delta =
-      event.textDelta ??
-      asString(payload?.delta) ??
-      asString(payload?.text) ??
-      asString(asObject(payload?.content)?.text);
-    if (!delta || delta.length === 0) {
-      return [];
-    }
-    return [
-      {
-        ...runtimeEventBase(event, canonicalThreadId),
-        type: "turn.proposed.delta",
-        payload: {
-          delta,
-        },
-      },
-    ];
-  }
-
   if (
     event.method === "item/agentMessage/delta" ||
     event.method === "item/commandExecution/outputDelta" ||
     event.method === "item/fileChange/outputDelta" ||
+    event.method === "item/plan/delta" ||
     event.method === "item/reasoning/summaryTextDelta" ||
     event.method === "item/reasoning/textDelta"
   ) {
@@ -1360,21 +1359,7 @@ function mapToRuntimeEvents(
   if (event.method === "codex/event/task_complete") {
     const msg = codexEventMessage(payload);
     const taskId = asString(payload?.id) ?? asString(msg?.turn_id);
-    const proposedPlanMarkdown = extractProposedPlanMarkdown(asString(msg?.last_agent_message));
-    if (!taskId) {
-      if (!proposedPlanMarkdown) {
-        return [];
-      }
-      return [
-        {
-          ...codexEventBase(event, canonicalThreadId),
-          type: "turn.proposed.completed",
-          payload: {
-            planMarkdown: proposedPlanMarkdown,
-          },
-        },
-      ];
-    }
+    if (!taskId) return [];
     const events: ProviderRuntimeEvent[] = [
       {
         ...codexEventBase(event, canonicalThreadId),
@@ -1388,15 +1373,6 @@ function mapToRuntimeEvents(
         },
       },
     ];
-    if (proposedPlanMarkdown) {
-      events.push({
-        ...codexEventBase(event, canonicalThreadId),
-        type: "turn.proposed.completed",
-        payload: {
-          planMarkdown: proposedPlanMarkdown,
-        },
-      });
-    }
     return events;
   }
 
@@ -1659,6 +1635,16 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
     const agentGatewayCredentials = Option.getOrUndefined(
       yield* Effect.serviceOption(AgentGatewayCredentials),
     );
+    const agentGatewayToolBridge = Option.getOrUndefined(
+      yield* Effect.serviceOption(AgentGatewayToolBridge),
+    );
+    if ((agentGatewayCredentials === undefined) !== (agentGatewayToolBridge === undefined)) {
+      return yield* Effect.die(
+        new Error(
+          "ChatGPT's Penkra host-tool credentials and in-process dispatcher must be installed together.",
+        ),
+      );
+    }
     const nativeEventLogger =
       options?.nativeEventLogger ??
       (options?.nativeEventLogPath !== undefined
@@ -1666,23 +1652,23 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
             stream: "native",
           })
         : undefined);
+    const services = yield* Effect.services<never>();
 
     const manager = yield* Effect.acquireRelease(
       Effect.gen(function* () {
         if (options?.manager) {
           return options.manager;
         }
-        const services = yield* Effect.services<never>();
         return (
           options?.makeManager?.(services) ??
           new CodexAppServerManager(services, {
             penkraSkillsDir: penkraSkillsDir(serverConfig.baseDir),
             ...(agentGatewayCredentials
               ? {
-                  agentGatewayMcp: {
-                    endpointUrl: () => agentGatewayCredentials.mcpEndpointUrl,
+                  agentGatewayHostTool: {
                     acquireSessionLease: (threadId) =>
                       acquireAgentGatewaySessionLease(agentGatewayCredentials, threadId, PROVIDER)!,
+                    requireNativeSurface: agentGatewayToolBridge!.requireSurface,
                   },
                 }
               : {}),
@@ -1697,6 +1683,13 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
     // decision pauses it), driven by one shared ticker because codex activity
     // arrives on a single manager event stream instead of per-session fibers.
     const turnWatchdogs = new Map<ThreadId, CodexTurnWatchdogEntry>();
+    const pendingManagedRolloutAdoptions = new Map<
+      ThreadId,
+      {
+        readonly launch: ProviderManagedLaunchContext;
+        readonly nativeThreadId: string;
+      }
+    >();
 
     const armTurnWatchdog = (threadId: ThreadId, turnId: TurnId): void => {
       turnWatchdogs.set(threadId, { turnId, lastActivityAt: Date.now() });
@@ -1801,9 +1794,6 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
           ...(input.skills !== undefined ? { skills: input.skills } : {}),
           ...(input.mentions !== undefined ? { mentions: input.mentions } : {}),
           ...codexModelSelectionOverrides(input.modelSelection),
-          ...(input.interactionMode !== undefined
-            ? { interactionMode: input.interactionMode }
-            : {}),
           ...(nativeCodexAttachments.length > 0 ? { attachments: nativeCodexAttachments } : {}),
         } satisfies CodexAppServerSendTurnInput;
       });
@@ -1828,12 +1818,32 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
         ...(input.cwd !== undefined ? { cwd: input.cwd } : {}),
         ...(input.resumeCursor !== undefined ? { resumeCursor: input.resumeCursor } : {}),
         ...(input.providerOptions !== undefined ? { providerOptions: input.providerOptions } : {}),
+        ...(input.managedLaunch !== undefined ? { managedLaunch: input.managedLaunch } : {}),
         runtimeMode: input.runtimeMode,
         ...codexModelSelectionOverrides(input.modelSelection),
       };
 
       return Effect.tryPromise({
-        try: () => manager.startSession(managerInput),
+        try: async () => {
+          const resumeThreadId = codexResumeThreadId(input.resumeCursor);
+          if (input.managedLaunch !== undefined && resumeThreadId !== null) {
+            await prepareManagedCodexResume(input.managedLaunch, resumeThreadId);
+          }
+          const session = await manager.startSession(managerInput);
+          const nativeThreadId = codexResumeThreadId(session.resumeCursor);
+          if (input.managedLaunch !== undefined) {
+            if (nativeThreadId === null) {
+              throw new Error("Codex did not return an exact native thread id.");
+            }
+            if (resumeThreadId === null) {
+              pendingManagedRolloutAdoptions.set(input.threadId, {
+                launch: input.managedLaunch,
+                nativeThreadId,
+              });
+            }
+          }
+          return session;
+        },
         catch: (cause) =>
           new ProviderAdapterProcessError({
             provider: PROVIDER,
@@ -1844,12 +1854,73 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
       }).pipe(Effect.map((session) => session));
     };
 
+    const verifyNativeResume: NonNullable<CodexAdapterShape["verifyNativeResume"]> = (input) => {
+      const sourceThreadId = codexResumeThreadId(input.sourceResumeCursor);
+      if (sourceThreadId === null) {
+        return Effect.fail(
+          new ProviderAdapterValidationError({
+            provider: PROVIDER,
+            operation: "verifyNativeResume",
+            issue: "The Codex resume cursor does not contain an exact native thread id.",
+          }),
+        );
+      }
+
+      const verificationManager =
+        options?.makeVerificationManager?.(services) ?? new CodexAppServerManager(services);
+      const verificationThreadId = ThreadId.makeUnsafe("codex-native-resume-verification");
+      return Effect.tryPromise({
+        try: async () => {
+          await prepareManagedCodexResume(input.managedLaunch, sourceThreadId);
+          const session = await verificationManager.startSession({
+            threadId: verificationThreadId,
+            provider: "codex",
+            ...(input.cwd !== undefined ? { cwd: input.cwd } : {}),
+            ...(input.modelSelection?.model !== undefined
+              ? { model: input.modelSelection.model }
+              : {}),
+            resumeCursor: input.sourceResumeCursor,
+            managedLaunch: input.managedLaunch,
+            runtimeMode: input.runtimeMode,
+          });
+          const returnedThreadId = codexResumeThreadId(session.resumeCursor);
+          if (returnedThreadId !== sourceThreadId) {
+            throw new Error("Codex returned a different thread identity while verifying resume.");
+          }
+          return {
+            providerSessionId: sourceThreadId,
+            resumeCursor: input.sourceResumeCursor,
+          };
+        },
+        catch: (cause) =>
+          new ProviderAdapterRequestError({
+            provider: PROVIDER,
+            method: "thread/resume",
+            detail: toMessage(cause, "Codex could not verify the exact native continuation."),
+            cause,
+          }),
+      }).pipe(
+        Effect.ensuring(Effect.promise(() => verificationManager.stopAll()).pipe(Effect.ignore)),
+      );
+    };
+
     const sendTurn: CodexAdapterShape["sendTurn"] = (input) =>
       Effect.gen(function* () {
         const managerInput = yield* prepareCodexManagerTurnInput(input, "turn/start");
 
         return yield* Effect.tryPromise({
-          try: () => manager.sendTurn(managerInput),
+          try: async () => {
+            const result = await manager.sendTurn(managerInput);
+            const pendingAdoption = pendingManagedRolloutAdoptions.get(input.threadId);
+            if (pendingAdoption !== undefined) {
+              await adoptManagedCodexRolloutAfterTurn(
+                pendingAdoption.launch,
+                pendingAdoption.nativeThreadId,
+              );
+              pendingManagedRolloutAdoptions.delete(input.threadId);
+            }
+            return result;
+          },
           catch: (cause) => toRequestError(input.threadId, "turn/start", cause),
         }).pipe(
           // Armed here as well as on `turn.started`, so a child that goes silent
@@ -1912,24 +1983,6 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
         })),
       );
 
-    const readExternalThread: NonNullable<CodexAdapterShape["readExternalThread"]> = (input) =>
-      Effect.tryPromise({
-        try: () => manager.readExternalThread(input),
-        catch: (cause) =>
-          new ProviderAdapterRequestError({
-            provider: PROVIDER,
-            method: "thread/read",
-            detail: toMessage(cause, "Failed to read external Codex thread."),
-            cause,
-          }),
-      }).pipe(
-        Effect.map((snapshot) => ({
-          threadId: ThreadId.makeUnsafe(snapshot.threadId),
-          turns: snapshot.turns,
-          cwd: snapshot.cwd ?? null,
-        })),
-      );
-
     const rollbackThread: CodexAdapterShape["rollbackThread"] = (threadId, numTurns) => {
       if (!Number.isInteger(numTurns) || numTurns < 1) {
         return Effect.fail(
@@ -1986,7 +2039,10 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
 
     const stopSession: CodexAdapterShape["stopSession"] = (threadId) =>
       Effect.tryPromise({
-        try: () => manager.stopSession(threadId),
+        try: async () => {
+          pendingManagedRolloutAdoptions.delete(threadId);
+          await manager.stopSession(threadId);
+        },
         catch: (cause) =>
           new ProviderAdapterProcessError({
             provider: PROVIDER,
@@ -2004,7 +2060,10 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
 
     const stopAll: CodexAdapterShape["stopAll"] = () =>
       Effect.tryPromise({
-        try: () => manager.stopAll(),
+        try: async () => {
+          pendingManagedRolloutAdoptions.clear();
+          await manager.stopAll();
+        },
         catch: (cause) =>
           new ProviderAdapterProcessError({
             provider: PROVIDER,
@@ -2060,6 +2119,7 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
           manager.readPlugin({
             marketplacePath: input.marketplacePath,
             pluginName: input.pluginName,
+            ...(input.threadId !== undefined ? { threadId: input.threadId } : {}),
           }),
         catch: (cause) =>
           new ProviderAdapterRequestError({
@@ -2070,9 +2130,18 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
           }),
       }).pipe(Effect.map((result) => result satisfies ProviderReadPluginResult));
 
-    const listModels: NonNullable<CodexAdapterShape["listModels"]> = (_input) =>
+    const listModels: NonNullable<CodexAdapterShape["listModels"]> = (input) =>
       Effect.tryPromise({
-        try: () => manager.listModels(),
+        try: () =>
+          manager.listModels(
+            undefined,
+            input.managedLaunch
+              ? {
+                  ...(input.cwd ? { cwd: input.cwd } : {}),
+                  managedLaunch: input.managedLaunch,
+                }
+              : undefined,
+          ),
         catch: (cause) =>
           new ProviderAdapterRequestError({
             provider: PROVIDER,
@@ -2192,12 +2261,12 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
         supportsLiveTurnDiffPatch: true,
       },
       startSession,
+      verifyNativeResume,
       sendTurn,
       steerTurn,
       startReview,
       interruptTurn,
       readThread,
-      readExternalThread,
       rollbackThread,
       compactThread,
       forkThread,

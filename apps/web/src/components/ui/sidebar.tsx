@@ -209,6 +209,7 @@ function Sidebar({
   side = "left",
   variant = "sidebar",
   collapsible = "offcanvas",
+  positioning = "fixed",
   resizable = false,
   className,
   gapClassName,
@@ -220,6 +221,7 @@ function Sidebar({
   side?: "left" | "right";
   variant?: "sidebar" | "floating" | "inset";
   collapsible?: "offcanvas" | "icon" | "none";
+  positioning?: "fixed" | "inline";
   resizable?: boolean | SidebarResizableOptions;
   gapClassName?: string;
   innerClassName?: string;
@@ -280,6 +282,43 @@ function Sidebar({
             <div className={cn("flex h-full w-full flex-col", innerClassName)}>{children}</div>
           </SheetPopup>
         </Sheet>
+      </SidebarInstanceContext.Provider>
+    );
+  }
+
+  if (positioning === "inline") {
+    return (
+      <SidebarInstanceContext.Provider value={instanceContextValue}>
+        <div
+          className="group peer relative hidden h-full flex-none text-sidebar-foreground md:block"
+          data-collapsible={state === "collapsed" ? collapsible : ""}
+          data-side={side}
+          data-slot="sidebar"
+          data-state={state}
+          data-variant={variant}
+        >
+          <div
+            className={cn(
+              "relative z-0 flex h-full w-(--sidebar-width) overflow-hidden transition-[width,visibility] duration-200 ease-linear motion-reduce:transition-none",
+              "group-data-[collapsible=offcanvas]:w-0",
+              className,
+            )}
+            data-slot="sidebar-container"
+            {...props}
+          >
+            <div
+              className={cn(
+                "relative z-0 flex h-full min-w-(--sidebar-width) flex-col",
+                !transparentSurface && "bg-sidebar",
+                innerClassName,
+              )}
+              data-sidebar="sidebar"
+              data-slot="sidebar-inner"
+            >
+              {children}
+            </div>
+          </div>
+        </div>
       </SidebarInstanceContext.Provider>
     );
   }

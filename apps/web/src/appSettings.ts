@@ -25,7 +25,6 @@ import {
   resolveSelectableModel,
 } from "@penkra/shared/model";
 import { useLocalStorage } from "./hooks/useLocalStorage";
-import { EnvMode } from "./components/BranchToolbar.logic";
 import { normalizeCursorModelVariantBaseId } from "./cursorModelVariants";
 import { formatProviderModelOptionName, type ProviderModelOption } from "./providerModelOptions";
 import {
@@ -158,7 +157,6 @@ const PersistedProviderKind = Schema.Literals([
 );
 
 export const AppSettingsSchema = Schema.Struct({
-  claudeBinaryPath: Schema.String.check(Schema.isMaxLength(4096)).pipe(withDefaults(() => "")),
   uiDensity: UiDensity.pipe(withDefaults(() => DEFAULT_UI_DENSITY)),
   chatFontSizePx: Schema.Number.pipe(withDefaults(() => DEFAULT_CHAT_FONT_SIZE_PX)),
   chatCodeFontFamily: Schema.String.check(Schema.isMaxLength(256)).pipe(withDefaults(() => "")),
@@ -166,8 +164,6 @@ export const AppSettingsSchema = Schema.Struct({
   terminalFontFamily: Schema.String.check(Schema.isMaxLength(256)).pipe(
     withDefaults(() => DEFAULT_TERMINAL_FONT_FAMILY),
   ),
-  codexBinaryPath: Schema.String.check(Schema.isMaxLength(4096)).pipe(withDefaults(() => "")),
-  codexHomePath: Schema.String.check(Schema.isMaxLength(4096)).pipe(withDefaults(() => "")),
   cursorBinaryPath: Schema.String.check(Schema.isMaxLength(4096)).pipe(withDefaults(() => "")),
   cursorApiEndpoint: Schema.String.check(Schema.isMaxLength(4096)).pipe(withDefaults(() => "")),
   antigravityBinaryPath: Schema.String.check(Schema.isMaxLength(4096)).pipe(withDefaults(() => "")),
@@ -179,35 +175,13 @@ export const AppSettingsSchema = Schema.Struct({
   kiloServerUrl: Schema.String.check(Schema.isMaxLength(4096)).pipe(withDefaults(() => "")),
   kiloServerPassword: Schema.String.check(Schema.isMaxLength(4096)).pipe(withDefaults(() => "")),
   kiloServerPasswordConfigured: Schema.Boolean.pipe(withDefaults(() => false)),
-  openCodeBinaryPath: Schema.String.check(Schema.isMaxLength(4096)).pipe(withDefaults(() => "")),
   piBinaryPath: Schema.String.check(Schema.isMaxLength(4096)).pipe(withDefaults(() => "")),
   piAgentDir: Schema.String.check(Schema.isMaxLength(4096)).pipe(withDefaults(() => "")),
-  openCodeServerUrl: Schema.String.check(Schema.isMaxLength(4096)).pipe(withDefaults(() => "")),
-  openCodeServerPassword: Schema.String.check(Schema.isMaxLength(4096)).pipe(
-    withDefaults(() => ""),
-  ),
-  openCodeServerPasswordConfigured: Schema.Boolean.pipe(withDefaults(() => false)),
   openCodeExperimentalWebSockets: Schema.Boolean.pipe(withDefaults(() => false)),
-  defaultThreadEnvMode: EnvMode.pipe(withDefaults(() => "local" as const satisfies EnvMode)),
   confirmThreadDelete: Schema.Boolean.pipe(withDefaults(() => true)),
   confirmThreadArchive: Schema.Boolean.pipe(withDefaults(() => false)),
   confirmTerminalTabClose: Schema.Boolean.pipe(withDefaults(() => true)),
   diffWordWrap: Schema.Boolean.pipe(withDefaults(() => false)),
-  // Local-only UI preferences: which optional sections of the chat Environment panel are
-  // shown. The git block (Changes/Worktree/branch/Commit and Push) is always visible; these
-  // toggle the sections beneath it via the panel header's gear menu.
-  // When false (default), normal chats start with the Environment panel closed. User toggles
-  // also write back here so the last explicit open/close survives reloads.
-  environmentPanelDefaultOpen: Schema.Boolean.pipe(withDefaults(() => false)),
-  showEnvironmentUsage: Schema.Boolean.pipe(withDefaults(() => true)),
-  showEnvironmentRepository: Schema.Boolean.pipe(withDefaults(() => true)),
-  showEnvironmentPullRequest: Schema.Boolean.pipe(withDefaults(() => true)),
-  showEnvironmentEditor: Schema.Boolean.pipe(withDefaults(() => true)),
-  showEnvironmentRecap: Schema.Boolean.pipe(withDefaults(() => true)),
-  showEnvironmentPinned: Schema.Boolean.pipe(withDefaults(() => true)),
-  showEnvironmentMarkers: Schema.Boolean.pipe(withDefaults(() => true)),
-  showEnvironmentInstructions: Schema.Boolean.pipe(withDefaults(() => true)),
-  showEnvironmentNotepad: Schema.Boolean.pipe(withDefaults(() => true)),
   enableAssistantStreaming: Schema.Boolean.pipe(withDefaults(() => true)),
   providerUpdateMode: ProviderUpdateMode.pipe(
     withDefaults(() => "automatic" as const satisfies ProviderUpdateMode),
@@ -468,7 +442,9 @@ function normalizeProviderBinaryPathOverride(
   value: string | null | undefined,
 ): string {
   const trimmed = value?.trim() ?? "";
-  if (!trimmed || trimmed === DEFAULT_SERVER_SETTINGS.providers[provider].binaryPath) {
+  const defaults = DEFAULT_SERVER_SETTINGS.providers[provider];
+  const defaultBinaryPath = "binaryPath" in defaults ? defaults.binaryPath : "";
+  if (!trimmed || trimmed === defaultBinaryPath) {
     return "";
   }
   return trimmed;
@@ -488,9 +464,6 @@ function normalizeAppSettings(settings: AppSettings): AppSettings {
     // Password fields are accepted only as write-only update patches. Never retain
     // reusable provider credentials in browser state or localStorage.
     kiloServerPassword: "",
-    openCodeServerPassword: "",
-    claudeBinaryPath: normalizeProviderBinaryPathOverride("claudeAgent", settings.claudeBinaryPath),
-    codexBinaryPath: normalizeProviderBinaryPathOverride("codex", settings.codexBinaryPath),
     cursorBinaryPath: normalizeProviderBinaryPathOverride("cursor", settings.cursorBinaryPath),
     antigravityBinaryPath: normalizeProviderBinaryPathOverride(
       "antigravity",
@@ -499,10 +472,6 @@ function normalizeAppSettings(settings: AppSettings): AppSettings {
     grokBinaryPath: normalizeProviderBinaryPathOverride("grok", settings.grokBinaryPath),
     droidBinaryPath: normalizeProviderBinaryPathOverride("droid", settings.droidBinaryPath),
     kiloBinaryPath: normalizeProviderBinaryPathOverride("kilo", settings.kiloBinaryPath),
-    openCodeBinaryPath: normalizeProviderBinaryPathOverride(
-      "opencode",
-      settings.openCodeBinaryPath,
-    ),
     piBinaryPath: normalizeProviderBinaryPathOverride("pi", settings.piBinaryPath),
     uiDensity: normalizeUiDensityValue(settings.uiDensity),
     chatFontSizePx: normalizeChatFontSizePx(settings.chatFontSizePx),
@@ -528,12 +497,8 @@ function normalizeAppSettings(settings: AppSettings): AppSettings {
 
 function serverSettingsToAppSettings(settings: ServerSettingsView): Partial<AppSettings> {
   return {
-    claudeBinaryPath: settings.providers.claudeAgent.binaryPath,
-    codexBinaryPath: settings.providers.codex.binaryPath,
-    codexHomePath: settings.providers.codex.homePath,
     cursorApiEndpoint: settings.providers.cursor.apiEndpoint,
     cursorBinaryPath: settings.providers.cursor.binaryPath,
-    defaultThreadEnvMode: settings.defaultThreadEnvMode,
     enableAssistantStreaming: settings.enableAssistantStreaming,
     providerUpdateMode: settings.providerUpdateMode,
     antigravityBinaryPath: settings.providers.antigravity.binaryPath,
@@ -542,10 +507,7 @@ function serverSettingsToAppSettings(settings: ServerSettingsView): Partial<AppS
     kiloBinaryPath: settings.providers.kilo.binaryPath,
     kiloServerPasswordConfigured: settings.providers.kilo.serverPasswordConfigured,
     kiloServerUrl: settings.providers.kilo.serverUrl,
-    openCodeBinaryPath: settings.providers.opencode.binaryPath,
     openCodeExperimentalWebSockets: settings.providers.opencode.experimentalWebSockets,
-    openCodeServerPasswordConfigured: settings.providers.opencode.serverPasswordConfigured,
-    openCodeServerUrl: settings.providers.opencode.serverUrl,
     piAgentDir: settings.providers.pi.agentDir,
     piBinaryPath: settings.providers.pi.binaryPath,
     customCodexModels: settings.providers.codex.customModels,
@@ -582,10 +544,7 @@ function touchesProviderDiscoverySettings(patch: Partial<AppSettings>): boolean 
     hasOwn(patch, "kiloBinaryPath") ||
     hasOwn(patch, "kiloServerPassword") ||
     hasOwn(patch, "kiloServerUrl") ||
-    hasOwn(patch, "openCodeBinaryPath") ||
     hasOwn(patch, "openCodeExperimentalWebSockets") ||
-    hasOwn(patch, "openCodeServerPassword") ||
-    hasOwn(patch, "openCodeServerUrl") ||
     hasOwn(patch, "piAgentDir")
   );
 }
@@ -600,9 +559,6 @@ function appSettingsPatchToServerSettingsPatch(patch: Partial<AppSettings>): Ser
   if (patch.providerUpdateMode === "automatic" || patch.providerUpdateMode === "notify") {
     serverPatch.providerUpdateMode = patch.providerUpdateMode;
   }
-  if (patch.defaultThreadEnvMode === "local" || patch.defaultThreadEnvMode === "worktree") {
-    serverPatch.defaultThreadEnvMode = patch.defaultThreadEnvMode;
-  }
   if (hasOwn(patch, "textGenerationModel") || hasOwn(patch, "textGenerationProvider")) {
     const model = patch.textGenerationModel ?? DEFAULT_GIT_TEXT_GENERATION_MODEL;
     serverPatch.textGenerationModelSelection = {
@@ -616,22 +572,15 @@ function appSettingsPatchToServerSettingsPatch(patch: Partial<AppSettings>): Ser
     };
   }
 
-  if (
-    hasOwn(patch, "codexBinaryPath") ||
-    hasOwn(patch, "codexHomePath") ||
-    hasOwn(patch, "customCodexModels")
-  ) {
+  if (hasOwn(patch, "customCodexModels")) {
     providers.codex = {
-      ...(hasOwn(patch, "codexBinaryPath") ? { binaryPath: patch.codexBinaryPath ?? "" } : {}),
-      ...(hasOwn(patch, "codexHomePath") ? { homePath: patch.codexHomePath ?? "" } : {}),
       ...(hasOwn(patch, "customCodexModels")
         ? { customModels: patch.customCodexModels ?? [] }
         : {}),
     };
   }
-  if (hasOwn(patch, "claudeBinaryPath") || hasOwn(patch, "customClaudeModels")) {
+  if (hasOwn(patch, "customClaudeModels")) {
     providers.claudeAgent = {
-      ...(hasOwn(patch, "claudeBinaryPath") ? { binaryPath: patch.claudeBinaryPath ?? "" } : {}),
       ...(hasOwn(patch, "customClaudeModels")
         ? { customModels: patch.customClaudeModels ?? [] }
         : {}),
@@ -689,23 +638,10 @@ function appSettingsPatchToServerSettingsPatch(patch: Partial<AppSettings>): Ser
       ...(hasOwn(patch, "customKiloModels") ? { customModels: patch.customKiloModels ?? [] } : {}),
     };
   }
-  if (
-    hasOwn(patch, "openCodeBinaryPath") ||
-    hasOwn(patch, "openCodeExperimentalWebSockets") ||
-    hasOwn(patch, "openCodeServerUrl") ||
-    hasOwn(patch, "openCodeServerPassword") ||
-    hasOwn(patch, "customOpenCodeModels")
-  ) {
+  if (hasOwn(patch, "openCodeExperimentalWebSockets") || hasOwn(patch, "customOpenCodeModels")) {
     providers.opencode = {
-      ...(hasOwn(patch, "openCodeBinaryPath")
-        ? { binaryPath: patch.openCodeBinaryPath ?? "" }
-        : {}),
       ...(hasOwn(patch, "openCodeExperimentalWebSockets")
         ? { experimentalWebSockets: Boolean(patch.openCodeExperimentalWebSockets) }
-        : {}),
-      ...(hasOwn(patch, "openCodeServerUrl") ? { serverUrl: patch.openCodeServerUrl ?? "" } : {}),
-      ...(hasOwn(patch, "openCodeServerPassword")
-        ? { serverPassword: patch.openCodeServerPassword ?? "" }
         : {}),
       ...(hasOwn(patch, "customOpenCodeModels")
         ? { customModels: patch.customOpenCodeModels ?? [] }
@@ -740,12 +676,8 @@ function buildInitialServerSettingsMigrationPatch(settings: AppSettings): Server
   const defaults = DEFAULT_APP_SETTINGS;
 
   for (const key of [
-    "claudeBinaryPath",
-    "codexBinaryPath",
-    "codexHomePath",
     "cursorApiEndpoint",
     "cursorBinaryPath",
-    "defaultThreadEnvMode",
     "enableAssistantStreaming",
     "providerUpdateMode",
     "antigravityBinaryPath",
@@ -754,10 +686,7 @@ function buildInitialServerSettingsMigrationPatch(settings: AppSettings): Server
     "kiloBinaryPath",
     "kiloServerPassword",
     "kiloServerUrl",
-    "openCodeBinaryPath",
     "openCodeExperimentalWebSockets",
-    "openCodeServerPassword",
-    "openCodeServerUrl",
     "piAgentDir",
     "piBinaryPath",
     "textGenerationModel",
@@ -772,9 +701,6 @@ function buildInitialServerSettingsMigrationPatch(settings: AppSettings): Server
   // scrubs them from local state. All subsequent reads use redacted server views.
   if (settings.kiloServerPassword.trim()) {
     patch.kiloServerPassword = settings.kiloServerPassword;
-  }
-  if (settings.openCodeServerPassword.trim()) {
-    patch.openCodeServerPassword = settings.openCodeServerPassword;
   }
 
   for (const key of [
@@ -990,9 +916,6 @@ export function getCustomModelOptionsByProvider(
 export function getProviderStartOptions(
   settings: Pick<
     AppSettings,
-    | "claudeBinaryPath"
-    | "codexBinaryPath"
-    | "codexHomePath"
     | "cursorApiEndpoint"
     | "cursorBinaryPath"
     | "antigravityBinaryPath"
@@ -1000,18 +923,11 @@ export function getProviderStartOptions(
     | "droidBinaryPath"
     | "kiloBinaryPath"
     | "kiloServerUrl"
-    | "openCodeBinaryPath"
     | "openCodeExperimentalWebSockets"
-    | "openCodeServerUrl"
     | "piAgentDir"
     | "piBinaryPath"
   >,
 ): ProviderStartOptions | undefined {
-  const claudeBinaryPath = normalizeProviderBinaryPathOverride(
-    "claudeAgent",
-    settings.claudeBinaryPath,
-  );
-  const codexBinaryPath = normalizeProviderBinaryPathOverride("codex", settings.codexBinaryPath);
   const cursorBinaryPath = normalizeProviderBinaryPathOverride("cursor", settings.cursorBinaryPath);
   const antigravityBinaryPath = normalizeProviderBinaryPathOverride(
     "antigravity",
@@ -1020,30 +936,9 @@ export function getProviderStartOptions(
   const grokBinaryPath = normalizeProviderBinaryPathOverride("grok", settings.grokBinaryPath);
   const droidBinaryPath = normalizeProviderBinaryPathOverride("droid", settings.droidBinaryPath);
   const kiloBinaryPath = normalizeProviderBinaryPathOverride("kilo", settings.kiloBinaryPath);
-  const openCodeBinaryPath = normalizeProviderBinaryPathOverride(
-    "opencode",
-    settings.openCodeBinaryPath,
-  );
   const piBinaryPath = normalizeProviderBinaryPathOverride("pi", settings.piBinaryPath);
-  const hasOpenCodeStartOptions = Boolean(
-    openCodeBinaryPath || settings.openCodeExperimentalWebSockets || settings.openCodeServerUrl,
-  );
+  const hasOpenCodeStartOptions = settings.openCodeExperimentalWebSockets;
   const providerOptions: ProviderStartOptions = {
-    ...(codexBinaryPath || settings.codexHomePath
-      ? {
-          codex: {
-            ...(codexBinaryPath ? { binaryPath: codexBinaryPath } : {}),
-            ...(settings.codexHomePath ? { homePath: settings.codexHomePath } : {}),
-          },
-        }
-      : {}),
-    ...(claudeBinaryPath
-      ? {
-          claudeAgent: {
-            binaryPath: claudeBinaryPath,
-          },
-        }
-      : {}),
     ...(cursorBinaryPath || settings.cursorApiEndpoint
       ? {
           cursor: {
@@ -1084,9 +979,7 @@ export function getProviderStartOptions(
     ...(hasOpenCodeStartOptions
       ? {
           opencode: {
-            ...(openCodeBinaryPath ? { binaryPath: openCodeBinaryPath } : {}),
             ...(settings.openCodeExperimentalWebSockets ? { experimentalWebSockets: true } : {}),
-            ...(settings.openCodeServerUrl ? { serverUrl: settings.openCodeServerUrl } : {}),
           },
         }
       : {}),
@@ -1116,23 +1009,20 @@ export function resolveAssistantDeliveryMode(
 export function getCustomBinaryPathForProvider(
   settings: Pick<
     AppSettings,
-    | "claudeBinaryPath"
-    | "codexBinaryPath"
     | "cursorBinaryPath"
     | "antigravityBinaryPath"
     | "grokBinaryPath"
     | "droidBinaryPath"
     | "kiloBinaryPath"
-    | "openCodeBinaryPath"
     | "piBinaryPath"
   >,
   provider: ProviderKind,
 ): string {
   switch (provider) {
     case "codex":
-      return normalizeProviderBinaryPathOverride(provider, settings.codexBinaryPath);
+      return "";
     case "claudeAgent":
-      return normalizeProviderBinaryPathOverride(provider, settings.claudeBinaryPath);
+      return "";
     case "cursor":
       return normalizeProviderBinaryPathOverride(provider, settings.cursorBinaryPath);
     case "antigravity":
@@ -1144,7 +1034,7 @@ export function getCustomBinaryPathForProvider(
     case "kilo":
       return normalizeProviderBinaryPathOverride(provider, settings.kiloBinaryPath);
     case "opencode":
-      return normalizeProviderBinaryPathOverride(provider, settings.openCodeBinaryPath);
+      return "";
     case "pi":
       return normalizeProviderBinaryPathOverride(provider, settings.piBinaryPath);
   }
@@ -1215,9 +1105,6 @@ export function useAppSettings() {
         ...patch,
         ...(hasOwn(patch, "kiloServerPassword")
           ? { kiloServerPasswordConfigured: Boolean(patch.kiloServerPassword?.trim()) }
-          : {}),
-        ...(hasOwn(patch, "openCodeServerPassword")
-          ? { openCodeServerPasswordConfigured: Boolean(patch.openCodeServerPassword?.trim()) }
           : {}),
       }),
     );

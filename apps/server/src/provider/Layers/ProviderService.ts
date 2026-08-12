@@ -52,6 +52,7 @@ import { nonEmptyTrimmed } from "@penkra/shared/text";
 
 import { ProviderValidationError } from "../Errors.ts";
 import { ProviderAdapterRegistry } from "../Services/ProviderAdapterRegistry.ts";
+import type { ProviderManagedLaunchContext } from "../Services/ProviderAdapter.ts";
 import { ProviderService, type ProviderServiceShape } from "../Services/ProviderService.ts";
 import {
   ProviderSessionDirectory,
@@ -62,12 +63,15 @@ import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogg
 import { AnalyticsService } from "../../telemetry/Services/AnalyticsService.ts";
 import { PersistenceDecodeError } from "../../persistence/Errors.ts";
 import { ProviderRuntimeEventRepository } from "../../persistence/Services/ProviderRuntimeEvents.ts";
+import { ThreadProviderBindingRepository } from "../../persistence/Services/ThreadProviderBindings.ts";
+import { ProviderLaunchResolver } from "../Services/ProviderLaunchResolver.ts";
 import {
   classifyTerminalTurnApplicability,
   isStartedTurnApplicable,
 } from "../terminalTurnApplicability.ts";
 import { makeProviderLifecycleCoordinator } from "../providerLifecycleCoordinator.ts";
 import { carryProviderAttachmentPaths } from "../providerAttachmentPaths.ts";
+import { providerNativeResumeIdentity } from "../nativeResumeIdentity.ts";
 import {
   makeProviderRuntimeEventPumpHealthRegistry,
   runProviderRuntimeEventPump,
@@ -89,6 +93,17 @@ export interface ProviderServiceLiveOptions {
   /** Test override for supervised event retry timing. */
   readonly runtimeEventRetryBaseDelayMs?: number;
   readonly runtimeEventRetryMaxDelayMs?: number;
+  /** Persist an exact provider-native cursor into the managed thread binding. */
+  readonly persistNativeResumeCursor?: (input: {
+    readonly threadId: ThreadId;
+    readonly provider: ProviderSession["provider"];
+    readonly resumeCursor: unknown;
+  }) => Effect.Effect<void, unknown>;
+  /** Production resolver for every start/recovery not already admitted with an exact launch. */
+  readonly resolveManagedLaunch?: (input: {
+    readonly threadId: ThreadId;
+    readonly provider: ProviderSession["provider"];
+  }) => Effect.Effect<ProviderManagedLaunchContext, unknown>;
 }
 
 const DEFAULT_PROVIDER_RUNTIME_IDLE_STOP_MS = 10 * 60 * 1000;
@@ -136,7 +151,10 @@ type StopRuntimeSessionInput = Parameters<StopRuntimeSession>[0];
 type StopRuntimeSessionEffect = ReturnType<StopRuntimeSession>;
 type InteractionResponse =
   | { readonly kind: "approval"; readonly input: ProviderRespondToRequestInput }
-  | { readonly kind: "userInput"; readonly input: ProviderRespondToUserInputInput };
+  | {
+      readonly kind: "userInput";
+      readonly input: ProviderRespondToUserInputInput;
+    };
 
 /**
  * Hard deadlines for provider lifecycle calls. Every caller of these paths
@@ -158,6 +176,9 @@ function toValidationError(
     ...(cause !== undefined ? { cause } : {}),
   });
 }
+
+const mapManagedLaunchError = (operation: string) => (cause: unknown) =>
+  toValidationError(operation, "Could not resolve the exact managed provider launch.", cause);
 
 const decodeInputOrValidationError = <S extends Schema.Top>(input: {
   readonly operation: string;
@@ -982,6 +1003,13 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
               ...(lastError !== undefined ? { lastError } : {}),
             },
           });
+          if (resumeCursor !== undefined && options?.persistNativeResumeCursor !== undefined) {
+            yield* options.persistNativeResumeCursor({
+              threadId: event.threadId,
+              provider: binding.provider,
+              resumeCursor,
+            });
+          }
           if (event.type === "session.exited") {
             const dispatchState = dispatchStateByThread.get(event.threadId);
             if (dispatchState) {
@@ -1110,6 +1138,14 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
           const persistedCwd = readPersistedCwd(binding.runtimePayload);
           const persistedModelSelection = readPersistedModelSelection(binding.runtimePayload);
           const persistedProviderOptions = readPersistedProviderOptions(binding.runtimePayload);
+          const managedLaunch = options?.resolveManagedLaunch
+            ? yield* options
+                .resolveManagedLaunch({
+                  threadId: binding.threadId,
+                  provider: binding.provider,
+                })
+                .pipe(Effect.mapError(mapManagedLaunchError(input.operation)))
+            : undefined;
 
           const resumed = yield* adapter.startSession({
             threadId: binding.threadId,
@@ -1118,6 +1154,7 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
             ...(persistedCwd ? { cwd: persistedCwd } : {}),
             ...(persistedModelSelection ? { modelSelection: persistedModelSelection } : {}),
             ...(persistedProviderOptions ? { providerOptions: persistedProviderOptions } : {}),
+            ...(managedLaunch ? { managedLaunch } : {}),
             ...(hasPersistedResumeCursor ? { resumeCursor: binding.resumeCursor } : {}),
             runtimeMode: binding.runtimeMode ?? "full-access",
           });
@@ -1200,7 +1237,10 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
         }
 
         return {
-          adapter: yield* recoverSessionForThread({ binding, operation: input.operation }),
+          adapter: yield* recoverSessionForThread({
+            binding,
+            operation: input.operation,
+          }),
           isActive: true,
           lifecycleGeneration: lifecycle.currentGeneration(input.threadId),
         } as const;
@@ -1219,6 +1259,13 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
           threadId,
           provider: parsed.provider ?? "codex",
         };
+        const managedLaunch =
+          rawInput.managedLaunch ??
+          (options?.resolveManagedLaunch
+            ? yield* options
+                .resolveManagedLaunch({ threadId, provider: input.provider })
+                .pipe(Effect.mapError(mapManagedLaunchError("ProviderService.startSession")))
+            : undefined);
         clearRuntimeIdleTimer(threadId);
         yield* waitForRuntimeIdleStop(threadId);
         return yield* lifecycle.run(threadId, (lease) =>
@@ -1244,6 +1291,7 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
               const started = yield* adapter
                 .startSession({
                   ...input,
+                  ...(managedLaunch !== undefined ? { managedLaunch } : {}),
                   lifecycleGeneration: lease.generation,
                   ...(effectiveProviderOptions !== undefined
                     ? { providerOptions: effectiveProviderOptions }
@@ -1294,6 +1342,27 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
                   lifecycleGeneration: lease.generation,
                 }),
               );
+              if (
+                session.resumeCursor !== undefined &&
+                options?.persistNativeResumeCursor !== undefined
+              ) {
+                yield* options
+                  .persistNativeResumeCursor({
+                    threadId,
+                    provider: session.provider,
+                    resumeCursor: session.resumeCursor,
+                  })
+                  .pipe(
+                    Effect.mapError(
+                      (cause) =>
+                        new ProviderValidationError({
+                          operation: "ProviderService.startSession",
+                          issue: "Could not persist the exact provider-native session state.",
+                          cause,
+                        }),
+                    ),
+                  );
+              }
               lease.commit();
               yield* analytics.record("provider.session.started", {
                 provider: session.provider,
@@ -1310,6 +1379,13 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
 
             if (!persistedBinding || persistedBinding.provider === input.provider) {
               return yield* startAndPersistReplacement;
+            }
+
+            if (options?.resolveManagedLaunch) {
+              return yield* toValidationError(
+                "ProviderService.startSession",
+                "A started thread cannot change its provider harness.",
+              );
             }
 
             const previousAdapter = yield* registry.getByProvider(persistedBinding.provider);
@@ -1388,6 +1464,68 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
           payload: rawInput,
         });
 
+        if (options?.resolveManagedLaunch) {
+          if (!rawInput.managedLaunch) {
+            return yield* toValidationError(
+              "ProviderService.forkThread",
+              "A managed native fork requires an exact target generation launch.",
+            );
+          }
+          if (!input.modelSelection) {
+            return yield* toValidationError(
+              "ProviderService.forkThread",
+              "A managed native fork requires an exact harness and model selection.",
+            );
+          }
+          const adapter = yield* registry.getByProvider(input.modelSelection.provider);
+          if (!adapter.forkThread) return null;
+          const sourceIdentity = providerNativeResumeIdentity(
+            input.modelSelection.provider,
+            input.sourceResumeCursor,
+          );
+          if (sourceIdentity === null) {
+            return yield* toValidationError(
+              "ProviderService.forkThread",
+              "The managed native fork source has no exact provider session identity.",
+            );
+          }
+          const forked = yield* adapter.forkThread({
+            ...input,
+            managedLaunch: rawInput.managedLaunch,
+          });
+          const targetIdentity = providerNativeResumeIdentity(
+            input.modelSelection.provider,
+            forked.resumeCursor,
+          );
+          if (targetIdentity === null || targetIdentity === sourceIdentity) {
+            return yield* toValidationError(
+              "ProviderService.forkThread",
+              "The provider did not return a distinct exact native fork identity.",
+            );
+          }
+          const forkedSession = (yield* adapter.listSessions()).find(
+            (session) => session.threadId === input.threadId,
+          );
+          if (!forkedSession || forkedSession.resumeCursor === undefined) {
+            return yield* toValidationError(
+              "ProviderService.forkThread",
+              "The provider did not retain the verified native fork session.",
+            );
+          }
+          yield* upsertSessionBinding(forkedSession, input.threadId, {
+            modelSelection: input.modelSelection,
+            ...(input.providerOptions !== undefined
+              ? { providerOptions: input.providerOptions }
+              : {}),
+            lastRuntimeEvent: "provider.thread.forked",
+            lastRuntimeEventAt: new Date().toISOString(),
+          });
+          yield* analytics.record("provider.thread.forked", {
+            provider: adapter.provider,
+          });
+          return forked;
+        }
+
         const sourceBinding = Option.getOrUndefined(
           yield* directory.getBinding(input.sourceThreadId),
         );
@@ -1431,7 +1569,7 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
           })
           .pipe(
             Effect.catch((error) =>
-              Effect.logWarning("provider native fork failed; falling back", {
+              Effect.logWarning("provider native fork failed", {
                 sourceThreadId: input.sourceThreadId,
                 targetThreadId: input.threadId,
                 cause: error instanceof Error ? error.message : String(error),
@@ -1534,7 +1672,6 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
             yield* analytics.record("provider.turn.sent", {
               provider: routed.adapter.provider,
               model: input.modelSelection?.model,
-              interactionMode: input.interactionMode,
               attachmentCount: input.attachments.length,
               hasInput: typeof input.input === "string" && input.input.trim().length > 0,
             });
@@ -1594,7 +1731,6 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
             yield* analytics.record("provider.turn.steered", {
               provider: routed.adapter.provider,
               model: input.modelSelection?.model,
-              interactionMode: input.interactionMode,
               attachmentCount: input.attachments.length,
               hasInput: typeof input.input === "string" && input.input.trim().length > 0,
             });
@@ -2220,21 +2356,20 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
               // not replay the stale native cursor merely to close it again.
               allowRecovery: false,
             });
-            if (routed.adapter.capabilities.conversationRollback === "restart-session") {
-              // Some provider protocols can resume but cannot rewind. Clear their
-              // native cursor so edit-and-resend cannot continue from stale history;
-              // ProviderCommandReactor bootstraps the retained transcript next turn.
-              yield* clearSessionResumeCursor({ threadId: input.threadId });
-            } else {
-              const active = routed.isActive
-                ? routed
-                : yield* resolveRoutableSession({
-                    threadId: input.threadId,
-                    operation: "ProviderService.rollbackConversation",
-                    allowRecovery: true,
-                  });
-              yield* active.adapter.rollbackThread(input.threadId, input.numTurns);
+            if (routed.adapter.capabilities.conversationRollback === "unsupported") {
+              return yield* toValidationError(
+                "ProviderService.rollbackConversation",
+                `Provider '${routed.adapter.provider}' cannot rewind exact native session state.`,
+              );
             }
+            const active = routed.isActive
+              ? routed
+              : yield* resolveRoutableSession({
+                  threadId: input.threadId,
+                  operation: "ProviderService.rollbackConversation",
+                  allowRecovery: true,
+                });
+            yield* active.adapter.rollbackThread(input.threadId, input.numTurns);
             yield* analytics.record("provider.conversation.rolled_back", {
               provider: routed.adapter.provider,
               turns: input.numTurns,
@@ -2466,6 +2601,105 @@ export function makeDurableProviderServiceLive(options?: ProviderServiceLiveOpti
               },
             })
             .pipe(Effect.asVoid),
+      });
+    }),
+  );
+}
+
+/** Production managed runtime: durable events plus exact native binding updates. */
+export function makeManagedDurableProviderServiceLive(options?: ProviderServiceLiveOptions) {
+  return Layer.effect(
+    ProviderService,
+    Effect.gen(function* () {
+      const runtimeEvents = yield* ProviderRuntimeEventRepository;
+      const bindings = yield* ThreadProviderBindingRepository;
+      const launchResolver = yield* ProviderLaunchResolver;
+      return yield* makeProviderService({
+        ...options,
+        persistRuntimeEvent: (event) => runtimeEvents.append(event).pipe(Effect.asVoid),
+        quarantineRuntimeEvent: (event, cause) =>
+          runtimeEvents
+            .append({
+              type: "runtime.warning",
+              eventId: EventId.makeUnsafe(randomUUID()),
+              provider: event.provider,
+              threadId: event.threadId,
+              createdAt: new Date().toISOString(),
+              ...(event.turnId !== undefined ? { turnId: event.turnId } : {}),
+              ...(event.lifecycleGeneration !== undefined
+                ? { lifecycleGeneration: event.lifecycleGeneration }
+                : {}),
+              payload: {
+                message: `Quarantined provider runtime event '${event.type}' after a permanent journal failure.`,
+                detail: {
+                  originalEventId: event.eventId,
+                  originalEventType: event.type,
+                  ...summarizeProviderRuntimeQuarantineCause(cause),
+                },
+              },
+            })
+            .pipe(Effect.asVoid),
+        persistNativeResumeCursor: ({ threadId, provider, resumeCursor }) =>
+          Effect.gen(function* () {
+            const state = yield* bindings.getHarnessState(threadId);
+            if (Option.isNone(state)) return;
+            if (state.value.harness !== provider) {
+              return yield* Effect.fail(new Error("Provider-native cursor harness mismatch."));
+            }
+            const providerSessionId = providerNativeResumeIdentity(provider, resumeCursor);
+            if (providerSessionId === null) {
+              return yield* Effect.fail(new Error("Provider-native cursor has no exact identity."));
+            }
+            const nativeStateLocatorJson = JSON.stringify(resumeCursor);
+            if (
+              state.value.providerSessionId === providerSessionId &&
+              state.value.nativeStateLocatorJson === nativeStateLocatorJson
+            ) {
+              return;
+            }
+            const updated = yield* bindings.replaceNativeState({
+              threadId,
+              expectedRevision: state.value.revision,
+              nativeStateGenerationId: state.value.nativeStateGenerationId,
+              providerSessionId,
+              nativeStateLocatorJson,
+              verifiedAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            });
+            if (Option.isNone(updated)) {
+              return yield* Effect.fail(
+                new Error("Provider-native cursor revision changed during persistence."),
+              );
+            }
+          }),
+        resolveManagedLaunch: ({ threadId, provider }) =>
+          Effect.gen(function* () {
+            const state = yield* bindings.getHarnessState(threadId);
+            const binding = yield* bindings.getRuntimeBinding(threadId);
+            if (Option.isNone(state) || Option.isNone(binding)) {
+              return yield* Effect.fail(
+                new Error("The thread has no exact managed provider binding."),
+              );
+            }
+            if (state.value.harness !== provider) {
+              return yield* Effect.fail(
+                new Error("The requested provider does not match the thread harness."),
+              );
+            }
+            const launch = yield* launchResolver.resolve({
+              threadId,
+              connectionId: binding.value.connectionId,
+              installationId: binding.value.installationId,
+              internalProviderId: binding.value.internalProviderId,
+            });
+            return {
+              binaryPath: launch.binaryPath,
+              isolationKey: launch.isolationKey,
+              profileRoot: launch.profileRoot,
+              nativeStateRoot: launch.nativeStateRoot,
+              childEnvironment: (baseEnv: NodeJS.ProcessEnv) => launch.childEnvironment(baseEnv),
+            } satisfies ProviderManagedLaunchContext;
+          }),
       });
     }),
   );

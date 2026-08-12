@@ -56,9 +56,7 @@ export type {
   DraftThreadEnvMode,
   DraftThreadState,
   QueuedComposerChatTurn,
-  QueuedComposerPlanFollowUp,
   QueuedComposerTurn,
-  RestoredComposerSourceProposedPlan,
 } from "./composerDraftDomain";
 export {
   deriveEffectiveComposerModelState,

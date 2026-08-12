@@ -347,7 +347,11 @@ export function SidebarSearchPalette(props: SidebarSearchPaletteProps) {
     return () => window.clearTimeout(timeoutId);
   }, [props.importProviders, props.open]);
 
-  const matchedActions = matchSidebarSearchActions(props.actions, query);
+  const visibleActions =
+    props.importProviders.length === 0
+      ? props.actions.filter((action) => action.id !== "import-thread")
+      : props.actions;
+  const matchedActions = matchSidebarSearchActions(visibleActions, query);
   const themeCommandItems = buildThemeCommandItems({
     query,
     resolvedTheme,

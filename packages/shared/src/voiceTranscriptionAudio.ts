@@ -4,12 +4,16 @@
 
 import { Buffer } from "node:buffer";
 
-import {
-  SERVER_VOICE_TRANSCRIPTION_MAX_AUDIO_BYTES,
-  type ServerVoiceTranscriptionInput,
-} from "@penkra/contracts";
+import { SERVER_VOICE_TRANSCRIPTION_MAX_AUDIO_BYTES } from "@penkra/contracts";
 
-export function decodeVoiceTranscriptionAudio(input: ServerVoiceTranscriptionInput): Buffer {
+interface VoiceTranscriptionAudioInput {
+  readonly mimeType: string;
+  readonly sampleRateHz: number;
+  readonly durationMs: number;
+  readonly audioBase64: string;
+}
+
+export function decodeVoiceTranscriptionAudio(input: VoiceTranscriptionAudioInput): Buffer {
   if (input.mimeType !== "audio/wav") {
     throw new Error("Only WAV audio is supported for voice transcription.");
   }

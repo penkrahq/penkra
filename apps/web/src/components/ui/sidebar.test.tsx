@@ -129,4 +129,22 @@ describe("sidebar interactive cursors", () => {
     expect(container).toContain("invisible");
     expect(container).not.toContain("right-[calc(var(--sidebar-width)*-1)]");
   });
+
+  it("renders embedded sidebars in document flow without a duplicate viewport gap", () => {
+    const html = renderToStaticMarkup(
+      <SidebarProvider open>
+        <Sidebar collapsible="offcanvas" positioning="inline" side="right">
+          Content
+        </Sidebar>
+      </SidebarProvider>,
+    );
+
+    const container = html.match(/<div[^>]*data-slot="sidebar-container"[^>]*>/)?.[0];
+
+    expect(container).toBeDefined();
+    expect(container).toContain("relative");
+    expect(container).toContain("w-(--sidebar-width)");
+    expect(container).not.toContain("fixed");
+    expect(html).not.toContain('data-slot="sidebar-gap"');
+  });
 });

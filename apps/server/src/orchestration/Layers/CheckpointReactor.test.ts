@@ -12,7 +12,6 @@ import type {
 import {
   CheckpointRef,
   CommandId,
-  DEFAULT_PROVIDER_INTERACTION_MODE,
   EventId,
   MessageId,
   ContainerId,
@@ -424,7 +423,6 @@ describe("CheckpointReactor", () => {
           provider: "codex",
           model: "gpt-5-codex",
         },
-        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
         runtimeMode: "approval-required",
         branch: null,
         worktreePath: options?.threadWorktreePath ?? cwd,
@@ -568,7 +566,6 @@ describe("CheckpointReactor", () => {
           text: "create a",
           attachments: [],
         },
-        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
         runtimeMode: "approval-required",
         createdAt,
       }),
@@ -603,6 +600,27 @@ describe("CheckpointReactor", () => {
         entry.checkpoints[0]?.files?.map((file) => file.path).includes("a.txt") === true,
     );
 
+    // This focused harness intentionally omits ProviderRuntimeIngestion, which
+    // owns the production turn.completed -> ready session transition. Model
+    // that transition explicitly before asking the engine to start turn B.
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.makeUnsafe("cmd-turn-a-session-ready"),
+        threadId,
+        session: {
+          threadId,
+          status: "ready",
+          providerName: "codex",
+          runtimeMode: "approval-required",
+          activeTurnId: null,
+          lastError: null,
+          updatedAt: new Date().toISOString(),
+        },
+        createdAt: new Date().toISOString(),
+      }),
+    );
+
     await Effect.runPromise(
       harness.engine.dispatch({
         type: "thread.turn.start",
@@ -614,7 +632,6 @@ describe("CheckpointReactor", () => {
           text: "create b",
           attachments: [],
         },
-        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
         runtimeMode: "approval-required",
         createdAt: new Date().toISOString(),
       }),
@@ -675,7 +692,6 @@ describe("CheckpointReactor", () => {
           text: "recover baseline",
           attachments: [],
         },
-        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
         runtimeMode: "approval-required",
         createdAt,
       }),
@@ -795,7 +811,6 @@ describe("CheckpointReactor", () => {
           text: "start turn",
           attachments: [],
         },
-        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
         runtimeMode: "approval-required",
         createdAt,
       }),
@@ -906,7 +921,6 @@ describe("CheckpointReactor", () => {
           text: "start turn",
           attachments: [],
         },
-        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
         runtimeMode: "approval-required",
         createdAt,
       }),
@@ -1165,7 +1179,11 @@ describe("CheckpointReactor", () => {
     );
     expect(livePlaceholder?.checkpointTurnCount).toBe(1);
     const liveFile = livePlaceholder?.files?.find((file) => file.path === "live.txt") as
-      | { readonly path: string; readonly additions?: number; readonly deletions?: number }
+      | {
+          readonly path: string;
+          readonly additions?: number;
+          readonly deletions?: number;
+        }
       | undefined;
     expect(liveFile?.additions).toBe(1);
     // The throwaway snapshot ref must not linger as a durable checkpoint.
@@ -1260,7 +1278,6 @@ describe("CheckpointReactor", () => {
           text: "start turn",
           attachments: [],
         },
-        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
         runtimeMode: "approval-required",
         createdAt: new Date().toISOString(),
       }),
@@ -1551,7 +1568,14 @@ describe("CheckpointReactor", () => {
         completedAt: createdAt,
         checkpointRef: CheckpointRef.makeUnsafe("provider-diff:files-undo-placeholder"),
         status: "missing",
-        files: [{ path: "placeholder.txt", kind: "modified", additions: 1, deletions: 0 }],
+        files: [
+          {
+            path: "placeholder.txt",
+            kind: "modified",
+            additions: 1,
+            deletions: 0,
+          },
+        ],
         checkpointTurnCount: 3,
         createdAt,
       }),
@@ -1885,7 +1909,6 @@ describe("CheckpointReactor", () => {
         projectId: asProjectId("project-1"),
         title: "Child revert",
         modelSelection: { provider: "codex", model: "gpt-5-codex" },
-        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
         runtimeMode: "approval-required",
         parentThreadId: ThreadId.makeUnsafe("thread-1"),
         branch: null,

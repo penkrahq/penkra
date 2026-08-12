@@ -57,7 +57,7 @@ const pages = [
     icon: IconRobot,
     id: "agents",
     label: "Agents",
-    subtitle: "Choose which coding agent runs your threads.",
+    subtitle: "Manage the Connections Penkra uses to run Threads.",
   },
   {
     icon: IconApps,

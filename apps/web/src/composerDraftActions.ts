@@ -59,7 +59,7 @@ import {
 } from "./composerDraftModels";
 import { ensureInlineTerminalContextPlaceholders } from "./lib/terminalContext";
 import { buildModelSelection } from "./providerModelOptions";
-import { DEFAULT_INTERACTION_MODE, DEFAULT_RUNTIME_MODE } from "./types";
+import { DEFAULT_RUNTIME_MODE } from "./types";
 
 function draftReferencesComposerAsset(draft: ComposerThreadDraftState, assetKey: string): boolean {
   if (draft.files.some((file) => file.assetKey === assetKey)) return true;
@@ -235,7 +235,6 @@ export const createComposerDraftStoreState =
           spaceId: options.spaceId ?? null,
           createdAt: options.createdAt ?? new Date().toISOString(),
           runtimeMode: options.runtimeMode ?? DEFAULT_RUNTIME_MODE,
-          interactionMode: options.interactionMode ?? DEFAULT_INTERACTION_MODE,
           entryPoint: options.entryPoint ?? "chat",
           branch: options.branch ?? null,
           worktreePath,
@@ -578,7 +577,11 @@ export const createComposerDraftStoreState =
         return;
       }
       set((state) => {
-        const existing = state.draftsByThreadId[threadId] ?? createEmptyThreadDraft();
+        const storedDraft = state.draftsByThreadId[threadId];
+        if ((!storedDraft && prompt.length === 0) || storedDraft?.prompt === prompt) {
+          return state;
+        }
+        const existing = storedDraft ?? createEmptyThreadDraft();
         const nextDraft: ComposerThreadDraftState = {
           ...existing,
           prompt,
@@ -1013,34 +1016,6 @@ export const createComposerDraftStoreState =
         const nextDraft: ComposerThreadDraftState = {
           ...base,
           runtimeMode: nextRuntimeMode,
-        };
-        const nextDraftsByThreadId = { ...state.draftsByThreadId };
-        if (shouldRemoveDraft(nextDraft)) {
-          delete nextDraftsByThreadId[threadId];
-        } else {
-          nextDraftsByThreadId[threadId] = nextDraft;
-        }
-        return { draftsByThreadId: nextDraftsByThreadId };
-      });
-    },
-    setInteractionMode: (threadId, interactionMode) => {
-      if (threadId.length === 0) {
-        return;
-      }
-      const nextInteractionMode =
-        interactionMode === "plan" || interactionMode === "default" ? interactionMode : null;
-      set((state) => {
-        const existing = state.draftsByThreadId[threadId];
-        if (!existing && nextInteractionMode === null) {
-          return state;
-        }
-        const base = existing ?? createEmptyThreadDraft();
-        if (base.interactionMode === nextInteractionMode) {
-          return state;
-        }
-        const nextDraft: ComposerThreadDraftState = {
-          ...base,
-          interactionMode: nextInteractionMode,
         };
         const nextDraftsByThreadId = { ...state.draftsByThreadId };
         if (shouldRemoveDraft(nextDraft)) {
@@ -1670,25 +1645,6 @@ export const createComposerDraftStoreState =
         return { draftsByThreadId: nextDraftsByThreadId };
       });
     },
-    setRestoredSourceProposedPlan: (threadId, source) => {
-      if (threadId.length === 0) {
-        return;
-      }
-      set((state) => {
-        const current = state.draftsByThreadId[threadId] ?? createEmptyThreadDraft();
-        const nextDraft: ComposerThreadDraftState = {
-          ...current,
-          restoredSourceProposedPlan: source,
-        };
-        const nextDraftsByThreadId = { ...state.draftsByThreadId };
-        if (shouldRemoveDraft(nextDraft)) {
-          delete nextDraftsByThreadId[threadId];
-        } else {
-          nextDraftsByThreadId[threadId] = nextDraft;
-        }
-        return { draftsByThreadId: nextDraftsByThreadId };
-      });
-    },
     clearComposerContent: (threadId, options) => {
       if (threadId.length === 0) {
         return;
@@ -1722,7 +1678,6 @@ export const createComposerDraftStoreState =
           pastedTexts: [],
           skills: [],
           mentions: [],
-          restoredSourceProposedPlan: null,
         };
         const nextDraftsByThreadId = { ...state.draftsByThreadId };
         if (shouldRemoveDraft(nextDraft)) {

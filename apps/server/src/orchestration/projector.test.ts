@@ -165,7 +165,6 @@ describe("orchestration projector", () => {
           model: "gpt-5-codex",
         },
         runtimeMode: "full-access",
-        interactionMode: "default",
         envMode: "local",
         branch: null,
         worktreePath: null,
@@ -185,7 +184,6 @@ describe("orchestration projector", () => {
         subagentNickname: null,
         subagentRole: null,
         forkSourceThreadId: null,
-        sidechatSourceThreadId: null,
         lastKnownPr: null,
         latestTurn: null,
         pendingTurnStartMessageId: null,
@@ -193,9 +191,7 @@ describe("orchestration projector", () => {
         updatedAt: now,
         archivedAt: null,
         deletedAt: null,
-        handoff: null,
         messages: [],
-        proposedPlans: [],
         activities: [],
         checkpoints: [],
         session: null,
@@ -254,7 +250,6 @@ describe("orchestration projector", () => {
               model: "openai/gpt-5.5",
             },
             runtimeMode: "approval-required",
-            interactionMode: "default",
             createdAt: turnRequestedAt,
           },
         }),
@@ -266,7 +261,6 @@ describe("orchestration projector", () => {
       model: "openai/gpt-5.5",
     });
     expect(next.threads[0]?.runtimeMode).toBe("approval-required");
-    expect(next.threads[0]?.interactionMode).toBe("default");
     expect(next.threads[0]?.pendingTurnStartMessageId).toBe("message-1");
     expect(next.threads[0]?.updatedAt).toBe(turnRequestedAt);
     expect(next.threads[0]?.session).toEqual({
@@ -331,7 +325,6 @@ describe("orchestration projector", () => {
               model: "openai/gpt-5",
             },
             runtimeMode: "approval-required",
-            interactionMode: "default",
             createdAt: turnRequestedAt,
           },
         }),

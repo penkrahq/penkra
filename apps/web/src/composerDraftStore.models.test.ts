@@ -95,6 +95,20 @@ describe("composerDraftStore modelSelection", () => {
     );
   });
 
+  it("preserves Claude's exact runtime model identity", () => {
+    const store = useComposerDraftStore.getState();
+    const selection = modelSelection("claudeAgent", "claude-haiku-4-5-20251001");
+
+    store.setModelSelection(threadId, selection);
+    store.setStickyModelSelection(selection);
+
+    const state = useComposerDraftStore.getState();
+    expect(state.draftsByThreadId[threadId]?.modelSelectionByProvider.claudeAgent).toEqual(
+      selection,
+    );
+    expect(state.stickyModelSelectionByProvider.claudeAgent).toEqual(selection);
+  });
+
   it.each(["max", "ultra"])(
     "retains runtime-discovered Codex %s effort in thread and sticky selections",
     (reasoningEffort) => {

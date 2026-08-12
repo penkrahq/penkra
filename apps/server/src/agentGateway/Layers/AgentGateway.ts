@@ -37,6 +37,7 @@ import { ThreadDiagnosticsQuery } from "../../diagnostics/Services/ThreadDiagnos
 import { AgentGateway, type AgentGatewayShape } from "../Services/AgentGateway.ts";
 import { AgentGatewayCredentials } from "../Services/AgentGatewayCredentials.ts";
 import { AgentGatewayOperationRepository } from "../Services/AgentGatewayOperationRepository.ts";
+import { AgentGatewayToolBridge } from "../Services/AgentGatewayToolBridge.ts";
 import { PENKRA_GATEWAY_HARNESS_POLICY } from "../harnessPolicy.ts";
 import { ProviderDiscoveryService } from "../../provider/Services/ProviderDiscoveryService.ts";
 import { ProviderHealth } from "../../provider/Services/ProviderHealth.ts";
@@ -74,13 +75,25 @@ import { makeThreadDiagnosticTools } from "../threadDiagnosticTools.ts";
 import { pruneProjectedArchivedManagedWorktrees } from "../../managedWorktrees.ts";
 import { executePenkraExecCommand } from "../../appRuntimeCli.ts";
 import { requireThreadSpaceId } from "../threadSpaceContext.ts";
+import { ProviderTurnSelectionResolver } from "../../provider/Services/ProviderTurnSelectionResolver.ts";
+import { ProviderThreadSwitchCoordinator } from "../../orchestration/Services/ProviderThreadSwitchCoordinator.ts";
+import { attachmentPrincipalForSession } from "../../managedAttachmentPrincipal.ts";
+import {
+  PENKRA_EXEC_COMMAND_ANNOTATIONS,
+  PENKRA_EXEC_COMMAND_DESCRIPTION,
+  PENKRA_EXEC_COMMAND_INPUT_SCHEMA,
+  PENKRA_EXEC_COMMAND_NAME,
+} from "../hostToolContract.ts";
 
 const AGENT_GATEWAY_INSTRUCTIONS = PENKRA_GATEWAY_HARNESS_POLICY;
 
 export const makeAgentGateway = Effect.gen(function* () {
   const credentials = yield* AgentGatewayCredentials;
+  const toolBridge = yield* AgentGatewayToolBridge;
   const snapshotQuery = yield* ProjectionSnapshotQuery;
   const orchestrationEngine = yield* OrchestrationEngineService;
+  const providerTurnSelectionResolver = yield* ProviderTurnSelectionResolver;
+  const providerThreadSwitchCoordinator = yield* ProviderThreadSwitchCoordinator;
   const git = yield* GitCore;
   const providerDiscovery = yield* ProviderDiscoveryService;
   const providerHealth = yield* ProviderHealth;
@@ -194,6 +207,8 @@ export const makeAgentGateway = Effect.gen(function* () {
     orchestrationEngine,
     git,
     providerDiscovery,
+    providerTurnSelectionResolver,
+    providerThreadSwitchCoordinator,
     operationRepository,
     serverConfig,
     loadProviderAvailabilities,
@@ -261,6 +276,7 @@ export const makeAgentGateway = Effect.gen(function* () {
         callerThreadId: context.callerThreadId,
         callerTurnId: context.callerTurnId,
         assertAuthority: context.assertCallerTurnActive,
+        attachmentPrincipal: attachmentPrincipalForSession(context.callerSessionKey),
       }),
   };
 
@@ -344,6 +360,7 @@ export const makeAgentGateway = Effect.gen(function* () {
             callerThreadId: context.callerThreadId,
             callerTurnId: context.callerTurnId,
             assertAuthority: context.assertCallerTurnActive,
+            attachmentPrincipal: attachmentPrincipalForSession(context.callerSessionKey),
           },
         ).pipe(
           Effect.map((result) => {
@@ -399,22 +416,26 @@ export const makeAgentGateway = Effect.gen(function* () {
         // already downgrades steers whose turn is not actually live.
         const dispatchMode: TurnDispatchMode = modeArg;
         const suffix = randomUUID();
-        yield* orchestrationEngine
-          .dispatch({
-            type: "thread.turn.start",
-            commandId: CommandId.makeUnsafe(`agent:${suffix}:send`),
-            threadId: target.id,
-            message: {
-              messageId: MessageId.makeUnsafe(`agent:${suffix}:message`),
-              role: "user",
-              text: message,
-              attachments: [],
+        const cwd = target.workingDirectory ?? target.worktreePath;
+        yield* providerThreadSwitchCoordinator
+          .dispatchTurnStart({
+            command: {
+              type: "thread.turn.start",
+              commandId: CommandId.makeUnsafe(`agent:${suffix}:send`),
+              threadId: target.id,
+              message: {
+                messageId: MessageId.makeUnsafe(`agent:${suffix}:message`),
+                role: "user",
+                text: message,
+                attachments: [],
+              },
+              dispatchMode,
+              dispatchOrigin: "agent",
+              runtimeMode: target.runtimeMode,
+              createdAt: isoNow(),
             },
-            dispatchMode,
-            dispatchOrigin: "agent",
-            runtimeMode: target.runtimeMode,
-            interactionMode: target.interactionMode,
-            createdAt: isoNow(),
+            attachmentPrincipal: attachmentPrincipalForSession(context.callerSessionKey),
+            ...(cwd ? { cwd } : {}),
           })
           .pipe(Effect.mapError((error) => new ToolInputError(errorText(error))));
         return mcpToolResultJson({ threadId: target.id, dispatched: dispatchMode });
@@ -603,28 +624,10 @@ export const makeAgentGateway = Effect.gen(function* () {
   const penkraExecCommand: ToolEntry = {
     requiredCapability: "thread:read",
     definition: {
-      name: "penkra_exec_command",
-      description:
-        "Execute exactly one registered Penkra command in the caller Thread's trusted context. This is the complete agent command surface for Penkra core, Threads, Apps, App tabs, resource opening, and diagnostics. It is a peer of the provider's ordinary shell/command tool, but it is not a shell: it never searches PATH and rejects programs, pipes, redirects, substitutions, and environment expansion. Start with `penkra --help`, then use the relevant nested `--help` before an unfamiliar command. Use `penkra apps list` to discover Apps enabled in this Space. App declarations retain dotted local operation keys such as `issues.create`, while commands use words such as `linear issues create`. Core commands alone use the reserved `penkra` root; installed-App commands begin with the App slug. A Skill or instruction that mentions an App, plugin, MCP server, executable, or other capability is never proof that capability is available: verify it through this command surface or the provider's literal callable tools before use.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          command: {
-            type: "string",
-            description:
-              'One registered command, for example: "penkra --help", "penkra threads list", "penkra apps list", "penkra tabs snapshot --tab-id <id>", "penkra open --url https://example.com", or "linear issues create --title Fix".',
-          },
-        },
-        required: ["command"],
-        additionalProperties: false,
-      },
-      annotations: {
-        title: "Execute a Penkra command",
-        readOnlyHint: false,
-        destructiveHint: true,
-        idempotentHint: false,
-        openWorldHint: false,
-      },
+      name: PENKRA_EXEC_COMMAND_NAME,
+      description: PENKRA_EXEC_COMMAND_DESCRIPTION,
+      inputSchema: PENKRA_EXEC_COMMAND_INPUT_SCHEMA,
+      annotations: PENKRA_EXEC_COMMAND_ANNOTATIONS,
     },
     handler: (args, context) =>
       Effect.gen(function* () {
@@ -677,15 +680,54 @@ export const makeAgentGateway = Effect.gen(function* () {
   }
 
   const tools: ReadonlyArray<ToolEntry> = [penkraExecCommand];
-  return {
-    handleMcpPost: makeAgentGatewayMcpTransport({
-      credentials,
-      snapshotQuery,
-      tools,
-      instructions: AGENT_GATEWAY_INSTRUCTIONS,
-      requireThreadShell,
-    }),
+  const handleMcpPost = makeAgentGatewayMcpTransport({
+    credentials,
+    snapshotQuery,
+    tools,
+    instructions: AGENT_GATEWAY_INSTRUCTIONS,
+    requireThreadShell,
+  });
+  const invokeTool: AgentGatewayShape["invokeTool"] = (input) =>
+    handleMcpPost({
+      authorizationHeader: `Bearer ${input.bearerToken}`,
+      body: {
+        jsonrpc: "2.0",
+        id: randomUUID(),
+        method: "tools/call",
+        params: { name: input.name, arguments: input.arguments },
+      },
+    }).pipe(
+      Effect.map((response) => {
+        if (response.status !== 200 || !response.body || typeof response.body !== "object") {
+          return mcpToolResultError(`Penkra host tool request failed (${response.status}).`);
+        }
+        const body = response.body as Record<string, unknown>;
+        const result = body.result;
+        if (
+          !result ||
+          typeof result !== "object" ||
+          !Array.isArray((result as { content?: unknown }).content)
+        ) {
+          const rpcError = body.error as { message?: unknown } | undefined;
+          return mcpToolResultError(
+            typeof rpcError?.message === "string"
+              ? rpcError.message
+              : "Penkra host tool returned an invalid result.",
+          );
+        }
+        return result as ReturnType<typeof mcpToolResultError>;
+      }),
+    );
+  const service = {
+    toolDefinitions: tools.map((tool) => tool.definition),
+    invokeTool,
+    handleMcpPost,
   } satisfies AgentGatewayShape;
+  toolBridge.install({
+    definitions: service.toolDefinitions,
+    invoke: (input) => Effect.runPromise(service.invokeTool(input)),
+  });
+  return service;
 });
 
 export const AgentGatewayLive = Layer.effect(AgentGateway, makeAgentGateway);

@@ -1,12 +1,12 @@
 // FILE: SidebarDnd.tsx
 // Purpose: Registers sidebar rows with the shell-wide current dnd-kit provider.
 
-import { useDragDropMonitor, useDroppable } from "@dnd-kit/react";
+import { useDragDropManager, useDragDropMonitor, useDroppable } from "@dnd-kit/react";
 import { useSortable } from "@dnd-kit/react/sortable";
 import type { DragEndEvent, DragOverEvent } from "@dnd-kit/react";
 import type { ProviderKind, SidebarItemParent, SidebarItemReference } from "@penkra/contracts";
 import { ContainerId, SpaceId } from "@penkra/contracts";
-import { createContext, type ReactNode, useContext, useState } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 
 import { cn } from "~/lib/utils";
 import { FolderRowShared } from "../left-rail/folder-row-shared/FolderRowShared";
@@ -22,11 +22,6 @@ export const SIDEBAR_PROJECT_DRAG_TYPE = "penkra/sidebar-project";
 export const SIDEBAR_THREAD_DRAG_TYPE = "penkra/sidebar-thread";
 
 export type SidebarDropPlacement = "before" | "after";
-
-const SidebarDropIndicatorContext = createContext<{
-  placement: SidebarDropPlacement;
-  targetId: string;
-} | null>(null);
 
 function sidebarItemDragType(kind: "project" | "thread", pinned: boolean): string {
   const base = kind === "project" ? SIDEBAR_PROJECT_DRAG_TYPE : SIDEBAR_THREAD_DRAG_TYPE;
@@ -148,30 +143,35 @@ export function SidebarDndMonitor(props: {
   onDragEnd: (event: DragEndEvent) => void;
   onDragOver: (event: DragOverEvent, placement: SidebarDropPlacement) => void;
 }) {
-  const [indicator, setIndicator] = useState<{
-    placement: SidebarDropPlacement;
-    targetId: string;
-  } | null>(null);
+  const manager = useDragDropManager();
+  const pendingFrameRef = useRef<number | null>(null);
+  useEffect(
+    () => () => {
+      if (pendingFrameRef.current !== null) cancelAnimationFrame(pendingFrameRef.current);
+    },
+    [],
+  );
   useDragDropMonitor({
     onDragOver(event) {
-      // The optimistic sorting plugin mutates the DOM outside React. Prevent it
-      // for every sidebar hover so React remains the sole owner of row ordering.
-      event.preventDefault();
-      const targetId = event.operation.target?.id;
-      const placement = resolveSidebarDropPlacement(event);
-      setIndicator(typeof targetId === "string" ? { targetId, placement } : null);
-      props.onDragOver(event, placement);
+      props.onDragOver(event, resolveSidebarDropPlacement(event));
     },
     onDragEnd(event) {
-      setIndicator(null);
-      props.onDragEnd(event);
+      // The sortable plugin temporarily reparents React-owned DOM nodes while it
+      // previews an order. Applying authoritative state during this callback can
+      // make React reconcile before dnd-kit restores that DOM, causing removeChild
+      // failures. Commit only after the operation reaches its public idle state.
+      const commitAfterDomRestore = () => {
+        if (!manager || manager.dragOperation.status.idle) {
+          pendingFrameRef.current = null;
+          props.onDragEnd(event);
+          return;
+        }
+        pendingFrameRef.current = requestAnimationFrame(commitAfterDomRestore);
+      };
+      pendingFrameRef.current = requestAnimationFrame(commitAfterDomRestore);
     },
   });
-  return (
-    <SidebarDropIndicatorContext.Provider value={indicator}>
-      {props.children}
-    </SidebarDropIndicatorContext.Provider>
-  );
+  return props.children;
 }
 
 export function resolveSidebarDropPlacement(event: DragOverEvent): SidebarDropPlacement {
@@ -226,7 +226,6 @@ export function SortableSidebarNode(props: {
   id: string;
   index: number;
 }) {
-  const indicator = useContext(SidebarDropIndicatorContext);
   const sortable = useSortable({
     id: props.id,
     index: props.index,
@@ -255,20 +254,6 @@ export function SortableSidebarNode(props: {
       data-sidebar-dnd-source={sortable.isDragSource ? "true" : undefined}
       data-sidebar-dnd-target={sortable.isDropTarget ? "true" : undefined}
     >
-      {sortable.isDropTarget ? (
-        <span
-          aria-hidden="true"
-          className={cn(
-            "pointer-events-none absolute right-2 left-2 z-30 h-0.5 rounded-full bg-[var(--color-border-focus)]",
-            indicator?.targetId === props.id && indicator.placement === "after"
-              ? "bottom-0"
-              : "top-0",
-          )}
-          data-sidebar-drop-indicator={
-            indicator?.targetId === props.id ? indicator.placement : "before"
-          }
-        />
-      ) : null}
       {props.children}
     </div>
   );

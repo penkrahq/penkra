@@ -17,7 +17,7 @@ import { disposeAndCloseTerminalSession } from "../terminal/terminalSession";
 
 type AutoDeleteCandidateThread = Pick<
   Thread,
-  "activities" | "latestTurn" | "messages" | "proposedPlans" | "session" | "title"
+  "activities" | "latestTurn" | "messages" | "session" | "title"
 >;
 
 interface UseChatTerminalControllerInput {

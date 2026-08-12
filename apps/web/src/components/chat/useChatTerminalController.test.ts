@@ -175,7 +175,6 @@ describe("useChatTerminalController", () => {
         latestTurn: null,
         session: null,
         activities: [],
-        proposedPlans: [],
       },
       activeProjectPresent: true,
       isFocusedPane: false,

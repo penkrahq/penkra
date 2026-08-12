@@ -39,7 +39,7 @@ import {
   makeReadModelProject,
   threadsOf,
 } from "./storeTestFixtures";
-import { DEFAULT_INTERACTION_MODE, DEFAULT_RUNTIME_MODE, type Thread } from "./types";
+import { DEFAULT_RUNTIME_MODE, type Thread } from "./types";
 
 describe("store projection", () => {
   it("preserves a semantic branch when a temp worktree branch arrives from the read model", () => {
@@ -128,7 +128,6 @@ describe("store projection", () => {
           latestUserMessageAt: "2026-02-27T00:03:00.000Z",
           hasPendingApprovals: true,
           hasPendingUserInput: true,
-          hasActionableProposedPlan: true,
           updatedAt: "2026-02-27T00:05:00.000Z",
         }),
       ),
@@ -138,13 +137,11 @@ describe("store projection", () => {
       latestUserMessageAt: "2026-02-27T00:03:00.000Z",
       hasPendingApprovals: true,
       hasPendingUserInput: true,
-      hasActionableProposedPlan: true,
     });
     expect(next.sidebarThreadSummaryById["thread-1"]).toMatchObject({
       latestUserMessageAt: "2026-02-27T00:03:00.000Z",
       hasPendingApprovals: true,
       hasPendingUserInput: true,
-      hasActionableProposedPlan: true,
     });
   });
 
@@ -195,16 +192,13 @@ describe("store projection", () => {
           model: "gpt-5.3-codex",
         },
         runtimeMode: DEFAULT_RUNTIME_MODE,
-        interactionMode: DEFAULT_INTERACTION_MODE,
         envMode: "local",
         branch: null,
         worktreePath: null,
         forkSourceThreadId: null,
-        sidechatSourceThreadId: null,
         latestTurn: null,
         createdAt: "2026-02-27T00:00:00.000Z",
         updatedAt: "2026-02-27T00:00:30.000Z",
-        handoff: null,
         session: null,
       }),
     );
@@ -481,7 +475,6 @@ describe("store projection", () => {
           model: "gpt-5.3-codex",
         },
         runtimeMode: DEFAULT_RUNTIME_MODE,
-        interactionMode: DEFAULT_INTERACTION_MODE,
         envMode: "worktree",
         branch: "feature/semantic-branch",
         worktreePath: "/tmp/project/.worktrees/semantic-branch",
@@ -494,13 +487,11 @@ describe("store projection", () => {
         subagentNickname: null,
         subagentRole: null,
         forkSourceThreadId: null,
-        sidechatSourceThreadId: null,
         lastKnownPr: null,
         latestTurn: null,
         createdAt: "2026-02-27T00:00:00.000Z",
         updatedAt: "2026-02-27T00:05:00.000Z",
         archivedAt: null,
-        handoff: null,
         session: null,
       },
     });
@@ -511,7 +502,7 @@ describe("store projection", () => {
   it("preserves pinnedMessages and notes through the normalized read-model projection", () => {
     // Regression: the normalized ThreadShell projection used to omit pinnedMessages/notes, so a
     // read-model sync would reconstruct the thread without them — pins clicked in the sidebar
-    // never surfaced in the Environment panel. `threadsOf(next)[0]` reads back through
+    // never surfaced in the normalized detail view. `threadsOf(next)[0]` reads back through
     // getThreadsFromState (the shell projection), so this asserts the fields survive the round trip.
     const messageId = MessageId.makeUnsafe("assistant-pin-1");
     const pinnedMessages = [
@@ -587,7 +578,6 @@ describe("store projection", () => {
           model: "gpt-5.3-codex",
         },
         runtimeMode: DEFAULT_RUNTIME_MODE,
-        interactionMode: DEFAULT_INTERACTION_MODE,
         envMode: "local",
         branch: null,
         worktreePath: null,
@@ -600,13 +590,11 @@ describe("store projection", () => {
         subagentNickname: null,
         subagentRole: null,
         forkSourceThreadId: null,
-        sidechatSourceThreadId: null,
         lastKnownPr: null,
         latestTurn: null,
         createdAt: "2026-02-27T00:00:00.000Z",
         updatedAt: "2026-02-27T00:05:00.000Z",
         archivedAt: null,
-        handoff: null,
         session: null,
       },
     });
@@ -762,7 +750,7 @@ describe("store projection", () => {
     expect(threadsOf(next)[0]?.modelSelection.model).toBe("claude-opus-4-6");
   });
 
-  it("resolves claude aliases when session provider is claudeAgent", () => {
+  it("preserves the exact Claude model id from the session projection", () => {
     const initialState = makeState(makeThread());
     const readModel = makeReadModel(
       makeReadModelThread({
@@ -784,7 +772,7 @@ describe("store projection", () => {
 
     const next = syncServerReadModel(initialState, readModel);
 
-    expect(threadsOf(next)[0]?.modelSelection.model).toBe("claude-sonnet-5");
+    expect(threadsOf(next)[0]?.modelSelection.model).toBe("sonnet");
   });
 
   it("preserves OpenCode as the active session provider", () => {
@@ -988,6 +976,148 @@ describe("store projection", () => {
     expect(nextThread?.latestTurn?.completedAt).toBeNull();
     expect(nextThread?.session?.orchestrationStatus).toBe("running");
     expect(nextThread?.session?.activeTurnId).toBe(turnId);
+  });
+
+  it("preserves interleaved live tool activity when a running-turn snapshot lags behind", () => {
+    const threadId = ThreadId.makeUnsafe("thread-hot-path-activity");
+    const turnId = TurnId.makeUnsafe("turn-hot-path-activity");
+    const assistantId = MessageId.makeUnsafe("assistant-hot-path-activity");
+    const liveTool = makeActivity({
+      id: "tool-hot-path",
+      turnId,
+      kind: "tool.completed",
+      summary: "Read file",
+      createdAt: "2026-02-27T00:00:02.000Z",
+      sequence: 5,
+    });
+    const liveState = makeState(
+      makeThread({
+        id: threadId,
+        session: {
+          provider: "codex",
+          status: "running",
+          orchestrationStatus: "running",
+          activeTurnId: turnId,
+          createdAt: "2026-02-27T00:00:00.000Z",
+          updatedAt: "2026-02-27T00:00:02.000Z",
+        },
+        latestTurn: {
+          turnId,
+          state: "running",
+          requestedAt: "2026-02-27T00:00:00.000Z",
+          startedAt: "2026-02-27T00:00:00.000Z",
+          completedAt: null,
+          assistantMessageId: assistantId,
+        },
+        messages: [
+          {
+            id: assistantId,
+            role: "assistant",
+            text: "Inspecting it now.",
+            turnId,
+            createdAt: "2026-02-27T00:00:01.000Z",
+            streaming: true,
+            source: "native",
+          },
+        ],
+        activities: [liveTool],
+      }),
+    );
+
+    const next = syncServerThreadDetailHotPath(
+      liveState,
+      makeReadModelThread({
+        id: threadId,
+        latestTurn: {
+          turnId,
+          state: "running",
+          requestedAt: "2026-02-27T00:00:00.000Z",
+          startedAt: "2026-02-27T00:00:00.000Z",
+          completedAt: null,
+          assistantMessageId: null,
+        },
+        messages: [],
+        activities: [],
+        session: {
+          threadId,
+          status: "running",
+          providerName: "codex",
+          runtimeMode: "full-access",
+          activeTurnId: turnId,
+          lastError: null,
+          updatedAt: "2026-02-27T00:00:02.000Z",
+        },
+      }),
+    );
+
+    expect(getThreadFromState(next, threadId)?.activities).toContainEqual(liveTool);
+  });
+
+  it("lets a terminal snapshot authoritatively settle live tool activity", () => {
+    const threadId = ThreadId.makeUnsafe("thread-terminal-activity");
+    const turnId = TurnId.makeUnsafe("turn-terminal-activity");
+    const assistantId = MessageId.makeUnsafe("assistant-terminal-activity");
+    const liveState = makeState(
+      makeThread({
+        id: threadId,
+        session: {
+          provider: "codex",
+          status: "running",
+          orchestrationStatus: "running",
+          activeTurnId: turnId,
+          createdAt: "2026-02-27T00:00:00.000Z",
+          updatedAt: "2026-02-27T00:00:02.000Z",
+        },
+        latestTurn: {
+          turnId,
+          state: "running",
+          requestedAt: "2026-02-27T00:00:00.000Z",
+          startedAt: "2026-02-27T00:00:00.000Z",
+          completedAt: null,
+          assistantMessageId: assistantId,
+        },
+        messages: [
+          {
+            id: assistantId,
+            role: "assistant",
+            text: "Done.",
+            turnId,
+            createdAt: "2026-02-27T00:00:01.000Z",
+            streaming: true,
+            source: "native",
+          },
+        ],
+        activities: [makeActivity({ id: "tool-live-only", turnId, sequence: 5 })],
+      }),
+    );
+    const completedAt = "2026-02-27T00:00:04.000Z";
+
+    const next = syncServerThreadDetailHotPath(
+      liveState,
+      makeReadModelThread({
+        id: threadId,
+        latestTurn: {
+          turnId,
+          state: "completed",
+          requestedAt: "2026-02-27T00:00:00.000Z",
+          startedAt: "2026-02-27T00:00:00.000Z",
+          completedAt,
+          assistantMessageId: assistantId,
+        },
+        activities: [],
+        session: {
+          threadId,
+          status: "ready",
+          providerName: "codex",
+          runtimeMode: "full-access",
+          activeTurnId: null,
+          lastError: null,
+          updatedAt: completedAt,
+        },
+      }),
+    );
+
+    expect(getThreadFromState(next, threadId)?.activities).toEqual([]);
   });
 
   it("applies incoming dispatch origin corrections while retaining live message text", () => {
@@ -1582,16 +1712,13 @@ describe("store projection", () => {
           model: "gpt-5.3-codex",
         },
         runtimeMode: DEFAULT_RUNTIME_MODE,
-        interactionMode: DEFAULT_INTERACTION_MODE,
         envMode: "local",
         branch: null,
         worktreePath: null,
         forkSourceThreadId: null,
-        sidechatSourceThreadId: null,
         latestTurn: null,
         createdAt: "2026-02-27T00:00:00.000Z",
         updatedAt: "2026-02-27T00:00:30.000Z",
-        handoff: null,
         session: null,
       }),
     );
@@ -1631,16 +1758,13 @@ describe("store projection", () => {
           model: "gpt-5.3-codex",
         },
         runtimeMode: DEFAULT_RUNTIME_MODE,
-        interactionMode: DEFAULT_INTERACTION_MODE,
         envMode: "local",
         branch: null,
         worktreePath: null,
         forkSourceThreadId: null,
-        sidechatSourceThreadId: null,
         latestTurn: null,
         createdAt: "2026-02-27T00:00:00.000Z",
         updatedAt: "2026-02-27T00:00:30.000Z",
-        handoff: null,
         session: null,
       }),
     );
@@ -1770,16 +1894,13 @@ describe("deletion tombstone retirement", () => {
         title,
         modelSelection: { provider: "codex", model: "gpt-5.3-codex" },
         runtimeMode: DEFAULT_RUNTIME_MODE,
-        interactionMode: DEFAULT_INTERACTION_MODE,
         envMode: "local",
         branch: null,
         worktreePath: null,
         forkSourceThreadId: null,
-        sidechatSourceThreadId: null,
         latestTurn: null,
         createdAt: "2026-02-27T00:00:00.000Z",
         updatedAt: "2026-02-27T00:00:30.000Z",
-        handoff: null,
         session: null,
       }),
       snapshotSequence,
@@ -1977,16 +2098,13 @@ describe("deletion tombstone retirement", () => {
       title: "Base",
       modelSelection: { provider: "codex", model: "gpt-5.3-codex" },
       runtimeMode: DEFAULT_RUNTIME_MODE,
-      interactionMode: DEFAULT_INTERACTION_MODE,
       envMode: "local",
       branch: null,
       worktreePath: null,
       forkSourceThreadId: null,
-      sidechatSourceThreadId: null,
       latestTurn: null,
       createdAt: "2026-02-27T00:00:00.000Z",
       updatedAt: "2026-02-27T00:00:30.000Z",
-      handoff: null,
       session: null,
     });
     return {
@@ -2086,7 +2204,6 @@ describe("deletion tombstone retirement", () => {
           model: "gpt-5.3-codex",
         },
         runtimeMode: DEFAULT_RUNTIME_MODE,
-        interactionMode: DEFAULT_INTERACTION_MODE,
         envMode: "local",
         branch: null,
         worktreePath: null,
@@ -2099,13 +2216,11 @@ describe("deletion tombstone retirement", () => {
         subagentNickname: null,
         subagentRole: null,
         forkSourceThreadId: null,
-        sidechatSourceThreadId: null,
         lastKnownPr: null,
         latestTurn: null,
         createdAt: "2026-02-27T00:00:00.000Z",
         updatedAt: "2026-02-27T00:05:00.000Z",
         archivedAt: null,
-        handoff: null,
         session: null,
       },
     });

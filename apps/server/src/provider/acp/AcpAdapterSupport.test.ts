@@ -72,50 +72,20 @@ describe("AcpAdapterSupport", () => {
     ).toEqual({ outcome: "cancelled" });
   });
 
-  it("keeps Plan above Full Access and releases the gate for the next default turn", () => {
-    const options = [
-      { kind: "allow_once", optionId: "implement-once" },
-      { kind: "allow_always", optionId: "implement-always" },
-      { kind: "reject_once", optionId: "stay-in-plan" },
-    ] as const;
-
-    expect(
-      resolveAcpPermissionPolicy({
-        runtimeMode: "full-access",
-        interactionMode: "plan",
-        options,
-      }),
-    ).toEqual({ outcome: "selected", optionId: "stay-in-plan" });
-    expect(
-      resolveAcpPermissionPolicy({
-        runtimeMode: "full-access",
-        interactionMode: "plan",
-        options: [{ kind: "allow_always", optionId: "implement" }],
-      }),
-    ).toEqual({ outcome: "cancelled" });
-    expect(
-      resolveAcpPermissionPolicy({
-        runtimeMode: "full-access",
-        interactionMode: "default",
-        options,
-      }),
-    ).toEqual({ outcome: "selected", optionId: "implement-once" });
-  });
-
-  it("surfaces Default prompts only for active approval-required turns", () => {
+  it("surfaces prompts only for active approval-required turns", () => {
     const options = [{ kind: "allow_once", optionId: "allow" }] as const;
 
     expect(
       resolveAcpPermissionPolicy({
         runtimeMode: "approval-required",
-        interactionMode: "default",
+        turnIsActive: true,
         options,
       }),
     ).toBeUndefined();
     expect(
       resolveAcpPermissionPolicy({
         runtimeMode: "full-access",
-        interactionMode: undefined,
+        turnIsActive: false,
         options,
       }),
     ).toEqual({ outcome: "cancelled" });

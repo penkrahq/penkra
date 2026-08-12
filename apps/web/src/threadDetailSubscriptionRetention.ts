@@ -56,21 +56,12 @@ function isThreadDetailEvictionUnsafe(threadId: ThreadId): boolean {
   const sidebarThread = state.sidebarThreadSummaryById[threadId];
 
   if (sidebarThread) {
-    if (
-      sidebarThread.hasPendingApprovals ||
-      sidebarThread.hasPendingUserInput ||
-      sidebarThread.hasActionableProposedPlan ||
-      sidebarThread.hasLiveTailWork
-    ) {
+    if (sidebarThread.hasPendingApprovals || sidebarThread.hasPendingUserInput) {
       return true;
     }
 
     const orchestrationStatus = sidebarThread.session?.orchestrationStatus;
-    if (
-      orchestrationStatus &&
-      orchestrationStatus !== "idle" &&
-      orchestrationStatus !== "stopped"
-    ) {
+    if (orchestrationStatus === "starting" || orchestrationStatus === "running") {
       return true;
     }
 
@@ -90,18 +81,15 @@ function isThreadDetailEvictionUnsafe(threadId: ThreadId): boolean {
     return (
       hiddenSession?.orchestrationStatus === "starting" ||
       hiddenSession?.orchestrationStatus === "running" ||
-      hiddenTurnState?.latestTurn?.state === "running" ||
-      hiddenTurnState?.pendingSourceProposedPlan !== undefined
+      hiddenTurnState?.latestTurn?.state === "running"
     );
   }
 
   const orchestrationStatus = thread.session?.orchestrationStatus;
   return (
-    Boolean(
-      orchestrationStatus && orchestrationStatus !== "idle" && orchestrationStatus !== "stopped",
-    ) ||
-    thread.latestTurn?.state === "running" ||
-    thread.pendingSourceProposedPlan !== undefined
+    orchestrationStatus === "starting" ||
+    orchestrationStatus === "running" ||
+    thread.latestTurn?.state === "running"
   );
 }
 

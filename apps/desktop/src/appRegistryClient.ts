@@ -349,11 +349,25 @@ export class AppRegistryClient {
     return this.#request(`/api/registry/submissions/${encodeURIComponent(submissionId)}`);
   }
 
+  async developerRetrySubmissionValidation(submissionId: string): Promise<unknown> {
+    assertUuid(submissionId, "submission");
+    return this.#request(
+      `/api/registry/submissions/${encodeURIComponent(submissionId)}/retry-validation`,
+      { method: "POST" },
+    );
+  }
+
+  async developerRetrySubmissionPublication(submissionId: string): Promise<unknown> {
+    assertUuid(submissionId, "submission");
+    return this.#request(
+      `/api/registry/submissions/${encodeURIComponent(submissionId)}/retry-publication`,
+      { method: "POST" },
+    );
+  }
+
   async developerSubmit(input: {
     appId: string;
     packagePath: string;
-    signaturePath: string;
-    issuer: string;
     evidence: {
       version: string;
       compatibilityRange: string;
@@ -366,22 +380,13 @@ export class AppRegistryClient {
     };
   }): Promise<unknown> {
     assertUuid(input.appId, "App");
-    const issuer = new URL(input.issuer);
-    if (issuer.protocol !== "https:") throw new Error("The publisher OIDC issuer must use HTTPS.");
-    const [packageBytes, signatureBytes] = await Promise.all([
-      readFile(input.packagePath),
-      readFile(input.signaturePath),
-    ]);
+    const packageBytes = await readFile(input.packagePath);
     if (
       packageBytes.byteLength !== input.evidence.packageSizeBytes ||
       digest(packageBytes) !== input.evidence.packageDigest
     ) {
       throw new Error("The App package changed after preflight.");
     }
-    if (signatureBytes.byteLength < 1 || signatureBytes.byteLength > 512 * 1024) {
-      throw new Error("The publisher signature bundle has an invalid size.");
-    }
-    JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(signatureBytes));
     const created = await this.#request(
       `/api/registry/apps/${encodeURIComponent(input.appId)}/submissions`,
       {
@@ -394,20 +399,12 @@ export class AppRegistryClient {
           instructionsDigest: input.evidence.instructionsDigest,
           compatibilityRange: input.evidence.compatibilityRange,
           packageSizeBytes: packageBytes.byteLength,
-          publisherSignature: {
-            sha256: digest(signatureBytes),
-            sizeBytes: signatureBytes.byteLength,
-            oidcIssuer: issuer.toString(),
-          },
           permissions: input.evidence.permissions,
         }),
       },
     );
     const response = parseSubmissionUpload(created);
-    await Promise.all([
-      this.#uploadDeveloperArtifact(response.uploads.package, packageBytes),
-      this.#uploadDeveloperArtifact(response.uploads.publisherSignature, signatureBytes),
-    ]);
+    await this.#uploadDeveloperArtifact(response.uploads.package, packageBytes);
     return this.#request(
       `/api/registry/submissions/${encodeURIComponent(response.submissionId)}/finalize`,
       {
@@ -712,7 +709,6 @@ function parseDetail(value: unknown): DesktopRegistryAppDetail {
         publishedAt: isoDateField(version, "publishedAt"),
         readmeArtifactId: uuidField(version, "readmeArtifactId"),
         instructionsArtifactId: uuidField(version, "instructionsArtifactId"),
-        publisherSignatureArtifactId: uuidField(version, "publisherSignatureArtifactId"),
         registrySignatureArtifactId: uuidField(version, "registrySignatureArtifactId"),
         validationReportArtifactId: uuidField(version, "validationReportArtifactId"),
         permissions: version.permissions.map((permission) => {
@@ -904,7 +900,6 @@ function parseSubmissionUpload(value: unknown): {
   submissionId: string;
   uploads: {
     package: { url: string; headers: Record<string, string> };
-    publisherSignature: { url: string; headers: Record<string, string> };
   };
 } {
   if (!isRecord(value) || !isRecord(value.uploads)) throw invalidResponse();
@@ -921,7 +916,6 @@ function parseSubmissionUpload(value: unknown): {
     submissionId: uuidField(value, "submissionId"),
     uploads: {
       package: parseUpload(value.uploads.package),
-      publisherSignature: parseUpload(value.uploads.publisherSignature),
     },
   };
 }

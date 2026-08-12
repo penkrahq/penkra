@@ -13,7 +13,6 @@ import type { AppState } from "../storeState";
 import { collectByIds, getThreadFromState } from "../threadDerivation";
 import type {
   ChatMessage,
-  ProposedPlan,
   Thread,
   ThreadSession,
   ThreadShell,
@@ -32,8 +31,6 @@ type ThreadSliceRefs = {
   messages: Record<MessageId, ChatMessage> | undefined;
   activityIds: readonly string[] | undefined;
   activities: Record<string, Thread["activities"][number]> | undefined;
-  proposedPlanIds: readonly string[] | undefined;
-  proposedPlans: Record<string, ProposedPlan> | undefined;
   turnDiffIds: readonly TurnId[] | undefined;
   turnDiffs: Record<TurnId, TurnDiffSummary> | undefined;
 };
@@ -60,8 +57,6 @@ function collectThreadSliceRefs(state: AppState, threadId: ThreadIdType): Thread
     messages: state.messageByThreadId?.[threadId],
     activityIds: state.activityIdsByThreadId?.[threadId],
     activities: state.activityByThreadId?.[threadId],
-    proposedPlanIds: state.proposedPlanIdsByThreadId?.[threadId],
-    proposedPlans: state.proposedPlanByThreadId?.[threadId],
     turnDiffIds: state.turnDiffIdsByThreadId?.[threadId],
     turnDiffs: state.turnDiffSummaryByThreadId?.[threadId],
   };
@@ -88,8 +83,6 @@ function threadSliceRefsEqual(left: ThreadSliceRefs | undefined, right: ThreadSl
     left.messages === right.messages &&
     left.activityIds === right.activityIds &&
     left.activities === right.activities &&
-    left.proposedPlanIds === right.proposedPlanIds &&
-    left.proposedPlans === right.proposedPlans &&
     left.turnDiffIds === right.turnDiffIds &&
     left.turnDiffs === right.turnDiffs
   );

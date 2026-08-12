@@ -92,11 +92,12 @@ function verifyCanonicalIdentity(): void {
   }
   const expectedBinaries = {
     penkra: "dist/index.mjs",
+    "penkra-database": "dist/databaseMaintenance.mjs",
     "penkra-restore-migration-backup": "dist/restoreMigrationBackup.mjs",
   };
   if (JSON.stringify(serverPackage.bin ?? {}) !== JSON.stringify(expectedBinaries)) {
     throw new Error(
-      "Expected the CLI to expose only the Penkra entry point and migration recovery binary.",
+      "Expected the CLI to expose only the Penkra entry point and database maintenance binaries.",
     );
   }
   if (PENKRA_PRODUCTION_BUNDLE_ID !== "com.penkra.app") {
@@ -398,7 +399,7 @@ function verifyDesktopStageLockAuthority(): void {
   );
   assertContains(
     desktopMain,
-    'process.platform === "darwin" || isArm64HostRunningIntelBuild(desktopRuntimeInfo)',
+    "desktopPlatform.updater.disableDifferentialDownload ||",
     "Expected macOS updates to use the validated resumable full-archive path.",
   );
   assertContains(

@@ -30,6 +30,7 @@ import {
   ProviderCommandReactor,
   type ProviderCommandReactorShape,
 } from "./orchestration/Services/ProviderCommandReactor";
+import { ProviderThreadSwitchCoordinator } from "./orchestration/Services/ProviderThreadSwitchCoordinator";
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
 import { ThreadDeletionReactor } from "./orchestration/Services/ThreadDeletionReactor";
 import { reconcileRestartStuckTurns } from "./orchestration/startupTurnReconciliation";
@@ -43,7 +44,7 @@ import { makeServerReadiness } from "./server/readiness";
 import { makeServerShutdownController, type ServerShutdownController } from "./serverShutdown";
 import { makeBoundedNodeHttpServer } from "./nodeHttpServer";
 import { websocketRpcRouteLayer } from "./wsRpc";
-import { recoverGitHandoffOperations } from "./gitHandoffOperations";
+import { recoverGitEnvironmentSwitchOperations } from "./gitEnvironmentSwitchOperations";
 import { WorkspaceWatcher, type WorkspaceWatcherShape } from "./workspaceWatcher";
 
 export interface ServerShape {
@@ -64,6 +65,7 @@ export interface ServerShape {
     | OrchestrationEngineService
     | OrchestrationReactor
     | ProviderCommandReactor
+    | ProviderThreadSwitchCoordinator
     | ProjectionSnapshotQuery
     | ProviderSessionReaper
     | ProviderRuntimeReconciler
@@ -142,6 +144,7 @@ export const createEffectServer = Effect.fn(function* (
   const orchestrationEngine = yield* OrchestrationEngineService;
   const orchestrationReactor = yield* OrchestrationReactor;
   const providerCommandReactor = yield* ProviderCommandReactor;
+  const providerThreadSwitchCoordinator = yield* ProviderThreadSwitchCoordinator;
   const providerService = yield* ProviderService;
   const providerSessionReaper = yield* ProviderSessionReaper;
   const providerRuntimeReconciler = yield* ProviderRuntimeReconciler;
@@ -236,11 +239,15 @@ export const createEffectServer = Effect.fn(function* (
   // process start cannot replay state-dependent commands against the terminal
   // projection.
   yield* orchestrationReactor.reconcileSettledOpenTurns;
-  yield* recoverGitHandoffOperations((command) => orchestrationEngine.dispatch(command)).pipe(
+  yield* recoverGitEnvironmentSwitchOperations((command) =>
+    orchestrationEngine.dispatch(command),
+  ).pipe(
     Effect.mapError(
-      (cause) => new ServerLifecycleError({ operation: "recoverGitHandoffOperations", cause }),
+      (cause) =>
+        new ServerLifecycleError({ operation: "recoverGitEnvironmentSwitchOperations", cause }),
     ),
   );
+  yield* providerThreadSwitchCoordinator.recoverOpen;
   yield* runtimeStartup.markCommandReady;
 
   yield* lifecycleEvents.publish({

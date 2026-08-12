@@ -587,7 +587,7 @@ export const MODEL_OPTIONS_BY_PROVIDER = {
       capabilities: { ...CLAUDE_EXTENDED_THINKING_CAPABILITIES, supportsFastMode: false },
     },
     {
-      slug: "claude-haiku-4-5",
+      slug: "claude-haiku-4-5-20251001",
       name: "Claude Haiku 4.5",
       capabilities: {
         reasoningEffortLevels: [],
@@ -1044,35 +1044,9 @@ export const MODEL_SLUG_ALIASES_BY_PROVIDER: Record<ProviderKind, Record<string,
     "5.3-spark": "gpt-5.3-codex-spark",
     "gpt-5.3-spark": "gpt-5.3-codex-spark",
   },
-  claudeAgent: {
-    fable: "claude-fable-5",
-    "fable-5": "claude-fable-5",
-    opus: "claude-opus-5",
-    "opus-5": "claude-opus-5",
-    "claude-opus-5": "claude-opus-5",
-    "opus-4.8": "claude-opus-4-8",
-    "claude-opus-4.8": "claude-opus-4-8",
-    "claude-opus-4-8-20260528": "claude-opus-4-8",
-    "opus-4.7": "claude-opus-4-7",
-    "claude-opus-4.7": "claude-opus-4-7",
-    "claude-opus-4-7-20260416": "claude-opus-4-7",
-    "opus-4.6": "claude-opus-4-6",
-    "claude-opus-4.6": "claude-opus-4-6",
-    "claude-opus-4-6-20251117": "claude-opus-4-6",
-    "opus-4.5": "claude-opus-4-5",
-    "claude-opus-4.5": "claude-opus-4-5",
-    "claude-opus-4-5-20250120": "claude-opus-4-5",
-    sonnet: "claude-sonnet-5",
-    "sonnet-5": "claude-sonnet-5",
-    "claude-sonnet-5": "claude-sonnet-5",
-    "sonnet-4.6": "claude-sonnet-4-6",
-    "claude-sonnet-4.6": "claude-sonnet-4-6",
-    "claude-sonnet-4-6-20251117": "claude-sonnet-4-6",
-    haiku: "claude-haiku-4-5",
-    "haiku-4.5": "claude-haiku-4-5",
-    "claude-haiku-4.5": "claude-haiku-4-5",
-    "claude-haiku-4-5-20251001": "claude-haiku-4-5",
-  },
+  // Claude Code's live catalog supplies the exact native model identity. Persist
+  // it unchanged: a selector alias is not a valid substitute for that identity.
+  claudeAgent: {},
   // Retired Cursor slugs are remapped, not dropped: the agent answers -32602 for
   // ids it no longer serves, so persisted selections must migrate to live ones.
   cursor: {
@@ -1189,7 +1163,7 @@ export const MODEL_CAPABILITIES_INDEX = Object.fromEntries(
 // ── Provider display names ────────────────────────────────────────────
 
 export const PROVIDER_DISPLAY_NAMES: Record<ProviderKind, string> = {
-  codex: "Codex",
+  codex: "ChatGPT",
   claudeAgent: "Claude",
   cursor: "Cursor",
   antigravity: "Antigravity",

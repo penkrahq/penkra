@@ -105,11 +105,20 @@ export async function reorderSpaces(input: {
   movedSpaceId: SpaceId;
   orderedSpaceIds: ReadonlyArray<SpaceId>;
 }): Promise<void> {
+  const movedIndex = input.orderedSpaceIds.indexOf(input.movedSpaceId);
+  const previousSpaceId = movedIndex > 0 ? input.orderedSpaceIds[movedIndex - 1] : undefined;
+  const nextSpaceId = movedIndex >= 0 ? input.orderedSpaceIds[movedIndex + 1] : undefined;
+  const position = previousSpaceId
+    ? { type: "after" as const, spaceId: previousSpaceId }
+    : nextSpaceId
+      ? { type: "before" as const, spaceId: nextSpaceId }
+      : null;
+  if (!position) return;
   await input.api.orchestration.dispatchCommand({
     type: "space.reorder",
     commandId: newCommandId(),
     spaceId: input.movedSpaceId,
-    orderedSpaceIds: [...input.orderedSpaceIds],
+    position,
   });
 }
 

@@ -152,6 +152,17 @@ Reference usage: opening/closing a project and the sidebar sections in `apps/web
 - Browser-only development remains separate from numbered desktop QA. When an intentionally isolated browser server is required, use `scripts/dev-runner.ts` with an explicit home and dry-run its port selection first; never present that workflow as a Penkra Dev desktop instance.
 - If the UI shows no threads, verify which numbered root and embedded backend the window owns before changing SQL. A healthy snapshot with projects/threads means the issue is client connection/hydration, not empty history.
 
+## SQLite ownership and recovery
+
+- Never open, query, copy, rename, replace, restore, or run a SQLite utility against a Penkra `state.sqlite` while its desktop or backend may be running. Read-only SQLite connections can still participate in WAL recovery, checkpoint, and close-time cleanup.
+- Live diagnosis must use Penkra's registered Thread/diagnostic surfaces or backend APIs. The database file is not a live diagnostic API.
+- Offline verification uses `penkra-database verify <absolute-database-path>`. It acquires the same lifecycle lock as the backend and refuses to run while a Penkra owner is live. Do not substitute the system `sqlite3` binary, an IDE database extension, a generic SQLite browser, or a hand-written Node/Bun script.
+- Stop every Penkra process for the target numbered root before verification or recovery. Numbered Dev slots have separate databases; resolve the exact slot instead of assuming `~/Penkra_Dev`.
+- Penkra database owners require SQLite 3.51.3 or newer. A runtime that cannot report or satisfy that version must fail closed before WAL mode is enabled.
+- A SQLite file that passes `integrity_check` is not automatically a valid Penkra recovery. Verification must also confirm migration lineage, authoritative orchestration events, projection sequence bounds, and event JSON.
+- Live or migration snapshots must use SQLite's Online Backup API or `VACUUM INTO`. Never make a raw filesystem copy of a live main database without its coordinated SQLite snapshot boundary.
+- See `docs/database-reliability.md` for architecture, supported maintenance, and the destructive/concurrency QA matrix.
+
 ## Codex App Server (Important)
 
 Penkra is currently Codex-first. The server starts `codex app-server` (JSON-RPC over stdio) per provider session, then streams structured events to the browser through WebSocket push messages.

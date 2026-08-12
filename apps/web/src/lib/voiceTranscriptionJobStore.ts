@@ -2,7 +2,11 @@
 // Purpose: Durably stores stopped voice recordings until their transcript reaches the composer.
 // Layer: Browser storage adapter
 
-import { type ThreadId } from "@penkra/contracts";
+import {
+  ProviderConnectionId,
+  type ThreadId,
+  type VoiceTranscriptionBackend,
+} from "@penkra/contracts";
 
 import { awaitIdbRequest, openIndexedDbDatabase, waitForIdbTransaction } from "./indexedDb";
 import {
@@ -18,6 +22,7 @@ export interface VoiceTranscriptionJob {
   readonly id: string;
   readonly threadId: ThreadId;
   readonly providerThreadId?: ThreadId | undefined;
+  readonly transcriptionBackend: VoiceTranscriptionBackend;
   readonly cwd: string;
   readonly recording: CapturedVoiceRecordingPayload;
   readonly createdAt: string;
@@ -55,17 +60,52 @@ export async function listVoiceTranscriptionJobs(): Promise<VoiceTranscriptionJo
   try {
     const transaction = database.transaction(STORE_NAME, "readonly");
     const completion = waitForIdbTransaction(transaction, "Voice transcription storage");
-    const jobs = (await awaitIdbRequest(
+    const storedJobs = (await awaitIdbRequest(
       transaction.objectStore(STORE_NAME).getAll(),
       "Could not read saved voice recordings.",
-    )) as VoiceTranscriptionJob[];
+    )) as unknown[];
     await completion;
+    const jobs = storedJobs.flatMap(normalizeStoredVoiceTranscriptionJob);
     return [...jobs, ...desktopJobs].toSorted((left, right) =>
       left.createdAt.localeCompare(right.createdAt),
     );
   } finally {
     database.close();
   }
+}
+
+function normalizeStoredVoiceTranscriptionJob(value: unknown): VoiceTranscriptionJob[] {
+  if (!value || typeof value !== "object") return [];
+  const record = value as Record<string, unknown>;
+  const backend = normalizeStoredTranscriptionBackend(record);
+  if (!backend) return [];
+  return [{ ...(record as unknown as VoiceTranscriptionJob), transcriptionBackend: backend }];
+}
+
+function normalizeStoredTranscriptionBackend(
+  record: Record<string, unknown>,
+): VoiceTranscriptionBackend | null {
+  const backend = record.transcriptionBackend;
+  if (backend && typeof backend === "object") {
+    const candidate = backend as Record<string, unknown>;
+    const locale = typeof candidate.locale === "string" ? candidate.locale.trim() : "";
+    if (candidate.kind === "apple-speech" && locale) {
+      return { kind: "apple-speech", locale };
+    }
+    const connectionId =
+      typeof candidate.connectionId === "string" ? candidate.connectionId.trim() : "";
+    if (candidate.kind === "codex-chatgpt" && connectionId) {
+      return { kind: "codex-chatgpt", connectionId: ProviderConnectionId.makeUnsafe(connectionId) };
+    }
+  }
+  const legacyConnectionId =
+    typeof record.connectionId === "string" ? record.connectionId.trim() : "";
+  return legacyConnectionId
+    ? {
+        kind: "codex-chatgpt",
+        connectionId: ProviderConnectionId.makeUnsafe(legacyConnectionId),
+      }
+    : null;
 }
 
 export async function deleteVoiceTranscriptionJob(jobId: string): Promise<void> {
@@ -104,6 +144,7 @@ async function listDesktopVoiceTranscriptionJobs(): Promise<VoiceTranscriptionJo
         ...(descriptor.providerThreadId
           ? { providerThreadId: descriptor.providerThreadId as ThreadId }
           : {}),
+        transcriptionBackend: descriptor.transcriptionBackend,
         cwd: descriptor.cwd,
         recording,
         createdAt: descriptor.createdAt,

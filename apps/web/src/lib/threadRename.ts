@@ -8,7 +8,6 @@ import {
   type ModelSelection,
   type OrchestrationThreadPullRequest,
   type ContainerId,
-  type ProviderInteractionMode,
   type RuntimeMode,
   type SpaceId,
   type ThreadId,
@@ -30,7 +29,6 @@ export async function dispatchThreadRename(input: {
         spaceId?: SpaceId | null;
         modelSelection: ModelSelection;
         runtimeMode: RuntimeMode;
-        interactionMode: ProviderInteractionMode;
         envMode: DraftThreadEnvMode;
         branch: string | null;
         worktreePath: string | null;
@@ -64,7 +62,6 @@ export async function dispatchThreadRename(input: {
         title: trimmed,
         modelSelection: input.createIfMissing.modelSelection,
         runtimeMode: input.createIfMissing.runtimeMode,
-        interactionMode: input.createIfMissing.interactionMode,
         envMode: input.createIfMissing.envMode,
         branch: input.createIfMissing.branch,
         worktreePath: input.createIfMissing.worktreePath,

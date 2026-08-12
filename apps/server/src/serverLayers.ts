@@ -39,6 +39,23 @@ import { ProjectPullRequestPinsLive } from "./persistence/Layers/ProjectPullRequ
 import { ProjectionTurnRepositoryLive } from "./persistence/Layers/ProjectionTurns";
 import { OrchestrationEventDeliveryRepositoryLive } from "./persistence/Layers/OrchestrationEventDeliveries";
 import { ProviderRuntimeEventRepositoryLive } from "./persistence/Layers/ProviderRuntimeEvents";
+import { ProviderInstallationRepositoryLive } from "./persistence/Layers/ProviderInstallations";
+import { ProviderConnectionRepositoryLive } from "./persistence/Layers/ProviderConnections";
+import { ProviderConnectionOperationRepositoryLive } from "./persistence/Layers/ProviderConnectionOperations";
+import { ProviderConnectionLoginRepositoryLive } from "./persistence/Layers/ProviderConnectionLogins";
+import { ThreadProviderBindingRepositoryLive } from "./persistence/Layers/ThreadProviderBindings";
+import { ProviderThreadSwitchOperationRepositoryLive } from "./persistence/Layers/ProviderThreadSwitchOperations";
+import { ProviderNativeForkOperationRepositoryLive } from "./persistence/Layers/ProviderNativeForkOperations";
+import { ProviderNativeStateDeletionRepositoryLive } from "./persistence/Layers/ProviderNativeStateDeletions";
+import { ProviderCredentialBrokerLive } from "./provider/providerCredentialBroker";
+import { ProviderConnectionLifecycleLive } from "./provider/Layers/ProviderConnectionLifecycle";
+import { ProviderConnectionLoginCoordinatorLive } from "./provider/Layers/ProviderConnectionLoginCoordinator";
+import { ProviderLaunchResolverLive } from "./provider/Layers/ProviderLaunchResolver";
+import { ProviderTurnSelectionResolverLive } from "./provider/Layers/ProviderTurnSelectionResolver";
+import { ProviderNativeStateMaterializerLive } from "./provider/Layers/ProviderNativeStateMaterializer";
+import { ProviderNativeContinuationVerifierLive } from "./provider/Layers/ProviderNativeContinuationVerifier";
+import { ProviderNativeStateDeletionCoordinatorLive } from "./provider/Layers/ProviderNativeStateDeletionCoordinator";
+import { ProviderThreadSwitchCoordinatorLive } from "./orchestration/Layers/ProviderThreadSwitchCoordinator";
 import { ThreadDiagnosticsQueryLive } from "./diagnostics/Layers/ThreadDiagnosticsQuery";
 import { ManagedAttachmentCleanupLive } from "./managedAttachmentCleanup";
 import { PullRequestServiceLive } from "./pullRequests/Layers/PullRequestService";
@@ -57,6 +74,35 @@ export function makeServerRuntimeServicesLayer(
     options.agentGatewayCredentialsLayer ?? AgentGatewayCredentialsWithSecretsLive;
   const providerHealthLayer = ProviderHealthLive.pipe(Layer.provideMerge(ServerSettingsLive));
   const checkpointStoreLayer = CheckpointStoreLive.pipe(Layer.provide(GitCoreLive));
+  const providerConnectionPersistenceLayer = Layer.mergeAll(
+    ProviderConnectionRepositoryLive,
+    ProviderConnectionOperationRepositoryLive,
+    ProviderConnectionLoginRepositoryLive,
+    ThreadProviderBindingRepositoryLive,
+    ProviderThreadSwitchOperationRepositoryLive,
+    ProviderNativeForkOperationRepositoryLive,
+    ProviderNativeStateDeletionRepositoryLive,
+  );
+  const providerConnectionLifecycleLayer = ProviderConnectionLifecycleLive.pipe(
+    Layer.provideMerge(providerConnectionPersistenceLayer),
+    Layer.provideMerge(ProviderCredentialBrokerLive),
+  );
+  const providerConnectionLoginCoordinatorLayer = ProviderConnectionLoginCoordinatorLive.pipe(
+    Layer.provideMerge(providerConnectionPersistenceLayer),
+    Layer.provideMerge(ProviderInstallationRepositoryLive),
+    Layer.provideMerge(ProviderCredentialBrokerLive),
+  );
+  const providerLaunchResolverLayer = ProviderLaunchResolverLive.pipe(
+    Layer.provideMerge(providerConnectionPersistenceLayer),
+    Layer.provideMerge(ProviderInstallationRepositoryLive),
+    Layer.provideMerge(ProviderCredentialBrokerLive),
+  );
+  const providerTurnSelectionResolverLayer = ProviderTurnSelectionResolverLive.pipe(
+    Layer.provideMerge(providerConnectionPersistenceLayer),
+    Layer.provideMerge(ProviderInstallationRepositoryLive),
+    Layer.provideMerge(OrchestrationLayerLive),
+    Layer.provideMerge(providerLaunchResolverLayer),
+  );
 
   const checkpointDiffQueryLayer = CheckpointDiffQueryLive.pipe(
     Layer.provideMerge(OrchestrationLayerLive),
@@ -79,6 +125,24 @@ export function makeServerRuntimeServicesLayer(
   const studioOutputReactorLayer = StudioOutputReactorLive.pipe(
     Layer.provideMerge(runtimeServicesLayer),
   );
+  const providerNativeContinuationVerifierLayer = ProviderNativeContinuationVerifierLive.pipe(
+    Layer.provideMerge(providerConnectionPersistenceLayer),
+    Layer.provideMerge(providerLaunchResolverLayer),
+    Layer.provideMerge(ProviderNativeStateMaterializerLive),
+  );
+  const providerNativeStateDeletionCoordinatorLayer =
+    ProviderNativeStateDeletionCoordinatorLive.pipe(
+      Layer.provideMerge(providerConnectionPersistenceLayer),
+      Layer.provideMerge(ProviderNativeStateMaterializerLive),
+    );
+  const providerThreadSwitchCoordinatorLayer = ProviderThreadSwitchCoordinatorLive.pipe(
+    Layer.provideMerge(runtimeServicesLayer),
+    Layer.provideMerge(providerConnectionPersistenceLayer),
+    Layer.provideMerge(providerTurnSelectionResolverLayer),
+    Layer.provideMerge(providerNativeContinuationVerifierLayer),
+    Layer.provideMerge(ProviderNativeStateMaterializerLive),
+    Layer.provideMerge(providerLaunchResolverLayer),
+  );
   const providerCommandReactorLayer = ProviderCommandReactorLive.pipe(
     Layer.provideMerge(runtimeServicesLayer),
     Layer.provideMerge(OrchestrationEventDeliveryRepositoryLive),
@@ -86,6 +150,10 @@ export function makeServerRuntimeServicesLayer(
     Layer.provideMerge(GitCoreLive),
     Layer.provideMerge(TextGenerationLayerLive),
     Layer.provideMerge(ServerSettingsLive),
+    Layer.provideMerge(providerConnectionPersistenceLayer),
+    Layer.provideMerge(providerLaunchResolverLayer),
+    Layer.provideMerge(providerTurnSelectionResolverLayer),
+    Layer.provideMerge(providerThreadSwitchCoordinatorLayer),
   );
   const checkpointReactorLayer = CheckpointReactorLive.pipe(
     Layer.provideMerge(runtimeServicesLayer),
@@ -103,6 +171,7 @@ export function makeServerRuntimeServicesLayer(
     Layer.provideMerge(profileStatsArchiveLayer),
     Layer.provideMerge(OrchestrationLayerLive),
     Layer.provideMerge(TerminalLayerLive),
+    Layer.provideMerge(providerNativeStateDeletionCoordinatorLayer),
   );
   // Shares the single memoized TerminalManager with the top-level TerminalLayerLive.
   const devServerManagerLayer = DevServerManagerLive.pipe(Layer.provide(TerminalLayerLive));
@@ -127,6 +196,12 @@ export function makeServerRuntimeServicesLayer(
     authControlPlaneLayer,
     serverAuthLayer,
   );
+  const pullRequestServiceLayer = PullRequestServiceLive.pipe(
+    Layer.provideMerge(GitLayerLive),
+    Layer.provideMerge(ProjectPullRequestPinsLive),
+    Layer.provideMerge(OrchestrationLayerLive),
+  );
+  const workspaceWatcherLayer = WorkspaceWatcherLive.pipe(Layer.provideMerge(runtimeServicesLayer));
   const agentGatewayLayer = AgentGatewayLive.pipe(
     Layer.provideMerge(agentGatewayCredentialsLayer),
     Layer.provideMerge(runtimeServicesLayer),
@@ -138,13 +213,9 @@ export function makeServerRuntimeServicesLayer(
     Layer.provideMerge(ThreadDiagnosticsQueryLive),
     Layer.provideMerge(ServerSettingsLive),
     Layer.provideMerge(providerHealthLayer),
+    Layer.provideMerge(providerTurnSelectionResolverLayer),
+    Layer.provideMerge(providerThreadSwitchCoordinatorLayer),
   );
-  const pullRequestServiceLayer = PullRequestServiceLive.pipe(
-    Layer.provideMerge(GitLayerLive),
-    Layer.provideMerge(ProjectPullRequestPinsLive),
-    Layer.provideMerge(OrchestrationLayerLive),
-  );
-  const workspaceWatcherLayer = WorkspaceWatcherLive.pipe(Layer.provideMerge(runtimeServicesLayer));
 
   return Layer.mergeAll(
     workspaceWatcherLayer,
@@ -152,6 +223,17 @@ export function makeServerRuntimeServicesLayer(
     agentGatewayLayer,
     managedAttachmentCleanupLayer,
     AgentGatewayOperationRepositoryLive,
+    ProviderInstallationRepositoryLive,
+    providerConnectionPersistenceLayer,
+    ProviderCredentialBrokerLive,
+    providerConnectionLifecycleLayer,
+    providerConnectionLoginCoordinatorLayer,
+    providerLaunchResolverLayer,
+    providerTurnSelectionResolverLayer,
+    ProviderNativeStateMaterializerLive,
+    providerNativeStateDeletionCoordinatorLayer,
+    providerNativeContinuationVerifierLayer,
+    providerThreadSwitchCoordinatorLayer,
     providerHealthLayer,
     ProjectPullRequestPinsLive,
     pullRequestServiceLayer,

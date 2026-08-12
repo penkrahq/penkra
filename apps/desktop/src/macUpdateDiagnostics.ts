@@ -7,6 +7,8 @@ import * as FS from "node:fs";
 import * as OS from "node:os";
 import * as Path from "node:path";
 
+import { resolveDesktopPlatformAdapter } from "./desktopPlatform";
+
 const COMMAND_TIMEOUT_MS = 2_000;
 const MAX_DIAGNOSTIC_BYTES = 8 * 1024;
 const MAX_COMMAND_BUFFER_BYTES = 64 * 1024;
@@ -127,7 +129,7 @@ function capDiagnosticOutput(output: string): string {
 }
 
 export async function collectMacUpdateDiagnostics(bundleId: string): Promise<string> {
-  if (process.platform !== "darwin") {
+  if (resolveDesktopPlatformAdapter().platform !== "darwin") {
     return "";
   }
   try {

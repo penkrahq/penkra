@@ -13,6 +13,7 @@ import type {
   ThreadId,
 } from "@penkra/contracts";
 import { THREAD_NOT_ARCHIVED_INVARIANT_MARKER } from "@penkra/shared/errorMessages";
+import { normalizeEntityName } from "@penkra/shared/entityNames";
 import {
   isLegacyHomeChatContainerRow as isSharedLegacyHomeChatContainerRow,
   isOrdinaryProjectRow as isSharedOrdinaryProjectRow,
@@ -175,6 +176,33 @@ export function requireSpaceNameAvailable(input: {
   }
   return Effect.fail(
     invariantError(input.command.type, `A space named '${input.name}' already exists.`),
+  );
+}
+
+export function requireFolderNameAvailable(input: {
+  readonly readModel: OrchestrationReadModel;
+  readonly command: OrchestrationCommand;
+  readonly name: string;
+  readonly spaceId: SpaceId;
+  readonly excludeProjectId?: ContainerId;
+}): Effect.Effect<void, OrchestrationCommandInvariantError> {
+  const normalizedName = normalizeEntityName(input.name);
+  const conflict = input.readModel.projects.find(
+    (project) =>
+      project.deletedAt === null &&
+      (project.kind ?? "project") === "project" &&
+      project.spaceId === input.spaceId &&
+      project.id !== input.excludeProjectId &&
+      normalizeEntityName(project.title) === normalizedName,
+  );
+  if (!conflict) {
+    return Effect.void;
+  }
+  return Effect.fail(
+    invariantError(
+      input.command.type,
+      `A folder named '${input.name}' already exists in this Space.`,
+    ),
   );
 }
 

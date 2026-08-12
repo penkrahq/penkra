@@ -1,4 +1,4 @@
-import { OrchestrationProposedPlanId, ThreadId } from "@penkra/contracts";
+import { ThreadId } from "@penkra/contracts";
 import * as Schema from "effect/Schema";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { pendingComposerAttachmentSyncGenerationCount } from "./composerDraftAttachments";
@@ -630,24 +630,6 @@ describe("composerDraftStore copyTransferableComposerState", () => {
       },
       activeProvider: "claudeAgent",
     });
-  });
-
-  it("does not transfer thread-bound restored plan source metadata", () => {
-    useComposerDraftStore.getState().setPrompt(sourceThreadId, "Implement the accepted plan");
-    useComposerDraftStore.getState().setRestoredSourceProposedPlan(sourceThreadId, {
-      threadId: sourceThreadId,
-      restoredPrompt: "Implement the accepted plan",
-      sourceProposedPlan: {
-        threadId: sourceThreadId,
-        planId: OrchestrationProposedPlanId.makeUnsafe("plan-source-transfer"),
-      },
-    });
-
-    useComposerDraftStore.getState().copyTransferableComposerState(sourceThreadId, targetThreadId);
-
-    expect(
-      useComposerDraftStore.getState().draftsByThreadId[targetThreadId]?.restoredSourceProposedPlan,
-    ).toBeNull();
   });
 });
 

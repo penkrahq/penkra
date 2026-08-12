@@ -8,7 +8,6 @@ import {
   type ModelSelection,
   type OrchestrationThreadPullRequest,
   type ContainerId,
-  type ProviderInteractionMode,
   type ProviderKind,
   type RuntimeMode,
   type SpaceId,
@@ -22,7 +21,7 @@ import {
   type DraftThreadState,
   resolvePreferredComposerModelSelection,
 } from "../composerDraftStore";
-import { DEFAULT_INTERACTION_MODE, type Thread, type ThreadPrimarySurface } from "../types";
+import { type Thread, type ThreadPrimarySurface } from "../types";
 
 export interface NewThreadOptions {
   spaceId?: SpaceId | null;
@@ -33,6 +32,33 @@ export interface NewThreadOptions {
   entryPoint?: ThreadPrimarySurface;
   provider?: ProviderKind;
   fresh?: boolean;
+}
+
+export function scopeNewThreadOptionsToParentSpace(
+  options: NewThreadOptions | undefined,
+  parentSpaceId: SpaceId | null,
+): NewThreadOptions {
+  return { ...options, spaceId: parentSpaceId };
+}
+
+export function scopeNewThreadOptionsToContainer(input: {
+  options: NewThreadOptions | undefined;
+  containerKind: "chat" | "project" | "studio";
+  containerSpaceId: SpaceId | null;
+}): NewThreadOptions | undefined {
+  // A virtual Folder owns its Threads, so its durable Space is authoritative.
+  // The hidden chat and Studio containers are shared across Spaces; for those,
+  // preserve the Space explicitly selected by the caller.
+  return input.containerKind === "project"
+    ? scopeNewThreadOptionsToParentSpace(input.options, input.containerSpaceId)
+    : input.options;
+}
+
+export function requireNewThreadSpaceId(spaceId: SpaceId | null): SpaceId {
+  if (spaceId === null) {
+    throw new Error("Choose a persisted Space before starting this chat.");
+  }
+  return spaceId;
 }
 
 export interface InheritedThreadContext {
@@ -97,7 +123,6 @@ interface ActiveThreadSnapshot {
   projectId: ContainerId;
   modelSelection: ModelSelection;
   runtimeMode: RuntimeMode;
-  interactionMode: ProviderInteractionMode;
   envMode?: ThreadEnvironmentMode | undefined;
   lastKnownPr?: OrchestrationThreadPullRequest | null;
 }
@@ -135,7 +160,6 @@ export interface TerminalThreadCreationState {
   spaceId: SpaceId | null;
   branch: string | null;
   envMode: DraftThreadEnvMode;
-  interactionMode: ProviderInteractionMode;
   lastKnownPr: OrchestrationThreadPullRequest | null;
   modelSelection: ModelSelection;
   runtimeMode: RuntimeMode;
@@ -147,7 +171,6 @@ export interface TerminalThreadCreationState {
 export function createActiveThreadSnapshot(
   activeThread:
     | {
-        interactionMode: ProviderInteractionMode;
         modelSelection: ModelSelection;
         projectId: ContainerId;
         runtimeMode: RuntimeMode;
@@ -165,7 +188,6 @@ export function createActiveThreadSnapshot(
     projectId: activeThread.projectId,
     modelSelection: activeThread.modelSelection,
     runtimeMode: activeThread.runtimeMode,
-    interactionMode: activeThread.interactionMode,
     envMode: activeThread.envMode,
     lastKnownPr: activeThread.lastKnownPr ?? null,
   };
@@ -184,7 +206,6 @@ export function createActiveDraftThreadSnapshot(
     spaceId: activeDraftThread.spaceId ?? null,
     createdAt: activeDraftThread.createdAt,
     runtimeMode: activeDraftThread.runtimeMode,
-    interactionMode: activeDraftThread.interactionMode,
     entryPoint: activeDraftThread.entryPoint,
     branch: activeDraftThread.branch,
     worktreePath: activeDraftThread.worktreePath,
@@ -231,7 +252,7 @@ export function createFreshDraftThreadSeed(input: {
   createdAt: string;
   entryPoint: ThreadPrimarySurface;
   options: NewThreadOptions | undefined;
-}): Omit<DraftThreadState, "projectId" | "interactionMode"> {
+}): Omit<DraftThreadState, "projectId"> {
   return {
     createdAt: input.createdAt,
     spaceId: input.options?.spaceId ?? null,
@@ -342,9 +363,6 @@ export function resolveTerminalThreadCreationState(
         ? input.activeDraftThread.runtimeMode
         : null) ??
       DEFAULT_RUNTIME_MODE,
-    // Legacy drafts may still contain a persisted plan value. New sessions are
-    // always created in the ordinary interaction mode.
-    interactionMode: DEFAULT_INTERACTION_MODE,
     lastKnownPr:
       input.draftThread?.lastKnownPr ??
       (input.activeThread?.projectId === input.projectId

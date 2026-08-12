@@ -99,15 +99,13 @@ export interface AppPreloadTransport {
   onBrowserState(
     listener: (state: import("@penkra/sdk").AppBrowserSessionState) => void,
   ): () => void;
+  simulatorCall(method: string, input?: unknown): Promise<unknown>;
+  onSimulatorState(
+    listener: (state: import("@penkra/sdk").AppSimulatorSessionState) => void,
+  ): () => void;
   networkFetch(
     input: Parameters<import("@penkra/sdk").PenkraAppRuntimeApi["network"]["fetch"]>[0],
   ): ReturnType<import("@penkra/sdk").PenkraAppRuntimeApi["network"]["fetch"]>;
-  rawSocketExchange(
-    input: Parameters<import("@penkra/sdk").PenkraAppRuntimeApi["sockets"]["exchange"]>[0],
-  ): ReturnType<import("@penkra/sdk").PenkraAppRuntimeApi["sockets"]["exchange"]>;
-  processRun(
-    input: Parameters<import("@penkra/sdk").PenkraAppRuntimeApi["processes"]["run"]>[0],
-  ): ReturnType<import("@penkra/sdk").PenkraAppRuntimeApi["processes"]["run"]>;
   showContextMenu<T extends string>(
     items: ReadonlyArray<import("@penkra/sdk").AppContextMenuItem<T>>,
   ): Promise<T | null>;
@@ -194,6 +192,64 @@ export class AppPreloadRuntime {
           this.#transport.browserCall("capture", pageId) as Promise<{ dataUrl: string }>,
         evaluate: (input) => this.#transport.browserCall("evaluate", input),
       },
+      simulator: {
+        getEnvironment: () =>
+          this.#transport.simulatorCall("getEnvironment") as Promise<
+            import("@penkra/sdk").AppSimulatorEnvironment
+          >,
+        listRuntimes: () =>
+          this.#transport.simulatorCall("listRuntimes") as Promise<
+            ReadonlyArray<import("@penkra/sdk").AppSimulatorRuntime>
+          >,
+        listDeviceTypes: (runtimeId) =>
+          this.#transport.simulatorCall("listDeviceTypes", runtimeId) as Promise<
+            ReadonlyArray<import("@penkra/sdk").AppSimulatorDeviceType>
+          >,
+        listDevices: () =>
+          this.#transport.simulatorCall("listDevices") as Promise<
+            ReadonlyArray<import("@penkra/sdk").AppSimulatorSavedDevice>
+          >,
+        createDevice: (input) =>
+          this.#transport.simulatorCall("createDevice", input) as Promise<
+            import("@penkra/sdk").AppSimulatorSavedDevice
+          >,
+        eraseDevice: (deviceId) =>
+          this.#transport.simulatorCall("eraseDevice", deviceId) as Promise<
+            import("@penkra/sdk").AppSimulatorSavedDevice
+          >,
+        deleteDevice: (deviceId) =>
+          this.#transport.simulatorCall("deleteDevice", deviceId) as Promise<void>,
+        requestSetup: (input) =>
+          this.#transport.simulatorCall("requestSetup", input) as Promise<
+            import("@penkra/sdk").AppSimulatorEnvironment
+          >,
+        cancelSetup: () => this.#transport.simulatorCall("cancelSetup") as Promise<void>,
+        open: (deviceId) =>
+          this.#transport.simulatorCall("open", deviceId) as Promise<
+            import("@penkra/sdk").AppSimulatorSessionState
+          >,
+        close: () => this.#transport.simulatorCall("close") as Promise<void>,
+        getState: () =>
+          this.#transport.simulatorCall("getState") as Promise<
+            import("@penkra/sdk").AppSimulatorSessionState
+          >,
+        onState: (listener) => this.#transport.onSimulatorState(listener),
+        setViewport: (bounds) =>
+          this.#transport.simulatorCall("setViewport", bounds) as Promise<void>,
+        getTarget: () =>
+          this.#transport.simulatorCall("getTarget") as Promise<
+            import("@penkra/sdk").AppSimulatorTarget
+          >,
+        capture: () => this.#transport.simulatorCall("capture") as Promise<{ dataUrl: string }>,
+        tap: (point) => this.#transport.simulatorCall("tap", point) as Promise<void>,
+        swipe: (input) => this.#transport.simulatorCall("swipe", input) as Promise<void>,
+        type: (text) => this.#transport.simulatorCall("type", text) as Promise<void>,
+        press: (button) => this.#transport.simulatorCall("press", button) as Promise<void>,
+        rotate: (orientation) =>
+          this.#transport.simulatorCall("rotate", orientation) as Promise<
+            import("@penkra/sdk").AppSimulatorSessionState
+          >,
+      },
       identity: {
         get: () => this.#transport.getIdentity(),
       },
@@ -248,12 +304,6 @@ export class AppPreloadRuntime {
       },
       network: {
         fetch: (input) => this.#transport.networkFetch(input),
-      },
-      sockets: {
-        exchange: (input) => this.#transport.rawSocketExchange(input),
-      },
-      processes: {
-        run: (input) => this.#transport.processRun(input),
       },
       permissions: {
         query: (name) => this.#transport.queryPermission(name),

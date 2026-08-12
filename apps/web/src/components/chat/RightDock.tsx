@@ -143,6 +143,7 @@ export function RightDock(props: RightDockProps) {
       <Sidebar
         data-pencil-component="ayA7J"
         side="right"
+        positioning="inline"
         collapsible="offcanvas"
         className={cn(
           "border-l border-[var(--app-surface-divider)] text-foreground",

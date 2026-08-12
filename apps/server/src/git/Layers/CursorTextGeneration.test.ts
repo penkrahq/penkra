@@ -82,7 +82,7 @@ function waitForFileContent(filePath: string): Effect.Effect<string> {
 }
 
 it.layer(CursorTextGenerationTestLayer)("CursorTextGenerationLive", (it) => {
-  it.effect("uses ACP model config options instead of raw CLI model ids", () => {
+  it.effect("uses ACP model config options for Thread title generation", () => {
     const requestLogDir = mkdtempSync(path.join(os.tmpdir(), "penkra-cursor-text-log-"));
     const requestLogPath = path.join(requestLogDir, "requests.ndjson");
 
@@ -90,20 +90,16 @@ it.layer(CursorTextGenerationTestLayer)("CursorTextGenerationLive", (it) => {
       {
         PENKRA_ACP_REQUEST_LOG_PATH: requestLogPath,
         PENKRA_ACP_PROMPT_RESPONSE_TEXT: JSON.stringify({
-          subject: "Add generated commit message",
-          body: "- verify cursor acp model config path",
+          title: "Cursor model config",
         }),
       },
       (agentPath) =>
         Effect.gen(function* () {
           const textGeneration = yield* TextGeneration;
 
-          const generated = yield* textGeneration.generateCommitMessage({
+          const generated = yield* textGeneration.generateThreadTitle({
             cwd: process.cwd(),
-            branch: "feature/cursor-text-generation",
-            stagedSummary: "M apps/server/src/git/Layers/CursorTextGeneration.ts",
-            stagedPatch:
-              "diff --git a/apps/server/src/git/Layers/CursorTextGeneration.ts b/apps/server/src/git/Layers/CursorTextGeneration.ts",
+            message: "Verify Cursor ACP model configuration",
             modelSelection: {
               provider: "cursor",
               model: "gpt-5.4",
@@ -120,8 +116,7 @@ it.layer(CursorTextGenerationTestLayer)("CursorTextGenerationLive", (it) => {
             },
           });
 
-          expect(generated.subject).toBe("Add generated commit message");
-          expect(generated.body).toBe("- verify cursor acp model config path");
+          expect(generated.title).toBe("Cursor model config");
 
           const requests = readFileSync(requestLogPath, "utf8")
             .trim()
@@ -176,17 +171,15 @@ it.layer(CursorTextGenerationTestLayer)("CursorTextGenerationLive", (it) => {
     withFakeAcpAgent(
       {
         PENKRA_ACP_PROMPT_RESPONSE_TEXT:
-          'Sure, here is the JSON:\n```json\n{\n  "subject": "Update README dummy comment with attribution and date",\n  "body": ""\n}\n```\nDone.',
+          'Sure, here is the JSON:\n```json\n{\n  "title": "Update README attribution date"\n}\n```\nDone.',
       },
       (agentPath) =>
         Effect.gen(function* () {
           const textGeneration = yield* TextGeneration;
 
-          const generated = yield* textGeneration.generateCommitMessage({
+          const generated = yield* textGeneration.generateThreadTitle({
             cwd: process.cwd(),
-            branch: "feature/cursor-noisy-json",
-            stagedSummary: "M README.md",
-            stagedPatch: "diff --git a/README.md b/README.md",
+            message: "Update README dummy comment with attribution and date",
             modelSelection: {
               provider: "cursor",
               model: "composer-2",
@@ -198,38 +191,7 @@ it.layer(CursorTextGenerationTestLayer)("CursorTextGenerationLive", (it) => {
             },
           });
 
-          expect(generated.subject).toBe("Update README dummy comment with attribution and date");
-          expect(generated.body).toBe("");
-        }),
-    ),
-  );
-
-  it.effect("generates diff summaries through Cursor ACP text generation", () =>
-    withFakeAcpAgent(
-      {
-        PENKRA_ACP_PROMPT_RESPONSE_TEXT: JSON.stringify({
-          summary: "## Summary\n- Route git summaries through Cursor.",
-        }),
-      },
-      (agentPath) =>
-        Effect.gen(function* () {
-          const textGeneration = yield* TextGeneration;
-
-          const generated = yield* textGeneration.generateDiffSummary({
-            cwd: process.cwd(),
-            patch: "diff --git a/file.ts b/file.ts",
-            modelSelection: {
-              provider: "cursor",
-              model: "composer-2",
-            },
-            providerOptions: {
-              cursor: {
-                binaryPath: agentPath,
-              },
-            },
-          });
-
-          expect(generated.summary).toBe("## Summary\n- Route git summaries through Cursor.");
+          expect(generated.title).toBe("Update README attribution date");
         }),
     ),
   );

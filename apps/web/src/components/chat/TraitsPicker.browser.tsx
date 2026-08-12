@@ -111,7 +111,6 @@ async function mountClaudePicker(props?: {
           },
       activeProvider: "claudeAgent",
       runtimeMode: null,
-      interactionMode: null,
     },
   };
   useComposerDraftStore.setState({
@@ -241,7 +240,7 @@ describe("TraitsPicker (Claude)", () => {
 
   it("shows a th  inking on/off dropdown for Haiku", async () => {
     await using _ = await mountClaudePicker({
-      model: "claude-haiku-4-5",
+      model: "claude-haiku-4-5-20251001",
       options: { thinking: true },
     });
 
@@ -357,7 +356,6 @@ async function mountCodexPicker(props: { model?: string; options?: CodexModelOpt
       },
       activeProvider: "codex",
       runtimeMode: null,
-      interactionMode: null,
     },
   };
 
@@ -702,7 +700,6 @@ async function mountOpenCodePicker(props?: {
       },
       activeProvider: "opencode",
       runtimeMode: null,
-      interactionMode: null,
     },
   };
 

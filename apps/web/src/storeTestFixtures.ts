@@ -15,7 +15,7 @@ import {
 
 import { getThreadsFromState } from "./threadDerivation";
 import type { AppState } from "./storeState";
-import { DEFAULT_INTERACTION_MODE, DEFAULT_RUNTIME_MODE, type Thread } from "./types";
+import { DEFAULT_RUNTIME_MODE, type Thread } from "./types";
 
 export function makeThread(overrides: Partial<Thread> = {}): Thread {
   return {
@@ -28,25 +28,20 @@ export function makeThread(overrides: Partial<Thread> = {}): Thread {
       model: "gpt-5-codex",
     },
     runtimeMode: DEFAULT_RUNTIME_MODE,
-    interactionMode: DEFAULT_INTERACTION_MODE,
     session: null,
     messages: [],
     turnDiffSummaries: [],
     activities: [],
-    proposedPlans: [],
     error: null,
     createdAt: "2026-02-13T00:00:00.000Z",
     latestTurn: null,
     latestUserMessageAt: null,
     hasPendingApprovals: false,
     hasPendingUserInput: false,
-    hasActionableProposedPlan: false,
     envMode: "local",
     branch: null,
     worktreePath: null,
     forkSourceThreadId: null,
-    sidechatSourceThreadId: null,
-    handoff: null,
     ...overrides,
   };
 }
@@ -89,7 +84,7 @@ export function makeActivity(overrides: {
   summary?: string;
   tone?: OrchestrationThreadActivity["tone"];
   payload?: OrchestrationThreadActivity["payload"];
-  turnId?: string;
+  turnId?: string | null;
   sequence?: number;
 }): OrchestrationThreadActivity {
   return {
@@ -105,16 +100,7 @@ export function makeActivity(overrides: {
 }
 
 export function makeState(thread: Thread): AppState {
-  const {
-    session,
-    latestTurn,
-    pendingSourceProposedPlan,
-    messages,
-    activities,
-    proposedPlans,
-    turnDiffSummaries,
-    ...shell
-  } = thread;
+  const { session, latestTurn, messages, activities, turnDiffSummaries, ...shell } = thread;
   return {
     spaces: [],
     archivedSpaces: [],
@@ -124,7 +110,7 @@ export function makeState(thread: Thread): AppState {
     threadIds: [thread.id],
     threadShellById: { [thread.id]: shell },
     threadSessionById: { [thread.id]: session },
-    threadTurnStateById: { [thread.id]: { latestTurn, pendingSourceProposedPlan } },
+    threadTurnStateById: { [thread.id]: { latestTurn } },
     messageIdsByThreadId: { [thread.id]: messages.map((message) => message.id) },
     messageByThreadId: {
       [thread.id]: Object.fromEntries(messages.map((message) => [message.id, message])),
@@ -132,10 +118,6 @@ export function makeState(thread: Thread): AppState {
     activityIdsByThreadId: { [thread.id]: activities.map((activity) => activity.id) },
     activityByThreadId: {
       [thread.id]: Object.fromEntries(activities.map((activity) => [activity.id, activity])),
-    },
-    proposedPlanIdsByThreadId: { [thread.id]: proposedPlans.map((plan) => plan.id) },
-    proposedPlanByThreadId: {
-      [thread.id]: Object.fromEntries(proposedPlans.map((plan) => [plan.id, plan])),
     },
     turnDiffIdsByThreadId: { [thread.id]: turnDiffSummaries.map((summary) => summary.turnId) },
     turnDiffSummaryByThreadId: {
@@ -178,20 +160,16 @@ export function makeReadModelThread(overrides: Partial<OrchestrationReadModel["t
       model: "gpt-5.3-codex",
     },
     runtimeMode: DEFAULT_RUNTIME_MODE,
-    interactionMode: DEFAULT_INTERACTION_MODE,
     envMode: "local",
     branch: null,
     worktreePath: null,
     forkSourceThreadId: null,
-    sidechatSourceThreadId: null,
     latestTurn: null,
     createdAt: "2026-02-27T00:00:00.000Z",
     updatedAt: "2026-02-27T00:00:00.000Z",
     deletedAt: null,
-    handoff: null,
     messages: [],
     activities: [],
-    proposedPlans: [],
     checkpoints: [],
     session: null,
     ...overrides,

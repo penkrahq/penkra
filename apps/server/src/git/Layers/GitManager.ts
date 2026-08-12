@@ -1,43 +1,21 @@
 import { randomUUID } from "node:crypto";
 import { realpathSync } from "node:fs";
 
-import { Effect, FileSystem, Layer, Path } from "effect";
-import type {
-  GitActionProgressEvent,
-  GitActionProgressPhase,
-  GitStackedAction,
-  ModelSelection,
-  ProviderStartOptions,
-} from "@penkra/contracts";
-import {
-  resolveAutoFeatureBranchName,
-  sanitizeBranchFragment,
-  sanitizeFeatureBranchName,
-} from "@penkra/shared/git";
+import { Effect, Layer, Path } from "effect";
+import { sanitizeBranchFragment } from "@penkra/shared/git";
 import { parseGitHubRepositoryNameWithOwnerFromRemoteUrl } from "@penkra/shared/githubRepository";
 import { summarizeUnifiedPatchTotals } from "@penkra/shared/unifiedPatchStats";
-import { resolveWorktreeHandoffIntent } from "@penkra/shared/worktreeHandoff";
+import { resolveWorktreeEnvironmentIntent } from "@penkra/shared/worktreeEnvironment";
 
 import { GitManagerError } from "../Errors.ts";
-import {
-  GitManager,
-  type GitActionProgressReporter,
-  type GitManagerShape,
-  type GitRunStackedActionOptions,
-} from "../Services/GitManager.ts";
+import { GitManager, type GitManagerShape } from "../Services/GitManager.ts";
 import { GitCore } from "../Services/GitCore.ts";
 import { GitHubCli, type GitHubPullRequestSummary } from "../Services/GitHubCli.ts";
-import { TextGeneration } from "../Services/TextGeneration.ts";
-import { buildGitTextGenerationCallInput } from "../textGenerationSelection.ts";
 import { ServerConfig } from "../../config.ts";
 
-const COMMIT_TIMEOUT_MS = 10 * 60_000;
-const MAX_PROGRESS_TEXT_LENGTH = 500;
 const OPEN_PR_LOOKUP_LIMIT = 10;
 // Any-state lookups scan more PRs so the newest merged/closed PR still surfaces.
 const PR_LOOKUP_ALL_STATES_LIMIT = 20;
-type StripProgressContext<T> = T extends any ? Omit<T, "actionId" | "cwd" | "action"> : never;
-type GitActionProgressPayload = StripProgressContext<GitActionProgressEvent>;
 
 // GitManager's working PR shape: a GitHubPullRequestSummary whose state/updatedAt are
 // always resolved. Derived from the service summary so the shapes cannot drift field by field.
@@ -77,31 +55,24 @@ interface BranchHeadContext {
   isCrossRepository: boolean;
 }
 
-interface GitTextGenerationParams {
-  textGenerationModel?: string | undefined;
-  textGenerationModelSelection?: ModelSelection | undefined;
-  codexHomePath?: string | undefined;
-  providerOptions?: ProviderStartOptions | undefined;
-}
-
-interface FailedLocalHandoffRecovery {
+interface FailedLocalSwitchRecovery {
   worktreeRecreated: boolean;
   worktreeChangesRestored: boolean;
   localChangesRestored: boolean;
   recoveryNotes: ReadonlyArray<string>;
 }
 
-interface FailedLocalTransferRecovery extends FailedLocalHandoffRecovery {
+interface FailedLocalTransferRecovery extends FailedLocalSwitchRecovery {
   localCheckoutRestored: boolean;
 }
 
-interface FailedWorktreeHandoffRecovery {
+interface FailedWorktreeSwitchRecovery {
   checkoutRestored: boolean;
   stashRestored: boolean;
   recoveryNotes: ReadonlyArray<string>;
 }
 
-interface FailedWorktreeTransferRecovery extends FailedWorktreeHandoffRecovery {
+interface FailedWorktreeTransferRecovery extends FailedWorktreeSwitchRecovery {
   worktreeRemoved: boolean;
 }
 
@@ -269,27 +240,6 @@ function toPullRequestInfo(pullRequest: GitHubPullRequestSummary): PullRequestIn
 }
 
 // Detects GitHub's duplicate-PR response from `gh pr create`.
-function isPullRequestAlreadyExistsError(error: unknown): boolean {
-  if (!(error instanceof Error)) {
-    return false;
-  }
-  const message = error.message.toLowerCase();
-  return (
-    message.includes("pull request") &&
-    message.includes("branch") &&
-    message.includes("already exists")
-  );
-}
-
-// Pulls the existing PR URL out of GitHub's duplicate-PR error when present.
-function extractPullRequestUrlFromError(error: unknown): string | null {
-  if (!(error instanceof Error)) {
-    return null;
-  }
-  const match = /https:\/\/github\.com\/[^\s)]+\/pull\/\d+/i.exec(error.message);
-  return match?.[0] ?? null;
-}
-
 function gitManagerError(operation: string, detail: string, cause?: unknown): GitManagerError {
   return new GitManagerError({
     operation,
@@ -298,139 +248,9 @@ function gitManagerError(operation: string, detail: string, cause?: unknown): Gi
   });
 }
 
-function limitContext(value: string, maxChars: number): string {
-  if (value.length <= maxChars) return value;
-  return `${value.slice(0, maxChars)}\n\n[truncated]`;
-}
-
-function sanitizeCommitMessage(generated: {
-  subject: string;
-  body: string;
-  branch?: string | undefined;
-}): {
-  subject: string;
-  body: string;
-  branch?: string | undefined;
-} {
-  const rawSubject = generated.subject.trim().split(/\r?\n/g)[0]?.trim() ?? "";
-  const subject = rawSubject.replace(/[.]+$/g, "").trim();
-  const safeSubject = subject.length > 0 ? subject.slice(0, 72).trimEnd() : "Update project files";
-  return {
-    subject: safeSubject,
-    body: generated.body.trim(),
-    ...(generated.branch !== undefined ? { branch: generated.branch } : {}),
-  };
-}
-
-function summarizePathForCommitSubject(filePath: string): string {
-  const trimmed = filePath.trim();
-  if (trimmed.length === 0) {
-    return "project files";
-  }
-
-  const segments = trimmed.split("/").filter((segment) => segment.length > 0);
-  return segments.at(-1) ?? trimmed;
-}
-
-function deriveFallbackCommitSubject(stagedSummary: string): string {
-  const lines = stagedSummary
-    .split(/\r?\n/g)
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0);
-  if (lines.length === 0) {
-    return "Update project files";
-  }
-
-  const firstEntry = lines[0]?.split("\t") ?? [];
-  const rawStatus = firstEntry[0]?.trim().toUpperCase() ?? "";
-  const firstPath = firstEntry.at(-1)?.trim() ?? "";
-  const fileLabel = summarizePathForCommitSubject(firstPath);
-
-  if (lines.length === 1) {
-    if (rawStatus.startsWith("A")) {
-      return `Add ${fileLabel}`;
-    }
-    if (rawStatus.startsWith("D")) {
-      return `Remove ${fileLabel}`;
-    }
-    if (rawStatus.startsWith("R")) {
-      return `Rename ${fileLabel}`;
-    }
-    return `Update ${fileLabel}`;
-  }
-
-  const uniqueTopLevelDirs = Array.from(
-    new Set(
-      lines
-        .map((line) => {
-          const entry = line.split("\t");
-          const filePath = entry.at(-1)?.trim() ?? "";
-          return filePath.split("/")[0]?.trim() ?? "";
-        })
-        .filter((segment) => segment.length > 0),
-    ),
-  );
-
-  if (uniqueTopLevelDirs.length === 1) {
-    return `Update ${uniqueTopLevelDirs[0]} files`;
-  }
-
-  return "Update project files";
-}
-
-function createFallbackCommitSuggestion(input: {
-  stagedSummary: string;
-  includeBranch?: boolean;
-}): CommitAndBranchSuggestion {
-  const subject = deriveFallbackCommitSubject(input.stagedSummary);
-  return {
-    subject,
-    body: "",
-    ...(input.includeBranch ? { branch: sanitizeFeatureBranchName(subject) } : {}),
-    commitMessage: formatCommitMessage(subject, ""),
-  };
-}
-
-function sanitizeProgressText(value: string): string | null {
-  const trimmed = value.trim();
-  if (trimmed.length === 0) {
-    return null;
-  }
-  if (trimmed.length <= MAX_PROGRESS_TEXT_LENGTH) {
-    return trimmed;
-  }
-  return trimmed.slice(0, MAX_PROGRESS_TEXT_LENGTH).trimEnd();
-}
-
-interface CommitAndBranchSuggestion {
-  subject: string;
-  body: string;
-  branch?: string | undefined;
-  commitMessage: string;
-}
-
-interface FeatureBranchStepOptions {
-  allowCommittedHead?: boolean;
-  restoreOriginalBranchRef?: string | null;
-}
-
-function isCommitAction(
-  action: GitStackedAction,
-): action is "commit" | "commit_push" | "commit_push_pr" {
-  return action === "commit" || action === "commit_push" || action === "commit_push_pr";
-}
-
-function formatCommitMessage(subject: string, body: string): string {
-  const trimmedBody = body.trim();
-  if (trimmedBody.length === 0) {
-    return subject;
-  }
-  return `${subject}\n\n${trimmedBody}`;
-}
-
-function buildFailedLocalHandoffRecoveryDetail(
+function buildFailedLocalSwitchRecoveryDetail(
   baseMessage: string,
-  recovery: FailedLocalHandoffRecovery,
+  recovery: FailedLocalSwitchRecovery,
 ): string {
   return `${baseMessage} ${[
     recovery.worktreeRecreated
@@ -467,9 +287,9 @@ function buildFailedLocalTransferDetail(
   ].join(" ")}`.trim();
 }
 
-function buildFailedWorktreeHandoffRecoveryDetail(
+function buildFailedWorktreeSwitchRecoveryDetail(
   baseMessage: string,
-  recovery: FailedWorktreeHandoffRecovery,
+  recovery: FailedWorktreeSwitchRecovery,
 ): string {
   return `${baseMessage} ${[
     recovery.checkoutRestored
@@ -498,24 +318,6 @@ function buildFailedWorktreeTransferDetail(
       : "Previous local changes remain in the Git stash. Run `git stash list` in Local to recover them.",
     ...recovery.recoveryNotes,
   ].join(" ")}`.trim();
-}
-
-function parseCustomCommitMessage(raw: string): { subject: string; body: string } | null {
-  const normalized = raw.replace(/\r\n/g, "\n").trim();
-  if (normalized.length === 0) {
-    return null;
-  }
-
-  const [firstLine, ...rest] = normalized.split("\n");
-  const subject = firstLine?.trim() ?? "";
-  if (subject.length === 0) {
-    return null;
-  }
-
-  return {
-    subject,
-    body: rest.join("\n").trim(),
-  };
 }
 
 function extractBranchFromRef(ref: string): string {
@@ -691,31 +493,6 @@ function inferPullRequestHeadRemoteInfoFromSelector(
 export const makeGitManager = Effect.gen(function* () {
   const gitCore = yield* GitCore;
   const gitHubCli = yield* GitHubCli;
-  const textGeneration = yield* TextGeneration;
-
-  const createProgressEmitter = (
-    input: { cwd: string; action: GitStackedAction },
-    options?: GitRunStackedActionOptions,
-  ) => {
-    const actionId = options?.actionId ?? randomUUID();
-    const reporter = options?.progressReporter;
-
-    const emit = (event: GitActionProgressPayload) =>
-      reporter
-        ? reporter.publish({
-            actionId,
-            cwd: input.cwd,
-            action: input.action,
-            ...event,
-          } as GitActionProgressEvent)
-        : Effect.void;
-
-    return {
-      actionId,
-      emit,
-    };
-  };
-
   const configurePullRequestHeadUpstream = (
     cwd: string,
     pullRequest: ResolvedPullRequest & PullRequestHeadRemoteInfo,
@@ -811,11 +588,8 @@ export const makeGitManager = Effect.gen(function* () {
         }),
       ),
     );
-  const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const { worktreesDir } = yield* ServerConfig;
-
-  const tempDir = process.env.TMPDIR ?? process.env.TEMP ?? process.env.TMP ?? "/tmp";
 
   const readConfigValueNullable = (cwd: string, key: string) =>
     gitCore.readConfigValue(cwd, key).pipe(Effect.catch(() => Effect.succeed(null)));
@@ -990,346 +764,6 @@ export const makeGitManager = Effect.gen(function* () {
       return parsed[0] ?? null;
     });
 
-  const resolveAlreadyExistingPullRequest = (
-    cwd: string,
-    error: unknown,
-    headContext: BranchHeadContext,
-  ) =>
-    Effect.gen(function* () {
-      const pullRequestUrl = extractPullRequestUrlFromError(error);
-      if (pullRequestUrl) {
-        const pullRequest = yield* gitHubCli
-          .getPullRequest({ cwd, reference: pullRequestUrl })
-          .pipe(Effect.catch(() => Effect.succeed(null)));
-        if (pullRequest) {
-          const candidate = toPullRequestInfo(pullRequest);
-          if (candidate.state === "open" && matchesBranchHeadContext(candidate, headContext)) {
-            return candidate;
-          }
-        }
-      }
-
-      // `gh pr create` can race with an existing-PR probe. Treat GitHub's
-      // create-time duplicate response as success when the PR can be found.
-      return yield* findOpenPr(cwd, headContext);
-    });
-
-  const resolveBaseBranch = (
-    cwd: string,
-    branch: string,
-    upstreamRef: string | null,
-    headContext: Pick<BranchHeadContext, "isCrossRepository">,
-  ) =>
-    Effect.gen(function* () {
-      const configured = yield* gitCore.readConfigValue(cwd, `branch.${branch}.gh-merge-base`);
-      if (configured) return configured;
-
-      if (upstreamRef && !headContext.isCrossRepository) {
-        const upstreamBranch = extractBranchFromRef(upstreamRef);
-        if (upstreamBranch.length > 0 && upstreamBranch !== branch) {
-          return upstreamBranch;
-        }
-      }
-
-      const defaultFromGh = yield* gitHubCli
-        .getDefaultBranch({ cwd })
-        .pipe(Effect.catch(() => Effect.succeed(null)));
-      if (defaultFromGh) {
-        return defaultFromGh;
-      }
-
-      return "main";
-    });
-
-  const resolveCommitAndBranchSuggestion = (
-    input: {
-      cwd: string;
-      branch: string | null;
-      commitMessage?: string;
-      /** When true, also produce a semantic feature branch name. */
-      includeBranch?: boolean;
-      filePaths?: readonly string[];
-    } & GitTextGenerationParams,
-  ) =>
-    Effect.gen(function* () {
-      const context = yield* gitCore.prepareCommitContext(input.cwd, input.filePaths);
-      if (!context) {
-        return null;
-      }
-
-      const customCommit = parseCustomCommitMessage(input.commitMessage ?? "");
-      if (customCommit) {
-        return {
-          subject: customCommit.subject,
-          body: customCommit.body,
-          ...(input.includeBranch
-            ? { branch: sanitizeFeatureBranchName(customCommit.subject) }
-            : {}),
-          commitMessage: formatCommitMessage(customCommit.subject, customCommit.body),
-        };
-      }
-
-      const generated = yield* textGeneration
-        .generateCommitMessage({
-          cwd: input.cwd,
-          branch: input.branch,
-          stagedSummary: limitContext(context.stagedSummary, 8_000),
-          stagedPatch: limitContext(context.stagedPatch, 50_000),
-          ...(input.includeBranch ? { includeBranch: true } : {}),
-          ...buildGitTextGenerationCallInput(input),
-        })
-        .pipe(
-          Effect.map((result) => sanitizeCommitMessage(result)),
-          Effect.catchTag("TextGenerationError", (error) =>
-            Effect.logWarning(
-              `GitManager.resolveCommitAndBranchSuggestion: falling back to heuristic commit message in ${input.cwd}: ${error.message}`,
-            ).pipe(
-              Effect.as(
-                createFallbackCommitSuggestion({
-                  stagedSummary: context.stagedSummary,
-                  ...(input.includeBranch ? { includeBranch: true } : {}),
-                }),
-              ),
-            ),
-          ),
-        );
-
-      return {
-        subject: generated.subject,
-        body: generated.body,
-        ...(generated.branch !== undefined ? { branch: generated.branch } : {}),
-        commitMessage: formatCommitMessage(generated.subject, generated.body),
-      };
-    });
-
-  const runCommitStep = (
-    cwd: string,
-    action: "commit" | "commit_push" | "commit_push_pr",
-    branch: string | null,
-    commitMessage?: string,
-    preResolvedSuggestion?: CommitAndBranchSuggestion,
-    filePaths?: readonly string[],
-    textGenerationParams?: GitTextGenerationParams,
-    progressReporter?: GitActionProgressReporter,
-    actionId?: string,
-  ) =>
-    Effect.gen(function* () {
-      const emit = (event: GitActionProgressPayload) =>
-        progressReporter && actionId
-          ? progressReporter.publish({
-              actionId,
-              cwd,
-              action,
-              ...event,
-            } as GitActionProgressEvent)
-          : Effect.void;
-
-      let suggestion: CommitAndBranchSuggestion | null | undefined = preResolvedSuggestion;
-      if (!suggestion) {
-        const needsGeneration = !commitMessage?.trim();
-        if (needsGeneration) {
-          yield* emit({
-            kind: "phase_started",
-            phase: "commit",
-            label: "Generating commit message...",
-          });
-        }
-        suggestion = yield* resolveCommitAndBranchSuggestion({
-          cwd,
-          branch,
-          ...(commitMessage ? { commitMessage } : {}),
-          ...(filePaths ? { filePaths } : {}),
-          ...(textGenerationParams ?? {}),
-        });
-      }
-      if (!suggestion) {
-        return { status: "skipped_no_changes" as const };
-      }
-
-      yield* emit({
-        kind: "phase_started",
-        phase: "commit",
-        label: "Committing...",
-      });
-
-      let currentHookName: string | null = null;
-      const commitProgress =
-        progressReporter && actionId
-          ? {
-              onOutputLine: ({ stream, text }: { stream: "stdout" | "stderr"; text: string }) => {
-                const sanitized = sanitizeProgressText(text);
-                if (!sanitized) {
-                  return Effect.void;
-                }
-                return emit({
-                  kind: "hook_output",
-                  hookName: currentHookName,
-                  stream,
-                  text: sanitized,
-                });
-              },
-              onHookStarted: (hookName: string) => {
-                currentHookName = hookName;
-                return emit({
-                  kind: "hook_started",
-                  hookName,
-                });
-              },
-              onHookFinished: ({
-                hookName,
-                exitCode,
-                durationMs,
-              }: {
-                hookName: string;
-                exitCode: number | null;
-                durationMs: number | null;
-              }) => {
-                if (currentHookName === hookName) {
-                  currentHookName = null;
-                }
-                return emit({
-                  kind: "hook_finished",
-                  hookName,
-                  exitCode,
-                  durationMs,
-                });
-              },
-            }
-          : null;
-      const { commitSha } = yield* gitCore.commit(cwd, suggestion.subject, suggestion.body, {
-        timeoutMs: COMMIT_TIMEOUT_MS,
-        ...(commitProgress ? { progress: commitProgress } : {}),
-      });
-      if (currentHookName !== null) {
-        yield* emit({
-          kind: "hook_finished",
-          hookName: currentHookName,
-          exitCode: 0,
-          durationMs: null,
-        });
-        currentHookName = null;
-      }
-      return {
-        status: "created" as const,
-        commitSha,
-        subject: suggestion.subject,
-      };
-    });
-
-  const runPrStep = (
-    cwd: string,
-    fallbackBranch: string | null,
-    textGenerationParams?: GitTextGenerationParams,
-  ) =>
-    Effect.gen(function* () {
-      const details = yield* gitCore.statusDetails(cwd);
-      const branch = details.branch ?? fallbackBranch;
-      if (!branch) {
-        return yield* gitManagerError(
-          "runPrStep",
-          "Cannot create a pull request from detached HEAD.",
-        );
-      }
-      if (!details.hasUpstream) {
-        return yield* gitManagerError(
-          "runPrStep",
-          "Current branch has not been pushed. Push before creating a PR.",
-        );
-      }
-
-      const headContext = yield* resolveBranchHeadContext(cwd, {
-        branch,
-        upstreamRef: details.upstreamRef,
-      });
-
-      const existing = yield* findOpenPr(cwd, headContext);
-      if (existing) {
-        return {
-          status: "opened_existing" as const,
-          url: existing.url,
-          number: existing.number,
-          baseBranch: existing.baseRefName,
-          headBranch: existing.headRefName,
-          title: existing.title,
-        };
-      }
-
-      const baseBranch = yield* resolveBaseBranch(cwd, branch, details.upstreamRef, headContext);
-      if (!headContext.isCrossRepository && baseBranch === headContext.headBranch) {
-        return yield* gitManagerError(
-          "runPrStep",
-          `Cannot create a pull request from '${headContext.headBranch}' into itself. Create or switch to a feature branch and retry.`,
-        );
-      }
-      const rangeContext = yield* gitCore.readRangeContext(cwd, baseBranch);
-
-      const generated = yield* textGeneration.generatePrContent({
-        cwd,
-        baseBranch,
-        headBranch: headContext.headBranch,
-        commitSummary: limitContext(rangeContext.commitSummary, 20_000),
-        diffSummary: limitContext(rangeContext.diffSummary, 20_000),
-        diffPatch: limitContext(rangeContext.diffPatch, 60_000),
-        ...buildGitTextGenerationCallInput(textGenerationParams ?? {}),
-      });
-
-      const bodyFile = path.join(tempDir, `penkra-pr-body-${process.pid}-${randomUUID()}.md`);
-      yield* fileSystem
-        .writeFileString(bodyFile, generated.body)
-        .pipe(
-          Effect.mapError((cause) =>
-            gitManagerError("runPrStep", "Failed to write pull request body temp file.", cause),
-          ),
-        );
-      const existingAfterCreateConflict = yield* gitHubCli
-        .createPullRequest({
-          cwd,
-          baseBranch,
-          headSelector: headContext.preferredHeadSelector,
-          title: generated.title,
-          bodyFile,
-        })
-        .pipe(
-          Effect.as(null),
-          Effect.catch((error) => {
-            if (!isPullRequestAlreadyExistsError(error)) {
-              return Effect.fail(error);
-            }
-            return resolveAlreadyExistingPullRequest(cwd, error, headContext);
-          }),
-          Effect.ensuring(fileSystem.remove(bodyFile).pipe(Effect.catch(() => Effect.void))),
-        );
-      if (existingAfterCreateConflict) {
-        return {
-          status: "opened_existing" as const,
-          url: existingAfterCreateConflict.url,
-          number: existingAfterCreateConflict.number,
-          baseBranch: existingAfterCreateConflict.baseRefName,
-          headBranch: existingAfterCreateConflict.headRefName,
-          title: existingAfterCreateConflict.title,
-        };
-      }
-
-      const created = yield* findOpenPr(cwd, headContext);
-      if (!created) {
-        return {
-          status: "created" as const,
-          baseBranch,
-          headBranch: headContext.headBranch,
-          title: generated.title,
-        };
-      }
-
-      return {
-        status: "created" as const,
-        url: created.url,
-        number: created.number,
-        baseBranch: created.baseRefName,
-        headBranch: created.headRefName,
-        title: created.title,
-      };
-    });
-
   const status: GitManagerShape["status"] = Effect.fnUntraced(function* (input) {
     const details = yield* gitCore.statusDetails(input.cwd);
 
@@ -1373,7 +807,7 @@ export const makeGitManager = Effect.gen(function* () {
     },
   );
 
-  // Same reason as summarizeDiff below: the badge surfaces need three integers, not the patch.
+  // Badge surfaces need three integers, not the patch.
   // Deriving them from the very patch readWorkingTreeDiff would have returned keeps the numbers
   // identical to the ones a client-side parse produced, so no surface changes what it displays.
   const readWorkingTreeDiffStats: GitManagerShape["readWorkingTreeDiffStats"] = Effect.fnUntraced(
@@ -1383,29 +817,6 @@ export const makeGitManager = Effect.gen(function* () {
       return totals ?? { additions: 0, deletions: 0, fileCount: 0 };
     },
   );
-
-  // Resolve the patch server-side so large repository data never makes a client→RPC round trip.
-  const summarizeDiff: GitManagerShape["summarizeDiff"] = Effect.fnUntraced(function* (input) {
-    const { patch } = yield* readWorkingTreeDiff({ cwd: input.cwd, scope: input.scope });
-    if (patch.length === 0) {
-      return yield* gitManagerError("summarizeDiff", "Cannot summarize an empty diff.");
-    }
-
-    const generated = yield* textGeneration.generateDiffSummary({
-      cwd: input.cwd,
-      patch,
-      ...buildGitTextGenerationCallInput({
-        textGenerationModel: input.textGenerationModel,
-        textGenerationModelSelection: input.textGenerationModelSelection,
-        codexHomePath: input.codexHomePath,
-        providerOptions: input.providerOptions,
-      }),
-    });
-
-    return {
-      summary: generated.summary,
-    };
-  });
 
   const resolvePullRequest: GitManagerShape["resolvePullRequest"] = Effect.fnUntraced(
     function* (input) {
@@ -1616,7 +1027,7 @@ export const makeGitManager = Effect.gen(function* () {
   const readStashRef = (cwd: string) =>
     gitCore
       .execute({
-        operation: "GitManager.handoffThread.readStashRef",
+        operation: "GitManager.switchThreadEnvironment.readStashRef",
         cwd,
         args: ["rev-parse", "--verify", "--quiet", "refs/stash"],
         allowNonZeroExit: true,
@@ -1633,7 +1044,7 @@ export const makeGitManager = Effect.gen(function* () {
   const readHeadRef = (cwd: string) =>
     gitCore
       .execute({
-        operation: "GitManager.handoffThread.readHeadRef",
+        operation: "GitManager.switchThreadEnvironment.readHeadRef",
         cwd,
         args: ["rev-parse", "HEAD"],
         timeoutMs: 5_000,
@@ -1648,7 +1059,7 @@ export const makeGitManager = Effect.gen(function* () {
   const checkoutDetached = (cwd: string, ref: string) =>
     gitCore
       .execute({
-        operation: "GitManager.handoffThread.checkoutDetached",
+        operation: "GitManager.switchThreadEnvironment.checkoutDetached",
         cwd,
         args: ["checkout", "--detach", ref],
         timeoutMs: 30_000,
@@ -1704,7 +1115,7 @@ export const makeGitManager = Effect.gen(function* () {
       }
       const beforeRef = yield* readStashRef(cwd);
       yield* gitCore.execute({
-        operation: "GitManager.handoffThread.stashPush",
+        operation: "GitManager.switchThreadEnvironment.stashPush",
         cwd,
         args: ["stash", "push", "--include-untracked", "-m", label],
         timeoutMs: 30_000,
@@ -1712,8 +1123,8 @@ export const makeGitManager = Effect.gen(function* () {
       const afterRef = yield* readStashRef(cwd);
       if (afterRef === beforeRef) {
         return yield* gitManagerError(
-          "handoffThread",
-          "Git did not create a stash entry while preparing the thread handoff.",
+          "switchThreadEnvironment",
+          "Git did not create a stash entry while preparing the thread environment switch.",
         );
       }
       return {
@@ -1725,7 +1136,7 @@ export const makeGitManager = Effect.gen(function* () {
   const dropStashBySha = (cwd: string, stashSha: string) =>
     Effect.gen(function* () {
       const listResult = yield* gitCore.execute({
-        operation: "GitManager.handoffThread.listStashShas",
+        operation: "GitManager.switchThreadEnvironment.listStashShas",
         cwd,
         args: ["stash", "list", "--format=%H"],
         allowNonZeroExit: true,
@@ -1739,7 +1150,7 @@ export const makeGitManager = Effect.gen(function* () {
         .indexOf(stashSha);
       if (index < 0) return;
       yield* gitCore.execute({
-        operation: "GitManager.handoffThread.stashDrop",
+        operation: "GitManager.switchThreadEnvironment.stashDrop",
         cwd,
         args: ["stash", "drop", `stash@{${index}}`],
         allowNonZeroExit: true,
@@ -1762,7 +1173,7 @@ export const makeGitManager = Effect.gen(function* () {
       // observe pop-style semantics.
       const result = yield* gitCore
         .execute({
-          operation: "GitManager.handoffThread.stashApply",
+          operation: "GitManager.switchThreadEnvironment.stashApply",
           cwd,
           args: ["stash", "apply", "--index", stashRef],
           allowNonZeroExit: true,
@@ -1814,7 +1225,7 @@ export const makeGitManager = Effect.gen(function* () {
       }),
     );
 
-  const restoreLocalHandoffSource = (input: {
+  const restoreLocalSwitchSource = (input: {
     cwd: string;
     originalBranch: string | null;
     originalHeadRef: string | null;
@@ -1963,7 +1374,7 @@ The local stash entry was kept for recovery.`,
         localStashRef: null,
       });
 
-      const localRecovery = yield* restoreLocalHandoffSource({
+      const localRecovery = yield* restoreLocalSwitchSource({
         cwd: input.cwd,
         originalBranch: input.originalBranch,
         originalHeadRef: input.originalHeadRef,
@@ -2008,7 +1419,7 @@ The local stash entry was kept for recovery.`,
           }),
         );
 
-      const localRecovery = yield* restoreLocalHandoffSource({
+      const localRecovery = yield* restoreLocalSwitchSource({
         cwd: input.cwd,
         originalBranch: input.originalBranch,
         originalHeadRef: input.originalHeadRef,
@@ -2024,693 +1435,401 @@ The local stash entry was kept for recovery.`,
       };
     });
 
-  const handoffThread: GitManagerShape["handoffThread"] = Effect.fnUntraced(function* (input) {
-    const currentLocalStatus = yield* gitCore.statusDetails(input.cwd);
+  const switchThreadEnvironment: GitManagerShape["switchThreadEnvironment"] = Effect.fnUntraced(
+    function* (input) {
+      const currentLocalStatus = yield* gitCore.statusDetails(input.cwd);
 
-    if (input.targetMode === "local") {
-      if (!input.worktreePath) {
+      if (input.targetMode === "local") {
+        if (!input.worktreePath) {
+          return yield* gitManagerError(
+            "switchThreadEnvironment",
+            "Cannot hand off to Local because this thread does not have a materialized worktree.",
+          );
+        }
+
+        const worktreeHeadRef = yield* readHeadRef(input.worktreePath);
+        const targetLocalBranch =
+          input.currentBranch ??
+          input.associatedWorktreeBranch ??
+          input.preferredLocalBranch ??
+          null;
+        if (!(targetLocalBranch ?? worktreeHeadRef)) {
+          return yield* gitManagerError(
+            "switchThreadEnvironment",
+            "Cannot hand off to Local because the worktree thread does not have a recoverable HEAD reference.",
+          );
+        }
+
+        const associatedWorktreePath = input.associatedWorktreePath ?? input.worktreePath;
+        const associatedWorktreeBranch =
+          input.associatedWorktreeBranch ?? input.currentBranch ?? null;
+        const associatedWorktreeRef =
+          input.associatedWorktreeRef ?? worktreeHeadRef ?? associatedWorktreeBranch;
+        const originalLocalBranch = currentLocalStatus.branch ?? null;
+        const originalLocalHeadRef = yield* readHeadRef(input.cwd);
+        let currentLocalBranchAfterPreparation = originalLocalBranch;
+
+        const preservedLocalStash = yield* stashWorkingTree(
+          input.cwd,
+          `penkra preserve local environment switch ${randomUUID()}`,
+        );
+        const sourceStash = yield* stashWorkingTree(
+          input.worktreePath,
+          `penkra switch to local ${randomUUID()}`,
+        );
+
+        yield* gitCore
+          .removeWorktree({
+            cwd: input.cwd,
+            path: input.worktreePath,
+          })
+          .pipe(
+            Effect.catch((error) =>
+              restoreStashes([
+                { cwd: input.worktreePath!, stashRef: sourceStash.stashRef },
+                { cwd: input.cwd, stashRef: preservedLocalStash.stashRef },
+              ]).pipe(Effect.flatMap(() => Effect.fail(error))),
+            ),
+          );
+
+        if (targetLocalBranch && currentLocalStatus.branch !== targetLocalBranch) {
+          yield* Effect.scoped(
+            gitCore.checkoutBranch({
+              cwd: input.cwd,
+              branch: targetLocalBranch,
+            }),
+          ).pipe(
+            Effect.catch((error) =>
+              restoreRemovedWorktreeAfterFailedLocalCheckout({
+                cwd: input.cwd,
+                worktreePath: associatedWorktreePath,
+                branch: associatedWorktreeBranch,
+                ref: associatedWorktreeRef,
+                worktreeStashRef: sourceStash.stashRef,
+                localStashRef: preservedLocalStash.stashRef,
+              }).pipe(
+                Effect.flatMap((recovery) =>
+                  Effect.fail(
+                    new GitManagerError({
+                      operation: "GitManager.switchThreadEnvironment",
+                      detail: buildFailedLocalSwitchRecoveryDetail(error.message, recovery),
+                      cause: error,
+                    }),
+                  ),
+                ),
+              ),
+            ),
+          );
+          currentLocalBranchAfterPreparation = targetLocalBranch;
+        } else if (!targetLocalBranch && worktreeHeadRef) {
+          yield* checkoutDetached(input.cwd, worktreeHeadRef).pipe(
+            Effect.catch((error) =>
+              restoreRemovedWorktreeAfterFailedLocalCheckout({
+                cwd: input.cwd,
+                worktreePath: associatedWorktreePath,
+                branch: associatedWorktreeBranch,
+                ref: associatedWorktreeRef,
+                worktreeStashRef: sourceStash.stashRef,
+                localStashRef: preservedLocalStash.stashRef,
+              }).pipe(
+                Effect.flatMap((recovery) =>
+                  Effect.fail(
+                    new GitManagerError({
+                      operation: "GitManager.switchThreadEnvironment",
+                      detail: buildFailedLocalSwitchRecoveryDetail(error.message, recovery),
+                      cause: error,
+                    }),
+                  ),
+                ),
+              ),
+            ),
+          );
+          currentLocalBranchAfterPreparation = null;
+        }
+
+        const threadTransfer = yield* popStash(input.cwd, sourceStash.stashRef);
+        if (threadTransfer.conflictsDetected) {
+          const recovery = yield* rollbackFailedLocalTransfer({
+            cwd: input.cwd,
+            originalBranch: originalLocalBranch,
+            originalHeadRef: originalLocalHeadRef,
+            currentBranch: currentLocalBranchAfterPreparation,
+            worktreePath: associatedWorktreePath,
+            worktreeBranch: associatedWorktreeBranch,
+            worktreeRef: associatedWorktreeRef,
+            worktreeStashRef: sourceStash.stashRef,
+            localStashRef: preservedLocalStash.stashRef,
+          });
+          return yield* new GitManagerError({
+            operation: "GitManager.switchThreadEnvironment",
+            detail: buildFailedLocalTransferDetail(
+              `${
+                threadTransfer.message ??
+                "Git reported conflicts while applying the handed off changes."
+              } The environment switch was rolled back so the thread stays in its worktree.`,
+              recovery,
+            ),
+          });
+        }
+
+        const localTransfer = yield* popStash(input.cwd, preservedLocalStash.stashRef);
+        const changesTransferred = sourceStash.hadChanges || preservedLocalStash.hadChanges;
+        const movedThreadChanges = sourceStash.hadChanges;
+        const restoredLocalChanges = preservedLocalStash.hadChanges;
+        const localTargetLabel = targetLocalBranch
+          ? `main local checkout on '${targetLocalBranch}'`
+          : "local checkout in detached HEAD";
+        const message = localTransfer.conflictsDetected
+          ? `${
+              localTransfer.message ??
+              "Git reported conflicts while restoring your previous local changes."
+            }\nYour previous local stash entry was kept for recovery.`
+          : movedThreadChanges && restoredLocalChanges
+            ? `Moved the thread back to the ${localTargetLabel}, carried its uncommitted work over, and restored your previous local changes.`
+            : movedThreadChanges
+              ? `Moved the thread back to the ${localTargetLabel} and carried its uncommitted work over.`
+              : restoredLocalChanges
+                ? `Moved the thread back to the ${localTargetLabel} and restored your previous local changes.`
+                : `Moved the thread back to the ${localTargetLabel}.`;
+
+        return {
+          targetMode: "local",
+          branch: targetLocalBranch,
+          worktreePath: null,
+          associatedWorktreePath,
+          associatedWorktreeBranch,
+          associatedWorktreeRef,
+          changesTransferred,
+          conflictsDetected: localTransfer.conflictsDetected,
+          message,
+        };
+      }
+
+      const worktreeIntent = resolveWorktreeEnvironmentIntent({
+        preferredNewWorktreeName: input.preferredNewWorktreeName,
+        associatedWorktreePath: input.associatedWorktreePath,
+        associatedWorktreeBranch: input.associatedWorktreeBranch,
+        associatedWorktreeRef: input.associatedWorktreeRef,
+        preferredWorktreeBaseBranch:
+          input.preferredWorktreeBaseBranch ?? currentLocalStatus.branch ?? null,
+        currentBranch: input.currentBranch,
+      });
+      if (!worktreeIntent) {
         return yield* gitManagerError(
-          "handoffThread",
-          "Cannot hand off to Local because this thread does not have a materialized worktree.",
+          "switchThreadEnvironment",
+          "Cannot hand off to a worktree because no worktree target is available.",
+        );
+      }
+      const targetWorktreeName =
+        worktreeIntent.kind === "create-new" ? worktreeIntent.worktreeName : null;
+      const targetAssociatedWorktreePath =
+        worktreeIntent.kind === "reuse-associated" ? worktreeIntent.associatedWorktreePath : null;
+      const targetAssociatedWorktreeBranch =
+        worktreeIntent.kind === "reuse-associated" ? worktreeIntent.associatedWorktreeBranch : null;
+      const targetAssociatedWorktreeRef =
+        worktreeIntent.kind === "reuse-associated" ? worktreeIntent.associatedWorktreeRef : null;
+      const targetBaseBranch = worktreeIntent.baseBranch;
+      if (!targetBaseBranch && !targetAssociatedWorktreeBranch && !targetAssociatedWorktreeRef) {
+        return yield* gitManagerError(
+          "switchThreadEnvironment",
+          "Select a base branch before handing off this thread to a worktree.",
         );
       }
 
-      const worktreeHeadRef = yield* readHeadRef(input.worktreePath);
-      const targetLocalBranch =
-        input.currentBranch ?? input.associatedWorktreeBranch ?? input.preferredLocalBranch ?? null;
-      if (!(targetLocalBranch ?? worktreeHeadRef)) {
-        return yield* gitManagerError(
-          "handoffThread",
-          "Cannot hand off to Local because the worktree thread does not have a recoverable HEAD reference.",
-        );
-      }
-
-      const associatedWorktreePath = input.associatedWorktreePath ?? input.worktreePath;
-      const associatedWorktreeBranch =
-        input.associatedWorktreeBranch ?? input.currentBranch ?? null;
-      const associatedWorktreeRef =
-        input.associatedWorktreeRef ?? worktreeHeadRef ?? associatedWorktreeBranch;
-      const originalLocalBranch = currentLocalStatus.branch ?? null;
-      const originalLocalHeadRef = yield* readHeadRef(input.cwd);
-      let currentLocalBranchAfterPreparation = originalLocalBranch;
-
-      const preservedLocalStash = yield* stashWorkingTree(
-        input.cwd,
-        `penkra preserve local handoff ${randomUUID()}`,
-      );
       const sourceStash = yield* stashWorkingTree(
-        input.worktreePath,
-        `penkra handoff to local ${randomUUID()}`,
-      );
-
-      yield* gitCore
-        .removeWorktree({
-          cwd: input.cwd,
-          path: input.worktreePath,
-        })
-        .pipe(
-          Effect.catch((error) =>
-            restoreStashes([
-              { cwd: input.worktreePath!, stashRef: sourceStash.stashRef },
-              { cwd: input.cwd, stashRef: preservedLocalStash.stashRef },
-            ]).pipe(Effect.flatMap(() => Effect.fail(error))),
-          ),
-        );
-
-      if (targetLocalBranch && currentLocalStatus.branch !== targetLocalBranch) {
-        yield* Effect.scoped(
-          gitCore.checkoutBranch({
-            cwd: input.cwd,
-            branch: targetLocalBranch,
-          }),
-        ).pipe(
-          Effect.catch((error) =>
-            restoreRemovedWorktreeAfterFailedLocalCheckout({
-              cwd: input.cwd,
-              worktreePath: associatedWorktreePath,
-              branch: associatedWorktreeBranch,
-              ref: associatedWorktreeRef,
-              worktreeStashRef: sourceStash.stashRef,
-              localStashRef: preservedLocalStash.stashRef,
-            }).pipe(
-              Effect.flatMap((recovery) =>
-                Effect.fail(
-                  new GitManagerError({
-                    operation: "GitManager.handoffThread",
-                    detail: buildFailedLocalHandoffRecoveryDetail(error.message, recovery),
-                    cause: error,
-                  }),
-                ),
-              ),
-            ),
-          ),
-        );
-        currentLocalBranchAfterPreparation = targetLocalBranch;
-      } else if (!targetLocalBranch && worktreeHeadRef) {
-        yield* checkoutDetached(input.cwd, worktreeHeadRef).pipe(
-          Effect.catch((error) =>
-            restoreRemovedWorktreeAfterFailedLocalCheckout({
-              cwd: input.cwd,
-              worktreePath: associatedWorktreePath,
-              branch: associatedWorktreeBranch,
-              ref: associatedWorktreeRef,
-              worktreeStashRef: sourceStash.stashRef,
-              localStashRef: preservedLocalStash.stashRef,
-            }).pipe(
-              Effect.flatMap((recovery) =>
-                Effect.fail(
-                  new GitManagerError({
-                    operation: "GitManager.handoffThread",
-                    detail: buildFailedLocalHandoffRecoveryDetail(error.message, recovery),
-                    cause: error,
-                  }),
-                ),
-              ),
-            ),
-          ),
-        );
-        currentLocalBranchAfterPreparation = null;
-      }
-
-      const threadTransfer = yield* popStash(input.cwd, sourceStash.stashRef);
-      if (threadTransfer.conflictsDetected) {
-        const recovery = yield* rollbackFailedLocalTransfer({
-          cwd: input.cwd,
-          originalBranch: originalLocalBranch,
-          originalHeadRef: originalLocalHeadRef,
-          currentBranch: currentLocalBranchAfterPreparation,
-          worktreePath: associatedWorktreePath,
-          worktreeBranch: associatedWorktreeBranch,
-          worktreeRef: associatedWorktreeRef,
-          worktreeStashRef: sourceStash.stashRef,
-          localStashRef: preservedLocalStash.stashRef,
-        });
-        return yield* new GitManagerError({
-          operation: "GitManager.handoffThread",
-          detail: buildFailedLocalTransferDetail(
-            `${
-              threadTransfer.message ??
-              "Git reported conflicts while applying the handed off changes."
-            } The handoff was rolled back so the thread stays in its worktree.`,
-            recovery,
-          ),
-        });
-      }
-
-      const localTransfer = yield* popStash(input.cwd, preservedLocalStash.stashRef);
-      const changesTransferred = sourceStash.hadChanges || preservedLocalStash.hadChanges;
-      const movedThreadChanges = sourceStash.hadChanges;
-      const restoredLocalChanges = preservedLocalStash.hadChanges;
-      const localTargetLabel = targetLocalBranch
-        ? `main local checkout on '${targetLocalBranch}'`
-        : "local checkout in detached HEAD";
-      const message = localTransfer.conflictsDetected
-        ? `${
-            localTransfer.message ??
-            "Git reported conflicts while restoring your previous local changes."
-          }\nYour previous local stash entry was kept for recovery.`
-        : movedThreadChanges && restoredLocalChanges
-          ? `Moved the thread back to the ${localTargetLabel}, carried its uncommitted work over, and restored your previous local changes.`
-          : movedThreadChanges
-            ? `Moved the thread back to the ${localTargetLabel} and carried its uncommitted work over.`
-            : restoredLocalChanges
-              ? `Moved the thread back to the ${localTargetLabel} and restored your previous local changes.`
-              : `Moved the thread back to the ${localTargetLabel}.`;
-
-      return {
-        targetMode: "local",
-        branch: targetLocalBranch,
-        worktreePath: null,
-        associatedWorktreePath,
-        associatedWorktreeBranch,
-        associatedWorktreeRef,
-        changesTransferred,
-        conflictsDetected: localTransfer.conflictsDetected,
-        message,
-      };
-    }
-
-    const worktreeIntent = resolveWorktreeHandoffIntent({
-      preferredNewWorktreeName: input.preferredNewWorktreeName,
-      associatedWorktreePath: input.associatedWorktreePath,
-      associatedWorktreeBranch: input.associatedWorktreeBranch,
-      associatedWorktreeRef: input.associatedWorktreeRef,
-      preferredWorktreeBaseBranch:
-        input.preferredWorktreeBaseBranch ?? currentLocalStatus.branch ?? null,
-      currentBranch: input.currentBranch,
-    });
-    if (!worktreeIntent) {
-      return yield* gitManagerError(
-        "handoffThread",
-        "Cannot hand off to a worktree because no worktree target is available.",
-      );
-    }
-    const targetWorktreeName =
-      worktreeIntent.kind === "create-new" ? worktreeIntent.worktreeName : null;
-    const targetAssociatedWorktreePath =
-      worktreeIntent.kind === "reuse-associated" ? worktreeIntent.associatedWorktreePath : null;
-    const targetAssociatedWorktreeBranch =
-      worktreeIntent.kind === "reuse-associated" ? worktreeIntent.associatedWorktreeBranch : null;
-    const targetAssociatedWorktreeRef =
-      worktreeIntent.kind === "reuse-associated" ? worktreeIntent.associatedWorktreeRef : null;
-    const targetBaseBranch = worktreeIntent.baseBranch;
-    if (!targetBaseBranch && !targetAssociatedWorktreeBranch && !targetAssociatedWorktreeRef) {
-      return yield* gitManagerError(
-        "handoffThread",
-        "Select a base branch before handing off this thread to a worktree.",
-      );
-    }
-
-    const sourceStash = yield* stashWorkingTree(
-      input.cwd,
-      `penkra handoff to worktree ${randomUUID()}`,
-    );
-    const sourceBranch = currentLocalStatus.branch ?? input.currentBranch ?? null;
-    const sourceHeadRef = yield* readHeadRef(input.cwd);
-    let foregroundBranchAfterHandoff = currentLocalStatus.branch;
-
-    if (sourceBranch && sourceBranch === targetAssociatedWorktreeBranch) {
-      const fallbackLocalBranch = yield* resolveForegroundFallbackBranch(
         input.cwd,
-        targetAssociatedWorktreeBranch,
+        `penkra switch to worktree ${randomUUID()}`,
       );
-      if (!fallbackLocalBranch) {
-        if (!sourceHeadRef) {
-          yield* restoreSourceStash(input.cwd, sourceStash.stashRef);
-          return yield* gitManagerError(
-            "handoffThread",
-            `Cannot hand off '${targetAssociatedWorktreeBranch}' to a worktree because there is no recoverable local HEAD reference available.`,
-          );
-        }
-        yield* checkoutDetached(input.cwd, sourceHeadRef).pipe(
-          Effect.catch((error) =>
-            restoreSourceStash(input.cwd, sourceStash.stashRef).pipe(
-              Effect.flatMap(() => Effect.fail(error)),
-            ),
-          ),
-        );
-        foregroundBranchAfterHandoff = null;
-      } else {
-        yield* Effect.scoped(
-          gitCore.checkoutBranch({
-            cwd: input.cwd,
-            branch: fallbackLocalBranch,
-          }),
-        ).pipe(
-          Effect.catch((error) =>
-            restoreSourceStash(input.cwd, sourceStash.stashRef).pipe(
-              Effect.flatMap(() => Effect.fail(error)),
-            ),
-          ),
-        );
-        foregroundBranchAfterHandoff = fallbackLocalBranch;
-      }
-    }
+      const sourceBranch = currentLocalStatus.branch ?? input.currentBranch ?? null;
+      const sourceHeadRef = yield* readHeadRef(input.cwd);
+      let foregroundBranchAfterSwitch = currentLocalStatus.branch;
 
-    const worktree = yield* Effect.gen(function* () {
-      if (targetAssociatedWorktreeRef && !targetAssociatedWorktreeBranch) {
-        return yield* createDetachedWorktree({
-          cwd: input.cwd,
-          ref: targetAssociatedWorktreeRef,
-          path: targetAssociatedWorktreePath,
-        });
-      }
-      if (targetWorktreeName) {
-        if (!targetBaseBranch) {
-          return yield* gitManagerError(
-            "handoffThread",
-            "Select a base branch before creating a new worktree.",
+      if (sourceBranch && sourceBranch === targetAssociatedWorktreeBranch) {
+        const fallbackLocalBranch = yield* resolveForegroundFallbackBranch(
+          input.cwd,
+          targetAssociatedWorktreeBranch,
+        );
+        if (!fallbackLocalBranch) {
+          if (!sourceHeadRef) {
+            yield* restoreSourceStash(input.cwd, sourceStash.stashRef);
+            return yield* gitManagerError(
+              "switchThreadEnvironment",
+              `Cannot hand off '${targetAssociatedWorktreeBranch}' to a worktree because there is no recoverable local HEAD reference available.`,
+            );
+          }
+          yield* checkoutDetached(input.cwd, sourceHeadRef).pipe(
+            Effect.catch((error) =>
+              restoreSourceStash(input.cwd, sourceStash.stashRef).pipe(
+                Effect.flatMap(() => Effect.fail(error)),
+              ),
+            ),
           );
+          foregroundBranchAfterSwitch = null;
+        } else {
+          yield* Effect.scoped(
+            gitCore.checkoutBranch({
+              cwd: input.cwd,
+              branch: fallbackLocalBranch,
+            }),
+          ).pipe(
+            Effect.catch((error) =>
+              restoreSourceStash(input.cwd, sourceStash.stashRef).pipe(
+                Effect.flatMap(() => Effect.fail(error)),
+              ),
+            ),
+          );
+          foregroundBranchAfterSwitch = fallbackLocalBranch;
         }
-        return yield* createNamedWorktree({
-          cwd: input.cwd,
-          baseBranch: targetBaseBranch,
-          name: targetWorktreeName,
-          path: null,
-        });
       }
-      if (targetAssociatedWorktreeBranch) {
-        if (
-          (yield* gitCore.listLocalBranchNames(input.cwd)).includes(targetAssociatedWorktreeBranch)
-        ) {
+
+      const worktree = yield* Effect.gen(function* () {
+        if (targetAssociatedWorktreeRef && !targetAssociatedWorktreeBranch) {
+          return yield* createDetachedWorktree({
+            cwd: input.cwd,
+            ref: targetAssociatedWorktreeRef,
+            path: targetAssociatedWorktreePath,
+          });
+        }
+        if (targetWorktreeName) {
+          if (!targetBaseBranch) {
+            return yield* gitManagerError(
+              "switchThreadEnvironment",
+              "Select a base branch before creating a new worktree.",
+            );
+          }
+          return yield* createNamedWorktree({
+            cwd: input.cwd,
+            baseBranch: targetBaseBranch,
+            name: targetWorktreeName,
+            path: null,
+          });
+        }
+        if (targetAssociatedWorktreeBranch) {
+          if (
+            (yield* gitCore.listLocalBranchNames(input.cwd)).includes(
+              targetAssociatedWorktreeBranch,
+            )
+          ) {
+            return yield* gitCore.createWorktree({
+              cwd: input.cwd,
+              branch: targetAssociatedWorktreeBranch,
+              path: targetAssociatedWorktreePath,
+            });
+          }
+          if (!targetBaseBranch) {
+            return yield* createDetachedWorktree({
+              cwd: input.cwd,
+              ref: targetAssociatedWorktreeBranch,
+              path: targetAssociatedWorktreePath,
+            });
+          }
           return yield* gitCore.createWorktree({
             cwd: input.cwd,
-            branch: targetAssociatedWorktreeBranch,
+            branch: targetBaseBranch ?? targetAssociatedWorktreeBranch,
+            newBranch: targetAssociatedWorktreeBranch,
             path: targetAssociatedWorktreePath,
           });
         }
         if (!targetBaseBranch) {
           return yield* createDetachedWorktree({
             cwd: input.cwd,
-            ref: targetAssociatedWorktreeBranch,
+            ref: targetAssociatedWorktreeRef!,
             path: targetAssociatedWorktreePath,
           });
         }
-        return yield* gitCore.createWorktree({
-          cwd: input.cwd,
-          branch: targetBaseBranch ?? targetAssociatedWorktreeBranch,
-          newBranch: targetAssociatedWorktreeBranch,
-          path: targetAssociatedWorktreePath,
-        });
-      }
-      if (!targetBaseBranch) {
         return yield* createDetachedWorktree({
           cwd: input.cwd,
-          ref: targetAssociatedWorktreeRef!,
+          ref: targetBaseBranch,
           path: targetAssociatedWorktreePath,
+          ...(targetWorktreeName ? { name: targetWorktreeName } : {}),
         });
-      }
-      return yield* createDetachedWorktree({
-        cwd: input.cwd,
-        ref: targetBaseBranch,
-        path: targetAssociatedWorktreePath,
-        ...(targetWorktreeName ? { name: targetWorktreeName } : {}),
-      });
-    }).pipe(
-      Effect.catch((error) =>
-        restoreLocalHandoffSource({
-          cwd: input.cwd,
-          originalBranch: sourceBranch,
-          originalHeadRef: sourceHeadRef,
-          currentBranch: foregroundBranchAfterHandoff,
-          stashRef: sourceStash.stashRef,
-        }).pipe(
-          Effect.flatMap((recovery) =>
-            Effect.fail(
-              new GitManagerError({
-                operation: "GitManager.handoffThread",
-                detail: buildFailedWorktreeHandoffRecoveryDetail(error.message, recovery),
-                cause: error,
-              }),
+      }).pipe(
+        Effect.catch((error) =>
+          restoreLocalSwitchSource({
+            cwd: input.cwd,
+            originalBranch: sourceBranch,
+            originalHeadRef: sourceHeadRef,
+            currentBranch: foregroundBranchAfterSwitch,
+            stashRef: sourceStash.stashRef,
+          }).pipe(
+            Effect.flatMap((recovery) =>
+              Effect.fail(
+                new GitManagerError({
+                  operation: "GitManager.switchThreadEnvironment",
+                  detail: buildFailedWorktreeSwitchRecoveryDetail(error.message, recovery),
+                  cause: error,
+                }),
+              ),
             ),
           ),
         ),
-      ),
-    );
-
-    const transfer = yield* popStash(worktree.worktree.path, sourceStash.stashRef);
-    if (transfer.conflictsDetected) {
-      const recovery = yield* rollbackFailedWorktreeTransfer({
-        cwd: input.cwd,
-        worktreePath: worktree.worktree.path,
-        originalBranch: sourceBranch,
-        originalHeadRef: sourceHeadRef,
-        currentBranch: foregroundBranchAfterHandoff,
-        stashRef: sourceStash.stashRef,
-      });
-      return yield* new GitManagerError({
-        operation: "GitManager.handoffThread",
-        detail: buildFailedWorktreeTransferDetail(
-          `${
-            transfer.message ?? "Git reported conflicts while applying the handed off changes."
-          } The stash entry was kept for recovery.`,
-          recovery,
-        ),
-      });
-    }
-
-    const materializedWorktreeStatus = yield* gitCore.statusDetails(worktree.worktree.path);
-    const materializedWorktreeRef =
-      (yield* readHeadRef(worktree.worktree.path)) ??
-      ("ref" in worktree.worktree ? worktree.worktree.ref : worktree.worktree.branch);
-    const materializedWorktreeBranch = materializedWorktreeStatus.branch ?? null;
-    if (materializedWorktreeBranch) {
-      // Publishing is best-effort: handoff should still succeed for local-only repositories.
-      yield* gitCore
-        .publishBranch({ cwd: worktree.worktree.path, branch: materializedWorktreeBranch })
-        .pipe(
-          Effect.catch((error) =>
-            Effect.logWarning("GitManager.handoffThread could not publish worktree branch", {
-              cwd: worktree.worktree.path,
-              branch: materializedWorktreeBranch,
-              reason: error.message,
-            }),
-          ),
-        );
-    }
-    const changesTransferred = sourceStash.hadChanges;
-    const handoffSummary =
-      foregroundBranchAfterHandoff && foregroundBranchAfterHandoff !== sourceBranch
-        ? `The thread moved into its worktree and Local returned to '${foregroundBranchAfterHandoff}'.`
-        : foregroundBranchAfterHandoff === null && sourceBranch === targetAssociatedWorktreeBranch
-          ? "The thread moved into its worktree and Local returned to a detached HEAD."
-          : "The thread moved into its worktree.";
-    const message = changesTransferred
-      ? `${handoffSummary} Uncommitted local changes were carried over.`
-      : handoffSummary;
-
-    return {
-      targetMode: "worktree",
-      branch: materializedWorktreeBranch,
-      worktreePath: worktree.worktree.path,
-      associatedWorktreePath: worktree.worktree.path,
-      associatedWorktreeBranch: materializedWorktreeBranch,
-      associatedWorktreeRef: materializedWorktreeRef,
-      changesTransferred,
-      conflictsDetected: false,
-      message,
-    };
-  });
-
-  const runFeatureBranchStep = (
-    cwd: string,
-    branch: string | null,
-    commitMessage?: string,
-    filePaths?: readonly string[],
-    textGenerationParams?: GitTextGenerationParams,
-    options?: FeatureBranchStepOptions,
-  ) =>
-    Effect.gen(function* () {
-      const suggestion = yield* resolveCommitAndBranchSuggestion({
-        cwd,
-        branch,
-        ...(commitMessage ? { commitMessage } : {}),
-        ...(filePaths ? { filePaths } : {}),
-        includeBranch: true,
-        ...(textGenerationParams ?? {}),
-      });
-      if (!suggestion && !options?.allowCommittedHead) {
-        return yield* gitManagerError(
-          "runFeatureBranchStep",
-          "Cannot create a feature branch because there are no changes to commit.",
-        );
-      }
-
-      const existingBranchNames = yield* gitCore.listLocalBranchNames(cwd);
-      const committedHeadBranchBase = yield* Effect.gen(function* () {
-        if (suggestion) {
-          return suggestion.branch ?? sanitizeFeatureBranchName(suggestion.subject);
-        }
-        const latestCommitSubject = yield* gitCore
-          .execute({
-            operation: "GitManager.runFeatureBranchStep.readHeadSubject",
-            cwd,
-            args: ["log", "-1", "--pretty=%s"],
-          })
-          .pipe(Effect.map((result) => result.stdout.trim().split(/\r?\n/g)[0]?.trim() ?? ""));
-        if (latestCommitSubject.length > 0) {
-          return latestCommitSubject;
-        }
-        return branch ? `${branch}-update` : undefined;
-      });
-      const resolvedBranch = resolveAutoFeatureBranchName(
-        existingBranchNames,
-        committedHeadBranchBase,
       );
 
-      yield* gitCore.createBranch({ cwd, branch: resolvedBranch });
-      yield* Effect.scoped(gitCore.checkoutBranch({ cwd, branch: resolvedBranch }));
-      if (options?.restoreOriginalBranchRef && branch) {
-        // Move the original branch back to its trusted remote/upstream ref so
-        // "create feature branch and continue" actually removes the commits
-        // from the source branch instead of leaving both branches pointing at them.
-        yield* gitCore.execute({
-          operation: "GitManager.runFeatureBranchStep.restoreOriginalBranch",
-          cwd,
-          args: ["branch", "--force", branch, options.restoreOriginalBranchRef],
+      const transfer = yield* popStash(worktree.worktree.path, sourceStash.stashRef);
+      if (transfer.conflictsDetected) {
+        const recovery = yield* rollbackFailedWorktreeTransfer({
+          cwd: input.cwd,
+          worktreePath: worktree.worktree.path,
+          originalBranch: sourceBranch,
+          originalHeadRef: sourceHeadRef,
+          currentBranch: foregroundBranchAfterSwitch,
+          stashRef: sourceStash.stashRef,
+        });
+        return yield* new GitManagerError({
+          operation: "GitManager.switchThreadEnvironment",
+          detail: buildFailedWorktreeTransferDetail(
+            `${
+              transfer.message ?? "Git reported conflicts while applying the handed off changes."
+            } The stash entry was kept for recovery.`,
+            recovery,
+          ),
         });
       }
+
+      const materializedWorktreeStatus = yield* gitCore.statusDetails(worktree.worktree.path);
+      const materializedWorktreeRef =
+        (yield* readHeadRef(worktree.worktree.path)) ??
+        ("ref" in worktree.worktree ? worktree.worktree.ref : worktree.worktree.branch);
+      const materializedWorktreeBranch = materializedWorktreeStatus.branch ?? null;
+      if (materializedWorktreeBranch) {
+        // Publishing is best-effort: the environment switch should still succeed for local-only repositories.
+        yield* gitCore
+          .publishBranch({ cwd: worktree.worktree.path, branch: materializedWorktreeBranch })
+          .pipe(
+            Effect.catch((error) =>
+              Effect.logWarning(
+                "GitManager.switchThreadEnvironment could not publish worktree branch",
+                {
+                  cwd: worktree.worktree.path,
+                  branch: materializedWorktreeBranch,
+                  reason: error.message,
+                },
+              ),
+            ),
+          );
+      }
+      const changesTransferred = sourceStash.hadChanges;
+      const switchSummary =
+        foregroundBranchAfterSwitch && foregroundBranchAfterSwitch !== sourceBranch
+          ? `The thread moved into its worktree and Local returned to '${foregroundBranchAfterSwitch}'.`
+          : foregroundBranchAfterSwitch === null && sourceBranch === targetAssociatedWorktreeBranch
+            ? "The thread moved into its worktree and Local returned to a detached HEAD."
+            : "The thread moved into its worktree.";
+      const message = changesTransferred
+        ? `${switchSummary} Uncommitted local changes were carried over.`
+        : switchSummary;
 
       return {
-        branchStep: { status: "created" as const, name: resolvedBranch },
-        resolvedCommitMessage: suggestion?.commitMessage,
-        resolvedCommitSuggestion: suggestion ?? undefined,
+        targetMode: "worktree",
+        branch: materializedWorktreeBranch,
+        worktreePath: worktree.worktree.path,
+        associatedWorktreePath: worktree.worktree.path,
+        associatedWorktreeBranch: materializedWorktreeBranch,
+        associatedWorktreeRef: materializedWorktreeRef,
+        changesTransferred,
+        conflictsDetected: false,
+        message,
       };
-    });
-
-  const resolveCommittedHeadRestoreRef = (
-    cwd: string,
-    details: { branch: string | null; upstreamRef: string | null },
-  ) =>
-    Effect.gen(function* () {
-      if (!details.branch) {
-        return null;
-      }
-      if (details.upstreamRef) {
-        return details.upstreamRef;
-      }
-
-      const remoteNames = yield* gitCore
-        .execute({
-          operation: "GitManager.resolveCommittedHeadRestoreRef.listRemotes",
-          cwd,
-          args: ["remote"],
-          allowNonZeroExit: true,
-          timeoutMs: 5_000,
-        })
-        .pipe(Effect.map((result) => prioritizeRemoteNames(result.stdout.split(/\r?\n/g))));
-      if (remoteNames.length > 1) {
-        return yield* gitManagerError(
-          "resolveCommittedHeadRestoreRef",
-          `Cannot move committed work to a feature branch because '${details.branch}' has no upstream and this repository has multiple remotes. Push the branch first or configure its upstream before retrying.`,
-        );
-      }
-
-      for (const remoteName of remoteNames) {
-        const remoteRef = `${remoteName}/${details.branch}`;
-        const remoteExists = yield* gitCore
-          .execute({
-            operation: "GitManager.resolveCommittedHeadRestoreRef.remoteExists",
-            cwd,
-            args: ["show-ref", "--verify", "--quiet", `refs/remotes/${remoteRef}`],
-            allowNonZeroExit: true,
-            timeoutMs: 5_000,
-          })
-          .pipe(Effect.map((result) => result.code === 0));
-        if (!remoteExists) {
-          continue;
-        }
-
-        yield* gitCore.execute({
-          operation: "GitManager.resolveCommittedHeadRestoreRef.refreshRemoteBranch",
-          cwd,
-          args: [
-            "fetch",
-            "--quiet",
-            "--no-tags",
-            remoteName,
-            `+refs/heads/${details.branch}:refs/remotes/${remoteRef}`,
-          ],
-          timeoutMs: 10_000,
-        });
-        return remoteRef;
-      }
-
-      return yield* gitManagerError(
-        "resolveCommittedHeadRestoreRef",
-        `Cannot move committed work to a feature branch because '${details.branch}' has no upstream or matching remote branch to restore.`,
-      );
-    });
-
-  const runStackedAction: GitManagerShape["runStackedAction"] = Effect.fnUntraced(
-    function* (input, options) {
-      const progress = createProgressEmitter(input, options);
-      let currentPhase: GitActionProgressPhase | null = null;
-
-      const runAction = Effect.gen(function* () {
-        const initialStatus = yield* gitCore.statusDetails(input.cwd);
-        const textGenerationParams: GitTextGenerationParams = {
-          textGenerationModel: input.textGenerationModel,
-          textGenerationModelSelection: input.textGenerationModelSelection,
-          codexHomePath: input.codexHomePath,
-          providerOptions: input.providerOptions,
-        };
-        const wantsCommit = isCommitAction(input.action);
-        const wantsPush =
-          input.action === "push" ||
-          input.action === "commit_push" ||
-          input.action === "commit_push_pr" ||
-          (input.action === "create_pr" &&
-            (input.featureBranch || !initialStatus.hasUpstream || initialStatus.aheadCount > 0));
-        const wantsPr = input.action === "create_pr" || input.action === "commit_push_pr";
-        const phases: GitActionProgressPhase[] = [
-          ...(input.featureBranch ? (["branch"] as const) : []),
-          ...(wantsCommit ? (["commit"] as const) : []),
-          ...(wantsPush ? (["push"] as const) : []),
-          ...(wantsPr ? (["pr"] as const) : []),
-        ];
-
-        yield* progress.emit({
-          kind: "action_started",
-          phases,
-        });
-
-        if (input.action === "push" && initialStatus.hasWorkingTreeChanges) {
-          return yield* gitManagerError(
-            "runStackedAction",
-            "Commit or stash local changes before pushing.",
-          );
-        }
-        if (input.action === "create_pr" && initialStatus.hasWorkingTreeChanges) {
-          return yield* gitManagerError(
-            "runStackedAction",
-            "Commit local changes before creating a PR.",
-          );
-        }
-        if (!input.featureBranch && wantsPush && !initialStatus.branch) {
-          return yield* gitManagerError("runStackedAction", "Cannot push from detached HEAD.");
-        }
-        if (!input.featureBranch && wantsPr && !initialStatus.branch) {
-          return yield* gitManagerError(
-            "runStackedAction",
-            "Cannot create a pull request from detached HEAD.",
-          );
-        }
-        const committedHeadRestoreRef =
-          input.featureBranch && !wantsCommit
-            ? yield* resolveCommittedHeadRestoreRef(input.cwd, {
-                branch: initialStatus.branch,
-                upstreamRef: initialStatus.upstreamRef,
-              })
-            : null;
-
-        let branchStep: { status: "created" | "skipped_not_requested"; name?: string };
-        let commitMessageForStep = input.commitMessage;
-        let preResolvedCommitSuggestion: CommitAndBranchSuggestion | undefined = undefined;
-
-        if (input.featureBranch) {
-          currentPhase = "branch";
-          yield* progress.emit({
-            kind: "phase_started",
-            phase: "branch",
-            label: "Preparing feature branch...",
-          });
-          const result = yield* runFeatureBranchStep(
-            input.cwd,
-            initialStatus.branch,
-            input.commitMessage,
-            input.filePaths,
-            textGenerationParams,
-            {
-              allowCommittedHead: !wantsCommit,
-              restoreOriginalBranchRef: committedHeadRestoreRef,
-            },
-          );
-          branchStep = result.branchStep;
-          commitMessageForStep = result.resolvedCommitMessage;
-          preResolvedCommitSuggestion = result.resolvedCommitSuggestion;
-        } else {
-          branchStep = { status: "skipped_not_requested" as const };
-        }
-
-        const currentBranch = branchStep.name ?? initialStatus.branch;
-        const commitAction = isCommitAction(input.action) ? input.action : null;
-        const commit = commitAction
-          ? yield* Effect.gen(function* () {
-              currentPhase = "commit";
-              return yield* runCommitStep(
-                input.cwd,
-                commitAction,
-                currentBranch,
-                commitMessageForStep,
-                preResolvedCommitSuggestion,
-                input.filePaths,
-                textGenerationParams,
-                options?.progressReporter,
-                progress.actionId,
-              );
-            })
-          : { status: "skipped_not_requested" as const };
-
-        const push = wantsPush
-          ? yield* progress
-              .emit({
-                kind: "phase_started",
-                phase: "push",
-                label: "Pushing...",
-              })
-              .pipe(
-                Effect.flatMap(() =>
-                  Effect.gen(function* () {
-                    currentPhase = "push";
-                    return yield* gitCore.pushCurrentBranch(input.cwd, currentBranch);
-                  }),
-                ),
-              )
-          : { status: "skipped_not_requested" as const };
-
-        const pr = wantsPr
-          ? yield* progress
-              .emit({
-                kind: "phase_started",
-                phase: "pr",
-                label: "Creating PR...",
-              })
-              .pipe(
-                Effect.flatMap(() =>
-                  Effect.gen(function* () {
-                    currentPhase = "pr";
-                    return yield* runPrStep(input.cwd, currentBranch, textGenerationParams);
-                  }),
-                ),
-              )
-          : { status: "skipped_not_requested" as const };
-
-        const result = {
-          action: input.action,
-          branch: branchStep,
-          commit,
-          push,
-          pr,
-        };
-        yield* progress.emit({
-          kind: "action_finished",
-          result,
-        });
-        return result;
-      });
-
-      return yield* runAction.pipe(
-        Effect.catch((error) =>
-          progress
-            .emit({
-              kind: "action_failed",
-              phase: currentPhase,
-              message: error.message,
-            })
-            .pipe(Effect.flatMap(() => Effect.fail(error))),
-        ),
-      );
     },
   );
 
@@ -2718,14 +1837,12 @@ The local stash entry was kept for recovery.`,
     status,
     readWorkingTreeDiff,
     readWorkingTreeDiffStats,
-    summarizeDiff,
     resolvePullRequest,
     pullRequestSnapshot,
     preparePullRequestThread: (input) =>
       gitCore.withMutation(input.cwd, preparePullRequestThread(input)),
-    handoffThread: (input) => gitCore.withMutation(input.cwd, handoffThread(input)),
-    runStackedAction: (input, options) =>
-      gitCore.withMutation(input.cwd, runStackedAction(input, options)),
+    switchThreadEnvironment: (input) =>
+      gitCore.withMutation(input.cwd, switchThreadEnvironment(input)),
   } satisfies GitManagerShape;
 });
 

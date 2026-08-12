@@ -36,10 +36,8 @@ describe("composerSlashCommands", () => {
 
   it("ranks slash command name matches before description-only matches", () => {
     expect(
-      filterComposerSlashCommands("mode", ["fast", "default", "model"]).map(
-        (entry) => entry.command,
-      ),
-    ).toEqual(["model", "fast", "default"]);
+      filterComposerSlashCommands("mode", ["fast", "model"]).map((entry) => entry.command),
+    ).toEqual(["model", "fast"]);
   });
 
   it("parses slash invocations with optional arguments", () => {
@@ -100,7 +98,7 @@ describe("composerSlashCommands", () => {
     });
   });
 
-  it("only offers /fork for an otherwise empty default composer", () => {
+  it("only offers /fork for an otherwise empty composer", () => {
     expect(
       canOfferForkSlashCommand({
         prompt: "",
@@ -108,7 +106,6 @@ describe("composerSlashCommands", () => {
         terminalContextCount: 0,
         selectedSkillCount: 0,
         selectedMentionCount: 0,
-        interactionMode: "default",
       }),
     ).toBe(true);
 
@@ -119,18 +116,6 @@ describe("composerSlashCommands", () => {
         terminalContextCount: 0,
         selectedSkillCount: 0,
         selectedMentionCount: 0,
-        interactionMode: "default",
-      }),
-    ).toBe(false);
-
-    expect(
-      canOfferForkSlashCommand({
-        prompt: "",
-        imageCount: 0,
-        terminalContextCount: 0,
-        selectedSkillCount: 0,
-        selectedMentionCount: 0,
-        interactionMode: "plan",
       }),
     ).toBe(false);
   });

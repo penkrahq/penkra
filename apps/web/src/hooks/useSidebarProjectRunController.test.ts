@@ -89,6 +89,7 @@ const harness = vi.hoisted(() => ({
   toast: vi.fn(),
   localServers: [] as unknown[],
   discoveredTargetsByQuery: [[]] as unknown[][],
+  discoveryQueryCount: 0,
 }));
 
 vi.mock("react", () => ({
@@ -100,10 +101,12 @@ vi.mock("react", () => ({
 }));
 
 vi.mock("@tanstack/react-query", () => ({
-  useQueries: (input: { queries: readonly unknown[] }) =>
-    input.queries.map((_, index) => ({
+  useQueries: (input: { queries: readonly unknown[] }) => {
+    harness.discoveryQueryCount = input.queries.length;
+    return input.queries.map((_, index) => ({
       data: { targets: harness.discoveredTargetsByQuery[index] ?? [] },
-    })),
+    }));
+  },
   useQuery: () => ({ data: { servers: harness.localServers } }),
   useQueryClient: () => ({ invalidateQueries: harness.invalidateQueries }),
 }));
@@ -196,6 +199,7 @@ beforeEach(() => {
   harness.runsByProjectId = {};
   harness.localServers = [];
   harness.discoveredTargetsByQuery = [[]];
+  harness.discoveryQueryCount = 0;
   for (const mock of [
     harness.upsertRun,
     harness.removeRun,
@@ -233,6 +237,26 @@ beforeEach(() => {
 });
 
 describe("useSidebarProjectRunController", () => {
+  it("deduplicates script discovery for projects sharing a working directory", () => {
+    const duplicateProject = {
+      ...PROJECT,
+      id: ContainerId.makeUnsafe("project-run-duplicate"),
+      scripts: [],
+    };
+    reactHarness.beginRender();
+    useSidebarProjectRunController({
+      projects: [PROJECT, duplicateProject],
+      projectById: new Map([
+        [PROJECT.id, PROJECT],
+        [duplicateProject.id, duplicateProject],
+      ]),
+      homeDir: "/Users/test",
+      chatWorkspaceRoot: "/Users/test/.penkra/chats",
+    });
+
+    expect(harness.discoveryQueryCount).toBe(1);
+  });
+
   it("optimistically starts, accepts the authoritative server, and invalidates discovery", async () => {
     confirmRun("  bun custom  ");
     await vi.waitFor(() => expect(harness.runDevServer).toHaveBeenCalled());

@@ -4,7 +4,7 @@
 // Exports: provider discovery schemas and inferred types used by the WS/native API.
 
 import { Schema } from "effect";
-import { TrimmedNonEmptyString } from "./baseSchemas";
+import { ProviderConnectionId, TrimmedNonEmptyString } from "./baseSchemas";
 import { ProviderOptionDescriptor } from "./model";
 
 const ProviderDiscoveryKind = Schema.Literals([
@@ -57,6 +57,7 @@ export const ProviderComposerCapabilities = Schema.Struct({
   supportsPluginDiscovery: Schema.Boolean,
   supportsRuntimeModelList: Schema.Boolean,
   supportsThreadCompaction: Schema.optional(Schema.Boolean),
+  supportsThreadFork: Schema.optional(Schema.Boolean),
   supportsThreadImport: Schema.optional(Schema.Boolean),
 });
 export type ProviderComposerCapabilities = typeof ProviderComposerCapabilities.Type;
@@ -281,6 +282,7 @@ export const ProviderModelDescriptor = Schema.Struct({
   supportsThinkingToggle: Schema.optional(Schema.Boolean),
   contextWindowOptions: Schema.optional(Schema.Array(ProviderContextWindowDescriptor)),
   defaultContextWindow: Schema.optional(TrimmedNonEmptyString),
+  availableConnectionIds: Schema.optional(Schema.Array(Schema.NullOr(ProviderConnectionId))),
 });
 export type ProviderModelDescriptor = typeof ProviderModelDescriptor.Type;
 
@@ -303,6 +305,8 @@ export const ProviderAgentDescriptor = Schema.Struct({
   displayName: TrimmedNonEmptyString,
   description: Schema.optional(TrimmedNonEmptyString),
   model: Schema.optional(TrimmedNonEmptyString),
+  /** Exact Connections whose isolated provider profile reported this agent. */
+  availableConnectionIds: Schema.optional(Schema.Array(Schema.NullOr(ProviderConnectionId))),
 });
 export type ProviderAgentDescriptor = typeof ProviderAgentDescriptor.Type;
 

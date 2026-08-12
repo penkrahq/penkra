@@ -1,10 +1,6 @@
 // FILE: useOpenFavoriteEditorShortcut.ts
-// Purpose: Register the global "open favorite editor" keyboard shortcut on its own, decoupled
-//          from any editor-launch UI. Previously this lived inside useEditorLaunchers, so the
-//          shortcut only worked while the Open-in button (or the Environment panel's Editor
-//          section) was mounted — and it silently stopped working once the Environment panel
-//          replaced the always-mounted Open-in button. Mount this once from an always-present
-//          host (the chat header) and gate it with `enabled`.
+// Purpose: Register the global "open favorite editor" keyboard shortcut independently from
+//          editor-launch UI. Mount it once from an always-present host and gate it with `enabled`.
 // Layer: Chat editor action hook
 
 import type { EditorId, ResolvedKeybindingsConfig } from "@penkra/contracts";

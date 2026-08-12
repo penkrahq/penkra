@@ -173,6 +173,47 @@ describe("deriveWorkLogEntries", () => {
     ]);
   });
 
+  it("keeps thread-scoped Connection and model changes beside visible turns", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "connection-changed",
+        turnId: null,
+        summary: "Connection changed to Work",
+        kind: "connection-changed",
+        tone: "info",
+      }),
+      makeActivity({
+        id: "model-changed",
+        turnId: null,
+        summary: "Model changed to Claude Sonnet 5",
+        kind: "model-changed",
+        tone: "info",
+      }),
+      makeActivity({
+        id: "visible-turn",
+        turnId: "turn-2",
+        summary: "Visible tool",
+        kind: "tool.completed",
+      }),
+      makeActivity({
+        id: "hidden-turn",
+        turnId: "turn-1",
+        summary: "Hidden tool",
+        kind: "tool.completed",
+      }),
+    ];
+
+    const entries = deriveWorkLogEntries(activities, TurnId.makeUnsafe("turn-2"), {
+      visibleTurnIds: new Set([TurnId.makeUnsafe("turn-2")]),
+    });
+
+    expect(entries.map((entry) => entry.id)).toEqual([
+      "connection-changed",
+      "model-changed",
+      "visible-turn",
+    ]);
+  });
+
   it("falls back to the latest-turn filter when visible turn ids are empty", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({ id: "turn-1", turnId: "turn-1", summary: "First tool", kind: "tool.started" }),
@@ -2247,7 +2288,37 @@ describe("deriveWorkLogEntries", () => {
 });
 
 describe("deriveTimelineEntries", () => {
-  it("includes proposed plans alongside messages and work entries in chronological order", () => {
+  it("places a same-timestamp Connection change before the message that uses it", () => {
+    const createdAt = "2026-02-23T00:00:01.000Z";
+    const entries = deriveTimelineEntries(
+      [
+        {
+          id: MessageId.makeUnsafe("message-after-switch"),
+          role: "user",
+          text: "Continue with Work",
+          createdAt,
+          streaming: false,
+        },
+      ],
+      [
+        {
+          id: "connection-changed",
+          createdAt,
+          label: "Connection changed to Work",
+          tone: "info",
+          activityKind: "connection-changed",
+        },
+      ],
+    );
+
+    expect(entries.map((entry) => entry.kind)).toEqual(["work", "message"]);
+    expect(entries[0]).toMatchObject({
+      kind: "work",
+      entry: { activityKind: "connection-changed" },
+    });
+  });
+
+  it("includes messages and work entries in chronological order", () => {
     const entries = deriveTimelineEntries(
       [
         {
@@ -2260,17 +2331,6 @@ describe("deriveTimelineEntries", () => {
       ],
       [
         {
-          id: "plan:thread-1:turn:turn-1",
-          turnId: TurnId.makeUnsafe("turn-1"),
-          planMarkdown: "# Ship it",
-          implementedAt: null,
-          implementationThreadId: null,
-          createdAt: "2026-02-23T00:00:02.000Z",
-          updatedAt: "2026-02-23T00:00:02.000Z",
-        },
-      ],
-      [
-        {
           id: "work-1",
           createdAt: "2026-02-23T00:00:03.000Z",
           label: "Ran tests",
@@ -2279,18 +2339,10 @@ describe("deriveTimelineEntries", () => {
       ],
     );
 
-    expect(entries.map((entry) => entry.kind)).toEqual(["message", "proposed-plan", "work"]);
-    expect(entries[1]).toMatchObject({
-      kind: "proposed-plan",
-      proposedPlan: {
-        planMarkdown: "# Ship it",
-        implementedAt: null,
-        implementationThreadId: null,
-      },
-    });
+    expect(entries.map((entry) => entry.kind)).toEqual(["message", "work"]);
   });
 
-  it("keeps timestamp ties in message, proposed-plan, then work order", () => {
+  it("keeps timestamp ties in message then work order", () => {
     const entries = deriveTimelineEntries(
       [
         {
@@ -2303,17 +2355,6 @@ describe("deriveTimelineEntries", () => {
       ],
       [
         {
-          id: "plan:thread-1:turn:turn-same-time",
-          turnId: TurnId.makeUnsafe("turn-same-time"),
-          planMarkdown: "# Same time",
-          implementedAt: null,
-          implementationThreadId: null,
-          createdAt: "2026-02-23T00:00:01.000Z",
-          updatedAt: "2026-02-23T00:00:01.000Z",
-        },
-      ],
-      [
-        {
           id: "work-same-time",
           createdAt: "2026-02-23T00:00:01.000Z",
           label: "Ran command",
@@ -2322,10 +2363,10 @@ describe("deriveTimelineEntries", () => {
       ],
     );
 
-    expect(entries.map((entry) => entry.kind)).toEqual(["message", "proposed-plan", "work"]);
+    expect(entries.map((entry) => entry.kind)).toEqual(["message", "work"]);
   });
 
-  it("hides tagged plan markdown from the assistant row when a proposed plan exists", () => {
+  it("preserves tagged historical text as ordinary assistant content", () => {
     const entries = deriveTimelineEntries(
       [
         {
@@ -2337,58 +2378,15 @@ describe("deriveTimelineEntries", () => {
           streaming: false,
         },
       ],
-      [
-        {
-          id: "plan:thread-1:turn:turn-plan",
-          turnId: TurnId.makeUnsafe("turn-plan"),
-          planMarkdown: "# Ship it\n\n- step",
-          implementedAt: null,
-          implementationThreadId: null,
-          createdAt: "2026-02-23T00:00:02.000Z",
-          updatedAt: "2026-02-23T00:00:02.000Z",
-        },
-      ],
       [],
     );
 
     expect(entries[0]).toMatchObject({
       kind: "message",
       message: {
-        text: "Here is the plan:",
+        text: "Here is the plan:\n<proposed_plan>\n# Ship it\n\n- step\n</proposed_plan>",
       },
     });
-    expect(entries[1]).toMatchObject({
-      kind: "proposed-plan",
-    });
-  });
-
-  it("omits empty assistant rows that only contain a captured proposed plan block", () => {
-    const entries = deriveTimelineEntries(
-      [
-        {
-          id: MessageId.makeUnsafe("message-plan-only"),
-          role: "assistant",
-          text: "<proposed_plan>\n# Ship it\n\n- step\n</proposed_plan>",
-          turnId: TurnId.makeUnsafe("turn-plan-only"),
-          createdAt: "2026-02-23T00:00:01.000Z",
-          streaming: false,
-        },
-      ],
-      [
-        {
-          id: "plan:thread-1:turn:turn-plan-only",
-          turnId: TurnId.makeUnsafe("turn-plan-only"),
-          planMarkdown: "# Ship it\n\n- step",
-          implementedAt: null,
-          implementationThreadId: null,
-          createdAt: "2026-02-23T00:00:02.000Z",
-          updatedAt: "2026-02-23T00:00:02.000Z",
-        },
-      ],
-      [],
-    );
-
-    expect(entries.map((entry) => entry.kind)).toEqual(["proposed-plan"]);
   });
 });
 

@@ -28,7 +28,6 @@ import {
   type ProviderSessionStartInput,
   type ProviderTurnStartResult,
   RuntimeMode,
-  ProviderInteractionMode,
   type ServerVoiceTranscriptionInput,
   type ServerVoiceTranscriptionResult,
   type UserInputQuestion,
@@ -43,12 +42,10 @@ import {
   isCodexCliVersionSupported,
   parseCodexCliVersion,
 } from "./provider/codexCliVersion";
-import {
-  buildCodexMcpConfigToml,
-  PENKRA_AGENT_GATEWAY_TOKEN_ENV,
-} from "./agentGateway/mcpInjection.ts";
+import { PENKRA_AGENT_GATEWAY_TOKEN_ENV } from "./agentGateway/mcpInjection.ts";
 import { PENKRA_GATEWAY_HARNESS_POLICY } from "./agentGateway/harnessPolicy.ts";
 import type { AgentGatewaySessionLease } from "./agentGateway/sessionLease.ts";
+import type { AgentGatewayNativeToolSurface } from "./agentGateway/Services/AgentGatewayToolBridge.ts";
 import { isNonFatalCodexErrorMessage } from "./codexErrorClassification.ts";
 import { buildCodexProcessEnv } from "./codexProcessEnv.ts";
 import { assertCodexWorkingDirectoryExists } from "./codexWorkingDirectory.ts";
@@ -58,6 +55,11 @@ import {
   teardownProviderProcessTree,
 } from "./provider/supervisedProcessTeardown.ts";
 import { ensureIsolatedScratchWorkspace } from "./scratchWorkspaces.ts";
+import type { ProviderManagedLaunchContext } from "./provider/Services/ProviderAdapter.ts";
+import {
+  adoptManagedCodexRollout,
+  prepareManagedCodexResume,
+} from "./provider/codexManagedNativeState.ts";
 import { createLogger } from "./logger";
 import { transcribeVoiceWithChatGptSession } from "./voiceTranscription.ts";
 import {
@@ -76,6 +78,16 @@ import {
 const log = createLogger("codex");
 
 type PendingRequestKey = string;
+
+export function buildCodexDynamicTools(definitions: AgentGatewayNativeToolSurface["definitions"]) {
+  return definitions.map((definition) => ({
+    type: "function" as const,
+    name: definition.name,
+    description: definition.description,
+    inputSchema: definition.inputSchema,
+    deferLoading: false,
+  }));
+}
 
 interface PendingRequest {
   method: string;
@@ -245,7 +257,6 @@ export interface CodexAppServerSendTurnInput {
   readonly model?: string;
   readonly serviceTier?: string | null;
   readonly effort?: string;
-  readonly interactionMode?: ProviderInteractionMode;
 }
 
 type CodexAppServerReviewTarget = ProviderStartReviewInput["target"];
@@ -259,6 +270,7 @@ export interface CodexAppServerStartSessionInput {
   readonly serviceTier?: string;
   readonly resumeCursor?: unknown;
   readonly providerOptions?: ProviderSessionStartInput["providerOptions"];
+  readonly managedLaunch?: ProviderManagedLaunchContext;
   readonly runtimeMode: RuntimeMode;
 }
 
@@ -395,133 +407,9 @@ export function readCodexAccountSnapshot(response: unknown): CodexAccountSnapsho
   };
 }
 
-export const CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS = `<collaboration_mode># Plan Mode (Conversational)
-
-You work in 3 phases, and you should *chat your way* to a great plan before finalizing it. A great plan is very detailed-intent- and implementation-wise-so that it can be handed to another engineer or agent to be implemented right away. It must be **decision complete**, where the implementer does not need to make any decisions.
-
-## Mode rules (strict)
-
-You are in **Plan Mode** until a developer message explicitly ends it.
-
-Plan Mode is not changed by user intent, tone, or imperative language. If a user asks for execution while still in Plan Mode, treat it as a request to **plan the execution**, not perform it.
-
-## Plan Mode vs update_plan tool
-
-Plan Mode is a collaboration mode that can involve requesting user input and eventually issuing a \`<proposed_plan>\` block.
-
-Separately, \`update_plan\` is a checklist/progress/TODOs tool; it does not enter or exit Plan Mode. Do not confuse it with Plan mode or try to use it while in Plan mode. If you try to use \`update_plan\` in Plan mode, it will return an error.
-
-## Execution vs. mutation in Plan Mode
-
-You may explore and execute **non-mutating** actions that improve the plan. You must not perform **mutating** actions.
-
-### Allowed (non-mutating, plan-improving)
-
-Actions that gather truth, reduce ambiguity, or validate feasibility without changing repo-tracked state. Examples:
-
-* Reading or searching files, configs, schemas, types, manifests, and docs
-* Static analysis, inspection, and repo exploration
-* Dry-run style commands when they do not edit repo-tracked files
-* Tests, builds, or checks that may write to caches or build artifacts (for example, \`target/\`, \`.cache/\`, or snapshots) so long as they do not edit repo-tracked files
-
-### Not allowed (mutating, plan-executing)
-
-Actions that implement the plan or change repo-tracked state. Examples:
-
-* Editing or writing files
-* Running formatters or linters that rewrite files
-* Applying patches, migrations, or codegen that updates repo-tracked files
-* Side-effectful commands whose purpose is to carry out the plan rather than refine it
-
-When in doubt: if the action would reasonably be described as "doing the work" rather than "planning the work," do not do it.
-
-## PHASE 1 - Ground in the environment (explore first, ask second)
-
-Begin by grounding yourself in the actual environment. Eliminate unknowns in the prompt by discovering facts, not by asking the user. Resolve all questions that can be answered through exploration or inspection. Identify missing or ambiguous details only if they cannot be derived from the environment. Silent exploration between turns is allowed and encouraged.
-
-Before asking the user any question, perform at least one targeted non-mutating exploration pass (for example: search relevant files, inspect likely entrypoints/configs, confirm current implementation shape), unless no local environment/repo is available.
-
-Exception: you may ask clarifying questions about the user's prompt before exploring, ONLY if there are obvious ambiguities or contradictions in the prompt itself. However, if ambiguity might be resolved by exploring, always prefer exploring first.
-
-Do not ask questions that can be answered from the repo or system (for example, "where is this struct?" or "which UI component should we use?" when exploration can make it clear). Only ask once you have exhausted reasonable non-mutating exploration.
-
-## PHASE 2 - Intent chat (what they actually want)
-
-* Keep asking until you can clearly state: goal + success criteria, audience, in/out of scope, constraints, current state, and the key preferences/tradeoffs.
-* Bias toward questions over guessing: if any high-impact ambiguity remains, do NOT plan yet-ask.
-
-## PHASE 3 - Implementation chat (what/how we'll build)
-
-* Once intent is stable, keep asking until the spec is decision complete: approach, interfaces (APIs/schemas/I/O), data flow, edge cases/failure modes, testing + acceptance criteria, rollout/monitoring, and any migrations/compat constraints.
-
-## Asking questions
-
-Critical rules:
-
-* Strongly prefer using the \`request_user_input\` tool to ask any questions.
-* Offer only meaningful multiple-choice options; don't include filler choices that are obviously wrong or irrelevant.
-* In rare cases where an unavoidable, important question can't be expressed with reasonable multiple-choice options (due to extreme ambiguity), you may ask it directly without the tool.
-
-You SHOULD ask many questions, but each question must:
-
-* materially change the spec/plan, OR
-* confirm/lock an assumption, OR
-* choose between meaningful tradeoffs.
-* not be answerable by non-mutating commands.
-
-Use the \`request_user_input\` tool only for decisions that materially change the plan, for confirming important assumptions, or for information that cannot be discovered via non-mutating exploration.
-
-## Two kinds of unknowns (treat differently)
-
-1. **Discoverable facts** (repo/system truth): explore first.
-
-   * Before asking, run targeted searches and check likely sources of truth (configs/manifests/entrypoints/schemas/types/constants).
-   * Ask only if: multiple plausible candidates; nothing found but you need a missing identifier/context; or ambiguity is actually product intent.
-   * If asking, present concrete candidates (paths/service names) + recommend one.
-   * Never ask questions you can answer from your environment (e.g., "where is this struct").
-
-2. **Preferences/tradeoffs** (not discoverable): ask early.
-
-   * These are intent or implementation preferences that cannot be derived from exploration.
-   * Provide 2-4 mutually exclusive options + a recommended default.
-   * If unanswered, proceed with the recommended option and record it as an assumption in the final plan.
-
-## Finalization rule
-
-Only output the final plan when it is decision complete and leaves no decisions to the implementer.
-
-When you present the official plan, wrap it in a \`<proposed_plan>\` block so the client can render it specially:
-
-1) The opening tag must be on its own line.
-2) Start the plan content on the next line (no text on the same line as the tag).
-3) The closing tag must be on its own line.
-4) Use Markdown inside the block.
-5) Keep the tags exactly as \`<proposed_plan>\` and \`</proposed_plan>\` (do not translate or rename them), even if the plan content is in another language.
-
-Example:
-
-<proposed_plan>
-plan content
-</proposed_plan>
-
-plan content should be human and agent digestible. The final plan must be plan-only and include:
-
-* A clear title
-* A brief summary section
-* Important changes or additions to public APIs/interfaces/types
-* Test cases and scenarios
-* Explicit assumptions and defaults chosen where needed
-
-Do not ask "should I proceed?" in the final output. The user can easily switch out of Plan mode and request implementation if you have included a \`<proposed_plan>\` block in your response. Alternatively, they can decide to stay in Plan mode and continue refining the plan.
-
-Only produce at most one \`<proposed_plan>\` block per turn, and only when you are presenting a complete spec.
-</collaboration_mode>\n\n${PENKRA_GATEWAY_HARNESS_POLICY}`;
-
 export const CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS = `<collaboration_mode># Collaboration Mode: Default
 
-You are now in Default mode. Any previous instructions for other modes (e.g. Plan mode) are no longer active.
-
-Your active mode changes only when new developer instructions with a different \`<collaboration_mode>...</collaboration_mode>\` change it; user requests or tool descriptions do not change mode by themselves. Known mode names are Default and Plan.
+You are in Penkra's standard collaborative execution mode.
 
 ## request_user_input availability
 
@@ -647,32 +535,23 @@ export function buildCodexInitializeParams() {
 }
 
 function buildCodexCollaborationMode(input: {
-  readonly interactionMode?: "default" | "plan";
   readonly model?: string;
   readonly effort?: string;
-}):
-  | {
-      mode: "default" | "plan";
-      settings: {
-        model: string;
-        reasoning_effort: string;
-        developer_instructions: string;
-      };
-    }
-  | undefined {
-  if (input.interactionMode === undefined) {
-    return undefined;
-  }
+}): {
+  mode: "default";
+  settings: {
+    model: string;
+    reasoning_effort: string;
+    developer_instructions: string;
+  };
+} {
   const model = normalizeCodexModelSlug(input.model) ?? "gpt-5.3-codex";
   return {
-    mode: input.interactionMode,
+    mode: "default",
     settings: {
       model,
       reasoning_effort: input.effort ?? "medium",
-      developer_instructions:
-        input.interactionMode === "plan"
-          ? CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS
-          : CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS,
+      developer_instructions: CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS,
     },
   };
 }
@@ -873,10 +752,10 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
 
   private runPromise: (effect: Effect.Effect<unknown, never>) => Promise<unknown>;
   private readonly penkraSkillsDir: string | undefined;
-  private readonly agentGatewayMcp:
+  private readonly agentGatewayHostTool:
     | {
-        readonly endpointUrl: () => string;
         readonly acquireSessionLease: (threadId: ThreadId) => AgentGatewaySessionLease;
+        readonly requireNativeSurface: () => AgentGatewayNativeToolSurface;
       }
     | undefined;
   private readonly teardownProcessTree: typeof teardownProviderProcessTree;
@@ -885,9 +764,9 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     services?: ServiceMap.ServiceMap<never>,
     options?: {
       readonly penkraSkillsDir?: string;
-      readonly agentGatewayMcp?: {
-        readonly endpointUrl: () => string;
+      readonly agentGatewayHostTool?: {
         readonly acquireSessionLease: (threadId: ThreadId) => AgentGatewaySessionLease;
+        readonly requireNativeSurface: () => AgentGatewayNativeToolSurface;
       };
       readonly teardownProcessTree?: typeof teardownProviderProcessTree;
       readonly taskCompleteFallbackGraceMs?: number;
@@ -896,7 +775,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     super();
     this.runPromise = services ? Effect.runPromiseWith(services) : Effect.runPromise;
     this.penkraSkillsDir = options?.penkraSkillsDir;
-    this.agentGatewayMcp = options?.agentGatewayMcp;
+    this.agentGatewayHostTool = options?.agentGatewayHostTool;
     this.teardownProcessTree = options?.teardownProcessTree ?? teardownProviderProcessTree;
     this.taskCompleteFallbackGraceMs = Math.max(0, options?.taskCompleteFallbackGraceMs ?? 750);
   }
@@ -907,13 +786,13 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
   private async buildSessionProcessEnv(
     homePath: string | undefined,
     gatewayBearerToken: string | undefined,
+    managedLaunch?: ProviderManagedLaunchContext,
   ) {
-    const env = await buildCodexProcessEnv({
-      ...(homePath ? { homePath } : {}),
-      ...(this.agentGatewayMcp
-        ? { appendConfigToml: buildCodexMcpConfigToml(this.agentGatewayMcp.endpointUrl()) }
-        : {}),
-    });
+    const env = managedLaunch
+      ? managedLaunch.childEnvironment(process.env)
+      : await buildCodexProcessEnv({
+          ...(homePath ? { homePath } : {}),
+        });
     if (gatewayBearerToken) {
       env[PENKRA_AGENT_GATEWAY_TOKEN_ENV] = gatewayBearerToken;
     }
@@ -965,20 +844,24 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       };
 
       const codexOptions = readCodexProviderOptions(input);
-      const codexBinaryPath = codexOptions.binaryPath ?? "codex";
+      const codexBinaryPath = input.managedLaunch?.binaryPath ?? codexOptions.binaryPath ?? "codex";
       const codexHomePath = codexOptions.homePath;
-      await this.assertSupportedCodexCliVersion({
-        binaryPath: codexBinaryPath,
-        cwd: resolvedCwd,
-        ...(codexHomePath ? { homePath: codexHomePath } : {}),
-      });
-      gatewaySessionLease = this.agentGatewayMcp?.acquireSessionLease(threadId);
+      if (!input.managedLaunch) {
+        await this.assertSupportedCodexCliVersion({
+          binaryPath: codexBinaryPath,
+          cwd: resolvedCwd,
+          ...(codexHomePath ? { homePath: codexHomePath } : {}),
+        });
+      }
+      const resumeThreadId = readResumeThreadId(input);
+      gatewaySessionLease = this.agentGatewayHostTool?.acquireSessionLease(threadId);
       const child = spawnCodexAppServer({
         binaryPath: codexBinaryPath,
         cwd: resolvedCwd,
         env: await this.buildSessionProcessEnv(
           codexHomePath,
           gatewaySessionLease?.connection.bearerToken,
+          input.managedLaunch,
         ),
       });
 
@@ -1050,8 +933,14 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       const threadStartParams = {
         ...sessionOverrides,
         experimentalRawEvents: false,
+        ...(gatewaySessionLease && this.agentGatewayHostTool
+          ? {
+              dynamicTools: buildCodexDynamicTools(
+                this.agentGatewayHostTool.requireNativeSurface().definitions,
+              ),
+            }
+          : {}),
       };
-      const resumeThreadId = readResumeThreadId(input);
       this.emitLifecycleEvent(
         context,
         "session/threadOpenRequested",
@@ -1225,7 +1114,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       approvalPolicy?: CodexApprovalPolicy;
       sandboxPolicy?: CodexTurnSandboxPolicy;
       collaborationMode?: {
-        mode: "default" | "plan";
+        mode: "default";
         settings: {
           model: string;
           reasoning_effort: string;
@@ -1255,16 +1144,13 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       turnStartParams.effort = input.effort;
     }
     const collaborationMode = buildCodexCollaborationMode({
-      ...(input.interactionMode !== undefined ? { interactionMode: input.interactionMode } : {}),
       ...(normalizedModel !== undefined ? { model: normalizedModel } : {}),
       ...(input.effort !== undefined ? { effort: input.effort } : {}),
     });
-    if (collaborationMode) {
-      if (!turnStartParams.model) {
-        turnStartParams.model = collaborationMode.settings.model;
-      }
-      turnStartParams.collaborationMode = collaborationMode;
+    if (!turnStartParams.model) {
+      turnStartParams.model = collaborationMode.settings.model;
     }
+    turnStartParams.collaborationMode = collaborationMode;
 
     const response = await this.sendRequest(context, "turn/start", turnStartParams);
     const turnIdRaw = this.readString(this.readObject(this.readObject(response), "turn"), "id");
@@ -1614,19 +1500,9 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     return this.parseThreadSnapshot("thread/read", response);
   }
 
-  async readExternalThread(input: {
-    externalThreadId: string;
-    cwd?: string;
-  }): Promise<CodexThreadSnapshot> {
-    const context = await this.resolveContextForDiscovery(undefined, input.cwd);
-    const response = await this.sendRequest(context, "thread/read", {
-      threadId: input.externalThreadId,
-      includeTurns: true,
-    });
-    return this.parseThreadSnapshot("thread/read", response);
-  }
-
-  async forkThread(input: ProviderForkThreadInput): Promise<ProviderForkThreadResult> {
+  async forkThread(
+    input: ProviderForkThreadInput & { readonly managedLaunch?: ProviderManagedLaunchContext },
+  ): Promise<ProviderForkThreadResult> {
     const threadId = input.threadId;
     const now = new Date().toISOString();
     let context: CodexSessionContext | undefined;
@@ -1664,20 +1540,24 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         runtimeMode: input.runtimeMode,
         ...(input.cwd !== undefined ? { cwd: input.cwd } : {}),
       });
-      const codexBinaryPath = codexOptions.binaryPath ?? "codex";
+      const codexBinaryPath = input.managedLaunch?.binaryPath ?? codexOptions.binaryPath ?? "codex";
       const codexHomePath = codexOptions.homePath;
       await this.assertSupportedCodexCliVersion({
         binaryPath: codexBinaryPath,
         cwd: resolvedCwd,
         ...(codexHomePath ? { homePath: codexHomePath } : {}),
       });
-      gatewaySessionLease = this.agentGatewayMcp?.acquireSessionLease(threadId);
+      gatewaySessionLease = this.agentGatewayHostTool?.acquireSessionLease(threadId);
+      if (input.managedLaunch) {
+        await prepareManagedCodexResume(input.managedLaunch, sourceProviderThreadId);
+      }
       const child = spawnCodexAppServer({
         binaryPath: codexBinaryPath,
         cwd: resolvedCwd,
         env: await this.buildSessionProcessEnv(
           codexHomePath,
           gatewaySessionLease?.connection.bearerToken,
+          input.managedLaunch,
         ),
       });
 
@@ -1742,6 +1622,10 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       );
       const response = await this.sendRequest(context, "thread/fork", forkParams);
       const forkedProviderThreadId = this.readThreadIdFromResponse("thread/fork", response);
+
+      if (input.managedLaunch) {
+        await adoptManagedCodexRollout(input.managedLaunch, forkedProviderThreadId);
+      }
 
       this.updateSession(context, {
         status: "ready",
@@ -2241,6 +2125,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     const cacheKey = JSON.stringify({
       marketplacePath,
       pluginName,
+      threadId: input.threadId?.trim() || null,
     });
     const cached = getRecentCacheEntry(this.pluginDetailCache, cacheKey);
     if (cached) {
@@ -2250,7 +2135,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       };
     }
 
-    const context = await this.resolveContextForDiscovery(undefined);
+    const context = await this.resolveContextForDiscovery(input.threadId);
     const response = await this.sendRequest<Record<string, unknown>>(context, "plugin/read", {
       marketplacePath,
       pluginName,
@@ -2264,8 +2149,16 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     return result;
   }
 
-  async listModels(threadId?: string): Promise<ProviderListModelsResult> {
-    const cacheKey = threadId?.trim() || "__default__";
+  async listModels(
+    threadId?: string,
+    managedDiscovery?: {
+      readonly cwd?: string;
+      readonly managedLaunch: ProviderManagedLaunchContext;
+    },
+  ): Promise<ProviderListModelsResult> {
+    const cacheKey = managedDiscovery
+      ? `managed:${managedDiscovery.managedLaunch.isolationKey}:${managedDiscovery.cwd ?? ""}`
+      : threadId?.trim() || "__default__";
     const cached = getRecentCacheEntry(this.modelCache, cacheKey);
     if (cached) {
       return {
@@ -2274,7 +2167,12 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       };
     }
 
-    const context = await this.resolveContextForDiscovery(threadId);
+    const context = managedDiscovery
+      ? await this.getOrCreateDiscoverySession(
+          managedDiscovery.cwd?.trim() || process.cwd(),
+          managedDiscovery.managedLaunch,
+        )
+      : await this.resolveContextForDiscovery(threadId);
     const response = await this.sendRequest<Record<string, unknown>>(context, "model/list", {
       cursor: null,
       limit: 50,
@@ -2291,7 +2189,9 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
   }
 
   async transcribeVoice(
-    input: ServerVoiceTranscriptionInput,
+    input: ServerVoiceTranscriptionInput & {
+      readonly managedLaunch?: ProviderManagedLaunchContext;
+    },
   ): Promise<ServerVoiceTranscriptionResult> {
     return transcribeVoiceWithChatGptSession({
       request: input,
@@ -2299,6 +2199,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         this.resolveVoiceTranscriptionAuth({
           cwd: input.cwd,
           ...(input.threadId ? { threadId: input.threadId } : {}),
+          ...(input.managedLaunch ? { managedLaunch: input.managedLaunch } : {}),
           refreshToken,
         }),
     });
@@ -2314,7 +2215,8 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       supportsPluginDiscovery: true,
       supportsRuntimeModelList: true,
       supportsThreadCompaction: true,
-      supportsThreadImport: true,
+      supportsThreadFork: true,
+      supportsThreadImport: false,
     };
   }
 
@@ -2354,43 +2256,33 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
   ): Promise<CodexSessionContext> {
     const normalizedThreadId = threadId?.trim();
     const normalizedCwd = cwd?.trim() || undefined;
-    if (normalizedThreadId) {
-      try {
-        const session = this.requireSession(ThreadId.makeUnsafe(normalizedThreadId));
-        if (!normalizedCwd || session.session.cwd === normalizedCwd) {
-          return session;
-        }
-      } catch {
-        // Discovery is read-only metadata, so if the current draft thread does not
-        // have a live Codex session yet we can still service repo-scoped
-        // discovery through a dedicated discovery session for that cwd.
-      }
+    if (!normalizedThreadId) {
+      throw new Error("Managed Codex discovery requires an exact active thread session.");
     }
-    if (normalizedCwd) {
-      for (const activeSession of this.sessions.values()) {
-        if (this.isContextRoutable(activeSession) && activeSession.session.cwd === normalizedCwd) {
-          return activeSession;
-        }
-      }
-      return this.getOrCreateDiscoverySession(normalizedCwd);
+    const session = this.requireSession(ThreadId.makeUnsafe(normalizedThreadId));
+    if (normalizedCwd && session.session.cwd !== normalizedCwd) {
+      throw new Error("The active Codex session does not match the requested working folder.");
     }
-    const firstActive = Array.from(this.sessions.values()).find((context) =>
-      this.isContextRoutable(context),
-    );
-    if (firstActive) {
-      return firstActive;
-    }
-    return this.getOrCreateDiscoverySession(process.cwd());
+    return session;
   }
 
   private async resolveVoiceTranscriptionAuth(input: {
     readonly cwd?: string;
     readonly threadId?: string;
     readonly refreshToken: boolean;
+    readonly managedLaunch?: ProviderManagedLaunchContext;
   }): Promise<CodexVoiceTranscriptionAuthContext> {
-    // Voice transcription should always resolve auth from a fresh discovery context
-    // instead of reusing a possibly stale thread-bound session token.
-    const context = await this.getOrCreateDiscoverySession(input.cwd?.trim() || process.cwd());
+    const context = input.managedLaunch
+      ? await this.getOrCreateDiscoverySession(
+          input.cwd?.trim() || process.cwd(),
+          input.managedLaunch,
+        )
+      : input.threadId?.trim()
+        ? await this.resolveContextForDiscovery(input.threadId, input.cwd)
+        : null;
+    if (context === null) {
+      throw new Error("Voice transcription requires an exact active Connection session.");
+    }
     const readAuthStatus = async (refreshToken: boolean) => {
       const response = await this.sendRequest<Record<string, unknown>>(context, "getAuthStatus", {
         includeToken: true,
@@ -2421,26 +2313,26 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     };
   }
 
-  private async getOrCreateDiscoverySession(cwd: string): Promise<CodexSessionContext> {
+  private async getOrCreateDiscoverySession(
+    cwd: string,
+    managedLaunch: ProviderManagedLaunchContext,
+  ): Promise<CodexSessionContext> {
     const normalizedCwd = cwd.trim() || process.cwd();
-    const existing = this.discoverySessions.get(normalizedCwd);
+    const discoveryKey = `${managedLaunch.isolationKey}\u0000${normalizedCwd}`;
+    const existing = this.discoverySessions.get(discoveryKey);
     if (existing && !existing.stopping && !existing.child.killed) {
-      this.scheduleDiscoverySessionIdleStop(normalizedCwd);
+      this.scheduleDiscoverySessionIdleStop(discoveryKey);
       return existing;
     }
     if (existing) {
-      await this.stopDiscoverySession(normalizedCwd);
+      await this.stopDiscoverySession(discoveryKey);
     }
 
     const now = new Date().toISOString();
-    await this.assertSupportedCodexCliVersion({
-      binaryPath: "codex",
-      cwd: normalizedCwd,
-    });
     const child = spawnCodexAppServer({
-      binaryPath: "codex",
+      binaryPath: managedLaunch.binaryPath,
       cwd: normalizedCwd,
-      env: await buildCodexProcessEnv(),
+      env: managedLaunch.childEnvironment(process.env),
     });
     const context: CodexSessionContext = {
       session: {
@@ -2473,7 +2365,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       discovery: true,
     };
 
-    this.discoverySessions.set(normalizedCwd, context);
+    this.discoverySessions.set(discoveryKey, context);
     this.attachProcessListeners(context);
     try {
       await this.sendRequest(context, "initialize", buildCodexInitializeParams());
@@ -2486,10 +2378,10 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         // Discovery can still function without account metadata.
       }
       this.updateSession(context, { status: "ready" });
-      this.scheduleDiscoverySessionIdleStop(normalizedCwd);
+      this.scheduleDiscoverySessionIdleStop(discoveryKey);
       return context;
     } catch (error) {
-      await this.stopDiscoverySession(normalizedCwd);
+      await this.stopDiscoverySession(discoveryKey);
       throw error;
     }
   }
@@ -3068,6 +2960,57 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         error: {
           code: -32602,
           message: "item/tool/requestUserInput did not include a renderable question.",
+        },
+      });
+      return;
+    }
+
+    if (request.method === "item/tool/call") {
+      const params = this.readObject(request.params);
+      const requestedThreadId = this.readString(params, "threadId");
+      const activeProviderThreadId = readResumeCursorThreadId(context.session.resumeCursor);
+      const toolName = this.readString(params, "tool");
+      const namespace = params?.namespace;
+      const rawArguments = params?.arguments;
+      if (
+        !context.gatewaySessionLease ||
+        !this.agentGatewayHostTool ||
+        !activeProviderThreadId ||
+        requestedThreadId !== activeProviderThreadId ||
+        namespace !== null ||
+        !toolName ||
+        !rawArguments ||
+        typeof rawArguments !== "object" ||
+        Array.isArray(rawArguments)
+      ) {
+        await this.writeMessage(context, {
+          id: request.id,
+          result: {
+            contentItems: [
+              { type: "inputText", text: "Penkra rejected an invalid dynamic tool request." },
+            ],
+            success: false,
+          },
+        });
+        return;
+      }
+      const result = await this.agentGatewayHostTool.requireNativeSurface().invoke({
+        bearerToken: context.gatewaySessionLease.connection.bearerToken,
+        name: toolName,
+        arguments: rawArguments as Record<string, unknown>,
+      });
+      await this.writeMessage(context, {
+        id: request.id,
+        result: {
+          contentItems: result.content.map((item) =>
+            item.type === "text"
+              ? { type: "inputText", text: item.text }
+              : {
+                  type: "inputImage",
+                  imageUrl: `data:${item.mimeType};base64,${item.data}`,
+                },
+          ),
+          success: result.isError !== true,
         },
       });
       return;

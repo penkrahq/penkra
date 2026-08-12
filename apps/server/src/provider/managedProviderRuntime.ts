@@ -1,9 +1,7 @@
-import {
-  DEFAULT_SERVER_SETTINGS,
-  type ProviderKind,
-  type ProviderStartOptions,
-} from "@penkra/contracts";
-import { Effect, FileSystem, Path } from "effect";
+import type { ProviderKind } from "@penkra/contracts";
+import { readFile, realpath, rm, stat } from "node:fs/promises";
+import path from "node:path";
+import { Effect } from "effect";
 
 import { writeFileStringAtomically } from "../atomicWrite";
 
@@ -11,6 +9,7 @@ const MANAGED_PROVIDER_RUNTIME_SCHEMA_VERSION = 1;
 const SAFE_PATH_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 interface ManagedProviderRuntimeVersion {
+  readonly installationId: string;
   readonly version: string;
   readonly executableRelativePath: string;
   readonly activatedAt: string;
@@ -25,17 +24,9 @@ interface ManagedProviderRuntimeActivation {
 
 export interface ResolvedProviderBinary {
   readonly binaryPath: string;
-  readonly ownership: "external" | "managed";
-  readonly version: string | null;
-}
-
-export function isCanonicalProviderBinaryPath(
-  provider: ProviderKind,
-  configuredBinaryPath: string,
-): boolean {
-  return (
-    configuredBinaryPath.trim() === DEFAULT_SERVER_SETTINGS.providers[provider].binaryPath.trim()
-  );
+  readonly ownership: "managed";
+  readonly installationId: string;
+  readonly version: string;
 }
 
 export function resolveManagedProviderRuntimeRoot(input: {
@@ -64,6 +55,8 @@ function isRuntimeVersion(value: unknown): value is ManagedProviderRuntimeVersio
   if (typeof value !== "object" || value === null) return false;
   const candidate = value as Partial<ManagedProviderRuntimeVersion>;
   return (
+    typeof candidate.installationId === "string" &&
+    SAFE_PATH_SEGMENT.test(candidate.installationId) &&
     typeof candidate.version === "string" &&
     SAFE_PATH_SEGMENT.test(candidate.version) &&
     typeof candidate.executableRelativePath === "string" &&
@@ -97,25 +90,29 @@ function resolveVersionExecutable(input: {
   readonly provider: ProviderKind;
   readonly runtime: ManagedProviderRuntimeVersion;
 }) {
-  return Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem;
-    const path = yield* Path.Path;
-    const versionDirectory = path.resolve(
-      resolveManagedProviderVersionDirectory({
-        stateDir: input.stateDir,
-        provider: input.provider,
-        version: input.runtime.version,
-      }),
-    );
-    const executablePath = path.resolve(versionDirectory, input.runtime.executableRelativePath);
-    const [realVersionDirectory, realExecutablePath] = yield* Effect.all([
-      fs.realPath(versionDirectory).pipe(Effect.catch(() => Effect.succeed(null))),
-      fs.realPath(executablePath).pipe(Effect.catch(() => Effect.succeed(null))),
-    ]);
-    if (!realVersionDirectory || !realExecutablePath) return null;
-    const relative = path.relative(realVersionDirectory, realExecutablePath);
-    if (relative.startsWith("..") || path.isAbsolute(relative)) return null;
-    return executablePath;
+  return Effect.tryPromise({
+    try: async () => {
+      const versionDirectory = path.resolve(
+        resolveManagedProviderVersionDirectory({
+          stateDir: input.stateDir,
+          provider: input.provider,
+          version: input.runtime.version,
+        }),
+      );
+      const executablePath = path.resolve(versionDirectory, input.runtime.executableRelativePath);
+      try {
+        const [realVersionDirectory, realExecutablePath] = await Promise.all([
+          realpath(versionDirectory),
+          realpath(executablePath),
+        ]);
+        const relative = path.relative(realVersionDirectory, realExecutablePath);
+        if (relative.startsWith("..") || path.isAbsolute(relative)) return null;
+        return executablePath;
+      } catch {
+        return null;
+      }
+    },
+    catch: (cause) => (cause instanceof Error ? cause : new Error(String(cause))),
   });
 }
 
@@ -123,25 +120,27 @@ export function readManagedProviderRuntimeActivation(input: {
   readonly stateDir: string;
   readonly provider: ProviderKind;
 }) {
-  return Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem;
-    const raw = yield* fs
-      .readFileString(activationPath(input))
-      .pipe(Effect.catch(() => Effect.succeed(null)));
-    return raw === null ? null : parseActivation(input.provider, raw);
+  return Effect.tryPromise({
+    try: async () => {
+      try {
+        return parseActivation(input.provider, await readFile(activationPath(input), "utf8"));
+      } catch {
+        return null;
+      }
+    },
+    catch: (cause) => (cause instanceof Error ? cause : new Error(String(cause))),
   });
 }
 
 export function activateManagedProviderRuntime(input: {
   readonly stateDir: string;
   readonly provider: ProviderKind;
+  readonly installationId: string;
   readonly version: string;
   readonly executablePath: string;
   readonly activatedAt?: string;
 }) {
   return Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem;
-    const path = yield* Path.Path;
     const versionDirectory = path.resolve(
       resolveManagedProviderVersionDirectory({
         stateDir: input.stateDir,
@@ -156,15 +155,19 @@ export function activateManagedProviderRuntime(input: {
         new Error("Managed provider executable must be inside its version directory."),
       );
     }
-    if (!(yield* fs.exists(executablePath))) {
+    const executableExists = yield* Effect.tryPromise({
+      try: async () => (await stat(executablePath)).isFile(),
+      catch: () => false,
+    });
+    if (!executableExists) {
       return yield* Effect.fail(
         new Error(`Managed provider executable does not exist: ${executablePath}`),
       );
     }
-    const [realVersionDirectory, realExecutablePath] = yield* Effect.all([
-      fs.realPath(versionDirectory),
-      fs.realPath(executablePath),
-    ]);
+    const [realVersionDirectory, realExecutablePath] = yield* Effect.tryPromise({
+      try: () => Promise.all([realpath(versionDirectory), realpath(executablePath)]),
+      catch: (cause) => (cause instanceof Error ? cause : new Error(String(cause))),
+    });
     const realRelative = path.relative(realVersionDirectory, realExecutablePath);
     if (realRelative.startsWith("..") || path.isAbsolute(realRelative)) {
       return yield* Effect.fail(
@@ -174,6 +177,7 @@ export function activateManagedProviderRuntime(input: {
 
     const current = yield* readManagedProviderRuntimeActivation(input);
     const active: ManagedProviderRuntimeVersion = {
+      installationId: input.installationId,
       version: input.version,
       executableRelativePath: relative,
       activatedAt: input.activatedAt ?? new Date().toISOString(),
@@ -223,21 +227,30 @@ export function rollbackManagedProviderRuntime(input: {
   });
 }
 
+export function deactivateManagedProviderRuntimeInstallation(input: {
+  readonly stateDir: string;
+  readonly provider: ProviderKind;
+  readonly installationId: string;
+}) {
+  return Effect.gen(function* () {
+    const current = yield* readManagedProviderRuntimeActivation(input);
+    if (!current || current.active.installationId !== input.installationId) return false;
+    if (current.previous) {
+      return yield* rollbackManagedProviderRuntime(input);
+    }
+    yield* Effect.tryPromise({
+      try: () => rm(activationPath(input), { force: true }),
+      catch: (cause) => (cause instanceof Error ? cause : new Error(String(cause))),
+    });
+    return true;
+  });
+}
+
 export function resolveProviderBinary(input: {
   readonly stateDir: string;
   readonly provider: ProviderKind;
-  readonly configuredBinaryPath: string;
 }) {
   return Effect.gen(function* () {
-    const configuredBinaryPath = input.configuredBinaryPath.trim();
-    if (!isCanonicalProviderBinaryPath(input.provider, configuredBinaryPath)) {
-      return {
-        binaryPath: configuredBinaryPath,
-        ownership: "external",
-        version: null,
-      } satisfies ResolvedProviderBinary;
-    }
-
     const activation = yield* readManagedProviderRuntimeActivation(input);
     if (activation) {
       const managedBinaryPath = yield* resolveVersionExecutable({
@@ -248,34 +261,13 @@ export function resolveProviderBinary(input: {
         return {
           binaryPath: managedBinaryPath,
           ownership: "managed",
+          installationId: activation.active.installationId,
           version: activation.active.version,
         } satisfies ResolvedProviderBinary;
       }
     }
-
-    return {
-      binaryPath: configuredBinaryPath,
-      ownership: "external",
-      version: null,
-    } satisfies ResolvedProviderBinary;
-  });
-}
-
-export function resolveManagedProviderStartOptions(input: {
-  readonly stateDir: string;
-  readonly provider: ProviderKind;
-  readonly configuredBinaryPath: string;
-  readonly providerOptions: ProviderStartOptions;
-}) {
-  return Effect.gen(function* () {
-    const resolution = yield* resolveProviderBinary(input);
-    if (resolution.ownership !== "managed") return input.providerOptions;
-    return {
-      ...input.providerOptions,
-      [input.provider]: {
-        ...input.providerOptions[input.provider],
-        binaryPath: resolution.binaryPath,
-      },
-    } as ProviderStartOptions;
+    return yield* Effect.fail(
+      new Error(`Provider '${input.provider}' has no valid managed runtime activation.`),
+    );
   });
 }

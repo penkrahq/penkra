@@ -22,12 +22,14 @@ import {
 import { ServerConfig, type ServerConfigShape } from "./config";
 import { ManagedAttachmentRepositoryLive } from "./persistence/Layers/ManagedAttachments";
 import { SqlitePersistenceMemory } from "./persistence/Layers/Sqlite";
+import { ProviderInstallationRepository } from "./persistence/Services/ProviderInstallations";
 import {
   AUTH_JSON_BODY_MAX_BYTES,
   authEffectRouteLayer,
   binaryUploadEffectRouteLayer,
 } from "./http";
 import { ProviderAdapterRegistry } from "./provider/Services/ProviderAdapterRegistry";
+import { ProviderLaunchResolver } from "./provider/Services/ProviderLaunchResolver";
 
 const currentSessionId = AuthSessionId.makeUnsafe("11111111-1111-4111-8111-111111111111");
 const otherSessionId = AuthSessionId.makeUnsafe("22222222-2222-4222-8222-222222222222");
@@ -96,7 +98,12 @@ function makeServerAuth(sideEffects: { count: number }): ServerAuthShape {
       });
     },
     authenticateWebSocketUpgrade: () =>
-      Effect.fail(new AuthError({ message: "Not used in auth route tests.", status: 401 })),
+      Effect.fail(
+        new AuthError({
+          message: "Not used in auth route tests.",
+          status: 401,
+        }),
+      ),
     issueWebSocketToken: () => mutate({ token: "ws-token", expiresAt }),
     issueStartupPairingUrl: () =>
       Effect.succeed("https://penkra.example.test/pair#token=PAIRINGTOKEN"),
@@ -123,6 +130,15 @@ async function withAuthEffectServer(
           Layer.succeed(ProviderAdapterRegistry, {
             getByProvider: () => Effect.die("voice adapter not used in this test"),
             listProviders: () => Effect.succeed([]),
+          }),
+          Layer.succeed(ProviderInstallationRepository, {
+            activate: () => Effect.die("provider installation not used in this test"),
+            list: () => Effect.succeed([]),
+            getRecord: () => Effect.die("provider installation not used in this test"),
+          }),
+          Layer.succeed(ProviderLaunchResolver, {
+            resolve: () => Effect.die("provider launch not used in this test"),
+            resolveProfile: () => Effect.die("provider launch not used in this test"),
           }),
           ManagedAttachmentRepositoryLive.pipe(Layer.provideMerge(SqlitePersistenceMemory)),
           NodeServices.layer,
@@ -157,7 +173,10 @@ async function withAuthEffectServer(
   }
 }
 
-const mutationRoutes: ReadonlyArray<{ readonly path: string; readonly body?: unknown }> = [
+const mutationRoutes: ReadonlyArray<{
+  readonly path: string;
+  readonly body?: unknown;
+}> = [
   { path: "/api/auth/ws-token" },
   { path: "/api/auth/pairing-token" },
   { path: "/api/auth/pairing-links/revoke", body: { id: "pairing-id" } },
@@ -187,7 +206,10 @@ function mutationRequest(input: {
 describe("authEffectRouteLayer", () => {
   it("rejects declared and chunked oversized bootstrap JSON before auth exchange", async () => {
     const sideEffects = { count: 0 };
-    const config = { host: "127.0.0.1", publicUrl: undefined } as ServerConfigShape;
+    const config = {
+      host: "127.0.0.1",
+      publicUrl: undefined,
+    } as ServerConfigShape;
     await withAuthEffectServer(config, makeServerAuth(sideEffects), async (serverOrigin) => {
       const oversizedBody = JSON.stringify({
         credential: "x".repeat(AUTH_JSON_BODY_MAX_BYTES),
@@ -291,13 +313,20 @@ describe("authEffectRouteLayer", () => {
 
   it("allows trusted-origin cookies and originless explicit bearer credentials", async () => {
     const sideEffects = { count: 0 };
-    const config = { host: "127.0.0.1", publicUrl: undefined } as ServerConfigShape;
+    const config = {
+      host: "127.0.0.1",
+      publicUrl: undefined,
+    } as ServerConfigShape;
     await withAuthEffectServer(config, makeServerAuth(sideEffects), async (serverOrigin) => {
       for (const route of mutationRoutes) {
         const body = route.body === undefined ? {} : { body: route.body };
         const cookieResponse = await fetch(
           `${serverOrigin}${route.path}`,
-          mutationRequest({ origin: serverOrigin, credential: "cookie", ...body }),
+          mutationRequest({
+            origin: serverOrigin,
+            credential: "cookie",
+            ...body,
+          }),
         );
         expect(cookieResponse.status, `${route.path} cookie`).toBe(200);
 
@@ -440,7 +469,9 @@ describe("binaryUploadEffectRouteLayer", () => {
           expect(bearerPayload).toEqual(expect.objectContaining({ type: "image", sizeBytes: 1 }));
           expect(
             fs
-              .readdirSync(path.join(attachmentsDir, "objects"), { recursive: true })
+              .readdirSync(path.join(attachmentsDir, "objects"), {
+                recursive: true,
+              })
               .some((entry) => String(entry).endsWith(`${String(bearerPayload.id)}.png`)),
           ).toBe(true);
           expect(fs.readdirSync(path.join(attachmentsDir, ".staging"))).toEqual([]);

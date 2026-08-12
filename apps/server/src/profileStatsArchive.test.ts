@@ -97,7 +97,7 @@ const seedTwoThreadsWithActivity = Effect.gen(function* () {
   yield* sql`
     INSERT INTO projection_threads (
       thread_id, project_id, title, model_selection_json, runtime_mode,
-      interaction_mode, env_mode, created_at, updated_at, deleted_at
+      env_mode, created_at, updated_at, deleted_at
     )
     VALUES
       (
@@ -105,7 +105,7 @@ const seedTwoThreadsWithActivity = Effect.gen(function* () {
         'project-archive',
         'Kept Thread',
         '{"provider":"claudeAgent","model":"claude-sonnet-4-6","options":{"effort":"max"}}',
-        'full-access', 'default', 'local',
+        'full-access', 'local',
         '2026-06-13T08:00:00.000Z', '2026-06-13T08:00:00.000Z', NULL
       ),
       (
@@ -113,7 +113,7 @@ const seedTwoThreadsWithActivity = Effect.gen(function* () {
         'project-archive',
         'Purged Thread',
         '{"provider":"codex","model":"gpt-5-codex","options":{"reasoningEffort":"high"}}',
-        'full-access', 'default', 'local',
+        'full-access', 'local',
         '2026-06-13T09:00:00.000Z', '2026-06-13T09:00:00.000Z', NULL
       )
   `;
@@ -404,16 +404,24 @@ describe("ProfileStatsArchive", () => {
 
         yield* seedTwoThreadsWithActivity;
         yield* acknowledgeProviderCommandJournal(sql);
-        const statsBefore = yield* statsQuery.getProfileStats({ utcOffsetMinutes: 0 });
-        const tokenStatsBefore = yield* statsQuery.getProfileTokenStats({ utcOffsetMinutes: 0 });
+        const statsBefore = yield* statsQuery.getProfileStats({
+          utcOffsetMinutes: 0,
+        });
+        const tokenStatsBefore = yield* statsQuery.getProfileTokenStats({
+          utcOffsetMinutes: 0,
+        });
         // Half-hour offset: the 18:45Z token activity lands on the NEXT local
         // day for +05:30, so this catches any archive-side day re-bucketing drift.
-        const statsBeforeIst = yield* statsQuery.getProfileStats({ utcOffsetMinutes: 330 });
+        const statsBeforeIst = yield* statsQuery.getProfileStats({
+          utcOffsetMinutes: 330,
+        });
         const tokenStatsBeforeIst = yield* statsQuery.getProfileTokenStats({
           utcOffsetMinutes: 330,
         });
 
-        const purged = yield* archive.purgeThreadWithStatsSnapshot({ threadId: "thread-purge" });
+        const purged = yield* archive.purgeThreadWithStatsSnapshot({
+          threadId: "thread-purge",
+        });
         expect(purged).toBe(true);
 
         // Every row the purged thread owned is gone.
@@ -431,7 +439,11 @@ describe("ProfileStatsArchive", () => {
             ) AS messages,
             (SELECT COUNT(*) FROM projection_turns WHERE thread_id = 'thread-purge') AS turns
         `;
-        expect(remaining[0]).toMatchObject({ threads: 0, messages: 0, turns: 0 });
+        expect(remaining[0]).toMatchObject({
+          threads: 0,
+          messages: 0,
+          turns: 0,
+        });
         expect(deletedCheckpointRefCalls).toEqual([
           {
             cwd: "/work/archive",
@@ -493,8 +505,12 @@ describe("ProfileStatsArchive", () => {
         expect(remainingActivities[0]?.count).toBe(0);
 
         // The Profile numbers do not move: the archive snapshot replaces the rows.
-        const statsAfter = yield* statsQuery.getProfileStats({ utcOffsetMinutes: 0 });
-        const tokenStatsAfter = yield* statsQuery.getProfileTokenStats({ utcOffsetMinutes: 0 });
+        const statsAfter = yield* statsQuery.getProfileStats({
+          utcOffsetMinutes: 0,
+        });
+        const tokenStatsAfter = yield* statsQuery.getProfileTokenStats({
+          utcOffsetMinutes: 0,
+        });
         expect(statsAfter.activity).toEqual(statsBefore.activity);
         expect(statsAfter.activeHours).toEqual(statsBefore.activeHours);
         expect(statsAfter.insights).toEqual(statsBefore.insights);
@@ -503,7 +519,9 @@ describe("ProfileStatsArchive", () => {
         expect(statsAfter.mostWorkedProject).toEqual(statsBefore.mostWorkedProject);
         expect(tokenStatsAfter).toEqual(tokenStatsBefore);
 
-        const statsAfterIst = yield* statsQuery.getProfileStats({ utcOffsetMinutes: 330 });
+        const statsAfterIst = yield* statsQuery.getProfileStats({
+          utcOffsetMinutes: 330,
+        });
         const tokenStatsAfterIst = yield* statsQuery.getProfileTokenStats({
           utcOffsetMinutes: 330,
         });
@@ -516,7 +534,9 @@ describe("ProfileStatsArchive", () => {
           threadId: "thread-purge",
         });
         expect(purgedAgain).toBe(false);
-        const statsAfterRepurge = yield* statsQuery.getProfileStats({ utcOffsetMinutes: 0 });
+        const statsAfterRepurge = yield* statsQuery.getProfileStats({
+          utcOffsetMinutes: 0,
+        });
         expect(statsAfterRepurge.activity).toEqual(statsBefore.activity);
       }),
     );
@@ -533,7 +553,10 @@ describe("ProfileStatsArchive", () => {
         const livePlan = JSON.stringify([
           {
             index: 0,
-            spec: { prompt: "private live prompt", branchName: "agent/private" },
+            spec: {
+              prompt: "private live prompt",
+              branchName: "agent/private",
+            },
             projectId: "project-archive",
             workspaceRoot: "/work/archive",
             environment: "worktree",
@@ -578,9 +601,11 @@ describe("ProfileStatsArchive", () => {
             )
         `;
 
-        expect(yield* archive.purgeThreadWithStatsSnapshot({ threadId: "thread-purge" })).toBe(
-          true,
-        );
+        expect(
+          yield* archive.purgeThreadWithStatsSnapshot({
+            threadId: "thread-purge",
+          }),
+        ).toBe(true);
         const rows = yield* sql<{
           readonly operationId: string;
           readonly callerThreadId: string;
@@ -675,10 +700,15 @@ describe("ProfileStatsArchive", () => {
         `;
 
         expect(yield* archive.hasThreadPurgeFence({ threadId: "thread-purge" })).toBe(true);
-        expect(yield* archive.purgeThreadWithStatsSnapshot({ threadId: "thread-purge" })).toBe(
-          false,
-        );
-        const retained = yield* sql<{ readonly threads: number; readonly deliveries: number }>`
+        expect(
+          yield* archive.purgeThreadWithStatsSnapshot({
+            threadId: "thread-purge",
+          }),
+        ).toBe(false);
+        const retained = yield* sql<{
+          readonly threads: number;
+          readonly deliveries: number;
+        }>`
           SELECT
             (SELECT COUNT(*) FROM projection_threads WHERE thread_id = 'thread-purge') AS threads,
             (
@@ -709,9 +739,11 @@ describe("ProfileStatsArchive", () => {
         `;
 
         expect(yield* archive.hasThreadPurgeFence({ threadId: "thread-purge" })).toBe(false);
-        expect(yield* archive.purgeThreadWithStatsSnapshot({ threadId: "thread-purge" })).toBe(
-          true,
-        );
+        expect(
+          yield* archive.purgeThreadWithStatsSnapshot({
+            threadId: "thread-purge",
+          }),
+        ).toBe(true);
         const purgedEvidence = yield* sql<{
           readonly deliveries: number;
           readonly promotions: number;
@@ -755,14 +787,14 @@ describe("ProfileStatsArchive", () => {
         yield* sql`
           INSERT INTO projection_threads (
             thread_id, project_id, title, model_selection_json, runtime_mode,
-            interaction_mode, env_mode, created_at, updated_at, deleted_at
+            env_mode, created_at, updated_at, deleted_at
           )
           VALUES (
             'thread-empty-cleanup',
             'project-empty-cleanup',
             'Empty Cleanup',
             '{"provider":"codex","model":"gpt-5-codex"}',
-            'full-access', 'default', 'local',
+            'full-access', 'local',
             '2026-06-13T09:00:00.000Z',
             '2026-06-13T09:00:00.000Z',
             '2026-06-13T09:05:00.000Z'
@@ -777,7 +809,9 @@ describe("ProfileStatsArchive", () => {
           )
         `;
 
-        const statsBefore = yield* statsQuery.getProfileStats({ utcOffsetMinutes: 0 });
+        const statsBefore = yield* statsQuery.getProfileStats({
+          utcOffsetMinutes: 0,
+        });
         expect(statsBefore.activity.totalThreads).toBe(2);
 
         const purged = yield* archive.purgeThreadWithStatsSnapshot({
@@ -785,7 +819,10 @@ describe("ProfileStatsArchive", () => {
         });
         expect(purged).toBe(true);
 
-        const rows = yield* sql<{ readonly threads: number; readonly tombstones: number }>`
+        const rows = yield* sql<{
+          readonly threads: number;
+          readonly tombstones: number;
+        }>`
           SELECT
             (
               SELECT COUNT(*)
@@ -800,7 +837,9 @@ describe("ProfileStatsArchive", () => {
         `;
         expect(rows[0]).toEqual({ threads: 0, tombstones: 0 });
 
-        const statsAfter = yield* statsQuery.getProfileStats({ utcOffsetMinutes: 0 });
+        const statsAfter = yield* statsQuery.getProfileStats({
+          utcOffsetMinutes: 0,
+        });
         expect(statsAfter.activity.totalThreads).toBe(0);
         expect(deletedCheckpointRefCalls).toEqual([]);
       }),
@@ -830,14 +869,14 @@ describe("ProfileStatsArchive", () => {
         yield* sql`
           INSERT INTO projection_threads (
             thread_id, project_id, title, model_selection_json, runtime_mode,
-            interaction_mode, env_mode, created_at, updated_at, deleted_at
+            env_mode, created_at, updated_at, deleted_at
           )
           VALUES (
             'thread-message-checkpoint',
             'project-message-checkpoint',
             'Message Checkpoint',
             '{"provider":"codex","model":"gpt-5-codex"}',
-            'full-access', 'default', 'local',
+            'full-access', 'local',
             '2026-06-13T09:00:00.000Z',
             '2026-06-13T09:00:00.000Z',
             '2026-06-13T09:05:00.000Z'
@@ -891,7 +930,10 @@ describe("ProfileStatsArchive", () => {
             ],
           },
         ]);
-        const remainingRows = yield* sql<{ readonly messages: number; readonly turns: number }>`
+        const remainingRows = yield* sql<{
+          readonly messages: number;
+          readonly turns: number;
+        }>`
           SELECT
             (
               SELECT COUNT(*)
@@ -933,14 +975,14 @@ describe("ProfileStatsArchive", () => {
         yield* sql`
           INSERT INTO projection_threads (
             thread_id, project_id, title, model_selection_json, runtime_mode,
-            interaction_mode, env_mode, created_at, updated_at, deleted_at
+            env_mode, created_at, updated_at, deleted_at
           )
           VALUES (
             'thread-stale-checkpoint',
             'project-stale-checkpoint',
             'Stale Checkpoint',
             '{"provider":"codex","model":"gpt-5-codex"}',
-            'full-access', 'default', 'local',
+            'full-access', 'local',
             '2026-06-13T09:00:00.000Z',
             '2026-06-13T09:00:00.000Z',
             '2026-06-13T09:05:00.000Z'
@@ -1031,7 +1073,12 @@ describe("ProfileStatsArchive", () => {
               WHERE thread_id = 'thread-stale-checkpoint'
             ) AS diffBlobs
         `;
-        expect(rows[0]).toEqual({ threads: 0, messages: 0, turns: 0, diffBlobs: 0 });
+        expect(rows[0]).toEqual({
+          threads: 0,
+          messages: 0,
+          turns: 0,
+          diffBlobs: 0,
+        });
       }),
     );
   });
@@ -1059,14 +1106,14 @@ describe("ProfileStatsArchive", () => {
         yield* sql`
           INSERT INTO projection_threads (
             thread_id, project_id, title, model_selection_json, runtime_mode,
-            interaction_mode, env_mode, created_at, updated_at, deleted_at
+            env_mode, created_at, updated_at, deleted_at
           )
           VALUES (
             'thread-failed-purge',
             'project-failed-purge',
             'Failed Purge',
             '{"provider":"codex","model":"gpt-5-codex"}',
-            'full-access', 'default', 'local',
+            'full-access', 'local',
             '2026-06-13T09:00:00.000Z',
             '2026-06-13T09:00:00.000Z',
             '2026-06-13T09:05:00.000Z'
@@ -1096,12 +1143,17 @@ describe("ProfileStatsArchive", () => {
 
         yield* sql`DROP TABLE profile_stats_deleted_threads`;
         const exit = yield* Effect.exit(
-          archive.purgeThreadWithStatsSnapshot({ threadId: "thread-failed-purge" }),
+          archive.purgeThreadWithStatsSnapshot({
+            threadId: "thread-failed-purge",
+          }),
         );
 
         expect(exit._tag).toBe("Failure");
         expect(deletedCheckpointRefCalls).toEqual([]);
-        const rows = yield* sql<{ readonly threads: number; readonly turns: number }>`
+        const rows = yield* sql<{
+          readonly threads: number;
+          readonly turns: number;
+        }>`
           SELECT
             (
               SELECT COUNT(*)
@@ -1129,24 +1181,24 @@ describe("ProfileStatsArchive", () => {
         yield* sql`
           INSERT INTO projection_threads (
             thread_id, project_id, title, model_selection_json, runtime_mode,
-            interaction_mode, env_mode, created_at, updated_at, deleted_at
+            env_mode, created_at, updated_at, deleted_at
           )
           VALUES
             (
               'thread-live', 'project-sweep', 'Live', '{"provider":"codex","model":"gpt-5-codex"}',
-              'full-access', 'default', 'local',
+              'full-access', 'local',
               '2026-06-13T09:00:00.000Z', '2026-06-13T09:00:00.000Z', NULL
             ),
             (
               'thread-manual', 'project-sweep', 'Manual',
               '{"provider":"codex","model":"gpt-5-codex"}',
-              'full-access', 'default', 'local',
+              'full-access', 'local',
               '2026-06-13T09:00:00.000Z', '2026-06-13T09:00:00.000Z', '2026-06-15T10:00:00.000Z'
             ),
             (
               'thread-retention', 'project-sweep', 'Retention',
               '{"provider":"codex","model":"gpt-5-codex"}',
-              'full-access', 'default', 'local',
+              'full-access', 'local',
               '2026-06-08T09:00:00.000Z', '2026-06-08T09:00:00.000Z', '2026-06-15T09:00:00.000Z'
             )
         `;
@@ -1190,7 +1242,9 @@ describe("ProfileStatsArchive", () => {
         // reactor has acked them.
         yield* acknowledgeProviderCommandJournal(sql);
 
-        const statsBefore = yield* statsQuery.getProfileStats({ utcOffsetMinutes: 0 });
+        const statsBefore = yield* statsQuery.getProfileStats({
+          utcOffsetMinutes: 0,
+        });
         expect(statsBefore.activity.totalPromptsSent).toBe(2);
         expect(statsBefore.activity.totalThreads).toBe(3);
 
@@ -1227,7 +1281,9 @@ describe("ProfileStatsArchive", () => {
         expect(tombstones.map((row) => row.threadId)).toEqual(["thread-manual"]);
 
         // Lifetime totals survive: retention rows stay live, manual work is archived.
-        const statsAfter = yield* statsQuery.getProfileStats({ utcOffsetMinutes: 0 });
+        const statsAfter = yield* statsQuery.getProfileStats({
+          utcOffsetMinutes: 0,
+        });
         expect(statsAfter.activity.totalPromptsSent).toBe(2);
         expect(statsAfter.activity.totalThreads).toBe(3);
       }),

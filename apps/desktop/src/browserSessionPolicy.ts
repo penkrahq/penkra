@@ -15,6 +15,7 @@ import {
   buildChromeClientHints,
   deriveChromeUserAgent,
 } from "@penkra/shared/browserSession";
+import { resolveDesktopPlatformAdapter } from "./desktopPlatform";
 
 export const BROWSER_SESSION_PARTITION = "persist:penkra-browser";
 
@@ -62,7 +63,10 @@ export class BrowserSessionPolicy {
       const userAgent = this.resolveUserAgent();
       partitionSession.setUserAgent(userAgent);
 
-      const clientHints = buildChromeClientHints(userAgent, process.platform);
+      const clientHints = buildChromeClientHints(
+        userAgent,
+        resolveDesktopPlatformAdapter().platform,
+      );
       const acceptLanguage = buildAcceptLanguageHeader(app.getPreferredSystemLanguages());
       partitionSession.webRequest.onBeforeSendHeaders((details, callback) => {
         const requestHeaders = replaceRequestHeadersCaseInsensitive(details.requestHeaders, {

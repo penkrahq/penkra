@@ -77,14 +77,16 @@ export async function resolveAppTabObservationTarget(input: {
   browserAppId: string;
   appWebContents: (tabId: string) => WebContents;
   browserWebContents: (appTabId: string) => Promise<WebContents | null>;
+  hostedWebContents?: (appTabId: string) => WebContents | null;
 }): Promise<AppTabObservationTarget> {
+  const hostedSurface = input.hostedWebContents?.(input.descriptor.id) ?? null;
   const hostedPage =
-    input.descriptor.appId === input.browserAppId
+    !hostedSurface && input.descriptor.appId === input.browserAppId
       ? await input.browserWebContents(input.descriptor.id)
       : null;
   return {
     descriptor: input.descriptor,
-    webContents: hostedPage ?? input.appWebContents(input.descriptor.id),
+    webContents: hostedSurface ?? hostedPage ?? input.appWebContents(input.descriptor.id),
   };
 }
 

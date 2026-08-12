@@ -31,7 +31,6 @@ export type SettingsNavGroupId = "app" | "penkra";
  */
 export const SETTINGS_TARGETS = {
   providerUpdates: "provider-updates",
-  environmentPanel: "environment-panel",
 } as const;
 
 export type SettingsNavItem = {

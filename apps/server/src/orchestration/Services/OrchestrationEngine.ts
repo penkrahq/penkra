@@ -24,9 +24,33 @@ import type {
   ProjectionRepositoryError,
 } from "../../persistence/Errors.ts";
 import type { ManagedAttachmentPrincipal } from "../../managedAttachmentPrincipal.ts";
+import type { AcceptedConnectionChange } from "../decider.ts";
+import type { ThreadProviderBindingRepositoryShape } from "../../persistence/Services/ThreadProviderBindings.ts";
 
 export interface OrchestrationDispatchContext {
   readonly attachmentPrincipal?: ManagedAttachmentPrincipal;
+  /** Server-only proof and atomic persistence payload for a verified Connection switch. */
+  readonly acceptedProviderSwitch?: {
+    readonly operationId: string;
+    readonly change: AcceptedConnectionChange;
+    readonly commit:
+      | {
+          readonly kind: "native-state";
+          readonly input: Parameters<ThreadProviderBindingRepositoryShape["commitSwitch"]>[0];
+        }
+      | {
+          readonly kind: "runtime-binding";
+          readonly input: Parameters<
+            ThreadProviderBindingRepositoryShape["updateRuntimeBinding"]
+          >[0];
+        };
+  };
+  /** Server-resolved first provider binding, committed with the first message. */
+  readonly acceptedInitialProviderBinding?: Parameters<
+    ThreadProviderBindingRepositoryShape["initializeThread"]
+  >[0];
+  /** Exact native-fork journal committed atomically with its first provider binding. */
+  readonly acceptedInitialProviderForkOperationId?: string;
 }
 
 export interface OrchestrationProjectionCatchUpStatus {

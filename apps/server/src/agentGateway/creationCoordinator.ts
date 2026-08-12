@@ -6,11 +6,11 @@ import {
   CommandId,
   EventId,
   ContainerId,
+  SpaceId,
   ThreadId,
   TurnId,
   type ModelSelection,
   type OrchestrationThreadShell,
-  type ProviderInteractionMode,
   type ProviderKind,
   type PenkraCreateThreadsInput,
   type PenkraCreateThreadsResult,
@@ -24,6 +24,9 @@ import type { GitCoreShape } from "../git/Services/GitCore.ts";
 import type { OrchestrationEngineShape } from "../orchestration/Services/OrchestrationEngine.ts";
 import type { ProjectionSnapshotQueryShape } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
 import type { ProviderDiscoveryServiceShape } from "../provider/Services/ProviderDiscoveryService.ts";
+import type { ProviderTurnSelectionResolverShape } from "../provider/Services/ProviderTurnSelectionResolver.ts";
+import type { ProviderThreadSwitchCoordinatorShape } from "../orchestration/Services/ProviderThreadSwitchCoordinator.ts";
+import type { ManagedAttachmentPrincipal } from "../managedAttachmentPrincipal.ts";
 import { runWorktreeSetupScript } from "../worktreeSetup.ts";
 import type {
   AgentGatewayOperationRecord,
@@ -45,16 +48,6 @@ import { ToolInputError, errorText } from "./toolInput.ts";
 import { GatewayToolError, gatewayToolErrorResult } from "./toolRuntime.ts";
 
 const CREATION_REPLAY_WAIT_MS = 60_000;
-
-function interactionModeForGatewayTarget(target: ModelSelection): ProviderInteractionMode {
-  if (
-    (target.provider === "opencode" || target.provider === "kilo") &&
-    target.options?.agent === "plan"
-  ) {
-    return "plan";
-  }
-  return "default";
-}
 
 interface PullRequestSelector {
   readonly number: number;
@@ -86,6 +79,8 @@ interface CreationCoordinatorDependencies {
   readonly orchestrationEngine: OrchestrationEngineShape;
   readonly git: GitCoreShape;
   readonly providerDiscovery: ProviderDiscoveryServiceShape;
+  readonly providerTurnSelectionResolver: ProviderTurnSelectionResolverShape;
+  readonly providerThreadSwitchCoordinator: ProviderThreadSwitchCoordinatorShape;
   readonly operationRepository: AgentGatewayOperationRepositoryShape;
   readonly serverConfig: ServerConfigShape;
   readonly loadProviderAvailabilities: Effect.Effect<
@@ -102,6 +97,7 @@ export interface GatewayCreationContext {
   readonly callerThreadId: string;
   readonly callerTurnId: string | null;
   readonly assertAuthority: () => Effect.Effect<void, GatewayToolError>;
+  readonly attachmentPrincipal: ManagedAttachmentPrincipal;
 }
 
 type CreationOperationRecord = AgentGatewayOperationRecord;
@@ -162,6 +158,8 @@ export const makeCreateThreadsHandler = Effect.fn(function* (
     orchestrationEngine,
     git,
     providerDiscovery,
+    providerTurnSelectionResolver,
+    providerThreadSwitchCoordinator,
     operationRepository,
     serverConfig,
     loadProviderAvailabilities,
@@ -298,6 +296,22 @@ export const makeCreateThreadsHandler = Effect.fn(function* (
       }
       const callerTurnId = context.callerTurnId;
       const caller = yield* requireThreadShell(context.callerThreadId);
+      const callerProject = yield* snapshotQuery.getProjectShellById(caller.projectId).pipe(
+        Effect.mapError((error) => new ToolInputError(errorText(error))),
+        Effect.flatMap(
+          Option.match({
+            onNone: () =>
+              Effect.fail(new ToolInputError(`Project "${caller.projectId}" was not found.`)),
+            onSome: Effect.succeed,
+          }),
+        ),
+      );
+      const callerSpaceId = SpaceId.makeUnsafe(caller.spaceId ?? callerProject.spaceId ?? "");
+      if (callerSpaceId.length === 0) {
+        return yield* Effect.fail(
+          new ToolInputError(`The caller Thread is not assigned to a Space.`),
+        );
+      }
       const operationId = `gateway:create:${stableGatewayDigest({
         principalKind: context.kind,
         principalId: context.callerThreadId,
@@ -402,6 +416,12 @@ export const makeCreateThreadsHandler = Effect.fn(function* (
               }),
             ),
           );
+          const projectSpaceId = project.kind === "chat" ? callerSpaceId : project.spaceId;
+          if (projectSpaceId !== callerSpaceId) {
+            return yield* Effect.fail(
+              new ToolInputError("Created Threads must remain in the caller Thread's Space."),
+            );
+          }
           const workspaceRoot =
             (caller.projectId === projectId
               ? (caller.workingDirectory ?? caller.worktreePath ?? project.workspaceRoot)
@@ -414,6 +434,9 @@ export const makeCreateThreadsHandler = Effect.fn(function* (
               : {}),
             cwd: workspaceRoot,
           });
+          const connectionId = yield* providerTurnSelectionResolver
+            .resolveNewThreadConnection({ spaceId: callerSpaceId, modelSelection: target })
+            .pipe(Effect.mapError((error) => new ToolInputError(errorText(error))));
           const environment = spec.environment ?? (callerIsolatedInWorktree ? "worktree" : "local");
           if (environment === "local" && callerIsolatedInWorktree) {
             return yield* Effect.fail(
@@ -512,6 +535,8 @@ export const makeCreateThreadsHandler = Effect.fn(function* (
             projectId,
             workspaceRoot,
             target,
+            connectionId,
+            spaceId: project.kind === "chat" ? callerSpaceId : null,
             environment,
             runtimeMode,
             title,
@@ -946,7 +971,6 @@ export const makeCreateThreadsHandler = Effect.fn(function* (
                     associatedWorktreeRef = created.worktree.ref;
                   }
 
-                  const interactionMode = interactionModeForGatewayTarget(entry.target);
                   yield* context.assertAuthority();
                   yield* orchestrationEngine
                     .dispatch({
@@ -954,10 +978,10 @@ export const makeCreateThreadsHandler = Effect.fn(function* (
                       commandId: entry.ids.threadCreateCommandId,
                       threadId: entry.ids.threadId,
                       projectId: entry.projectId,
+                      ...(entry.spaceId === null ? {} : { spaceId: entry.spaceId }),
                       title: entry.title,
                       modelSelection: entry.target,
                       runtimeMode: entry.runtimeMode,
-                      interactionMode,
                       envMode: entry.environment,
                       branch,
                       worktreePath,
@@ -981,22 +1005,27 @@ export const makeCreateThreadsHandler = Effect.fn(function* (
                     );
 
                   yield* context.assertAuthority();
-                  yield* orchestrationEngine.dispatch({
-                    type: "thread.turn.start",
-                    commandId: entry.ids.turnStartCommandId,
-                    threadId: entry.ids.threadId,
-                    message: {
-                      messageId: entry.ids.messageId,
-                      role: "user",
-                      text: entry.spec.prompt,
-                      attachments: [],
+                  yield* providerThreadSwitchCoordinator.dispatchTurnStart({
+                    command: {
+                      type: "thread.turn.start",
+                      commandId: entry.ids.turnStartCommandId,
+                      threadId: entry.ids.threadId,
+                      message: {
+                        messageId: entry.ids.messageId,
+                        role: "user",
+                        text: entry.spec.prompt,
+                        attachments: [],
+                      },
+                      modelSelection: entry.target,
+                      connectionId: entry.connectionId,
+                      bindingRevision: 0,
+                      dispatchMode: "queue",
+                      dispatchOrigin: "agent",
+                      runtimeMode: entry.runtimeMode,
+                      createdAt: gatewayIsoNow(),
                     },
-                    modelSelection: entry.target,
-                    dispatchMode: "queue",
-                    dispatchOrigin: "agent",
-                    runtimeMode: entry.runtimeMode,
-                    interactionMode,
-                    createdAt: gatewayIsoNow(),
+                    attachmentPrincipal: context.attachmentPrincipal,
+                    cwd: worktreePath ?? entry.workspaceRoot,
                   });
                   // The dispatch can outlive the caller turn. Recheck after it returns so
                   // a child started in that final race window is compensated as part of

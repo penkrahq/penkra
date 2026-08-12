@@ -15,28 +15,20 @@ import {
   acquireDatabaseLifecycleLock,
   releaseDatabaseLifecycleLock,
 } from "../DatabaseLifecycleLock.ts";
+import { assertSafeSqliteVersion, isSqliteCorruptionError } from "../SqliteSafety.ts";
+import * as NodeSqliteClient from "../NodeSqliteClient.ts";
 
 type RuntimeSqliteLayerConfig = {
   readonly filename: string;
   readonly onFatalError?: (cause: unknown) => void;
 };
 
-type Loader = {
-  layer: (config: RuntimeSqliteLayerConfig) => Layer.Layer<SqlClient.SqlClient>;
-};
-const defaultSqliteClientLoaders = {
-  bun: () => import("@effect/sql-sqlite-bun/SqliteClient"),
-  node: () => import("../NodeSqliteClient.ts"),
-} satisfies Record<string, () => Promise<Loader>>;
-
 const makeRuntimeSqliteLayer = (
   config: RuntimeSqliteLayerConfig,
 ): Layer.Layer<SqlClient.SqlClient> =>
-  Effect.gen(function* () {
-    const runtime = process.versions.bun !== undefined ? "bun" : "node";
-    const loader = defaultSqliteClientLoaders[runtime];
-    const clientModule = yield* Effect.promise<Loader>(loader);
-    return clientModule.layer(config);
+  Effect.sync(() => {
+    assertSafeSqliteVersion(process.versions.sqlite ?? "unknown");
+    return NodeSqliteClient.layer(config);
   }).pipe(Layer.unwrap);
 
 function errnoCode(cause: unknown): string | undefined {
@@ -44,7 +36,17 @@ function errnoCode(cause: unknown): string | undefined {
   return error?.code ?? (error?.cause as NodeJS.ErrnoException | undefined)?.code;
 }
 
-const repairSqliteFilePermissions = (dbPath: string) =>
+/**
+ * Repair SQLite-owned files only before the database connection is opened.
+ *
+ * On POSIX systems, closing any file descriptor for a file releases every
+ * traditional fcntl lock this process holds for that file. Reopening the live
+ * database merely to chmod it therefore silently drops SQLite's EXCLUSIVE
+ * lifetime lock while the connection remains open. Existing sidecars are safe
+ * to repair here because the lifecycle lock is held and SQLite has not opened
+ * the database yet; newly created sidecars inherit the private database mode.
+ */
+const repairSqliteFilePermissionsBeforeOpen = (dbPath: string) =>
   Effect.promise(async () => {
     await repairPrivateFile(dbPath);
     for (const suffix of ["-wal", "-shm"]) {
@@ -101,6 +103,17 @@ const makeSetup = (dbPath?: string, pendingRecovery: MigrationRecoveryMarker | n
         // continues, closing the window where another client could attach.
         yield* sql`BEGIN EXCLUSIVE;`;
         yield* sql`COMMIT;`;
+        const sqliteVersionRows = yield* sql<{ readonly sqlite_version: string }>`
+          SELECT sqlite_version() AS sqlite_version
+        `;
+        const sqliteVersion = sqliteVersionRows[0]?.sqlite_version ?? "unknown";
+        yield* Effect.logInfo("SQLite database ownership established", {
+          databasePath: dbPath,
+          sqliteVersion,
+          lockingMode: "exclusive",
+          journalMode: journalMode ?? "unknown",
+          synchronous: "normal",
+        });
       }
       // A pending marker means an earlier startup was interrupted mid-migration.
       // Resuming reuses that attempt's snapshot instead of taking a second one,
@@ -110,9 +123,7 @@ const makeSetup = (dbPath?: string, pendingRecovery: MigrationRecoveryMarker | n
           ? resumeMarkedMigration(dbPath, pendingRecovery, runMigrations())
           : runWithPreMigrationBackup(dbPath, runMigrations())
         : runMigrations();
-      yield* dbPath
-        ? migrations.pipe(Effect.ensuring(repairSqliteFilePermissions(dbPath)))
-        : migrations;
+      yield* migrations;
     }),
   );
 
@@ -131,13 +142,15 @@ export const makeSqlitePersistenceLive = (dbPath: string) =>
         yield* reclaimOrphanedMigrationArtifacts(dbPath);
         const pendingRecovery = yield* inspectPendingMigrationRecovery(dbPath);
         yield* Effect.sync(() => ensurePrivateFileSync(dbPath));
+        yield* repairSqliteFilePermissionsBeforeOpen(dbPath);
 
         let fatalRestartScheduled = false;
         const onFatalError = (cause: unknown) => {
           if (fatalRestartScheduled) return;
           fatalRestartScheduled = true;
+          const category = isSqliteCorruptionError(cause) ? "corruption" : "I/O failure";
           console.error(
-            "Fatal SQLite I/O failure; exiting so the desktop supervisor can reopen the database.",
+            `FatalSqliteDatabaseError: SQLite reported ${category}; exiting without further database access.`,
             cause,
           );
           setImmediate(() => process.exit(1));

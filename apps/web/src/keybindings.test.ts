@@ -297,11 +297,6 @@ const DEFAULT_BINDINGS = compile([
     whenAst: whenNot(whenIdentifier("terminalFocus")),
   },
   {
-    shortcut: modShortcut("i"),
-    command: "sidebar.importThread",
-    whenAst: whenNot(whenIdentifier("terminalFocus")),
-  },
-  {
     shortcut: modShortcut("n"),
     command: "chat.new",
     whenAst: whenCreationAllowed,

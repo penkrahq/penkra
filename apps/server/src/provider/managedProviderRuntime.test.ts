@@ -5,8 +5,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   activateManagedProviderRuntime,
+  deactivateManagedProviderRuntimeInstallation,
   readManagedProviderRuntimeActivation,
-  resolveManagedProviderStartOptions,
   resolveManagedProviderVersionDirectory,
   resolveProviderBinary,
   rollbackManagedProviderRuntime,
@@ -45,13 +45,14 @@ function createVersionExecutable(stateDir: string, version: string) {
 }
 
 describe("managed provider runtime", () => {
-  it("uses an activated managed runtime for the canonical provider command", async () => {
+  it("uses the activated managed runtime as the only provider command", async () => {
     const result = await runInTemp((stateDir) =>
       Effect.gen(function* () {
         const executablePath = yield* createVersionExecutable(stateDir, "1.2.3");
         yield* activateManagedProviderRuntime({
           stateDir,
           provider: "codex",
+          installationId: "install-1-2-3",
           version: "1.2.3",
           executablePath,
           activatedAt: "2026-07-30T00:00:00.000Z",
@@ -59,7 +60,6 @@ describe("managed provider runtime", () => {
         return yield* resolveProviderBinary({
           stateDir,
           provider: "codex",
-          configuredBinaryPath: "codex",
         });
       }),
     );
@@ -71,64 +71,31 @@ describe("managed provider runtime", () => {
     expect(result.binaryPath).toContain("/versions/1.2.3/bin/codex");
   });
 
-  it("never overrides a custom provider binary", async () => {
-    const result = await runInTemp((stateDir) =>
-      Effect.gen(function* () {
-        const executablePath = yield* createVersionExecutable(stateDir, "1.2.3");
-        yield* activateManagedProviderRuntime({
-          stateDir,
-          provider: "codex",
-          version: "1.2.3",
-          executablePath,
-        });
-        return yield* resolveProviderBinary({
-          stateDir,
-          provider: "codex",
-          configuredBinaryPath: "/custom/bin/codex",
-        });
-      }),
-    );
-
-    expect(result).toEqual({
-      binaryPath: "/custom/bin/codex",
-      ownership: "external",
-      version: null,
-    });
-  });
-
-  it("falls back safely when the activation record or executable is invalid", async () => {
-    const result = await runInTemp((stateDir) =>
-      Effect.gen(function* () {
-        const fileSystem = yield* FileSystem.FileSystem;
-        const path = yield* Path.Path;
-        const runtimeRoot = path.join(stateDir, "provider-runtimes", "codex");
-        yield* fileSystem.makeDirectory(runtimeRoot, { recursive: true });
-        yield* fileSystem.writeFileString(
-          path.join(runtimeRoot, "activation.json"),
-          JSON.stringify({
-            schemaVersion: 1,
-            provider: "codex",
-            active: {
-              version: "1.2.3",
-              executableRelativePath: "../../outside",
-              activatedAt: "2026-07-30T00:00:00.000Z",
-            },
-            previous: null,
-          }),
-        );
-        return yield* resolveProviderBinary({
-          stateDir,
-          provider: "codex",
-          configuredBinaryPath: "codex",
-        });
-      }),
-    );
-
-    expect(result).toEqual({
-      binaryPath: "codex",
-      ownership: "external",
-      version: null,
-    });
+  it("fails closed when the activation record or executable is invalid", async () => {
+    await expect(
+      runInTemp((stateDir) =>
+        Effect.gen(function* () {
+          const fileSystem = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
+          const runtimeRoot = path.join(stateDir, "provider-runtimes", "codex");
+          yield* fileSystem.makeDirectory(runtimeRoot, { recursive: true });
+          yield* fileSystem.writeFileString(
+            path.join(runtimeRoot, "activation.json"),
+            JSON.stringify({
+              schemaVersion: 1,
+              provider: "codex",
+              active: {
+                version: "1.2.3",
+                executableRelativePath: "../../outside",
+                activatedAt: "2026-07-30T00:00:00.000Z",
+              },
+              previous: null,
+            }),
+          );
+          return yield* resolveProviderBinary({ stateDir, provider: "codex" });
+        }),
+      ),
+    ).rejects.toThrow("no valid managed runtime activation");
   });
 
   it("atomically switches and rolls back between retained versions", async () => {
@@ -139,12 +106,14 @@ describe("managed provider runtime", () => {
         yield* activateManagedProviderRuntime({
           stateDir,
           provider: "codex",
+          installationId: "install-1-0-0",
           version: "1.0.0",
           executablePath: first,
         });
         yield* activateManagedProviderRuntime({
           stateDir,
           provider: "codex",
+          installationId: "install-2-0-0",
           version: "2.0.0",
           executablePath: second,
         });
@@ -163,6 +132,67 @@ describe("managed provider runtime", () => {
     expect(result.rolledBack).toBe(true);
     expect(result.activation?.active.version).toBe("1.0.0");
     expect(result.activation?.previous?.version).toBe("2.0.0");
+  });
+
+  it("restores a retained predecessor when recording the new activation fails", async () => {
+    const result = await runInTemp((stateDir) =>
+      Effect.gen(function* () {
+        const first = yield* createVersionExecutable(stateDir, "1.0.0");
+        const second = yield* createVersionExecutable(stateDir, "2.0.0");
+        yield* activateManagedProviderRuntime({
+          stateDir,
+          provider: "codex",
+          installationId: "install-1",
+          version: "1.0.0",
+          executablePath: first,
+        });
+        yield* activateManagedProviderRuntime({
+          stateDir,
+          provider: "codex",
+          installationId: "install-2",
+          version: "2.0.0",
+          executablePath: second,
+        });
+        const restored = yield* deactivateManagedProviderRuntimeInstallation({
+          stateDir,
+          provider: "codex",
+          installationId: "install-2",
+        });
+        const active = yield* resolveProviderBinary({
+          stateDir,
+          provider: "codex",
+        });
+        return { restored, active };
+      }),
+    );
+
+    expect(result.restored).toBe(true);
+    expect(result.active.installationId).toBe("install-1");
+  });
+
+  it("removes an unrecorded first activation", async () => {
+    const available = await runInTemp((stateDir) =>
+      Effect.gen(function* () {
+        const executablePath = yield* createVersionExecutable(stateDir, "1.0.0");
+        yield* activateManagedProviderRuntime({
+          stateDir,
+          provider: "codex",
+          installationId: "install-1",
+          version: "1.0.0",
+          executablePath,
+        });
+        yield* deactivateManagedProviderRuntimeInstallation({
+          stateDir,
+          provider: "codex",
+          installationId: "install-1",
+        });
+        return yield* resolveProviderBinary({
+          stateDir,
+          provider: "codex",
+        }).pipe(Effect.option);
+      }),
+    );
+    expect(available._tag).toBe("None");
   });
 
   it("rejects an executable symlink that escapes the managed version", async () => {
@@ -186,39 +216,13 @@ describe("managed provider runtime", () => {
           yield* activateManagedProviderRuntime({
             stateDir,
             provider: "codex",
+            installationId: "install-1-2-3",
             version: "1.2.3",
             executablePath,
           });
         }),
       ),
     ).rejects.toThrow("symlink must remain inside");
-  });
-
-  it("pins the resolved binary into only the selected provider options", async () => {
-    const result = await runInTemp((stateDir) =>
-      Effect.gen(function* () {
-        const executablePath = yield* createVersionExecutable(stateDir, "1.2.3");
-        yield* activateManagedProviderRuntime({
-          stateDir,
-          provider: "codex",
-          version: "1.2.3",
-          executablePath,
-        });
-        return yield* resolveManagedProviderStartOptions({
-          stateDir,
-          provider: "codex",
-          configuredBinaryPath: "codex",
-          providerOptions: {
-            codex: { binaryPath: "codex", homePath: "/codex-home" },
-            claudeAgent: { binaryPath: "claude" },
-          },
-        });
-      }),
-    );
-
-    expect(result.codex?.binaryPath).toContain("/versions/1.2.3/bin/codex");
-    expect(result.codex?.homePath).toBe("/codex-home");
-    expect(result.claudeAgent?.binaryPath).toBe("claude");
   });
 
   it("writes the activation record as a private file", async () => {
@@ -228,6 +232,7 @@ describe("managed provider runtime", () => {
         yield* activateManagedProviderRuntime({
           stateDir,
           provider: "codex",
+          installationId: "install-1-2-3",
           version: "1.2.3",
           executablePath,
         });

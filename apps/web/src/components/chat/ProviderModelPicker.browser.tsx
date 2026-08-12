@@ -1,4 +1,10 @@
-import { type ModelSlug, type ProviderKind, type ServerProviderStatus } from "@penkra/contracts";
+import {
+  type ModelSlug,
+  type ProviderConnection,
+  ProviderConnectionId,
+  type ProviderKind,
+  type ServerProviderStatus,
+} from "@penkra/contracts";
 import { page } from "vitest/browser";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
@@ -146,10 +152,14 @@ async function mountPicker(props: {
     ProviderKind,
     ReadonlyArray<ProviderModelOption & { slug: ModelSlug }>
   >;
+  connections?: ReadonlyArray<ProviderConnection>;
+  selectedConnectionId?: ProviderConnectionId | null;
 }) {
   const host = document.createElement("div");
   document.body.append(host);
   const onProviderModelChange = vi.fn();
+  const onConnectionChange = vi.fn();
+  const onManageConnections = vi.fn();
   const screen = await render(
     <ProviderModelPicker
       provider={props.provider}
@@ -165,12 +175,20 @@ async function mountPicker(props: {
       {...(props.providers ? { providers: props.providers } : {})}
       {...(props.onSelectionCommitted ? { onSelectionCommitted: props.onSelectionCommitted } : {})}
       onProviderModelChange={onProviderModelChange}
+      connections={props.connections ?? []}
+      {...(props.selectedConnectionId === undefined
+        ? {}
+        : { selectedConnectionId: props.selectedConnectionId })}
+      onConnectionChange={onConnectionChange}
+      onManageConnections={onManageConnections}
     />,
     { container: host },
   );
 
   return {
     onProviderModelChange,
+    onConnectionChange,
+    onManageConnections,
     cleanup: async () => {
       await screen.unmount();
       host.remove();
@@ -196,7 +214,7 @@ describe("ProviderModelPicker", () => {
 
       await vi.waitFor(() => {
         const text = document.body.textContent ?? "";
-        expect(text).toContain("Codex");
+        expect(text).toContain("ChatGPT");
         expect(text).toContain("Claude");
         expect(text).not.toContain("Claude Sonnet 4.6");
       });
@@ -219,7 +237,7 @@ describe("ProviderModelPicker", () => {
         const text = document.body.textContent ?? "";
         expect(text).toContain("Claude Sonnet 4.6");
         expect(text).toContain("Claude Haiku 4.5");
-        expect(text).not.toContain("Codex");
+        expect(text).not.toContain("ChatGPT");
       });
     } finally {
       await mounted.cleanup();
@@ -558,7 +576,7 @@ describe("ProviderModelPicker", () => {
     }
   });
 
-  it("shows discovery failure instead of fallback models for Codex", async () => {
+  it("shows discovery failure instead of fallback models for ChatGPT", async () => {
     const mounted = await mountPicker({
       provider: "codex",
       model: "gpt-5-codex",
@@ -606,7 +624,7 @@ describe("ProviderModelPicker", () => {
 
       await vi.waitFor(() => {
         const text = document.body.textContent ?? "";
-        expect(text).toContain("Codex");
+        expect(text).toContain("ChatGPT");
         expect(text).toContain("Claude");
         expect(text).toContain("Sign in");
       });
@@ -677,6 +695,64 @@ describe("ProviderModelPicker", () => {
 
       await expect.element(page.getByText("Sign in")).not.toBeInTheDocument();
       await expect.element(page.getByText("Unavailable")).not.toBeInTheDocument();
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("never presents anonymous OpenCode free access as a Connection", async () => {
+    const mounted = await mountPicker({
+      provider: "opencode",
+      model: "opencode/nemotron-3-super-free",
+      lockedProvider: "opencode",
+      connections: [],
+    });
+
+    try {
+      await page.getByRole("button").click();
+      await expect.element(page.getByText("Connection", { exact: true })).not.toBeInTheDocument();
+      await expect
+        .element(page.getByText("OpenCode Free", { exact: true }))
+        .not.toBeInTheDocument();
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("shows the Connection submenu only for an actual account or credential", async () => {
+    const connectionId = ProviderConnectionId.makeUnsafe("connection-opencode-go");
+    const mounted = await mountPicker({
+      provider: "opencode",
+      model: "openai/gpt-5",
+      lockedProvider: "opencode",
+      connections: [
+        {
+          id: connectionId,
+          harness: "opencode",
+          authenticationTargetId: "opencode-go",
+          authenticationMethodId: "api-key",
+          label: "OpenCode Go / ••••A7F2",
+          providerIdentityId: null,
+          health: "ready",
+          healthReason: null,
+          lastCheckedAt: "2026-08-09T00:00:00.000Z",
+          lifecycle: "active",
+          terminatedAt: null,
+          terminationReason: null,
+          createdAt: "2026-08-09T00:00:00.000Z",
+          updatedAt: "2026-08-09T00:00:00.000Z",
+        },
+      ],
+      selectedConnectionId: connectionId,
+    });
+
+    try {
+      await page.getByRole("button").click();
+      await expect.element(page.getByText("Connection", { exact: true })).toBeVisible();
+      await expect.element(page.getByText("OpenCode Go / ••••A7F2", { exact: true })).toBeVisible();
+      await page.getByText("Connection", { exact: true }).click();
+      await page.getByRole("menuitem", { name: "Manage connections…" }).click();
+      expect(mounted.onManageConnections).toHaveBeenCalledOnce();
     } finally {
       await mounted.cleanup();
     }

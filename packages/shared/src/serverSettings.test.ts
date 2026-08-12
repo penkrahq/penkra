@@ -12,12 +12,9 @@ describe("providerStartOptionsFromServerSettings", () => {
       providers: {
         codex: {
           ...DEFAULT_SERVER_SETTINGS.providers.codex,
-          binaryPath: "",
-          homePath: "",
         },
         claudeAgent: {
           ...DEFAULT_SERVER_SETTINGS.providers.claudeAgent,
-          binaryPath: "",
         },
         cursor: {
           ...DEFAULT_SERVER_SETTINGS.providers.cursor,
@@ -43,8 +40,6 @@ describe("providerStartOptionsFromServerSettings", () => {
         },
         opencode: {
           ...DEFAULT_SERVER_SETTINGS.providers.opencode,
-          binaryPath: "",
-          serverUrl: "",
         },
         pi: {
           ...DEFAULT_SERVER_SETTINGS.providers.pi,
@@ -75,20 +70,13 @@ describe("providerStartOptionsFromServerSettings", () => {
     expect(providerOptions.pi).toEqual({});
   });
 
-  it("preserves configured launch settings", () => {
+  it("preserves supported launch settings without accepting external managed runtimes", () => {
     const settings = {
       ...DEFAULT_SERVER_SETTINGS,
       providers: {
         ...DEFAULT_SERVER_SETTINGS.providers,
-        codex: {
-          ...DEFAULT_SERVER_SETTINGS.providers.codex,
-          binaryPath: "/custom/bin/codex",
-          homePath: "/custom/codex-home",
-        },
         opencode: {
           ...DEFAULT_SERVER_SETTINGS.providers.opencode,
-          binaryPath: "/custom/bin/opencode",
-          serverUrl: "http://127.0.0.1:4096",
           experimentalWebSockets: true,
         },
       },
@@ -96,13 +84,8 @@ describe("providerStartOptionsFromServerSettings", () => {
 
     const providerOptions = providerStartOptionsFromServerSettings(settings);
 
-    expect(providerOptions.codex).toEqual({
-      binaryPath: "/custom/bin/codex",
-      homePath: "/custom/codex-home",
-    });
+    expect(providerOptions.codex).toEqual({});
     expect(providerOptions.opencode).toEqual({
-      binaryPath: "/custom/bin/opencode",
-      serverUrl: "http://127.0.0.1:4096",
       experimentalWebSockets: true,
     });
   });

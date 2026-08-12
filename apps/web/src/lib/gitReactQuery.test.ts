@@ -8,21 +8,9 @@ import {
   invalidateGitQueriesForCwds,
   gitMutationKeys,
   gitPreparePullRequestThreadMutationOptions,
-  gitPullMutationOptions,
-  gitRunStackedActionMutationOptions,
 } from "./gitReactQuery";
 
 describe("gitMutationKeys", () => {
-  it("scopes stacked action keys by cwd", () => {
-    expect(gitMutationKeys.runStackedAction("/repo/a")).not.toEqual(
-      gitMutationKeys.runStackedAction("/repo/b"),
-    );
-  });
-
-  it("scopes pull keys by cwd", () => {
-    expect(gitMutationKeys.pull("/repo/a")).not.toEqual(gitMutationKeys.pull("/repo/b"));
-  });
-
   it("scopes pull request thread preparation keys by cwd", () => {
     expect(gitMutationKeys.preparePullRequestThread("/repo/a")).not.toEqual(
       gitMutationKeys.preparePullRequestThread("/repo/b"),
@@ -32,16 +20,6 @@ describe("gitMutationKeys", () => {
 
 describe("git mutation options", () => {
   const queryClient = new QueryClient();
-
-  it("attaches cwd-scoped mutation key for runStackedAction", () => {
-    const options = gitRunStackedActionMutationOptions({ cwd: "/repo/a", queryClient });
-    expect(options.mutationKey).toEqual(gitMutationKeys.runStackedAction("/repo/a"));
-  });
-
-  it("attaches cwd-scoped mutation key for pull", () => {
-    const options = gitPullMutationOptions({ cwd: "/repo/a", queryClient });
-    expect(options.mutationKey).toEqual(gitMutationKeys.pull("/repo/a"));
-  });
 
   it("attaches cwd-scoped mutation key for preparePullRequestThread", () => {
     const options = gitPreparePullRequestThreadMutationOptions({
@@ -57,7 +35,6 @@ describe("git query invalidation", () => {
     const queryClient = new QueryClient();
     const cwd = "/repo/all";
     const keys = [
-      gitQueryKeys.githubRepository(cwd),
       gitQueryKeys.status(cwd),
       gitQueryKeys.branches(cwd),
       gitQueryKeys.workingTreeDiff(cwd, "workingTree"),
@@ -80,7 +57,6 @@ describe("git query invalidation", () => {
     const cwdA = "/repo/a";
     const cwdB = "/repo/b";
     const cwdAKeys = [
-      gitQueryKeys.githubRepository(cwdA),
       gitQueryKeys.status(cwdA),
       gitQueryKeys.branches(cwdA),
       gitQueryKeys.workingTreeDiff(cwdA, "workingTree"),
@@ -88,7 +64,6 @@ describe("git query invalidation", () => {
       ["git", "pull-request", cwdA, "https://example.test/pr/1"] as const,
     ];
     const cwdBKeys = [
-      gitQueryKeys.githubRepository(cwdB),
       gitQueryKeys.status(cwdB),
       gitQueryKeys.branches(cwdB),
       gitQueryKeys.workingTreeDiff(cwdB, "workingTree"),

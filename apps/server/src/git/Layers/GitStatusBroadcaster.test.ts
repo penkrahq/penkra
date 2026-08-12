@@ -56,13 +56,12 @@ function makeTestLayer(state: {
     readWorkingTreeDiff: () => Effect.die("readWorkingTreeDiff should not be called in this test"),
     readWorkingTreeDiffStats: () =>
       Effect.die("readWorkingTreeDiffStats should not be called in this test"),
-    summarizeDiff: () => Effect.die("summarizeDiff should not be called in this test"),
     resolvePullRequest: () => Effect.die("resolvePullRequest should not be called in this test"),
     pullRequestSnapshot: () => Effect.die("pullRequestSnapshot should not be called in this test"),
     preparePullRequestThread: () =>
       Effect.die("preparePullRequestThread should not be called in this test"),
-    handoffThread: () => Effect.die("handoffThread should not be called in this test"),
-    runStackedAction: () => Effect.die("runStackedAction should not be called in this test"),
+    switchThreadEnvironment: () =>
+      Effect.die("switchThreadEnvironment should not be called in this test"),
   };
 
   return GitStatusBroadcasterLive.pipe(

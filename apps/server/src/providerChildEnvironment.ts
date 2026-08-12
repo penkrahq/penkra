@@ -15,6 +15,9 @@ export type ProviderChildKind =
   | "pi";
 
 const PROVIDER_CREDENTIAL_KEYS = new Set([
+  "OPENAI_API_KEY",
+  "OPENAI_ORG_ID",
+  "OPENAI_PROJECT_ID",
   "ANTHROPIC_API_KEY",
   "ANTHROPIC_AUTH_TOKEN",
   "CLAUDE_CODE_OAUTH_TOKEN",
@@ -28,6 +31,22 @@ const PROVIDER_CREDENTIAL_KEYS = new Set([
   "GROK_CODE_XAI_API_KEY",
   "FACTORY_API_KEY",
   "CURSOR_API_KEY",
+]);
+
+const MANAGED_CONNECTION_PROVIDERS = new Set<ProviderChildKind>(["codex", "claude", "opencode"]);
+
+const MANAGED_BASE_ENV_KEYS = new Set([
+  "COLORTERM",
+  "LANG",
+  "NO_COLOR",
+  "PATH",
+  "SHELL",
+  "SSL_CERT_DIR",
+  "SSL_CERT_FILE",
+  "TERM",
+  "TMPDIR",
+  "TZ",
+  "USER",
 ]);
 
 const PROVIDER_CREDENTIAL_GRANTS: Record<ProviderChildKind, "all" | ReadonlySet<string>> = {
@@ -63,20 +82,36 @@ const INHERITED_NATIVE_CAPABILITY_KEYS = new Set([
 const isTestHarnessKey = (key: string, env: NodeJS.ProcessEnv): boolean =>
   Boolean(env.VITEST) && (key.startsWith("PENKRA_FAKE_") || key.startsWith("PENKRA_ACP_"));
 
+const MANAGED_UPDATE_OVERRIDES: Partial<Record<ProviderChildKind, NodeJS.ProcessEnv>> = {
+  claude: { DISABLE_UPDATES: "1" },
+  opencode: { OPENCODE_DISABLE_AUTOUPDATE: "1" },
+};
+
 export function buildProviderChildEnvironment(input: {
   readonly provider: ProviderChildKind;
   readonly baseEnv?: NodeJS.ProcessEnv;
   readonly inheritedPenkraKeys?: ReadonlyArray<string>;
   readonly inheritedNativeCapabilityKeys?: ReadonlyArray<string>;
+  /** False is reserved for non-thread compatibility utilities that do not represent a Connection. */
+  readonly managedConnection?: boolean;
   readonly overrides?: NodeJS.ProcessEnv;
-}): NodeJS.ProcessEnv {
-  const baseEnv = {
-    ...(input.baseEnv ?? process.env),
-    ...input.overrides,
+  readonly credentialOverrides?: NodeJS.ProcessEnv;
+  readonly isolation?: {
+    readonly homePath: string;
+    readonly xdgConfigHome: string;
+    readonly xdgDataHome: string;
+    readonly xdgCacheHome: string;
+    readonly xdgStateHome: string;
   };
+  /** Keep the real OS home when the provider's supported credential store needs it. */
+  readonly preserveOsHome?: boolean;
+}): NodeJS.ProcessEnv {
+  const baseEnv = input.baseEnv ?? process.env;
   const allowedPenkraKeys = new Set(input.inheritedPenkraKeys ?? []);
   const allowedNativeCapabilities = new Set(input.inheritedNativeCapabilityKeys ?? []);
   const credentialGrants = PROVIDER_CREDENTIAL_GRANTS[input.provider];
+  const managedConnection =
+    input.managedConnection ?? MANAGED_CONNECTION_PROVIDERS.has(input.provider);
   const childEnv: NodeJS.ProcessEnv = {};
 
   for (const [key, value] of Object.entries(baseEnv)) {
@@ -92,13 +127,49 @@ export function buildProviderChildEnvironment(input: {
     }
     if (
       PROVIDER_CREDENTIAL_KEYS.has(key) &&
-      credentialGrants !== "all" &&
-      !credentialGrants.has(key)
+      (managedConnection || (credentialGrants !== "all" && !credentialGrants.has(key)))
+    ) {
+      continue;
+    }
+    if (
+      managedConnection &&
+      !MANAGED_BASE_ENV_KEYS.has(key) &&
+      !(input.preserveOsHome && key === "HOME") &&
+      !key.startsWith("LC_") &&
+      !allowedPenkraKeys.has(key) &&
+      !allowedNativeCapabilities.has(key) &&
+      !isTestHarnessKey(key, baseEnv)
     ) {
       continue;
     }
     childEnv[key] = value;
   }
+
+  for (const [key, value] of Object.entries(input.overrides ?? {})) {
+    if (
+      key.startsWith("PENKRA_") ||
+      INHERITED_NATIVE_CAPABILITY_KEYS.has(key) ||
+      PROVIDER_CREDENTIAL_KEYS.has(key)
+    ) {
+      continue;
+    }
+    childEnv[key] = value;
+  }
+
+  if (managedConnection && input.isolation) {
+    if (!input.preserveOsHome) childEnv.HOME = input.isolation.homePath;
+    childEnv.XDG_CONFIG_HOME = input.isolation.xdgConfigHome;
+    childEnv.XDG_DATA_HOME = input.isolation.xdgDataHome;
+    childEnv.XDG_CACHE_HOME = input.isolation.xdgCacheHome;
+    childEnv.XDG_STATE_HOME = input.isolation.xdgStateHome;
+  }
+
+  for (const [key, value] of Object.entries(input.credentialOverrides ?? {})) {
+    if (key.startsWith("PENKRA_") || INHERITED_NATIVE_CAPABILITY_KEYS.has(key)) continue;
+    childEnv[key] = value;
+  }
+
+  Object.assign(childEnv, MANAGED_UPDATE_OVERRIDES[input.provider]);
 
   return childEnv;
 }

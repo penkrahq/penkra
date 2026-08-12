@@ -21,13 +21,12 @@ import {
   SIDEBAR_ROW_IDLE_TEXT_CLASS_NAME,
   SIDEBAR_THREAD_ROW_BASE_CLASS_NAME,
 } from "../sidebarRowStyles";
-import { canSessionAnswerPendingRequests, hasLiveLatestTurn } from "../session-logic";
+import { canSessionAnswerPendingRequests, isSessionRunningTurn } from "../session-logic";
 import { formatWorktreePathForDisplay } from "../worktreeCleanup";
 
 export const THREAD_SELECTION_SAFE_SELECTOR = "[data-thread-item], [data-thread-selection-safe]";
 export const SIDEBAR_THREAD_PREWARM_LIMIT = 10;
 export const DEBUG_FEATURE_FLAGS_MENU_STORAGE_KEY = "penkra:show-debug-feature-flags-menu";
-export type SidebarNewThreadEnvMode = "local" | "worktree";
 export type SidebarView = "threads" | "studio" | "workspace";
 
 export function isProjectsSidebarSurface(input: {
@@ -53,7 +52,6 @@ type SidebarThreadSortInput = {
   updatedAt?: string | undefined;
   latestTurn?: Thread["latestTurn"] | undefined;
   lastVisitedAt?: Thread["lastVisitedAt"] | undefined;
-  hasLiveTailWork?: boolean | undefined;
   hasPendingApprovals?: boolean | undefined;
   hasPendingUserInput?: boolean | undefined;
   session?: Thread["session"] | undefined;
@@ -213,7 +211,6 @@ export function resolveSidebarWorkStatus(
 }
 
 type ThreadStatusInput = Pick<Thread, "latestTurn" | "lastVisitedAt" | "session" | "updatedAt"> & {
-  hasLiveTailWork?: boolean | undefined;
   dismissedStatusKey?: string | undefined;
 };
 
@@ -252,13 +249,6 @@ export function hasUnseenCompletion(thread: Pick<Thread, "latestTurn" | "lastVis
 export function shouldClearThreadSelectionOnMouseDown(target: HTMLElement | null): boolean {
   if (target === null) return true;
   return !target.closest(THREAD_SELECTION_SAFE_SELECTOR);
-}
-
-export function resolveSidebarNewThreadEnvMode(input: {
-  requestedEnvMode?: SidebarNewThreadEnvMode;
-  defaultEnvMode: SidebarNewThreadEnvMode;
-}): SidebarNewThreadEnvMode {
-  return input.requestedEnvMode ?? input.defaultEnvMode;
 }
 
 export type SettingsBackTarget =
@@ -347,7 +337,7 @@ export function pruneProjectThreadListPagingForCollapsedProjects<
  *   status/jump glyph and no meta chips reserves almost nothing — the title runs
  *   to the row edge instead of truncating against permanently reserved space.
  * - A status/loader (or keyboard-jump) glyph occupies a ~2.25rem slot, and each
- *   fork/worktree/handoff meta chip adds width; the reserve grows only for the
+ *   fork/worktree/temporary meta chip adds width; the reserve grows only for the
  *   badges that are present.
  * - The wider reserve that clears the hover pin/archive actions is applied only
  *   on hover/focus (mirroring the project header row), so the title gives up that
@@ -403,13 +393,9 @@ export function resolveThreadRowClassName(input: {
 // Working status pill and the sidebar sort, so a thread's position and its
 // pill never disagree.
 export function isThreadActivelyWorking(thread: {
-  hasLiveTailWork?: boolean | undefined;
   session?: Thread["session"] | undefined;
   latestTurn?: Thread["latestTurn"] | undefined;
 }): boolean {
-  if (thread.hasLiveTailWork === true) {
-    return true;
-  }
   const session = thread.session ?? null;
   // `starting` is already durable evidence that a turn was dispatched, but the
   // provider's turn.started event may not have been projected yet. Treat that
@@ -418,10 +404,7 @@ export function isThreadActivelyWorking(thread: {
   if (session?.orchestrationStatus === "starting") {
     return true;
   }
-  return (
-    session?.status === "running" &&
-    (thread.latestTurn == null || hasLiveLatestTurn(thread.latestTurn, session))
-  );
+  return isSessionRunningTurn(session);
 }
 
 export function resolveThreadStatusPill(input: {
@@ -497,7 +480,7 @@ export function resolveThreadStatusPill(input: {
     };
   }
 
-  if (!thread.hasLiveTailWork && hasUnseenCompletion(thread)) {
+  if (hasUnseenCompletion(thread)) {
     const dismissalKey = createCompletedDismissalKey(thread);
     if (dismissalKey && thread.dismissedStatusKey === dismissalKey) {
       return null;
@@ -1070,86 +1053,6 @@ function getThreadSortTimestamp(
   return toSortableTimestamp(thread.updatedAt ?? thread.createdAt) ?? Number.NEGATIVE_INFINITY;
 }
 
-type SidebarThreadSortStatus = "running" | "attention" | "completed" | "idle";
-
-const SIDEBAR_THREAD_SORT_STATUS_RANK: Record<SidebarThreadSortStatus, number> = {
-  running: 3,
-  attention: 2,
-  completed: 1,
-  idle: 0,
-};
-
-// Sorting uses the underlying state rather than a dismissible presentation pill.
-// Viewing or dismissing an attention badge therefore cannot move the thread.
-function resolveSidebarThreadSortStatus(thread: SidebarThreadSortInput): SidebarThreadSortStatus {
-  const canAnswerPendingRequests = canSessionAnswerPendingRequests(thread.session ?? null);
-  if (
-    thread.session?.status === "error" ||
-    (canAnswerPendingRequests &&
-      (thread.hasPendingApprovals === true || thread.hasPendingUserInput === true))
-  ) {
-    return "attention";
-  }
-  if (isThreadActivelyWorking(thread) || thread.session?.status === "connecting") {
-    return "running";
-  }
-  if (
-    thread.hasLiveTailWork !== true &&
-    hasUnseenCompletion({
-      latestTurn: thread.latestTurn ?? null,
-      lastVisitedAt: thread.lastVisitedAt,
-    })
-  ) {
-    return "completed";
-  }
-  return "idle";
-}
-
-function firstSortableTimestamp(...timestamps: Array<string | null | undefined>): number {
-  for (const timestamp of timestamps) {
-    const sortableTimestamp = toSortableTimestamp(timestamp ?? undefined);
-    if (sortableTimestamp !== null) {
-      return sortableTimestamp;
-    }
-  }
-  return Number.NEGATIVE_INFINITY;
-}
-
-// Reorder only when a thread enters a new sidebar status. Provider activity and
-// metadata may advance thread.updatedAt, but they do not continually reshuffle
-// running, completed, or acknowledged threads.
-function getSidebarThreadStatusChangedTimestamp(
-  thread: SidebarThreadSortInput,
-  status: SidebarThreadSortStatus,
-): number {
-  switch (status) {
-    case "running":
-      return firstSortableTimestamp(
-        thread.latestTurn?.startedAt,
-        thread.latestTurn?.requestedAt,
-        thread.session?.createdAt,
-        thread.updatedAt,
-        thread.createdAt,
-      );
-    case "attention":
-      return firstSortableTimestamp(
-        thread.session?.status === "error" ? thread.session.updatedAt : null,
-        thread.updatedAt,
-        thread.latestTurn?.startedAt,
-        thread.latestTurn?.requestedAt,
-        thread.createdAt,
-      );
-    case "completed":
-    case "idle":
-      return firstSortableTimestamp(
-        thread.latestTurn?.completedAt,
-        thread.latestTurn?.startedAt,
-        thread.latestTurn?.requestedAt,
-        thread.createdAt,
-      );
-  }
-}
-
 export function sortThreadsForSidebar<T extends { id: Thread["id"] } & SidebarThreadSortInput>(
   threads: readonly T[],
   _sortOrder: SidebarThreadSortOrder,
@@ -1162,38 +1065,6 @@ export function sortThreadsForSidebar<T extends { id: Thread["id"] } & SidebarTh
     const byCreatedAt = right.createdAt.localeCompare(left.createdAt);
     return byCreatedAt || left.id.localeCompare(right.id);
   });
-}
-
-function compareThreadsForSidebar(
-  left: { id: Thread["id"] } & SidebarThreadSortInput,
-  right: { id: Thread["id"] } & SidebarThreadSortInput,
-  sortOrder: SidebarThreadSortOrder,
-): number {
-  if (sortOrder === "updated_at") {
-    const leftStatus = resolveSidebarThreadSortStatus(left);
-    const rightStatus = resolveSidebarThreadSortStatus(right);
-    const byStatusRank =
-      SIDEBAR_THREAD_SORT_STATUS_RANK[rightStatus] - SIDEBAR_THREAD_SORT_STATUS_RANK[leftStatus];
-    if (byStatusRank !== 0) return byStatusRank;
-
-    const rightStatusChangedAt = getSidebarThreadStatusChangedTimestamp(right, rightStatus);
-    const leftStatusChangedAt = getSidebarThreadStatusChangedTimestamp(left, leftStatus);
-    const byStatusChangedAt =
-      rightStatusChangedAt === leftStatusChangedAt
-        ? 0
-        : rightStatusChangedAt > leftStatusChangedAt
-          ? 1
-          : -1;
-    if (byStatusChangedAt !== 0) return byStatusChangedAt;
-    return right.id.localeCompare(left.id);
-  }
-
-  const rightTimestamp = getThreadSortTimestamp(right, sortOrder);
-  const leftTimestamp = getThreadSortTimestamp(left, sortOrder);
-  const byTimestamp =
-    rightTimestamp === leftTimestamp ? 0 : rightTimestamp > leftTimestamp ? 1 : -1;
-  if (byTimestamp !== 0) return byTimestamp;
-  return right.id.localeCompare(left.id);
 }
 
 type SidebarSpaceSortCandidate<T> = {

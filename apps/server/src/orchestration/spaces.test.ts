@@ -4,7 +4,6 @@
 import {
   CommandId,
   ContainerId,
-  DEFAULT_PROVIDER_INTERACTION_MODE,
   SpaceId,
   ThreadId,
   type OrchestrationCommand,
@@ -53,6 +52,18 @@ async function addFolder(readModel: ReadModel, id: string, spaceId: SpaceId) {
   });
 }
 
+async function addNamedFolder(readModel: ReadModel, id: string, title: string, spaceId: SpaceId) {
+  return dispatch(readModel, {
+    type: "project.create",
+    commandId: CommandId.makeUnsafe(`create-${id}`),
+    projectId: ContainerId.makeUnsafe(id),
+    title,
+    workspaceRoot: null,
+    spaceId,
+    createdAt: CREATED_AT,
+  });
+}
+
 async function addChatContainer(readModel: ReadModel) {
   return dispatch(readModel, {
     type: "project.create",
@@ -81,7 +92,6 @@ async function addThread(input: {
     title: input.id,
     modelSelection: { provider: "codex", model: "gpt-5-codex" },
     runtimeMode: "full-access",
-    interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
     branch: null,
     worktreePath: null,
     ...(input.parentThreadId ? { parentThreadId: input.parentThreadId } : {}),
@@ -90,6 +100,28 @@ async function addThread(input: {
 }
 
 describe("Spaces", () => {
+  it("reorders by a stable neighboring Space anchor", async () => {
+    const first = SpaceId.makeUnsafe("first");
+    const second = SpaceId.makeUnsafe("second");
+    const third = SpaceId.makeUnsafe("third");
+    let readModel = (await addSpace(createEmptyReadModel(CREATED_AT), first, "First")).readModel;
+    ({ readModel } = await addSpace(readModel, second, "Second"));
+    ({ readModel } = await addSpace(readModel, third, "Third"));
+
+    const reordered = await dispatch(readModel, {
+      type: "space.reorder",
+      commandId: CommandId.makeUnsafe("move-third-before-first"),
+      spaceId: third,
+      position: { type: "before", spaceId: first },
+    });
+
+    expect(
+      reordered.readModel.spaces
+        .toSorted((left, right) => left.sortOrder - right.sortOrder)
+        .map((space) => space.id),
+    ).toEqual([third, first, second]);
+  });
+
   it("requires every ordinary folder to be born in a persisted Space", async () => {
     await expect(
       dispatch(createEmptyReadModel(CREATED_AT), {
@@ -116,6 +148,46 @@ describe("Spaces", () => {
     await expect(
       addFolder(createEmptyReadModel(CREATED_AT), "dangling", SpaceId.makeUnsafe("missing-space")),
     ).rejects.toThrow(/does not exist/i);
+  });
+
+  it("requires case-insensitively unique folder names within a Space", async () => {
+    const personal = SpaceId.makeUnsafe("personal");
+    let readModel = (await addSpace(createEmptyReadModel(CREATED_AT), personal, "Personal"))
+      .readModel;
+    ({ readModel } = await addNamedFolder(readModel, "first", "Product", personal));
+
+    await expect(addNamedFolder(readModel, "second", " product ", personal)).rejects.toThrow(
+      /already exists in this Space/i,
+    );
+  });
+
+  it("allows the same folder name in different Spaces but rejects rename and move collisions", async () => {
+    const personal = SpaceId.makeUnsafe("personal");
+    const work = SpaceId.makeUnsafe("work");
+    let readModel = (await addSpace(createEmptyReadModel(CREATED_AT), personal, "Personal"))
+      .readModel;
+    ({ readModel } = await addSpace(readModel, work, "Work"));
+    ({ readModel } = await addNamedFolder(readModel, "personal-product", "Product", personal));
+    ({ readModel } = await addNamedFolder(readModel, "work-product", "Product", work));
+    ({ readModel } = await addNamedFolder(readModel, "work-research", "Research", work));
+
+    await expect(
+      dispatch(readModel, {
+        type: "project.meta.update",
+        commandId: CommandId.makeUnsafe("rename-to-product"),
+        projectId: ContainerId.makeUnsafe("work-research"),
+        title: "PRODUCT",
+      }),
+    ).rejects.toThrow(/already exists in this Space/i);
+
+    await expect(
+      dispatch(readModel, {
+        type: "space.projects.assign",
+        commandId: CommandId.makeUnsafe("move-product-to-work"),
+        spaceId: work,
+        projectIds: [ContainerId.makeUnsafe("personal-product")],
+      }),
+    ).rejects.toThrow(/already exists in this Space/i);
   });
 
   it("keeps managed chat containers global and rooted", async () => {
@@ -291,16 +363,18 @@ describe("Spaces", () => {
     ({ readModel } = await addSpace(readModel, work, "Work"));
     ({ readModel } = await addFolder(readModel, "first", personal));
     ({ readModel } = await addFolder(readModel, "second", work));
+    // This row was not part of the drag-start snapshot. Anchor intent must preserve it.
+    ({ readModel } = await addFolder(readModel, "third", work));
 
     const moved = await dispatch(readModel, {
       type: "sidebar.item.move",
       commandId: CommandId.makeUnsafe("move-first-after-second"),
       item: { kind: "project", id: ContainerId.makeUnsafe("first") },
       target: { kind: "space", spaceId: work },
-      orderedItems: [
-        { kind: "project", id: ContainerId.makeUnsafe("second") },
-        { kind: "project", id: ContainerId.makeUnsafe("first") },
-      ],
+      position: {
+        type: "after",
+        item: { kind: "project", id: ContainerId.makeUnsafe("second") },
+      },
     });
 
     expect(moved.events).toHaveLength(1);
@@ -313,6 +387,7 @@ describe("Spaces", () => {
     ).toEqual([
       { id: "first", spaceId: work, sidebarSortOrder: 1 },
       { id: "second", spaceId: work, sidebarSortOrder: 0 },
+      { id: "third", spaceId: work, sidebarSortOrder: 2 },
     ]);
   });
 
@@ -341,7 +416,7 @@ describe("Spaces", () => {
       commandId: CommandId.makeUnsafe("move-thread-tree"),
       item: { kind: "thread", id: ThreadId.makeUnsafe("root-thread") },
       target: { kind: "project", projectId: ContainerId.makeUnsafe("folder") },
-      orderedItems: [{ kind: "thread", id: ThreadId.makeUnsafe("root-thread") }],
+      position: { type: "pinned-boundary" },
     });
 
     expect(
@@ -352,7 +427,7 @@ describe("Spaces", () => {
     ]);
   });
 
-  it("rejects an order that places an unpinned item above a pinned item", async () => {
+  it("rejects positioning an unpinned item inside the pinned block", async () => {
     const personal = SpaceId.makeUnsafe("personal");
     let readModel = (await addSpace(createEmptyReadModel(CREATED_AT), personal, "Personal"))
       .readModel;
@@ -371,11 +446,11 @@ describe("Spaces", () => {
         commandId: CommandId.makeUnsafe("cross-pin-boundary"),
         item: { kind: "project", id: ContainerId.makeUnsafe("regular") },
         target: { kind: "space", spaceId: personal },
-        orderedItems: [
-          { kind: "project", id: ContainerId.makeUnsafe("regular") },
-          { kind: "project", id: ContainerId.makeUnsafe("pinned") },
-        ],
+        position: {
+          type: "before",
+          item: { kind: "project", id: ContainerId.makeUnsafe("pinned") },
+        },
       }),
-    ).rejects.toThrow(/pinned items must remain above/i);
+    ).rejects.toThrow(/cannot be interleaved/i);
   });
 });

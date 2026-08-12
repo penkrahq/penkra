@@ -99,10 +99,17 @@ const runtime = new AppPreloadRuntime({
     ipcRenderer.on(APP_RUNTIME_IPC_CHANNELS.browserState, wrapped);
     return () => ipcRenderer.removeListener(APP_RUNTIME_IPC_CHANNELS.browserState, wrapped);
   },
+  simulatorCall: (method, input) =>
+    ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.simulatorCall, { method, input }),
+  onSimulatorState: (listener) => {
+    const wrapped = (
+      _event: Electron.IpcRendererEvent,
+      state: import("@penkra/sdk").AppSimulatorSessionState,
+    ) => listener(state);
+    ipcRenderer.on(APP_RUNTIME_IPC_CHANNELS.simulatorState, wrapped);
+    return () => ipcRenderer.removeListener(APP_RUNTIME_IPC_CHANNELS.simulatorState, wrapped);
+  },
   networkFetch: (input) => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.networkFetch, input),
-  rawSocketExchange: (input) =>
-    ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.rawSocketExchange, input),
-  processRun: (input) => ipcRenderer.invoke(APP_RUNTIME_IPC_CHANNELS.processRun, input),
   showContextMenu: (items) => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.contextMenu, items),
 });
 

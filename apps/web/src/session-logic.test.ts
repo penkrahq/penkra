@@ -1,15 +1,11 @@
-import { ThreadId, TurnId, type OrchestrationThreadActivity } from "@penkra/contracts";
+import { TurnId, type OrchestrationThreadActivity } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
-  buildSourceProposedPlanReference,
   deriveActiveBackgroundTasksState,
   deriveActiveTaskListState,
   deriveActiveWorkStartedAt,
-  findLatestProposedPlan,
-  findSidebarProposedPlan,
   formatElapsed,
-  hasActionableProposedPlan,
   hasLiveLatestTurn,
   hasLiveTurnTailWork,
   isLatestTurnSettled,
@@ -293,263 +289,6 @@ describe("deriveActiveBackgroundTasksState", () => {
   });
 });
 
-describe("findLatestProposedPlan", () => {
-  it("prefers the latest proposed plan for the active turn", () => {
-    expect(
-      findLatestProposedPlan(
-        [
-          {
-            id: "plan:thread-1:turn:turn-1",
-            turnId: TurnId.makeUnsafe("turn-1"),
-            planMarkdown: "# Older",
-            implementedAt: null,
-            implementationThreadId: null,
-            createdAt: "2026-02-23T00:00:01.000Z",
-            updatedAt: "2026-02-23T00:00:01.000Z",
-          },
-          {
-            id: "plan:thread-1:turn:turn-1",
-            turnId: TurnId.makeUnsafe("turn-1"),
-            planMarkdown: "# Latest",
-            implementedAt: null,
-            implementationThreadId: null,
-            createdAt: "2026-02-23T00:00:01.000Z",
-            updatedAt: "2026-02-23T00:00:02.000Z",
-          },
-          {
-            id: "plan:thread-1:turn:turn-2",
-            turnId: TurnId.makeUnsafe("turn-2"),
-            planMarkdown: "# Different turn",
-            implementedAt: null,
-            implementationThreadId: null,
-            createdAt: "2026-02-23T00:00:03.000Z",
-            updatedAt: "2026-02-23T00:00:03.000Z",
-          },
-        ],
-        TurnId.makeUnsafe("turn-1"),
-      ),
-    ).toEqual({
-      id: "plan:thread-1:turn:turn-1",
-      turnId: "turn-1",
-      planMarkdown: "# Latest",
-      implementedAt: null,
-      implementationThreadId: null,
-      createdAt: "2026-02-23T00:00:01.000Z",
-      updatedAt: "2026-02-23T00:00:02.000Z",
-    });
-  });
-
-  it("falls back to the most recently updated proposed plan", () => {
-    const latestPlan = findLatestProposedPlan(
-      [
-        {
-          id: "plan:thread-1:turn:turn-1",
-          turnId: TurnId.makeUnsafe("turn-1"),
-          planMarkdown: "# First",
-          implementedAt: null,
-          implementationThreadId: null,
-          createdAt: "2026-02-23T00:00:01.000Z",
-          updatedAt: "2026-02-23T00:00:01.000Z",
-        },
-        {
-          id: "plan:thread-1:turn:turn-2",
-          turnId: TurnId.makeUnsafe("turn-2"),
-          planMarkdown: "# Latest",
-          implementedAt: null,
-          implementationThreadId: null,
-          createdAt: "2026-02-23T00:00:02.000Z",
-          updatedAt: "2026-02-23T00:00:03.000Z",
-        },
-      ],
-      null,
-    );
-
-    expect(latestPlan?.planMarkdown).toBe("# Latest");
-  });
-});
-
-describe("hasActionableProposedPlan", () => {
-  it("returns true for an unimplemented proposed plan", () => {
-    expect(
-      hasActionableProposedPlan({
-        id: "plan-1",
-        turnId: TurnId.makeUnsafe("turn-1"),
-        planMarkdown: "# Plan",
-        implementedAt: null,
-        implementationThreadId: null,
-        createdAt: "2026-02-23T00:00:00.000Z",
-        updatedAt: "2026-02-23T00:00:01.000Z",
-      }),
-    ).toBe(true);
-  });
-
-  it("returns false for a proposed plan already implemented elsewhere", () => {
-    expect(
-      hasActionableProposedPlan({
-        id: "plan-1",
-        turnId: TurnId.makeUnsafe("turn-1"),
-        planMarkdown: "# Plan",
-        implementedAt: "2026-02-23T00:00:02.000Z",
-        implementationThreadId: ThreadId.makeUnsafe("thread-implement"),
-        createdAt: "2026-02-23T00:00:00.000Z",
-        updatedAt: "2026-02-23T00:00:02.000Z",
-      }),
-    ).toBe(false);
-  });
-});
-
-describe("buildSourceProposedPlanReference", () => {
-  it("returns source plan metadata for implementation turns", () => {
-    expect(
-      buildSourceProposedPlanReference({
-        threadId: ThreadId.makeUnsafe("thread-source"),
-        proposedPlan: { id: "plan-source" },
-      }),
-    ).toEqual({
-      threadId: ThreadId.makeUnsafe("thread-source"),
-      planId: "plan-source",
-    });
-  });
-
-  it("omits source plan metadata when no plan is active", () => {
-    expect(
-      buildSourceProposedPlanReference({
-        threadId: ThreadId.makeUnsafe("thread-source"),
-        proposedPlan: null,
-      }),
-    ).toBeUndefined();
-  });
-});
-
-describe("findSidebarProposedPlan", () => {
-  it("prefers the running turn source proposed plan when available on the same thread", () => {
-    expect(
-      findSidebarProposedPlan({
-        threads: [
-          {
-            id: ThreadId.makeUnsafe("thread-1"),
-            proposedPlans: [
-              {
-                id: "plan-1",
-                turnId: TurnId.makeUnsafe("turn-plan"),
-                planMarkdown: "# Source plan",
-                implementedAt: "2026-02-23T00:00:03.000Z",
-                implementationThreadId: ThreadId.makeUnsafe("thread-2"),
-                createdAt: "2026-02-23T00:00:01.000Z",
-                updatedAt: "2026-02-23T00:00:02.000Z",
-              },
-            ],
-          },
-          {
-            id: ThreadId.makeUnsafe("thread-2"),
-            proposedPlans: [
-              {
-                id: "plan-2",
-                turnId: TurnId.makeUnsafe("turn-other"),
-                planMarkdown: "# Latest elsewhere",
-                implementedAt: null,
-                implementationThreadId: null,
-                createdAt: "2026-02-23T00:00:04.000Z",
-                updatedAt: "2026-02-23T00:00:05.000Z",
-              },
-            ],
-          },
-        ],
-        latestTurn: {
-          turnId: TurnId.makeUnsafe("turn-implementation"),
-          sourceProposedPlan: {
-            threadId: ThreadId.makeUnsafe("thread-1"),
-            planId: "plan-1",
-          },
-        },
-        latestTurnSettled: false,
-        threadId: ThreadId.makeUnsafe("thread-1"),
-      }),
-    ).toEqual({
-      id: "plan-1",
-      turnId: "turn-plan",
-      planMarkdown: "# Source plan",
-      implementedAt: "2026-02-23T00:00:03.000Z",
-      implementationThreadId: "thread-2",
-      createdAt: "2026-02-23T00:00:01.000Z",
-      updatedAt: "2026-02-23T00:00:02.000Z",
-    });
-  });
-
-  it("falls back to the latest proposed plan once the turn is settled", () => {
-    expect(
-      findSidebarProposedPlan({
-        threads: [
-          {
-            id: ThreadId.makeUnsafe("thread-1"),
-            proposedPlans: [
-              {
-                id: "plan-1",
-                turnId: TurnId.makeUnsafe("turn-plan"),
-                planMarkdown: "# Older",
-                implementedAt: null,
-                implementationThreadId: null,
-                createdAt: "2026-02-23T00:00:01.000Z",
-                updatedAt: "2026-02-23T00:00:02.000Z",
-              },
-              {
-                id: "plan-2",
-                turnId: TurnId.makeUnsafe("turn-latest"),
-                planMarkdown: "# Latest",
-                implementedAt: null,
-                implementationThreadId: null,
-                createdAt: "2026-02-23T00:00:03.000Z",
-                updatedAt: "2026-02-23T00:00:04.000Z",
-              },
-            ],
-          },
-        ],
-        latestTurn: {
-          turnId: TurnId.makeUnsafe("turn-implementation"),
-          sourceProposedPlan: {
-            threadId: ThreadId.makeUnsafe("thread-1"),
-            planId: "plan-1",
-          },
-        },
-        latestTurnSettled: true,
-        threadId: ThreadId.makeUnsafe("thread-1"),
-      })?.planMarkdown,
-    ).toBe("# Latest");
-  });
-
-  it("hides implemented proposed plans once the implementation turn is settled", () => {
-    expect(
-      findSidebarProposedPlan({
-        threads: [
-          {
-            id: ThreadId.makeUnsafe("thread-1"),
-            proposedPlans: [
-              {
-                id: "plan-implemented",
-                turnId: TurnId.makeUnsafe("turn-plan"),
-                planMarkdown: "# Implemented",
-                implementedAt: "2026-02-23T00:00:05.000Z",
-                implementationThreadId: ThreadId.makeUnsafe("thread-1"),
-                createdAt: "2026-02-23T00:00:01.000Z",
-                updatedAt: "2026-02-23T00:00:05.000Z",
-              },
-            ],
-          },
-        ],
-        latestTurn: {
-          turnId: TurnId.makeUnsafe("turn-implementation"),
-          sourceProposedPlan: {
-            threadId: ThreadId.makeUnsafe("thread-1"),
-            planId: "plan-implemented",
-          },
-        },
-        latestTurnSettled: true,
-        threadId: ThreadId.makeUnsafe("thread-1"),
-      }),
-    ).toBeNull();
-  });
-});
-
 describe("isLatestTurnSettled", () => {
   const latestTurn = {
     turnId: TurnId.makeUnsafe("turn-1"),
@@ -771,7 +510,7 @@ describe("hasLiveTurnTailWork", () => {
     ).toBe(false);
   });
 
-  it("keeps the turn live while a background task is still open", () => {
+  it("does not keep the conversational turn live for a background task", () => {
     expect(
       hasLiveTurnTailWork({
         latestTurn,
@@ -791,7 +530,7 @@ describe("hasLiveTurnTailWork", () => {
         ],
         session: { orchestrationStatus: "running" },
       }),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it("ignores tool lifecycle bookkeeping once the visible answer is done", () => {
@@ -879,7 +618,7 @@ describe("PROVIDER_OPTIONS", () => {
     const opencode = PROVIDER_OPTIONS.find((option) => option.value === "opencode");
     const pi = PROVIDER_OPTIONS.find((option) => option.value === "pi");
     expect(PROVIDER_OPTIONS).toEqual([
-      { value: "codex", label: "Codex", available: true },
+      { value: "codex", label: "ChatGPT", available: true },
       { value: "claudeAgent", label: "Claude", available: true },
       { value: "cursor", label: "Cursor", available: true },
       { value: "antigravity", label: "Antigravity", available: true },

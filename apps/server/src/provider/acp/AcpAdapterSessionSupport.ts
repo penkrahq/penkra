@@ -7,7 +7,6 @@ import * as nodePath from "node:path";
 
 import type {
   ProviderApprovalDecision,
-  ProviderInteractionMode,
   ProviderSession,
   ProviderUserInputAnswers,
   RuntimeMode,
@@ -61,15 +60,7 @@ function isAcpPlanMode(mode: AcpSessionMode, planAliases: ReadonlyArray<string>)
   return findAcpModeByAliases([mode], planAliases) !== undefined;
 }
 
-/** Omitted turn modes are normal execution turns, never inherited Plan turns. */
-export function resolveAcpTurnInteractionMode(
-  interactionMode: ProviderInteractionMode | undefined,
-): ProviderInteractionMode {
-  return interactionMode ?? "default";
-}
-
 export function resolveRequestedAcpSessionModeId(input: {
-  readonly interactionMode: ProviderInteractionMode | undefined;
   readonly runtimeMode: RuntimeMode;
   readonly modeState: AcpSessionModeState | undefined;
   readonly aliases: AcpSessionModeAliases;
@@ -77,10 +68,6 @@ export function resolveRequestedAcpSessionModeId(input: {
   const modeState = input.modeState;
   if (!modeState) {
     return undefined;
-  }
-
-  if (input.interactionMode === "plan") {
-    return findAcpModeByAliases(modeState.availableModes, input.aliases.plan)?.id;
   }
 
   if (input.runtimeMode === "approval-required") {
@@ -185,19 +172,6 @@ export function finalizeAcpActiveTurnCost(context: { latestSessionCostUsd: numbe
     : {};
 }
 
-export function withAcpPlanModePrompt(input: {
-  readonly text: string;
-  readonly interactionMode?: ProviderInteractionMode;
-  readonly promptPrefix: string;
-}): string {
-  if (input.interactionMode !== "plan") {
-    return input.text;
-  }
-
-  const text = input.text.trim();
-  return text.length > 0 ? `${input.promptPrefix}\n\nUser request:\n${text}` : input.promptPrefix;
-}
-
 export function resolveAcpSessionCwd(input: {
   readonly inputCwd: string | undefined;
   readonly serverCwd: string;
@@ -213,14 +187,13 @@ export function resolveAcpSessionCwd(input: {
   return fallbackCwd ? nodePath.resolve(fallbackCwd) : undefined;
 }
 
-export function clearAcpActiveTurn<PromptFiber, InteractionMode>(
+export function clearAcpActiveTurn<PromptFiber>(
   context: {
     activeTurnId: TurnId | undefined;
     activeTurnHadAssistantContent: boolean;
     activeAssistantItemsWithContent: { clear(): void };
     activeTurnFailedToolDetail: string | undefined;
     activePromptFiber: PromptFiber | undefined;
-    activeInteractionMode: InteractionMode | undefined;
     session: ProviderSession;
   },
   turnId: TurnId,
@@ -234,7 +207,6 @@ export function clearAcpActiveTurn<PromptFiber, InteractionMode>(
   context.activeAssistantItemsWithContent.clear();
   context.activeTurnFailedToolDetail = undefined;
   context.activePromptFiber = undefined;
-  context.activeInteractionMode = undefined;
   const { activeTurnId: _activeTurnId, ...session } = context.session;
   context.session = session;
   return true;

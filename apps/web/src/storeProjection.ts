@@ -39,8 +39,6 @@ import {
   EMPTY_ACTIVITY_IDS_BY_THREAD,
   EMPTY_MESSAGE_BY_THREAD,
   EMPTY_MESSAGE_IDS_BY_THREAD,
-  EMPTY_PROPOSED_PLAN_BY_THREAD,
-  EMPTY_PROPOSED_PLAN_IDS_BY_THREAD,
   EMPTY_THREAD_IDS,
   EMPTY_THREAD_SESSION_BY_ID,
   EMPTY_THREAD_SHELL_BY_ID,
@@ -74,7 +72,6 @@ function toThreadShell(thread: Thread): ThreadShell {
     title: thread.title,
     modelSelection: thread.modelSelection,
     runtimeMode: thread.runtimeMode,
-    interactionMode: thread.interactionMode,
     error: thread.error,
     createdAt: thread.createdAt,
     archivedAt: thread.archivedAt ?? null,
@@ -95,9 +92,7 @@ function toThreadShell(thread: Thread): ThreadShell {
     subagentNickname: thread.subagentNickname ?? null,
     subagentRole: thread.subagentRole ?? null,
     forkSourceThreadId: thread.forkSourceThreadId ?? null,
-    sidechatSourceThreadId: thread.sidechatSourceThreadId ?? null,
     lastKnownPr: thread.lastKnownPr ?? null,
-    handoff: thread.handoff ?? null,
     ...(thread.pinnedMessages !== undefined ? { pinnedMessages: thread.pinnedMessages } : {}),
     ...(thread.threadMarkers !== undefined ? { threadMarkers: thread.threadMarkers } : {}),
     ...(thread.notes !== undefined ? { notes: thread.notes } : {}),
@@ -110,9 +105,6 @@ function toThreadShell(thread: Thread): ThreadShell {
     ...(thread.hasPendingUserInput !== undefined
       ? { hasPendingUserInput: thread.hasPendingUserInput }
       : {}),
-    ...(thread.hasActionableProposedPlan !== undefined
-      ? { hasActionableProposedPlan: thread.hasActionableProposedPlan }
-      : {}),
     ...(thread.pendingInteractions !== undefined
       ? { pendingInteractions: thread.pendingInteractions }
       : {}),
@@ -122,9 +114,6 @@ function toThreadShell(thread: Thread): ThreadShell {
 function toThreadTurnState(thread: Thread): ThreadTurnState {
   return {
     latestTurn: thread.latestTurn,
-    ...(thread.pendingSourceProposedPlan
-      ? { pendingSourceProposedPlan: thread.pendingSourceProposedPlan }
-      : {}),
     pendingTurnStartMessageId: thread.pendingTurnStartMessageId ?? null,
   };
 }
@@ -204,7 +193,6 @@ function buildNormalizedSlice<TId extends string, TValue>(
 
 const messageId = (message: ChatMessage): MessageId => message.id;
 const activityId = (activity: Thread["activities"][number]): string => activity.id;
-const proposedPlanId = (plan: Thread["proposedPlans"][number]): string => plan.id;
 const turnDiffId = (summary: Thread["turnDiffSummaries"][number]): TurnId => summary.turnId;
 
 export function upsertProject(
@@ -330,7 +318,6 @@ function sidebarThreadSummariesEqual(
     (left.sidebarSortOrder ?? 0) === (right.sidebarSortOrder ?? 0) &&
     left.title === right.title &&
     left.modelSelection === right.modelSelection &&
-    left.interactionMode === right.interactionMode &&
     left.envMode === right.envMode &&
     left.branch === right.branch &&
     left.worktreePath === right.worktreePath &&
@@ -352,12 +339,8 @@ function sidebarThreadSummariesEqual(
     left.latestUserMessageAt === right.latestUserMessageAt &&
     left.hasPendingApprovals === right.hasPendingApprovals &&
     left.hasPendingUserInput === right.hasPendingUserInput &&
-    left.hasActionableProposedPlan === right.hasActionableProposedPlan &&
-    left.hasLiveTailWork === right.hasLiveTailWork &&
     (left.forkSourceThreadId ?? null) === (right.forkSourceThreadId ?? null) &&
-    (left.sidechatSourceThreadId ?? null) === (right.sidechatSourceThreadId ?? null) &&
-    deepEqualJson(left.lastKnownPr ?? null, right.lastKnownPr ?? null) &&
-    (left.handoff ?? null) === (right.handoff ?? null)
+    deepEqualJson(left.lastKnownPr ?? null, right.lastKnownPr ?? null)
   );
 }
 
@@ -373,7 +356,6 @@ function buildSidebarThreadSummary(
     sidebarSortOrder: thread.sidebarSortOrder ?? 0,
     title: thread.title,
     modelSelection: thread.modelSelection,
-    interactionMode: thread.interactionMode,
     envMode: thread.envMode,
     branch: thread.branch,
     worktreePath: thread.worktreePath,
@@ -395,12 +377,8 @@ function buildSidebarThreadSummary(
     latestUserMessageAt: metadata.latestUserMessageAt,
     hasPendingApprovals: metadata.hasPendingApprovals,
     hasPendingUserInput: metadata.hasPendingUserInput,
-    hasActionableProposedPlan: metadata.hasActionableProposedPlan,
-    hasLiveTailWork: metadata.hasLiveTailWork,
     forkSourceThreadId: thread.forkSourceThreadId ?? null,
-    sidechatSourceThreadId: thread.sidechatSourceThreadId ?? null,
     lastKnownPr: thread.lastKnownPr ?? null,
-    handoff: thread.handoff ?? null,
   };
   if (previous && sidebarThreadSummariesEqual(previous, nextSummary)) {
     return previous;
@@ -767,36 +745,6 @@ function writeThreadState(state: AppState, nextThread: Thread, previousThread?: 
     }
   }
 
-  if (previousThread?.proposedPlans !== nextThread.proposedPlans) {
-    const previousIds = nextState.proposedPlanIdsByThreadId?.[nextThread.id];
-    const previousById = nextState.proposedPlanByThreadId?.[nextThread.id];
-    const slice = buildNormalizedSlice(
-      nextThread.proposedPlans,
-      proposedPlanId,
-      previousThread?.proposedPlans,
-      previousIds,
-      previousById,
-    );
-    if (slice.ids !== previousIds) {
-      nextState = {
-        ...nextState,
-        proposedPlanIdsByThreadId: {
-          ...(nextState.proposedPlanIdsByThreadId ?? EMPTY_PROPOSED_PLAN_IDS_BY_THREAD),
-          [nextThread.id]: slice.ids,
-        },
-      };
-    }
-    if (slice.byId !== previousById) {
-      nextState = {
-        ...nextState,
-        proposedPlanByThreadId: {
-          ...(nextState.proposedPlanByThreadId ?? EMPTY_PROPOSED_PLAN_BY_THREAD),
-          [nextThread.id]: slice.byId,
-        },
-      };
-    }
-  }
-
   if (previousThread?.turnDiffSummaries !== nextThread.turnDiffSummaries) {
     const previousIds = nextState.turnDiffIdsByThreadId?.[nextThread.id];
     const previousById = nextState.turnDiffSummaryByThreadId?.[nextThread.id];
@@ -845,10 +793,6 @@ function removeThreadState(state: AppState, threadId: ThreadId): AppState {
     state.activityIdsByThreadId ?? EMPTY_ACTIVITY_IDS_BY_THREAD;
   const { [threadId]: _removedActivities, ...activityByThreadId } =
     state.activityByThreadId ?? EMPTY_ACTIVITY_BY_THREAD;
-  const { [threadId]: _removedPlanIds, ...proposedPlanIdsByThreadId } =
-    state.proposedPlanIdsByThreadId ?? EMPTY_PROPOSED_PLAN_IDS_BY_THREAD;
-  const { [threadId]: _removedPlans, ...proposedPlanByThreadId } =
-    state.proposedPlanByThreadId ?? EMPTY_PROPOSED_PLAN_BY_THREAD;
   const { [threadId]: _removedDiffIds, ...turnDiffIdsByThreadId } =
     state.turnDiffIdsByThreadId ?? EMPTY_TURN_DIFF_IDS_BY_THREAD;
   const { [threadId]: _removedDiffs, ...turnDiffSummaryByThreadId } =
@@ -875,8 +819,6 @@ function removeThreadState(state: AppState, threadId: ThreadId): AppState {
       messageByThreadId,
       activityIdsByThreadId,
       activityByThreadId,
-      proposedPlanIdsByThreadId,
-      proposedPlanByThreadId,
       turnDiffIdsByThreadId,
       turnDiffSummaryByThreadId,
       sidebarThreadSummaryById,
@@ -891,8 +833,6 @@ export function evictThreadDetailFromClientState(state: AppState, threadId: Thre
     state.messageByThreadId,
     state.activityIdsByThreadId,
     state.activityByThreadId,
-    state.proposedPlanIdsByThreadId,
-    state.proposedPlanByThreadId,
     state.turnDiffIdsByThreadId,
     state.turnDiffSummaryByThreadId,
   ];
@@ -912,10 +852,6 @@ export function evictThreadDetailFromClientState(state: AppState, threadId: Thre
     state.activityIdsByThreadId ?? EMPTY_ACTIVITY_IDS_BY_THREAD;
   const { [threadId]: _removedActivities, ...activityByThreadId } =
     state.activityByThreadId ?? EMPTY_ACTIVITY_BY_THREAD;
-  const { [threadId]: _removedPlanIds, ...proposedPlanIdsByThreadId } =
-    state.proposedPlanIdsByThreadId ?? EMPTY_PROPOSED_PLAN_IDS_BY_THREAD;
-  const { [threadId]: _removedPlans, ...proposedPlanByThreadId } =
-    state.proposedPlanByThreadId ?? EMPTY_PROPOSED_PLAN_BY_THREAD;
   const { [threadId]: _removedDiffIds, ...turnDiffIdsByThreadId } =
     state.turnDiffIdsByThreadId ?? EMPTY_TURN_DIFF_IDS_BY_THREAD;
   const { [threadId]: _removedDiffs, ...turnDiffSummaryByThreadId } =
@@ -928,8 +864,6 @@ export function evictThreadDetailFromClientState(state: AppState, threadId: Thre
       messageByThreadId,
       activityIdsByThreadId,
       activityByThreadId,
-      proposedPlanIdsByThreadId,
-      proposedPlanByThreadId,
       turnDiffIdsByThreadId,
       turnDiffSummaryByThreadId,
     },
@@ -1151,18 +1085,10 @@ function commitThreadProjection(
 
 function deriveThreadStateSignals(
   thread: Thread,
-): Pick<
-  Thread,
-  | "latestUserMessageAt"
-  | "hasPendingApprovals"
-  | "hasPendingUserInput"
-  | "hasActionableProposedPlan"
-> {
+): Pick<Thread, "latestUserMessageAt" | "hasPendingApprovals" | "hasPendingUserInput"> {
   const metadata = deriveThreadSummaryMetadata({
     messages: thread.messages,
     activities: thread.activities,
-    proposedPlans: thread.proposedPlans,
-    latestTurn: thread.latestTurn,
   });
   const actionableInteractions = thread.pendingInteractions?.filter(
     (interaction) => interaction.status === "pending" || interaction.status === "retryable",
@@ -1175,7 +1101,6 @@ function deriveThreadStateSignals(
     hasPendingUserInput:
       actionableInteractions?.some((interaction) => interaction.interactionKind === "userInput") ??
       metadata.hasPendingUserInput,
-    hasActionableProposedPlan: metadata.hasActionableProposedPlan,
   };
 }
 
@@ -1184,8 +1109,7 @@ function withDerivedThreadStateSignals(thread: Thread): Thread {
   if (
     thread.latestUserMessageAt === nextSignals.latestUserMessageAt &&
     thread.hasPendingApprovals === nextSignals.hasPendingApprovals &&
-    thread.hasPendingUserInput === nextSignals.hasPendingUserInput &&
-    thread.hasActionableProposedPlan === nextSignals.hasActionableProposedPlan
+    thread.hasPendingUserInput === nextSignals.hasPendingUserInput
   ) {
     return thread;
   }
@@ -1252,11 +1176,6 @@ export function syncServerShellSnapshot(
     messageByThreadId: retainThreadScopedRecord(state.messageByThreadId, nextThreadIds),
     activityIdsByThreadId: retainThreadScopedRecord(state.activityIdsByThreadId, nextThreadIds),
     activityByThreadId: retainThreadScopedRecord(state.activityByThreadId, nextThreadIds),
-    proposedPlanIdsByThreadId: retainThreadScopedRecord(
-      state.proposedPlanIdsByThreadId,
-      nextThreadIds,
-    ),
-    proposedPlanByThreadId: retainThreadScopedRecord(state.proposedPlanByThreadId, nextThreadIds),
     turnDiffIdsByThreadId: retainThreadScopedRecord(state.turnDiffIdsByThreadId, nextThreadIds),
     turnDiffSummaryByThreadId: retainThreadScopedRecord(
       state.turnDiffSummaryByThreadId,
@@ -1453,11 +1372,6 @@ export function syncServerReadModel(state: AppState, readModel: OrchestrationRea
     messageByThreadId: retainThreadScopedRecord(state.messageByThreadId, nextThreadIds),
     activityIdsByThreadId: retainThreadScopedRecord(state.activityIdsByThreadId, nextThreadIds),
     activityByThreadId: retainThreadScopedRecord(state.activityByThreadId, nextThreadIds),
-    proposedPlanIdsByThreadId: retainThreadScopedRecord(
-      state.proposedPlanIdsByThreadId,
-      nextThreadIds,
-    ),
-    proposedPlanByThreadId: retainThreadScopedRecord(state.proposedPlanByThreadId, nextThreadIds),
     turnDiffIdsByThreadId: retainThreadScopedRecord(state.turnDiffIdsByThreadId, nextThreadIds),
     turnDiffSummaryByThreadId: retainThreadScopedRecord(
       state.turnDiffSummaryByThreadId,
@@ -1501,8 +1415,6 @@ export function syncServerReadModel(state: AppState, readModel: OrchestrationRea
     normalizedState.messageByThreadId === state.messageByThreadId &&
     normalizedState.activityIdsByThreadId === state.activityIdsByThreadId &&
     normalizedState.activityByThreadId === state.activityByThreadId &&
-    normalizedState.proposedPlanIdsByThreadId === state.proposedPlanIdsByThreadId &&
-    normalizedState.proposedPlanByThreadId === state.proposedPlanByThreadId &&
     normalizedState.turnDiffIdsByThreadId === state.turnDiffIdsByThreadId &&
     normalizedState.turnDiffSummaryByThreadId === state.turnDiffSummaryByThreadId &&
     normalizedState.threadDetailSyncById === state.threadDetailSyncById &&

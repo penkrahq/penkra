@@ -84,32 +84,7 @@ export const GrokExitPlanModeRequest = Schema.Struct({
   planContent: Schema.NullOr(Schema.String),
 });
 
-const PENKRA_PLAN_REVIEW_FEEDBACK =
-  "Penkra captured this plan for user review. Do not revise or implement it now. End this turn and wait for the user's next message.";
-
-export function extractGrokExitPlanMarkdown(
-  request: typeof GrokExitPlanModeRequest.Type,
-): string | undefined {
-  const planMarkdown = request.planContent?.trim();
-  return planMarkdown && planMarkdown.length > 0 ? planMarkdown : undefined;
-}
-
-/**
- * Penkra owns the approval step after the planning turn settles. Returning a
- * semantic cancellation keeps Grok's native plan-mode write gate active and
- * avoids both auto-implementation and Grok's misleading client-disconnect path.
- */
-export function makeGrokExitPlanModeCapturedResponse(): {
-  readonly outcome: "cancelled";
-  readonly feedback: string;
-} {
-  return {
-    outcome: "cancelled",
-    feedback: PENKRA_PLAN_REVIEW_FEEDBACK,
-  };
-}
-
-/** Penkra has already received an implementation turn, so Grok may leave its native gate. */
+/** Penkra has one execution mode, so a provider-native planning gate may always exit. */
 export function makeGrokExitPlanModeApprovedResponse(): { readonly outcome: "approved" } {
   return { outcome: "approved" };
 }

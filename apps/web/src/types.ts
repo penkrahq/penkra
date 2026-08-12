@@ -10,12 +10,10 @@ import type {
   TurnDispatchMode,
   OrchestrationLatestTurn,
   OrchestrationThreadPullRequest,
-  OrchestrationProposedPlanId,
   PinnedMessage,
   ThreadMarker,
   OrchestrationSessionStatus,
   OrchestrationThreadActivity,
-  ThreadHandoff,
   ProjectScript as ContractProjectScript,
   ThreadId,
   ContainerId,
@@ -27,7 +25,6 @@ import type {
   ProviderSkillReference,
   ProviderKind,
   CheckpointRef,
-  ProviderInteractionMode,
   ContainerKind,
   RuntimeMode,
   ThreadCreationSource,
@@ -37,7 +34,6 @@ import type {
 export type SessionPhase = "disconnected" | "connecting" | "ready" | "running";
 export const DEFAULT_RUNTIME_MODE: RuntimeMode = "full-access";
 
-export const DEFAULT_INTERACTION_MODE: ProviderInteractionMode = "default";
 export const DEFAULT_THREAD_TERMINAL_HEIGHT = 280;
 export const DEFAULT_THREAD_TERMINAL_ID = "default";
 export const MAX_TERMINALS_PER_GROUP = 6;
@@ -118,16 +114,6 @@ export interface ChatMessage {
   source?: OrchestrationMessageSource;
 }
 
-export interface ProposedPlan {
-  id: OrchestrationProposedPlanId;
-  turnId: TurnId | null;
-  planMarkdown: string;
-  implementedAt: string | null;
-  implementationThreadId: ThreadId | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
 export interface TurnDiffFileChange {
   path: string;
   kind?: string | undefined;
@@ -144,26 +130,6 @@ export interface TurnDiffSummary {
   assistantMessageId?: MessageId | undefined;
   checkpointTurnCount?: number | undefined;
   checkpointTurnCounts?: number[] | undefined;
-}
-
-// Ephemeral client-side progress of the "New worktree" first-send setup
-// sequence (create worktree → link thread → start session). Rendered as a
-// transient transcript row; never persisted.
-export type WorktreeSetupStepId =
-  | "create-worktree"
-  | "prepare-thread"
-  | "run-setup-action"
-  | "start-session";
-export type WorktreeSetupStepStatus = "pending" | "active" | "done" | "error";
-
-export interface WorktreeSetupStep {
-  id: WorktreeSetupStepId;
-  label: string;
-  status: WorktreeSetupStepStatus;
-}
-
-export interface WorktreeSetupSnapshot {
-  steps: WorktreeSetupStep[];
 }
 
 export interface Project {
@@ -225,10 +191,8 @@ export interface Thread extends ThreadWorkspaceState {
   title: string;
   modelSelection: ModelSelection;
   runtimeMode: RuntimeMode;
-  interactionMode: ProviderInteractionMode;
   session: ThreadSession | null;
   messages: ChatMessage[];
-  proposedPlans: ProposedPlan[];
   error: string | null;
   createdAt: string;
   archivedAt?: string | null;
@@ -238,7 +202,6 @@ export interface Thread extends ThreadWorkspaceState {
   threadMarkers?: ThreadMarker[];
   notes?: string;
   latestTurn: OrchestrationLatestTurn | null;
-  pendingSourceProposedPlan?: OrchestrationLatestTurn["sourceProposedPlan"];
   pendingTurnStartMessageId?: MessageId | null;
   lastVisitedAt?: string | undefined;
   parentThreadId?: ThreadId | null;
@@ -248,13 +211,10 @@ export interface Thread extends ThreadWorkspaceState {
   subagentNickname?: string | null;
   subagentRole?: string | null;
   forkSourceThreadId?: ThreadId | null;
-  sidechatSourceThreadId?: ThreadId | null;
-  handoff?: ThreadHandoff | null;
   lastKnownPr?: OrchestrationThreadPullRequest | null;
   latestUserMessageAt?: string | null;
   hasPendingApprovals?: boolean;
   hasPendingUserInput?: boolean;
-  hasActionableProposedPlan?: boolean;
   pendingInteractions?: OrchestrationPendingInteraction[];
   turnDiffSummaries: TurnDiffSummary[];
   activities: OrchestrationThreadActivity[];
@@ -269,7 +229,6 @@ export interface ThreadShell extends ThreadWorkspaceState {
   title: string;
   modelSelection: ModelSelection;
   runtimeMode: RuntimeMode;
-  interactionMode: ProviderInteractionMode;
   error: string | null;
   createdAt: string;
   archivedAt?: string | null;
@@ -289,20 +248,16 @@ export interface ThreadShell extends ThreadWorkspaceState {
   subagentNickname?: string | null;
   subagentRole?: string | null;
   forkSourceThreadId?: ThreadId | null;
-  sidechatSourceThreadId?: ThreadId | null;
-  handoff?: ThreadHandoff | null;
   lastKnownPr?: OrchestrationThreadPullRequest | null;
   latestUserMessageAt?: string | null;
   hasPendingApprovals?: boolean;
   hasPendingUserInput?: boolean;
-  hasActionableProposedPlan?: boolean;
   pendingInteractions?: OrchestrationPendingInteraction[];
   lastVisitedAt?: string | undefined;
 }
 
 export interface ThreadTurnState {
   latestTurn: OrchestrationLatestTurn | null;
-  pendingSourceProposedPlan?: OrchestrationLatestTurn["sourceProposedPlan"];
   pendingTurnStartMessageId?: MessageId | null;
 }
 
@@ -313,7 +268,6 @@ export interface SidebarThreadSummary {
   sidebarSortOrder?: number;
   title: string;
   modelSelection: ModelSelection;
-  interactionMode: ProviderInteractionMode;
   envMode?: ThreadEnvironmentMode | undefined;
   branch: string | null;
   worktreePath: string | null;
@@ -335,11 +289,7 @@ export interface SidebarThreadSummary {
   latestUserMessageAt: string | null;
   hasPendingApprovals: boolean;
   hasPendingUserInput: boolean;
-  hasActionableProposedPlan: boolean;
-  hasLiveTailWork: boolean;
   forkSourceThreadId?: ThreadId | null;
-  sidechatSourceThreadId?: ThreadId | null;
-  handoff?: ThreadHandoff | null;
   lastKnownPr?: OrchestrationThreadPullRequest | null;
 }
 

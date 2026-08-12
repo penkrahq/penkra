@@ -104,6 +104,25 @@ describe("resolveAppTabObservationTarget", () => {
     expect(appWebContents).toHaveBeenCalledExactlyOnceWith("tab-1");
     expect(browserWebContents).not.toHaveBeenCalled();
   });
+
+  it("prefers a trusted hosted surface when the App tab has one", async () => {
+    const appContents = makeContents().contents;
+    const hostedContents = makeContents().contents;
+    const appWebContents = vi.fn(() => appContents);
+    const browserWebContents = vi.fn(async () => null);
+
+    await expect(
+      resolveAppTabObservationTarget({
+        descriptor,
+        browserAppId: "com.penkra.browser",
+        appWebContents,
+        browserWebContents,
+        hostedWebContents: () => hostedContents,
+      }),
+    ).resolves.toEqual({ descriptor, webContents: hostedContents });
+    expect(appWebContents).not.toHaveBeenCalled();
+    expect(browserWebContents).not.toHaveBeenCalled();
+  });
 });
 
 describe("AppTabObserver", () => {

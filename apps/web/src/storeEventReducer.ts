@@ -31,7 +31,6 @@ import {
   normalizeActivities,
   normalizeChatMessage,
   normalizeModelSelection,
-  normalizeProposedPlans,
   normalizeThreadErrorMessage,
   normalizeThreadSession,
   normalizeTurnDiffFiles,
@@ -290,12 +289,7 @@ function buildLatestTurn(params: {
   startedAt: string | null;
   completedAt: string | null;
   assistantMessageId: NonNullable<Thread["latestTurn"]>["assistantMessageId"];
-  sourceProposedPlan?: Thread["pendingSourceProposedPlan"];
 }): NonNullable<Thread["latestTurn"]> {
-  const sourceProposedPlan =
-    params.previous?.turnId === params.turnId
-      ? (params.previous.sourceProposedPlan ?? params.sourceProposedPlan)
-      : params.sourceProposedPlan;
   return {
     turnId: params.turnId,
     state: params.state,
@@ -303,7 +297,6 @@ function buildLatestTurn(params: {
     startedAt: params.startedAt,
     completedAt: params.completedAt,
     assistantMessageId: params.assistantMessageId,
-    ...(sourceProposedPlan ? { sourceProposedPlan } : {}),
   };
 }
 
@@ -330,7 +323,6 @@ function reconcileLatestTurnFromSession(
         thread.latestTurn?.turnId === session.activeTurnId
           ? thread.latestTurn.assistantMessageId
           : null,
-      sourceProposedPlan: thread.pendingSourceProposedPlan,
     });
   }
 
@@ -361,7 +353,6 @@ function reconcileLatestTurnFromSession(
       startedAt: thread.latestTurn.startedAt,
       completedAt: session.updatedAt,
       assistantMessageId: thread.latestTurn.assistantMessageId,
-      sourceProposedPlan: thread.pendingSourceProposedPlan,
     });
   }
 
@@ -468,15 +459,6 @@ function retainThreadActivitiesAfterRevert(
   );
 }
 
-function retainThreadProposedPlansAfterRevert(
-  proposedPlans: ReadonlyArray<Thread["proposedPlans"][number]>,
-  retainedTurnIds: ReadonlySet<string>,
-): Thread["proposedPlans"] {
-  return proposedPlans.filter(
-    (proposedPlan) => proposedPlan.turnId === null || retainedTurnIds.has(proposedPlan.turnId),
-  );
-}
-
 function rollbackThreadMessagesFromMessage(
   messages: ReadonlyArray<ChatMessage>,
   messageId: string,
@@ -546,7 +528,6 @@ function applyTurnDiffSummaryToThread(
                 ? thread.latestTurn.assistantMessageId
                 : null) ??
               null,
-            sourceProposedPlan: thread.pendingSourceProposedPlan,
           })
       : thread.latestTurn;
 
@@ -714,7 +695,6 @@ function applyThreadMessageSentEvent(thread: Thread, event: ThreadMessageSentEve
       startedAt: previousTurn?.startedAt ?? payload.createdAt,
       completedAt: payload.streaming ? (previousTurn?.completedAt ?? null) : payload.updatedAt,
       assistantMessageId: payload.messageId,
-      sourceProposedPlan: thread.pendingSourceProposedPlan,
     });
   }
 
@@ -921,8 +901,6 @@ function applyOrchestrationEvent(
               (event.payload.subagentRole ?? null) === (thread.subagentRole ?? null)) &&
             (event.payload.lastKnownPr === undefined ||
               deepEqualJson(event.payload.lastKnownPr ?? null, thread.lastKnownPr ?? null)) &&
-            (event.payload.handoff === undefined ||
-              (event.payload.handoff ?? null) === (thread.handoff ?? null)) &&
             (event.payload.pinnedMessages === undefined ||
               deepEqualJson(event.payload.pinnedMessages, thread.pinnedMessages ?? null)) &&
             (event.payload.threadMarkers === undefined ||
@@ -962,7 +940,6 @@ function applyOrchestrationEvent(
             ...(event.payload.lastKnownPr !== undefined
               ? { lastKnownPr: event.payload.lastKnownPr }
               : {}),
-            ...(event.payload.handoff !== undefined ? { handoff: event.payload.handoff } : {}),
             ...(event.payload.pinnedMessages !== undefined
               ? {
                   pinnedMessages: event.payload.pinnedMessages as NonNullable<
@@ -1272,12 +1249,9 @@ function applyOrchestrationEvent(
               ? normalizeModelSelection(event.payload.modelSelection, thread.modelSelection)
               : thread.modelSelection;
           const runtimeMode = event.payload.runtimeMode;
-          const interactionMode = event.payload.interactionMode;
           if (
             modelSelection === thread.modelSelection &&
             thread.runtimeMode === runtimeMode &&
-            thread.interactionMode === interactionMode &&
-            thread.pendingSourceProposedPlan === event.payload.sourceProposedPlan &&
             thread.pendingTurnStartMessageId === event.payload.messageId &&
             (thread.updatedAt ?? thread.createdAt) >= event.payload.createdAt
           ) {
@@ -1287,8 +1261,6 @@ function applyOrchestrationEvent(
             ...thread,
             modelSelection,
             runtimeMode,
-            interactionMode,
-            pendingSourceProposedPlan: event.payload.sourceProposedPlan,
             pendingTurnStartMessageId: event.payload.messageId,
             updatedAt:
               (thread.updatedAt ?? thread.createdAt) > event.payload.createdAt
@@ -1386,45 +1358,6 @@ function applyOrchestrationEvent(
         },
       );
 
-    case "thread.proposed-plan-upserted":
-      return applyThreadUpdate(
-        state,
-        event.payload.threadId,
-        (thread) => {
-          const previousPlanIndex = thread.proposedPlans.findIndex(
-            (plan) => plan.id === event.payload.proposedPlan.id,
-          );
-          const nextPlan = normalizeProposedPlans(
-            [event.payload.proposedPlan],
-            previousPlanIndex >= 0 ? [thread.proposedPlans[previousPlanIndex]!] : undefined,
-          )[0];
-          if (!nextPlan) {
-            return thread;
-          }
-          const proposedPlans =
-            previousPlanIndex >= 0
-              ? thread.proposedPlans.map((plan, index) =>
-                  index === previousPlanIndex ? nextPlan : plan,
-                )
-              : [...thread.proposedPlans, nextPlan];
-          if (arraysShallowEqual(thread.proposedPlans, proposedPlans)) {
-            return thread;
-          }
-          return {
-            ...thread,
-            proposedPlans,
-            updatedAt:
-              (thread.updatedAt ?? thread.createdAt) > event.payload.proposedPlan.updatedAt
-                ? thread.updatedAt
-                : event.payload.proposedPlan.updatedAt,
-          };
-        },
-        {
-          ...options,
-          updateSidebarSummary: true,
-        },
-      );
-
     case "thread.turn-diff-completed":
       return applyThreadUpdate(
         state,
@@ -1472,10 +1405,6 @@ function applyOrchestrationEvent(
             retainedTurnIds,
             event.payload.turnCount,
           ).slice(-MAX_THREAD_MESSAGES);
-          const proposedPlans = retainThreadProposedPlansAfterRevert(
-            thread.proposedPlans,
-            retainedTurnIds,
-          );
           const activities = retainThreadActivitiesAfterRevert(thread.activities, retainedTurnIds);
           const latestCheckpoint = turnDiffSummaries.at(-1) ?? null;
 
@@ -1483,9 +1412,7 @@ function applyOrchestrationEvent(
             ...thread,
             turnDiffSummaries,
             messages,
-            proposedPlans,
             activities,
-            pendingSourceProposedPlan: undefined,
             latestTurn:
               latestCheckpoint === null
                 ? null
@@ -1519,15 +1446,13 @@ function applyOrchestrationEvent(
           );
           if (
             messages.length === thread.messages.length &&
-            thread.pendingTurnStartMessageId === null &&
-            thread.pendingSourceProposedPlan === undefined
+            thread.pendingTurnStartMessageId === null
           ) {
             return thread;
           }
           return {
             ...thread,
             messages,
-            pendingSourceProposedPlan: undefined,
             pendingTurnStartMessageId: null,
             updatedAt:
               (thread.updatedAt ?? thread.createdAt) > event.occurredAt
@@ -1565,9 +1490,6 @@ function applyOrchestrationEvent(
                 (left.checkpointTurnCount ?? Number.MAX_SAFE_INTEGER) -
                 (right.checkpointTurnCount ?? Number.MAX_SAFE_INTEGER),
             );
-          const proposedPlans = thread.proposedPlans.filter(
-            (plan) => plan.turnId === null || !removedTurnIds.has(plan.turnId),
-          );
           const activities = thread.activities.filter(
             (activity) => activity.turnId === null || !removedTurnIds.has(activity.turnId),
           );
@@ -1577,9 +1499,7 @@ function applyOrchestrationEvent(
             ...thread,
             turnDiffSummaries,
             messages: rollback.messages.slice(-MAX_THREAD_MESSAGES),
-            proposedPlans,
             activities,
-            pendingSourceProposedPlan: undefined,
             latestTurn:
               latestCheckpoint === null
                 ? null

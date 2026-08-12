@@ -19,8 +19,6 @@ import {
   type Thread,
   type ThreadPrimarySurface,
   type TurnDiffSummary,
-  type WorktreeSetupSnapshot,
-  type WorktreeSetupStepId,
 } from "../types";
 import { type DraftThreadState } from "../composerDraftStore";
 import { Schema } from "effect";
@@ -351,26 +349,6 @@ export function resolvePromptHistoryNavigation(input: {
   };
 }
 
-// Default-open policy for the Environment panel; render-time visibility is resolved separately.
-// `settingsDefaultOpen` is the user preference (Settings → Environment panel). Landing,
-// terminal-primary, and constrained layouts always start closed regardless of that setting.
-export function resolveDefaultEnvironmentPanelOpen(input: {
-  environmentEnabled: boolean;
-  isCenteredEmptyLanding: boolean;
-  isTerminalPrimarySurface: boolean;
-  isConstrainedChatLayout: boolean;
-  settingsDefaultOpen?: boolean;
-}): boolean {
-  const settingsDefaultOpen = input.settingsDefaultOpen ?? false;
-  return (
-    input.environmentEnabled &&
-    settingsDefaultOpen &&
-    !input.isCenteredEmptyLanding &&
-    !input.isTerminalPrimarySurface &&
-    !input.isConstrainedChatLayout
-  );
-}
-
 // Build the ordered model list used by model.next / model.previous: favorites first
 // (stable user order), then remaining discovered options. Returns null when cycling is
 // a no-op (fewer than two selectable models).
@@ -409,44 +387,6 @@ export function resolveCycledModelSlug(input: {
   const delta = input.direction === "next" ? 1 : -1;
   const nextIndex = (currentIndex + delta + ordered.length) % ordered.length;
   return ordered[nextIndex] ?? null;
-}
-
-export function resolveEnvironmentPanelOpen(input: {
-  defaultOpen: boolean;
-  userPreferenceOpen: boolean | null;
-}): boolean {
-  return input.userPreferenceOpen ?? input.defaultOpen;
-}
-
-export function resolveEnvironmentPanelPreferenceUpdate(input: {
-  open: boolean;
-  persist: boolean;
-}): {
-  userPreferenceOpen: boolean;
-  settingsDefaultOpen: boolean | null;
-} {
-  return {
-    userPreferenceOpen: input.open,
-    settingsDefaultOpen: input.persist ? input.open : null,
-  };
-}
-
-export function resolveEnvironmentPanelPreferenceAfterFirstSend(input: {
-  isCenteredEmptyLanding: boolean;
-  settingsDefaultOpen: boolean;
-  currentPreferenceOpen: boolean | null;
-}): boolean | null {
-  if (!input.isCenteredEmptyLanding) {
-    return input.currentPreferenceOpen;
-  }
-  return input.settingsDefaultOpen ? null : false;
-}
-
-export function resolveEnvironmentPanelVisible(input: {
-  environmentEnabled: boolean;
-  environmentPanelOpen: boolean;
-}): boolean {
-  return input.environmentEnabled && input.environmentPanelOpen;
 }
 
 // Normal project toolbars stay stable while repository discovery is pending. Studio folders are
@@ -568,7 +508,6 @@ export function buildLocalDraftThread(
     title: draftThread.entryPoint === "terminal" ? "New terminal" : "New thread",
     modelSelection: fallbackModelSelection,
     runtimeMode: draftThread.runtimeMode,
-    interactionMode: draftThread.interactionMode,
     session: null,
     messages: [],
     error,
@@ -580,10 +519,8 @@ export function buildLocalDraftThread(
     worktreePath: draftThread.worktreePath,
     workingDirectory: draftThread.workingDirectory ?? null,
     lastKnownPr: draftThread.lastKnownPr ?? null,
-    handoff: null,
     turnDiffSummaries: [],
     activities: [],
-    proposedPlans: [],
   };
 }
 
@@ -667,8 +604,7 @@ export function sanitizeVoiceErrorMessage(message: string): string {
 }
 
 export function isVoiceAuthExpiredMessage(message: string): boolean {
-  const normalized = message.toLowerCase();
-  return normalized.includes("chatgpt login has expired") || normalized.includes("sign in again");
+  return message.toLowerCase().includes("chatgpt connection is unavailable");
 }
 
 export function describeVoiceRecordingStartError(error: unknown): string {
@@ -740,7 +676,7 @@ export function shouldShowComposerModelBootstrapSkeleton(input: {
   }
 
   if (persistedSelection.provider !== input.selectedProvider) {
-    return true;
+    return input.providerModelsLoading;
   }
 
   if (!input.providerModelsLoading) {
@@ -775,87 +711,8 @@ export function shouldConsumePendingCustomBinaryConfirmation(input: {
   return !input.sessionAlreadyChecked || Boolean(input.pendingCustomBinaryPath);
 }
 
-export interface PullRequestDialogState {
-  initialReference: string | null;
-  key: number;
-}
-
-// Ordered client-side phases of the "New worktree" first-send setup. The
-// labels surface verbatim in the transcript's transient setup row.
-export const WORKTREE_SETUP_STEP_DEFINITIONS: ReadonlyArray<{
-  id: WorktreeSetupStepId;
-  label: string;
-}> = [
-  { id: "create-worktree", label: "Creating branch and worktree" },
-  { id: "prepare-thread", label: "Linking thread workspace" },
-  { id: "start-session", label: "Starting session" },
-];
-
-export interface WorktreeSetupSnapshotOptions {
-  setupScriptName?: string | null;
-}
-
-export interface WorktreeSetupDispatchOptions extends WorktreeSetupSnapshotOptions {
-  worktreeSetupStepId?: WorktreeSetupStepId;
-  expectedUserMessageId?: ChatMessage["id"];
-}
-
-function worktreeSetupStepDefinitions(
-  activeStepId: WorktreeSetupStepId,
-  options?: WorktreeSetupSnapshotOptions,
-): ReadonlyArray<{ id: WorktreeSetupStepId; label: string }> {
-  const setupScriptName = options?.setupScriptName?.trim();
-  const includeSetupStep = activeStepId === "run-setup-action" || Boolean(setupScriptName);
-  if (!includeSetupStep) {
-    return WORKTREE_SETUP_STEP_DEFINITIONS;
-  }
-  return [
-    { id: "create-worktree", label: "Creating branch and worktree" },
-    { id: "prepare-thread", label: "Linking thread workspace" },
-    {
-      id: "run-setup-action",
-      label: setupScriptName ? `Running setup action: ${setupScriptName}` : "Running setup action",
-    },
-    { id: "start-session", label: "Starting session" },
-  ];
-}
-
-// How long a failed setup step stays visible before the row is dismissed, so
-// the error state can paint instead of being batched away with the reset.
-export const WORKTREE_SETUP_ERROR_HOLD_MS = 1200;
-
-export function createWorktreeSetupSnapshot(
-  activeStepId: WorktreeSetupStepId,
-  options?: WorktreeSetupSnapshotOptions,
-): WorktreeSetupSnapshot {
-  const stepDefinitions = worktreeSetupStepDefinitions(activeStepId, options);
-  const activeIndex = stepDefinitions.findIndex((step) => step.id === activeStepId);
-  return {
-    steps: stepDefinitions.map((step, index) => ({
-      ...step,
-      status: index < activeIndex ? "done" : index === activeIndex ? "active" : "pending",
-    })),
-  };
-}
-
-export function failWorktreeSetupSnapshot(snapshot: WorktreeSetupSnapshot): WorktreeSetupSnapshot {
-  if (!snapshot.steps.some((step) => step.status === "active")) {
-    return snapshot;
-  }
-  return {
-    steps: snapshot.steps.map((step) =>
-      step.status === "active" ? { ...step, status: "error" } : step,
-    ),
-  };
-}
-
-export function worktreeSetupHasError(snapshot: WorktreeSetupSnapshot | null): boolean {
-  return snapshot?.steps.some((step) => step.status === "error") ?? false;
-}
-
 export interface LocalDispatchSnapshot {
   startedAt: string;
-  worktreeSetup: WorktreeSetupSnapshot | null;
   expectedUserMessageId: ChatMessage["id"] | null;
   latestTurnTurnId: Thread["latestTurn"] extends infer T
     ? T extends { turnId: infer U }
@@ -875,15 +732,12 @@ export interface LocalDispatchSnapshot {
 
 export function createLocalDispatchSnapshot(
   activeThread: Thread | undefined,
-  options?: WorktreeSetupDispatchOptions,
+  options?: { readonly expectedUserMessageId?: ChatMessage["id"] },
 ): LocalDispatchSnapshot {
   const latestTurn = activeThread?.latestTurn ?? null;
   const session = activeThread?.session ?? null;
   return {
     startedAt: new Date().toISOString(),
-    worktreeSetup: options?.worktreeSetupStepId
-      ? createWorktreeSetupSnapshot(options.worktreeSetupStepId, options)
-      : null,
     expectedUserMessageId: options?.expectedUserMessageId ?? null,
     latestTurnTurnId: latestTurn?.turnId ?? null,
     latestTurnRequestedAt: latestTurn?.requestedAt ?? null,
@@ -894,31 +748,12 @@ export function createLocalDispatchSnapshot(
   };
 }
 
-// Computes the next client-side dispatch marker while preserving in-flight setup
-// progress and dropping failed setup rows that are only being held for display.
 export function resolveNextLocalDispatchSnapshot(input: {
   current: LocalDispatchSnapshot | null;
   activeThread: Thread | undefined;
-  options?: WorktreeSetupDispatchOptions;
+  options?: { readonly expectedUserMessageId?: ChatMessage["id"] };
 }): LocalDispatchSnapshot {
-  const worktreeSetupStepId = input.options?.worktreeSetupStepId;
-  if (!input.current || worktreeSetupHasError(input.current.worktreeSetup)) {
-    return createLocalDispatchSnapshot(input.activeThread, input.options);
-  }
-
-  if (!worktreeSetupStepId) {
-    return input.current;
-  }
-
-  const alreadyActive = input.current.worktreeSetup?.steps.some(
-    (step) => step.id === worktreeSetupStepId && step.status === "active",
-  );
-  return alreadyActive
-    ? input.current
-    : {
-        ...input.current,
-        worktreeSetup: createWorktreeSetupSnapshot(worktreeSetupStepId, input.options),
-      };
+  return input.current ?? createLocalDispatchSnapshot(input.activeThread, input.options);
 }
 
 export function hasServerAcknowledgedLocalDispatch(input: {
@@ -976,83 +811,6 @@ export function hasServerAcknowledgedLocalDispatch(input: {
   }
 
   return false;
-}
-
-/**
- * Steering a non-Codex provider interrupts the live turn and lets the server
- * re-dispatch the steer text as a fresh turn. Between the abort and the
- * steered turn's start the thread briefly looks idle, which would otherwise
- * let the queued-composer auto-dispatch race the steered turn (and fire every
- * queued message at once). The gate holds auto-dispatch through that gap.
- */
-export interface QueuedSteerGate {
-  /** The abort gap has been observed (phase left "running" after the steer). */
-  sawInterruptGap: boolean;
-  /** Epoch ms when the gap started; null while the original turn still runs. */
-  gapStartedAt: number | null;
-  /** Active turn id at steer time; a different live id means the steered turn started. */
-  armedActiveTurnId: string | null;
-}
-
-/** Recovery bound: a healthy interrupt→steered-turn handoff takes ~1-2s. */
-export const QUEUED_STEER_GATE_TIMEOUT_MS = 15_000;
-
-export type QueuedSteerGateTransition =
-  | { kind: "clear" }
-  | { kind: "hold"; gate: QueuedSteerGate; expiresInMs: number | null };
-
-export function resolveQueuedSteerGateTransition(input: {
-  gate: QueuedSteerGate;
-  phase: SessionPhase;
-  sessionErrored: boolean;
-  activeTurnId: string | null;
-  now: number;
-}): QueuedSteerGateTransition {
-  if (input.phase === "disconnected" || input.sessionErrored) {
-    // The steer will not produce a follow-up turn; release the queue.
-    return { kind: "clear" };
-  }
-  if (input.phase === "running") {
-    if (input.gate.sawInterruptGap) {
-      // The steered turn is live; normal live-turn guards take over from here.
-      return { kind: "clear" };
-    }
-    // A fast interrupt→steered-turn handoff may never render an idle gap: the
-    // active turn id flipping while still "running" is the same signal.
-    if (
-      input.gate.armedActiveTurnId !== null &&
-      input.activeTurnId !== null &&
-      input.activeTurnId !== input.gate.armedActiveTurnId
-    ) {
-      return { kind: "clear" };
-    }
-    // Original turn still running (interrupt not processed yet): keep holding.
-    return {
-      kind: "hold",
-      gate: {
-        sawInterruptGap: false,
-        gapStartedAt: null,
-        armedActiveTurnId: input.gate.armedActiveTurnId ?? input.activeTurnId,
-      },
-      expiresInMs: null,
-    };
-  }
-  const gapStartedAt = input.gate.gapStartedAt ?? input.now;
-  const expiresInMs = QUEUED_STEER_GATE_TIMEOUT_MS - (input.now - gapStartedAt);
-  if (expiresInMs <= 0) {
-    // The steered turn never started (lost interrupt, provider failure that
-    // didn't surface as a session error). Fail open so the queue can't stall.
-    return { kind: "clear" };
-  }
-  return {
-    kind: "hold",
-    gate: {
-      sawInterruptGap: true,
-      gapStartedAt,
-      armedActiveTurnId: input.gate.armedActiveTurnId,
-    },
-    expiresInMs,
-  };
 }
 
 export const ACTIVE_TURN_LAYOUT_SETTLE_DELAY_MS = 180;
@@ -1162,7 +920,7 @@ export function shouldAutoDeleteTerminalThreadOnLastClose(options: {
   isServerThread: boolean;
   terminalEntryPoint: ThreadPrimarySurface;
   thread:
-    | Pick<Thread, "activities" | "latestTurn" | "messages" | "proposedPlans" | "session" | "title">
+    | Pick<Thread, "activities" | "latestTurn" | "messages" | "session" | "title">
     | null
     | undefined;
 }): boolean {
@@ -1180,8 +938,7 @@ export function shouldAutoDeleteTerminalThreadOnLastClose(options: {
     thread.messages.length === 0 &&
     thread.latestTurn === null &&
     thread.session === null &&
-    thread.activities.length === 0 &&
-    thread.proposedPlans.length === 0
+    thread.activities.length === 0
   );
 }
 

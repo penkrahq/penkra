@@ -1,0 +1,180 @@
+name: Publish Public npm Package
+
+on:
+  workflow_dispatch:
+    inputs:
+      package:
+        description: Public package to publish
+        required: true
+        type: choice
+        options:
+          - sdk
+          - ui
+      version:
+        description: Exact package version already committed on main
+        required: true
+        type: string
+
+concurrency:
+  group: npm-${{ inputs.package }}-${{ inputs.version }}
+  cancel-in-progress: false
+
+permissions:
+  checks: read
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    name: Publish @penkra/${{ inputs.package }}@${{ inputs.version }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: npm
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Resolve and validate package identity
+        id: package
+        env:
+          REQUESTED_PACKAGE: ${{ inputs.package }}
+          REQUESTED_VERSION: ${{ inputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "Public npm packages may be published only from main; got: $GITHUB_REF" >&2
+            exit 1
+          fi
+
+          case "$REQUESTED_PACKAGE" in
+            sdk) package_path="packages/sdk" ;;
+            ui) package_path="packages/ui" ;;
+            *)
+              echo "Unsupported public package: $REQUESTED_PACKAGE" >&2
+              exit 1
+              ;;
+          esac
+
+          node --input-type=module - "$package_path" "$REQUESTED_VERSION" <<'NODE'
+          import { readFileSync } from "node:fs";
+
+          const [packagePath, requestedVersion] = process.argv.slice(2);
+          const manifest = JSON.parse(readFileSync(`${packagePath}/package.json`, "utf8"));
+          const exactSemver = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
+
+          if (!exactSemver.test(requestedVersion)) {
+            throw new Error(`Requested version is not an exact semantic version: ${requestedVersion}`);
+          }
+          if (manifest.version !== requestedVersion) {
+            throw new Error(
+              `${packagePath}/package.json is ${manifest.version}; requested publish is ${requestedVersion}`,
+            );
+          }
+          if (manifest.name !== `@penkra/${packagePath.split("/").at(-1)}`) {
+            throw new Error(`Unexpected package identity in ${packagePath}/package.json: ${manifest.name}`);
+          }
+          if (manifest.private === true || manifest.publishConfig?.access !== "public") {
+            throw new Error(`${manifest.name} is not explicitly configured for public publication`);
+          }
+          NODE
+
+          {
+            echo "name=@penkra/$REQUESTED_PACKAGE"
+            echo "path=$package_path"
+            echo "version=$REQUESTED_VERSION"
+            echo "source_commit=$(git rev-parse HEAD)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Require successful CI for the exact source commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_COMMIT: ${{ steps.package.outputs.source_commit }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          successful_gate_count="$(
+            gh api "repos/${GITHUB_REPOSITORY}/commits/${SOURCE_COMMIT}/check-runs?per_page=100" \
+              --jq '[.check_runs[] | select(.name == "Penkra CI Quality Gate" and .conclusion == "success" and .app.slug == "github-actions")] | length'
+          )"
+          if (( successful_gate_count < 1 )); then
+            echo "Publication requires a successful Penkra CI Quality Gate for ${SOURCE_COMMIT}." >&2
+            exit 1
+          fi
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+
+      - name: Setup Node for trusted publishing
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24.15.0"
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+
+      - name: Install trusted-publishing npm CLI
+        run: npm install --global npm@12.0.2
+
+      - name: Install exact workspace dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Refuse an existing registry version
+        env:
+          PACKAGE_NAME: ${{ steps.package.outputs.name }}
+          PACKAGE_VERSION: ${{ steps.package.outputs.version }}
+        run: |
+          node --input-type=module <<'NODE'
+          const packageName = process.env.PACKAGE_NAME;
+          const packageVersion = process.env.PACKAGE_VERSION;
+          const registryUrl = `https://registry.npmjs.org/${encodeURIComponent(packageName)}/${encodeURIComponent(packageVersion)}`;
+          const response = await fetch(registryUrl, { headers: { accept: "application/json" } });
+
+          if (response.status === 200) {
+            throw new Error(`${packageName}@${packageVersion} already exists on npm; versions are immutable`);
+          }
+          if (response.status !== 404) {
+            throw new Error(`Unable to establish registry collision status: HTTP ${response.status}`);
+          }
+          NODE
+
+      - name: Build package
+        working-directory: ${{ steps.package.outputs.path }}
+        run: bun run build
+
+      - name: Review package contents
+        working-directory: ${{ steps.package.outputs.path }}
+        run: npm pack --dry-run
+
+      - name: Publish with npm trusted publishing
+        working-directory: ${{ steps.package.outputs.path }}
+        run: npm publish --access public
+
+      - name: Confirm published version
+        env:
+          PACKAGE_NAME: ${{ steps.package.outputs.name }}
+          PACKAGE_VERSION: ${{ steps.package.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in {1..12}; do
+            published_version="$(npm view "${PACKAGE_NAME}@${PACKAGE_VERSION}" version 2>/dev/null || true)"
+            if [[ "$published_version" == "$PACKAGE_VERSION" ]]; then
+              {
+                echo "### Published ${PACKAGE_NAME}@${PACKAGE_VERSION}"
+                echo
+                echo "Source commit: \`${{ steps.package.outputs.source_commit }}\`"
+                echo "Authentication: npm trusted publishing (OIDC)"
+                echo "Provenance: generated automatically by npm"
+              } >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            sleep 5
+          done
+
+          echo "npm accepted the publish, but the exact version was not observable within one minute." >&2
+          exit 1

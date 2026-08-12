@@ -46,7 +46,7 @@ type CustomModelValidationResult =
   | { readonly model: string; readonly error?: never }
   | { readonly model?: never; readonly error: string };
 
-const GIT_WRITING_DISCOVERY_PROVIDERS = ["codex", "kilo", "opencode"] as const;
+const THREAD_TITLE_DISCOVERY_PROVIDERS = ["codex", "kilo", "opencode"] as const;
 
 export function validateCustomModelInput(input: {
   readonly provider: ProviderKind;
@@ -105,23 +105,23 @@ export function ModelsSettingsPanel({
     textGenerationModel,
     textGenerationProvider,
   } = settings;
-  const currentGitTextGenerationProvider = textGenerationProvider ?? "codex";
-  const currentGitTextGenerationModel = textGenerationModel ?? DEFAULT_GIT_TEXT_GENERATION_MODEL;
-  const gitWritingModelHintByProvider = useMemo<Partial<Record<ProviderKind, string | null>>>(
-    () => ({ [currentGitTextGenerationProvider]: currentGitTextGenerationModel }),
-    [currentGitTextGenerationModel, currentGitTextGenerationProvider],
+  const currentThreadTitleProvider = textGenerationProvider ?? "codex";
+  const currentThreadTitleModel = textGenerationModel ?? DEFAULT_GIT_TEXT_GENERATION_MODEL;
+  const threadTitleModelHintByProvider = useMemo<Partial<Record<ProviderKind, string | null>>>(
+    () => ({ [currentThreadTitleProvider]: currentThreadTitleModel }),
+    [currentThreadTitleModel, currentThreadTitleProvider],
   );
   const providerModelDiscoveryCwd = resolveProviderDiscoveryCwd({
     activeThreadWorktreePath: null,
     activeProjectCwd: null,
     serverCwd: serverConfigQuery.data?.cwd ?? null,
   });
-  const { modelOptionsByProvider: gitWritingCatalogOptionsByProvider } = useProviderModelCatalog({
-    selectedProvider: currentGitTextGenerationProvider,
+  const { modelOptionsByProvider: threadTitleCatalogOptionsByProvider } = useProviderModelCatalog({
+    selectedProvider: currentThreadTitleProvider,
     discoveryEnabled: active,
     cwd: providerModelDiscoveryCwd,
-    modelHintByProvider: gitWritingModelHintByProvider,
-    prefetchProviders: GIT_WRITING_DISCOVERY_PROVIDERS,
+    modelHintByProvider: threadTitleModelHintByProvider,
+    prefetchProviders: THREAD_TITLE_DISCOVERY_PROVIDERS,
   });
   const gitTextGenerationModelOptions = useMemo(
     () =>
@@ -134,30 +134,29 @@ export function ModelsSettingsPanel({
           textGenerationProvider,
         },
         {
-          codex: gitWritingCatalogOptionsByProvider.codex,
-          kilo: gitWritingCatalogOptionsByProvider.kilo,
-          opencode: gitWritingCatalogOptionsByProvider.opencode,
+          codex: threadTitleCatalogOptionsByProvider.codex,
+          kilo: threadTitleCatalogOptionsByProvider.kilo,
+          opencode: threadTitleCatalogOptionsByProvider.opencode,
         },
       ),
     [
       customCodexModels,
       customKiloModels,
       customOpenCodeModels,
-      gitWritingCatalogOptionsByProvider.codex,
-      gitWritingCatalogOptionsByProvider.kilo,
-      gitWritingCatalogOptionsByProvider.opencode,
+      threadTitleCatalogOptionsByProvider.codex,
+      threadTitleCatalogOptionsByProvider.kilo,
+      threadTitleCatalogOptionsByProvider.opencode,
       textGenerationModel,
       textGenerationProvider,
     ],
   );
-  const currentGitTextGenerationValue = `${currentGitTextGenerationProvider}:${currentGitTextGenerationModel}`;
-  const isGitTextGenerationModelDirty = isGitTextGenerationSettingsDirty(settings, defaults);
-  const selectedGitTextGenerationModelLabel =
+  const currentThreadTitleValue = `${currentThreadTitleProvider}:${currentThreadTitleModel}`;
+  const isThreadTitleModelDirty = isGitTextGenerationSettingsDirty(settings, defaults);
+  const selectedThreadTitleModelLabel =
     gitTextGenerationModelOptions.find(
       (option) =>
-        option.provider === currentGitTextGenerationProvider &&
-        option.slug === currentGitTextGenerationModel,
-    )?.name ?? currentGitTextGenerationModel;
+        option.provider === currentThreadTitleProvider && option.slug === currentThreadTitleModel,
+    )?.name ?? currentThreadTitleModel;
   const selectedCustomModelProviderSettings = CUSTOM_MODEL_EDITOR_PROVIDER_SETTINGS.find(
     (config) => config.provider === selectedCustomModelProvider,
   )!;
@@ -263,12 +262,12 @@ export function ModelsSettingsPanel({
     <div className="space-y-6">
       <SettingsSection title="Generation defaults">
         <SettingsRow
-          title="Git writing model"
-          description="Used for generated commit messages, PR titles, and branch names."
+          title="Thread title model"
+          description="Used once to name a Thread from its first message."
           resetAction={
-            isGitTextGenerationModelDirty ? (
+            isThreadTitleModelDirty ? (
               <SettingResetButton
-                label="git writing model"
+                label="Thread title model"
                 onClick={() =>
                   updateSettings({
                     textGenerationProvider: defaults.textGenerationProvider,
@@ -280,7 +279,7 @@ export function ModelsSettingsPanel({
           }
           control={
             <SettingsSelectControl
-              value={currentGitTextGenerationValue}
+              value={currentThreadTitleValue}
               onValueChange={(value) => {
                 if (!value) return;
                 const separatorIndex = value.indexOf(":");
@@ -292,9 +291,9 @@ export function ModelsSettingsPanel({
                   textGenerationModel: model,
                 });
               }}
-              ariaLabel="Git text generation model"
+              ariaLabel="Thread title model"
               triggerClassName="w-full sm:w-52"
-              valueContent={selectedGitTextGenerationModelLabel}
+              valueContent={selectedThreadTitleModelLabel}
             >
               {gitTextGenerationModelOptions.map((option) => (
                 <SelectItem

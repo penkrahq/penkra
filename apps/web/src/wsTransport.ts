@@ -20,8 +20,6 @@ import {
   WsCompatibilityError,
   WsFeatureRpcGroup,
   WsRpcError,
-  type GitActionProgressEvent,
-  type GitRunStackedActionResult,
   type OrchestrationEvent,
   type OrchestrationShellStreamItem,
   type OrchestrationThreadStreamItem,
@@ -502,10 +500,6 @@ export class WsTransport {
       }
 
       let client = await awaitWithAbort(this.getClient(), abortScope.signal);
-
-      if (method === WS_METHODS.gitRunStackedAction) {
-        return (await this.runGitActionStream(client, params, abortScope.signal)) as T;
-      }
 
       if (method === ORCHESTRATION_WS_METHODS.subscribeShell) {
         this.shellSubscribed = true;
@@ -1219,26 +1213,5 @@ export class WsTransport {
     this.streamCleanups.delete(key);
     cleanup();
     return settled;
-  }
-
-  private async runGitActionStream(
-    client: RpcClientInstance,
-    params: unknown,
-    signal?: AbortSignal,
-  ): Promise<GitRunStackedActionResult> {
-    let result: GitRunStackedActionResult | null = null;
-    await this.getClientRuntime(client).runPromise(
-      Stream.runForEach(client[WS_METHODS.gitRunStackedAction](params as never), (event) =>
-        Effect.sync(() => {
-          this.emit(WS_CHANNELS.gitActionProgress, event as GitActionProgressEvent);
-          if ((event as GitActionProgressEvent).kind === "action_finished") {
-            result = (event as Extract<GitActionProgressEvent, { kind: "action_finished" }>).result;
-          }
-        }),
-      ),
-      signal ? { signal } : undefined,
-    );
-    if (!result) throw new Error("Git action stream completed without a final result.");
-    return result;
   }
 }

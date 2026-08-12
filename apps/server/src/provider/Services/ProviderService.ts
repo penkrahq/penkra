@@ -35,7 +35,18 @@ import { ServiceMap } from "effect";
 import type { Effect, Stream } from "effect";
 
 import type { ProviderServiceError } from "../Errors.ts";
-import type { ProviderAdapterCapabilities } from "./ProviderAdapter.ts";
+import type {
+  ProviderAdapterCapabilities,
+  ProviderManagedLaunchContext,
+} from "./ProviderAdapter.ts";
+
+export type ProviderServiceSessionStartInput = ProviderSessionStartInput & {
+  readonly managedLaunch?: ProviderManagedLaunchContext;
+};
+
+export type ProviderServiceForkThreadInput = ProviderForkThreadInput & {
+  readonly managedLaunch?: ProviderManagedLaunchContext;
+};
 
 export type ProviderRuntimeEventPumpStatus = "starting" | "healthy" | "recovering" | "degraded";
 
@@ -60,7 +71,7 @@ export interface ProviderServiceShape {
    */
   readonly startSession: (
     threadId: ThreadId,
-    input: ProviderSessionStartInput,
+    input: ProviderServiceSessionStartInput,
   ) => Effect.Effect<ProviderSession, ProviderServiceError>;
 
   /**
@@ -87,11 +98,12 @@ export interface ProviderServiceShape {
   /**
    * Fork a provider thread natively when the underlying adapter supports it.
    *
-   * Returns a persisted provider-native fork binding when available, otherwise
-   * `null` so callers can fall back to orchestration-only history.
+   * Returns a persisted provider-native fork binding when available. A null
+   * result means the exact native operation is unavailable; callers must fail
+   * closed rather than reconstruct provider context from projected history.
    */
   readonly forkThread?: (
-    input: ProviderForkThreadInput,
+    input: ProviderServiceForkThreadInput,
   ) => Effect.Effect<ProviderForkThreadResult | null, ProviderServiceError>;
 
   /**

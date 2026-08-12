@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { AppRendererRpcError, AppRendererRpcHost } from "./appRendererRpc";
+import { AppRendererRpcHost } from "./appRendererRpc";
 
 function fixture(options: ConstructorParameters<typeof AppRendererRpcHost>[0] = {}) {
   const sent: unknown[] = [];

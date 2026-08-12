@@ -12,53 +12,16 @@ import {
 import { ProviderTextGenerationLive } from "./ProviderTextGeneration.ts";
 
 function createTextGenerationDouble(label: string) {
-  const generateCommitMessage = vi.fn<TextGenerationShape["generateCommitMessage"]>(() =>
-    Effect.succeed({
-      subject: `${label} commit`,
-      body: "",
-    }),
-  );
-  const generatePrContent = vi.fn<TextGenerationShape["generatePrContent"]>(() =>
-    Effect.succeed({
-      title: `${label} pr`,
-      body: "",
-    }),
-  );
-  const generateDiffSummary = vi.fn<TextGenerationShape["generateDiffSummary"]>(() =>
-    Effect.succeed({
-      summary: `${label} summary`,
-    }),
-  );
-  const generateBranchName = vi.fn<TextGenerationShape["generateBranchName"]>(() =>
-    Effect.succeed({
-      branch: `${label}-branch`,
-    }),
-  );
   const generateThreadTitle = vi.fn<TextGenerationShape["generateThreadTitle"]>(() =>
     Effect.succeed({
       title: `${label} title`,
     }),
   );
-  const generateThreadRecap = vi.fn<TextGenerationShape["generateThreadRecap"]>(() =>
-    Effect.succeed({
-      recap: `${label} recap`,
-    }),
-  );
   return {
     service: {
-      generateCommitMessage,
-      generatePrContent,
-      generateDiffSummary,
-      generateBranchName,
       generateThreadTitle,
-      generateThreadRecap,
     } satisfies TextGenerationShape,
-    generateCommitMessage,
-    generatePrContent,
-    generateDiffSummary,
-    generateBranchName,
     generateThreadTitle,
-    generateThreadRecap,
   };
 }
 
@@ -78,68 +41,6 @@ function makeProviderTextGenerationTestLayer() {
 }
 
 describe("ProviderTextGenerationLive", () => {
-  it("routes standard git-writing models to Codex", async () => {
-    const { layer, codex, cursor, opencode } = makeProviderTextGenerationTestLayer();
-
-    const result = await Effect.runPromise(
-      Effect.gen(function* () {
-        const textGeneration = yield* TextGeneration;
-        return yield* textGeneration.generateDiffSummary({
-          cwd: "/repo",
-          patch: "diff --git a/file.ts b/file.ts",
-          model: "gpt-5.4-mini",
-        });
-      }).pipe(Effect.provide(layer)),
-    );
-
-    expect(result.summary).toBe("codex summary");
-    expect(codex.generateDiffSummary).toHaveBeenCalledTimes(1);
-    expect(cursor.generateDiffSummary).not.toHaveBeenCalled();
-    expect(opencode.generateDiffSummary).not.toHaveBeenCalled();
-  });
-
-  it("routes OpenCode provider/model slugs to OpenCode", async () => {
-    const { layer, codex, cursor, opencode } = makeProviderTextGenerationTestLayer();
-
-    const result = await Effect.runPromise(
-      Effect.gen(function* () {
-        const textGeneration = yield* TextGeneration;
-        return yield* textGeneration.generateDiffSummary({
-          cwd: "/repo",
-          patch: "diff --git a/file.ts b/file.ts",
-          model: "openai/gpt-5",
-        });
-      }).pipe(Effect.provide(layer)),
-    );
-
-    expect(result.summary).toBe("opencode summary");
-    expect(opencode.generateDiffSummary).toHaveBeenCalledTimes(1);
-    expect(codex.generateDiffSummary).not.toHaveBeenCalled();
-    expect(cursor.generateDiffSummary).not.toHaveBeenCalled();
-  });
-
-  it("routes explicit Kilo model selections through Kilo text generation", async () => {
-    const { layer, codex, kilo, opencode } = makeProviderTextGenerationTestLayer();
-
-    await Effect.runPromise(
-      Effect.gen(function* () {
-        const textGeneration = yield* TextGeneration;
-        yield* textGeneration.generateDiffSummary({
-          cwd: "/repo",
-          patch: "diff --git a/file.ts b/file.ts",
-          modelSelection: {
-            provider: "kilo",
-            model: "kilo/kilo-auto/free",
-          },
-        });
-      }).pipe(Effect.provide(layer)),
-    );
-
-    expect(kilo.generateDiffSummary).toHaveBeenCalledTimes(1);
-    expect(opencode.generateDiffSummary).not.toHaveBeenCalled();
-    expect(codex.generateDiffSummary).not.toHaveBeenCalled();
-  });
-
   it("routes explicit OpenCode model selections and preserves provider options", async () => {
     const { layer, codex, cursor, opencode } = makeProviderTextGenerationTestLayer();
 
