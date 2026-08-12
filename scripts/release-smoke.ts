@@ -192,7 +192,11 @@ function verifyReleaseWorkflowSafety(): void {
     "bun run test",
     "Release builds must consume the exact commit CI result instead of repeating tests.",
   );
-  assertContains(workflow, "runner: macos-15", "Expected a supported native macOS release runner.");
+  assertContains(
+    workflow,
+    "runner: macos-26",
+    "Expected the native macOS release runner to provide the Apple Speech SDK.",
+  );
   assertContains(workflow, "runner: ubuntu-24.04", "Expected a native Linux release runner.");
   assertContains(workflow, "fail-fast: false", "Expected independent platform release failures.");
   assertContains(
