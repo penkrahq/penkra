@@ -31,7 +31,20 @@ export function queuedComposerTurnServerMessageId(
   return queuedTurn.serverMessageId ?? queuedComposerTurnMessageId(queuedTurn.id);
 }
 
-export async function dispatchQueuedComposerTurn(input: {
+const queuedComposerTurnDispatches = new Map<string, Promise<void>>();
+
+function queuedComposerTurnDispatchKey(threadId: ThreadId, queuedTurnId: string): string {
+  return `${threadId}:${queuedTurnId}`;
+}
+
+export function getQueuedComposerTurnDispatchInFlight(
+  threadId: ThreadId,
+  queuedTurnId: string,
+): Promise<void> | undefined {
+  return queuedComposerTurnDispatches.get(queuedComposerTurnDispatchKey(threadId, queuedTurnId));
+}
+
+async function performQueuedComposerTurnDispatch(input: {
   api: NativeApi;
   threadId: ThreadId;
   queuedTurn: QueuedComposerChatTurn;
@@ -94,4 +107,26 @@ export async function dispatchQueuedComposerTurn(input: {
       createdAt: queuedTurn.createdAt,
     }),
   );
+}
+
+export function dispatchQueuedComposerTurn(input: {
+  api: NativeApi;
+  threadId: ThreadId;
+  queuedTurn: QueuedComposerChatTurn;
+  assistantDeliveryMode: AssistantDeliveryMode;
+}): Promise<void> {
+  const key = queuedComposerTurnDispatchKey(input.threadId, input.queuedTurn.id);
+  const existing = queuedComposerTurnDispatches.get(key);
+  if (existing) {
+    return existing;
+  }
+  const dispatch = performQueuedComposerTurnDispatch(input);
+  queuedComposerTurnDispatches.set(key, dispatch);
+  const clearDispatch = () => {
+    if (queuedComposerTurnDispatches.get(key) === dispatch) {
+      queuedComposerTurnDispatches.delete(key);
+    }
+  };
+  void dispatch.then(clearDispatch, clearDispatch);
+  return dispatch;
 }

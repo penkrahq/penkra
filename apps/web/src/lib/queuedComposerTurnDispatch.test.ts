@@ -2,7 +2,10 @@ import { ThreadId, type NativeApi } from "@penkra/contracts";
 import { describe, expect, it, vi } from "vitest";
 
 import type { QueuedComposerChatTurn } from "../composerDraftDomain";
-import { dispatchQueuedComposerTurn } from "./queuedComposerTurnDispatch";
+import {
+  dispatchQueuedComposerTurn,
+  getQueuedComposerTurnDispatchInFlight,
+} from "./queuedComposerTurnDispatch";
 
 function makeQueuedTurn(): QueuedComposerChatTurn {
   return {
@@ -58,5 +61,39 @@ describe("dispatchQueuedComposerTurn", () => {
         }),
       }),
     );
+  });
+
+  it("shares an in-flight dispatch so queue actions can await server admission", async () => {
+    let resolveDispatch!: (value: { sequence: number }) => void;
+    const dispatchCommand = vi.fn(
+      () =>
+        new Promise<{ sequence: number }>((resolve) => {
+          resolveDispatch = resolve;
+        }),
+    );
+    const api = {
+      orchestration: { dispatchCommand },
+    } as unknown as NativeApi;
+    const threadId = ThreadId.makeUnsafe("thread-offscreen-queue-in-flight");
+    const queuedTurn = makeQueuedTurn();
+    const input = {
+      api,
+      threadId,
+      queuedTurn,
+      assistantDeliveryMode: "streaming" as const,
+    };
+
+    const first = dispatchQueuedComposerTurn(input);
+    const second = dispatchQueuedComposerTurn(input);
+
+    expect(second).toBe(first);
+    expect(getQueuedComposerTurnDispatchInFlight(threadId, queuedTurn.id)).toBe(first);
+    await vi.waitFor(() => expect(dispatchCommand).toHaveBeenCalledTimes(1));
+
+    resolveDispatch({ sequence: 13 });
+    await first;
+    await Promise.resolve();
+
+    expect(getQueuedComposerTurnDispatchInFlight(threadId, queuedTurn.id)).toBeUndefined();
   });
 });

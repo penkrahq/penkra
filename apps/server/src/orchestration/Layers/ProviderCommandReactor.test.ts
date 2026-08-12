@@ -3974,6 +3974,7 @@ describe("ProviderCommandReactor", () => {
       readonly liveTurnId: TurnId;
       readonly messageId: MessageId;
       readonly text: string;
+      readonly providerName?: "codex" | "opencode";
       readonly attachments?: ReadonlyArray<ChatAttachment>;
     },
   ) {
@@ -3991,7 +3992,7 @@ describe("ProviderCommandReactor", () => {
         session: {
           threadId: ThreadId.makeUnsafe("thread-1"),
           status: "running",
-          providerName: "codex",
+          providerName: input.providerName ?? "codex",
           runtimeMode: "approval-required",
           activeTurnId: input.liveTurnId,
           lastError: null,
@@ -4128,6 +4129,62 @@ describe("ProviderCommandReactor", () => {
         }),
       ),
     ).toBe(false);
+  });
+
+  it("waits for a non-Codex interrupt terminal before promoting a durable steer", async () => {
+    const harness = await createHarness({
+      threadModelSelection: {
+        provider: "opencode",
+        model: "openai/gpt-5",
+      },
+      queuedTurnRecoveryInterval: Duration.hours(1),
+    });
+    const liveTurnId = asTurnId("turn-live-during-opencode-queued-steer");
+    const messageId = asMessageId("msg-steer-durable-opencode-queue");
+    await seedQueuedTurnBehindLiveTurn(harness, {
+      liveTurnId,
+      messageId,
+      text: "replace the active OpenCode turn",
+      providerName: "opencode",
+    });
+    harness.interruptTurn.mockImplementation(() =>
+      Effect.sync(() => {
+        harness.setRuntimeSessionTurnState({ threadId: "thread-1", status: "ready" });
+      }),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.steer-queued",
+        commandId: CommandId.makeUnsafe("cmd-steer-durable-opencode-queue"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        messageId,
+        createdAt: new Date().toISOString(),
+      }),
+    );
+    await harness.drain();
+
+    expect(harness.interruptTurn.mock.calls.length).toBe(1);
+    expect(harness.sendTurn).not.toHaveBeenCalled();
+
+    await harness.emitRuntimeEvent({
+      type: "turn.completed",
+      eventId: asEventId("evt-turn-completed-opencode-queued-steer"),
+      provider: "opencode",
+      threadId: ThreadId.makeUnsafe("thread-1"),
+      createdAt: new Date().toISOString(),
+      turnId: liveTurnId,
+      payload: {
+        state: "interrupted",
+      },
+      providerRefs: {},
+    } as ProviderRuntimeEvent);
+
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    expect(harness.sendTurn.mock.calls[0]?.[0]).toMatchObject({
+      threadId: ThreadId.makeUnsafe("thread-1"),
+      input: "replace the active OpenCode turn",
+    });
   });
 
   it("promotes queued work when the provider session exits without a turn terminal event", async () => {

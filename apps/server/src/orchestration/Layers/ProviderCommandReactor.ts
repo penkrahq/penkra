@@ -488,6 +488,12 @@ const make = Effect.gen(function* () {
     pendingTerminalTurnIds?: Set<TurnId>;
   };
   const pendingQueuedDispatchBySessionThread = new Map<string, PendingQueuedDispatch>();
+  // Non-Codex steering interrupts the active turn, then promotes the steered
+  // message after that turn's terminal event. Some adapters clear their live
+  // turn marker before the terminal event reaches this reactor; without this
+  // barrier the queued-turn recovery path can promote in that gap and the old
+  // abort then tears down the newly starting turn.
+  const steerInterruptBarriers = new Set<string>();
   const queuedTurnPromotionOwner = `provider-queued-turn:${crypto.randomUUID()}`;
   // A pending-start interrupt is also delivered as its own durable intent.
   // Record cancellations completed by the start handler so that later intent
@@ -2168,6 +2174,17 @@ const make = Effect.gen(function* () {
         }
         const readModel = yield* orchestrationEngine.getReadModel();
         const cwd = resolveThreadWorkspaceCwd({ thread, projects: readModel.projects });
+        const providerName = thread.session?.providerName ?? thread.modelSelection.provider;
+        const providerThread = yield* resolveProviderSessionThread(event.payload.threadId);
+        const sessionThreadId = providerThread?.id ?? event.payload.threadId;
+        const liveTurnId = yield* resolveLiveProviderTurnId(event.payload.threadId);
+        const addedSteerInterruptBarrier =
+          providerName !== "codex" &&
+          liveTurnId !== undefined &&
+          !steerInterruptBarriers.has(sessionThreadId);
+        if (addedSteerInterruptBarrier) {
+          steerInterruptBarriers.add(sessionThreadId);
+        }
         yield* providerThreadSwitchCoordinator.dispatchTurnStart({
           command: {
             type: "thread.turn.start",
@@ -2208,7 +2225,15 @@ const make = Effect.gen(function* () {
           },
           attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
           ...(cwd === undefined ? {} : { cwd }),
-        });
+        }).pipe(
+          Effect.onError(() =>
+            Effect.sync(() => {
+              if (addedSteerInterruptBarrier) {
+                steerInterruptBarriers.delete(sessionThreadId);
+              }
+            }),
+          ),
+        );
       }),
     );
 
@@ -2227,6 +2252,7 @@ const make = Effect.gen(function* () {
     }
     if (
       drainingQueuedTurns.has(threadId) ||
+      steerInterruptBarriers.has(sessionThreadId) ||
       pendingQueuedDispatchBySessionThread.has(sessionThreadId)
     ) {
       return;
@@ -2354,6 +2380,7 @@ const make = Effect.gen(function* () {
     }
     const sessionThreadId =
       (yield* resolveProviderSessionThread(event.threadId))?.id ?? event.threadId;
+    steerInterruptBarriers.delete(sessionThreadId);
     const reservation = pendingQueuedDispatchBySessionThread.get(sessionThreadId);
     if (reservation) {
       if (event.turnId === undefined) {
@@ -3022,6 +3049,7 @@ const make = Effect.gen(function* () {
     const stoppedSessionThreadId = providerThread?.id ?? thread.id;
     const stopsProviderSession = providerThread === null || providerThread.id === thread.id;
     const clearedQueuedThreadIds = new Set<ThreadId>([thread.id]);
+    steerInterruptBarriers.delete(stoppedSessionThreadId);
     if (stopsProviderSession) {
       for (const queuedThreadId of yield* queuedTurnPromotions.listPendingThreadIds) {
         const queuedThread = ThreadId.makeUnsafe(queuedThreadId);

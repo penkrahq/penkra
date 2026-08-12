@@ -126,7 +126,10 @@ import {
   readFileAsDataUrl,
 } from "../lib/composerSend";
 import { persistComposerAsset } from "../lib/composerAssetStore";
-import { queuedComposerTurnServerMessageId } from "../lib/queuedComposerTurnDispatch";
+import {
+  getQueuedComposerTurnDispatchInFlight,
+  queuedComposerTurnServerMessageId,
+} from "../lib/queuedComposerTurnDispatch";
 import { reconcileDeletedThreadFromClient } from "../lib/deletedThreadClientReconciliation";
 import { useHandleNewChat } from "../hooks/useHandleNewChat";
 import { useComposerDropzone } from "../hooks/useComposerDropzone";
@@ -5344,12 +5347,27 @@ export default function ChatView({
 
   const cancelQueuedComposerTurn = useCallback(
     async (queuedTurn: QueuedComposerTurn): Promise<boolean> => {
-      const messageId = queuedComposerTurnServerMessageId(queuedTurn);
+      let resolvedQueuedTurn = queuedTurn;
+      const pendingDispatch = getQueuedComposerTurnDispatchInFlight(threadId, queuedTurn.id);
+      if (pendingDispatch) {
+        try {
+          await pendingDispatch;
+        } catch {
+          return false;
+        }
+        resolvedQueuedTurn =
+          useComposerDraftStore
+            .getState()
+            .draftsByThreadId[threadId]?.queuedTurns.find(
+              (candidate) => candidate.id === queuedTurn.id,
+            ) ?? queuedTurn;
+      }
+      const messageId = queuedComposerTurnServerMessageId(resolvedQueuedTurn);
       const isServerAccepted =
-        queuedTurn.serverAcceptedAt !== undefined ||
+        resolvedQueuedTurn.serverAcceptedAt !== undefined ||
         (activeThread?.queuedMessageIds ?? []).includes(messageId);
       if (!isServerAccepted) {
-        removeQueuedComposerTurnFromDraft(threadId, queuedTurn.id);
+        removeQueuedComposerTurnFromDraft(threadId, resolvedQueuedTurn.id);
         return true;
       }
       const api = readNativeApi();
@@ -5364,7 +5382,7 @@ export default function ChatView({
           messageId,
           createdAt: new Date().toISOString(),
         });
-        removeQueuedComposerTurnFromDraft(threadId, queuedTurn.id);
+        removeQueuedComposerTurnFromDraft(threadId, resolvedQueuedTurn.id);
         setThreadError(threadId, null);
         return true;
       } catch (error) {
@@ -6530,9 +6548,24 @@ export default function ChatView({
         return;
       }
       setComposerQueuePaused(threadId, false);
-      const messageId = queuedComposerTurnServerMessageId(queuedTurn);
+      let resolvedQueuedTurn = queuedTurn;
+      const pendingDispatch = getQueuedComposerTurnDispatchInFlight(threadId, queuedTurn.id);
+      if (pendingDispatch) {
+        try {
+          await pendingDispatch;
+        } catch {
+          return;
+        }
+        resolvedQueuedTurn =
+          useComposerDraftStore
+            .getState()
+            .draftsByThreadId[threadId]?.queuedTurns.find(
+              (candidate) => candidate.id === queuedTurn.id,
+            ) ?? queuedTurn;
+      }
+      const messageId = queuedComposerTurnServerMessageId(resolvedQueuedTurn);
       const isServerAccepted =
-        queuedTurn.serverAcceptedAt !== undefined ||
+        resolvedQueuedTurn.serverAcceptedAt !== undefined ||
         (activeThread?.queuedMessageIds ?? []).includes(messageId);
       if (isServerAccepted) {
         const api = readNativeApi();
@@ -6547,7 +6580,7 @@ export default function ChatView({
             messageId,
             createdAt: new Date().toISOString(),
           });
-          removeQueuedComposerTurnFromDraft(threadId, queuedTurn.id);
+          removeQueuedComposerTurnFromDraft(threadId, resolvedQueuedTurn.id);
           setThreadError(threadId, null);
         } catch (error) {
           setThreadError(
@@ -6557,12 +6590,12 @@ export default function ChatView({
         }
         return;
       }
-      removeQueuedComposerTurnFromDraft(threadId, queuedTurn.id);
-      const succeeded = await dispatchQueuedComposerTurn(queuedTurn, "steer");
+      removeQueuedComposerTurnFromDraft(threadId, resolvedQueuedTurn.id);
+      const succeeded = await dispatchQueuedComposerTurn(resolvedQueuedTurn, "steer");
       if (succeeded) {
         return;
       }
-      insertQueuedComposerTurn(threadId, queuedTurn, queuedIndex);
+      insertQueuedComposerTurn(threadId, resolvedQueuedTurn, queuedIndex);
     },
     [
       dispatchQueuedComposerTurn,
