@@ -2185,55 +2185,57 @@ const make = Effect.gen(function* () {
         if (addedSteerInterruptBarrier) {
           steerInterruptBarriers.add(sessionThreadId);
         }
-        yield* providerThreadSwitchCoordinator.dispatchTurnStart({
-          command: {
-            type: "thread.turn.start",
-            commandId: serverCommandId("steer-queued-turn"),
-            threadId: sourceEvent.payload.threadId,
-            message: {
-              messageId: sourceEvent.payload.messageId,
-              role: "user",
-              text: message.text,
-              attachments: message.attachments ?? [],
-              ...(message.skills !== undefined ? { skills: message.skills } : {}),
-              ...(message.mentions !== undefined ? { mentions: message.mentions } : {}),
+        yield* providerThreadSwitchCoordinator
+          .dispatchTurnStart({
+            command: {
+              type: "thread.turn.start",
+              commandId: serverCommandId("steer-queued-turn"),
+              threadId: sourceEvent.payload.threadId,
+              message: {
+                messageId: sourceEvent.payload.messageId,
+                role: "user",
+                text: message.text,
+                attachments: message.attachments ?? [],
+                ...(message.skills !== undefined ? { skills: message.skills } : {}),
+                ...(message.mentions !== undefined ? { mentions: message.mentions } : {}),
+              },
+              ...(sourceEvent.payload.modelSelection !== undefined
+                ? { modelSelection: sourceEvent.payload.modelSelection }
+                : {}),
+              ...(sourceEvent.payload.connectionId !== undefined
+                ? { connectionId: sourceEvent.payload.connectionId }
+                : {}),
+              ...(sourceEvent.payload.bindingRevision !== undefined
+                ? { bindingRevision: sourceEvent.payload.bindingRevision }
+                : {}),
+              ...(sourceEvent.payload.providerOptions !== undefined
+                ? { providerOptions: sourceEvent.payload.providerOptions }
+                : {}),
+              ...(sourceEvent.payload.reviewTarget !== undefined
+                ? { reviewTarget: sourceEvent.payload.reviewTarget }
+                : {}),
+              ...(sourceEvent.payload.assistantDeliveryMode !== undefined
+                ? { assistantDeliveryMode: sourceEvent.payload.assistantDeliveryMode }
+                : {}),
+              dispatchMode: "steer",
+              ...(sourceEvent.payload.dispatchOrigin !== undefined
+                ? { dispatchOrigin: sourceEvent.payload.dispatchOrigin }
+                : {}),
+              runtimeMode: sourceEvent.payload.runtimeMode,
+              createdAt: event.payload.createdAt,
             },
-            ...(sourceEvent.payload.modelSelection !== undefined
-              ? { modelSelection: sourceEvent.payload.modelSelection }
-              : {}),
-            ...(sourceEvent.payload.connectionId !== undefined
-              ? { connectionId: sourceEvent.payload.connectionId }
-              : {}),
-            ...(sourceEvent.payload.bindingRevision !== undefined
-              ? { bindingRevision: sourceEvent.payload.bindingRevision }
-              : {}),
-            ...(sourceEvent.payload.providerOptions !== undefined
-              ? { providerOptions: sourceEvent.payload.providerOptions }
-              : {}),
-            ...(sourceEvent.payload.reviewTarget !== undefined
-              ? { reviewTarget: sourceEvent.payload.reviewTarget }
-              : {}),
-            ...(sourceEvent.payload.assistantDeliveryMode !== undefined
-              ? { assistantDeliveryMode: sourceEvent.payload.assistantDeliveryMode }
-              : {}),
-            dispatchMode: "steer",
-            ...(sourceEvent.payload.dispatchOrigin !== undefined
-              ? { dispatchOrigin: sourceEvent.payload.dispatchOrigin }
-              : {}),
-            runtimeMode: sourceEvent.payload.runtimeMode,
-            createdAt: event.payload.createdAt,
-          },
-          attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
-          ...(cwd === undefined ? {} : { cwd }),
-        }).pipe(
-          Effect.onError(() =>
-            Effect.sync(() => {
-              if (addedSteerInterruptBarrier) {
-                steerInterruptBarriers.delete(sessionThreadId);
-              }
-            }),
-          ),
-        );
+            attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
+            ...(cwd === undefined ? {} : { cwd }),
+          })
+          .pipe(
+            Effect.onError(() =>
+              Effect.sync(() => {
+                if (addedSteerInterruptBarrier) {
+                  steerInterruptBarriers.delete(sessionThreadId);
+                }
+              }),
+            ),
+          );
       }),
     );
 
