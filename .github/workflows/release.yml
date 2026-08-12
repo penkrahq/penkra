@@ -137,7 +137,20 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Reconcile Windows generated install artifacts
+      - name: Install Linux desktop runtime
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --yes dbus-x11 gnome-keyring libsecret-tools xvfb
+
+      - name: Build desktop pipeline
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+        run: bun run build:desktop
+
+      - name: Reconcile Windows generated build artifacts
         if: matrix.platform == 'win'
         shell: bash
         run: |
@@ -156,22 +169,9 @@ jobs:
           done
           if [[ -n "$(git status --porcelain --untracked-files=no)" ]]; then
             git status --short --untracked-files=no
-            echo "Windows dependency installation changed tracked release source outside the approved generated artifacts." >&2
+            echo "Windows build changed tracked release source outside the approved generated artifacts." >&2
             exit 1
           fi
-
-      - name: Install Linux desktop runtime
-        if: matrix.platform == 'linux'
-        shell: bash
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install --yes dbus-x11 gnome-keyring libsecret-tools xvfb
-
-      - name: Build desktop pipeline
-        env:
-          NODE_OPTIONS: --max-old-space-size=4096
-        run: bun run build:desktop
 
       - name: Require macOS signing configuration
         if: matrix.platform == 'mac'
