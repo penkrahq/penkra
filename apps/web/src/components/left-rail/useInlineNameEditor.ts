@@ -1,5 +1,5 @@
 import { normalizeEntityName } from "@penkra/shared/entityNames";
-import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useId, useRef, useState, type FocusEvent, type KeyboardEvent } from "react";
 
 export function useInlineNameEditor(input: {
   defaultValue: string;
@@ -13,12 +13,24 @@ export function useInlineNameEditor(input: {
   const [localValue, setLocalValue] = useState(input.defaultValue);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const rootRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const submittingRef = useRef(false);
   const errorId = useId();
 
   useEffect(() => {
     inputRef.current?.focus();
     inputRef.current?.select();
+  }, []);
+
+  useEffect(() => {
+    const blurForOutsideInteraction = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node) || rootRef.current?.contains(target)) return;
+      inputRef.current?.blur();
+    };
+    document.addEventListener("pointerdown", blurForOutsideInteraction, true);
+    return () => document.removeEventListener("pointerdown", blurForOutsideInteraction, true);
   }, []);
 
   const value = input.value ?? localValue;
@@ -36,13 +48,15 @@ export function useInlineNameEditor(input: {
   const visibleError = submitError ?? (value.length > 0 ? validationError : null);
 
   const submit = async () => {
-    if (validationError || submitting) return;
+    if (validationError || submittingRef.current) return;
+    submittingRef.current = true;
     setSubmitting(true);
     setSubmitError(null);
     try {
       await input.onSubmit(trimmedValue);
     } catch (error) {
       setSubmitError(error instanceof Error ? error.message : "Unable to save this name.");
+      submittingRef.current = false;
       setSubmitting(false);
     }
   };
@@ -50,6 +64,11 @@ export function useInlineNameEditor(input: {
   return {
     errorId,
     inputRef,
+    rootRef,
+    onBlur(event: FocusEvent<HTMLInputElement>) {
+      if (rootRef.current?.contains(event.relatedTarget)) return;
+      void submit();
+    },
     onChange(nextValue: string) {
       if (input.value === undefined) setLocalValue(nextValue);
       input.onValueChange?.(nextValue);

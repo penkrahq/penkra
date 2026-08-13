@@ -506,10 +506,6 @@ export default function Sidebar() {
     () => readSidebarUiState().lastThreadRoute,
   );
   const [optimisticActiveThreadId, setOptimisticActiveThreadId] = useState<ThreadId | null>(null);
-  const lastThreadRenameTapRef = useRef<{
-    threadId: ThreadId;
-    timestamp: number;
-  } | null>(null);
   const optimisticPinnedStateByProjectIdRef = useRef(new Map<ContainerId, boolean>());
   const latestPinnedMutationVersionByProjectIdRef = useRef(new Map<ContainerId, number>());
   const [desktopUpdateState, setDesktopUpdateState] = useState<DesktopUpdateState | null>(null);
@@ -1142,34 +1138,6 @@ export default function Sidebar() {
       title,
     });
   }, []);
-
-  const handleThreadRenamePointerUp = useCallback(
-    (event: ReactPointerEvent<HTMLElement>, threadId: ThreadId) => {
-      if (event.pointerType !== "touch" && event.pointerType !== "pen") {
-        return;
-      }
-
-      const previousTap = lastThreadRenameTapRef.current;
-      const currentTapTimestamp = event.timeStamp;
-      if (
-        previousTap &&
-        previousTap.threadId === threadId &&
-        currentTapTimestamp - previousTap.timestamp <= 320
-      ) {
-        event.preventDefault();
-        event.stopPropagation();
-        lastThreadRenameTapRef.current = null;
-        openThreadInlineRename(threadId);
-        return;
-      }
-
-      lastThreadRenameTapRef.current = {
-        threadId,
-        timestamp: currentTapTimestamp,
-      };
-    },
-    [openThreadInlineRename],
-  );
 
   const { prewarmThreadDetail: prewarmThreadDetailForIntent } = useThreadDetailPrewarm();
 
@@ -2499,11 +2467,6 @@ export default function Sidebar() {
           }}
           onHeaderAction={createProjectThread}
           onHeaderContextMenu={openProjectContextMenu}
-          onHeaderDoubleClick={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            startFolderInlineRename(project.id, project.name);
-          }}
           pinned={pinnedProjectIdSet.has(project.id)}
           workStatus={projectWorkStatus}
         >
@@ -2595,18 +2558,12 @@ export default function Sidebar() {
             y: event.clientY,
           });
         }}
-        onDoubleClick={(event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          openThreadInlineRename(thread.id);
-        }}
         onKeyDown={(event) => {
           if (event.key !== "Enter" && event.key !== " ") return;
           event.preventDefault();
           activateThreadFromSidebarIntent(thread.id);
         }}
         onPointerDown={(event) => primeThreadActivation(event, thread.id)}
-        onPointerUp={(event) => handleThreadRenamePointerUp(event, thread.id)}
         harness={harness}
         level={level}
         pinned={pinnedThreadIdSet.has(thread.id)}

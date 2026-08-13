@@ -30,7 +30,6 @@ export interface FolderGroupSharedProps {
   onExpandedChange?: (expanded: boolean) => void;
   onHeaderAction?: (event: MouseEvent<HTMLButtonElement>) => void;
   onHeaderContextMenu?: (event: MouseEvent<HTMLButtonElement>) => void;
-  onHeaderDoubleClick?: (event: MouseEvent<HTMLButtonElement>) => void;
   onShowMore?: () => void;
   onThreadSelect?: (id: string) => void;
   pinned?: boolean;
@@ -50,7 +49,6 @@ export function FolderGroupShared({
   onExpandedChange,
   onHeaderAction,
   onHeaderContextMenu,
-  onHeaderDoubleClick,
   onShowMore,
   onThreadSelect,
   pinned = false,
@@ -86,7 +84,6 @@ export function FolderGroupShared({
             {...(hasContent ? { onClick: () => setExpanded(!expanded) } : {})}
             {...(onHeaderAction === undefined ? {} : { onAction: onHeaderAction })}
             {...(onHeaderContextMenu === undefined ? {} : { onContextMenu: onHeaderContextMenu })}
-            {...(onHeaderDoubleClick === undefined ? {} : { onDoubleClick: onHeaderDoubleClick })}
           >
             {label}
           </FolderRowShared>

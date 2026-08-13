@@ -21,7 +21,7 @@ export function InlineRowNameEditor(props: {
   const editor = useInlineNameEditor(props);
 
   return (
-    <div className="min-w-0" data-inline-name-editor>
+    <div ref={editor.rootRef} className="min-w-0" data-inline-name-editor>
       <LeftRailRowFrame
         className={cn("cursor-text gap-3 pr-2.5", props.className)}
         data-pencil-component={props.pencilComponentId}
@@ -40,6 +40,7 @@ export function InlineRowNameEditor(props: {
           className="w-full min-w-0 border-0 bg-transparent p-0 font-medium text-[var(--color-text-foreground)] outline-none disabled:opacity-60"
           disabled={editor.submitting}
           maxLength={80}
+          onBlur={editor.onBlur}
           onChange={(event) => editor.onChange(event.target.value)}
           onKeyDown={editor.onKeyDown}
           value={editor.value}

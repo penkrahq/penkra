@@ -218,7 +218,7 @@ describe("Pencil left rail", () => {
     await expect.element(disclosure).toHaveAttribute("aria-expanded", "false");
   });
 
-  it("preserves an inline folder draft on blur and commits it only on Enter", async () => {
+  it("commits an inline folder draft when an outside interaction blurs it", async () => {
     const onSubmit = vi.fn();
     await render(
       <>
@@ -228,18 +228,14 @@ describe("Pencil left rail", () => {
           onCancel={() => undefined}
           onSubmit={onSubmit}
         />
-        <button type="button">Outside editor</button>
+        <div>Outside editor</div>
       </>,
     );
 
     const input = page.getByRole("textbox", { name: "Rename folder" });
     await input.fill("Research");
-    await page.getByRole("button", { name: "Outside editor" }).click();
+    await page.getByText("Outside editor", { exact: true }).click();
     await expect.element(input).toHaveValue("Research");
-    expect(onSubmit).not.toHaveBeenCalled();
-
-    input.element().focus();
-    await userEvent.keyboard("{Enter}");
     expect(onSubmit).toHaveBeenCalledWith("Research");
   });
 
