@@ -11,7 +11,7 @@ export interface QueuedTurnPromotion {
   readonly state: "queued" | "promoting" | "promoted" | "cancelled";
   readonly claimOwner: string | null;
   readonly attemptCount: number;
-  readonly actionKind: "cancel" | "steer" | null;
+  readonly actionKind: "cancel" | "edit" | "steer" | null;
   readonly actionEventId: string | null;
 }
 
@@ -49,7 +49,7 @@ export interface QueuedTurnPromotionRepositoryShape {
   readonly claimMessageAction: (input: {
     readonly threadId: string;
     readonly messageId: string;
-    readonly actionKind: "cancel" | "steer";
+    readonly actionKind: "cancel" | "edit" | "steer";
     readonly actionEventId: string;
     readonly updatedAt: string;
   }) => Effect.Effect<Option.Option<QueuedTurnPromotion>, PersistenceSqlError>;

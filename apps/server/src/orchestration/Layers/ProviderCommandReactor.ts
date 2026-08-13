@@ -2110,7 +2110,7 @@ const make = Effect.gen(function* () {
   const claimQueuedTurnAction = Effect.fnUntraced(function* (input: {
     readonly threadId: ThreadId;
     readonly messageId: MessageId;
-    readonly actionKind: "cancel" | "steer";
+    readonly actionKind: "cancel" | "edit" | "steer";
     readonly actionEventId: EventId;
     readonly createdAt: string;
   }) {
@@ -2841,6 +2841,8 @@ const make = Effect.gen(function* () {
       readonly skipProviderRollback?: boolean;
       readonly preserveQueuedTurns?: boolean;
       readonly preserveThreadSession?: boolean;
+      readonly queuedActionAlreadyClaimed?: boolean;
+      readonly actionEventId?: EventId;
       readonly activeTurnId?: TurnId | null;
     },
   ) {
@@ -2850,7 +2852,7 @@ const make = Effect.gen(function* () {
         updatedAt: payload.createdAt,
       });
       yield* clearEditResendTurnStartKeysForThread(payload.threadId);
-    } else {
+    } else if (options?.queuedActionAlreadyClaimed !== true) {
       yield* queuedTurnPromotions.cancelMessage({
         threadId: payload.threadId,
         messageId: payload.messageId,
@@ -2910,7 +2912,10 @@ const make = Effect.gen(function* () {
     yield* executeEditReplayWorkspaceRestore(workspaceRestorePlan);
     yield* orchestrationEngine.dispatch({
       type: "thread.conversation.rollback.complete",
-      commandId: serverCommandId("message-edit-rollback-complete"),
+      commandId:
+        options?.actionEventId === undefined
+          ? serverCommandId("message-edit-rollback-complete")
+          : replaySafeServerCommandId("message-edit-rollback-complete", options.actionEventId),
       threadId: payload.threadId,
       messageId: payload.messageId,
       numTurns: editTarget.rollbackTurnCount,
@@ -2942,7 +2947,10 @@ const make = Effect.gen(function* () {
     yield* providerThreadSwitchCoordinator.dispatchTurnStart({
       command: {
         type: "thread.turn.start",
-        commandId: serverCommandId("message-edit-resend-turn-start"),
+        commandId:
+          options?.actionEventId === undefined
+            ? serverCommandId("message-edit-resend-turn-start")
+            : replaySafeServerCommandId("message-edit-resend-turn-start", options.actionEventId),
         threadId: payload.threadId,
         message: {
           messageId: payload.messageId,
@@ -3005,10 +3013,12 @@ const make = Effect.gen(function* () {
       providerThread?.session?.status === "running"
         ? (providerThread.session.activeTurnId ?? null)
         : null;
-    const isQueuedMessageEdit = yield* queuedTurnPromotions.hasPendingMessage({
-      threadId: event.payload.threadId,
-      messageId: event.payload.messageId,
+    const queuedEditAction = yield* claimQueuedTurnAction({
+      ...event.payload,
+      actionKind: "edit",
+      actionEventId: event.eventId,
     });
+    const isQueuedMessageEdit = Option.isSome(queuedEditAction);
     if (thread && !isQueuedMessageEdit) {
       yield* setThreadSession({
         threadId: event.payload.threadId,
@@ -3035,6 +3045,7 @@ const make = Effect.gen(function* () {
       yield* stopActiveProviderRuntimeForEdit({ threadId: providerThread.id });
       yield* processMessageEditResendPayload(event.payload, {
         skipProviderRollback: true,
+        actionEventId: event.eventId,
         activeTurnId,
       });
       return;
@@ -3044,6 +3055,8 @@ const make = Effect.gen(function* () {
       ...(isQueuedMessageEdit ? { skipProviderRollback: true } : {}),
       preserveQueuedTurns: isQueuedMessageEdit,
       preserveThreadSession: isQueuedMessageEdit,
+      queuedActionAlreadyClaimed: isQueuedMessageEdit,
+      actionEventId: event.eventId,
       activeTurnId,
     });
   });

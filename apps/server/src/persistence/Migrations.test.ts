@@ -22,6 +22,81 @@ const projectionThreadsColumnNames = (sql: SqlClient.SqlClient) =>
     SELECT name FROM pragma_table_info('projection_threads')
   `.pipe(Effect.map((rows) => rows.map((row) => row.name)));
 
+const queuedTurnEditActionLayer = it.layer(Layer.mergeAll(NodeSqliteClient.layerMemory()));
+
+queuedTurnEditActionLayer("queued turn edit action migration", (it) => {
+  it.effect("preserves migration 112 rows and permits edit action claims", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* runMigrations({ toMigrationInclusive: 112 });
+      const now = new Date().toISOString();
+      const inserted = yield* sql<{ readonly sequence: number }>`
+        INSERT INTO orchestration_events (
+          event_id, aggregate_kind, stream_id, stream_version, event_type,
+          occurred_at, command_id, causation_event_id, correlation_id,
+          actor_kind, payload_json, metadata_json
+        ) VALUES (
+          'evt-queued-before-edit-action', 'thread', 'thread-queued-before-edit-action', 0,
+          'thread.turn-start-requested', ${now}, 'cmd-queued-before-edit-action',
+          NULL, NULL, 'user', '{}', '{}'
+        )
+        RETURNING sequence
+      `;
+      yield* sql`
+        INSERT INTO queued_turn_promotions (
+          queued_event_sequence, thread_id, message_id, dispatch_mode, state,
+          attempt_count, created_at, updated_at, action_kind, action_event_id
+        ) VALUES (
+          ${inserted[0]?.sequence}, 'thread-queued-before-edit-action',
+          'message-queued-before-edit-action', 'queue', 'queued', 0,
+          ${now}, ${now}, 'cancel', 'evt-original-cancel'
+        )
+      `;
+
+      const executed = yield* runMigrations();
+      assert.deepStrictEqual(executed, [[113, "QueuedTurnEditAction"]]);
+      yield* sql`
+        UPDATE queued_turn_promotions
+        SET action_kind = 'edit', action_event_id = 'evt-edit'
+        WHERE message_id = 'message-queued-before-edit-action'
+      `;
+
+      const rows = yield* sql<{
+        readonly messageId: string;
+        readonly actionKind: string | null;
+        readonly actionEventId: string | null;
+      }>`
+        SELECT
+          message_id AS "messageId", action_kind AS "actionKind",
+          action_event_id AS "actionEventId"
+        FROM queued_turn_promotions
+      `;
+      assert.deepStrictEqual(rows, [
+        {
+          messageId: "message-queued-before-edit-action",
+          actionKind: "edit",
+          actionEventId: "evt-edit",
+        },
+      ]);
+
+      const indexes = yield* sql<{ readonly name: string }>`
+        SELECT name
+        FROM sqlite_master
+        WHERE type = 'index' AND tbl_name = 'queued_turn_promotions'
+        ORDER BY name
+      `;
+      assert.deepStrictEqual(
+        indexes.map(({ name }) => name),
+        [
+          "idx_queued_turn_promotions_active_message",
+          "idx_queued_turn_promotions_state_expiry",
+          "idx_queued_turn_promotions_thread_state_order",
+        ],
+      );
+    }),
+  );
+});
+
 layer("reconcileMigrationLineage", (it) => {
   // An imported database whose tracker high-water
   // mark is at or beyond Penkra's latest migration ID. The migrator's max-ID
@@ -299,10 +374,11 @@ managedAttachmentsLegacyLayer("managed attachment migration after private migrat
         [110, "SettleProviderSwitchSource"],
         [111, "DerivedProviderConnectionLabels"],
         [112, "QueuedTurnActionIdentity"],
+        [113, "QueuedTurnEditAction"],
       ]);
 
       const tracker = yield* trackerRows(sql);
-      assert.deepStrictEqual(tracker.slice(-49), [
+      assert.deepStrictEqual(tracker.slice(-50), [
         { migration_id: 54, name: "DurableProviderCommandDelivery" },
         { migration_id: 55, name: "ManagedAttachments" },
         { migration_id: 56, name: "CommandReceiptFingerprints" },
@@ -352,6 +428,7 @@ managedAttachmentsLegacyLayer("managed attachment migration after private migrat
         { migration_id: 110, name: "SettleProviderSwitchSource" },
         { migration_id: 111, name: "DerivedProviderConnectionLabels" },
         { migration_id: 112, name: "QueuedTurnActionIdentity" },
+        { migration_id: 113, name: "QueuedTurnEditAction" },
       ]);
       const preserved = yield* sql<{ readonly count: number }>`
         SELECT COUNT(*) AS count FROM orchestration_consumer_state
@@ -446,6 +523,7 @@ agentGatewayRetentionLegacyLayer(
           [110, "SettleProviderSwitchSource"],
           [111, "DerivedProviderConnectionLabels"],
           [112, "QueuedTurnActionIdentity"],
+          [113, "QueuedTurnEditAction"],
         ]);
 
         const columns = yield* sql<{ readonly name: string }>`
@@ -543,11 +621,12 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
         [110, "SettleProviderSwitchSource"],
         [111, "DerivedProviderConnectionLabels"],
         [112, "QueuedTurnActionIdentity"],
+        [113, "QueuedTurnEditAction"],
       ]);
 
       const tracker = yield* trackerRows(sql);
       assert.deepStrictEqual(
-        tracker.slice(-33).map((row) => [row.migration_id, row.name]),
+        tracker.slice(-34).map((row) => [row.migration_id, row.name]),
         [
           [70, "AgentGatewayOperations"],
           [71, "ProjectionThreadsGatewayProvenance"],
@@ -582,6 +661,7 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
           [110, "SettleProviderSwitchSource"],
           [111, "DerivedProviderConnectionLabels"],
           [112, "QueuedTurnActionIdentity"],
+          [113, "QueuedTurnEditAction"],
         ],
       );
 
@@ -676,11 +756,12 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
         [110, "SettleProviderSwitchSource"],
         [111, "DerivedProviderConnectionLabels"],
         [112, "QueuedTurnActionIdentity"],
+        [113, "QueuedTurnEditAction"],
       ]);
 
       const tracker = yield* trackerRows(sql);
       assert.deepStrictEqual(
-        tracker.slice(-30).map((row) => [row.migration_id, row.name]),
+        tracker.slice(-31).map((row) => [row.migration_id, row.name]),
         [
           [74, "Spaces"],
           [79, "Spaces"],
@@ -712,6 +793,7 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
           [110, "SettleProviderSwitchSource"],
           [111, "DerivedProviderConnectionLabels"],
           [112, "QueuedTurnActionIdentity"],
+          [113, "QueuedTurnEditAction"],
         ],
       );
       const preservedSpaces = yield* sql<{ readonly spaceId: string }>`

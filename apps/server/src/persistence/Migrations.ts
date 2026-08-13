@@ -118,6 +118,7 @@ import Migration0109 from "./Migrations/109_ProviderRuntimeBindingSwitchOperatio
 import Migration0110 from "./Migrations/110_SettleProviderSwitchSource.ts";
 import Migration0111 from "./Migrations/111_DerivedProviderConnectionLabels.ts";
 import Migration0112 from "./Migrations/112_QueuedTurnActionIdentity.ts";
+import Migration0113 from "./Migrations/113_QueuedTurnEditAction.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -235,6 +236,7 @@ export const migrationEntries = [
   [110, "SettleProviderSwitchSource", Migration0110],
   [111, "DerivedProviderConnectionLabels", Migration0111],
   [112, "QueuedTurnActionIdentity", Migration0112],
+  [113, "QueuedTurnEditAction", Migration0113],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

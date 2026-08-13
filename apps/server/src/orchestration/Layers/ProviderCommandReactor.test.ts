@@ -2359,6 +2359,114 @@ describe("ProviderCommandReactor", () => {
     });
   });
 
+  it("replays a claimed queued edit without stopping the active provider turn", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+    const messageId = asMessageId("msg-queued-edit-replay");
+    const liveTurnId = asTurnId("turn-live-during-queued-edit-replay");
+    await seedQueuedTurnBehindLiveTurn(harness, {
+      liveTurnId,
+      messageId,
+      text: "queued prompt before replay-safe edit",
+    });
+    harness.stopRuntimeSession.mockClear();
+    harness.rollbackConversation.mockClear();
+    harness.sendTurn.mockClear();
+
+    const rollbackCompletionCommandIds: Array<string> = [];
+    const replacementStartCommandIds: Array<string> = [];
+    harness.interceptEngineDispatch((command) => {
+      if (
+        command.type === "thread.conversation.rollback.complete" &&
+        command.messageId === messageId
+      ) {
+        rollbackCompletionCommandIds.push(command.commandId);
+        return undefined;
+      }
+      if (command.type !== "thread.turn.start" || command.message.messageId !== messageId) {
+        return undefined;
+      }
+      replacementStartCommandIds.push(command.commandId);
+      if (replacementStartCommandIds.length === 1) {
+        return Effect.fail(
+          new OrchestrationCommandInvariantError({
+            commandType: command.type,
+            detail: "simulated process loss after queued edit rollback completed",
+          }),
+        );
+      }
+      return undefined;
+    });
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.message.edit-and-resend",
+        connectionId: TEST_CONNECTION_ID,
+        bindingRevision: 0,
+        commandId: CommandId.makeUnsafe("cmd-queued-edit-replay"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        messageId,
+        text: "edited prompt after replay",
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+    await waitFor(() => replacementStartCommandIds.length === 1);
+    await waitFor(async () =>
+      Effect.runPromise(
+        harness.deliveryRepository
+          .firstBlockingDeliveryForThread({
+            consumerName: PROVIDER_COMMAND_REACTOR_CONSUMER,
+            threadId: "thread-1",
+          })
+          .pipe(Effect.map(Option.isSome)),
+      ),
+    );
+    const blocker = (
+      await Effect.runPromise(
+        harness.deliveryRepository.firstBlockingDeliveryForThread({
+          consumerName: PROVIDER_COMMAND_REACTOR_CONSUMER,
+          threadId: "thread-1",
+        }),
+      )
+    ).pipe(Option.getOrThrow);
+    await Effect.runPromise(
+      harness.reactor.reconcileDelivery({
+        eventSequence: blocker.eventSequence,
+        threadId: ThreadId.makeUnsafe(blocker.threadId),
+        expectedState: blocker.state === "dead" ? "dead" : "uncertain",
+        outcome: "safe_retry",
+        reconciledBy: "test",
+      }),
+    );
+
+    await waitFor(() => rollbackCompletionCommandIds.length === 2);
+    expect(rollbackCompletionCommandIds[1]).toBe(rollbackCompletionCommandIds[0]);
+    expect(replacementStartCommandIds).toHaveLength(2);
+    expect(replacementStartCommandIds[1]).toBe(replacementStartCommandIds[0]);
+    expect(harness.stopRuntimeSession).not.toHaveBeenCalled();
+    expect(harness.rollbackConversation).not.toHaveBeenCalled();
+    expect(harness.sendTurn).not.toHaveBeenCalled();
+
+    harness.setRuntimeSessionTurnState({ threadId: "thread-1", status: "ready" });
+    await harness.emitRuntimeEvent({
+      type: "turn.completed",
+      eventId: asEventId("evt-live-turn-completed-after-queued-edit-replay"),
+      provider: "codex",
+      threadId: ThreadId.makeUnsafe("thread-1"),
+      createdAt: new Date().toISOString(),
+      turnId: liveTurnId,
+      payload: { state: "completed" },
+      providerRefs: {},
+    } as ProviderRuntimeEvent);
+
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    expect(harness.sendTurn.mock.calls[0]?.[0]).toMatchObject({
+      threadId: ThreadId.makeUnsafe("thread-1"),
+      input: "edited prompt after replay",
+    });
+  });
+
   it("preserves image attachment files while rolling back an edit resend", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
