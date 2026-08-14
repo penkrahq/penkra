@@ -91,8 +91,11 @@ a release tag from an uncommitted or unreviewed worktree.
    This catches platform-native PTY, packaging, installer extraction, desktop bootstrap, and embedded
    server failures before a release tag exists. Release signing remains isolated to the protected
    `desktop-release` environment.
-2. Confirm `penkra app status --app-id com.penkra.apps` reports the lockfile's version and package
-   digest as public on the production registry target. Stop if the target, version, or digest differs.
+2. In a signed-in Production Penkra task, ask the agent to run the registered command
+   `penkra app status --app-id com.penkra.apps`. This is a Penkra host command available to agents;
+   it is not a command provided by the client-workspace `penkra` shell executable. Confirm its
+   result reports the lockfile's version and package digest as public on the production registry
+   target. Stop if the target, version, or digest differs.
 3. Update every product package to the intended version and commit the exact release source locally.
 4. Complete the repository's required fresh Penkra Dev manual QA for the affected user flows. This
    validates the source candidate without replacing the operator's installed production app. Record
