@@ -3,6 +3,7 @@ import {
   ThreadId,
   type ProviderConnectionId,
   type ProviderComposerCapabilities,
+  ProviderGetCapabilityHealthInput,
   ProviderGetComposerCapabilitiesInput,
   ProviderListAgentsInput,
   ProviderListCommandsInput,
@@ -103,6 +104,23 @@ const make = Effect.gen(function* () {
         supportsSkillMentions: true,
         supportsSkillDiscovery: true,
       };
+    });
+
+  const getCapabilityHealth: ProviderDiscoveryServiceShape["getCapabilityHealth"] = (input) =>
+    Effect.gen(function* () {
+      const parsed = yield* decodeInputOrValidationError({
+        operation: "ProviderDiscoveryService.getCapabilityHealth",
+        schema: ProviderGetCapabilityHealthInput,
+        payload: input,
+      });
+      const adapter = yield* registry.getByProvider(parsed.provider);
+      if (!adapter.getCapabilityHealth) {
+        return { capabilities: [], source: "unsupported" };
+      }
+      if (!(yield* adapter.hasSession(ThreadId.makeUnsafe(parsed.threadId)))) {
+        return { capabilities: [], source: "no-active-session" };
+      }
+      return yield* adapter.getCapabilityHealth(parsed);
     });
 
   const listSkills: ProviderDiscoveryServiceShape["listSkills"] = (input) =>
@@ -511,6 +529,7 @@ const make = Effect.gen(function* () {
     });
 
   return {
+    getCapabilityHealth,
     getComposerCapabilities,
     listCommands,
     listSkills,

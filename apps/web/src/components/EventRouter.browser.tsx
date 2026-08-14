@@ -780,6 +780,62 @@ describe("EventRouter scoped orchestration sync", () => {
     }
   }, 60_000);
 
+  it("reconciles a stale pending-start identity after the terminal event was missed", async () => {
+    const mounted = await mountApp();
+    const messageId = MessageId.makeUnsafe("msg-user-1");
+
+    try {
+      sendThreadEventPush({
+        sequence: 2,
+        eventId: EventId.makeUnsafe("event-stale-pending-start"),
+        aggregateKind: "thread",
+        aggregateId: THREAD_ID,
+        occurredAt: "2026-03-04T12:00:05.000Z",
+        commandId: null,
+        causationEventId: null,
+        correlationId: null,
+        metadata: {},
+        type: "thread.turn-start-requested",
+        payload: {
+          threadId: THREAD_ID,
+          messageId,
+          runtimeMode: "full-access",
+          dispatchMode: "steer",
+          createdAt: "2026-03-04T12:00:05.000Z",
+        },
+      } satisfies Extract<OrchestrationEvent, { type: "thread.turn-start-requested" }>);
+
+      await vi.waitFor(() => {
+        expect(getThreadFromState(useStore.getState(), THREAD_ID)?.pendingTurnStartMessageId).toBe(
+          messageId,
+        );
+      });
+
+      // The server projection has already settled. Its cursor advanced, but the
+      // client missed the terminal events that clear pending-start ownership.
+      fixture = {
+        ...fixture,
+        snapshot: {
+          ...fixture.snapshot,
+          snapshotSequence: 2,
+          updatedAt: "2026-03-04T12:00:06.000Z",
+        },
+      };
+
+      await vi.waitFor(
+        () => {
+          expect(getThreadDetailSnapshotRequestCount).toBeGreaterThan(0);
+          expect(
+            getThreadFromState(useStore.getState(), THREAD_ID)?.pendingTurnStartMessageId,
+          ).toBeNull();
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  }, 60_000);
+
   it("runs one terminal reconciliation when the final assistant event is absent", async () => {
     const turnId = TurnId.makeUnsafe("turn-terminal-fence");
     const finalMessageId = MessageId.makeUnsafe("msg-terminal-fence-final");

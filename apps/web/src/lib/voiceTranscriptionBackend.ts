@@ -1,5 +1,5 @@
 // FILE: voiceTranscriptionBackend.ts
-// Purpose: Selects and freezes the best transcription backend available at recording start.
+// Purpose: Selects the best transcription backend available when a ready job begins.
 // Layer: Voice domain policy
 
 import type { ProviderConnectionId, VoiceTranscriptionBackend } from "@penkra/contracts";

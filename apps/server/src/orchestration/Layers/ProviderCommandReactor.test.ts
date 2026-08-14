@@ -805,6 +805,26 @@ describe("ProviderCommandReactor", () => {
             last_error = excluded.last_error,
             updated_at = excluded.updated_at
         `),
+      setRestartRecoveryMarker: async (input: {
+        readonly threadId: ThreadId;
+        readonly turnId: TurnId | null;
+      }) =>
+        input.turnId === null
+          ? runtime.runPromise(sql`
+              DELETE FROM restart_turn_recoveries
+              WHERE thread_id = ${input.threadId}
+            `)
+          : runtime.runPromise(sql`
+              INSERT INTO restart_turn_recoveries (
+                thread_id, turn_id, requested_at, updated_at
+              ) VALUES (
+                ${input.threadId}, ${input.turnId}, ${now}, ${now}
+              )
+              ON CONFLICT (thread_id) DO UPDATE SET
+                turn_id = excluded.turn_id,
+                requested_at = excluded.requested_at,
+                updated_at = excluded.updated_at
+            `),
       queuedTurnPromotionRepository,
       interceptEngineDispatch,
     };
@@ -854,6 +874,93 @@ describe("ProviderCommandReactor", () => {
     const readModel = await Effect.runPromise(harness.engine.getReadModel());
     return readModel.threads.find((thread) => thread.id === threadId);
   }
+
+  it("continues an interrupted turn without persisting a synthetic user message", async () => {
+    const harness = await createHarness();
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const interruptedTurnId = asTurnId("turn-before-restart");
+    const recoveryMessageId = asMessageId("restart-recovery-message");
+    const now = new Date().toISOString();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.makeUnsafe("cmd-recovery-running"),
+        threadId,
+        session: {
+          threadId,
+          status: "running",
+          providerName: "codex",
+          runtimeMode: "full-access",
+          activeTurnId: interruptedTurnId,
+          lastError: null,
+          updatedAt: now,
+        },
+        createdAt: now,
+      }),
+    );
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.makeUnsafe("cmd-recovery-stopped"),
+        threadId,
+        session: {
+          threadId,
+          status: "stopped",
+          providerName: "codex",
+          runtimeMode: "full-access",
+          activeTurnId: null,
+          lastError: null,
+          updatedAt: now,
+        },
+        createdAt: now,
+      }),
+    );
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.makeUnsafe("cmd-recovery-shutdown-error"),
+        threadId,
+        session: {
+          threadId,
+          status: "error",
+          providerName: "codex",
+          runtimeMode: "full-access",
+          activeTurnId: null,
+          lastError: "provider exited during shutdown",
+          updatedAt: now,
+        },
+        createdAt: now,
+      }),
+    );
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.recover",
+        commandId: CommandId.makeUnsafe("cmd-recovery-start"),
+        threadId,
+        recoveryMessageId,
+        interruptedTurnId,
+        connectionId: TEST_CONNECTION_ID,
+        bindingRevision: 0,
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    expect(harness.sendTurn.mock.calls[0]?.[0]).toMatchObject({
+      threadId,
+      clientMessageId: recoveryMessageId,
+      input: expect.stringContaining("Continue the existing task from the current state"),
+    });
+    await harness.drain();
+
+    const thread = await readHarnessThread(harness);
+    expect(thread?.messages.some((message) => message.id === recoveryMessageId)).toBe(false);
+    expect(thread?.session).toMatchObject({
+      status: "running",
+      activeTurnId: "turn-1",
+    });
+  });
 
   it("REL-01B gate: delivers intents committed before the reactor subscribes", async () => {
     const harness = await createHarness({ startReactor: false });
@@ -4456,6 +4563,12 @@ describe("ProviderCommandReactor", () => {
       threadId: ThreadId.makeUnsafe("thread-1"),
       input: "replace the active OpenCode turn",
     });
+    await waitFor(async () => {
+      const thread = await readHarnessThread(harness);
+      return (
+        thread?.messages.find((message) => message.id === messageId)?.delivery?.state === "accepted"
+      );
+    });
   });
 
   it("promotes queued work when the provider session exits without a turn terminal event", async () => {
@@ -4501,6 +4614,49 @@ describe("ProviderCommandReactor", () => {
     expect(harness.sendTurn.mock.calls[0]?.[0]).toMatchObject({
       threadId: ThreadId.makeUnsafe("thread-1"),
       input: "continue after a silent runtime loss",
+    });
+  });
+
+  it("keeps queued work behind a pending restart continuation", async () => {
+    const harness = await createHarness({
+      queuedTurnRecoveryInterval: Duration.millis(10),
+    });
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const interruptedTurnId = asTurnId("turn-restart-interrupted");
+    await seedQueuedTurnBehindLiveTurn(harness, {
+      liveTurnId: interruptedTurnId,
+      messageId: asMessageId("msg-after-restart-continuation"),
+      text: "queued after restart continuation",
+    });
+    await harness.setRestartRecoveryMarker({ threadId, turnId: interruptedTurnId });
+    const interruptedAt = new Date().toISOString();
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.makeUnsafe("cmd-queue-restart-interrupted"),
+        threadId,
+        session: {
+          threadId,
+          status: "interrupted",
+          providerName: "codex",
+          runtimeMode: "approval-required",
+          activeTurnId: null,
+          lastError: null,
+          updatedAt: interruptedAt,
+        },
+        createdAt: interruptedAt,
+      }),
+    );
+
+    harness.setRuntimeSessionTurnState({ threadId, status: "ready" });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(harness.sendTurn).not.toHaveBeenCalled();
+
+    await harness.setRestartRecoveryMarker({ threadId, turnId: null });
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    expect(harness.sendTurn.mock.calls[0]?.[0]).toMatchObject({
+      threadId,
+      input: "queued after restart continuation",
     });
   });
 
@@ -5485,8 +5641,112 @@ describe("ProviderCommandReactor", () => {
     expect(harness.interruptTurn).not.toHaveBeenCalled();
     expect(harness.steerTurn.mock.calls[0]?.[0]).toMatchObject({
       threadId: ThreadId.makeUnsafe("thread-1"),
+      clientMessageId: asMessageId("msg-steer-codex"),
       input: "pivot now",
     });
+    await waitFor(async () => {
+      const thread = await readHarnessThread(harness);
+      return (
+        thread?.messages.find((message) => message.id === "msg-steer-codex")?.delivery?.state ===
+        "accepted"
+      );
+    });
+  });
+
+  it("promotes an OpenCode steer after interrupting the active turn", async () => {
+    const harness = await createHarness({
+      threadModelSelection: { provider: "opencode", model: "opencode/big-pickle" },
+    });
+    const now = new Date().toISOString();
+    const activeTurnId = asTurnId("turn-running-opencode-steer");
+    const messageId = asMessageId("msg-steer-opencode");
+
+    harness.setRuntimeSessionTurnState({
+      threadId: "thread-1",
+      status: "running",
+      activeTurnId,
+    });
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.makeUnsafe("cmd-session-running-steer-opencode"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        session: {
+          threadId: ThreadId.makeUnsafe("thread-1"),
+          status: "running",
+          providerName: "opencode",
+          runtimeMode: "approval-required",
+          activeTurnId,
+          lastError: null,
+          updatedAt: now,
+        },
+        createdAt: now,
+      }),
+    );
+
+    harness.sendTurn.mockClear();
+    harness.steerTurn.mockClear();
+    harness.interruptTurn.mockClear();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        connectionId: TEST_CONNECTION_ID,
+        bindingRevision: 0,
+        commandId: CommandId.makeUnsafe("cmd-turn-steer-opencode"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId,
+          role: "user",
+          text: "replace the running OpenCode turn",
+          attachments: [],
+        },
+        dispatchMode: "steer",
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.interruptTurn.mock.calls.length === 1);
+    expect(harness.sendTurn).not.toHaveBeenCalled();
+    expect(harness.steerTurn).not.toHaveBeenCalled();
+
+    harness.setRuntimeSessionTurnState({ threadId: "thread-1", status: "ready" });
+    await harness.emitRuntimeEvent({
+      type: "turn.aborted",
+      eventId: asEventId("evt-opencode-steer-interrupted"),
+      provider: "opencode",
+      threadId: ThreadId.makeUnsafe("thread-1"),
+      createdAt: new Date().toISOString(),
+      turnId: activeTurnId,
+      payload: { reason: "Interrupted by user." },
+      providerRefs: {},
+    } as ProviderRuntimeEvent);
+
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    expect(harness.sendTurn.mock.calls[0]?.[0]).toMatchObject({
+      threadId: ThreadId.makeUnsafe("thread-1"),
+      input: "replace the running OpenCode turn",
+    });
+
+    const thread = await readHarnessThread(harness);
+    expect(thread?.messages.some((message) => message.id === messageId)).toBe(true);
+    await waitFor(async () => {
+      const projected = await readHarnessThread(harness);
+      return (
+        projected?.messages.find((message) => message.id === messageId)?.delivery?.state ===
+        "accepted"
+      );
+    });
+    const events = Array.from(
+      await Effect.runPromise(Stream.runCollect(harness.engine.readEvents(0))),
+    );
+    expect(
+      events.some(
+        (event) =>
+          event.type === "thread.turn-start-cancelled" && event.payload.messageId === messageId,
+      ),
+    ).toBe(false);
   });
 
   it("dispatches a codex steer as a queued turn when the live provider turn already settled", async () => {

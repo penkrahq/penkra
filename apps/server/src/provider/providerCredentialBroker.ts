@@ -24,6 +24,7 @@ export interface ProviderCredentialBrokerShape {
     secret: string,
     reference: string,
   ) => Effect.Effect<string, ProviderCredentialBrokerError>;
+  readonly fingerprint: (secret: string) => Effect.Effect<string, ProviderCredentialBrokerError>;
   readonly lease: (reference: string) => Effect.Effect<string, ProviderCredentialBrokerError>;
   readonly consume: (capability: string) => Effect.Effect<string, ProviderCredentialBrokerError>;
   readonly readOnce: (reference: string) => Effect.Effect<string, ProviderCredentialBrokerError>;
@@ -161,6 +162,19 @@ export function makeProviderCredentialBroker(
         }),
       ),
     );
+  const fingerprint: ProviderCredentialBrokerShape["fingerprint"] = (secret) =>
+    call("providers.credentials.fingerprint", { secret }).pipe(
+      Effect.flatMap((response) =>
+        Effect.try({
+          try: () => requiredResultString(response, "fingerprint"),
+          catch: (cause) =>
+            new ProviderCredentialBrokerError({
+              message: cause instanceof Error ? cause.message : String(cause),
+              cause,
+            }),
+        }),
+      ),
+    );
   const consume: ProviderCredentialBrokerShape["consume"] = (capability) =>
     call("providers.credentials.consume-lease", { capability }).pipe(
       Effect.flatMap((response) =>
@@ -210,6 +224,7 @@ export function makeProviderCredentialBroker(
     available: Boolean(env[PIPE_ENV] && env[TOKEN_ENV]),
     store,
     claim,
+    fingerprint,
     lease,
     consume,
     readOnce: (reference) => lease(reference).pipe(Effect.flatMap(consume)),

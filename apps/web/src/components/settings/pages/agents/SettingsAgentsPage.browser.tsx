@@ -196,7 +196,14 @@ describe("Settings Agents Connections", () => {
     const screen = await renderPage();
 
     await page.getByRole("button", { name: "ChatGPT agent" }).click();
-    await page.getByRole("button", { name: "Sign in for ChatGPT" }).click();
+    const signIn = page.getByRole("button", { name: "Sign in for ChatGPT" });
+    const signInButton = signIn.element();
+    const icon = signInButton.querySelector("svg");
+    const iconContrastsWithButton =
+      icon !== null &&
+      getComputedStyle(icon).color !== getComputedStyle(signInButton).backgroundColor;
+    expect(iconContrastsWithButton).toBe(true);
+    await signIn.click();
 
     await vi.waitFor(() => {
       expect(nativeApi.beginConnectionLogin).toHaveBeenCalledWith({

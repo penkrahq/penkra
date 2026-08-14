@@ -85,6 +85,7 @@ import { StatsGetProfileStatsInput, StatsGetProfileTokenStatsInput } from "./sta
 import {
   ProviderListCommandsInput,
   ProviderGetComposerCapabilitiesInput,
+  ProviderGetCapabilityHealthInput,
   ProviderListPluginsInput,
   ProviderListModelsInput,
   ProviderListAgentsInput,
@@ -206,6 +207,7 @@ export const WS_METHODS = {
 
   // Provider discovery
   providerGetComposerCapabilities: "provider.getComposerCapabilities",
+  providerGetCapabilityHealth: "provider.getCapabilityHealth",
   providerCompactThread: "provider.compactThread",
   providerListCommands: "provider.listCommands",
   providerListSkills: "provider.listSkills",
@@ -361,6 +363,7 @@ const WebSocketRequestBody = Schema.Union([
 
   // Provider discovery
   tagRequestBody(WS_METHODS.providerGetComposerCapabilities, ProviderGetComposerCapabilitiesInput),
+  tagRequestBody(WS_METHODS.providerGetCapabilityHealth, ProviderGetCapabilityHealthInput),
   tagRequestBody(WS_METHODS.providerCompactThread, ProviderCompactThreadInput),
   tagRequestBody(WS_METHODS.providerListCommands, ProviderListCommandsInput),
   tagRequestBody(WS_METHODS.providerListSkills, ProviderListSkillsInput),

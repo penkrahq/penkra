@@ -138,6 +138,8 @@ const OPENCODE_PROMPT_ACCEPTED_RECOVERY_DELAYS_MS = [2_000, 5_000, 10_000, 20_00
 const OPENCODE_PROMPT_SUBMISSION_INLINE_WAIT_MS = 500;
 const OPENCODE_EVENT_RECONNECT_DELAYS_MS = [250, 1_000, 2_500, 5_000] as const;
 const OPENCODE_MAX_RELATED_SESSIONS = 256;
+const OPENCODE_ABORT_IDLE_POLL_INTERVAL_MS = 50;
+const OPENCODE_ABORT_IDLE_MAX_POLLS = 40;
 
 type OpenCodeSubscribedEvent =
   Awaited<ReturnType<OpencodeClient["event"]["subscribe"]>> extends {
@@ -179,6 +181,8 @@ interface OpenCodeSessionContext {
   lastEmittedTokenUsageKey: string | undefined;
   latestTurnCostUsd: number | undefined;
   activeTurnId: TurnId | undefined;
+  /** The abort request whose provider-side `session.error: Aborted` echo is expected. */
+  pendingAbortErrorTurnId: TurnId | undefined;
   activeTurnEventSerial: number;
   activeTurnProviderActivitySerial: number;
   activeTurnCompletionActivitySerial: number;
@@ -533,16 +537,6 @@ function commonPrefixLength(left: string, right: string): number {
   return index;
 }
 
-function suffixPrefixOverlap(text: string, delta: string): number {
-  const maxLength = Math.min(text.length, delta.length);
-  for (let length = maxLength; length > 0; length -= 1) {
-    if (text.endsWith(delta.slice(0, length))) {
-      return length;
-    }
-  }
-  return 0;
-}
-
 function resolveLatestAssistantText(previousText: string | undefined, nextText: string): string {
   if (previousText && previousText.length > nextText.length && previousText.startsWith(nextText)) {
     return previousText;
@@ -565,10 +559,13 @@ function appendOpenCodeAssistantTextDelta(
   previousText: string,
   delta: string,
 ): { readonly nextText: string; readonly deltaToEmit: string } {
-  const deltaToEmit = delta.slice(suffixPrefixOverlap(previousText, delta));
   return {
-    nextText: previousText + deltaToEmit,
-    deltaToEmit,
+    // OpenCode's `*.delta` payload is an incremental token, not a cumulative
+    // snapshot. Removing a prefix merely because it matches the preceding
+    // suffix corrupts legitimate boundaries such as `STE` + `ERING`.
+    // Duplicate transport events are rejected by event identity upstream.
+    nextText: previousText + delta,
+    deltaToEmit: delta,
   };
 }
 
@@ -620,13 +617,17 @@ function messageRoleForPart(
 }
 
 function detailFromToolPart(part: Extract<Part, { type: "tool" }>): string | undefined {
+  const normalizeDetail = (detail: string | undefined) => {
+    const trimmed = detail?.trim();
+    return trimmed && trimmed.length > 0 ? trimmed : undefined;
+  };
   switch (part.state.status) {
     case "completed":
-      return part.state.output;
+      return normalizeDetail(part.state.output);
     case "error":
-      return part.state.error;
+      return normalizeDetail(part.state.error);
     case "running":
-      return part.state.title;
+      return normalizeDetail(part.state.title);
     default:
       return undefined;
   }
@@ -2972,6 +2973,16 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
               });
               break;
             }
+            const expectedAbortTurnId = context.pendingAbortErrorTurnId;
+            if (expectedAbortTurnId !== undefined && /abort/i.test(message)) {
+              // OpenCode reports a user-requested session.abort as a session
+              // error before the abort RPC has actually finished. Suppress the
+              // echo here, but let interruptTurn publish the terminal event
+              // only after that RPC resolves. Publishing it early lets the
+              // queued steering replacement race the still-aborting session,
+              // and OpenCode then rejects the new prompt as interrupted too.
+              break;
+            }
             const activeTurnId = context.activeTurnId;
             clearActiveTurnState(context);
             updateProviderSession(
@@ -3576,6 +3587,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                   lastEmittedTokenUsageKey: undefined,
                   latestTurnCostUsd: undefined,
                   activeTurnId: undefined,
+                  pendingAbortErrorTurnId: undefined,
                   activeTurnEventSerial: 0,
                   activeTurnProviderActivitySerial: 0,
                   activeTurnCompletionActivitySerial: 0,
@@ -3839,14 +3851,52 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
         function* (threadId, turnId) {
           const context = ensureAdapterSessionContext(threadId);
           const activeTurnId = turnId ?? context.activeTurnId;
+          context.pendingAbortErrorTurnId = activeTurnId;
           yield* runOpenCodeSdk("session.abort", () =>
             context.client.session.abort({
               sessionID: context.openCodeSessionId,
             }),
-          ).pipe(Effect.mapError(toAdapterRequestError));
-          clearActiveTurnState(context);
-          updateProviderSession(context, { status: "ready" }, { clearActiveTurnId: true });
-          if (activeTurnId) {
+          ).pipe(
+            Effect.mapError(toAdapterRequestError),
+            Effect.tapError(() =>
+              Effect.sync(() => {
+                if (context.pendingAbortErrorTurnId === activeTurnId) {
+                  context.pendingAbortErrorTurnId = undefined;
+                }
+              }),
+            ),
+          );
+          // `session.abort` can resolve while OpenCode still reports the session
+          // as busy. Starting the promoted steering prompt in that gap either
+          // rejects the replacement as interrupted or leaves the session busy
+          // forever after the replacement answer. Gate the terminal event (and
+          // therefore queue promotion) on the provider leaving its abort state.
+          for (let poll = 0; poll < OPENCODE_ABORT_IDLE_MAX_POLLS; poll += 1) {
+            const statusExit = yield* Effect.exit(
+              runOpenCodeSdk("session.status", () =>
+                context.client.session.status({
+                  directory: context.directory,
+                }),
+              ),
+            );
+            if (Exit.isFailure(statusExit)) {
+              break;
+            }
+            const status = statusExit.value.data?.[context.openCodeSessionId];
+            if (status?.type !== "busy" && status?.type !== "retry") {
+              break;
+            }
+            yield* Effect.sleep(OPENCODE_ABORT_IDLE_POLL_INTERVAL_MS);
+          }
+          if (context.pendingAbortErrorTurnId === activeTurnId) {
+            context.pendingAbortErrorTurnId = undefined;
+          }
+          // The expected `session.error: Aborted` echo is intentionally not a
+          // terminal event. Settling here gates replacement steering on the
+          // abort RPC instead of racing a new prompt against it.
+          if (activeTurnId && context.activeTurnId === activeTurnId) {
+            clearActiveTurnState(context);
+            updateProviderSession(context, { status: "ready" }, { clearActiveTurnId: true });
             yield* emit(context, {
               ...buildEventBase({ threadId, turnId: activeTurnId }),
               type: "turn.aborted",

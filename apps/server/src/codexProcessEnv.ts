@@ -6,6 +6,7 @@
 
 import * as fs from "node:fs/promises";
 import path from "node:path";
+import { Effect } from "effect";
 
 import { readActiveCodexProviderEnvKey } from "@penkra/shared/codexConfig";
 import {
@@ -15,11 +16,29 @@ import {
 } from "@penkra/shared/shell";
 
 import { resolveBaseCodexHomePath, resolvePenkraCodexHomeOverlayPath } from "./codexHomePaths.ts";
+import { writeFileStringAtomically } from "./atomicWrite.ts";
 import { buildProviderChildEnvironment } from "./providerChildEnvironment.ts";
 
 const CODEX_PROCESS_SHELL_ENV_NAMES = ["PATH", "SSH_AUTH_SOCK"] as const;
 const CODEX_OVERLAY_SHARED_STATE_FILES = new Set(["auth.json"]);
 const codexOverlayPreparationQueues = new Map<string, Promise<void>>();
+
+async function writeCodexConfigIfChanged(
+  configPath: string,
+  contents: string,
+  currentContents?: string,
+): Promise<void> {
+  const current =
+    currentContents ??
+    (await fs.readFile(configPath, "utf8").catch((cause: unknown) => {
+      if ((cause as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+      throw cause;
+    }));
+  if (current === contents) return;
+  await Effect.runPromise(
+    writeFileStringAtomically({ filePath: configPath, contents, mode: 0o600 }),
+  );
+}
 
 interface CodexOverlayEntryLinker {
   readonly symlink: typeof fs.symlink;
@@ -64,21 +83,26 @@ export function removeReservedPenkraMcpServer(config: string): string {
   return output.join("\n").replace(/\n{3,}/g, "\n\n");
 }
 
+const COMPUTER_USE_PLUGIN_HEADER = '[plugins."computer-use@openai-bundled"]';
 const COMPUTER_USE_PLUGIN_MCP_SERVER_HEADER =
   '[plugins."computer-use@openai-bundled".mcp_servers."computer-use"]';
 
-function forceCodexConfigTableDisabled(config: string, header: string): string {
+function setTomlTableBoolean(
+  config: string,
+  header: string,
+  key: string,
+  value: boolean,
+  createWhenMissing: boolean,
+): string {
   const target = normalizeTomlTableHeaderName(header);
   const lines = config.split(/\r?\n/);
   const output: string[] = [];
   let inTargetTable = false;
   let sawTargetTable = false;
-  let wroteEnabled = false;
+  let wroteValue = false;
 
   const closeTargetTable = () => {
-    if (inTargetTable && !wroteEnabled) {
-      output.push("enabled = false");
-    }
+    if (inTargetTable && !wroteValue) output.push(`${key} = ${String(value)}`);
   };
 
   for (const line of lines) {
@@ -87,36 +111,77 @@ function forceCodexConfigTableDisabled(config: string, header: string): string {
       closeTargetTable();
       inTargetTable = table === target;
       if (inTargetTable) sawTargetTable = true;
-      wroteEnabled = false;
+      wroteValue = false;
       output.push(line);
       continue;
     }
-
-    if (inTargetTable && /^\s*enabled\s*=/.test(line)) {
-      output.push("enabled = false");
-      wroteEnabled = true;
+    if (inTargetTable && new RegExp(`^\\s*${key}\\s*=`).test(line)) {
+      output.push(`${key} = ${String(value)}`);
+      wroteValue = true;
       continue;
     }
-
     output.push(line);
   }
 
   closeTargetTable();
-  if (!sawTargetTable) {
+  if (!sawTargetTable && createWhenMissing) {
     const base = output.join("\n").trimEnd();
-    return `${base}\n\n${header}\nenabled = false\n`;
+    return `${base}\n\n${header}\n${key} = ${String(value)}\n`;
   }
-
   return output.join("\n");
 }
 
+/** Makes both official Computer Use routes available without inventing a node_repl command. */
+export function enableOfficialComputerUseRoutes(config: string): string {
+  let next = setTomlTableBoolean(config, COMPUTER_USE_PLUGIN_HEADER, "enabled", true, true);
+  next = setTomlTableBoolean(next, COMPUTER_USE_PLUGIN_MCP_SERVER_HEADER, "enabled", true, true);
+  return setTomlTableBoolean(next, "[mcp_servers.node_repl]", "enabled", true, false);
+}
+
 /**
- * The bundled Computer Use skill is the node_repl variant. Its raw MCP server
- * exposes the same operations without the plugin-owned wrapper and must not be
- * available as a competing route.
+ * ChatGPT can leave a disabled legacy top-level server named `computer-use`.
+ * That name masks the enabled plugin-owned server in app-server inventory, so
+ * omit only the disabled legacy definition from Penkra's effective profile.
  */
-export function disableRawComputerUsePluginServer(config: string): string {
-  return forceCodexConfigTableDisabled(config, COMPUTER_USE_PLUGIN_MCP_SERVER_HEADER);
+export function removeDisabledLegacyComputerUseServer(config: string): string {
+  const lines = config.split(/\r?\n/);
+  let parentDisabled = false;
+  for (let index = 0; index < lines.length; index += 1) {
+    const tablePath = tomlTablePath(lines[index] ?? "");
+    if (
+      tablePath?.length !== 2 ||
+      tablePath[0] !== "mcp_servers" ||
+      tablePath[1] !== "computer-use"
+    ) {
+      continue;
+    }
+    for (let bodyIndex = index + 1; bodyIndex < lines.length; bodyIndex += 1) {
+      if (tomlTablePath(lines[bodyIndex] ?? "") !== undefined) break;
+      if (/^\s*enabled\s*=\s*false\s*(?:#.*)?$/.test(lines[bodyIndex] ?? "")) {
+        parentDisabled = true;
+        break;
+      }
+    }
+    break;
+  }
+  if (!parentDisabled) return config;
+
+  const output: string[] = [];
+  let removing = false;
+  for (const line of lines) {
+    const tablePath = tomlTablePath(line);
+    if (tablePath !== undefined) {
+      removing = tablePath[0] === "mcp_servers" && tablePath[1] === "computer-use";
+    }
+    if (!removing) output.push(line);
+  }
+  return output.join("\n").replace(/\n{3,}/g, "\n\n");
+}
+
+function prepareEffectiveCodexConfig(config: string): string {
+  return enableOfficialComputerUseRoutes(
+    removeDisabledLegacyComputerUseServer(removeReservedPenkraMcpServer(config)),
+  );
 }
 
 export async function linkOrCopyCodexOverlayEntry(
@@ -485,6 +550,31 @@ export function mergeShellEnvPolicyExclude(config: string, envVarName: string): 
   );
 }
 
+function setRootTomlString(config: string, key: string, value: string): string {
+  const lines = config.split(/\r?\n/);
+  const assignment = `${key} = ${JSON.stringify(value)}`;
+  let firstTableIndex = lines.length;
+  let matched = false;
+  const pattern = new RegExp(`^\\s*${key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*=`);
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index] ?? "";
+    if (normalizeTomlTableHeaderName(line) !== undefined) {
+      firstTableIndex = index;
+      break;
+    }
+    if (pattern.test(line)) {
+      lines[index] = assignment;
+      matched = true;
+    }
+  }
+
+  if (!matched) {
+    lines.splice(firstTableIndex, 0, assignment, "");
+  }
+  return lines.join("\n");
+}
+
 function appendManagedCodexConfigSection(config: string, section: string): string {
   const tables = splitTomlTables(section.trim()).filter((table) => {
     const header = table.split("\n")[0]?.trim();
@@ -564,8 +654,7 @@ async function preparePenkraCodexHomeOverlayUnlocked(input: {
   const overlayConfigPath = path.join(overlayHomePath, "config.toml");
   // Provider plugins and MCP servers retain their normal Codex configuration.
   // Penkra owns only its reserved gateway entry, which is appended below.
-  let overlayConfig = removeReservedPenkraMcpServer(sourceConfig);
-  overlayConfig = disableRawComputerUsePluginServer(overlayConfig);
+  let overlayConfig = prepareEffectiveCodexConfig(sourceConfig);
   const managedSection =
     input.appendConfigToml ??
     (await fs
@@ -584,7 +673,7 @@ async function preparePenkraCodexHomeOverlayUnlocked(input: {
       overlayConfig = mergeShellEnvPolicyExclude(overlayConfig, tokenEnvVar);
     }
   }
-  await fs.writeFile(overlayConfigPath, overlayConfig, "utf8");
+  await writeCodexConfigIfChanged(overlayConfigPath, overlayConfig);
 
   return overlayHomePath;
 }
@@ -614,6 +703,7 @@ export async function prepareManagedCodexProfileConfig(input: {
   readonly env: NodeJS.ProcessEnv;
   readonly sourceHomePath?: string;
   readonly appendConfigToml?: string;
+  readonly cliAuthCredentialsStore?: "file" | "keyring";
 }): Promise<void> {
   const codexHome = input.env.CODEX_HOME?.trim();
   if (!codexHome) throw new Error("The managed Codex profile has no CODEX_HOME.");
@@ -625,6 +715,18 @@ export async function prepareManagedCodexProfileConfig(input: {
       throw cause;
     });
     const sourceHomePath = input.sourceHomePath ?? resolveBaseCodexHomePath(process.env);
+    if (path.resolve(sourceHomePath) !== path.resolve(codexHome)) {
+      const sourceComputerUsePath = path.join(sourceHomePath, "computer-use");
+      const sourceComputerUseStat = await fs.stat(sourceComputerUsePath).catch(() => undefined);
+      if (sourceComputerUseStat?.isDirectory()) {
+        await ensureCodexOverlaySymlink({
+          entryName: "computer-use",
+          sourcePath: sourceComputerUsePath,
+          targetPath: path.join(codexHome, "computer-use"),
+          type: "dir",
+        });
+      }
+    }
     const sourceConfigPath = path.join(sourceHomePath, "config.toml");
     const sourceConfig =
       path.resolve(sourceConfigPath) === path.resolve(configPath)
@@ -633,13 +735,20 @@ export async function prepareManagedCodexProfileConfig(input: {
             if ((cause as NodeJS.ErrnoException).code === "ENOENT") return existing;
             throw cause;
           });
-    let config = disableRawComputerUsePluginServer(removeReservedPenkraMcpServer(sourceConfig));
+    let config = prepareEffectiveCodexConfig(sourceConfig);
+    if (input.cliAuthCredentialsStore) {
+      config = setRootTomlString(
+        config,
+        "cli_auth_credentials_store",
+        input.cliAuthCredentialsStore,
+      );
+    }
     if (input.appendConfigToml) {
       config = appendManagedCodexConfigSection(config, input.appendConfigToml);
       const tokenEnvVar = /bearer_token_env_var\s*=\s*"([^"]+)"/.exec(input.appendConfigToml)?.[1];
       if (tokenEnvVar) config = mergeShellEnvPolicyExclude(config, tokenEnvVar);
     }
-    await fs.writeFile(configPath, config, { encoding: "utf8", mode: 0o600 });
+    await writeCodexConfigIfChanged(configPath, config, existing);
   });
 }
 

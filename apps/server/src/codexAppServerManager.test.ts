@@ -13,7 +13,7 @@ import {
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
-import { ApprovalRequestId, ThreadId } from "@penkra/contracts";
+import { ApprovalRequestId, MessageId, ThreadId } from "@penkra/contracts";
 
 import { buildCodexProcessEnv } from "./codexProcessEnv";
 import {
@@ -1071,7 +1071,7 @@ describe("buildCodexProcessEnv", () => {
     }
   });
 
-  it("keeps the supported Computer Use bridge and disables its competing raw plugin server", async () => {
+  it("preserves both user-enabled Computer Use routes", async () => {
     const tempDir = mkdtempSync(path.join(os.tmpdir(), "penkra-codex-env-"));
     const runtimeHome = mkdtempSync(path.join(os.tmpdir(), "penkra-runtime-home-"));
     try {
@@ -1079,6 +1079,9 @@ describe("buildCodexProcessEnv", () => {
         path.join(tempDir, "config.toml"),
         [
           '[plugins."computer-use@openai-bundled"]',
+          "enabled = true",
+          "",
+          '[plugins."computer-use@openai-bundled".mcp_servers."computer-use"]',
           "enabled = true",
           "",
           "[mcp_servers.node_repl]",
@@ -1108,10 +1111,7 @@ describe("buildCodexProcessEnv", () => {
       expect(overlayConfig).toContain("[mcp_servers.node_repl.env]");
       expect(overlayConfig).toContain("[mcp_servers.untrusted]");
       expect(overlayConfig).toContain(
-        [
-          '[plugins."computer-use@openai-bundled".mcp_servers."computer-use"]',
-          "enabled = false",
-        ].join("\n"),
+        '[plugins."computer-use@openai-bundled".mcp_servers."computer-use"]\nenabled = true',
       );
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
@@ -1363,6 +1363,67 @@ describe("startSession", () => {
   it("uses an isolated scratch workspace path when no cwd is provided", () => {
     const cwd = ensureIsolatedScratchWorkspace(asThreadId("thread-1"));
     expect(cwd).toContain(`${path.sep}penkra-codex-workspaces${path.sep}thread-1`);
+  });
+
+  it("reconciles local plugins and reloads skills before opening a thread", async () => {
+    const manager = new CodexAppServerManager();
+    const context = {};
+    const sendRequest = vi
+      .spyOn(
+        manager as unknown as {
+          sendRequest: (...args: unknown[]) => Promise<unknown>;
+        },
+        "sendRequest",
+      )
+      .mockResolvedValue({});
+
+    await (
+      manager as unknown as {
+        reconcileConfiguredPluginsBeforeThreadOpen: (
+          context: unknown,
+          cwd: string,
+        ) => Promise<void>;
+      }
+    ).reconcileConfiguredPluginsBeforeThreadOpen(context, "/workspace");
+
+    expect(sendRequest.mock.calls).toEqual([
+      [context, "plugin/list", { cwds: ["/workspace"], marketplaceKinds: ["local"] }],
+      [context, "skills/list", { cwds: ["/workspace"], forceReload: true }],
+    ]);
+  });
+
+  it("falls back for runtimes with the older plugin and skill list parameter shapes", async () => {
+    const manager = new CodexAppServerManager();
+    const context = {};
+    const sendRequest = vi
+      .spyOn(
+        manager as unknown as {
+          sendRequest: (...args: unknown[]) => Promise<unknown>;
+        },
+        "sendRequest",
+      )
+      .mockRejectedValueOnce(
+        new Error('plugin/list failed: invalid params: unknown field "marketplaceKinds"'),
+      )
+      .mockResolvedValueOnce({})
+      .mockRejectedValueOnce(new Error('skills/list failed: unknown field "cwds"'))
+      .mockResolvedValueOnce({});
+
+    await (
+      manager as unknown as {
+        reconcileConfiguredPluginsBeforeThreadOpen: (
+          context: unknown,
+          cwd: string,
+        ) => Promise<void>;
+      }
+    ).reconcileConfiguredPluginsBeforeThreadOpen(context, "/workspace");
+
+    expect(sendRequest.mock.calls).toEqual([
+      [context, "plugin/list", { cwds: ["/workspace"], marketplaceKinds: ["local"] }],
+      [context, "plugin/list", { cwds: ["/workspace"] }],
+      [context, "skills/list", { cwds: ["/workspace"], forceReload: true }],
+      [context, "skills/list", { cwd: "/workspace", forceReload: true }],
+    ]);
   });
 
   it("reports a missing project working directory instead of a missing Codex CLI", () => {
@@ -1812,6 +1873,7 @@ describe("steerTurn", () => {
 
     const result = await manager.steerTurn({
       threadId: asThreadId("thread_1"),
+      clientMessageId: MessageId.makeUnsafe("message_steer_1"),
       input: "Keep going",
     });
 
@@ -1830,6 +1892,7 @@ describe("steerTurn", () => {
         },
       ],
       expectedTurnId: "turn_active",
+      clientUserMessageId: "message_steer_1",
     });
     expect(context.collabReceiverTurns.get("child_provider_1")).toBe("turn_active");
   });
@@ -2172,7 +2235,7 @@ describe("CodexAppServerManager discovery", () => {
     expect(resolveContextForDiscovery).toHaveBeenCalledWith("thread_1", "/repo");
     expect(sendRequest).toHaveBeenCalledWith(context, "plugin/list", {
       cwds: ["/repo"],
-      forceRemoteSync: true,
+      forceRefetch: true,
     });
   });
 

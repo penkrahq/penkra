@@ -1811,6 +1811,9 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
 
         return {
           threadId: input.threadId,
+          ...(input.clientMessageId !== undefined
+            ? { clientMessageId: input.clientMessageId }
+            : {}),
           ...(composedInput !== undefined ? { input: composedInput } : {}),
           ...(input.skills !== undefined ? { skills: input.skills } : {}),
           ...(input.mentions !== undefined ? { mentions: input.mentions } : {}),
@@ -2097,6 +2100,28 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
     const getComposerCapabilities: NonNullable<CodexAdapterShape["getComposerCapabilities"]> = () =>
       Effect.succeed(manager.getComposerCapabilities() satisfies ProviderComposerCapabilities);
 
+    const getCapabilityHealth: NonNullable<CodexAdapterShape["getCapabilityHealth"]> = (input) =>
+      Effect.tryPromise({
+        try: async () => ({
+          capabilities: [
+            {
+              id: "computer-use",
+              ...(await manager.getComputerUseCapabilityHealth(
+                ThreadId.makeUnsafe(input.threadId),
+              )),
+            },
+          ],
+          source: "codex-app-server",
+        }),
+        catch: (cause) =>
+          new ProviderAdapterRequestError({
+            provider: PROVIDER,
+            method: "mcpServerStatus/list",
+            detail: toMessage(cause, "Computer Use capability preflight failed"),
+            cause,
+          }),
+      });
+
     const listSkills: NonNullable<CodexAdapterShape["listSkills"]> = (input) =>
       Effect.tryPromise({
         try: () =>
@@ -2305,6 +2330,7 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
         ),
       ),
       getComposerCapabilities,
+      getCapabilityHealth,
       listSkills,
       listPlugins,
       readPlugin,

@@ -59,7 +59,8 @@ type Request = {
     | "providers.credentials.issue-lease"
     | "providers.credentials.consume-lease"
     | "providers.credentials.has"
-    | "providers.credentials.remove";
+    | "providers.credentials.remove"
+    | "providers.credentials.fingerprint";
   params?: unknown;
 };
 
@@ -276,6 +277,16 @@ export class AppCommandPipeServer {
           result: {
             exists: this.#providerCredentialVault.has(
               requiredString(params.reference, "reference"),
+            ),
+          },
+        };
+      case "providers.credentials.fingerprint":
+        return {
+          ok: true,
+          id: request.id,
+          result: {
+            fingerprint: this.#providerCredentialVault.fingerprint(
+              requiredString(params.secret, "secret"),
             ),
           },
         };

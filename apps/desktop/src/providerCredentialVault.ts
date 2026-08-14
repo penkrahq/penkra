@@ -145,6 +145,11 @@ export class ProviderCredentialVault {
     return this.#state.records[requireReference(reference)] !== undefined;
   }
 
+  fingerprint(secret: string): string {
+    validateSecret(secret);
+    return this.#fingerprint(secret);
+  }
+
   issueLease(reference: string, ttlMs = DEFAULT_LEASE_TTL_MS): string {
     const normalized = requireReference(reference);
     if (!this.#state.records[normalized]?.encrypted)

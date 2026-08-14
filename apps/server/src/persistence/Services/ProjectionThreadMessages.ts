@@ -9,6 +9,7 @@
 import {
   ChatAttachment,
   MessageDispatchOrigin,
+  MessageDeliveryState,
   OrchestrationMessageRole,
   OrchestrationMessageSource,
   TurnDispatchMode,
@@ -36,6 +37,9 @@ export const ProjectionThreadMessage = Schema.Struct({
   mentions: Schema.optional(Schema.Array(ProviderMentionReference)),
   dispatchMode: Schema.optional(TurnDispatchMode),
   dispatchOrigin: Schema.optional(MessageDispatchOrigin),
+  deliveryState: Schema.optional(MessageDeliveryState),
+  deliveryQueued: Schema.optional(Schema.Boolean),
+  deliverySequence: Schema.optional(NonNegativeInt),
   isStreaming: Schema.Boolean,
   source: OrchestrationMessageSource,
   /** Server-owned orchestration event sequence for causal ordering. */

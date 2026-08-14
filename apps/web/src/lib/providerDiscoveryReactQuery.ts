@@ -1,13 +1,15 @@
-import type {
-  ProviderComposerCapabilities,
-  ProviderKind,
-  ProviderListAgentsResult,
-  ProviderListCommandsResult,
+import {
   ProviderListModelsResult,
-  ProviderListPluginsResult,
-  ProviderListSkillsResult,
-  ProviderSkillsCatalogResult,
+  type ProviderComposerCapabilities,
+  type ProviderKind,
+  type ProviderListAgentsResult,
+  type ProviderListCommandsResult,
+  type ProviderListModelsResult as ProviderListModelsResultType,
+  type ProviderListPluginsResult,
+  type ProviderListSkillsResult,
+  type ProviderSkillsCatalogResult,
 } from "@penkra/contracts";
+import { Schema } from "effect";
 import { queryOptions } from "@tanstack/react-query";
 import { ensureNativeApi } from "~/nativeApi";
 
@@ -23,7 +25,7 @@ const EMPTY_COMMANDS_RESULT: ProviderListCommandsResult = {
   cached: false,
 };
 
-const EMPTY_MODELS_RESULT: ProviderListModelsResult = {
+const EMPTY_MODELS_RESULT: ProviderListModelsResultType = {
   models: [],
   source: "empty",
   cached: false,
@@ -43,6 +45,77 @@ const EMPTY_PLUGINS_RESULT: ProviderListPluginsResult = {
   source: "empty",
   cached: false,
 };
+
+const OPENCODE_MODEL_CACHE_KEY_PREFIX = "penkra:opencode-model-catalog:v1:";
+const OPENCODE_MODEL_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60_000;
+const decodeProviderListModelsResult = Schema.decodeUnknownSync(ProviderListModelsResult);
+
+function openCodeModelCacheKey(input: {
+  binaryPath?: string | null;
+  apiEndpoint?: string | null;
+  agentDir?: string | null;
+  cwd?: string | null;
+}): string {
+  return `${OPENCODE_MODEL_CACHE_KEY_PREFIX}${JSON.stringify([
+    input.binaryPath ?? null,
+    input.apiEndpoint ?? null,
+    input.agentDir ?? null,
+    input.cwd ?? null,
+  ])}`;
+}
+
+function readOpenCodeModelCache(input: {
+  binaryPath?: string | null;
+  apiEndpoint?: string | null;
+  agentDir?: string | null;
+  cwd?: string | null;
+}): ProviderListModelsResultType | undefined {
+  try {
+    const raw = globalThis.localStorage?.getItem(openCodeModelCacheKey(input));
+    if (!raw) return undefined;
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== "object" || parsed === null || !("storedAt" in parsed)) {
+      return undefined;
+    }
+    const storedAt = (parsed as { storedAt?: unknown }).storedAt;
+    if (
+      typeof storedAt !== "number" ||
+      !Number.isFinite(storedAt) ||
+      Date.now() - storedAt > OPENCODE_MODEL_CACHE_MAX_AGE_MS ||
+      !("result" in parsed)
+    ) {
+      return undefined;
+    }
+    const result = decodeProviderListModelsResult((parsed as { result: unknown }).result);
+    return result.models.length > 0 ? { ...result, cached: true } : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function writeOpenCodeModelCache(
+  input: {
+    binaryPath?: string | null;
+    apiEndpoint?: string | null;
+    agentDir?: string | null;
+    cwd?: string | null;
+  },
+  result: ProviderListModelsResultType,
+): void {
+  try {
+    const storage = globalThis.localStorage;
+    if (!storage) return;
+    const key = openCodeModelCacheKey(input);
+    if (result.models.length === 0) {
+      storage.removeItem(key);
+      return;
+    }
+    storage.setItem(key, JSON.stringify({ storedAt: Date.now(), result }));
+  } catch {
+    // Discovery remains authoritative. A blocked or full localStorage must not
+    // turn a successful model refresh into a user-visible failure.
+  }
+}
 
 export const providerDiscoveryQueryKeys = {
   all: ["provider-discovery"] as const,
@@ -210,6 +283,12 @@ export function providerModelsQueryOptions(input: {
   cwd?: string | null;
   enabled?: boolean;
 }) {
+  const discoveryIdentity = {
+    binaryPath: input.binaryPath ?? null,
+    apiEndpoint: input.apiEndpoint ?? null,
+    agentDir: input.agentDir ?? null,
+    cwd: input.cwd ?? null,
+  };
   return queryOptions({
     queryKey: providerDiscoveryQueryKeys.models(
       input.provider,
@@ -218,15 +297,19 @@ export function providerModelsQueryOptions(input: {
       input.agentDir ?? null,
       input.cwd ?? null,
     ),
-    queryFn: async (): Promise<ProviderListModelsResult> => {
+    queryFn: async (): Promise<ProviderListModelsResultType> => {
       const api = ensureNativeApi();
-      return api.provider.listModels({
+      const result = await api.provider.listModels({
         provider: input.provider,
         ...(input.binaryPath ? { binaryPath: input.binaryPath } : {}),
         ...(input.apiEndpoint ? { apiEndpoint: input.apiEndpoint } : {}),
         ...(input.agentDir ? { agentDir: input.agentDir } : {}),
         ...(input.cwd ? { cwd: input.cwd } : {}),
       });
+      if (input.provider === "opencode") {
+        writeOpenCodeModelCache(discoveryIdentity, result);
+      }
+      return result;
     },
     enabled: input.enabled ?? true,
     // Cursor/droid failures are permanent for a session (missing CLI/auth): fail
@@ -234,6 +317,14 @@ export function providerModelsQueryOptions(input: {
     retry: input.provider === "droid" || input.provider === "cursor" ? 0 : 3,
     staleTime: input.provider === "droid" ? 5 * 60_000 : 60_000,
     ...(input.provider === "droid" ? { refetchOnWindowFocus: false } : {}),
+    ...(input.provider === "opencode"
+      ? {
+          initialData: () => readOpenCodeModelCache(discoveryIdentity),
+          // Persisted data is deliberately stale: render it synchronously, then
+          // refresh it without replacing the composer model control.
+          initialDataUpdatedAt: 0,
+        }
+      : {}),
     placeholderData: (previous) => previous ?? EMPTY_MODELS_RESULT,
   });
 }

@@ -34,6 +34,7 @@ import { ProviderThreadSwitchCoordinator } from "./orchestration/Services/Provid
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
 import { ThreadDeletionReactor } from "./orchestration/Services/ThreadDeletionReactor";
 import { reconcileRestartStuckTurns } from "./orchestration/startupTurnReconciliation";
+import { recoverRestartInterruptedTurns } from "./orchestration/restartTurnRecovery";
 import { ProviderSessionReaper } from "./provider/Services/ProviderSessionReaper";
 import { ProviderRuntimeReconciler } from "./provider/Services/ProviderRuntimeReconciler";
 import { ProviderService, type ProviderServiceShape } from "./provider/Services/ProviderService";
@@ -248,6 +249,7 @@ export const createEffectServer = Effect.fn(function* (
     ),
   );
   yield* providerThreadSwitchCoordinator.recoverOpen;
+  yield* recoverRestartInterruptedTurns;
   yield* runtimeStartup.markCommandReady;
 
   yield* lifecycleEvents.publish({

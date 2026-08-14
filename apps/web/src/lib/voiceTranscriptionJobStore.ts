@@ -1,12 +1,8 @@
 // FILE: voiceTranscriptionJobStore.ts
-// Purpose: Durably stores stopped voice recordings until their transcript reaches the composer.
+// Purpose: Reconciles and durably stores ready voice recordings until one transcription attempt.
 // Layer: Browser storage adapter
 
-import {
-  ProviderConnectionId,
-  type ThreadId,
-  type VoiceTranscriptionBackend,
-} from "@penkra/contracts";
+import { type ThreadId } from "@penkra/contracts";
 
 import { awaitIdbRequest, openIndexedDbDatabase, waitForIdbTransaction } from "./indexedDb";
 import {
@@ -22,7 +18,6 @@ export interface VoiceTranscriptionJob {
   readonly id: string;
   readonly threadId: ThreadId;
   readonly providerThreadId?: ThreadId | undefined;
-  readonly transcriptionBackend: VoiceTranscriptionBackend;
   readonly cwd: string;
   readonly recording: CapturedVoiceRecordingPayload;
   readonly createdAt: string;
@@ -77,35 +72,10 @@ export async function listVoiceTranscriptionJobs(): Promise<VoiceTranscriptionJo
 function normalizeStoredVoiceTranscriptionJob(value: unknown): VoiceTranscriptionJob[] {
   if (!value || typeof value !== "object") return [];
   const record = value as Record<string, unknown>;
-  const backend = normalizeStoredTranscriptionBackend(record);
-  if (!backend) return [];
-  return [{ ...(record as unknown as VoiceTranscriptionJob), transcriptionBackend: backend }];
-}
-
-function normalizeStoredTranscriptionBackend(
-  record: Record<string, unknown>,
-): VoiceTranscriptionBackend | null {
-  const backend = record.transcriptionBackend;
-  if (backend && typeof backend === "object") {
-    const candidate = backend as Record<string, unknown>;
-    const locale = typeof candidate.locale === "string" ? candidate.locale.trim() : "";
-    if (candidate.kind === "apple-speech" && locale) {
-      return { kind: "apple-speech", locale };
-    }
-    const connectionId =
-      typeof candidate.connectionId === "string" ? candidate.connectionId.trim() : "";
-    if (candidate.kind === "codex-chatgpt" && connectionId) {
-      return { kind: "codex-chatgpt", connectionId: ProviderConnectionId.makeUnsafe(connectionId) };
-    }
-  }
-  const legacyConnectionId =
-    typeof record.connectionId === "string" ? record.connectionId.trim() : "";
-  return legacyConnectionId
-    ? {
-        kind: "codex-chatgpt",
-        connectionId: ProviderConnectionId.makeUnsafe(legacyConnectionId),
-      }
-    : null;
+  const job = { ...record };
+  delete job.transcriptionBackend;
+  delete job.connectionId;
+  return [job as unknown as VoiceTranscriptionJob];
 }
 
 export async function deleteVoiceTranscriptionJob(jobId: string): Promise<void> {
@@ -130,21 +100,33 @@ async function listDesktopVoiceTranscriptionJobs(): Promise<VoiceTranscriptionJo
   const descriptors = await bridge.listVoices();
   const jobs = await Promise.all(
     descriptors.map(async (descriptor): Promise<VoiceTranscriptionJob | null> => {
+      if (descriptor.state === "recording") {
+        if (descriptor.committedBytes === 0) {
+          await bridge.deleteVoice(descriptor.id);
+          return null;
+        }
+        await bridge.completeVoice(descriptor.id);
+      }
       const bytes = await bridge.readVoice(descriptor.id);
-      if (!bytes) return null;
+      if (!bytes) {
+        await bridge.deleteVoice(descriptor.id);
+        return null;
+      }
       const recording = captureVoiceRecordingFromFloat32Bytes({
         bytes,
         sampleRateHz: descriptor.sampleRateHz,
         durableVoiceDraftId: descriptor.id,
       });
-      if (!recording) return null;
+      if (!recording) {
+        await bridge.deleteVoice(descriptor.id);
+        return null;
+      }
       return {
         id: descriptor.id,
         threadId: descriptor.threadId as ThreadId,
         ...(descriptor.providerThreadId
           ? { providerThreadId: descriptor.providerThreadId as ThreadId }
           : {}),
-        transcriptionBackend: descriptor.transcriptionBackend,
         cwd: descriptor.cwd,
         recording,
         createdAt: descriptor.createdAt,

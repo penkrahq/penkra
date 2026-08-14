@@ -4,12 +4,10 @@ import {
   type ModelSelection,
   type ModelSlug,
   type ProviderApprovalDecision,
-  type ProviderKind,
   type RuntimeMode,
   type ServerProviderAuthStatus,
   type ThreadId as ThreadIdType,
 } from "@penkra/contracts";
-import { normalizeModelSlug } from "@penkra/shared/model";
 import { buildPenkraBranchName } from "@penkra/shared/git";
 import { isGenericChatThreadTitle } from "@penkra/shared/chatThreads";
 import { isGenericTerminalThreadTitle } from "@penkra/shared/terminalThreads";
@@ -653,45 +651,6 @@ export function deriveComposerVoiceState(input: {
   };
 }
 
-export function shouldShowComposerModelBootstrapSkeleton(input: {
-  selectedProvider: ProviderKind;
-  selectedModel: string | null | undefined;
-  persistedModelSelection: ModelSelection | null | undefined;
-  draftModelSelection: ModelSelection | null | undefined;
-  providerModelsLoading: boolean;
-  requiresDiscoveredModels?: boolean;
-}): boolean {
-  if (input.requiresDiscoveredModels === true && input.providerModelsLoading) {
-    return true;
-  }
-
-  const draftSelection = input.draftModelSelection;
-  if (draftSelection && draftSelection.provider === input.selectedProvider) {
-    return false;
-  }
-
-  const persistedSelection = input.persistedModelSelection;
-  if (!persistedSelection) {
-    return false;
-  }
-
-  if (persistedSelection.provider !== input.selectedProvider) {
-    return input.providerModelsLoading;
-  }
-
-  if (!input.providerModelsLoading) {
-    return false;
-  }
-
-  const normalizedSelectedModel =
-    normalizeModelSlug(input.selectedModel, input.selectedProvider) ?? input.selectedModel;
-  const normalizedPersistedModel =
-    normalizeModelSlug(persistedSelection.model, persistedSelection.provider) ??
-    persistedSelection.model;
-
-  return normalizedSelectedModel !== normalizedPersistedModel;
-}
-
 export function resolveCommittedProviderModel(input: {
   selectedModel: ModelSlug;
   availableOptions: ReadonlyArray<ProviderModelOption>;
@@ -761,7 +720,6 @@ export function hasServerAcknowledgedLocalDispatch(input: {
   phase: SessionPhase;
   latestTurn: Thread["latestTurn"] | null;
   session: Thread["session"] | null;
-  messages: readonly ChatMessage[];
   hasPendingApproval: boolean;
   hasPendingUserInput: boolean;
   threadError: string | null | undefined;
@@ -777,16 +735,6 @@ export function hasServerAcknowledgedLocalDispatch(input: {
   ) {
     return true;
   }
-  if (
-    input.localDispatch.expectedUserMessageId !== null &&
-    input.messages.some(
-      (message) =>
-        message.role === "user" && message.id === input.localDispatch?.expectedUserMessageId,
-    )
-  ) {
-    return true;
-  }
-
   const latestTurn = input.latestTurn ?? null;
   const session = input.session ?? null;
   const nextSessionOrchestrationStatus = session?.orchestrationStatus ?? null;
@@ -801,6 +749,12 @@ export function hasServerAcknowledgedLocalDispatch(input: {
   }
 
   if (input.localDispatch.sessionOrchestrationStatus !== nextSessionOrchestrationStatus) {
+    // Starting is still part of the optimistic-to-runtime handoff. Keep the local
+    // dispatch latched until the provider reports an actual running turn or an
+    // explicit terminal outcome.
+    if (nextSessionOrchestrationStatus === "starting") {
+      return false;
+    }
     if (
       input.localDispatch.sessionOrchestrationStatus === null &&
       nextSessionOrchestrationStatus === "ready"

@@ -103,6 +103,8 @@ const dependencies = Layer.mergeAll(
             return reference;
           })
         : Effect.fail(new ProviderCredentialBrokerError({ message: claimFailure })),
+    fingerprint: (secret: string) =>
+      Effect.succeed(Buffer.from(secret).toString("hex").padEnd(64, "0").slice(0, 64)),
     lease: () => Effect.die("unused"),
     consume: () => Effect.die("unused"),
     readOnce: () => Effect.die("unused"),
@@ -207,7 +209,10 @@ layer("ProviderConnectionLoginCoordinator", (it) => {
       const completed = yield* waitForCompleted(started.operationId);
       assert.strictEqual(completed.connection?.authenticationMethodId, "api-key");
       assert.strictEqual(completed.connection?.label, "API / ••••-key");
-      assert.strictEqual(completed.connection?.providerIdentityId, null);
+      assert.match(
+        completed.connection?.providerIdentityId ?? "",
+        /^api-key:hmac-sha256:[0-9a-f]{64}$/,
+      );
     }),
   );
 
@@ -324,7 +329,7 @@ layer("ProviderConnectionLoginCoordinator", (it) => {
     }),
   );
 
-  it.effect("rejects a duplicate provider identity and cleans the uncommitted profile", () =>
+  it.effect("reuses a Connection when the provider verifies the same identity", () =>
     Effect.gen(function* () {
       yield* runMigrations();
       yield* activateCodex;
@@ -347,11 +352,11 @@ layer("ProviderConnectionLoginCoordinator", (it) => {
       });
       probedAccount = { type: "chatgpt", email: "same@example.com", planType: "pro" };
       pendingLogin?.resolve({ type: "chatgpt", email: "same@example.com", planType: "pro" });
-      const failed = yield* waitForFailed(duplicate.operationId);
+      const completed = yield* waitForCompleted(duplicate.operationId);
 
-      assert.strictEqual(failed.connection, null);
-      assert.strictEqual(failed.failureReason, "This provider account is already connected.");
-      assert.strictEqual(logoutCount, 1);
+      assert.strictEqual(completed.connectionId, first.connectionId);
+      assert.strictEqual(completed.connection?.providerIdentityId, "same@example.com");
+      assert.strictEqual(logoutCount, 0);
       assert.strictEqual(Option.isNone(yield* connections.getRecord(duplicate.connectionId)), true);
       assert.strictEqual(
         Option.getOrThrow(yield* connections.getRecord(first.connectionId)).lifecycle,
@@ -419,6 +424,7 @@ layer("ProviderConnectionLoginCoordinator", (it) => {
       yield* runMigrations();
       yield* activateCodex;
       const coordinator = yield* ProviderConnectionLoginCoordinator;
+      const connections = yield* ProviderConnectionRepository;
 
       const first = yield* coordinator.begin({
         harness: "codex",
@@ -429,17 +435,28 @@ layer("ProviderConnectionLoginCoordinator", (it) => {
       const completed = yield* waitForCompleted(first.operationId);
       assert.strictEqual(completed.connection?.providerIdentityId, "same@example.com");
       assert.strictEqual(completed.connection?.label, "same@example.com");
+      yield* connections.terminate({
+        id: completed.connectionId,
+        reason: "disconnected",
+        terminatedAt: timestamp,
+      });
 
-      const duplicate = yield* coordinator.begin({
+      const reauthenticated = yield* coordinator.begin({
         harness: "codex",
         authenticationTargetId: "openai-first-party",
         authenticationMethodId: "chatgpt",
       });
       probedAccount = { type: "chatgpt", email: "same@example.com", planType: "pro" };
       pendingLogin?.resolve({ type: "chatgpt", email: "same@example.com", planType: "pro" });
-      const failed = yield* waitForFailed(duplicate.operationId);
-      assert.strictEqual(failed.connection, null);
-      assert.strictEqual(failed.failureReason, "This provider account is already connected.");
+      const reused = yield* waitForCompleted(reauthenticated.operationId);
+      assert.strictEqual(reused.connectionId, completed.connectionId);
+      assert.strictEqual(reused.connection?.providerIdentityId, "same@example.com");
+      assert.strictEqual(
+        (yield* connections.list()).filter(
+          (connection) => connection.providerIdentityId === "same@example.com",
+        ).length,
+        1,
+      );
     }),
   );
 

@@ -1219,13 +1219,14 @@ function syncServerThreadDetailWithOptions(
   state: AppState,
   thread: ReadModelThread,
   options?: {
-    updateSidebarSummary?: boolean;
+    mergeLiveHotPath?: boolean;
   },
 ): AppState {
   const previousThread = getThreadFromState(state, thread.id);
-  const nextThreadDetail = options
-    ? mergeReadModelThreadDetailWithLiveHotPath(thread, previousThread)
-    : thread;
+  const nextThreadDetail =
+    options?.mergeLiveHotPath === true
+      ? mergeReadModelThreadDetailWithLiveHotPath(thread, previousThread)
+      : thread;
   return writeThreadDetailSyncState(
     commitThreadProjection(
       writeThreadState(
@@ -1260,7 +1261,9 @@ export function syncServerThreadDetailHotPath(state: AppState, thread: ReadModel
   ) {
     return removeThreadState(state, thread.id);
   }
-  return syncServerThreadDetailWithOptions(state, thread, { updateSidebarSummary: false });
+  return syncServerThreadDetailWithOptions(state, thread, {
+    mergeLiveHotPath: true,
+  });
 }
 
 export function applyShellEvent(state: AppState, event: OrchestrationShellStreamEvent): AppState {

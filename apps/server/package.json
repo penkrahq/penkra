@@ -18,6 +18,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx src/index.ts",
+    "dev:bundle": "tsdown && tsdown --watch --no-clean",
     "build": "node scripts/cli.ts build",
     "start": "node dist/index.mjs",
     "prepare": "effect-language-service patch",

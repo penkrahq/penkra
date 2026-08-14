@@ -40,6 +40,7 @@ import {
   threadsOf,
 } from "./storeTestFixtures";
 import { DEFAULT_RUNTIME_MODE, type Thread } from "./types";
+import { resolveSidebarWorkStatus, resolveThreadStatusPill } from "./components/Sidebar.logic";
 
 describe("store projection", () => {
   it("preserves a semantic branch when a temp worktree branch arrives from the read model", () => {
@@ -1436,6 +1437,129 @@ describe("store projection", () => {
 
     expect(next.threadSessionById?.[threadId]?.orchestrationStatus).toBe("running");
     expect(next.threadSessionById?.[threadId]?.activeTurnId).toBe(liveTurnId);
+  });
+
+  it.each([
+    { status: "starting" as const, withRunningTurn: false },
+    { status: "running" as const, withRunningTurn: true },
+  ])(
+    "keeps the sidebar spinner active when a later shell envelope carries an older $status lifecycle",
+    ({ status, withRunningTurn }) => {
+      const threadId = ThreadId.makeUnsafe(`thread-sidebar-${status}`);
+      const turnId = TurnId.makeUnsafe(`turn-sidebar-${status}`);
+      const activeAt = "2026-02-27T00:00:02.000Z";
+      const staleAt = "2026-02-27T00:00:01.000Z";
+      const activeThread = makeReadModelThread({
+        id: threadId,
+        latestTurn: withRunningTurn
+          ? {
+              turnId,
+              state: "running",
+              requestedAt: activeAt,
+              startedAt: activeAt,
+              completedAt: null,
+              assistantMessageId: null,
+            }
+          : null,
+        updatedAt: activeAt,
+        session: {
+          threadId,
+          status,
+          providerName: "codex",
+          runtimeMode: "full-access",
+          activeTurnId: withRunningTurn ? turnId : null,
+          lastError: null,
+          updatedAt: activeAt,
+        },
+      });
+      const activeState = syncServerReadModel(
+        makeState(makeThread({ id: threadId })),
+        makeReadModel(activeThread),
+      );
+      const staleShellThread = makeReadModelThread({
+        id: threadId,
+        latestTurn: null,
+        // The shell row itself can be newer because unrelated metadata was
+        // projected after its nested lifecycle rows were read.
+        updatedAt: "2026-02-27T00:00:03.000Z",
+        session: {
+          threadId,
+          status: "ready",
+          providerName: "codex",
+          runtimeMode: "full-access",
+          activeTurnId: null,
+          lastError: null,
+          updatedAt: staleAt,
+        },
+      });
+
+      const next = syncServerShellSnapshot(activeState, makeShellSnapshot(staleShellThread));
+      const summary = next.sidebarThreadSummaryById[threadId];
+      expect(summary?.session?.orchestrationStatus).toBe(status);
+      expect(summary?.latestTurn?.state ?? null).toBe(withRunningTurn ? "running" : null);
+      const pill = summary
+        ? resolveThreadStatusPill({
+            thread: summary,
+            hasPendingApprovals: summary.hasPendingApprovals ?? false,
+            hasPendingUserInput: summary.hasPendingUserInput ?? false,
+          })
+        : null;
+      expect(pill).toMatchObject({ label: "Working", pulse: true });
+      expect(resolveSidebarWorkStatus(pill)).toBe("running");
+    },
+  );
+
+  it("does not let a partially projected ready session erase an unsettled running turn", () => {
+    const threadId = ThreadId.makeUnsafe("thread-sidebar-partial-ready");
+    const turnId = TurnId.makeUnsafe("turn-sidebar-partial-ready");
+    const runningAt = "2026-02-27T00:00:02.000Z";
+    const activeState = syncServerReadModel(
+      makeState(makeThread({ id: threadId })),
+      makeReadModel(
+        makeReadModelThread({
+          id: threadId,
+          latestTurn: {
+            turnId,
+            state: "running",
+            requestedAt: runningAt,
+            startedAt: runningAt,
+            completedAt: null,
+            assistantMessageId: null,
+          },
+          session: {
+            threadId,
+            status: "running",
+            providerName: "codex",
+            runtimeMode: "full-access",
+            activeTurnId: turnId,
+            lastError: null,
+            updatedAt: runningAt,
+          },
+        }),
+      ),
+    );
+    const partialShellThread = makeReadModelThread({
+      id: threadId,
+      latestTurn: null,
+      session: {
+        threadId,
+        status: "ready",
+        providerName: "codex",
+        runtimeMode: "full-access",
+        activeTurnId: null,
+        lastError: null,
+        updatedAt: "2026-02-27T00:00:03.000Z",
+      },
+    });
+
+    const next = syncServerShellSnapshot(activeState, makeShellSnapshot(partialShellThread));
+    expect(next.threadSessionById?.[threadId]?.orchestrationStatus).toBe("running");
+    expect(next.threadTurnStateById?.[threadId]?.latestTurn).toMatchObject({
+      turnId,
+      state: "running",
+      completedAt: null,
+    });
+    expect(next.sidebarThreadSummaryById[threadId]?.session?.orchestrationStatus).toBe("running");
   });
 
   it("keeps sidebar summaries shell-owned during hot-path thread detail syncs", () => {

@@ -70,6 +70,17 @@ describe("transcribeVoiceWithChatGptSession", () => {
     expect(request).toHaveBeenCalledTimes(2);
   });
 
+  it("returns an empty transcript when the provider detects no speech", async () => {
+    vi.spyOn(outboundHttp, "request").mockResolvedValue(outboundJson({ text: "" }));
+
+    await expect(
+      transcribeVoiceWithChatGptSession({
+        request: baseRequest,
+        resolveAuth: async () => ({ token: "chatgpt-token" }),
+      }),
+    ).resolves.toEqual({ text: "" });
+  });
+
   it("rejects a provider-returned transcription origin before forwarding the token", async () => {
     await expect(
       transcribeVoiceWithChatGptSession({

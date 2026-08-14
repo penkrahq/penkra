@@ -5,6 +5,7 @@ import { EventEmitter } from "node:events";
 import {
   ApprovalRequestId,
   EventId,
+  MessageId,
   type ProviderComposerCapabilities,
   ProviderItemId,
   type ProviderListModelsResult,
@@ -74,6 +75,12 @@ import {
   parseCodexPluginReadResponse,
   parseCodexSkillsListResponse,
 } from "./provider/codexDiscoveryCatalog.ts";
+import {
+  classifyComputerUseCapability,
+  type ComputerUseCapabilityHealth,
+  type McpStartupStatusEntry,
+  type McpToolInventoryEntry,
+} from "./provider/computerUseCapability.ts";
 
 const log = createLogger("codex");
 
@@ -169,6 +176,8 @@ interface CodexSessionContext {
    * activity, but they are not evidence that the turn became active again.
    */
   terminalTurnIds: Set<TurnId>;
+  mcpStartupStatuses: Map<string, McpStartupStatusEntry>;
+  computerUseHealth?: ComputerUseCapabilityHealth;
   taskCompleteFallback?:
     | {
         readonly turnId: TurnId;
@@ -226,6 +235,24 @@ function shouldRetrySkillsListWithCwdFallback(error: unknown): boolean {
   );
 }
 
+function shouldRetryPluginListWithoutMarketplaceKinds(error: unknown): boolean {
+  const message = error instanceof Error ? error.message.toLowerCase() : "";
+  return (
+    message.includes("plugin/list failed") &&
+    (message.includes("marketplacekinds") ||
+      message.includes("unknown field") ||
+      message.includes("unrecognized field"))
+  );
+}
+
+function isPluginListUnavailable(error: unknown): boolean {
+  const message = error instanceof Error ? error.message.toLowerCase() : "";
+  return (
+    message.includes("plugin/list") &&
+    (message.includes("method not found") || message.includes("unknown method"))
+  );
+}
+
 type CodexPlanType =
   | "free"
   | "go"
@@ -250,6 +277,7 @@ interface CodexVoiceTranscriptionAuthContext {
 
 export interface CodexAppServerSendTurnInput {
   readonly threadId: ThreadId;
+  readonly clientMessageId?: MessageId;
   readonly input?: string;
   readonly attachments?: ReadonlyArray<{ type: "image"; url: string }>;
   readonly skills?: ReadonlyArray<ProviderSkillReference>;
@@ -818,6 +846,48 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     }
   }
 
+  /**
+   * Codex refreshes plugin catalogs in the background when app-server starts.
+   * `plugin/list` is the provider-owned barrier that waits for configured local
+   * plugin caches to reconcile. Run it before opening the thread, then invalidate
+   * the skill cache, so the first user turn cannot race plugin materialization.
+   */
+  private async reconcileConfiguredPluginsBeforeThreadOpen(
+    context: CodexSessionContext,
+    cwd: string,
+  ): Promise<void> {
+    try {
+      try {
+        await this.sendRequest(context, "plugin/list", {
+          cwds: [cwd],
+          marketplaceKinds: ["local"],
+        });
+      } catch (error) {
+        if (!shouldRetryPluginListWithoutMarketplaceKinds(error)) throw error;
+        await this.sendRequest(context, "plugin/list", { cwds: [cwd] });
+      }
+    } catch (error) {
+      if (isPluginListUnavailable(error)) {
+        log.warn("Codex plugin reconciliation is unavailable in this runtime", { error });
+        return;
+      }
+      throw error;
+    }
+
+    try {
+      await this.sendRequest(context, "skills/list", {
+        cwds: [cwd],
+        forceReload: true,
+      });
+    } catch (error) {
+      if (!shouldRetrySkillsListWithCwdFallback(error)) throw error;
+      await this.sendRequest(context, "skills/list", {
+        cwd,
+        forceReload: true,
+      });
+    }
+  }
+
   async startSession(input: CodexAppServerStartSessionInput): Promise<ProviderSession> {
     const threadId = input.threadId;
     const now = new Date().toISOString();
@@ -886,6 +956,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         collabReceiverParents: new Map(),
         reviewTurnIds: new Set(),
         terminalTurnIds: new Set(),
+        mcpStartupStatuses: new Map(),
         nextRequestId: 1,
         stopping: false,
       };
@@ -900,6 +971,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
 
       await this.writeMessage(context, { method: "initialized" });
       await this.registerPenkraSkillsRoot(context);
+      await this.reconcileConfiguredPluginsBeforeThreadOpen(context, resolvedCwd);
       try {
         const modelListResponse = await this.sendRequest(context, "model/list", {});
         log.info("model/list response", { modelListResponse });
@@ -1055,6 +1127,12 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         });
       }
       this.emitLifecycleEvent(context, "session/ready", `Connected to thread ${providerThreadId}`);
+      void this.refreshComputerUseCapabilityHealth(context, providerThreadId).catch((error) => {
+        log.warn("Computer Use capability preflight failed", {
+          threadId,
+          error,
+        });
+      });
       return { ...context.session };
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to start Codex session.";
@@ -1111,6 +1189,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       serviceTier?: string | null;
       effort?: string;
       summary: "auto" | "none";
+      clientUserMessageId?: string;
       approvalPolicy?: CodexApprovalPolicy;
       sandboxPolicy?: CodexTurnSandboxPolicy;
       collaborationMode?: {
@@ -1125,6 +1204,9 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       threadId: providerThreadId,
       input: turnInput,
       summary: "auto",
+      ...(input.clientMessageId !== undefined
+        ? { clientUserMessageId: input.clientMessageId }
+        : {}),
       ...resolveCodexTurnOverrides(context),
     };
     const normalizedModel = resolveCodexModelForAccount(
@@ -1204,6 +1286,9 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         threadId: providerThreadId,
         input: turnInput,
         expectedTurnId: activeTurnId,
+        ...(input.clientMessageId !== undefined
+          ? { clientUserMessageId: input.clientMessageId }
+          : {}),
       });
     } catch (steerError) {
       // The turn can complete after the caller's live-state check but before
@@ -1579,6 +1664,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         collabReceiverParents: new Map(),
         reviewTurnIds: new Set(),
         terminalTurnIds: new Set(),
+        mcpStartupStatuses: new Map(),
         nextRequestId: 1,
         stopping: false,
       };
@@ -2108,7 +2194,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     const context = await this.resolveContextForDiscovery(input.threadId, cwd ?? undefined);
     const response = await this.sendRequest<Record<string, unknown>>(context, "plugin/list", {
       ...(cwd ? { cwds: [cwd] } : {}),
-      ...(input.forceRemoteSync ? { forceRemoteSync: true } : {}),
+      ...(input.forceRemoteSync ? { forceRefetch: true } : {}),
     });
     const result: ProviderListPluginsResult = {
       ...parseCodexPluginListResponse(response),
@@ -2117,6 +2203,64 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     };
     setRecentCacheEntry(this.pluginsCache, cacheKey, result);
     return result;
+  }
+
+  async getComputerUseCapabilityHealth(threadId: ThreadId): Promise<ComputerUseCapabilityHealth> {
+    const context = this.requireSession(threadId);
+    const providerThreadId = readResumeCursorThreadId(context.session.resumeCursor);
+    if (!providerThreadId) {
+      throw new Error(`Session is missing provider resume thread id: ${threadId}`);
+    }
+    return this.refreshComputerUseCapabilityHealth(context, providerThreadId);
+  }
+
+  private async refreshComputerUseCapabilityHealth(
+    context: CodexSessionContext,
+    providerThreadId: string,
+  ): Promise<ComputerUseCapabilityHealth> {
+    const inventory: McpToolInventoryEntry[] = [];
+    const seenCursors = new Set<string>();
+    let cursor: string | null = null;
+
+    do {
+      const response: Record<string, unknown> = await this.sendRequest<Record<string, unknown>>(
+        context,
+        "mcpServerStatus/list",
+        {
+          cursor,
+          limit: 100,
+          detail: "toolsAndAuthOnly",
+          threadId: providerThreadId,
+        },
+      );
+      const data = Array.isArray(response.data) ? response.data : [];
+      for (const rawServer of data) {
+        const server = asObject(rawServer);
+        const name = asString(server?.name)?.trim();
+        if (!name) continue;
+        const tools = asObject(server?.tools) ?? {};
+        inventory.push({ name, toolNames: Object.keys(tools) });
+      }
+      const nextCursor: string | null = asString(response.nextCursor)?.trim() || null;
+      if (nextCursor && seenCursors.has(nextCursor)) {
+        throw new Error("mcpServerStatus/list returned a repeated pagination cursor.");
+      }
+      if (nextCursor) seenCursors.add(nextCursor);
+      cursor = nextCursor;
+    } while (cursor !== null);
+
+    const health = classifyComputerUseCapability({
+      inventory,
+      startupStatuses: [...context.mcpStartupStatuses.values()],
+    });
+    context.computerUseHealth = health;
+    log.info("Computer Use capability preflight completed", {
+      threadId: context.session.threadId,
+      state: health.state,
+      preferredRoute: health.preferredRoute,
+      routes: health.routes,
+    });
+    return health;
   }
 
   async readPlugin(input: CodexPluginReadInput): Promise<ProviderReadPluginResult> {
@@ -2360,6 +2504,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       collabReceiverParents: new Map(),
       reviewTurnIds: new Set(),
       terminalTurnIds: new Set(),
+      mcpStartupStatuses: new Map(),
       nextRequestId: 1,
       stopping: false,
       discovery: true,
@@ -2621,6 +2766,21 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     context: CodexSessionContext,
     notification: JsonRpcNotification,
   ): void {
+    if (notification.method === "mcpServer/startupStatus/updated") {
+      const params = asObject(notification.params);
+      const name = asString(params?.name)?.trim();
+      const state = asString(params?.status);
+      if (
+        name &&
+        (state === "starting" || state === "ready" || state === "failed" || state === "cancelled")
+      ) {
+        context.mcpStartupStatuses.set(name, {
+          name,
+          state,
+          error: asString(params?.error) ?? null,
+        });
+      }
+    }
     const rawRoute = this.readRouteFields(notification.params);
     this.rememberCollabReceiverTurns(context, notification.params, rawRoute.turnId);
     const resolvedCollaborationRoute = this.resolveCollaborationRoute(context, notification.params);

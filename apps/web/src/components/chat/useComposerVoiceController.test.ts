@@ -35,19 +35,21 @@ const reactHarness = vi.hoisted(() => {
       if (cleanup) slot.cleanup = cleanup;
       else delete slot.cleanup;
     },
+    useMemo<T>(factory: () => T, _deps: readonly unknown[]) {
+      return factory();
+    },
   };
 });
 
 const coordinator = vi.hoisted(() => {
+  type RegisteredVoiceTranscriptConsumer = {
+    readonly resolveTranscriptionBackend: () => unknown;
+  };
   const state = {
     capture: {
       origin: {
         threadId: "thread-a",
         providerThreadId: "thread-a",
-        transcriptionBackend: {
-          kind: "codex-chatgpt" as const,
-          connectionId: "connection-codex",
-        },
         cwd: "/workspace/project",
       },
       phase: "recording",
@@ -58,10 +60,6 @@ const coordinator = vi.hoisted(() => {
       origin: {
         threadId: string;
         providerThreadId: string | null;
-        transcriptionBackend: {
-          kind: "codex-chatgpt";
-          connectionId: string;
-        };
         cwd: string;
       };
       phase: "starting" | "recording" | "stopping";
@@ -86,17 +84,16 @@ const coordinator = vi.hoisted(() => {
     startRecording: vi.fn(),
     submitRecording: vi.fn(),
     cancelForThread: vi.fn(),
-    registerTranscriptConsumer: vi.fn(() => () => undefined),
+    registerTranscriptConsumer: vi.fn<(consumer: RegisteredVoiceTranscriptConsumer) => () => void>(
+      () => () => undefined,
+    ),
   };
 });
 
 const toast = vi.hoisted(() => ({ add: vi.fn() }));
-vi.mock("react", () => ({ useEffect: reactHarness.useEffect }));
+vi.mock("react", () => ({ useEffect: reactHarness.useEffect, useMemo: reactHarness.useMemo }));
 vi.mock("../../lib/voiceRecorder", () => ({ formatVoiceRecordingDuration: () => "0:00" }));
 vi.mock("../../voiceSessionCoordinator", () => ({
-  VoiceSessionTranscriptionError: class VoiceSessionTranscriptionError extends Error {
-    jobSaved = true;
-  },
   useVoiceSessionCoordinatorActions: () => ({
     startRecording: coordinator.startRecording,
     submitRecording: coordinator.submitRecording,
@@ -151,10 +148,6 @@ describe("useComposerVoiceController", () => {
       origin: {
         threadId: "thread-a",
         providerThreadId: "thread-a",
-        transcriptionBackend: {
-          kind: "codex-chatgpt",
-          connectionId: "connection-codex",
-        },
         cwd: PROJECT.cwd,
       },
       phase: "recording",
@@ -227,7 +220,7 @@ describe("useComposerVoiceController", () => {
     });
   });
 
-  it("starts capture with a frozen Codex default backend", async () => {
+  it("starts capture without persisting the selected backend", async () => {
     coordinator.state.capture = null;
     render();
     await result.startComposerVoiceRecording();
@@ -235,42 +228,33 @@ describe("useComposerVoiceController", () => {
     expect(coordinator.startRecording).toHaveBeenCalledWith({
       threadId: THREAD_A,
       providerThreadId: THREAD_A,
-      transcriptionBackend: {
-        kind: "codex-chatgpt",
-        connectionId: "connection-codex",
-      },
       cwd: PROJECT.cwd,
     });
   });
 
-  it("keeps Codex as the frozen default when native speech is also available", async () => {
+  it("resolves Codex first when native speech is also available", async () => {
     coordinator.state.capture = null;
     coordinator.state.nativeCapabilities = { appleSpeech: { locale: "en-US" } };
     render();
     await result.startComposerVoiceRecording();
 
-    expect(coordinator.startRecording).toHaveBeenCalledWith({
-      threadId: THREAD_A,
-      providerThreadId: THREAD_A,
-      transcriptionBackend: {
-        kind: "codex-chatgpt",
-        connectionId: "connection-codex",
-      },
-      cwd: PROJECT.cwd,
+    const consumer = coordinator.registerTranscriptConsumer.mock.calls.at(-1)?.[0];
+    expect(consumer?.resolveTranscriptionBackend()).toEqual({
+      kind: "codex-chatgpt",
+      connectionId: "connection-codex",
     });
   });
 
-  it("uses a frozen Apple backend when no Codex connection is available", async () => {
+  it("resolves Apple when no Codex connection is available", async () => {
     coordinator.state.capture = null;
     coordinator.state.nativeCapabilities = { appleSpeech: { locale: "en-US" } };
     render({ connectionId: undefined });
     await result.startComposerVoiceRecording();
 
-    expect(coordinator.startRecording).toHaveBeenCalledWith({
-      threadId: THREAD_A,
-      providerThreadId: THREAD_A,
-      transcriptionBackend: { kind: "apple-speech", locale: "en-US" },
-      cwd: PROJECT.cwd,
+    const consumer = coordinator.registerTranscriptConsumer.mock.calls.at(-1)?.[0];
+    expect(consumer?.resolveTranscriptionBackend()).toEqual({
+      kind: "apple-speech",
+      locale: "en-US",
     });
   });
 

@@ -80,30 +80,32 @@ export const ComposerQueuedHeader = function ComposerQueuedHeader({
 
   return (
     <ComposerStackedPanel attachedToPrevious={attachedToPrevious} className="flex flex-col">
-      {queuedTurns.map((queuedTurn, queuedTurnIndex) => (
-        <ComposerStackedPanelRow
-          key={queuedTurn.id}
-          compact
-          data-testid="queued-follow-up-row"
-          className={cn(queuedTurnIndex > 0 && COMPOSER_STACKED_PANEL_DIVIDER_CLASS_NAME)}
-        >
-          <ComposerStackedPanelRowMain>
-            <SteerIcon className={COMPOSER_STACKED_PANEL_ICON_CLASS_NAME} />
-            <ChatMarkdown
-              text={compactQueuedComposerPreviewMarkdown(queuedTurn.previewText)}
-              cwd={cwd}
-              isStreaming={false}
-              className={COMPOSER_STACKED_PANEL_PREVIEW_MARKDOWN_CLASS_NAME}
+      {queuedTurns.map((queuedTurn, queuedTurnIndex) => {
+        return (
+          <ComposerStackedPanelRow
+            key={queuedTurn.id}
+            compact
+            data-testid="queued-follow-up-row"
+            className={cn(queuedTurnIndex > 0 && COMPOSER_STACKED_PANEL_DIVIDER_CLASS_NAME)}
+          >
+            <ComposerStackedPanelRowMain>
+              <SteerIcon className={COMPOSER_STACKED_PANEL_ICON_CLASS_NAME} />
+              <ChatMarkdown
+                text={compactQueuedComposerPreviewMarkdown(queuedTurn.previewText)}
+                cwd={cwd}
+                isStreaming={false}
+                className={COMPOSER_STACKED_PANEL_PREVIEW_MARKDOWN_CLASS_NAME}
+              />
+            </ComposerStackedPanelRowMain>
+            <QueuedComposerActions
+              queuedTurn={queuedTurn}
+              onSteer={onSteer}
+              onRemove={onRemove}
+              onEdit={onEdit}
             />
-          </ComposerStackedPanelRowMain>
-          <QueuedComposerActions
-            queuedTurn={queuedTurn}
-            onSteer={onSteer}
-            onRemove={onRemove}
-            onEdit={onEdit}
-          />
-        </ComposerStackedPanelRow>
-      ))}
+          </ComposerStackedPanelRow>
+        );
+      })}
     </ComposerStackedPanel>
   );
 };

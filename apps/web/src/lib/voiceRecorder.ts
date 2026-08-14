@@ -1,5 +1,5 @@
 // FILE: voiceRecorder.ts
-// Purpose: Captures microphone audio as bounded rolling WAV transcription chunks.
+// Purpose: Captures microphone audio as a crash-durable recording with bounded rolling chunks.
 // Layer: Client utility hook
 // Exports: useVoiceRecorder, formatVoiceRecordingDuration
 // Depends on: browser media devices, Web Audio API, and FileReader for base64 encoding.
@@ -38,7 +38,6 @@ interface RecorderRuntime {
 export interface VoiceRecordingOrigin {
   readonly threadId: string;
   readonly providerThreadId: string | null;
-  readonly transcriptionBackend: import("@penkra/contracts").VoiceTranscriptionBackend;
   readonly cwd: string;
 }
 
@@ -165,7 +164,6 @@ export function useVoiceRecorder() {
             id: durableJobId,
             threadId: origin.threadId,
             ...(origin.providerThreadId ? { providerThreadId: origin.providerThreadId } : {}),
-            transcriptionBackend: origin.transcriptionBackend,
             cwd: origin.cwd,
             sampleRateHz: audioContext.sampleRate,
             state: "recording",

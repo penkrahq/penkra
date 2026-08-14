@@ -204,6 +204,16 @@ function verifyReleaseWorkflowSafety(): void {
     "environment: desktop-release",
     "Expected signing secrets to be protected by the desktop release environment.",
   );
+  assertContains(
+    workflow,
+    "PENKRA_REGISTRY_TRUSTED_KEYS: ${{ vars.PENKRA_REGISTRY_TRUSTED_KEYS }}",
+    "Expected production Desktop builds to pin the registry public trust anchors.",
+  );
+  assertContains(
+    workflow,
+    "Missing desktop-release variable: PENKRA_REGISTRY_TRUSTED_KEYS",
+    "Expected the release to fail closed when registry trust anchors are absent.",
+  );
   assertContains(workflow, "--target dmg", "Expected a signed DMG and matching update ZIP.");
   assertContains(workflow, "--arch arm64", "Expected the production release to be macOS arm64.");
   assertContains(workflow, "--target AppImage", "Expected a Linux AppImage.");

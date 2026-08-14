@@ -1766,7 +1766,11 @@ const make = Effect.gen(function* () {
             case "session.exited":
               return "stopped";
             case "turn.completed":
-              return runtimeTurnState(event) === "failed" ? "error" : "ready";
+              return runtimeTurnState(event) === "failed"
+                ? "error"
+                : runtimeTurnState(event) === "interrupted"
+                  ? "interrupted"
+                  : "ready";
             case "turn.aborted":
               return "interrupted";
             case "session.started":

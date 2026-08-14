@@ -1,6 +1,7 @@
 import {
   ChatAttachment,
   MessageDispatchOrigin,
+  MessageDeliveryState,
   NonNegativeInt,
   ProviderMentionReference,
   ProviderSkillReference,
@@ -22,6 +23,15 @@ export const ProjectionThreadMessageDbRowSchema = ProjectionThreadMessage.mapFie
     mentions: Schema.NullOr(Schema.fromJsonString(Schema.Array(ProviderMentionReference))),
     dispatchMode: Schema.NullOr(TurnDispatchMode),
     dispatchOrigin: Schema.NullOr(MessageDispatchOrigin),
+    deliveryState: Schema.optional(Schema.NullOr(MessageDeliveryState)).pipe(
+      Schema.withDecodingDefault(() => null),
+    ),
+    deliveryQueued: Schema.optional(Schema.NullOr(Schema.Number)).pipe(
+      Schema.withDecodingDefault(() => null),
+    ),
+    deliverySequence: Schema.optional(Schema.NullOr(NonNegativeInt)).pipe(
+      Schema.withDecodingDefault(() => null),
+    ),
     sequence: Schema.NullOr(NonNegativeInt),
   }),
 );
@@ -49,6 +59,13 @@ export function projectionThreadMessageFromRow(
     ...(row.mentions !== null ? { mentions: row.mentions } : {}),
     ...(row.dispatchMode ? { dispatchMode: row.dispatchMode } : {}),
     ...(row.dispatchOrigin ? { dispatchOrigin: row.dispatchOrigin } : {}),
+    ...(row.deliveryState !== null
+      ? {
+          deliveryState: row.deliveryState,
+          deliveryQueued: row.deliveryQueued === 1,
+          ...(row.deliverySequence !== null ? { deliverySequence: row.deliverySequence } : {}),
+        }
+      : {}),
   };
 }
 
@@ -64,6 +81,18 @@ export function orchestrationMessageFromProjectionRow(
     ...(row.mentions !== null ? { mentions: row.mentions } : {}),
     ...(row.dispatchMode ? { dispatchMode: row.dispatchMode } : {}),
     ...(row.dispatchOrigin ? { dispatchOrigin: row.dispatchOrigin } : {}),
+    ...(row.deliveryState !== null &&
+    row.deliveryState !== undefined &&
+    row.deliverySequence !== null &&
+    row.deliverySequence !== undefined
+      ? {
+          delivery: {
+            state: row.deliveryState,
+            queued: row.deliveryQueued === 1,
+            sequence: row.deliverySequence,
+          },
+        }
+      : {}),
     turnId: row.turnId,
     streaming: row.isStreaming === 1,
     source: row.source,

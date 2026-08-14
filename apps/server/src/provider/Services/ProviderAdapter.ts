@@ -23,6 +23,8 @@ import type {
   ProviderListModelsResult,
   ProviderListPluginsInput,
   ProviderListPluginsResult,
+  ProviderGetCapabilityHealthInput,
+  ProviderGetCapabilityHealthResult,
   ProviderReadPluginInput,
   ProviderReadPluginResult,
   ProviderListSkillsResult,
@@ -310,6 +312,11 @@ export interface ProviderAdapterShape<TError> {
    * Read provider-specific composer capabilities.
    */
   readonly getComposerCapabilities?: () => Effect.Effect<ProviderComposerCapabilities, TError>;
+
+  /** Read health for optional provider capabilities in one active thread. */
+  readonly getCapabilityHealth?: (
+    input: ProviderGetCapabilityHealthInput,
+  ) => Effect.Effect<ProviderGetCapabilityHealthResult, TError>;
 
   /**
    * List skills available for a given cwd.

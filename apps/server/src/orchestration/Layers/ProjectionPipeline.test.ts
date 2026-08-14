@@ -585,6 +585,96 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
       assert.deepEqual(yield* readTerminalRows(), liveRows);
     }),
   );
+  it.effect(
+    "keeps restart recovery armed across shutdown but clears it on Stop or completion",
+    () =>
+      Effect.gen(function* () {
+        const projectionPipeline = yield* OrchestrationProjectionPipeline;
+        const eventStore = yield* OrchestrationEventStore;
+        const sql = yield* SqlClient.SqlClient;
+        const appendAndProject = makeAppendAndProject(eventStore, projectionPipeline);
+        const threadId = ThreadId.makeUnsafe("thread-restart-recovery");
+        const now = "2026-08-13T12:00:00.000Z";
+        let sequence = 0;
+        const base = (tag: string) => ({
+          eventId: EventId.makeUnsafe(`evt-restart-recovery-${tag}`),
+          aggregateKind: "thread" as const,
+          aggregateId: threadId,
+          occurredAt: now,
+          commandId: CommandId.makeUnsafe(`cmd-restart-recovery-${tag}`),
+          causationEventId: null,
+          correlationId: CorrelationId.makeUnsafe(`cmd-restart-recovery-${tag}`),
+          metadata: {},
+        });
+
+        yield* appendAndProject({
+          ...base(`${sequence++}-create`),
+          type: "thread.created",
+          payload: {
+            threadId,
+            projectId: ContainerId.makeUnsafe("project-restart-recovery"),
+            title: "Restart recovery",
+            modelSelection: { provider: "codex", model: "gpt-5-codex" },
+            runtimeMode: "full-access",
+            branch: null,
+            worktreePath: null,
+            createdAt: now,
+            updatedAt: now,
+          },
+        });
+
+        const setSession = (
+          tag: string,
+          status: "running" | "stopped" | "ready" | "error",
+          turnId: string | null,
+        ) =>
+          appendAndProject({
+            ...base(`${sequence++}-${tag}`),
+            type: "thread.session-set",
+            payload: {
+              threadId,
+              session: {
+                threadId,
+                status,
+                providerName: "codex",
+                runtimeMode: "full-access",
+                activeTurnId: turnId === null ? null : TurnId.makeUnsafe(turnId),
+                lastError: null,
+                updatedAt: now,
+              },
+            },
+          });
+        const rows = () =>
+          sql<{ readonly threadId: string; readonly turnId: string }>`
+          SELECT thread_id AS "threadId", turn_id AS "turnId"
+          FROM restart_turn_recoveries
+          WHERE thread_id = ${threadId}
+        `;
+
+        yield* setSession("running-1", "running", "turn-recovery-1");
+        assert.deepStrictEqual(yield* rows(), [
+          { threadId: "thread-restart-recovery", turnId: "turn-recovery-1" },
+        ]);
+
+        yield* setSession("shutdown", "stopped", null);
+        assert.equal((yield* rows()).length, 1);
+
+        yield* appendAndProject({
+          ...base(`${sequence++}-stop`),
+          type: "thread.turn-interrupt-requested",
+          payload: { threadId, turnId: TurnId.makeUnsafe("turn-recovery-1"), createdAt: now },
+        });
+        assert.equal((yield* rows()).length, 0);
+
+        yield* setSession("running-2", "running", "turn-recovery-2");
+        yield* setSession("completed", "ready", null);
+        assert.equal((yield* rows()).length, 0);
+
+        yield* setSession("running-3", "running", "turn-recovery-3");
+        yield* setSession("failed", "error", null);
+        assert.equal((yield* rows()).length, 0);
+      }),
+  );
 });
 
 it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("penkra-message-identity-scope-")))(
@@ -4452,6 +4542,75 @@ it.layer(
       `;
 
       assert.deepEqual(rows, [{ dispatchMode: "steer" }]);
+    }),
+  );
+
+  it.effect("sequence-fences the durable message delivery lifecycle", () =>
+    Effect.gen(function* () {
+      const eventStore = yield* OrchestrationEventStore;
+      const projectionPipeline = yield* OrchestrationProjectionPipeline;
+      const sql = yield* SqlClient.SqlClient;
+      const threadId = ThreadId.makeUnsafe("thread-delivery-lifecycle");
+      const messageId = MessageId.makeUnsafe("message-delivery-lifecycle");
+      const createdAt = "2026-02-27T11:02:00.000Z";
+
+      yield* eventStore.append({
+        type: "thread.message-sent",
+        eventId: EventId.makeUnsafe("evt-delivery-admitted"),
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt: createdAt,
+        commandId: CommandId.makeUnsafe("cmd-delivery-admitted"),
+        causationEventId: null,
+        correlationId: CorrelationId.makeUnsafe("cmd-delivery-admitted"),
+        metadata: {},
+        payload: {
+          threadId,
+          messageId,
+          role: "user",
+          text: "queued follow-up",
+          dispatchMode: "queue",
+          delivery: { state: "queued", queued: true },
+          turnId: null,
+          streaming: false,
+          source: "native",
+          createdAt,
+          updatedAt: createdAt,
+        },
+      });
+      yield* eventStore.append({
+        type: "thread.message-delivery-set",
+        eventId: EventId.makeUnsafe("evt-delivery-accepted"),
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt: "2026-02-27T11:02:01.000Z",
+        commandId: CommandId.makeUnsafe("cmd-delivery-accepted"),
+        causationEventId: null,
+        correlationId: CorrelationId.makeUnsafe("cmd-delivery-accepted"),
+        metadata: {},
+        payload: {
+          threadId,
+          messageId,
+          state: "accepted",
+          updatedAt: "2026-02-27T11:02:01.000Z",
+        },
+      });
+
+      yield* projectionPipeline.bootstrap;
+
+      const rows = yield* sql<{
+        readonly state: string | null;
+        readonly queued: number | null;
+        readonly sequence: number | null;
+      }>`
+        SELECT delivery_state AS state, delivery_queued AS queued,
+          delivery_sequence AS sequence
+        FROM projection_thread_messages
+        WHERE thread_id = ${threadId} AND message_id = ${messageId}
+      `;
+      assert.equal(rows[0]?.state, "accepted");
+      assert.equal(rows[0]?.queued, 1);
+      assert.ok((rows[0]?.sequence ?? 0) > 0);
     }),
   );
 

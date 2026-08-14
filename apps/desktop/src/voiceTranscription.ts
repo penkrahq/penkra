@@ -156,8 +156,7 @@ async function transcribeVoiceWithApple(
       TRANSCRIPTION_TIMEOUT_MS,
     )) as SpeechHelperTranscription;
     const text = readNonEmptyString(payload.text);
-    if (!text) throw new Error("Apple on-device transcription did not return any text.");
-    return { text };
+    return { text: text ?? "" };
   } finally {
     await FS.promises.rm(temporaryDirectory, { recursive: true, force: true });
   }

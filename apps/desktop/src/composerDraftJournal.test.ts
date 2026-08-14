@@ -2,13 +2,11 @@ import * as FS from "node:fs";
 import * as OS from "node:os";
 import * as Path from "node:path";
 
-import { ProviderConnectionId } from "@penkra/contracts";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { ComposerDraftJournal } from "./composerDraftJournal";
 
 const roots: string[] = [];
-const CODEX_CONNECTION_ID = ProviderConnectionId.makeUnsafe("connection-codex");
 
 async function makeJournal(): Promise<{ journal: ComposerDraftJournal; root: string }> {
   const root = await FS.promises.mkdtemp(Path.join(OS.tmpdir(), "penkra-composer-journal-"));
@@ -52,7 +50,6 @@ describe("ComposerDraftJournal", () => {
     await journal.createVoice({
       id: "voice-1",
       threadId: "thread-1",
-      transcriptionBackend: { kind: "codex-chatgpt", connectionId: CODEX_CONNECTION_ID },
       cwd: "/workspace",
       sampleRateHz: 48_000,
       state: "recording",
@@ -85,7 +82,6 @@ describe("ComposerDraftJournal", () => {
     await journal.createVoice({
       id: "voice-2",
       threadId: "thread-1",
-      transcriptionBackend: { kind: "codex-chatgpt", connectionId: CODEX_CONNECTION_ID },
       cwd: "/workspace",
       sampleRateHz: 48_000,
       state: "recording",

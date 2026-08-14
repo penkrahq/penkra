@@ -34,7 +34,7 @@ export function ConnectionAuthActionShared({
       type="button"
     >
       {kind === "sign-in" ? (
-        <ProviderIcon className="size-4" provider={provider} />
+        <ProviderIcon className="size-4 text-[var(--color-background)]" provider={provider} />
       ) : (
         <IconKey className="size-4 text-[var(--color-text-foreground-secondary)]" />
       )}

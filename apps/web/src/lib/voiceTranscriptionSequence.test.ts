@@ -78,6 +78,21 @@ describe("voice transcription sequencing", () => {
     ]);
   });
 
+  it("keeps usable text when another chunk contains no speech", async () => {
+    const transcribeChunk = vi.fn(async (input: VoiceRecordingChunkPayload) => ({
+      text: input.audioBase64 === "two" ? "" : input.audioBase64,
+    }));
+
+    await expect(
+      transcribeVoiceRecording({
+        recording: RECORDING,
+        transcribeChunk,
+        isCurrent: () => true,
+      }),
+    ).resolves.toBe("one three");
+    expect(transcribeChunk).toHaveBeenCalledTimes(3);
+  });
+
   it("stops before sending another chunk after cancellation", async () => {
     let current = true;
     const transcribeChunk = vi.fn(async () => {

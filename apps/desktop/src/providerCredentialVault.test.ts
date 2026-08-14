@@ -38,6 +38,8 @@ describe("ProviderCredentialVault", () => {
     await expect(vault.store("same-secret")).rejects.toThrow("already configured");
     const raw = await readFile(join(root, "providers/vault-v1.json"), "utf8");
     expect(raw).not.toContain("same-secret");
+    expect(vault.fingerprint("same-secret")).toMatch(/^[0-9a-f]{64}$/);
+    expect(vault.fingerprint("same-secret")).toBe(vault.fingerprint("same-secret"));
   });
 
   it("makes a caller-owned reference idempotent without allowing identity reuse", async () => {

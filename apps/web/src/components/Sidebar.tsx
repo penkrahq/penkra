@@ -3254,7 +3254,7 @@ export default function Sidebar() {
     >
       <SidebarHeaderShared
         brand="Penkra"
-        className={cn("h-full w-full", showMacTrafficLightAffordance && "px-0")}
+        className={cn("h-full w-full", showMacTrafficLightAffordance && "pl-0")}
         {...(isOnSettings
           ? {
               onBack: () => {

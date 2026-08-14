@@ -22,7 +22,18 @@ function mockListModels(listModels: ReturnType<typeof vi.fn>) {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
+
+function stubLocalStorage() {
+  const values = new Map<string, string>();
+  vi.stubGlobal("localStorage", {
+    getItem: (key: string) => values.get(key) ?? null,
+    removeItem: (key: string) => values.delete(key),
+    setItem: (key: string, value: string) => values.set(key, value),
+  });
+  return values;
+}
 
 describe("isInitialModelDiscoveryPending", () => {
   it("is pending only for the first fetch (loading or placeholder fetch)", () => {
@@ -105,6 +116,58 @@ describe("providerModelsQueryOptions", () => {
 
     expect(listModels).toHaveBeenCalledTimes(2);
     expect(queryClient.getQueryData(options.queryKey)).toEqual(catalog);
+  });
+
+  it("hydrates OpenCode from its persisted catalog while refreshing in the background", async () => {
+    stubLocalStorage();
+    const catalog = {
+      models: [{ slug: "opencode/big-pickle", name: "Big Pickle" }],
+      source: "managed-connections",
+      cached: false,
+    };
+    const listModels = mockListModels(vi.fn().mockResolvedValue(catalog));
+    const input = { provider: "opencode" as const, cwd: "/repo", enabled: true };
+
+    const firstOptions = providerModelsQueryOptions(input);
+    await expect(new QueryClient().fetchQuery(firstOptions)).resolves.toEqual(catalog);
+
+    const cachedOptions = providerModelsQueryOptions(input);
+    const initialData =
+      typeof cachedOptions.initialData === "function"
+        ? cachedOptions.initialData()
+        : cachedOptions.initialData;
+
+    expect(initialData).toEqual({ ...catalog, cached: true });
+    expect(cachedOptions.initialDataUpdatedAt).toBe(0);
+    expect(listModels).toHaveBeenCalledTimes(1);
+  });
+
+  it("clears a persisted OpenCode catalog after a successful empty refresh", async () => {
+    const storage = stubLocalStorage();
+    const input = { provider: "opencode" as const, cwd: "/repo", enabled: true };
+    const listModels = mockListModels(
+      vi
+        .fn()
+        .mockResolvedValueOnce({
+          models: [{ slug: "opencode/big-pickle", name: "Big Pickle" }],
+          source: "managed-connections",
+          cached: false,
+        })
+        .mockResolvedValueOnce({ models: [], source: "managed-connections", cached: false }),
+    );
+
+    await new QueryClient().fetchQuery(providerModelsQueryOptions(input));
+    expect(storage.size).toBe(1);
+    await new QueryClient().fetchQuery(providerModelsQueryOptions(input));
+
+    expect(listModels).toHaveBeenCalledTimes(2);
+    expect(storage.size).toBe(0);
+    const emptyOptions = providerModelsQueryOptions(input);
+    const initialData =
+      typeof emptyOptions.initialData === "function"
+        ? emptyOptions.initialData()
+        : emptyOptions.initialData;
+    expect(initialData).toBeUndefined();
   });
 
   it("returns successful catalogs unchanged", async () => {

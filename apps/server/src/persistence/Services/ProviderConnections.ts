@@ -72,6 +72,17 @@ export interface ProviderConnectionRepositoryShape {
     readonly providerIdentityId: string;
     readonly updatedAt: string;
   }) => Effect.Effect<Option.Option<ProviderConnection>, ProviderConnectionRepositoryError>;
+  readonly reactivateIdentity: (input: {
+    readonly id: ProviderConnectionId;
+    readonly harness: ProviderKind;
+    readonly authenticationTargetId: string;
+    readonly authenticationMethodId: string;
+    readonly label: string;
+    readonly credentialRef: string | null;
+    readonly profileRef: string | null;
+    readonly providerIdentityId: string;
+    readonly updatedAt: string;
+  }) => Effect.Effect<Option.Option<ProviderConnection>, ProviderConnectionRepositoryError>;
   readonly observeHealth: (input: {
     readonly id: ProviderConnectionId;
     readonly health: ProviderConnectionHealth;

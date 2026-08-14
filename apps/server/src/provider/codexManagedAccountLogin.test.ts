@@ -48,6 +48,15 @@ function fakeCodexLoginProcess() {
   return child;
 }
 
+async function startFakeLogin() {
+  const child = fakeCodexLoginProcess();
+  const handle = await startCodexManagedAccountLogin(
+    { binaryPath: "/managed/codex", cwd: "/workspace", env: {} },
+    () => child as never,
+  );
+  return { child, handle };
+}
+
 describe("Codex managed account login", () => {
   it("reads the exact isolated account without starting another login", async () => {
     const child = fakeCodexLoginProcess();
@@ -64,11 +73,7 @@ describe("Codex managed account login", () => {
   });
 
   it("returns the browser URL and resolves only after provider account verification", async () => {
-    const child = fakeCodexLoginProcess();
-    const handle = await startCodexManagedAccountLogin(
-      { binaryPath: "/managed/codex", cwd: "/workspace", env: {} },
-      () => child as never,
-    );
+    const { child, handle } = await startFakeLogin();
 
     expect(handle.loginId).toBe("login-1");
     expect(handle.authUrl).toBe("https://auth.example/login");
@@ -80,5 +85,27 @@ describe("Codex managed account login", () => {
       email: "person@example.com",
       planType: "pro",
     });
+  });
+
+  it("verifies the account when Codex reports the authoritative account update", async () => {
+    const { child, handle } = await startFakeLogin();
+
+    child.stdout.write(
+      `${JSON.stringify({ method: "account/updated", params: { authMode: "chatgpt", planType: "pro" } })}\n`,
+    );
+
+    await expect(handle.completion).resolves.toEqual({
+      type: "chatgpt",
+      email: "person@example.com",
+      planType: "pro",
+    });
+  });
+
+  it("fails if the provider closes before a terminal login notification", async () => {
+    const { child, handle } = await startFakeLogin();
+
+    child.emit("close", 1, null);
+
+    await expect(handle.completion).rejects.toThrow("Codex sign in stopped before completion (1).");
   });
 });

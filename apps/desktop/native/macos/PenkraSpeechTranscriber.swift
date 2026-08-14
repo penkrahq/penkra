@@ -26,7 +26,6 @@ private enum HelperError: LocalizedError {
     case invalidArguments
     case unsupportedSystem
     case unsupportedLocale(String)
-    case emptyTranscript
 
     var errorDescription: String? {
         switch self {
@@ -36,8 +35,6 @@ private enum HelperError: LocalizedError {
             return "Apple on-device transcription is unavailable on this Mac."
         case let .unsupportedLocale(locale):
             return "Apple on-device transcription does not support locale \(locale)."
-        case .emptyTranscript:
-            return "Apple on-device transcription did not return any text."
         }
     }
 }
@@ -87,7 +84,6 @@ private func transcribeFile(at path: String, locale requestedLocale: Locale) asy
     }
 
     let text = try await transcript.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !text.isEmpty else { throw HelperError.emptyTranscript }
     return text
 }
 

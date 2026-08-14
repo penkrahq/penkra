@@ -147,6 +147,8 @@ import type { ThreadId } from "./baseSchemas";
 import type {
   ProviderComposerCapabilities,
   ProviderGetComposerCapabilitiesInput,
+  ProviderGetCapabilityHealthInput,
+  ProviderGetCapabilityHealthResult,
   ProviderListAgentsInput,
   ProviderListAgentsResult,
   ProviderListCommandsInput,
@@ -793,7 +795,6 @@ export interface DesktopVoiceDraftDescriptor {
   id: string;
   threadId: string;
   providerThreadId?: string;
-  transcriptionBackend: VoiceTranscriptionBackend;
   cwd: string;
   sampleRateHz: number;
   state: "recording" | "ready";
@@ -1097,6 +1098,9 @@ export interface NativeApi {
     getComposerCapabilities: (
       input: ProviderGetComposerCapabilitiesInput,
     ) => Promise<ProviderComposerCapabilities>;
+    getCapabilityHealth: (
+      input: ProviderGetCapabilityHealthInput,
+    ) => Promise<ProviderGetCapabilityHealthResult>;
     compactThread: (input: ProviderCompactThreadInput) => Promise<void>;
     listCommands: (input: ProviderListCommandsInput) => Promise<ProviderListCommandsResult>;
     listSkills: (input: ProviderListSkillsInput) => Promise<ProviderListSkillsResult>;

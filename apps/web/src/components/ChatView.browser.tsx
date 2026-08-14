@@ -2438,6 +2438,243 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
+  it("keeps send chrome live through durable, starting, and lagging ready snapshots", async () => {
+    const restoreNativeApi = installDeterministicSendNativeApi();
+    let currentSnapshot = createSnapshotForTargetUser({
+      targetMessageId: "msg-user-send-handoff-target" as MessageId,
+      targetText: "send handoff target",
+    });
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: currentSnapshot,
+    });
+
+    const syncActiveThread = (
+      update: (
+        thread: OrchestrationReadModel["threads"][number],
+      ) => OrchestrationReadModel["threads"][number],
+    ) => {
+      currentSnapshot = {
+        ...currentSnapshot,
+        snapshotSequence: currentSnapshot.snapshotSequence + 1,
+        threads: currentSnapshot.threads.map((thread) =>
+          thread.id === THREAD_ID ? update(thread) : thread,
+        ),
+        updatedAt: isoAt(2_100 + currentSnapshot.snapshotSequence),
+      };
+      fixture = { ...fixture, snapshot: currentSnapshot };
+      useStore.getState().syncServerReadModel(currentSnapshot);
+    };
+    const expectLiveSendChrome = async () => {
+      await vi.waitFor(
+        () => {
+          expect(
+            document.querySelector<HTMLButtonElement>('button[aria-label="Stop generation"]'),
+          ).toBeTruthy();
+          expect(
+            document.querySelector<HTMLButtonElement>('button[aria-label="Send message"]'),
+          ).toBeNull();
+          expect(document.body.textContent).toContain("Thinking");
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+    };
+
+    try {
+      const prompt = "keep working chrome continuously visible";
+      useComposerDraftStore.getState().setPrompt(THREAD_ID, prompt);
+      (await waitForSendButton()).click();
+      await expectLiveSendChrome();
+
+      const turnStartCommand = await vi.waitFor(() => {
+        const command = wsRequests
+          .map(readDispatchedCommand)
+          .find((candidate) => candidate?.type === "thread.turn.start");
+        expect(command).toBeTruthy();
+        return command!;
+      });
+      const message = turnStartCommand.message as { messageId: MessageId };
+
+      // The user-message projection arrives before turn-start ownership.
+      syncActiveThread((thread) => ({
+        ...thread,
+        messages: [
+          ...thread.messages,
+          createUserMessage({ id: message.messageId, text: prompt, offsetSeconds: 2_101 }),
+        ],
+        updatedAt: isoAt(2_102),
+      }));
+      await expectLiveSendChrome();
+
+      // The turn-start projection takes the session to starting.
+      syncActiveThread((thread) => ({
+        ...thread,
+        pendingTurnStartMessageId: message.messageId,
+        session: thread.session
+          ? { ...thread.session, status: "starting", updatedAt: isoAt(2_103) }
+          : null,
+        updatedAt: isoAt(2_103),
+      }));
+      await expectLiveSendChrome();
+
+      // A lagging shell snapshot must not reopen the idle composer seam.
+      syncActiveThread((thread) => ({
+        ...thread,
+        pendingTurnStartMessageId: null,
+        session: thread.session
+          ? { ...thread.session, status: "ready", updatedAt: isoAt(2_104) }
+          : null,
+        updatedAt: isoAt(2_104),
+      }));
+      await expectLiveSendChrome();
+
+      const turnId = TurnId.makeUnsafe("turn-send-handoff-running");
+      syncActiveThread((thread) => ({
+        ...thread,
+        latestTurn: {
+          turnId,
+          state: "running",
+          requestedAt: isoAt(2_103),
+          startedAt: isoAt(2_105),
+          completedAt: null,
+          assistantMessageId: null,
+        },
+        session: thread.session
+          ? {
+              ...thread.session,
+              status: "running",
+              activeTurnId: turnId,
+              updatedAt: isoAt(2_105),
+            }
+          : null,
+        updatedAt: isoAt(2_105),
+      }));
+      await expectLiveSendChrome();
+      await vi.waitFor(() => expect(document.body.textContent).toContain("Working for"), {
+        timeout: 8_000,
+        interval: 16,
+      });
+
+      // The shell stream can arrive later while carrying the older ready row.
+      // Its envelope sequence is new, but its per-thread session timestamp is not.
+      const laggingShellReadModel: OrchestrationReadModel = {
+        ...currentSnapshot,
+        snapshotSequence: currentSnapshot.snapshotSequence + 1,
+        threads: currentSnapshot.threads.map((thread) =>
+          thread.id === THREAD_ID
+            ? {
+                ...thread,
+                latestTurn: null,
+                pendingTurnStartMessageId: null,
+                session: thread.session
+                  ? {
+                      ...thread.session,
+                      status: "ready",
+                      activeTurnId: null,
+                      updatedAt: isoAt(2_104),
+                    }
+                  : null,
+                updatedAt: isoAt(2_106),
+              }
+            : thread,
+        ),
+        updatedAt: isoAt(2_106),
+      };
+      useStore
+        .getState()
+        .syncServerShellSnapshot(createShellSnapshotFromReadModel(laggingShellReadModel));
+      await expectLiveSendChrome();
+      expect(document.body.textContent).toContain("Working for");
+    } finally {
+      await mounted.cleanup();
+      restoreNativeApi();
+    }
+  });
+
+  it("does not let a stale pending identity trap the next message in the local queue", async () => {
+    const restoreNativeApi = installDeterministicSendNativeApi();
+    const staleMessageId = MessageId.makeUnsafe("msg-stale-steer-pending");
+    const staleTurnId = TurnId.makeUnsafe("turn-stale-steer-completed");
+    const baseSnapshot = createSnapshotForTargetUser({
+      targetMessageId: staleMessageId,
+      targetText: "older steered question",
+    });
+    const snapshot: OrchestrationReadModel = {
+      ...baseSnapshot,
+      threads: baseSnapshot.threads.map((thread) =>
+        thread.id === THREAD_ID
+          ? {
+              ...thread,
+              pendingTurnStartMessageId: staleMessageId,
+              latestTurn: {
+                turnId: staleTurnId,
+                state: "completed",
+                requestedAt: isoAt(2_200),
+                startedAt: isoAt(2_201),
+                completedAt: isoAt(2_202),
+                assistantMessageId: null,
+              },
+              messages: thread.messages.map((message) =>
+                message.id === staleMessageId
+                  ? {
+                      ...message,
+                      dispatchMode: "steer" as const,
+                      delivery: { state: "accepted" as const, queued: true, sequence: 12 },
+                    }
+                  : message,
+              ),
+              session: thread.session
+                ? {
+                    ...thread.session,
+                    status: "ready" as const,
+                    activeTurnId: null,
+                    updatedAt: isoAt(2_202),
+                  }
+                : null,
+              updatedAt: isoAt(2_202),
+            }
+          : thread,
+      ),
+    };
+    const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+
+    try {
+      expect(document.body.textContent).not.toContain("Thinking");
+      expect(
+        document.querySelector<HTMLButtonElement>('button[aria-label="Stop generation"]'),
+      ).toBeNull();
+
+      const prompt = "send normally after the completed steer";
+      useComposerDraftStore.getState().setPrompt(THREAD_ID, prompt);
+      (await waitForSendButton()).click();
+
+      const command = await vi.waitFor(() => {
+        const turnStart = wsRequests
+          .map(readDispatchedCommand)
+          .find(
+            (candidate) =>
+              candidate?.type === "thread.turn.start" &&
+              typeof candidate.message === "object" &&
+              candidate.message !== null &&
+              Reflect.get(candidate.message, "text") === prompt,
+          );
+        expect(turnStart).toBeTruthy();
+        return turnStart!;
+      });
+      expect(command.dispatchMode).toBe("queue");
+      expect(command.bindingRevision).toBe(0);
+      expect(document.body.textContent).toContain(prompt);
+      expect(
+        [...document.querySelectorAll("button")].some(
+          (button) => button.textContent?.trim() === "Steer",
+        ),
+      ).toBe(false);
+    } finally {
+      await mounted.cleanup();
+      restoreNativeApi();
+    }
+  });
+
   it("auto-follows real transcript changes without re-sticking for non-message activity", async () => {
     let currentSnapshot = createSnapshotForTargetUser({
       targetMessageId: "msg-user-auto-follow-wiring" as MessageId,
@@ -3413,14 +3650,15 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
   it("shows a durable queued row while submitting a running-turn follow-up", async () => {
     useComposerDraftStore.getState().setPrompt(THREAD_ID, "queue this follow-up");
+    let currentSnapshot = createSnapshotForTargetUser({
+      targetMessageId: "msg-user-running-queue-button" as MessageId,
+      targetText: "running queue button target",
+      sessionStatus: "running",
+    });
 
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
-      snapshot: createSnapshotForTargetUser({
-        targetMessageId: "msg-user-running-queue-button" as MessageId,
-        targetText: "running queue button target",
-        sessionStatus: "running",
-      }),
+      snapshot: currentSnapshot,
     });
 
     try {
@@ -3455,6 +3693,50 @@ describe("ChatView timeline estimator parity (full app)", () => {
         { timeout: 8_000, interval: 16 },
       );
 
+      const queuedCommand = wsRequests
+        .map(readDispatchedCommand)
+        .find(
+          (command) =>
+            command?.type === "thread.turn.start" &&
+            typeof command.message === "object" &&
+            command.message !== null &&
+            "messageId" in command.message,
+        );
+      const queuedMessageId = (queuedCommand?.message as { messageId: MessageId }).messageId;
+      currentSnapshot = {
+        ...currentSnapshot,
+        snapshotSequence: currentSnapshot.snapshotSequence + 1,
+        threads: currentSnapshot.threads.map((thread) =>
+          thread.id === THREAD_ID
+            ? {
+                ...thread,
+                queuedMessageIds: [queuedMessageId],
+                messages: [
+                  ...thread.messages,
+                  {
+                    id: queuedMessageId,
+                    role: "user" as const,
+                    text: "queue this follow-up",
+                    dispatchMode: "queue" as const,
+                    delivery: { state: "queued" as const, queued: true, sequence: 200 },
+                    turnId: null,
+                    streaming: false,
+                    source: "native" as const,
+                    createdAt: NOW_ISO,
+                    updatedAt: NOW_ISO,
+                  },
+                ],
+              }
+            : thread,
+        ),
+      };
+      fixture = { ...fixture, snapshot: currentSnapshot };
+      useStore.getState().syncServerReadModel(currentSnapshot);
+      await vi.waitFor(() => {
+        expect(document.querySelector(`[data-message-id="${queuedMessageId}"]`)).toBeNull();
+        expect(document.querySelector('[data-testid="queued-follow-up-row"]')).not.toBeNull();
+      });
+
       const steerButton = await waitForElement(
         () =>
           Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(
@@ -3470,10 +3752,42 @@ describe("ChatView timeline estimator parity (full app)", () => {
               .map(readDispatchedCommand)
               .some((command) => command?.type === "thread.turn.steer-queued"),
           ).toBe(true);
+          // The user's action owns placement immediately: clear the queue row
+          // and show the same durable message once in the transcript while the
+          // provider handoff continues in the background.
           expect(document.querySelector('[data-testid="queued-follow-up-row"]')).toBeNull();
+          expect(document.querySelectorAll(`[data-message-id="${queuedMessageId}"]`)).toHaveLength(
+            1,
+          );
         },
         { timeout: 8_000, interval: 16 },
       );
+
+      currentSnapshot = {
+        ...currentSnapshot,
+        snapshotSequence: currentSnapshot.snapshotSequence + 1,
+        threads: currentSnapshot.threads.map((thread) =>
+          thread.id === THREAD_ID
+            ? {
+                ...thread,
+                queuedMessageIds: [],
+                messages: thread.messages.map((message) =>
+                  message.id === queuedMessageId
+                    ? {
+                        ...message,
+                        delivery: { state: "accepted" as const, queued: true, sequence: 201 },
+                      }
+                    : message,
+                ),
+              }
+            : thread,
+        ),
+      };
+      useStore.getState().syncServerReadModel(currentSnapshot);
+      await vi.waitFor(() => {
+        expect(document.querySelector('[data-testid="queued-follow-up-row"]')).toBeNull();
+        expect(document.querySelectorAll(`[data-message-id="${queuedMessageId}"]`)).toHaveLength(1);
+      });
 
       const stopButton = await waitForElement(
         () => document.querySelector<HTMLButtonElement>('button[aria-label="Stop generation"]'),
@@ -3531,6 +3845,76 @@ describe("ChatView timeline estimator parity (full app)", () => {
         },
         { timeout: 8_000, interval: 16 },
       );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("removes a server-authoritative queued row immediately when editing it", async () => {
+    const queuedMessageId = "msg-server-authoritative-edit" as MessageId;
+    const queuedPrompt = "edit this durable queued prompt";
+    const base = createSnapshotForTargetUser({
+      targetMessageId: "msg-user-running-server-edit" as MessageId,
+      targetText: "running server edit target",
+      sessionStatus: "running",
+    });
+    const snapshot: OrchestrationReadModel = {
+      ...base,
+      threads: base.threads.map((thread) =>
+        thread.id === THREAD_ID
+          ? {
+              ...thread,
+              queuedMessageIds: [queuedMessageId],
+              messages: [
+                ...thread.messages,
+                {
+                  id: queuedMessageId,
+                  role: "user" as const,
+                  text: queuedPrompt,
+                  dispatchMode: "queue" as const,
+                  delivery: { state: "queued" as const, queued: true, sequence: 200 },
+                  turnId: null,
+                  streaming: false,
+                  source: "native" as const,
+                  createdAt: NOW_ISO,
+                  updatedAt: NOW_ISO,
+                },
+              ],
+            }
+          : thread,
+      ),
+    };
+    const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+
+    try {
+      const actionsButton = await waitForElement(
+        () =>
+          document.querySelector<HTMLButtonElement>(
+            'button[aria-label="Queued follow-up actions"]',
+          ),
+        "Unable to find queued actions button.",
+      );
+      actionsButton.click();
+      const editMenuItem = await waitForElement(
+        () =>
+          Array.from(document.querySelectorAll<HTMLElement>('[data-slot="menu-item"]')).find(
+            (item) => item.textContent?.trim() === "Edit queued prompt",
+          ) ?? null,
+        "Unable to find edit queued prompt menu item.",
+      );
+      editMenuItem.click();
+
+      await vi.waitFor(() => {
+        expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.prompt).toBe(
+          queuedPrompt,
+        );
+        expect(
+          wsRequests
+            .map(readDispatchedCommand)
+            .some((command) => command?.type === "thread.turn.cancel-queued"),
+        ).toBe(true);
+      });
+      expect(document.querySelector('[data-testid="queued-follow-up-row"]')).toBeNull();
     } finally {
       await mounted.cleanup();
     }
@@ -3606,8 +3990,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("queues a running-turn follow-up even with the former steering modifier", async () => {
-    useComposerDraftStore.getState().setPrompt(THREAD_ID, "queue this running turn");
+  it("steers a running turn immediately with the platform modifier", async () => {
+    useComposerDraftStore.getState().setPrompt(THREAD_ID, "steer this running turn");
 
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
@@ -3633,28 +4017,23 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
       await vi.waitFor(
         () => {
-          const turnStart = wsRequests
+          const turnStarts = wsRequests
             .map(readDispatchedCommand)
-            .find(
+            .filter(
               (command) =>
                 command?.type === "thread.turn.start" &&
-                command.dispatchMode === "queue" &&
                 typeof command.message === "object" &&
                 command.message !== null &&
                 "text" in command.message &&
                 typeof command.message.text === "string" &&
-                command.message.text.includes("queue this running turn"),
+                command.message.text.includes("steer this running turn"),
             );
-          expect(turnStart).toBeTruthy();
-          expect(document.querySelector('[data-testid="queued-follow-up-row"]')).not.toBeNull();
-          expect(
-            wsRequests
-              .map(readDispatchedCommand)
-              .some(
-                (command) =>
-                  command?.type === "thread.turn.start" && command.dispatchMode === "steer",
-              ),
-          ).toBe(false);
+          expect(turnStarts).toHaveLength(1);
+          expect(turnStarts[0]?.dispatchMode).toBe("steer");
+          expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.prompt ?? "").toBe(
+            "",
+          );
+          expect(document.querySelector('[data-testid="queued-follow-up-row"]')).toBeNull();
         },
         { timeout: 8_000, interval: 16 },
       );

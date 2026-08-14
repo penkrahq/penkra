@@ -43,6 +43,9 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
           mentions_json,
           dispatch_mode,
           dispatch_origin,
+          delivery_state,
+          delivery_queued,
+          delivery_sequence,
           is_streaming,
           source,
           sequence,
@@ -60,6 +63,9 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
           ${nextMentionsJson},
           ${row.dispatchMode ?? null},
           ${row.dispatchOrigin ?? null},
+          ${row.deliveryState ?? null},
+          ${row.deliveryQueued === undefined ? null : row.deliveryQueued ? 1 : 0},
+          ${row.deliverySequence ?? null},
           ${row.isStreaming ? 1 : 0},
           ${row.source},
           ${row.sequence ?? null},
@@ -91,6 +97,24 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
             excluded.dispatch_origin,
             projection_thread_messages.dispatch_origin
           ),
+          delivery_state = CASE
+            WHEN excluded.delivery_sequence IS NOT NULL
+              AND (projection_thread_messages.delivery_sequence IS NULL
+                OR excluded.delivery_sequence >= projection_thread_messages.delivery_sequence)
+              THEN excluded.delivery_state
+            ELSE projection_thread_messages.delivery_state
+          END,
+          delivery_queued = COALESCE(
+            projection_thread_messages.delivery_queued,
+            excluded.delivery_queued
+          ),
+          delivery_sequence = CASE
+            WHEN excluded.delivery_sequence IS NOT NULL
+              AND (projection_thread_messages.delivery_sequence IS NULL
+                OR excluded.delivery_sequence >= projection_thread_messages.delivery_sequence)
+              THEN excluded.delivery_sequence
+            ELSE projection_thread_messages.delivery_sequence
+          END,
           is_streaming = excluded.is_streaming,
           source = excluded.source,
           sequence = COALESCE(projection_thread_messages.sequence, excluded.sequence),
@@ -116,6 +140,9 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
           mentions_json AS "mentions",
           dispatch_mode AS "dispatchMode",
           dispatch_origin AS "dispatchOrigin",
+          delivery_state AS "deliveryState",
+          delivery_queued AS "deliveryQueued",
+          delivery_sequence AS "deliverySequence",
           is_streaming AS "isStreaming",
           source,
           sequence,
@@ -166,6 +193,9 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
           mentions_json AS "mentions",
           dispatch_mode AS "dispatchMode",
           dispatch_origin AS "dispatchOrigin",
+          delivery_state AS "deliveryState",
+          delivery_queued AS "deliveryQueued",
+          delivery_sequence AS "deliverySequence",
           is_streaming AS "isStreaming",
           source,
           sequence,

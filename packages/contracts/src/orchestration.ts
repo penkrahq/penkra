@@ -232,6 +232,34 @@ export const DEFAULT_TURN_DISPATCH_MODE: TurnDispatchMode = "queue";
 // Absent is treated as "user"; only trusted server paths can carry the flag.
 export const MessageDispatchOrigin = Schema.Literals(["user", "automation", "agent"]);
 export type MessageDispatchOrigin = typeof MessageDispatchOrigin.Type;
+
+/**
+ * Server-owned delivery lifecycle for one user message. This is deliberately
+ * separate from turn/session state: a steer is accepted into an existing turn,
+ * while a normal send starts a new one.
+ */
+export const MessageDeliveryState = Schema.Literals([
+  "queued",
+  "steering",
+  "starting",
+  "accepted",
+  "failed",
+]);
+export type MessageDeliveryState = typeof MessageDeliveryState.Type;
+
+export const MessageDelivery = Schema.Struct({
+  state: MessageDeliveryState,
+  /** True when this message was originally admitted to the durable follow-up queue. */
+  queued: Schema.Boolean,
+  /** Causal event sequence of the latest delivery transition. */
+  sequence: NonNegativeInt,
+});
+export type MessageDelivery = typeof MessageDelivery.Type;
+
+const MessageDeliveryAdmission = Schema.Struct({
+  state: MessageDeliveryState,
+  queued: Schema.Boolean,
+});
 export const ThreadCreationSource = Schema.Literals(["penkra_mcp", "provider_native"]);
 export type ThreadCreationSource = typeof ThreadCreationSource.Type;
 export const ProviderReviewTarget = Schema.Union([
@@ -466,6 +494,7 @@ export const OrchestrationMessage = Schema.Struct({
   mentions: Schema.optional(Schema.Array(ProviderMentionReference)),
   dispatchMode: Schema.optional(TurnDispatchMode),
   dispatchOrigin: Schema.optional(MessageDispatchOrigin),
+  delivery: Schema.optional(MessageDelivery),
   turnId: Schema.NullOr(TurnId),
   streaming: Schema.Boolean,
   source: OrchestrationMessageSource.pipe(Schema.withDecodingDefault(() => "native")),
@@ -1328,6 +1357,17 @@ const ThreadDispatchQueuedTurnCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
+const ThreadTurnRecoverCommand = Schema.Struct({
+  type: Schema.Literal("thread.turn.recover"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  recoveryMessageId: MessageId,
+  interruptedTurnId: TurnId,
+  connectionId: Schema.NullOr(ProviderConnectionId),
+  bindingRevision: NonNegativeInt,
+  createdAt: IsoDateTime,
+});
+
 const ThreadApprovalRespondCommand = Schema.Struct({
   type: Schema.Literal("thread.approval.respond"),
   commandId: CommandId,
@@ -1561,6 +1601,15 @@ const ThreadTurnStartCancelCompleteCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
+const ThreadMessageDeliverySetCommand = Schema.Struct({
+  type: Schema.Literal("thread.message.delivery.set"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  messageId: MessageId,
+  state: MessageDeliveryState,
+  createdAt: IsoDateTime,
+});
+
 const InternalOrchestrationCommand = Schema.Union([
   ThreadSessionSetCommand,
   ThreadMessagesImportCommand,
@@ -1572,7 +1621,9 @@ const InternalOrchestrationCommand = Schema.Union([
   ThreadConversationRollbackCommand,
   ThreadConversationRollbackCompleteCommand,
   ThreadTurnStartCancelCompleteCommand,
+  ThreadMessageDeliverySetCommand,
   ThreadDispatchQueuedTurnCommand,
+  ThreadTurnRecoverCommand,
 ]);
 export type InternalOrchestrationCommand = typeof InternalOrchestrationCommand.Type;
 
@@ -1609,6 +1660,7 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.marker-label-set",
   "thread.runtime-mode-set",
   "thread.message-sent",
+  "thread.message-delivery-set",
   "thread.turn-queued",
   "thread.turn-start-requested",
   "thread.turn-interrupt-requested",
@@ -1892,6 +1944,7 @@ export const ThreadMessageSentPayload = Schema.Struct({
   mentions: Schema.optional(Schema.Array(ProviderMentionReference)),
   dispatchMode: Schema.optional(TurnDispatchMode),
   dispatchOrigin: Schema.optional(MessageDispatchOrigin),
+  delivery: Schema.optional(MessageDeliveryAdmission),
   turnId: Schema.NullOr(TurnId),
   streaming: Schema.Boolean,
   source: OrchestrationMessageSource.pipe(Schema.withDecodingDefault(() => "native")),
@@ -1899,9 +1952,18 @@ export const ThreadMessageSentPayload = Schema.Struct({
   updatedAt: IsoDateTime,
 });
 
+export const ThreadMessageDeliverySetPayload = Schema.Struct({
+  threadId: ThreadId,
+  messageId: MessageId,
+  state: MessageDeliveryState,
+  updatedAt: IsoDateTime,
+});
+
 export const ThreadTurnStartRequestedPayload = Schema.Struct({
   threadId: ThreadId,
   messageId: MessageId,
+  /** Server-only continuation source. No user-visible message exists for this id. */
+  recoveryOfTurnId: Schema.optional(TurnId),
   modelSelection: Schema.optional(ModelSelection),
   connectionId: Schema.optional(Schema.NullOr(ProviderConnectionId)),
   bindingRevision: Schema.optional(NonNegativeInt),
@@ -2180,6 +2242,11 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("thread.message-sent"),
     payload: ThreadMessageSentPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.message-delivery-set"),
+    payload: ThreadMessageDeliverySetPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,

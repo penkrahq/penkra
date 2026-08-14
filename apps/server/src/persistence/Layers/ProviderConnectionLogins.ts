@@ -19,6 +19,7 @@ const make = Effect.gen(function* () {
     Result: ProviderConnectionLoginRecord,
     execute: ({ operationId }) => sql`
       SELECT operation_id AS "operationId", connection_id AS "connectionId",
+        committed_connection_id AS "committedConnectionId",
         harness_kind AS harness, authentication_target_id AS "authenticationTargetId",
         authentication_method_id AS "authenticationMethodId", label,
         profile_ref AS "profileRef", provider_login_id AS "providerLoginId",
@@ -35,11 +36,11 @@ const make = Effect.gen(function* () {
         "ProviderConnectionLoginRepository.begin",
         sql`
           INSERT INTO provider_connection_logins (
-            operation_id, connection_id, harness_kind, authentication_target_id,
+            operation_id, connection_id, committed_connection_id, harness_kind, authentication_target_id,
             authentication_method_id, label, profile_ref, provider_login_id,
             operation_state, provider_identity_id, failure_reason, created_at, updated_at
           ) VALUES (
-            ${record.operationId}, ${record.connectionId}, ${record.harness},
+            ${record.operationId}, ${record.connectionId}, ${record.committedConnectionId ?? null}, ${record.harness},
             ${record.authenticationTargetId}, ${record.authenticationMethodId}, ${record.label},
             ${record.profileRef}, ${record.providerLoginId}, ${record.state},
             ${record.providerIdentityId}, ${record.failureReason}, ${record.createdAt}, ${record.updatedAt}
@@ -55,6 +56,7 @@ const make = Effect.gen(function* () {
           Result: ProviderConnectionLoginRecord,
           execute: () => sql`
             SELECT operation_id AS "operationId", connection_id AS "connectionId",
+              committed_connection_id AS "committedConnectionId",
               harness_kind AS harness, authentication_target_id AS "authenticationTargetId",
               authentication_method_id AS "authenticationMethodId", label,
               profile_ref AS "profileRef", provider_login_id AS "providerLoginId",
@@ -73,6 +75,7 @@ const make = Effect.gen(function* () {
           UPDATE provider_connection_logins
           SET operation_state = ${input.state}, provider_login_id = ${input.providerLoginId},
             provider_identity_id = ${input.providerIdentityId}, failure_reason = ${input.failureReason},
+            committed_connection_id = COALESCE(${input.committedConnectionId ?? null}, committed_connection_id),
             updated_at = ${input.updatedAt}
           WHERE operation_id = ${input.operationId}
         `.pipe(Effect.andThen(select({ operationId: input.operationId }))),

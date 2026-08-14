@@ -404,3 +404,26 @@ export function derivePhase(session: ThreadSession | null): SessionPhase {
   if (session.status === "running") return "running";
   return "ready";
 }
+
+/**
+ * A pending-start identity is transport handoff state, not an independent source
+ * of truth that may keep a settled thread working forever. New deliveries carry
+ * their own ordered lifecycle; legacy deliveries remain active only while the
+ * authoritative session is still starting.
+ */
+export function hasActivePendingTurnStart(input: {
+  pendingMessageId: ChatMessage["id"] | null | undefined;
+  messages: ReadonlyArray<Pick<ChatMessage, "id" | "delivery">>;
+  session: Pick<ThreadSession, "orchestrationStatus"> | null | undefined;
+}): boolean {
+  if (input.pendingMessageId == null) {
+    return false;
+  }
+  const delivery = input.messages.find(
+    (message) => message.id === input.pendingMessageId,
+  )?.delivery;
+  if (delivery?.state === "starting" || delivery?.state === "steering") {
+    return true;
+  }
+  return input.session?.orchestrationStatus === "starting";
+}

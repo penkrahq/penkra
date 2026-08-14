@@ -24,6 +24,7 @@ export type ProviderConnectionLoginState = typeof ProviderConnectionLoginState.T
 export const ProviderConnectionLoginRecord = Schema.Struct({
   operationId: TrimmedNonEmptyString,
   connectionId: ProviderConnectionId,
+  committedConnectionId: Schema.NullOr(ProviderConnectionId),
   harness: ProviderKind,
   authenticationTargetId: TrimmedNonEmptyString,
   authenticationMethodId: TrimmedNonEmptyString,
@@ -41,7 +42,11 @@ export type ProviderConnectionLoginRecord = typeof ProviderConnectionLoginRecord
 type Error = PersistenceSqlError | PersistenceDecodeError;
 
 export interface ProviderConnectionLoginRepositoryShape {
-  readonly begin: (record: ProviderConnectionLoginRecord) => Effect.Effect<void, Error>;
+  readonly begin: (
+    record: Omit<ProviderConnectionLoginRecord, "committedConnectionId"> & {
+      readonly committedConnectionId?: ProviderConnectionId | null;
+    },
+  ) => Effect.Effect<void, Error>;
   readonly get: (
     operationId: string,
   ) => Effect.Effect<Option.Option<ProviderConnectionLoginRecord>, Error>;
@@ -51,6 +56,7 @@ export interface ProviderConnectionLoginRepositoryShape {
     readonly state: ProviderConnectionLoginState;
     readonly providerLoginId: string | null;
     readonly providerIdentityId: string | null;
+    readonly committedConnectionId?: ProviderConnectionId | null;
     readonly failureReason: string | null;
     readonly updatedAt: string;
   }) => Effect.Effect<Option.Option<ProviderConnectionLoginRecord>, Error>;

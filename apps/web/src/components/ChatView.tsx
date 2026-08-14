@@ -2,6 +2,7 @@ import {
   type ApprovalRequestId,
   DEFAULT_MODEL_BY_PROVIDER,
   MessageId,
+  type MessageDeliveryState,
   type ModelSelection,
   type NativeApi,
   type OrchestrationShellSnapshot,
@@ -150,7 +151,6 @@ import {
   shouldHandlePromptHistoryNavigationKey,
   shouldEnableComposerPastedTextCollapse,
   shouldConsumePendingCustomBinaryConfirmation,
-  shouldShowComposerModelBootstrapSkeleton,
 } from "./ChatView.logic";
 import {
   createRelevantWorkLogThreadsSelector,
@@ -190,6 +190,7 @@ import {
   deriveTimelineEntries,
   deriveActiveWorkStartedAt,
   deriveWorkLogEntries,
+  hasActivePendingTurnStart,
   hasLiveTurnTailWork,
   isLatestTurnSettled,
   PROVIDER_OPTIONS,
@@ -227,10 +228,8 @@ import {
   resolveShortcutCommand,
   shortcutLabelForCommand,
 } from "../keybindings";
-import { RefreshCwIcon } from "~/lib/icons";
 import { ComposerQueuedHeader } from "./chat/ComposerQueuedHeader";
 import { Button } from "./ui/button";
-import { Skeleton } from "./ui/skeleton";
 import { randomTerminalId } from "./terminal/terminalSession";
 import { cn, isMacPlatform, randomUUID } from "~/lib/utils";
 import { toastManager } from "./ui/toast";
@@ -734,35 +733,6 @@ function warnVoiceGuard(event: string, details?: Record<string, unknown>) {
     return;
   }
   console.warn(`[voice] ${event}`);
-}
-
-function ComposerControlSkeleton(props: { widthClassName: string }) {
-  return (
-    <div
-      aria-hidden="true"
-      className={cn(
-        "flex h-8 shrink-0 items-center rounded-md border border-border/50 px-2",
-        props.widthClassName,
-      )}
-    >
-      <Skeleton className="h-3.5 w-full rounded-full" />
-    </div>
-  );
-}
-
-function ComposerModelLoadingControl(props: { widthClassName: string }) {
-  return (
-    <div
-      aria-label="Loading models"
-      className={cn(
-        "flex h-8 shrink-0 items-center gap-2 rounded-md border border-border/50 px-2 text-muted-foreground",
-        props.widthClassName,
-      )}
-    >
-      <RefreshCwIcon aria-hidden="true" className="size-3.5 animate-spin" />
-      <span className="truncate text-[length:var(--app-font-size-ui-xs,11px)]">Loading models</span>
-    </div>
-  );
 }
 
 interface ChatViewProps {
@@ -1728,12 +1698,9 @@ export default function ChatView({
   const {
     customModelsByProvider,
     modelOptionsByProvider,
-    loadingModelProviders,
     unavailableModelProviders,
     runtimeModelsByProvider,
     selectedRuntimeAgents: discoveredRuntimeAgents,
-    selectedProviderModelsLoading,
-    selectedProviderRuntimeModelDiscoveryPending,
   } = useProviderModelCatalog({
     selectedProvider,
     discoveryEnabled: isModelPickerOpen,
@@ -1974,7 +1941,23 @@ export default function ChatView({
   const handleManageConnections = useCallback(() => {
     void navigate({ to: "/settings", search: { section: "providers" } });
   }, [navigate]);
-  const selectedBindingRevision = threadProviderBindingQuery.data?.binding?.revision ?? 0;
+  const selectedBindingRevision = threadProviderBindingQuery.data?.binding?.revision;
+  const resolveThreadBindingRevisionAtAdmission = useCallback(async (): Promise<
+    number | undefined
+  > => {
+    if (!hasThreadStarted) {
+      return undefined;
+    }
+    if (selectedBindingRevision !== undefined) {
+      return selectedBindingRevision;
+    }
+    const refreshed = await threadProviderBindingQuery.refetch();
+    const revision = refreshed.data?.binding?.revision;
+    if (revision === undefined) {
+      throw new Error("Could not load the thread's current provider binding.");
+    }
+    return revision;
+  }, [hasThreadStarted, selectedBindingRevision, threadProviderBindingQuery]);
   const providerOptionsForDispatch = useMemo(() => getProviderStartOptions(settings), [settings]);
   const selectedModelForPicker =
     selectedModelSelection.provider === selectedProvider
@@ -1986,29 +1969,6 @@ export default function ChatView({
       ? selectedModelForPicker
       : (normalizeModelSlug(selectedModelForPicker, selectedProvider) ?? selectedModelForPicker);
   }, [modelOptionsByProvider, selectedModelForPicker, selectedProvider]);
-  const persistedComposerModelSelection =
-    sessionProvider && activeThread?.modelSelection.provider !== sessionProvider
-      ? activeProject?.defaultModelSelection?.provider === selectedProvider
-        ? activeProject.defaultModelSelection
-        : null
-      : (activeThread?.modelSelection ?? activeProject?.defaultModelSelection ?? null);
-  const providerModelsLoading = selectedProviderModelsLoading;
-  const selectedProviderRequiresRuntimeModels =
-    selectedProvider === "codex" ||
-    selectedProvider === "cursor" ||
-    selectedProvider === "antigravity" ||
-    selectedProvider === "droid" ||
-    selectedProvider === "kilo" ||
-    selectedProvider === "opencode" ||
-    selectedProvider === "pi";
-  const showComposerModelBootstrapSkeleton = shouldShowComposerModelBootstrapSkeleton({
-    selectedProvider,
-    selectedModel,
-    persistedModelSelection: persistedComposerModelSelection,
-    draftModelSelection: draftModelSelectionForSelectedProvider,
-    providerModelsLoading,
-    requiresDiscoveredModels: selectedProviderRequiresRuntimeModels,
-  });
   const searchableModelOptions = useMemo(
     () =>
       buildSearchableModelOptions({
@@ -2411,7 +2371,6 @@ export default function ChatView({
         phase,
         latestTurn: activeLatestTurn,
         session: activeThread?.session ?? null,
-        messages: activeThread?.messages ?? EMPTY_MESSAGES,
         hasPendingApproval: activePendingApproval !== null,
         hasPendingUserInput: activePendingUserInput !== null,
         threadError: activeThread?.error,
@@ -2421,7 +2380,6 @@ export default function ChatView({
       activePendingApproval,
       activePendingUserInput,
       activeThread?.error,
-      activeThread?.messages,
       activeThread?.session,
       localDispatch,
       phase,
@@ -2429,10 +2387,16 @@ export default function ChatView({
   );
   const isSendBusy = localDispatch !== null && !serverAcknowledgedLocalDispatch;
   const hasLiveTurn = phase === "running";
-  const showThinking = hasLiveTurn || isSendBusy || activeThread?.pendingTurnStartMessageId != null;
-  const hasControllableTurn = hasLiveTurn || isSendBusy || phase === "connecting";
+  const hasPendingTurnStart = hasActivePendingTurnStart({
+    pendingMessageId: activeThread?.pendingTurnStartMessageId,
+    messages: activeThread?.messages ?? EMPTY_MESSAGES,
+    session: activeThread?.session,
+  });
+  const showThinking = hasLiveTurn || isSendBusy || hasPendingTurnStart;
+  const hasControllableTurn =
+    hasLiveTurn || isSendBusy || hasPendingTurnStart || phase === "connecting";
   useEffect(() => {
-    if (phase === "connecting" || isSendBusy) {
+    if (phase === "connecting" || isSendBusy || hasPendingTurnStart) {
       return;
     }
     const pendingMessageId = pendingTurnStartMessageRef.current?.messageId;
@@ -2440,8 +2404,9 @@ export default function ChatView({
       cancelPendingTurnStartMessageIdsRef.current.delete(pendingMessageId);
       pendingTurnStartMessageRef.current = null;
     }
-  }, [isSendBusy, phase]);
-  const isWorking = hasLiveTurn || isSendBusy || isConnecting || isRevertingCheckpoint;
+  }, [hasPendingTurnStart, isSendBusy, phase]);
+  const isWorking =
+    hasLiveTurn || isSendBusy || hasPendingTurnStart || isConnecting || isRevertingCheckpoint;
   const hasStreamingAssistantText =
     activeThread?.messages.some((message) => message.role === "assistant" && message.streaming) ??
     false;
@@ -2602,10 +2567,59 @@ export default function ChatView({
     }, ATTACHMENT_PREVIEW_HANDOFF_TTL_MS);
   }, []);
   const serverMessages = activeThread?.messages;
-  const serverQueuedMessageIds = useMemo(
-    () => new Set(activeThread?.queuedMessageIds ?? []),
-    [activeThread?.queuedMessageIds],
+  const serverDeliveryByMessageId = useMemo(
+    () =>
+      new Map(
+        (activeThread?.messages ?? EMPTY_MESSAGES).flatMap((message) =>
+          message.delivery === undefined ? [] : [[message.id, message.delivery] as const],
+        ),
+      ),
+    [activeThread?.messages],
   );
+  // A user-triggered queue action owns placement immediately: the same durable
+  // message moves into the transcript while the server/provider handoff runs.
+  // The overlay is discarded as soon as the server publishes the transition.
+  const [queuedActionStateByMessageId, setQueuedActionStateByMessageId] = useState<
+    ReadonlyMap<MessageId, MessageDeliveryState>
+  >(() => new Map());
+  useEffect(() => {
+    setQueuedActionStateByMessageId((current) => {
+      let changed = false;
+      const next = new Map(current);
+      for (const [messageId] of current) {
+        if (serverDeliveryByMessageId.get(messageId)?.state !== "queued") {
+          next.delete(messageId);
+          changed = true;
+        }
+      }
+      return changed ? next : current;
+    });
+  }, [serverDeliveryByMessageId]);
+  const serverQueuedMessageIds = useMemo(() => {
+    const ids = new Set<MessageId>();
+    for (const message of activeThread?.messages ?? EMPTY_MESSAGES) {
+      const visibleState = queuedActionStateByMessageId.get(message.id) ?? message.delivery?.state;
+      if (message.delivery?.queued === true && visibleState === "queued") {
+        ids.add(message.id);
+      }
+    }
+    // Compatibility for pre-lifecycle snapshots only. Once a message has a
+    // delivery record, that record is the sole placement authority.
+    for (const messageId of activeThread?.queuedMessageIds ?? []) {
+      if (
+        !serverDeliveryByMessageId.has(messageId) &&
+        !queuedActionStateByMessageId.has(messageId)
+      ) {
+        ids.add(messageId);
+      }
+    }
+    return ids;
+  }, [
+    activeThread?.messages,
+    activeThread?.queuedMessageIds,
+    queuedActionStateByMessageId,
+    serverDeliveryByMessageId,
+  ]);
   useEffect(() => {
     if (!activeThread || queuedComposerTurns.length === 0) {
       return;
@@ -2615,11 +2629,18 @@ export default function ChatView({
         continue;
       }
       const messageId = queuedComposerTurnServerMessageId(queuedTurn);
-      if (serverQueuedMessageIds.has(messageId)) {
+      const delivery = serverDeliveryByMessageId.get(messageId);
+      if (delivery?.queued === true && delivery.state === "queued") {
         continue;
       }
       const serverMessage = activeThread.messages.find((message) => message.id === messageId);
-      if (activeThread.pendingTurnStartMessageId === messageId || serverMessage?.turnId != null) {
+      if (
+        delivery?.state === "steering" ||
+        delivery?.state === "starting" ||
+        delivery?.state === "accepted" ||
+        activeThread.pendingTurnStartMessageId === messageId ||
+        serverMessage?.turnId != null
+      ) {
         removeQueuedComposerTurnFromDraft(activeThread.id, queuedTurn.id);
       }
     }
@@ -2627,11 +2648,13 @@ export default function ChatView({
     activeThread,
     queuedComposerTurns,
     removeQueuedComposerTurnFromDraft,
+    serverDeliveryByMessageId,
     serverQueuedMessageIds,
   ]);
   const timelineMessages = useMemo(() => {
     const messages = (serverMessages ?? []).filter(
-      (message) => !serverQueuedMessageIds.has(message.id),
+      (message) =>
+        !serverQueuedMessageIds.has(message.id) && !queuedActionStateByMessageId.has(message.id),
     );
     const serverMessagesWithPreviewHandoff =
       Object.keys(attachmentPreviewHandoffByMessageId).length === 0
@@ -2678,7 +2701,14 @@ export default function ChatView({
     // id Set on the common (streaming-flush) path where there is nothing to reconcile.
     let pendingMessages = optimisticUserMessages;
     if (optimisticUserMessages.length > 0) {
-      const serverIds = new Set(serverMessagesWithPreviewHandoff.map((message) => message.id));
+      // Reconcile against every durable server message before placement
+      // filtering. A queue-owned message is intentionally absent from the
+      // transcript array, but it must still retire its optimistic twin.
+      const serverIds = new Set(
+        (serverMessages ?? [])
+          .filter((message) => !queuedActionStateByMessageId.has(message.id))
+          .map((message) => message.id),
+      );
       pendingMessages = optimisticUserMessages.filter((message) => !serverIds.has(message.id));
     }
     const withPending =
@@ -2691,22 +2721,33 @@ export default function ChatView({
     serverQueuedMessageIds,
     attachmentPreviewHandoffByMessageId,
     optimisticUserMessages,
+    queuedActionStateByMessageId,
   ]);
   const promptHistory = useMemo(() => {
     const activeMessages = (activeThread?.messages ?? EMPTY_MESSAGES).filter(
-      (message) => !serverQueuedMessageIds.has(message.id),
+      (message) =>
+        !serverQueuedMessageIds.has(message.id) && !queuedActionStateByMessageId.has(message.id),
     );
     // Optimistic messages exist only briefly after a send; skip the full-transcript
     // id Set on the common (streaming-flush) path where there is nothing to reconcile.
     if (optimisticUserMessages.length === 0) {
       return derivePromptHistoryFromMessages(activeMessages);
     }
-    const activeMessageIds = new Set(activeMessages.map((message) => message.id));
+    const activeMessageIds = new Set(
+      (activeThread?.messages ?? EMPTY_MESSAGES)
+        .filter((message) => !queuedActionStateByMessageId.has(message.id))
+        .map((message) => message.id),
+    );
     const pendingOptimisticMessages = optimisticUserMessages.filter(
       (message) => !activeMessageIds.has(message.id),
     );
     return derivePromptHistoryFromMessages([...activeMessages, ...pendingOptimisticMessages]);
-  }, [activeThread?.messages, optimisticUserMessages, serverQueuedMessageIds]);
+  }, [
+    activeThread?.messages,
+    optimisticUserMessages,
+    queuedActionStateByMessageId,
+    serverQueuedMessageIds,
+  ]);
   const timelineEntries = useMemo(
     () => deriveTimelineEntries(timelineMessages, agentActivityTimelineState.timelineWorkEntries),
     [agentActivityTimelineState.timelineWorkEntries, timelineMessages],
@@ -4153,7 +4194,11 @@ export default function ChatView({
     if (optimisticUserMessages.length === 0) {
       return;
     }
-    const serverIds = new Set(activeThread.messages.map((message) => message.id));
+    const serverIds = new Set(
+      activeThread.messages
+        .filter((message) => !queuedActionStateByMessageId.has(message.id))
+        .map((message) => message.id),
+    );
     const removedMessages = optimisticUserMessages.filter((message) => serverIds.has(message.id));
     if (removedMessages.length === 0) {
       return;
@@ -4174,7 +4219,13 @@ export default function ChatView({
     return () => {
       window.clearTimeout(timer);
     };
-  }, [activeThread?.id, activeThread?.messages, handoffAttachmentPreviews, optimisticUserMessages]);
+  }, [
+    activeThread?.id,
+    activeThread?.messages,
+    handoffAttachmentPreviews,
+    optimisticUserMessages,
+    queuedActionStateByMessageId,
+  ]);
 
   useEffect(() => {
     promptRef.current = prompt;
@@ -4439,17 +4490,27 @@ export default function ChatView({
     : (draftThread?.envMode ?? "local");
 
   const visibleQueuedComposerTurns = useMemo(() => {
-    const localMessageIds = new Set(
-      queuedComposerTurns.map((queuedTurn) => queuedComposerTurnServerMessageId(queuedTurn)),
+    const visibleLocalTurns = queuedComposerTurns.filter(
+      (queuedTurn) =>
+        !queuedActionStateByMessageId.has(queuedComposerTurnServerMessageId(queuedTurn)),
     );
-    const restoredServerTurns = (activeThread?.queuedMessageIds ?? []).flatMap((messageId) => {
+    const localMessageIds = new Set(
+      visibleLocalTurns.map((queuedTurn) => queuedComposerTurnServerMessageId(queuedTurn)),
+    );
+    const restoredServerTurns = (activeThread?.messages ?? []).flatMap((message) => {
+      const messageId = message.id;
+      const legacyQueued =
+        message.delivery === undefined &&
+        (activeThread?.queuedMessageIds ?? []).includes(messageId) &&
+        !queuedActionStateByMessageId.has(messageId);
+      const lifecycleQueued =
+        message.delivery?.queued === true &&
+        (queuedActionStateByMessageId.get(messageId) ?? message.delivery.state) === "queued";
+      if (!legacyQueued && !lifecycleQueued) return [];
       if (localMessageIds.has(messageId)) {
         return [];
       }
-      const message = activeThread?.messages.find(
-        (candidate) => candidate.id === messageId && candidate.role === "user",
-      );
-      if (!message) {
+      if (message.role !== "user") {
         return [];
       }
       return [
@@ -4481,13 +4542,14 @@ export default function ChatView({
       ];
     });
     return restoredServerTurns.length === 0
-      ? queuedComposerTurns
-      : [...queuedComposerTurns, ...restoredServerTurns];
+      ? visibleLocalTurns
+      : [...visibleLocalTurns, ...restoredServerTurns];
   }, [
     activeThread?.messages,
     activeThread?.queuedMessageIds,
     envMode,
     providerOptionsForDispatch,
+    queuedActionStateByMessageId,
     queuedComposerTurns,
     runtimeMode,
     selectedConnectionId,
@@ -4581,7 +4643,7 @@ export default function ChatView({
   const onInterrupt = useCallback(async () => {
     const api = readNativeApi();
     if (!api || !activeThread) return;
-    const isPreAcceptanceStop = phase === "connecting" || isSendBusy;
+    const isPreAcceptanceStop = phase === "connecting" || isSendBusy || hasPendingTurnStart;
     const pendingMessageId = isPreAcceptanceStop
       ? (localDispatch?.expectedUserMessageId ??
         pendingTurnStartMessageRef.current?.messageId ??
@@ -4629,6 +4691,7 @@ export default function ChatView({
     ]);
   }, [
     activeThread,
+    hasPendingTurnStart,
     localDispatch?.expectedUserMessageId,
     isSendBusy,
     phase,
@@ -5363,8 +5426,10 @@ export default function ChatView({
             ) ?? queuedTurn;
       }
       const messageId = queuedComposerTurnServerMessageId(resolvedQueuedTurn);
+      const delivery = serverDeliveryByMessageId.get(messageId);
       const isServerAccepted =
         resolvedQueuedTurn.serverAcceptedAt !== undefined ||
+        delivery !== undefined ||
         (activeThread?.queuedMessageIds ?? []).includes(messageId);
       if (!isServerAccepted) {
         removeQueuedComposerTurnFromDraft(threadId, resolvedQueuedTurn.id);
@@ -5374,6 +5439,15 @@ export default function ChatView({
       if (!api) {
         return false;
       }
+      // Cancel/edit owns the row immediately. Keep the durable server message
+      // suppressed while the cancellation command and its projection catch up,
+      // otherwise the draft row briefly disappears and is reconstructed from
+      // the still-queued server snapshot.
+      setQueuedActionStateByMessageId((current) => {
+        const next = new Map(current);
+        next.set(messageId, "accepted");
+        return next;
+      });
       try {
         await api.orchestration.dispatchCommand({
           type: "thread.turn.cancel-queued",
@@ -5386,6 +5460,11 @@ export default function ChatView({
         setThreadError(threadId, null);
         return true;
       } catch (error) {
+        setQueuedActionStateByMessageId((current) => {
+          const next = new Map(current);
+          next.delete(messageId);
+          return next;
+        });
         setThreadError(
           threadId,
           error instanceof Error ? error.message : "Failed to cancel queued message.",
@@ -5393,7 +5472,14 @@ export default function ChatView({
         return false;
       }
     },
-    [activeThread?.queuedMessageIds, removeQueuedComposerTurnFromDraft, setThreadError, threadId],
+    [
+      activeThread?.queuedMessageIds,
+      removeQueuedComposerTurnFromDraft,
+      serverDeliveryByMessageId,
+      setQueuedActionStateByMessageId,
+      setThreadError,
+      threadId,
+    ],
   );
 
   const removeQueuedComposerTurn = useCallback(
@@ -5416,13 +5502,7 @@ export default function ChatView({
     e?.preventDefault();
     const api = readNativeApi();
     const lateSendHandlers = lateComposerSendHandlersRef.current;
-    if (
-      !api ||
-      !lateSendHandlers ||
-      !activeThread ||
-      isVoiceTranscribing ||
-      sendInFlightRef.current
-    ) {
+    if (!api || !lateSendHandlers || !activeThread || isVoiceTranscribing) {
       return false;
     }
     if (activePendingProgress) {
@@ -5606,10 +5686,7 @@ export default function ChatView({
     }
     if (!activeProject) return false;
     if (
-      (phase === "connecting" ||
-        phase === "running" ||
-        isSendBusy ||
-        activeThread.pendingTurnStartMessageId != null) &&
+      (phase === "connecting" || phase === "running" || isSendBusy || hasPendingTurnStart) &&
       dispatchMode === "queue" &&
       queuedChatTurn === null
     ) {
@@ -5662,6 +5739,12 @@ export default function ChatView({
         envMode: envModeForSend,
       });
       return true;
+    }
+    // A follow-up can be captured while the preceding send is still waiting
+    // for provider admission. Queue admission above is deliberately allowed in
+    // that window; only a second direct dispatch must be rejected.
+    if (sendInFlightRef.current) {
+      return false;
     }
     const threadIdForSend = activeThread.id;
     const isFirstMessage = !isServerThread || !hasNativeUserMessages;
@@ -5786,10 +5869,7 @@ export default function ChatView({
     }
     const messageIdForSend = newMessageId();
     const isFollowUpToActiveTurn =
-      phase === "connecting" ||
-      phase === "running" ||
-      isSendBusy ||
-      activeThread.pendingTurnStartMessageId != null;
+      phase === "connecting" || phase === "running" || isSendBusy || hasPendingTurnStart;
 
     setComposerQueuePaused(threadIdForSend, false);
     sendInFlightRef.current = true;
@@ -6017,6 +6097,7 @@ export default function ChatView({
         provider: selectedModelSelectionForSend.provider,
         providerOptions: providerOptionsForDispatchForSend,
       });
+      const bindingRevisionForSend = await resolveThreadBindingRevisionAtAdmission();
       await stagedTurnAttachments.runWithDispatch((turnAttachments) =>
         api.orchestration.dispatchCommand({
           type: "thread.turn.start",
@@ -6036,7 +6117,9 @@ export default function ChatView({
           ...(selectedConnectionIdForSend === undefined
             ? {}
             : { connectionId: selectedConnectionIdForSend }),
-          bindingRevision: selectedBindingRevision,
+          ...(bindingRevisionForSend === undefined
+            ? {}
+            : { bindingRevision: bindingRevisionForSend }),
           ...(providerOptionsForDispatchForSend
             ? { providerOptions: providerOptionsForDispatchForSend }
             : {}),
@@ -6425,6 +6508,10 @@ export default function ChatView({
           createdAt: messageCreatedAt,
           runtimeMode,
         });
+        const bindingRevisionForSend = await resolveThreadBindingRevisionAtAdmission();
+        if (bindingRevisionForSend === undefined) {
+          throw new Error("Could not load the thread's current provider binding.");
+        }
         await api.orchestration.dispatchCommand({
           type: "thread.message.edit-and-resend",
           commandId: newCommandId(),
@@ -6433,7 +6520,7 @@ export default function ChatView({
           text: outgoingMessageText,
           modelSelection: selectedModelSelection,
           connectionId: selectedConnectionId ?? null,
-          bindingRevision: selectedBindingRevision,
+          bindingRevision: bindingRevisionForSend,
           ...(providerOptionsForDispatch ? { providerOptions: providerOptionsForDispatch } : {}),
           assistantDeliveryMode,
           runtimeMode,
@@ -6464,7 +6551,7 @@ export default function ChatView({
       selectedModel,
       selectedModelSelection,
       selectedConnectionId,
-      selectedBindingRevision,
+      resolveThreadBindingRevisionAtAdmission,
       selectedPromptEffort,
       selectedProvider,
       setThreadError,
@@ -6564,14 +6651,44 @@ export default function ChatView({
             ) ?? queuedTurn;
       }
       const messageId = queuedComposerTurnServerMessageId(resolvedQueuedTurn);
+      const delivery = serverDeliveryByMessageId.get(messageId);
       const isServerAccepted =
         resolvedQueuedTurn.serverAcceptedAt !== undefined ||
+        delivery !== undefined ||
         (activeThread?.queuedMessageIds ?? []).includes(messageId);
       if (isServerAccepted) {
         const api = readNativeApi();
         if (!api) {
           return;
         }
+        setOptimisticUserMessages((existing) =>
+          existing.some((message) => message.id === messageId)
+            ? existing
+            : [
+                ...existing,
+                {
+                  id: messageId,
+                  role: "user",
+                  text: resolvedQueuedTurn.prompt,
+                  dispatchMode: "steer",
+                  ...(resolvedQueuedTurn.skills.length > 0
+                    ? { skills: resolvedQueuedTurn.skills }
+                    : {}),
+                  ...(resolvedQueuedTurn.mentions.length > 0
+                    ? { mentions: resolvedQueuedTurn.mentions }
+                    : {}),
+                  createdAt: resolvedQueuedTurn.createdAt,
+                  streaming: false,
+                  source: "native",
+                },
+              ],
+        );
+        armTranscriptAutoFollow(threadId, true);
+        setQueuedActionStateByMessageId((current) => {
+          const next = new Map(current);
+          next.set(messageId, "steering");
+          return next;
+        });
         try {
           await api.orchestration.dispatchCommand({
             type: "thread.turn.steer-queued",
@@ -6580,9 +6697,16 @@ export default function ChatView({
             messageId,
             createdAt: new Date().toISOString(),
           });
-          removeQueuedComposerTurnFromDraft(threadId, resolvedQueuedTurn.id);
           setThreadError(threadId, null);
         } catch (error) {
+          setOptimisticUserMessages((existing) =>
+            existing.filter((message) => message.id !== messageId),
+          );
+          setQueuedActionStateByMessageId((current) => {
+            const next = new Map(current);
+            next.delete(messageId);
+            return next;
+          });
           setThreadError(
             threadId,
             error instanceof Error ? error.message : "Failed to steer queued message.",
@@ -6601,7 +6725,10 @@ export default function ChatView({
       dispatchQueuedComposerTurn,
       insertQueuedComposerTurn,
       activeThread?.queuedMessageIds,
+      serverDeliveryByMessageId,
       removeQueuedComposerTurnFromDraft,
+      setQueuedActionStateByMessageId,
+      setOptimisticUserMessages,
       setThreadError,
       setComposerQueuePaused,
       threadId,
@@ -6699,9 +6826,6 @@ export default function ChatView({
   useLayoutEffect(() => {
     composerFooterLayoutSyncRef.current?.();
   }, [composerFooterTier]);
-  const composerModelPickerWidthClassName = isComposerFooterCompact ? "w-32" : "w-36 sm:w-44";
-  const composerOptionsPickerWidthClassName = isComposerFooterCompact ? "w-28" : "w-32";
-  const composerModelEffortPickerWidthClassName = isComposerFooterCompact ? "w-40" : "w-44 sm:w-52";
   const isComposerModelEffortPickerOpen = isModelPickerOpen || isTraitsPickerOpen;
   const handleComposerModelEffortPickerOpenChange = useCallback(
     (open: boolean) => {
@@ -6714,22 +6838,7 @@ export default function ChatView({
     },
     [handleModelPickerOpenChange],
   );
-  const composerPickerControls = showComposerModelBootstrapSkeleton ? (
-    useSplitComposerPickerControls ? (
-      <>
-        {selectedProviderRuntimeModelDiscoveryPending ? (
-          <ComposerModelLoadingControl widthClassName={composerModelPickerWidthClassName} />
-        ) : (
-          <ComposerControlSkeleton widthClassName={composerModelPickerWidthClassName} />
-        )}
-        <ComposerControlSkeleton widthClassName={composerOptionsPickerWidthClassName} />
-      </>
-    ) : selectedProviderRuntimeModelDiscoveryPending ? (
-      <ComposerModelLoadingControl widthClassName={composerModelEffortPickerWidthClassName} />
-    ) : (
-      <ComposerControlSkeleton widthClassName={composerModelEffortPickerWidthClassName} />
-    )
-  ) : useSplitComposerPickerControls ? (
+  const composerPickerControls = useSplitComposerPickerControls ? (
     <>
       <ModelSelectorEmptyThread>
         <ProviderModelPicker
@@ -6741,7 +6850,6 @@ export default function ChatView({
           providers={providerStatuses}
           managedProviders={[...configuredProviderKinds]}
           modelOptionsByProvider={selectableModelOptionsByProvider}
-          loadingModelProviders={loadingModelProviders}
           unavailableModelProviders={unavailableModelProviders}
           hiddenProviders={composerHiddenProviders}
           providerOrder={settings.providerOrder}
@@ -6794,7 +6902,6 @@ export default function ChatView({
       providers={providerStatuses}
       managedProviders={[...configuredProviderKinds]}
       modelOptionsByProvider={selectableModelOptionsByProvider}
-      loadingModelProviders={loadingModelProviders}
       unavailableModelProviders={unavailableModelProviders}
       hiddenProviders={composerHiddenProviders}
       providerOrder={settings.providerOrder}
@@ -7512,7 +7619,11 @@ export default function ChatView({
         setComposerDraftPromptHistorySavedDraft(threadId, null);
       }
       expectedPromptHistoryPromptRef.current = null;
-      void onSend(undefined, "queue");
+      const dispatchMode =
+        (event.metaKey || event.ctrlKey) && hasLiveTurn && !sendInFlightRef.current
+          ? "steer"
+          : "queue";
+      void onSend(undefined, dispatchMode);
       return true;
     }
     return false;

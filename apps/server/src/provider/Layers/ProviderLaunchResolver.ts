@@ -5,6 +5,7 @@ import { mkdir } from "node:fs/promises";
 import { Effect, Layer, Option } from "effect";
 
 import { ServerConfig } from "../../config.ts";
+import { prepareManagedCodexProfileConfig } from "../../codexProcessEnv.ts";
 import { ProviderConnectionRepository } from "../../persistence/Services/ProviderConnections.ts";
 import { ProviderInstallationRepository } from "../../persistence/Services/ProviderInstallations.ts";
 import { ThreadProviderBindingRepository } from "../../persistence/Services/ThreadProviderBindings.ts";
@@ -124,8 +125,8 @@ export const makeProviderLaunchResolver = Effect.gen(function* () {
       const nativeStateRoot = providerNativeStateRoot(config.stateDir, input.nativeStateIdentity);
       const environment = manifest.buildStateEnvironment({ profileRoot, nativeStateRoot });
       yield* Effect.tryPromise({
-        try: () =>
-          Promise.all(
+        try: async () => {
+          await Promise.all(
             [
               profileRoot,
               nativeStateRoot,
@@ -135,7 +136,14 @@ export const makeProviderLaunchResolver = Effect.gen(function* () {
               environment.isolation.xdgCacheHome,
               environment.isolation.xdgStateHome,
             ].map((path) => mkdir(path, { recursive: true, mode: 0o700 })),
-          ),
+          );
+          if (input.harness === "codex") {
+            await prepareManagedCodexProfileConfig({
+              env: environment.overrides,
+              cliAuthCredentialsStore: "keyring",
+            });
+          }
+        },
         catch: (cause) =>
           new ProviderLaunchResolutionError({
             detail: "Could not prepare the isolated provider runtime directories.",

@@ -1,5 +1,5 @@
 // FILE: dev-desktop-shared.mjs
-// Purpose: Own the one renderer and desktop-bundle watch pipeline shared by all Dev instances.
+// Purpose: Own the renderer, desktop, and server watch pipeline shared by all Dev instances.
 
 import { spawn } from "node:child_process";
 import { resolve } from "node:path";
@@ -36,6 +36,7 @@ const renderer = start(
   resolve(repoRoot, "apps/web"),
 );
 const desktopBundle = start(["run", "dev:bundle"], resolve(repoRoot, "apps/desktop"));
+const serverBundle = start(["run", "dev:bundle"], resolve(repoRoot, "apps/server"));
 
 for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
   process.once(signal, () => {
@@ -46,7 +47,7 @@ for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
 }
 
 const exitCode = await Promise.race(
-  [renderer, desktopBundle].map(
+  [renderer, desktopBundle, serverBundle].map(
     (child) =>
       new Promise((resolveExit) => {
         child.once("exit", (code, signal) => resolveExit(signal ? 1 : (code ?? 0)));

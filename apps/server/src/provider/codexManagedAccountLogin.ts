@@ -143,6 +143,7 @@ export async function startCodexManagedAccountLogin(
   const framer = new CodexJsonlFramer();
   let nextId = 1;
   let settled = false;
+  let verificationRequested = false;
   const pending = new Map<
     number,
     { resolve: (value: unknown) => void; reject: (error: Error) => void }
@@ -168,6 +169,23 @@ export async function startCodexManagedAccountLogin(
     return result;
   };
 
+  const verifySelectedAccount = () => {
+    if (settled || verificationRequested) return;
+    verificationRequested = true;
+    void request("account/read", { refreshToken: false })
+      .then((raw) => {
+        const account = record(record(raw)?.account);
+        if (account?.type !== "chatgpt") throw new Error("Codex did not select a ChatGPT account.");
+        settled = true;
+        resolveCompletion({
+          type: "chatgpt",
+          email: optionalString(account.email),
+          planType: optionalString(account.planType),
+        });
+      })
+      .catch((cause) => fail(cause instanceof Error ? cause : new Error(String(cause))));
+  };
+
   child.stdout.on("data", (chunk: Buffer) => {
     try {
       for (const frame of framer.push(chunk)) {
@@ -184,35 +202,33 @@ export async function startCodexManagedAccountLogin(
           else waiter.resolve(message.result);
           continue;
         }
-        if (message.method !== "account/login/completed") continue;
         const params = record(message.params);
-        if (params?.success !== true) {
-          fail(new Error(optionalString(params?.error) ?? "Codex sign in did not complete."));
+        if (message.method === "account/login/completed") {
+          if (params?.success !== true) {
+            fail(new Error(optionalString(params?.error) ?? "Codex sign in did not complete."));
+            continue;
+          }
+          verifySelectedAccount();
           continue;
         }
-        void request("account/read", { refreshToken: false })
-          .then((raw) => {
-            const account = record(record(raw)?.account);
-            if (account?.type !== "chatgpt")
-              throw new Error("Codex did not select a ChatGPT account.");
-            settled = true;
-            resolveCompletion({
-              type: "chatgpt",
-              email: optionalString(account.email),
-              planType: optionalString(account.planType),
-            });
-          })
-          .catch((cause) => fail(cause instanceof Error ? cause : new Error(String(cause))));
+        if (message.method === "account/updated" && params?.authMode === "chatgpt") {
+          verifySelectedAccount();
+        }
       }
     } catch (cause) {
       fail(cause instanceof Error ? cause : new Error(String(cause)));
     }
   });
+  // Always consume stderr so a verbose provider cannot block on a full pipe.
+  // Authentication output is intentionally not logged because it may contain secrets.
+  child.stderr.resume();
   child.once("error", (cause) => fail(cause));
-  child.once("exit", (code, signal) => {
+  const failForStoppedProcess = (code: number | null, signal: NodeJS.Signals | null) => {
     if (!settled)
       fail(new Error(`Codex sign in stopped before completion (${code ?? signal ?? "unknown"}).`));
-  });
+  };
+  child.once("exit", failForStoppedProcess);
+  child.once("close", failForStoppedProcess);
 
   await request("initialize", buildCodexInitializeParams());
   await writer.write({ method: "initialized" });

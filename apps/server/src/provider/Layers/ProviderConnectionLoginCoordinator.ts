@@ -1,17 +1,17 @@
 // FILE: ProviderConnectionLoginCoordinator.ts
-// Purpose: Journals and commits provider-owned browser logins as immutable Connections.
+// Purpose: Journals provider-owned logins and reuses the durable Connection for a verified identity.
 
 import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { mkdir } from "node:fs/promises";
+import { lstat, mkdir, rename, rm } from "node:fs/promises";
 import path from "node:path";
 
 import { ProviderConnectionId } from "@penkra/contracts";
 import { Effect, Layer, Option } from "effect";
 
-import { writeFileStringAtomically } from "../../atomicWrite.ts";
 import { ServerConfig } from "../../config.ts";
+import { prepareManagedCodexProfileConfig } from "../../codexProcessEnv.ts";
 import { ProviderConnectionLoginRepository } from "../../persistence/Services/ProviderConnectionLogins.ts";
 import { ProviderConnectionRepository } from "../../persistence/Services/ProviderConnections.ts";
 import { ProviderInstallationRepository } from "../../persistence/Services/ProviderInstallations.ts";
@@ -117,6 +117,74 @@ export function makeProviderConnectionLoginCoordinator(
           timeout: 30_000,
           windowsHide: true,
         });
+      });
+
+    const adoptVerifiedProfile = (input: {
+      readonly operationId: string;
+      readonly sourceConnectionId: ProviderConnectionId;
+      readonly targetConnectionId: ProviderConnectionId;
+    }) =>
+      Effect.tryPromise({
+        try: async () => {
+          if (input.sourceConnectionId === input.targetConnectionId) {
+            return { commit: async () => undefined, rollback: async () => undefined };
+          }
+          const source = providerConnectionProfileRoot(config.stateDir, input.sourceConnectionId);
+          const target = providerConnectionProfileRoot(config.stateDir, input.targetConnectionId);
+          const backup = `${target}.reauth-backup-${input.operationId}`;
+          const pathExists = async (entry: string) => {
+            try {
+              await lstat(entry);
+              return true;
+            } catch (cause) {
+              if ((cause as NodeJS.ErrnoException).code === "ENOENT") return false;
+              throw cause;
+            }
+          };
+          const sourceExists = await pathExists(source);
+          const targetExists = await pathExists(target);
+          const backupExists = await pathExists(backup);
+          if (!sourceExists) {
+            if (!targetExists || !backupExists) {
+              throw new Error("verified profile adoption is incomplete");
+            }
+            return {
+              commit: async () => rm(backup, { recursive: true, force: true }),
+              rollback: async () => {
+                await rename(target, source);
+                await rename(backup, target);
+              },
+            };
+          }
+          if (backupExists) {
+            throw new Error("verified profile adoption has conflicting recovery state");
+          }
+          let hadTarget = false;
+          if (targetExists) {
+            hadTarget = true;
+            await rename(target, backup);
+          }
+          try {
+            await rename(source, target);
+          } catch (cause) {
+            if (hadTarget) await rename(backup, target).catch(() => undefined);
+            throw cause;
+          }
+          return {
+            commit: async () => {
+              if (hadTarget) await rm(backup, { recursive: true, force: true });
+            },
+            rollback: async () => {
+              await rename(target, source).catch(() => undefined);
+              if (hadTarget) await rename(backup, target);
+            },
+          };
+        },
+        catch: (cause) =>
+          new ProviderConnectionLoginError({
+            detail: "Could not adopt the verified provider profile.",
+            cause,
+          }),
       });
 
     const probeManagedAccount = async (input: {
@@ -319,17 +387,62 @@ export function makeProviderConnectionLoginCoordinator(
               }),
           ),
         );
-        if (Option.isNone(existing)) {
-          const duplicate = (yield* connections.list()).find(
-            (connection) =>
-              connection.id !== record.connectionId &&
-              connection.harness === record.harness &&
-              connection.authenticationTargetId === record.authenticationTargetId &&
-              connection.providerIdentityId === record.providerIdentityId,
-          );
-          if (duplicate !== undefined && record.providerIdentityId !== null) {
-            return yield* fail("This provider account is already connected.");
+        const canonical =
+          record.providerIdentityId === null
+            ? undefined
+            : (yield* connections.list({ includeTerminated: true }))
+                .filter(
+                  (connection) =>
+                    connection.id !== record.connectionId &&
+                    connection.harness === record.harness &&
+                    connection.authenticationTargetId === record.authenticationTargetId &&
+                    connection.providerIdentityId === record.providerIdentityId,
+                )
+                .sort(
+                  (left, right) =>
+                    left.createdAt.localeCompare(right.createdAt) ||
+                    left.id.localeCompare(right.id),
+                )[0];
+        let committedConnectionId = record.connectionId;
+        let finalizeProfileAdoption: (() => Promise<void>) | undefined;
+        if (canonical !== undefined && record.providerIdentityId !== null) {
+          const adopted = yield* adoptVerifiedProfile({
+            operationId: record.operationId,
+            sourceConnectionId: record.connectionId,
+            targetConnectionId: canonical.id,
+          });
+          const reactivatedResult = yield* connections
+            .reactivateIdentity({
+              id: canonical.id,
+              harness: record.harness,
+              authenticationTargetId: record.authenticationTargetId,
+              authenticationMethodId: record.authenticationMethodId,
+              label,
+              credentialRef: null,
+              profileRef: `provider-profile:${canonical.id}`,
+              providerIdentityId: record.providerIdentityId,
+              updatedAt: now(),
+            })
+            .pipe(
+              Effect.mapError(
+                (cause) =>
+                  new ProviderConnectionLoginError({
+                    detail: "Could not reactivate the existing Connection.",
+                    cause,
+                  }),
+              ),
+              Effect.tapError(() =>
+                Effect.tryPromise(() => adopted.rollback()).pipe(Effect.ignore),
+              ),
+            );
+          if (Option.isNone(reactivatedResult)) {
+            yield* Effect.tryPromise(() => adopted.rollback()).pipe(Effect.ignore);
+            return yield* fail("The existing Connection could not be reactivated.");
           }
+          const reactivated = reactivatedResult.value;
+          finalizeProfileAdoption = adopted.commit;
+          committedConnectionId = reactivated.id;
+        } else if (Option.isNone(existing)) {
           yield* connections
             .create({
               id: record.connectionId,
@@ -366,9 +479,20 @@ export function makeProviderConnectionLoginCoordinator(
           state: "completed",
           providerLoginId: record.providerLoginId,
           providerIdentityId: record.providerIdentityId,
+          committedConnectionId,
           failureReason: null,
           updatedAt: now(),
         });
+        if (finalizeProfileAdoption !== undefined) {
+          yield* Effect.tryPromise(() => finalizeProfileAdoption()).pipe(
+            Effect.catch((cause) =>
+              Effect.logWarning("provider.connection_login.profile_retirement_failed", {
+                connectionId: committedConnectionId,
+                cause: cause instanceof Error ? cause.message : String(cause),
+              }),
+            ),
+          );
+        }
       });
 
     const transition = (input: Parameters<typeof logins.transition>[0]) =>
@@ -405,7 +529,8 @@ export function makeProviderConnectionLoginCoordinator(
             }),
           ),
         );
-        const connection = yield* connections.getRecord(record.connectionId).pipe(
+        const committedConnectionId = record.committedConnectionId ?? record.connectionId;
+        const connection = yield* connections.getRecord(committedConnectionId).pipe(
           Effect.mapError(
             (cause) =>
               new ProviderConnectionLoginError({
@@ -434,7 +559,7 @@ export function makeProviderConnectionLoginCoordinator(
         );
         return {
           operationId: record.operationId,
-          connectionId: record.connectionId,
+          connectionId: committedConnectionId,
           state: record.state === "verified" ? ("starting" as const) : record.state,
           authUrl: handles.get(record.operationId)?.authUrl ?? null,
           connection: Option.getOrNull(connection),
@@ -540,9 +665,9 @@ export function makeProviderConnectionLoginCoordinator(
                   .map((entry) => mkdir(entry, { recursive: true, mode: 0o700 })),
               );
               if (input.harness === "codex") {
-                await writeFileStringAtomically({
-                  filePath: path.join(stateEnvironment.overrides.CODEX_HOME!, "config.toml"),
-                  contents: 'cli_auth_credentials_store = "keyring"\n',
+                await prepareManagedCodexProfileConfig({
+                  env: stateEnvironment.overrides,
+                  cliAuthCredentialsStore: "keyring",
                 });
               }
             },
@@ -604,7 +729,12 @@ export function makeProviderConnectionLoginCoordinator(
             async (snapshot) => {
               try {
                 if (cancellationRequests.has(operationId)) return;
-                const providerIdentityId = providerIdentityFromSnapshot(snapshot);
+                const providerIdentityId =
+                  runtime.method.loginMechanism === "secret-import"
+                    ? `api-key:hmac-sha256:${await Effect.runPromise(
+                        credentials.fingerprint(input.secret!),
+                      )}`
+                    : providerIdentityFromSnapshot(snapshot);
                 await Effect.runPromise(
                   Effect.logInfo("provider.connection_login.provider_verified", {
                     operationId,

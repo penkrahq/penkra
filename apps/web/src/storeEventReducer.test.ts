@@ -92,6 +92,83 @@ describe("store event reducer", () => {
     ]);
   });
 
+  it("keeps one sequence-fenced delivery owner from queue admission through steer acceptance", () => {
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const messageId = MessageId.makeUnsafe("message-delivery-lifecycle");
+    const admitted = applyOrchestrationEvents(makeState(makeThread()), [
+      makeDomainEvent(
+        "thread.message-sent",
+        {
+          threadId,
+          messageId,
+          role: "user",
+          text: "steer this durable follow-up",
+          attachments: [],
+          dispatchMode: "queue",
+          delivery: { state: "queued", queued: true },
+          turnId: null,
+          streaming: false,
+          source: "native",
+          createdAt: "2026-02-27T00:00:00.000Z",
+          updatedAt: "2026-02-27T00:00:00.000Z",
+        },
+        { sequence: 10 },
+      ),
+    ]);
+    expect(threadsOf(admitted)[0]?.messages[0]?.delivery).toEqual({
+      state: "queued",
+      queued: true,
+      sequence: 10,
+    });
+
+    const steering = applyOrchestrationEvents(admitted, [
+      makeDomainEvent(
+        "thread.turn-steer-queued-requested",
+        { threadId, messageId, createdAt: "2026-02-27T00:00:01.000Z" },
+        { sequence: 11 },
+      ),
+    ]);
+    expect(threadsOf(steering)[0]?.messages[0]?.delivery?.state).toBe("steering");
+
+    const accepted = applyOrchestrationEvents(steering, [
+      makeDomainEvent(
+        "thread.message-delivery-set",
+        {
+          threadId,
+          messageId,
+          state: "accepted",
+          updatedAt: "2026-02-27T00:00:02.000Z",
+        },
+        { sequence: 12 },
+      ),
+      // A replayed older admission must not return the message to the queue.
+      makeDomainEvent(
+        "thread.message-sent",
+        {
+          threadId,
+          messageId,
+          role: "user",
+          text: "steer this durable follow-up",
+          attachments: [],
+          dispatchMode: "queue",
+          delivery: { state: "queued", queued: true },
+          turnId: null,
+          streaming: false,
+          source: "native",
+          createdAt: "2026-02-27T00:00:00.000Z",
+          updatedAt: "2026-02-27T00:00:00.000Z",
+        },
+        { sequence: 10 },
+      ),
+    ]);
+    expect(threadsOf(accepted)[0]?.messages).toHaveLength(1);
+    expect(threadsOf(accepted)[0]?.messages[0]?.delivery).toEqual({
+      state: "accepted",
+      queued: true,
+      sequence: 12,
+    });
+  });
+
   it("removes only the cancelled pre-acceptance prompt and clears its pending identity", () => {
     const threadId = ThreadId.makeUnsafe("thread-1");
     const pendingMessageId = MessageId.makeUnsafe("message-pending-start");

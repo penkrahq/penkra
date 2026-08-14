@@ -1,5 +1,5 @@
 // FILE: ProviderConnections.ts
-// Purpose: SQLite implementation of terminal Connection lifecycle and Space defaults.
+// Purpose: SQLite implementation of durable Connection identity, lifecycle, and Space defaults.
 
 import { ProviderConnection, SpaceConnectionDefault } from "@penkra/contracts";
 import { Effect, Layer, Option, Schema } from "effect";
@@ -166,6 +166,74 @@ const makeProviderConnectionRepository = Effect.gen(function* () {
             WHERE connection_id = ${input.id} AND lifecycle = 'active'
               AND credential_ref IS NULL AND profile_ref IS NOT NULL
           `.pipe(Effect.andThen(selectRecord({ id: input.id }))),
+        ),
+      ).pipe(Effect.map(Option.map(toPublicConnection))),
+    reactivateIdentity: (input) =>
+      mapped(
+        "ProviderConnectionRepository.reactivateIdentity",
+        sql.withTransaction(
+          sql`
+            UPDATE provider_connections
+            SET provider_identity_id = 'superseded:' || ${input.id} || ':' || connection_id,
+                label = label || ' (superseded ' || substr(connection_id, 1, 8) || ')',
+                updated_at = ${input.updatedAt}
+            WHERE connection_id != ${input.id}
+              AND harness_kind = ${input.harness}
+              AND authentication_target_id = ${input.authenticationTargetId}
+              AND provider_identity_id = ${input.providerIdentityId}
+              AND lifecycle = 'active'
+          `.pipe(
+            Effect.andThen(sql`
+              UPDATE provider_connections
+              SET authentication_method_id = ${input.authenticationMethodId},
+                  label = ${input.label}, credential_ref = ${input.credentialRef},
+                  profile_ref = ${input.profileRef},
+                  provider_identity_id = ${input.providerIdentityId},
+                  health_status = 'unknown', health_reason = NULL, last_checked_at = NULL,
+                  lifecycle = 'active', termination_reason = NULL, terminated_at = NULL,
+                  updated_at = ${input.updatedAt}
+              WHERE connection_id = ${input.id}
+                AND harness_kind = ${input.harness}
+                AND authentication_target_id = ${input.authenticationTargetId}
+            `),
+            Effect.andThen(sql`
+              UPDATE thread_runtime_bindings
+              SET connection_id = ${input.id}, binding_revision = binding_revision + 1,
+                  updated_at = ${input.updatedAt}
+              WHERE connection_id IN (
+                SELECT connection_id FROM provider_connections
+                WHERE connection_id != ${input.id}
+                  AND harness_kind = ${input.harness}
+                  AND authentication_target_id = ${input.authenticationTargetId}
+                  AND provider_identity_id LIKE 'superseded:' || ${input.id} || ':%'
+                  AND lifecycle = 'active'
+              )
+            `),
+            Effect.andThen(sql`
+              UPDATE space_connection_defaults
+              SET connection_id = ${input.id}, updated_at = ${input.updatedAt}
+              WHERE connection_id IN (
+                SELECT connection_id FROM provider_connections
+                WHERE connection_id != ${input.id}
+                  AND harness_kind = ${input.harness}
+                  AND authentication_target_id = ${input.authenticationTargetId}
+                  AND provider_identity_id LIKE 'superseded:' || ${input.id} || ':%'
+                  AND lifecycle = 'active'
+              )
+            `),
+            Effect.andThen(sql`
+              UPDATE provider_connections
+              SET lifecycle = 'terminated', termination_reason = 'removed',
+                  terminated_at = ${input.updatedAt}, health_status = 'unavailable',
+                  provider_identity_id = ${input.providerIdentityId}, updated_at = ${input.updatedAt}
+              WHERE connection_id != ${input.id}
+                AND harness_kind = ${input.harness}
+                AND authentication_target_id = ${input.authenticationTargetId}
+                AND provider_identity_id LIKE 'superseded:' || ${input.id} || ':%'
+                AND lifecycle = 'active'
+            `),
+            Effect.andThen(selectRecord({ id: input.id })),
+          ),
         ),
       ).pipe(Effect.map(Option.map(toPublicConnection))),
     observeHealth: (input) =>

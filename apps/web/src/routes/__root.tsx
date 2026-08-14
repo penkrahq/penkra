@@ -906,6 +906,7 @@ function shouldPollThreadDetailCatchup(threadId: ThreadId): boolean {
 function shouldReconcileThreadProjection(threadId: ThreadId): boolean {
   const thread = getThreadFromState(useStore.getState(), threadId);
   return (
+    thread?.pendingTurnStartMessageId != null ||
     thread?.session?.orchestrationStatus === "starting" ||
     thread?.session?.orchestrationStatus === "running" ||
     thread?.latestTurn?.state === "running" ||

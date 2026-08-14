@@ -35,7 +35,6 @@ import { readNativeApi } from "./nativeApi";
 export interface VoiceSessionOrigin {
   readonly threadId: ThreadId;
   readonly providerThreadId: ThreadId | null;
-  readonly transcriptionBackend: VoiceTranscriptionBackend;
   readonly cwd: string;
 }
 
@@ -83,16 +82,14 @@ export type SubmitVoiceSessionResult =
   | { readonly status: "no-audio" };
 
 export class VoiceSessionTranscriptionError extends Error {
-  readonly jobSaved: boolean;
-
-  constructor(error: unknown, jobSaved: boolean) {
+  constructor(error: unknown) {
     super(error instanceof Error ? error.message : "The voice note could not be transcribed.");
     this.name = "VoiceSessionTranscriptionError";
-    this.jobSaved = jobSaved;
   }
 }
 
 interface VoiceTranscriptConsumer {
+  resolveTranscriptionBackend: () => VoiceTranscriptionBackend | null;
   onTranscriptReady: (
     threadId: ThreadId,
     transcript: string,
@@ -134,6 +131,9 @@ export function VoiceSessionCoordinatorProvider({ children }: { children: ReactN
   } = useVoiceRecorder();
   const captureOriginRef = useRef<VoiceSessionOrigin | null>(null);
   const consumerRef = useRef<VoiceTranscriptConsumer | null>(null);
+  const backendResolverRef = useRef<VoiceTranscriptConsumer["resolveTranscriptionBackend"] | null>(
+    null,
+  );
   const pendingDeliveriesRef = useRef<PendingTranscriptDelivery[]>([]);
   const activeJobIdsRef = useRef(new Set<string>());
   const cancelledJobIdsRef = useRef(new Set<string>());
@@ -155,7 +155,7 @@ export function VoiceSessionCoordinatorProvider({ children }: { children: ReactN
   );
 
   const runTranscriptionJob = useCallback(
-    (job: VoiceTranscriptionJob): Promise<void> => {
+    (job: VoiceTranscriptionJob, backend: VoiceTranscriptionBackend): Promise<void> => {
       if (activeJobIdsRef.current.has(job.id)) return Promise.resolve();
       activeJobIdsRef.current.add(job.id);
       useVoiceSessionCoordinatorStore.setState((state) => ({
@@ -168,10 +168,12 @@ export function VoiceSessionCoordinatorProvider({ children }: { children: ReactN
       }));
 
       const api = readNativeApi();
-      if (!api && job.transcriptionBackend.kind === "codex-chatgpt") {
-        activeJobIdsRef.current.delete(job.id);
-        removeTranscription(job.id);
-        return Promise.reject(new Error("Voice transcription is unavailable right now."));
+      if (!api && backend.kind === "codex-chatgpt") {
+        return deleteVoiceTranscriptionJob(job.id).then(() => {
+          activeJobIdsRef.current.delete(job.id);
+          removeTranscription(job.id);
+          throw new Error("Voice transcription is unavailable right now.");
+        });
       }
       const isCurrent = () => !cancelledJobIdsRef.current.has(job.id);
 
@@ -181,7 +183,7 @@ export function VoiceSessionCoordinatorProvider({ children }: { children: ReactN
             recording,
             isCurrent,
             transcribeChunk: (chunk) => {
-              if (job.transcriptionBackend.kind === "apple-speech") {
+              if (backend.kind === "apple-speech") {
                 const appleVoice = window.desktopBridge?.voice;
                 if (!appleVoice) {
                   return Promise.reject(
@@ -189,13 +191,13 @@ export function VoiceSessionCoordinatorProvider({ children }: { children: ReactN
                   );
                 }
                 return appleVoice.transcribeWithApple({
-                  locale: job.transcriptionBackend.locale,
+                  locale: backend.locale,
                   ...chunk,
                 });
               }
               return api!.server.transcribeVoice({
                 provider: "codex",
-                connectionId: job.transcriptionBackend.connectionId,
+                connectionId: backend.connectionId,
                 cwd: job.cwd,
                 ...(job.providerThreadId ? { threadId: job.providerThreadId } : {}),
                 ...chunk,
@@ -204,11 +206,17 @@ export function VoiceSessionCoordinatorProvider({ children }: { children: ReactN
           }),
         )
         .then(async (transcript) => {
-          if (!transcript || !isCurrent()) return;
-          await deliverTranscript(job, transcript);
-          if (!isCurrent()) return;
-          await deleteVoiceTranscriptionJob(job.id);
+          if (transcript && isCurrent()) {
+            await deliverTranscript(job, transcript);
+          }
         })
+        .then(
+          () => deleteVoiceTranscriptionJob(job.id),
+          async (error: unknown) => {
+            await deleteVoiceTranscriptionJob(job.id);
+            throw error;
+          },
+        )
         .finally(() => {
           activeJobIdsRef.current.delete(job.id);
           cancelledJobIdsRef.current.delete(job.id);
@@ -219,38 +227,45 @@ export function VoiceSessionCoordinatorProvider({ children }: { children: ReactN
     [deliverTranscript],
   );
 
-  const recoverTranscriptionJobs = useCallback(() => {
-    if (recoveryStartedRef.current) return;
-    recoveryStartedRef.current = true;
-    void listVoiceTranscriptionJobs()
-      .then((jobs) =>
-        Promise.all(
-          jobs.map((job) => {
-            if (attemptedRecoveryJobIdsRef.current.has(job.id)) return Promise.resolve();
-            attemptedRecoveryJobIdsRef.current.add(job.id);
-            return runTranscriptionJob(job).catch((error: unknown) => {
-              consumerRef.current?.onRecoveredTranscriptionFailure?.(
-                new VoiceSessionTranscriptionError(error, true),
-              );
-            });
-          }),
-        ),
-      )
-      .catch((error: unknown) => {
-        console.error("[voice-session] Could not recover saved voice notes.", error);
-      });
-  }, [runTranscriptionJob]);
+  const recoverTranscriptionJobs = useCallback(
+    (backend: VoiceTranscriptionBackend) => {
+      if (recoveryStartedRef.current) return;
+      recoveryStartedRef.current = true;
+      void listVoiceTranscriptionJobs()
+        .then((jobs) =>
+          Promise.all(
+            jobs.map((job) => {
+              if (attemptedRecoveryJobIdsRef.current.has(job.id)) return Promise.resolve();
+              attemptedRecoveryJobIdsRef.current.add(job.id);
+              return runTranscriptionJob(job, backend).catch((error: unknown) => {
+                consumerRef.current?.onRecoveredTranscriptionFailure?.(
+                  new VoiceSessionTranscriptionError(error),
+                );
+              });
+            }),
+          ),
+        )
+        .catch((error: unknown) => {
+          console.error("[voice-session] Could not recover saved voice notes.", error);
+        });
+    },
+    [runTranscriptionJob],
+  );
 
   const registerTranscriptConsumer = useCallback(
     (consumer: VoiceTranscriptConsumer) => {
       consumerRef.current = consumer;
+      backendResolverRef.current = consumer.resolveTranscriptionBackend;
       const pending = pendingDeliveriesRef.current.splice(0);
       for (const delivery of pending) {
         Promise.resolve(
           consumer.onTranscriptReady(delivery.job.threadId, delivery.transcript, delivery.job.id),
         ).then(delivery.resolve, delivery.reject);
       }
-      recoverTranscriptionJobs();
+      const backend = consumer.resolveTranscriptionBackend();
+      if (backend) {
+        recoverTranscriptionJobs(backend);
+      }
       return () => {
         if (consumerRef.current === consumer) consumerRef.current = null;
       };
@@ -306,7 +321,6 @@ export function VoiceSessionCoordinatorProvider({ children }: { children: ReactN
     useVoiceSessionCoordinatorStore.setState({
       capture: { ...capture, phase: "stopping" },
     });
-    let jobSaved = false;
     try {
       const payload = await stopRecorder();
       if (!payload) {
@@ -320,15 +334,18 @@ export function VoiceSessionCoordinatorProvider({ children }: { children: ReactN
         id: payload.durableVoiceDraftId ?? globalThis.crypto.randomUUID(),
         threadId: origin.threadId,
         ...(origin.providerThreadId ? { providerThreadId: origin.providerThreadId } : {}),
-        transcriptionBackend: origin.transcriptionBackend,
         cwd: origin.cwd,
         recording: payload,
         createdAt: now,
         updatedAt: now,
       };
       await persistVoiceTranscriptionJob(job);
-      jobSaved = true;
-      const transcription = runTranscriptionJob(job);
+      const backend = backendResolverRef.current?.() ?? null;
+      if (!backend) {
+        await deleteVoiceTranscriptionJob(job.id);
+        throw new Error("Voice transcription is unavailable right now.");
+      }
+      const transcription = runTranscriptionJob(job, backend);
       captureOriginRef.current = null;
       useVoiceSessionCoordinatorStore.setState({ capture: null });
       await transcription;
@@ -336,7 +353,7 @@ export function VoiceSessionCoordinatorProvider({ children }: { children: ReactN
     } catch (error) {
       captureOriginRef.current = null;
       useVoiceSessionCoordinatorStore.setState({ capture: null });
-      throw new VoiceSessionTranscriptionError(error, jobSaved);
+      throw new VoiceSessionTranscriptionError(error);
     }
   }, [runTranscriptionJob, stopRecorder]);
 
@@ -417,6 +434,7 @@ export function VoiceSessionCoordinatorProvider({ children }: { children: ReactN
     () => () => {
       captureOriginRef.current = null;
       consumerRef.current = null;
+      backendResolverRef.current = null;
       useVoiceSessionCoordinatorStore.setState({ ...IDLE_VOICE_SESSION_COORDINATOR });
     },
     [],

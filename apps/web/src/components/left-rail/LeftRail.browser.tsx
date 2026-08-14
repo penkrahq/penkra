@@ -78,6 +78,20 @@ describe("Pencil left rail", () => {
     expect(onBack).toHaveBeenCalledOnce();
   });
 
+  it("retains the close action's trailing inset when a host replaces the leading inset", async () => {
+    await render(<SidebarHeaderShared className="pl-0" onClose={() => undefined} />);
+
+    const sidebarHeader = document.querySelector<HTMLElement>("header");
+    const close = page.getByRole("button", { name: "Close left panel" }).element();
+
+    expect(sidebarHeader).not.toBeNull();
+    expect(
+      Math.abs(
+        sidebarHeader!.getBoundingClientRect().right - close.getBoundingClientRect().right - 10,
+      ),
+    ).toBeLessThan(1);
+  });
+
   it("uses a real bounded vertical scroll viewport for overflowing projects", async () => {
     await render(
       <div className="h-32 w-60">

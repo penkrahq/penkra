@@ -58,11 +58,7 @@ export async function transcribeVoiceWithChatGptSession(input: {
     payload = null;
   }
   const text = readString(payload?.text) ?? readString(payload?.transcript);
-  if (!text) {
-    throw new Error("The transcription response did not include any text.");
-  }
-
-  return { text };
+  return { text: text ?? "" };
 }
 
 async function requestTranscription(input: {

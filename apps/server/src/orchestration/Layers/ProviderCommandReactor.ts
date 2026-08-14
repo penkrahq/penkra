@@ -42,6 +42,7 @@ import {
   ServiceMap,
   Stream,
 } from "effect";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
 import {
   buildPromptThreadTitleFallback,
   isGenericChatThreadTitle,
@@ -120,6 +121,7 @@ import {
   type ProviderIntentEvent,
 } from "../providerIntentClassification.ts";
 import { deriveTurnStartSession } from "../turnStartSession.ts";
+import { RESTART_TURN_RECOVERY_PROMPT } from "../restartTurnRecovery.ts";
 import { TurnCheckpointCoordinator } from "../Services/TurnCheckpointCoordinator.ts";
 import { resolveProviderSessionThread as resolveProviderSessionThreadFromProjection } from "../providerSessionThread.ts";
 
@@ -396,6 +398,7 @@ class ProviderCommandReactorConfig extends ServiceMap.Service<
 
 const make = Effect.gen(function* () {
   const { commandEventTimeout, queuedTurnRecoveryInterval } = yield* ProviderCommandReactorConfig;
+  const sql = yield* SqlClient.SqlClient;
   const orchestrationEngine = yield* OrchestrationEngineService;
   const providerThreadSwitchCoordinator = yield* ProviderThreadSwitchCoordinator;
   const deliveryRepository = yield* OrchestrationEventDeliveryRepository;
@@ -1323,10 +1326,10 @@ const make = Effect.gen(function* () {
     readonly messageId: string;
     readonly afterSequence: number;
   }) {
-    const thread = yield* resolveThread(input.threadId);
-    if (thread?.session?.status === "interrupted" && thread.session.activeTurnId === null) {
-      return true;
-    }
+    // An interrupted session is also the expected handoff state for a
+    // non-native steer. Only an interrupt that explicitly names this pending
+    // message cancels its start; treating the session status alone as a cancel
+    // deletes the promoted steering message instead of dispatching it.
     const throughSequence = yield* orchestrationEngine.getEventHighWaterSequence;
     if (throughSequence <= input.afterSequence) {
       return false;
@@ -1575,6 +1578,7 @@ const make = Effect.gen(function* () {
         : requestedModelSelection;
     const providerTurnInput = {
       threadId: input.threadId,
+      clientMessageId: MessageId.makeUnsafe(input.messageId),
       ...(normalizedAttachments.length > 0 ? { attachments: normalizedAttachments } : {}),
       ...(input.skills !== undefined ? { skills: input.skills } : {}),
       ...(providerMentions !== undefined ? { mentions: providerMentions } : {}),
@@ -1903,7 +1907,17 @@ const make = Effect.gen(function* () {
         return;
       }
 
-      const message = thread.messages.find((entry) => entry.id === event.payload.messageId);
+      const isRestartRecovery = event.payload.recoveryOfTurnId !== undefined;
+      const message = isRestartRecovery
+        ? {
+            id: event.payload.messageId,
+            role: "user" as const,
+            text: RESTART_TURN_RECOVERY_PROMPT,
+            attachments: [] as ReadonlyArray<ChatAttachment>,
+            skills: undefined,
+            mentions: undefined,
+          }
+        : thread.messages.find((entry) => entry.id === event.payload.messageId);
       if (!message || message.role !== "user") {
         yield* appendProviderFailureActivity({
           threadId: event.payload.threadId,
@@ -1933,6 +1947,12 @@ const make = Effect.gen(function* () {
         event.payload.dispatchMode === "steer" &&
         providerSupportsNativeTurnSteering(providerName) &&
         hasLiveTurn;
+      if (isRestartRecovery && hasLiveTurn) {
+        // Recovery admission only follows restart reconciliation, which settles
+        // the dead turn first. If a newer live turn won the race, it is already
+        // the continuation and must not receive a duplicate internal prompt.
+        return;
+      }
       if (!isNativeSteer && hasLiveTurn) {
         yield* enqueueQueuedTurnStart(event);
         // The promotion raced another live turn and was re-queued. Release
@@ -1983,18 +2003,20 @@ const make = Effect.gen(function* () {
         operation: "thread.turn.start",
       });
 
-      yield* maybeGenerateAndRenameThreadTitleForFirstTurn({
-        threadId: event.payload.threadId,
-        messageId: message.id,
-        messageText: message.text,
-        ...(message.attachments !== undefined ? { attachments: resolvedAttachments } : {}),
-        ...(event.payload.modelSelection !== undefined
-          ? { modelSelection: event.payload.modelSelection }
-          : {}),
-        ...(event.payload.providerOptions !== undefined
-          ? { providerOptions: event.payload.providerOptions }
-          : {}),
-      }).pipe(Effect.forkScoped);
+      if (!isRestartRecovery) {
+        yield* maybeGenerateAndRenameThreadTitleForFirstTurn({
+          threadId: event.payload.threadId,
+          messageId: message.id,
+          messageText: message.text,
+          ...(message.attachments !== undefined ? { attachments: resolvedAttachments } : {}),
+          ...(event.payload.modelSelection !== undefined
+            ? { modelSelection: event.payload.modelSelection }
+            : {}),
+          ...(event.payload.providerOptions !== undefined
+            ? { providerOptions: event.payload.providerOptions }
+            : {}),
+        }).pipe(Effect.forkScoped);
+      }
       // Only a native steer against a genuinely live turn keeps steer
       // semantics; anything else that reaches direct dispatch runs as a
       // normal queued turn (with its turn-start checkpoint).
@@ -2038,6 +2060,16 @@ const make = Effect.gen(function* () {
             ? Effect.failCause(cause)
             : Effect.gen(function* () {
                 const detail = Cause.pretty(cause);
+                if (!isRestartRecovery) {
+                  yield* orchestrationEngine.dispatch({
+                    type: "thread.message.delivery.set",
+                    commandId: replaySafeServerCommandId("message-delivery-failed", event.eventId),
+                    threadId: event.payload.threadId,
+                    messageId: event.payload.messageId,
+                    state: "failed",
+                    createdAt: new Date().toISOString(),
+                  });
+                }
                 yield* appendProviderFailureActivity({
                   threadId: event.payload.threadId,
                   kind: "provider.turn.start.failed",
@@ -2066,6 +2098,32 @@ const make = Effect.gen(function* () {
         ),
         Effect.ensuring(Effect.sync(() => editResendTurnStartKeys.delete(editResendKey))),
       );
+      if (startedTurn && isRestartRecovery) {
+        const acceptedAt = new Date().toISOString();
+        yield* setThreadSession({
+          threadId: event.payload.threadId,
+          session: {
+            threadId: event.payload.threadId,
+            status: "running",
+            providerName,
+            runtimeMode: event.payload.runtimeMode,
+            activeTurnId: startedTurn.turnId,
+            lastError: null,
+            updatedAt: acceptedAt,
+          },
+          createdAt: acceptedAt,
+        });
+      }
+      if (startedTurn && !isRestartRecovery) {
+        yield* orchestrationEngine.dispatch({
+          type: "thread.message.delivery.set",
+          commandId: replaySafeServerCommandId("message-delivery-accepted", event.eventId),
+          threadId: event.payload.threadId,
+          messageId: event.payload.messageId,
+          state: "accepted",
+          createdAt: new Date().toISOString(),
+        });
+      }
       if (startedTurn && isPendingQueuedDispatch) {
         yield* bindPendingQueuedDispatchToTurn(startedTurn.turnId);
       }
@@ -2445,6 +2503,18 @@ const make = Effect.gen(function* () {
             threadId: rawThreadId,
             updatedAt: new Date().toISOString(),
           });
+          return;
+        }
+        const restartRecoveries = yield* sql<{ readonly present: number }>`
+          SELECT 1 AS present
+          FROM restart_turn_recoveries AS recovery
+          JOIN projection_thread_sessions AS session
+            ON session.thread_id = recovery.thread_id
+          WHERE recovery.thread_id = ${threadId}
+            AND session.status = 'interrupted'
+          LIMIT 1
+        `;
+        if (restartRecoveries.length > 0) {
           return;
         }
         if (yield* hasLiveProviderTurn(threadId)) {

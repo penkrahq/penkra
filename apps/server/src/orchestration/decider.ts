@@ -1805,6 +1805,50 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
+    case "thread.turn.recover": {
+      const thread = yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      if (threadHasInFlightTurn(thread)) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Thread '${command.threadId}' already has a turn in flight.`,
+        });
+      }
+      if (
+        thread.latestTurn?.turnId !== command.interruptedTurnId ||
+        (thread.latestTurn.state !== "interrupted" && thread.latestTurn.state !== "error")
+      ) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Turn '${command.interruptedTurnId}' is no longer the restart-recoverable latest turn.`,
+        });
+      }
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.turn-start-requested",
+        payload: {
+          threadId: command.threadId,
+          messageId: command.recoveryMessageId,
+          recoveryOfTurnId: command.interruptedTurnId,
+          connectionId: command.connectionId,
+          bindingRevision: command.bindingRevision,
+          assistantDeliveryMode: DEFAULT_ASSISTANT_DELIVERY_MODE,
+          dispatchMode: "queue",
+          dispatchOrigin: "automation",
+          runtimeMode: thread.runtimeMode,
+          createdAt: command.createdAt,
+        },
+      };
+    }
+
     case "thread.turn.start": {
       const targetThread = yield* requireThread({
         readModel,
@@ -1910,6 +1954,18 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         connectionChangedEvent,
         modelChangedEvent,
       ].filter((event): event is Omit<OrchestrationEvent, "sequence"> => event !== null);
+      const activeProvider =
+        targetThread.session?.providerName ?? targetThread.modelSelection.provider;
+      const hasTurnInFlight =
+        targetThread.session?.status === "starting" ||
+        (targetThread.session?.status === "running" && targetThread.session.activeTurnId !== null);
+      // Subagent threads never queue: their messages steer the running child task
+      // through the parent session, so deferring until the turn settles would
+      // deliver the message only after the subagent already finished.
+      const shouldQueue =
+        targetThread.parentThreadId === null &&
+        hasTurnInFlight &&
+        (dispatchMode === "queue" || !providerSupportsNativeTurnSteering(activeProvider));
       const userMessageEvent: Omit<OrchestrationEvent, "sequence"> = {
         ...withEventBase({
           aggregateKind: "thread",
@@ -1936,6 +1992,10 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           // originally dispatched by a non-user source must overwrite the
           // stale origin instead of inheriting it.
           dispatchOrigin: command.dispatchOrigin ?? "user",
+          delivery: {
+            state: shouldQueue ? "queued" : dispatchMode === "steer" ? "steering" : "starting",
+            queued: shouldQueue,
+          },
           turnId: null,
           streaming: false,
           source: "native",
@@ -1961,18 +2021,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         runtimeMode: command.runtimeMode,
         createdAt: command.createdAt,
       } as const;
-      const activeProvider =
-        targetThread.session?.providerName ?? targetThread.modelSelection.provider;
-      const hasTurnInFlight =
-        targetThread.session?.status === "starting" ||
-        (targetThread.session?.status === "running" && targetThread.session.activeTurnId !== null);
-      // Subagent threads never queue: their messages steer the running child task
-      // through the parent session, so deferring until the turn settles would
-      // deliver the message only after the subagent already finished.
-      const shouldQueue =
-        targetThread.parentThreadId === null &&
-        hasTurnInFlight &&
-        (dispatchMode === "queue" || !providerSupportsNativeTurnSteering(activeProvider));
       const queuedEvent: Omit<OrchestrationEvent, "sequence"> = {
         ...withEventBase({
           aggregateKind: "thread",
@@ -2679,6 +2727,36 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           threadId: command.threadId,
           messageId: command.messageId,
           cancelledAt: command.createdAt,
+        },
+      };
+    }
+
+    case "thread.message.delivery.set": {
+      const thread = yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      const message = thread.messages.find((entry) => entry.id === command.messageId);
+      if (!message || message.role !== "user") {
+        // A provider acknowledgement can race an explicit pre-acceptance
+        // cancellation. The cancelled message is already gone; settling the
+        // late acknowledgement as an idempotent no-op keeps replay safe.
+        return [];
+      }
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.message-delivery-set",
+        payload: {
+          threadId: command.threadId,
+          messageId: command.messageId,
+          state: command.state,
+          updatedAt: command.createdAt,
         },
       };
     }

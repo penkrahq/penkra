@@ -42,6 +42,7 @@ function createMockOpenCodeRuntime(options?: {
   readonly eventSubscriptions?: ReadonlyArray<AsyncIterable<unknown>>;
   readonly prompt?: (input: Record<string, unknown>) => Promise<unknown>;
   readonly promptAsync?: (input: Record<string, unknown>) => Promise<unknown>;
+  readonly abort?: (input: { sessionID: string }) => Promise<unknown>;
   readonly commandList?: () => Promise<{
     data?: ReadonlyArray<{ name: string; description?: string }>;
   }>;
@@ -125,7 +126,7 @@ function createMockOpenCodeRuntime(options?: {
       },
       abort: async (input: { sessionID: string }) => {
         abortCalls.push(input);
-        return { data: null };
+        return options?.abort ? options.abort(input) : { data: null };
       },
       messages: options?.messages ?? (async () => ({ data: [] })),
       status: options?.status ?? (async () => ({ data: {} })),
@@ -1900,7 +1901,50 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
   });
 
   it("clears adapter session state when interrupting an active OpenCode turn", async () => {
-    const runtime = createMockOpenCodeRuntime();
+    const eventQueue = createSubscribedEventQueue();
+    let markAbortStarted!: () => void;
+    const abortStarted = new Promise<void>((resolve) => {
+      markAbortStarted = resolve;
+    });
+    let releaseAbort!: () => void;
+    const abortRelease = new Promise<void>((resolve) => {
+      releaseAbort = resolve;
+    });
+    let abortRpcResolved = false;
+    let postAbortStatusPolls = 0;
+    const runtime = createMockOpenCodeRuntime({
+      events: eventQueue.stream,
+      abort: async () => {
+        // OpenCode can publish this expected abort echo before the abort RPC
+        // resolves. It must settle as interrupted, not as a provider failure.
+        eventQueue.push({
+          type: "session.error",
+          properties: {
+            sessionID: "opencode-session-1",
+            error: { name: "AbortError", message: "Aborted" },
+          },
+        });
+        markAbortStarted();
+        await abortRelease;
+        abortRpcResolved = true;
+        return { data: null };
+      },
+      status: async () => {
+        if (!abortRpcResolved) {
+          return {
+            data: { "opencode-session-1": { type: "busy" as const } },
+          };
+        }
+        postAbortStatusPolls += 1;
+        return {
+          data: {
+            "opencode-session-1": {
+              type: postAbortStatusPolls < 3 ? ("busy" as const) : ("idle" as const),
+            },
+          },
+        };
+      },
+    });
 
     const result = await Effect.runPromise(
       Effect.gen(function* () {
@@ -1931,12 +1975,24 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
 
         const [runningSession] = yield* adapter.listSessions();
 
-        yield* adapter.interruptTurn(asThreadId("thread-1"));
+        const interruptFiber = yield* adapter
+          .interruptTurn(asThreadId("thread-1"))
+          .pipe(Effect.forkChild);
+        yield* Effect.promise(() => abortStarted);
+        yield* Effect.sleep(20);
+
+        // The SDK's early abort echo must not make a replacement turn eligible
+        // while the abort RPC is still in flight.
+        const [interruptingSession] = yield* adapter.listSessions();
+
+        releaseAbort();
+        yield* Fiber.join(interruptFiber);
 
         const [readySession] = yield* adapter.listSessions();
         const events = Array.from(yield* Fiber.join(eventsFiber));
+        eventQueue.close();
 
-        return { events, readySession, runningSession };
+        return { events, interruptingSession, readySession, runningSession };
       }).pipe(
         Effect.provide(
           makeOpenCodeAdapterLive({ runtime: runtime.runtime }).pipe(
@@ -1966,8 +2022,14 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
     });
     expect(runtime.abortCalls.length).toBeGreaterThanOrEqual(1);
     expect(runtime.abortCalls[0]).toEqual({ sessionID: "opencode-session-1" });
+    expect(postAbortStatusPolls).toBeGreaterThanOrEqual(3);
     expect(result.runningSession?.status).toBe("running");
     expect(result.runningSession?.activeTurnId).toBeDefined();
+    expect(result.interruptingSession).toMatchObject({
+      provider: "opencode",
+      status: "running",
+      activeTurnId: result.runningSession?.activeTurnId,
+    });
     expect(result.readySession).toMatchObject({
       provider: "opencode",
       status: "ready",
@@ -2032,7 +2094,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
           properties: {
             sessionID: "opencode-session-1",
             partID: "part-1",
-            delta: "Hello",
+            delta: "STE",
           },
         });
         eventQueue.push({
@@ -2061,6 +2123,14 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
           },
         });
         eventQueue.push({
+          type: "message.part.delta",
+          properties: {
+            sessionID: "opencode-session-1",
+            partID: "part-1",
+            delta: "ERING",
+          },
+        });
+        eventQueue.push({
           type: "message.part.updated",
           properties: {
             sessionID: "opencode-session-1",
@@ -2068,7 +2138,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
               id: "part-1",
               messageID: "assistant-message-1",
               type: "text",
-              text: "Hello",
+              text: "STEERING",
               time: {
                 start: 1,
                 end: 2,
@@ -2110,21 +2180,28 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
       "thread.started",
       "turn.started",
       "content.delta",
+      "content.delta",
       "item.completed",
-      "turn.completed",
     ]);
     expect(result.events[3]).toMatchObject({
       type: "content.delta",
       payload: {
         streamKind: "assistant_text",
-        delta: "Hello",
+        delta: "STE",
       },
     });
     expect(result.events[4]).toMatchObject({
+      type: "content.delta",
+      payload: {
+        streamKind: "assistant_text",
+        delta: "ERING",
+      },
+    });
+    expect(result.events[5]).toMatchObject({
       type: "item.completed",
       payload: {
         itemType: "assistant_message",
-        detail: "Hello",
+        detail: "STEERING",
       },
     });
   });
@@ -3868,7 +3945,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
                 input: {
                   pattern: "changelog",
                 },
-                output: "Found 18 matches",
+                output: "Found 18 matches\n",
                 time: {
                   start: 2,
                   end: 3,

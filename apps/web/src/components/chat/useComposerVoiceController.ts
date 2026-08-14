@@ -4,7 +4,7 @@
 // Depends on: VoiceSessionCoordinator and ChatView voice helper logic.
 
 import { type ProviderConnectionId, type ThreadId } from "@penkra/contracts";
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 
 import type { Project } from "../../types";
 import { formatVoiceRecordingDuration } from "../../lib/voiceRecorder";
@@ -13,7 +13,6 @@ import type { RefreshProviderStatusesNow } from "../../hooks/useProviderStatusRe
 import {
   useVoiceSessionCoordinatorActions,
   useVoiceSessionCoordinatorStore,
-  VoiceSessionTranscriptionError,
 } from "../../voiceSessionCoordinator";
 import { toastManager } from "../ui/toast";
 import {
@@ -115,27 +114,37 @@ export function useComposerVoiceController(
     ...failureCopyOverrides,
   };
   const voiceRecordingDurationLabel = formatVoiceRecordingDuration(voiceRecordingDurationMs);
-  const transcriptionBackend = resolveVoiceTranscriptionBackend({
-    appleSpeechLocale: nativeCapabilitiesReady ? appleSpeechLocale : null,
-    codexConnectionId: connectionId,
-  });
+  const transcriptionBackend = useMemo(
+    () =>
+      resolveVoiceTranscriptionBackend({
+        appleSpeechLocale: nativeCapabilitiesReady ? appleSpeechLocale : null,
+        codexConnectionId: connectionId,
+      }),
+    [appleSpeechLocale, connectionId, nativeCapabilitiesReady],
+  );
   const canStartVoiceNotes = transcriptionBackend !== null;
   const showVoiceNotesControl =
     transcriptionBackend !== null || isVoiceRecording || isVoiceTranscribing;
 
   useEffect(() => {
     return registerTranscriptConsumer({
+      resolveTranscriptionBackend: () => transcriptionBackend,
       onTranscriptReady,
       onRecoveredTranscriptionFailure: (error) => {
         const description = sanitizeVoiceErrorMessage(error.message);
         toastManager.add({
           type: "error",
           title: failureCopy.transcriptionFailedTitle,
-          description: `${description} Your voice note is saved and will be retried next time Penkra opens.`,
+          description,
         });
       },
     });
-  }, [failureCopy.transcriptionFailedTitle, onTranscriptReady, registerTranscriptConsumer]);
+  }, [
+    failureCopy.transcriptionFailedTitle,
+    onTranscriptReady,
+    registerTranscriptConsumer,
+    transcriptionBackend,
+  ]);
 
   const isVoiceActionArmed = () => {
     const recordingStartedAtMs =
@@ -178,7 +187,6 @@ export function useComposerVoiceController(
       const origin = {
         threadId,
         providerThreadId: activeThreadId,
-        transcriptionBackend,
         cwd: activeProject.cwd,
       };
       const result = await startRecording(origin);
@@ -232,11 +240,7 @@ export function useComposerVoiceController(
         toastManager.add({
           type: "error",
           title: authExpired ? failureCopy.authExpiredTitle : failureCopy.transcriptionFailedTitle,
-          description: `${authExpired ? failureCopy.authExpiredDescription : description}${
-            error instanceof VoiceSessionTranscriptionError && error.jobSaved
-              ? " Your voice note is saved and will be retried next time Penkra opens."
-              : ""
-          }`,
+          description: authExpired ? failureCopy.authExpiredDescription : description,
         });
       })
       .then(() => undefined);

@@ -33,7 +33,6 @@ import {
   shouldEnableComposerPastedTextCollapse,
   shouldHandlePromptHistoryNavigationKey,
   shouldRenderProviderHealthBanner,
-  shouldShowComposerModelBootstrapSkeleton,
   shouldStartActiveTurnLayoutGrace,
   shouldRenderTerminalWorkspace,
 } from "./ChatView.logic";
@@ -958,130 +957,6 @@ describe("resolveActiveTurnLiveDiffState", () => {
   });
 });
 
-describe("shouldShowComposerModelBootstrapSkeleton", () => {
-  it("shows a skeleton while a provider requires runtime-discovered models", () => {
-    expect(
-      shouldShowComposerModelBootstrapSkeleton({
-        selectedProvider: "cursor",
-        selectedModel: "auto",
-        persistedModelSelection: null,
-        draftModelSelection: null,
-        providerModelsLoading: true,
-        requiresDiscoveredModels: true,
-      }),
-    ).toBe(true);
-  });
-
-  it("hides the skeleton for a provider requiring discovered models after loading completes", () => {
-    expect(
-      shouldShowComposerModelBootstrapSkeleton({
-        selectedProvider: "cursor",
-        selectedModel: "auto",
-        persistedModelSelection: null,
-        draftModelSelection: null,
-        providerModelsLoading: false,
-        requiresDiscoveredModels: true,
-      }),
-    ).toBe(false);
-  });
-
-  it("shows a skeleton while provider discovery is still resolving a persisted thread model", () => {
-    expect(
-      shouldShowComposerModelBootstrapSkeleton({
-        selectedProvider: "opencode",
-        selectedModel: "openai/gpt-5-codex",
-        persistedModelSelection: {
-          provider: "opencode",
-          model: "openai/gpt-5.4",
-        },
-        draftModelSelection: null,
-        providerModelsLoading: true,
-      }),
-    ).toBe(true);
-  });
-
-  it("hides the skeleton once the persisted thread model is already selected", () => {
-    expect(
-      shouldShowComposerModelBootstrapSkeleton({
-        selectedProvider: "opencode",
-        selectedModel: "openai/gpt-5.4",
-        persistedModelSelection: {
-          provider: "opencode",
-          model: "openai/gpt-5.4",
-        },
-        draftModelSelection: null,
-        providerModelsLoading: true,
-      }),
-    ).toBe(false);
-  });
-
-  // #103: Cursor CLI missing must not leave the whole model control in a permanent loading state.
-  it("does not keep the Cursor bootstrap skeleton after discovery is no longer loading", () => {
-    expect(
-      shouldShowComposerModelBootstrapSkeleton({
-        selectedProvider: "cursor",
-        selectedModel: "auto",
-        persistedModelSelection: {
-          provider: "cursor",
-          model: "auto",
-        },
-        draftModelSelection: null,
-        providerModelsLoading: false,
-        requiresDiscoveredModels: true,
-      }),
-    ).toBe(false);
-  });
-
-  it("prefers an explicit draft selection over persisted thread state", () => {
-    expect(
-      shouldShowComposerModelBootstrapSkeleton({
-        selectedProvider: "opencode",
-        selectedModel: "opencode/minimax-m2.5-free",
-        persistedModelSelection: {
-          provider: "opencode",
-          model: "openai/gpt-5.4",
-        },
-        draftModelSelection: {
-          provider: "opencode",
-          model: "opencode/minimax-m2.5-free",
-        },
-        providerModelsLoading: true,
-      }),
-    ).toBe(false);
-  });
-
-  it("shows a skeleton while a replacement provider is still loading", () => {
-    expect(
-      shouldShowComposerModelBootstrapSkeleton({
-        selectedProvider: "codex",
-        selectedModel: "gpt-5.4",
-        persistedModelSelection: {
-          provider: "opencode",
-          model: "openai/gpt-5.4",
-        },
-        draftModelSelection: null,
-        providerModelsLoading: true,
-      }),
-    ).toBe(true);
-  });
-
-  it("reveals a replacement provider after its catalog has loaded", () => {
-    expect(
-      shouldShowComposerModelBootstrapSkeleton({
-        selectedProvider: "opencode",
-        selectedModel: "opencode/deepseek-v4-flash-free",
-        persistedModelSelection: {
-          provider: "codex",
-          model: "gpt-5.4",
-        },
-        draftModelSelection: null,
-        providerModelsLoading: false,
-        requiresDiscoveredModels: true,
-      }),
-    ).toBe(false);
-  });
-});
-
 describe("resolveCommittedProviderModel", () => {
   it("preserves the exact runtime-discovered slug when the picker selected it", () => {
     expect(
@@ -1426,7 +1301,6 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
         localDispatch,
         phase: "ready",
         latestTurn: null,
-        messages: [],
         session: {
           provider: "codex",
           status: "ready",
@@ -1454,7 +1328,6 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
           completedAt: null,
           assistantMessageId: null,
         },
-        messages: [],
         session: {
           provider: "codex",
           status: "ready",
@@ -1475,7 +1348,6 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
         localDispatch: firstTurnLocalDispatch,
         phase: "ready",
         latestTurn: null,
-        messages: [],
         session: {
           provider: "claudeAgent",
           status: "ready",
@@ -1490,21 +1362,12 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
     ).toBe(false);
   });
 
-  it("acknowledges a send as soon as its user message is durable", () => {
+  it("keeps the optimistic send active in the ready-state gap before turn start", () => {
     expect(
       hasServerAcknowledgedLocalDispatch({
         localDispatch: firstTurnLocalDispatch,
         phase: "ready",
         latestTurn: null,
-        messages: [
-          {
-            id: "message-first-send" as never,
-            role: "user",
-            text: "Continue",
-            createdAt: "2026-04-13T00:00:01.000Z",
-            streaming: false,
-          },
-        ],
         session: {
           provider: "codex",
           status: "ready",
@@ -1516,7 +1379,27 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
         hasPendingUserInput: false,
         threadError: null,
       }),
-    ).toBe(true);
+    ).toBe(false);
+  });
+
+  it("stays optimistic while the authoritative session is only starting", () => {
+    expect(
+      hasServerAcknowledgedLocalDispatch({
+        localDispatch,
+        phase: "connecting",
+        latestTurn: null,
+        session: {
+          provider: "codex",
+          status: "connecting",
+          orchestrationStatus: "starting",
+          createdAt: "2026-04-13T00:00:00.000Z",
+          updatedAt: "2026-04-13T00:00:01.000Z",
+        },
+        hasPendingApproval: false,
+        hasPendingUserInput: false,
+        threadError: null,
+      }),
+    ).toBe(false);
   });
 
   it("still acknowledges non-ready session transitions without a latest turn snapshot", () => {
@@ -1525,7 +1408,6 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
         localDispatch: firstTurnLocalDispatch,
         phase: "disconnected",
         latestTurn: null,
-        messages: [],
         session: null,
         hasPendingApproval: false,
         hasPendingUserInput: false,

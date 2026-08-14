@@ -72,11 +72,11 @@ function CoordinatorProbe() {
 const ORIGIN = {
   threadId: ThreadId.makeUnsafe("thread-a"),
   providerThreadId: ThreadId.makeUnsafe("provider-thread-a"),
-  transcriptionBackend: {
-    kind: "codex-chatgpt" as const,
-    connectionId: ProviderConnectionId.makeUnsafe("connection-codex"),
-  },
   cwd: "/workspace/project",
+};
+const TRANSCRIPTION_BACKEND = {
+  kind: "codex-chatgpt" as const,
+  connectionId: ProviderConnectionId.makeUnsafe("connection-codex"),
 };
 const RECORDING = {
   chunks: [
@@ -111,7 +111,12 @@ describe("VoiceSessionCoordinatorProvider", () => {
         <CoordinatorProbe />
       </VoiceSessionCoordinatorProvider>,
     );
+    const unregisterInitialConsumer = actions.registerTranscriptConsumer({
+      resolveTranscriptionBackend: () => TRANSCRIPTION_BACKEND,
+      onTranscriptReady: vi.fn(),
+    });
     await actions.startRecording(ORIGIN);
+    unregisterInitialConsumer();
 
     const submission = actions.submitRecording();
     await vi.waitFor(() =>
@@ -125,7 +130,10 @@ describe("VoiceSessionCoordinatorProvider", () => {
     expect(useVoiceSessionCoordinatorStore.getState().capture?.origin).toEqual(secondOrigin);
 
     const onTranscriptReady = vi.fn().mockResolvedValue(undefined);
-    actions.registerTranscriptConsumer({ onTranscriptReady });
+    actions.registerTranscriptConsumer({
+      resolveTranscriptionBackend: () => TRANSCRIPTION_BACKEND,
+      onTranscriptReady,
+    });
     await submission;
 
     expect(onTranscriptReady).toHaveBeenCalledWith(
@@ -172,7 +180,10 @@ describe("VoiceSessionCoordinatorProvider", () => {
         <CoordinatorProbe />
       </VoiceSessionCoordinatorProvider>,
     );
-    actions.registerTranscriptConsumer({ onTranscriptReady: vi.fn() });
+    actions.registerTranscriptConsumer({
+      resolveTranscriptionBackend: () => TRANSCRIPTION_BACKEND,
+      onTranscriptReady: vi.fn(),
+    });
     await actions.startRecording(ORIGIN);
 
     const idleSnapshots: string[] = [];
@@ -199,5 +210,69 @@ describe("VoiceSessionCoordinatorProvider", () => {
     finishTranscription({ text: "Owned transcript" });
     await submission;
     unsubscribe();
+  });
+
+  it("silently deletes a recovered recording when no speech is detected", async () => {
+    jobs.list.mockResolvedValueOnce([
+      {
+        id: "silent-job",
+        threadId: ORIGIN.threadId,
+        providerThreadId: ORIGIN.providerThreadId,
+        cwd: ORIGIN.cwd,
+        recording: RECORDING,
+        createdAt: "2026-08-13T00:00:00.000Z",
+        updatedAt: "2026-08-13T00:00:00.000Z",
+      },
+    ]);
+    nativeApi.transcribeVoice.mockResolvedValueOnce({ text: "" });
+    await render(
+      <VoiceSessionCoordinatorProvider>
+        <CoordinatorProbe />
+      </VoiceSessionCoordinatorProvider>,
+    );
+    const onTranscriptReady = vi.fn();
+    const onRecoveredTranscriptionFailure = vi.fn();
+
+    actions.registerTranscriptConsumer({
+      resolveTranscriptionBackend: () => TRANSCRIPTION_BACKEND,
+      onTranscriptReady,
+      onRecoveredTranscriptionFailure,
+    });
+
+    await vi.waitFor(() => expect(jobs.delete).toHaveBeenCalledWith("silent-job"));
+    expect(onTranscriptReady).not.toHaveBeenCalled();
+    expect(onRecoveredTranscriptionFailure).not.toHaveBeenCalled();
+  });
+
+  it("deletes a recovered recording after a terminal transcription failure", async () => {
+    jobs.list.mockResolvedValueOnce([
+      {
+        id: "failed-job",
+        threadId: ORIGIN.threadId,
+        providerThreadId: ORIGIN.providerThreadId,
+        cwd: ORIGIN.cwd,
+        recording: RECORDING,
+        createdAt: "2026-08-13T00:00:00.000Z",
+        updatedAt: "2026-08-13T00:00:00.000Z",
+      },
+    ]);
+    nativeApi.transcribeVoice.mockRejectedValueOnce(new Error("transcription unavailable"));
+    await render(
+      <VoiceSessionCoordinatorProvider>
+        <CoordinatorProbe />
+      </VoiceSessionCoordinatorProvider>,
+    );
+    const onRecoveredTranscriptionFailure = vi.fn();
+
+    actions.registerTranscriptConsumer({
+      resolveTranscriptionBackend: () => TRANSCRIPTION_BACKEND,
+      onTranscriptReady: vi.fn(),
+      onRecoveredTranscriptionFailure,
+    });
+
+    await vi.waitFor(() => expect(jobs.delete).toHaveBeenCalledWith("failed-job"));
+    expect(onRecoveredTranscriptionFailure).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "transcription unavailable" }),
+    );
   });
 });

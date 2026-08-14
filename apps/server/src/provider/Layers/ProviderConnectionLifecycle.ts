@@ -159,7 +159,37 @@ export function makeProviderConnectionLifecycle(
           if (!matchesCreate(record, operation)) {
             return yield* fail("Connection identity collides with a different durable record.");
           }
-          connection = toPublicConnection(record);
+          if (record.lifecycle === "terminated" && operation.payload.providerIdentityId !== null) {
+            connection = yield* connections
+              .reactivateIdentity({
+                id: record.id,
+                harness: record.harness,
+                authenticationTargetId: record.authenticationTargetId,
+                authenticationMethodId: record.authenticationMethodId,
+                label: operation.payload.label,
+                credentialRef: operation.credentialRef,
+                profileRef: null,
+                providerIdentityId: operation.payload.providerIdentityId,
+                updatedAt: now(),
+              })
+              .pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new ProviderConnectionLifecycleError({
+                      detail: "Could not reactivate the existing Connection.",
+                      cause,
+                    }),
+                ),
+                Effect.flatMap(
+                  Option.match({
+                    onNone: () => fail("The existing Connection could not be reactivated."),
+                    onSome: Effect.succeed,
+                  }),
+                ),
+              );
+          } else {
+            connection = toPublicConnection(record);
+          }
         } else {
           connection = yield* connections
             .create({
@@ -383,7 +413,37 @@ export function makeProviderConnectionLifecycle(
               cause,
             }),
         });
-        const connectionId = ProviderConnectionId.makeUnsafe(newId());
+        const providerIdentityId = `api-key:hmac-sha256:${yield* credentials
+          .fingerprint(createInput.secret)
+          .pipe(
+            Effect.mapError(
+              (cause) =>
+                new ProviderConnectionLifecycleError({
+                  detail: "Could not identify the provider credential.",
+                  cause,
+                }),
+            ),
+          )}`;
+        const canonical = (yield* connections.list({ includeTerminated: true }).pipe(
+          Effect.mapError(
+            (cause) =>
+              new ProviderConnectionLifecycleError({
+                detail: "Could not inspect existing Connections.",
+                cause,
+              }),
+          ),
+        ))
+          .filter(
+            (connection) =>
+              connection.harness === createInput.harness &&
+              connection.authenticationTargetId === createInput.authenticationTargetId &&
+              connection.providerIdentityId === providerIdentityId,
+          )
+          .sort(
+            (left, right) =>
+              left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
+          )[0];
+        const connectionId = canonical?.id ?? ProviderConnectionId.makeUnsafe(newId());
         const operationId = newId();
         const credentialRef = `provider-secret:${connectionId}`;
         const createdAt = now();
@@ -407,7 +467,7 @@ export function makeProviderConnectionLifecycle(
           authenticationTargetId: createInput.authenticationTargetId,
           authenticationMethodId: createInput.authenticationMethodId,
           label,
-          providerIdentityId: null,
+          providerIdentityId,
           createdAt,
         };
         yield* operations

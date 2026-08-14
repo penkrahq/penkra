@@ -1041,6 +1041,40 @@ describe("ProviderRuntimeIngestion", () => {
     expect(thread.session?.lastError).toBe("turn failed");
   });
 
+  it("preserves an interrupted session when a provider completes an interrupted turn", async () => {
+    const harness = await createHarness();
+    const turnId = asTurnId("turn-interrupted-on-shutdown");
+
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-turn-started-before-shutdown"),
+      provider: "claudeAgent",
+      threadId: asThreadId("thread-1"),
+      createdAt: new Date().toISOString(),
+      turnId,
+    });
+    await waitForThread(
+      harness.engine,
+      (thread) => thread.session?.status === "running" && thread.session?.activeTurnId === turnId,
+    );
+
+    harness.emit({
+      type: "turn.completed",
+      eventId: asEventId("evt-turn-completed-interrupted-on-shutdown"),
+      provider: "claudeAgent",
+      threadId: asThreadId("thread-1"),
+      createdAt: new Date().toISOString(),
+      turnId,
+      payload: { state: "interrupted" },
+    });
+
+    const thread = await waitForThread(
+      harness.engine,
+      (entry) => entry.session?.status === "interrupted" && entry.session?.activeTurnId === null,
+    );
+    expect(thread.session?.status).toBe("interrupted");
+  });
+
   it("applies provider session.state.changed transitions directly", async () => {
     const harness = await createHarness();
     const waitingAt = new Date().toISOString();

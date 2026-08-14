@@ -4,6 +4,7 @@ import {
   OrchestrationMessage,
   OrchestrationSession,
   OrchestrationThread,
+  ThreadMessageDeliverySetPayload,
 } from "@penkra/contracts";
 import {
   addPinnedMessage,
@@ -927,11 +928,27 @@ export function projectEvent(
             requestedRuntimeMode: payload.runtimeMode,
             requestedAt: payload.createdAt,
           });
+          const messages = thread.messages.map((message) =>
+            message.id === payload.messageId && message.delivery !== undefined
+              ? {
+                  ...message,
+                  delivery: {
+                    ...message.delivery,
+                    state:
+                      payload.dispatchMode === "steer"
+                        ? ("steering" as const)
+                        : ("starting" as const),
+                    sequence: event.sequence,
+                  },
+                }
+              : message,
+          );
           return {
             ...nextBase,
             threads: updateThread(nextBase.threads, payload.threadId, {
               ...modelSelectionPatch,
               ...(turnStartSession !== null ? { session: turnStartSession } : {}),
+              messages,
               pendingTurnStartMessageId: payload.messageId,
               runtimeMode: payload.runtimeMode,
               updatedAt: payload.createdAt,
@@ -939,6 +956,25 @@ export function projectEvent(
           };
         }),
       );
+
+    case "thread.turn-steer-queued-requested": {
+      const thread = nextBase.threads.find((entry) => entry.id === event.payload.threadId);
+      if (!thread) return Effect.succeed(nextBase);
+      return Effect.succeed({
+        ...nextBase,
+        threads: updateThread(nextBase.threads, event.payload.threadId, {
+          messages: thread.messages.map((message) =>
+            message.id === event.payload.messageId && message.delivery !== undefined
+              ? {
+                  ...message,
+                  delivery: { ...message.delivery, state: "steering", sequence: event.sequence },
+                }
+              : message,
+          ),
+          updatedAt: event.payload.createdAt,
+        }),
+      });
+    }
 
     case "thread.message-sent":
       return Effect.gen(function* () {
@@ -962,6 +998,13 @@ export function projectEvent(
             ...(payload.attachments !== undefined ? { attachments: payload.attachments } : {}),
             ...(payload.skills !== undefined ? { skills: payload.skills } : {}),
             ...(payload.mentions !== undefined ? { mentions: payload.mentions } : {}),
+            ...(payload.dispatchMode !== undefined ? { dispatchMode: payload.dispatchMode } : {}),
+            ...(payload.dispatchOrigin !== undefined
+              ? { dispatchOrigin: payload.dispatchOrigin }
+              : {}),
+            ...(payload.delivery !== undefined
+              ? { delivery: { ...payload.delivery, sequence: event.sequence } }
+              : {}),
             turnId: payload.turnId,
             streaming: payload.streaming,
             source: payload.source,
@@ -997,6 +1040,14 @@ export function projectEvent(
             ...(message.attachments !== undefined ? { attachments: message.attachments } : {}),
             ...(message.skills !== undefined ? { skills: message.skills } : {}),
             ...(message.mentions !== undefined ? { mentions: message.mentions } : {}),
+            ...(message.dispatchMode !== undefined ? { dispatchMode: message.dispatchMode } : {}),
+            ...(message.dispatchOrigin !== undefined
+              ? { dispatchOrigin: message.dispatchOrigin }
+              : {}),
+            ...(message.delivery !== undefined &&
+            (entry.delivery === undefined || message.delivery.sequence >= entry.delivery.sequence)
+              ? { delivery: message.delivery }
+              : {}),
           };
           cappedMessages = nextMessages;
         } else {
@@ -1017,6 +1068,39 @@ export function projectEvent(
           }),
         };
       });
+
+    case "thread.message-delivery-set":
+      return decodeForEvent(
+        ThreadMessageDeliverySetPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => {
+          const thread = nextBase.threads.find((entry) => entry.id === payload.threadId);
+          if (!thread) return nextBase;
+          const messages = thread.messages.map((message) =>
+            message.id === payload.messageId && message.delivery !== undefined
+              ? {
+                  ...message,
+                  delivery: {
+                    ...message.delivery,
+                    state: payload.state,
+                    sequence: event.sequence,
+                  },
+                  updatedAt: payload.updatedAt,
+                }
+              : message,
+          );
+          return {
+            ...nextBase,
+            threads: updateThread(nextBase.threads, payload.threadId, {
+              messages,
+              updatedAt: payload.updatedAt,
+            }),
+          };
+        }),
+      );
 
     case "thread.session-set":
       return Effect.gen(function* () {

@@ -145,9 +145,39 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes dbus-x11 gnome-keyring libsecret-tools xvfb
 
+      - name: Require production registry trust anchors
+        env:
+          PENKRA_REGISTRY_TRUSTED_KEYS: ${{ vars.PENKRA_REGISTRY_TRUSTED_KEYS }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          const raw = process.env.PENKRA_REGISTRY_TRUSTED_KEYS?.trim();
+          if (!raw) throw new Error("Missing desktop-release variable: PENKRA_REGISTRY_TRUSTED_KEYS");
+          const keys = JSON.parse(raw);
+          if (!Array.isArray(keys) || keys.length === 0) {
+            throw new Error("PENKRA_REGISTRY_TRUSTED_KEYS must contain at least one key");
+          }
+          for (const key of keys) {
+            if (
+              key?.kty !== "OKP" ||
+              key?.crv !== "Ed25519" ||
+              key?.alg !== "EdDSA" ||
+              key?.use !== "sig" ||
+              typeof key?.x !== "string" ||
+              key.x.length === 0 ||
+              typeof key?.kid !== "string" ||
+              key.kid.length === 0
+            ) {
+              throw new Error("PENKRA_REGISTRY_TRUSTED_KEYS contains an invalid key");
+            }
+          }
+          NODE
+
       - name: Build desktop pipeline
         env:
           NODE_OPTIONS: --max-old-space-size=4096
+          PENKRA_REGISTRY_TRUSTED_KEYS: ${{ vars.PENKRA_REGISTRY_TRUSTED_KEYS }}
         run: bun run build:desktop
 
       - name: Reconcile Windows generated build artifacts

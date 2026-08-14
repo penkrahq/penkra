@@ -67,6 +67,36 @@ export const ProviderGetComposerCapabilitiesInput = Schema.Struct({
 });
 export type ProviderGetComposerCapabilitiesInput = typeof ProviderGetComposerCapabilitiesInput.Type;
 
+export const ProviderCapabilityRouteHealth = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  state: Schema.Literals(["ready", "starting", "failed", "missing"]),
+  serverName: Schema.NullOr(TrimmedNonEmptyString),
+  toolCount: Schema.Number,
+  error: Schema.NullOr(TrimmedNonEmptyString),
+});
+export type ProviderCapabilityRouteHealth = typeof ProviderCapabilityRouteHealth.Type;
+
+export const ProviderCapabilityHealth = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  state: Schema.Literals(["available", "degraded", "unavailable"]),
+  preferredRoute: Schema.NullOr(TrimmedNonEmptyString),
+  routes: Schema.Array(ProviderCapabilityRouteHealth),
+  checkedAt: TrimmedNonEmptyString,
+});
+export type ProviderCapabilityHealth = typeof ProviderCapabilityHealth.Type;
+
+export const ProviderGetCapabilityHealthInput = Schema.Struct({
+  provider: ProviderDiscoveryKind,
+  threadId: TrimmedNonEmptyString,
+});
+export type ProviderGetCapabilityHealthInput = typeof ProviderGetCapabilityHealthInput.Type;
+
+export const ProviderGetCapabilityHealthResult = Schema.Struct({
+  capabilities: Schema.Array(ProviderCapabilityHealth),
+  source: TrimmedNonEmptyString,
+});
+export type ProviderGetCapabilityHealthResult = typeof ProviderGetCapabilityHealthResult.Type;
+
 export const ProviderListSkillsInput = Schema.Struct({
   provider: ProviderDiscoveryKind,
   cwd: TrimmedNonEmptyString,

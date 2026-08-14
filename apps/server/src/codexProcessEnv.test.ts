@@ -1,14 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readlink, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
 import {
-  disableRawComputerUsePluginServer,
+  enableOfficialComputerUseRoutes,
   linkOrCopyCodexOverlayEntry,
   prioritizeCodexOverlayEntries,
   prepareManagedCodexProfileConfig,
   removeReservedPenkraMcpServer,
+  removeDisabledLegacyComputerUseServer,
 } from "./codexProcessEnv";
 
 describe("linkOrCopyCodexOverlayEntry", () => {
@@ -69,6 +70,55 @@ describe("prioritizeCodexOverlayEntries", () => {
 });
 
 describe("Codex provider configuration", () => {
+  it("enables both official Computer Use routes", () => {
+    expect(
+      enableOfficialComputerUseRoutes(
+        [
+          '[plugins."computer-use@openai-bundled"]',
+          "enabled = false",
+          "[mcp_servers.node_repl]",
+          'command = "node_repl"',
+          "enabled = false",
+        ].join("\n"),
+      ),
+    ).toContain(
+      [
+        '[plugins."computer-use@openai-bundled"]',
+        "enabled = true",
+        "[mcp_servers.node_repl]",
+        'command = "node_repl"',
+        "enabled = true",
+      ].join("\n"),
+    );
+  });
+
+  it("does not invent a node_repl executable when none is configured", () => {
+    const config = enableOfficialComputerUseRoutes('model = "gpt-5"');
+    expect(config).not.toContain("[mcp_servers.node_repl]");
+    expect(config).toContain('[plugins."computer-use@openai-bundled"]\nenabled = true');
+    expect(config).toContain(
+      '[plugins."computer-use@openai-bundled".mcp_servers."computer-use"]\nenabled = true',
+    );
+  });
+
+  it("removes only a disabled legacy Computer Use server that masks the plugin route", () => {
+    const config = [
+      "[mcp_servers.computer-use]",
+      'command = "legacy-client"',
+      "enabled = false",
+      "[mcp_servers.computer-use.env]",
+      'TOKEN = "legacy"',
+      "[mcp_servers.github]",
+      'command = "github-mcp"',
+    ].join("\n");
+    expect(removeDisabledLegacyComputerUseServer(config)).toBe(
+      ["[mcp_servers.github]", 'command = "github-mcp"'].join("\n"),
+    );
+    expect(
+      removeDisabledLegacyComputerUseServer(config.replace("enabled = false", "enabled = true")),
+    ).toContain("[mcp_servers.computer-use]");
+  });
+
   it("inherits user tools while replacing only the managed gateway", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "penkra-managed-codex-config-"));
     try {
@@ -90,6 +140,7 @@ describe("Codex provider configuration", () => {
       await prepareManagedCodexProfileConfig({
         env: { CODEX_HOME: codexHome },
         sourceHomePath,
+        cliAuthCredentialsStore: "keyring",
         appendConfigToml: [
           "[mcp_servers.penkra]",
           'url = "http://127.0.0.1:4321/mcp"',
@@ -98,6 +149,7 @@ describe("Codex provider configuration", () => {
       });
       const config = await readFile(path.join(codexHome, "config.toml"), "utf8");
       expect(config).toContain('[plugins."browser@openai-bundled"]');
+      expect(config).toContain('cli_auth_credentials_store = "keyring"');
       expect(config).toContain("[mcp_servers.pencil]");
       expect(config).toContain("[mcp_servers.penkra]");
       expect(config).toContain('url = "http://127.0.0.1:4321/mcp"');
@@ -150,33 +202,59 @@ describe("Codex provider configuration", () => {
     );
   });
 
-  it("forces the bundled raw Computer Use server off", () => {
-    const config = [
-      'model = "gpt-5"',
-      '[plugins."computer-use@openai-bundled".mcp_servers."computer-use"]',
-      "enabled = true",
-      'enabled_tools = ["get_app_state"]',
-    ].join("\n");
+  it("preserves user-enabled Computer Use plugin components", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "penkra-managed-computer-use-config-"));
+    try {
+      const codexHome = path.join(root, "connection", "codex-home");
+      const sourceHomePath = path.join(root, "global");
+      await mkdir(sourceHomePath, { recursive: true });
+      await writeFile(
+        path.join(sourceHomePath, "config.toml"),
+        [
+          '[plugins."computer-use@openai-bundled"]',
+          "enabled = true",
+          '[plugins."computer-use@openai-bundled".mcp_servers."computer-use"]',
+          "enabled = true",
+          "[mcp_servers.node_repl]",
+          'command = "node_repl"',
+        ].join("\n"),
+      );
 
-    expect(disableRawComputerUsePluginServer(config)).toBe(
-      [
-        'model = "gpt-5"',
-        '[plugins."computer-use@openai-bundled".mcp_servers."computer-use"]',
-        "enabled = false",
-        'enabled_tools = ["get_app_state"]',
-      ].join("\n"),
-    );
+      await prepareManagedCodexProfileConfig({
+        env: { CODEX_HOME: codexHome },
+        sourceHomePath,
+        cliAuthCredentialsStore: "keyring",
+      });
+
+      const config = await readFile(path.join(codexHome, "config.toml"), "utf8");
+      expect(config).toContain('[plugins."computer-use@openai-bundled"]');
+      expect(config).toContain(
+        '[plugins."computer-use@openai-bundled".mcp_servers."computer-use"]\nenabled = true',
+      );
+      expect(config).toContain("[mcp_servers.node_repl]");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
-  it("adds a raw Computer Use server denial when the source config omitted it", () => {
-    expect(disableRawComputerUsePluginServer('model = "gpt-5"')).toBe(
-      [
-        'model = "gpt-5"',
-        "",
-        '[plugins."computer-use@openai-bundled".mcp_servers."computer-use"]',
-        "enabled = false",
-        "",
-      ].join("\n"),
-    );
+  it("shares the official Computer Use service with an isolated managed profile", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "penkra-managed-computer-use-service-"));
+    try {
+      const codexHome = path.join(root, "connection", "codex-home");
+      const sourceHomePath = path.join(root, "global");
+      const sourceComputerUsePath = path.join(sourceHomePath, "computer-use");
+      await mkdir(sourceComputerUsePath, { recursive: true });
+      await writeFile(path.join(sourceHomePath, "config.toml"), 'model = "gpt-5"');
+
+      await prepareManagedCodexProfileConfig({
+        env: { CODEX_HOME: codexHome },
+        sourceHomePath,
+        cliAuthCredentialsStore: "keyring",
+      });
+
+      expect(await readlink(path.join(codexHome, "computer-use"))).toBe(sourceComputerUsePath);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });

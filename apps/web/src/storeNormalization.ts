@@ -479,12 +479,19 @@ export function normalizeChatMessage(
   const previousSkills = previous?.skills ?? [];
   const previousMentions = previous?.mentions ?? [];
   const completedAt = incoming.streaming ? undefined : incoming.updatedAt;
+  const delivery =
+    incoming.delivery === undefined
+      ? previous?.delivery
+      : previous?.delivery !== undefined && previous.delivery.sequence > incoming.delivery.sequence
+        ? previous.delivery
+        : incoming.delivery;
   if (
     previous &&
     previous.role === incoming.role &&
     previous.text === incoming.text &&
     previous.dispatchMode === incoming.dispatchMode &&
     previous.dispatchOrigin === incoming.dispatchOrigin &&
+    previous.delivery === delivery &&
     previous.turnId === incoming.turnId &&
     previous.createdAt === incoming.createdAt &&
     previous.streaming === incoming.streaming &&
@@ -503,6 +510,7 @@ export function normalizeChatMessage(
     text: incoming.text,
     ...(incoming.dispatchMode ? { dispatchMode: incoming.dispatchMode } : {}),
     ...(incoming.dispatchOrigin ? { dispatchOrigin: incoming.dispatchOrigin } : {}),
+    ...(delivery !== undefined ? { delivery } : {}),
     turnId: incoming.turnId,
     createdAt: incoming.createdAt,
     streaming: incoming.streaming,
@@ -1374,6 +1382,9 @@ export function normalizeThreadSession(
     updatedAt: incoming.updatedAt,
     ...(nextLastError ? { lastError: nextLastError } : {}),
   } satisfies NonNullable<Thread["session"]>;
+  if (previous && previous.updatedAt > nextSession.updatedAt) {
+    return previous;
+  }
   if (
     previous &&
     previous.provider === nextSession.provider &&
@@ -1418,18 +1429,99 @@ function normalizeLatestTurn(
   };
 }
 
+function latestTurnLifecycleUpdatedAt(turn: Thread["latestTurn"]): string | null {
+  if (!turn) {
+    return null;
+  }
+  return turn.completedAt ?? turn.startedAt ?? turn.requestedAt;
+}
+
+function lifecycleUpdatedAt(
+  session: Thread["session"],
+  latestTurn: Thread["latestTurn"],
+): string | null {
+  const sessionUpdatedAt = session?.updatedAt ?? null;
+  const turnUpdatedAt = latestTurnLifecycleUpdatedAt(latestTurn);
+  if (sessionUpdatedAt === null) return turnUpdatedAt;
+  if (turnUpdatedAt === null) return sessionUpdatedAt;
+  return sessionUpdatedAt > turnUpdatedAt ? sessionUpdatedAt : turnUpdatedAt;
+}
+
+function isActiveLifecycle(session: Thread["session"], latestTurn: Thread["latestTurn"]): boolean {
+  return (
+    session?.orchestrationStatus === "starting" ||
+    session?.orchestrationStatus === "running" ||
+    latestTurn?.state === "running"
+  );
+}
+
+/**
+ * Session and latest-turn state form one lifecycle record even though shell and detail transports
+ * carry them independently. Reconcile the pair atomically by its own server timestamps so a late
+ * payload cannot combine an old ready session with a newer running turn—or clear both until the
+ * other stream catches up.
+ */
+function normalizeThreadLifecycle(
+  incoming: Pick<ReadModelThread, "session" | "latestTurn">,
+  previous: Thread | undefined,
+): Pick<Thread, "session" | "latestTurn"> {
+  const incomingSession = normalizeThreadSession(incoming.session, null);
+  const incomingLatestTurn = normalizeLatestTurn(incoming.latestTurn, null);
+  const previousSession = previous?.session ?? null;
+  const previousLatestTurn = previous?.latestTurn ?? null;
+  const previousUpdatedAt = lifecycleUpdatedAt(previousSession, previousLatestTurn);
+  const incomingUpdatedAt = lifecycleUpdatedAt(incomingSession, incomingLatestTurn);
+  const wouldRegressActiveLifecycle =
+    isActiveLifecycle(previousSession, previousLatestTurn) &&
+    !isActiveLifecycle(incomingSession, incomingLatestTurn);
+  const wouldDropRunningTurnWithoutSettlement =
+    previousLatestTurn?.state === "running" &&
+    !isActiveLifecycle(incomingSession, incomingLatestTurn);
+  const explicitlySettlesCurrentTurn =
+    previousLatestTurn?.state === "running" &&
+    incomingLatestTurn?.turnId === previousLatestTurn.turnId &&
+    incomingLatestTurn.state !== "running" &&
+    incomingLatestTurn.completedAt !== null;
+  const providesNewerTerminalTurn =
+    incomingLatestTurn !== null &&
+    incomingLatestTurn.state !== "running" &&
+    incomingLatestTurn.completedAt !== null &&
+    previousUpdatedAt !== null &&
+    incomingUpdatedAt !== null &&
+    incomingUpdatedAt > previousUpdatedAt;
+  const explicitlySettlesLifecycle = explicitlySettlesCurrentTurn || providesNewerTerminalTurn;
+
+  if (
+    previous &&
+    ((incomingUpdatedAt === null && previousLatestTurn?.state === "running") ||
+      (previousUpdatedAt !== null &&
+        incomingUpdatedAt !== null &&
+        incomingUpdatedAt < previousUpdatedAt) ||
+      (wouldDropRunningTurnWithoutSettlement && !explicitlySettlesLifecycle) ||
+      (previousUpdatedAt === incomingUpdatedAt &&
+        wouldRegressActiveLifecycle &&
+        !explicitlySettlesLifecycle))
+  ) {
+    return { session: previousSession, latestTurn: previousLatestTurn };
+  }
+
+  return {
+    session: normalizeThreadSession(incoming.session, previousSession),
+    latestTurn: normalizeLatestTurn(incoming.latestTurn, previousLatestTurn),
+  };
+}
+
 export function normalizeThreadFromReadModel(
   incoming: ReadModelThread,
   previous: Thread | undefined,
 ): Thread {
   const modelSelection = normalizeModelSelection(incoming.modelSelection, previous?.modelSelection);
-  const session = normalizeThreadSession(incoming.session, previous?.session);
+  const { session, latestTurn } = normalizeThreadLifecycle(incoming, previous);
   const messages = normalizeChatMessages(incoming.messages, previous?.messages);
   const incomingQueuedMessageIds = incoming.queuedMessageIds ?? [];
   const queuedMessageIds = arraysShallowEqual(previous?.queuedMessageIds, incomingQueuedMessageIds)
     ? (previous?.queuedMessageIds ?? [])
     : [...incomingQueuedMessageIds];
-  const latestTurn = normalizeLatestTurn(incoming.latestTurn, previous?.latestTurn);
   const lastKnownPr =
     previous?.lastKnownPr &&
     incoming.lastKnownPr &&
@@ -1607,8 +1699,7 @@ export function normalizeThreadShellSnapshot(
   turnState: ThreadTurnState;
 } {
   const modelSelection = normalizeModelSelection(incoming.modelSelection, previous?.modelSelection);
-  const session = normalizeThreadSession(incoming.session, previous?.session);
-  const latestTurn = normalizeLatestTurn(incoming.latestTurn, previous?.latestTurn);
+  const { session, latestTurn } = normalizeThreadLifecycle(incoming, previous);
   const lastKnownPr =
     previous?.lastKnownPr &&
     incoming.lastKnownPr &&
@@ -1692,7 +1783,11 @@ export function normalizeThreadShellSnapshot(
   return {
     shell,
     session,
-    turnState: { latestTurn },
+    turnState: {
+      latestTurn,
+      pendingTurnStartMessageId: previous?.pendingTurnStartMessageId ?? null,
+      queuedMessageIds: previous?.queuedMessageIds ?? [],
+    },
   };
 }
 

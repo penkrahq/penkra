@@ -6,6 +6,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import type {
   Options as ClaudeQueryOptions,
   HookInput,
+  McpServerStatus,
   ModelInfo,
   PermissionMode,
   PermissionResult,
@@ -162,6 +163,12 @@ class FakeClaudeQuery implements AsyncIterable<SDKMessage> {
   readonly supportedAgents = async (): Promise<[]> => {
     return [];
   };
+
+  readonly mcpServerStatus = async (): Promise<McpServerStatus[]> => {
+    return [];
+  };
+
+  readonly toggleMcpServer = async (_serverName: string, _enabled: boolean): Promise<void> => {};
 
   readonly close = (): void => {
     this.closeCalls += 1;

@@ -81,6 +81,8 @@ import {
 import {
   ProviderGetComposerCapabilitiesInput,
   ProviderComposerCapabilities,
+  ProviderGetCapabilityHealthInput,
+  ProviderGetCapabilityHealthResult,
   ProviderListAgentsInput,
   ProviderListAgentsResult,
   ProviderListCommandsInput,
@@ -784,6 +786,12 @@ export const WsProviderGetComposerCapabilitiesRpc = Rpc.make(
   },
 );
 
+export const WsProviderGetCapabilityHealthRpc = Rpc.make(WS_METHODS.providerGetCapabilityHealth, {
+  payload: ProviderGetCapabilityHealthInput,
+  success: ProviderGetCapabilityHealthResult,
+  error: WsRpcError,
+});
+
 export const WsProviderCompactThreadRpc = Rpc.make(WS_METHODS.providerCompactThread, {
   payload: ProviderCompactThreadInput,
   success: Schema.Void,
@@ -965,6 +973,7 @@ export const WsFeatureRpcGroup = RpcGroup.make(
   WsSubscribeServerProviderStatusesRpc,
   WsSubscribeServerSettingsRpc,
   WsProviderGetComposerCapabilitiesRpc,
+  WsProviderGetCapabilityHealthRpc,
   WsProviderCompactThreadRpc,
   WsProviderListCommandsRpc,
   WsProviderListSkillsRpc,

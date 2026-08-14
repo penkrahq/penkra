@@ -1,4 +1,4 @@
-import { TurnId, type OrchestrationThreadActivity } from "@penkra/contracts";
+import { MessageId, TurnId, type OrchestrationThreadActivity } from "@penkra/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -6,6 +6,7 @@ import {
   deriveActiveTaskListState,
   deriveActiveWorkStartedAt,
   formatElapsed,
+  hasActivePendingTurnStart,
   hasLiveLatestTurn,
   hasLiveTurnTailWork,
   isLatestTurnSettled,
@@ -27,6 +28,57 @@ describe("formatElapsed", () => {
 
   it("carries rounded seconds into the next hour", () => {
     expect(formatElapsed(start, "2026-01-01T00:59:59.600Z")).toBe("1h");
+  });
+});
+
+describe("hasActivePendingTurnStart", () => {
+  const pendingMessageId = MessageId.makeUnsafe("message-pending");
+
+  it("keeps an ordered starting delivery active before the provider session starts", () => {
+    expect(
+      hasActivePendingTurnStart({
+        pendingMessageId,
+        messages: [
+          {
+            id: pendingMessageId,
+            delivery: { state: "starting", queued: false, sequence: 4 },
+          },
+        ],
+        session: { orchestrationStatus: "ready" },
+      }),
+    ).toBe(true);
+  });
+
+  it("does not let a stale pending identity resurrect a settled accepted delivery", () => {
+    expect(
+      hasActivePendingTurnStart({
+        pendingMessageId,
+        messages: [
+          {
+            id: pendingMessageId,
+            delivery: { state: "accepted", queued: true, sequence: 9 },
+          },
+        ],
+        session: { orchestrationStatus: "stopped" },
+      }),
+    ).toBe(false);
+  });
+
+  it("supports a legacy pending delivery only while its session is starting", () => {
+    expect(
+      hasActivePendingTurnStart({
+        pendingMessageId,
+        messages: [{ id: pendingMessageId }],
+        session: { orchestrationStatus: "starting" },
+      }),
+    ).toBe(true);
+    expect(
+      hasActivePendingTurnStart({
+        pendingMessageId,
+        messages: [{ id: pendingMessageId }],
+        session: { orchestrationStatus: "ready" },
+      }),
+    ).toBe(false);
   });
 });
 

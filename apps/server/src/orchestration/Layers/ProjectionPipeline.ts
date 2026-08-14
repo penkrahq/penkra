@@ -147,6 +147,9 @@ const PROJECT_EVENT_TYPES = new Set<OrchestrationEvent["type"]>([
 
 const THREAD_MESSAGE_PROJECTION_EVENT_TYPES = new Set<OrchestrationEvent["type"]>([
   "thread.message-sent",
+  "thread.message-delivery-set",
+  "thread.turn-steer-queued-requested",
+  "thread.turn-start-requested",
   "thread.turn-start-cancelled",
   "thread.reverted",
   "thread.conversation-rolled-back",
@@ -1002,6 +1005,13 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
             ...(event.payload.dispatchOrigin !== undefined
               ? { dispatchOrigin: event.payload.dispatchOrigin }
               : {}),
+            ...(event.payload.delivery !== undefined
+              ? {
+                  deliveryState: event.payload.delivery.state,
+                  deliveryQueued: event.payload.delivery.queued,
+                  deliverySequence: event.sequence,
+                }
+              : {}),
             isStreaming: event.payload.streaming,
             source: event.payload.source,
             sequence: Option.isSome(existingMessage)
@@ -1011,6 +1021,35 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
               (Option.isSome(existingMessage) ? existingMessage.value.createdAt : null) ??
               event.payload.createdAt,
             updatedAt: event.payload.updatedAt,
+          });
+          return;
+        }
+
+        case "thread.message-delivery-set":
+        case "thread.turn-steer-queued-requested":
+        case "thread.turn-start-requested": {
+          const existingMessage = yield* projectionThreadMessageRepository.getByThreadAndMessageId({
+            threadId: event.payload.threadId,
+            messageId: event.payload.messageId,
+          });
+          if (Option.isNone(existingMessage) || existingMessage.value.deliveryState === undefined) {
+            return;
+          }
+          const state =
+            event.type === "thread.message-delivery-set"
+              ? event.payload.state
+              : event.type === "thread.turn-steer-queued-requested" ||
+                  event.payload.dispatchMode === "steer"
+                ? "steering"
+                : "starting";
+          yield* projectionThreadMessageRepository.upsert({
+            ...existingMessage.value,
+            deliveryState: state,
+            deliverySequence: event.sequence,
+            updatedAt:
+              event.type === "thread.message-delivery-set"
+                ? event.payload.updatedAt
+                : event.payload.createdAt,
           });
           return;
         }
@@ -1177,15 +1216,71 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
         }
 
         case "thread.session-set":
-          yield* projectionThreadSessionRepository.upsert({
-            threadId: event.payload.threadId,
-            status: event.payload.session.status,
-            providerName: event.payload.session.providerName,
-            runtimeMode: event.payload.session.runtimeMode,
-            activeTurnId: event.payload.session.activeTurnId,
-            lastError: event.payload.session.lastError,
-            updatedAt: event.payload.session.updatedAt,
-          });
+          {
+            const previousSession = yield* projectionThreadSessionRepository.getByThreadId({
+              threadId: event.payload.threadId,
+            });
+            yield* projectionThreadSessionRepository.upsert({
+              threadId: event.payload.threadId,
+              status: event.payload.session.status,
+              providerName: event.payload.session.providerName,
+              runtimeMode: event.payload.session.runtimeMode,
+              activeTurnId: event.payload.session.activeTurnId,
+              lastError: event.payload.session.lastError,
+              updatedAt: event.payload.session.updatedAt,
+            });
+            if (
+              event.payload.session.status === "running" &&
+              event.payload.session.activeTurnId !== null
+            ) {
+              yield* sql`
+                INSERT INTO restart_turn_recoveries (
+                  thread_id, turn_id, requested_at, updated_at
+                ) VALUES (
+                  ${event.payload.threadId}, ${event.payload.session.activeTurnId},
+                  ${event.payload.session.updatedAt}, ${event.payload.session.updatedAt}
+                )
+                ON CONFLICT(thread_id) DO UPDATE SET
+                  turn_id = excluded.turn_id,
+                  requested_at = excluded.requested_at,
+                  updated_at = excluded.updated_at
+              `.pipe(
+                Effect.mapError(
+                  toPersistenceSqlError("ProjectionPipeline.upsertRestartTurnRecovery:query"),
+                ),
+              );
+            } else if (
+              (event.payload.session.status === "ready" ||
+                event.payload.session.status === "error") &&
+              Option.isSome(previousSession) &&
+              previousSession.value.status === "running" &&
+              previousSession.value.activeTurnId !== null
+            ) {
+              yield* sql`
+                DELETE FROM restart_turn_recoveries
+                WHERE thread_id = ${event.payload.threadId}
+                  AND turn_id = ${previousSession.value.activeTurnId}
+              `.pipe(
+                Effect.mapError(
+                  toPersistenceSqlError("ProjectionPipeline.deleteRestartTurnRecovery:query"),
+                ),
+              );
+            }
+          }
+          return;
+
+        case "thread.turn-interrupt-requested":
+        case "thread.session-stop-requested":
+        case "thread.archived":
+        case "thread.deleted":
+          yield* sql`
+            DELETE FROM restart_turn_recoveries
+            WHERE thread_id = ${event.payload.threadId}
+          `.pipe(
+            Effect.mapError(
+              toPersistenceSqlError("ProjectionPipeline.clearRestartTurnRecovery:query"),
+            ),
+          );
           return;
 
         default:
@@ -1730,7 +1825,12 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
       name: ORCHESTRATION_PROJECTOR_NAMES.threadSessions,
       phase: "hot",
       shouldApply: (event) =>
-        event.type === "thread.turn-start-requested" || event.type === "thread.session-set",
+        event.type === "thread.turn-start-requested" ||
+        event.type === "thread.session-set" ||
+        event.type === "thread.turn-interrupt-requested" ||
+        event.type === "thread.session-stop-requested" ||
+        event.type === "thread.archived" ||
+        event.type === "thread.deleted",
       apply: applyThreadSessionsProjection,
     },
     {

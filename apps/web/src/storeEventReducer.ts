@@ -597,6 +597,12 @@ function mergeStreamingMessage(
     incomingMessage.dispatchOrigin !== undefined
       ? incomingMessage.dispatchOrigin
       : existingMessage.dispatchOrigin;
+  const nextDelivery =
+    incomingMessage.delivery === undefined ||
+    (existingMessage.delivery !== undefined &&
+      existingMessage.delivery.sequence > incomingMessage.delivery.sequence)
+      ? existingMessage.delivery
+      : incomingMessage.delivery;
   const nextSource = incomingMessage.source ?? existingMessage.source;
 
   if (
@@ -609,6 +615,7 @@ function mergeStreamingMessage(
     existingMessage.turnId === nextTurnId &&
     existingMessage.dispatchMode === nextDispatchMode &&
     existingMessage.dispatchOrigin === nextDispatchOrigin &&
+    existingMessage.delivery === nextDelivery &&
     existingMessage.source === nextSource
   ) {
     return null;
@@ -624,6 +631,7 @@ function mergeStreamingMessage(
     ...(nextTurnId !== undefined ? { turnId: nextTurnId } : {}),
     ...(nextDispatchMode !== undefined ? { dispatchMode: nextDispatchMode } : {}),
     ...(nextDispatchOrigin !== undefined ? { dispatchOrigin: nextDispatchOrigin } : {}),
+    ...(nextDelivery !== undefined ? { delivery: nextDelivery } : {}),
     ...(nextSource !== undefined ? { source: nextSource } : {}),
     ...(nextCompletedAt !== undefined ? { completedAt: nextCompletedAt } : {}),
   };
@@ -642,6 +650,9 @@ function applyThreadMessageSentEvent(thread: Thread, event: ThreadMessageSentEve
       text: payload.text,
       dispatchMode: payload.dispatchMode,
       dispatchOrigin: payload.dispatchOrigin,
+      ...(payload.delivery !== undefined
+        ? { delivery: { ...payload.delivery, sequence: event.sequence } }
+        : {}),
       turnId: payload.turnId,
       attachments: payload.attachments ?? [],
       ...(payload.skills !== undefined ? { skills: payload.skills } : {}),
@@ -1151,6 +1162,32 @@ function applyOrchestrationEvent(
         },
       );
 
+    case "thread.message-delivery-set":
+      return applyThreadUpdate(
+        state,
+        event.payload.threadId,
+        (thread) => ({
+          ...thread,
+          messages: thread.messages.map((message) =>
+            message.id === event.payload.messageId &&
+            message.delivery !== undefined &&
+            event.sequence >= message.delivery.sequence
+              ? {
+                  ...message,
+                  delivery: {
+                    ...message.delivery,
+                    state: event.payload.state,
+                    sequence: event.sequence,
+                  },
+                  completedAt: event.payload.updatedAt,
+                }
+              : message,
+          ),
+          updatedAt: resolveEventUpdatedAt(thread, event.payload.updatedAt),
+        }),
+        { ...options, updateSidebarSummary: false },
+      );
+
     case "thread.session-set":
       return applyThreadUpdate(
         state,
@@ -1206,6 +1243,27 @@ function applyOrchestrationEvent(
                 ...thread,
                 queuedMessageIds: [...(thread.queuedMessageIds ?? []), event.payload.messageId],
               },
+        { ...options, updateSidebarSummary: false },
+      );
+
+    case "thread.turn-steer-queued-requested":
+      return applyThreadUpdate(
+        state,
+        event.payload.threadId,
+        (thread) => ({
+          ...thread,
+          messages: thread.messages.map((message) =>
+            message.id === event.payload.messageId &&
+            message.delivery !== undefined &&
+            event.sequence >= message.delivery.sequence
+              ? {
+                  ...message,
+                  delivery: { ...message.delivery, state: "steering", sequence: event.sequence },
+                }
+              : message,
+          ),
+          updatedAt: resolveEventUpdatedAt(thread, event.payload.createdAt),
+        }),
         { ...options, updateSidebarSummary: false },
       );
 
@@ -1272,6 +1330,13 @@ function applyOrchestrationEvent(
             thread.runtimeMode === runtimeMode &&
             thread.pendingTurnStartMessageId === event.payload.messageId &&
             queuedMessageIds.length === existingQueuedMessageIds.length &&
+            thread.messages.some(
+              (message) =>
+                message.id === event.payload.messageId &&
+                message.delivery?.state ===
+                  (event.payload.dispatchMode === "steer" ? "steering" : "starting") &&
+                message.delivery.sequence >= event.sequence,
+            ) &&
             (thread.updatedAt ?? thread.createdAt) >= event.payload.createdAt
           ) {
             return thread;
@@ -1280,6 +1345,20 @@ function applyOrchestrationEvent(
             ...thread,
             modelSelection,
             runtimeMode,
+            messages: thread.messages.map((message) =>
+              message.id === event.payload.messageId &&
+              message.delivery !== undefined &&
+              event.sequence >= message.delivery.sequence
+                ? {
+                    ...message,
+                    delivery: {
+                      ...message.delivery,
+                      state: event.payload.dispatchMode === "steer" ? "steering" : "starting",
+                      sequence: event.sequence,
+                    },
+                  }
+                : message,
+            ),
             pendingTurnStartMessageId: event.payload.messageId,
             queuedMessageIds,
             updatedAt:

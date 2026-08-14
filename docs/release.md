@@ -139,6 +139,11 @@ environment:
 - `APPLE_API_ISSUER`
 - `APPLE_TEAM_ID`
 
+Store `PENKRA_REGISTRY_TRUSTED_KEYS` as an environment variable containing a JSON array of the
+production registry's Ed25519 public JWKs. The Desktop build pins these public keys and fails closed
+when the variable is missing or malformed. During key rotation, publish a Desktop release containing
+both the current and next public keys before the backend begins signing with the next private key.
+
 Azure Artifact Signing configuration is intentionally not part of the initial release
 implementation. When that deferred work is activated, its credentials, publisher-subject pinning,
 signed installer path, updater metadata, and native installed-update evidence must be implemented

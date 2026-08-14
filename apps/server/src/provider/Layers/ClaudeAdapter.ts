@@ -15,6 +15,7 @@ import type {
   HookJSONOutput,
   Options as ClaudeQueryOptions,
   ModelInfo,
+  McpServerStatus,
   PermissionMode,
   PermissionResult,
   PermissionUpdate,
@@ -111,6 +112,10 @@ import { buildFileAttachmentsPromptBlock } from "../attachmentProjection.ts";
 import { loadClaudeAgentSdk } from "../claudeAgentSdk.ts";
 import { buildClaudeProcessEnv } from "../claudeProcessEnv.ts";
 import { synchronizeClaudeSharedMcpConfig } from "../claudeSharedMcpConfig.ts";
+import {
+  classifyComputerUseCapability,
+  type ComputerUseCapabilityHealth,
+} from "../computerUseCapability.ts";
 import {
   CLAUDE_CONTEXT_WINDOW_MAX_TOKENS,
   decideClaudeContextUsageWarnings,
@@ -285,6 +290,7 @@ interface ClaudeSessionContext {
   readonly lifecycleGeneration?: string;
   readonly promptQueue: Queue.Queue<PromptQueueItem>;
   readonly query: ClaudeQueryRuntime;
+  computerUseHealth?: ComputerUseCapabilityHealth;
   readonly processOwner: ClaudeProcessOwner;
   stopDeferred?: Deferred.Deferred<void, ProviderAdapterProcessError>;
   streamFiber: Fiber.Fiber<void, Error> | undefined;
@@ -397,6 +403,8 @@ interface ClaudeQueryRuntime extends AsyncIterable<SDKMessage> {
   readonly supportedCommands: () => Promise<SlashCommand[]>;
   readonly supportedModels: () => Promise<ModelInfo[]>;
   readonly supportedAgents: () => Promise<AgentInfo[]>;
+  readonly mcpServerStatus: () => Promise<McpServerStatus[]>;
+  readonly toggleMcpServer: (serverName: string, enabled: boolean) => Promise<void>;
   readonly close: () => void;
 }
 
@@ -1595,6 +1603,51 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
     const teardownProcessTree = options?.teardownProcessTree ?? teardownProviderProcessTree;
 
     const sessions = new Map<ThreadId, ClaudeSessionContext>();
+
+    const enableClaudeComputerUse = async (
+      context: ClaudeSessionContext,
+    ): Promise<ComputerUseCapabilityHealth> => {
+      try {
+        await context.query.toggleMcpServer("computer-use", true);
+        const statuses = await context.query.mcpServerStatus();
+        const health = classifyComputerUseCapability({
+          inventory: statuses
+            .filter((server) => server.status === "connected")
+            .map((server) => ({
+              name: server.name,
+              toolNames: (server.tools ?? []).map((tool) => tool.name),
+            })),
+          startupStatuses: statuses.map((server) => ({
+            name: server.name,
+            state:
+              server.status === "connected"
+                ? ("ready" as const)
+                : server.status === "pending"
+                  ? ("starting" as const)
+                  : server.status === "failed" || server.status === "needs-auth"
+                    ? ("failed" as const)
+                    : ("cancelled" as const),
+            error: server.error ?? null,
+          })),
+        });
+        context.computerUseHealth = health;
+        return health;
+      } catch (cause) {
+        const health = classifyComputerUseCapability({
+          inventory: [],
+          startupStatuses: [
+            {
+              name: "computer-use",
+              state: "failed",
+              error:
+                cause instanceof Error ? cause.message : "Claude Computer Use failed to enable.",
+            },
+          ],
+        });
+        context.computerUseHealth = health;
+        return health;
+      }
+    };
     const failedStartupProcessOwners = new Map<ThreadId, ClaudeProcessOwner>();
     const failedCommandDiscoveryProcessOwners = new Set<ClaudeProcessOwner>();
     const sessionLifecycleLocks = new Map<ThreadId, Semaphore.Semaphore>();
@@ -4922,6 +4975,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
 
             const streamFiber = Effect.runFork(runSdkStream(context));
             context.streamFiber = streamFiber;
+            void enableClaudeComputerUse(context);
             streamFiber.addObserver((exit) => {
               if (context.stopped) {
                 return;
@@ -5642,6 +5696,26 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
       ClaudeAdapterShape["getComposerCapabilities"]
     > = () => Effect.succeed(composerCapabilities);
 
+    const getCapabilityHealth: NonNullable<ClaudeAdapterShape["getCapabilityHealth"]> = (input) =>
+      Effect.tryPromise({
+        try: async () => {
+          const context = sessions.get(ThreadId.makeUnsafe(input.threadId));
+          if (!context) throw new Error(`Unknown Claude session: ${input.threadId}`);
+          const health = context.computerUseHealth ?? (await enableClaudeComputerUse(context));
+          return {
+            capabilities: [{ id: "computer-use", ...health }],
+            source: "claude-agent-sdk",
+          };
+        },
+        catch: (cause) =>
+          new ProviderAdapterRequestError({
+            provider: PROVIDER,
+            method: "mcpServerStatus",
+            detail: toMessage(cause, "Claude Computer Use capability preflight failed"),
+            cause,
+          }),
+      });
+
     const pendingModelDiscoveries = new Map<string, Promise<ProviderListModelsResult>>();
     const MODEL_DISCOVERY_CACHE_TTL_MS = 60_000;
 
@@ -5846,6 +5920,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         Queue.size(runtimeEventQueue).pipe(Effect.map((size) => size === 0)),
       ),
       getComposerCapabilities,
+      getCapabilityHealth,
       listCommands,
       listSkills,
       listModels,

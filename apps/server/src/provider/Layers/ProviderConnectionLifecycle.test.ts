@@ -34,6 +34,8 @@ const broker: ProviderCredentialBrokerShape = {
           return reference;
         }),
   claim: (_secret, reference) => Effect.succeed(reference),
+  fingerprint: (secret) =>
+    Effect.succeed(Buffer.from(secret).toString("hex").padEnd(64, "0").slice(0, 64)),
   lease: () => Effect.die("not used"),
   consume: () => Effect.die("not used"),
   readOnce: () => Effect.die("not used"),
@@ -134,6 +136,16 @@ layer("ProviderConnectionLifecycle", (it) => {
       });
       assert.strictEqual(terminated.lifecycle, "terminated");
       assert.strictEqual(secrets.has(credentialRef), false);
+
+      const reauthenticated = yield* lifecycle.createStatic({
+        harness: "opencode",
+        authenticationTargetId: "opencode-go",
+        authenticationMethodId: "api-key",
+        secret: "test-secret",
+      });
+      assert.strictEqual(reauthenticated.id, created.id);
+      assert.strictEqual(reauthenticated.lifecycle, "active");
+      assert.strictEqual((yield* repository.list()).length, 1);
     }),
   );
 
