@@ -44,6 +44,7 @@ import { ProviderSessionDirectory } from "../Services/ProviderSessionDirectory.t
 import {
   makeProviderServiceLive,
   PROVIDER_RUNTIME_QUARANTINE_CAUSE_MAX_BYTES,
+  shouldRestartForManagedIsolationChange,
   summarizeProviderRuntimeQuarantineCause,
 } from "./ProviderService.ts";
 import { ProviderSessionDirectoryLive } from "./ProviderSessionDirectory.ts";
@@ -75,6 +76,28 @@ type LegacyProviderRuntimeEvent = {
 };
 
 type ReleaseListSessions = (sessions: ReadonlyArray<ProviderSession>) => void;
+
+it("restarts an idle provider session when its credential generation changes", () => {
+  assert.strictEqual(
+    shouldRestartForManagedIsolationChange({
+      persistedIsolationKey: "profile-generation-one",
+      currentIsolationKey: "profile-generation-two",
+      activeTurnId: undefined,
+    }),
+    true,
+  );
+});
+
+it("lets an active turn drain before adopting a new credential generation", () => {
+  assert.strictEqual(
+    shouldRestartForManagedIsolationChange({
+      persistedIsolationKey: "profile-generation-one",
+      currentIsolationKey: "profile-generation-two",
+      activeTurnId: "turn-in-flight",
+    }),
+    false,
+  );
+});
 
 it("bounds durable quarantine cause details while preserving diagnostics", () => {
   const cause = "💥 failure ".repeat(PROVIDER_RUNTIME_QUARANTINE_CAUSE_MAX_BYTES);

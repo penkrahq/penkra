@@ -9,6 +9,7 @@ import * as SqlSchema from "effect/unstable/sql/SqlSchema";
 import { toPersistenceSqlOrDecodeError } from "../Errors.ts";
 import {
   CreateProviderConnectionInput,
+  ProviderCredentialProfileRecord,
   ProviderConnectionRecord,
   ProviderConnectionRepository,
   type ProviderConnectionRepositoryShape,
@@ -103,14 +104,175 @@ const makeProviderConnectionRepository = Effect.gen(function* () {
     `,
   });
 
+  const selectIdentity = SqlSchema.findOneOption({
+    Request: Schema.Struct({
+      harness: CreateProviderConnectionInput.fields.harness,
+      authenticationTargetId: CreateProviderConnectionInput.fields.authenticationTargetId,
+      providerIdentityId: Schema.String,
+    }),
+    Result: ProviderConnectionRecord,
+    execute: ({ harness, authenticationTargetId, providerIdentityId }) => sql`
+      SELECT
+        connection_id AS id,
+        harness_kind AS harness,
+        authentication_target_id AS "authenticationTargetId",
+        authentication_method_id AS "authenticationMethodId",
+        label,
+        credential_ref AS "credentialRef",
+        profile_ref AS "profileRef",
+        provider_identity_id AS "providerIdentityId",
+        health_status AS health,
+        health_reason AS "healthReason",
+        last_checked_at AS "lastCheckedAt",
+        lifecycle,
+        termination_reason AS "terminationReason",
+        terminated_at AS "terminatedAt",
+        created_at AS "createdAt",
+        updated_at AS "updatedAt"
+      FROM provider_connections
+      WHERE harness_kind = ${harness}
+        AND authentication_target_id = ${authenticationTargetId}
+        AND provider_identity_id = ${providerIdentityId}
+      ORDER BY created_at ASC, connection_id ASC
+      LIMIT 1
+    `,
+  });
+
+  const listProfilesPendingCleanup = SqlSchema.findAll({
+    Request: Schema.Void,
+    Result: ProviderCredentialProfileRecord,
+    execute: () => sql`
+      SELECT profile.profile_ref AS "profileRef", profile.harness_kind AS harness,
+        profile.authentication_target_id AS "authenticationTargetId",
+        profile.authentication_method_id AS "authenticationMethodId", profile.lifecycle,
+        profile.connection_id AS "connectionId",
+        profile.login_operation_id AS "loginOperationId",
+        profile.created_at AS "createdAt", profile.updated_at AS "updatedAt",
+        profile.retired_at AS "retiredAt"
+      FROM provider_credential_profiles profile
+      LEFT JOIN provider_connection_logins login
+        ON login.operation_id = profile.login_operation_id
+      LEFT JOIN provider_connections connection
+        ON connection.connection_id = profile.connection_id
+      WHERE profile.lifecycle = 'retired'
+        OR (
+          profile.lifecycle = 'staging'
+          AND login.operation_state IN ('completed', 'failed', 'cancelled')
+        )
+        OR (
+          profile.lifecycle = 'active'
+          AND connection.lifecycle = 'terminated'
+        )
+      ORDER BY COALESCE(profile.retired_at, profile.updated_at) ASC,
+        profile.profile_ref ASC
+    `,
+  });
+
   const mapped = <A>(operation: string, effect: Effect.Effect<A, unknown>) =>
     effect.pipe(
       Effect.mapError(toPersistenceSqlOrDecodeError(`${operation}:query`, `${operation}:decode`)),
     );
   const getRecord = (id: Parameters<ProviderConnectionRepositoryShape["getRecord"]>[0]) =>
     mapped("ProviderConnectionRepository.getRecord", selectRecord({ id }));
-  const getPublic = (id: Parameters<ProviderConnectionRepositoryShape["getRecord"]>[0]) =>
-    getRecord(id).pipe(Effect.map(Option.map(toPublicConnection)));
+
+  const commitManagedProfile: ProviderConnectionRepositoryShape["commitManagedProfile"] = (input) =>
+    mapped(
+      "ProviderConnectionRepository.commitManagedProfile",
+      sql.withTransaction(
+        Effect.gen(function* () {
+          const existing = yield* selectRecord({ id: input.id });
+          const canonical = yield* selectIdentity({
+            harness: input.harness,
+            authenticationTargetId: input.authenticationTargetId,
+            providerIdentityId: input.providerIdentityId,
+          });
+          const stagedProfile = yield* sql<{ readonly profileRef: string }>`
+            SELECT profile_ref AS "profileRef" FROM provider_credential_profiles
+            WHERE profile_ref = ${input.profileRef}
+              AND harness_kind = ${input.harness}
+              AND authentication_target_id = ${input.authenticationTargetId}
+              AND authentication_method_id = ${input.authenticationMethodId}
+              AND lifecycle IN ('staging', 'active')
+          `;
+          if (stagedProfile.length !== 1) return Option.none();
+          if (
+            Option.isSome(existing) &&
+            (existing.value.harness !== input.harness ||
+              existing.value.authenticationTargetId !== input.authenticationTargetId ||
+              existing.value.credentialRef !== null ||
+              existing.value.profileRef !== input.profileRef)
+          ) {
+            return Option.none();
+          }
+          if (Option.isSome(canonical) && canonical.value.credentialRef !== null) {
+            return Option.none();
+          }
+
+          const connectionId = Option.isSome(canonical) ? canonical.value.id : input.id;
+          const previousProfileRef = Option.isSome(canonical) ? canonical.value.profileRef : null;
+
+          // Credential profiles have immutable addresses. Cutover changes only
+          // the logical Connection's reference; the provider-owned directory
+          // and any path-keyed Keychain item remain exactly where login created them.
+          yield* sql`
+            UPDATE provider_credential_profiles
+            SET lifecycle = 'retired', retired_at = ${input.updatedAt},
+                updated_at = ${input.updatedAt}
+            WHERE connection_id = ${connectionId} AND lifecycle = 'active'
+              AND profile_ref != ${input.profileRef}
+          `;
+
+          if (Option.isNone(canonical) && Option.isNone(existing)) {
+            yield* sql`
+                INSERT INTO provider_connections (
+                  connection_id, harness_kind, authentication_target_id,
+                  authentication_method_id, label, credential_ref, profile_ref,
+                  provider_identity_id, health_status, lifecycle, created_at, updated_at
+                ) VALUES (
+                  ${input.id}, ${input.harness}, ${input.authenticationTargetId},
+                  ${input.authenticationMethodId}, ${input.label}, ${input.credentialRef},
+                  ${input.profileRef}, ${input.providerIdentityId}, 'unknown', 'active',
+                  ${input.createdAt}, ${input.updatedAt}
+                )
+              `;
+          } else if (Option.isSome(canonical)) {
+            yield* sql`
+                UPDATE provider_connections
+                SET authentication_method_id = ${input.authenticationMethodId},
+                    label = ${input.label}, profile_ref = ${input.profileRef},
+                    provider_identity_id = ${input.providerIdentityId},
+                    health_status = 'unknown', health_reason = NULL, last_checked_at = NULL,
+                    lifecycle = 'active', termination_reason = NULL, terminated_at = NULL,
+                    updated_at = ${input.updatedAt}
+                WHERE connection_id = ${connectionId}
+              `;
+          }
+
+          yield* sql`
+            UPDATE provider_credential_profiles
+            SET lifecycle = 'active', connection_id = ${connectionId}, retired_at = NULL,
+                updated_at = ${input.updatedAt}
+            WHERE profile_ref = ${input.profileRef}
+              AND harness_kind = ${input.harness}
+              AND authentication_target_id = ${input.authenticationTargetId}
+              AND authentication_method_id = ${input.authenticationMethodId}
+              AND lifecycle IN ('staging', 'active')
+          `;
+          const committed = yield* selectRecord({ id: connectionId });
+          const committedRecord = yield* Option.match(committed, {
+            onNone: () => Effect.die("Committed managed Connection was not readable."),
+            onSome: Effect.succeed,
+          });
+          return Option.some({
+            connection: toPublicConnection(committedRecord),
+            retiredProfileRef:
+              previousProfileRef !== null && previousProfileRef !== input.profileRef
+                ? previousProfileRef
+                : null,
+          });
+        }),
+      ),
+    );
 
   return {
     create: (input) =>
@@ -212,6 +374,31 @@ const makeProviderConnectionRepository = Effect.gen(function* () {
           ),
         ),
       ).pipe(Effect.map(Option.map(toPublicConnection))),
+    commitManagedProfile,
+    retireManagedProfile: (input) =>
+      mapped(
+        "ProviderConnectionRepository.retireManagedProfile",
+        sql`
+          UPDATE provider_credential_profiles
+          SET lifecycle = 'retired', retired_at = ${input.retiredAt},
+              updated_at = ${input.retiredAt}
+          WHERE profile_ref = ${input.profileRef} AND lifecycle IN ('staging', 'active')
+        `.pipe(Effect.asVoid),
+      ),
+    listManagedProfilesPendingCleanup: () =>
+      mapped(
+        "ProviderConnectionRepository.listManagedProfilesPendingCleanup",
+        listProfilesPendingCleanup(),
+      ),
+    markManagedProfileRemoved: (input) =>
+      mapped(
+        "ProviderConnectionRepository.markManagedProfileRemoved",
+        sql`
+          UPDATE provider_credential_profiles
+          SET lifecycle = 'removed', updated_at = ${input.removedAt}
+          WHERE profile_ref = ${input.profileRef} AND lifecycle = 'retired'
+        `.pipe(Effect.asVoid),
+      ),
     reactivateIdentity: (input) =>
       mapped(
         "ProviderConnectionRepository.reactivateIdentity",

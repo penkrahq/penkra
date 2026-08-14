@@ -210,6 +210,7 @@ function toRuntimePayloadFromSession(
     readonly lastRuntimeEvent?: string;
     readonly lastRuntimeEventAt?: string;
     readonly lifecycleGeneration?: string;
+    readonly managedIsolationKey?: string;
   },
 ): Record<string, unknown> {
   return {
@@ -228,6 +229,9 @@ function toRuntimePayloadFromSession(
       : {}),
     ...(extra?.lifecycleGeneration !== undefined
       ? { lifecycleGeneration: extra.lifecycleGeneration }
+      : {}),
+    ...(extra?.managedIsolationKey !== undefined
+      ? { managedIsolationKey: extra.managedIsolationKey }
       : {}),
   };
 }
@@ -253,6 +257,23 @@ function readPersistedCwd(
   if (typeof rawCwd !== "string") return undefined;
   const trimmed = rawCwd.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function readPersistedManagedIsolationKey(
+  runtimePayload: ProviderRuntimeBinding["runtimePayload"],
+): string | undefined {
+  const value = runtimePayloadRecord(runtimePayload).managedIsolationKey;
+  return typeof value === "string" && value.trim().length > 0 ? value : undefined;
+}
+
+export function shouldRestartForManagedIsolationChange(input: {
+  readonly persistedIsolationKey: string | undefined;
+  readonly currentIsolationKey: string;
+  readonly activeTurnId: string | undefined;
+}): boolean {
+  return (
+    input.persistedIsolationKey !== input.currentIsolationKey && input.activeTurnId === undefined
+  );
 }
 
 function runtimePayloadRecord(value: unknown): Record<string, unknown> {
@@ -563,6 +584,7 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
         readonly providerOptions?: unknown;
         readonly lastRuntimeEvent?: string;
         readonly lastRuntimeEventAt?: string;
+        readonly managedIsolationKey?: string;
       },
     ) =>
       directory.upsert({
@@ -1112,19 +1134,40 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
           const adapter = yield* registry.getByProvider(binding.provider);
           const hasPersistedResumeCursor = hasResumeCursor(binding.resumeCursor);
           const hasActiveSession = yield* adapter.hasSession(binding.threadId);
+          const managedLaunch = options?.resolveManagedLaunch
+            ? yield* options
+                .resolveManagedLaunch({
+                  threadId: binding.threadId,
+                  provider: binding.provider,
+                })
+                .pipe(Effect.mapError(mapManagedLaunchError(input.operation)))
+            : undefined;
           if (hasActiveSession) {
-            const activeSessions = yield* adapter.listSessions();
-            const existing = activeSessions.find(
-              (session) => session.threadId === binding.threadId,
-            );
-            if (existing) {
-              lease.adopt(binding.lifecycleGeneration ?? "legacy");
-              yield* analytics.record("provider.session.recovered", {
-                provider: existing.provider,
-                strategy: "adopt-existing",
-                hasResumeCursor: hasResumeCursor(existing.resumeCursor),
-              });
-              return adapter;
+            const activeTurnId = runtimeActiveTurnId(binding.runtimePayload);
+            const persistedIsolationKey = readPersistedManagedIsolationKey(binding.runtimePayload);
+            if (
+              managedLaunch !== undefined &&
+              shouldRestartForManagedIsolationChange({
+                persistedIsolationKey,
+                currentIsolationKey: managedLaunch.isolationKey,
+                activeTurnId,
+              })
+            ) {
+              yield* adapter.stopSession(binding.threadId);
+            } else {
+              const activeSessions = yield* adapter.listSessions();
+              const existing = activeSessions.find(
+                (session) => session.threadId === binding.threadId,
+              );
+              if (existing) {
+                lease.adopt(binding.lifecycleGeneration ?? "legacy");
+                yield* analytics.record("provider.session.recovered", {
+                  provider: existing.provider,
+                  strategy: "adopt-existing",
+                  hasResumeCursor: hasResumeCursor(existing.resumeCursor),
+                });
+                return adapter;
+              }
             }
           }
 
@@ -1138,15 +1181,6 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
           const persistedCwd = readPersistedCwd(binding.runtimePayload);
           const persistedModelSelection = readPersistedModelSelection(binding.runtimePayload);
           const persistedProviderOptions = readPersistedProviderOptions(binding.runtimePayload);
-          const managedLaunch = options?.resolveManagedLaunch
-            ? yield* options
-                .resolveManagedLaunch({
-                  threadId: binding.threadId,
-                  provider: binding.provider,
-                })
-                .pipe(Effect.mapError(mapManagedLaunchError(input.operation)))
-            : undefined;
-
           const resumed = yield* adapter.startSession({
             threadId: binding.threadId,
             provider: binding.provider,
@@ -1169,6 +1203,9 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
             binding.threadId,
             upsertSessionBinding(resumed, binding.threadId, {
               lifecycleGeneration: lease.generation,
+              ...(managedLaunch === undefined
+                ? {}
+                : { managedIsolationKey: managedLaunch.isolationKey }),
             }),
           );
           lease.commit();
@@ -1221,6 +1258,30 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
         const adapter = yield* registry.getByProvider(binding.provider);
 
         if (yield* adapter.hasSession(input.threadId)) {
+          if (options?.resolveManagedLaunch) {
+            const currentLaunch = yield* options
+              .resolveManagedLaunch({ threadId: input.threadId, provider: binding.provider })
+              .pipe(Effect.mapError(mapManagedLaunchError(input.operation)));
+            const persistedIsolationKey = readPersistedManagedIsolationKey(binding.runtimePayload);
+            const activeTurnId = runtimeActiveTurnId(binding.runtimePayload);
+            if (
+              shouldRestartForManagedIsolationChange({
+                persistedIsolationKey,
+                currentIsolationKey: currentLaunch.isolationKey,
+                activeTurnId,
+              })
+            ) {
+              yield* adapter.stopSession(input.threadId);
+              return {
+                adapter: yield* recoverSessionForThread({
+                  binding,
+                  operation: input.operation,
+                }),
+                isActive: true,
+                lifecycleGeneration: lifecycle.currentGeneration(input.threadId),
+              } as const;
+            }
+          }
           return {
             adapter,
             isActive: true,
@@ -1340,6 +1401,9 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
                   modelSelection: input.modelSelection,
                   providerOptions: effectiveProviderOptions,
                   lifecycleGeneration: lease.generation,
+                  ...(managedLaunch === undefined
+                    ? {}
+                    : { managedIsolationKey: managedLaunch.isolationKey }),
                 }),
               );
               if (

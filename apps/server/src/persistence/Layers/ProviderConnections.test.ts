@@ -14,6 +14,73 @@ const layer = it.layer(
 );
 
 layer("ProviderConnectionRepository", (it) => {
+  it.effect("queues retired and terminal staging profiles for durable cleanup", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const repository = yield* ProviderConnectionRepository;
+      yield* runMigrations();
+      yield* sql`
+        INSERT INTO provider_connection_logins (
+          operation_id, connection_id, committed_connection_id, harness_kind,
+          authentication_target_id, authentication_method_id, label, profile_ref,
+          provider_login_id, operation_state, provider_identity_id, failure_reason,
+          created_at, updated_at
+        ) VALUES
+          ('failed-login', 'failed-connection', NULL, 'codex', 'openai-first-party',
+            'chatgpt', 'Failed', 'provider-profile:failed', NULL, 'failed', NULL,
+            'Provider stopped', '2026-08-08T00:00:00.000Z',
+            '2026-08-08T00:02:00.000Z'),
+          ('open-login', 'open-connection', NULL, 'codex', 'openai-first-party',
+            'chatgpt', 'Open', 'provider-profile:open', NULL, 'awaiting-user', NULL,
+            NULL, '2026-08-08T00:00:00.000Z', '2026-08-08T00:03:00.000Z')
+      `;
+      yield* sql`
+        INSERT INTO provider_connections (
+          connection_id, harness_kind, authentication_target_id,
+          authentication_method_id, label, credential_ref, profile_ref,
+          provider_identity_id, health_status, lifecycle, termination_reason,
+          terminated_at, created_at, updated_at
+        ) VALUES (
+          'terminated-connection', 'codex', 'openai-first-party', 'chatgpt',
+          'Terminated', NULL, 'provider-profile:terminated-active',
+          'terminated@example.test', 'unavailable', 'terminated', 'disconnected',
+          '2026-08-08T00:01:00.000Z', '2026-08-08T00:00:00.000Z',
+          '2026-08-08T00:01:00.000Z'
+        )
+      `;
+      yield* sql`
+        INSERT INTO provider_credential_profiles (
+          profile_ref, harness_kind, authentication_target_id, authentication_method_id,
+          lifecycle, connection_id, login_operation_id, created_at, updated_at, retired_at
+        ) VALUES
+          ('provider-profile:retired', 'codex', 'openai-first-party', 'chatgpt',
+            'retired', NULL, NULL, '2026-08-08T00:00:00.000Z',
+            '2026-08-08T00:01:00.000Z', '2026-08-08T00:01:00.000Z'),
+          ('provider-profile:failed', 'codex', 'openai-first-party', 'chatgpt',
+            'staging', NULL, 'failed-login', '2026-08-08T00:00:00.000Z',
+            '2026-08-08T00:02:00.000Z', NULL),
+          ('provider-profile:open', 'codex', 'openai-first-party', 'chatgpt',
+            'staging', NULL, 'open-login', '2026-08-08T00:00:00.000Z',
+            '2026-08-08T00:03:00.000Z', NULL),
+          ('provider-profile:terminated-active', 'codex', 'openai-first-party', 'chatgpt',
+            'active', 'terminated-connection', NULL, '2026-08-08T00:00:00.000Z',
+            '2026-08-08T00:01:00.000Z', NULL)
+      `;
+
+      assert.deepStrictEqual(
+        (yield* repository.listManagedProfilesPendingCleanup()).map((profile) => ({
+          profileRef: profile.profileRef,
+          lifecycle: profile.lifecycle,
+        })),
+        [
+          { profileRef: "provider-profile:retired", lifecycle: "retired" },
+          { profileRef: "provider-profile:terminated-active", lifecycle: "active" },
+          { profileRef: "provider-profile:failed", lifecycle: "staging" },
+        ],
+      );
+    }),
+  );
+
   it.effect("reactivates the canonical identity and absorbs superseded records", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
@@ -138,10 +205,70 @@ layer("ProviderConnectionRepository", (it) => {
         (yield* repository.list()).map((connection) => connection.id),
         [historicalId],
       );
+      const pathStableId = ProviderConnectionId.makeUnsafe("connection-path-stable");
+      yield* sql`
+        INSERT INTO provider_credential_profiles (
+          profile_ref, harness_kind, authentication_target_id, authentication_method_id,
+          lifecycle, connection_id, login_operation_id, created_at, updated_at, retired_at
+        ) VALUES
+          (${`provider-profile:${historicalId}`}, 'codex', 'openai-first-party', 'chatgpt',
+            'active', ${historicalId}, NULL, '2026-08-08T00:00:00.000Z',
+            '2026-08-08T00:03:00.000Z', NULL),
+          (${`provider-profile:${pathStableId}`}, 'codex', 'openai-first-party', 'chatgpt',
+            'staging', NULL, 'login-path-stable', '2026-08-08T00:05:00.000Z',
+            '2026-08-08T00:05:00.000Z', NULL)
+      `;
+      const pathStable = yield* repository.commitManagedProfile({
+        id: pathStableId,
+        harness: "codex",
+        authenticationTargetId: "openai-first-party",
+        authenticationMethodId: "chatgpt",
+        label: "person@example.com",
+        credentialRef: null,
+        profileRef: `provider-profile:${pathStableId}`,
+        providerIdentityId: "person@example.com",
+        createdAt: "2026-08-08T00:05:00.000Z",
+        updatedAt: "2026-08-08T00:05:00.000Z",
+      });
+      assert.strictEqual(Option.getOrThrow(pathStable).connection.id, historicalId);
+      assert.strictEqual(
+        Option.getOrThrow(yield* repository.getRecord(historicalId)).profileRef,
+        `provider-profile:${pathStableId}`,
+      );
+      assert.strictEqual(
+        Option.getOrThrow(yield* repository.getRecord(historicalId)).lifecycle,
+        "active",
+      );
+      assert.deepStrictEqual(
+        yield* sql<{ readonly connectionId: string; readonly bindingRevision: number }>`
+          SELECT connection_id AS "connectionId", binding_revision AS "bindingRevision"
+          FROM thread_runtime_bindings WHERE thread_id = 'identity-thread'
+        `,
+        [{ connectionId: historicalId, bindingRevision: 1 }],
+      );
+      assert.strictEqual(
+        (yield* repository.listSpaceDefaults(SpaceId.makeUnsafe("identity-space")))[0]
+          ?.connectionId,
+        historicalId,
+      );
+      assert.deepStrictEqual(
+        yield* sql<{ readonly profileRef: string; readonly lifecycle: string }>`
+          SELECT profile_ref AS "profileRef", lifecycle
+          FROM provider_credential_profiles
+          WHERE profile_ref IN (
+            ${`provider-profile:${historicalId}`}, ${`provider-profile:${pathStableId}`}
+          )
+          ORDER BY profile_ref
+        `,
+        [
+          { profileRef: `provider-profile:${historicalId}`, lifecycle: "retired" },
+          { profileRef: `provider-profile:${pathStableId}`, lifecycle: "active" },
+        ],
+      );
       yield* repository.terminate({
         id: historicalId,
         reason: "removed",
-        terminatedAt: "2026-08-08T00:04:00.000Z",
+        terminatedAt: "2026-08-08T00:06:00.000Z",
       });
     }),
   );

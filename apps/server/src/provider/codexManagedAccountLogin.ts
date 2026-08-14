@@ -37,6 +37,18 @@ export type CodexManagedAccountProbe = (
   input: CodexManagedLoginProcessFactoryInput,
 ) => Promise<CodexManagedAccountSnapshot | null>;
 
+interface CodexManagedAccountVerificationPolicy {
+  readonly attempts: number;
+  readonly delayMs: number;
+  readonly sleep: (delayMs: number) => Promise<void>;
+}
+
+const defaultAccountVerificationPolicy: CodexManagedAccountVerificationPolicy = {
+  attempts: 40,
+  delayMs: 100,
+  sleep: (delayMs) => new Promise((resolve) => setTimeout(resolve, delayMs)),
+};
+
 const defaultProcessFactory: CodexManagedLoginProcessFactory = (input) => {
   const prepared = prepareWindowsSafeProcess(input.binaryPath, ["app-server"], {
     cwd: input.cwd,
@@ -137,6 +149,7 @@ export async function readCodexManagedAccount(
 export async function startCodexManagedAccountLogin(
   input: CodexManagedLoginProcessFactoryInput,
   processFactory: CodexManagedLoginProcessFactory = defaultProcessFactory,
+  verificationPolicy: CodexManagedAccountVerificationPolicy = defaultAccountVerificationPolicy,
 ): Promise<CodexManagedLoginHandle> {
   const child = processFactory(input);
   const writer = new CodexJsonlWriter(child.stdin);
@@ -172,18 +185,28 @@ export async function startCodexManagedAccountLogin(
   const verifySelectedAccount = () => {
     if (settled || verificationRequested) return;
     verificationRequested = true;
-    void request("account/read", { refreshToken: false })
-      .then((raw) => {
-        const account = record(record(raw)?.account);
-        if (account?.type !== "chatgpt") throw new Error("Codex did not select a ChatGPT account.");
-        settled = true;
-        resolveCompletion({
-          type: "chatgpt",
-          email: optionalString(account.email),
-          planType: optionalString(account.planType),
-        });
-      })
-      .catch((cause) => fail(cause instanceof Error ? cause : new Error(String(cause))));
+    void (async () => {
+      for (let attempt = 1; attempt <= verificationPolicy.attempts; attempt += 1) {
+        const account = record(
+          record(await request("account/read", { refreshToken: false }))?.account,
+        );
+        if (account?.type === "chatgpt") {
+          settled = true;
+          resolveCompletion({
+            type: "chatgpt",
+            email: optionalString(account.email),
+            planType: optionalString(account.planType),
+          });
+          return;
+        }
+        if (account !== null) throw new Error("Codex selected a non-ChatGPT account.");
+        if (attempt < verificationPolicy.attempts)
+          await verificationPolicy.sleep(verificationPolicy.delayMs);
+      }
+      throw new Error(
+        "Codex reported a successful sign in, but the ChatGPT account did not become readable.",
+      );
+    })().catch((cause) => fail(cause instanceof Error ? cause : new Error(String(cause))));
   };
 
   child.stdout.on("data", (chunk: Buffer) => {
@@ -235,8 +258,6 @@ export async function startCodexManagedAccountLogin(
   const started = record(
     await request("account/login/start", {
       type: "chatgpt",
-      useHostedLoginSuccessPage: true,
-      appBrand: "codex",
     }),
   );
   const loginId = requiredString(started?.loginId, "loginId");

@@ -1,4 +1,5 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as Path from "node:path";
 import {
   ProviderConnectionId,
   ProviderInstallationId,
@@ -13,6 +14,7 @@ import { ProviderConnectionRepository } from "../../persistence/Services/Provide
 import { ProviderInstallationRepository } from "../../persistence/Services/ProviderInstallations.ts";
 import { ThreadProviderBindingRepository } from "../../persistence/Services/ThreadProviderBindings.ts";
 import { ProviderCredentialBroker } from "../providerCredentialBroker.ts";
+import { providerCredentialProfileRoot } from "../providerNativeStatePaths.ts";
 import { ProviderLaunchResolver } from "../Services/ProviderLaunchResolver.ts";
 import { ProviderLaunchResolverLive } from "./ProviderLaunchResolver.ts";
 
@@ -21,6 +23,7 @@ const connectionId = ProviderConnectionId.makeUnsafe("launch-connection");
 const installationId = ProviderInstallationId.makeUnsafe("launch-installation");
 const retiredInstallationId = ProviderInstallationId.makeUnsafe("launch-installation-retired");
 const timestamp = "2026-08-08T00:00:00.000Z";
+const codexProfileRef = "provider-profile:credential-generation-two";
 
 const configLayer = ServerConfig.layerTest(process.cwd(), {
   prefix: "penkra-launch-resolver-test-",
@@ -202,7 +205,7 @@ const codexDependencies = Layer.mergeAll(
           authenticationMethodId: "chatgpt",
           label: "Codex",
           credentialRef: null,
-          profileRef: `provider-profile:${connectionId}`,
+          profileRef: codexProfileRef,
           providerIdentityId: null,
           health: "ready",
           healthReason: null,
@@ -238,6 +241,10 @@ it.effect("keeps the real OS home for a Connection-scoped Codex keyring", () =>
       assert.match(environment.HOME ?? "", /provider-connections/);
     }
     assert.match(environment.CODEX_HOME ?? "", /provider-connections/);
+    assert.strictEqual(
+      Path.dirname(environment.CODEX_HOME ?? ""),
+      providerCredentialProfileRoot((yield* ServerConfig).stateDir, codexProfileRef),
+    );
     assert.match(environment.CODEX_SQLITE_HOME ?? "", /provider-native-state/);
   }).pipe(
     Effect.provide(ProviderLaunchResolverLive.pipe(Layer.provide(codexDependencies))),

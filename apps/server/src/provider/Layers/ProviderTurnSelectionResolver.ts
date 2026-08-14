@@ -153,8 +153,7 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
       (findStaticCredentialMethod(connection.value) !== null &&
         (connection.value.credentialRef === null || connection.value.profileRef !== null)) ||
       (findManagedLoginMethod(connection.value) !== null &&
-        (connection.value.credentialRef !== null ||
-          connection.value.profileRef !== `provider-profile:${connection.value.id}`))
+        (connection.value.credentialRef !== null || connection.value.profileRef === null))
     ) {
       return yield* fail("The selected Connection credential backend is incompatible.");
     }

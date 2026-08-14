@@ -92,6 +92,9 @@ export function makeServerRuntimeServicesLayer(
     Layer.provideMerge(ProviderInstallationRepositoryLive),
     Layer.provideMerge(ProviderCredentialBrokerLive),
   );
+  const providerNativeStateMaterializerLayer = ProviderNativeStateMaterializerLive.pipe(
+    Layer.provideMerge(providerConnectionPersistenceLayer),
+  );
   const providerLaunchResolverLayer = ProviderLaunchResolverLive.pipe(
     Layer.provideMerge(providerConnectionPersistenceLayer),
     Layer.provideMerge(ProviderInstallationRepositoryLive),
@@ -128,19 +131,19 @@ export function makeServerRuntimeServicesLayer(
   const providerNativeContinuationVerifierLayer = ProviderNativeContinuationVerifierLive.pipe(
     Layer.provideMerge(providerConnectionPersistenceLayer),
     Layer.provideMerge(providerLaunchResolverLayer),
-    Layer.provideMerge(ProviderNativeStateMaterializerLive),
+    Layer.provideMerge(providerNativeStateMaterializerLayer),
   );
   const providerNativeStateDeletionCoordinatorLayer =
     ProviderNativeStateDeletionCoordinatorLive.pipe(
       Layer.provideMerge(providerConnectionPersistenceLayer),
-      Layer.provideMerge(ProviderNativeStateMaterializerLive),
+      Layer.provideMerge(providerNativeStateMaterializerLayer),
     );
   const providerThreadSwitchCoordinatorLayer = ProviderThreadSwitchCoordinatorLive.pipe(
     Layer.provideMerge(runtimeServicesLayer),
     Layer.provideMerge(providerConnectionPersistenceLayer),
     Layer.provideMerge(providerTurnSelectionResolverLayer),
     Layer.provideMerge(providerNativeContinuationVerifierLayer),
-    Layer.provideMerge(ProviderNativeStateMaterializerLive),
+    Layer.provideMerge(providerNativeStateMaterializerLayer),
     Layer.provideMerge(providerLaunchResolverLayer),
   );
   const providerCommandReactorLayer = ProviderCommandReactorLive.pipe(
@@ -230,7 +233,7 @@ export function makeServerRuntimeServicesLayer(
     providerConnectionLoginCoordinatorLayer,
     providerLaunchResolverLayer,
     providerTurnSelectionResolverLayer,
-    ProviderNativeStateMaterializerLive,
+    providerNativeStateMaterializerLayer,
     providerNativeStateDeletionCoordinatorLayer,
     providerNativeContinuationVerifierLayer,
     providerThreadSwitchCoordinatorLayer,

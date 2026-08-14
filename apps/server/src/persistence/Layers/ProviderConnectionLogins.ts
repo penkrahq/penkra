@@ -34,18 +34,34 @@ const make = Effect.gen(function* () {
     begin: (record) =>
       mapped(
         "ProviderConnectionLoginRepository.begin",
-        sql`
-          INSERT INTO provider_connection_logins (
-            operation_id, connection_id, committed_connection_id, harness_kind, authentication_target_id,
-            authentication_method_id, label, profile_ref, provider_login_id,
-            operation_state, provider_identity_id, failure_reason, created_at, updated_at
-          ) VALUES (
-            ${record.operationId}, ${record.connectionId}, ${record.committedConnectionId ?? null}, ${record.harness},
-            ${record.authenticationTargetId}, ${record.authenticationMethodId}, ${record.label},
-            ${record.profileRef}, ${record.providerLoginId}, ${record.state},
-            ${record.providerIdentityId}, ${record.failureReason}, ${record.createdAt}, ${record.updatedAt}
-          )
-        `.pipe(Effect.asVoid),
+        sql.withTransaction(
+          sql`
+            INSERT INTO provider_credential_profiles (
+              profile_ref, harness_kind, authentication_target_id, authentication_method_id,
+              lifecycle, connection_id, login_operation_id, created_at, updated_at, retired_at
+            ) VALUES (
+              ${record.profileRef}, ${record.harness}, ${record.authenticationTargetId},
+              ${record.authenticationMethodId}, 'staging', NULL, ${record.operationId},
+              ${record.createdAt}, ${record.updatedAt}, NULL
+            )
+          `.pipe(
+            Effect.andThen(sql`
+              INSERT INTO provider_connection_logins (
+                operation_id, connection_id, committed_connection_id, harness_kind,
+                authentication_target_id, authentication_method_id, label, profile_ref,
+                provider_login_id, operation_state, provider_identity_id, failure_reason,
+                created_at, updated_at
+              ) VALUES (
+                ${record.operationId}, ${record.connectionId}, ${record.committedConnectionId ?? null},
+                ${record.harness}, ${record.authenticationTargetId}, ${record.authenticationMethodId},
+                ${record.label}, ${record.profileRef}, ${record.providerLoginId}, ${record.state},
+                ${record.providerIdentityId}, ${record.failureReason}, ${record.createdAt},
+                ${record.updatedAt}
+              )
+            `),
+            Effect.asVoid,
+          ),
+        ),
       ),
     get: (operationId) => mapped("ProviderConnectionLoginRepository.get", select({ operationId })),
     listOpen: () =>

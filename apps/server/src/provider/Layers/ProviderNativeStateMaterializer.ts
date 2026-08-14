@@ -4,11 +4,12 @@
 import { cp, lstat, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import * as Path from "node:path";
 import { randomUUID } from "node:crypto";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Option } from "effect";
 
 import { ServerConfig } from "../../config.ts";
+import { ProviderConnectionRepository } from "../../persistence/Services/ProviderConnections.ts";
 import {
-  providerConnectionProfileRoot,
+  providerCredentialProfileRoot,
   providerNativeStateRoot,
 } from "../providerNativeStatePaths.ts";
 import { requireOneExactCodexRollout } from "../codexManagedNativeState.ts";
@@ -86,7 +87,7 @@ type ClaudeProfileMutation = {
 };
 
 type ClaudeProfileRollbackManifest = {
-  readonly targetConnectionId: string;
+  readonly targetProfileRef: string;
   readonly mutations: ClaudeProfileMutation[];
 };
 
@@ -164,7 +165,7 @@ async function readClaudeRollbackManifest(
   if (raw === null) return null;
   const decoded = JSON.parse(raw) as Partial<ClaudeProfileRollbackManifest>;
   if (
-    typeof decoded.targetConnectionId !== "string" ||
+    typeof decoded.targetProfileRef !== "string" ||
     !Array.isArray(decoded.mutations) ||
     decoded.mutations.some(
       (mutation) =>
@@ -258,105 +259,135 @@ async function exactNativeEntries(input: {
 
 export const makeProviderNativeStateMaterializer = Effect.gen(function* () {
   const config = yield* ServerConfig;
+  const connections = yield* ProviderConnectionRepository;
+
+  const connectionProfile = (connectionId: Parameters<typeof connections.getRecord>[0]) =>
+    connections.getRecord(connectionId).pipe(
+      Effect.mapError((cause) =>
+        failure("Could not resolve the Connection credential profile.", cause),
+      ),
+      Effect.flatMap(
+        Option.match({
+          onNone: () => Effect.fail(failure("The Connection credential profile does not exist.")),
+          onSome: (connection) => {
+            const profileRoot =
+              connection.profileRef === null
+                ? null
+                : providerCredentialProfileRoot(config.stateDir, connection.profileRef);
+            return profileRoot === null
+              ? Effect.fail(failure("The Connection credential profile is invalid."))
+              : Effect.succeed({ profileRef: connection.profileRef!, profileRoot });
+          },
+        }),
+      ),
+    );
 
   const clone: ProviderNativeStateMaterializerShape["clone"] = (input) =>
-    Effect.tryPromise({
-      try: async () => {
-        if (input.sourceGenerationId === input.targetGenerationId) {
-          throw new Error("source and target generations are identical");
-        }
-        const generationSource = providerNativeStateRoot(config.stateDir, input.sourceGenerationId);
-        const target = providerNativeStateRoot(config.stateDir, input.targetGenerationId);
-        const parent = Path.dirname(target);
-        const staging = Path.join(parent, `.staging-${Path.basename(target)}-${randomUUID()}`);
-        await mkdir(parent, { recursive: true, mode: 0o700 });
-        try {
-          await lstat(target);
-          throw new Error("target generation already exists");
-        } catch (cause) {
-          if ((cause as NodeJS.ErrnoException).code !== "ENOENT") {
-            throw cause;
+    Effect.gen(function* () {
+      const sourceConnectionProfile =
+        input.harness === "claudeAgent" && input.sourceStorage === "connection-profile"
+          ? input.sourceConnectionId === null
+            ? yield* Effect.fail(failure("Claude native state requires an exact source profile."))
+            : yield* connectionProfile(input.sourceConnectionId)
+          : null;
+      const targetConnectionProfile =
+        input.harness === "claudeAgent"
+          ? input.targetConnectionId === null
+            ? yield* Effect.fail(failure("Claude native state requires an exact target profile."))
+            : yield* connectionProfile(input.targetConnectionId)
+          : null;
+      return yield* Effect.tryPromise({
+        try: async () => {
+          if (input.sourceGenerationId === input.targetGenerationId) {
+            throw new Error("source and target generations are identical");
           }
-        }
-        if (input.harness === "claudeAgent") {
-          if (
-            (input.sourceStorage === "connection-profile" && input.sourceConnectionId === null) ||
-            input.targetConnectionId === null
-          ) {
-            throw new Error("Claude native state requires exact source and target storage.");
-          }
-          const sourceProfile =
-            input.sourceStorage === "generation"
-              ? generationSource
-              : providerConnectionProfileRoot(config.stateDir, input.sourceConnectionId!);
-          const targetProfile = providerConnectionProfileRoot(
+          const generationSource = providerNativeStateRoot(
             config.stateDir,
-            input.targetConnectionId,
+            input.sourceGenerationId,
           );
-          const mutations: ClaudeProfileMutation[] = [];
+          const target = providerNativeStateRoot(config.stateDir, input.targetGenerationId);
+          const parent = Path.dirname(target);
+          const staging = Path.join(parent, `.staging-${Path.basename(target)}-${randomUUID()}`);
+          await mkdir(parent, { recursive: true, mode: 0o700 });
+          try {
+            await lstat(target);
+            throw new Error("target generation already exists");
+          } catch (cause) {
+            if ((cause as NodeJS.ErrnoException).code !== "ENOENT") {
+              throw cause;
+            }
+          }
+          if (input.harness === "claudeAgent") {
+            const sourceProfile =
+              input.sourceStorage === "generation"
+                ? generationSource
+                : sourceConnectionProfile!.profileRoot;
+            const targetProfile = targetConnectionProfile!.profileRoot;
+            const mutations: ClaudeProfileMutation[] = [];
+            try {
+              await mkdir(staging, { mode: 0o700 });
+              const entries = await collectExactClaudeSessionFiles(
+                sourceProfile,
+                input.providerSessionId,
+              );
+              if (sourceProfile !== targetProfile) {
+                for (const entry of entries) {
+                  const mutation = await synchronizeClaudeSessionEntry({
+                    sourceRoot: sourceProfile,
+                    targetRoot: targetProfile,
+                    rollbackRoot: Path.join(staging, CLAUDE_PROFILE_ROLLBACK_DIRECTORY),
+                    source: entry,
+                  });
+                  if (mutation !== null) mutations.push(mutation);
+                }
+              }
+              await writeFile(
+                Path.join(staging, CLAUDE_PROFILE_ROLLBACK_MANIFEST),
+                JSON.stringify({
+                  targetProfileRef: targetConnectionProfile!.profileRef,
+                  mutations,
+                } satisfies ClaudeProfileRollbackManifest),
+                { mode: 0o600 },
+              );
+              await writeFile(
+                Path.join(staging, "claude-session.json"),
+                JSON.stringify({ providerSessionId: input.providerSessionId }),
+                { mode: 0o600 },
+              );
+              await rename(staging, target);
+              return target;
+            } catch (cause) {
+              await rollbackClaudeProfileMutations({
+                generationRoot: staging,
+                targetProfile,
+                mutations,
+              }).catch(() => undefined);
+              await rm(staging, { recursive: true, force: true });
+              throw cause;
+            }
+          }
+          const sourceStat = await lstat(generationSource);
+          if (!sourceStat.isDirectory()) {
+            throw new Error("source generation is not a directory");
+          }
           try {
             await mkdir(staging, { mode: 0o700 });
-            const entries = await collectExactClaudeSessionFiles(
-              sourceProfile,
-              input.providerSessionId,
-            );
-            if (sourceProfile !== targetProfile) {
-              for (const entry of entries) {
-                const mutation = await synchronizeClaudeSessionEntry({
-                  sourceRoot: sourceProfile,
-                  targetRoot: targetProfile,
-                  rollbackRoot: Path.join(staging, CLAUDE_PROFILE_ROLLBACK_DIRECTORY),
-                  source: entry,
-                });
-                if (mutation !== null) mutations.push(mutation);
-              }
-            }
-            await writeFile(
-              Path.join(staging, CLAUDE_PROFILE_ROLLBACK_MANIFEST),
-              JSON.stringify({
-                targetConnectionId: input.targetConnectionId,
-                mutations,
-              } satisfies ClaudeProfileRollbackManifest),
-              { mode: 0o600 },
-            );
-            await writeFile(
-              Path.join(staging, "claude-session.json"),
-              JSON.stringify({ providerSessionId: input.providerSessionId }),
-              { mode: 0o600 },
-            );
+            const entries = await exactNativeEntries({
+              harness: input.harness,
+              providerSessionId: input.providerSessionId,
+              sourceRoot: generationSource,
+            });
+            for (const entry of entries) await copyEntry(generationSource, staging, entry);
             await rename(staging, target);
-            return target;
           } catch (cause) {
-            await rollbackClaudeProfileMutations({
-              generationRoot: staging,
-              targetProfile,
-              mutations,
-            }).catch(() => undefined);
             await rm(staging, { recursive: true, force: true });
             throw cause;
           }
-        }
-        const sourceStat = await lstat(generationSource);
-        if (!sourceStat.isDirectory()) {
-          throw new Error("source generation is not a directory");
-        }
-        try {
-          await mkdir(staging, { mode: 0o700 });
-          const entries = await exactNativeEntries({
-            harness: input.harness,
-            providerSessionId: input.providerSessionId,
-            sourceRoot: generationSource,
-          });
-          for (const entry of entries) await copyEntry(generationSource, staging, entry);
-          await rename(staging, target);
-        } catch (cause) {
-          await rm(staging, { recursive: true, force: true });
-          throw cause;
-        }
-        return target;
-      },
-      catch: (cause) =>
-        failure("Could not materialize the exact provider-native state generation.", cause),
+          return target;
+        },
+        catch: (cause) =>
+          failure("Could not materialize the exact provider-native state generation.", cause),
+      });
     });
 
   const discard: ProviderNativeStateMaterializerShape["discard"] = (generationId) =>
@@ -365,12 +396,15 @@ export const makeProviderNativeStateMaterializer = Effect.gen(function* () {
         const generationRoot = providerNativeStateRoot(config.stateDir, generationId);
         const manifest = await readClaudeRollbackManifest(generationRoot);
         if (manifest !== null) {
+          const targetProfile = providerCredentialProfileRoot(
+            config.stateDir,
+            manifest.targetProfileRef,
+          );
+          if (targetProfile === null)
+            throw new Error("Claude target profile reference is invalid.");
           await rollbackClaudeProfileMutations({
             generationRoot,
-            targetProfile: providerConnectionProfileRoot(
-              config.stateDir,
-              manifest.targetConnectionId,
-            ),
+            targetProfile,
             mutations: manifest.mutations,
           });
         }

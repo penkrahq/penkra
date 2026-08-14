@@ -13,6 +13,7 @@ import { buildProviderChildEnvironment } from "../../providerChildEnvironment.ts
 import { ProviderCredentialBroker } from "../providerCredentialBroker.ts";
 import {
   providerConnectionProfileRoot,
+  providerCredentialProfileIdentity,
   providerNativeStateRoot,
   providerOpaquePathKey,
 } from "../providerNativeStatePaths.ts";
@@ -63,6 +64,7 @@ export const makeProviderLaunchResolver = Effect.gen(function* () {
       }
 
       let credentialEnvironment: NodeJS.ProcessEnv = {};
+      let profileIdentity: string = input.connectionId ?? `anonymous:${input.harness}`;
       if (input.connectionId === null) {
         if (!manifest.anonymous?.authorizesInternalProvider(input.internalProviderId)) {
           return yield* fail("The selected route requires a Connection.");
@@ -112,15 +114,17 @@ export const makeProviderLaunchResolver = Effect.gen(function* () {
             ),
           );
           credentialEnvironment = staticMethod.buildCredentialEnvironment(secret);
-        } else if (
-          connection.value.credentialRef !== null ||
-          connection.value.profileRef !== `provider-profile:${connection.value.id}`
-        ) {
-          return yield* fail("The selected Connection profile is incompatible.");
+        } else {
+          const profileRef = connection.value.profileRef;
+          const managedProfileIdentity =
+            profileRef === null ? null : providerCredentialProfileIdentity(profileRef);
+          if (connection.value.credentialRef !== null || managedProfileIdentity === null) {
+            return yield* fail("The selected Connection profile is incompatible.");
+          }
+          profileIdentity = managedProfileIdentity;
         }
       }
 
-      const profileIdentity = input.connectionId ?? `anonymous:${input.harness}`;
       const profileRoot = providerConnectionProfileRoot(config.stateDir, profileIdentity);
       const nativeStateRoot = providerNativeStateRoot(config.stateDir, input.nativeStateIdentity);
       const environment = manifest.buildStateEnvironment({ profileRoot, nativeStateRoot });

@@ -51,6 +51,25 @@ export const CreateProviderConnectionInput = Schema.Struct({
 });
 export type CreateProviderConnectionInput = typeof CreateProviderConnectionInput.Type;
 
+export const ProviderCredentialProfileRecord = Schema.Struct({
+  profileRef: TrimmedNonEmptyString,
+  harness: ProviderKind,
+  authenticationTargetId: TrimmedNonEmptyString,
+  authenticationMethodId: TrimmedNonEmptyString,
+  lifecycle: Schema.Literals(["staging", "active", "retired", "removed"]),
+  connectionId: Schema.NullOr(ProviderConnectionId),
+  loginOperationId: Schema.NullOr(TrimmedNonEmptyString),
+  createdAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+  retiredAt: Schema.NullOr(IsoDateTime),
+});
+export type ProviderCredentialProfileRecord = typeof ProviderCredentialProfileRecord.Type;
+
+export interface ManagedProfileCommitResult {
+  readonly connection: ProviderConnection;
+  readonly retiredProfileRef: string | null;
+}
+
 export interface ProviderConnectionRepositoryShape {
   readonly create: (
     input: CreateProviderConnectionInput,
@@ -72,6 +91,24 @@ export interface ProviderConnectionRepositoryShape {
     readonly providerIdentityId: string;
     readonly updatedAt: string;
   }) => Effect.Effect<Option.Option<ProviderConnection>, ProviderConnectionRepositoryError>;
+  readonly commitManagedProfile: (
+    input: CreateProviderConnectionInput & {
+      readonly providerIdentityId: string;
+      readonly updatedAt: string;
+    },
+  ) => Effect.Effect<Option.Option<ManagedProfileCommitResult>, ProviderConnectionRepositoryError>;
+  readonly retireManagedProfile: (input: {
+    readonly profileRef: string;
+    readonly retiredAt: string;
+  }) => Effect.Effect<void, ProviderConnectionRepositoryError>;
+  readonly listManagedProfilesPendingCleanup: () => Effect.Effect<
+    ReadonlyArray<ProviderCredentialProfileRecord>,
+    ProviderConnectionRepositoryError
+  >;
+  readonly markManagedProfileRemoved: (input: {
+    readonly profileRef: string;
+    readonly removedAt: string;
+  }) => Effect.Effect<void, ProviderConnectionRepositoryError>;
   readonly reactivateIdentity: (input: {
     readonly id: ProviderConnectionId;
     readonly harness: ProviderKind;

@@ -12,12 +12,47 @@ import {
 } from "../providerNativeStatePaths.ts";
 import { ProviderNativeStateMaterializer } from "../Services/ProviderNativeStateMaterializer.ts";
 import { ProviderNativeStateMaterializerLive } from "./ProviderNativeStateMaterializer.ts";
+import { ProviderConnectionRepositoryLive } from "../../persistence/Layers/ProviderConnections.ts";
+import { ProviderConnectionRepository } from "../../persistence/Services/ProviderConnections.ts";
+import { runMigrations } from "../../persistence/Migrations.ts";
+import * as NodeSqliteClient from "../../persistence/NodeSqliteClient.ts";
 
 const configLayer = ServerConfig.layerTest(process.cwd(), {
   prefix: "penkra-native-state-materializer-test-",
 }).pipe(Layer.provide(NodeServices.layer));
-const materializerLayer = ProviderNativeStateMaterializerLive.pipe(Layer.provide(configLayer));
-const layer = it.layer(Layer.mergeAll(NodeServices.layer, configLayer, materializerLayer));
+const sqliteLayer = NodeSqliteClient.layerMemory();
+const connectionLayer = ProviderConnectionRepositoryLive.pipe(Layer.provide(sqliteLayer));
+const materializerLayer = ProviderNativeStateMaterializerLive.pipe(
+  Layer.provide(connectionLayer),
+  Layer.provide(configLayer),
+);
+const layer = it.layer(
+  Layer.mergeAll(NodeServices.layer, sqliteLayer, configLayer, connectionLayer, materializerLayer),
+);
+
+const createClaudeConnections = (
+  sourceConnectionId: ProviderConnectionId | null,
+  targetConnectionId: ProviderConnectionId,
+) =>
+  Effect.gen(function* () {
+    yield* runMigrations();
+    const connections = yield* ProviderConnectionRepository;
+    const createdAt = new Date().toISOString();
+    for (const connectionId of [sourceConnectionId, targetConnectionId]) {
+      if (connectionId === null) continue;
+      yield* connections.create({
+        id: connectionId,
+        harness: "claudeAgent",
+        authenticationTargetId: "anthropic-first-party",
+        authenticationMethodId: "account",
+        label: `Claude ${connectionId}`,
+        credentialRef: null,
+        profileRef: `provider-profile:${connectionId}`,
+        providerIdentityId: null,
+        createdAt,
+      });
+    }
+  });
 
 layer("ProviderNativeStateMaterializer", (it) => {
   it.effect("publishes one exact Codex clone and never reuses an existing target", () =>
@@ -95,6 +130,7 @@ layer("ProviderNativeStateMaterializer", (it) => {
       const target = ProviderNativeStateGenerationId.makeUnsafe("materializer-claude-target");
       const sourceConnectionId = ProviderConnectionId.makeUnsafe("claude-source-connection");
       const targetConnectionId = ProviderConnectionId.makeUnsafe("claude-target-connection");
+      yield* createClaudeConnections(sourceConnectionId, targetConnectionId);
       const sourceProfile = providerConnectionProfileRoot(config.stateDir, sourceConnectionId);
       const targetProfile = providerConnectionProfileRoot(config.stateDir, targetConnectionId);
       const sessionId = "550e8400-e29b-41d4-a716-446655440000";
@@ -144,6 +180,7 @@ layer("ProviderNativeStateMaterializer", (it) => {
       const materializer = yield* ProviderNativeStateMaterializer;
       const sourceConnectionId = ProviderConnectionId.makeUnsafe("claude-current-connection");
       const targetConnectionId = ProviderConnectionId.makeUnsafe("claude-stale-connection");
+      yield* createClaudeConnections(sourceConnectionId, targetConnectionId);
       const sourceProfile = providerConnectionProfileRoot(config.stateDir, sourceConnectionId);
       const targetProfile = providerConnectionProfileRoot(config.stateDir, targetConnectionId);
       const sessionId = "550e8400-e29b-41d4-a716-446655440010";
@@ -211,6 +248,7 @@ layer("ProviderNativeStateMaterializer", (it) => {
         "materializer-legacy-claude-target",
       );
       const targetConnectionId = ProviderConnectionId.makeUnsafe("legacy-claude-target-connection");
+      yield* createClaudeConnections(null, targetConnectionId);
       const sourceRoot = providerNativeStateRoot(config.stateDir, source);
       const targetProfile = providerConnectionProfileRoot(config.stateDir, targetConnectionId);
       const sessionId = "550e8400-e29b-41d4-a716-446655440001";

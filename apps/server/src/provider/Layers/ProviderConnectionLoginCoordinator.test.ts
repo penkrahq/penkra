@@ -2,6 +2,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { ProviderConnectionId, ProviderInstallationId } from "@penkra/contracts";
 import { assert, it } from "@effect/vitest";
 import { Effect, Layer, Option } from "effect";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { ServerConfig } from "../../config.ts";
 import { ProviderConnectionLoginRepositoryLive } from "../../persistence/Layers/ProviderConnectionLogins.ts";
@@ -298,6 +299,7 @@ layer("ProviderConnectionLoginCoordinator", (it) => {
       const coordinator = yield* ProviderConnectionLoginCoordinator;
       const logins = yield* ProviderConnectionLoginRepository;
       const connections = yield* ProviderConnectionRepository;
+      const sql = yield* SqlClient.SqlClient;
       const connectionId = ProviderConnectionId.makeUnsafe("unverifiable-managed-connection");
       yield* logins.begin({
         operationId: "unverifiable-managed-login",
@@ -325,11 +327,64 @@ layer("ProviderConnectionLoginCoordinator", (it) => {
         "The isolated provider profile could not be verified.",
       );
       assert.strictEqual(Option.isNone(yield* connections.getRecord(connectionId)), true);
+      assert.deepStrictEqual(
+        yield* sql<{ readonly lifecycle: string }>`
+          SELECT lifecycle FROM provider_credential_profiles
+          WHERE profile_ref = ${`provider-profile:${connectionId}`}
+        `,
+        [{ lifecycle: "removed" }],
+      );
       probeFailure = null;
     }),
   );
 
-  it.effect("reuses a Connection when the provider verifies the same identity", () =>
+  it.effect("repairs and removes an active profile left behind by a terminated Connection", () =>
+    Effect.gen(function* () {
+      yield* runMigrations();
+      yield* activateCodex;
+      const coordinator = yield* ProviderConnectionLoginCoordinator;
+      const connections = yield* ProviderConnectionRepository;
+      const sql = yield* SqlClient.SqlClient;
+      const connectionId = ProviderConnectionId.makeUnsafe("terminated-profile-connection");
+      const profileRef = `provider-profile:${connectionId}`;
+      yield* connections.create({
+        id: connectionId,
+        harness: "codex",
+        authenticationTargetId: "openai-first-party",
+        authenticationMethodId: "chatgpt",
+        label: "Terminated",
+        credentialRef: null,
+        profileRef,
+        providerIdentityId: "terminated@example.com",
+        createdAt: timestamp,
+      });
+      yield* sql`
+        INSERT INTO provider_credential_profiles (
+          profile_ref, harness_kind, authentication_target_id, authentication_method_id,
+          lifecycle, connection_id, login_operation_id, created_at, updated_at, retired_at
+        ) VALUES (
+          ${profileRef}, 'codex', 'openai-first-party', 'chatgpt', 'active',
+          ${connectionId}, NULL, ${timestamp}, ${timestamp}, NULL
+        )
+      `;
+      yield* connections.terminate({
+        id: connectionId,
+        reason: "disconnected",
+        terminatedAt: timestamp,
+      });
+
+      yield* coordinator.recover;
+
+      assert.deepStrictEqual(
+        yield* sql<{ readonly lifecycle: string }>`
+          SELECT lifecycle FROM provider_credential_profiles WHERE profile_ref = ${profileRef}
+        `,
+        [{ lifecycle: "removed" }],
+      );
+    }),
+  );
+
+  it.effect("rotates the immutable profile under the existing logical Connection", () =>
     Effect.gen(function* () {
       yield* runMigrations();
       yield* activateCodex;
@@ -357,11 +412,15 @@ layer("ProviderConnectionLoginCoordinator", (it) => {
       assert.strictEqual(completed.connectionId, first.connectionId);
       assert.strictEqual(completed.connection?.providerIdentityId, "same@example.com");
       assert.strictEqual(logoutCount, 0);
-      assert.strictEqual(Option.isNone(yield* connections.getRecord(duplicate.connectionId)), true);
+      assert.strictEqual(
+        Option.getOrThrow(yield* connections.getRecord(first.connectionId)).profileRef,
+        `provider-profile:${duplicate.connectionId}`,
+      );
       assert.strictEqual(
         Option.getOrThrow(yield* connections.getRecord(first.connectionId)).lifecycle,
         "active",
       );
+      assert.isTrue(Option.isNone(yield* connections.getRecord(duplicate.connectionId)));
     }),
   );
 
@@ -450,6 +509,11 @@ layer("ProviderConnectionLoginCoordinator", (it) => {
       pendingLogin?.resolve({ type: "chatgpt", email: "same@example.com", planType: "pro" });
       const reused = yield* waitForCompleted(reauthenticated.operationId);
       assert.strictEqual(reused.connectionId, completed.connectionId);
+      assert.notStrictEqual(reauthenticated.connectionId, completed.connectionId);
+      assert.strictEqual(
+        Option.getOrThrow(yield* connections.getRecord(completed.connectionId)).profileRef,
+        `provider-profile:${reauthenticated.connectionId}`,
+      );
       assert.strictEqual(reused.connection?.providerIdentityId, "same@example.com");
       assert.strictEqual(
         (yield* connections.list()).filter(

@@ -4,7 +4,7 @@
 import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { lstat, mkdir, rename, rm } from "node:fs/promises";
+import { mkdir, rm, stat } from "node:fs/promises";
 import path from "node:path";
 
 import { ProviderConnectionId } from "@penkra/contracts";
@@ -40,7 +40,7 @@ import {
   accountEmailConnectionLabel,
   secretSuffixConnectionLabel,
 } from "../providerConnectionDisplayIdentity.ts";
-import { providerConnectionProfileRoot } from "../providerNativeStatePaths.ts";
+import { providerCredentialProfileRoot } from "../providerNativeStatePaths.ts";
 import { ProviderCredentialBroker } from "../providerCredentialBroker.ts";
 import {
   ProviderConnectionLoginCoordinator,
@@ -119,74 +119,6 @@ export function makeProviderConnectionLoginCoordinator(
         });
       });
 
-    const adoptVerifiedProfile = (input: {
-      readonly operationId: string;
-      readonly sourceConnectionId: ProviderConnectionId;
-      readonly targetConnectionId: ProviderConnectionId;
-    }) =>
-      Effect.tryPromise({
-        try: async () => {
-          if (input.sourceConnectionId === input.targetConnectionId) {
-            return { commit: async () => undefined, rollback: async () => undefined };
-          }
-          const source = providerConnectionProfileRoot(config.stateDir, input.sourceConnectionId);
-          const target = providerConnectionProfileRoot(config.stateDir, input.targetConnectionId);
-          const backup = `${target}.reauth-backup-${input.operationId}`;
-          const pathExists = async (entry: string) => {
-            try {
-              await lstat(entry);
-              return true;
-            } catch (cause) {
-              if ((cause as NodeJS.ErrnoException).code === "ENOENT") return false;
-              throw cause;
-            }
-          };
-          const sourceExists = await pathExists(source);
-          const targetExists = await pathExists(target);
-          const backupExists = await pathExists(backup);
-          if (!sourceExists) {
-            if (!targetExists || !backupExists) {
-              throw new Error("verified profile adoption is incomplete");
-            }
-            return {
-              commit: async () => rm(backup, { recursive: true, force: true }),
-              rollback: async () => {
-                await rename(target, source);
-                await rename(backup, target);
-              },
-            };
-          }
-          if (backupExists) {
-            throw new Error("verified profile adoption has conflicting recovery state");
-          }
-          let hadTarget = false;
-          if (targetExists) {
-            hadTarget = true;
-            await rename(target, backup);
-          }
-          try {
-            await rename(source, target);
-          } catch (cause) {
-            if (hadTarget) await rename(backup, target).catch(() => undefined);
-            throw cause;
-          }
-          return {
-            commit: async () => {
-              if (hadTarget) await rm(backup, { recursive: true, force: true });
-            },
-            rollback: async () => {
-              await rename(target, source).catch(() => undefined);
-              if (hadTarget) await rename(backup, target);
-            },
-          };
-        },
-        catch: (cause) =>
-          new ProviderConnectionLoginError({
-            detail: "Could not adopt the verified provider profile.",
-            cause,
-          }),
-      });
-
     const probeManagedAccount = async (input: {
       readonly harness: Parameters<typeof getProviderConnectionManifest>[0];
       readonly authenticationMethodId: string;
@@ -228,7 +160,6 @@ export function makeProviderConnectionLoginCoordinator(
     };
 
     const loadManagedRuntime = (record: {
-      readonly connectionId: ProviderConnectionId;
       readonly harness: Parameters<typeof getProviderConnectionManifest>[0];
       readonly authenticationTargetId: string;
       readonly authenticationMethodId: string;
@@ -237,11 +168,8 @@ export function makeProviderConnectionLoginCoordinator(
       Effect.gen(function* () {
         const method = findManagedLoginMethod(record);
         const manifest = getProviderConnectionManifest(record.harness);
-        if (
-          !method ||
-          !manifest ||
-          record.profileRef !== `provider-profile:${record.connectionId}`
-        ) {
+        const profileRoot = providerCredentialProfileRoot(config.stateDir, record.profileRef);
+        if (!method || !manifest || profileRoot === null) {
           return yield* fail("This sign-in method is unavailable.");
         }
         const installation = (yield* installations.list().pipe(
@@ -271,7 +199,6 @@ export function makeProviderConnectionLoginCoordinator(
             }),
           ),
         );
-        const profileRoot = providerConnectionProfileRoot(config.stateDir, record.connectionId);
         const nativeStateRoot = path.join(profileRoot, "login-state");
         const stateEnvironment = manifest.buildStateEnvironment({
           profileRoot,
@@ -341,6 +268,16 @@ export function makeProviderConnectionLoginCoordinator(
           });
         }
         yield* releaseManagedCredentialIdentity(record);
+        const retiredAt = now();
+        yield* connections.retireManagedProfile({ profileRef: record.profileRef, retiredAt });
+        const profileRoot = providerCredentialProfileRoot(config.stateDir, record.profileRef);
+        if (profileRoot !== null) {
+          yield* Effect.tryPromise(() => rm(profileRoot, { recursive: true, force: true }));
+          yield* connections.markManagedProfileRemoved({
+            profileRef: record.profileRef,
+            removedAt: now(),
+          });
+        }
       });
 
     const commitVerified = (record: {
@@ -378,121 +315,48 @@ export function makeProviderConnectionLoginCoordinator(
                   }),
               })
             : record.label;
-        const existing = yield* connections.getRecord(record.connectionId).pipe(
-          Effect.mapError(
-            (cause) =>
-              new ProviderConnectionLoginError({
-                detail: "Could not inspect the verified Connection.",
-                cause,
-              }),
-          ),
-        );
-        const canonical =
-          record.providerIdentityId === null
-            ? undefined
-            : (yield* connections.list({ includeTerminated: true }))
-                .filter(
-                  (connection) =>
-                    connection.id !== record.connectionId &&
-                    connection.harness === record.harness &&
-                    connection.authenticationTargetId === record.authenticationTargetId &&
-                    connection.providerIdentityId === record.providerIdentityId,
-                )
-                .sort(
-                  (left, right) =>
-                    left.createdAt.localeCompare(right.createdAt) ||
-                    left.id.localeCompare(right.id),
-                )[0];
-        let committedConnectionId = record.connectionId;
-        let finalizeProfileAdoption: (() => Promise<void>) | undefined;
-        if (canonical !== undefined && record.providerIdentityId !== null) {
-          const adopted = yield* adoptVerifiedProfile({
-            operationId: record.operationId,
-            sourceConnectionId: record.connectionId,
-            targetConnectionId: canonical.id,
-          });
-          const reactivatedResult = yield* connections
-            .reactivateIdentity({
-              id: canonical.id,
-              harness: record.harness,
-              authenticationTargetId: record.authenticationTargetId,
-              authenticationMethodId: record.authenticationMethodId,
-              label,
-              credentialRef: null,
-              profileRef: `provider-profile:${canonical.id}`,
-              providerIdentityId: record.providerIdentityId,
-              updatedAt: now(),
-            })
-            .pipe(
-              Effect.mapError(
-                (cause) =>
-                  new ProviderConnectionLoginError({
-                    detail: "Could not reactivate the existing Connection.",
-                    cause,
-                  }),
-              ),
-              Effect.tapError(() =>
-                Effect.tryPromise(() => adopted.rollback()).pipe(Effect.ignore),
-              ),
-            );
-          if (Option.isNone(reactivatedResult)) {
-            yield* Effect.tryPromise(() => adopted.rollback()).pipe(Effect.ignore);
-            return yield* fail("The existing Connection could not be reactivated.");
-          }
-          const reactivated = reactivatedResult.value;
-          finalizeProfileAdoption = adopted.commit;
-          committedConnectionId = reactivated.id;
-        } else if (Option.isNone(existing)) {
-          yield* connections
-            .create({
-              id: record.connectionId,
-              harness: record.harness,
-              authenticationTargetId: record.authenticationTargetId,
-              authenticationMethodId: record.authenticationMethodId,
-              label,
-              credentialRef: null,
-              profileRef: record.profileRef,
-              providerIdentityId: record.providerIdentityId,
-              createdAt: record.createdAt,
-            })
-            .pipe(
-              Effect.mapError(
-                (cause) =>
-                  new ProviderConnectionLoginError({
-                    detail: "Could not commit the verified Connection.",
-                    cause,
-                  }),
-              ),
-            );
-        } else if (
-          existing.value.lifecycle !== "active" ||
-          existing.value.harness !== record.harness ||
-          existing.value.authenticationTargetId !== record.authenticationTargetId ||
-          existing.value.authenticationMethodId !== record.authenticationMethodId ||
-          existing.value.profileRef !== record.profileRef ||
-          existing.value.credentialRef !== null
-        ) {
-          return yield* fail("The verified Connection identity conflicts with durable state.");
+        if (record.providerIdentityId === null) {
+          return yield* fail("The verified Connection has no durable provider identity.");
         }
+        const committed = yield* connections
+          .commitManagedProfile({
+            id: record.connectionId,
+            harness: record.harness,
+            authenticationTargetId: record.authenticationTargetId,
+            authenticationMethodId: record.authenticationMethodId,
+            label,
+            credentialRef: null,
+            profileRef: record.profileRef,
+            providerIdentityId: record.providerIdentityId,
+            createdAt: record.createdAt,
+            updatedAt: now(),
+          })
+          .pipe(
+            Effect.mapError(
+              (cause) =>
+                new ProviderConnectionLoginError({
+                  detail: "Could not commit the verified Connection.",
+                  cause,
+                }),
+            ),
+            Effect.flatMap(
+              Option.match({
+                onNone: () =>
+                  fail("The verified Connection identity conflicts with durable state."),
+                onSome: Effect.succeed,
+              }),
+            ),
+          );
         yield* transition({
           operationId: record.operationId,
           state: "completed",
           providerLoginId: record.providerLoginId,
           providerIdentityId: record.providerIdentityId,
-          committedConnectionId,
+          committedConnectionId: committed.connection.id,
           failureReason: null,
           updatedAt: now(),
         });
-        if (finalizeProfileAdoption !== undefined) {
-          yield* Effect.tryPromise(() => finalizeProfileAdoption()).pipe(
-            Effect.catch((cause) =>
-              Effect.logWarning("provider.connection_login.profile_retirement_failed", {
-                connectionId: committedConnectionId,
-                cause: cause instanceof Error ? cause.message : String(cause),
-              }),
-            ),
-          );
-        }
+        yield* releaseManagedCredentialIdentity(record);
       });
 
     const transition = (input: Parameters<typeof logins.transition>[0]) =>
@@ -632,7 +496,6 @@ export function makeProviderConnectionLoginCoordinator(
         return yield* Effect.gen(function* () {
           const runtime = yield* loadManagedRuntime({
             ...input,
-            connectionId,
             profileRef,
           });
           if (runtime.method.loginMechanism === "secret-import" && !input.secret) {
@@ -866,48 +729,12 @@ export function makeProviderConnectionLoginCoordinator(
                   try: () => active.handle.cancel(),
                   catch: (cause) => cause,
                 }).pipe(Effect.ignore);
-                const runtime = yield* loadManagedRuntime({
-                  ...input,
-                  connectionId,
-                  profileRef,
-                });
-                yield* Effect.tryPromise({
-                  try: () =>
-                    logoutManagedAccount({
-                      harness: input.harness,
-                      binaryPath: runtime.installed.executablePath,
-                      env: runtime.env,
-                    }),
-                  catch: (cleanupCause) =>
-                    new ProviderConnectionLoginError({
-                      detail: "Could not clean up the failed isolated sign in.",
-                      cause: cleanupCause,
-                    }),
-                });
-                const account = yield* Effect.tryPromise({
-                  try: () =>
-                    probeManagedAccount({
-                      harness: input.harness,
-                      authenticationMethodId: input.authenticationMethodId,
-                      binaryPath: runtime.installed.executablePath,
-                      env: runtime.env,
-                    }),
-                  catch: (cleanupCause) =>
-                    new ProviderConnectionLoginError({
-                      detail: "Could not verify cleanup of the failed isolated sign in.",
-                      cause: cleanupCause,
-                    }),
-                });
-                if (account !== null) {
-                  return yield* fail(
-                    "The failed isolated sign in still has an authenticated account.",
-                  );
-                }
                 handles.delete(operationId);
               }
-              yield* releaseManagedCredentialIdentity({
+              yield* cleanupUncommittedProfile({
                 ...input,
                 connectionId,
+                profileRef,
               }).pipe(Effect.ignore);
               yield* transition({
                 operationId,
@@ -984,44 +811,28 @@ export function makeProviderConnectionLoginCoordinator(
         });
         if (account !== null)
           return yield* fail("The cancelled provider profile is still signed in.");
-        if (record.state === "verified") yield* commitVerified(record);
-        const existing = yield* connections.getRecord(record.connectionId).pipe(
-          Effect.mapError(
-            (cause) =>
-              new ProviderConnectionLoginError({
-                detail: "Could not inspect the cancelled Connection.",
-                cause,
-              }),
-          ),
-        );
-        if (Option.isSome(existing) && existing.value.lifecycle === "active") {
-          yield* connections
-            .terminate({
-              id: record.connectionId,
-              reason: "disconnected",
-              terminatedAt: now(),
-            })
-            .pipe(
-              Effect.mapError(
-                (cause) =>
-                  new ProviderConnectionLoginError({
-                    detail: "Could not retire the cancelled Connection.",
-                    cause,
-                  }),
-              ),
-            );
-        }
-        if (record.state !== "verified") {
-          yield* transition({
-            operationId,
-            state: "cancelled",
-            providerLoginId: record.providerLoginId,
-            providerIdentityId: null,
-            failureReason: null,
-            updatedAt: now(),
+        const retiredAt = now();
+        yield* connections.retireManagedProfile({ profileRef: record.profileRef, retiredAt });
+        const profileRoot = providerCredentialProfileRoot(config.stateDir, record.profileRef);
+        if (profileRoot !== null) {
+          yield* Effect.tryPromise(() => rm(profileRoot, { recursive: true, force: true }));
+          yield* connections.markManagedProfileRemoved({
+            profileRef: record.profileRef,
+            removedAt: now(),
           });
         }
-        yield* releaseManagedCredentialIdentity(record);
+        yield* transition({
+          operationId,
+          state: record.state === "verified" ? "failed" : "cancelled",
+          providerLoginId: record.providerLoginId,
+          providerIdentityId: null,
+          failureReason:
+            record.state === "verified"
+              ? "Connection sign in was cancelled after provider verification."
+              : null,
+          updatedAt: now(),
+        });
+        yield* releaseManagedCredentialIdentity(record).pipe(Effect.ignore);
         return yield* get({ operationId });
       }).pipe(
         Effect.mapError((cause) => asLoginError("Could not cancel Connection sign in.", cause)),
@@ -1049,7 +860,6 @@ export function makeProviderConnectionLoginCoordinator(
         }
         const runtime = yield* loadManagedRuntime({
           ...record,
-          connectionId: record.id,
           profileRef: record.profileRef,
         });
         yield* Effect.tryPromise({
@@ -1105,6 +915,16 @@ export function makeProviderConnectionLoginCoordinator(
           ...record,
           connectionId: record.id,
         });
+        const retiredAt = now();
+        yield* connections.retireManagedProfile({ profileRef: record.profileRef, retiredAt });
+        const profileRoot = providerCredentialProfileRoot(config.stateDir, record.profileRef);
+        if (profileRoot !== null) {
+          yield* Effect.tryPromise(() => rm(profileRoot, { recursive: true, force: true }));
+          yield* connections.markManagedProfileRemoved({
+            profileRef: record.profileRef,
+            removedAt: now(),
+          });
+        }
         return terminated;
       }).pipe(
         Effect.mapError((cause) => asLoginError("Could not disconnect the Connection.", cause)),
@@ -1146,7 +966,6 @@ export function makeProviderConnectionLoginCoordinator(
                   return Effect.gen(function* () {
                     const runtime = yield* loadManagedRuntime({
                       ...record,
-                      connectionId: record.id,
                       profileRef,
                     });
                     const account = yield* Effect.tryPromise({
@@ -1259,6 +1078,10 @@ export function makeProviderConnectionLoginCoordinator(
                       ...record,
                       connectionId: record.id,
                     });
+                    yield* connections.retireManagedProfile({
+                      profileRef,
+                      retiredAt: now(),
+                    });
                   });
                 },
               }),
@@ -1267,6 +1090,89 @@ export function makeProviderConnectionLoginCoordinator(
         { concurrency: 1 },
       );
     });
+
+    const cleanupManagedProfiles = connections.listManagedProfilesPendingCleanup().pipe(
+      Effect.flatMap((profiles) =>
+        Effect.forEach(
+          profiles,
+          (profile) =>
+            Effect.gen(function* () {
+              if (profile.lifecycle !== "retired") {
+                yield* connections.retireManagedProfile({
+                  profileRef: profile.profileRef,
+                  retiredAt: now(),
+                });
+              }
+              const profileRoot = providerCredentialProfileRoot(
+                config.stateDir,
+                profile.profileRef,
+              );
+              if (profileRoot === null)
+                return yield* fail("The retired profile reference is invalid.");
+              const profileExists = yield* Effect.tryPromise(async () => {
+                try {
+                  await stat(profileRoot);
+                  return true;
+                } catch (cause) {
+                  if (
+                    typeof cause === "object" &&
+                    cause !== null &&
+                    "code" in cause &&
+                    cause.code === "ENOENT"
+                  )
+                    return false;
+                  throw cause;
+                }
+              });
+              if (!profileExists) {
+                yield* connections.markManagedProfileRemoved({
+                  profileRef: profile.profileRef,
+                  removedAt: now(),
+                });
+                return;
+              }
+              const runtime = yield* loadManagedRuntime({
+                harness: profile.harness,
+                authenticationTargetId: profile.authenticationTargetId,
+                authenticationMethodId: profile.authenticationMethodId,
+                profileRef: profile.profileRef,
+              });
+              yield* Effect.tryPromise(() =>
+                logoutManagedAccount({
+                  harness: profile.harness,
+                  binaryPath: runtime.installed.executablePath,
+                  env: runtime.env,
+                }),
+              );
+              const account = yield* Effect.tryPromise(() =>
+                probeManagedAccount({
+                  harness: profile.harness,
+                  authenticationMethodId: profile.authenticationMethodId,
+                  binaryPath: runtime.installed.executablePath,
+                  env: runtime.env,
+                }),
+              );
+              if (account !== null)
+                return yield* fail("The retired provider profile is signed in.");
+              yield* Effect.tryPromise(() => rm(profileRoot, { recursive: true, force: true }));
+              yield* connections.markManagedProfileRemoved({
+                profileRef: profile.profileRef,
+                removedAt: now(),
+              });
+            }).pipe(
+              Effect.catch((cause) =>
+                Effect.logWarning("provider.connection_profile.cleanup_failed", {
+                  profileRef: profile.profileRef,
+                  harness: profile.harness,
+                  cause: cause instanceof Error ? cause.message : String(cause),
+                }),
+              ),
+            ),
+          { concurrency: 1 },
+        ),
+      ),
+      Effect.asVoid,
+    );
 
     return {
       begin,
@@ -1358,6 +1264,7 @@ export function makeProviderConnectionLoginCoordinator(
           ),
         ),
         Effect.andThen(reconcileActiveManagedConnections),
+        Effect.andThen(cleanupManagedProfiles),
         Effect.asVoid,
         Effect.mapError((cause) => asLoginError("Could not recover managed Connections.", cause)),
       ),

@@ -8,7 +8,11 @@ import {
   startCodexManagedAccountLogin,
 } from "./codexManagedAccountLogin.ts";
 
-function fakeCodexLoginProcess() {
+function fakeCodexLoginProcess(
+  accountResponses: Array<Record<string, unknown> | null> = [
+    { type: "chatgpt", email: "person@example.com", planType: "pro" },
+  ],
+) {
   const child = new EventEmitter() as EventEmitter & {
     stdin: PassThrough;
     stdout: PassThrough;
@@ -16,6 +20,7 @@ function fakeCodexLoginProcess() {
     exitCode: number | null;
     signalCode: NodeJS.Signals | null;
     kill: (signal?: NodeJS.Signals) => boolean;
+    requests: Array<{ method: string; params?: unknown }>;
   };
   child.stdin = new PassThrough();
   child.stdout = new PassThrough();
@@ -23,6 +28,7 @@ function fakeCodexLoginProcess() {
   child.exitCode = null;
   child.signalCode = null;
   child.kill = () => true;
+  child.requests = [];
   let buffer = "";
   child.stdin.on("data", (chunk) => {
     buffer += chunk.toString();
@@ -31,7 +37,8 @@ function fakeCodexLoginProcess() {
       if (newline < 0) break;
       const frame = buffer.slice(0, newline);
       buffer = buffer.slice(newline + 1);
-      const message = JSON.parse(frame) as { id?: number; method: string };
+      const message = JSON.parse(frame) as { id?: number; method: string; params?: unknown };
+      child.requests.push(message);
       if (message.method === "initialize") {
         child.stdout.write(`${JSON.stringify({ id: message.id, result: {} })}\n`);
       } else if (message.method === "account/login/start") {
@@ -39,20 +46,23 @@ function fakeCodexLoginProcess() {
           `${JSON.stringify({ id: message.id, result: { loginId: "login-1", authUrl: "https://auth.example/login" } })}\n`,
         );
       } else if (message.method === "account/read") {
-        child.stdout.write(
-          `${JSON.stringify({ id: message.id, result: { account: { type: "chatgpt", email: "person@example.com", planType: "pro" } } })}\n`,
-        );
+        const account = accountResponses.shift() ?? null;
+        child.stdout.write(`${JSON.stringify({ id: message.id, result: { account } })}\n`);
       }
     }
   });
   return child;
 }
 
-async function startFakeLogin() {
-  const child = fakeCodexLoginProcess();
+async function startFakeLogin(
+  accountResponses?: Array<Record<string, unknown> | null>,
+  verificationAttempts = 3,
+) {
+  const child = fakeCodexLoginProcess(accountResponses);
   const handle = await startCodexManagedAccountLogin(
     { binaryPath: "/managed/codex", cwd: "/workspace", env: {} },
     () => child as never,
+    { attempts: verificationAttempts, delayMs: 0, sleep: async () => undefined },
   );
   return { child, handle };
 }
@@ -77,6 +87,9 @@ describe("Codex managed account login", () => {
 
     expect(handle.loginId).toBe("login-1");
     expect(handle.authUrl).toBe("https://auth.example/login");
+    expect(
+      child.requests.find((request) => request.method === "account/login/start")?.params,
+    ).toEqual({ type: "chatgpt" });
     child.stdout.write(
       `${JSON.stringify({ method: "account/login/completed", params: { loginId: "login-1", success: true, error: null } })}\n`,
     );
@@ -99,6 +112,36 @@ describe("Codex managed account login", () => {
       email: "person@example.com",
       planType: "pro",
     });
+  });
+
+  it("waits for the successful login's keyring entry to become readable", async () => {
+    const { child, handle } = await startFakeLogin([
+      null,
+      { type: "chatgpt", email: "person@example.com", planType: "pro" },
+    ]);
+
+    child.stdout.write(
+      `${JSON.stringify({ method: "account/login/completed", params: { loginId: "login-1", success: true, error: null } })}\n`,
+    );
+
+    await expect(handle.completion).resolves.toEqual({
+      type: "chatgpt",
+      email: "person@example.com",
+      planType: "pro",
+    });
+    expect(child.requests.filter((request) => request.method === "account/read")).toHaveLength(2);
+  });
+
+  it("fails closed when a successful login never exposes an authoritative account", async () => {
+    const { child, handle } = await startFakeLogin([null, null, null]);
+
+    child.stdout.write(
+      `${JSON.stringify({ method: "account/login/completed", params: { loginId: "login-1", success: true, error: null } })}\n`,
+    );
+
+    await expect(handle.completion).rejects.toThrow(
+      "Codex reported a successful sign in, but the ChatGPT account did not become readable.",
+    );
   });
 
   it("fails if the provider closes before a terminal login notification", async () => {
