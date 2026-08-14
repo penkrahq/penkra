@@ -127,6 +127,7 @@ describe("threadCreatePromotion", () => {
     );
     const api = makeApi({ dispatchCommand, getShellSnapshot });
     const command = makeThreadCreateCommand("thread-concurrent");
+    useComposerDraftStore.getState().setProjectDraftThreadId(command.projectId, command.threadId);
 
     const first = promoteThreadCreate(command, api);
     const second = promoteThreadCreate(
@@ -143,7 +144,7 @@ describe("threadCreatePromotion", () => {
     expect(getThreadFromState(useStore.getState(), command.threadId)?.id).toBe(command.threadId);
   });
 
-  it("installs an accepted thread from an authoritative snapshot before promoting its draft", async () => {
+  it("installs the exact accepted thread before provider admission", async () => {
     const threadId = ThreadId.makeUnsafe("thread-created-installed");
     const projectId = ContainerId.makeUnsafe("project-promote");
     useComposerDraftStore.getState().setProjectDraftThreadId(projectId, threadId);
@@ -155,11 +156,12 @@ describe("threadCreatePromotion", () => {
       "created",
     );
 
+    expect(getShellSnapshot).toHaveBeenCalledOnce();
     expect(getThreadFromState(useStore.getState(), threadId)?.id).toBe(threadId);
     expect(useComposerDraftStore.getState().getDraftThread(threadId)?.promotedTo).toBe(threadId);
   });
 
-  it("does not promote an accepted create from a snapshot older than its receipt", async () => {
+  it("accepts an exact created thread even when the global snapshot sequence lags", async () => {
     const threadId = ThreadId.makeUnsafe("thread-stale-snapshot");
     const projectId = ContainerId.makeUnsafe("project-promote");
     useComposerDraftStore.getState().setProjectDraftThreadId(projectId, threadId);
@@ -168,13 +170,12 @@ describe("threadCreatePromotion", () => {
       getShellSnapshot: vi.fn().mockResolvedValue(makeShellSnapshot(threadId, 7)),
     });
 
-    await expect(promoteThreadCreate(makeThreadCreateCommand(threadId), api)).rejects.toThrow(
-      "was not present in the authoritative shell snapshot",
+    await expect(promoteThreadCreate(makeThreadCreateCommand(threadId), api)).resolves.toBe(
+      "created",
     );
-    expect(getThreadFromState(useStore.getState(), threadId)).toBeFalsy();
-    expect(useComposerDraftStore.getState().getDraftThread(threadId)?.promotedTo).not.toBe(
-      threadId,
-    );
+    expect(api.orchestration.getShellSnapshot).toHaveBeenCalledOnce();
+    expect(getThreadFromState(useStore.getState(), threadId)?.id).toBe(threadId);
+    expect(useComposerDraftStore.getState().getDraftThread(threadId)?.promotedTo).toBe(threadId);
   });
 
   it("recovers a create that committed before a transport failure was reported", async () => {
@@ -248,6 +249,23 @@ describe("threadCreatePromotion", () => {
     );
 
     expect(useComposerDraftStore.getState().getDraftThread(threadId)?.promotedTo).toBe(threadId);
+  });
+
+  it("recreates a React-known local draft even when stale client state still has the deleted id", async () => {
+    const threadId = ThreadId.makeUnsafe("thread-retry-after-rollback");
+    const projectId = ContainerId.makeUnsafe("project-promote");
+    useComposerDraftStore.getState().setProjectDraftThreadId(projectId, threadId);
+    useStore.getState().syncServerShellSnapshot(makeShellSnapshot(threadId));
+    const dispatchCommand = vi.fn().mockResolvedValue({ sequence: 10 });
+    const getShellSnapshot = vi.fn().mockResolvedValue(makeShellSnapshot(threadId, 10));
+    const api = makeApi({ dispatchCommand, getShellSnapshot });
+
+    await expect(
+      promoteThreadCreate(makeThreadCreateCommand(threadId), api, { force: true }),
+    ).resolves.toBe("created");
+
+    expect(dispatchCommand).toHaveBeenCalledOnce();
+    expect(getShellSnapshot).toHaveBeenCalledOnce();
   });
 
   it("recovers duplicate promotions by syncing the shell snapshot", async () => {

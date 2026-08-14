@@ -180,6 +180,11 @@ jobs:
           PENKRA_REGISTRY_TRUSTED_KEYS: ${{ vars.PENKRA_REGISTRY_TRUSTED_KEYS }}
         run: bun run build:desktop
 
+      - name: Verify embedded registry trust anchors
+        env:
+          PENKRA_REGISTRY_TRUSTED_KEYS: ${{ vars.PENKRA_REGISTRY_TRUSTED_KEYS }}
+        run: node scripts/verify-desktop-registry-trust-anchors.ts
+
       - name: Reconcile Windows generated build artifacts
         if: matrix.platform == 'win'
         shell: bash

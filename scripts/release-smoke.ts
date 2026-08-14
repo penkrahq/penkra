@@ -111,6 +111,7 @@ function verifyCanonicalIdentity(): void {
 function verifyReleaseWorkflowSafety(): void {
   const workflow = readFileSync(resolve(repoRoot, ".github/workflows/release.yml"), "utf8");
   const ciWorkflow = readFileSync(resolve(repoRoot, ".github/workflows/ci.yml"), "utf8");
+  const desktopTurbo = readFileSync(resolve(repoRoot, "apps/desktop/turbo.jsonc"), "utf8");
   assertContains(ciWorkflow, "pull_request:", "Expected CI on pull requests.");
   assertContains(
     ciWorkflow,
@@ -213,6 +214,16 @@ function verifyReleaseWorkflowSafety(): void {
     workflow,
     "Missing desktop-release variable: PENKRA_REGISTRY_TRUSTED_KEYS",
     "Expected the release to fail closed when registry trust anchors are absent.",
+  );
+  assertContains(
+    desktopTurbo,
+    '"env": ["PENKRA_REGISTRY_TRUSTED_KEYS"]',
+    "Turbo must transmit and hash PENKRA_REGISTRY_TRUSTED_KEYS for the Desktop build.",
+  );
+  assertContains(
+    workflow,
+    "node scripts/verify-desktop-registry-trust-anchors.ts",
+    "Expected release QA to verify the compiled Desktop trust anchors.",
   );
   assertContains(workflow, "--target dmg", "Expected a signed DMG and matching update ZIP.");
   assertContains(workflow, "--arch arm64", "Expected the production release to be macOS arm64.");

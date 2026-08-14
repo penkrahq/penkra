@@ -64,9 +64,8 @@ async function dispatchPromoteThreadCreate(
     return "exists";
   }
 
-  let receipt: Awaited<ReturnType<NativeApi["orchestration"]["dispatchCommand"]>>;
   try {
-    receipt = await api.orchestration.dispatchCommand(command);
+    await api.orchestration.dispatchCommand(command);
   } catch (error) {
     // A transport failure can arrive after the server committed thread.create.
     // Confirm authoritative state before deciding the create failed or retrying it.
@@ -80,11 +79,11 @@ async function dispatchPromoteThreadCreate(
     throw error;
   }
 
-  const installed = await recoverPromotedThreadFromShellSnapshot(
-    api,
-    command.threadId,
-    receipt.sequence,
-  );
+  // Provider admission reads the thread projection, so the exact created
+  // thread must be queryable before its first turn starts. Do not gate this on
+  // the shell's global snapshot sequence: unrelated deferred projectors may
+  // legitimately lag behind the accepted thread.create receipt.
+  const installed = await recoverPromotedThreadFromShellSnapshot(api, command.threadId);
   if (!installed) {
     throw new Error(
       `Accepted thread.create for '${command.threadId}' was not present in the authoritative shell snapshot.`,

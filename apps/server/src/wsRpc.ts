@@ -824,7 +824,46 @@ const makeWsRpcHandlersLayer = () =>
             Effect.gen(function* () {
               const { command: normalizedCommand, prepareWorkspaceRoot } =
                 yield* normalizeDispatchCommand({ command });
-              const result = yield* dispatchOrchestrationCommand(normalizedCommand);
+              const observeFirstTurnLifecycle =
+                normalizedCommand.type === "thread.create" ||
+                normalizedCommand.type === "thread.turn.start" ||
+                normalizedCommand.type === "thread.delete";
+              const lifecycleLogContext = observeFirstTurnLifecycle
+                ? {
+                    commandId: normalizedCommand.commandId,
+                    commandType: normalizedCommand.type,
+                    threadId: normalizedCommand.threadId,
+                    ...(normalizedCommand.type === "thread.turn.start"
+                      ? {
+                          bindingRevision: normalizedCommand.bindingRevision ?? null,
+                          modelProvider: normalizedCommand.modelSelection?.provider ?? null,
+                          modelSlug: normalizedCommand.modelSelection?.model ?? null,
+                        }
+                      : {}),
+                  }
+                : null;
+              const result = yield* dispatchOrchestrationCommand(normalizedCommand).pipe(
+                Effect.tap((receipt) =>
+                  lifecycleLogContext === null
+                    ? Effect.void
+                    : Effect.logInfo("orchestration lifecycle command accepted").pipe(
+                        Effect.annotateLogs({
+                          ...lifecycleLogContext,
+                          resultSequence: receipt.sequence,
+                        }),
+                      ),
+                ),
+                Effect.tapError((cause) =>
+                  lifecycleLogContext === null
+                    ? Effect.void
+                    : Effect.logWarning("orchestration lifecycle command rejected").pipe(
+                        Effect.annotateLogs({
+                          ...lifecycleLogContext,
+                          cause: cause instanceof Error ? cause.message : String(cause),
+                        }),
+                      ),
+                ),
+              );
               // Only scaffold managed workspace-root subdirectories (Inbox/Outbox/work/outputs)
               // AFTER the decider has accepted the command. A rejected dispatch (e.g. a
               // cross-kind workspace-root ownership conflict) must never mutate the filesystem.

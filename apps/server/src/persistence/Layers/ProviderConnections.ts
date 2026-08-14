@@ -161,11 +161,55 @@ const makeProviderConnectionRepository = Effect.gen(function* () {
         sql.withTransaction(
           sql`
             UPDATE provider_connections
+            SET provider_identity_id = 'superseded:' || ${input.id} || ':' || connection_id,
+                updated_at = ${input.updatedAt}
+            WHERE connection_id != ${input.id}
+              AND harness_kind = (
+                SELECT harness_kind FROM provider_connections WHERE connection_id = ${input.id}
+              )
+              AND authentication_target_id = (
+                SELECT authentication_target_id
+                FROM provider_connections WHERE connection_id = ${input.id}
+              )
+              AND provider_identity_id = ${input.providerIdentityId}
+          `.pipe(
+            Effect.andThen(sql`
+            UPDATE provider_connections
             SET label = ${input.label}, provider_identity_id = ${input.providerIdentityId},
                 updated_at = ${input.updatedAt}
             WHERE connection_id = ${input.id} AND lifecycle = 'active'
               AND credential_ref IS NULL AND profile_ref IS NOT NULL
-          `.pipe(Effect.andThen(selectRecord({ id: input.id }))),
+            `),
+            Effect.andThen(sql`
+              UPDATE thread_runtime_bindings
+              SET connection_id = ${input.id}, binding_revision = binding_revision + 1,
+                  updated_at = ${input.updatedAt}
+              WHERE connection_id IN (
+                SELECT connection_id FROM provider_connections
+                WHERE connection_id != ${input.id}
+                  AND provider_identity_id LIKE 'superseded:' || ${input.id} || ':%'
+              )
+            `),
+            Effect.andThen(sql`
+              UPDATE space_connection_defaults
+              SET connection_id = ${input.id}, updated_at = ${input.updatedAt}
+              WHERE connection_id IN (
+                SELECT connection_id FROM provider_connections
+                WHERE connection_id != ${input.id}
+                  AND provider_identity_id LIKE 'superseded:' || ${input.id} || ':%'
+              )
+            `),
+            Effect.andThen(sql`
+              UPDATE provider_connections
+              SET lifecycle = 'terminated', termination_reason = 'removed',
+                  terminated_at = ${input.updatedAt}, health_status = 'unavailable',
+                  updated_at = ${input.updatedAt}
+              WHERE connection_id != ${input.id}
+                AND provider_identity_id LIKE 'superseded:' || ${input.id} || ':%'
+                AND lifecycle = 'active'
+            `),
+            Effect.andThen(selectRecord({ id: input.id })),
+          ),
         ),
       ).pipe(Effect.map(Option.map(toPublicConnection))),
     reactivateIdentity: (input) =>
@@ -181,7 +225,6 @@ const makeProviderConnectionRepository = Effect.gen(function* () {
               AND harness_kind = ${input.harness}
               AND authentication_target_id = ${input.authenticationTargetId}
               AND provider_identity_id = ${input.providerIdentityId}
-              AND lifecycle = 'active'
           `.pipe(
             Effect.andThen(sql`
               UPDATE provider_connections
@@ -206,7 +249,6 @@ const makeProviderConnectionRepository = Effect.gen(function* () {
                   AND harness_kind = ${input.harness}
                   AND authentication_target_id = ${input.authenticationTargetId}
                   AND provider_identity_id LIKE 'superseded:' || ${input.id} || ':%'
-                  AND lifecycle = 'active'
               )
             `),
             Effect.andThen(sql`
@@ -218,14 +260,13 @@ const makeProviderConnectionRepository = Effect.gen(function* () {
                   AND harness_kind = ${input.harness}
                   AND authentication_target_id = ${input.authenticationTargetId}
                   AND provider_identity_id LIKE 'superseded:' || ${input.id} || ':%'
-                  AND lifecycle = 'active'
               )
             `),
             Effect.andThen(sql`
               UPDATE provider_connections
               SET lifecycle = 'terminated', termination_reason = 'removed',
                   terminated_at = ${input.updatedAt}, health_status = 'unavailable',
-                  provider_identity_id = ${input.providerIdentityId}, updated_at = ${input.updatedAt}
+                  updated_at = ${input.updatedAt}
               WHERE connection_id != ${input.id}
                 AND harness_kind = ${input.harness}
                 AND authentication_target_id = ${input.authenticationTargetId}

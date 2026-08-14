@@ -14,7 +14,7 @@ const layer = it.layer(
 );
 
 layer("ProviderConnectionRepository", (it) => {
-  it.effect("reactivates the oldest identity and terminalizes duplicate records", () =>
+  it.effect("reactivates the canonical identity and absorbs superseded records", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
       const repository = yield* ProviderConnectionRepository;
@@ -45,7 +45,7 @@ layer("ProviderConnectionRepository", (it) => {
         label: "person@example.com",
         credentialRef: null,
         profileRef: `provider-profile:${duplicateId}`,
-        providerIdentityId: "person@example.com",
+        providerIdentityId: `superseded:${historicalId}:${duplicateId}`,
         createdAt: "2026-08-08T00:02:00.000Z",
       });
       yield* sql`
@@ -120,7 +120,7 @@ layer("ProviderConnectionRepository", (it) => {
       assert.strictEqual(Option.getOrThrow(reactivated).lifecycle, "active");
       const duplicate = Option.getOrThrow(yield* repository.getRecord(duplicateId));
       assert.strictEqual(duplicate.lifecycle, "terminated");
-      assert.strictEqual(duplicate.providerIdentityId, "person@example.com");
+      assert.strictEqual(duplicate.providerIdentityId, `superseded:${historicalId}:${duplicateId}`);
       const bindings = yield* sql<{
         readonly connectionId: string;
         readonly bindingRevision: number;

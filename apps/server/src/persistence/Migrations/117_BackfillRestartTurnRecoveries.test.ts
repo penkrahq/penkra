@@ -53,7 +53,9 @@ layer("BackfillRestartTurnRecoveries migration", (it) => {
         )
       `;
 
-      assert.deepStrictEqual(yield* runMigrations(), [[117, "BackfillRestartTurnRecoveries"]]);
+      assert.deepStrictEqual(yield* runMigrations({ toMigrationInclusive: 117 }), [
+        [117, "BackfillRestartTurnRecoveries"],
+      ]);
       const rows = yield* sql<{ readonly threadId: string; readonly turnId: string }>`
         SELECT thread_id AS "threadId", turn_id AS "turnId"
         FROM restart_turn_recoveries

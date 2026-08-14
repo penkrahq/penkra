@@ -56,6 +56,7 @@
     "dist:desktop:linux": "bun scripts/build-desktop-artifact.ts --platform linux --target AppImage --arch x64",
     "dist:desktop:win": "bun scripts/build-desktop-artifact.ts --platform win --target nsis --arch x64",
     "release:smoke": "node scripts/release-smoke.ts",
+    "release:verify-registry-trust": "node scripts/verify-desktop-registry-trust-anchors.ts",
     "release:smoke:mac-update": "node scripts/smoke-mac-update-artifact.ts",
     "release:verify": "node scripts/penkra-release-verify.mjs",
     "qa:voice:prepare": "node scripts/prepare-voice-qa-fixture.ts",

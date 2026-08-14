@@ -942,7 +942,9 @@ export default function ChatView({
       fallbackDraftProject?.spaceId !== null &&
       fallbackDraftProject?.spaceId !== undefined
     ) {
-      setDraftThreadContext(threadId, { spaceId: fallbackDraftProject.spaceId });
+      setDraftThreadContext(threadId, {
+        spaceId: fallbackDraftProject.spaceId,
+      });
     }
   }, [draftThread, fallbackDraftProject?.spaceId, setDraftThreadContext, threadId]);
   const promptRef = useRef(prompt);
@@ -1176,7 +1178,11 @@ export default function ChatView({
         addComposerDraftImage(threadId, image);
         return;
       }
-      void persistComposerAsset({ threadId, assetId: image.id, file: image.file })
+      void persistComposerAsset({
+        threadId,
+        assetId: image.id,
+        file: image.file,
+      })
         .then(() => addComposerDraftImage(threadId, image))
         .catch((error: unknown) => {
           console.error("[composer-images] Could not persist image.", error);
@@ -1198,7 +1204,11 @@ export default function ChatView({
       }
       void Promise.all(
         images.map((image) =>
-          persistComposerAsset({ threadId, assetId: image.id, file: image.file }),
+          persistComposerAsset({
+            threadId,
+            assetId: image.id,
+            file: image.file,
+          }),
         ),
       )
         .then(() => addComposerDraftImages(threadId, images))
@@ -1942,11 +1952,9 @@ export default function ChatView({
     void navigate({ to: "/settings", search: { section: "providers" } });
   }, [navigate]);
   const selectedBindingRevision = threadProviderBindingQuery.data?.binding?.revision;
-  const resolveThreadBindingRevisionAtAdmission = useCallback(async (): Promise<
-    number | undefined
-  > => {
+  const resolveThreadBindingRevisionAtAdmission = useCallback(async (): Promise<number> => {
     if (!hasThreadStarted) {
-      return undefined;
+      return 0;
     }
     if (selectedBindingRevision !== undefined) {
       return selectedBindingRevision;
@@ -2763,7 +2771,10 @@ export default function ChatView({
     [pinnedMessages],
   );
   const threadMarkers = activeThread?.threadMarkers ?? EMPTY_THREAD_MARKERS;
-  const { handleTogglePinMessage } = usePinnedMessageActions({ activeThreadId, pinnedMessages });
+  const { handleTogglePinMessage } = usePinnedMessageActions({
+    activeThreadId,
+    pinnedMessages,
+  });
   const handleTogglePinMessageGuarded = handleTogglePinMessage;
   // Empty top-level threads render the centered landing composer instead of the transcript pane.
   // Every empty top-level draft uses the parent-aware Pencil prompt and folder picker.
@@ -6065,6 +6076,7 @@ export default function ChatView({
             createdAt: activeThread.createdAt,
           },
           api,
+          { force: true },
         );
         createdServerThreadForLocalDraft = promotionResult === "created";
         throwIfPendingTurnStartCancelled();
@@ -6097,6 +6109,9 @@ export default function ChatView({
         provider: selectedModelSelectionForSend.provider,
         providerOptions: providerOptionsForDispatchForSend,
       });
+      // The resolver returns the protocol's exact revision zero for an
+      // unstarted thread and the authoritative managed-binding revision for a
+      // continuation.
       const bindingRevisionForSend = await resolveThreadBindingRevisionAtAdmission();
       await stagedTurnAttachments.runWithDispatch((turnAttachments) =>
         api.orchestration.dispatchCommand({

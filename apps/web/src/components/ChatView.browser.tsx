@@ -2675,6 +2675,46 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
+  it("sends the protocol's exact binding revision zero for an unstarted server thread", async () => {
+    const restoreNativeApi = installDeterministicSendNativeApi();
+    const withEmptyThread = addThreadToSnapshot(createDraftOnlySnapshot(), OTHER_THREAD_ID);
+    const snapshot: OrchestrationReadModel = {
+      ...withEmptyThread,
+      threads: withEmptyThread.threads.map((thread) =>
+        thread.id === OTHER_THREAD_ID ? { ...thread, session: null } : thread,
+      ),
+    };
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot,
+      initialEntry: `/${OTHER_THREAD_ID}`,
+    });
+
+    try {
+      const prompt = "start the exact-revision thread";
+      useComposerDraftStore.getState().setPrompt(OTHER_THREAD_ID, prompt);
+      (await waitForSendButton()).click();
+
+      const command = await vi.waitFor(() => {
+        const turnStart = wsRequests
+          .map(readDispatchedCommand)
+          .find(
+            (candidate) =>
+              candidate?.type === "thread.turn.start" && candidate.threadId === OTHER_THREAD_ID,
+          );
+        expect(turnStart).toBeTruthy();
+        return turnStart!;
+      });
+      expect(command.bindingRevision).toBe(0);
+      expect(command.modelSelection).toEqual(
+        expect.objectContaining({ provider: "codex", model: expect.any(String) }),
+      );
+    } finally {
+      await mounted.cleanup();
+      restoreNativeApi();
+    }
+  });
+
   it("auto-follows real transcript changes without re-sticking for non-message activity", async () => {
     let currentSnapshot = createSnapshotForTargetUser({
       targetMessageId: "msg-user-auto-follow-wiring" as MessageId,

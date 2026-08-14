@@ -268,7 +268,12 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
             }),
         ),
       );
-      if (Option.isNone(thread)) return yield* fail("The thread does not exist.");
+      if (Option.isNone(thread)) {
+        yield* Effect.logWarning("initial provider admission could not find thread projection", {
+          threadId: input.threadId,
+        });
+        return yield* fail("The thread does not exist.");
+      }
       const modelSelection = input.modelSelection ?? thread.value.modelSelection;
       if (modelSelection.provider !== thread.value.modelSelection.provider) {
         return yield* fail("The first message cannot change the thread's provider harness.");
@@ -308,6 +313,15 @@ export const makeProviderTurnSelectionResolver = Effect.gen(function* () {
         internalProviderId,
         modelId: modelSelection.model,
         nativeStateIdentity: input.nativeStateGenerationId,
+      });
+
+      yield* Effect.logInfo("initial provider admission resolved exact route", {
+        threadId: input.threadId,
+        harness,
+        connectionId,
+        installationId: activeInstallation.id,
+        modelId: modelSelection.model,
+        spaceId: thread.value.spaceId ?? null,
       });
 
       const selection = {
