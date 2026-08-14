@@ -1,6 +1,6 @@
 {
   "name": "@penkra/desktop",
-  "version": "0.10.1",
+  "version": "0.10.2",
   "private": true,
   "main": "dist-electron/entry.js",
   "scripts": {
