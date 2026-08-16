@@ -1,5 +1,5 @@
 // FILE: appIntentRouter.ts
-// Purpose: Resolves explicit URL/file intents against enabled App handler contributions.
+// Purpose: Resolves explicit URL intents against enabled App handler contributions.
 // Layer: Trusted desktop App routing boundary
 
 import type { AppHandlerDeclaration } from "@penkra/sdk";
@@ -10,10 +10,12 @@ import {
   type InstalledAppPackage,
 } from "./appInstallationState";
 
-export type AppIntentRequest =
-  | { intent: "open-url"; url: string; requestedApp?: string; preferredAppId?: string }
-  | { intent: "open-file"; extension: string; requestedApp?: string; preferredAppId?: string }
-  | { intent: "open-directory"; requestedApp?: string; preferredAppId?: string };
+export type AppIntentRequest = {
+  intent: "open-url";
+  url: string;
+  requestedApp?: string;
+  preferredAppId?: string;
+};
 
 export interface ResolvedAppIntent {
   appId: string;
@@ -71,7 +73,6 @@ export class AppIntentRouter {
       const preferred = candidates.find((candidate) => candidate.appId === request.preferredAppId);
       if (preferred) return preferred;
     }
-    if (request.intent === "open-file" && candidates.length === 1) return candidates[0]!;
     return null;
   }
 }
@@ -81,25 +82,17 @@ function matchingHandlers(
   request: AppIntentRequest,
 ): AppHandlerDeclaration[] {
   return (app.manifest.contributions?.handlers ?? []).filter((handler) => {
-    if (handler.intent !== request.intent) return false;
-    if (handler.intent === "open-url" && request.intent === "open-url") {
-      let scheme: string;
-      try {
-        scheme = new URL(request.url).protocol.slice(0, -1).toLowerCase();
-      } catch {
-        throw new AppIntentRouterError(
-          "handler-not-found",
-          "The URL intent contains an invalid URL.",
-        );
-      }
-      return handler.schemes.includes(scheme);
+    if (handler.intent !== "open-url") return false;
+    let scheme: string;
+    try {
+      scheme = new URL(request.url).protocol.slice(0, -1).toLowerCase();
+    } catch {
+      throw new AppIntentRouterError(
+        "handler-not-found",
+        "The URL intent contains an invalid URL.",
+      );
     }
-    if (handler.intent === "open-file" && request.intent === "open-file") {
-      const extension = request.extension.toLowerCase();
-      return handler.extensions.some((value) => value.toLowerCase() === extension);
-    }
-    if (handler.intent === "open-directory" && request.intent === "open-directory") return true;
-    return false;
+    return handler.schemes.includes(scheme);
   });
 }
 

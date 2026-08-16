@@ -8,12 +8,12 @@ npm install @penkra/sdk
 ```
 
 Framework-neutral APIs for Apps running inside Penkra. The package contains manifest validation,
-typed operations, tab routing, scoped files, settings, secrets, identity, permissions, mediated
+typed operations, tab routing, settings, secrets, identity, permissions, mediated
 network access, hosted browser and simulator sessions, and native context menus. It never exposes
 Electron or Node globals.
 
 ```ts
-import { defineApp, files, tab } from "@penkra/sdk";
+import { defineApp, tab } from "@penkra/sdk";
 
 export const manifest = defineApp({
   manifestVersion: 1,
@@ -25,10 +25,6 @@ export const manifest = defineApp({
   compatibility: { penkra: ">=0.8.0" },
   icons: [{ src: "icon.svg", sizes: "any", type: "image/svg+xml" }],
   entrypoints: { app: "app.html" },
-});
-
-tab.onNavigate(async ({ state }) => {
-  if (state?.handleId) console.log(await files.readText(state.handleId));
 });
 
 // When navigation begins inside the App, record the current route for restoration.
@@ -48,7 +44,10 @@ Use `contextMenu.show(...)` from a direct pointer interaction when an App needs 
 right-click menu. Penkra returns the selected item ID or `null`; Apps never receive Electron menu
 objects.
 
-Privileged APIs require matching manifest declarations and per-Space grants. File APIs accept only
-opaque handles chosen or handed off by the user. Hosted browser APIs require `browser-session`,
+Files and directories use the browser's standard `showOpenFilePicker`, `showSaveFilePicker`, and
+`showDirectoryPicker` APIs directly. Native `FileSystemHandle` objects may be persisted in the App's
+IndexedDB; there is no Penkra filesystem namespace or filesystem manifest permission.
+
+Privileged Penkra APIs require matching manifest declarations and per-Space grants. Hosted browser APIs require `browser-session`,
 and hosted simulated-device APIs require `simulator-session`. Both are scoped to the calling App
 and Space and cannot address another App or Space's session.

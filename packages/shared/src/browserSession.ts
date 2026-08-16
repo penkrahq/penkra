@@ -229,10 +229,33 @@ export interface ChromeClientHintHeaders {
   readonly "sec-ch-ua-platform": string;
 }
 
-// `setUserAgent` only changes the UA *string*; it does not touch the User-Agent Client Hints
-// (`sec-ch-ua*`), which still expose the Electron brand. OAuth providers (notably Google) read
-// those hints, so embedded sign-in fails unless we also rewrite them to match a real desktop
-// Chrome. Returns null when the Chrome version can't be parsed (caller should skip the rewrite).
+const CHROMIUM_GREASE_CHARACTERS = [" ", "(", ":", "-", ".", "/", ")", ";", "=", "?", "_"];
+const CHROMIUM_GREASE_VERSIONS = ["8", "99", "24"];
+
+function chromiumClientHintBrands(major: string): ReadonlyArray<{
+  readonly brand: string;
+  readonly version: string;
+}> | null {
+  const seed = Number.parseInt(major, 10);
+  if (!Number.isSafeInteger(seed) || seed < 0) {
+    return null;
+  }
+  const firstSeparator = CHROMIUM_GREASE_CHARACTERS[seed % CHROMIUM_GREASE_CHARACTERS.length];
+  const secondSeparator =
+    CHROMIUM_GREASE_CHARACTERS[(seed + 1) % CHROMIUM_GREASE_CHARACTERS.length];
+  const grease = {
+    brand: `Not${firstSeparator}A${secondSeparator}Brand`,
+    version: CHROMIUM_GREASE_VERSIONS[seed % CHROMIUM_GREASE_VERSIONS.length] ?? "99",
+  };
+  const chromium = { brand: "Chromium", version: major };
+  return seed % 2 === 0 ? [grease, chromium] : [chromium, grease];
+}
+
+// `setUserAgent` changes the legacy UA string but does not keep request Client Hints aligned.
+// Preserve Electron's truthful Chromium brand instead of inventing a Google Chrome brand: pages
+// can compare these headers with `navigator.userAgentData`, and contradictory identities cause
+// security-sensitive sites to reject the renderer. The GREASE value/order follows Chromium's
+// major-version-seeded algorithm so the two observable surfaces remain identical.
 export function buildChromeClientHints(
   userAgent: string,
   platform: string,
@@ -241,8 +264,12 @@ export function buildChromeClientHints(
   if (major === null) {
     return null;
   }
+  const brands = chromiumClientHintBrands(major);
+  if (brands === null) {
+    return null;
+  }
   return {
-    "sec-ch-ua": `"Chromium";v="${major}", "Google Chrome";v="${major}", "Not=A?Brand";v="24"`,
+    "sec-ch-ua": brands.map(({ brand, version }) => `"${brand}";v="${version}"`).join(", "),
     "sec-ch-ua-mobile": "?0",
     "sec-ch-ua-platform": `"${chromeClientHintPlatform(platform)}"`,
   };

@@ -69,7 +69,6 @@ import { RotatingFileSink } from "@penkra/shared/logging";
 import { ensureStaticSnapshot, findAsarArchivePath } from "@penkra/shared/staticSnapshot";
 import { isBackendReadinessAborted, waitForHttpReady } from "./backendReadiness";
 import { queryAppPermission } from "./appPermissionQuery";
-import { resolvePathIntent } from "./appFileIntentResolver";
 import { resolveBackendNodeArgs } from "./backendNodeOptions";
 import { ActiveWorkPowerBlocker } from "./activeWorkPowerBlocker";
 import {
@@ -302,17 +301,6 @@ import {
 } from "./appTabIpc";
 import { parseAppListingDeepLink } from "./appListingDeepLink";
 import { getInstalledAppPackage, type VerifiedAppPackageInput } from "./appInstallationState";
-import {
-  createScopedDirectory,
-  listScopedDirectory,
-  readScopedBinary,
-  removeScopedPath,
-  renameScopedPath,
-  resolveExistingScopedPath,
-  statScopedPath,
-  writeScopedBinary,
-  writeScopedText,
-} from "./appScopedFileAccess";
 
 // Capture the real archive identity before any explicit app.asar lookup. Static
 // snapshotting and the runtime watcher both use this same generation as their
@@ -461,7 +449,6 @@ let simulatorHostedSurfaces: HostedSurfaceRegistry | null = null;
 let simulatorViewerFactory: ElectronSimulatorViewerFactory | null = null;
 let unsubscribeSimulatorState: (() => void) | null = null;
 const appSimulatorTrackedRendererIds = new Set<number>();
-const resourceHandleByTab = new Map<string, string>();
 let appRegistryClient: AppRegistryClient | null = null;
 let developmentSideloadRegistry: DevelopmentAppSideloadRegistry | null = null;
 let requiredAppsPackage: (VerifiedAppPackageInput & { source: "registry" }) | null = null;
@@ -666,106 +653,16 @@ async function openPenkraResource(input: {
   const kind = stats.isDirectory() ? "directory" : stats.isFile() ? "file" : null;
   if (!kind) throw new Error("Only regular files and directories can be opened.");
   const intent = kind === "directory" ? ("open-directory" as const) : ("open-file" as const);
-  const resolved = await resolvePathIntent({
-    intents: runtime.intents,
-    kind,
-    openWith: runtime.openWith,
-    path,
-    spaceId: input.spaceId,
-    ...(input.requestedApp ? { requestedApp: input.requestedApp } : {}),
-  });
-  if (!resolved) {
-    const error = await shell.openPath(path);
-    if (error) throw new Error(error);
-    return { destination: "system", intent, path };
+  if (input.requestedApp) {
+    throw new Error(
+      "Local paths cannot be handed to an App without a browser-native filesystem picker.",
+    );
   }
-  const handle = await runtime.vault.addHandle(resolved.appId, { kind, path });
-  const reusableTabId = findReusableResourceTab(runtime, {
-    appId: resolved.appId,
-    spaceId: input.spaceId,
-    threadId: input.threadId,
-    handleId: handle.id,
-  });
-  const result = await runtime.broker.invoke({
-    app: resolved.slug,
-    operation: resolved.operation,
-    input: { handleId: handle.id, kind: handle.kind, name: handle.name },
-    spaceId: input.spaceId,
-    threadId: input.threadId,
-    ...(reusableTabId ? { tabId: reusableTabId } : {}),
-    callerKind: input.callerKind ?? "agent",
-  });
-  rememberResourceTab(result, handle.id);
-  return {
-    destination: "app",
-    appId: resolved.appId,
-    slug: resolved.slug,
-    intent,
-    path,
-    handle,
-    result,
-  };
+  const error = await shell.openPath(path);
+  if (error) throw new Error(error);
+  return { destination: "system", intent, path };
 }
 
-function findReusableResourceTab(
-  runtime: DesktopAppRuntime,
-  input: { appId: string; spaceId: string; threadId: string; handleId: string },
-): string | undefined {
-  const openTabIds = new Set(runtime.appTabs.list().map((tab) => tab.id));
-  for (const tabId of resourceHandleByTab.keys()) {
-    if (!openTabIds.has(tabId)) resourceHandleByTab.delete(tabId);
-  }
-  const current = runtime.appTabs.currentFor(input.spaceId, input.threadId);
-  return current?.appId === input.appId && resourceHandleByTab.get(current.id) === input.handleId
-    ? current.id
-    : undefined;
-}
-
-function rememberResourceTab(result: unknown, handleId: string): void {
-  if (!result || typeof result !== "object" || Array.isArray(result)) return;
-  const tabId = (result as Record<string, unknown>).tabId;
-  if (typeof tabId === "string" && tabId) resourceHandleByTab.set(tabId, handleId);
-}
-
-function requireAppFileInput(
-  input: unknown,
-  requireRelativePath = false,
-): { handleId: string; relativePath?: string } {
-  if (!input || typeof input !== "object" || Array.isArray(input)) {
-    throw new Error("App file input must be an object.");
-  }
-  const record = input as Record<string, unknown>;
-  if (typeof record.handleId !== "string" || !record.handleId.trim()) {
-    throw new Error("App file handleId is required.");
-  }
-  if (
-    record.relativePath !== undefined &&
-    (typeof record.relativePath !== "string" || !record.relativePath)
-  ) {
-    throw new Error("App relativePath must be a non-empty string.");
-  }
-  if (requireRelativePath && typeof record.relativePath !== "string") {
-    throw new Error("App relativePath is required.");
-  }
-  return {
-    handleId: record.handleId,
-    ...(typeof record.relativePath === "string" ? { relativePath: record.relativePath } : {}),
-  };
-}
-
-function requireNonNegativeInteger(value: unknown, label: string): number {
-  if (!Number.isInteger(value) || (value as number) < 0) {
-    throw new Error(`${label} must be a non-negative integer.`);
-  }
-  return value as number;
-}
-
-function requirePositiveInteger(value: unknown, label: string): number {
-  if (!Number.isInteger(value) || (value as number) < 1) {
-    throw new Error(`${label} must be a positive integer.`);
-  }
-  return value as number;
-}
 let backendAuthToken = "";
 let backendHttpUrl = "";
 let backendWsUrl = "";
@@ -827,7 +724,6 @@ const browserManager = new DesktopBrowserManager({
   getWindowZoomFactor: () => mainWindow?.webContents.getZoomFactor() ?? 1,
 });
 let appCommandPipeServer: AppCommandPipeServer | null = null;
-const appFileWatchers = new Map<string, { rendererId: number; watcher: FS.FSWatcher }>();
 const appBrowserViewportByRendererId = new Map<
   number,
   { x: number; y: number; width: number; height: number }
@@ -4445,242 +4341,6 @@ function registerIpcHandlers(): void {
     if (typeof name !== "string") throw new Error("Secret name must be a string.");
     await runtime.vault.deleteSecret(identity.appId, identity.spaceId, name);
   });
-  ipcMain.removeHandler(IPC.appRuntime.filePick);
-  ipcMain.handle(IPC.appRuntime.filePick, async (event, kind: unknown) => {
-    const { runtime, identity } = requireAppRenderer(event.sender.id);
-    if (kind !== "file" && kind !== "directory")
-      throw new Error("File picker kind must be file or directory.");
-    const result = await dialog.showOpenDialog({
-      properties: kind === "directory" ? ["openDirectory"] : ["openFile"],
-      title: `Choose a ${kind} for ${getInstalledAppPackage(runtime.installations.snapshot(), identity.appId, identity.spaceId)?.name ?? "this App"}`,
-    });
-    const selected = result.canceled ? undefined : result.filePaths[0];
-    return selected ? runtime.vault.addHandle(identity.appId, { kind, path: selected }) : null;
-  });
-  ipcMain.removeHandler(IPC.appRuntime.fileList);
-  ipcMain.handle(IPC.appRuntime.fileList, async (event) => {
-    const { runtime, identity } = requireAppRenderer(event.sender.id);
-    return runtime.vault.listHandles(identity.appId);
-  });
-  ipcMain.removeHandler(IPC.appRuntime.fileReadText);
-  ipcMain.handle(IPC.appRuntime.fileReadText, async (event, input: unknown) => {
-    const { runtime, identity } = requireAppRenderer(event.sender.id);
-    const record = requireAppFileInput(input);
-    const handle = runtime.vault.resolveHandle(identity.appId, record.handleId);
-    const path = await resolveExistingScopedPath(handle, record.relativePath);
-    const bytes = await FS.promises.readFile(path);
-    if (bytes.byteLength > 10 * 1024 * 1024)
-      throw new Error("App text files may contain at most 10 MiB.");
-    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-  });
-  ipcMain.removeHandler(IPC.appRuntime.fileWriteText);
-  ipcMain.handle(IPC.appRuntime.fileWriteText, async (event, input: unknown) => {
-    const { runtime, identity } = requireAppRenderer(event.sender.id);
-    const record = requireAppFileInput(input);
-    const contents = (input as Record<string, unknown>).contents;
-    if (typeof contents !== "string") throw new Error("File handle and contents must be strings.");
-    if (Buffer.byteLength(contents) > 10 * 1024 * 1024)
-      throw new Error("App text files may contain at most 10 MiB.");
-    const handle = runtime.vault.resolveHandle(identity.appId, record.handleId);
-    await writeScopedText({
-      root: handle,
-      contents,
-      ...(record.relativePath ? { relativePath: record.relativePath } : {}),
-    });
-  });
-  ipcMain.removeHandler(IPC.appRuntime.fileStat);
-  ipcMain.handle(IPC.appRuntime.fileStat, async (event, input: unknown) => {
-    const { runtime, identity } = requireAppRenderer(event.sender.id);
-    const record = requireAppFileInput(input);
-    const handle = runtime.vault.resolveHandle(identity.appId, record.handleId);
-    return statScopedPath(handle, record.relativePath);
-  });
-  ipcMain.removeHandler(IPC.appRuntime.fileListDirectory);
-  ipcMain.handle(IPC.appRuntime.fileListDirectory, async (event, input: unknown) => {
-    const { runtime, identity } = requireAppRenderer(event.sender.id);
-    const record = requireAppFileInput(input);
-    const handle = runtime.vault.resolveHandle(identity.appId, record.handleId);
-    return listScopedDirectory(handle, record.relativePath);
-  });
-  ipcMain.removeHandler(IPC.appRuntime.fileReadBinary);
-  ipcMain.handle(IPC.appRuntime.fileReadBinary, async (event, input: unknown) => {
-    const { runtime, identity } = requireAppRenderer(event.sender.id);
-    const record = requireAppFileInput(input);
-    const raw = input as Record<string, unknown>;
-    const handle = runtime.vault.resolveHandle(identity.appId, record.handleId);
-    return readScopedBinary({
-      root: handle,
-      ...(record.relativePath ? { relativePath: record.relativePath } : {}),
-      ...(raw.offset === undefined
-        ? {}
-        : { offset: requireNonNegativeInteger(raw.offset, "offset") }),
-      ...(raw.length === undefined ? {} : { length: requirePositiveInteger(raw.length, "length") }),
-    });
-  });
-  ipcMain.removeHandler(IPC.appRuntime.fileWriteBinary);
-  ipcMain.handle(IPC.appRuntime.fileWriteBinary, async (event, input: unknown) => {
-    const { runtime, identity } = requireAppRenderer(event.sender.id);
-    const record = requireAppFileInput(input);
-    const bytes = (input as Record<string, unknown>).bytes;
-    if (!(bytes instanceof Uint8Array)) throw new Error("Binary file contents must be bytes.");
-    const handle = runtime.vault.resolveHandle(identity.appId, record.handleId);
-    await writeScopedBinary({
-      root: handle,
-      bytes,
-      ...(record.relativePath ? { relativePath: record.relativePath } : {}),
-    });
-  });
-  ipcMain.removeHandler(IPC.appRuntime.fileCreateDirectory);
-  ipcMain.handle(IPC.appRuntime.fileCreateDirectory, async (event, input: unknown) => {
-    const { runtime, identity } = requireAppRenderer(event.sender.id);
-    const record = requireAppFileInput(input, true);
-    const handle = runtime.vault.resolveHandle(identity.appId, record.handleId, "directory");
-    return createScopedDirectory(handle, record.relativePath!);
-  });
-  ipcMain.removeHandler(IPC.appRuntime.fileRename);
-  ipcMain.handle(IPC.appRuntime.fileRename, async (event, input: unknown) => {
-    const { runtime, identity } = requireAppRenderer(event.sender.id);
-    const record = requireAppFileInput(input, true);
-    const nextRelativePath = (input as Record<string, unknown>).nextRelativePath;
-    if (typeof nextRelativePath !== "string" || !nextRelativePath)
-      throw new Error("nextRelativePath is required.");
-    const handle = runtime.vault.resolveHandle(identity.appId, record.handleId, "directory");
-    return renameScopedPath(handle, record.relativePath!, nextRelativePath);
-  });
-  ipcMain.removeHandler(IPC.appRuntime.fileRemove);
-  ipcMain.handle(IPC.appRuntime.fileRemove, async (event, input: unknown) => {
-    const { runtime, identity } = requireAppRenderer(event.sender.id);
-    const record = requireAppFileInput(input, true);
-    const handle = runtime.vault.resolveHandle(identity.appId, record.handleId, "directory");
-    await removeScopedPath(handle, record.relativePath!);
-  });
-  ipcMain.removeHandler(IPC.appRuntime.fileWatchStart);
-  ipcMain.handle(IPC.appRuntime.fileWatchStart, async (event, input: unknown) => {
-    const { runtime, identity } = requireAppRenderer(event.sender.id);
-    const record = requireAppFileInput(input);
-    const handle = runtime.vault.resolveHandle(identity.appId, record.handleId);
-    const path = await resolveExistingScopedPath(handle, record.relativePath);
-    const stats = await FS.promises.stat(path);
-    const watchId = Crypto.randomUUID();
-    const watcher = FS.watch(path, { recursive: stats.isDirectory() }, (eventType, filename) => {
-      if (event.sender.isDestroyed()) return;
-      event.sender.send(IPC.appRuntime.fileChanged, {
-        watchId,
-        event: {
-          kind: eventType === "rename" ? "renamed" : "changed",
-          relativePath: filename === null ? null : String(filename),
-        },
-      });
-    });
-    appFileWatchers.set(watchId, { rendererId: event.sender.id, watcher });
-    event.sender.once("destroyed", () => {
-      for (const [id, entry] of appFileWatchers) {
-        if (entry.rendererId !== event.sender.id) continue;
-        entry.watcher.close();
-        appFileWatchers.delete(id);
-      }
-    });
-    return watchId;
-  });
-  ipcMain.removeHandler(IPC.appRuntime.fileWatchStop);
-  ipcMain.handle(IPC.appRuntime.fileWatchStop, async (event, input: unknown) => {
-    if (!input || typeof input !== "object" || Array.isArray(input)) {
-      throw new Error("App file watch input must be an object.");
-    }
-    const watchId = (input as Record<string, unknown>).watchId;
-    if (typeof watchId !== "string") throw new Error("App file watchId is required.");
-    const entry = appFileWatchers.get(watchId);
-    if (!entry || entry.rendererId !== event.sender.id) return;
-    entry.watcher.close();
-    appFileWatchers.delete(watchId);
-  });
-  ipcMain.removeHandler(IPC.appRuntime.fileOpenChild);
-  ipcMain.handle(IPC.appRuntime.fileOpenChild, async (event, input: unknown) => {
-    const { runtime, identity } = requireAppRenderer(event.sender.id);
-    if (!input || typeof input !== "object" || Array.isArray(input))
-      throw new Error("Child handle input must be an object.");
-    const { handleId, relativePath } = input as Record<string, unknown>;
-    if (
-      typeof handleId !== "string" ||
-      typeof relativePath !== "string" ||
-      !relativePath ||
-      Path.isAbsolute(relativePath)
-    ) {
-      throw new Error("Child handle requires a relative path.");
-    }
-    const parent = runtime.vault.resolveHandle(identity.appId, handleId, "directory");
-    const childPath = await FS.promises.realpath(Path.resolve(parent.path, relativePath));
-    const relative = Path.relative(parent.path, childPath);
-    if (relative === ".." || relative.startsWith(`..${Path.sep}`) || Path.isAbsolute(relative))
-      throw new Error("Child path escapes the selected directory.");
-    const stat = await FS.promises.stat(childPath);
-    const kind = stat.isDirectory() ? "directory" : stat.isFile() ? "file" : null;
-    if (!kind) throw new Error("Only regular files and directories can become App handles.");
-    return runtime.vault.addHandle(identity.appId, { kind, path: childPath });
-  });
-  ipcMain.removeHandler(IPC.appRuntime.fileRevoke);
-  ipcMain.handle(IPC.appRuntime.fileRevoke, async (event, handleId: unknown) => {
-    const { runtime, identity } = requireAppRenderer(event.sender.id);
-    if (typeof handleId !== "string") throw new Error("File handle ID must be a string.");
-    await runtime.vault.revokeHandle(identity.appId, handleId);
-  });
-  ipcMain.removeHandler(IPC.appRuntime.resourceOpen);
-  ipcMain.handle(IPC.appRuntime.resourceOpen, async (event, input: unknown) => {
-    const { runtime, identity } = requireAppRenderer(event.sender.id);
-    if (!identity.threadId) throw new Error("Only an interactive App tab can open a resource.");
-    if (!input || typeof input !== "object" || Array.isArray(input)) {
-      throw new Error("App open input must be an object.");
-    }
-    const record = input as Record<string, unknown>;
-    const fileInput = requireAppFileInput(input);
-    if (record.with !== undefined && (typeof record.with !== "string" || !record.with.trim())) {
-      throw new Error("App open with must be a non-empty App slug or system.");
-    }
-    const source = runtime.vault.resolveHandle(identity.appId, fileInput.handleId);
-    const path = await resolveExistingScopedPath(source, fileInput.relativePath);
-    const stats = await FS.promises.stat(path);
-    const kind = stats.isDirectory() ? "directory" : stats.isFile() ? "file" : null;
-    if (!kind) throw new Error("Only regular files and directories can be opened.");
-    const intent = kind === "directory" ? ("open-directory" as const) : ("open-file" as const);
-    const requestedApp = typeof record.with === "string" ? record.with : undefined;
-    const resolved =
-      requestedApp === "system"
-        ? null
-        : await resolvePathIntent({
-            intents: runtime.intents,
-            kind,
-            openWith: runtime.openWith,
-            path,
-            spaceId: identity.spaceId,
-            ...(requestedApp ? { requestedApp } : {}),
-          });
-    if (resolved && resolved.appId !== identity.appId) {
-      const handle = await runtime.vault.addHandle(resolved.appId, {
-        kind,
-        path,
-      });
-      const reusableTabId = findReusableResourceTab(runtime, {
-        appId: resolved.appId,
-        spaceId: identity.spaceId,
-        threadId: identity.threadId,
-        handleId: handle.id,
-      });
-      const result = await runtime.broker.invoke({
-        app: resolved.slug,
-        operation: resolved.operation,
-        input: { handleId: handle.id, kind: handle.kind, name: handle.name },
-        spaceId: identity.spaceId,
-        threadId: identity.threadId,
-        ...(reusableTabId ? { tabId: reusableTabId } : {}),
-        callerKind: "user",
-      });
-      rememberResourceTab(result, handle.id);
-      return { destination: "app", appId: resolved.appId, slug: resolved.slug };
-    }
-    const error = await shell.openPath(path);
-    if (error) throw new Error(error);
-    return { destination: "system" };
-  });
   ipcMain.removeHandler(IPC.appRuntime.browserCall);
   ipcMain.handle(IPC.appRuntime.browserCall, async (event, input: unknown) => {
     const { runtime, identity } = requireAppRenderer(event.sender.id);
@@ -5190,28 +4850,17 @@ function registerIpcHandlers(): void {
   ipcMain.removeHandler(IPC.appOpenWith.set);
   ipcMain.handle(IPC.appOpenWith.set, async (event, input: unknown) => {
     const record = parseOpenWithInput(input);
-    if (
-      record.intent !== "open-url" &&
-      record.intent !== "open-file" &&
-      record.intent !== "open-directory"
-    ) {
+    if (record.intent !== "open-url") {
       throw new Error("Open With intent is invalid.");
     }
     if (record.appId !== null && (typeof record.appId !== "string" || !record.appId.trim())) {
       throw new Error("Open With appId must be a non-empty string or null.");
-    }
-    if (
-      record.extension !== undefined &&
-      (typeof record.extension !== "string" || !record.extension.trim())
-    ) {
-      throw new Error("Open With extension must be a non-empty string when provided.");
     }
     const store = requireOpenWithStore(event.sender.id);
     const state = await store.set(
       record.spaceId as string,
       record.intent,
       record.appId as string | null,
-      typeof record.extension === "string" ? record.extension : undefined,
     );
     return state;
   });
@@ -5273,6 +4922,39 @@ function registerIpcHandlers(): void {
         });
     if (result.canceled) return null;
     return result.filePaths[0] ?? null;
+  });
+
+  ipcMain.removeHandler(IPC.pickImage);
+  ipcMain.handle(IPC.pickImage, async () => {
+    const owner = BrowserWindow.getFocusedWindow() ?? mainWindow;
+    const options = {
+      properties: ["openFile"] as Array<"openFile">,
+      filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg", "webp", "gif"] }],
+    };
+    const result = owner
+      ? await dialog.showOpenDialog(owner, options)
+      : await dialog.showOpenDialog(options);
+    const selectedPath = result.canceled ? null : (result.filePaths[0] ?? null);
+    if (!selectedPath) return null;
+
+    const extension = Path.extname(selectedPath).toLowerCase();
+    const mimeType =
+      extension === ".png"
+        ? "image/png"
+        : extension === ".webp"
+          ? "image/webp"
+          : extension === ".gif"
+            ? "image/gif"
+            : "image/jpeg";
+    const stats = await FS.promises.stat(selectedPath);
+    if (stats.size > 20 * 1024 * 1024) {
+      throw new Error("Folder icon source images may contain at most 20 MiB.");
+    }
+    return {
+      name: Path.basename(selectedPath),
+      mimeType,
+      bytes: new Uint8Array(await FS.promises.readFile(selectedPath)),
+    };
   });
 
   ipcMain.removeHandler(IPC.saveFile);

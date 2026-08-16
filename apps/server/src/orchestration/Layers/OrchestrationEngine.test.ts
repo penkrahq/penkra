@@ -121,7 +121,7 @@ describe("OrchestrationEngine", () => {
     await system.run(
       system.engine.dispatch({
         type: "project.create",
-        kind: "chat",
+        kind: "studio",
         commandId: CommandId.makeUnsafe("cmd-engine-quiesce-project"),
         projectId: asProjectId("project-engine-quiesce"),
         title: "Engine quiesce",
@@ -260,7 +260,7 @@ describe("OrchestrationEngine", () => {
     await system.run(
       engine.dispatch({
         type: "project.create",
-        kind: "chat",
+        kind: "studio",
         commandId: CommandId.makeUnsafe("cmd-project-1-create"),
         projectId: asProjectId("project-1"),
         title: "Project 1",
@@ -351,7 +351,7 @@ describe("OrchestrationEngine", () => {
     await system.run(
       engine.dispatch({
         type: "project.create",
-        kind: "chat",
+        kind: "studio",
         commandId: CommandId.makeUnsafe("cmd-managed-attachment-project"),
         projectId: asProjectId("project-managed-attachment"),
         title: "Managed attachment project",
@@ -480,7 +480,7 @@ describe("OrchestrationEngine", () => {
     await system.run(
       engine.dispatch({
         type: "project.create",
-        kind: "chat",
+        kind: "studio",
         commandId: CommandId.makeUnsafe("cmd-project-replay-create"),
         projectId: asProjectId("project-replay"),
         title: "Replay Project",
@@ -538,7 +538,7 @@ describe("OrchestrationEngine", () => {
     await system.run(
       engine.dispatch({
         type: "project.create",
-        kind: "chat",
+        kind: "studio",
         commandId: CommandId.makeUnsafe("cmd-project-stream-create"),
         projectId: asProjectId("project-stream"),
         title: "Stream Project",
@@ -599,7 +599,7 @@ describe("OrchestrationEngine", () => {
     await system.run(
       engine.dispatch({
         type: "project.create",
-        kind: "chat",
+        kind: "studio",
         commandId: CommandId.makeUnsafe("cmd-project-turn-diff-create"),
         projectId: asProjectId("project-turn-diff"),
         title: "Turn Diff Project",
@@ -717,7 +717,7 @@ describe("OrchestrationEngine", () => {
     await runtime.runPromise(
       engine.dispatch({
         type: "project.create",
-        kind: "chat",
+        kind: "studio",
         commandId: CommandId.makeUnsafe("cmd-project-flaky-create"),
         projectId: asProjectId("project-flaky"),
         title: "Flaky Project",
@@ -815,7 +815,7 @@ describe("OrchestrationEngine", () => {
     await runtime.runPromise(
       engine.dispatch({
         type: "project.create",
-        kind: "chat",
+        kind: "studio",
         commandId: CommandId.makeUnsafe("cmd-project-atomic-create"),
         projectId: asProjectId("project-atomic"),
         title: "Atomic Project",
@@ -1081,7 +1081,7 @@ describe("OrchestrationEngine", () => {
     await runtime.runPromise(
       engine.dispatch({
         type: "project.create",
-        kind: "chat",
+        kind: "studio",
         commandId: CommandId.makeUnsafe("cmd-project-sync-create"),
         projectId: asProjectId("project-sync"),
         title: "Sync Project",
@@ -1215,7 +1215,7 @@ describe("OrchestrationEngine", () => {
     await runtime.runPromise(
       engine.dispatch({
         type: "project.create",
-        kind: "chat",
+        kind: "studio",
         commandId: CommandId.makeUnsafe("cmd-project-deferred-recovery"),
         projectId: asProjectId("project-deferred-recovery"),
         title: "Deferred Recovery Project",
@@ -1435,7 +1435,7 @@ describe("OrchestrationEngine", () => {
     await system.run(
       engine.dispatch({
         type: "project.create",
-        kind: "chat",
+        kind: "studio",
         commandId: CommandId.makeUnsafe("cmd-project-duplicate-create"),
         projectId: asProjectId("project-duplicate"),
         title: "Duplicate Project",

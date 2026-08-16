@@ -1848,12 +1848,12 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
       };
 
       return Effect.tryPromise({
-        try: async () => {
+        try: async (signal) => {
           const resumeThreadId = codexResumeThreadId(input.resumeCursor);
           if (input.managedLaunch !== undefined && resumeThreadId !== null) {
             await prepareManagedCodexResume(input.managedLaunch, resumeThreadId);
           }
-          const session = await manager.startSession(managerInput);
+          const session = await manager.startSession(managerInput, signal);
           const nativeThreadId = codexResumeThreadId(session.resumeCursor);
           if (input.managedLaunch !== undefined) {
             if (nativeThreadId === null) {

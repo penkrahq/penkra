@@ -49,7 +49,7 @@ export function SpaceGroupShared({
       header={
         header ?? (
           <SpaceHeaderShared
-            actionLabel={`Create thread in ${label}`}
+            actionLabel={`Create folder in ${label}`}
             expanded={expanded}
             {...(onHeaderAction ? { onAction: onHeaderAction } : {})}
             {...(onHeaderContextMenu ? { onContextMenu: onHeaderContextMenu } : {})}

@@ -461,6 +461,7 @@ export function projectEvent(
             workspaceRoot: payload.workspaceRoot,
             defaultModelSelection: payload.defaultModelSelection,
             scripts: payload.scripts,
+            iconDataUrl: payload.iconDataUrl ?? null,
             isPinned: payload.isPinned ?? false,
             spaceId: payload.spaceId ?? null,
             sidebarSortOrder: payload.sidebarSortOrder ?? 0,
@@ -497,6 +498,9 @@ export function projectEvent(
                     ? { defaultModelSelection: payload.defaultModelSelection }
                     : {}),
                   ...(payload.scripts !== undefined ? { scripts: payload.scripts } : {}),
+                  ...(payload.iconDataUrl !== undefined
+                    ? { iconDataUrl: payload.iconDataUrl }
+                    : {}),
                   ...(payload.isPinned !== undefined ? { isPinned: payload.isPinned } : {}),
                   ...(payload.spaceId !== undefined ? { spaceId: payload.spaceId } : {}),
                   ...(payload.sidebarSortOrder !== undefined

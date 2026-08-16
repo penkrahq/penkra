@@ -27,6 +27,7 @@ export const ProjectionProject = Schema.Struct({
   workspaceRoot: Schema.NullOr(Schema.String),
   defaultModelSelection: Schema.NullOr(ModelSelection),
   scripts: Schema.Array(ProjectScript),
+  iconDataUrl: Schema.optional(Schema.NullOr(Schema.String)),
   isPinned: Schema.Boolean.pipe(Schema.withDecodingDefault(() => false)),
   spaceId: Schema.NullOr(SpaceId).pipe(Schema.withDecodingDefault(() => null)),
   sidebarSortOrder: Schema.optional(NonNegativeInt).pipe(Schema.withDecodingDefault(() => 0)),

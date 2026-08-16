@@ -45,6 +45,7 @@ export type ProjectNormalizationInput = Pick<
   | "workspaceRoot"
   | "defaultModelSelection"
   | "scripts"
+  | "iconDataUrl"
   | "isPinned"
   | "spaceId"
   | "sidebarSortOrder"
@@ -335,6 +336,7 @@ export function normalizeProject(
     previous.localName === localName &&
     previous.cwd === workspaceRoot &&
     previous.defaultModelSelection === defaultModelSelection &&
+    previous.iconDataUrl === (incoming.iconDataUrl ?? null) &&
     previous.expanded === expanded &&
     (previous.isPinned ?? false) === (incoming.isPinned ?? false) &&
     (previous.spaceId ?? null) === (incoming.spaceId ?? null) &&
@@ -355,6 +357,7 @@ export function normalizeProject(
     localName,
     cwd: workspaceRoot,
     defaultModelSelection,
+    iconDataUrl: incoming.iconDataUrl ?? null,
     expanded,
     isPinned: incoming.isPinned ?? false,
     spaceId: incoming.spaceId ?? null,

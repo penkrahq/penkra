@@ -48,7 +48,11 @@ layer("provider credential profile generation migration", (it) => {
       `;
 
       const executed = yield* runMigrations();
-      assert.deepStrictEqual(executed, [[119, "ProviderCredentialProfileGenerations"]]);
+      assert.deepStrictEqual(executed, [
+        [119, "ProviderCredentialProfileGenerations"],
+        [120, "DefaultSpaceFolders"],
+        [121, "FolderIcons"],
+      ]);
       const profiles = yield* sql<{
         readonly profileRef: string;
         readonly lifecycle: string;
@@ -138,6 +142,8 @@ queuedTurnEditActionLayer("queued turn edit action migration", (it) => {
         [117, "BackfillRestartTurnRecoveries"],
         [118, "CanonicalProviderConnectionIdentities"],
         [119, "ProviderCredentialProfileGenerations"],
+        [120, "DefaultSpaceFolders"],
+        [121, "FolderIcons"],
       ]);
       yield* sql`
         UPDATE queued_turn_promotions
@@ -465,10 +471,12 @@ managedAttachmentsLegacyLayer("managed attachment migration after private migrat
         [117, "BackfillRestartTurnRecoveries"],
         [118, "CanonicalProviderConnectionIdentities"],
         [119, "ProviderCredentialProfileGenerations"],
+        [120, "DefaultSpaceFolders"],
+        [121, "FolderIcons"],
       ]);
 
       const tracker = yield* trackerRows(sql);
-      assert.deepStrictEqual(tracker.slice(-56), [
+      assert.deepStrictEqual(tracker.slice(-58), [
         { migration_id: 54, name: "DurableProviderCommandDelivery" },
         { migration_id: 55, name: "ManagedAttachments" },
         { migration_id: 56, name: "CommandReceiptFingerprints" },
@@ -525,6 +533,8 @@ managedAttachmentsLegacyLayer("managed attachment migration after private migrat
         { migration_id: 117, name: "BackfillRestartTurnRecoveries" },
         { migration_id: 118, name: "CanonicalProviderConnectionIdentities" },
         { migration_id: 119, name: "ProviderCredentialProfileGenerations" },
+        { migration_id: 120, name: "DefaultSpaceFolders" },
+        { migration_id: 121, name: "FolderIcons" },
       ]);
       const preserved = yield* sql<{ readonly count: number }>`
         SELECT COUNT(*) AS count FROM orchestration_consumer_state
@@ -626,6 +636,8 @@ agentGatewayRetentionLegacyLayer(
           [117, "BackfillRestartTurnRecoveries"],
           [118, "CanonicalProviderConnectionIdentities"],
           [119, "ProviderCredentialProfileGenerations"],
+          [120, "DefaultSpaceFolders"],
+          [121, "FolderIcons"],
         ]);
 
         const columns = yield* sql<{ readonly name: string }>`
@@ -730,11 +742,13 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
         [117, "BackfillRestartTurnRecoveries"],
         [118, "CanonicalProviderConnectionIdentities"],
         [119, "ProviderCredentialProfileGenerations"],
+        [120, "DefaultSpaceFolders"],
+        [121, "FolderIcons"],
       ]);
 
       const tracker = yield* trackerRows(sql);
       assert.deepStrictEqual(
-        tracker.slice(-40).map((row) => [row.migration_id, row.name]),
+        tracker.slice(-42).map((row) => [row.migration_id, row.name]),
         [
           [70, "AgentGatewayOperations"],
           [71, "ProjectionThreadsGatewayProvenance"],
@@ -776,6 +790,8 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
           [117, "BackfillRestartTurnRecoveries"],
           [118, "CanonicalProviderConnectionIdentities"],
           [119, "ProviderCredentialProfileGenerations"],
+          [120, "DefaultSpaceFolders"],
+          [121, "FolderIcons"],
         ],
       );
 
@@ -877,11 +893,13 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
         [117, "BackfillRestartTurnRecoveries"],
         [118, "CanonicalProviderConnectionIdentities"],
         [119, "ProviderCredentialProfileGenerations"],
+        [120, "DefaultSpaceFolders"],
+        [121, "FolderIcons"],
       ]);
 
       const tracker = yield* trackerRows(sql);
       assert.deepStrictEqual(
-        tracker.slice(-37).map((row) => [row.migration_id, row.name]),
+        tracker.slice(-39).map((row) => [row.migration_id, row.name]),
         [
           [74, "Spaces"],
           [79, "Spaces"],
@@ -920,6 +938,8 @@ spacesMigrationCollisionLayer("Spaces migration after the private migration 70 c
           [117, "BackfillRestartTurnRecoveries"],
           [118, "CanonicalProviderConnectionIdentities"],
           [119, "ProviderCredentialProfileGenerations"],
+          [120, "DefaultSpaceFolders"],
+          [121, "FolderIcons"],
         ],
       );
       const preservedSpaces = yield* sql<{ readonly spaceId: string }>`

@@ -3828,7 +3828,7 @@ describe("ProviderCommandReactor", () => {
     });
   });
 
-  it("does not pass the Home chat container workspace root through as provider cwd", async () => {
+  it("does not invent a provider cwd for a virtual folder", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
 
@@ -3837,9 +3837,9 @@ describe("ProviderCommandReactor", () => {
         type: "project.create",
         commandId: CommandId.makeUnsafe("cmd-home-project-create"),
         projectId: asProjectId("project-home"),
-        kind: "chat",
         title: "Home",
-        workspaceRoot: "/Users/tester",
+        workspaceRoot: null,
+        spaceId: SpaceId.makeUnsafe("space-personal"),
         defaultModelSelection: {
           provider: "codex",
           model: "gpt-5-codex",

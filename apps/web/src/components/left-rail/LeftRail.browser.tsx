@@ -168,6 +168,26 @@ describe("Pencil left rail", () => {
     ).toBeLessThan(1);
   });
 
+  it("uses a custom folder image for both disclosure states", async () => {
+    const iconDataUrl = "data:image/webp;base64,Y3VzdG9t";
+    await render(
+      <FolderGroupShared
+        iconDataUrl={iconDataUrl}
+        label="Custom icon folder"
+        threads={threads.slice(0, 1)}
+      />,
+    );
+
+    const disclosure = page.getByRole("button", { name: "Custom icon folder" });
+    const image = disclosure.element().querySelector<HTMLImageElement>("img");
+    expect(image?.src).toBe(iconDataUrl);
+    expect(disclosure.element().querySelector("[data-folder-state='closed']")).toBeNull();
+    expect(disclosure.element().querySelector("[data-folder-state='open']")).toBeNull();
+
+    await disclosure.click();
+    expect(disclosure.element().querySelector<HTMLImageElement>("img")?.src).toBe(iconDataUrl);
+  });
+
   it("retains the last open rows until a pruned folder finishes closing", async () => {
     const renderFolder = (expanded: boolean) => (
       <FolderGroupShared
@@ -251,6 +271,53 @@ describe("Pencil left rail", () => {
     await page.getByText("Outside editor", { exact: true }).click();
     await expect.element(input).toHaveValue("Research");
     expect(onSubmit).toHaveBeenCalledWith("Research");
+  });
+
+  it("dismisses an empty inline folder draft without creating it", async () => {
+    const onCancel = vi.fn();
+    const onSubmit = vi.fn();
+    await render(
+      <>
+        <FolderRowInlineEdit
+          mode="create"
+          defaultValue=""
+          existingNames={[]}
+          onCancel={onCancel}
+          onSubmit={onSubmit}
+        />
+        <button type="button">Outside editor</button>
+      </>,
+    );
+
+    const input = page.getByRole("textbox", { name: "New folder name" });
+    await expect.element(input).toHaveAttribute("placeholder", "New folder");
+    await page.getByRole("button", { name: "Outside editor" }).click();
+
+    expect(onCancel).toHaveBeenCalledOnce();
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("creates a named inline folder draft on blur", async () => {
+    const onCancel = vi.fn();
+    const onSubmit = vi.fn();
+    await render(
+      <>
+        <FolderRowInlineEdit
+          mode="create"
+          defaultValue=""
+          existingNames={[]}
+          onCancel={onCancel}
+          onSubmit={onSubmit}
+        />
+        <button type="button">Outside editor</button>
+      </>,
+    );
+
+    await page.getByRole("textbox", { name: "New folder name" }).fill("Research");
+    await page.getByRole("button", { name: "Outside editor" }).click();
+
+    expect(onSubmit).toHaveBeenCalledWith("Research");
+    expect(onCancel).not.toHaveBeenCalled();
   });
 
   it("cancels inline thread editing on Escape", async () => {
@@ -349,7 +416,7 @@ describe("Pencil left rail", () => {
     });
   });
 
-  it("does not promote an active folder or reveal its create action", async () => {
+  it("highlights an active folder without revealing its create action", async () => {
     await render(
       <>
         <div className="w-56">
@@ -372,7 +439,7 @@ describe("Pencil left rail", () => {
     const folder = page.getByRole("button", { name: "Active folder", exact: true }).element();
     const action = page.getByRole("button", { name: "Create thread in Active folder" }).element();
 
-    expect(getComputedStyle(folder).backgroundColor).toBe("rgba(0, 0, 0, 0)");
+    expect(getComputedStyle(folder).backgroundColor).not.toBe("rgba(0, 0, 0, 0)");
     expect(getComputedStyle(action).opacity).toBe("0");
   });
 
@@ -394,7 +461,7 @@ describe("Pencil left rail", () => {
     expect(getComputedStyle(thread).backgroundColor).not.toBe("rgba(0, 0, 0, 0)");
   });
 
-  it("starts direct threads from Space headers rather than a global New chat row", async () => {
+  it("keeps thread creation inside folders rather than a global New chat row", async () => {
     await render(<SidebarTopNavigation />);
 
     expect(page.getByRole("button", { name: "New chat" }).query()).toBeNull();
@@ -500,7 +567,7 @@ describe("Pencil left rail", () => {
     );
 
     const row = page.getByRole("button", { name: "Personal", exact: true });
-    const action = page.getByRole("button", { name: "Create thread in Personal" });
+    const action = page.getByRole("button", { name: "Create folder in Personal" });
     await page.getByRole("button", { name: "Outside space" }).hover();
     const leading = row.element().querySelector<HTMLElement>("[data-slot='left-rail-leading']")!;
     const label = row.element().querySelector<HTMLElement>("[data-slot='left-rail-label']")!;

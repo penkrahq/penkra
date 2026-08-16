@@ -94,6 +94,8 @@ describe("BrowserSessionPolicy", () => {
     );
     expect(normalizedHeaders["user-agent"]).not.toMatch(/Electron|Penkra/iu);
     expect(normalizedHeaders["sec-ch-ua"]).not.toMatch(/Electron/iu);
+    expect(normalizedHeaders["sec-ch-ua"]).not.toContain("Google Chrome");
+    expect(normalizedHeaders["sec-ch-ua"]).toContain("Chromium");
     expect(normalizedHeaders["accept-language"]).toContain("en-US");
     for (const name of ["user-agent", "sec-ch-ua", "accept-language"]) {
       expect(Object.keys(headers).filter((key) => key.toLowerCase() === name)).toHaveLength(1);

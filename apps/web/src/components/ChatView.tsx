@@ -334,6 +334,7 @@ import {
   useDesktopTopBarWindowControlsGutterClassName,
 } from "~/hooks/useDesktopTopBarGutter";
 import { useNowMs } from "~/hooks/useNowMs";
+import { ChatPerformanceBoundary } from "~/chatPerformanceDiagnostics";
 import { ChatTranscriptPane } from "./chat/ChatTranscriptPane";
 import { ComposerDefault } from "./middle-panel/composer-default/ComposerDefault";
 import { ThreadScreen3Rails } from "./middle-panel/thread-screen-3-rails/ThreadScreen3Rails";
@@ -6573,6 +6574,14 @@ export default function ChatView({
       assistantDeliveryMode,
     ],
   );
+  const onEditUserMessageRef = useRef(onEditUserMessage);
+  useLayoutEffect(() => {
+    onEditUserMessageRef.current = onEditUserMessage;
+  }, [onEditUserMessage]);
+  const onEditUserMessageFromTranscript = useCallback(
+    (messageId: MessageId, text: string) => onEditUserMessageRef.current(messageId, text),
+    [],
+  );
 
   const onSendRef = useRef(onSend);
   // The queued dispatcher can run from the same commit's follow-up work, so do
@@ -8231,7 +8240,11 @@ export default function ChatView({
                   <PenkraMark aria-label="Penkra logo" className="size-8" />
                   <FolderPromptShared folderName={emptyLandingParentName} />
                   <div aria-hidden="true" className="h-[22px] w-full shrink-0" />
-                  <div className="w-full">{composerSection}</div>
+                  <div className="w-full">
+                    <ChatPerformanceBoundary surface="composer">
+                      {composerSection}
+                    </ChatPerformanceBoundary>
+                  </div>
                 </div>
               </ThreadScreenEmpty>
             ) : null}
@@ -8239,54 +8252,56 @@ export default function ChatView({
             {shouldRenderChatPaneContent && !isCenteredEmptyLanding ? (
               <div className="flex min-h-0 flex-1 flex-col">
                 <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
-                  <ChatTranscriptPane
-                    activeThreadId={activeThread.id}
-                    activeTurnId={activeThread.session?.activeTurnId ?? null}
-                    agentActivityDetail={openAgentActivityDetail}
-                    hasMessages={timelineEntries.length > 0}
-                    isWorking={showThinking}
-                    activeTurnInProgress={activeTurnInProgress}
-                    activeTurnStartedAt={activeWorkStartedAt}
-                    listRef={transcriptListRef}
-                    pinnedMessageIds={pinnedMessageIds}
-                    canPinMessage={CAN_PIN_ANY_MESSAGE}
-                    onTogglePinMessage={handleTogglePinMessageGuarded}
-                    threadMarkers={threadMarkers}
-                    enteringUserMessageIds={enteringUserMessageIds}
-                    crossTaskOrigin={crossTaskOrigin}
-                    timelineEntries={timelineEntries}
-                    turnDiffSummaryByAssistantMessageId={turnDiffSummaryByAssistantMessageId}
-                    onOpenThread={onNavigateToThread}
-                    subagentToolTraceByThreadId={subagentToolTraceByThreadId}
-                    revertTurnCountByUserMessageId={revertTurnCountByUserMessageId}
-                    onRevertUserMessage={onRevertUserMessage}
-                    onUndoTurnFiles={onUndoTurnFiles}
-                    onEditUserMessage={onEditUserMessage}
-                    isRevertingCheckpoint={isRevertingCheckpoint}
-                    onExpandTimelineImage={onExpandTimelineImage}
-                    followLiveOutput={hasStreamingAssistantText}
-                    onIsAtEndChange={onIsAtEndChange}
-                    markdownCwd={threadWorkspaceCwd ?? undefined}
-                    resolvedTheme={resolvedTheme}
-                    chatFontSizePx={settings.chatFontSizePx}
-                    timestampFormat={timestampFormat}
-                    workspaceRoot={threadWorkspaceCwd ?? undefined}
-                    emptyStateProjectName={activeProjectDisplayName}
-                    onMessagesScroll={onMessagesScroll}
-                    onMessagesClickCapture={onMessagesClickCapture}
-                    onMessagesMouseUp={onMessagesMouseUp}
-                    onMessagesWheel={onMessagesWheel}
-                    onMessagesPointerDown={onMessagesPointerDown}
-                    onMessagesPointerUp={onMessagesPointerUp}
-                    onMessagesPointerCancel={onMessagesPointerCancel}
-                    onMessagesTouchStart={onMessagesTouchStart}
-                    onMessagesTouchMove={onMessagesTouchMove}
-                    onMessagesTouchEnd={onMessagesTouchEnd}
-                    onOpenAgentActivity={setOpenAgentActivityId}
-                    onCloseAgentActivityDetail={closeAgentActivityDetail}
-                    scrollButtonVisible={showScrollToBottom}
-                    onScrollToBottom={onScrollToBottom}
-                  />
+                  <ChatPerformanceBoundary surface="transcript">
+                    <ChatTranscriptPane
+                      activeThreadId={activeThread.id}
+                      activeTurnId={activeThread.session?.activeTurnId ?? null}
+                      agentActivityDetail={openAgentActivityDetail}
+                      hasMessages={timelineEntries.length > 0}
+                      isWorking={showThinking}
+                      activeTurnInProgress={activeTurnInProgress}
+                      activeTurnStartedAt={activeWorkStartedAt}
+                      listRef={transcriptListRef}
+                      pinnedMessageIds={pinnedMessageIds}
+                      canPinMessage={CAN_PIN_ANY_MESSAGE}
+                      onTogglePinMessage={handleTogglePinMessageGuarded}
+                      threadMarkers={threadMarkers}
+                      enteringUserMessageIds={enteringUserMessageIds}
+                      crossTaskOrigin={crossTaskOrigin}
+                      timelineEntries={timelineEntries}
+                      turnDiffSummaryByAssistantMessageId={turnDiffSummaryByAssistantMessageId}
+                      onOpenThread={onNavigateToThread}
+                      subagentToolTraceByThreadId={subagentToolTraceByThreadId}
+                      revertTurnCountByUserMessageId={revertTurnCountByUserMessageId}
+                      onRevertUserMessage={onRevertUserMessage}
+                      onUndoTurnFiles={onUndoTurnFiles}
+                      onEditUserMessage={onEditUserMessageFromTranscript}
+                      isRevertingCheckpoint={isRevertingCheckpoint}
+                      onExpandTimelineImage={onExpandTimelineImage}
+                      followLiveOutput={hasStreamingAssistantText}
+                      onIsAtEndChange={onIsAtEndChange}
+                      markdownCwd={threadWorkspaceCwd ?? undefined}
+                      resolvedTheme={resolvedTheme}
+                      chatFontSizePx={settings.chatFontSizePx}
+                      timestampFormat={timestampFormat}
+                      workspaceRoot={threadWorkspaceCwd ?? undefined}
+                      emptyStateProjectName={activeProjectDisplayName}
+                      onMessagesScroll={onMessagesScroll}
+                      onMessagesClickCapture={onMessagesClickCapture}
+                      onMessagesMouseUp={onMessagesMouseUp}
+                      onMessagesWheel={onMessagesWheel}
+                      onMessagesPointerDown={onMessagesPointerDown}
+                      onMessagesPointerUp={onMessagesPointerUp}
+                      onMessagesPointerCancel={onMessagesPointerCancel}
+                      onMessagesTouchStart={onMessagesTouchStart}
+                      onMessagesTouchMove={onMessagesTouchMove}
+                      onMessagesTouchEnd={onMessagesTouchEnd}
+                      onOpenAgentActivity={setOpenAgentActivityId}
+                      onCloseAgentActivityDetail={closeAgentActivityDetail}
+                      scrollButtonVisible={showScrollToBottom}
+                      onScrollToBottom={onScrollToBottom}
+                    />
+                  </ChatPerformanceBoundary>
                 </div>
 
                 <div
@@ -8296,7 +8311,9 @@ export default function ChatView({
                     "pb-3 sm:pb-4",
                   )}
                 >
-                  {composerSection}
+                  <ChatPerformanceBoundary surface="composer">
+                    {composerSection}
+                  </ChatPerformanceBoundary>
                 </div>
               </div>
             ) : null}

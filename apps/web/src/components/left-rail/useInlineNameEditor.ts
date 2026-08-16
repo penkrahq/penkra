@@ -2,6 +2,7 @@ import { normalizeEntityName } from "@penkra/shared/entityNames";
 import { useEffect, useId, useRef, useState, type FocusEvent, type KeyboardEvent } from "react";
 
 export function useInlineNameEditor(input: {
+  cancelWhenEmpty?: boolean;
   defaultValue: string;
   emptyError?: string;
   existingNames?: ReadonlyArray<string>;
@@ -67,6 +68,10 @@ export function useInlineNameEditor(input: {
     rootRef,
     onBlur(event: FocusEvent<HTMLInputElement>) {
       if (rootRef.current?.contains(event.relatedTarget)) return;
+      if (input.cancelWhenEmpty && trimmedValue.length === 0) {
+        input.onCancel();
+        return;
+      }
       void submit();
     },
     onChange(nextValue: string) {
@@ -84,6 +89,10 @@ export function useInlineNameEditor(input: {
       if (event.key === "Enter") {
         event.preventDefault();
         event.stopPropagation();
+        if (input.cancelWhenEmpty && trimmedValue.length === 0) {
+          input.onCancel();
+          return;
+        }
         void submit();
       }
     },

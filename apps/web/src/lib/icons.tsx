@@ -33,6 +33,7 @@ import {
   IconFlag,
   IconFlask2,
   IconFolder,
+  IconFolderPlus,
   IconFolderOpen,
   IconHistory,
   IconInfoCircle,
@@ -173,6 +174,7 @@ export const FileIcon = adaptIcon(IconFile);
 export const FlagIcon = adaptIcon(IconFlag);
 export const FlaskConicalIcon = adaptIcon(IconFlask2);
 export const FolderIcon = adaptIcon(IconFolder);
+export const NewFolderIcon = adaptIcon(IconFolderPlus);
 export const FolderOpenIcon = adaptIcon(IconFolderOpen);
 // Stacked "folders" glyph used as the single representation of a file tree /
 // explorer surface (right-dock explorer, editor Files activity, diff file-tree

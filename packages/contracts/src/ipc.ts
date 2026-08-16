@@ -467,11 +467,7 @@ export interface DesktopInstalledApp {
   skills: ReadonlyArray<{ path: string }>;
   handlers: ReadonlyArray<
     | { intent: "open-url"; operation: string; schemes: ReadonlyArray<string> }
-    | {
-        intent: "open-file";
-        operation: string;
-        extensions: ReadonlyArray<string>;
-      }
+    | { intent: "open-file"; operation: string; extensions: ReadonlyArray<string> }
     | { intent: "open-directory"; operation: string }
   >;
 }
@@ -764,12 +760,10 @@ export interface DesktopAppDiagnosticsBridge {
   }) => Promise<ReadonlyArray<DesktopAppDiagnosticEntry>>;
 }
 
-export type DesktopAppOpenIntent = "open-url" | "open-file" | "open-directory";
+export type DesktopAppOpenIntent = "open-url";
 
 export interface DesktopAppOpenWithPreferences {
   "open-url"?: string;
-  "open-directory"?: string;
-  files: Readonly<Record<string, string>>;
 }
 
 export interface DesktopAppOpenWithBridge {
@@ -777,7 +771,6 @@ export interface DesktopAppOpenWithBridge {
   set: (input: {
     spaceId: string;
     intent: DesktopAppOpenIntent;
-    extension?: string;
     appId: string | null;
   }) => Promise<DesktopAppOpenWithPreferences>;
 }
@@ -859,6 +852,11 @@ export interface DesktopBridge {
    */
   getPathForFile?: (file: File) => string | null;
   pickFolder: () => Promise<string | null>;
+  pickImage?: () => Promise<{
+    name: string;
+    mimeType: string;
+    bytes: Uint8Array;
+  } | null>;
   saveFile?: (input: {
     defaultFilename: string;
     contents: string;
@@ -947,6 +945,11 @@ export interface DesktopBridge {
 export interface NativeApi {
   dialogs: {
     pickFolder: () => Promise<string | null>;
+    pickImage?: () => Promise<{
+      name: string;
+      mimeType: string;
+      bytes: Uint8Array;
+    } | null>;
     saveFile?: (input: {
       defaultFilename: string;
       contents: string;

@@ -1387,8 +1387,14 @@ describe("startSession", () => {
     ).reconcileConfiguredPluginsBeforeThreadOpen(context, "/workspace");
 
     expect(sendRequest.mock.calls).toEqual([
-      [context, "plugin/list", { cwds: ["/workspace"], marketplaceKinds: ["local"] }],
-      [context, "skills/list", { cwds: ["/workspace"], forceReload: true }],
+      [
+        context,
+        "plugin/list",
+        { cwds: ["/workspace"], marketplaceKinds: ["local"] },
+        undefined,
+        undefined,
+      ],
+      [context, "skills/list", { cwds: ["/workspace"], forceReload: true }, undefined, undefined],
     ]);
   });
 
@@ -1419,11 +1425,48 @@ describe("startSession", () => {
     ).reconcileConfiguredPluginsBeforeThreadOpen(context, "/workspace");
 
     expect(sendRequest.mock.calls).toEqual([
-      [context, "plugin/list", { cwds: ["/workspace"], marketplaceKinds: ["local"] }],
-      [context, "plugin/list", { cwds: ["/workspace"] }],
-      [context, "skills/list", { cwds: ["/workspace"], forceReload: true }],
-      [context, "skills/list", { cwd: "/workspace", forceReload: true }],
+      [
+        context,
+        "plugin/list",
+        { cwds: ["/workspace"], marketplaceKinds: ["local"] },
+        undefined,
+        undefined,
+      ],
+      [context, "plugin/list", { cwds: ["/workspace"] }, undefined, undefined],
+      [context, "skills/list", { cwds: ["/workspace"], forceReload: true }, undefined, undefined],
+      [context, "skills/list", { cwd: "/workspace", forceReload: true }, undefined, undefined],
     ]);
+  });
+
+  it("removes an in-flight startup request immediately when startup is cancelled", async () => {
+    const manager = new CodexAppServerManager();
+    const controller = new AbortController();
+    const context = {
+      nextRequestId: 1,
+      pending: new Map(),
+      stdinWriter: { write: vi.fn().mockResolvedValue(undefined) },
+    };
+
+    const request = (
+      manager as unknown as {
+        sendRequest: (
+          context: unknown,
+          method: string,
+          params: unknown,
+          timeoutMs: number,
+          signal: AbortSignal,
+        ) => Promise<unknown>;
+      }
+    ).sendRequest(context, "thread/resume", {}, 10_000, controller.signal);
+    await Promise.resolve();
+    expect(context.pending.size).toBe(1);
+
+    controller.abort();
+
+    await expect(request).rejects.toThrow(
+      "Cancelled thread/resume because Codex session startup was interrupted.",
+    );
+    expect(context.pending.size).toBe(0);
   });
 
   it("reports a missing project working directory instead of a missing Codex CLI", () => {

@@ -12,16 +12,24 @@ export interface FolderRowSharedProps extends Omit<
   "leading" | "trailing"
 > {
   expanded?: boolean;
+  iconDataUrl?: string | null;
   pinned?: boolean;
   actionLabel?: string;
   onAction?: (event: MouseEvent<HTMLButtonElement>) => void;
   workStatus?: WorkStatus;
 }
 
-export function FolderRowLeading(props: { expanded?: boolean; pinned?: boolean }) {
+export function FolderRowLeading(props: {
+  expanded?: boolean;
+  iconDataUrl?: string | null;
+  pinned?: boolean;
+}) {
   return (
     <span className="relative inline-flex size-3.5 items-center justify-center">
-      <FolderStateIcon open={props.expanded ?? false} />
+      <FolderStateIcon
+        open={props.expanded ?? false}
+        {...(props.iconDataUrl === undefined ? {} : { iconDataUrl: props.iconDataUrl })}
+      />
       {props.pinned ? <PinBadgeShared /> : null}
     </span>
   );
@@ -32,6 +40,7 @@ export function FolderRowShared({
   actionLabel,
   disabled,
   expanded = false,
+  iconDataUrl,
   onAction,
   pinned = false,
   state = "default",
@@ -51,10 +60,18 @@ export function FolderRowShared({
           showAction && onAction && "pr-9",
           state === "selected" &&
             "bg-[var(--color-background-button-secondary-active)] text-[var(--color-text-foreground)]",
+          state === "active" &&
+            "bg-[var(--color-background-button-secondary-hover)] text-[var(--color-text-foreground)]",
           (state === "focus" || state === "error") &&
             "bg-[var(--color-background-button-secondary-hover)] text-[var(--color-text-foreground)]",
         )}
-        leading={<FolderRowLeading expanded={expanded} pinned={pinned} />}
+        leading={
+          <FolderRowLeading
+            expanded={expanded}
+            pinned={pinned}
+            {...(iconDataUrl === undefined ? {} : { iconDataUrl })}
+          />
+        }
         leadingClassName="size-3.5"
         data-pinned={pinned ? "true" : undefined}
         data-work-status={workStatus}

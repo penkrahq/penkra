@@ -196,7 +196,7 @@ describe("validateAppManifest", () => {
     );
   });
 
-  it("validates intent handlers against declared operations and standard filters", () => {
+  it("validates URL handlers and accepts legacy file handlers for installed-package compatibility", () => {
     expect(
       validateAppManifest({
         ...validManifest,
@@ -204,6 +204,23 @@ describe("validateAppManifest", () => {
           ...validManifest.contributions,
           handlers: [
             { intent: "open-url", operation: "installations.install", schemes: ["https"] },
+          ],
+        },
+      }).ok,
+    ).toBe(true);
+
+    expect(
+      validateAppManifest({
+        ...validManifest,
+        contributions: {
+          ...validManifest.contributions,
+          handlers: [
+            {
+              intent: "open-file",
+              operation: "installations.install",
+              extensions: [".penkra-app"],
+            },
+            { intent: "open-directory", operation: "installations.install" },
           ],
         },
       }).ok,

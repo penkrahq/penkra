@@ -7,47 +7,6 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 export default Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
 
-  // Some development databases recorded migration 101 before this durable
-  // migration journal became part of its final schema. Establish the exact
-  // forward schema here, before ownership reads it, so an already-recorded
-  // migration is never assumed to have effects that are absent on disk.
-  yield* sql.unsafe(`
-    CREATE TABLE IF NOT EXISTS provider_native_state_migrations (
-      native_state_generation_id TEXT PRIMARY KEY,
-      thread_id TEXT NOT NULL UNIQUE,
-      harness_kind TEXT NOT NULL,
-      source_kind TEXT NOT NULL CHECK (source_kind = 'legacy-provider-profile'),
-      source_locator_json TEXT NOT NULL CHECK (json_valid(source_locator_json)),
-      migration_state TEXT NOT NULL CHECK (migration_state IN (
-        'pending', 'preserving', 'preserved', 'binding', 'bound', 'failed'
-      )),
-      failure_reason TEXT,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL,
-      CHECK (
-        (migration_state = 'failed' AND failure_reason IS NOT NULL) OR
-        (migration_state != 'failed' AND failure_reason IS NULL)
-      ),
-      FOREIGN KEY (thread_id) REFERENCES projection_threads(thread_id) ON DELETE CASCADE,
-      FOREIGN KEY (native_state_generation_id)
-        REFERENCES provider_native_state_generations(native_state_generation_id) ON DELETE RESTRICT
-    )
-  `);
-  yield* sql.unsafe(`
-    CREATE TRIGGER IF NOT EXISTS provider_native_state_migrations_immutable_identity
-    BEFORE UPDATE ON provider_native_state_migrations
-    WHEN
-      OLD.native_state_generation_id != NEW.native_state_generation_id OR
-      OLD.thread_id != NEW.thread_id OR
-      OLD.harness_kind != NEW.harness_kind OR
-      OLD.source_kind != NEW.source_kind OR
-      OLD.source_locator_json != NEW.source_locator_json OR
-      OLD.created_at != NEW.created_at
-    BEGIN
-      SELECT RAISE(ABORT, 'provider native-state migration identity is immutable');
-    END
-  `);
-
   const generationColumns = yield* sql<{ readonly name: string }>`
     PRAGMA table_info(provider_native_state_generations)
   `;
@@ -96,16 +55,6 @@ export default Effect.gen(function* () {
         WHERE generation_owners.generation_id = generation.native_state_generation_id
       )
   `);
-  yield* sql`
-    UPDATE provider_native_state_generations AS generation
-    SET owner_thread_id = (
-      SELECT migration.thread_id
-      FROM provider_native_state_migrations AS migration
-      WHERE migration.native_state_generation_id = generation.native_state_generation_id
-      LIMIT 1
-    )
-    WHERE owner_thread_id IS NULL
-  `;
   const unowned = yield* sql<{ readonly count: number }>`
     SELECT count(*) AS count
     FROM provider_native_state_generations

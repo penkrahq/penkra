@@ -4040,7 +4040,7 @@ engineLayer("OrchestrationProjectionPipeline via engine dispatch", (it) => {
     }),
   );
 
-  it.effect("projects persist updated scripts from project.meta.update", () =>
+  it.effect("projects persist updated metadata from project.meta.update", () =>
     Effect.gen(function* () {
       const engine = yield* OrchestrationEngineService;
       const sql = yield* SqlClient.SqlClient;
@@ -4074,6 +4074,7 @@ engineLayer("OrchestrationProjectionPipeline via engine dispatch", (it) => {
         type: "project.meta.update",
         commandId: CommandId.makeUnsafe("cmd-scripts-project-update"),
         projectId: ContainerId.makeUnsafe("project-scripts"),
+        iconDataUrl: "data:image/webp;base64,Y3VzdG9t",
         scripts: [
           {
             id: "script-1",
@@ -4094,11 +4095,13 @@ engineLayer("OrchestrationProjectionPipeline via engine dispatch", (it) => {
         readonly scriptsJson: string;
         readonly defaultModelSelection: string;
         readonly isPinned: number;
+        readonly iconDataUrl: string | null;
       }>`
         SELECT
           scripts_json AS "scriptsJson",
           default_model_selection_json AS "defaultModelSelection",
-          is_pinned AS "isPinned"
+          is_pinned AS "isPinned",
+          icon_data_url AS "iconDataUrl"
         FROM projection_projects
         WHERE project_id = 'project-scripts'
       `;
@@ -4108,6 +4111,7 @@ engineLayer("OrchestrationProjectionPipeline via engine dispatch", (it) => {
             '[{"id":"script-1","name":"Build","command":"bun run build","icon":"build","runOnWorktreeCreate":false}]',
           defaultModelSelection: '{"provider":"codex","model":"gpt-5"}',
           isPinned: 1,
+          iconDataUrl: "data:image/webp;base64,Y3VzdG9t",
         },
       ]);
     }),
@@ -4123,7 +4127,7 @@ engineLayer("OrchestrationProjectionPipeline via engine dispatch", (it) => {
 
       yield* engine.dispatch({
         type: "project.create",
-        kind: "chat",
+        kind: "studio",
         commandId: CommandId.makeUnsafe("cmd-routed-project"),
         projectId,
         title: "Routed telemetry",

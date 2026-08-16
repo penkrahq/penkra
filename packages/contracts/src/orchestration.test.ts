@@ -369,6 +369,27 @@ it.effect("decodes project.meta-updated payloads with explicit default provider"
   }),
 );
 
+it.effect("accepts bounded raster folder icons and rejects untrusted image data URLs", () =>
+  Effect.gen(function* () {
+    const iconDataUrl = "data:image/webp;base64,Y3VzdG9t";
+    const parsed = yield* decodeProjectMetaUpdatedPayload({
+      projectId: "project-1",
+      iconDataUrl,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+    assert.strictEqual(parsed.iconDataUrl, iconDataUrl);
+
+    const svg = yield* Effect.exit(
+      decodeProjectMetaUpdatedPayload({
+        projectId: "project-1",
+        iconDataUrl: "data:image/svg+xml;base64,PHN2Zy8+",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      }),
+    );
+    assert.strictEqual(svg._tag, "Failure");
+  }),
+);
+
 it.effect("rejects command fields that become empty after trim", () =>
   Effect.gen(function* () {
     const result = yield* Effect.exit(

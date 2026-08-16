@@ -26,6 +26,7 @@ export interface FolderGroupSharedProps {
   hasContent?: boolean;
   header?: ReactNode;
   headerState?: LeftRailRowState;
+  iconDataUrl?: string | null;
   label?: string;
   onExpandedChange?: (expanded: boolean) => void;
   onHeaderAction?: (event: MouseEvent<HTMLButtonElement>) => void;
@@ -45,6 +46,7 @@ export function FolderGroupShared({
   hasContent: hasContentProp,
   header,
   headerState = "default",
+  iconDataUrl,
   label = "penut",
   onExpandedChange,
   onHeaderAction,
@@ -81,6 +83,7 @@ export function FolderGroupShared({
             pinned={pinned}
             state={headerState}
             workStatus={workStatus}
+            {...(iconDataUrl === undefined ? {} : { iconDataUrl })}
             {...(hasContent ? { onClick: () => setExpanded(!expanded) } : {})}
             {...(onHeaderAction === undefined ? {} : { onAction: onHeaderAction })}
             {...(onHeaderContextMenu === undefined ? {} : { onContextMenu: onHeaderContextMenu })}

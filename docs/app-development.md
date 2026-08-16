@@ -70,16 +70,7 @@ rejected. `README.md` and `INSTRUCTIONS.md` must be nonempty UTF-8 documents.
       "output": { "type": "object" },
       "handler": "notes.open"
     }
-  ],
-  "contributions": {
-    "handlers": [
-      {
-        "intent": "open-file",
-        "operation": "notes.open",
-        "extensions": [".txt"]
-      }
-    ]
-  }
+  ]
 }
 ```
 
@@ -92,17 +83,8 @@ Operation keys are App-local dotted names such as `notes.open`; never prefix the
 Penkra presents the operation to an agent as `notes notes open`. Inputs and outputs are bounded JSON
 Schemas and are validated at the host boundary.
 
-Handler contributions are intentionally small:
-
-- `open-url` declares URL schemes.
-- `open-file` declares extensions such as `.pdf`, `.pen`, or `.txt`.
-- `open-directory` declares directory support.
-
-There are no filename, MIME, or generic-file selectors. If no App claims a file's exact extension,
-Penkra samples a bounded prefix. Valid UTF-8 without NUL bytes is resolved through the ordinary
-`.txt` handlers and `.txt` Open With preference. This covers `.env`, `Dockerfile`, `Makefile`, and
-unknown text formats without broadening the manifest. Exact specialized handlers always take
-precedence; an ambiguous exact match is not replaced by text fallback.
+`open-url` handler contributions may declare URL schemes. Local file and directory access does not
+use a Penkra handler or permission vocabulary; Apps use the browser's File System Access API.
 
 Settings and Skills are declarative contributions interpreted by the host. See the exported
 TypeScript declarations in `@penkra/sdk` for the authoritative field types and validators.
@@ -121,6 +103,33 @@ crosses explicit host capabilities so permissions, destination checks,
 attribution, credentials, and revocation stay enforceable. The current special permissions are
 `network-fetch`, `browser-session`, `simulator-session`, and `account-data`.
 
+### Files and directories
+
+Use the standard browser APIs and types directly: `showOpenFilePicker`, `showSaveFilePicker`,
+`showDirectoryPicker`, `FileSystemFileHandle`, and `FileSystemDirectoryHandle`. A picker is the
+user authorization boundary. Penkra permits Chromium to complete that native picker flow but does
+not add `penkra.files`, opaque path IDs, absolute-path access, ambient roots, or a second manifest
+permission.
+
+For a document whose relative asset URLs must resolve beside it, ask for the containing directory,
+then start the file picker in that directory and verify the returned file belongs to it:
+
+```js
+const root = await window.showDirectoryPicker({ mode: "read" });
+const [document] = await window.showOpenFilePicker({
+  startIn: root,
+  multiple: false,
+  types: [{ description: "Pencil document", accept: { "application/json": [".pen"] } }],
+});
+if (!(await root.resolve(document))) throw new Error("Choose a file inside the selected folder.");
+```
+
+Traverse relative assets with `getDirectoryHandle` and `getFileHandle`. If a required reference is
+missing, fail explicitly. Persist browser handles in the App's IndexedDB when restoration is useful;
+on restoration, inspect `queryPermission()` and require a new user gesture if permission is not
+already granted. Do not infer a parent directory, search neighboring folders, or fall back to a raw
+path API.
+
 The public `simulator-session` service lets an interactive App tab manage saved simulated devices,
 host their complete display/input surface, and return a standard Apple UDID or Android ADB serial.
 The host owns native tooling, loopback credentials, ports, process lifecycle, tab-close cleanup, and
@@ -136,18 +145,17 @@ Required permissions must be granted before enablement. Optional permissions are
 following a user action. Grants and revocation apply to one App in one Space. Standard browser
 permissions such as microphone and camera use host-intercepted browser permission flows.
 
-File access is handle-based. A handle authorizes only a user-selected or host-handed-off file or
-directory and validated descendants. The grant belongs to that App on the current Penkra device,
-so every tab and Space where the App is installed can reuse it without asking again. App secrets,
-settings, permissions, sessions, and installation remain scoped to a Space. Apps never receive
-ambient filesystem access. A hosted browser session can control only pages created for the calling
-App and Space. A hosted simulator session can control only saved devices and live sessions owned by
-the calling App and Space.
+File access is handle-based. A handle authorizes only a user-selected file or directory and its
+validated descendants. Store it in IndexedDB to reuse it in that App and Space; other Apps and
+Spaces have separate renderer storage and must obtain their own handles through a user-activated
+picker. Apps never receive ambient filesystem access. A hosted browser session can control only
+pages created for the calling App and Space. A hosted simulator session can control only saved
+devices and live sessions owned by the calling App and Space.
 
-Open With defaults are also device-wide. Penkra applies the selected handler when it is installed
-in the current Space; otherwise normal eligible-handler or operating-system fallback still applies.
+Open With applies only to declared URL handlers. Local paths always use the operating system;
+opening a path in an App requires that App's own browser-native picker.
 
-The runtime exposes scoped identity, settings, encrypted secrets, files, permissions, mediated
+The runtime exposes scoped identity, settings, encrypted secrets, permissions, mediated
 services, context menus, operations, and tab routing. Apps receive an installation-stable pairwise
 subject while the user is signed in and an opaque App/Space scope. Neither value is a portable
 Account credential. With the reviewed `account-data` permission, the host can make a request or

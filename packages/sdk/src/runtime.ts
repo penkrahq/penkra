@@ -46,31 +46,6 @@ export interface AppAccountRealtimeSubscriptionOptions {
   onConnectionStateChange?(state: AppAccountRealtimeConnectionState): void;
 }
 
-export interface AppFileHandle {
-  id: string;
-  kind: "file" | "directory";
-  name: string;
-}
-
-export interface AppFileMetadata {
-  name: string;
-  kind: "file" | "directory";
-  relativePath: string;
-  size: number;
-  modifiedAt: string;
-}
-
-export interface AppFileChangeEvent {
-  kind: "changed" | "renamed";
-  relativePath: string | null;
-}
-
-export interface AppOpenResult {
-  destination: "app" | "system";
-  appId?: string;
-  slug?: string;
-}
-
 export interface AppContextMenuItem<T extends string = string> {
   id: T;
   label: string;
@@ -130,8 +105,6 @@ export type AppTabNavigationHandler<Result = void> = (
 ) => Promise<Result> | Result;
 
 export interface PenkraAppRuntimeApi {
-  /** Open one authorized file or directory with another compatible App or the operating system. */
-  open(input: { handleId: string; relativePath?: string; with?: string }): Promise<AppOpenResult>;
   /** Show a native context menu at the current pointer position. */
   contextMenu: {
     show<T extends string>(items: ReadonlyArray<AppContextMenuItem<T>>): Promise<T | null>;
@@ -215,44 +188,6 @@ export interface PenkraAppRuntimeApi {
     set(name: string, value: string): Promise<void>;
     delete(name: string): Promise<void>;
   };
-  files: {
-    pick(kind: "file" | "directory"): Promise<AppFileHandle | null>;
-    list(): Promise<ReadonlyArray<AppFileHandle>>;
-    readText(handleId: string, relativePath?: string): Promise<string>;
-    writeText(handleId: string, contents: string, relativePath?: string): Promise<void>;
-    stat(handleId: string, relativePath?: string): Promise<AppFileMetadata>;
-    listDirectory(handleId: string, relativePath?: string): Promise<ReadonlyArray<AppFileMetadata>>;
-    readBinary(input: {
-      handleId: string;
-      relativePath?: string;
-      offset?: number;
-      length?: number;
-    }): Promise<{
-      bytes: Uint8Array;
-      offset: number;
-      totalBytes: number;
-      complete: boolean;
-    }>;
-    writeBinary(input: {
-      handleId: string;
-      relativePath?: string;
-      bytes: Uint8Array;
-    }): Promise<void>;
-    createDirectory(handleId: string, relativePath: string): Promise<AppFileMetadata>;
-    rename(
-      handleId: string,
-      relativePath: string,
-      nextRelativePath: string,
-    ): Promise<AppFileMetadata>;
-    remove(handleId: string, relativePath: string): Promise<void>;
-    watch(
-      handleId: string,
-      relativePath: string | undefined,
-      listener: (event: AppFileChangeEvent) => void,
-    ): Promise<() => void>;
-    openChild(handleId: string, relativePath: string): Promise<AppFileHandle>;
-    revoke(handleId: string): Promise<void>;
-  };
   network: {
     fetch(input: {
       url: string;
@@ -297,8 +232,6 @@ function runtime(): PenkraAppRuntimeApi {
   }
   return candidate;
 }
-
-export const open: PenkraAppRuntimeApi["open"] = (input) => runtime().open(input);
 
 export const contextMenu: PenkraAppRuntimeApi["contextMenu"] = {
   show: (items) => runtime().contextMenu.show(items),
@@ -381,27 +314,6 @@ export const secrets: PenkraAppRuntimeApi["secrets"] = {
   get: (name) => runtime().secrets.get(name),
   set: (name, value) => runtime().secrets.set(name, value),
   delete: (name) => runtime().secrets.delete(name),
-};
-
-export const files: PenkraAppRuntimeApi["files"] = {
-  pick: (kind) => runtime().files.pick(kind),
-  list: () => runtime().files.list(),
-  readText: (handleId, relativePath) => runtime().files.readText(handleId, relativePath),
-  writeText: (handleId, contents, relativePath) =>
-    runtime().files.writeText(handleId, contents, relativePath),
-  stat: (handleId, relativePath) => runtime().files.stat(handleId, relativePath),
-  listDirectory: (handleId, relativePath) => runtime().files.listDirectory(handleId, relativePath),
-  readBinary: (input) => runtime().files.readBinary(input),
-  writeBinary: (input) => runtime().files.writeBinary(input),
-  createDirectory: (handleId, relativePath) =>
-    runtime().files.createDirectory(handleId, relativePath),
-  rename: (handleId, relativePath, nextRelativePath) =>
-    runtime().files.rename(handleId, relativePath, nextRelativePath),
-  remove: (handleId, relativePath) => runtime().files.remove(handleId, relativePath),
-  watch: (handleId, relativePath, listener) =>
-    runtime().files.watch(handleId, relativePath, listener),
-  openChild: (handleId, relativePath) => runtime().files.openChild(handleId, relativePath),
-  revoke: (handleId) => runtime().files.revoke(handleId),
 };
 
 export const network: PenkraAppRuntimeApi["network"] = {

@@ -80,6 +80,16 @@ layer("100_ReconcileProviderConnectionSchema", (it) => {
 
       const executedNext = yield* runMigrations({ toMigrationInclusive: 101 });
       assert.deepInclude(executedNext, [101, "ExactProviderNativeStateMigration"]);
+      const retiredJournal = yield* sql<{ readonly name: string }>`
+        SELECT name
+        FROM sqlite_master
+        WHERE type IN ('table', 'trigger')
+          AND name IN (
+            'provider_native_state_migrations',
+            'provider_native_state_migrations_immutable_identity'
+          )
+      `;
+      assert.deepStrictEqual(retiredJournal, []);
     }),
   );
 });

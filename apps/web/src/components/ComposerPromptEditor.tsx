@@ -48,6 +48,10 @@ import {
 } from "react";
 
 import {
+  beginComposerInputMeasurement,
+  finishComposerInputProcessing,
+} from "~/chatPerformanceDiagnostics";
+import {
   clampCollapsedComposerCursor,
   collapseExpandedComposerCursor,
   expandCollapsedComposerCursor,
@@ -963,6 +967,7 @@ function ComposerPromptEditorInner({
     terminalContextIds: terminalContexts.map((context) => context.id),
   });
   const isApplyingControlledUpdateRef = useRef(false);
+  const pendingInputInteractionIdRef = useRef<number | null>(null);
 
   useEffect(() => {
     onChangeRef.current = onChange;
@@ -1143,6 +1148,9 @@ function ComposerPromptEditorInner({
   );
 
   const handleEditorChange = useCallback((editorState: EditorState) => {
+    const processingStartedAt = performance.now();
+    const interactionId = pendingInputInteractionIdRef.current;
+    pendingInputInteractionIdRef.current = null;
     editorState.read(() => {
       const selection = $getSelection();
       const selectionCollapsed = !$isRangeSelection(selection) || selection.isCollapsed();
@@ -1192,6 +1200,7 @@ function ComposerPromptEditorInner({
         terminalContextIds,
       );
     });
+    finishComposerInputProcessing(interactionId, processingStartedAt);
   }, []);
 
   return (
@@ -1211,6 +1220,9 @@ function ComposerPromptEditorInner({
               aria-placeholder={placeholder}
               placeholder={<span />}
               onPaste={onPaste}
+              onBeforeInput={() => {
+                pendingInputInteractionIdRef.current = beginComposerInputMeasurement();
+              }}
             />
           }
           placeholder={

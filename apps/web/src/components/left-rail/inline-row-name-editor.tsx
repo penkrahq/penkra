@@ -7,6 +7,7 @@ import { useInlineNameEditor } from "./useInlineNameEditor";
 
 export function InlineRowNameEditor(props: {
   ariaLabel: string;
+  cancelWhenEmpty?: boolean;
   className?: string;
   defaultValue: string;
   emptyError?: string;
@@ -16,6 +17,7 @@ export function InlineRowNameEditor(props: {
   onSubmit: (name: string) => Promise<void> | void;
   onValueChange?: (value: string) => void;
   pencilComponentId: string;
+  placeholder?: string;
   value?: string;
 }) {
   const editor = useInlineNameEditor(props);
@@ -43,6 +45,7 @@ export function InlineRowNameEditor(props: {
           onBlur={editor.onBlur}
           onChange={(event) => editor.onChange(event.target.value)}
           onKeyDown={editor.onKeyDown}
+          placeholder={props.placeholder}
           value={editor.value}
         />
         <span

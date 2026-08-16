@@ -19,12 +19,6 @@ layer("104_ProviderNativeStateOwnership", (it) => {
       const sql = yield* SqlClient.SqlClient;
       const timestamp = "2026-08-08T00:00:00.000Z";
       yield* runMigrations({ toMigrationInclusive: 103 });
-      // Reproduce the exact on-machine v101 lineage that recorded migration
-      // 101 before its durable migration journal existed.
-      yield* sql.unsafe(
-        `DROP TRIGGER IF EXISTS provider_native_state_migrations_immutable_identity`,
-      );
-      yield* sql.unsafe(`DROP TABLE IF EXISTS provider_native_state_migrations`);
       yield* sql`
         INSERT INTO projection_spaces (space_id, name, icon, sort_order, created_at, updated_at)
         VALUES ('cleanup-space', 'Personal', '', 0, ${timestamp}, ${timestamp})
@@ -63,11 +57,6 @@ layer("104_ProviderNativeStateOwnership", (it) => {
       `;
 
       yield* runMigrations({ toMigrationInclusive: 104 });
-      const migrationJournal = yield* sql<{ readonly name: string }>`
-        SELECT name FROM sqlite_master
-        WHERE type = 'table' AND name = 'provider_native_state_migrations'
-      `;
-      assert.deepStrictEqual(migrationJournal, [{ name: "provider_native_state_migrations" }]);
       yield* sql`DELETE FROM projection_threads WHERE thread_id = 'cleanup-thread'`;
 
       const rows = yield* sql<{

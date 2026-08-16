@@ -400,16 +400,23 @@ describe("Spaces", () => {
     ({ readModel } = await addThread({
       readModel,
       id: "root-thread",
-      projectId: ContainerId.makeUnsafe("chat-container"),
-      spaceId: personal,
+      projectId: ContainerId.makeUnsafe("folder"),
     }));
     ({ readModel } = await addThread({
       readModel,
       id: "child-thread",
-      projectId: ContainerId.makeUnsafe("chat-container"),
-      spaceId: personal,
+      projectId: ContainerId.makeUnsafe("folder"),
       parentThreadId: ThreadId.makeUnsafe("root-thread"),
     }));
+    // Simulate the legacy pre-migration shape; new commands can no longer create it.
+    readModel = {
+      ...readModel,
+      threads: readModel.threads.map((thread) => ({
+        ...thread,
+        projectId: ContainerId.makeUnsafe("chat-container"),
+        spaceId: personal,
+      })),
+    };
 
     const moved = await dispatch(readModel, {
       type: "sidebar.item.move",
@@ -425,6 +432,38 @@ describe("Spaces", () => {
       { id: "root-thread", projectId: "folder", spaceId: null },
       { id: "child-thread", projectId: "folder", spaceId: null },
     ]);
+  });
+
+  it("rejects creating or moving a thread directly under a Space", async () => {
+    const personal = SpaceId.makeUnsafe("personal");
+    let readModel = (await addSpace(createEmptyReadModel(CREATED_AT), personal, "Personal"))
+      .readModel;
+    ({ readModel } = await addChatContainer(readModel));
+    ({ readModel } = await addFolder(readModel, "folder", personal));
+
+    await expect(
+      addThread({
+        readModel,
+        id: "loose-thread",
+        projectId: ContainerId.makeUnsafe("chat-container"),
+        spaceId: personal,
+      }),
+    ).rejects.toThrow(/inside a folder/i);
+
+    ({ readModel } = await addThread({
+      readModel,
+      id: "filed-thread",
+      projectId: ContainerId.makeUnsafe("folder"),
+    }));
+    await expect(
+      dispatch(readModel, {
+        type: "sidebar.item.move",
+        commandId: CommandId.makeUnsafe("move-thread-to-space"),
+        item: { kind: "thread", id: ThreadId.makeUnsafe("filed-thread") },
+        target: { kind: "space", spaceId: personal },
+        position: { type: "pinned-boundary" },
+      }),
+    ).rejects.toThrow(/into a folder/i);
   });
 
   it("rejects positioning an unpinned item inside the pinned block", async () => {

@@ -63,6 +63,8 @@ export class BrowserSessionPolicy {
       const userAgent = this.resolveUserAgent();
       partitionSession.setUserAgent(userAgent);
 
+      // Keep request hints aligned with Chromium's navigator.userAgentData. Claiming a
+      // Google Chrome brand only in HTTP headers creates a detectable split identity.
       const clientHints = buildChromeClientHints(
         userAgent,
         resolveDesktopPlatformAdapter().platform,

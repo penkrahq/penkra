@@ -110,6 +110,15 @@ describe("AppSessionManager", () => {
     const permissionCallback = vi.fn();
     requestPermission({}, "notifications", permissionCallback);
     await vi.waitFor(() => expect(permissionCallback).toHaveBeenCalledWith(false));
+
+    expect(checkPermission({}, "fileSystem", "penkra-app://com.penkra.apps", {})).toBe(true);
+    const fileSystemCallback = vi.fn();
+    requestPermission({}, "fileSystem", fileSystemCallback, {
+      filePath: "/chosen/by/the/user",
+      isDirectory: true,
+      fileAccessType: "readable",
+    });
+    expect(fileSystemCallback).toHaveBeenCalledWith(true);
   });
 
   it("blocks direct remote requests while allowing only the assigned App origin", async () => {

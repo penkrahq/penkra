@@ -4776,7 +4776,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("opens Add project when the global New thread action has no usable project target", async () => {
+  it("starts an inline folder when the global New thread action has no usable folder target", async () => {
     useLatestProjectStore.setState({ latestProjectId: PROJECT_ID });
     const snapshot = withActiveHomeChatThread(
       createSnapshotForTargetUser({
@@ -4797,14 +4797,16 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await waitForNewThreadShortcutLabel();
       dispatchChatNewShortcut();
 
-      await expect.element(page.getByRole("heading", { name: "New folder" })).toBeInTheDocument();
+      await expect
+        .element(page.getByRole("textbox", { name: "New folder name" }))
+        .toBeInTheDocument();
       expect(mounted.router.state.location.pathname).toBe(initialPath);
     } finally {
       await mounted.cleanup();
     }
   });
 
-  it("does not open Add project before project hydration completes", async () => {
+  it("does not start an inline folder before project hydration completes", async () => {
     useLatestProjectStore.setState({ latestProjectId: PROJECT_ID });
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
@@ -4825,7 +4827,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await waitForLayout();
 
       await expect
-        .element(page.getByRole("heading", { name: "New folder" }))
+        .element(page.getByRole("textbox", { name: "New folder name" }))
         .not.toBeInTheDocument();
       expect(mounted.router.state.location.pathname).toBe(initialPath);
     } finally {
@@ -5226,7 +5228,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("creates a project from the sidebar Create Project dialog and shows it in the sidebar", async () => {
+  it("creates a folder inline from the sidebar and shows it in the sidebar", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
       snapshot: createSnapshotForTargetUser({
@@ -5238,10 +5240,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
     try {
       await waitForServerConfigToApply();
       dispatchAddProjectShortcut();
-      await expect.element(page.getByRole("heading", { name: "New folder" })).toBeInTheDocument();
-
-      await page.getByLabelText("Folder name").fill("New Project");
-      await page.getByRole("button", { name: "Create folder", exact: true }).click();
+      const folderInput = page.getByRole("textbox", { name: "New folder name" });
+      await expect.element(folderInput).toBeInTheDocument();
+      await folderInput.fill("New Project");
+      await userEvent.keyboard("{Enter}");
 
       await vi.waitFor(
         () => {
@@ -5263,10 +5265,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
         { timeout: 8_000, interval: 16 },
       );
 
-      // The dialog closes on success and the sidebar picks the project up from
-      // the refreshed shell snapshot.
+      // The inline draft closes on success and the sidebar picks the folder up
+      // from the refreshed shell snapshot.
       await expect
-        .element(page.getByRole("heading", { name: "New folder" }))
+        .element(page.getByRole("textbox", { name: "New folder name" }))
         .not.toBeInTheDocument();
       await expect
         .element(page.getByText("New Project", { exact: true }).first())
@@ -5276,90 +5278,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("creates a Space inline from the Create Project dialog and files the project into it", async () => {
-    const mounted = await mountChatView({
-      viewport: DEFAULT_VIEWPORT,
-      snapshot: createSnapshotForTargetUser({
-        targetMessageId: "msg-user-create-project-inline-space" as MessageId,
-        targetText: "create project inline space",
-      }),
-    });
-
-    const findDispatchedCommand = (type: string) =>
-      wsRequests
-        .map((request) =>
-          request._tag === ORCHESTRATION_WS_METHODS.dispatchCommand &&
-          "command" in request &&
-          request.command &&
-          typeof request.command === "object" &&
-          "type" in request.command &&
-          request.command.type === type
-            ? (request.command as Record<string, unknown>)
-            : null,
-        )
-        .findLast(Boolean);
-
-    try {
-      await waitForServerConfigToApply();
-      dispatchAddProjectShortcut();
-      await expect.element(page.getByRole("heading", { name: "New folder" })).toBeInTheDocument();
-
-      await page.getByRole("button", { name: "New space", exact: true }).click();
-      await expect.element(page.getByRole("heading", { name: "New space" })).toBeInTheDocument();
-      await page.getByRole("textbox", { name: "Name", exact: true }).fill("Focus");
-      await page.getByRole("button", { name: "Create space", exact: true }).click();
-
-      // The nested editor closes, the space.create command is dispatched, and
-      // the fresh space is preselected as the project's destination.
-      await expect
-        .element(page.getByRole("heading", { name: "New space" }))
-        .not.toBeInTheDocument();
-      let createdSpaceId: unknown;
-      await vi.waitFor(
-        () => {
-          const spaceCreateCommand = findDispatchedCommand("space.create");
-          expect(spaceCreateCommand).toBeDefined();
-          expect(spaceCreateCommand?.name).toBe("Focus");
-          createdSpaceId = spaceCreateCommand?.spaceId;
-        },
-        { timeout: 8_000, interval: 16 },
-      );
-      await expect.element(page.getByText("Focus", { exact: true }).first()).toBeInTheDocument();
-
-      await page.getByLabelText("Folder name").fill("Spaced Project");
-      await page.getByRole("button", { name: "Create folder", exact: true }).click();
-
-      await vi.waitFor(
-        () => {
-          const projectCreateCommand = wsRequests
-            .map((request) =>
-              request._tag === ORCHESTRATION_WS_METHODS.dispatchCommand &&
-              "command" in request &&
-              request.command &&
-              typeof request.command === "object" &&
-              "type" in request.command &&
-              request.command.type === "project.create"
-                ? (request.command as Record<string, unknown>)
-                : null,
-            )
-            .find((command) => command?.title === "Spaced Project");
-          expect(projectCreateCommand).toBeDefined();
-          expect(projectCreateCommand?.workspaceRoot).toBeNull();
-          expect(projectCreateCommand?.spaceId).toBe(createdSpaceId);
-        },
-        { timeout: 8_000, interval: 16 },
-      );
-    } finally {
-      await mounted.cleanup();
-    }
-  });
-
-  it("rolls back the provisional Space when project creation fails", async () => {
+  it("keeps the inline folder draft open when folder creation fails", async () => {
     const currentSpaceId = SpaceId.makeUnsafe("space-current");
-    const destinationSpaceId = SpaceId.makeUnsafe("space-destination");
     const baseSnapshot = createSnapshotForTargetUser({
-      targetMessageId: "msg-user-create-project-space-rollback" as MessageId,
-      targetText: "create project space rollback",
+      targetMessageId: "msg-user-create-folder-failure" as MessageId,
+      targetText: "create folder failure",
     });
     useSpacesUiStore.getState().setActiveSpaceId(currentSpaceId);
     const mounted = await mountChatView({
@@ -5372,16 +5295,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
             name: "Current",
             icon: "bag",
             sortOrder: 0,
-            createdAt: NOW_ISO,
-            updatedAt: NOW_ISO,
-            archivedAt: null,
-            deletedAt: null,
-          },
-          {
-            id: destinationSpaceId,
-            name: "Destination",
-            icon: "target",
-            sortOrder: 1,
             createdAt: NOW_ISO,
             updatedAt: NOW_ISO,
             archivedAt: null,
@@ -5413,30 +5326,16 @@ describe("ChatView timeline estimator parity (full app)", () => {
     try {
       await waitForServerConfigToApply();
       dispatchAddProjectShortcut();
-      await page.getByLabelText("Folder name").fill("Failing Project");
-      const spaceTrigger = await waitForElement(
-        () =>
-          document.querySelector<HTMLButtonElement>(
-            '[data-slot="dialog-popup"] [data-slot="select-trigger"]',
-          ),
-        "Unable to find the Create Project Space selector.",
-      );
-      spaceTrigger.click();
-      const destinationOption = await waitForElement(
-        () =>
-          Array.from(document.querySelectorAll<HTMLElement>('[data-slot="select-item"]')).find(
-            (item) => item.textContent?.trim() === "Destination",
-          ) ?? null,
-        "Unable to find the destination Space option.",
-      );
-      destinationOption.click();
-      await page.getByRole("button", { name: "Create folder", exact: true }).click();
+      const folderInput = page.getByRole("textbox", { name: "New folder name" });
+      await folderInput.fill("Failing Project");
+      await userEvent.keyboard("{Enter}");
 
       await expect
         .element(page.getByRole("alert"))
         .toHaveTextContent("Project creation failed for test.");
       expect(useSpacesUiStore.getState().activeSpaceId).toBe(currentSpaceId);
-      await expect.element(page.getByRole("heading", { name: "New folder" })).toBeInTheDocument();
+      await expect.element(folderInput).toBeInTheDocument();
+      await expect.element(folderInput).toHaveValue("Failing Project");
     } finally {
       useSpacesUiStore.getState().setActiveSpaceId(currentSpaceId);
       if (previousNativeApi) {

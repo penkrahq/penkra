@@ -1,24 +1,21 @@
 // FILE: appDataVault.ts
-// Purpose: Persists App-wide file handles and App/Space-scoped encrypted secrets.
+// Purpose: Persists App/Space-scoped encrypted secrets.
 // Layer: Trusted desktop App runtime
 
 import { randomUUID } from "node:crypto";
 import * as FS from "node:fs/promises";
 import * as Path from "node:path";
 
-const SCHEMA_VERSION = 2 as const;
+const SCHEMA_VERSION = 3 as const;
 const MAX_STATE_BYTES = 4 * 1024 * 1024;
 const SECRET_NAME = /^[a-z][a-z0-9-]{0,63}$/;
 
-type FileHandleRecord = { id: string; kind: "file" | "directory"; path: string; name: string };
 type VaultState = {
   schemaVersion: typeof SCHEMA_VERSION;
-  handlesByApp: Record<string, Record<string, FileHandleRecord>>;
   secretsByScope: Record<string, Record<string, string>>;
 };
-type LegacyVaultState = {
-  schemaVersion: 1;
-  handlesByScope: Record<string, Record<string, FileHandleRecord>>;
+type PreviousVaultState = {
+  schemaVersion: 1 | 2;
   secretsByScope: Record<string, Record<string, string>>;
 };
 
@@ -50,76 +47,6 @@ export class AppDataVault {
     return new AppDataVault(path, state, input);
   }
 
-  listHandles(appId: string): ReadonlyArray<Omit<FileHandleRecord, "path">> {
-    const unique = new Map<string, FileHandleRecord>();
-    for (const handle of Object.values(this.#state.handlesByApp[requireAppId(appId)] ?? {})) {
-      const key = `${handle.kind}\0${handle.path}`;
-      unique.set(key, unique.get(key) ?? handle);
-    }
-    return [...unique.values()].map(({ path: _path, ...handle }) => handle);
-  }
-
-  async addHandle(
-    appId: string,
-    input: { kind: "file" | "directory"; path: string },
-  ): Promise<Omit<FileHandleRecord, "path">> {
-    const absolute = await FS.realpath(Path.resolve(input.path));
-    const stat = await FS.stat(absolute);
-    if (
-      (input.kind === "file" && !stat.isFile()) ||
-      (input.kind === "directory" && !stat.isDirectory())
-    ) {
-      throw new Error(`The selected ${input.kind} is unavailable.`);
-    }
-    const key = requireAppId(appId);
-    const operation = this.#queue.then(async () => {
-      const existing = Object.values(this.#state.handlesByApp[key] ?? {}).find(
-        (candidate) => candidate.kind === input.kind && candidate.path === absolute,
-      );
-      if (existing) {
-        const { path: _path, ...publicHandle } = existing;
-        return publicHandle;
-      }
-      const handle: FileHandleRecord = {
-        id: randomUUID(),
-        kind: input.kind,
-        path: absolute,
-        name: Path.basename(absolute),
-      };
-      const next = structuredClone(this.#state);
-      next.handlesByApp[key] = { ...(next.handlesByApp[key] ?? {}), [handle.id]: handle };
-      await writeState(this.#path, next);
-      this.#state = next;
-      const { path: _path, ...publicHandle } = handle;
-      return publicHandle;
-    });
-    this.#queue = operation.then(
-      () => undefined,
-      () => undefined,
-    );
-    return operation;
-  }
-
-  resolveHandle(
-    appId: string,
-    handleId: string,
-    expected?: "file" | "directory",
-  ): FileHandleRecord {
-    const handle = this.#state.handlesByApp[requireAppId(appId)]?.[handleId];
-    if (!handle || (expected && handle.kind !== expected))
-      throw new Error("The App file handle is unavailable or revoked.");
-    return handle;
-  }
-
-  async revokeHandle(appId: string, handleId: string): Promise<void> {
-    await this.#mutate((state) => {
-      const key = requireAppId(appId);
-      const handles = { ...(state.handlesByApp[key] ?? {}) };
-      delete handles[handleId];
-      state.handlesByApp[key] = handles;
-    });
-  }
-
   async setSecret(appId: string, spaceId: string, name: string, value: string): Promise<void> {
     validateSecret(name, value);
     const encrypted = this.#encrypt(value).toString("base64");
@@ -148,7 +75,6 @@ export class AppDataVault {
   async erase(appId: string, spaceId?: string): Promise<void> {
     await this.#mutate((state) => {
       const normalizedAppId = requireAppId(appId);
-      if (spaceId === undefined) delete state.handlesByApp[normalizedAppId];
       for (const key of Object.keys(state.secretsByScope)) {
         if (
           key.startsWith(`${normalizedAppId}\0`) &&
@@ -202,35 +128,23 @@ async function readState(path: string): Promise<VaultState> {
     if (error.code === "ENOENT") return null;
     throw error;
   });
-  if (!bytes) return { schemaVersion: SCHEMA_VERSION, handlesByApp: {}, secretsByScope: {} };
+  if (!bytes) return { schemaVersion: SCHEMA_VERSION, secretsByScope: {} };
   if (bytes.byteLength > MAX_STATE_BYTES)
     throw new Error("App vault state exceeds its size limit.");
   const value = JSON.parse(bytes.toString("utf8")) as Record<string, unknown>;
-  if (value.schemaVersion === 1 && value.handlesByScope && value.secretsByScope) {
-    const migrated = migrateLegacyState(value as LegacyVaultState);
+  if ((value.schemaVersion === 1 || value.schemaVersion === 2) && value.secretsByScope) {
+    const migrated = migratePreviousState(value as PreviousVaultState);
     await writeState(path, migrated);
     return migrated;
   }
-  if (value.schemaVersion !== SCHEMA_VERSION || !value.handlesByApp || !value.secretsByScope) {
+  if (value.schemaVersion !== SCHEMA_VERSION || !value.secretsByScope) {
     throw new Error("App vault state is invalid.");
   }
   return value as VaultState;
 }
 
-function migrateLegacyState(state: LegacyVaultState): VaultState {
-  const handlesByApp: VaultState["handlesByApp"] = {};
-  for (const [key, handles] of Object.entries(state.handlesByScope)) {
-    const separator = key.indexOf("\0");
-    if (separator <= 0) throw new Error("App vault state is invalid.");
-    const appId = key.slice(0, separator);
-    const merged = (handlesByApp[appId] ??= {});
-    for (const handle of Object.values(handles)) {
-      // Preserve every legacy ID so an already-restored tab can still resolve its route. Public
-      // listing and future grants deduplicate by canonical kind/path.
-      merged[handle.id] ??= handle;
-    }
-  }
-  return { schemaVersion: SCHEMA_VERSION, handlesByApp, secretsByScope: state.secretsByScope };
+function migratePreviousState(state: PreviousVaultState): VaultState {
+  return { schemaVersion: SCHEMA_VERSION, secretsByScope: state.secretsByScope };
 }
 
 async function writeState(path: string, state: VaultState): Promise<void> {

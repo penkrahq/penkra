@@ -46,55 +46,6 @@ export interface AppPreloadTransport {
   secretGet(name: string): Promise<string | null>;
   secretSet(input: { name: string; value: string }): Promise<void>;
   secretDelete(name: string): Promise<void>;
-  filePick(kind: "file" | "directory"): Promise<import("@penkra/sdk").AppFileHandle | null>;
-  fileList(): Promise<ReadonlyArray<import("@penkra/sdk").AppFileHandle>>;
-  fileReadText(input: { handleId: string; relativePath?: string }): Promise<string>;
-  fileWriteText(input: {
-    handleId: string;
-    contents: string;
-    relativePath?: string;
-  }): Promise<void>;
-  fileStat(input: {
-    handleId: string;
-    relativePath?: string;
-  }): Promise<import("@penkra/sdk").AppFileMetadata>;
-  fileListDirectory(input: {
-    handleId: string;
-    relativePath?: string;
-  }): Promise<ReadonlyArray<import("@penkra/sdk").AppFileMetadata>>;
-  fileReadBinary(input: {
-    handleId: string;
-    relativePath?: string;
-    offset?: number;
-    length?: number;
-  }): Promise<{ bytes: Uint8Array; offset: number; totalBytes: number; complete: boolean }>;
-  fileWriteBinary(input: {
-    handleId: string;
-    relativePath?: string;
-    bytes: Uint8Array;
-  }): Promise<void>;
-  fileCreateDirectory(input: {
-    handleId: string;
-    relativePath: string;
-  }): Promise<import("@penkra/sdk").AppFileMetadata>;
-  fileRename(input: {
-    handleId: string;
-    relativePath: string;
-    nextRelativePath: string;
-  }): Promise<import("@penkra/sdk").AppFileMetadata>;
-  fileRemove(input: { handleId: string; relativePath: string }): Promise<void>;
-  fileWatch(
-    input: { handleId: string; relativePath?: string },
-    listener: (event: import("@penkra/sdk").AppFileChangeEvent) => void,
-  ): Promise<() => void>;
-  fileOpenChild(input: {
-    handleId: string;
-    relativePath: string;
-  }): Promise<import("@penkra/sdk").AppFileHandle>;
-  fileRevoke(handleId: string): Promise<void>;
-  resourceOpen(
-    input: Parameters<import("@penkra/sdk").PenkraAppRuntimeApi["open"]>[0],
-  ): ReturnType<import("@penkra/sdk").PenkraAppRuntimeApi["open"]>;
   browserCall(method: string, input?: unknown): Promise<unknown>;
   onBrowserState(
     listener: (state: import("@penkra/sdk").AppBrowserSessionState) => void,
@@ -134,7 +85,6 @@ export class AppPreloadRuntime {
   constructor(transport: AppPreloadTransport) {
     this.#transport = transport;
     this.api = {
-      open: (input) => this.#transport.resourceOpen(input),
       contextMenu: {
         show: (items) => this.#transport.showContextMenu(items),
       },
@@ -267,40 +217,6 @@ export class AppPreloadRuntime {
         get: (name) => this.#transport.secretGet(name),
         set: (name, value) => this.#transport.secretSet({ name, value }),
         delete: (name) => this.#transport.secretDelete(name),
-      },
-      files: {
-        pick: (kind) => this.#transport.filePick(kind),
-        list: () => this.#transport.fileList(),
-        readText: (handleId, relativePath) =>
-          this.#transport.fileReadText({ handleId, ...(relativePath ? { relativePath } : {}) }),
-        writeText: (handleId, contents, relativePath) =>
-          this.#transport.fileWriteText({
-            handleId,
-            contents,
-            ...(relativePath ? { relativePath } : {}),
-          }),
-        stat: (handleId, relativePath) =>
-          this.#transport.fileStat({ handleId, ...(relativePath ? { relativePath } : {}) }),
-        listDirectory: (handleId, relativePath) =>
-          this.#transport.fileListDirectory({
-            handleId,
-            ...(relativePath ? { relativePath } : {}),
-          }),
-        readBinary: (input) => this.#transport.fileReadBinary(input),
-        writeBinary: (input) => this.#transport.fileWriteBinary(input),
-        createDirectory: (handleId, relativePath) =>
-          this.#transport.fileCreateDirectory({ handleId, relativePath }),
-        rename: (handleId, relativePath, nextRelativePath) =>
-          this.#transport.fileRename({ handleId, relativePath, nextRelativePath }),
-        remove: (handleId, relativePath) => this.#transport.fileRemove({ handleId, relativePath }),
-        watch: (handleId, relativePath, listener) =>
-          this.#transport.fileWatch(
-            { handleId, ...(relativePath ? { relativePath } : {}) },
-            listener,
-          ),
-        openChild: (handleId, relativePath) =>
-          this.#transport.fileOpenChild({ handleId, relativePath }),
-        revoke: (handleId) => this.#transport.fileRevoke(handleId),
       },
       network: {
         fetch: (input) => this.#transport.networkFetch(input),

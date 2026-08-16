@@ -831,15 +831,23 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
   // first-class: skills/list returns them and turn/start `skill` items inject
   // their instructions. Verified live: skill items with paths outside known
   // roots are silently ignored by codex app-server, so this call is required.
-  private async registerPenkraSkillsRoot(context: CodexSessionContext): Promise<void> {
+  private async registerPenkraSkillsRoot(
+    context: CodexSessionContext,
+    signal?: AbortSignal,
+  ): Promise<void> {
     if (!this.penkraSkillsDir) {
       return;
     }
     try {
-      await this.sendRequest(context, "skills/extraRoots/set", {
-        extraRoots: [this.penkraSkillsDir],
-      });
+      await this.sendRequest(
+        context,
+        "skills/extraRoots/set",
+        { extraRoots: [this.penkraSkillsDir] },
+        undefined,
+        signal,
+      );
     } catch (error) {
+      if (signal?.aborted) throw error;
       // Older codex builds (< extra-roots support) keep working; Penkra-only
       // skills simply stay invisible to codex on those versions.
       log.warn("skills/extraRoots/set unavailable", { error });
@@ -855,18 +863,24 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
   private async reconcileConfiguredPluginsBeforeThreadOpen(
     context: CodexSessionContext,
     cwd: string,
+    signal?: AbortSignal,
   ): Promise<void> {
     try {
       try {
-        await this.sendRequest(context, "plugin/list", {
-          cwds: [cwd],
-          marketplaceKinds: ["local"],
-        });
+        await this.sendRequest(
+          context,
+          "plugin/list",
+          { cwds: [cwd], marketplaceKinds: ["local"] },
+          undefined,
+          signal,
+        );
       } catch (error) {
+        if (signal?.aborted) throw error;
         if (!shouldRetryPluginListWithoutMarketplaceKinds(error)) throw error;
-        await this.sendRequest(context, "plugin/list", { cwds: [cwd] });
+        await this.sendRequest(context, "plugin/list", { cwds: [cwd] }, undefined, signal);
       }
     } catch (error) {
+      if (signal?.aborted) throw error;
       if (isPluginListUnavailable(error)) {
         log.warn("Codex plugin reconciliation is unavailable in this runtime", { error });
         return;
@@ -875,20 +889,24 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     }
 
     try {
-      await this.sendRequest(context, "skills/list", {
-        cwds: [cwd],
-        forceReload: true,
-      });
+      await this.sendRequest(
+        context,
+        "skills/list",
+        { cwds: [cwd], forceReload: true },
+        undefined,
+        signal,
+      );
     } catch (error) {
+      if (signal?.aborted) throw error;
       if (!shouldRetrySkillsListWithCwdFallback(error)) throw error;
-      await this.sendRequest(context, "skills/list", {
-        cwd,
-        forceReload: true,
-      });
+      await this.sendRequest(context, "skills/list", { cwd, forceReload: true }, undefined, signal);
     }
   }
 
-  async startSession(input: CodexAppServerStartSessionInput): Promise<ProviderSession> {
+  async startSession(
+    input: CodexAppServerStartSessionInput,
+    signal?: AbortSignal,
+  ): Promise<ProviderSession> {
     const threadId = input.threadId;
     const now = new Date().toISOString();
     let context: CodexSessionContext | undefined;
@@ -967,19 +985,38 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
 
       this.emitLifecycleEvent(context, "session/connecting", "Starting codex app-server");
 
-      await this.sendRequest(context, "initialize", buildCodexInitializeParams());
+      await this.sendRequest(
+        context,
+        "initialize",
+        buildCodexInitializeParams(),
+        undefined,
+        signal,
+      );
 
       await this.writeMessage(context, { method: "initialized" });
-      await this.registerPenkraSkillsRoot(context);
-      await this.reconcileConfiguredPluginsBeforeThreadOpen(context, resolvedCwd);
+      await this.registerPenkraSkillsRoot(context, signal);
+      await this.reconcileConfiguredPluginsBeforeThreadOpen(context, resolvedCwd, signal);
       try {
-        const modelListResponse = await this.sendRequest(context, "model/list", {});
+        const modelListResponse = await this.sendRequest(
+          context,
+          "model/list",
+          {},
+          undefined,
+          signal,
+        );
         log.info("model/list response", { modelListResponse });
       } catch (error) {
+        if (signal?.aborted) throw error;
         log.warn("model/list failed", { error });
       }
       try {
-        const accountReadResponse = await this.sendRequest(context, "account/read", {});
+        const accountReadResponse = await this.sendRequest(
+          context,
+          "account/read",
+          {},
+          undefined,
+          signal,
+        );
         log.info("account/read response", { accountReadResponse });
         context.account = readCodexAccountSnapshot(accountReadResponse);
         log.info("subscription status", {
@@ -988,6 +1025,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
           sparkEnabled: context.account.sparkEnabled,
         });
       } catch (error) {
+        if (signal?.aborted) throw error;
         log.warn("account/read failed", { error });
       }
 
@@ -1036,7 +1074,8 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
           threadOpenResponse = await resumeCodexThreadWithoutHistoryReplay({
             threadId: resumeThreadId,
             sessionOverrides,
-            request: (params) => this.sendRequest(activeContext, "thread/resume", params),
+            request: (params) =>
+              this.sendRequest(activeContext, "thread/resume", params, undefined, signal),
           });
         } catch (error) {
           this.emitErrorEvent(
@@ -1054,7 +1093,13 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         }
       } else {
         threadOpenMethod = "thread/start";
-        threadOpenResponse = await this.sendRequest(context, "thread/start", threadStartParams);
+        threadOpenResponse = await this.sendRequest(
+          context,
+          "thread/start",
+          threadStartParams,
+          undefined,
+          signal,
+        );
       }
 
       let resumedActivity = inspectCodexThreadActivity(threadOpenResponse);
@@ -1070,10 +1115,13 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         if (!resumeThreadId) {
           throw new Error("Active thread/resume response is missing its requested thread id.");
         }
-        const activeThreadResponse = await this.sendRequest(context, "thread/read", {
-          threadId: resumeThreadId,
-          includeTurns: true,
-        });
+        const activeThreadResponse = await this.sendRequest(
+          context,
+          "thread/read",
+          { threadId: resumeThreadId, includeTurns: true },
+          undefined,
+          signal,
+        );
         resumedActivity = inspectCodexThreadActivity(activeThreadResponse);
       }
 
@@ -3208,25 +3256,50 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     method: string,
     params: unknown,
     timeoutMs = 20_000,
+    signal?: AbortSignal,
   ): Promise<TResponse> {
+    if (signal?.aborted) {
+      throw new Error(`Cancelled ${method} because Codex session startup was interrupted.`);
+    }
     const id = context.nextRequestId;
     context.nextRequestId += 1;
 
     const result = await new Promise<unknown>((resolve, reject) => {
+      const cleanup = () => {
+        clearTimeout(timeout);
+        signal?.removeEventListener("abort", onAbort);
+      };
+      const onAbort = () => {
+        context.pending.delete(String(id));
+        cleanup();
+        reject(new Error(`Cancelled ${method} because Codex session startup was interrupted.`));
+      };
       const timeout = setTimeout(() => {
         context.pending.delete(String(id));
+        signal?.removeEventListener("abort", onAbort);
         reject(new Error(`Timed out waiting for ${method}.`));
       }, timeoutMs);
 
       context.pending.set(String(id), {
         method,
         timeout,
-        resolve,
-        reject,
+        resolve: (value) => {
+          cleanup();
+          resolve(value);
+        },
+        reject: (error) => {
+          cleanup();
+          reject(error);
+        },
       });
+      signal?.addEventListener("abort", onAbort, { once: true });
+      if (signal?.aborted) {
+        onAbort();
+        return;
+      }
       void this.writeMessage(context, { method, id, params }).catch((error) => {
-        clearTimeout(timeout);
         context.pending.delete(String(id));
+        cleanup();
         reject(error);
       });
     });

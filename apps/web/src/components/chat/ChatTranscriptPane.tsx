@@ -5,6 +5,7 @@
 
 import { type MessageId, type ThreadId, type ThreadMarker, type TurnId } from "@penkra/contracts";
 import {
+  memo,
   type ComponentProps,
   type CSSProperties,
   type MouseEventHandler,
@@ -15,6 +16,7 @@ import {
   type WheelEventHandler,
 } from "react";
 import { type TimestampFormat } from "../../appSettings";
+import { recordChatTranscriptPropChanges } from "../../chatPerformanceDiagnostics";
 import { type TurnDiffSummary } from "../../types";
 import { ArrowDownIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
@@ -81,7 +83,7 @@ interface ChatTranscriptPaneProps {
   workspaceRoot: string | undefined;
 }
 
-export function ChatTranscriptPane({
+function ChatTranscriptPaneImpl({
   activeThreadId,
   activeTurnId,
   activeTurnInProgress,
@@ -245,3 +247,17 @@ export function ChatTranscriptPane({
     </div>
   );
 }
+
+// Composer state currently lives above this surface. Keep the transcript boundary
+// explicit so a compiler regression cannot turn prompt updates into transcript work.
+function chatTranscriptPanePropsEqual(
+  previous: ChatTranscriptPaneProps,
+  next: ChatTranscriptPaneProps,
+): boolean {
+  const keys = Object.keys({ ...previous, ...next }) as (keyof ChatTranscriptPaneProps)[];
+  const changedProps = keys.filter((key) => !Object.is(previous[key], next[key]));
+  recordChatTranscriptPropChanges(changedProps);
+  return changedProps.length === 0;
+}
+
+export const ChatTranscriptPane = memo(ChatTranscriptPaneImpl, chatTranscriptPanePropsEqual);

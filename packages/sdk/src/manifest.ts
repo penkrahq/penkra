@@ -83,11 +83,13 @@ export type AppHandlerDeclaration =
       operation: string;
       schemes: ReadonlyArray<string>;
     }
+  /** @deprecated Accepted so already-installed App packages remain loadable. */
   | {
       intent: "open-file";
       operation: string;
       extensions: ReadonlyArray<string>;
     }
+  /** @deprecated Accepted so already-installed App packages remain loadable. */
   | {
       intent: "open-directory";
       operation: string;
@@ -644,8 +646,9 @@ function validateHandlerContributions(
               "open-file handlers require non-empty dot-prefixed extensions.",
             );
           }
-          if (candidate.schemes !== undefined)
+          if (candidate.schemes !== undefined) {
             issue(issues, path, "invalid-format", "open-file handlers cannot declare URL schemes.");
+          }
         } else if (candidate.schemes !== undefined || candidate.extensions !== undefined) {
           issue(
             issues,

@@ -2,6 +2,7 @@ import { FolderRowLeading } from "../folder-row-shared/FolderRowShared";
 import { InlineRowNameEditor } from "../inline-row-name-editor";
 
 export interface FolderRowInlineEditProps {
+  mode?: "create" | "rename";
   defaultValue: string;
   existingNames: ReadonlyArray<string>;
   expanded?: boolean;
@@ -13,9 +14,11 @@ export interface FolderRowInlineEditProps {
 }
 
 export function FolderRowInlineEdit(props: FolderRowInlineEditProps) {
+  const mode = props.mode ?? "rename";
   return (
     <InlineRowNameEditor
-      ariaLabel="Rename folder"
+      ariaLabel={mode === "create" ? "New folder name" : "Rename folder"}
+      cancelWhenEmpty={mode === "create"}
       defaultValue={props.defaultValue}
       existingNames={props.existingNames}
       leading={
@@ -28,6 +31,7 @@ export function FolderRowInlineEdit(props: FolderRowInlineEditProps) {
       onSubmit={props.onSubmit}
       {...(props.onValueChange === undefined ? {} : { onValueChange: props.onValueChange })}
       pencilComponentId="L1fWoQ"
+      {...(mode === "create" ? { placeholder: "New folder" } : {})}
       {...(props.value === undefined ? {} : { value: props.value })}
     />
   );

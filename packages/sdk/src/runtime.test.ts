@@ -14,25 +14,6 @@ afterEach(() => {
   delete (globalThis as { penkra?: PenkraAppRuntimeApi }).penkra;
 });
 
-function createFilesMock(): PenkraAppRuntimeApi["files"] {
-  return {
-    pick: vi.fn(async () => null),
-    list: vi.fn(async () => []),
-    readText: vi.fn(),
-    writeText: vi.fn(),
-    stat: vi.fn(),
-    listDirectory: vi.fn(async () => []),
-    readBinary: vi.fn(),
-    writeBinary: vi.fn(),
-    createDirectory: vi.fn(),
-    rename: vi.fn(),
-    remove: vi.fn(),
-    watch: vi.fn(),
-    openChild: vi.fn(),
-    revoke: vi.fn(),
-  };
-}
-
 function createBrowserMock(): PenkraAppRuntimeApi["browser"] {
   return {
     open: vi.fn(),
@@ -84,7 +65,6 @@ function createSimulatorMock(): PenkraAppRuntimeApi["simulator"] {
 describe("framework-neutral App runtime exports", () => {
   it("forwards operation and tab registration to the preload-owned global API", async () => {
     const runtime: PenkraAppRuntimeApi = {
-      open: vi.fn(),
       contextMenu: { show: vi.fn(async () => null) },
       browser: createBrowserMock(),
       simulator: createSimulatorMock(),
@@ -100,7 +80,6 @@ describe("framework-neutral App runtime exports", () => {
         set: vi.fn(async () => undefined),
         delete: vi.fn(async () => undefined),
       },
-      files: createFilesMock(),
       network: { fetch: vi.fn() },
       permissions: {
         query: vi.fn(async (name) => ({
@@ -144,7 +123,6 @@ describe("framework-neutral App runtime exports", () => {
 
   it("forwards read-only permission inspection to the preload-owned API", async () => {
     const runtime: PenkraAppRuntimeApi = {
-      open: vi.fn(),
       contextMenu: { show: vi.fn(async () => null) },
       browser: createBrowserMock(),
       simulator: createSimulatorMock(),
@@ -163,7 +141,6 @@ describe("framework-neutral App runtime exports", () => {
         set: vi.fn(async () => undefined),
         delete: vi.fn(async () => undefined),
       },
-      files: createFilesMock(),
       network: { fetch: vi.fn() },
       permissions: {
         query: vi.fn(async (name) => ({

@@ -38,7 +38,10 @@ const asItemId = (value: string): ProviderItemId => ProviderItemId.makeUnsafe(va
 
 class FakeCodexManager extends CodexAppServerManager {
   public startSessionImpl = vi.fn(
-    async (input: CodexAppServerStartSessionInput): Promise<ProviderSession> => {
+    async (
+      input: CodexAppServerStartSessionInput,
+      _signal?: AbortSignal,
+    ): Promise<ProviderSession> => {
       const now = new Date().toISOString();
       return {
         provider: "codex",
@@ -116,8 +119,11 @@ class FakeCodexManager extends CodexAppServerManager {
     }),
   );
 
-  override startSession(input: CodexAppServerStartSessionInput): Promise<ProviderSession> {
-    return this.startSessionImpl(input);
+  override startSession(
+    input: CodexAppServerStartSessionInput,
+    signal?: AbortSignal,
+  ): Promise<ProviderSession> {
+    return this.startSessionImpl(input, signal);
   }
 
   override sendTurn(input: CodexAppServerSendTurnInput): Promise<ProviderTurnStartResult> {
@@ -468,6 +474,36 @@ validationLayer("CodexAdapterLive validation", (it) => {
         serviceTier: "fast",
         runtimeMode: "full-access",
       });
+    }),
+  );
+
+  it.effect("cancels native Codex startup when the adapter effect is interrupted", () =>
+    Effect.gen(function* () {
+      validationManager.startSessionImpl.mockClear();
+      let observedSignal: AbortSignal | undefined;
+      validationManager.startSessionImpl.mockImplementationOnce((_input, signal) => {
+        observedSignal = signal;
+        return new Promise<ProviderSession>((_resolve, reject) => {
+          signal?.addEventListener("abort", () => reject(new Error("native startup cancelled")), {
+            once: true,
+          });
+        });
+      });
+      const adapter = yield* CodexAdapter;
+      const fiber = yield* adapter
+        .startSession({
+          provider: "codex",
+          threadId: asThreadId("thread-cancel-start"),
+          runtimeMode: "full-access",
+        })
+        .pipe(Effect.forkChild);
+
+      yield* Effect.yieldNow;
+      yield* Fiber.interrupt(fiber);
+
+      assert.equal(validationManager.startSessionImpl.mock.calls.length, 1);
+      assert.equal(observedSignal?.aborted, true);
+      validationManager.startSessionImpl.mockClear();
     }),
   );
 });

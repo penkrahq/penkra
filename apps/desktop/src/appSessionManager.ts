@@ -181,6 +181,10 @@ function configureAppSession(
   partitionSession.on("will-download", (event) => event.preventDefault());
   partitionSession.setPermissionCheckHandler((_webContents, permission, _origin, details) => {
     if (permission === "clipboard-sanitized-write") return true;
+    // File System Access handles are granted by Chromium only after the user
+    // chooses the exact file or directory in the native picker. Penkra does not
+    // add a second permission vocabulary on top of that standard flow.
+    if (permission === "fileSystem") return true;
     const requested = standardPermissionNames(permission, details);
     return (
       requested.length > 0 &&
@@ -189,6 +193,7 @@ function configureAppSession(
   });
   partitionSession.setPermissionRequestHandler((_webContents, permission, callback, details) => {
     if (permission === "clipboard-sanitized-write") return callback(true);
+    if (permission === "fileSystem") return callback(true);
     const requested = standardPermissionNames(permission, details);
     if (requested.length === 0) return callback(false);
     if (requested.every((name) => input.getPermission(input.appId, input.spaceId, name)))

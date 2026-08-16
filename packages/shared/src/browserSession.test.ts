@@ -42,15 +42,28 @@ describe("chromeMajorVersionFromUserAgent", () => {
 });
 
 describe("buildChromeClientHints", () => {
-  it("builds a Chrome-matching sec-ch-ua brand list per platform", () => {
+  it("builds a navigator.userAgentData-matching Chromium brand list per platform", () => {
     const derived = deriveChromeUserAgent(ELECTRON_UA, ["Penkra"]);
     expect(buildChromeClientHints(derived, "darwin")).toEqual({
-      "sec-ch-ua": '"Chromium";v="124", "Google Chrome";v="124", "Not=A?Brand";v="24"',
+      "sec-ch-ua": '"Not-A.Brand";v="99", "Chromium";v="124"',
       "sec-ch-ua-mobile": "?0",
       "sec-ch-ua-platform": '"macOS"',
     });
     expect(buildChromeClientHints(derived, "win32")?.["sec-ch-ua-platform"]).toBe('"Windows"');
     expect(buildChromeClientHints(derived, "linux")?.["sec-ch-ua-platform"]).toBe('"Linux"');
+  });
+
+  it("matches Chromium's GREASE value and ordering for the embedded major version", () => {
+    const currentUa =
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/144.0.7559.236 Safari/537.36";
+    expect(buildChromeClientHints(currentUa, "darwin")?.["sec-ch-ua"]).toBe(
+      '"Not(A:Brand";v="8", "Chromium";v="144"',
+    );
+
+    const oddMajorUa = currentUa.replace("Chrome/144.", "Chrome/145.");
+    expect(buildChromeClientHints(oddMajorUa, "darwin")?.["sec-ch-ua"]).toBe(
+      '"Chromium";v="145", "Not:A-Brand";v="99"',
+    );
   });
 
   it("returns null when the Chrome version can't be parsed", () => {

@@ -1,6 +1,6 @@
 import type { ComponentProps, MouseEvent } from "react";
 
-import { ChevronDownIcon, ChevronRightIcon, NewThreadIcon } from "~/lib/icons";
+import { ChevronDownIcon, ChevronRightIcon, NewFolderIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
 
 import { LeftRailRow } from "../row-shared/LeftRailRow";
@@ -56,7 +56,7 @@ export function SpaceHeaderShared({
       </LeftRailRow>
       {onAction ? (
         <button
-          aria-label={actionLabel ?? `Create thread in ${label}`}
+          aria-label={actionLabel ?? `Create folder in ${label}`}
           className={cn(
             "absolute top-1/2 right-2.5 inline-flex size-3.5 -translate-y-1/2 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-[var(--color-text-foreground-secondary)] opacity-0 outline-none transition-[opacity,color] duration-[140ms] ease-out",
             "group-hover/space-header:opacity-100 group-has-[:focus-visible]/space-header:opacity-100 hover:text-[var(--color-text-foreground)] focus-visible:opacity-100 focus-visible:ring-1 focus-visible:ring-[var(--color-border-focus)]",
@@ -68,7 +68,7 @@ export function SpaceHeaderShared({
           }}
           type="button"
         >
-          <NewThreadIcon className="size-3.5" />
+          <NewFolderIcon className="size-3.5" />
         </button>
       ) : null}
     </div>

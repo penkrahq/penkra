@@ -22,7 +22,6 @@ import { resolveThreadWorkspaceCwd } from "@penkra/shared/threadEnvironment";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate, useParams } from "@tanstack/react-router";
 import {
-  Fragment,
   Suspense,
   lazy,
   useCallback,
@@ -64,7 +63,6 @@ import {
   threadJumpIndexFromCommand,
 } from "../keybindings";
 import { useLatestProjectStore } from "../latestProjectStore";
-import { isHomeChatContainerProject, prewarmHomeChatProject } from "../lib/chatProjects";
 import { reconcileDeletedThreadsFromClient } from "../lib/deletedThreadClientReconciliation";
 import { waitForRecoverableProjectInReadModel } from "../lib/projectCreateRecovery";
 import { deleteProjectFromClient } from "../lib/projectDelete";
@@ -85,6 +83,7 @@ import {
 import { serverConfigQueryOptions } from "../lib/serverReactQuery";
 import { activeSpaceDisplayNameForReference, resolveActiveSpaceId } from "../lib/spaceGrouping";
 import { moveSidebarItem, resolveSidebarMovePosition } from "../lib/sidebarOrdering";
+import { SquareImageError, compressSquareImage } from "../lib/squareImage";
 import { archiveSpace, isOrdinarySpaceProject } from "../lib/spaces";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import { dispatchThreadRename } from "../lib/threadRename";
@@ -112,7 +111,6 @@ import { useWorkspacePathsStore } from "../workspacePathsStore";
 import { useVoiceSessionCoordinatorStore } from "../voiceSessionCoordinator";
 import { subscribeToSpaceUiActions } from "../spaceUiEvents";
 import { shouldRenderTerminalWorkspace } from "./ChatView.logic";
-import { CreateProjectDialog, type CreateProjectSubmitValue } from "./CreateProjectDialog";
 import {
   DEBUG_FEATURE_FLAGS_MENU_STORAGE_KEY,
   buildProjectThreadTree,
@@ -252,6 +250,8 @@ type ProjectContextMenuId =
   | "stop-dev"
   | "open-dev-server"
   | "rename"
+  | "set-icon"
+  | "remove-icon"
   | "toggle-pin"
   | "archive-threads"
   | "delete-threads"
@@ -477,10 +477,12 @@ export default function Sidebar() {
     ...serverConfigQueryOptions(),
     select: (config) => config.cwd ?? null,
   });
-  const { activeProjectId: focusedProjectId } = useFocusedChatContext();
+  const { activeDraftThread, activeProjectId: focusedProjectId } = useFocusedChatContext();
   const latestProjectId = useLatestProjectStore((state) => state.latestProjectId);
-  const [createProjectDialogOpen, setCreateProjectDialogOpen] = useState(false);
+  const [creatingFolderSpaceId, setCreatingFolderSpaceId] = useState<SpaceId | null>(null);
   const [searchPaletteOpen, setSearchPaletteOpen] = useState(false);
+  const folderIconInputRef = useRef<HTMLInputElement>(null);
+  const folderIconTargetProjectIdRef = useRef<ContainerId | null>(null);
   const openFeedbackDialog = useFeedbackDialogStore((state) => state.openDialog);
   const [searchPaletteMode, setSearchPaletteMode] = useState<SidebarSearchPaletteMode>("search");
   const inlineRenameEditor = useSidebarInlineRenameStore((state) => state.editor);
@@ -495,6 +497,19 @@ export default function Sidebar() {
   >(() => new Map(Object.entries(readSidebarUiState().projectThreadListExtraPagesByCwd)));
   const [collapsedSpaceIds, setCollapsedSpaceIds] = useState<ReadonlySet<string>>(
     () => new Set(readSidebarUiState().collapsedSpaceIds),
+  );
+  const openInlineFolderCreator = useCallback(
+    (spaceId: SpaceId | null = activeSpaceId) => {
+      if (!spaceId) return;
+      setCreatingFolderSpaceId(spaceId);
+      setCollapsedSpaceIds((current) => {
+        if (!current.has(spaceId)) return current;
+        const next = new Set(current);
+        next.delete(spaceId);
+        return next;
+      });
+    },
+    [activeSpaceId],
   );
   const [chatThreadListExtraPages, setChatThreadListExtraPages] = useState(
     () => readSidebarUiState().chatThreadListExtraPages,
@@ -901,16 +916,8 @@ export default function Sidebar() {
     [focusMostRecentThreadForProject, handleNewThread, sidebarThreads],
   );
 
-  useEffect(() => {
-    if (!threadsHydrated || !homeDir) {
-      return;
-    }
-    prewarmHomeChatProject({ homeDir, chatWorkspaceRoot });
-  }, [chatWorkspaceRoot, homeDir, threadsHydrated]);
-
-  // Opens a fresh home-chat draft directly on the draft thread route so the first send
-  // does not need a second route swap from "/" to "/$threadId".
-  const handleCreateHomeChat = useCallback(
+  // Opens a fresh draft in the Space's default folder.
+  const handleCreateSpaceThread = useCallback(
     async (spaceId: SpaceId) => {
       await handleNewChat({ fresh: true, spaceId });
     },
@@ -918,8 +925,8 @@ export default function Sidebar() {
   );
 
   const handleStartAddProject = useCallback(() => {
-    setCreateProjectDialogOpen(true);
-  }, []);
+    openInlineFolderCreator();
+  }, [openInlineFolderCreator]);
 
   const activeSpaceProjects = useMemo(
     () => ordinarySpaceProjects.filter((project) => (project.spaceId ?? null) === activeSpaceId),
@@ -1138,6 +1145,45 @@ export default function Sidebar() {
       title,
     });
   }, []);
+
+  const updateFolderIcon = useCallback(
+    async (projectId: ContainerId, iconDataUrl: string | null) => {
+      const api = readNativeApi();
+      if (!api) throw new Error("Folder icon editing is unavailable while disconnected.");
+      await api.orchestration.dispatchCommand({
+        type: "project.meta.update",
+        commandId: newCommandId(),
+        projectId,
+        iconDataUrl,
+      });
+    },
+    [],
+  );
+
+  const handleFolderIconFile = useCallback(
+    async (file: File | undefined) => {
+      const projectId = folderIconTargetProjectIdRef.current;
+      if (!file || !projectId) return;
+      try {
+        const iconDataUrl = await compressSquareImage(file, {
+          maxEdge: 64,
+          quality: 0.84,
+          maxDataUrlLength: 100_000,
+        });
+        await updateFolderIcon(projectId, iconDataUrl);
+      } catch (error) {
+        toastManager.add({
+          type: "error",
+          title: "Unable to add folder icon",
+          description:
+            error instanceof SquareImageError || error instanceof Error
+              ? error.message
+              : "The selected image could not be processed.",
+        });
+      }
+    },
+    [updateFolderIcon],
+  );
 
   const { prewarmThreadDetail: prewarmThreadDetailForIntent } = useThreadDetailPrewarm();
 
@@ -1458,7 +1504,6 @@ export default function Sidebar() {
       const expanded = !collapsedSpaceIds.has(space.id);
       const clicked = await api.contextMenu.show(
         [
-          { id: "new-thread", label: `New thread in ${space.name}` },
           { id: "add-folder", label: `Add folder to ${space.name}` },
           { id: "rename", label: "Rename space", separatorBefore: true },
           {
@@ -1469,14 +1514,9 @@ export default function Sidebar() {
         ],
         { x: event.clientX, y: event.clientY },
       );
-      if (clicked === "new-thread") {
-        handleSelectSpace(space.id);
-        await handleCreateHomeChat(space.id);
-        return;
-      }
       if (clicked === "add-folder") {
         handleSelectSpace(space.id);
-        setCreateProjectDialogOpen(true);
+        openInlineFolderCreator(space.id);
         return;
       }
       if (clicked === "rename") {
@@ -1496,10 +1536,10 @@ export default function Sidebar() {
         });
       }
     },
-    [collapsedSpaceIds, handleCreateHomeChat, handleSelectSpace, openSpaceEditor],
+    [collapsedSpaceIds, handleSelectSpace, openInlineFolderCreator, openSpaceEditor],
   );
   const handleCreateProjectSubmit = useCallback(
-    async (value: CreateProjectSubmitValue) => {
+    async (value: { readonly name: string; readonly spaceId: SpaceId }) => {
       const previousSpaceId = activeSpaceId;
       const api = readNativeApi();
       if (!api) throw new Error("The app server is unavailable.");
@@ -1589,6 +1629,26 @@ export default function Sidebar() {
         startFolderInlineRename(projectId, project.name);
         return;
       }
+      if (clicked === "set-icon") {
+        folderIconTargetProjectIdRef.current = projectId;
+        if (api.dialogs.pickImage) {
+          const pickedImage = await api.dialogs.pickImage();
+          if (pickedImage) {
+            await handleFolderIconFile(
+              new File([Uint8Array.from(pickedImage.bytes)], pickedImage.name, {
+                type: pickedImage.mimeType,
+              }),
+            );
+          }
+          return;
+        }
+        folderIconInputRef.current?.click();
+        return;
+      }
+      if (clicked === "remove-icon") {
+        await updateFolderIcon(projectId, null);
+        return;
+      }
       if (clicked === "toggle-pin") {
         toggleProjectPinned(projectId);
         return;
@@ -1665,12 +1725,14 @@ export default function Sidebar() {
       deleteProjectThreads,
       handleOpenProjectRunServer,
       handleStopProjectRun,
+      handleFolderIconFile,
       openProjectRunDialog,
       projectById,
       removeDeletedProjectFromClientState,
       sidebarThreads,
       startFolderInlineRename,
       toggleProjectPinned,
+      updateFolderIcon,
     ],
   );
 
@@ -1735,6 +1797,8 @@ export default function Sidebar() {
     });
     items.push(
       { id: "rename", label: "Edit name", separatorBefore: true },
+      { id: "set-icon", label: project.iconDataUrl ? "Change icon…" : "Add icon…" },
+      ...(project.iconDataUrl ? [{ id: "remove-icon" as const, label: "Remove icon" }] : []),
       { id: "toggle-pin", label: pinActionLabel("folder", isPinned) },
     );
     if (hasArchivableThreads) {
@@ -1786,42 +1850,6 @@ export default function Sidebar() {
     () => sortProjectsForSidebar(projects, sidebarThreads, appSettings.sidebarProjectSortOrder),
     [appSettings.sidebarProjectSortOrder, projects, sidebarThreads],
   );
-  const chatProjects = useMemo(
-    () =>
-      sortedProjects.filter((project) =>
-        isHomeChatContainerProject(project, { homeDir, chatWorkspaceRoot }),
-      ),
-    [chatWorkspaceRoot, homeDir, sortedProjects],
-  );
-  const visibleChatThreadRows = useMemo(() => {
-    return buildProjectThreadTree({
-      threads: sortThreadsForSidebar(
-        chatProjects.flatMap((project) => sortedSidebarThreadsByProjectId.get(project.id) ?? []),
-        appSettings.sidebarThreadSortOrder,
-      ),
-      forceVisibleThreadId: activeSidebarThreadId ?? undefined,
-      pinnedThreadIds,
-    });
-  }, [
-    activeSidebarThreadId,
-    appSettings.sidebarThreadSortOrder,
-    chatProjects,
-    pinnedThreadIds,
-    sortedSidebarThreadsByProjectId,
-  ]);
-  const visibleChatOrderedThreadIds = useMemo(
-    () => visibleChatThreadRows.map((row) => row.thread.id),
-    [visibleChatThreadRows],
-  );
-  const visibleChatPreviewEntries = useMemo(
-    () =>
-      visibleChatThreadRows.map((row) => ({
-        rowId: row.thread.id,
-        rootRowId: row.rootThreadId,
-        row,
-      })),
-    [visibleChatThreadRows],
-  );
   const allStandardProjectsBase = useMemo(
     () =>
       sortedProjects.filter((project) =>
@@ -1849,69 +1877,15 @@ export default function Sidebar() {
     [pinnedProjectIds, standardProjectsBase],
   );
   const sidebarSpaceSections = useMemo(() => {
-    const buildChatData = (spaceId: SpaceId) => {
-      const entries = visibleChatPreviewEntries.filter(
-        (entry) => entry.row.thread.spaceId === spaceId,
-      );
-      const activeEntry =
-        activeSidebarThreadId === undefined
-          ? null
-          : (entries.find((entry) => entry.rowId === activeSidebarThreadId) ?? null);
-      const paging = resolveSidebarThreadListPaging({
-        totalCount: entries.length,
-        baseLimit: THREAD_PREVIEW_LIMIT,
-        pageSize: THREAD_PREVIEW_PAGE_SIZE,
-        requestedExtraPages: chatThreadListExtraPages,
-      });
-      const { visibleEntries } = getVisibleSidebarEntriesForPreview({
-        entries,
-        activeEntryId: activeEntry?.rowId,
-        previewLimit: paging.previewLimit,
-      });
-      return {
-        entries: visibleEntries,
-        effectiveExtraPages: paging.effectiveExtraPages,
-        canShowMore: paging.canShowMore && visibleEntries.length < entries.length,
-        canShowLess: paging.canShowLess,
-      };
-    };
     const sections = spaces.map((space) => {
       const projects = standardProjects.filter((project) => project.spaceId === space.id);
-      const chatData = buildChatData(space.id);
-      const chatEntryGroupsByRootId = new Map<ThreadId, typeof chatData.entries>();
-      for (const entry of chatData.entries) {
-        const existing = chatEntryGroupsByRootId.get(entry.rootRowId);
-        if (existing) existing.push(entry);
-        else chatEntryGroupsByRootId.set(entry.rootRowId, [entry]);
-      }
-      const threadItems = [...chatEntryGroupsByRootId].flatMap(([rootRowId, entries]) => {
-        const rootEntry = entries.find((entry) => entry.rowId === rootRowId) ?? entries[0];
-        return rootEntry
-          ? [
-              {
-                kind: "thread" as const,
-                id: rootRowId,
-                entries,
-                thread: rootEntry.row.thread,
-              },
-            ]
-          : [];
-      });
       const projectItems = projects.map((project) => ({
         kind: "project" as const,
         id: project.id,
         project,
       }));
-      const items = orderSidebarSpaceItems({
-        threadItems: threadItems.map((item) => ({
-          id: item.id,
-          pinned: pinnedThreadIds.includes(item.id),
-          sidebarSortOrder: item.thread.sidebarSortOrder ?? 0,
-          threads: [item.thread],
-          fallbackCreatedAt: item.thread.createdAt,
-          fallbackUpdatedAt: item.thread.updatedAt,
-          value: item,
-        })),
+      const items = orderSidebarSpaceItems<never, (typeof projectItems)[number]>({
+        threadItems: [],
         projectItems: projectItems.map((item) => ({
           id: item.id,
           pinned: pinnedProjectIdSet.has(item.id),
@@ -1929,20 +1903,15 @@ export default function Sidebar() {
         label: space.name,
         space,
         items,
-        chatData,
       };
     });
     return sections;
   }, [
-    activeSidebarThreadId,
     appSettings.sidebarThreadSortOrder,
-    chatThreadListExtraPages,
     pinnedProjectIdSet,
-    pinnedThreadIds,
     sortedSidebarThreadsByProjectId,
     spaces,
     standardProjects,
-    visibleChatPreviewEntries,
   ]);
   const isSidebarItemPinned = useCallback(
     (item: SidebarItemReference) =>
@@ -1957,19 +1926,6 @@ export default function Sidebar() {
           .map((thread) => ({ kind: "thread" as const, id: thread.id }));
       }
 
-      const threadItems = visibleChatThreadRows
-        .filter(
-          (row) => row.rootThreadId === row.thread.id && row.thread.spaceId === parent.spaceId,
-        )
-        .map((row) => ({
-          id: row.thread.id,
-          pinned: pinnedThreadIdSet.has(row.thread.id),
-          sidebarSortOrder: row.thread.sidebarSortOrder ?? 0,
-          threads: [row.thread],
-          fallbackCreatedAt: row.thread.createdAt,
-          fallbackUpdatedAt: row.thread.updatedAt,
-          value: { kind: "thread" as const, id: row.thread.id },
-        }));
       const projectItems = standardProjects
         .filter((project) => project.spaceId === parent.spaceId)
         .map((project) => ({
@@ -1981,8 +1937,8 @@ export default function Sidebar() {
           fallbackUpdatedAt: project.updatedAt,
           value: { kind: "project" as const, id: project.id },
         }));
-      return orderSidebarSpaceItems({
-        threadItems,
+      return orderSidebarSpaceItems<never, SidebarItemReference>({
+        threadItems: [],
         projectItems,
         sortOrder: appSettings.sidebarThreadSortOrder,
       });
@@ -1990,10 +1946,8 @@ export default function Sidebar() {
     [
       appSettings.sidebarThreadSortOrder,
       pinnedProjectIdSet,
-      pinnedThreadIdSet,
       sortedSidebarThreadsByProjectId,
       standardProjects,
-      visibleChatThreadRows,
     ],
   );
   const commitSidebarItemMove = useCallback(
@@ -2276,10 +2230,6 @@ export default function Sidebar() {
 
     for (const section of sidebarSpaceSections) {
       for (const item of section.items) {
-        if (item.kind === "thread") {
-          for (const entry of item.entries) addVisibleThreadId(entry.rowId);
-          continue;
-        }
         const { project } = item;
         const projectSidebarData = standardProjectSidebarDataById.get(project.id);
         if (!projectSidebarData) {
@@ -2441,6 +2391,7 @@ export default function Sidebar() {
         <FolderGroupShared
           expanded={project.expanded}
           hasContent={hasProjectContent}
+          headerState={activeDraftThread?.projectId === project.id ? "active" : "default"}
           header={
             renamingThisFolder ? (
               <FolderRowInlineEdit
@@ -2461,6 +2412,7 @@ export default function Sidebar() {
             ) : undefined
           }
           label={project.name}
+          {...(project.iconDataUrl === undefined ? {} : { iconDataUrl: project.iconDataUrl })}
           onExpandedChange={(nextExpanded) => {
             if (!nextExpanded) setThreadListExtraPagesForProject(pagingKey, 0);
             toggleProject(project.id);
@@ -2678,7 +2630,7 @@ export default function Sidebar() {
       if (command === "sidebar.addProject") {
         event.preventDefault();
         event.stopPropagation();
-        setCreateProjectDialogOpen(true);
+        openInlineFolderCreator();
         return;
       }
       // The route-level new-thread handler owns normal creation. When no project
@@ -2688,7 +2640,7 @@ export default function Sidebar() {
       if (command === "chat.new" && threadsHydrated && !primaryNewThreadTarget) {
         event.preventDefault();
         event.stopPropagation();
-        setCreateProjectDialogOpen(true);
+        openInlineFolderCreator();
         return;
       }
       if (command === "settings.usage") {
@@ -2815,6 +2767,7 @@ export default function Sidebar() {
     isOnSettings,
     isOnWorkspace,
     navigate,
+    openInlineFolderCreator,
     primaryNewThreadTarget,
     searchPaletteMode,
     spaces,
@@ -3322,11 +3275,9 @@ export default function Sidebar() {
           <SidebarDndMonitor onDragEnd={handleSidebarDragEnd} onDragOver={handleSidebarDragOver}>
             <div className="flex flex-col gap-4" data-slot="space-list">
               {sidebarSpaceSections.map((section, spaceIndex) => {
-                const expanded = !collapsedSpaceIds.has(section.key);
-                const hasContent =
-                  section.items.length > 0 ||
-                  section.chatData.canShowMore ||
-                  section.chatData.canShowLess;
+                const creatingFolderHere = creatingFolderSpaceId === section.space.id;
+                const expanded = creatingFolderHere || !collapsedSpaceIds.has(section.key);
+                const hasContent = creatingFolderHere || section.items.length > 0;
                 const editingThisSpace =
                   spaceEditorOpen &&
                   spaceEditorMode === "edit" &&
@@ -3381,6 +3332,7 @@ export default function Sidebar() {
                         label={section.label}
                         onExpandedChange={(nextExpanded) => {
                           if (!nextExpanded) setChatThreadListExtraPages(0);
+                          if (!nextExpanded && creatingFolderHere) setCreatingFolderSpaceId(null);
                           setCollapsedSpaceIds((current) => {
                             const next = new Set(current);
                             if (nextExpanded) next.delete(section.key);
@@ -3390,47 +3342,32 @@ export default function Sidebar() {
                         }}
                         onHeaderAction={() => {
                           handleSelectSpace(section.space.id);
-                          void handleCreateHomeChat(section.space.id);
+                          openInlineFolderCreator(section.space.id);
                         }}
                         onHeaderContextMenu={(event: MouseEvent<HTMLButtonElement>) =>
                           void handleSpaceHeaderContextMenu(event, section.space)
                         }
                       >
-                        {section.items.map((item, itemIndex) =>
-                          item.kind === "thread" ? (
-                            <Fragment key={`thread:${item.id}`}>
-                              {item.entries.map((entry) =>
-                                renderPencilThreadRow(
-                                  entry.row.thread,
-                                  visibleChatOrderedThreadIds,
-                                  entry.row.depth,
-                                  undefined,
-                                  entry.rootRowId,
-                                  entry.row.thread.id === entry.rootRowId
-                                    ? {
-                                        index: itemIndex,
-                                        parent: {
-                                          kind: "space",
-                                          spaceId: section.space.id,
-                                        },
-                                      }
-                                    : undefined,
-                                ),
-                              )}
-                            </Fragment>
-                          ) : (
-                            renderPencilProjectItem(item.project, itemIndex)
-                          ),
-                        )}
-                        {section.chatData.canShowMore ? (
-                          <ShowMoreRow
-                            onClick={() =>
-                              setChatThreadListExtraPages(section.chatData.effectiveExtraPages + 1)
-                            }
-                          >
-                            Show more
-                          </ShowMoreRow>
+                        {creatingFolderHere ? (
+                          <FolderRowInlineEdit
+                            defaultValue=""
+                            existingNames={folderNamesBySpaceId.get(section.space.id) ?? []}
+                            mode="create"
+                            onCancel={() => setCreatingFolderSpaceId(null)}
+                            onSubmit={async (name) => {
+                              await handleCreateProjectSubmit({
+                                name,
+                                spaceId: section.space.id,
+                              });
+                              setCreatingFolderSpaceId(null);
+                            }}
+                          />
                         ) : null}
+                        {section.items.map((item, itemIndex) =>
+                          item.kind === "project"
+                            ? renderPencilProjectItem(item.project, itemIndex)
+                            : null,
+                        )}
                       </SpaceGroupShared>
                     </div>
                   </SortableSidebarNode>
@@ -3464,15 +3401,6 @@ export default function Sidebar() {
           {...(showDesktopUpdateButton ? { onUpdate: handleDesktopUpdateButtonClick } : {})}
         />
       </SidebarFooter>
-
-      <CreateProjectDialog
-        open={createProjectDialogOpen}
-        spaces={spaces}
-        activeSpaceId={activeSpaceId}
-        existingFolderNamesBySpaceId={folderNamesBySpaceId}
-        onOpenChange={setCreateProjectDialogOpen}
-        onSubmit={handleCreateProjectSubmit}
-      />
 
       <Dialog
         open={projectRunDialogProjectId !== null}
@@ -3553,7 +3481,7 @@ export default function Sidebar() {
           projects={searchPaletteProjects}
           projectById={projectById}
           onCreateChat={() => {
-            if (activeSpaceId) void handleCreateHomeChat(activeSpaceId);
+            if (activeSpaceId) void handleCreateSpaceThread(activeSpaceId);
           }}
           onCreateThread={handlePrimaryNewThread}
           onOpenSettings={() => {
@@ -3573,6 +3501,16 @@ export default function Sidebar() {
           }}
         />
       ) : null}
+      <input
+        ref={folderIconInputRef}
+        accept="image/*"
+        className="hidden"
+        type="file"
+        onChange={(event) => {
+          void handleFolderIconFile(event.target.files?.[0]);
+          event.target.value = "";
+        }}
+      />
     </>
   );
 }

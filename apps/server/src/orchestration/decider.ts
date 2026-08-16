@@ -788,6 +788,12 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           detail: "Nested child threads move together with their root thread.",
         });
       }
+      if (movedThread && command.target.kind === "space") {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "Threads must be moved into a folder, not directly into a Space.",
+        });
+      }
       if (movedThread && !isLiveSidebarThread(movedThread)) {
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,
@@ -1030,6 +1036,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           workspaceRoot: command.workspaceRoot,
           defaultModelSelection: command.defaultModelSelection ?? null,
           scripts: [],
+          iconDataUrl: null,
           isPinned: command.isPinned,
           spaceId: creationSpaceId,
           createdAt: command.createdAt,
@@ -1212,6 +1219,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             ? { defaultModelSelection: command.defaultModelSelection }
             : {}),
           ...(command.scripts !== undefined ? { scripts: command.scripts } : {}),
+          ...(command.iconDataUrl !== undefined ? { iconDataUrl: command.iconDataUrl } : {}),
           ...(command.isPinned !== undefined ? { isPinned: command.isPinned } : {}),
           ...(command.isPinned !== undefined && command.isPinned !== existingProject.isPinned
             ? { sidebarSortOrder: 0 }
@@ -1255,15 +1263,18 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         projectId: command.projectId,
       });
+      if (project.kind === "chat") {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "Threads must be created inside a folder.",
+        });
+      }
       yield* requireThreadAbsent({
         readModel,
         command,
         threadId: command.threadId,
       });
-      const directSpaceId = project.kind === "chat" ? (command.spaceId ?? null) : null;
-      if (directSpaceId !== null) {
-        yield* requireSpace({ readModel, command, spaceId: directSpaceId });
-      }
+      const directSpaceId = null;
       return {
         ...withEventBase({
           aggregateKind: "thread",

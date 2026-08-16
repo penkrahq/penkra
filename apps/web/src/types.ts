@@ -143,6 +143,7 @@ export interface Project {
   localName: string | null;
   cwd: string;
   defaultModelSelection: ModelSelection | null;
+  iconDataUrl?: string | null;
   expanded: boolean;
   isPinned?: boolean;
   /** Missing on renderer state written before Spaces; normalized snapshots always set it. */

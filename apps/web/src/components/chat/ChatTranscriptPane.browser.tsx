@@ -1,33 +1,38 @@
 import "../../index.css";
 
 import { MessageId } from "@penkra/contracts";
-import { page } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 import { Profiler, useRef, useState, type ProfilerOnRenderCallback } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
 import { ChatTranscriptPane } from "./ChatTranscriptPane";
+import { ComposerPromptEditor } from "../ComposerPromptEditor";
 import type { TranscriptVirtualListRef } from "./TranscriptVirtualList";
 import { useTranscriptAssistantSelectionAction } from "./useTranscriptAssistantSelectionAction";
+import {
+  ChatPerformanceBoundary,
+  enableChatPerformanceDiagnostics,
+  getChatPerformanceSummary,
+  resetChatPerformanceDiagnostics,
+} from "../../chatPerformanceDiagnostics";
 
 const EMPTY_WORK_GROUPS: Record<string, boolean> = {};
 const EMPTY_TURN_DIFFS = new Map();
 const EMPTY_REVERT_COUNTS = new Map();
 const NOOP = () => {};
-const TIMELINE_ENTRIES = [
-  {
-    id: "assistant-message-entry",
-    kind: "message" as const,
+const TIMELINE_ENTRIES = Array.from({ length: 300 }, (_, index) => ({
+  id: `assistant-message-entry-${index}`,
+  kind: "message" as const,
+  createdAt: "2026-03-17T19:12:28.000Z",
+  message: {
+    id: MessageId.makeUnsafe(`assistant-message-${index}`),
+    role: "assistant" as const,
+    text: `Stable assistant message ${index} for the long transcript performance harness.`,
     createdAt: "2026-03-17T19:12:28.000Z",
-    message: {
-      id: MessageId.makeUnsafe("assistant-message-1"),
-      role: "assistant" as const,
-      text: "This is a stable assistant message for the transcript perf harness.",
-      createdAt: "2026-03-17T19:12:28.000Z",
-      streaming: false,
-    },
+    streaming: false,
   },
-];
+}));
 
 async function settleLayout(): Promise<void> {
   await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
@@ -36,6 +41,7 @@ async function settleLayout(): Promise<void> {
 
 function TranscriptPerfHarness(props: { onTranscriptRender: () => void }) {
   const [composerValue, setComposerValue] = useState("");
+  const [composerCursor, setComposerCursor] = useState(0);
   const composerImagesRef = useRef<readonly []>([]);
   const composerFilesRef = useRef<readonly []>([]);
   const composerAssistantSelectionsRef = useRef<readonly []>([]);
@@ -69,8 +75,9 @@ function TranscriptPerfHarness(props: { onTranscriptRender: () => void }) {
     onMessagesTouchStartBase: NOOP,
     onMessagesWheelBase: NOOP,
   });
-  const handleComposerChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    setComposerValue(event.target.value);
+  const handleComposerChange = (nextValue: string, nextCursor: number) => {
+    setComposerValue(nextValue);
+    setComposerCursor(nextCursor);
   };
   const handleTranscriptRender: ProfilerOnRenderCallback = () => {
     props.onTranscriptRender();
@@ -78,51 +85,58 @@ function TranscriptPerfHarness(props: { onTranscriptRender: () => void }) {
 
   return (
     <div>
-      <label htmlFor="composer-input">Composer</label>
-      <input
-        id="composer-input"
-        placeholder="Type composer text"
-        value={composerValue}
-        onChange={handleComposerChange}
-      />
-      <Profiler id="chat-transcript-pane" onRender={handleTranscriptRender}>
-        <ChatTranscriptPane
-          activeThreadId="thread-transcript-perf"
-          activeTurnInProgress={false}
-          activeTurnStartedAt={null}
-          chatFontSizePx={15}
-          emptyStateProjectName={undefined}
-          expandedWorkGroups={EMPTY_WORK_GROUPS}
-          hasMessages
-          isRevertingCheckpoint={false}
-          isWorking={false}
-          followLiveOutput={false}
-          listRef={listRef}
-          markdownCwd={undefined}
-          onExpandTimelineImage={NOOP}
-          onMessagesClickCapture={onMessagesClickCapture}
-          onMessagesMouseUp={onMessagesMouseUp}
-          onMessagesPointerCancel={onMessagesPointerCancel}
-          onMessagesPointerDown={onMessagesPointerDown}
-          onMessagesPointerUp={onMessagesPointerUp}
-          onMessagesScroll={onMessagesScroll}
-          onMessagesTouchEnd={onMessagesTouchEnd}
-          onMessagesTouchMove={onMessagesTouchMove}
-          onMessagesTouchStart={onMessagesTouchStart}
-          onMessagesWheel={onMessagesWheel}
-          onIsAtEndChange={NOOP}
-          onOpenThread={NOOP}
-          onRevertUserMessage={NOOP}
-          onScrollToBottom={NOOP}
-          onToggleWorkGroup={NOOP}
-          resolvedTheme="dark"
-          revertTurnCountByUserMessageId={EMPTY_REVERT_COUNTS}
-          scrollButtonVisible={false}
-          timelineEntries={TIMELINE_ENTRIES}
-          timestampFormat="locale"
-          turnDiffSummaryByAssistantMessageId={EMPTY_TURN_DIFFS}
-          workspaceRoot={undefined}
+      <ChatPerformanceBoundary surface="composer">
+        <ComposerPromptEditor
+          value={composerValue}
+          cursor={composerCursor}
+          terminalContexts={[]}
+          disabled={false}
+          placeholder="Type composer text"
+          onRemoveTerminalContext={NOOP}
+          onChange={handleComposerChange}
+          onPaste={NOOP}
         />
+      </ChatPerformanceBoundary>
+      <Profiler id="chat-transcript-pane" onRender={handleTranscriptRender}>
+        <ChatPerformanceBoundary surface="transcript">
+          <ChatTranscriptPane
+            activeThreadId="thread-transcript-perf"
+            activeTurnInProgress={false}
+            activeTurnStartedAt={null}
+            chatFontSizePx={15}
+            emptyStateProjectName={undefined}
+            expandedWorkGroups={EMPTY_WORK_GROUPS}
+            hasMessages
+            isRevertingCheckpoint={false}
+            isWorking={false}
+            followLiveOutput={false}
+            listRef={listRef}
+            markdownCwd={undefined}
+            onExpandTimelineImage={NOOP}
+            onMessagesClickCapture={onMessagesClickCapture}
+            onMessagesMouseUp={onMessagesMouseUp}
+            onMessagesPointerCancel={onMessagesPointerCancel}
+            onMessagesPointerDown={onMessagesPointerDown}
+            onMessagesPointerUp={onMessagesPointerUp}
+            onMessagesScroll={onMessagesScroll}
+            onMessagesTouchEnd={onMessagesTouchEnd}
+            onMessagesTouchMove={onMessagesTouchMove}
+            onMessagesTouchStart={onMessagesTouchStart}
+            onMessagesWheel={onMessagesWheel}
+            onIsAtEndChange={NOOP}
+            onOpenThread={NOOP}
+            onRevertUserMessage={NOOP}
+            onScrollToBottom={NOOP}
+            onToggleWorkGroup={NOOP}
+            resolvedTheme="dark"
+            revertTurnCountByUserMessageId={EMPTY_REVERT_COUNTS}
+            scrollButtonVisible={false}
+            timelineEntries={TIMELINE_ENTRIES}
+            timestampFormat="locale"
+            turnDiffSummaryByAssistantMessageId={EMPTY_TURN_DIFFS}
+            workspaceRoot={undefined}
+          />
+        </ChatPerformanceBoundary>
       </Profiler>
     </div>
   );
@@ -134,6 +148,8 @@ describe("ChatTranscriptPane", () => {
   });
 
   it("does not re-render the transcript subtree when only composer text changes", async () => {
+    resetChatPerformanceDiagnostics();
+    enableChatPerformanceDiagnostics();
     let transcriptCommitCount = 0;
 
     const screen = await render(
@@ -149,13 +165,16 @@ describe("ChatTranscriptPane", () => {
       });
 
       const baselineCommitCount = transcriptCommitCount;
-      await page.getByPlaceholder("Type composer text").fill("reply follow up");
+      await page.getByTestId("composer-editor").click();
+      await userEvent.keyboard("reply follow up");
 
       await vi.waitFor(() => {
-        expect(screen.container.querySelector("#composer-input")).toHaveValue("reply follow up");
+        expect(page.getByTestId("composer-editor")).toHaveTextContent("reply follow up");
+        expect(getChatPerformanceSummary().sampleCount).toBeGreaterThan(0);
       });
 
       expect(transcriptCommitCount).toBe(baselineCommitCount);
+      expect(getChatPerformanceSummary().transcriptCommitCount).toBe(0);
     } finally {
       await screen.unmount();
     }

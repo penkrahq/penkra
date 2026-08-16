@@ -780,6 +780,7 @@ function applyOrchestrationEvent(
           workspaceRoot: event.payload.workspaceRoot,
           defaultModelSelection: event.payload.defaultModelSelection,
           scripts: event.payload.scripts,
+          iconDataUrl: event.payload.iconDataUrl ?? null,
           isPinned: event.payload.isPinned ?? false,
           spaceId: event.payload.spaceId ?? null,
           createdAt: event.payload.createdAt,
@@ -810,6 +811,10 @@ function applyOrchestrationEvent(
               ? event.payload.defaultModelSelection
               : existingProject.defaultModelSelection,
           scripts: event.payload.scripts ?? existingProject.scripts,
+          iconDataUrl:
+            event.payload.iconDataUrl !== undefined
+              ? event.payload.iconDataUrl
+              : existingProject.iconDataUrl,
           isPinned: event.payload.isPinned ?? existingProject.isPinned ?? false,
           spaceId:
             event.payload.spaceId !== undefined

@@ -35,6 +35,7 @@ import {
   awaitDesktopComposerDraftWrites,
   createDesktopComposerDraftStorage,
 } from "./lib/desktopComposerDraftStorage";
+import { measureChatPerformanceWork } from "./chatPerformanceDiagnostics";
 
 export {
   findSupersededComposerImageBlobAttachments,
@@ -77,7 +78,8 @@ const composerPersistStorage = createDeferredPersistStorage<
   PersistedComposerDraftStoreState
 >({
   getStorage: () => composerBaseStorage,
-  partialize: partializeComposerDraftStoreState,
+  partialize: (state) =>
+    measureChatPerformanceWork("draft-checkpoint", () => partializeComposerDraftStoreState(state)),
   debounceMs: COMPOSER_PERSIST_DEBOUNCE_MS,
 });
 

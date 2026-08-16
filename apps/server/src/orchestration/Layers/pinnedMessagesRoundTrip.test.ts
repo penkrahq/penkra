@@ -50,7 +50,7 @@ describe("pinned messages round-trip", () => {
       await system.run(
         system.engine.dispatch({
           type: "project.create",
-          kind: "chat",
+          kind: "studio",
           commandId: CommandId.makeUnsafe("cmd-project-pins"),
           projectId,
           title: "Pins project",
@@ -154,7 +154,7 @@ describe("pinned messages round-trip", () => {
       await system.run(
         system.engine.dispatch({
           type: "project.create",
-          kind: "chat",
+          kind: "studio",
           commandId: CommandId.makeUnsafe("cmd-project-markers"),
           projectId,
           title: "Markers project",

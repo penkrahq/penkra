@@ -125,6 +125,8 @@ import Migration0116 from "./Migrations/116_RestartTurnRecoveries.ts";
 import Migration0117 from "./Migrations/117_BackfillRestartTurnRecoveries.ts";
 import Migration0118 from "./Migrations/118_CanonicalProviderConnectionIdentities.ts";
 import Migration0119 from "./Migrations/119_ProviderCredentialProfileGenerations.ts";
+import Migration0120 from "./Migrations/120_DefaultSpaceFolders.ts";
+import Migration0121 from "./Migrations/121_FolderIcons.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -249,6 +251,8 @@ export const migrationEntries = [
   [117, "BackfillRestartTurnRecoveries", Migration0117],
   [118, "CanonicalProviderConnectionIdentities", Migration0118],
   [119, "ProviderCredentialProfileGenerations", Migration0119],
+  [120, "DefaultSpaceFolders", Migration0120],
+  [121, "FolderIcons", Migration0121],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

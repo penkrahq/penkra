@@ -81,6 +81,11 @@ export const ProviderSandboxMode = Schema.Literals([
 export type ProviderSandboxMode = typeof ProviderSandboxMode.Type;
 export const DEFAULT_PROVIDER_KIND: ProviderKind = "codex";
 
+export const FolderIconDataUrl = Schema.String.check(
+  Schema.isPattern(/^data:image\/(?:webp|jpeg);base64,/),
+).check(Schema.isMaxLength(100_000));
+export type FolderIconDataUrl = typeof FolderIconDataUrl.Type;
+
 export const CodexModelSelection = Schema.Struct({
   provider: Schema.Literal("codex"),
   model: TrimmedNonEmptyString,
@@ -458,6 +463,7 @@ export const OrchestrationProject = Schema.Struct({
   workspaceRoot: Schema.NullOr(TrimmedNonEmptyString),
   defaultModelSelection: Schema.NullOr(ModelSelection),
   scripts: Schema.Array(ProjectScript),
+  iconDataUrl: Schema.optional(Schema.NullOr(FolderIconDataUrl)),
   isPinned: Schema.optional(Schema.Boolean).pipe(Schema.withDecodingDefault(() => false)),
   spaceId: Schema.optional(Schema.NullOr(SpaceId)).pipe(Schema.withDecodingDefault(() => null)),
   sidebarSortOrder: Schema.optional(NonNegativeInt).pipe(Schema.withDecodingDefault(() => 0)),
@@ -474,6 +480,7 @@ export const OrchestrationProjectShell = Schema.Struct({
   workspaceRoot: Schema.NullOr(TrimmedNonEmptyString),
   defaultModelSelection: Schema.NullOr(ModelSelection),
   scripts: Schema.Array(ProjectScript),
+  iconDataUrl: Schema.optional(Schema.NullOr(FolderIconDataUrl)),
   isPinned: Schema.optional(Schema.Boolean).pipe(Schema.withDecodingDefault(() => false)),
   spaceId: Schema.optional(Schema.NullOr(SpaceId)).pipe(Schema.withDecodingDefault(() => null)),
   sidebarSortOrder: Schema.optional(NonNegativeInt).pipe(Schema.withDecodingDefault(() => 0)),
@@ -1037,6 +1044,7 @@ const ProjectMetaUpdateCommand = Schema.Struct({
   ),
   defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
   scripts: Schema.optional(Schema.Array(ProjectScript)),
+  iconDataUrl: Schema.optional(Schema.NullOr(FolderIconDataUrl)),
   isPinned: Schema.optional(Schema.Boolean),
   spaceId: Schema.optional(Schema.NullOr(SpaceId)),
 });
@@ -1732,6 +1740,7 @@ export const ProjectCreatedPayload = Schema.Struct({
   workspaceRoot: Schema.NullOr(TrimmedNonEmptyString),
   defaultModelSelection: Schema.NullOr(ModelSelection),
   scripts: Schema.Array(ProjectScript),
+  iconDataUrl: Schema.optional(Schema.NullOr(FolderIconDataUrl)),
   isPinned: Schema.optional(Schema.Boolean).pipe(Schema.withDecodingDefault(() => false)),
   spaceId: Schema.optional(Schema.NullOr(SpaceId)).pipe(Schema.withDecodingDefault(() => null)),
   sidebarSortOrder: Schema.optional(NonNegativeInt).pipe(Schema.withDecodingDefault(() => 0)),
@@ -1746,6 +1755,7 @@ export const ProjectMetaUpdatedPayload = Schema.Struct({
   workspaceRoot: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
   scripts: Schema.optional(Schema.Array(ProjectScript)),
+  iconDataUrl: Schema.optional(Schema.NullOr(FolderIconDataUrl)),
   isPinned: Schema.optional(Schema.Boolean),
   spaceId: Schema.optional(Schema.NullOr(SpaceId)),
   sidebarSortOrder: Schema.optional(NonNegativeInt),
