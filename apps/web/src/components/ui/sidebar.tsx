@@ -462,6 +462,29 @@ function SidebarRail({
   const railLabel = canResize ? "Resize Sidebar" : "Toggle Sidebar";
   const railTitle = canResize ? "Drag to resize sidebar" : "Toggle Sidebar";
 
+  const applyPendingResize = React.useCallback(() => {
+    const activeResizeState = resizeStateRef.current;
+    if (!activeResizeState || !resolvedResizable) return;
+
+    activeResizeState.rafId = null;
+    const nextWidth = activeResizeState.pendingWidth;
+    const accepted =
+      resolvedResizable.shouldAcceptWidth?.({
+        currentWidth: activeResizeState.width,
+        nextWidth,
+        rail: activeResizeState.rail,
+        side: activeResizeState.side,
+        sidebarRoot: activeResizeState.sidebarRoot,
+        wrapper: activeResizeState.wrapper,
+      }) ?? true;
+    if (!accepted) {
+      return;
+    }
+
+    activeResizeState.wrapper.style.setProperty("--sidebar-width", `${nextWidth}px`);
+    activeResizeState.width = nextWidth;
+  }, [resolvedResizable]);
+
   const stopResize = React.useCallback(
     (pointerId: number) => {
       const resizeState = resizeStateRef.current;
@@ -470,6 +493,7 @@ function SidebarRail({
       }
       if (resizeState.rafId !== null) {
         window.cancelAnimationFrame(resizeState.rafId);
+        applyPendingResize();
       }
       resizeState.transitionTargets.forEach((element) => {
         element.style.removeProperty("transition-duration");
@@ -485,7 +509,7 @@ function SidebarRail({
       document.body.style.removeProperty("cursor");
       document.body.style.removeProperty("user-select");
     },
-    [resolvedResizable],
+    [applyPendingResize, resolvedResizable],
   );
 
   const handlePointerDown = React.useCallback(
@@ -568,29 +592,10 @@ function SidebarRail({
       }
 
       resizeState.rafId = window.requestAnimationFrame(() => {
-        const activeResizeState = resizeStateRef.current;
-        if (!activeResizeState || !resolvedResizable) return;
-
-        activeResizeState.rafId = null;
-        const nextWidth = activeResizeState.pendingWidth;
-        const accepted =
-          resolvedResizable.shouldAcceptWidth?.({
-            currentWidth: activeResizeState.width,
-            nextWidth,
-            rail: activeResizeState.rail,
-            side: activeResizeState.side,
-            sidebarRoot: activeResizeState.sidebarRoot,
-            wrapper: activeResizeState.wrapper,
-          }) ?? true;
-        if (!accepted) {
-          return;
-        }
-
-        activeResizeState.wrapper.style.setProperty("--sidebar-width", `${nextWidth}px`);
-        activeResizeState.width = nextWidth;
+        applyPendingResize();
       });
     },
-    [onPointerMove, resolvedResizable],
+    [applyPendingResize, onPointerMove, resolvedResizable],
   );
 
   const endResizeInteraction = React.useCallback(

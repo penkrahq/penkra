@@ -4,7 +4,6 @@
 
 import { randomUUID } from "node:crypto";
 
-import { WebContentsView, type BrowserWindow, type WebContents } from "electron";
 import type { AppTabHandle, OperationCancellationCode } from "@penkra/sdk";
 import type { DesktopAppTabClosed, DesktopAppTabDescriptor } from "@penkra/contracts";
 
@@ -19,26 +18,22 @@ import type {
 } from "./appOperationBroker";
 import type { AppRendererIpcBridge } from "./appRendererIpcBridge";
 import type { AppRendererRpcHost, AppRendererRpcHostMessage } from "./appRendererRpc";
-import { APP_RUNTIME_IPC_CHANNELS } from "./ipcChannels";
-import {
-  createAppDocumentUrl,
-  createAppRendererPreferences,
-  decideAppNavigation,
-} from "./appRuntimePolicy";
 import type { AppSessionManager } from "./appSessionManager";
+import type { AppFrameDocumentRegistry } from "./appFrameDocumentRegistry";
 import type { AppRuntimeDiagnosticInput } from "./appRuntimeDiagnostics";
 
 interface AppTabRecord {
   descriptor: DesktopAppTabDescriptor;
   app: InstalledAppPackage;
-  view: WebContentsView;
-  attached: boolean;
+  rendererId: number;
   unregisterBroker: () => void;
   unregisterRpc: (reason?: OperationCancellationCode) => void;
   releaseIdentity: () => void;
-  themeCssKey: string | null;
-  typographyCssKey: string | null;
   navigation: { route: string; state?: unknown };
+  frameReady: boolean;
+  queuedHostMessages: AppRendererRpcHostMessage[];
+  queuedEvents: Array<{ name: string; payload: unknown }>;
+  openedAt: number;
 }
 
 export function shouldNotifyAppTabClosed(reason: OperationCancellationCode): boolean {
@@ -55,15 +50,24 @@ export interface AppUpdateTabSnapshot {
 }
 
 export class ElectronAppTabHost implements AppTabHost {
-  readonly #window: () => BrowserWindow | null;
   readonly #installations: AppInstallationService;
   readonly #sessions: Pick<AppSessionManager, "get">;
+  readonly #frameDocuments: Pick<AppFrameDocumentRegistry, "activate">;
   readonly #broker: Pick<AppOperationBroker, "registerTab">;
-  readonly #rpc: Pick<AppRendererRpcHost, "registerTarget" | "request">;
+  readonly #rpc: Pick<
+    AppRendererRpcHost,
+    "registerTarget" | "request" | "acceptResponse" | "acceptContextCall"
+  >;
   readonly #ipcBridge: Pick<AppRendererIpcBridge, "waitForReady">;
-  readonly #preloadPath: string;
   readonly #onOpened: (descriptor: DesktopAppTabDescriptor) => void;
   readonly #onState: (descriptor: DesktopAppTabDescriptor) => void;
+  readonly #onFrameHostMessage: (input: {
+    tabId: string;
+    rendererId: number;
+    delivery:
+      | { kind: "host-message"; message: AppRendererRpcHostMessage }
+      | { kind: "event"; name: string; payload: unknown };
+  }) => void;
   readonly #onClosed: (descriptor: DesktopAppTabClosed) => void;
   readonly #onRendererCreated: (input: {
     appId: string;
@@ -74,22 +78,31 @@ export class ElectronAppTabHost implements AppTabHost {
   }) => (() => void) | void;
   readonly #assertAppAllowed: (app: InstalledAppPackage) => Promise<void>;
   readonly #onDiagnostic: (entry: AppRuntimeDiagnosticInput) => void;
-  readonly #measureRendererMemory: (rendererId: number) => number | undefined;
   readonly #records = new Map<string, AppTabRecord>();
   #themeCss = "";
   #typographyCss = "";
   #visibleTabId: string | null = null;
+  #nextRendererId = -1;
 
   constructor(input: {
-    window: () => BrowserWindow | null;
     installations: AppInstallationService;
     sessions: Pick<AppSessionManager, "get">;
+    frameDocuments: Pick<AppFrameDocumentRegistry, "activate">;
     broker: Pick<AppOperationBroker, "registerTab">;
-    rpc: Pick<AppRendererRpcHost, "registerTarget" | "request">;
+    rpc: Pick<
+      AppRendererRpcHost,
+      "registerTarget" | "request" | "acceptResponse" | "acceptContextCall"
+    >;
     ipcBridge: Pick<AppRendererIpcBridge, "waitForReady">;
-    preloadPath: string;
     onOpened: (descriptor: DesktopAppTabDescriptor) => void;
     onState: (descriptor: DesktopAppTabDescriptor) => void;
+    onFrameHostMessage?: (input: {
+      tabId: string;
+      rendererId: number;
+      delivery:
+        | { kind: "host-message"; message: AppRendererRpcHostMessage }
+        | { kind: "event"; name: string; payload: unknown };
+    }) => void;
     onClosed?: (descriptor: DesktopAppTabClosed) => void;
     onRendererCreated?: (input: {
       appId: string;
@@ -100,22 +113,20 @@ export class ElectronAppTabHost implements AppTabHost {
     }) => (() => void) | void;
     assertAppAllowed?: (app: InstalledAppPackage) => Promise<void>;
     onDiagnostic?: (entry: AppRuntimeDiagnosticInput) => void;
-    measureRendererMemory: (rendererId: number) => number | undefined;
   }) {
-    this.#window = input.window;
     this.#installations = input.installations;
     this.#sessions = input.sessions;
+    this.#frameDocuments = input.frameDocuments;
     this.#broker = input.broker;
     this.#rpc = input.rpc;
     this.#ipcBridge = input.ipcBridge;
-    this.#preloadPath = input.preloadPath;
     this.#onOpened = input.onOpened;
     this.#onState = input.onState;
+    this.#onFrameHostMessage = input.onFrameHostMessage ?? (() => undefined);
     this.#onClosed = input.onClosed ?? (() => undefined);
     this.#onRendererCreated = input.onRendererCreated ?? (() => undefined);
     this.#assertAppAllowed = input.assertAppAllowed ?? (async () => undefined);
     this.#onDiagnostic = input.onDiagnostic ?? (() => undefined);
-    this.#measureRendererMemory = input.measureRendererMemory;
   }
 
   async open(input: OpenAppTabRequest & { tabId?: string }): Promise<AppTabHandle> {
@@ -169,9 +180,7 @@ export class ElectronAppTabHost implements AppTabHost {
     rendererId: number,
     input: { appId: string },
   ): Promise<DesktopAppTabDescriptor> {
-    const origin = [...this.#records.values()].find(
-      (record) => record.view.webContents.id === rendererId,
-    );
+    const origin = [...this.#records.values()].find((record) => record.rendererId === rendererId);
     if (!origin) throw new Error("The originating App tab is unavailable.");
     return this.openInstalled({
       appId: input.appId,
@@ -206,93 +215,43 @@ export class ElectronAppTabHost implements AppTabHost {
     return current?.spaceId === spaceId && current.threadId === threadId ? current : null;
   }
 
-  observationWebContents(tabId: string): WebContents {
-    return this.#require(tabId).view.webContents;
+  /** Re-announces an existing tab so the trusted shell opens its dock and selects it. */
+  present(tabId: string): void {
+    this.#onOpened(this.#require(tabId).descriptor);
   }
 
   async applyTheme(css: string): Promise<void> {
     this.#themeCss = css;
-    await Promise.all(
-      [...this.#records.values()].map((record) => this.#applyCss(record, "themeCssKey", css)),
-    );
+    for (const record of this.#records.values())
+      this.#sendEvent(record, "appearance.theme-css", css);
   }
 
   async applyTypography(css: string): Promise<void> {
     this.#typographyCss = css;
-    await Promise.all(
-      [...this.#records.values()].map((record) => this.#applyCss(record, "typographyCssKey", css)),
-    );
+    for (const record of this.#records.values()) {
+      this.#sendEvent(record, "appearance.typography-css", css);
+    }
   }
 
   setZoomFactor(zoomFactor: number): void {
     if (!Number.isFinite(zoomFactor) || zoomFactor <= 0) {
       throw new Error("Invalid App tab zoom factor.");
     }
-    for (const record of this.#records.values()) {
-      if (!record.view.webContents.isDestroyed()) {
-        record.view.webContents.setZoomFactor(zoomFactor);
-      }
-    }
-  }
-
-  attach(tabId: string, rendererId: number): boolean {
-    const record = this.#matchingRenderer(tabId, rendererId);
-    if (!record) return false;
-    const window = this.#window();
-    if (!window || window.isDestroyed()) throw new Error("The Penkra window is unavailable.");
-    if (!record.attached) {
-      window.contentView.addChildView(record.view);
-      record.attached = true;
-    }
-    return true;
-  }
-
-  setBounds(
-    tabId: string,
-    rendererId: number,
-    bounds: { x: number; y: number; width: number; height: number },
-  ): boolean {
-    const record = this.#matchingRenderer(tabId, rendererId);
-    if (!record) return false;
-    record.view.setBounds(normalizeBounds(bounds));
-    return true;
-  }
-
-  rendererBounds(
-    rendererId: number,
-  ): { x: number; y: number; width: number; height: number } | null {
-    const record = [...this.#records.values()].find(
-      (candidate) => candidate.view.webContents.id === rendererId,
-    );
-    return record ? record.view.getBounds() : null;
-  }
-
-  rendererView(rendererId: number): WebContentsView | null {
-    return (
-      [...this.#records.values()].find((candidate) => candidate.view.webContents.id === rendererId)
-        ?.view ?? null
-    );
+    for (const record of this.#records.values())
+      this.#sendEvent(record, "appearance.zoom", zoomFactor);
   }
 
   rendererId(tabId: string): number {
-    return this.#require(tabId).view.webContents.id;
+    return this.#require(tabId).rendererId;
   }
 
-  setVisible(tabId: string, rendererId: number, visible: boolean): boolean {
+  setActive(tabId: string, rendererId: number, active: boolean): boolean {
     const record = this.#matchingRenderer(tabId, rendererId);
     if (!record) return false;
-    const window = this.#window();
-    record.view.setVisible?.(visible);
-    if (visible) {
+    if (active) {
       this.#visibleTabId = tabId;
-      record.view.webContents.focus();
     } else {
       if (this.#visibleTabId === tabId) this.#visibleTabId = null;
-      record.view.setBounds({ x: 0, y: 0, width: 0, height: 0 });
-      // Electron does not transfer focus when a WebContentsView is hidden. Without
-      // this explicit handoff, an invisible App can continue receiving keystrokes
-      // intended for the shell composer.
-      if (window && !window.isDestroyed()) window.webContents.focus();
     }
     return true;
   }
@@ -309,6 +268,69 @@ export class ElectronAppTabHost implements AppTabHost {
     };
     record.descriptor = { ...record.descriptor, route: input.route };
     this.#onState(record.descriptor);
+  }
+
+  acceptFrameMessage(tabId: string, rendererId: number, message: unknown): void {
+    if (!this.#matchingRenderer(tabId, rendererId)) throw new Error("The App frame is stale.");
+    if (!message || typeof message !== "object" || Array.isArray(message)) {
+      throw new Error("The App frame message is invalid.");
+    }
+    const type = (message as { type?: unknown }).type;
+    if (type === "result" || type === "error") this.#rpc.acceptResponse(rendererId, message);
+    else if (type === "context-call") this.#rpc.acceptContextCall(rendererId, message);
+    else throw new Error("The App frame message type is invalid.");
+  }
+
+  frameIdentity(
+    tabId: string,
+    rendererId: number,
+  ): {
+    appId: string;
+    spaceId: string;
+    threadId: string;
+    tabId: string;
+  } {
+    const record = this.#matchingRenderer(tabId, rendererId);
+    if (!record) throw new Error("The App frame is stale.");
+    return {
+      appId: record.app.appId,
+      spaceId: record.descriptor.spaceId,
+      threadId: record.descriptor.threadId,
+      tabId,
+    };
+  }
+
+  markFrameReady(tabId: string, rendererId: number): void {
+    const record = this.#matchingRenderer(tabId, rendererId);
+    if (!record) throw new Error("The App frame is stale.");
+    if (record.frameReady) return;
+    record.frameReady = true;
+    record.descriptor = { ...record.descriptor, status: "ready" };
+    this.#onState(record.descriptor);
+    this.#onDiagnostic({
+      kind: "tab-ready",
+      appId: record.app.appId,
+      spaceId: record.descriptor.spaceId,
+      tabId,
+      durationMs: Math.round(performance.now() - record.openedAt),
+    });
+    for (const message of record.queuedHostMessages.splice(0)) {
+      this.#onFrameHostMessage({
+        tabId,
+        rendererId,
+        delivery: { kind: "host-message", message },
+      });
+    }
+    for (const event of record.queuedEvents.splice(0))
+      this.#sendEvent(record, event.name, event.payload);
+    if (this.#themeCss) this.#sendEvent(record, "appearance.theme-css", this.#themeCss);
+    if (this.#typographyCss) {
+      this.#sendEvent(record, "appearance.typography-css", this.#typographyCss);
+    }
+  }
+
+  sendFrameEvent(tabId: string, name: string, payload: unknown): void {
+    this.#sendEvent(this.#require(tabId), name, payload);
   }
 
   captureForUpdate(appId: string, spaceId: string): ReadonlyArray<AppUpdateTabSnapshot> {
@@ -355,10 +377,6 @@ export class ElectronAppTabHost implements AppTabHost {
     record.unregisterBroker();
     record.unregisterRpc(reason);
     record.releaseIdentity();
-    const window = this.#window();
-    if (record.attached && window && !window.isDestroyed())
-      window.contentView.removeChildView(record.view);
-    if (!record.view.webContents.isDestroyed()) record.view.webContents.close();
     if (shouldNotifyAppTabClosed(reason)) {
       this.#onClosed({ id: tabId, threadId: record.descriptor.threadId });
     }
@@ -382,28 +400,22 @@ export class ElectronAppTabHost implements AppTabHost {
   async #create(input: OpenAppTabRequest & { tabId?: string }): Promise<AppTabHandle> {
     const openedAt = performance.now();
     await this.#assertAppAllowed(input.app);
-    const activeSession = this.#sessions.get(input.app.appId, input.spaceId);
-    if (!activeSession) throw new Error(`${input.app.name} is not active in this Space.`);
+    if (!this.#sessions.get(input.app.appId, input.spaceId)) {
+      throw new Error(`${input.app.name} is not active in this Space.`);
+    }
     const id = input.tabId ?? randomUUID();
     if (this.#records.has(id)) throw new Error(`App tab ${id} is already open.`);
-    const view = new WebContentsView({
-      webPreferences: createAppRendererPreferences({
-        appId: input.app.appId,
-        spaceId: input.spaceId,
-        preloadPath: this.#preloadPath,
-      }),
-    });
-    const contents = view.webContents;
-    const window = this.#window();
-    if (window && !window.isDestroyed()) {
-      contents.setZoomFactor(window.webContents.getZoomFactor());
-    }
+    const documentUrl = `${await this.#frameDocuments.activate(input.app, input.spaceId)}#penkra-tab=${encodeURIComponent(id)}`;
+    // A Runtime v2 visual tab is a DOM iframe in the trusted shell. This negative token is a
+    // host-minted capability identity, not an Electron WebContents id; no hidden native renderer
+    // or second compositor surface exists for a visual App.
+    const rendererId = this.#nextRendererId--;
     const releaseRendererIdentity = this.#onRendererCreated({
       appId: input.app.appId,
       spaceId: input.spaceId,
       threadId: input.threadId,
       tabId: id,
-      rendererId: contents.id,
+      rendererId,
     });
     let identityReleased = false;
     const releaseIdentity = () => {
@@ -411,24 +423,9 @@ export class ElectronAppTabHost implements AppTabHost {
       identityReleased = true;
       releaseRendererIdentity?.();
     };
-    contents.setWindowOpenHandler(() => ({ action: "deny" }));
-    contents.on("preload-error", (_event, preloadPath, error) => {
-      console.error(
-        `[penkra-app] App preload failed for ${input.app.appId} in Space ${input.spaceId} at ${preloadPath}: ${error.message}`,
-      );
-    });
-    contents.on("did-fail-load", (_event, code, description, url, isMainFrame) => {
-      if (!isMainFrame) return;
-      console.error(
-        `[penkra-app] App document failed to load for ${input.app.appId} in Space ${input.spaceId}: ${description} (${code}) ${url}`,
-      );
-    });
-    contents.on("will-navigate", (event) => {
-      if (decideAppNavigation(input.app.appId, event.url).action === "deny") event.preventDefault();
-    });
     const descriptor: DesktopAppTabDescriptor = {
       id,
-      rendererId: contents.id,
+      rendererId,
       appId: input.app.appId,
       slug: input.app.slug,
       name: input.app.name,
@@ -437,11 +434,22 @@ export class ElectronAppTabHost implements AppTabHost {
       threadId: input.threadId,
       route: input.route,
       status: "loading",
+      documentUrl,
     };
     const target = {
-      id: contents.id,
-      send: (message: AppRendererRpcHostMessage) =>
-        contents.send(APP_RUNTIME_IPC_CHANNELS.hostMessage, message),
+      id: rendererId,
+      send: (message: AppRendererRpcHostMessage) => {
+        const current = this.#records.get(id);
+        if (!current?.frameReady) {
+          current?.queuedHostMessages.push(message);
+          return;
+        }
+        this.#onFrameHostMessage({
+          tabId: id,
+          rendererId,
+          delivery: { kind: "host-message", message },
+        });
+      },
     };
     const unregisterRpc = this.#rpc.registerTarget(target);
     const endpoint: AppTabEndpoint = {
@@ -457,17 +465,18 @@ export class ElectronAppTabHost implements AppTabHost {
     const record: AppTabRecord = {
       descriptor,
       app: input.app,
-      view,
-      attached: false,
+      rendererId,
       unregisterBroker,
       unregisterRpc,
       releaseIdentity,
-      themeCssKey: null,
-      typographyCssKey: null,
       navigation: {
         route: input.route,
         ...(input.state === undefined ? {} : { state: input.state }),
       },
+      frameReady: false,
+      queuedHostMessages: [],
+      queuedEvents: [],
+      openedAt,
     };
     this.#records.set(id, record);
     this.#onOpened(record.descriptor);
@@ -477,58 +486,7 @@ export class ElectronAppTabHost implements AppTabHost {
       spaceId: input.spaceId,
       tabId: id,
     });
-    contents.once("destroyed", () => {
-      releaseIdentity?.();
-      if (this.#records.has(id)) this.close(id, "host-stopped");
-    });
-    contents.on("unresponsive", () => {
-      this.#onDiagnostic({
-        kind: "tab-unresponsive",
-        appId: input.app.appId,
-        spaceId: input.spaceId,
-        tabId: id,
-      });
-    });
-    contents.on("responsive", () => {
-      this.#onDiagnostic({
-        kind: "tab-responsive",
-        appId: input.app.appId,
-        spaceId: input.spaceId,
-        tabId: id,
-      });
-    });
-    contents.on("render-process-gone", (_event, details) => {
-      record.descriptor = { ...record.descriptor, status: "crashed" };
-      this.#onState(record.descriptor);
-      this.#onDiagnostic({
-        kind: "tab-crashed",
-        appId: input.app.appId,
-        spaceId: input.spaceId,
-        tabId: id,
-        message: `${details.reason} (exit ${details.exitCode})`,
-      });
-    });
     try {
-      const ready = this.#ipcBridge.waitForReady(contents.id);
-      await Promise.all([
-        contents.loadURL(createAppDocumentUrl(input.app.appId, input.app.manifest.entrypoints.app)),
-        ready,
-      ]);
-      record.descriptor = { ...record.descriptor, status: "ready" };
-      if (this.#themeCss) await this.#applyCss(record, "themeCssKey", this.#themeCss);
-      if (this.#typographyCss) {
-        await this.#applyCss(record, "typographyCssKey", this.#typographyCss);
-      }
-      const memoryBytes = this.#measureRendererMemory(contents.id);
-      this.#onDiagnostic({
-        kind: "tab-ready",
-        appId: input.app.appId,
-        spaceId: input.spaceId,
-        tabId: id,
-        durationMs: Math.round(performance.now() - openedAt),
-        ...(memoryBytes === undefined ? {} : { memoryBytes }),
-      });
-      this.#onState(record.descriptor);
       return endpoint;
     } catch (error) {
       this.close(id, "host-stopped");
@@ -541,23 +499,12 @@ export class ElectronAppTabHost implements AppTabHost {
     method: "tab.invoke" | "tab.navigate" | "tab.navigate-for-result",
     input: unknown,
   ): Promise<Result> {
-    return this.#rpc.request<Result>(this.#require(tabId).view.webContents.id, method, input);
+    return this.#rpc.request<Result>(this.#require(tabId).rendererId, method, input);
   }
 
   async #navigate(tabId: string, input: { route: string; state?: unknown }): Promise<void> {
     await this.#request(tabId, "tab.navigate", input);
     this.setRoute(tabId, input);
-  }
-
-  async #applyCss(
-    record: AppTabRecord,
-    keyName: "themeCssKey" | "typographyCssKey",
-    css: string,
-  ): Promise<void> {
-    const nextKey = await record.view.webContents.insertCSS(css, { cssOrigin: "author" });
-    const previousKey = record[keyName];
-    record[keyName] = nextKey;
-    if (previousKey) await record.view.webContents.removeInsertedCSS(previousKey);
   }
 
   #require(tabId: string): AppTabRecord {
@@ -568,18 +515,18 @@ export class ElectronAppTabHost implements AppTabHost {
 
   #matchingRenderer(tabId: string, rendererId: number): AppTabRecord | null {
     const record = this.#records.get(tabId);
-    return record?.view.webContents.id === rendererId ? record : null;
+    return record?.rendererId === rendererId ? record : null;
   }
-}
 
-function normalizeBounds(bounds: { x: number; y: number; width: number; height: number }) {
-  for (const value of Object.values(bounds)) {
-    if (!Number.isFinite(value)) throw new Error("App tab bounds must be finite numbers.");
+  #sendEvent(record: AppTabRecord, name: string, payload: unknown): void {
+    if (!record.frameReady) {
+      record.queuedEvents.push({ name, payload });
+      return;
+    }
+    this.#onFrameHostMessage({
+      tabId: record.descriptor.id,
+      rendererId: record.rendererId,
+      delivery: { kind: "event", name, payload },
+    });
   }
-  return {
-    x: Math.round(bounds.x),
-    y: Math.round(bounds.y),
-    width: Math.max(0, Math.round(bounds.width)),
-    height: Math.max(0, Math.round(bounds.height)),
-  };
 }

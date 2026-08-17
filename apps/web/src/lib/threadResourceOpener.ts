@@ -85,6 +85,6 @@ export function openThreadFileReference(opener: ThreadResourceOpener | null, pat
   toastManager.add({
     type: "error",
     title: "Could not open file",
-    description: "The file is outside this Thread's directory or no handler is available.",
+    description: "The file path or resource handler is unavailable.",
   });
 }

@@ -1,15 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  appTabCssBoundsToNativeBounds,
   parseAppTabIdRequest,
   parseAppTabRendererRequest,
   parseAppTabRouteRequest,
   parseNavigateAppTabRequest,
   parseOpenAppFromAppsRequest,
   parseOpenAppTabRequest,
-  parseSetAppTabBoundsRequest,
-  parseSetAppTabVisibleRequest,
+  parseSetAppTabActiveRequest,
 } from "./appTabIpc";
 
 describe("App tab IPC boundary", () => {
@@ -31,21 +29,10 @@ describe("App tab IPC boundary", () => {
       tabId: "tab",
       route: "/document",
     });
-    expect(parseSetAppTabVisibleRequest({ tabId: "tab", rendererId: 17, visible: true })).toEqual({
+    expect(parseSetAppTabActiveRequest({ tabId: "tab", rendererId: 17, active: true })).toEqual({
       tabId: "tab",
       rendererId: 17,
-      visible: true,
-    });
-    expect(
-      parseSetAppTabBoundsRequest({
-        tabId: "tab",
-        rendererId: 17,
-        bounds: { x: 1, y: 2, width: 3, height: 4 },
-      }),
-    ).toEqual({
-      tabId: "tab",
-      rendererId: 17,
-      bounds: { x: 1, y: 2, width: 3, height: 4 },
+      active: true,
     });
   });
 
@@ -54,29 +41,8 @@ describe("App tab IPC boundary", () => {
     expect(() => parseOpenAppFromAppsRequest({ appId: "" })).toThrow();
     expect(() => parseAppTabRouteRequest({ route: "" })).toThrow();
     expect(() =>
-      parseSetAppTabVisibleRequest({ tabId: "tab", rendererId: 17, visible: "yes" }),
+      parseSetAppTabActiveRequest({ tabId: "tab", rendererId: 17, active: "yes" }),
     ).toThrow();
     expect(() => parseAppTabRendererRequest({ tabId: "tab", rendererId: NaN })).toThrow();
-    expect(() =>
-      parseSetAppTabBoundsRequest({
-        tabId: "tab",
-        rendererId: 17,
-        bounds: { x: 0, y: 0, width: Infinity, height: 4 },
-      }),
-    ).toThrow();
-  });
-
-  it("converts shell CSS geometry into native View geometry at page zoom", () => {
-    expect(
-      appTabCssBoundsToNativeBounds({ x: 984, y: 58, width: 744, height: 900 }, Math.sqrt(1.2)),
-    ).toEqual({
-      x: 984 * Math.sqrt(1.2),
-      y: 58 * Math.sqrt(1.2),
-      width: 744 * Math.sqrt(1.2),
-      height: 900 * Math.sqrt(1.2),
-    });
-    expect(() => appTabCssBoundsToNativeBounds({ x: 0, y: 0, width: 1, height: 1 }, 0)).toThrow(
-      "Invalid App tab zoom factor",
-    );
   });
 });

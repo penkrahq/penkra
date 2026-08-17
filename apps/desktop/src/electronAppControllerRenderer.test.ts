@@ -14,7 +14,7 @@ import type { ActiveAppSession } from "./appSessionManager";
 
 function installedApp(): InstalledAppPackage {
   const manifest = {
-    manifestVersion: 1,
+    manifestVersion: 2,
     id: "com.acme.linear",
     slug: "linear",
     name: "Linear",
@@ -76,6 +76,7 @@ function fixture() {
     appId: app.appId,
     spaceId: "personal",
     partition: createAppSessionPartition(app.appId, "personal"),
+    origin: `penkra-app://a-${"a".repeat(64)}`,
     session: {} as ActiveAppSession["session"],
   };
   return {
@@ -110,11 +111,9 @@ describe("ElectronAppControllerRendererFactory", () => {
     expect(test.contents.setAudioMuted).toHaveBeenCalledWith(true);
     expect(test.contents.setWindowOpenHandler).toHaveBeenCalledOnce();
 
-    await renderer.start("penkra-app://com.acme.linear/operations.html");
+    await renderer.start(`${test.session.origin}/operations.html`);
     expect(test.waitForReady).toHaveBeenCalledWith(77, expect.any(AbortSignal));
-    expect(test.contents.loadURL).toHaveBeenCalledWith(
-      "penkra-app://com.acme.linear/operations.html",
-    );
+    expect(test.contents.loadURL).toHaveBeenCalledWith(`${test.session.origin}/operations.html`);
   });
 
   it("denies popup creation and renderer-initiated navigation outside the App origin", () => {
@@ -134,7 +133,7 @@ describe("ElectronAppControllerRendererFactory", () => {
     navigate?.(external as never);
     expect(external.preventDefault).toHaveBeenCalledOnce();
     const internal = {
-      url: "penkra-app://com.acme.linear/issues",
+      url: `${test.session.origin}/issues`,
       preventDefault: vi.fn(),
     };
     navigate?.(internal as never);
@@ -186,7 +185,7 @@ describe("ElectronAppControllerRendererFactory", () => {
       session: test.session,
     });
 
-    const started = renderer.start("penkra-app://com.acme.linear/operations.html");
+    const started = renderer.start(`${test.session.origin}/operations.html`);
     const preloadError = [...(test.listeners.get("preload-error") ?? [])][0];
     preloadError?.(
       {} as never,

@@ -30,7 +30,7 @@ import remarkMath from "remark-math";
 import { copyTextToClipboard } from "../hooks/useCopyToClipboard";
 import { resolveDiffThemeName, type DiffThemeName } from "../lib/diffRendering";
 import { dedentCode, parseCodeFenceInfo, type CodeFenceInfo } from "../lib/codeFence";
-import { getFileIconName, pathLooksLikeKnownFile } from "../file-icons";
+import { getFileIconName } from "../file-icons";
 import { CentralIcon } from "~/lib/central-icons";
 import { isLocalImageMarkdownSrc } from "../lib/localImageUrls";
 import { useTheme } from "../hooks/useTheme";
@@ -734,29 +734,9 @@ function extractCodeBlock(
   };
 }
 
-const INLINE_CODE_FILE_PATH_MAX_LENGTH = 120;
-
-// Decides whether an inline code span names a file/path that should render as a
-// mention chip (icon + medium label), matching how a file reads in the composer.
-// Conservative on purpose: requires a recognized filename/extension and rejects
-// whitespace and URLs so ordinary prose tokens stay plain inline code.
-function inlineCodeFilePath(raw: string): string | null {
-  // Strip a pair of surrounding quotes/backticks the author may have wrapped the
-  // path in (e.g. `'src/data/social-metrics.ts'`).
-  const value = raw.trim().replace(/^['"`]+|['"`]+$/g, "");
-  if (
-    value.length === 0 ||
-    value.length > INLINE_CODE_FILE_PATH_MAX_LENGTH ||
-    /\s/.test(value) ||
-    value.includes("://")
-  ) {
-    return null;
-  }
-  return pathLooksLikeKnownFile(value) ? value : null;
-}
-
 // Shared openable file chip: the same mention-chip UI (file icon + medium label)
-// used for both assistant markdown file links and inline code that names a file.
+// used for authored assistant markdown file links. Inline code remains literal;
+// only an explicit link or composer mention carries file-reference intent.
 // File chips delegate to the Thread's configured resource handler. `targetPath`
 // may carry a `:line` suffix; the chip icon and title use the position-free path.
 function OpenableFileChip(props: {
@@ -1156,17 +1136,6 @@ function ChatMarkdown({
         );
       },
       code({ node: _node, className, children, ...props }) {
-        // Fenced blocks carry a `language-*` class and are rendered by `pre`;
-        // only inline code (no class) that names a file becomes an openable
-        // mention chip. The target is resolved against cwd so it opens like a
-        // markdown file link; an unresolvable path still chips on its raw value.
-        if (!className) {
-          const filePath = inlineCodeFilePath(nodeToPlainText(children));
-          if (filePath) {
-            const targetPath = resolveMarkdownFileLinkTarget(filePath, cwd) ?? filePath;
-            return <OpenableFileChip targetPath={targetPath} theme={resolvedTheme} />;
-          }
-        }
         return (
           <code className={className} {...props}>
             {children}

@@ -44,8 +44,11 @@ export default defineConfig([
   },
   {
     ...shared,
-    entry: ["src/simulatorViewerPreload.ts"],
+    entry: ["src/appFrameRuntime.ts"],
+    format: "iife",
+    platform: "browser",
     outputOptions: { codeSplitting: false },
+    noExternal: (id) => id.startsWith("@penkra/"),
   },
   {
     ...shared,

@@ -3,31 +3,16 @@
 // Layer: Chat right-dock App surface
 
 import { IconPackage } from "@tabler/icons-react";
-import { useLayoutEffect, useRef } from "react";
+import {
+  APP_RUNTIME_BRIDGE_PROTOCOL_VERSION,
+  APP_RUNTIME_CONNECT_MESSAGE,
+  type AppRuntimeFrameMessage,
+  type AppRuntimeHostMessage,
+} from "@penkra/contracts";
+import type { AppBrowserSessionState } from "@penkra/sdk";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { PanelStateMessage } from "./PanelStateMessage";
-
-export function shouldShowNativeAppView(
-  visible: boolean,
-  status: "loading" | "ready" | "crashed" | null,
-): boolean {
-  return visible && status === "ready";
-}
-
-export function hasRunningNativeViewExitTransition(
-  animations: ReadonlyArray<Pick<Animation, "playState">>,
-): boolean {
-  return animations.some((animation) => animation.playState === "running");
-}
-
-export function nativeAppViewBoundsSignature(bounds: {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}): string {
-  return `${bounds.x}:${bounds.y}:${bounds.width}:${bounds.height}`;
-}
 
 export function AppDockPane(props: {
   tabId: string;
@@ -36,185 +21,202 @@ export function AppDockPane(props: {
   visible: boolean;
   appName: string | null;
   iconDataUrl?: string | null;
+  documentUrl: string;
 }) {
-  const viewportRef = useRef<HTMLDivElement | null>(null);
-  const showNativeView = shouldShowNativeAppView(props.visible, props.status);
-  const nativeViewVisibleRef = useRef(false);
-  const visibilityRequestRef = useRef(showNativeView);
-  const visibilityGenerationRef = useRef(0);
-  const scheduleBoundsRef = useRef<(() => void) | null>(null);
-  const lastBoundsSignatureRef = useRef<string | null>(null);
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const browserWebviewRef = useRef<BrowserWebviewElement | null>(null);
+  const [browserState, setBrowserState] = useState<AppBrowserSessionState | null>(null);
+  const [browserSurface, setBrowserSurface] = useState<BrowserSurface | null>(null);
+  const [simulatorSurface, setSimulatorSurface] = useState<SurfaceBounds | null>(null);
+  const [simulatorFrame, setSimulatorFrame] = useState<string | null>(null);
+  const browserPage = useMemo(
+    () => browserState?.pages.find((page) => page.id === browserState.activePageId) ?? null,
+    [browserState],
+  );
 
-  useLayoutEffect(() => {
+  useEffect(() => {
     const bridge = window.desktopBridge?.appTabs;
-    const viewport = viewportRef.current;
-    if (!bridge || !viewport) return;
-    let stopped = false;
-    let frame = 0;
-    let settledFrame = 0;
-    const dockShell = viewport.closest<HTMLElement>("[data-slot='sidebar-container']");
+    if (!bridge) return;
+    void bridge.setActive({
+      tabId: props.tabId,
+      rendererId: props.rendererId,
+      active: props.visible,
+    });
+    return () => {
+      void bridge.setActive({ tabId: props.tabId, rendererId: props.rendererId, active: false });
+    };
+  }, [props.rendererId, props.tabId, props.visible]);
 
-    const sync = () => {
-      frame = 0;
-      if (stopped || !nativeViewVisibleRef.current) return;
-      const bounds = viewport.getBoundingClientRect();
-      if (bounds.width <= 0 || bounds.height <= 0) return;
-      const nextBounds = {
-        x: bounds.x,
-        y: bounds.y,
-        width: bounds.width,
-        height: bounds.height,
+  useEffect(() => {
+    const bridge = window.desktopBridge?.appTabs;
+    const iframe = iframeRef.current;
+    if (!bridge || !iframe || !props.documentUrl) return;
+    let port: MessagePort | null = null;
+    let removeHostMessage: (() => void) | null = null;
+    const connect = () => {
+      port?.close();
+      removeHostMessage?.();
+      const channel = new MessageChannel();
+      port = channel.port1;
+      port.onmessage = (event: MessageEvent<AppRuntimeFrameMessage>) => {
+        const message = event.data;
+        if (message.type === "ready") {
+          void bridge.frameReady({ tabId: props.tabId, rendererId: props.rendererId });
+        } else if (message.type === "renderer-message") {
+          void bridge.frameMessage({
+            tabId: props.tabId,
+            rendererId: props.rendererId,
+            message: message.message,
+          });
+        } else if (message.type === "call") {
+          void bridge
+            .frameCall({
+              tabId: props.tabId,
+              rendererId: props.rendererId,
+              method: message.method,
+              ...(message.input === undefined ? {} : { input: message.input }),
+            })
+            .then(
+              (result) =>
+                port?.postMessage({
+                  type: "call-result",
+                  id: message.id,
+                  result,
+                } satisfies AppRuntimeHostMessage),
+              (error: unknown) =>
+                port?.postMessage({
+                  type: "call-error",
+                  id: message.id,
+                  code:
+                    error && typeof error === "object" && "code" in error
+                      ? String(error.code)
+                      : "RUNTIME_ERROR",
+                  message: error instanceof Error ? error.message : String(error),
+                } satisfies AppRuntimeHostMessage),
+            );
+        }
       };
-      const signature = nativeAppViewBoundsSignature(nextBounds);
-      if (signature === lastBoundsSignatureRef.current) return;
-      lastBoundsSignatureRef.current = signature;
-      void bridge.setBounds({
+      port.start();
+      removeHostMessage = bridge.onFrameHostMessage((input) => {
+        if (input.tabId !== props.tabId || input.rendererId !== props.rendererId) return;
+        if (input.delivery.kind === "event" && input.delivery.name === "browser.state") {
+          setBrowserState(input.delivery.payload as AppBrowserSessionState);
+        }
+        if (input.delivery.kind === "event" && input.delivery.name === "browser.surface") {
+          setBrowserSurface(
+            isBrowserSurface(input.delivery.payload) ? input.delivery.payload : null,
+          );
+        }
+        if (input.delivery.kind === "event" && input.delivery.name === "simulator.surface") {
+          setSimulatorSurface(
+            isSurfaceBounds(input.delivery.payload) ? input.delivery.payload : null,
+          );
+        }
+        if (input.delivery.kind === "event" && input.delivery.name === "simulator.frame") {
+          const frame = input.delivery.payload as { dataUrl?: unknown } | null;
+          if (typeof frame?.dataUrl === "string") setSimulatorFrame(frame.dataUrl);
+        }
+        port?.postMessage(
+          input.delivery.kind === "host-message"
+            ? ({
+                type: "host-message",
+                message: input.delivery.message,
+              } satisfies AppRuntimeHostMessage)
+            : ({
+                type: "event",
+                name: input.delivery.name,
+                payload: input.delivery.payload,
+              } satisfies AppRuntimeHostMessage),
+        );
+      });
+      iframe.contentWindow?.postMessage(
+        {
+          type: APP_RUNTIME_CONNECT_MESSAGE,
+          protocolVersion: APP_RUNTIME_BRIDGE_PROTOCOL_VERSION,
+        },
+        "*",
+        [channel.port2],
+      );
+    };
+    iframe.addEventListener("load", connect);
+    return () => {
+      iframe.removeEventListener("load", connect);
+      removeHostMessage?.();
+      port?.close();
+    };
+  }, [props.documentUrl, props.rendererId, props.tabId]);
+
+  useEffect(() => {
+    const bridge = window.desktopBridge?.appTabs;
+    const webview = browserWebviewRef.current;
+    if (!bridge || !webview || !browserPage || !browserSurface) return;
+    let attachedWebContentsId: number | null = null;
+    const attach = () => {
+      const webContentsId = webview.getWebContentsId();
+      if (!Number.isInteger(webContentsId) || webContentsId <= 0) return;
+      attachedWebContentsId = webContentsId;
+      void bridge.browserWebviewAttach({
         tabId: props.tabId,
         rendererId: props.rendererId,
-        bounds: nextBounds,
+        pageId: browserPage.id,
+        webContentsId,
       });
     };
-    const schedule = () => {
-      if (!frame) frame = window.requestAnimationFrame(sync);
-    };
-    // Opening the dock intentionally suppresses its first transition frame. The native View can
-    // therefore receive the pre-open, off-canvas rectangle without a ResizeObserver or
-    // transition event to correct it. Re-sample once after that layout frame has settled.
-    const scheduleSettled = () => {
-      schedule();
-      if (settledFrame) window.cancelAnimationFrame(settledFrame);
-      settledFrame = window.requestAnimationFrame(() => {
-        settledFrame = 0;
-        schedule();
-      });
-    };
-    const followDockMotion = () => {
-      frame = 0;
-      if (stopped || !nativeViewVisibleRef.current) return;
-      sync();
-      const moving = dockShell
-        ?.getAnimations({ subtree: true })
-        .some((animation) => animation.playState === "running");
-      if (moving) frame = window.requestAnimationFrame(followDockMotion);
-    };
-    const followStartedDockMotion = () => {
-      if (frame) window.cancelAnimationFrame(frame);
-      frame = window.requestAnimationFrame(followDockMotion);
-    };
-    const observer = new ResizeObserver(schedule);
-    observer.observe(viewport);
-    if (dockShell) observer.observe(dockShell);
-    window.addEventListener("resize", schedule);
-    window.addEventListener("scroll", schedule, true);
-    window.visualViewport?.addEventListener("resize", schedule);
-    window.visualViewport?.addEventListener("scroll", schedule);
-    dockShell?.addEventListener("transitionrun", followStartedDockMotion);
-    dockShell?.addEventListener("transitionend", schedule);
-    dockShell?.addEventListener("transitioncancel", schedule);
-    dockShell?.addEventListener("animationstart", schedule);
-    dockShell?.addEventListener("animationend", schedule);
-    dockShell?.addEventListener("animationcancel", schedule);
-    const unsubscribeZoomFactor = window.desktopBridge?.onZoomFactorChange?.(() => {
-      lastBoundsSignatureRef.current = null;
-      schedule();
-    });
-    scheduleBoundsRef.current = scheduleSettled;
-    void bridge.attach({ tabId: props.tabId, rendererId: props.rendererId }).then(() => {
-      if (!stopped) {
-        void bridge.setVisible({
+    webview.addEventListener("dom-ready", attach);
+    return () => {
+      webview.removeEventListener("dom-ready", attach);
+      if (attachedWebContentsId !== null) {
+        void bridge.browserWebviewDetach({
           tabId: props.tabId,
           rendererId: props.rendererId,
-          visible: nativeViewVisibleRef.current,
+          pageId: browserPage.id,
+          webContentsId: attachedWebContentsId,
         });
-        if (nativeViewVisibleRef.current) scheduleSettled();
       }
-    });
-    return () => {
-      stopped = true;
-      scheduleBoundsRef.current = null;
-      observer.disconnect();
-      window.removeEventListener("resize", schedule);
-      window.removeEventListener("scroll", schedule, true);
-      window.visualViewport?.removeEventListener("resize", schedule);
-      window.visualViewport?.removeEventListener("scroll", schedule);
-      dockShell?.removeEventListener("transitionrun", followStartedDockMotion);
-      dockShell?.removeEventListener("transitionend", schedule);
-      dockShell?.removeEventListener("transitioncancel", schedule);
-      dockShell?.removeEventListener("animationstart", schedule);
-      dockShell?.removeEventListener("animationend", schedule);
-      dockShell?.removeEventListener("animationcancel", schedule);
-      unsubscribeZoomFactor?.();
-      if (frame) window.cancelAnimationFrame(frame);
-      if (settledFrame) window.cancelAnimationFrame(settledFrame);
-      void bridge
-        .setVisible({ tabId: props.tabId, rendererId: props.rendererId, visible: false })
-        .catch(() => undefined);
     };
-  }, [props.rendererId, props.tabId]);
-
-  useLayoutEffect(() => {
-    const bridge = window.desktopBridge?.appTabs;
-    const viewport = viewportRef.current;
-    if (!bridge || !viewport) return;
-
-    visibilityRequestRef.current = showNativeView;
-    const generation = ++visibilityGenerationRef.current;
-
-    const setNativeViewVisible = (visible: boolean) => {
-      if (generation !== visibilityGenerationRef.current) return;
-      nativeViewVisibleRef.current = visible;
-      if (visible) lastBoundsSignatureRef.current = null;
-      void bridge
-        .setVisible({ tabId: props.tabId, rendererId: props.rendererId, visible })
-        .catch(() => undefined);
-      if (visible) scheduleBoundsRef.current?.();
-    };
-
-    if (showNativeView) {
-      setNativeViewVisible(true);
-      return;
-    }
-
-    // Loading/crashed renderers hide immediately. Exit retention applies only
-    // when the host has actually closed or switched away from a ready App pane.
-    if (props.visible) {
-      setNativeViewVisible(false);
-      return;
-    }
-
-    if (!nativeViewVisibleRef.current) {
-      setNativeViewVisible(false);
-      return;
-    }
-
-    // App content lives in a native Electron WebContentsView, outside the DOM.
-    // Keep it visible while its dock ancestor is animating out, update its bounds
-    // through the existing transition follower above, and hide it only when the
-    // browser reports that transition as finished. A tab switch has no running
-    // dock transition, so its previous native view still hides on the next frame.
-    let frame = window.requestAnimationFrame(() => {
-      frame = 0;
-      const transitionRoot = viewport.closest<HTMLElement>("[data-slot='sidebar-container']");
-      const animations = transitionRoot?.getAnimations() ?? [];
-      if (!hasRunningNativeViewExitTransition(animations)) {
-        setNativeViewVisible(false);
-        return;
-      }
-
-      void Promise.allSettled(animations.map((animation) => animation.finished)).then(() => {
-        if (generation === visibilityGenerationRef.current && !visibilityRequestRef.current) {
-          setNativeViewVisible(false);
-        }
-      });
-    });
-
-    return () => {
-      if (frame) window.cancelAnimationFrame(frame);
-    };
-  }, [props.rendererId, props.tabId, props.visible, showNativeView]);
+  }, [browserPage, browserSurface, props.rendererId, props.tabId]);
 
   return (
-    <div ref={viewportRef} className="relative h-full min-h-0 w-full overflow-hidden">
+    <div className="relative h-full min-h-0 w-full overflow-hidden">
+      {props.documentUrl ? (
+        <iframe
+          ref={iframeRef}
+          data-app-tab-id={props.tabId}
+          className="h-full min-h-0 w-full border-0 bg-background"
+          hidden={!props.visible || props.status === "crashed"}
+          sandbox="allow-forms allow-modals allow-same-origin allow-scripts"
+          src={props.documentUrl}
+          title={props.appName ?? "App"}
+        />
+      ) : null}
+      {props.visible && browserSurface && browserPage && browserPage.url !== "about:blank" ? (
+        <webview
+          key={browserPage.id}
+          ref={browserWebviewRef}
+          className="absolute z-10 flex bg-background"
+          partition={browserSurface.partition}
+          src={browserPage.url}
+          style={{
+            top: browserSurface.insets.top,
+            right: browserSurface.insets.right,
+            bottom: browserSurface.insets.bottom,
+            left: browserSurface.insets.left,
+          }}
+        />
+      ) : null}
+      {props.visible && simulatorSurface && simulatorFrame ? (
+        <img
+          alt="Live simulator display"
+          className="pointer-events-none absolute z-10 bg-black object-contain"
+          src={simulatorFrame}
+          style={{
+            left: simulatorSurface.x,
+            top: simulatorSurface.y,
+            width: simulatorSurface.width,
+            height: simulatorSurface.height,
+          }}
+        />
+      ) : null}
       {props.status === "crashed" ? (
         <PanelStateMessage>
           The App stopped responding. Close this tab and open it again.
@@ -240,5 +242,51 @@ export function AppDockPane(props: {
         </div>
       ) : null}
     </div>
+  );
+}
+
+interface BrowserWebviewElement extends HTMLElement {
+  getWebContentsId(): number;
+}
+
+interface BrowserSurface {
+  insets: { top: number; right: number; bottom: number; left: number };
+  partition: string;
+}
+
+interface SurfaceBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+function isBrowserSurface(value: unknown): value is BrowserSurface {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  if (typeof record.partition !== "string") return false;
+  return isSurfaceInsets(record.insets);
+}
+
+function isSurfaceInsets(value: unknown): value is BrowserSurface["insets"] {
+  return (
+    !!value &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    ["top", "right", "bottom", "left"].every((key) => {
+      const candidate = (value as Record<string, unknown>)[key];
+      return typeof candidate === "number" && Number.isFinite(candidate) && candidate >= 0;
+    })
+  );
+}
+
+function isSurfaceBounds(value: unknown): value is SurfaceBounds {
+  return (
+    !!value &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    ["x", "y", "width", "height"].every(
+      (key) => typeof (value as Record<string, unknown>)[key] === "number",
+    )
   );
 }

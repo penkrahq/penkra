@@ -6,6 +6,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const electron = vi.hoisted(() => ({
   fromPartition: vi.fn(),
+  protocolHandle: vi.fn(async () => undefined),
+  protocolUnhandle: vi.fn(async () => undefined),
 }));
 
 vi.mock("electron", () => ({
@@ -15,7 +17,12 @@ vi.mock("electron", () => ({
     encryptString: vi.fn((value: string) => Buffer.from(value)),
     decryptString: vi.fn((value: Buffer) => value.toString("utf8")),
   },
-  session: { fromPartition: electron.fromPartition },
+  session: {
+    fromPartition: electron.fromPartition,
+    defaultSession: {
+      protocol: { handle: electron.protocolHandle, unhandle: electron.protocolUnhandle },
+    },
+  },
   webContents: { fromId: vi.fn(() => null) },
   WebContentsView: class {},
 }));
@@ -50,8 +57,8 @@ describe("desktop App runtime composition", () => {
     const runtime = await startDesktopAppRuntime({
       userDataPath: root,
       appPreloadPath: "/trusted/appPreload.js",
+      appFrameRuntimePath: "/trusted/appFrameRuntime.iife.js",
       ipcMain: ipcMain as never,
-      window: () => null,
       onTabOpened: () => undefined,
       onTabState: () => undefined,
       onTabClosed: () => undefined,

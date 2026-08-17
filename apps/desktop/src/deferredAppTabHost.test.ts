@@ -14,7 +14,7 @@ const request = {
     sha256: "a".repeat(64),
     installedAt: "2026-08-01T00:00:00.000Z",
     manifest: {
-      manifestVersion: 1 as const,
+      manifestVersion: 2 as const,
       id: "com.acme.linear",
       slug: "linear",
       name: "Linear",

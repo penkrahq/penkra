@@ -62,6 +62,7 @@ function appPaneFromTab(tab: DesktopAppTabDescriptor) {
     appName: tab.name,
     appIconDataUrl: tab.iconDataUrl,
     appRendererId: tab.rendererId,
+    appDocumentUrl: tab.documentUrl,
     appRoute: tab.route,
     appStatus: tab.status,
   };
@@ -126,6 +127,7 @@ export function SingleChatSurface(props: { threadId: ThreadId; projectId: Contai
       updatePane(props.threadId, tab.id, {
         appIconDataUrl: tab.iconDataUrl,
         appRendererId: tab.rendererId,
+        appDocumentUrl: tab.documentUrl,
         appRoute: tab.route,
         appStatus: tab.status,
       });
@@ -169,6 +171,7 @@ export function SingleChatSurface(props: { threadId: ThreadId; projectId: Contai
               updatePane(props.threadId, tab.id, {
                 appIconDataUrl: tab.iconDataUrl,
                 appRendererId: tab.rendererId,
+                appDocumentUrl: tab.documentUrl,
                 appRoute: tab.route,
                 appStatus: tab.status,
               });
@@ -323,6 +326,7 @@ export function SingleChatSurface(props: { threadId: ThreadId; projectId: Contai
         status={pane.appStatus}
         tabId={pane.id}
         rendererId={pane.appRendererId}
+        documentUrl={pane.appDocumentUrl ?? ""}
         visible={context.isVisible}
       />
     ) : (

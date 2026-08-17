@@ -1,7 +1,12 @@
 import { validatePenkraJsonSchema } from "./jsonSchema";
 import { isPenkraPermissionName } from "./permissions";
 
-export const PENKRA_APP_MANIFEST_VERSION = 1 as const;
+/**
+ * Runtime v2 is a hard compatibility boundary: visual entrypoints run in a
+ * sandboxed cross-origin iframe and communicate with the host exclusively
+ * through the SDK's MessagePort transport.
+ */
+export const PENKRA_APP_MANIFEST_VERSION = 2 as const;
 
 export type JsonSchema = Readonly<Record<string, unknown>>;
 
@@ -83,13 +88,11 @@ export type AppHandlerDeclaration =
       operation: string;
       schemes: ReadonlyArray<string>;
     }
-  /** @deprecated Accepted so already-installed App packages remain loadable. */
   | {
       intent: "open-file";
       operation: string;
       extensions: ReadonlyArray<string>;
     }
-  /** @deprecated Accepted so already-installed App packages remain loadable. */
   | {
       intent: "open-directory";
       operation: string;

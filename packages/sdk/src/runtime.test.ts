@@ -20,7 +20,7 @@ function createBrowserMock(): PenkraAppRuntimeApi["browser"] {
     close: vi.fn(),
     getState: vi.fn(),
     onState: vi.fn(),
-    setViewport: vi.fn(),
+    setSurfaceLayout: vi.fn(),
     navigate: vi.fn(),
     reload: vi.fn(),
     stop: vi.fn(),
@@ -33,6 +33,21 @@ function createBrowserMock(): PenkraAppRuntimeApi["browser"] {
     stopFind: vi.fn(),
     capture: vi.fn(),
     evaluate: vi.fn(),
+  };
+}
+
+function createFilesMock(): PenkraAppRuntimeApi["files"] {
+  return {
+    list: vi.fn(),
+    pick: vi.fn(),
+    revoke: vi.fn(),
+    stat: vi.fn(),
+    listDirectory: vi.fn(),
+    readText: vi.fn(),
+    readBinary: vi.fn(),
+    writeText: vi.fn(),
+    createDirectory: vi.fn(),
+    watch: vi.fn(),
   };
 }
 
@@ -66,6 +81,8 @@ describe("framework-neutral App runtime exports", () => {
   it("forwards operation and tab registration to the preload-owned global API", async () => {
     const runtime: PenkraAppRuntimeApi = {
       contextMenu: { show: vi.fn(async () => null) },
+      files: createFilesMock(),
+      open: vi.fn(),
       browser: createBrowserMock(),
       simulator: createSimulatorMock(),
       identity: { get: vi.fn(async () => ({ subject: "sub_test", space: "space_test" })) },
@@ -124,6 +141,8 @@ describe("framework-neutral App runtime exports", () => {
   it("forwards read-only permission inspection to the preload-owned API", async () => {
     const runtime: PenkraAppRuntimeApi = {
       contextMenu: { show: vi.fn(async () => null) },
+      files: createFilesMock(),
+      open: vi.fn(),
       browser: createBrowserMock(),
       simulator: createSimulatorMock(),
       identity: { get: vi.fn(async () => ({ subject: "sub_test", space: "space_test" })) },

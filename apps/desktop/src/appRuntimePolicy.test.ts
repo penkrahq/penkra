@@ -6,10 +6,14 @@ import {
   APP_SESSION_PARTITION_PREFIX,
   createAppDocumentUrl,
   createAppOrigin,
+  createAppSpaceDocumentUrl,
+  createAppSpaceOrigin,
   createAppRendererPreferences,
   createAppSessionPartition,
+  decideAppSpaceNavigation,
   decideAppNavigation,
   resolveAppPackagePath,
+  resolveAppSpacePackagePath,
 } from "./appRuntimePolicy";
 
 describe("App runtime policy", () => {
@@ -35,6 +39,49 @@ describe("App runtime policy", () => {
     expect(personal).toMatch(new RegExp(`^${APP_SESSION_PARTITION_PREFIX}[a-f0-9]{64}$`));
     expect(personal).not.toContain("personal");
     expect(personal).not.toContain("com.penkra.apps");
+  });
+
+  it("derives stable opaque origins independently for every App and Space", () => {
+    const secret = Buffer.alloc(32, 7);
+    const personal = createAppSpaceOrigin(secret, "com.penkra.apps", "personal-private-id");
+    const personalAgain = createAppSpaceOrigin(secret, "com.penkra.apps", "personal-private-id");
+    const work = createAppSpaceOrigin(secret, "com.penkra.apps", "work-private-id");
+    const otherApp = createAppSpaceOrigin(secret, "com.acme.linear", "personal-private-id");
+
+    expect(personal).toBe(personalAgain);
+    expect(new Set([personal, work, otherApp])).toHaveLength(3);
+    expect(personal).toMatch(/^penkra-app:\/\/a-[a-f0-9]{64}$/);
+    expect(personal).not.toContain("penkra.apps");
+    expect(personal).not.toContain("private-id");
+    expect(
+      createAppSpaceOrigin(Buffer.alloc(32, 8), "com.penkra.apps", "personal-private-id"),
+    ).not.toBe(personal);
+    expect(
+      createAppSpaceDocumentUrl(
+        secret,
+        "com.penkra.apps",
+        "personal-private-id",
+        "assets/app.html",
+      ),
+    ).toBe(`${personal}/assets/app.html`);
+    expect(() =>
+      createAppSpaceDocumentUrl(secret, "com.penkra.apps", "personal-private-id", "../app.html"),
+    ).toThrow("safe package-relative path");
+    expect(() => createAppSpaceOrigin(Buffer.alloc(31), "com.penkra.apps", "personal")).toThrow(
+      "at least 32 bytes",
+    );
+
+    expect(decideAppSpaceNavigation(personal, `${personal}/settings`)).toMatchObject({
+      action: "allow",
+    });
+    expect(decideAppSpaceNavigation(personal, `${work}/settings`)).toEqual({
+      action: "deny",
+      reason: "outside-app-origin",
+    });
+    const packageRoot = Path.resolve("/profile/apps/com.penkra.apps/1.0.0");
+    expect(resolveAppSpacePackagePath(packageRoot, personal, `${personal}/assets/app.html`)).toBe(
+      Path.join(packageRoot, "assets", "app.html"),
+    );
   });
 
   it("returns locked-down renderer preferences with a host-owned preload", () => {

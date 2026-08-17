@@ -18,7 +18,7 @@ function workEntry(overrides: Partial<WorkLogEntry> & Pick<WorkLogEntry, "id">):
 }
 
 describe("deriveAgentActivityTimelineState", () => {
-  it("compacts consecutive reasoning updates while preserving detail entries", () => {
+  it("compacts consecutive reasoning updates without making them openable", () => {
     const state = deriveAgentActivityTimelineState([
       workEntry({
         id: "reasoning-1",
@@ -48,7 +48,8 @@ describe("deriveAgentActivityTimelineState", () => {
       toolTitle: "Reasoning trace",
       preview: "2 updates - Verify diffToggleControl uses valid props",
     });
-    expect(state.detailById.get("agent-reasoning:reasoning-1")?.entries).toHaveLength(2);
+    expect(isAgentActivityWorkEntry(state.timelineWorkEntries[0]!)).toBe(false);
+    expect(state.detailById.has("agent-reasoning:reasoning-1")).toBe(false);
   });
 
   it("cleans reasoning prefixes for single update previews", () => {
@@ -94,6 +95,8 @@ describe("deriveAgentActivityTimelineState", () => {
       "reasoning-item-3",
     ]);
     expect(state.timelineWorkEntries.every((entry) => entry.tone === "tool")).toBe(true);
+    expect(state.timelineWorkEntries.every((entry) => !isAgentActivityWorkEntry(entry))).toBe(true);
+    expect(state.detailById.size).toBe(0);
   });
 
   it("shows the latest readable Codex summary and omits empty placeholders", () => {

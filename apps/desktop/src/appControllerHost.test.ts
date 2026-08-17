@@ -10,7 +10,7 @@ import type { ActiveAppSession } from "./appSessionManager";
 
 function installedApp(withOperations = true): InstalledAppPackage {
   const manifest = {
-    manifestVersion: 1,
+    manifestVersion: 2,
     id: "com.acme.linear",
     slug: "linear",
     name: "Linear",
@@ -87,6 +87,7 @@ function fixture(app = installedApp()) {
     appId: app.appId,
     spaceId: "personal",
     partition: "persist:test",
+    origin: `penkra-app://a-${"a".repeat(64)}`,
     session: {} as ActiveAppSession["session"],
   };
   return {
@@ -143,9 +144,7 @@ describe("AppControllerHost", () => {
       session: test.session,
     });
 
-    expect(test.renderer.start).toHaveBeenCalledWith(
-      "penkra-app://com.acme.linear/operations.html",
-    );
+    expect(test.renderer.start).toHaveBeenCalledWith(`${test.session.origin}/operations.html`);
     expect(test.broker.registerController).toHaveBeenCalledAfter(test.renderer.start as never);
     expect(Object.keys(test.controller()?.handlers ?? {})).toEqual(["issues.create"]);
     await release();

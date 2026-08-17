@@ -681,6 +681,16 @@ export interface DesktopAppTabDescriptor {
   threadId: string;
   route: string;
   status: "loading" | "ready" | "crashed";
+  /** Runtime v2 document URL on the host-minted opaque App×Space origin. */
+  documentUrl: string;
+}
+
+export interface DesktopAppFrameHostMessage {
+  tabId: string;
+  rendererId: number;
+  delivery:
+    | { kind: "host-message"; message: unknown }
+    | { kind: "event"; name: string; payload: unknown };
 }
 
 export interface DesktopAppTabClosed {
@@ -698,19 +708,34 @@ export interface DesktopAppTabsBridge {
     route: string;
     state?: unknown;
   }) => Promise<DesktopAppTabDescriptor>;
-  attach: (input: { tabId: string; rendererId: number }) => Promise<void>;
-  setBounds: (input: {
+  setActive: (input: { tabId: string; rendererId: number; active: boolean }) => Promise<void>;
+  frameCall: (input: {
     tabId: string;
     rendererId: number;
-    bounds: { x: number; y: number; width: number; height: number };
+    method: string;
+    input?: unknown;
+  }) => Promise<unknown>;
+  frameMessage: (input: { tabId: string; rendererId: number; message: unknown }) => Promise<void>;
+  frameReady: (input: { tabId: string; rendererId: number }) => Promise<void>;
+  browserWebviewAttach: (input: {
+    tabId: string;
+    rendererId: number;
+    pageId: string;
+    webContentsId: number;
   }) => Promise<void>;
-  setVisible: (input: { tabId: string; rendererId: number; visible: boolean }) => Promise<void>;
+  browserWebviewDetach: (input: {
+    tabId: string;
+    rendererId: number;
+    pageId: string;
+    webContentsId: number;
+  }) => Promise<void>;
   navigate: (input: { tabId: string; route: string; state?: unknown }) => Promise<void>;
   close: (input: { tabId: string }) => Promise<void>;
   onListingRequested: (listener: (input: { appId: string }) => void) => () => void;
   onOpened: (listener: (tab: DesktopAppTabDescriptor) => void) => () => void;
   onState: (listener: (tab: DesktopAppTabDescriptor) => void) => () => void;
   onClosed: (listener: (tab: DesktopAppTabClosed) => void) => () => void;
+  onFrameHostMessage: (listener: (message: DesktopAppFrameHostMessage) => void) => () => void;
 }
 
 export interface DesktopResourceOpenInput {
@@ -760,10 +785,12 @@ export interface DesktopAppDiagnosticsBridge {
   }) => Promise<ReadonlyArray<DesktopAppDiagnosticEntry>>;
 }
 
-export type DesktopAppOpenIntent = "open-url";
+export type DesktopAppOpenIntent = "open-url" | "open-file" | "open-directory";
 
 export interface DesktopAppOpenWithPreferences {
   "open-url"?: string;
+  "open-directory"?: string;
+  files: Readonly<Record<string, string>>;
 }
 
 export interface DesktopAppOpenWithBridge {
@@ -771,6 +798,7 @@ export interface DesktopAppOpenWithBridge {
   set: (input: {
     spaceId: string;
     intent: DesktopAppOpenIntent;
+    extension?: string;
     appId: string | null;
   }) => Promise<DesktopAppOpenWithPreferences>;
 }

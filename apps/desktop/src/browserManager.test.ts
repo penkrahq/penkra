@@ -426,4 +426,23 @@ describe("DesktopBrowserManager repeated workflow characterization", () => {
     expect(pageView.setVisible).toHaveBeenLastCalledWith(false);
     expect(pageView.setBounds).toHaveBeenLastCalledWith({ x: 0, y: 0, width: 0, height: 0 });
   });
+
+  it("tracks renderer surface activity without accepting renderer geometry", () => {
+    const manager = new DesktopBrowserManager();
+    const setPanelBounds = vi.spyOn(manager, "setPanelBounds");
+
+    manager.setRendererSurfaceActive(THREAD_ID, true);
+    manager.setRendererSurfaceActive(THREAD_ID, false);
+
+    expect(setPanelBounds).toHaveBeenNthCalledWith(1, {
+      threadId: THREAD_ID,
+      bounds: { x: 0, y: 0, width: 1, height: 1 },
+      surface: "renderer",
+    });
+    expect(setPanelBounds).toHaveBeenNthCalledWith(2, {
+      threadId: THREAD_ID,
+      bounds: null,
+      surface: "renderer",
+    });
+  });
 });

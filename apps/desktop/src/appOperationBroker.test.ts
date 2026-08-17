@@ -18,7 +18,7 @@ function enabledState(): AppInstallationState {
     createEmptyAppInstallationState(),
     {
       manifest: {
-        manifestVersion: 1,
+        manifestVersion: 2,
         id: "com.acme.linear",
         slug: "linear",
         name: "Linear",
@@ -57,7 +57,7 @@ function crossAppState(): AppInstallationState {
     linear,
     {
       manifest: {
-        manifestVersion: 1,
+        manifestVersion: 2,
         id: "com.acme.github",
         slug: "github",
         name: "GitHub",

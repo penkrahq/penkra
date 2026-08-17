@@ -192,9 +192,12 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     list: () => ipcRenderer.invoke(IPC.appTabs.list),
     consumeListingRequest: () => ipcRenderer.invoke(IPC.appTabs.consumeListingRequest),
     open: (input) => ipcRenderer.invoke(IPC.appTabs.open, input),
-    attach: (input) => ipcRenderer.invoke(IPC.appTabs.attach, input),
-    setBounds: (input) => ipcRenderer.invoke(IPC.appTabs.setBounds, input),
-    setVisible: (input) => ipcRenderer.invoke(IPC.appTabs.setVisible, input),
+    setActive: (input) => ipcRenderer.invoke(IPC.appTabs.setActive, input),
+    frameCall: (input) => ipcRenderer.invoke(IPC.appTabs.frameCall, input),
+    frameMessage: (input) => ipcRenderer.invoke(IPC.appTabs.frameMessage, input),
+    frameReady: (input) => ipcRenderer.invoke(IPC.appTabs.frameReady, input),
+    browserWebviewAttach: (input) => ipcRenderer.invoke(IPC.appTabs.browserWebviewAttach, input),
+    browserWebviewDetach: (input) => ipcRenderer.invoke(IPC.appTabs.browserWebviewDetach, input),
     navigate: (input) => ipcRenderer.invoke(IPC.appTabs.navigate, input),
     close: (input) => ipcRenderer.invoke(IPC.appTabs.close, input),
     onListingRequested: (listener) => {
@@ -220,6 +223,14 @@ contextBridge.exposeInMainWorld("desktopBridge", {
         listener(tab);
       ipcRenderer.on(IPC.appTabs.closed, wrapped);
       return () => ipcRenderer.removeListener(IPC.appTabs.closed, wrapped);
+    },
+    onFrameHostMessage: (listener) => {
+      const wrapped = (
+        _event: Electron.IpcRendererEvent,
+        message: Parameters<typeof listener>[0],
+      ) => listener(message);
+      ipcRenderer.on(IPC.appTabs.frameHostMessage, wrapped);
+      return () => ipcRenderer.removeListener(IPC.appTabs.frameHostMessage, wrapped);
     },
   },
   resources: {

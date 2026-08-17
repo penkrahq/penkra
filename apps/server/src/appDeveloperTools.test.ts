@@ -143,7 +143,7 @@ async function fixture(): Promise<string> {
     join(root, "penkra-app.json"),
     JSON.stringify(
       {
-        manifestVersion: 1,
+        manifestVersion: 2,
         id: "com.example.canvas",
         slug: "canvas",
         name: "Canvas",

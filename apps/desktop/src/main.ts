@@ -69,6 +69,17 @@ import { RotatingFileSink } from "@penkra/shared/logging";
 import { ensureStaticSnapshot, findAsarArchivePath } from "@penkra/shared/staticSnapshot";
 import { isBackendReadinessAborted, waitForHttpReady } from "./backendReadiness";
 import { queryAppPermission } from "./appPermissionQuery";
+import { parseAppHostedSurfaceInsets } from "./appHostedSurfaceLayout";
+import { openLocalAppResource } from "./appLocalResourceOpener";
+import {
+  appScopedFileEntry,
+  resolveExistingAppScopedPath,
+  resolveWritableAppScopedPath,
+} from "./appScopedFilePaths";
+import {
+  AppScopedFileHandleStore,
+  type AppScopedFileHandleRecord,
+} from "./appScopedFileHandleStore";
 import { resolveBackendNodeArgs } from "./backendNodeOptions";
 import { ActiveWorkPowerBlocker } from "./activeWorkPowerBlocker";
 import {
@@ -194,7 +205,6 @@ import { buildGitHubReleasesPageUrl, resolveGitHubUpdateSource } from "./githubU
 import { isArm64HostRunningIntelBuild, resolveDesktopRuntimeInfo } from "./runtimeArch";
 import { BROWSER_SESSION_PARTITION, DesktopBrowserManager } from "./browserManager";
 import { createScopedBrowserSessionPartition } from "./browserSessionPolicy";
-import { normalizeHostedBrowserViewportBounds } from "./hostedBrowserViewport";
 import { AppCommandPipeServer, resolveAppCommandPipePath } from "./appCommandPipeServer";
 import { AppTabObserver, resolveAppTabObservationTarget } from "./appTabObserver";
 import { BROWSER_APP_ID, isRequiredApp } from "./appDistributionPolicy";
@@ -239,8 +249,6 @@ import {
 } from "./simulatorHostRuntime";
 import { createDesktopSimulatorAdapterBundle } from "./simulatorAdapterBundle";
 import { invokeSimulatorCall } from "./simulatorIpc";
-import { HostedSurfaceRegistry, type HostedSurfaceParent } from "./hostedSurfaceRegistry";
-import { ElectronSimulatorViewerFactory } from "./simulatorViewer";
 import { queueAndroidSdkLicenseReview } from "./simulatorLicenseReview";
 import {
   parseDesktopAppTheme,
@@ -289,15 +297,13 @@ import {
 import { DevelopmentAppSideloadRegistry } from "./developmentAppSideloadRegistry";
 import { createInitialWindowPresenter } from "./initialWindowVisibility";
 import {
-  appTabCssBoundsToNativeBounds,
   parseAppTabIdRequest,
   parseAppTabRendererRequest,
   parseAppTabRouteRequest,
   parseNavigateAppTabRequest,
   parseOpenAppFromAppsRequest,
   parseOpenAppTabRequest,
-  parseSetAppTabBoundsRequest,
-  parseSetAppTabVisibleRequest,
+  parseSetAppTabActiveRequest,
 } from "./appTabIpc";
 import { parseAppListingDeepLink } from "./appListingDeepLink";
 import { getInstalledAppPackage, type VerifiedAppPackageInput } from "./appInstallationState";
@@ -445,8 +451,10 @@ let mainWindow: BrowserWindow | null = null;
 let pendingAppListingRequest: { appId: string } | null = null;
 let desktopAppRuntime: DesktopAppRuntime | null = null;
 let desktopSimulatorRuntime: DesktopSimulatorHostRuntime | null = null;
-let simulatorHostedSurfaces: HostedSurfaceRegistry | null = null;
-let simulatorViewerFactory: ElectronSimulatorViewerFactory | null = null;
+const runtimeV2SimulatorSurfaces = new Map<
+  string,
+  { stopFrames: (() => void) | null; generation: number }
+>();
 let unsubscribeSimulatorState: (() => void) | null = null;
 const appSimulatorTrackedRendererIds = new Set<number>();
 let appRegistryClient: AppRegistryClient | null = null;
@@ -460,7 +468,24 @@ let automaticAppUpdateTimer: ReturnType<typeof setTimeout> | null = null;
 let automaticAppUpdateReport: AutomaticRegistryAppUpdateReport | null = null;
 let getPenkraAccountId: () => Promise<string | null> = async () => null;
 let getPenkraAccountCookie: () => string = () => "";
-const appAccountSubscriptions = new Map<string, { senderId: number; stop(): void }>();
+const appAccountSubscriptions = new Map<
+  string,
+  { senderId: number; tabId?: string; stop(): void }
+>();
+const runtimeV2FileHandles = new AppScopedFileHandleStore();
+const runtimeV2FileWatches = new Map<
+  string,
+  { appId: string; spaceId: string; tabId: string; rendererId: number; watcher: FS.FSWatcher }
+>();
+
+function revokeRuntimeV2FileScope(appId: string, spaceId: string): void {
+  runtimeV2FileHandles.revokeScope(appId, spaceId);
+  for (const [watchId, watch] of runtimeV2FileWatches) {
+    if (watch.appId !== appId || watch.spaceId !== spaceId) continue;
+    watch.watcher.close();
+    runtimeV2FileWatches.delete(watchId);
+  }
+}
 const activeWorkPowerBlocker = new ActiveWorkPowerBlocker({
   blocker: powerSaveBlocker,
   onError: (message, error) =>
@@ -508,8 +533,7 @@ async function notifyOpenAppsInstallationState(): Promise<void> {
           tab.spaceId,
           permissionReviewUpdatesForSpace(tab.spaceId),
         );
-        const contents = runtime.appTabs.observationWebContents(tab.id);
-        if (!contents.isDestroyed()) contents.send(IPC.appInstallations.state, snapshot);
+        runtime.appTabs.sendFrameEvent(tab.id, "installations.state", snapshot);
       }),
   );
 }
@@ -645,22 +669,22 @@ async function openPenkraResource(input: {
     };
   }
 
-  if (!input.path || !Path.isAbsolute(input.path)) {
-    throw new Error("Penkra open requires a validated absolute path.");
-  }
-  const path = await FS.promises.realpath(input.path);
-  const stats = await FS.promises.stat(path);
-  const kind = stats.isDirectory() ? "directory" : stats.isFile() ? "file" : null;
-  if (!kind) throw new Error("Only regular files and directories can be opened.");
-  const intent = kind === "directory" ? ("open-directory" as const) : ("open-file" as const);
-  if (input.requestedApp) {
-    throw new Error(
-      "Local paths cannot be handed to an App without a browser-native filesystem picker.",
-    );
-  }
-  const error = await shell.openPath(path);
-  if (error) throw new Error(error);
-  return { destination: "system", intent, path };
+  return openLocalAppResource({
+    appTabs: runtime.appTabs,
+    broker: runtime.broker,
+    fileHandles: runtimeV2FileHandles,
+    intents: runtime.intents,
+    openWith: runtime.openWith,
+    path: input.path ?? "",
+    spaceId: input.spaceId,
+    threadId: input.threadId,
+    ...(input.requestedApp ? { requestedApp: input.requestedApp } : {}),
+    ...(input.callerKind ? { callerKind: input.callerKind } : {}),
+    openSystem: async (path) => {
+      const error = await shell.openPath(path);
+      if (error) throw new Error(error);
+    },
+  });
 }
 
 let backendAuthToken = "";
@@ -724,10 +748,6 @@ const browserManager = new DesktopBrowserManager({
   getWindowZoomFactor: () => mainWindow?.webContents.getZoomFactor() ?? 1,
 });
 let appCommandPipeServer: AppCommandPipeServer | null = null;
-const appBrowserViewportByRendererId = new Map<
-  number,
-  { x: number; y: number; width: number; height: number }
->();
 const appBrowserTrackedRendererIds = new Set<number>();
 let configuredUpdaterCacheDirName: string | null = null;
 
@@ -735,12 +755,8 @@ browserManager.subscribe((state) => {
   const runtime = desktopAppRuntime;
   if (!runtime) return;
   const appState = toAppBrowserState(state);
-  for (const contents of webContents.getAllWebContents()) {
-    if (contents.isDestroyed()) continue;
-    const identity = runtime.rendererIdentity(contents.id);
-    if (identity?.tabId === state.threadId) {
-      contents.send(IPC.appRuntime.browserState, appState);
-    }
+  if (runtime.appTabs.has(state.threadId)) {
+    runtime.appTabs.sendFrameEvent(state.threadId, "browser.state", appState);
   }
 });
 
@@ -756,33 +772,294 @@ function toAppBrowserState(
   };
 }
 
-function hideHostedBrowserViewport(rendererId: number): void {
-  const identity = desktopAppRuntime?.rendererIdentity(rendererId);
-  if (!identity?.tabId) return;
-  const threadId = identity.tabId as ThreadId;
-  if (browserManager.hasSession(threadId)) {
-    browserManager.setHostedPanelBounds({
-      threadId,
-      bounds: null,
-      hostBounds: null,
-      parentView: null,
+async function showAppContextMenu(
+  items: ReadonlyArray<ContextMenuItem>,
+  position?: { x: number; y: number },
+): Promise<string | null> {
+  const normalizedItems = items
+    .filter((item) => typeof item.id === "string" && typeof item.label === "string")
+    .map((item) => ({
+      id: item.id,
+      label: item.label,
+      separatorBefore: item.separatorBefore === true,
+      destructive: item.destructive === true,
+    }));
+  if (normalizedItems.length === 0) return null;
+  const popupPosition =
+    position &&
+    Number.isFinite(position.x) &&
+    Number.isFinite(position.y) &&
+    position.x >= 0 &&
+    position.y >= 0
+      ? { x: Math.floor(position.x), y: Math.floor(position.y) }
+      : null;
+  const window = BrowserWindow.getFocusedWindow() ?? mainWindow;
+  if (!window) return null;
+  return new Promise<string | null>((resolve) => {
+    const template: MenuItemConstructorOptions[] = [];
+    let hasInsertedDestructiveSeparator = false;
+    for (const item of normalizedItems) {
+      const shouldInsertSeparator =
+        item.separatorBefore ||
+        (item.destructive && !hasInsertedDestructiveSeparator && template.length > 0);
+      if (shouldInsertSeparator && template.length > 0) template.push({ type: "separator" });
+      if (item.destructive) hasInsertedDestructiveSeparator = true;
+      const itemOption: MenuItemConstructorOptions = {
+        label: item.label,
+        click: () => resolve(item.id),
+      };
+      if (item.destructive) {
+        const destructiveIcon = getDestructiveMenuIcon();
+        if (destructiveIcon) itemOption.icon = destructiveIcon;
+      }
+      template.push(itemOption);
+    }
+    Menu.buildFromTemplate(template).popup({
+      window,
+      ...popupPosition,
+      callback: () => resolve(null),
     });
+  });
+}
+
+async function runtimeV2FilePath(
+  handle: AppScopedFileHandleRecord,
+  relative: unknown,
+): Promise<string> {
+  return resolveExistingAppScopedPath(handle, relative);
+}
+
+async function runtimeV2FileEntry(
+  handle: AppScopedFileHandleRecord,
+  absolutePath: string,
+): Promise<{
+  kind: "file" | "directory";
+  name: string;
+  relativePath: string;
+  size: number;
+  modifiedAt: string;
+}> {
+  return appScopedFileEntry(handle, Path.relative(handle.rootPath, absolutePath));
+}
+
+async function invokeRuntimeV2BrowserCall(input: {
+  tabId: string;
+  appId: string;
+  spaceId: string;
+  method: string;
+  value: unknown;
+}): Promise<unknown> {
+  const threadId = input.tabId as ThreadId;
+  const value = input.value;
+  browserManager.setSessionPartition(
+    threadId,
+    createScopedBrowserSessionPartition(input.appId, input.spaceId),
+  );
+  const state = () => toAppBrowserState(browserManager.getState({ threadId }));
+  const pageId = () => {
+    if (typeof value !== "string" || !value) throw new Error("Browser page ID is required.");
+    return value;
+  };
+  switch (input.method) {
+    case "open":
+      return toAppBrowserState(
+        browserManager.open({
+          threadId,
+          ...(typeof value === "string" && value ? { initialUrl: value } : {}),
+        }),
+      );
+    case "close":
+      browserManager.close({ threadId });
+      return;
+    case "getState":
+      return state();
+    case "setSurfaceLayout": {
+      const insets = parseAppHostedSurfaceInsets(value);
+      if (insets === null) {
+        browserManager.setRendererSurfaceActive(threadId, false);
+        desktopAppRuntime?.appTabs.sendFrameEvent(input.tabId, "browser.surface", null);
+        return;
+      }
+      browserManager.setRendererSurfaceActive(threadId, true);
+      desktopAppRuntime?.appTabs.sendFrameEvent(input.tabId, "browser.surface", {
+        insets,
+        partition: createScopedBrowserSessionPartition(input.appId, input.spaceId),
+      });
+      return;
+    }
+    case "navigate": {
+      if (!value || typeof value !== "object" || Array.isArray(value)) {
+        throw new Error("Browser navigation input is required.");
+      }
+      const record = value as Record<string, unknown>;
+      if (typeof record.url !== "string" || !record.url.trim()) {
+        throw new Error("Browser navigation URL is required.");
+      }
+      return toAppBrowserState(
+        browserManager.navigate({
+          threadId,
+          url: record.url,
+          ...(typeof record.pageId === "string" ? { tabId: record.pageId } : {}),
+        }),
+      );
+    }
+    case "reload":
+      return toAppBrowserState(browserManager.reload({ threadId, tabId: pageId() }));
+    case "stop":
+      return toAppBrowserState(browserManager.stop({ threadId, tabId: pageId() }));
+    case "back":
+      return toAppBrowserState(browserManager.goBack({ threadId, tabId: pageId() }));
+    case "forward":
+      return toAppBrowserState(browserManager.goForward({ threadId, tabId: pageId() }));
+    case "newPage": {
+      const record =
+        value && typeof value === "object" && !Array.isArray(value)
+          ? (value as Record<string, unknown>)
+          : {};
+      return toAppBrowserState(
+        browserManager.newTab({
+          threadId,
+          ...(typeof record.url === "string" ? { url: record.url } : {}),
+          ...(typeof record.activate === "boolean" ? { activate: record.activate } : {}),
+        }),
+      );
+    }
+    case "closePage":
+      return toAppBrowserState(browserManager.closeTab({ threadId, tabId: pageId() }));
+    case "selectPage":
+      return toAppBrowserState(browserManager.selectTab({ threadId, tabId: pageId() }));
+    case "find": {
+      if (!value || typeof value !== "object" || Array.isArray(value)) {
+        throw new Error("Browser find input is required.");
+      }
+      const record = value as Record<string, unknown>;
+      if (typeof record.pageId !== "string" || typeof record.text !== "string") {
+        throw new Error("Browser find requires pageId and text.");
+      }
+      const action = record.action;
+      if (action !== undefined && !["search", "next", "previous"].includes(String(action))) {
+        throw new Error("Browser find action is invalid.");
+      }
+      return browserManager.findInPage({
+        threadId,
+        tabId: record.pageId,
+        text: record.text,
+        action: (action ?? "search") as "search" | "next" | "previous",
+      });
+    }
+    case "stopFind":
+      browserManager.stopFindInPage({ threadId, tabId: pageId() });
+      return;
+    case "capture": {
+      const result = await browserManager.captureScreenshot({ threadId, tabId: pageId() });
+      return {
+        dataUrl: `data:${result.mimeType};base64,${Buffer.from(result.bytes).toString("base64")}`,
+      };
+    }
+    case "evaluate": {
+      if (!value || typeof value !== "object" || Array.isArray(value)) {
+        throw new Error("Browser evaluate input is required.");
+      }
+      const record = value as Record<string, unknown>;
+      if (typeof record.pageId !== "string" || typeof record.expression !== "string") {
+        throw new Error("Browser evaluate requires pageId and expression.");
+      }
+      if (Buffer.byteLength(record.expression) > 100_000) {
+        throw new Error("Browser expressions may contain at most 100,000 bytes.");
+      }
+      const response = await browserManager.executeCdp({
+        threadId,
+        tabId: record.pageId,
+        method: "Runtime.evaluate",
+        params: {
+          expression: record.expression,
+          awaitPromise: true,
+          returnByValue: true,
+          userGesture: false,
+        },
+      });
+      const result =
+        response && typeof response === "object"
+          ? (response as {
+              result?: { value?: unknown; description?: string };
+              exceptionDetails?: unknown;
+            })
+          : {};
+      if (result.exceptionDetails) {
+        throw new Error(result.result?.description ?? "Browser evaluation failed.");
+      }
+      return result.result?.value ?? null;
+    }
+    default:
+      throw new Error(`Unsupported browser method: ${input.method}.`);
   }
 }
 
-function syncHostedBrowserViewport(rendererId: number): void {
-  const runtime = desktopAppRuntime;
-  const identity = runtime?.rendererIdentity(rendererId);
-  const local = appBrowserViewportByRendererId.get(rendererId);
-  const host = runtime?.appTabs.rendererBounds(rendererId);
-  const parentView = runtime?.appTabs.rendererView(rendererId) ?? null;
-  if (!identity?.tabId || !local || !host || !parentView) return;
-  browserManager.setHostedPanelBounds({
-    threadId: identity.tabId as ThreadId,
-    parentView,
-    hostBounds: normalizeHostedBrowserViewportBounds(host),
-    bounds: normalizeHostedBrowserViewportBounds(local),
-  });
+function runtimeV2SimulatorViewport(
+  manager: NonNullable<typeof desktopSimulatorRuntime>["manager"],
+): import("./simulatorIpc").SimulatorViewportController {
+  return {
+    setViewport: async (owner, bounds) => {
+      const current = runtimeV2SimulatorSurfaces.get(owner.tabId);
+      current?.stopFrames?.();
+      const generation = (current?.generation ?? 0) + 1;
+      runtimeV2SimulatorSurfaces.set(owner.tabId, { stopFrames: null, generation });
+      desktopAppRuntime?.appTabs.sendFrameEvent(owner.tabId, "simulator.surface", bounds);
+      if (!bounds || bounds.width === 0 || bounds.height === 0) return;
+      if (manager.getState(owner).phase !== "ready") return;
+      const subscription = await manager.subscribeFrames(
+        owner,
+        (frame) => {
+          const active = runtimeV2SimulatorSurfaces.get(owner.tabId);
+          if (!active || active.generation !== generation) return;
+          desktopAppRuntime?.appTabs.sendFrameEvent(owner.tabId, "simulator.frame", {
+            dataUrl: `data:${frame.mimeType};base64,${Buffer.from(frame.data).toString("base64")}`,
+          });
+        },
+        (error) => {
+          console.error("[simulator] Runtime v2 frame stream failed.", error);
+        },
+      );
+      const active = runtimeV2SimulatorSurfaces.get(owner.tabId);
+      if (!active || active.generation !== generation) subscription.stop();
+      else active.stopFrames = () => subscription.stop();
+    },
+  };
+}
+
+async function authorizeRuntimeV2SimulatorSetup(
+  request: import("@penkra/sdk").AppSimulatorSetupRequest,
+): Promise<boolean> {
+  const simulatorRuntime = desktopSimulatorRuntime;
+  if (!simulatorRuntime) return false;
+  const runtimeInfo = request.runtimeId
+    ? (await simulatorRuntime.manager.listRuntimes()).find(
+        (candidate) =>
+          candidate.id === request.runtimeId && candidate.platform === request.platform,
+      )
+    : null;
+  const platformName = request.platform === "ios" ? "iOS Simulator" : "Android";
+  const setupName = runtimeInfo?.name ?? `${platformName} support`;
+  const options: Electron.MessageBoxOptions = {
+    type: "question",
+    buttons: ["Install", "Cancel"],
+    defaultId: 0,
+    cancelId: 1,
+    noLink: true,
+    title: "Install simulator support",
+    message: `Install ${setupName}?`,
+    detail:
+      `Penkra will run ${
+        request.platform === "ios"
+          ? "Xcode for Apple platform files, or npm for the pinned Appium/XCUITest automation pair when it is missing"
+          : "the official Android SDK Manager"
+      }. ` +
+      "This downloads platform files and uses additional disk space. Penkra does not accept license terms automatically, and you can cancel while the installer is running.",
+  };
+  const result = mainWindow
+    ? await dialog.showMessageBox(mainWindow, options)
+    : await dialog.showMessageBox(options);
+  return result.response === 0;
 }
 
 function startBrowserPerformanceLogging(): void {
@@ -3833,16 +4110,6 @@ async function stopAppRuntimeAndBackend(): Promise<void> {
       failures.push(error);
     }
   }
-  const hostedSurfaces = simulatorHostedSurfaces;
-  simulatorHostedSurfaces = null;
-  simulatorViewerFactory = null;
-  if (hostedSurfaces) {
-    try {
-      hostedSurfaces.dispose();
-    } catch (error) {
-      failures.push(error);
-    }
-  }
   const runtime = desktopAppRuntime;
   desktopAppRuntime = null;
   if (runtime) {
@@ -4227,7 +4494,8 @@ function registerIpcHandlers(): void {
       appSimulatorTrackedRendererIds.add(event.sender.id);
       event.sender.once("destroyed", () => {
         appSimulatorTrackedRendererIds.delete(event.sender.id);
-        simulatorHostedSurfaces?.closeTab(owner.tabId);
+        runtimeV2SimulatorSurfaces.get(owner.tabId)?.stopFrames?.();
+        runtimeV2SimulatorSurfaces.delete(owner.tabId);
         void desktopSimulatorRuntime?.manager.closeTab(owner.tabId).catch((error) => {
           console.warn(
             `[penkra-app] Simulator cleanup failed after renderer exit: ${formatErrorMessage(error)}`,
@@ -4242,13 +4510,7 @@ function registerIpcHandlers(): void {
         owner,
         method,
         value,
-        viewport:
-          simulatorHostedSurfaces ??
-          (() => {
-            throw Object.assign(new Error("The hosted Simulator viewport is not ready."), {
-              code: "HOSTED_VIEW_UNAVAILABLE",
-            });
-          })(),
+        viewport: runtimeV2SimulatorViewport(simulatorRuntime.manager),
         authorizeSetup: async (request) => {
           const runtimeInfo = request.runtimeId
             ? (await simulatorRuntime.manager.listRuntimes()).find(
@@ -4291,12 +4553,6 @@ function registerIpcHandlers(): void {
         })
         .catch(() => undefined);
     }
-  });
-  ipcMain.removeHandler(IPC.simulatorViewer.input);
-  ipcMain.handle(IPC.simulatorViewer.input, async (event, input: unknown) => {
-    const factory = simulatorViewerFactory;
-    if (!factory) throw new Error("The Simulator viewer is not ready.");
-    await factory.invokeInput(event.sender.id, input);
   });
   ipcMain.removeHandler(IPC.appRuntime.settingGet);
   ipcMain.handle(IPC.appRuntime.settingGet, async (event, key: unknown) => {
@@ -4366,7 +4622,6 @@ function registerIpcHandlers(): void {
       appBrowserTrackedRendererIds.add(event.sender.id);
       event.sender.once("destroyed", () => {
         appBrowserTrackedRendererIds.delete(event.sender.id);
-        appBrowserViewportByRendererId.delete(event.sender.id);
         if (browserManager.hasSession(threadId)) browserManager.close({ threadId });
       });
     }
@@ -4392,41 +4647,8 @@ function registerIpcHandlers(): void {
         return;
       case "getState":
         return state();
-      case "setViewport": {
-        if (value === null) {
-          appBrowserViewportByRendererId.delete(event.sender.id);
-          browserManager.setHostedPanelBounds({
-            threadId,
-            bounds: null,
-            hostBounds: null,
-            parentView: null,
-          });
-          return;
-        }
-        if (!value || typeof value !== "object" || Array.isArray(value)) {
-          throw new Error("Browser viewport must be bounds or null.");
-        }
-        const local = value as Record<string, unknown>;
-        const values = [local.x, local.y, local.width, local.height];
-        if (
-          !values.every((candidate) => typeof candidate === "number" && Number.isFinite(candidate))
-        ) {
-          throw new Error("Browser viewport bounds must be finite numbers.");
-        }
-        appBrowserViewportByRendererId.set(
-          event.sender.id,
-          appTabCssBoundsToNativeBounds(
-            {
-              x: local.x as number,
-              y: local.y as number,
-              width: local.width as number,
-              height: local.height as number,
-            },
-            event.sender.getZoomFactor(),
-          ),
-        );
-        syncHostedBrowserViewport(event.sender.id);
-        return;
+      case "setSurfaceLayout": {
+        throw new Error("Hosted Browser surfaces require the Runtime v2 App frame.");
       }
       case "navigate": {
         if (!value || typeof value !== "object" || Array.isArray(value))
@@ -4592,8 +4814,11 @@ function registerIpcHandlers(): void {
   });
   ipcMain.handle(IPC.appInstallations.setEnabled, async (event, input: unknown) => {
     const { service, currentSpaceId } = requireAppInstallations(event.sender.id);
+    const request = parseSetAppEnabledRequest(input);
+    const state = await service.setEnabled(request);
+    if (!request.enabled) revokeRuntimeV2FileScope(request.appId, request.spaceId);
     return toDesktopAppInstallationSnapshot(
-      await service.setEnabled(parseSetAppEnabledRequest(input)),
+      state,
       currentSpaceId,
       permissionReviewUpdatesForSpace(currentSpaceId),
     );
@@ -4638,16 +4863,22 @@ function registerIpcHandlers(): void {
   });
   ipcMain.handle(IPC.appInstallations.uninstall, async (event, input: unknown) => {
     const { service, currentSpaceId } = requireAppInstallations(event.sender.id);
+    const request = parseUninstallAppRequest(input);
+    const state = await service.uninstall(request);
+    revokeRuntimeV2FileScope(request.appId, request.spaceId);
     return toDesktopAppInstallationSnapshot(
-      await service.uninstall(parseUninstallAppRequest(input)),
+      state,
       currentSpaceId,
       permissionReviewUpdatesForSpace(currentSpaceId),
     );
   });
   ipcMain.handle(IPC.appInstallations.removeData, async (event, input: unknown) => {
     const { service, currentSpaceId } = requireAppInstallations(event.sender.id);
+    const request = parseRemoveAppDataRequest(input);
+    const state = await service.removeData(request);
+    revokeRuntimeV2FileScope(request.appId, request.spaceId);
     return toDesktopAppInstallationSnapshot(
-      await service.removeData(parseRemoveAppDataRequest(input)),
+      state,
       currentSpaceId,
       permissionReviewUpdatesForSpace(currentSpaceId),
     );
@@ -4787,31 +5018,636 @@ function registerIpcHandlers(): void {
     );
   });
   ipcMain.handle(IPC.appTabs.list, async (event) => requireShellAppTabs(event.sender.id).list());
-  ipcMain.handle(IPC.appTabs.attach, async (event, input: unknown) => {
-    const { tabId, rendererId } = parseAppTabRendererRequest(input);
-    requireShellAppTabs(event.sender.id).attach(tabId, rendererId);
+  ipcMain.handle(IPC.appTabs.setActive, async (event, input: unknown) => {
+    const { tabId, rendererId, active } = parseSetAppTabActiveRequest(input);
+    // React cleanup may deactivate a retired frame after an atomic App update. A stale
+    // capability token is already inactive, so the host intentionally treats it as satisfied.
+    requireShellAppTabs(event.sender.id).setActive(tabId, rendererId, active);
   });
-  ipcMain.handle(IPC.appTabs.setBounds, async (event, input: unknown) => {
-    const { tabId, rendererId, bounds } = parseSetAppTabBoundsRequest(input);
+  ipcMain.handle(IPC.appTabs.frameMessage, async (event, input: unknown) => {
     const tabs = requireShellAppTabs(event.sender.id);
-    if (
-      tabs.setBounds(
-        tabId,
-        rendererId,
-        appTabCssBoundsToNativeBounds(bounds, event.sender.getZoomFactor()),
-      )
-    ) {
-      syncHostedBrowserViewport(rendererId);
+    if (!input || typeof input !== "object" || Array.isArray(input)) {
+      throw new Error("Invalid App frame message.");
     }
+    const { tabId, rendererId, message } = input as Record<string, unknown>;
+    if (typeof tabId !== "string" || typeof rendererId !== "number") {
+      throw new Error("Invalid App frame identity.");
+    }
+    tabs.acceptFrameMessage(tabId, rendererId, message);
   });
-  ipcMain.handle(IPC.appTabs.setVisible, async (event, input: unknown) => {
-    const { tabId, rendererId, visible } = parseSetAppTabVisibleRequest(input);
+  ipcMain.handle(IPC.appTabs.frameReady, async (event, input: unknown) => {
+    const { tabId, rendererId } = parseAppTabRendererRequest(input);
+    requireShellAppTabs(event.sender.id).markFrameReady(tabId, rendererId);
+  });
+  ipcMain.handle(IPC.appTabs.browserWebviewAttach, async (event, input: unknown) => {
     const tabs = requireShellAppTabs(event.sender.id);
-    // React cleanup can hide a pane after an atomic App update has already
-    // retired its old renderer. Hiding a missing view is already satisfied.
-    if (!tabs.setVisible(tabId, rendererId, visible)) return;
-    if (visible) syncHostedBrowserViewport(rendererId);
-    else hideHostedBrowserViewport(rendererId);
+    if (!input || typeof input !== "object" || Array.isArray(input)) {
+      throw new Error("Invalid hosted Browser webview attachment.");
+    }
+    const { tabId, rendererId, pageId, webContentsId } = input as Record<string, unknown>;
+    if (
+      typeof tabId !== "string" ||
+      typeof rendererId !== "number" ||
+      typeof pageId !== "string" ||
+      typeof webContentsId !== "number"
+    ) {
+      throw new Error("Invalid hosted Browser webview identity.");
+    }
+    const identity = tabs.frameIdentity(tabId, rendererId);
+    browserManager.setSessionPartition(
+      tabId as ThreadId,
+      createScopedBrowserSessionPartition(identity.appId, identity.spaceId),
+    );
+    browserManager.attachWebview({
+      threadId: tabId as ThreadId,
+      tabId: pageId,
+      webContentsId,
+    });
+  });
+  ipcMain.handle(IPC.appTabs.browserWebviewDetach, async (event, input: unknown) => {
+    const tabs = requireShellAppTabs(event.sender.id);
+    if (!input || typeof input !== "object" || Array.isArray(input)) return;
+    const { tabId, rendererId, pageId, webContentsId } = input as Record<string, unknown>;
+    if (
+      typeof tabId !== "string" ||
+      typeof rendererId !== "number" ||
+      typeof pageId !== "string" ||
+      typeof webContentsId !== "number"
+    )
+      return;
+    tabs.frameIdentity(tabId, rendererId);
+    browserManager.detachWebview({
+      threadId: tabId as ThreadId,
+      tabId: pageId,
+      webContentsId,
+    });
+  });
+  ipcMain.handle(IPC.appTabs.frameCall, async (event, input: unknown) => {
+    const tabs = requireShellAppTabs(event.sender.id);
+    if (!input || typeof input !== "object" || Array.isArray(input)) {
+      throw new Error("Invalid App frame call.");
+    }
+    const { tabId, rendererId, method, input: value } = input as Record<string, unknown>;
+    if (typeof tabId !== "string" || typeof rendererId !== "number" || typeof method !== "string") {
+      throw new Error("Invalid App frame call identity.");
+    }
+    const runtime = desktopAppRuntime;
+    if (!runtime) throw new Error("The App runtime is unavailable.");
+    const identity = tabs.frameIdentity(tabId, rendererId);
+    const requireAppsFrame = () => {
+      if (identity.appId !== "com.penkra.apps") {
+        throw new Error("Only Apps can use installation and registry services.");
+      }
+      return identity.spaceId;
+    };
+    const installationSnapshot = () =>
+      toDesktopAppInstallationSnapshot(
+        runtime.installations.snapshot(),
+        identity.spaceId,
+        permissionReviewUpdatesForSpace(identity.spaceId),
+      );
+    switch (method) {
+      case "tab.setRoute":
+        tabs.setRoute(tabId, parseAppTabRouteRequest(value));
+        return;
+      case "permissions.query":
+        return queryAppPermission(runtime.installations.snapshot(), identity, value);
+      case "permissions.request": {
+        const current = queryAppPermission(runtime.installations.snapshot(), identity, value);
+        if (!current.declared) throw new Error(`${String(value)} is not declared by this App.`);
+        if (current.required) throw new Error(`${current.name} is a required permission.`);
+        if (current.state === "granted") return current;
+        await runtime.installations.requestOptionalPermission({
+          appId: identity.appId,
+          spaceId: identity.spaceId,
+          permission: current.name,
+          confirm: async ({ appName, reason }) => {
+            const options: Electron.MessageBoxOptions = {
+              type: "question",
+              buttons: ["Allow", "Not now"],
+              defaultId: 0,
+              cancelId: 1,
+              noLink: true,
+              title: `${appName} permission`,
+              message: `${appName} would like permission to ${reason.replace(/[.\s]+$/, "").toLowerCase()}.`,
+              detail: "You can revoke this permission later in Penkra Settings.",
+            };
+            const result = mainWindow
+              ? await dialog.showMessageBox(mainWindow, options)
+              : await dialog.showMessageBox(options);
+            return result.response === 0;
+          },
+        });
+        return queryAppPermission(runtime.installations.snapshot(), identity, current.name);
+      }
+      case "identity.get":
+        return runtime.identities.resolve(identity.appId, identity.spaceId);
+      case "contextMenu.show":
+        if (!Array.isArray(value)) throw new Error("Context menu items must be an array.");
+        return showAppContextMenu(value as ContextMenuItem[]);
+      case "files.list":
+        return runtimeV2FileHandles.list(identity.appId, identity.spaceId);
+      case "files.pick": {
+        if (value !== "file" && value !== "directory") {
+          throw new Error("File picker kind must be file or directory.");
+        }
+        const owner = BrowserWindow.getFocusedWindow() ?? mainWindow;
+        const options: Electron.OpenDialogOptions = {
+          properties: value === "directory" ? ["openDirectory", "createDirectory"] : ["openFile"],
+        };
+        const result = owner
+          ? await dialog.showOpenDialog(owner, options)
+          : await dialog.showOpenDialog(options);
+        const selected = result.canceled ? null : (result.filePaths[0] ?? null);
+        if (!selected) return null;
+        return runtimeV2FileHandles.grant({
+          appId: identity.appId,
+          spaceId: identity.spaceId,
+          kind: value,
+          path: selected,
+        });
+      }
+      case "files.revoke": {
+        runtimeV2FileHandles.revoke(identity.appId, identity.spaceId, value);
+        return;
+      }
+      case "files.stat":
+      case "files.listDirectory":
+      case "files.readText":
+      case "files.writeText":
+      case "files.createDirectory":
+      case "files.watch": {
+        if (!value || typeof value !== "object" || Array.isArray(value)) {
+          throw new Error("Scoped file input must be an object.");
+        }
+        const record = value as Record<string, unknown>;
+        const handle = runtimeV2FileHandles.resolve(
+          identity.appId,
+          identity.spaceId,
+          record.handleId,
+        );
+        const absolutePath = await (method === "files.writeText" ||
+        method === "files.createDirectory"
+          ? resolveWritableAppScopedPath(handle, record.relativePath)
+          : runtimeV2FilePath(handle, record.relativePath));
+        if (method === "files.stat") return runtimeV2FileEntry(handle, absolutePath);
+        if (method === "files.listDirectory") {
+          const entries = await FS.promises.readdir(absolutePath, { withFileTypes: true });
+          const resolved = await Promise.allSettled(
+            entries.map((entry) => runtimeV2FileEntry(handle, Path.join(absolutePath, entry.name))),
+          );
+          return resolved.flatMap((entry) => (entry.status === "fulfilled" ? [entry.value] : []));
+        }
+        if (method === "files.readText") {
+          const stat = await FS.promises.stat(absolutePath);
+          if (stat.size > 16 * 1024 * 1024) throw new Error("Text file exceeds the 16 MB limit.");
+          return FS.promises.readFile(absolutePath, "utf8");
+        }
+        if (method === "files.writeText") {
+          if (typeof record.source !== "string") throw new Error("File contents must be text.");
+          if (Buffer.byteLength(record.source) > 16 * 1024 * 1024) {
+            throw new Error("Text file exceeds the 16 MB limit.");
+          }
+          await FS.promises.writeFile(absolutePath, record.source, "utf8");
+          return;
+        }
+        if (method === "files.createDirectory") {
+          await FS.promises.mkdir(absolutePath);
+          return runtimeV2FileEntry(handle, absolutePath);
+        }
+        const watchId = Crypto.randomUUID();
+        const watcher = FS.watch(absolutePath, { persistent: false }, () => {
+          try {
+            runtime.appTabs.sendFrameEvent(tabId, `files.watch.${watchId}`, null);
+          } catch {
+            // Tab close cleanup owns the watcher.
+          }
+        });
+        runtimeV2FileWatches.set(watchId, {
+          appId: identity.appId,
+          spaceId: identity.spaceId,
+          tabId,
+          rendererId,
+          watcher,
+        });
+        return watchId;
+      }
+      case "files.readBinary": {
+        if (!value || typeof value !== "object" || Array.isArray(value)) {
+          throw new Error("Binary read input must be an object.");
+        }
+        const record = value as Record<string, unknown>;
+        const handle = runtimeV2FileHandles.resolve(
+          identity.appId,
+          identity.spaceId,
+          record.handleId,
+        );
+        const absolutePath = await runtimeV2FilePath(handle, record.relativePath);
+        const stat = await FS.promises.stat(absolutePath);
+        const offset =
+          typeof record.offset === "number" && Number.isInteger(record.offset) && record.offset >= 0
+            ? record.offset
+            : 0;
+        const length =
+          typeof record.length === "number" &&
+          Number.isInteger(record.length) &&
+          record.length > 0 &&
+          record.length <= 1024 * 1024
+            ? record.length
+            : 1024 * 1024;
+        const file = await FS.promises.open(absolutePath, "r");
+        try {
+          const buffer = Buffer.alloc(Math.max(0, Math.min(length, stat.size - offset)));
+          const { bytesRead } = await file.read(buffer, 0, buffer.length, offset);
+          return {
+            bytes: new Uint8Array(buffer.subarray(0, bytesRead)),
+            totalBytes: stat.size,
+            complete: offset + bytesRead >= stat.size,
+          };
+        } finally {
+          await file.close();
+        }
+      }
+      case "files.unwatch": {
+        const watchId =
+          value && typeof value === "object" && !Array.isArray(value)
+            ? (value as { watchId?: unknown }).watchId
+            : undefined;
+        if (typeof watchId !== "string") return;
+        const watch = runtimeV2FileWatches.get(watchId);
+        if (!watch || watch.tabId !== tabId || watch.rendererId !== rendererId) return;
+        watch.watcher.close();
+        runtimeV2FileWatches.delete(watchId);
+        return;
+      }
+      case "resources.open": {
+        if (!value || typeof value !== "object" || Array.isArray(value)) {
+          throw new Error("Resource open input must be an object.");
+        }
+        const record = value as Record<string, unknown>;
+        if (record.with !== "system") throw new Error("Only the system handler is supported.");
+        const handle = runtimeV2FileHandles.resolve(
+          identity.appId,
+          identity.spaceId,
+          record.handleId,
+        );
+        const absolutePath = await runtimeV2FilePath(handle, record.relativePath);
+        const error = await shell.openPath(absolutePath);
+        if (error) throw new Error(error);
+        return;
+      }
+      case "account.request": {
+        const permission = queryAppPermission(
+          runtime.installations.snapshot(),
+          identity,
+          "account-data",
+        );
+        if (!permission.declared || permission.state !== "granted") {
+          throw Object.assign(new Error("account-data is not granted for this App."), {
+            code: "PERMISSION_DENIED",
+          });
+        }
+        if (!value || typeof value !== "object" || Array.isArray(value)) {
+          throw new Error("Account-data request must be an object.");
+        }
+        return requestAppAccountData({
+          apiUrl: penkraAccountServices.apiUrl,
+          appId: identity.appId,
+          cookie: getPenkraAccountCookie(),
+          request: value as import("./appAccountData").AppAccountDataRequest,
+        });
+      }
+      case "account.subscribe": {
+        const permission = queryAppPermission(
+          runtime.installations.snapshot(),
+          identity,
+          "account-data",
+        );
+        if (!permission.declared || permission.state !== "granted") {
+          throw Object.assign(new Error("account-data is not granted for this App."), {
+            code: "PERMISSION_DENIED",
+          });
+        }
+        const channel =
+          value && typeof value === "object" && !Array.isArray(value)
+            ? (value as { channel?: unknown }).channel
+            : undefined;
+        if (typeof channel !== "string") throw new Error("Account-data channel must be a string.");
+        const subscriptionId = Crypto.randomUUID();
+        const push = (payload: unknown) => {
+          try {
+            runtime.appTabs.sendFrameEvent(
+              tabId,
+              `account.subscription.${subscriptionId}`,
+              payload,
+            );
+          } catch {
+            // Closing the tab owns subscription cleanup and may race an incoming event.
+          }
+        };
+        const subscription = await subscribeAppAccountData({
+          apiUrl: penkraAccountServices.apiUrl,
+          appId: identity.appId,
+          cookie: getPenkraAccountCookie(),
+          channel,
+          onEvent: (accountEvent) => push({ kind: "event", event: accountEvent }),
+          onConnectionStateChange: (state) => push({ kind: "connection-state", state }),
+        });
+        appAccountSubscriptions.set(subscriptionId, {
+          senderId: rendererId,
+          tabId,
+          stop: subscription.stop,
+        });
+        return subscriptionId;
+      }
+      case "account.unsubscribe": {
+        const subscriptionId =
+          value && typeof value === "object" && !Array.isArray(value)
+            ? (value as { subscriptionId?: unknown }).subscriptionId
+            : undefined;
+        if (typeof subscriptionId !== "string") {
+          throw new Error("Account-data subscription ID must be a string.");
+        }
+        const active = appAccountSubscriptions.get(subscriptionId);
+        if (!active || active.senderId !== rendererId || active.tabId !== tabId) return;
+        active.stop();
+        appAccountSubscriptions.delete(subscriptionId);
+        return;
+      }
+      case "settings.get":
+        if (typeof value !== "string") throw new Error("Setting key must be a string.");
+        return runtime.installations.getSetting({ ...identity, key: value });
+      case "settings.set": {
+        if (!value || typeof value !== "object" || Array.isArray(value)) {
+          throw new Error("Setting input must be an object.");
+        }
+        const { key, value: settingValue } = value as Record<string, unknown>;
+        if (typeof key !== "string") throw new Error("Setting key must be a string.");
+        await runtime.installations.setSetting({ ...identity, key, value: settingValue });
+        return;
+      }
+      case "settings.reset":
+        if (typeof value !== "string") throw new Error("Setting key must be a string.");
+        await runtime.installations.resetSetting({ ...identity, key: value });
+        return;
+      case "secrets.get":
+        if (typeof value !== "string") throw new Error("Secret name must be a string.");
+        return runtime.vault.getSecret(identity.appId, identity.spaceId, value);
+      case "secrets.set": {
+        if (!value || typeof value !== "object" || Array.isArray(value)) {
+          throw new Error("Secret input must be an object.");
+        }
+        const { name, value: secretValue } = value as Record<string, unknown>;
+        if (typeof name !== "string" || typeof secretValue !== "string") {
+          throw new Error("Secret name and value must be strings.");
+        }
+        await runtime.vault.setSecret(identity.appId, identity.spaceId, name, secretValue);
+        return;
+      }
+      case "secrets.delete":
+        if (typeof value !== "string") throw new Error("Secret name must be a string.");
+        await runtime.vault.deleteSecret(identity.appId, identity.spaceId, value);
+        return;
+      case "browser.open":
+      case "browser.close":
+      case "browser.getState":
+      case "browser.setSurfaceLayout":
+      case "browser.navigate":
+      case "browser.reload":
+      case "browser.stop":
+      case "browser.back":
+      case "browser.forward":
+      case "browser.newPage":
+      case "browser.closePage":
+      case "browser.selectPage":
+      case "browser.find":
+      case "browser.stopFind":
+      case "browser.capture":
+      case "browser.evaluate": {
+        const permission = queryAppPermission(
+          runtime.installations.snapshot(),
+          identity,
+          "browser-session",
+        );
+        if (!permission.declared || permission.state !== "granted") {
+          throw Object.assign(
+            new Error("browser-session is not granted for this App in the current Space."),
+            { code: "PERMISSION_DENIED" },
+          );
+        }
+        return invokeRuntimeV2BrowserCall({
+          tabId,
+          appId: identity.appId,
+          spaceId: identity.spaceId,
+          method: method.slice("browser.".length),
+          value,
+        });
+      }
+      case "simulator.getEnvironment":
+      case "simulator.listRuntimes":
+      case "simulator.listDeviceTypes":
+      case "simulator.listDevices":
+      case "simulator.createDevice":
+      case "simulator.eraseDevice":
+      case "simulator.deleteDevice":
+      case "simulator.requestSetup":
+      case "simulator.cancelSetup":
+      case "simulator.open":
+      case "simulator.close":
+      case "simulator.getState":
+      case "simulator.setViewport":
+      case "simulator.getTarget":
+      case "simulator.capture":
+      case "simulator.tap":
+      case "simulator.swipe":
+      case "simulator.type":
+      case "simulator.press":
+      case "simulator.rotate": {
+        const simulatorRuntime = desktopSimulatorRuntime;
+        if (!simulatorRuntime) throw new Error("The Simulator host service is not ready.");
+        const permission = queryAppPermission(
+          runtime.installations.snapshot(),
+          identity,
+          "simulator-session",
+        );
+        if (!permission.declared || permission.state !== "granted") {
+          throw Object.assign(
+            new Error("simulator-session is not granted for this App in the current Space."),
+            { code: "PERMISSION_DENIED" },
+          );
+        }
+        return invokeSimulatorCall({
+          manager: simulatorRuntime.manager,
+          owner: {
+            appId: identity.appId,
+            spaceId: identity.spaceId,
+            tabId,
+          },
+          method: method.slice("simulator.".length),
+          value,
+          viewport: runtimeV2SimulatorViewport(simulatorRuntime.manager),
+          authorizeSetup: authorizeRuntimeV2SimulatorSetup,
+        });
+      }
+      case "network.fetch": {
+        const permission = queryAppPermission(
+          runtime.installations.snapshot(),
+          identity,
+          "network-fetch",
+        );
+        if (!permission.declared || permission.state !== "granted") {
+          throw Object.assign(new Error("network-fetch is not granted for this App."), {
+            code: "PERMISSION_DENIED",
+          });
+        }
+        if (!value || typeof value !== "object" || Array.isArray(value)) {
+          throw new Error("Network request must be an object.");
+        }
+        return mediatedAppFetch(value as import("./appNetworkFetch").AppNetworkFetchRequest);
+      }
+      case "installations.getState":
+        requireAppsFrame();
+        return installationSnapshot();
+      case "installations.installRegistry": {
+        const currentSpaceId = requireAppsFrame();
+        if (!appRegistryClient) throw new Error("The App registry is not ready.");
+        const request = parseInstallRegistryAppRequest(value);
+        if (request.spaceId !== currentSpaceId) {
+          throw new Error("Apps can only be installed into the current Space.");
+        }
+        await installRegistryApp({
+          request,
+          hostVersion: app.getVersion(),
+          registry: appRegistryClient,
+          packages: runtime.packages,
+          installations: runtime.installations,
+        });
+        return installationSnapshot();
+      }
+      case "installations.updateRegistry": {
+        const currentSpaceId = requireAppsFrame();
+        if (!appRegistryClient) throw new Error("The App registry is not ready.");
+        const request = parseUpdateRegistryAppRequest(value);
+        if (request.spaceId !== currentSpaceId) {
+          throw new Error("Apps can only be updated in the current Space.");
+        }
+        await updateRegistryApp({
+          request,
+          hostVersion: app.getVersion(),
+          registry: appRegistryClient,
+          packages: runtime.packages,
+          installations: runtime.installations,
+        });
+        return installationSnapshot();
+      }
+      case "installations.rollbackRegistry": {
+        const currentSpaceId = requireAppsFrame();
+        if (!appRegistryClient) throw new Error("The App registry is not ready.");
+        const request = parseRollbackRegistryAppRequest(value);
+        if (request.spaceId !== currentSpaceId) {
+          throw new Error("Apps can only be rolled back in the current Space.");
+        }
+        await rollbackRegistryApp({
+          request,
+          hostVersion: app.getVersion(),
+          registry: appRegistryClient,
+          packages: runtime.packages,
+          installations: runtime.installations,
+        });
+        return installationSnapshot();
+      }
+      case "installations.setEnabled": {
+        requireAppsFrame();
+        const request = parseSetAppEnabledRequest(value);
+        await runtime.installations.setEnabled(request);
+        if (!request.enabled) revokeRuntimeV2FileScope(request.appId, request.spaceId);
+        return installationSnapshot();
+      }
+      case "installations.setPermission": {
+        requireAppsFrame();
+        const request = parseSetAppPermissionRequest(value);
+        await (isAppStandardPermissionName(request.permission)
+          ? runtime.installations.setRuntimePermission({
+              ...request,
+              permission: request.permission,
+            })
+          : runtime.installations.setPermission(request));
+        return installationSnapshot();
+      }
+      case "installations.getSettings":
+        requireAppsFrame();
+        return toDesktopAppSettings(
+          runtime.installations.listSettings(parseAppSettingTarget(value)),
+        );
+      case "installations.setSetting": {
+        requireAppsFrame();
+        const request = parseAppSettingValue(value);
+        await runtime.installations.setSetting(request);
+        return toDesktopAppSettings(runtime.installations.listSettings(request));
+      }
+      case "installations.resetSetting": {
+        requireAppsFrame();
+        const request = parseAppSettingKey(value);
+        await runtime.installations.resetSetting(request);
+        return toDesktopAppSettings(runtime.installations.listSettings(request));
+      }
+      case "installations.setSkillEnabled":
+        requireAppsFrame();
+        await runtime.installations.setSkillEnabled(parseSetAppSkillEnabledRequest(value));
+        return installationSnapshot();
+      case "installations.uninstall": {
+        requireAppsFrame();
+        const request = parseUninstallAppRequest(value);
+        await runtime.installations.uninstall(request);
+        revokeRuntimeV2FileScope(request.appId, request.spaceId);
+        return installationSnapshot();
+      }
+      case "installations.removeData": {
+        requireAppsFrame();
+        const request = parseRemoveAppDataRequest(value);
+        await runtime.installations.removeData(request);
+        revokeRuntimeV2FileScope(request.appId, request.spaceId);
+        return installationSnapshot();
+      }
+      case "registry.list":
+        requireAppsFrame();
+        if (!appRegistryClient) throw new Error("The App registry is not ready.");
+        return appRegistryClient.list(parseRegistryListRequest(value));
+      case "registry.get":
+        requireAppsFrame();
+        if (!appRegistryClient) throw new Error("The App registry is not ready.");
+        return appRegistryClient.get(parseRegistryGetRequest(value));
+      case "registry.getArtifact":
+        requireAppsFrame();
+        if (!appRegistryClient) throw new Error("The App registry is not ready.");
+        return appRegistryClient.getArtifact(parseRegistryArtifactRequest(value));
+      case "registry.getFeedback":
+        requireAppsFrame();
+        if (!appRegistryClient) throw new Error("The App registry is not ready.");
+        return appRegistryClient.getFeedback(parseRegistryFeedbackRequest(value));
+      case "registry.setRating":
+        requireAppsFrame();
+        if (!appRegistryClient) throw new Error("The App registry is not ready.");
+        return appRegistryClient.setRating(parseRegistryRatingRequest(value));
+      case "registry.setReview":
+        requireAppsFrame();
+        if (!appRegistryClient) throw new Error("The App registry is not ready.");
+        return appRegistryClient.setReview(parseRegistryReviewRequest(value));
+      case "apps.open": {
+        requireAppsFrame();
+        const request = parseOpenAppFromAppsRequest(value);
+        return runtime.appTabs.openInstalled({
+          appId: request.appId,
+          spaceId: identity.spaceId,
+          threadId: identity.threadId,
+          route: "/",
+        });
+      }
+      default:
+        throw Object.assign(new Error(`Unsupported Runtime v2 method: ${method}.`), {
+          code: "METHOD_NOT_SUPPORTED",
+        });
+    }
   });
   ipcMain.handle(IPC.appTabs.navigate, async (event, input: unknown) => {
     const { tabId, route, state } = parseNavigateAppTabRequest(input);
@@ -4850,8 +5686,15 @@ function registerIpcHandlers(): void {
   ipcMain.removeHandler(IPC.appOpenWith.set);
   ipcMain.handle(IPC.appOpenWith.set, async (event, input: unknown) => {
     const record = parseOpenWithInput(input);
-    if (record.intent !== "open-url") {
+    if (
+      record.intent !== "open-url" &&
+      record.intent !== "open-file" &&
+      record.intent !== "open-directory"
+    ) {
       throw new Error("Open With intent is invalid.");
+    }
+    if (record.extension !== undefined && typeof record.extension !== "string") {
+      throw new Error("Open With extension must be a string.");
     }
     if (record.appId !== null && (typeof record.appId !== "string" || !record.appId.trim())) {
       throw new Error("Open With appId must be a non-empty string or null.");
@@ -4861,6 +5704,7 @@ function registerIpcHandlers(): void {
       record.spaceId as string,
       record.intent,
       record.appId as string | null,
+      typeof record.extension === "string" ? record.extension : undefined,
     );
     return state;
   });
@@ -5037,68 +5881,8 @@ function registerIpcHandlers(): void {
   ipcMain.removeHandler(IPC.contextMenu);
   ipcMain.handle(
     IPC.contextMenu,
-    async (_event, items: ContextMenuItem[], position?: { x: number; y: number }) => {
-      const normalizedItems = items
-        .filter((item) => typeof item.id === "string" && typeof item.label === "string")
-        .map((item) => ({
-          id: item.id,
-          label: item.label,
-          separatorBefore: item.separatorBefore === true,
-          destructive: item.destructive === true,
-        }));
-      if (normalizedItems.length === 0) {
-        return null;
-      }
-
-      const popupPosition =
-        position &&
-        Number.isFinite(position.x) &&
-        Number.isFinite(position.y) &&
-        position.x >= 0 &&
-        position.y >= 0
-          ? {
-              x: Math.floor(position.x),
-              y: Math.floor(position.y),
-            }
-          : null;
-
-      const window = BrowserWindow.getFocusedWindow() ?? mainWindow;
-      if (!window) return null;
-
-      return new Promise<string | null>((resolve) => {
-        const template: MenuItemConstructorOptions[] = [];
-        let hasInsertedDestructiveSeparator = false;
-        for (const item of normalizedItems) {
-          const shouldInsertSeparator =
-            item.separatorBefore ||
-            (item.destructive && !hasInsertedDestructiveSeparator && template.length > 0);
-          if (shouldInsertSeparator && template.length > 0) {
-            template.push({ type: "separator" });
-          }
-          if (item.destructive) {
-            hasInsertedDestructiveSeparator = true;
-          }
-          const itemOption: MenuItemConstructorOptions = {
-            label: item.label,
-            click: () => resolve(item.id),
-          };
-          if (item.destructive) {
-            const destructiveIcon = getDestructiveMenuIcon();
-            if (destructiveIcon) {
-              itemOption.icon = destructiveIcon;
-            }
-          }
-          template.push(itemOption);
-        }
-
-        const menu = Menu.buildFromTemplate(template);
-        menu.popup({
-          window,
-          ...popupPosition,
-          callback: () => resolve(null),
-        });
-      });
-    },
+    async (_event, items: ContextMenuItem[], position?: { x: number; y: number }) =>
+      showAppContextMenu(items, position),
   );
 
   ipcMain.removeHandler(IPC.openExternal);
@@ -5805,6 +6589,7 @@ async function bootstrap(): Promise<void> {
   desktopAppRuntime = await startDesktopAppRuntime({
     userDataPath: app.getPath("userData"),
     appPreloadPath: Path.join(__dirname, "appPreload.js"),
+    appFrameRuntimePath: Path.join(__dirname, "appFrameRuntime.iife.js"),
     ipcMain,
     getAccountId: getPenkraAccountId,
     requestStandardPermissions: async (request) => {
@@ -5823,7 +6608,6 @@ async function bootstrap(): Promise<void> {
       });
       return result.response === 1;
     },
-    window: () => mainWindow,
     onTabOpened: (descriptor) => {
       if (!mainWindow || mainWindow.isDestroyed()) return;
       mainWindow.webContents.send(IPC.appTabs.opened, descriptor);
@@ -5832,8 +6616,23 @@ async function bootstrap(): Promise<void> {
       if (!mainWindow || mainWindow.isDestroyed()) return;
       mainWindow.webContents.send(IPC.appTabs.state, descriptor);
     },
+    onFrameHostMessage: (message) => {
+      if (!mainWindow || mainWindow.isDestroyed()) return;
+      mainWindow.webContents.send(IPC.appTabs.frameHostMessage, message);
+    },
     onTabClosed: (descriptor) => {
-      simulatorHostedSurfaces?.closeTab(descriptor.id);
+      for (const [subscriptionId, subscription] of appAccountSubscriptions) {
+        if (subscription.tabId !== descriptor.id) continue;
+        subscription.stop();
+        appAccountSubscriptions.delete(subscriptionId);
+      }
+      for (const [watchId, watch] of runtimeV2FileWatches) {
+        if (watch.tabId !== descriptor.id) continue;
+        watch.watcher.close();
+        runtimeV2FileWatches.delete(watchId);
+      }
+      runtimeV2SimulatorSurfaces.get(descriptor.id)?.stopFrames?.();
+      runtimeV2SimulatorSurfaces.delete(descriptor.id);
       void desktopSimulatorRuntime?.manager.closeTab(descriptor.id).catch((error) => {
         console.warn(
           `[penkra-app] Simulator cleanup failed after tab close: ${formatErrorMessage(error)}`,
@@ -5905,23 +6704,6 @@ async function bootstrap(): Promise<void> {
     adapters: simulatorAdapters.adapters,
     disposeResources: () => simulatorAdapters.dispose(),
   });
-  simulatorViewerFactory = new ElectronSimulatorViewerFactory({
-    manager: desktopSimulatorRuntime.manager,
-    preloadPath: Path.join(__dirname, "simulatorViewerPreload.js"),
-  });
-  simulatorHostedSurfaces = new HostedSurfaceRegistry({
-    factory: simulatorViewerFactory,
-    resolveParent: (owner) => {
-      const runtime = desktopAppRuntime;
-      if (!runtime) return null;
-      try {
-        const rendererId = runtime.appTabs.rendererId(owner.tabId);
-        return runtime.appTabs.rendererView(rendererId) as unknown as HostedSurfaceParent;
-      } catch {
-        return null;
-      }
-    },
-  });
   if (desktopSimulatorRuntime.recovery) {
     console.error(
       `[penkra-app] Quarantined corrupt Simulator state at ${desktopSimulatorRuntime.recovery.quarantinedPath}: ${desktopSimulatorRuntime.recovery.error.message}`,
@@ -5931,10 +6713,9 @@ async function bootstrap(): Promise<void> {
     const runtime = desktopAppRuntime;
     if (!runtime) return;
     try {
-      const target = runtime.appTabs.observationWebContents(owner.tabId);
-      if (!target.isDestroyed()) target.send(IPC.appRuntime.simulatorState, state);
+      runtime.appTabs.sendFrameEvent(owner.tabId, "simulator.state", state);
     } catch {
-      // The tab may have closed between the native state transition and delivery.
+      // The tab may have closed between the state transition and delivery.
     }
   });
   if (desktopAppRuntime.safeStartRecovery) {
@@ -6003,14 +6784,37 @@ async function bootstrap(): Promise<void> {
       return resolveAppTabObservationTarget({
         descriptor,
         browserAppId: BROWSER_APP_ID,
-        appWebContents: (targetTabId) =>
-          desktopAppRuntime!.appTabs.observationWebContents(targetTabId),
+        appTarget: async (targetTabId) => {
+          if (!mainWindow || mainWindow.isDestroyed()) {
+            throw new Error("The Penkra window is unavailable.");
+          }
+          const shellContents = mainWindow.webContents;
+          const frame = shellContents.mainFrame.framesInSubtree.find(
+            (candidate) => candidate.url === descriptor.documentUrl,
+          );
+          if (!frame) throw new Error(`App frame ${targetTabId} is unavailable.`);
+          return {
+            descriptor,
+            webContents: shellContents,
+            frame,
+            captureBounds: async () => {
+              const rect = await shellContents.executeJavaScript(
+                `(() => {
+                  const element = document.querySelector('[data-app-tab-id=${JSON.stringify(targetTabId)}]');
+                  if (!(element instanceof HTMLElement)) throw new Error('App frame element is unavailable.');
+                  const bounds = element.getBoundingClientRect();
+                  return { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height };
+                })()`,
+                false,
+              );
+              return rect as Electron.Rectangle;
+            },
+          };
+        },
         // A public browser-session is isolated to the App tab that owns it;
         // DesktopBrowserManager retains the older `threadId` parameter name.
         browserWebContents: (appTabId) =>
           browserManager.observationWebContents(appTabId as ThreadId),
-        hostedWebContents: (appTabId) =>
-          (simulatorHostedSurfaces?.observationTarget(appTabId) as WebContents | null) ?? null,
       });
     },
   });

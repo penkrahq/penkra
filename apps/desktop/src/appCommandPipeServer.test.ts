@@ -41,6 +41,7 @@ describe("AppCommandPipeServer", () => {
       slug: "linear",
       name: "Linear",
       iconDataUrl: null,
+      documentUrl: "penkra-app://linear/app.html",
       spaceId: "personal",
       threadId: "thread-1",
       route: "/issues",

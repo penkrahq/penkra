@@ -33,6 +33,14 @@ describe("AppIdentityService", () => {
       canvasPersonal.space,
     );
     expect(JSON.stringify(canvasPersonal)).not.toContain("private-id");
+
+    const origin = first.resolveOrigin("com.example.canvas", "personal-private-id");
+    expect(restarted.resolveOrigin("com.example.canvas", "personal-private-id")).toBe(origin);
+    expect(first.resolveOrigin("com.example.canvas", "work-private-id")).not.toBe(origin);
+    expect(first.resolveOrigin("com.example.other", "personal-private-id")).not.toBe(origin);
+    expect(origin).toMatch(/^penkra-app:\/\/a-[a-f0-9]{64}$/);
+    expect(origin).not.toContain("canvas");
+    expect(origin).not.toContain("private-id");
   });
 
   it("keeps Space identity available when the user is signed out", async () => {

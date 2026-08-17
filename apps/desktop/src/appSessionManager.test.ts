@@ -13,9 +13,11 @@ vi.mock("electron", () => ({
 import { AppSessionManager } from "./appSessionManager";
 import { createAppSessionPartition, PENKRA_APP_SCHEME } from "./appRuntimePolicy";
 
+const TEST_ORIGIN = `penkra-app://a-${"a".repeat(64)}`;
+
 function installedApp(patch: Partial<InstalledAppPackage> = {}): InstalledAppPackage {
   const manifest = {
-    manifestVersion: 1,
+    manifestVersion: 2,
     id: "com.penkra.apps",
     slug: "apps",
     name: "Apps",
@@ -84,6 +86,7 @@ describe("AppSessionManager", () => {
     electron.fromPartition.mockReturnValue(fixture.session);
     const protocolHandler = vi.fn(async () => new Response("v1"));
     const manager = new AppSessionManager({
+      resolveOrigin: () => TEST_ORIGIN,
       createProtocolHandler: vi.fn(async () => protocolHandler),
     });
 
@@ -125,6 +128,7 @@ describe("AppSessionManager", () => {
     const fixture = sessionFixture();
     electron.fromPartition.mockReturnValue(fixture.session);
     const manager = new AppSessionManager({
+      resolveOrigin: () => TEST_ORIGIN,
       createProtocolHandler: vi.fn(async () => async () => new Response("ok")),
     });
     await manager.activate({ installedApp: installedApp(), spaceId: "personal" });
@@ -133,7 +137,7 @@ describe("AppSessionManager", () => {
     if (!listener) return;
 
     const localCallback = vi.fn();
-    listener({ url: "penkra-app://com.penkra.apps/app.html" }, localCallback);
+    listener({ url: `${TEST_ORIGIN}/app.html` }, localCallback);
     expect(localCallback).toHaveBeenCalledWith({ cancel: false });
     const remoteCallback = vi.fn();
     listener({ url: "https://api.example.com/issues" }, remoteCallback);
@@ -146,13 +150,16 @@ describe("AppSessionManager", () => {
     const v1 = vi.fn(async () => new Response("v1"));
     const v2 = vi.fn(async () => new Response("v2"));
     const createProtocolHandler = vi.fn().mockResolvedValueOnce(v1).mockResolvedValueOnce(v2);
-    const manager = new AppSessionManager({ createProtocolHandler });
+    const manager = new AppSessionManager({
+      resolveOrigin: () => TEST_ORIGIN,
+      createProtocolHandler,
+    });
     await manager.activate({ installedApp: installedApp(), spaceId: "personal" });
     const protocolDelegate = fixture.listeners.protocol;
     expect(protocolDelegate).not.toBeNull();
     if (!protocolDelegate) return;
     await expect(
-      (await protocolDelegate(new Request("penkra-app://com.penkra.apps/app.html"))).text(),
+      (await protocolDelegate(new Request(`${TEST_ORIGIN}/app.html`))).text(),
     ).resolves.toBe("v1");
 
     await manager.activate({
@@ -164,7 +171,7 @@ describe("AppSessionManager", () => {
       spaceId: "personal",
     });
     await expect(
-      (await protocolDelegate(new Request("penkra-app://com.penkra.apps/app.html"))).text(),
+      (await protocolDelegate(new Request(`${TEST_ORIGIN}/app.html`))).text(),
     ).resolves.toBe("v2");
     expect(electron.fromPartition).toHaveBeenCalledOnce();
     expect(fixture.session.protocol.handle).toHaveBeenCalledOnce();
@@ -178,7 +185,10 @@ describe("AppSessionManager", () => {
       .fn()
       .mockResolvedValueOnce(v1)
       .mockRejectedValueOnce(new Error("invalid updated package"));
-    const manager = new AppSessionManager({ createProtocolHandler });
+    const manager = new AppSessionManager({
+      resolveOrigin: () => TEST_ORIGIN,
+      createProtocolHandler,
+    });
     await manager.activate({ installedApp: installedApp(), spaceId: "personal" });
 
     await expect(
@@ -191,7 +201,7 @@ describe("AppSessionManager", () => {
     expect(protocolDelegate).not.toBeNull();
     if (!protocolDelegate) return;
     await expect(
-      (await protocolDelegate(new Request("penkra-app://com.penkra.apps/app.html"))).text(),
+      (await protocolDelegate(new Request(`${TEST_ORIGIN}/app.html`))).text(),
     ).resolves.toBe("v1");
   });
 
@@ -203,6 +213,7 @@ describe("AppSessionManager", () => {
       release = resolve;
     });
     const manager = new AppSessionManager({
+      resolveOrigin: () => TEST_ORIGIN,
       createProtocolHandler: vi.fn(async () => {
         await gate;
         return async () => new Response("ok");
@@ -224,6 +235,7 @@ describe("AppSessionManager", () => {
     const work = sessionFixture();
     electron.fromPartition.mockReturnValueOnce(personal.session).mockReturnValueOnce(work.session);
     const manager = new AppSessionManager({
+      resolveOrigin: () => TEST_ORIGIN,
       createProtocolHandler: vi.fn(async () => async () => new Response("ok")),
     });
 
@@ -238,7 +250,7 @@ describe("AppSessionManager", () => {
   it("erases the complete inactive persistent partition", async () => {
     const fixture = sessionFixture();
     electron.fromPartition.mockReturnValue(fixture.session);
-    const manager = new AppSessionManager();
+    const manager = new AppSessionManager({ resolveOrigin: () => TEST_ORIGIN });
 
     await manager.eraseData("com.penkra.apps", "personal");
 
@@ -254,6 +266,7 @@ describe("AppSessionManager", () => {
     const fixture = sessionFixture();
     electron.fromPartition.mockReturnValue(fixture.session);
     const manager = new AppSessionManager({
+      resolveOrigin: () => TEST_ORIGIN,
       createProtocolHandler: vi.fn(async () => async () => new Response("ok")),
     });
     await manager.activate({ installedApp: installedApp(), spaceId: "personal" });

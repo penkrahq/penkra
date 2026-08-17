@@ -711,6 +711,19 @@ export class DesktopBrowserManager {
   }
 
   /**
+   * Marks a renderer-owned DOM surface active without pretending its CSS geometry is
+   * main-process view geometry. The sentinel remains private to the legacy manager state;
+   * renderer-owned WebContents never consume it as visual bounds.
+   */
+  setRendererSurfaceActive(threadId: ThreadId, active: boolean): void {
+    this.setPanelBounds({
+      threadId,
+      bounds: active ? { x: 0, y: 0, width: 1, height: 1 } : null,
+      surface: "renderer",
+    });
+  }
+
+  /**
    * Hosts a native browser page in a clipped native container aligned with the
    * App renderer that owns its chrome. Page bounds remain App-local.
    */

@@ -58,7 +58,7 @@ export function InlineMentionChip(props: InlineMentionChipProps) {
   );
 
   // A plain file chip (no explicit href/handler) still opens in the in-app
-  // viewer when the hosting surface provides one, so every file reference in
+  // configured App or OS handler when the hosting surface provides one, so every file reference in
   // the chat stays clickable. Plugin chips and non-file paths stay static.
   const contextOpenable =
     props.href === undefined &&

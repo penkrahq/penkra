@@ -97,6 +97,21 @@ Apps package from the sibling `penkra-apps/apps` checkout unless
 fallback for a missing required installation, not an implicit update channel: an existing required
 installation remains active, and contributor changes use the explicit runtime-safe sideload flow.
 
+## Hosted Browser surface geometry
+
+The Browser App iframe owns browser chrome; AppDock owns the isolated Electron `<webview>`. Keep
+the guest element in the trusted shell DOM so App packages cannot create Electron guests directly
+and shell overlays remain above the entire App frame. Do not position it with dimensions reported
+on every resize. That introduces a delayed loop through the App frame's `ResizeObserver`,
+MessagePort, shell IPC, main process, host event delivery, and React.
+
+The public `browser.setSurfaceLayout` call reports App-local `top`, `right`, `bottom`, and `left`
+insets only when those structural edges change. AppDock applies all four as CSS constraints to an
+absolutely positioned, flex-displayed `<webview>`. Consequently, resizing AppDock changes the
+iframe and Browser guest in the same shell layout transaction without another capability call.
+Tests must assert edge equality after host-only width changes; checking only the App iframe width
+does not cover the Browser guest.
+
 ## Contributor verification
 
 Use normal source tests while implementing the platform. Use registered `penkra app test` for the

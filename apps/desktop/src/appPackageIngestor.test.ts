@@ -27,7 +27,7 @@ function fixture(): { root: string; sourcePath: string; storePath: string } {
   FS.writeFileSync(
     Path.join(sourcePath, PENKRA_APP_MANIFEST_FILE_NAME),
     JSON.stringify({
-      manifestVersion: 1,
+      manifestVersion: 2,
       id: "com.example.app",
       slug: "example",
       name: "Example",
@@ -151,7 +151,7 @@ async function registryArchive(): Promise<Buffer> {
   zip.addBuffer(
     Buffer.from(
       JSON.stringify({
-        manifestVersion: 1,
+        manifestVersion: 2,
         id: "com.example.app",
         slug: "example",
         name: "Example",

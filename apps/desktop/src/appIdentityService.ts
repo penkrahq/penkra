@@ -6,6 +6,8 @@ import { createHmac, randomBytes } from "node:crypto";
 import * as FS from "node:fs/promises";
 import * as Path from "node:path";
 
+import { createAppSpaceOrigin } from "./appRuntimePolicy";
+
 export interface AppRuntimeIdentity {
   subject: string | null;
   space: string;
@@ -45,6 +47,11 @@ export class AppIdentityService {
       subject: accountId ? `sub_${this.#derive("subject", appId, accountId)}` : null,
       space: `space_${this.#derive("space", appId, spaceId)}`,
     };
+  }
+
+  /** Internal browser-security origin. This value is never part of the public identity payload. */
+  resolveOrigin(appId: string, spaceId: string): string {
+    return createAppSpaceOrigin(this.#secret, appId, spaceId);
   }
 
   #derive(namespace: "space" | "subject", appId: string, value: string): string {

@@ -2,15 +2,12 @@
 // Purpose: Composes trusted App persistence, isolation, controller, broker, and IPC services.
 // Layer: Desktop main-process bootstrap
 
-import {
-  app,
-  safeStorage,
-  webContents,
-  type BrowserWindow,
-  type IpcMain,
-  type WebContents,
-} from "electron";
-import type { DesktopAppTabClosed, DesktopAppTabDescriptor } from "@penkra/contracts";
+import { safeStorage, session, webContents, type IpcMain, type WebContents } from "electron";
+import type {
+  DesktopAppFrameHostMessage,
+  DesktopAppTabClosed,
+  DesktopAppTabDescriptor,
+} from "@penkra/contracts";
 
 import { AppControllerHost } from "./appControllerHost";
 import { AppInstallationStore, resolveAppInstallationStatePath } from "./appInstallationStore";
@@ -33,6 +30,7 @@ import { AppRuntimeLifecycle } from "./appRuntimeLifecycle";
 import { AppSessionManager } from "./appSessionManager";
 import { AppRuntimeDiagnostics, resolveAppRuntimeDiagnosticsPath } from "./appRuntimeDiagnostics";
 import { AppIdentityService } from "./appIdentityService";
+import { AppFrameDocumentRegistry } from "./appFrameDocumentRegistry";
 import { AppDataVault } from "./appDataVault";
 import { ProviderCredentialVault } from "./providerCredentialVault";
 import { DeferredAppTabHost } from "./deferredAppTabHost";
@@ -72,10 +70,11 @@ export interface DesktopAppRuntime {
 export async function startDesktopAppRuntime(input: {
   userDataPath: string;
   appPreloadPath: string;
+  appFrameRuntimePath: string;
   ipcMain: Pick<IpcMain, "on" | "removeListener">;
-  window: () => BrowserWindow | null;
   onTabOpened: (descriptor: DesktopAppTabDescriptor) => void;
   onTabState: (descriptor: DesktopAppTabDescriptor) => void;
+  onFrameHostMessage?: (input: DesktopAppFrameHostMessage) => void;
   onTabClosed: (descriptor: DesktopAppTabClosed) => void;
   onTabRendererCreated?: (renderer: WebContents) => (() => void) | void;
   onInvalidRendererMessage?: (error: Error, senderId: number) => void;
@@ -102,6 +101,12 @@ export async function startDesktopAppRuntime(input: {
     userDataPath: input.userDataPath,
     getAccountId: input.getAccountId ?? (async () => null),
   });
+  const frameDocuments = new AppFrameDocumentRegistry({
+    protocol: session.defaultSession.protocol,
+    runtimeScriptPath: input.appFrameRuntimePath,
+    resolveOrigin: (appId, spaceId) => identities.resolveOrigin(appId, spaceId),
+  });
+  await frameDocuments.start();
   if (!safeStorage.isEncryptionAvailable())
     throw new Error("Secure App secret storage is unavailable on this device.");
   const vault = await AppDataVault.open({
@@ -151,6 +156,7 @@ export async function startDesktopAppRuntime(input: {
   );
   let installations!: AppInstallationService;
   const sessions = new AppSessionManager({
+    resolveOrigin: (appId, spaceId) => identities.resolveOrigin(appId, spaceId),
     getStandardPermission: (appId, spaceId, permission) => {
       const space = Object.values(store.snapshot().spaceStateByKey).find(
         (candidate) => candidate.appId === appId && candidate.spaceId === spaceId,
@@ -241,24 +247,19 @@ export async function startDesktopAppRuntime(input: {
     },
   });
   appTabs = new ElectronAppTabHost({
-    window: input.window,
     installations,
     sessions,
+    frameDocuments,
     broker,
     rpc,
     ipcBridge,
-    preloadPath: input.appPreloadPath,
     onOpened: input.onTabOpened,
     onState: input.onTabState,
+    ...(input.onFrameHostMessage === undefined
+      ? {}
+      : { onFrameHostMessage: input.onFrameHostMessage }),
     onClosed: input.onTabClosed,
     onDiagnostic: recordDiagnostic,
-    measureRendererMemory: (rendererId) => {
-      const renderer = webContents.fromId(rendererId);
-      if (!renderer || renderer.isDestroyed()) return undefined;
-      const processId = renderer.getOSProcessId();
-      const metric = app.getAppMetrics().find((candidate) => candidate.pid === processId);
-      return metric ? metric.memory.workingSetSize * 1024 : undefined;
-    },
     onRendererCreated: registerRendererIdentity,
     ...(input.assertAppAllowed === undefined ? {} : { assertAppAllowed: input.assertAppAllowed }),
   });
@@ -305,6 +306,7 @@ export async function startDesktopAppRuntime(input: {
         unbindTabs();
         appTabs.closeAll("host-stopped");
         await lifecycle.shutdown();
+        await frameDocuments.dispose();
       } finally {
         ipcBridge.dispose();
         rpc.stop();

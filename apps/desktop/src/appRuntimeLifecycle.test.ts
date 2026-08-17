@@ -16,7 +16,7 @@ function installedState(enabled = false): AppInstallationState {
     createEmptyAppInstallationState(),
     {
       manifest: {
-        manifestVersion: 1,
+        manifestVersion: 2,
         id: "com.penkra.apps",
         slug: "apps",
         name: "Apps",
@@ -261,6 +261,7 @@ function activeSession(input: ActivateAppSessionInput): ActiveAppSession {
     appId: input.installedApp.appId,
     spaceId: input.spaceId,
     partition: "persist:test",
+    origin: `penkra-app://a-${"a".repeat(64)}`,
     session: {} as ActiveAppSession["session"],
   };
 }

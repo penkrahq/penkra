@@ -14,7 +14,7 @@ import {
 } from "./appInstallationState";
 
 const manifest = {
-  manifestVersion: 1,
+  manifestVersion: 2,
   id: "com.penkra.apps",
   slug: "apps",
   name: "Apps",
@@ -197,7 +197,7 @@ describe("App installation state", () => {
     };
 
     expect(parseAppInstallationState(legacy)).toMatchObject({
-      schemaVersion: 3,
+      schemaVersion: 4,
       packagesByInstallationKey: {
         [`personal\0${manifest.id}`]: expect.objectContaining({ appId: manifest.id }),
       },
@@ -224,5 +224,52 @@ describe("App installation state", () => {
         },
       }),
     ).toThrow("metadata does not match its committed manifest");
+  });
+
+  it("migrates stored Runtime v1 manifests without dropping resource handlers", () => {
+    const installed = registerVerifiedAppPackage(
+      createEmptyAppInstallationState(),
+      verifiedPackage(),
+      "personal",
+    );
+    const key = `personal\0${manifest.id}`;
+    const packageRecord = installed.packagesByInstallationKey[key];
+    expect(packageRecord).toBeDefined();
+    const migrated = parseAppInstallationState({
+      ...installed,
+      schemaVersion: 3,
+      packagesByInstallationKey: {
+        [key]: {
+          ...packageRecord,
+          manifest: {
+            ...packageRecord?.manifest,
+            manifestVersion: 1,
+            operations: [
+              {
+                key: "issues.create",
+                summary: "Create an issue.",
+                input: {},
+                output: {},
+                handler: "issues.create",
+              },
+            ],
+            contributions: {
+              handlers: [
+                { intent: "open-url", operation: "issues.create", schemes: ["https"] },
+                { intent: "open-directory", operation: "issues.create" },
+              ],
+            },
+          },
+        },
+      },
+    });
+
+    expect(migrated.schemaVersion).toBe(4);
+    expect(migrated.packagesByInstallationKey[key]?.manifest).toMatchObject({
+      manifestVersion: 2,
+      contributions: {
+        handlers: [{ intent: "open-url" }, { intent: "open-directory" }],
+      },
+    });
   });
 });

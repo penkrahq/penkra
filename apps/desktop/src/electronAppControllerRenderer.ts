@@ -7,7 +7,7 @@ import { WebContentsView } from "electron";
 import type { AppControllerRenderer, AppControllerRendererFactory } from "./appControllerHost";
 import type { AppRendererIpcBridge } from "./appRendererIpcBridge";
 import { APP_RUNTIME_IPC_CHANNELS } from "./ipcChannels";
-import { createAppRendererPreferences, decideAppNavigation } from "./appRuntimePolicy";
+import { createAppRendererPreferences, decideAppSpaceNavigation } from "./appRuntimePolicy";
 
 export interface ElectronAppControllerRendererFactoryOptions {
   preloadPath: string;
@@ -61,7 +61,7 @@ export class ElectronAppControllerRendererFactory implements AppControllerRender
     contents.setAudioMuted(true);
     contents.setWindowOpenHandler(() => ({ action: "deny" }));
     contents.on("will-navigate", (event) => {
-      if (decideAppNavigation(input.installedApp.appId, event.url).action === "deny") {
+      if (decideAppSpaceNavigation(input.session.origin, event.url).action === "deny") {
         event.preventDefault();
       }
     });
@@ -70,7 +70,7 @@ export class ElectronAppControllerRendererFactory implements AppControllerRender
       id: contents.id,
       send: (message) => contents.send(APP_RUNTIME_IPC_CHANNELS.hostMessage, message),
       start: async (url) => {
-        if (decideAppNavigation(input.installedApp.appId, url).action === "deny") {
+        if (decideAppSpaceNavigation(input.session.origin, url).action === "deny") {
           throw new Error("App controller entrypoint is outside its assigned origin.");
         }
         const controller = new AbortController();

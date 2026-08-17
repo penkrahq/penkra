@@ -1,4 +1,5 @@
 export * from "./auth";
+export * from "./appRuntimeBridge";
 export * from "./baseSchemas";
 export * from "./ipc";
 export * from "./terminal";

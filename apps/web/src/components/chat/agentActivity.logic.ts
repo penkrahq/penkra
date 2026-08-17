@@ -45,7 +45,10 @@ export function isCodexActivityStatusWorkEntry(entry: WorkLogEntry): boolean {
 }
 
 export function isAgentActivityWorkEntry(entry: WorkLogEntry): boolean {
-  return entry.itemType === "collab_agent_tool_call" || isReasoningUpdateWorkEntry(entry);
+  // Reasoning updates already expose their complete useful content inline in the
+  // transcript. Opening them in the full activity-detail view only repeats that
+  // content, so reserve the replacement view for actual delegated agent tasks.
+  return entry.itemType === "collab_agent_tool_call";
 }
 
 export function formatAgentActivityEntryTitle(entry: WorkLogEntry): string {
@@ -127,7 +130,6 @@ export function deriveAgentActivityTimelineState(
     };
 
     timelineWorkEntries.push(displayEntry);
-    detailById.set(groupId, buildAgentActivityDetail(groupId, displayEntry, groupEntries));
   };
 
   for (const entry of entries) {

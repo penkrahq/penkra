@@ -13,6 +13,7 @@ export interface RightDockPane {
   // Runtime-only presentation data. Persistence deliberately strips it.
   appIconDataUrl?: string | null;
   appRendererId?: number;
+  appDocumentUrl?: string;
   appRoute: string;
   appStatus: "loading" | "ready" | "crashed";
 }
@@ -31,6 +32,7 @@ export interface OpenPaneInput {
   appName: string;
   appIconDataUrl?: string | null;
   appRendererId?: number;
+  appDocumentUrl?: string;
   appRoute: string;
   appStatus: "loading" | "ready" | "crashed";
 }
@@ -91,6 +93,7 @@ function createPane(input: OpenPaneInput): RightDockPane {
     appName: input.appName,
     ...(input.appIconDataUrl === undefined ? {} : { appIconDataUrl: input.appIconDataUrl }),
     ...(input.appRendererId === undefined ? {} : { appRendererId: input.appRendererId }),
+    ...(input.appDocumentUrl === undefined ? {} : { appDocumentUrl: input.appDocumentUrl }),
     appRoute: input.appRoute,
     appStatus: input.appStatus,
   };
@@ -146,7 +149,10 @@ export function updatePaneInState(
   state: RightDockThreadState,
   paneId: string,
   patch: Partial<
-    Pick<RightDockPane, "appIconDataUrl" | "appRendererId" | "appRoute" | "appStatus">
+    Pick<
+      RightDockPane,
+      "appDocumentUrl" | "appIconDataUrl" | "appRendererId" | "appRoute" | "appStatus"
+    >
   >,
 ): RightDockThreadState {
   let changed = false;

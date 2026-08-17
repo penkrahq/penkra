@@ -15,6 +15,7 @@ import { APP_VERSION } from "~/branding";
 import { OpenWithRowShared } from "~/components/settings/open-with-row-shared/OpenWithRowShared";
 import { SettingRowShared } from "~/components/settings/setting-row-shared/SettingRowShared";
 import { SettingsSectionShared } from "~/components/settings/settings-section-shared/SettingsSectionShared";
+import { collectFileHandlerRows, fileTypeLabel } from "~/lib/appOpenWith";
 
 const PROVIDER_UPDATE_OPTIONS = [
   { id: "automatic", icon: <IconRefresh />, label: "Automatic" },
@@ -37,12 +38,30 @@ export function SettingsGeneralPage() {
         isEnabled(app.id) &&
         app.handlers.some((handler) => handler.intent === "open-url"),
     ) ?? [];
-  const [openWith, setOpenWith] = useState<DesktopAppOpenWithPreferences>({});
+  const enabledApps =
+    installations?.installed.filter((app) => app.spaceId === activeSpaceId && isEnabled(app.id)) ??
+    [];
+  const directoryHandlers = enabledApps.filter((app) =>
+    app.handlers.some((handler) => handler.intent === "open-directory"),
+  );
+  const [openWith, setOpenWith] = useState<DesktopAppOpenWithPreferences>({ files: {} });
+  const discoveredFileHandlerRows = collectFileHandlerRows(enabledApps);
+  const fileHandlerRows = [
+    ...discoveredFileHandlerRows,
+    ...Object.keys(openWith.files)
+      .filter(
+        (extension) =>
+          !discoveredFileHandlerRows.some((candidate) => candidate.extension === extension),
+      )
+      .map((extension) => ({ extension, apps: [] })),
+  ]
+    .filter((row) => row.apps.length > 1 || openWith.files[row.extension] !== undefined)
+    .sort((left, right) => left.extension.localeCompare(right.extension));
 
   useEffect(() => {
     let current = true;
     if (!activeSpaceId || !window.desktopBridge?.appOpenWith) {
-      setOpenWith({});
+      setOpenWith({ files: {} });
       return () => {
         current = false;
       };
@@ -66,6 +85,30 @@ export function SettingsGeneralPage() {
           spaceId={activeSpaceId}
           {...(openWith["open-url"] !== undefined ? { value: openWith["open-url"] } : {})}
         />
+        <HandlerPreferenceRow
+          apps={directoryHandlers}
+          intent="open-directory"
+          label="Folders"
+          onChange={setOpenWith}
+          spaceId={activeSpaceId}
+          {...(openWith["open-directory"] !== undefined
+            ? { value: openWith["open-directory"] }
+            : {})}
+        />
+        {fileHandlerRows.map((row) => (
+          <HandlerPreferenceRow
+            apps={row.apps}
+            extension={row.extension}
+            intent="open-file"
+            key={row.extension}
+            label={fileTypeLabel(row.extension)}
+            onChange={setOpenWith}
+            spaceId={activeSpaceId}
+            {...(openWith.files[row.extension] !== undefined
+              ? { value: openWith.files[row.extension] }
+              : {})}
+          />
+        ))}
       </SettingsSectionShared>
 
       <SettingsSectionShared title="Notifications">
@@ -109,6 +152,7 @@ export function SettingsGeneralPage() {
 
 function HandlerPreferenceRow({
   apps,
+  extension,
   intent,
   label,
   onChange,
@@ -116,6 +160,7 @@ function HandlerPreferenceRow({
   value,
 }: {
   apps: ReadonlyArray<{ id: string; name: string }>;
+  extension?: string;
   intent: DesktopAppOpenIntent;
   label: string;
   onChange: (value: DesktopAppOpenWithPreferences) => void;
@@ -124,13 +169,18 @@ function HandlerPreferenceRow({
 }) {
   return (
     <OpenWithRowShared
-      description={`Choose how Penkra opens ${label.toLowerCase()} in this Space.`}
+      description={
+        extension
+          ? `Choose how Penkra opens ${extension} files.`
+          : `Choose how Penkra opens ${label.toLowerCase()}.`
+      }
       onValueChange={(next) => {
         if (!spaceId || !window.desktopBridge?.appOpenWith) return;
         void window.desktopBridge.appOpenWith
           .set({
             spaceId,
             intent,
+            ...(extension ? { extension } : {}),
             appId: next === "system" ? null : next,
           })
           .then(onChange);

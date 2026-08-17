@@ -1,64 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 
-const electron = vi.hoisted(() => {
-  const views: Array<{
-    options: unknown;
-    bounds: unknown[];
-    visible: boolean[];
-    webContents: Record<string, unknown>;
-  }> = [];
-  let nextId = 100;
-  class WebContentsView {
-    readonly options: unknown;
-    readonly bounds: unknown[] = [];
-    readonly visible: boolean[] = [];
-    readonly webContents: Record<string, unknown>;
-
-    constructor(options: unknown) {
-      this.options = options;
-      const listeners = new Map<string, (...args: unknown[]) => void>();
-      this.webContents = {
-        id: nextId++,
-        setWindowOpenHandler: vi.fn(),
-        on: vi.fn((event: string, listener: (...args: unknown[]) => void) =>
-          listeners.set(event, listener),
-        ),
-        once: vi.fn((event: string, listener: (...args: unknown[]) => void) =>
-          listeners.set(event, listener),
-        ),
-        send: vi.fn(),
-        loadURL: vi.fn(async () => undefined),
-        insertCSS: vi.fn(async () => "theme-css"),
-        removeInsertedCSS: vi.fn(async () => undefined),
-        focus: vi.fn(),
-        getZoomFactor: vi.fn(() => 1.2),
-        setZoomFactor: vi.fn(),
-        isDestroyed: vi.fn(() => false),
-        close: vi.fn(),
-        listeners,
-      };
-      views.push(this);
-    }
-
-    setBounds(bounds: unknown) {
-      this.bounds.push(bounds);
-    }
-
-    setVisible(visible: boolean) {
-      this.visible.push(visible);
-    }
-  }
-  return { WebContentsView, views };
-});
-
-vi.mock("electron", () => ({ WebContentsView: electron.WebContentsView }));
+const TEST_ORIGIN = `penkra-app://a-${"a".repeat(64)}`;
 
 import type { InstalledAppPackage } from "./appInstallationState";
 import { ElectronAppTabHost, shouldNotifyAppTabClosed } from "./electronAppTabHost";
 
 function installedApp(): InstalledAppPackage {
   const manifest = {
-    manifestVersion: 1,
+    manifestVersion: 2,
     id: "com.penkra.apps",
     slug: "apps",
     name: "Apps",
@@ -82,6 +31,15 @@ function installedApp(): InstalledAppPackage {
   };
 }
 
+function createRpcMock() {
+  return {
+    registerTarget: vi.fn(() => vi.fn()),
+    request: vi.fn(),
+    acceptResponse: vi.fn(),
+    acceptContextCall: vi.fn(),
+  };
+}
+
 describe("ElectronAppTabHost", () => {
   it("preserves persisted shell panes while the host stops or replaces an App", () => {
     expect(shouldNotifyAppTabClosed("host-stopped")).toBe(false);
@@ -91,12 +49,8 @@ describe("ElectronAppTabHost", () => {
     expect(shouldNotifyAppTabClosed("app-uninstalled")).toBe(true);
   });
 
-  it("owns one isolated view with stable identity through attach, bounds, and close", async () => {
-    electron.views.length = 0;
+  it("owns one DOM-frame capability identity without creating a native visual view", async () => {
     const app = installedApp();
-    const addChildView = vi.fn();
-    const removeChildView = vi.fn();
-    const focusShell = vi.fn();
     const unregisterBroker = vi.fn();
     const unregisterRpc = vi.fn();
     const releaseIdentity = vi.fn();
@@ -104,17 +58,8 @@ describe("ElectronAppTabHost", () => {
     const onOpened = vi.fn();
     const onState = vi.fn();
     const onClosed = vi.fn();
-    let markReady: (() => void) | undefined;
-    const ready = new Promise<void>((resolve) => {
-      markReady = resolve;
-    });
+    const onFrameHostMessage = vi.fn();
     const host = new ElectronAppTabHost({
-      window: () =>
-        ({
-          isDestroyed: () => false,
-          contentView: { addChildView, removeChildView },
-          webContents: { focus: focusShell, getZoomFactor: () => 1.2 },
-        }) as never,
       installations: {
         snapshot: () => ({
           packagesByInstallationKey: { [`personal\0${app.appId}`]: app },
@@ -122,85 +67,66 @@ describe("ElectronAppTabHost", () => {
         isActive: () => true,
         setEnabled: vi.fn(),
       } as never,
-      sessions: { get: () => ({ appId: app.appId, spaceId: "personal" }) as never },
-      broker: { registerTab: vi.fn(() => unregisterBroker) },
-      rpc: {
-        registerTarget: vi.fn(() => unregisterRpc),
-        request: vi.fn(),
+      sessions: {
+        get: () => ({ appId: app.appId, spaceId: "personal", origin: TEST_ORIGIN }) as never,
       },
-      ipcBridge: { waitForReady: vi.fn(() => ready) },
-      preloadPath: "/trusted/appPreload.js",
+      frameDocuments: { activate: async () => `/app.html` },
+      broker: { registerTab: vi.fn(() => unregisterBroker) },
+      rpc: { ...createRpcMock(), registerTarget: vi.fn(() => unregisterRpc) },
+      ipcBridge: { waitForReady: vi.fn() },
       onOpened,
       onState,
       onClosed,
+      onFrameHostMessage,
       onRendererCreated,
-      measureRendererMemory: () => 128 * 1024,
     });
 
-    const opening = host.openInstalled({
+    const descriptor = await host.openInstalled({
       appId: app.appId,
       spaceId: "personal",
       threadId: "thread-1",
       route: "/",
     });
 
-    await vi.waitFor(() =>
-      expect(onOpened).toHaveBeenCalledWith(
-        expect.objectContaining({ appId: app.appId, iconDataUrl: null, status: "loading" }),
-      ),
+    expect(onOpened).toHaveBeenCalledWith(
+      expect.objectContaining({ appId: app.appId, iconDataUrl: null, status: "loading" }),
     );
-    markReady?.();
-    const descriptor = await opening;
-
-    expect(electron.views[0]?.webContents.setZoomFactor).toHaveBeenCalledWith(1.2);
     host.setZoomFactor(0.8);
-    expect(electron.views[0]?.webContents.setZoomFactor).toHaveBeenLastCalledWith(0.8);
 
     expect(descriptor).toMatchObject({
       appId: app.appId,
       spaceId: "personal",
       threadId: "thread-1",
-      status: "ready",
+      status: "loading",
+      rendererId: -1,
+      documentUrl: expect.stringMatching(/^\/app\.html#penkra-tab=/),
     });
     expect(host.list()).toEqual([descriptor]);
     expect(host.has(descriptor.id)).toBe(true);
     expect(host.current()).toBeNull();
-    expect(onState).toHaveBeenCalledWith(descriptor);
+    onOpened.mockClear();
+    host.present(descriptor.id);
+    expect(onOpened).toHaveBeenCalledWith(descriptor);
+    expect(onState).not.toHaveBeenCalled();
     expect(onRendererCreated).toHaveBeenCalledWith({
       appId: app.appId,
       spaceId: "personal",
       tabId: descriptor.id,
       threadId: "thread-1",
-      rendererId: 100,
+      rendererId: -1,
     });
-    expect(electron.views).toHaveLength(1);
-    expect(electron.views[0]?.options).toEqual({
-      webPreferences: expect.objectContaining({
-        sandbox: true,
-        contextIsolation: true,
-        nodeIntegration: false,
-        preload: "/trusted/appPreload.js",
-      }),
+    host.markFrameReady(descriptor.id, descriptor.rendererId);
+    expect(host.list()[0]).toMatchObject({ status: "ready" });
+    expect(onFrameHostMessage).toHaveBeenCalledWith({
+      tabId: descriptor.id,
+      rendererId: descriptor.rendererId,
+      delivery: { kind: "event", name: "appearance.zoom", payload: 0.8 },
     });
-    expect(host.rendererView(100)).toBe(electron.views[0]);
-    expect(host.rendererView(999)).toBeNull();
 
-    host.attach(descriptor.id, descriptor.rendererId);
-    host.attach(descriptor.id, descriptor.rendererId);
-    expect(addChildView).toHaveBeenCalledOnce();
-    host.setBounds(descriptor.id, descriptor.rendererId, {
-      x: 1.4,
-      y: 2.6,
-      width: 300.2,
-      height: 400.8,
-    });
-    expect(electron.views[0]?.bounds.at(-1)).toEqual({ x: 1, y: 3, width: 300, height: 401 });
-    host.setVisible(descriptor.id, descriptor.rendererId, true);
-    expect(host.current()).toEqual(descriptor);
-    expect(electron.views[0]?.webContents.focus).toHaveBeenCalledOnce();
-    host.setVisible(descriptor.id, descriptor.rendererId, false);
+    host.setActive(descriptor.id, descriptor.rendererId, true);
+    expect(host.current()).toMatchObject({ ...descriptor, status: "ready" });
+    host.setActive(descriptor.id, descriptor.rendererId, false);
     expect(host.current()).toBeNull();
-    expect(focusShell).toHaveBeenCalledOnce();
 
     await host.navigate(descriptor.id, { route: "/document/7", state: { page: 3 } });
     expect(host.captureForUpdate(app.appId, "personal")).toEqual([
@@ -218,26 +144,14 @@ describe("ElectronAppTabHost", () => {
     expect(unregisterBroker).toHaveBeenCalledOnce();
     expect(unregisterRpc).toHaveBeenCalledWith("app-disabled");
     expect(releaseIdentity).toHaveBeenCalledOnce();
-    expect(removeChildView).toHaveBeenCalledOnce();
-    expect(electron.views[0]?.webContents.close).toHaveBeenCalledOnce();
     expect(onClosed).toHaveBeenCalledWith({ id: descriptor.id, threadId: "thread-1" });
     expect(host.list()).toEqual([]);
   });
 
   it("restores an updated App with the same tab identity", async () => {
-    electron.views.length = 0;
     const app = installedApp();
     const attachedViews = new Set<unknown>();
     const host = new ElectronAppTabHost({
-      window: () =>
-        ({
-          isDestroyed: () => false,
-          contentView: {
-            addChildView: (view: unknown) => attachedViews.add(view),
-            removeChildView: (view: unknown) => attachedViews.delete(view),
-          },
-          webContents: { focus: vi.fn(), getZoomFactor: () => 1 },
-        }) as never,
       installations: {
         snapshot: () => ({
           packagesByInstallationKey: { [`personal\0${app.appId}`]: app },
@@ -245,14 +159,15 @@ describe("ElectronAppTabHost", () => {
         isActive: () => true,
         setEnabled: vi.fn(),
       } as never,
-      sessions: { get: () => ({ appId: app.appId, spaceId: "personal" }) as never },
+      sessions: {
+        get: () => ({ appId: app.appId, spaceId: "personal", origin: TEST_ORIGIN }) as never,
+      },
+      frameDocuments: { activate: async () => `/app.html` },
       broker: { registerTab: vi.fn(() => vi.fn()) },
-      rpc: { registerTarget: vi.fn(() => vi.fn()), request: vi.fn() },
+      rpc: createRpcMock(),
       ipcBridge: { waitForReady: vi.fn(async () => undefined) },
-      preloadPath: "/trusted/appPreload.js",
       onOpened: vi.fn(),
       onState: vi.fn(),
-      measureRendererMemory: () => 128 * 1024,
     });
 
     const original = await host.openInstalled({
@@ -263,9 +178,8 @@ describe("ElectronAppTabHost", () => {
       state: { page: 3 },
     });
     const snapshot = host.captureForUpdate(app.appId, "personal");
-    host.attach(original.id, original.rendererId);
-    host.setVisible(original.id, original.rendererId, true);
-    expect(attachedViews).toEqual(new Set([electron.views[0]]));
+    host.setActive(original.id, original.rendererId, true);
+    expect(attachedViews).toEqual(new Set());
 
     host.closeForAppSpace(app.appId, "personal");
     await host.restoreAfterUpdate(app.appId, "personal", snapshot);
@@ -274,17 +188,11 @@ describe("ElectronAppTabHost", () => {
     expect(restored).toBeDefined();
     if (!restored) throw new Error("Updated App tab was not restored.");
     expect(restored.rendererId).not.toBe(original.rendererId);
-    expect(host.attach(restored.id, restored.rendererId)).toBe(true);
-    expect(host.setVisible(restored.id, restored.rendererId, true)).toBe(true);
+    expect(host.setActive(restored.id, restored.rendererId, true)).toBe(true);
 
     // Cleanup from the retired React effect must not hide or resize the replacement renderer.
-    expect(host.setVisible(original.id, original.rendererId, false)).toBe(false);
-    expect(
-      host.setBounds(original.id, original.rendererId, { x: 0, y: 0, width: 0, height: 0 }),
-    ).toBe(false);
-    expect(attachedViews).toEqual(new Set([electron.views[1]]));
-    expect(electron.views[0]?.webContents.close).toHaveBeenCalledOnce();
-    expect(electron.views[1]?.visible.at(-1)).toBe(true);
+    expect(host.setActive(original.id, original.rendererId, false)).toBe(false);
+    expect(attachedViews).toEqual(new Set());
 
     expect(host.list()).toEqual([
       expect.objectContaining({
@@ -293,13 +201,12 @@ describe("ElectronAppTabHost", () => {
         appId: app.appId,
         threadId: "thread-1",
         route: "/document/7",
-        status: "ready",
+        status: "loading",
       }),
     ]);
   });
 
   it("lazily activates a persisted enabled App before opening its UI", async () => {
-    electron.views.length = 0;
     const base = installedApp();
     const app: InstalledAppPackage = {
       ...base,
@@ -316,7 +223,6 @@ describe("ElectronAppTabHost", () => {
     };
     const ensureActive = vi.fn(async () => undefined);
     const host = new ElectronAppTabHost({
-      window: () => null,
       installations: {
         snapshot: () => ({
           packagesByInstallationKey: { [`personal\0${app.appId}`]: app },
@@ -325,14 +231,15 @@ describe("ElectronAppTabHost", () => {
         ensureActive,
         setEnabled: vi.fn(),
       } as never,
-      sessions: { get: () => ({ appId: app.appId, spaceId: "personal" }) as never },
+      sessions: {
+        get: () => ({ appId: app.appId, spaceId: "personal", origin: TEST_ORIGIN }) as never,
+      },
+      frameDocuments: { activate: async () => `/app.html` },
       broker: { registerTab: vi.fn(() => vi.fn()) },
-      rpc: { registerTarget: vi.fn(() => vi.fn()), request: vi.fn() },
+      rpc: createRpcMock(),
       ipcBridge: { waitForReady: vi.fn(async () => undefined) },
-      preloadPath: "/trusted/appPreload.js",
       onOpened: vi.fn(),
       onState: vi.fn(),
-      measureRendererMemory: () => 128 * 1024,
     });
 
     await expect(
@@ -342,12 +249,11 @@ describe("ElectronAppTabHost", () => {
         threadId: "thread-1",
         route: "/",
       }),
-    ).resolves.toMatchObject({ appId: app.appId, status: "ready" });
+    ).resolves.toMatchObject({ appId: app.appId, status: "loading" });
     expect(ensureActive).toHaveBeenCalledWith(app.appId, "personal");
   });
 
   it("opens an installed App in the calling Apps tab context", async () => {
-    electron.views.length = 0;
     const apps = installedApp();
     const target: InstalledAppPackage = {
       ...apps,
@@ -368,7 +274,6 @@ describe("ElectronAppTabHost", () => {
       (_input: { appId: string; spaceId: string; rendererId: number }) => vi.fn(),
     );
     const host = new ElectronAppTabHost({
-      window: () => null,
       installations: {
         snapshot: () => ({
           packagesByInstallationKey: {
@@ -379,15 +284,16 @@ describe("ElectronAppTabHost", () => {
         isActive: () => true,
         setEnabled: vi.fn(),
       } as never,
-      sessions: { get: (appId: string, spaceId: string) => ({ appId, spaceId }) as never },
+      sessions: {
+        get: (appId: string, spaceId: string) => ({ appId, spaceId, origin: TEST_ORIGIN }) as never,
+      },
+      frameDocuments: { activate: async () => `/app.html` },
       broker: { registerTab: vi.fn(() => vi.fn()) },
-      rpc: { registerTarget: vi.fn(() => vi.fn()), request: vi.fn() },
+      rpc: createRpcMock(),
       ipcBridge: { waitForReady: vi.fn(async () => undefined) },
-      preloadPath: "/trusted/appPreload.js",
       onOpened: vi.fn(),
       onState: vi.fn(),
       onRendererCreated,
-      measureRendererMemory: () => 128 * 1024,
     });
 
     await host.openInstalled({
@@ -408,18 +314,17 @@ describe("ElectronAppTabHost", () => {
       spaceId: "personal",
       threadId: "thread-1",
       route: "/",
-      status: "ready",
+      status: "loading",
     });
-    await expect(host.openInstalledFromRenderer(-1, { appId: target.appId })).rejects.toThrow(
+    await expect(host.openInstalledFromRenderer(999, { appId: target.appId })).rejects.toThrow(
       "originating App tab is unavailable",
     );
   });
 
-  it("keeps Theme and Typography CSS as independent replaceable layers", async () => {
-    electron.views.length = 0;
+  it("delivers Theme and Typography as independent frame events after readiness", async () => {
     const app = installedApp();
+    const onFrameHostMessage = vi.fn();
     const host = new ElectronAppTabHost({
-      window: () => null,
       installations: {
         snapshot: () => ({
           packagesByInstallationKey: { [`personal\0${app.appId}`]: app },
@@ -427,33 +332,40 @@ describe("ElectronAppTabHost", () => {
         isActive: () => true,
         setEnabled: vi.fn(),
       } as never,
-      sessions: { get: () => ({ appId: app.appId, spaceId: "personal" }) as never },
+      sessions: {
+        get: () => ({ appId: app.appId, spaceId: "personal", origin: TEST_ORIGIN }) as never,
+      },
+      frameDocuments: { activate: async () => `/app.html` },
       broker: { registerTab: vi.fn(() => vi.fn()) },
-      rpc: { registerTarget: vi.fn(() => vi.fn()), request: vi.fn() },
+      rpc: createRpcMock(),
       ipcBridge: { waitForReady: vi.fn(async () => undefined) },
-      preloadPath: "/trusted/appPreload.js",
       onOpened: vi.fn(),
       onState: vi.fn(),
-      measureRendererMemory: () => 128 * 1024,
+      onFrameHostMessage,
     });
 
     await host.applyTheme(":root{--penkra-color-background:#181818}");
     await host.applyTypography(":root{--penkra-font-size-base:12px}");
-    await host.openInstalled({
+    const descriptor = await host.openInstalled({
       appId: app.appId,
       spaceId: "personal",
       threadId: "thread-1",
       route: "/",
     });
 
-    const contents = electron.views[0]?.webContents;
-    expect(contents?.insertCSS).toHaveBeenNthCalledWith(
-      1,
-      ":root{--penkra-color-background:#181818}",
-      { cssOrigin: "author" },
-    );
-    expect(contents?.insertCSS).toHaveBeenNthCalledWith(2, ":root{--penkra-font-size-base:12px}", {
-      cssOrigin: "author",
-    });
+    expect(onFrameHostMessage).not.toHaveBeenCalled();
+    host.markFrameReady(descriptor.id, descriptor.rendererId);
+    expect(onFrameHostMessage.mock.calls.map(([message]) => message.delivery)).toEqual([
+      {
+        kind: "event",
+        name: "appearance.theme-css",
+        payload: ":root{--penkra-color-background:#181818}",
+      },
+      {
+        kind: "event",
+        name: "appearance.typography-css",
+        payload: ":root{--penkra-font-size-base:12px}",
+      },
+    ]);
   });
 });

@@ -621,6 +621,7 @@ export class AppCommandPipeServer {
           slug: "",
           name: "",
           iconDataUrl: null,
+          documentUrl: "",
           spaceId: explicitSpaceId,
           threadId: explicitThreadId,
           route: "/",

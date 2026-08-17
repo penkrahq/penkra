@@ -66,6 +66,7 @@ export {
   type AppAccountRealtimeSubscriptionOptions,
   type AppContextMenuItem,
   type AppBrowserFindResult,
+  type AppHostedSurfaceInsets,
   type AppBrowserPage,
   type AppBrowserSessionState,
   type AppPermissionStatus,

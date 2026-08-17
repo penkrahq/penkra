@@ -54,6 +54,26 @@ export interface AppContextMenuItem<T extends string = string> {
   destructive?: boolean;
 }
 
+export interface AppScopedFileHandle {
+  id: string;
+  kind: "file" | "directory";
+  name: string;
+}
+
+export interface AppScopedFileEntry {
+  kind: "file" | "directory";
+  name: string;
+  relativePath: string;
+  size: number;
+  modifiedAt: string;
+}
+
+export interface AppScopedBinaryRead {
+  bytes: Uint8Array;
+  totalBytes: number;
+  complete: boolean;
+}
+
 export interface AppBrowserPage {
   id: string;
   url: string;
@@ -78,6 +98,14 @@ export interface AppBrowserSessionState {
 export interface AppBrowserFindResult {
   activeMatchOrdinal: number;
   matches: number;
+}
+
+/** Stable App-local edges for a host-owned surface that fills the remaining viewport. */
+export interface AppHostedSurfaceInsets {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
 }
 
 export type AppOperationHandler<Input = unknown, Result = unknown> = (
@@ -109,15 +137,40 @@ export interface PenkraAppRuntimeApi {
   contextMenu: {
     show<T extends string>(items: ReadonlyArray<AppContextMenuItem<T>>): Promise<T | null>;
   };
+  /** User-selected or host-handed-off file capabilities scoped to this App and Space. */
+  files: {
+    list(): Promise<ReadonlyArray<AppScopedFileHandle>>;
+    pick(kind: "file" | "directory"): Promise<AppScopedFileHandle | null>;
+    revoke(handleId: string): Promise<void>;
+    stat(handleId: string, relativePath?: string): Promise<AppScopedFileEntry>;
+    listDirectory(
+      handleId: string,
+      relativePath?: string,
+    ): Promise<ReadonlyArray<AppScopedFileEntry>>;
+    readText(handleId: string, relativePath?: string): Promise<string>;
+    readBinary(input: {
+      handleId: string;
+      relativePath?: string;
+      offset?: number;
+      length?: number;
+    }): Promise<AppScopedBinaryRead>;
+    writeText(handleId: string, source: string, relativePath?: string): Promise<void>;
+    createDirectory(handleId: string, relativePath: string): Promise<AppScopedFileEntry>;
+    watch(
+      handleId: string,
+      relativePath: string | undefined,
+      listener: () => void,
+    ): Promise<() => void>;
+  };
+  /** Open one descendant of a scoped file handle with a trusted host handler. */
+  open(input: { handleId: string; relativePath?: string; with: "system" }): Promise<void>;
   /** Permission-bound hosted browser pages. The App owns chrome; Penkra owns page isolation. */
   browser: {
     open(initialUrl?: string): Promise<AppBrowserSessionState>;
     close(): Promise<void>;
     getState(): Promise<AppBrowserSessionState>;
     onState(listener: (state: AppBrowserSessionState) => void): () => void;
-    setViewport(
-      bounds: { x: number; y: number; width: number; height: number } | null,
-    ): Promise<void>;
+    setSurfaceLayout(insets: AppHostedSurfaceInsets | null): Promise<void>;
     navigate(input: { pageId?: string; url: string }): Promise<AppBrowserSessionState>;
     reload(pageId: string): Promise<AppBrowserSessionState>;
     stop(pageId: string): Promise<AppBrowserSessionState>;
@@ -237,12 +290,30 @@ export const contextMenu: PenkraAppRuntimeApi["contextMenu"] = {
   show: (items) => runtime().contextMenu.show(items),
 };
 
+export const files: PenkraAppRuntimeApi["files"] = {
+  list: () => runtime().files.list(),
+  pick: (kind) => runtime().files.pick(kind),
+  revoke: (handleId) => runtime().files.revoke(handleId),
+  stat: (handleId, relativePath) => runtime().files.stat(handleId, relativePath),
+  listDirectory: (handleId, relativePath) => runtime().files.listDirectory(handleId, relativePath),
+  readText: (handleId, relativePath) => runtime().files.readText(handleId, relativePath),
+  readBinary: (input) => runtime().files.readBinary(input),
+  writeText: (handleId, source, relativePath) =>
+    runtime().files.writeText(handleId, source, relativePath),
+  createDirectory: (handleId, relativePath) =>
+    runtime().files.createDirectory(handleId, relativePath),
+  watch: (handleId, relativePath, listener) =>
+    runtime().files.watch(handleId, relativePath, listener),
+};
+
+export const open: PenkraAppRuntimeApi["open"] = (input) => runtime().open(input);
+
 export const browser: PenkraAppRuntimeApi["browser"] = {
   open: (initialUrl) => runtime().browser.open(initialUrl),
   close: () => runtime().browser.close(),
   getState: () => runtime().browser.getState(),
   onState: (listener) => runtime().browser.onState(listener),
-  setViewport: (bounds) => runtime().browser.setViewport(bounds),
+  setSurfaceLayout: (insets) => runtime().browser.setSurfaceLayout(insets),
   navigate: (input) => runtime().browser.navigate(input),
   reload: (pageId) => runtime().browser.reload(pageId),
   stop: (pageId) => runtime().browser.stop(pageId),

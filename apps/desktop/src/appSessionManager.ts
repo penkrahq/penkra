@@ -12,7 +12,7 @@ import {
 } from "./appPackageProtocol";
 import {
   createAppSessionPartition,
-  decideAppNavigation,
+  decideAppSpaceNavigation,
   PENKRA_APP_SCHEME,
 } from "./appRuntimePolicy";
 
@@ -25,6 +25,7 @@ export interface ActiveAppSession {
   appId: string;
   spaceId: string;
   partition: string;
+  origin: string;
   session: Session;
 }
 
@@ -39,6 +40,7 @@ interface ActiveAppSessionRecord extends ActiveAppSession {
 export interface AppSessionManagerDependencies {
   fromPartition?: typeof session.fromPartition;
   createProtocolHandler?: typeof createAppPackageProtocolHandler;
+  resolveOrigin: (appId: string, spaceId: string) => string;
   getStandardPermission?: (
     appId: string,
     spaceId: string,
@@ -62,6 +64,7 @@ export interface AppSessionManagerDependencies {
 export class AppSessionManager {
   readonly #fromPartition: typeof session.fromPartition;
   readonly #createProtocolHandler: typeof createAppPackageProtocolHandler;
+  readonly #resolveOrigin: AppSessionManagerDependencies["resolveOrigin"];
   readonly #records = new Map<string, ActiveAppSessionRecord>();
   readonly #queues = new Map<string, Promise<void>>();
   readonly #getStandardPermission: NonNullable<
@@ -71,10 +74,11 @@ export class AppSessionManager {
     AppSessionManagerDependencies["requestStandardPermissions"]
   >;
 
-  constructor(dependencies: AppSessionManagerDependencies = {}) {
+  constructor(dependencies: AppSessionManagerDependencies) {
     this.#fromPartition = dependencies.fromPartition ?? session.fromPartition.bind(session);
     this.#createProtocolHandler =
       dependencies.createProtocolHandler ?? createAppPackageProtocolHandler;
+    this.#resolveOrigin = dependencies.resolveOrigin;
     this.#getStandardPermission = dependencies.getStandardPermission ?? (() => false);
     this.#requestStandardPermissions =
       dependencies.requestStandardPermissions ?? (async () => false);
@@ -83,8 +87,9 @@ export class AppSessionManager {
   activate(input: ActivateAppSessionInput): Promise<ActiveAppSession> {
     const partition = createAppSessionPartition(input.installedApp.appId, input.spaceId);
     return this.#enqueue(partition, async () => {
+      const origin = this.#resolveOrigin(input.installedApp.appId, input.spaceId);
       const nextHandler = await this.#createProtocolHandler({
-        appId: input.installedApp.appId,
+        origin,
         packageRoot: input.installedApp.packagePath,
         entrypoint: input.installedApp.manifest.entrypoints.app,
       });
@@ -101,6 +106,7 @@ export class AppSessionManager {
         appId: input.installedApp.appId,
         appName: input.installedApp.name,
         spaceId: input.spaceId,
+        origin,
         getPermission: this.#getStandardPermission,
         requestPermissions: this.#requestStandardPermissions,
       });
@@ -111,6 +117,7 @@ export class AppSessionManager {
         appId: input.installedApp.appId,
         spaceId: input.spaceId,
         partition,
+        origin,
         session: partitionSession,
         protocolTarget,
       };
@@ -174,6 +181,7 @@ function configureAppSession(
     appId: string;
     appName: string;
     spaceId: string;
+    origin: string;
     getPermission: NonNullable<AppSessionManagerDependencies["getStandardPermission"]>;
     requestPermissions: NonNullable<AppSessionManagerDependencies["requestStandardPermissions"]>;
   },
@@ -208,7 +216,7 @@ function configureAppSession(
       .then(callback, () => callback(false));
   });
   partitionSession.webRequest.onBeforeRequest({ urls: ["<all_urls>"] }, (details, callback) => {
-    callback({ cancel: decideAppNavigation(input.appId, details.url).action !== "allow" });
+    callback({ cancel: decideAppSpaceNavigation(input.origin, details.url).action !== "allow" });
   });
 }
 
@@ -247,6 +255,7 @@ function publicSession(record: ActiveAppSessionRecord): ActiveAppSession {
     appId: record.appId,
     spaceId: record.spaceId,
     partition: record.partition,
+    origin: record.origin,
     session: record.session,
   };
 }

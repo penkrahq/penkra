@@ -32,7 +32,10 @@ interface RightDockStore {
     threadId: ThreadId,
     paneId: string,
     patch: Partial<
-      Pick<RightDockPane, "appIconDataUrl" | "appRendererId" | "appRoute" | "appStatus">
+      Pick<
+        RightDockPane,
+        "appDocumentUrl" | "appIconDataUrl" | "appRendererId" | "appRoute" | "appStatus"
+      >
     >,
   ) => void;
   clearThreadDockState: (threadId: ThreadId) => void;
@@ -100,8 +103,12 @@ export const useRightDockStore = create<RightDockStore>()(
               ? {
                   ...state,
                   panes: state.panes.map(
-                    ({ appIconDataUrl: _appIconDataUrl, appRendererId: _appRendererId, ...pane }) =>
-                      pane,
+                    ({
+                      appDocumentUrl: _appDocumentUrl,
+                      appIconDataUrl: _appIconDataUrl,
+                      appRendererId: _appRendererId,
+                      ...pane
+                    }) => pane,
                   ),
                 }
               : state,

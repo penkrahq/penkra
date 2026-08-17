@@ -28,7 +28,7 @@ function app(
     sha256: "a".repeat(64),
     installedAt: "2026-08-02T00:00:00.000Z",
     manifest: {
-      manifestVersion: 1,
+      manifestVersion: 2,
       id: "com.acme.figma",
       slug: "figma",
       name: "Figma",

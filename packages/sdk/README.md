@@ -9,14 +9,15 @@ npm install @penkra/sdk
 
 Framework-neutral APIs for Apps running inside Penkra. The package contains manifest validation,
 typed operations, tab routing, settings, secrets, identity, permissions, mediated
-network access, hosted browser and simulator sessions, and native context menus. It never exposes
-Electron or Node globals.
+network and file access, hosted browser and simulator sessions, and native context menus. Visual
+Apps run as sandboxed App×Space-origin iframes connected to the trusted host by a tab-bound
+MessagePort. The SDK never exposes Electron, Node globals, raw IPC, or filesystem paths.
 
 ```ts
 import { defineApp, tab } from "@penkra/sdk";
 
 export const manifest = defineApp({
-  manifestVersion: 1,
+  manifestVersion: 2,
   id: "com.example.notes",
   slug: "notes",
   name: "Notes",
@@ -44,10 +45,18 @@ Use `contextMenu.show(...)` from a direct pointer interaction when an App needs 
 right-click menu. Penkra returns the selected item ID or `null`; Apps never receive Electron menu
 objects.
 
-Files and directories use the browser's standard `showOpenFilePicker`, `showSaveFilePicker`, and
-`showDirectoryPicker` APIs directly. Native `FileSystemHandle` objects may be persisted in the App's
-IndexedDB; there is no Penkra filesystem namespace or filesystem manifest permission.
+Files and directories use `files.pick("file" | "directory")` and opaque App×Space-scoped handle IDs.
+The host validates every descendant and symlink boundary and never reveals an absolute path.
+Handles survive iframe reload but currently expire when the desktop runtime restarts; there is no
+filesystem manifest permission or ambient filesystem namespace. Apps may also declare exact
+`open-file` extensions or `open-directory`; trusted host openings deliver the same kind of scoped
+handle to the declared operation.
 
-Privileged Penkra APIs require matching manifest declarations and per-Space grants. Hosted browser APIs require `browser-session`,
-and hosted simulated-device APIs require `simulator-session`. Both are scoped to the calling App
-and Space and cannot address another App or Space's session.
+Privileged Penkra APIs require matching manifest declarations and per-Space grants. Hosted browser
+APIs require `browser-session`, and hosted simulated-device APIs require `simulator-session`. Both
+are scoped to the calling App and Space and cannot address another App or Space's session.
+
+The Browser page is host-owned while the App owns its surrounding chrome. Call
+`browser.setSurfaceLayout({ top, right, bottom, left })` with App-local edge insets, or `null` when
+the page surface is hidden. Insets describe structural layout and should remain unchanged during a
+plain panel resize; do not stream measured width and height through the runtime bridge.

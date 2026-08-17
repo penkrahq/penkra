@@ -82,62 +82,16 @@ export function parseNavigateAppTabRequest(input: unknown): {
   };
 }
 
-export function parseSetAppTabVisibleRequest(input: unknown): {
+export function parseSetAppTabActiveRequest(input: unknown): {
   tabId: string;
   rendererId: number;
-  visible: boolean;
+  active: boolean;
 } {
   const value = record(input);
-  if (typeof value.visible !== "boolean") throw new Error("Invalid App tab visibility request.");
+  if (typeof value.active !== "boolean") throw new Error("Invalid App tab active-state request.");
   return {
     tabId: string(value, "tabId"),
     rendererId: finiteNumber(value, "rendererId"),
-    visible: value.visible,
-  };
-}
-
-export function parseSetAppTabBoundsRequest(input: unknown): {
-  tabId: string;
-  rendererId: number;
-  bounds: { x: number; y: number; width: number; height: number };
-} {
-  const value = record(input);
-  const bounds = record(value.bounds);
-  for (const key of ["x", "y", "width", "height"] as const) {
-    if (typeof bounds[key] !== "number" || !Number.isFinite(bounds[key])) {
-      throw new Error("Invalid App tab bounds request.");
-    }
-  }
-  return {
-    tabId: string(value, "tabId"),
-    rendererId: finiteNumber(value, "rendererId"),
-    bounds: {
-      x: bounds.x as number,
-      y: bounds.y as number,
-      width: bounds.width as number,
-      height: bounds.height as number,
-    },
-  };
-}
-
-/**
- * DOM rectangles are expressed in the shell renderer's CSS pixels. Electron
- * View bounds are expressed in the BrowserWindow content view's native DIPs.
- * Page zoom changes the relationship between those coordinate spaces without
- * changing the window, so the trusted desktop boundary must scale the complete
- * rectangle before positioning a host-owned App view.
- */
-export function appTabCssBoundsToNativeBounds(
-  bounds: { x: number; y: number; width: number; height: number },
-  zoomFactor: number,
-): { x: number; y: number; width: number; height: number } {
-  if (!Number.isFinite(zoomFactor) || zoomFactor <= 0) {
-    throw new Error("Invalid App tab zoom factor.");
-  }
-  return {
-    x: bounds.x * zoomFactor,
-    y: bounds.y * zoomFactor,
-    width: bounds.width * zoomFactor,
-    height: bounds.height * zoomFactor,
+    active: value.active,
   };
 }

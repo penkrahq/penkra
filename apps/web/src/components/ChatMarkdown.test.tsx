@@ -85,6 +85,31 @@ describe("ChatMarkdown", () => {
     expect(markup.match(/class="katex"/g) ?? []).toHaveLength(1);
   });
 
+  it("keeps filename-shaped inline code literal", async () => {
+    const markup = await renderMarkdown(
+      "Review `runtime-AGENTS.md`, `src/index.ts`, and `package.json`.",
+      "/Users/julius/project",
+    );
+
+    expect(markup).toContain("<code>runtime-AGENTS.md</code>");
+    expect(markup).toContain("<code>src/index.ts</code>");
+    expect(markup).toContain("<code>package.json</code>");
+    expect(markup).not.toContain('data-slot="central-icon"');
+  });
+
+  it("keeps explicit markdown file links openable", async () => {
+    const markup = await renderMarkdown(
+      "Review [runtime-AGENTS.md](services/sandbox/assets/runtime-AGENTS.md).",
+      "/Users/julius/project",
+    );
+
+    expect(markup).toContain('href="services/sandbox/assets/runtime-AGENTS.md"');
+    expect(markup).toContain(
+      'title="/Users/julius/project/services/sandbox/assets/runtime-AGENTS.md"',
+    );
+    expect(markup).toContain('data-slot="central-icon"');
+  });
+
   it("renders external assistant links with the shared favicon icon slot", async () => {
     const markup = await renderMarkdown(
       "Closest source: [OpenAI benchmark](https://openai.com/research).",
@@ -283,14 +308,20 @@ describe("ChatMarkdown user variant", () => {
   });
 
   it("keeps Object.prototype member names as literal inline code", async () => {
-    // `inlineCodeFilePath` strips wrapping quotes, so the quoted forms reach the icon
-    // tables as the bare keys `constructor` / `__proto__`.
     for (const token of ["constructor", "__proto__", '"constructor"', '"__proto__"']) {
       const markup = await renderUserMarkdown(`what if a key is \`${token}\``);
 
       expect(markup).toContain("<code>");
       expect(markup).not.toContain('data-slot="central-icon"');
     }
+  });
+
+  it("keeps filename-shaped inline code literal", async () => {
+    const markup = await renderUserMarkdown("Review `runtime-AGENTS.md` and `src/index.ts`.");
+
+    expect(markup).toContain("<code>runtime-AGENTS.md</code>");
+    expect(markup).toContain("<code>src/index.ts</code>");
+    expect(markup).not.toContain('data-slot="central-icon"');
   });
 
   it("renders @-mention tokens as mention chips", async () => {

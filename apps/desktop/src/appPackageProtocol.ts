@@ -5,7 +5,9 @@
 import * as FS from "node:fs";
 import * as Path from "node:path";
 
-import { resolveAppPackagePath } from "./appRuntimePolicy";
+import { resolveAppSpacePackagePath } from "./appRuntimePolicy";
+
+export const APP_FRAME_RUNTIME_PATH = "/.penkra/runtime.js";
 
 const APP_CONTENT_SECURITY_POLICY = [
   "default-src 'self'",
@@ -22,9 +24,10 @@ const APP_CONTENT_SECURITY_POLICY = [
 ].join("; ");
 
 export interface AppPackageProtocolInput {
-  appId: string;
+  origin: string;
   packageRoot: string;
   entrypoint: string;
+  runtimeScriptPath?: string;
 }
 
 export type AppPackageProtocolHandler = (request: Request) => Promise<Response>;
@@ -33,19 +36,35 @@ export async function createAppPackageProtocolHandler(
   input: AppPackageProtocolInput,
 ): Promise<AppPackageProtocolHandler> {
   const canonicalRoot = await FS.promises.realpath(input.packageRoot);
-  const entrypointPath = resolveAppPackagePath(
+  const entrypointPath = resolveAppSpacePackagePath(
     canonicalRoot,
-    input.appId,
-    `penkra-app://${input.appId}/${input.entrypoint}`,
+    input.origin,
+    `${input.origin}/${input.entrypoint}`,
   );
   await requireContainedRegularFile(canonicalRoot, entrypointPath);
+  const runtimeScript = input.runtimeScriptPath
+    ? await FS.promises.readFile(await requireHostRuntimeScript(input.runtimeScriptPath))
+    : null;
 
   return async (request) => {
     try {
-      const requestedPath = resolveAppPackagePath(canonicalRoot, input.appId, request.url);
+      const requestUrl = new URL(request.url);
+      if (requestUrl.pathname === APP_FRAME_RUNTIME_PATH) {
+        if (!runtimeScript) throw new Error("The App frame runtime is unavailable.");
+        return new Response(Uint8Array.from(runtimeScript).buffer, {
+          status: 200,
+          headers: responseHeaders("runtime.js"),
+        });
+      }
+      const requestedPath = resolveAppSpacePackagePath(canonicalRoot, input.origin, request.url);
       const path = await resolveRequestFile(canonicalRoot, requestedPath, entrypointPath);
       const contents = await FS.promises.readFile(path);
-      return new Response(new Uint8Array(contents), {
+      const body = Uint8Array.from(
+        runtimeScript && Path.extname(path).toLowerCase() === ".html"
+          ? injectFrameRuntime(contents)
+          : contents,
+      ).buffer;
+      return new Response(body, {
         status: 200,
         headers: responseHeaders(path),
       });
@@ -56,6 +75,25 @@ export async function createAppPackageProtocolHandler(
       });
     }
   };
+}
+
+async function requireHostRuntimeScript(path: string): Promise<string> {
+  if (!Path.isAbsolute(path)) throw new TypeError("App frame runtime path must be absolute.");
+  const canonicalPath = await FS.promises.realpath(path);
+  const stats = await FS.promises.stat(canonicalPath);
+  if (!stats.isFile()) throw new TypeError("App frame runtime must be a regular file.");
+  return canonicalPath;
+}
+
+function injectFrameRuntime(contents: Buffer): Uint8Array {
+  const html = contents.toString("utf8");
+  const script = `<script src="${APP_FRAME_RUNTIME_PATH}"></script>`;
+  const head = /<head(?:\s[^>]*)?>/i.exec(html);
+  if (head?.index !== undefined) {
+    const insertion = head.index + head[0].length;
+    return new TextEncoder().encode(`${html.slice(0, insertion)}${script}${html.slice(insertion)}`);
+  }
+  return new TextEncoder().encode(`${script}${html}`);
 }
 
 async function resolveRequestFile(

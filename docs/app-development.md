@@ -41,7 +41,7 @@ rejected. `README.md` and `INSTRUCTIONS.md` must be nonempty UTF-8 documents.
 
 ```json
 {
-  "manifestVersion": 1,
+  "manifestVersion": 2,
   "id": "com.example.notes",
   "slug": "notes",
   "name": "Notes",
@@ -83,17 +83,32 @@ Operation keys are App-local dotted names such as `notes.open`; never prefix the
 Penkra presents the operation to an agent as `notes notes open`. Inputs and outputs are bounded JSON
 Schemas and are validated at the host boundary.
 
-`open-url` handler contributions may declare URL schemes. Local file and directory access does not
-use a Penkra handler or permission vocabulary; Apps use the browser's File System Access API.
+Handler contributions declare resources an App can open through one of its public operations:
+
+- `open-url` declares URL schemes.
+- `open-file` declares exact extensions such as `.md` or `.pdf`.
+- `open-directory` declares directory support.
+
+File and directory handlers receive only an opaque Runtime v2 handle after a user click, an
+explicit `penkra open`, or another trusted host handoff. They never receive an absolute path.
 
 Settings and Skills are declarative contributions interpreted by the host. See the exported
 TypeScript declarations in `@penkra/sdk` for the authoritative field types and validators.
 
 ## Runtime and isolation
 
-Each enabled App has isolated storage and an Electron session per Space. Each visual tab has its
-own sandboxed renderer and a stable host-minted `tabId`; Node integration and Electron globals are
-unavailable. Tabs for the same App and Space may share only the App's explicit durable state.
+Each visual tab is a sandboxed, cross-origin iframe inside Penkra's trusted shell DOM and has a
+stable host-minted `tabId`. Its opaque `penkra-app://a-…` origin is unique to the App and Space, so
+browser storage can be shared by tabs of that App in that Space but is inaccessible to other Apps,
+Spaces, and the shell. Node integration and Electron globals are unavailable. The iframe is a real
+DOM child—not a native child window or a separate compositor plane—so shell dialogs, menus, drag
+geometry, clipping, refresh, and accessibility obey normal document stacking.
+
+Penkra injects the Runtime v2 SDK bootstrap from the immutable package protocol and connects the
+iframe to the host with a tab-bound `MessagePort`. The port is the only privileged bridge. Every
+call is re-authorized against the host-owned App, Space, Thread, tab, installation, and permission
+state; messages cannot select another origin or renderer. Reload creates a new port and invalidates
+old tab references without changing the App×Space origin.
 
 App renderers use a restrictive Content Security Policy. An App may fetch only files from its own
 verified immutable package origin (`connect-src 'self'`); remote renderer connections remain
@@ -105,30 +120,32 @@ attribution, credentials, and revocation stay enforceable. The current special p
 
 ### Files and directories
 
-Use the standard browser APIs and types directly: `showOpenFilePicker`, `showSaveFilePicker`,
-`showDirectoryPicker`, `FileSystemFileHandle`, and `FileSystemDirectoryHandle`. A picker is the
-user authorization boundary. Penkra permits Chromium to complete that native picker flow but does
-not add `penkra.files`, opaque path IDs, absolute-path access, ambient roots, or a second manifest
-permission.
+Use `files.pick("file")` or `files.pick("directory")`. The native picker is one authorization
+boundary; the trusted host may also hand an App one explicitly opened resource through a declared
+file or directory handler. Penkra returns an opaque handle ID plus bounded metadata, never an
+absolute path or a Chromium `FileSystemHandle`. Use `files.stat`, `files.listDirectory`, `files.readText`, chunked
+`files.readBinary`, `files.writeText`, `files.createDirectory`, and `files.watch` against that
+handle. `open({ handleId, relativePath, with: "system" })` asks the trusted host to open one selected
+resource with the operating system.
 
 For a document whose relative asset URLs must resolve beside it, ask for the containing directory,
 then start the file picker in that directory and verify the returned file belongs to it:
 
 ```js
-const root = await window.showDirectoryPicker({ mode: "read" });
-const [document] = await window.showOpenFilePicker({
-  startIn: root,
-  multiple: false,
-  types: [{ description: "Pencil document", accept: { "application/json": [".pen"] } }],
-});
-if (!(await root.resolve(document))) throw new Error("Choose a file inside the selected folder.");
+import { files } from "@penkra/sdk";
+
+const root = await files.pick("directory");
+const entries = await files.listDirectory(root.id);
+const document = entries.find((entry) => entry.kind === "file" && entry.name.endsWith(".pen"));
+if (!document) throw new Error("The selected folder does not contain a .pen document.");
+const source = await files.readText(root.id, document.relativePath);
 ```
 
-Traverse relative assets with `getDirectoryHandle` and `getFileHandle`. If a required reference is
-missing, fail explicitly. Persist browser handles in the App's IndexedDB when restoration is useful;
-on restoration, inspect `queryPermission()` and require a new user gesture if permission is not
-already granted. Do not infer a parent directory, search neighboring folders, or fall back to a raw
-path API.
+Relative paths are normalized beneath the selected root. Traversal, absolute paths, and symlink
+escapes are rejected after real-path validation. If a required reference is missing, fail
+explicitly. Handle IDs survive iframe reloads but currently belong to the running desktop session;
+after a Penkra restart the App must ask the user to select the resource again. Persist only App
+metadata in IndexedDB, not assumptions that an old handle remains authorized.
 
 The public `simulator-session` service lets an interactive App tab manage saved simulated devices,
 host their complete display/input surface, and return a standard Apple UDID or Android ADB serial.
@@ -145,15 +162,23 @@ Required permissions must be granted before enablement. Optional permissions are
 following a user action. Grants and revocation apply to one App in one Space. Standard browser
 permissions such as microphone and camera use host-intercepted browser permission flows.
 
-File access is handle-based. A handle authorizes only a user-selected file or directory and its
-validated descendants. Store it in IndexedDB to reuse it in that App and Space; other Apps and
-Spaces have separate renderer storage and must obtain their own handles through a user-activated
-picker. Apps never receive ambient filesystem access. A hosted browser session can control only
-pages created for the calling App and Space. A hosted simulator session can control only saved
-devices and live sessions owned by the calling App and Space.
+File access is handle-based. A handle authorizes only a user-selected or host-handed-off file or
+directory and its validated descendants for the receiving App and Space in the current desktop
+session. Other Apps and Spaces must obtain their own handles through a picker or trusted handoff.
+Apps never receive ambient filesystem access. A hosted browser session can control only pages
+created for the calling App and Space. A hosted simulator session can control only saved devices
+and live sessions owned by the calling App and Space.
 
-Open With applies only to declared URL handlers. Local paths always use the operating system;
-opening a path in an App requires that App's own browser-native picker.
+For a hosted Browser page, the App owns its browser chrome while Penkra owns the isolated page
+surface. Use `browser.setSurfaceLayout({ top, right, bottom, left })` to declare the App-local edge
+insets around that surface, and pass `null` while it is hidden. Report stable structural insets, not
+continuously measured width and height: Penkra lays the page out against those edges so ordinary
+panel resizing stays inside the browser's synchronous CSS layout pass.
+
+Open With applies to declared URL, file-extension, and directory handlers. For a validated local
+path, Penkra resolves an explicitly requested App, a saved compatible preference, or one unique
+compatible App. Otherwise it uses the operating system. An App handler receives a scoped handle,
+not the local path.
 
 The runtime exposes scoped identity, settings, encrypted secrets, permissions, mediated
 services, context menus, operations, and tab routing. Apps receive an installation-stable pairwise
@@ -273,8 +298,10 @@ generation; navigation, reload, replacement, or close invalidates them. Snapshot
 roles, names, values, and relationships while protected values are redacted. Extract returns
 bounded readable content. Screenshot returns an image result rather than a rediscoverable path.
 
-For ordinary Apps the observable document is the renderer. For an authorized hosted-document App,
-it is the active visible hosted page. The target must belong to the caller Thread and Space. The
+For ordinary Apps the observable document is the App iframe. The host resolves its exact
+`WebFrameMain`, executes inside that frame, and crops screenshots to its current shell DOM bounds.
+For an authorized hosted-document App, the target is the active visible hosted page. The target
+must belong to the caller Thread and Space. The
 Penkra shell, composer, transcript, other Apps, other Threads, other Spaces, controllers, and hidden
 credential surfaces remain outside the boundary. App/page content is untrusted data and cannot
 amend agent instructions.

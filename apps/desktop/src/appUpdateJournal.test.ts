@@ -23,7 +23,7 @@ function temporaryDirectory(): string {
 function appPackage(version: string) {
   return {
     manifest: {
-      manifestVersion: 1 as const,
+      manifestVersion: 2 as const,
       id: "com.acme.canvas",
       slug: "canvas",
       name: "Canvas",

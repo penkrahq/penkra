@@ -11,7 +11,7 @@ import {
   type AppRendererRpcHost,
   type AppRendererRpcHostMessage,
 } from "./appRendererRpc";
-import { createAppDocumentUrl } from "./appRuntimePolicy";
+import { createAppDocumentUrlForOrigin } from "./appRuntimePolicy";
 import type { ActiveAppSession } from "./appSessionManager";
 
 export interface AppControllerRenderer {
@@ -87,7 +87,7 @@ export class AppControllerHost {
         id: renderer.id,
         send: (message) => renderer.send(message),
       });
-      await renderer.start(createAppDocumentUrl(input.installedApp.appId, entrypoint));
+      await renderer.start(createAppDocumentUrlForOrigin(input.session.origin, entrypoint));
       const controller: AppOperationController = {
         appId: input.installedApp.appId,
         spaceId: input.spaceId,

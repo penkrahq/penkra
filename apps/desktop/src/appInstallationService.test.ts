@@ -10,7 +10,7 @@ import { AppInstallationService } from "./appInstallationService";
 function verifiedPackage(): VerifiedAppPackageInput {
   return {
     manifest: {
-      manifestVersion: 1,
+      manifestVersion: 2,
       id: "com.acme.figma",
       slug: "figma",
       name: "Figma",

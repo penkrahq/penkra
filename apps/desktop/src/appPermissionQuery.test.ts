@@ -12,7 +12,7 @@ function state() {
     createEmptyAppInstallationState(),
     {
       manifest: {
-        manifestVersion: 1,
+        manifestVersion: 2,
         id: "com.acme.linear",
         slug: "linear",
         name: "Linear",

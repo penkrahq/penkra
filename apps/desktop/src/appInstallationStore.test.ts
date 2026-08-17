@@ -27,7 +27,7 @@ function createTemporaryDirectory(): string {
 function packageInput() {
   return {
     manifest: {
-      manifestVersion: 1,
+      manifestVersion: 2,
       id: "com.penkra.apps",
       slug: "apps",
       name: "Apps",

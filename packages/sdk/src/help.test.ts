@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { generateAppHelp } from "./help";
 
 const manifest = {
-  manifestVersion: 1,
+  manifestVersion: 2,
   id: "com.acme.linear",
   slug: "linear",
   name: "Linear",

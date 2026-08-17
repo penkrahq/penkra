@@ -11,6 +11,7 @@ const descriptor: DesktopAppTabDescriptor = {
   slug: "canvas",
   name: "Canvas",
   iconDataUrl: null,
+  documentUrl: "penkra-app://canvas/app.html",
   spaceId: "personal",
   threadId: "thread-1",
   route: "/",
@@ -81,7 +82,7 @@ describe("resolveAppTabObservationTarget", () => {
       resolveAppTabObservationTarget({
         descriptor: browserDescriptor,
         browserAppId: "com.penkra.browser",
-        appWebContents: () => appContents,
+        appTarget: () => ({ descriptor: browserDescriptor, webContents: appContents }),
         browserWebContents,
       }),
     ).resolves.toEqual({ descriptor: browserDescriptor, webContents: hostedContents });
@@ -91,36 +92,36 @@ describe("resolveAppTabObservationTarget", () => {
   it("never substitutes a Browser page for an ordinary App", async () => {
     const appContents = makeContents().contents;
     const browserWebContents = vi.fn(async () => makeContents().contents);
-    const appWebContents = vi.fn(() => appContents);
+    const appTarget = vi.fn(() => ({ descriptor, webContents: appContents }));
 
     await expect(
       resolveAppTabObservationTarget({
         descriptor,
         browserAppId: "com.penkra.browser",
-        appWebContents,
+        appTarget,
         browserWebContents,
       }),
     ).resolves.toEqual({ descriptor, webContents: appContents });
-    expect(appWebContents).toHaveBeenCalledExactlyOnceWith("tab-1");
+    expect(appTarget).toHaveBeenCalledExactlyOnceWith("tab-1");
     expect(browserWebContents).not.toHaveBeenCalled();
   });
 
   it("prefers a trusted hosted surface when the App tab has one", async () => {
     const appContents = makeContents().contents;
     const hostedContents = makeContents().contents;
-    const appWebContents = vi.fn(() => appContents);
+    const appTarget = vi.fn(() => ({ descriptor, webContents: appContents }));
     const browserWebContents = vi.fn(async () => null);
 
     await expect(
       resolveAppTabObservationTarget({
         descriptor,
         browserAppId: "com.penkra.browser",
-        appWebContents,
+        appTarget,
         browserWebContents,
         hostedWebContents: () => hostedContents,
       }),
     ).resolves.toEqual({ descriptor, webContents: hostedContents });
-    expect(appWebContents).not.toHaveBeenCalled();
+    expect(appTarget).not.toHaveBeenCalled();
     expect(browserWebContents).not.toHaveBeenCalled();
   });
 });

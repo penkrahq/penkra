@@ -15,6 +15,7 @@ export async function subscribeAccountDataWithBufferedHandshake(input: {
 }): Promise<() => void> {
   let subscriptionId: string | null = null;
   let active = true;
+  let receivedConnectionState = false;
   const pending: SubscriptionMessage[] = [];
   const deliver = (message: SubscriptionMessage) => {
     if (!active) return;
@@ -24,13 +25,20 @@ export async function subscribeAccountDataWithBufferedHandshake(input: {
     }
     if (message.subscriptionId !== subscriptionId) return;
     if (message.event) input.onEvent(message.event);
-    if (message.connectionState) input.onConnectionStateChange?.(message.connectionState);
+    if (message.connectionState) {
+      receivedConnectionState = true;
+      input.onConnectionStateChange?.(message.connectionState);
+    }
   };
   const unlisten = input.listen(deliver);
   try {
     subscriptionId = await input.start();
     for (const message of pending) deliver(message);
     pending.length = 0;
+    // A successful start means the host connected and authorized the channel.
+    // Preserve that guarantee even if the initial IPC state notification raced
+    // the invoke response and was not observable in this renderer.
+    if (!receivedConnectionState) input.onConnectionStateChange?.("connected");
   } catch (error) {
     active = false;
     unlisten();

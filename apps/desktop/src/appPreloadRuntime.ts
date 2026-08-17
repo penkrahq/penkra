@@ -21,6 +21,8 @@ export type AppPreloadRendererMessage =
   | AppRendererRpcContextCallMessage;
 
 export interface AppPreloadTransport {
+  call?<Result = unknown>(method: string, input?: unknown): Promise<Result>;
+  onEvent?(name: string, listener: (payload: unknown) => void): () => void;
   send(message: AppPreloadRendererMessage): void;
   onHostMessage(listener: (message: unknown) => void): () => void;
   ready(): void;
@@ -88,6 +90,34 @@ export class AppPreloadRuntime {
       contextMenu: {
         show: (items) => this.#transport.showContextMenu(items),
       },
+      files: {
+        list: () => this.#runtimeV2Call("files.list"),
+        pick: (kind) => this.#runtimeV2Call("files.pick", kind),
+        revoke: (handleId) => this.#runtimeV2Call("files.revoke", handleId),
+        stat: (handleId, relativePath) =>
+          this.#runtimeV2Call("files.stat", { handleId, relativePath }),
+        listDirectory: (handleId, relativePath) =>
+          this.#runtimeV2Call("files.listDirectory", { handleId, relativePath }),
+        readText: (handleId, relativePath) =>
+          this.#runtimeV2Call("files.readText", { handleId, relativePath }),
+        readBinary: (input) => this.#runtimeV2Call("files.readBinary", input),
+        writeText: (handleId, source, relativePath) =>
+          this.#runtimeV2Call("files.writeText", { handleId, source, relativePath }),
+        createDirectory: (handleId, relativePath) =>
+          this.#runtimeV2Call("files.createDirectory", { handleId, relativePath }),
+        watch: async (handleId, relativePath, listener) => {
+          const watchId = await this.#runtimeV2Call<string>("files.watch", {
+            handleId,
+            relativePath,
+          });
+          const remove = this.#transport.onEvent?.(`files.watch.${watchId}`, listener);
+          return () => {
+            remove?.();
+            void this.#runtimeV2Call("files.unwatch", { watchId }).catch(() => undefined);
+          };
+        },
+      },
+      open: (input) => this.#runtimeV2Call("resources.open", input),
       browser: {
         open: (initialUrl) =>
           this.#transport.browserCall("open", initialUrl) as Promise<
@@ -99,8 +129,8 @@ export class AppPreloadRuntime {
             import("@penkra/sdk").AppBrowserSessionState
           >,
         onState: (listener) => this.#transport.onBrowserState(listener),
-        setViewport: (bounds) =>
-          this.#transport.browserCall("setViewport", bounds) as Promise<void>,
+        setSurfaceLayout: (insets) =>
+          this.#transport.browserCall("setSurfaceLayout", insets) as Promise<void>,
         navigate: (input) =>
           this.#transport.browserCall("navigate", input) as Promise<
             import("@penkra/sdk").AppBrowserSessionState
@@ -259,6 +289,13 @@ export class AppPreloadRuntime {
         },
       },
     };
+  }
+
+  #runtimeV2Call<Result = void>(method: string, input?: unknown): Promise<Result> {
+    if (!this.#transport.call) {
+      return Promise.reject(new Error("This capability requires Penkra Runtime v2."));
+    }
+    return this.#transport.call<Result>(method, input);
   }
 
   start(): void {

@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { defineApp, validateAppManifest } from "./manifest";
 
 const validManifest = {
-  manifestVersion: 1,
+  manifestVersion: 2,
   id: "com.penkra.apps",
   slug: "apps",
   name: "Apps",
@@ -49,6 +49,17 @@ const validManifest = {
 } as const;
 
 describe("validateAppManifest", () => {
+  it("rejects Runtime v1 manifests at the package boundary", () => {
+    const result = validateAppManifest({ ...validManifest, manifestVersion: 1 });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.issues).toContainEqual({
+      path: "manifestVersion",
+      code: "invalid-manifest-version",
+      message: "manifestVersion must be 2.",
+    });
+  });
+
   it("accepts the canonical Apps manifest shape", () => {
     expect(validateAppManifest(validManifest)).toEqual({ ok: true, manifest: validManifest });
     expect(defineApp(validManifest)).toBe(validManifest);
@@ -196,7 +207,7 @@ describe("validateAppManifest", () => {
     );
   });
 
-  it("validates URL handlers and accepts legacy file handlers for installed-package compatibility", () => {
+  it("validates URL, file, and directory handlers", () => {
     expect(
       validateAppManifest({
         ...validManifest,
@@ -204,17 +215,6 @@ describe("validateAppManifest", () => {
           ...validManifest.contributions,
           handlers: [
             { intent: "open-url", operation: "installations.install", schemes: ["https"] },
-          ],
-        },
-      }).ok,
-    ).toBe(true);
-
-    expect(
-      validateAppManifest({
-        ...validManifest,
-        contributions: {
-          ...validManifest.contributions,
-          handlers: [
             {
               intent: "open-file",
               operation: "installations.install",
@@ -229,16 +229,19 @@ describe("validateAppManifest", () => {
     const result = validateAppManifest({
       ...validManifest,
       contributions: {
-        handlers: [{ intent: "open-file", operation: "missing.open", extensions: ["pdf"] }],
+        handlers: [
+          {
+            intent: "open-file",
+            operation: "installations.install",
+            extensions: ["penkra-app"],
+          },
+        ],
       },
     });
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.issues).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ path: "contributions.handlers[0].operation" }),
-        expect.objectContaining({ path: "contributions.handlers[0]" }),
-      ]),
+      expect.arrayContaining([expect.objectContaining({ path: "contributions.handlers[0]" })]),
     );
   });
 });
