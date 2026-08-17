@@ -68,8 +68,8 @@
   "devDependencies": {
     "@babel/core": "^8.0.1",
     "@effect/language-service": "catalog:",
-    "@rolldown/plugin-babel": "^0.2.0",
     "@penkra/sdk": "workspace:*",
+    "@rolldown/plugin-babel": "^0.2.0",
     "@storybook/addon-a11y": "10.5.5",
     "@storybook/addon-docs": "10.5.5",
     "@storybook/react-vite": "10.5.5",
