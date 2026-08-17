@@ -1710,6 +1710,70 @@ describe("store projection", () => {
     expect(next.activityIdsByThreadId?.[threadId]?.[0]).toBe("activity-5");
   });
 
+  it("keeps an oversized turn tail when newer unscoped activity is interleaved", () => {
+    const turnId = TurnId.makeUnsafe("turn-oversized");
+    const activities = [
+      ...Array.from({ length: 2005 }, (_, index) =>
+        makeActivity({
+          id: `oversized-activity-${index}`,
+          turnId,
+          sequence: index,
+          createdAt: "2026-02-27T00:00:00.000Z",
+        }),
+      ),
+      makeActivity({ id: "unscoped-1", turnId: null, sequence: 2005 }),
+      makeActivity({ id: "unscoped-2", turnId: null, sequence: 2006 }),
+    ];
+
+    const next = syncServerReadModel(
+      makeState(makeThread()),
+      makeReadModel(makeReadModelThread({ activities })),
+    );
+    const retained = threadsOf(next)[0]?.activities ?? [];
+
+    expect(retained).toHaveLength(2000);
+    expect(retained[0]?.id).toBe(EventId.makeUnsafe("oversized-activity-7"));
+    expect(retained.at(-1)?.id).toBe(EventId.makeUnsafe("unscoped-2"));
+    expect(retained.filter((activity) => activity.turnId === turnId)).toHaveLength(1998);
+  });
+
+  it("drops only a split older turn while preserving newer scoped and unscoped activity", () => {
+    const cutoffTurnId = TurnId.makeUnsafe("turn-cutoff");
+    const recentTurnId = TurnId.makeUnsafe("turn-recent");
+    const activities = [
+      ...Array.from({ length: 50 }, (_, index) =>
+        makeActivity({ id: `old-${index}`, turnId: "turn-old", sequence: index }),
+      ),
+      ...Array.from({ length: 200 }, (_, index) =>
+        makeActivity({
+          id: `cutoff-${index}`,
+          turnId: cutoffTurnId,
+          sequence: index + 50,
+        }),
+      ),
+      ...Array.from({ length: 1900 }, (_, index) =>
+        makeActivity({
+          id: `recent-${index}`,
+          turnId: recentTurnId,
+          sequence: index + 250,
+        }),
+      ),
+      makeActivity({ id: "recent-unscoped-1", turnId: null, sequence: 2150 }),
+      makeActivity({ id: "recent-unscoped-2", turnId: null, sequence: 2151 }),
+    ];
+
+    const next = syncServerReadModel(
+      makeState(makeThread()),
+      makeReadModel(makeReadModelThread({ activities })),
+    );
+    const retained = threadsOf(next)[0]?.activities ?? [];
+
+    expect(retained).toHaveLength(1902);
+    expect(retained.some((activity) => activity.turnId === cutoffTurnId)).toBe(false);
+    expect(retained.filter((activity) => activity.turnId === recentTurnId)).toHaveLength(1900);
+    expect(retained.at(-1)?.id).toBe(EventId.makeUnsafe("recent-unscoped-2"));
+  });
+
   it("keeps pending interaction activities outside the latest activity window", () => {
     const activities = [
       makeActivity({

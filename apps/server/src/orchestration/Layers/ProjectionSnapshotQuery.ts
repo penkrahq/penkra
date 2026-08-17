@@ -3,6 +3,7 @@ import {
   IsoDateTime,
   MessageId,
   NonNegativeInt,
+  ORCHESTRATION_THREAD_HYDRATION_LIMITS,
   OrchestrationPendingInteraction,
   OrchestrationCheckpointFile,
   OrchestrationProjectShell,
@@ -74,13 +75,13 @@ const decodeThreadDetail = Schema.decodeUnknownEffect(OrchestrationThread);
 const decodeThreadDetailSnapshot = Schema.decodeUnknownEffect(OrchestrationThreadDetailSnapshot);
 const decodeModelSelection = Schema.decodeUnknownEffect(ModelSelection);
 const ModelSelectionJsonUnknown = Schema.fromJsonString(Schema.Unknown);
-const MAX_THREAD_MESSAGES = 2_000;
+const MAX_THREAD_MESSAGES = ORCHESTRATION_THREAD_HYDRATION_LIMITS.messages;
 // Bulk read-model snapshot: stays aligned with the in-memory projector window
 // (`orchestration/projector.ts`), which trims every live thread to the same cap.
-const MAX_SNAPSHOT_THREAD_ACTIVITIES = 500;
+const MAX_SNAPSHOT_THREAD_ACTIVITIES = ORCHESTRATION_THREAD_HYDRATION_LIMITS.summaryActivities;
 // A single opened thread keeps a much deeper window: providers emit hundreds of
 // activity rows per turn, so a 500-row tail dropped the previous turns' work log.
-const MAX_THREAD_DETAIL_ACTIVITIES = 2_000;
+const MAX_THREAD_DETAIL_ACTIVITIES = ORCHESTRATION_THREAD_HYDRATION_LIMITS.detailActivities;
 const MAX_THREAD_FILE_CHANGE_ACTIVITIES = 2_000;
 const MAX_TURN_GENERATED_IMAGE_ACTIVITY_RECORDS = 64;
 const ProjectionProjectDbRowSchema = ProjectionProject.mapFields(
@@ -1458,27 +1459,37 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           FROM projection_thread_activities
           WHERE thread_id = ${threadId}
         ),
-        cutoff_turn AS (
-          SELECT turn_id AS cutoff_turn_id
-          FROM ranked
-          WHERE activity_rank = ${MAX_THREAD_DETAIL_ACTIVITIES}
-        ),
-        cutoff_turn_state AS (
+        window_boundary_turn AS (
+          -- Turn-less activity (for example account/rate-limit metadata) is
+          -- retained inside the raw row budget, but it never defines a turn
+          -- boundary. Pick the oldest scoped turn represented in the window.
           SELECT
-            cutoff_turn_id,
+            turn_id AS boundary_turn_id,
+            activity_rank AS boundary_activity_rank
+          FROM ranked
+          WHERE activity_rank <= ${MAX_THREAD_DETAIL_ACTIVITIES}
+            AND turn_id IS NOT NULL
+          ORDER BY activity_rank DESC
+          LIMIT 1
+        ),
+        window_boundary_state AS (
+          SELECT
+            boundary_turn_id,
+            boundary_activity_rank,
             EXISTS (
               SELECT 1
               FROM ranked
               WHERE activity_rank > ${MAX_THREAD_DETAIL_ACTIVITIES}
-                AND turn_id = cutoff_turn_id
+                AND turn_id = boundary_turn_id
             ) AS is_split,
             EXISTS (
               SELECT 1
               FROM ranked
-              WHERE activity_rank < ${MAX_THREAD_DETAIL_ACTIVITIES}
-                AND turn_id IS NOT cutoff_turn_id
-            ) AS has_newer_turn
-          FROM cutoff_turn
+              WHERE activity_rank < boundary_activity_rank
+                AND turn_id IS NOT NULL
+                AND turn_id <> boundary_turn_id
+            ) AS has_newer_scoped_turn
+          FROM window_boundary_turn
         )
         SELECT
           activity_id AS "activityId",
@@ -1495,16 +1506,16 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           AND (
             (
               activity_rank <= ${MAX_THREAD_DETAIL_ACTIVITIES}
-              -- Drop a split oldest turn instead of extending the query beyond
-              -- its cap. If one turn fills the entire window, retain the raw
-              -- capped tail so an oversized turn does not hide all activity.
+              -- Drop a split oldest scoped turn instead of extending the query
+              -- beyond its cap. Unscoped rows never masquerade as newer turns.
+              -- If one turn fills the window, retain the raw capped tail so an
+              -- oversized turn does not hide all activity.
               AND NOT (
-                EXISTS (SELECT 1 FROM cutoff_turn_state)
-                AND (SELECT cutoff_turn_id FROM cutoff_turn_state) IS NOT NULL
+                EXISTS (SELECT 1 FROM window_boundary_state)
                 AND turn_id IS NOT NULL
-                AND turn_id = (SELECT cutoff_turn_id FROM cutoff_turn_state)
-                AND (SELECT is_split FROM cutoff_turn_state)
-                AND (SELECT has_newer_turn FROM cutoff_turn_state)
+                AND turn_id = (SELECT boundary_turn_id FROM window_boundary_state)
+                AND (SELECT is_split FROM window_boundary_state)
+                AND (SELECT has_newer_scoped_turn FROM window_boundary_state)
               )
             )
             OR (

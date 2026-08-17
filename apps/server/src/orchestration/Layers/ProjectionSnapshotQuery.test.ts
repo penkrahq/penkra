@@ -723,8 +723,9 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         )
       `;
 
-      // 2_150 activities across three turns, so the raw 2_000-row detail cap
-      // falls at sequence 151 - in the middle of `turn-cutoff` (51..250):
+      // 2_150 scoped activities across three turns, plus two newer unscoped
+      // metadata rows. The raw 2_000-row detail cap falls at sequence 153 - in
+      // the middle of `turn-cutoff` (51..250):
       //   turn-old    -> sequence 1..50      (fully outside the window)
       //   turn-cutoff -> sequence 51..250    (straddles the cap)
       //   turn-recent -> sequence 251..2150
@@ -752,6 +753,22 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           '2026-02-24T00:00:00.000Z'
         FROM sequences
       `;
+      yield* sql`
+        INSERT INTO projection_thread_activities (
+          activity_id, thread_id, turn_id, tone, kind, summary,
+          payload_json, sequence, created_at
+        ) VALUES
+          (
+            'activity-unscoped-1', 'thread-turn-window', NULL, 'info',
+            'account.rate-limits.updated', 'Rate limits updated', '{}', 2151,
+            '2026-02-24T00:00:00.000Z'
+          ),
+          (
+            'activity-unscoped-2', 'thread-turn-window', NULL, 'info',
+            'account.rate-limits.updated', 'Rate limits updated', '{}', 2152,
+            '2026-02-24T00:00:00.000Z'
+          )
+      `;
 
       const detail = yield* snapshotQuery.getThreadDetailById(asThreadId("thread-turn-window"));
       assert.isTrue(Option.isSome(detail));
@@ -759,10 +776,10 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
 
       // The partial `turn-cutoff` is dropped rather than extending the query
       // beyond its budget. The complete recent turn remains intact.
-      assert.equal(detailActivities.length, 1_900);
+      assert.equal(detailActivities.length, 1_902);
       assert.equal(detailActivities[0]?.id, asEventId("activity-251"));
       assert.equal(detailActivities[0]?.turnId, asTurnId("turn-recent"));
-      assert.equal(detailActivities.at(-1)?.id, asEventId("activity-2150"));
+      assert.equal(detailActivities.at(-1)?.id, asEventId("activity-unscoped-2"));
       assert.equal(
         detailActivities.filter((activity) => activity.turnId === asTurnId("turn-cutoff")).length,
         0,
@@ -774,8 +791,8 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       const snapshot = yield* snapshotQuery.getSnapshot();
       const snapshotActivities = snapshot.threads[0]?.activities ?? [];
       assert.equal(snapshotActivities.length, 500);
-      assert.equal(snapshotActivities[0]?.id, asEventId("activity-1651"));
-      assert.equal(snapshotActivities.at(-1)?.id, asEventId("activity-2150"));
+      assert.equal(snapshotActivities[0]?.id, asEventId("activity-1653"));
+      assert.equal(snapshotActivities.at(-1)?.id, asEventId("activity-unscoped-2"));
     }),
   );
 
@@ -828,14 +845,34 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           '2026-02-24T00:00:00.000Z'
         FROM sequences
       `;
+      yield* sql`
+        INSERT INTO projection_thread_activities (
+          activity_id, thread_id, turn_id, tone, kind, summary,
+          payload_json, sequence, created_at
+        ) VALUES
+          (
+            'oversized-unscoped-1', 'thread-oversized-turn', NULL, 'info',
+            'account.rate-limits.updated', 'Rate limits updated', '{}', 2151,
+            '2026-02-24T00:00:00.000Z'
+          ),
+          (
+            'oversized-unscoped-2', 'thread-oversized-turn', NULL, 'info',
+            'account.rate-limits.updated', 'Rate limits updated', '{}', 2152,
+            '2026-02-24T00:00:00.000Z'
+          )
+      `;
 
       const detail = yield* snapshotQuery.getThreadDetailById(asThreadId("thread-oversized-turn"));
       assert.isTrue(Option.isSome(detail));
       const activities = Option.isSome(detail) ? detail.value.activities : [];
 
       assert.equal(activities.length, 2_000);
-      assert.equal(activities[0]?.id, asEventId("oversized-activity-151"));
-      assert.equal(activities.at(-1)?.id, asEventId("oversized-activity-2150"));
+      assert.equal(activities[0]?.id, asEventId("oversized-activity-153"));
+      assert.equal(activities.at(-1)?.id, asEventId("oversized-unscoped-2"));
+      assert.equal(
+        activities.filter((activity) => activity.turnId === asTurnId("turn-oversized")).length,
+        1_998,
+      );
     }),
   );
 

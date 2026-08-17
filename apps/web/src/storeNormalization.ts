@@ -4,6 +4,7 @@
 
 import {
   MessageId,
+  ORCHESTRATION_THREAD_HYDRATION_LIMITS,
   type OrchestrationReadModel,
   type OrchestrationSpaceShell,
   type OrchestrationSessionStatus,
@@ -53,10 +54,8 @@ export type ProjectNormalizationInput = Pick<
   | "updatedAt"
 >;
 
-export const MAX_THREAD_MESSAGES = 2_000;
-// Matches the server-side activity retention budget: a smaller client cap would
-// silently drop work the server still serves in its snapshots.
-const MAX_THREAD_ACTIVITIES = 2_000;
+export const MAX_THREAD_MESSAGES = ORCHESTRATION_THREAD_HYDRATION_LIMITS.messages;
+const MAX_THREAD_ACTIVITIES = ORCHESTRATION_THREAD_HYDRATION_LIMITS.detailActivities;
 const LOCAL_USER_MESSAGE_RETENTION_MS = 10_000;
 const PENDING_INTERACTION_REQUEST_KINDS = new Set(["approval.requested", "user-input.requested"]);
 
@@ -1195,25 +1194,25 @@ export function withOrchestrationEventSequence(
 }
 
 /**
- * How many of the oldest activities to drop so the tail stays under the cap
- * *without* cutting a turn in half — a half-dropped turn renders as an incomplete
- * work group. Extends the minimum drop forward to the next turn boundary, unless
- * that would consume the whole array (a single turn larger than the cap), where
- * showing a partial turn beats showing nothing.
+ * Identifies a partially retained oldest turn that can be removed without
+ * erasing the only scoped turn in the window. Turn-less metadata stays inside
+ * the row budget but never defines or separates turns.
  */
-function resolveTurnAlignedDropCount(
+function resolveSplitBoundaryTurnId(
   activities: readonly Thread["activities"][number][],
   minimumDropCount: number,
-): number {
-  const boundaryTurnId = activities[minimumDropCount - 1]?.turnId ?? null;
-  let dropCount = minimumDropCount;
-  while (
-    dropCount < activities.length &&
-    (activities[dropCount]?.turnId ?? null) === boundaryTurnId
-  ) {
-    dropCount += 1;
-  }
-  return dropCount >= activities.length ? minimumDropCount : dropCount;
+): string | null {
+  const rawWindow = activities.slice(minimumDropCount);
+  const boundaryTurnId = rawWindow.find((activity) => activity.turnId !== null)?.turnId ?? null;
+  if (boundaryTurnId === null) return null;
+
+  const boundaryIsSplit = activities
+    .slice(0, minimumDropCount)
+    .some((activity) => activity.turnId === boundaryTurnId);
+  const hasNewerScopedTurn = rawWindow.some(
+    (activity) => activity.turnId !== null && activity.turnId !== boundaryTurnId,
+  );
+  return boundaryIsSplit && hasNewerScopedTurn ? boundaryTurnId : null;
 }
 
 export function capThreadActivities<TActivity extends Thread["activities"][number]>(
@@ -1222,11 +1221,14 @@ export function capThreadActivities<TActivity extends Thread["activities"][numbe
   if (activities.length <= MAX_THREAD_ACTIVITIES) {
     return activities as TActivity[];
   }
-  const dropCount = resolveTurnAlignedDropCount(
-    activities,
-    activities.length - MAX_THREAD_ACTIVITIES,
+  const minimumDropCount = activities.length - MAX_THREAD_ACTIVITIES;
+  const splitBoundaryTurnId = resolveSplitBoundaryTurnId(activities, minimumDropCount);
+  const retainedIds = new Set(
+    activities
+      .slice(minimumDropCount)
+      .filter((activity) => splitBoundaryTurnId === null || activity.turnId !== splitBoundaryTurnId)
+      .map((activity) => activity.id),
   );
-  const retainedIds = new Set(activities.slice(dropCount).map((activity) => activity.id));
   const pendingRequestIds = pendingInteractionRequestIds(activities);
   for (const activity of activities) {
     const requestId = activityRequestId(activity);

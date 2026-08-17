@@ -1,5 +1,6 @@
 import type { OrchestrationEvent, OrchestrationReadModel, ThreadId } from "@penkra/contracts";
 import {
+  ORCHESTRATION_THREAD_HYDRATION_LIMITS,
   OrchestrationCheckpointSummary,
   OrchestrationMessage,
   OrchestrationSession,
@@ -59,9 +60,9 @@ import { settleTurnStateFromSession } from "./turnLifecycle.ts";
 import { deriveTurnStartModelSelection, deriveTurnStartSession } from "./turnStartSession.ts";
 
 type ThreadPatch = Partial<Omit<OrchestrationThread, "id" | "projectId">>;
-const MAX_THREAD_MESSAGES = 2_000;
-const MAX_THREAD_ACTIVITIES = 500;
-const MAX_THREAD_CHECKPOINTS = 500;
+const MAX_THREAD_MESSAGES = ORCHESTRATION_THREAD_HYDRATION_LIMITS.messages;
+const MAX_THREAD_ACTIVITIES = ORCHESTRATION_THREAD_HYDRATION_LIMITS.summaryActivities;
+const MAX_THREAD_CHECKPOINTS = ORCHESTRATION_THREAD_HYDRATION_LIMITS.checkpoints;
 
 function checkpointStatusToLatestTurnState(status: "ready" | "missing" | "error") {
   if (status === "error") return "error" as const;

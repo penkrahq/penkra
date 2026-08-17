@@ -300,6 +300,16 @@ export const PROVIDER_SEND_TURN_MAX_INPUT_CHARS = 120_000;
 export const PROVIDER_SEND_TURN_MAX_ATTACHMENTS = 8;
 export const PROVIDER_SEND_TURN_MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 export const PROVIDER_SEND_TURN_MAX_FILE_BYTES = 25 * 1024 * 1024;
+/**
+ * Bounded hydration windows for thread detail held in memory or sent to clients.
+ * Durable projection tables retain the complete history independently.
+ */
+export const ORCHESTRATION_THREAD_HYDRATION_LIMITS = {
+  messages: 2_000,
+  summaryActivities: 500,
+  detailActivities: 2_000,
+  checkpoints: 500,
+} as const;
 export const MAX_PINNED_PROJECTS = 3;
 const CHAT_ATTACHMENT_ID_MAX_CHARS = 128;
 export const CHAT_ASSISTANT_SELECTION_TEXT_MAX_CHARS = 4_000;
