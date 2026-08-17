@@ -61,6 +61,24 @@ describe("AppOpenWithPreferenceStore", () => {
     });
   });
 
+  it("migrates early v2 preferences that predate file associations", async () => {
+    const root = await mkdtemp(join(tmpdir(), "penkra-open-with-"));
+    roots.push(root);
+    const directory = join(root, "apps");
+    await mkdir(directory, { recursive: true });
+    await writeFile(
+      join(directory, "open-with-v2.json"),
+      JSON.stringify({ "open-url": "com.penkra.browser" }),
+    );
+
+    const store = await AppOpenWithPreferenceStore.open(resolveAppOpenWithPreferencesPath(root));
+
+    expect(store.snapshot()).toEqual({
+      "open-url": "com.penkra.browser",
+      files: {},
+    });
+  });
+
   it("merges the first deterministic choices from legacy per-Space files", async () => {
     const root = await mkdtemp(join(tmpdir(), "penkra-open-with-"));
     roots.push(root);

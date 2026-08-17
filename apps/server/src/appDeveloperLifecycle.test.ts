@@ -141,47 +141,50 @@ describe("registered App publication lifecycle", () => {
     expect(bridge).not.toHaveBeenCalledWith("developer.submissions.create", expect.anything());
   });
 
-  it("retries infrastructure validation for the exact immutable submission", async () => {
-    const mocks = dependencies();
-    const bridge = vi.fn(async (method: string) => {
-      if (method === "developer.publishers.list") return [{ id: "publisher-1" }];
-      if (method === "developer.apps.list") {
-        return [{ id: "app-1", identifier: "com.penkra.canvas" }];
-      }
-      if (method === "developer.submissions.list") {
-        return [
-          {
-            submissionId: "submission-1",
-            version: "0.1.1",
-            packageDigest: digest("a"),
-            status: "validation-failed",
-            failure: { code: "VALIDATION_INFRASTRUCTURE_FAILED", detail: "worker failed" },
-          },
-        ];
-      }
-      if (method === "developer.submissions.retry-validation") {
-        return { submissionId: "submission-1", status: "uploaded" };
-      }
-      if (method === "developer.apps.visibility.set") return { visibility: "public" };
-      throw new Error(`Unexpected bridge method ${method}`);
-    });
+  it.each(["VALIDATION_INFRASTRUCTURE_FAILED", "AUTOMATED_VALIDATION_FAILED"])(
+    "retries %s validation for the exact immutable submission",
+    async (failureCode) => {
+      const mocks = dependencies();
+      const bridge = vi.fn(async (method: string) => {
+        if (method === "developer.publishers.list") return [{ id: "publisher-1" }];
+        if (method === "developer.apps.list") {
+          return [{ id: "app-1", identifier: "com.penkra.canvas" }];
+        }
+        if (method === "developer.submissions.list") {
+          return [
+            {
+              submissionId: "submission-1",
+              version: "0.1.1",
+              packageDigest: digest("a"),
+              status: "validation-failed",
+              failure: { code: failureCode, detail: "validation failed" },
+            },
+          ];
+        }
+        if (method === "developer.submissions.retry-validation") {
+          return { submissionId: "submission-1", status: "uploaded" };
+        }
+        if (method === "developer.apps.visibility.set") return { visibility: "public" };
+        throw new Error(`Unexpected bridge method ${method}`);
+      });
 
-    await expect(
-      publishAppDirectory({
-        directory: "/workspace/canvas/dist",
-        visibility: "public",
-        bridge,
-        dependencies: mocks,
-      }),
-    ).resolves.toMatchObject({
-      resumed: true,
-      submission: { submissionId: "submission-1", status: "uploaded" },
-    });
-    expect(bridge).toHaveBeenCalledWith("developer.submissions.retry-validation", {
-      submissionId: "submission-1",
-    });
-    expect(bridge).not.toHaveBeenCalledWith("developer.submissions.create", expect.anything());
-  });
+      await expect(
+        publishAppDirectory({
+          directory: "/workspace/canvas/dist",
+          visibility: "public",
+          bridge,
+          dependencies: mocks,
+        }),
+      ).resolves.toMatchObject({
+        resumed: true,
+        submission: { submissionId: "submission-1", status: "uploaded" },
+      });
+      expect(bridge).toHaveBeenCalledWith("developer.submissions.retry-validation", {
+        submissionId: "submission-1",
+      });
+      expect(bridge).not.toHaveBeenCalledWith("developer.submissions.create", expect.anything());
+    },
+  );
 
   it("retries infrastructure publication for the exact prepared release", async () => {
     const mocks = dependencies();

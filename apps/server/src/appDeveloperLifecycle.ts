@@ -46,7 +46,7 @@ export async function publishAppDirectory(input: {
         throw versionCollision(evidence.version);
       }
       const submissionId = requiredText(existingSubmission, "submissionId", "submission");
-      const submission = validationInfrastructureFailure(existingSubmission)
+      const submission = retryableValidationFailure(existingSubmission)
         ? await input.bridge("developer.submissions.retry-validation", { submissionId })
         : publicationInfrastructureFailure(existingSubmission)
           ? await input.bridge("developer.submissions.retry-publication", { submissionId })
@@ -95,8 +95,11 @@ function hasFailure(submission: Record<string, unknown>, status: string, code: s
   );
 }
 
-function validationInfrastructureFailure(submission: Record<string, unknown>): boolean {
-  return hasFailure(submission, "validation-failed", "VALIDATION_INFRASTRUCTURE_FAILED");
+function retryableValidationFailure(submission: Record<string, unknown>): boolean {
+  return (
+    hasFailure(submission, "validation-failed", "VALIDATION_INFRASTRUCTURE_FAILED") ||
+    hasFailure(submission, "validation-failed", "AUTOMATED_VALIDATION_FAILED")
+  );
 }
 
 function publicationInfrastructureFailure(submission: Record<string, unknown>): boolean {

@@ -108,7 +108,9 @@ async function migrateLegacyPreferences(directory: string): Promise<AppOpenWithP
 function parseLegacyV2(value: unknown): AppOpenWithPreferences {
   if (!isRecord(value)) throw new Error("Open With v2 state must be an object.");
   if ("files" in value || "open-url" in value || "open-directory" in value) {
-    return parsePreferences(value);
+    // Early v2 files stored only URL and directory choices. File associations were added later,
+    // so a missing `files` object is valid legacy state and migrates to an empty map.
+    return parsePreferences({ ...value, files: value.files ?? {} });
   }
   return parseLegacySpacePreferences(value, true);
 }
