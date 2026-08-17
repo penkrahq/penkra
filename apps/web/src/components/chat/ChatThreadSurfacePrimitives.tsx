@@ -5,6 +5,7 @@ import ChatView from "../ChatView";
 import { CHAT_BACKGROUND_CLASS_NAME } from "./composerPickerStyles";
 import { Spinner } from "../ui/spinner";
 import { cn } from "~/lib/utils";
+import { scheduleDeferredChatMount } from "./deferredChatMount";
 
 export const noopChatSurfaceAction = () => {};
 
@@ -47,15 +48,13 @@ export function DeferredChatView(props: {
     if (!props.deferMount) {
       return;
     }
-    let firstFrame = 0;
-    let secondFrame = 0;
-    firstFrame = window.requestAnimationFrame(() => {
-      secondFrame = window.requestAnimationFrame(() => setReadyMountKey(mountKey));
+    return scheduleDeferredChatMount({
+      requestFrame: (callback) => window.requestAnimationFrame(callback),
+      cancelFrame: (handle) => window.cancelAnimationFrame(handle),
+      setTimer: (callback, delayMs) => window.setTimeout(callback, delayMs),
+      clearTimer: (handle) => window.clearTimeout(handle),
+      onReady: () => setReadyMountKey(mountKey),
     });
-    return () => {
-      window.cancelAnimationFrame(firstFrame);
-      window.cancelAnimationFrame(secondFrame);
-    };
   }, [mountKey, props.deferMount]);
 
   useEffect(() => {
