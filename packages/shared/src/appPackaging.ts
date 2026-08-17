@@ -218,7 +218,9 @@ function assertReferencedFiles(manifest: PenkraAppManifest, files: PackageFile[]
 async function writeArchive(path: string, files: PackageFile[]): Promise<void> {
   const archive = new yazl.ZipFile();
   for (const file of files) {
-    archive.addBuffer(file.bytes, file.path, { mtime: ZIP_EPOCH, mode: 0o100644, compress: true });
+    // Store bytes without deflate so Bun, Node, Electron, and CI produce the same archive.
+    // Compression output can vary with the runtime's zlib build even when every input is identical.
+    archive.addBuffer(file.bytes, file.path, { mtime: ZIP_EPOCH, mode: 0o100644, compress: false });
   }
   archive.end();
   await pipeline(archive.outputStream, createWriteStream(path, { flags: "wx", mode: 0o600 }));

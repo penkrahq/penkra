@@ -96,7 +96,10 @@ describe("App developer packaging", () => {
       }),
     );
     expect(one.packageDigest).toBe(two.packageDigest);
-    expect(await readFile(first)).toEqual(await readFile(second));
+    const firstArchive = await readFile(first);
+    expect(firstArchive).toEqual(await readFile(second));
+    expect(firstArchive.readUInt32LE(0)).toBe(0x04034b50);
+    expect(firstArchive.readUInt16LE(8)).toBe(0);
   });
 
   it("rejects missing manifest references before writing an archive", async () => {
