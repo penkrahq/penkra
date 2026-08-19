@@ -244,6 +244,7 @@ class AppFramePortTransport implements AppPreloadTransport {
 const transport = new AppFramePortTransport();
 installAppearanceBridge(transport);
 const runtime = new AppPreloadRuntime(transport);
+installHostedSurfaceOverlayGuard(runtime.api);
 const exposedApi = Object.assign(runtime.api, {
   installations: {
     getState: () => transport.call("installations.getState"),
@@ -352,4 +353,87 @@ function installAppearanceBridge(frameTransport: AppFramePortTransport): void {
   };
   frameTransport.onEvent("appearance.theme-css", (css) => setStyle("theme", css));
   frameTransport.onEvent("appearance.typography-css", (css) => setStyle("typography", css));
+}
+
+function installHostedSurfaceOverlayGuard(api: PenkraAppRuntimeApi): void {
+  const publish = api.browser.setSurfaceLayout.bind(api.browser);
+  let requestedInsets: import("@penkra/sdk").AppHostedSurfaceInsets | null = null;
+  let publishedSignature: string | null | undefined;
+  let scheduledFrame: number | null = null;
+
+  const sync = (): Promise<void> => {
+    scheduledFrame = null;
+    const effectiveInsets =
+      requestedInsets && hasAppOverlayOverHostedSurface(requestedInsets) ? null : requestedInsets;
+    const signature = effectiveInsets
+      ? `${effectiveInsets.top}:${effectiveInsets.right}:${effectiveInsets.bottom}:${effectiveInsets.left}`
+      : null;
+    if (signature === publishedSignature) return Promise.resolve();
+    publishedSignature = signature;
+    return publish(effectiveInsets).catch((error) => {
+      publishedSignature = undefined;
+      throw error;
+    });
+  };
+
+  const schedule = () => {
+    if (scheduledFrame !== null) return;
+    scheduledFrame = window.requestAnimationFrame(() => void sync().catch(() => undefined));
+  };
+
+  api.browser.setSurfaceLayout = (insets) => {
+    requestedInsets = insets;
+    return sync();
+  };
+
+  const observe = () => {
+    new MutationObserver(schedule).observe(document.documentElement, {
+      attributes: true,
+      childList: true,
+      subtree: true,
+    });
+    window.addEventListener("resize", schedule);
+    window.addEventListener("scroll", schedule, true);
+  };
+  if (document.documentElement) observe();
+  else window.addEventListener("DOMContentLoaded", observe, { once: true });
+}
+
+function hasAppOverlayOverHostedSurface(
+  insets: import("@penkra/sdk").AppHostedSurfaceInsets,
+): boolean {
+  const surface = {
+    top: insets.top,
+    right: window.innerWidth - insets.right,
+    bottom: window.innerHeight - insets.bottom,
+    left: insets.left,
+  };
+  if (surface.right <= surface.left || surface.bottom <= surface.top) return false;
+
+  for (const element of Array.from(document.body?.querySelectorAll<HTMLElement>("*") ?? [])) {
+    const style = window.getComputedStyle(element);
+    if (style.position !== "absolute" && style.position !== "fixed") continue;
+    const zIndex = Number.parseFloat(style.zIndex);
+    if (!Number.isFinite(zIndex) || zIndex <= 0) continue;
+    if (
+      style.display === "none" ||
+      style.visibility === "hidden" ||
+      style.pointerEvents === "none" ||
+      Number.parseFloat(style.opacity || "1") <= 0
+    ) {
+      continue;
+    }
+    const rect = element.getBoundingClientRect();
+    // Ignore progress bars, borders, and other thin positioned decoration.
+    if (rect.width < 16 || rect.height < 8) continue;
+    if (
+      rect.right > surface.left &&
+      rect.left < surface.right &&
+      rect.bottom > surface.top &&
+      rect.top < surface.bottom
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
