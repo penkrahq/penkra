@@ -72,6 +72,29 @@ writeFileSync(process.env.PENKRA_APP_TEST_RESULT, JSON.stringify({
     expect(error).toBeInstanceOf(Error);
     expect((error as Error).message).toBe("App integration test exceeded 20 ms.");
   });
+
+  it("reports structured host failures when the isolated host exits nonzero", async () => {
+    const source = await mkdtemp(join(tmpdir(), "penkra-app-test-source-"));
+    roots.push(source);
+    const host = join(source, "host.mjs");
+    await writeFile(
+      host,
+      `import { writeFileSync } from "node:fs";
+writeFileSync(process.env.PENKRA_APP_TEST_RESULT, JSON.stringify({
+  ok: false,
+  error: "Manifest validation failed."
+}));
+process.exitCode = 1;
+`,
+    );
+    vi.stubEnv("PENKRA_APP_TEST_ELECTRON", process.execPath);
+    vi.stubEnv("PENKRA_APP_TEST_HOST", host);
+    vi.stubEnv("PENKRA_APP_TEST_PACKAGED", "0");
+
+    await expect(testAppDirectory({ directory: source })).rejects.toThrow(
+      "Manifest validation failed.",
+    );
+  });
 });
 
 describe("App developer packaging", () => {

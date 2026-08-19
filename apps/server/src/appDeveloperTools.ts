@@ -121,10 +121,16 @@ function spawnAppTestHost(input: {
       clearTimeout(timeout);
       reject(error);
     });
-    child.once("exit", (code, signal) => {
+    child.once("exit", async (code, signal) => {
       clearTimeout(timeout);
-      if (code === 0) resolve();
-      else
+      if (
+        code === 0 ||
+        (await FS.stat(input.resultPath)
+          .then(() => true)
+          .catch(() => false))
+      ) {
+        resolve();
+      } else {
         reject(
           new Error(
             appTestHostFailure(
@@ -133,6 +139,7 @@ function spawnAppTestHost(input: {
             ),
           ),
         );
+      }
     });
   });
 }

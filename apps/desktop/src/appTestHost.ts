@@ -110,7 +110,10 @@ void app
     } finally {
       await runtime.stop().catch(() => undefined);
       window.destroy();
-      app.quit();
+      // The isolated host has no user-facing quit lifecycle to preserve. Exit
+      // synchronously after writing evidence so background Electron services
+      // cannot keep `penkra app test` alive until its outer timeout.
+      app.exit(typeof process.exitCode === "number" ? process.exitCode : 0);
     }
   })
   .catch(async (error) => {
